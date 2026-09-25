@@ -1,18 +1,18 @@
 (ns day8.re-frame2-xray.panels-e2e.reactive-data-e2e-cljs-test
   "Real-substrate e2e coverage for the Views panel's reactive-data
-  projection (rf2-vxgfnd.22, Finding B · spec/021 §3).
+  projection (spec/021 §3).
 
-  ## The gap this closes
+  ## Why a real cascade
 
-  Every prior test of `reactive-panel-subs/project-record` fed HAND-BUILT
-  epoch records (`{:sub-runs [...] :renders [...]}`) — see
+  A test of `reactive-panel-subs/project-record` that feeds HAND-BUILT
+  epoch records (`{:sub-runs [...] :renders [...]}`) — as
   `panels/reactive-panel-subs-cljs-test` (pure projection) and
   `panels-e2e/evicted-epoch-all-panels-cljs-test` (directly-seeded
-  `:epoch-history`). None drove a REAL cascade whose `:sub-runs` rows were
-  projected by the substrate's `capture.cljc/sub-run-row`. So a key-rename
-  in `sub-run-row` (e.g. `:sub-id` -> `:subid`, or dropping `:recomputed?`)
-  reddened NO e2e — the rf2-wyvf2 class (subs-ran pinned to zero while the
-  panel showed empty) re-emerging one level up.
+  `:epoch-history`) do — never drives a REAL cascade whose `:sub-runs`
+  rows are projected by the substrate's `capture.cljc/sub-run-row`. So a
+  key-rename in `sub-run-row` (e.g. `:sub-id` -> `:subid`, or dropping
+  `:recomputed?`) would redden none of them, while the panel showed
+  subs-ran pinned to zero.
 
   ## What this test drives
 
@@ -25,20 +25,19 @@
     - dispatch the REAL `[:counter/inc]` host event;
     - force `:counter/value` to recompute (plain-atom recomputes on every
       deref) so the substrate emits a real `:rf.sub/run` that back-fills
-      (rf2-wi900) into the just-settled `:counter/inc` epoch;
+      into the just-settled `:counter/inc` epoch;
     - mirror the framework epoch ring into Xray's `:epoch-history`;
     - read `:rf.xray/reactive-data` and assert on CONTENT — the real sub
       that ran (`:counter/value`), captured through `sub-run-row` into the
       focused epoch's `:sub-runs` and projected to `:subs-ran`.
 
-  ## Mutation-proof (rf2-vxgfnd.22 fix-PR protocol)
+  ## Mutation-proof
 
   Renaming any `sub-run-row` output key in
   `implementation/epoch/src/re_frame/epoch/capture.cljc` — e.g.
   `:sub-id` -> `:subid`, or `:query-v` -> `:queryv` — reddens
   `reactive-data-subs-ran-names-real-sub`: the projected `:subs-ran` row
-  then lacks that key, so the content match fails. (Verified by mutating
-  the key, running this ns, then reverting.)
+  then lacks that key, so the content match fails.
 
   ## Scope note — view-rows / renders
 
@@ -47,7 +46,7 @@
   `:view-rows` / `:views-rendered` (the `render-row` path) can't be
   exercised headlessly here. Real-render coverage of the `render-row`
   keys belongs to a mounted-adapter (browser) harness, outside this slim
-  node gate; tracked as a follow-up."
+  node gate."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.image :as rf.image]
@@ -68,7 +67,7 @@
 
   The plain-atom substrate recomputes a derived value on every deref (no
   eager reactive flush), so a post-settle `@(subscribe ...)` runs the sub
-  body and emits the `:rf.sub/run` the framework back-fills (rf2-wi900)
+  body and emits the `:rf.sub/run` the framework back-fills
   into the just-settled `:counter/inc` epoch's `:sub-runs`. We then mirror
   the framework epoch ring into Xray's `:epoch-history` (the same sync the
   production epoch-collector does) so the panel subs see the back-filled
@@ -80,7 +79,7 @@
   (e2e/sync-xray-epoch-history!))
 
 (deftest reactive-data-subs-ran-names-real-sub
-  (testing "rf2-vxgfnd.22 — a REAL `[:counter/inc]` cascade recomputes the
+  (testing "a REAL `[:counter/inc]` cascade recomputes the
             `:counter/value` sub; the reactive-data projection's
             `:subs-ran` names that real sub, captured through the
             substrate's `sub-run-row` (NO injection seam). Reddens on a
@@ -93,7 +92,7 @@
               subs-ran (:subs-ran d)]
           (is (seq subs-ran)
               (str ":subs-ran is EMPTY — no real :rf.sub/run captured into "
-                   "the focused epoch (the rf2-wyvf2 class). reactive-data: "
+                   "the focused epoch. reactive-data: "
                    (pr-str (select-keys d [:subs-ran :counts :has-event-bundle?]))))
           (let [row (some #(when (= :counter/value (:sub-id %)) %) subs-ran)]
             (is (some? row)
@@ -109,11 +108,11 @@
               ":counts :subs-ran tallies the real run-set"))))))
 
 (deftest reactive-data-composite-shape-holds-through-real-pipeline
-  (testing "rf2-vxgfnd.22 — the composite `:rf.xray/reactive-data` resolves
+  (testing "the composite `:rf.xray/reactive-data` resolves
             its documented shape over a REAL cascade: the flow-graph slots
             (`:level-1-subs` / `:view-rows` / `:sub-readers`) are present,
             `:subs-ran` is the run-set, and the `:subs-skipped` memo-hit
-            slice is present (rf2-ty5r5o — empty here, no memo hit driven)."
+            slice is present (empty here, no memo hit driven)."
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -124,7 +123,7 @@
           (is (contains? d :view-rows))
           (is (contains? d :sub-readers))
           (is (contains? d :subs-skipped)
-              "rf2-ty5r5o — the :subs-skipped memo-hit slice is a real slot")
+              "the :subs-skipped memo-hit slice is a real slot")
           (is (= [] (:subs-skipped d))
               "no memo hit driven → empty (a run alone is not a skip)")
           ;; :counter/value reads app-db directly → a Level-1 sub.
@@ -133,7 +132,7 @@
                    "app-db directly). level-1-subs: "
                    (pr-str (:level-1-subs d)))))))))
 
-;; ---- causal memo-hit → :subs-skipped (rf2-ty5r5o) ----------------------
+;; ---- causal memo-hit → :subs-skipped -----------------------------------
 
 (defn- install-ab-host!
   "A tiny host whose LAYER-2 sub (`:ab/derived-a`) composes a LAYER-1 sub
@@ -158,7 +157,7 @@
   nil)
 
 (deftest reactive-data-subs-skipped-names-real-memo-hit
-  (testing "rf2-ty5r5o — a REAL memo hit (the layer-2 `:ab/derived-a` whose
+  (testing "a REAL memo hit (the layer-2 `:ab/derived-a` whose
             layer-1 input `:ab/read-a` recomputed to the SAME value after an
             unrelated `:b` bump) emits a canonical `:rf.sub/skip` that
             back-fills into the epoch and reaches `:rf.xray/reactive-data`'s
@@ -184,7 +183,7 @@
           (is (contains? skip-ids :ab/derived-a)
               (str ":subs-skipped must name the real memo-hit sub "
                    ":ab/derived-a — the :rf.sub/skip evidence the panel "
-                   "drops today. reactive-data: "
+                   "must show. reactive-data: "
                    (pr-str (select-keys d [:subs-ran :subs-skipped :counts]))))
           (let [row (some #(when (= :ab/derived-a (:sub-id %)) %) skipped)]
             (is (= :input-value-equal (:reason row))
@@ -200,7 +199,7 @@
           (is (pos? (-> d :counts :subs-skipped))
               ":counts :subs-skipped tallies the real memo-hit set"))))))
 
-;; ---- static topology resolves through the OBSERVED frame (rf2-2jhet) ------
+;; ---- static topology resolves through the OBSERVED frame -----------------
 
 (def ^:private review-host :review/host)
 (def ^:private review-inspector :review/inspector)
@@ -247,7 +246,7 @@
                   :recomputed? true :value-changed? true}]})
 
 (deftest reactive-data-resolves-topology-through-the-observed-frame
-  (testing "rf2-2jhet — with DISJOINT host and inspector images, the composite
+  (testing "with DISJOINT host and inspector images, the composite
             partitions the host's subs by the HOST's declared topology: the
             derived sub is Level 2 with its input edge and host source
             coordinate, not a Level-1 app-db reader borrowed from the
