@@ -1,23 +1,23 @@
 (ns day8.re-frame2-xray.panels.resources-local-render-cljs-test
   "The local-render egress test for Xray's RESOURCES tab — the EP-0015
   `:rf.egress/local-redacted` on-box default applied to the live
-  resource-instance projection (rf2-t55hxg.15).
+  resource-instance projection.
 
-  ## The gap this closes
+  ## Why this arm needs its own test
 
   [spec/015-Data-Classification.md §The graduation gate] names Xray as the
-  `:rf.egress/local-redacted` consumer; the App-DB panel's local render was
-  the GRADUATING arm (`day8.re-frame2-xray.panels.local-render`, rf2-t55hxg.12)
+  `:rf.egress/local-redacted` consumer; the App-DB panel's local render is
+  the GRADUATING arm (`day8.re-frame2-xray.panels.local-render`)
   and is proven by `local_render_cljs_test`. The RESOURCES tab is a SECOND
   Xray arm that renders FRAME-SOURCED values — a live resource entry's `:data`
-  / `:error` and the scoped-key's scope + params. The existing Resources
+  / `:error` and the scoped-key's scope + params. The Resources
   privacy test (`resources_cljs_test/privacy-redacted-data-never-raw`) only
   proves that an ALREADY-redacted `:rf/redacted` sentinel — emitted by the
   runtime BEFORE Xray sees it — renders `[redacted]`. It does NOT prove the
   on-box LOCAL-render default actually redacts a RAW frame-classified
   resource value the way EP-0015 requires.
 
-  This test closes that arm: a RAW resource value carrying a frame-declared
+  This test covers that arm: a RAW resource value carrying a frame-declared
   `:sensitive` slot and a frame-declared `:large` slot is projected through
   the EP-0015 on-box default `local-render/local-render-value` (keyed on the
   OBSERVED frame), then through the Resources projection algebra
@@ -82,7 +82,7 @@
 
 (defn- install-policy! []
   ;; EP-0025: durable app-db classification rides the commit-plane
-  ;; classification effects (`:source :effect`) — the frame annotation is removed.
+  ;; classification effects (`:source :effect`) — there is no frame annotation.
   (rf.frame/swap-runtime-db! secure-frame
     (fn [rt] (rf.elision/apply-classification-effects rt
                {:sensitive [[:secret]]
@@ -141,7 +141,7 @@
 
 ;; A frame-keyed egress fn matching how the Resources panel SHOULD route a
 ;; frame-sourced value through the EP-0015 on-box default before summarizing —
-;; the `instance-row` egress-fn seam (rf2-tgm1xu) wired to the local-render
+;; the `instance-row` egress-fn seam wired to the local-render
 ;; profile. `slot` / `key-id` are ignored: the observed frame's path policy
 ;; governs which nested slots redact, exactly as the App-DB local render does.
 (defn- local-egress-fn [observed-frame]
