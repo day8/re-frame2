@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.static.machines.copy-mermaid-cljs-test
   "Integration tests for the Static Machines definition-detail header's
-  Copy Mermaid action (rf2-sxw06).
+  Copy Mermaid action.
 
   ## What's under test
 
@@ -33,9 +33,9 @@
 
   ## Clipboard boundary
 
-  Mocked at the established seam: the `:rf/xray` frame's
+  Mocked at the usual seam: the `:rf/xray` frame's
   `:fx-overrides` captures `:rf.xray.fx/copy-to-clipboard` args
-  (rf2-h1vqa4 — same pattern as `registry_cljs_test` /
+  (the same pattern as `registry_cljs_test` /
   `app_db_diff_cljs_test`). Settlement is then driven by dispatching
   the captured `:on-success` / `:on-failure` event vectors — the exact
   vectors the real fx dispatches when the `writeText` Promise settles.
@@ -88,7 +88,7 @@
 
 (defn- capture-copy!
   "Capture `:rf.xray.fx/copy-to-clipboard` args via the `:rf/xray`
-  frame's `:fx-overrides` seam (rf2-h1vqa4 — fn-value form; the
+  frame's `:fx-overrides` seam (fn-value form; the
   re-`make-frame` is a surgical config update on the live frame). Call
   AFTER `xray-setup!`."
   []
