@@ -404,18 +404,38 @@
         ;; the macro's keying.
         (some? candidate-idx) (conj candidate-idx)))))
 
-(defn- root-lifecycle-source-key
-  "The spec-path of a tree ROOT's own `:entry` / `:exit` when an `:action`
-  row ran one — its `:decl-path` is `[]` and its phase is an entry or exit
-  phase: `[:entry]` / `[:exit]` for the machine root, `[:regions <region>
-  :entry]` / `… :exit]` for a parallel region body. nil for every other row,
-  which keeps the reconstruction from the surrounding transition's states."
+(defn- lifecycle-source-key
+  "The spec-path of the `:entry` / `:exit` an `:action` row ran, built from
+  the node that DECLARES it — the row's `:decl-path`, with `:region` inside a
+  parallel region — when its phase is an entry or exit phase: `[:entry]` /
+  `[:exit]` for the machine root, `[:regions <region> :entry]` / `… :exit]`
+  for a parallel region body, and `[:states <s>… :entry]` / `… :exit]` for a
+  state, prefixed `[:regions <region>]` inside a region. nil for every other
+  row, and for a row carrying no `:decl-path`, which keeps the reconstruction
+  from the surrounding transition's states."
   [{:keys [kind decl-path region phase]}]
-  (when (and (= :action kind) (= [] decl-path))
+  (when (and (= :action kind) (vector? decl-path))
     (when-let [slot (cond
                       (contains? #{:entry :initial-entry} phase) :entry
                       (contains? #{:exit :destroy-exit} phase)   :exit)]
-      (conj (if (some? region) [:regions region] []) slot))))
+      (-> (if (some? region) [:regions region] [])
+          (into (proj/state-spec-path-prefix decl-path))
+          (conj slot)))))
+
+(defn- lifecycle-declaring-node
+  "The node whose `:entry` / `:exit` an `:action` row ran, for the row's
+  ` for <state> ` clause, read off the same `:decl-path` / `:region` as
+  `lifecycle-source-key`: `:rf/root` for the machine root (the name
+  registration diagnostics give it), the region name for a region body, and
+  otherwise the state in the form a snapshot's `:state` takes — a keyword
+  for a top-level state, a path vector below it — as `{<region> <state>}`
+  inside a region. nil for every row `lifecycle-source-key` declines."
+  [{:keys [decl-path region] :as row}]
+  (when (lifecycle-source-key row)
+    (if (empty? decl-path)
+      (if (some? region) region :rf/root)
+      (let [state (if (= 1 (count decl-path)) (first decl-path) decl-path)]
+        (if (some? region) {region state} state)))))
 
 (defn cascade-row-source-key
   "Spec-path tuple used to look up a cascade row's source-coord on the
@@ -443,14 +463,17 @@
 
   - `:action` with a keyword `:action-id` → `[:actions <id>]`
     (definition-site stamp; the named-handler path).
-  - `:action` with an inline `:action-id` (fn) that a tree ROOT declares
-    on its `:entry` / `:exit` (the row's `:decl-path` is `[]`) →
-    `[:entry]` / `[:exit]`, or `[:regions <region> :entry]` / `… :exit]`
-    for a parallel region body. The surrounding transition's states name a
-    child, never the root.
+  - `:action` with an inline `:action-id` (fn) that ran an `:entry` /
+    `:exit`, on a row carrying `:decl-path` → that declaring node's slot:
+    `[:entry]` / `[:exit]` for the machine root, `[:regions <region> :entry]`
+    / `… :exit]` for a parallel region body, `[:states <state>… :entry]` /
+    `… :exit]` for a state, prefixed `[:regions <region>]` inside a region.
+    The surrounding transition's states name its leaf, never the root or an
+    entered / exited ancestor.
   - `:action` with an inline `:action-id` (fn) — derive from the row's
     `:phase` + state slot (`:source-state` / `:target-state`, stamped
-    by `enrich-cascade-rows`):
+    by `enrich-cascade-rows`), for the transition-phase actions and for a
+    row carrying no `:decl-path`:
     - `:entry` / `:initial-entry` → `[:states <state>... :entry]`
       (target-state)
     - `:exit` / `:destroy-exit`   → `[:states <state>... :exit]`
@@ -507,9 +530,9 @@
         ;; (candidate-vector `:on`, nonzero `:always` candidate, `:after`
         ;; delay-key, root `:on`) — append the `:action` leaf.
         slot-prefix (conj slot-prefix :action)
-        ;; A tree root's own `:entry` / `:exit`, addressed from the node that
-        ;; declares it rather than from the surrounding transition's states.
-        (root-lifecycle-source-key row) (root-lifecycle-source-key row)
+        ;; An `:entry` / `:exit`, addressed from the node that declares it
+        ;; rather than from the surrounding transition's states.
+        (lifecycle-source-key row) (lifecycle-source-key row)
         ;; Inline-fn path — slot stamp under the relevant state.
         (contains? #{:entry :initial-entry} phase)
         (when target-prefix (conj target-prefix :entry))
@@ -590,6 +613,9 @@
 ;; `[EXIT ACTION] for :closed :clear-hold` / `[ENTRY ACTION] for :open
 ;; :count-open`. `<state>` is the state the action BELONGS TO:
 ;;
+;;   :exit / :destroy-exit / :entry /
+;;   :initial-entry, with `:decl-path`           → the DECLARING node
+;;                                                 (`lifecycle-declaring-node`)
 ;;   :exit / :destroy-exit                       → the EXITED state
 ;;                                                 (`:source-state`)
 ;;   :entry / :initial-entry / :always /
@@ -613,12 +639,14 @@
   neither state was stamped — the view then omits the ` for <state> `
   clause and renders just the action name.
 
-  A tree ROOT's own `:entry` / `:exit` belongs to the root, not to a state:
-  `:rf/root` for the machine root (the name registration diagnostics give
-  it) and the region name for a parallel region body. Pure-data."
-  [{:keys [phase source-state target-state region] :as row}]
-  (if (root-lifecycle-source-key row)
-    (if (some? region) region :rf/root)
+  An `:entry` / `:exit` row carrying `:decl-path` belongs to the node that
+  declares it (`lifecycle-declaring-node`): `:rf/root` for the machine root
+  (the name registration diagnostics give it), the region name for a
+  parallel region body, and the declaring state otherwise — never the leaf
+  the surrounding transition entered or left. Pure-data."
+  [{:keys [phase source-state target-state] :as row}]
+  (if-let [node (lifecycle-declaring-node row)]
+    node
     (let [exit-phase? (contains? #{:exit :destroy-exit :transition} phase)]
       (if exit-phase?
         (or source-state target-state)
