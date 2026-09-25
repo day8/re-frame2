@@ -1,27 +1,26 @@
 (ns re-frame.api-manifest.api-md-check-test
   "Regression tests for the spec/API.md projection check's qualifier
-  resolution (rf2-41j0a).
+  resolution.
 
-  THE BUG. The API.md var-row validator stripped any namespace/alias
-  qualifier from the documented var name and matched by BARE var name only;
-  the manifest lookup was also keyed by bare var. The manifest carries the
-  SAME bare var `adapter` for FOUR distinct namespaces
-  (`re-frame.adapter.{reagent,uix,helix}` at tier `:adapter`, plus
-  `re-frame.ssr` at `:implementation`). So a QUALIFIED row such as
-  `uix-adapter/adapter` could drift to a stale / wrong / unknown qualifier
-  (`bogus-adapter/adapter`) and STILL pass, because some other manifest
-  entry with bare name `adapter` carried the expected tier — a false-green
-  drift gate.
+  THE HAZARD. The manifest carries the SAME bare var `adapter` for FOUR
+  distinct namespaces (`re-frame.adapter.{reagent,uix}` and
+  `re-frame.fresco.substrate` at tier `:adapter`, plus `re-frame.ssr` at
+  `:implementation`). A validator that stripped the namespace/alias
+  qualifier and matched by BARE var name only would let a QUALIFIED row
+  such as `rf.adapter.uix/adapter` drift to a stale / wrong / unknown
+  qualifier (`bogus-adapter/adapter`) and STILL pass, because some other
+  manifest entry with bare name `adapter` carries the expected tier — a
+  false-green drift gate.
 
-  THE FIX. Qualified rows resolve STRICTLY against the manifest
+  THE CONTRACT. Qualified rows resolve STRICTLY against the manifest
   `[namespace var]` index: the qualifier is mapped through the documented
   adapter `:as` aliases (`adapter-aliases`) else taken verbatim (the
   full-namespace `re-frame.interop/...` rows ARE literal manifest
   namespaces), and the resolved `[namespace var]` pair must exist with a
-  matching tier. Bare rows keep the original by-bare-name latitude + the
+  matching tier. Bare rows keep by-bare-name latitude + the
   bare-name allowlist. These tests pin that contract through the pure
   `reconcile` reconciler with synthetic inputs, plus a live smoke that the
-  committed spec/API.md + manifest still reconcile clean."
+  committed spec/API.md + manifest reconcile clean."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.api-manifest.api-md-check :as rf.api-manifest.api-md-check]))
 
@@ -77,14 +76,14 @@
          [re-frame.interop debug-enabled?] carries :implementation")))
 
 (deftest unknown-qualifier-on-duplicate-bare-var-fails
-  (testing "THE BUG (rf2-41j0a): a qualified duplicate bare var changed to an
+  (testing "a qualified duplicate bare var changed to an
             UNKNOWN/WRONG qualifier FAILS, even though another adapter var
             with the same bare name and tier still exists"
     ;; `uix-adapter/adapter` mutated to `bogus-adapter/adapter`. `bogus-adapter`
     ;; is neither a documented alias nor a manifest namespace, so
     ;; [<bogus> adapter] is absent — even though re-frame.adapter.{reagent,
-    ;; uix,helix}/adapter all still carry :adapter. The OLD bare-name match
-    ;; would have PASSED this (some `adapter` row carries :adapter).
+    ;; uix,helix}/adapter all still carry :adapter. A bare-name match
+    ;; would PASS this (some `adapter` row carries :adapter).
     (let [problems (problems-for
                      [{:var "adapter" :qualifier "bogus-adapter" :tier :adapter
                        :line 185 :raw "bogus-adapter/adapter"}])]
@@ -122,7 +121,7 @@
         "a bare-name allowlist entry must not silence a qualified row")))
 
 ;; ---------------------------------------------------------------------------
-;; Bare-row resolution (unchanged latitude).
+;; Bare-row resolution (by-name latitude).
 ;; ---------------------------------------------------------------------------
 
 (deftest bare-row-resolves-by-bare-name
@@ -166,13 +165,13 @@
           "live drift: spec/API.md var-rows disagree with the manifest"))))
 
 ;; ---------------------------------------------------------------------------
-;; Non-vacuous extracted-row floor (rf2-4ka7c2.2).
+;; Non-vacuous extracted-row floor.
 ;;
-;; api-md-check/check! reported OK whenever its problem list was empty — even
-;; with ZERO extracted var-rows. A table-shape / tier-header / marker-cell /
-;; parser drift that collapses extraction toward 0 would then pass green
-;; while most of spec/API.md's public-var references went unchecked. The
-;; floor turns a near-collapse into a FAILURE.
+;; Without it, api-md-check/check! would report OK whenever its problem list
+;; is empty — even with ZERO extracted var-rows, so a table-shape /
+;; tier-header / marker-cell / parser drift that collapses extraction toward 0
+;; would pass green while most of spec/API.md's public-var references go
+;; unchecked. The floor turns a near-collapse into a FAILURE.
 ;; ---------------------------------------------------------------------------
 
 (deftest zero-extracted-rows-violates-the-floor
@@ -191,27 +190,24 @@
 (deftest healthy-extraction-does-not-violate-the-floor
   (testing "the live extracted-row count is comfortably above the floor"
     (is (nil? (rf.api-manifest.api-md-check/floor-violation 196))
-        "the live count must NOT trip the floor (no false positive)")
+        "a healthy count must NOT trip the floor (no false positive)")
     (is (nil? (rf.api-manifest.api-md-check/floor-violation 50))
         "exactly at the floor is acceptable (strictly-below trips)")
-    ;; rf2-kuky.31: this pair is the calibration invariant, and it is what
-    ;; caught the floor going stale. Asserting a specific number trips AND
-    ;; asserting the real parse clears cannot both hold once the real parse
-    ;; reaches that number — which is exactly what happened at 149 against the
-    ;; old floor of 150. Keep the tripping number a genuine collapse.
+    ;; This pair is the calibration invariant. Asserting a specific number
+    ;; trips AND asserting the real parse clears cannot both hold once the
+    ;; real parse reaches that number, so a floor calibrated too close to the
+    ;; live count fails here. Keep the tripping number a genuine collapse.
     (is (nil? (rf.api-manifest.api-md-check/floor-violation
                 (long (* 0.9 (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))
         "a 10% shrink of API.md's var-rows must NOT trip the floor: the floor
-         guards a near-total collapse, never ordinary retirement churn. This is
-         the assertion the old calibration failed — at 151 live against a floor
-         of 150, retiring TWO public rows tripped it.")
+         guards a near-total collapse, never ordinary retirement churn.")
     ;; And the REAL parse over the committed API.md is above the floor — the
     ;; floor is calibrated below the live count, never tripping on real churn.
     (is (nil? (rf.api-manifest.api-md-check/floor-violation (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))
         "the real spec/API.md extraction must clear the floor")))
 
 ;; ---------------------------------------------------------------------------
-;; END-TO-END parser disappearance (rf2-asxo3).
+;; END-TO-END parser disappearance.
 ;;
 ;; The pure `parse-var-rows` core lets us feed synthetic indexed API.md lines.
 ;; A root verb whose M/Fn marker drifted to an UNKNOWN spelling (`Macro`, not
@@ -231,7 +227,7 @@
    [6 "| `unmount!`     | Fn    | sig | S1 | advanced | n |"]])
 
 (deftest unknown-kind-marker-disappears-then-is-caught
-  (testing "END-TO-END (rf2-asxo3): a root verb whose M/Fn marker is an unknown
+  (testing "END-TO-END: a root verb whose M/Fn marker is an unknown
             spelling (`Macro`) is DROPPED by the real parser"
     (let [parsed (rf.api-manifest.api-md-check/parse-var-rows synthetic-api-md-lines)]
       (is (= #{"create-root" "hydrate-root" "unmount!"} (set (map :var parsed)))
