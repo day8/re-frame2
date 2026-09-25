@@ -1,14 +1,12 @@
 (ns re-frame.story-play-test
-  "JVM tests for re-frame2-story Stage 5 (rf2-h8et) — play sequence
-  execution.
+  "JVM tests for Story's play-sequence execution.
 
   Covers:
 
   - Play events dispatch in declared order.
   - Mixed real-dispatches + :rf.assert/* events compose.
-  - Trace-bus accumulators (dispatched? / effect-emitted /
-    no-warnings).
-  - Per-frame teardown clears accumulators.
+  - Tape-projected assertions (dispatched? / effect-emitted).
+  - Per-frame teardown clears the pending-exceptions slot.
   - The play-stepper hooks (begin-stepper! / step-once! / end-stepper!).
   - :loaders-complete-when non-default forms (registered event id,
     vector of event vectors)."
@@ -92,7 +90,7 @@
        :script [[:dispatch-sync [:boom/now]]
                 [:dispatch-sync [:rf.assert/path-equals [:after] :ok]]]})
     (let [result (rf.story.async/deref-blocking (rf.story/run-variant :story.boom/v) 5000)]
-      ;; rf2-z2dq8 (:play -> :script): re-frame's router catches the
+      ;; Re-frame's router catches the
       ;; handler exception and emits a `:rf.error/handler-exception`
       ;; trace event; the per-frame trace listener captures it, and the
       ;; runner-events driver drains it into `:rf.story/assertions` as a
@@ -111,31 +109,31 @@
     (rf.story/destroy-variant! :story.boom/v)))
 
 ;; ===========================================================================
-;; The trace-bus accumulators clear at play start
+;; Tape-projected assertions see only the current run
 ;; ===========================================================================
 
 (deftest accumulators-reset-per-run
-  (testing "trace-bus accumulators reset at the start of each play run"
+  (testing ":rf.assert/dispatched? sees only the current play run's events"
     (rf/reg-event :do/work (fn [{:keys [db]} _] {:db (assoc db :did? true)}))
     (rf.story/reg-variant :story.reset/v
       {:setup []
        :script [[:dispatch-sync [:do/work]]
                 [:dispatch-sync [:rf.assert/dispatched? [:do/work]]]]})
     (rf.story.async/deref-blocking (rf.story/run-variant :story.reset/v) 5000)
-    ;; The first run's dispatched-events accumulator must NOT leak into
-    ;; the second run — reset-variant tears the frame down + re-runs.
+    ;; The first run's dispatched events must NOT leak into the second
+    ;; run — reset-variant tears the frame down + re-runs.
     (let [r2 (rf.story.async/deref-blocking (rf.story/reset-variant :story.reset/v) 5000)]
       (is (true? (-> r2 :assertions first :passed?))
-          "second run's accumulator only sees that run's events"))
+          "the second run's assertion only sees that run's events"))
     (rf.story/destroy-variant! :story.reset/v)))
 
 ;; ===========================================================================
-;; rf2-ee38b.3 — framework :db / :fx fx-ids are excluded from :emitted-fx
+;; Framework :db / :fx fx-ids are excluded from `emitted-fx`
 ;; ===========================================================================
 
 (deftest effect-emitted-db-is-not-vacuously-true
-  (testing "the ubiquitous framework :db effect is NOT recorded into the
-            :emitted-fx accumulator, so :rf.assert/effect-emitted :db
+  (testing "the ubiquitous framework :db effect is excluded from the
+            `emitted-fx` projection, so :rf.assert/effect-emitted :db
             FAILS rather than vacuously passing on every variant"
     ;; A plain event that returns {:db ...} — emits the framework :db fx
     ;; but no user fx-id.
@@ -149,16 +147,17 @@
                                 (:assertions result)))]
       (is (some? ee-rec) "the effect-emitted assertion recorded")
       (is (false? (:passed? ee-rec))
-          ":db is excluded from :emitted-fx, so the assertion fails (was
-           vacuously true before rf2-ee38b.3)"))
+          ":db is excluded from emitted-fx, so the assertion fails rather
+           than passing vacuously"))
     (rf.story/destroy-variant! :story.ee/db)))
 
 ;; ===========================================================================
 ;; Frame teardown clears per-frame accumulator entries
 ;;
-;; rf2-luzky removed the `trace-accumulators` side-table; the only per-frame
-;; accumulator the teardown hook (`:drop-assertion-accumulators`) now evicts
-;; is the play module's `pending-exceptions` slot.
+;; The teardown hook (`:drop-assertion-accumulators`) evicts the play
+;; module's `pending-exceptions` slot, alongside the frame's
+;; redacted-failures slot and trace listener; this test pins the
+;; `pending-exceptions` eviction.
 ;; ===========================================================================
 
 (deftest teardown-clears-accumulators
@@ -176,8 +175,8 @@
 
 (deftest play-stepper-step-by-step
   (testing "begin-stepper! + step-once! drives the play one STEP at a time
-            (rf2-ee38b.3: step-once! returns the executed STEP, not the
-            bare event vector)"
+            (step-once! returns the executed STEP, not the bare event
+            vector)"
     (rf/reg-event :step/one (fn [{:keys [db]} _] {:db (assoc db :one? true)}))
     (rf/reg-event :step/two (fn [{:keys [db]} _] {:db (assoc db :two? true)}))
     (rf.story/reg-variant :story.stepper/v
@@ -204,12 +203,10 @@
       (rf.story/destroy-variant! :story.stepper/v))))
 
 (deftest play-stepper-walks-every-step-type
-  (testing "rf2-ee38b.3 / rf2-5x1wt.19: the step-debugger walks ALL step
-            types — :wait, :assert-db, :assert-dom, :click, :type — not
-            just the dispatch steps the legacy variant-play-events
-            projection surfaced. The cursor/total count every step and
-            assert outcomes surface. Per rf2-5x1wt.19 the stepper consumes
-            the FOLDED plan: a shipping :assert-db / :assert-dom step is
+  (testing "the step-debugger walks ALL step types — :wait, :assert-db,
+            :assert-dom, :click, :type — not just the dispatch steps. The
+            cursor/total count every step and assert outcomes surface.
+            The stepper consumes the FOLDED plan: a shipping :assert-db / :assert-dom step is
             rewritten to the canonical [:assert assertion-atom] checkpoint,
             so the recorded step type is :assert and the slot record carries
             the canonical :rf.assert/path-equals (no synthetic :rf.assert/db)."
@@ -238,15 +235,14 @@
         (is (= 6 (count results)) "one result recorded per step")
         (is (= :dispatch-sync (:type (nth results 0))))
         (is (= :wait          (:type (nth results 1))))
-        ;; rf2-5x1wt.19 — folded :assert-db / :assert-dom steps are :assert
-        ;; checkpoints now.
+        ;; Folded :assert-db / :assert-dom steps are :assert checkpoints.
         (is (= :assert (:type (nth results 2))))
         (is (true?  (:passed? (nth results 2))) ":assert-db [:n] 5 passes")
         (is (= :assert (:type (nth results 3))))
         (is (false? (:passed? (nth results 3))) ":assert-db [:n] 99 fails")
         (is (:skipped? (nth results 4)) ":assert-dom records :skipped? (no DOM)"))
       ;; The failing :assert-db landed in the :rf.story/assertions slot as
-      ;; the CANONICAL :rf.assert/path-equals record (rf2-5x1wt.19).
+      ;; the CANONICAL :rf.assert/path-equals record.
       (let [slot (rf.story/read-assertions :story.stepper/full)]
         (is (some (fn [r] (and (= :rf.assert/path-equals (:assertion r))
                                (false? (:passed? r))))
@@ -257,21 +253,21 @@
       (rf.story/destroy-variant! :story.stepper/full))))
 
 ;; ===========================================================================
-;; Stepper guards on a never-begun frame — rf2-booyu CORRECTNESS
+;; Stepper guards on a never-begun frame — CORRECTNESS
 ;;
-;; `stepper-rewind!` / `stepper-step-back!` used `swap! stepper-state update
-;; frame-id (fn [s] (when s …))`. On a MISSING key `update` still associates
-;; the fn's nil return, leaving a `{frame-id nil}` entry. Because
-;; `play-stepper-active?` is a `contains?` check, that nil entry flipped the
-;; stepper to "active" for a frame whose stepper was never begun — a false
-;; activation the UI would render as a live stepper widget. The guard now
-;; only touches an existing, non-nil slot.
+;; `stepper-rewind!` / `stepper-step-back!` only touch an existing, non-nil
+;; slot. A bare `swap! stepper-state update frame-id (fn [s] (when s …))`
+;; would not do: on a MISSING key `update` still associates the fn's nil
+;; return, leaving a `{frame-id nil}` entry, and because
+;; `play-stepper-active?` is a `contains?` check, that nil entry would flip
+;; the stepper to "active" for a frame whose stepper was never begun — a
+;; false activation the UI would render as a live stepper widget.
 ;; ===========================================================================
 
 (deftest stepper-rewind-on-never-begun-frame-does-not-activate
   (testing "stepper-rewind! against a frame with no stepper session is a
             no-op — it does NOT insert a nil entry that would flip
-            play-stepper-active? to true (rf2-booyu)"
+            play-stepper-active? to true"
     (is (not (rf.story.play/play-stepper-active? :story.stepper/never)))
     (rf.story.play/stepper-rewind! :story.stepper/never)
     (is (not (rf.story.play/play-stepper-active? :story.stepper/never))
@@ -281,7 +277,7 @@
 
 (deftest stepper-step-back-on-never-begun-frame-does-not-activate
   (testing "stepper-step-back! against a frame with no stepper session is a
-            no-op — same nil-entry pollution guard as rewind (rf2-booyu)"
+            no-op — same nil-entry pollution guard as rewind"
     (is (not (rf.story.play/play-stepper-active? :story.stepper/never2)))
     (rf.story.play/stepper-step-back! :story.stepper/never2)
     (is (not (rf.story.play/play-stepper-active? :story.stepper/never2))
@@ -312,7 +308,7 @@
       (rf.story/destroy-variant! :story.stepper/rw))))
 
 ;; ===========================================================================
-;; :loaders-complete-when non-default forms — Stage 5 (rf2-h8et)
+;; :loaders-complete-when non-default forms
 ;; ===========================================================================
 
 (deftest loaders-complete-when-registered-event
@@ -341,9 +337,8 @@
       {:loaders                [[:test/load-a] [:test/load-b]]
        :loaders-complete-when  [[:test/load-a] [:test/load-b]]
        :setup                 []})
-    ;; Per rf2-v2g9, the play-runner's trace listener now installs
-    ;; before the loader phase, so the dispatched-events accumulator
-    ;; observes loader-phase events and the vector predicate can match.
+    ;; The vector predicate reads the epoch-tape dispatched-events
+    ;; projection, which records loader-phase events, so it can match.
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.loaders/vector) 5000)]
       (is (true? (-> r :app-db :a?)))
       (is (true? (-> r :app-db :b?)))
@@ -352,13 +347,12 @@
     (rf.story/destroy-variant! :story.loaders/vector)))
 
 (deftest loaders-complete-when-vector-trace-listener-installed-pre-loaders
-  ;; rf2-v2g9 — the play-runner's per-frame trace listener installs
-  ;; BEFORE the loader phase so `:loaders-complete-when`'s vector form
-  ;; can match against the dispatched-events accumulator. Before the
-  ;; fix the listener installed at play start (after loaders ran) and
-  ;; the predicate never matched — the loader phase stayed in
-  ;; `:loading`. This test pins that lifecycle to `:ready` and
-  ;; verifies the accumulator was populated with the loader event.
+  ;; `:loaders-complete-when`'s vector form must match a loader-phase
+  ;; dispatch: it reads the epoch-tape dispatched-events projection,
+  ;; which records the loader event. Were the predicate blind to
+  ;; loader-phase events it would never match and the loader phase
+  ;; would stay in `:loading`. This test pins the lifecycle to `:ready`
+  ;; and verifies the loader event ran.
   (testing "the loaders-complete-when vector form matches loader-phase dispatches"
     (rf/reg-event :fixture/loaded
       (fn [{:keys [db]} _] {:db (assoc db :fixture-loaded? true)}))
@@ -375,10 +369,9 @@
     (rf.story/destroy-variant! :story.v2g9/loader-vector)))
 
 (deftest loaders-complete-when-vector-without-listener-stalls
-  ;; rf2-v2g9 / rf2-q651r — negative companion to the fix. The vector form
-  ;; reads the epoch-tape dispatched-events projection (the SSOT since
-  ;; rf2-q651r — `rf.story.assertions/dispatched-events`), NOT the retired
-  ;; `trace-accumulators` atom. We drive the projection directly via
+  ;; The negative companion. The vector form reads the epoch-tape
+  ;; dispatched-events projection (the SSOT —
+  ;; `rf.story.assertions/dispatched-events`). We drive the projection directly via
   ;; with-redefs: an empty projection (no loader epoch yet) → false; once
   ;; the tape carries the required event → true.
   (testing "vector form with an empty tape projection returns false"
@@ -393,7 +386,7 @@
 
 (deftest loaders-complete-when-evaluate-vector-form
   (testing "vector-of-events evaluation reads the epoch-tape dispatched-events projection"
-    ;; rf2-q651r — the projection is the SSOT; drive it directly.
+    ;; The projection is the SSOT; drive it directly.
     (let [frame-id :story.predfn/vector
           variant-body {:loaders-complete-when [[:fixture/loaded] [:auth/ready]]}]
       (with-redefs [rf.story.assertions/dispatched-events (constantly [[:fixture/loaded]])]
