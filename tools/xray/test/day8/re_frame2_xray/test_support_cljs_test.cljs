@@ -1,14 +1,13 @@
 (ns day8.re-frame2-xray.test-support-cljs-test
-  "Regression coverage for the single-helper reset surface (rf2-sdqsla).
+  "Coverage for the single-helper reset surface.
 
   `test-support/reset-all!` is the one fixture call Xray tests use to
-  leave every process-global in a clean, re-installable state. The key
-  regression this guards: BEFORE rf2-sdqsla `reset-all!` cleared only
-  the install/registry idempotency sentinels — NOT the trace-collector
-  rings (process-global `defonce` atoms). A fixture that forgot the
-  separate `trace-collector/reset-for-test!` therefore leaked trace
-  rows into the next test (order-dependent bleed). `reset-all!` now
-  folds the trace-collector reset in; these tests assert it."
+  leave every process-global in a clean, re-installable state. That
+  includes the trace-collector rings (process-global `defonce` atoms),
+  not only the install/registry idempotency sentinels: a reset that
+  skipped the rings would leak trace rows into the next test
+  (order-dependent bleed) for any fixture that did not also call
+  `trace-collector/reset-for-test!`. These tests assert it."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.test-support :as test-support]
@@ -29,8 +28,8 @@
      :rf.trace/event [:probe/event]}))
 
 (deftest reset-all-clears-trace-collector-rings
-  (testing "reset-all! clears the trace-collector rings — the
-            process-global bleed the separate reset used to own"
+  (testing "reset-all! clears the trace-collector rings — no
+            separate ring reset is needed to stop process-global bleed"
     (seed-trace-row!)
     (is (seq (trace-collector/buffer-for-test))
         "precondition: the seeded row is present in the rings")
