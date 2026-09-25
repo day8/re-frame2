@@ -1,6 +1,6 @@
 (ns re-frame.story-layout-debug-cljs-test
-  "CLJS smoke tests for Stage 6 (rf2-zhwd) — layout-debug decorator
-  trio. JVM coverage in `re-frame.story-layout-debug-test`."
+  "CLJS smoke tests for the layout-debug decorator trio. JVM coverage in
+  `re-frame.story-layout-debug-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -71,9 +71,9 @@
       (is (re-find #"force-focus" (:class attrs)))
       (is (re-find #"force-hover" (:class attrs))))))
 
-;; ---- rf2-yv8tsd: per-overlay toggle state + DOM + variant-state ---------
+;; ---- per-overlay toggle state + DOM + variant-state ---------------------
 ;;
-;; 015-Test-Coverage.md:120 (Layout-debug overlays) owes: assert each
+;; 015-Test-Coverage.md:120 (Layout-debug overlays) asks: assert each
 ;; overlay toggles its DOM/aria state AND that the variant's own state stays
 ;; unchanged across toggles. The layout-debug panel (`rf.story.ui.panels/layout-debug-
 ;; view`) is the toggle surface — a checkbox per decorator id. The active
@@ -148,7 +148,7 @@
 (deftest overlay-toggles-do-not-mutate-variant-state
   (testing "toggling overlays leaves the variant's own state untouched — the
             toggle set lives in a separate per-process ratom, not the
-            variant's frame/app-db (rf2-yv8tsd — 'variant state unchanged')"
+            variant's frame/app-db (spec/015's 'variant state unchanged')"
     (let [vid :story.x/counted]
       (rf.story/reg-variant* vid {:args {:n 7}
                                :setup [[:set-thing 1]]})
