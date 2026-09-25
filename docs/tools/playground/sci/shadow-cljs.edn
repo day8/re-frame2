@@ -1,5 +1,4 @@
-;; shadow-cljs build for the playground's re-frame2 SCI eval bundle
-;; (rf2-00zvt, Phase 3).
+;; shadow-cljs build for the playground's re-frame2 SCI eval bundle.
 ;;
 ;; Produces docs/cljs/playground-rf2.js — an :advanced-compiled IIFE-ish
 ;; browser bundle that installs `window.rf2sci.renderLast`.
@@ -10,7 +9,7 @@
 ;;
 ;; React resolution: reagent2 (the substrate re-frame2 renders through)
 ;; targets React 19 via reagent2.dom.client/create-root. React 19 DROPPED
-;; the UMD build, so the Phase-2 global-React-from-CDN trick (which works
+;; the UMD build, so the global-React-from-CDN trick (which works
 ;; for Scittle's React-18 reagent plugin) is unavailable. Instead this
 ;; bundle BUNDLES react@19 + react-dom@19 from npm (the same versions the
 ;; implementation pins) — so docs/cljs/playground-rf2.js is fully
@@ -24,12 +23,12 @@
   ;; Output to a local out/ dir (which also collects shadow's manifest.edn
   ;; + dev cljs-runtime), then the npm build step copies just the single
   ;; advanced bundle to docs/cljs/playground-rf2.js — keeping the deployed
-  ;; docs/cljs/ tree clean (one committed JS file, like the esbuild side).
+  ;; docs/cljs/ tree clean (one JS file, like the esbuild side).
   {:target     :browser
    :output-dir "out"
    :asset-path "."
    :modules    {:playground-rf2 {:init-fn rf2-playground.sci/init}}
-   ;; goog.DEBUG stays TRUE in this advanced bundle (rf2-h1vqa4): the
+   ;; goog.DEBUG stays TRUE in this advanced bundle: the
    ;; playground is a live teaching REPL — cells register handlers and
    ;; dispatch in the same eval, which needs the framework's DEV-mode
    ;; live-registrar semantics (auto-reprojection + the read-time
