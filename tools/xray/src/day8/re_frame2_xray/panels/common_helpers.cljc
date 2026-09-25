@@ -16,20 +16,19 @@
       (`trace-helpers` and `issues-ribbon-helpers` today) — read them
       rather than a list of feeds restated here.
     - `dispatch-id-of-epoch` — resolve an `:rf/epoch-record`'s settling
-      event-bundle-id by walking its `:trace-events`. Shared by
-      time-travel-helpers; previously duplicated as
-      `dispatch-id-from-epoch` / `dispatch-id-of-epoch` with
-      identical algebra.
+      event-bundle-id from its `:dispatch-id` slot, falling back to a
+      walk of its `:trace-events`. Shared by the spine's focus
+      correlation and the Epoch projection.
 
   ## Why a shared cap
 
   The 200-row budget comes from `tools/xray/spec/007-UX-IA.md`
-  §Performance budget. It was historically enforced only in
-  `machine_inspector_helpers/cap-transitions`, whose own cap tests
-  still live in `panels/machine_inspector_helpers_cljs_test.cljc`.
-  Eight long-list panels silently iterated whole
-  row vectors with `for`, exploding DOM mount + React-reconciliation
-  cost once the trace ring filled. Promoting the cap to a shared
+  §Performance budget. `machine_inspector_helpers/cap-transitions`
+  applies it to transitions, with its own cap tests in
+  `panels/machine_inspector_helpers_cljs_test.cljc`.
+  A long-list panel that iterates a whole
+  row vector with `for` explodes DOM mount + React-reconciliation
+  cost once the trace ring fills. A shared cap
   helper closes that gap for every panel that adopts it — the same
   cap at the same boundary, with the same `:over-cap?` /
   `:hidden-count` shape so the view can render a consistent overflow
@@ -52,10 +51,10 @@
   Canonical tag-reader shared across every panel-helper that walks
   the Xray trace buffer.
 
-  rf2-3x7nj.22.2 — a `false` tag value is a VALUE: the flat fallback is
-  taken only when the `:tags` slot is nil or absent. The prior `or` read
-  `false` as 'no value', so a boolean sub flipping true → false rendered
-  `~ nil ← was true`."
+  A `false` tag value is a VALUE: the flat fallback is
+  taken only when the `:tags` slot is nil or absent. An `or` would read
+  `false` as 'no value', so a boolean sub flipping true → false would
+  render `~ nil ← was true`."
   [ev k]
   (let [v (get-in ev [:tags k])]
     (if (some? v) v (get ev k))))
@@ -160,7 +159,7 @@
   when none is known (synthetic epochs from `replace-app-db!`, a rejected
   dispatch that never reached run-start).
 
-  Per rf2-rly4a the record carries `:dispatch-id` as a first-class slot
+  The record carries `:dispatch-id` as a first-class slot
   (pinned in `re-frame.epoch.assembly/build-record` from the settling
   event's `:rf.event/run-start` tags) — read it directly. This is the stable
   link between the epoch ring (epoch-id space) and the raw trace stream's
@@ -169,15 +168,14 @@
   elision on older records and the post-settle reactive back-fill (which
   pads `:trace-events` with nil-`:dispatch-id` sub-run / render events).
 
-  Falls back to a `:trace-events` walk for records produced before the
-  slot existed (or restored fixtures that omit it) — the first event-bundle-
+  Falls back to a `:trace-events` walk for records that lack the
+  slot (e.g. restored fixtures that omit it) — the first event-bundle-
   root `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` tag. The fallback is nil-
   safe: a record with neither the slot nor a dispatch-id-bearing trace
   yields nil.
 
   Pure data → event-bundle-id-or-nil. Used by Xray's `:rf.xray/focus`
-  epoch-id correlation and the time-travel panel (when building a fresh
-  pin or deciding chip presentation)."
+  epoch-id correlation and the Epoch projection."
   [epoch-record]
   (or (:dispatch-id epoch-record)
       (some (fn [ev]
