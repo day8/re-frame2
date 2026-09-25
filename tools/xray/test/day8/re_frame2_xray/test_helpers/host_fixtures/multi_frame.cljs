@@ -7,9 +7,9 @@
 
   ## Bug class this catches
 
-  rf2-83d4x / rf2-dodq2 — cross-frame dispatch landed on the wrong
-  frame because the dispatch form didn't carry `:frame` opts (or
-  Xray's `:rf.xray/event-bundles` projection dropped the frame tag). The
+  Cross-frame dispatch lands on the wrong frame when the dispatch form
+  doesn't carry `:frame` opts (or when Xray's `:rf.xray/event-bundles`
+  projection drops the frame tag). The
   multi-frame fan-out cascade is the canonical surface for that
   invariant — three trace events under one logical user gesture, each
   tagged with a different frame id.
