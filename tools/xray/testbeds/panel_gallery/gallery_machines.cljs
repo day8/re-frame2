@@ -1,9 +1,9 @@
 (ns panel-gallery.gallery-machines
   "Story coverage for the **Machine tab** of the Xray 4-layer chrome
-  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
+  (spec/018-Event-Spine).
 
   The Machines tab body is the `machine-inspector/Panel` view
-  (rf2-2tkza Phase 1 + rf2-v869p Phase 2; spec/003-Machine-Inspector).
+  (spec/003-Machine-Inspector).
   The panel reads:
 
     - `:rf.xray/registered-machines`  — defaults to the `:rf/machine?` filter
@@ -25,12 +25,12 @@
   `:rf.xray/set-machine-definitions-override-for-test`) and the
   trace-buffer via `:rf.xray/sync-trace-buffer`.
 
-  ## UC1 Sim sub-mode (Phase 2)
+  ## UC1 Sim sub-mode
 
   When a Mode-A panel has Sim active, the chart tints amber + a side-
   rail surfaces an event picker + Step / Reset buttons. The Sim
   state slot is `:rf.xray.static.machines/sim-by-machine {<id>
-  <sim-state>}` (rf2-r4nao rehost from rf2-v869p) — the
+  <sim-state>}` — the
   `:rf.xray.static.machines/sim-start` event seeds it. The 'sim
   mid-step' variant fires sim-start then sim-step to land mid-
   execution. The 'sim pending-input' variant fires sim-start then
@@ -179,17 +179,17 @@
   ;;
   ;; Same UC1 Sim sub-mode as variant 6, but instead of stepping the
   ;; cloned snapshot we seed the controlled-input slots
-  ;; (`:pending-event` + `:pending-data`) via the existing sim API
+  ;; (`:pending-event` + `:pending-data`) via the sim API
   ;; (`:rf.xray.static.machines/sim-set-pending-event` +
   ;; `:rf.xray.static.machines/sim-set-pending-data`). The snapshot stays at
   ;; `:idle`; the side-rail event-input shows `[:start]` already
   ;; typed and the payload input shows a sample EDN map, so the
   ;; Step button is primed but not yet pressed.
   ;;
-  ;; Approach (b) per rf2-cujgr — uses the existing sim API instead of
-  ;; bypass-writing app-db. Deterministic because the variant `:setup`
-  ;; vector is dispatched in order at boot, the same order the existing
-  ;; `uc1-sim-mid-step` variant already relies on.
+  ;; Seeding goes through the sim API rather than writing app-db
+  ;; directly. Deterministic because the variant `:setup` vector is
+  ;; dispatched in order at boot, the same order the
+  ;; `uc1-sim-mid-step` variant relies on.
   (rf.story/reg-variant :story.xray.machines/uc1-sim-pending-input
     {:doc        "Single :loader machine + UC1 Sim active with the
                  side-rail controlled inputs populated mid-compose:
