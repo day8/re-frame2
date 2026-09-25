@@ -1,7 +1,7 @@
 (ns re-frame.story-teardown-test
   "JVM tests for the `:teardown` slot on `:frame-setup` decorators.
 
-  Spec coverage (rf2-dg2uh):
+  Spec coverage:
     - `tools/story/spec/001-Authoring.md` §`:teardown` — symmetric
       counterpart of `:init`.
     - `tools/story/spec/002-Runtime.md`   §Loader teardown contract,
@@ -207,24 +207,22 @@
 
 ;; ===========================================================================
 ;; HOT-RELOAD ASYMMETRY — teardown uses the ALLOCATE-TIME decorator stack
-;; (rf2-x76af2.19)
 ;;
 ;; `allocate!` runs each :frame-setup decorator's :init against the stack it
-;; resolved at ALLOCATE time. The registered teardown path previously
-;; RE-RESOLVED the stack at TEARDOWN time — so if a hot-reload changed the
-;; variant's :decorators between allocate! and destroy!, teardown ran a
-;; DIFFERENT :frame-setup set than :init did: a resource opened by the old
-;; :init was never closed, and the new set's :teardown ran against a resource
-;; it never opened. The inline twin `destroy-inline!` already used its
-;; captured stack; the fix carries the allocate-time stack to the registered
-;; teardown walk the same way.
+;; resolved at ALLOCATE time, and the registered teardown walk uses that same
+;; captured stack, as the inline twin `destroy-inline!` does. Were teardown to
+;; RE-RESOLVE the stack at TEARDOWN time, a hot-reload that changed the
+;; variant's :decorators between allocate! and destroy! would make teardown
+;; run a DIFFERENT :frame-setup set than :init did: a resource opened by the
+;; old :init would never be closed, and the new set's :teardown would run
+;; against a resource it never opened.
 ;; ===========================================================================
 
 (deftest teardown-uses-allocate-time-decorator-stack-after-hot-reload
   (testing "when a hot-reload changes a variant's :decorators between
             allocate! and destroy!, teardown runs the :frame-setup :teardown
             of the stack CAPTURED at allocate! time — NOT the re-resolved
-            current stack (rf2-x76af2.19)"
+            current stack"
     (let [fired (atom [])]
       (rf/reg-event :d1/init    (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :d2/init    (fn [{:keys [db]} _] {:db db}))
@@ -242,7 +240,7 @@
       ;; frame still carries D1's :init; only the registered body changed.
       (rf.story/reg-variant :story.hotdec/v
         {:decorators [[:hot/d2]] :setup []})
-      ;; Sanity: the CURRENT resolution IS D2 — exactly what the buggy
+      ;; Sanity: the CURRENT resolution IS D2 — exactly what a
       ;; re-resolve-at-teardown would read (so this test is not vacuous).
       (is (= [:hot/d2]
              (mapv :id (:frame-setup (rf.story/resolve-decorators :story.hotdec/v))))
@@ -359,21 +357,19 @@
 ;; ===========================================================================
 ;; RUN-STATE EVICTION — destroy-variant! clears the play-runner run-state
 ;;
-;; rf2-booyu CORRECTNESS: `rf.story.play.runner-events/clear-state!` documented itself as
-;; "called from frame teardown" but was never wired into `rf.story.frames/destroy!`,
-;; so a destroyed variant frame leaked its per-frame run-state across the four
-;; process-global atoms (run-state / runs-by-play / active-play /
-;; step-boundaries). Over a long Story session (every hot-reload reset tears a
-;; frame down) these accumulate; a re-allocated frame of the same id could
-;; also observe the prior incarnation's terminal play status before its first
-;; fresh run overwrote it. The teardown now routes through the
-;; `:drop-run-state` late-bind hook.
+;; `rf.story.frames/destroy!` evicts a variant frame's per-frame run-state
+;; from the four process-global atoms (run-state / runs-by-play / active-play
+;; / step-boundaries) through the `:drop-run-state` late-bind hook. Left in
+;; place, that state would accumulate over a long Story session (every
+;; hot-reload reset tears a frame down), and a re-allocated frame of the same
+;; id could observe the prior incarnation's terminal play status before its
+;; first fresh run overwrote it.
 ;; ===========================================================================
 
 (deftest destroy-variant-evicts-play-runner-run-state
   (testing "after a play runs and the variant is destroyed, the play-runner's
             per-frame run-state is gone from every process-global atom — no
-            leak (rf2-booyu)"
+            leak"
     (rf/reg-event :rs/noop (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.runstate/v
       {:setup      []
@@ -408,7 +404,7 @@
           "step-boundaries evicted on destroy — no leak"))))
 
 ;; ===========================================================================
-;; rf2-294yq5.4 — per-frame play trace listener is unregistered on destroy
+;; per-frame play trace listener is unregistered on destroy
 ;; ===========================================================================
 
 (defn- play-listener-id? [id]
@@ -422,14 +418,14 @@
 (deftest destroy-variant-unregisters-play-trace-listener
   (testing "after run-variant installs the per-frame play trace listener and
             the variant is destroyed, the listener is UNREGISTERED — it does
-            not survive teardown to inspect future trace events (rf2-294yq5.4)"
+            not survive teardown to inspect future trace events"
     (let [live (atom #{})]
       ;; Instrument the trace registry so the test observes which listener
       ;; ids are live without reaching into its private atom. Redefining the
-      ;; `re-frame.trace.tooling` vars is enough since rf2-kuky.52: the
-      ;; facade's `:trace` arm CALLS them (a call-time var deref), where it
-      ;; used to route through `re-frame.trace` re-exports that `def`-captured
-      ;; the tooling fn VALUE at load time and so ignored a tooling redef.
+      ;; `re-frame.trace.tooling` vars is enough: the facade's `:trace` arm
+      ;; CALLS them (a call-time var deref), so a tooling redef reaches it,
+      ;; where a re-export that `def`-captured the tooling fn VALUE at load
+      ;; time would ignore the redef.
       (with-redefs [rf.trace.tooling/register-listener!
                     (fn [id f]
                       (swap! live conj id)
@@ -452,9 +448,8 @@
 
 (deftest reset-run-variant-does-not-accumulate-listeners
   (testing "running the SAME variant twice (the fresh-run boundary destroys
-            the prior frame between runs — rf2-294yq5.3) does not leak a
-            second play trace listener; each run installs one and the prior
-            is gone (rf2-294yq5.4)"
+            the prior frame between runs) does not leak a second play trace
+            listener; each run installs one and the prior is gone"
     (let [live (atom #{})]
       (with-redefs [rf.trace.tooling/register-listener!
                     (fn [id f]
