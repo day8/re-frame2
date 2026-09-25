@@ -1,11 +1,11 @@
 (ns re-frame.story.ui.toolbar-persistence-dom-cljs-test
-  "Browser-lane regression net for toolbar mode persistence across reload
-  (rf2-jpi7n).
+  "Browser-lane tests for toolbar mode persistence across reload.
 
-  Pairs with `re-frame.story.ui.toolbar-cljs-test` (storage round-trip,
-  toggle, hydrate-from-storage-only-when-empty). This namespace pins
-  the reload-survives contract spec/010 §Persistence + spec/015 §
-  reg-mode toolbar primitive call out as Deferred under bd:rf2-jpi7n:
+  Pairs with `re-frame.story.ui.toolbar-cljs-test` (toggle) and
+  `re-frame.story.ui.toolbar-storage-dom-cljs-test` (storage round-trip,
+  hydrate-from-storage-only-when-empty). This namespace pins the
+  reload-survives contract of spec/010 §Persistence + spec/015 §
+  reg-mode toolbar primitive:
 
   - **Mode persistence across reload** — set theme + viewport modes,
     simulate a page reload by tearing down + re-seeding the shell-state
@@ -16,9 +16,9 @@
   - **URL beats localStorage on mount** — the mount-hydration order
     (`hydrate-modes-from-storage!` then the url-state engine's
     `apply-parsed-to-state`) is exercised through the SINGLE canonical
-    ownership path (rf2-96y71s): the localStorage seed lands first, the
-    URL parse (`rf.story.share/parse-params`) + apply then authoritatively
-    overrides it. The toolbar no longer reads the URL itself.
+    ownership path: the localStorage seed lands first, the URL parse
+    (`rf.story.share/parse-params`) + apply then authoritatively
+    overrides it. The toolbar does not read the URL itself.
 
   - **Unknown mode id in localStorage is dropped at hydrate** — write
     a stale id (referring to a `reg-mode` that no longer exists) into
@@ -35,7 +35,7 @@
   `re-frame.story/active-modes` (one slot per shell instance, not per
   variant).
 
-  ## Why this namespace ends `-dom-cljs-test` (rf2-r51p)
+  ## Why this namespace ends `-dom-cljs-test`
 
   Every row here is a localStorage round-trip: write through
   `toggle-mode!` / `save-modes-to-storage!`, drop the in-memory shell
@@ -45,35 +45,23 @@
   runtime does not have (no jsdom, no happy-dom in any dependency
   list).
 
-  Until rf2-r51p this file was named `toolbar_persistence_cljs_test`
-  and every row sat inside `(when (browser?) ...)`. It therefore
-  executed in NEITHER lane: skipped under `:node-test` for want of
+  Named `-cljs-test`, with every row inside `(when (browser?) ...)`, it
+  would execute in NEITHER lane: skipped under `:node-test` for want of
   storage, and never loaded by `:browser-test`, whose `:ns-regexp` is
   `.*-dom-cljs-test$`. A namespace must end `-dom-cljs-test` to reach
-  the browser build at all. The whole namespace — billed as the
-  reload-persistence regression net — was running zero assertions
-  anywhere.
+  the browser build at all.
 
-  The host guard STAYS, and is not vestigial: `:node-test`'s
+  The host guard is not vestigial: `:node-test`'s
   `cljs-test$` regexp matches the `-dom-cljs-test` suffix too, so this
   namespace is loaded on BOTH targets. Every row spells that guard as
   `(if-not (browser?) (is true skip-msg) (do ...))`: under node the
   marker assertion fires and the row reports a STATED skip; under
   `:browser-test` the guard is true and the assertions run for real. So
   no deftest here holds zero assertions in EITHER lane. That is the same
-  shape every other `*_dom_cljs_test.cljs` in this tree uses.
-
-  rf2-vdlk: the rows first landed carrying a bare `(when (browser?) ...)`
-  while this paragraph already claimed they reported a skip. They did
-  not — the node lane ran eleven deftests holding zero assertions each,
-  a silent pass rather than a legible one. The marker is what closed the
-  gap; the coverage itself never moved, since these assertions run in the
-  browser lane and always did after the rename above.
-
-  These assertions had never executed before this rename. A failure
-  here is evidence about `hydrate-modes-from-storage!` /
-  `save-modes-to-storage!` arriving for the first time, not a
-  regression introduced by the move."
+  shape every other `*_dom_cljs_test.cljs` in this tree uses. A bare
+  `(when (browser?) ...)` would leave the node lane running every
+  deftest here with zero assertions — a silent pass rather than a
+  legible one; the marker assertion is what makes the skip visible."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story             :as rf.story]
             [re-frame.story.registrar   :as rf.story.registrar]
@@ -88,10 +76,9 @@
   "True when running in a context with a working `js/window.localStorage`.
 
   Answers FALSE under the shadow `:node-test` target and TRUE under
-  `:browser-test`. Both targets load this namespace (rf2-r51p — see the
-  ns docstring), so this predicate is what routes each row to the lane
-  that can actually run it, rather than — as it did before the rename —
-  suppressing it in the only lane that ever looked."
+  `:browser-test`. Both targets load this namespace (see the ns
+  docstring), so this predicate is what routes each row to the lane that
+  can actually run it."
   []
   (and (exists? js/window) (.-localStorage js/window)))
 
@@ -113,11 +100,11 @@
   (clear-storage!)
   (rf.story/install-canonical-vocabulary!))
 
-;; `:after` matters now that these rows reach a REAL `localStorage`
-;; (rf2-r51p). The slot is chrome-wide, so the browser lane runs every
-;; namespace on ONE page and a `Mode.persist.*` id left behind here
-;; would still be in storage when the next namespace hydrates. `:before`
-;; alone only kept THIS suite's rows honest.
+;; `:after` matters because these rows reach a REAL `localStorage`. The
+;; slot is chrome-wide, so the browser lane runs every namespace on ONE
+;; page and a `Mode.persist.*` id left behind here would still be in
+;; storage when the next namespace hydrates. `:before` alone would keep
+;; only THIS suite's rows honest.
 (use-fixtures :each {:before reset-all! :after clear-storage!})
 
 ;; ---- helpers -------------------------------------------------------------
@@ -146,7 +133,7 @@
 
 (defn- mount-hydrate-modes!
   "Compose the shell-mount `:active-modes` hydration through the SINGLE
-  documented ownership path (rf2-96y71s), exactly as `shell/shell`'s
+  documented ownership path, exactly as `shell/shell`'s
   `:component-did-mount` does, but with the URL search supplied as data
   (`url-search`, e.g. \"?modes=Mode.app%2Fdark\" or \"\") so the test
   drives both the localStorage seed and the URL authority without
@@ -182,7 +169,7 @@
       (rf.story.ui.state/swap-state! rf.story.ui.url-state/apply-parsed-to-state parsed {}))))
 
 ;; ===========================================================================
-;; rf2-jpi7n — mode persistence across reload (the marquee scenario)
+;; Mode persistence across reload (the marquee scenario)
 ;;
 ;; The user toggles dark theme + mobile viewport. The chrome persists
 ;; the active-modes vector to localStorage on every change (per spec/010
@@ -192,7 +179,7 @@
 ;; ===========================================================================
 
 (deftest theme-and-viewport-persist-and-rehydrate-on-reload
-  (testing "rf2-jpi7n marquee scenario: set theme + viewport, reload,
+  (testing "marquee scenario: set theme + viewport, reload,
             both active modes rehydrate from localStorage"
     (if-not (browser?)
       (is true skip-msg)
@@ -255,10 +242,10 @@
             "empty active set survives reload")))))
 
 ;; ===========================================================================
-;; rf2-96y71s — modes=, omitted modes=, and localStorage fallback all
-;; compose through ONE documented ownership path.
+;; modes=, omitted modes=, and localStorage fallback all compose through
+;; ONE documented ownership path.
 ;;
-;; The toolbar no longer reads the URL. Mount hydration is:
+;; The toolbar does not read the URL. Mount hydration is:
 ;;   1. rf.story.ui.toolbar/hydrate-modes-from-storage!  (localStorage FALLBACK)
 ;;   2. rf.story.ui.url-state/apply-parsed-to-state       (the SINGLE URL authority)
 ;; `mount-hydrate-modes!` composes exactly that with the URL search
@@ -268,7 +255,7 @@
 ;; ===========================================================================
 
 (deftest mount-url-modes-beat-localstorage
-  (testing "rf2-96y71s — a URL carrying `modes=` overrides the
+  (testing "a URL carrying `modes=` overrides the
             localStorage seed: the localStorage hydrator seeds :dark
             first, then apply-parsed-to-state writes the URL's :light.
             Last-shared wins over last-used — through ONE path."
@@ -287,7 +274,7 @@
             "URL modes (light) replaced the localStorage seed (dark)")))))
 
 (deftest mount-omitted-modes-clears-localstorage-seed
-  (testing "rf2-96y71s / rf2-fkmnh — a URL that carries OTHER params but
+  (testing "a URL that carries OTHER params but
             OMITS `modes=` is authoritative: it CLEARS the localStorage
             seed to [] (the URL is the source of truth for the full
             share surface). A share link like ?variant=foo restores the
@@ -304,7 +291,7 @@
             "omitted modes= cleared the localStorage seed — URL authoritative")))))
 
 (deftest mount-no-url-falls-back-to-localstorage
-  (testing "rf2-96y71s — a fresh mount with NO URL state at all preserves
+  (testing "a fresh mount with NO URL state at all preserves
             the localStorage seed (apply-parsed-to-state is not run when
             the search is empty). This is the intentional last-used
             fallback that survives ONLY when the URL carries nothing."
@@ -323,7 +310,7 @@
             "no URL state ⇒ localStorage seed survives (last-used fallback)")))))
 
 (deftest mount-url-modes-prune-is-url-authoritative
-  (testing "rf2-96y71s — URL-derived modes ride apply-parsed-to-state
+  (testing "URL-derived modes ride apply-parsed-to-state
             verbatim (the canonical writer does not prune against the
             registrar — same discipline as every other URL-owned slot).
             A stale localStorage seed, by contrast, IS pruned by the
@@ -342,7 +329,7 @@
             "URL modes win; the stale localStorage id never surfaces")))))
 
 ;; ===========================================================================
-;; rf2-jpi7n — unknown mode id in localStorage is dropped at hydrate
+;; Unknown mode id in localStorage is dropped at hydrate
 ;;
 ;; Spec/010 §Persistence: stale ids in localStorage (a mode renamed or
 ;; removed between reload windows) are silently dropped at hydrate time.
@@ -388,7 +375,7 @@
             "every stale id dropped — active vector is empty after hydrate")))))
 
 ;; ===========================================================================
-;; rf2-jpi7n — axis semantics survive reload
+;; Axis semantics survive reload
 ;;
 ;; Spec/010 §Optional grouping :axis: a mode declared with :axis is
 ;; single-select within its axis; modes in different axes co-exist.
