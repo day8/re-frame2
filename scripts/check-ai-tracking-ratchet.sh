@@ -185,9 +185,9 @@ if [ -s "$added_list" ]; then
     printf '  ADDED: %s\n' "$p" >&2
   done < "$added_list"
   printf '\n' >&2
-  printf 'Nothing under /ai/ should be tracked (Mike, 2026-07-18) — that is the\n' >&2
-  printf 'END STATE, and the set is only allowed to shrink on the way there.\n' >&2
-  printf 'A force-added ai/ file has already taken every open PR red once.\n' >&2
+  printf 'Nothing under /ai/ should be tracked — that is the END STATE, and\n' >&2
+  printf 'the set is only allowed to shrink.\n' >&2
+  printf 'A force-added ai/ file can take every open PR red.\n' >&2
   printf '\n' >&2
   printf 'This fires on ANY newly tracked ai/ path, whatever the totals do —\n' >&2
   printf 'including a swap that leaves the count unchanged, and including an\n' >&2
@@ -196,7 +196,7 @@ if [ -s "$added_list" ]; then
   printf 'To fix: git rm --cached <path> on the file(s) above. They stay on\n' >&2
   printf 'disk; /ai/ is gitignored. If the addition is genuinely intended it\n' >&2
   printf 'is a policy exception for Mike, not a gate to edit around.\n' >&2
-  printf 'See beads rf2-lsp1i and rf2-ow7dz.\n' >&2
+  printf 'See the header of scripts/check-ai-tracking-ratchet.sh.\n' >&2
   exit 1
 fi
 
