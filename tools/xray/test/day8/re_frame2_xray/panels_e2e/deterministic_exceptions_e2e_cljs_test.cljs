@@ -1,18 +1,18 @@
 (ns day8.re-frame2-xray.panels-e2e.deterministic-exceptions-e2e-cljs-test
-  "Multi-frame e2e port of the Xray feature-matrix Playwright scenario
-  `deterministic exceptions and issue/trace surfacing` (rf2-rviu8).
-  The Playwright original (`scenarios.cjs::runExceptionSchemaHttp`)
-  opened the deliberate-throw testbed, clicked each throw button
-  (handler / fx / flow / machine), then asserted:
+  "Multi-frame e2e coverage for the Xray feature-matrix Playwright
+  scenario `deterministic exceptions and issue/trace surfacing`.
+  The Playwright scenario (`scenarios.cjs::runExceptionSchemaHttp`)
+  opens the deliberate-throw testbed, clicks each throw button
+  (handler / fx / flow / machine), then asserts:
 
-    1. Each throw fired the matching `:rf.error/<class>-exception`
+    1. Each throw fires the matching `:rf.error/<class>-exception`
        trace event.
-    2. The Issues feed mounted with at least one row per error
+    2. The Issues feed mounts with at least one row per error
        category.
 
   At the data layer:
 
-    - The `issues_e2e` sibling already covers the
+    - The `issues_e2e` sibling covers the
       `:rf.error/handler-exception` path against the
       `deliberate-throw/throw-in-handler` event.
     - This file extends that coverage to the FX path:
@@ -20,19 +20,18 @@
       `:rf.error/fx-handler-exception` (the fx itself throwing) and a
       visible row in the issues ribbon for the focused cascade.
 
-  The flow + machine exception paths (Buttons C / D in the original
-  Playwright scenario) need the `re-frame.flows` / `re-frame.machines`
+  The flow + machine exception paths (Buttons C / D in the Playwright
+  scenario) need the `re-frame.flows` / `re-frame.machines`
   fixtures plus throw-on-action wiring — covered by the `deep-machine`
-  fixture for the machine half and the existing
+  fixture for the machine half and
   `machine_inspector_e2e_cljs_test.cljs` for the snapshot half. The
-  flow exception is the one surface still benefiting from browser-
-  level coverage (it builds on the long-flow testbed), so it stays in
-  Playwright in the meantime (covered by the surviving E-tagged
-  scenarios).
+  flow exception is the one surface that benefits from browser-
+  level coverage (it builds on the long-flow testbed), so the
+  Playwright scenario covers it.
 
   ## Bug class this catches
 
-  rf2-39gcq (and the broader `:rf.error/*` projection chain) — if an
+  The `:rf.error/*` projection chain — if an
   fx throws but the trace emit is dropped (epoch-capture filter, frame
   tag drop), the Issues feed silently loses the row even though the
   router caught the throw."
