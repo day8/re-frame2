@@ -17,10 +17,10 @@
 ;; mid-handler protection); only the trace surface redacts.
 ;;
 ;; Harness note: the conformance runner threads `:fixture/registry :event`
-;; metadata through to `reg-event-*` (rf2-jwm4), so the `:sensitive` key lands
+;; metadata through to `reg-event-*`, so the `:sensitive` key lands
 ;; in the event's registrar metadata, where the registration projection derives
-;; it at emit time (no imperative side-table; the imperative `add-marks` API was
-;; removed by EP-0025). Capability `:data-classification/classification-effects`.
+;; it at emit time (no imperative side-table; there is no imperative
+;; `add-marks` API). Capability `:data-classification/classification-effects`.
 
 {:fixture/id           :data-classification/event-arg-sensitive-path-redacts
  :fixture/spec-version "1.0"
