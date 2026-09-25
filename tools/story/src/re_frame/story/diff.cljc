@@ -1,6 +1,6 @@
 (ns re-frame.story.diff
   "Semantic diff over canonical run artifacts — `diff-run-artifacts`
-  (NewTestStory rf2-5x1wt.9, spec/017-Testing-Story.md §Semantic diff). It
+  (spec/017-Testing-Story.md §Semantic diff). It
   answers ONE question: how do two runs differ in BEHAVIOUR, with the
   per-run noise (frame ids, timestamps, dispatch / epoch / trace ids)
   removed first?
@@ -13,7 +13,7 @@
   dispatch / trace-id counters and allocates a new `:rf.test.replay/*` frame
   id, so two semantically-EQUAL runs differ in dozens of stamps. So both
   inputs are projected through `re-frame.story.fingerprint/canonicalize`
-  (rf2-5x1wt.3, the determinism strip rf2-5x1wt.8) BEFORE any facet is
+  (the determinism strip) BEFORE any facet is
   compared. What survives the projection is exactly the behavioural surface
   the determinism gate compares — so a diff that finds NO facets is the same
   judgement `assert-deterministic` renders `:deterministic`, and a diff that
@@ -46,8 +46,8 @@
   (`rf.story.fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
   nothing outside it. `:sub-runs` is deliberately NOT in that slice
   (over-recomputed evidence, not a determinism input), so it carries NO
-  `diff-runs` facet; `diff-sub-runs` survives only as a standalone diagnostic
-  fn (rf2-e6uod / rf2-5l0a5).
+  `diff-runs` facet; `diff-sub-runs` exists only as a standalone diagnostic
+  fn.
 
   ## A readable diff, not a data dump
 
@@ -167,7 +167,7 @@
   emptiness is semantic — `{:k {}}` vs `{:k {:a 1}}` differs at `[:k]`). Pure
   data → data; returns `{[path …] value}`.
 
-  The ROOT is special-cased (rf2-bd6ei): an empty root map contributes NO
+  The ROOT is special-cased: an empty root map contributes NO
   leaf at all, so an app-db cleared to `{}` does not read as a spurious
   `{[] {}}` root leaf (which would surface as `:added`/`:removed` at the
   nonsensical `[]` path). A populated-vs-empty difference still diffs
@@ -263,8 +263,8 @@
   `nil` when the sub-run multisets match (including when both runs carry no
   sub-runs), else `{:only-baseline […] :only-current […]}`.
 
-  NOT part of the `:same?` judgement and NOT registered in `facet-fns`
-  (rf2-e6uod / rf2-5l0a5). `:sub-runs` is deliberately excluded from
+  NOT part of the `:same?` judgement and NOT registered in `facet-fns`.
+  `:sub-runs` is deliberately excluded from
   `rf.story.fingerprint/run-hash-input-keys` — sub-runs are over-recomputed evidence,
   not a determinism input — so a `:sub-runs`-only delta does NOT make
   `diff-runs` report `:same? false`, exactly as the determinism gate and the
@@ -545,12 +545,12 @@
     localises WHERE (any residual gap is caught by `diff-runs`' coarse
     slice-key fallback — the non-empty-`:facets` invariant);
   - NO facet sits OUTSIDE the slice. `:sub-runs` is deliberately excluded from
-    the run-hash slice (over-recomputed evidence, not a determinism input —
-    rf2-e6uod / rf2-5l0a5), so it is NOT registered here: a `:sub-runs`-only
+    the run-hash slice (over-recomputed evidence, not a determinism input),
+    so it is NOT registered here: a `:sub-runs`-only
     delta does not perturb the `:same?` slice, so a facet for it could never
     fire through `diff-runs` (it would be dead code that overstated coverage
     and disagreed with the determinism gate / golden verdict). `diff-sub-runs`
-    survives as a standalone diagnostic fn (call it directly), NOT as part of
+    exists as a standalone diagnostic fn (call it directly), NOT as part of
     the `:same?` judgement."
   (array-map
     :status            diff-status
@@ -589,7 +589,7 @@
   `:facets` set names them up front so a consumer can branch without probing
   each slot.
 
-  INVARIANT (rf2-rv9tt): a `:same? false` diff ALWAYS carries a non-empty
+  INVARIANT: a `:same? false` diff ALWAYS carries a non-empty
   `:facets`. The per-surface facets cover every `run-hash-input-keys` slot,
   but if some slice slot ever diverges with no specific facet firing, the
   coarse `:slice-keys` fallback names WHICH `run-hash-input-keys` slot
@@ -622,7 +622,7 @@
                        acc))
                    {}
                    facet-fns)
-          ;; The non-empty-:facets invariant (rf2-rv9tt): the per-surface
+          ;; The non-empty-:facets invariant: the per-surface
           ;; facets cover every run-hash slice slot, but if NONE fired the
           ;; canonical forms still differ — so localise the divergence to the
           ;; specific `run-hash-input-keys` slot(s) rather than returning an
