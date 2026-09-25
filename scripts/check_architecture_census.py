@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""The final architecture and retained-mechanism census, made executable
-(rf2-hic-087).
+"""The final architecture and retained-mechanism census, made executable.
 
 `docs/design/fresco/product/architecture-census.md` publishes three claims
 about the finished Fresco package:
@@ -9,8 +8,7 @@ about the finished Fresco package:
      graph, no second emitter, no compiled-hiccup mode, no per-boundary
      callback-cell table;
   2. every RETAINED tool or diagnostic surface names a real daily consumer;
-  3. the `rf2-hic-017` mutable-global roster still closes against the final
-     tree.
+  3. the `globals.md` mutable-global roster closes against the final tree.
 
 A census is a claim about the tree at a moment, and the tree moves.  This gate
 is what stops the page from becoming a sentence that was once true: it re-runs
@@ -72,8 +70,8 @@ PACKAGE_JSON = REPO / "implementation" / "package.json"
 # ---------------------------------------------------------------------------
 
 # The three macros the package publishes — `h/defview`, `h/event` and
-# `h/defhost`, all on the ordinary facade (the native tier's three left with it,
-# rf2-6c12m.3; `re-frame.fresco.native` is two plain hook functions now).
+# `h/defhost`, all on the ordinary facade (`re-frame.fresco.native` is two
+# plain hook functions and publishes no macro).
 # Every one is `defn`-class sugar with a function fallback, which is what the
 # charter's *No analyzer* constraint permits; none classifies, lowers or
 # refuses a body form.  A FOURTH NAME IS THE TRIPWIRE — not because a fourth
@@ -102,11 +100,10 @@ FOREIGN_EMITTER = re.compile(
 # Arm 3 — the mutable-global re-sweep
 # ---------------------------------------------------------------------------
 
-# The seven arms.  C1-C6 are `globals.md`'s own, transcribed; C7 is this
-# bead's addition and the reason it exists is recorded on the page: the six
-# recorded arms regenerate only twenty of the twenty-one rows they produced,
-# because a `defonce` whose init is neither a mutable constructor nor a `#js`
-# literal nor a dynamic var is invisible to all six.
+# The arms of `globals.md`'s census that find OWNERS, transcribed; C3, C4 and
+# C6 find writers.  C7 is the one the page records a reason for: a `defonce`
+# whose init is neither a mutable constructor nor a `#js` literal nor a dynamic
+# var is invisible to all six of the others.
 CENSUS_ARMS = {
     "C1": re.compile(
         r"\((atom|volatile!|js/Map\.|js/WeakMap\.|js/Set\.|empty-cache|react/createContext)[ )]"
@@ -140,11 +137,10 @@ def strip_docstrings(text: str) -> str:
     """Blank out string literals, keeping line structure.
 
     Every arm here is about CODE.  Fresco's sources carry very long
-    docstrings that quote code — the `!root` example, the retired
-    `counter`/`watchers` writers, `renderToString` named in prose forty times
-    — and an arm that reads them measures the commentary rather than the
-    tree.  `globals.md` learned this the expensive way and names four such
-    hits by hand; this does it once, structurally.
+    docstrings that quote code — the `!root` example, `renderToString` named
+    in prose — and an arm that reads them measures the commentary rather than
+    the tree.  `globals.md` names such hits by hand; this does it once,
+    structurally.
     """
     out, i, n = [], 0, len(text)
     while i < n:
@@ -194,9 +190,8 @@ def declaring_ns(short: str) -> str:
     This is what makes an owner *identity* comparable, and a bare `def` name
     is not one.  Both `evidence.cljs` and `impl/evidence.cljs` exist in this
     tree, as do `overlay.cljs` and `impl/overlay.cljs`; a name is an address
-    only once its namespace is in front of it.  Matching bare names let a new
-    owner inherit an unrelated roster row and exit green — the fail-open the
-    merged-PR audit of #8258 reproduced against this gate.
+    only once its namespace is in front of it.  Matching bare names would let
+    a new owner inherit an unrelated roster row and exit green.
     """
     parts = re.sub(r"\.clj[sc]$", "", short).split("/")
     if parts[0] == "fresco":
@@ -250,8 +245,8 @@ def top_level_defs(code: str):
     Line-at-a-time attribution cannot do this job: `error.cljc` writes
     `(defonce ^:private !sources` on one line and `(atom {})` three lines
     later, so the arm that finds the constructor is looking at a line that
-    carries no name.  Reading whole forms also retires the exclusion list —
-    an allocation inside a `defn` has no enclosing `def` and is simply not a
+    carries no name.  Reading whole forms also needs no exclusion list — an
+    allocation inside a `defn` has no enclosing `def` and is simply not a
     candidate.
     """
     i, n = 0, len(code)
@@ -400,8 +395,7 @@ def arm_globals(srcs, page: str = "") -> list[str]:
     """Every module-level owner the arms find must have a row in `globals.md`.
 
     ONE DIRECTION, deliberately.  The reverse — every rostered row is found by
-    some arm — is the check that produced this bead's own correction, and it
-    cannot be automated honestly: five rows on the identities roster are plain
+    some arm — cannot be automated honestly: five rows on the identities roster are plain
     `def`s of React classes and components, which no textual arm distinguishes
     from any other `def`.  Enforcing it here would mean either a sixth of the
     roster permanently red or an allowlist that fails open.  The direction
@@ -409,14 +403,12 @@ def arm_globals(srcs, page: str = "") -> list[str]:
     unjustified global"*: a new owner arrives with no row, and reds.
 
     FULLY QUALIFIED END TO END.  What is found, what is rostered and what is
-    reported are all `impl.<ns>/<name>`.  Keying by the bare `def` name — which
-    is what this arm did until the merged-PR audit of #8258 caught it — let a
-    new owner in ANY namespace inherit the row of a same-named owner in another
-    one and exit green; a planted `impl.planted/!cells` was absolved by
-    `impl.collector/!cells` and returned no finding at all.  The self-test's
-    own positive control missed it because it only ever planted a name nothing
-    else owned, which is a control that cannot tell "the gate works" from "the
-    gate matched the wrong row".
+    reported are all `impl.<ns>/<name>`.  Keying by the bare `def` name would
+    let a new owner in ANY namespace inherit the row of a same-named owner in
+    another one and exit green: a planted `impl.planted/!cells` would be
+    absolved by `impl.collector/!cells` and return no finding at all.  A
+    positive control that only ever plants a name nothing else owns cannot
+    tell "the gate works" from "the gate matched the wrong row".
     """
     found: dict[str, str] = {}
     for short, _raw, code in srcs:
@@ -474,12 +466,12 @@ def self_test() -> int:
     would land the mechanism the arm refuses.
 
     A CONTROL HAS TO DISCRIMINATE.  Every planted source below is spelled the
-    way `sources()` spells a real one, because `declaring_ns` now reads the
-    path and a seed on a path shape that cannot occur tests nothing.  And the
-    duplicate-owner pair at the end is here because this suite passed a gate
-    that was matching the wrong roster row: it planted only names nothing else
-    owned, so a green told it the arm bit when the arm had merely failed to
-    find anything.  That pair asserts in BOTH directions — the duplicate reds,
+    way `sources()` spells a real one, because `declaring_ns` reads the path
+    and a seed on a path shape that cannot occur tests nothing.  And the
+    duplicate-owner pair at the end is here because a suite that plants only
+    names nothing else owns passes a gate matching the wrong roster row: a
+    green says the arm bit when the arm has merely failed to find anything.
+    That pair asserts in BOTH directions — the duplicate reds,
     and the legitimately rostered original stays accepted in the same run.  A
     control that reds on both would be a different bug wearing this one's face.
     """
@@ -495,7 +487,7 @@ def self_test() -> int:
     PLANTED = "fresco/impl/planted.cljs"
 
     seeded = list(real) + [(PLANTED, "", '(defmacro deftemplate [& body])\n')]
-    check("a seventh macro is a compiled-hiccup tripwire",
+    check("a fourth macro is a compiled-hiccup tripwire",
           any("macro roster" in f for f in arm_mechanism(seeded)))
 
     seeded = list(real) + [
