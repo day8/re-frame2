@@ -1,5 +1,6 @@
 (ns re-frame.story.ui.controls-validation-diff-cljs-test
-  "Tests for the Story Controls panel's rf2-ba86n.5 surfaces:
+  "Tests for the Story Controls panel's validation, diff and summary
+  surfaces:
 
   - **inline schema validation** — `violations-by-key` indexing + the
     `validation-banner` / inline-error rendering in `args-editor`;
@@ -185,7 +186,7 @@
      (testing "a :group widget is collapsed by default — the disclosure
                header is present + collapsed, and the nested child rows
                are NOT in the tree (summarise-before-expand, spec/019 §4)"
-       ;; rf2-din8u / rf2-vnedo — the controls schema is the COMPILED plan's
+       ;; The controls schema is the COMPILED plan's
        ;; view-args-schema (off the :component view's :rf/props), not a bare
        ;; variant-body :schema slot. Register the component view + point at it.
        (rf/reg-view* :view.ba86n/grp
