@@ -1,9 +1,9 @@
 (ns re-frame.story.ui.docs-mode-pane-cljs-test
-  "CLJS-side regression net for the `:docs` mode pane (rf2-ssibv).
+  "CLJS-side regression net for the `:docs` mode pane.
 
   Pairs with the pure JVM-side coverage of `prose-for-variant`,
   `args-rows`, `decorator-rows`, `parameter-rows`, and `variant-tags`
-  (lives alongside the docs view source — JVM tests at TBD). This
+  (in `re-frame.story-ui-test`). This
   namespace pins the scenarios called out by spec/015 §`:docs` mode
   pane:
 
@@ -49,9 +49,8 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>] — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -103,7 +102,7 @@
                 :body "It carries decorators, modes, and rich argtypes."}]}))
 
 ;; ===========================================================================
-;; rf2-ssibv — section rendering
+;; Section rendering
 ;;
 ;; Pin every pure-data section helper produces the expected projection
 ;; for a docs-rich variant. The renderer is a 1:1 mapping from these
@@ -239,7 +238,7 @@
         "variant with no tags AND no parent story tags surfaces empty")))
 
 ;; ===========================================================================
-;; rf2-ssibv — tag-chip forward-link
+;; Tag-chip forward-link
 ;;
 ;; Clicking a docs tag chip dispatches `rf.story.ui.state/toggle-tag-filter` against
 ;; the shell-state-atom. The chip's `aria-pressed` mirrors the resulting
@@ -277,7 +276,7 @@
          renders both with aria-pressed=true")))
 
 ;; ===========================================================================
-;; rf2-ssibv — read-only contract
+;; Read-only contract
 ;;
 ;; Switching :dev → :docs → :dev must NOT mutate the canvas args, the
 ;; cell-overrides, the active modes, or any other shell-state slot. The
@@ -334,8 +333,8 @@
   (testing "calling the docs helpers (prose-for-variant / args-rows /
             decorator-rows / parameter-rows / variant-tags) leaves the
             registry byte-for-byte unchanged — the helpers are pure
-            data → data. Pure-data invariant; pin it so future
-            registry-touching refactors break this test loudly."
+            data → data. Pure-data invariant; pinned so a
+            registry-touching refactor breaks this test loudly."
     (register-rich-variant!)
     (let [registry-before {:variant   (rf.story/registrations :variant)
                            :story     (rf.story/registrations :story)
