@@ -1,34 +1,32 @@
 (ns day8.re-frame2-xray.settings.view
-  "Pure-hiccup view for the Xray Settings popup modal (rf2-9poxq).
+  "Pure-hiccup view for the Xray Settings popup modal.
 
-  ## rf2-k97c.3 — THIS NAMESPACE READS NOTHING
+  ## THIS NAMESPACE READS NOTHING
 
-  Every fn here is now a PURE function of its arguments. The thirteen
-  ambient `@(rf/subscribe …)` reads this file used to perform are
-  hoisted into `settings/popup.cljs`'s Fresco boundary, which is why
-  `re-frame.core` is no longer required at all — the one measurement
-  that says the hoist is complete rather than mostly done.
+  Every fn here is a PURE function of its arguments. The thirteen
+  reads the popup's tabs need are performed by `settings/popup.cljs`'s
+  Fresco boundary, which is why `re-frame.core` is not required at
+  all — the one measurement that says no read path lives here.
 
   The reason is mechanical, not stylistic. `rf.fresco/sub` refuses
   outside a boundary render — `impl.collector/read-key!` raises
   `:rf.error/fresco-sub-outside-render`, and its own message names the
-  remedy — so migrating a read INSIDE a helper narrows that helper to
-  being callable only within a React commit. [[popup-tree]] had seven
-  callers outside any render, all of them node-lane rows. Hoisting keeps
-  them working: a pure fn needs neither a render window nor
-  `subscribe-once`.
+  remedy — so a read INSIDE a helper would narrow that helper to
+  being callable only within a React commit. [[popup-tree]] has
+  callers outside any render, node-lane rows among them. A pure fn
+  needs neither a render window nor `subscribe-once`.
 
   The node lane's door is in the TEST tree
-  (`test-helpers/settings-modal-tree`), mirroring
+  (`test-helpers/modal-trees`'s `settings-popup-tree`), mirroring
   `test-helpers/dynamic_shell_tree` — deliberately NOT a reading arity
-  kept here, which would be a read path in the one file this migration
-  exists to empty.
+  kept here, which would put a read path in the one file that has
+  none.
 
   Visual style mirrors the palette modal (dim backdrop, centred dialog,
   `tokens/bg-1` body) so the user gets a consistent affordance class for
   transient overlays.
 
-  ## Why every deferred dispatch captures the surrounding frame (rf2-smvvz / rf2-r0o63 / rf2-nesy9)
+  ## Why every deferred dispatch captures the surrounding frame
 
   Reads resolve at RENDER time, inside the boundary. Dispatches from
   `:on-click` / `:on-change` / `:on-key-down` fire LATER — after render
@@ -40,12 +38,11 @@
   `:settings-open?` flag is left untouched. Symptom: X button does
   nothing, tabs do not switch, Esc does not close — the modal is stuck.
 
-  An EARLIER fix pinned every deferred handler to a `{:frame :rf/xray}`
-  literal — correct for the singleton shell, but it entrenched the
-  one-frame lock (rf2-1w07r): two shells on a page collided on the one
-  global app-db. The current contract (rf2-r0o63 / rf2-nesy9) captures
-  the SURROUNDING instance frame instead, and the migration preserves it
-  exactly: the boundary takes its dispatcher from
+  Pinning every deferred handler to a `{:frame :rf/xray}` literal would
+  be correct for the singleton shell, but it would entrench a one-frame
+  lock: two shells on a page would collide on one global app-db. So
+  the handlers capture the SURROUNDING instance frame instead: the
+  boundary takes its dispatcher from
   `(:dispatch (rf/capture-frame))` — core's own door, which answers the
   boundary's DECLARED frame — and threads it into [[popup-tree]], which
   fans it out to every section helper. Each deferred handler calls that
@@ -58,7 +55,7 @@
 ;; ---- styles --------------------------------------------------------------
 ;;
 ;; The backdrop's `:position` and `:z-index` honour the
-;; `:rf.xray/modal-positioning` opt published by `shell-view` (rf2-om6fa).
+;; `:rf.xray/modal-positioning` opt published by `shell-view`.
 ;; `:fixed` (default, production) — full-viewport overlay at the
 ;; chrome's max-int stacking layer. `:absolute` (Story testbeds) —
 ;; contained to the nearest positioned ancestor (the shell's outer
@@ -185,55 +182,38 @@
   closest-walks the event target for
   `data-rf-xray-mode=\"settings\"` (this modal sets it via
   `:dialog-extra`) and skips the bare-key spine branch entirely
-  (rf2-ttnst). The `stopPropagation` still earns its place — it
-  keeps consumed keys off the host page below. Per Mike's
-  2026-05-19 §0ter.4 walkthrough.
+  The `stopPropagation` earns its place too — it keeps consumed
+  keys off the host page below.
 
-  Telemetry was removed (rf2-jh9ws): Xray ships no telemetry
-  endpoint, and the toggle in v1 was a broken affordance — silent
-  by default, no broken claims (per text-audit rf2-yn86j). When
-  telemetry actually ships, the tab returns with real wiring.
+  There is no Telemetry tab: Xray ships no telemetry endpoint, and a
+  toggle with nothing behind it would be a broken affordance.
 
-  Theme tab was removed (rf2-ou3pn): the top-ribbon Theme icon
+  There is no Theme tab: the top-ribbon Theme icon
   (`ribbon-theme-toggle` in `shell.cljs`) is the canonical
-  light/dark affordance and dispatches the same
-  `:rf.xray/settings-update :theme nil <kw>` event the popup's
-  radio used to drive. The `:use-system-colors?` HCM-override
-  checkbox migrated to General → Power user (it always was a
-  `:general` slot — its cosmetic home in the Theme tab is gone
-  with the tab).
+  light/dark affordance and dispatches
+  `:rf.xray/settings-update :theme nil <kw>`. The `:general
+  :use-system-colors?` HCM-override slot has no control in this
+  popup; the OS-level `@media (forced-colors: active)` detection
+  works on its own.
 
-  Filters tab was removed (rf2-wknb3): v1 spec 016-Auxiliary-
-  Panels.md called it a discoverability pointer into the ribbon
-  pill UI, but the only affordance it exposed was an 'Open auto-
-  filter UI' button dispatching `:rf.xray.filters/open` — an event
-  with no handler registered anywhere. Filter management is fully
+  There is no Filters tab: filter management is fully
   covered by the canonical surfaces: the top-ribbon filter pill
   strip (`filters/pills.cljs`), the per-pill edit popup
   (`:rf.xray.filters/edit-popup-*` events in
-  `filters/edit_popup.cljs`), and the mute manager modal
-  (rf2-ikuwt). The popup tab carried no unique state and no
-  working dispatch — pure redundancy.
+  `filters/edit_popup.cljs`), and the mute manager modal.
 
-  Diff (rf2-i39w2 Phase 3) carries the hiccup-diff micro-engine's
+  Diff carries the hiccup-diff micro-engine's
   opt-in fn-ref-changes toggle.
 
-  Keybindings (rf2-ttnst) v1 is READ-ONLY — a table of every chord
+  Keybindings is READ-ONLY — a table of every chord
   the global listener captures, plus a master 'Handle keys?' toggle
-  (alias for `:rf.xray/keybinding-enabled?`). Rebind UI is the v1.1
-  follow-on.
+  (alias for `:rf.xray/keybinding-enabled?`).
 
-  Buffer (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim)
-  surfaces the events-retained knob (writes through to
+  Buffer surfaces the events-retained knob (writes through to
   `(rf/configure! {:trace-buffer {:events-retained N}})`) plus a
   'Clear buffer now' button with a confirmation modal (destructive
-  action). The inert `:app-db/inspector-collapse-threshold` input was
-  removed (rf2-5u03ig — no runtime consumer; the inspector already
-  auto-collapses on depth/width). The epoch-history slider is NOT
-  here: rf2-pu9sb moved it into Buffer, but Mike relocated it back to
-  General on 2026-05-27 (it renders in `general-section`). The slot
-  stays `:general :epoch-history` throughout — only the visual home
-  moved."
+  action). The epoch-history slider is NOT here: it renders in
+  `general-section`, under the slot `:general :epoch-history`."
   [{:id :general     :label "General"     :mnemonic "g"}
    {:id :keybindings :label "Keybindings" :mnemonic "k"}
    {:id :buffer      :label "Buffer"      :mnemonic "b"}
@@ -255,34 +235,33 @@
 (defn- settings-tabpanel-id
   "DOM id for the Settings tabpanel — referenced by the tab button's
   `aria-controls` AND set on the body wrapper so the WAI-ARIA APG
-  tabs pattern's id round-trip resolves (rf2-h4mnh)."
+  tabs pattern's id round-trip resolves."
   [id]
   (str "rf-xray-settings-tabpanel-" (name id)))
 
 (defn- tab-button
   "One tab in the strip, as hiccup. CALLED rather than headed
-  (rf2-k97c.3) — the standard HD-016 repair, since every vector this
+  — the standard HD-016 repair, since every vector this
   answers is keyword-headed all the way down.
 
   It carries its OWN `:key`, which is the T2 cost of that inlining paid
   in the cheapest available place. [[popup-tree]] builds the strip with
-  a `for`, so React needs a key per child; before the inlining the key
-  would have sat on the `[tab-button …]` vector, and a keyed fragment
-  around the call is the general remedy. Neither is needed here because
-  this helper already owns an attrs map and already knows `id` — so the
-  key goes in the attrs map, which is this file's standing convention
-  (`editor-override-section`, the panel-position radios and the
-  keybindings table all key that way, per rf2-a38l) and adds no DOM
-  node. A keyword `:key` is a plain key to Fresco's codec, the same as
-  to Reagent."
+  a `for`, so React needs a key per child; a headed `[tab-button …]`
+  vector would carry it, and a keyed fragment around the call is the
+  general remedy. Neither is needed here because this helper owns an
+  attrs map and knows `id` — so the key goes in the attrs map, which is
+  this file's standing convention (`editor-override-section`, the
+  panel-position radios and the keybindings table all key that way)
+  and adds no DOM node. A keyword `:key` is a plain key to Fresco's
+  codec, the same as to Reagent."
   [dispatch {:keys [id label]} active?]
-  ;; rf2-h4mnh — Settings popup inner tabs now carry the full WAI-
+  ;; Settings popup inner tabs carry the full WAI-
   ;; ARIA tab role: `role="tab"` + `aria-selected` per state +
   ;; stable `id` (so the body's `aria-labelledby` resolves) +
   ;; `aria-controls` pointing at the body's tabpanel id. The same
-  ;; pattern Xray already ships on the L3 Dynamic + Static tab
+  ;; pattern Xray ships on the L3 Dynamic + Static tab
   ;; strips (shell.cljs/tab-button). Keeps `:data-active` for
-  ;; styling-key parity with existing CSS selectors / tests.
+  ;; styling-key parity with CSS selectors / tests.
   [:button {:key            id
             :data-testid    (str "rf-xray-settings-tab-" (name id))
             :id             (settings-tab-button-id id)
@@ -303,7 +282,7 @@
 ;; button.
 (declare ghost-button-style)
 
-;; ---- editor-override picker (rf2-dudqz) ---------------------------------
+;; ---- editor-override picker ---------------------------------------------
 ;;
 ;; Enumerated radio set + Custom escape hatch. Selecting an editor
 ;; writes `[:general :editor-override <value>]` via the same
@@ -359,7 +338,7 @@
 
 (def ^:private custom-template-seed
   "Seed template the Custom radio writes when the user first selects
-  it (rf2-rc35g). Echoes the framework-default `:vscode` URI shape so
+  it. Echoes the framework-default `:vscode` URI shape so
   click-to-source resolves to a working URI immediately — the user
   edits from a known baseline rather than a blank that silently breaks
   the chip until they finish typing.
@@ -399,13 +378,13 @@
                  :on-change   (fn [_]
                                 (cond
                                   ;; Custom: seed a working template
-                                  ;; (rf2-rc35g — was `{:custom ""}`,
-                                  ;; which breaks click-to-source
-                                  ;; until the user finishes typing).
+                                  ;; — an empty `{:custom ""}` would
+                                  ;; break click-to-source until the
+                                  ;; user finishes typing.
                                   ;; The vscode-style URI is the most
                                   ;; common shape; users on other
                                   ;; editors edit from a baseline that
-                                  ;; resolves cleanly today.
+                                  ;; resolves cleanly.
                                   (= id :custom)
                                   (when-not (map? override)
                                     (dispatch-editor-override!
@@ -450,13 +429,10 @@
          [:code {:style {:font-family mono-stack
                          :color (:text-tertiary tokens)}}
           "{column}"] ". "
-         ;; rf2-ox357n — there is NO positive allowlist, and the old copy
-         ;; said there was. Worse, it listed `http:` and `https:` inside
-         ;; the same parenthetical as the two dangerous schemes, so it
-         ;; read as though every scheme named were refused. What actually
-         ;; ships is a three-scheme DENYLIST applied at click-time
+         ;; There is NO positive allowlist. What ships is a
+         ;; three-scheme DENYLIST applied at click-time
          ;; (`open_in_editor.cljs`); everything else passes through, which
-         ;; is the point — a positive allowlist failed CLOSED on any
+         ;; is the point — a positive allowlist would fail CLOSED on any
          ;; editor nobody had catalogued.
          "`javascript:`, `data:` and `vbscript:` templates are refused "
          "at click-time; other schemes pass through."]])
@@ -491,33 +467,25 @@
 
 (defn- general-section
   "The General tab's body, as a PURE function of `dispatch` and the seven
-  values it used to read for itself (rf2-k97c.3).
-
-  The seven names below are the seven the `let` bound before the
-  migration, in the same order, so the only thing that changed is WHERE
-  they come from: [[popup-tree]]'s caller reads them and hands them
-  down. They are destructured in a `let` rather than in the parameter
-  vector for the same reason — it keeps the body's shape identical and
-  the diff honest."
+  General-tab values [[popup-tree]]'s caller reads and hands down in the
+  `general` map."
   [dispatch general]
   (let [{:keys [panel-position auto-open? epoch-history show-ungrouped?
                 show-unchanged-subs? editor-override host-editor]} general]
     [:div {:data-testid "rf-xray-settings-section-general"}
      [:h2 {:style (section-heading-style)} "General"]
 
-     ;; Removed 2026-05-27 per Mike (UX cleanup pass):
-     ;;   - Text-size slider — defaults suffice
-     ;;   - Panel-width numeric input + reset — drag the resize
-     ;;     handle (rf2-x8h9y); double-click resets
-     ;; Both setting slots remain in config so existing
-     ;; effects (`apply-text-size!`, `:rf.xray/set-panel-width-px`)
-     ;; continue to honour any host-set defaults.
+     ;; There is no text-size slider (the default suffices) and no
+     ;; panel-width input (drag the resize handle; double-click
+     ;; resets). Both setting slots live in config, so the effects
+     ;; (`apply-text-size!`, `:rf.xray/set-panel-width-px`) honour any
+     ;; host-set defaults.
 
      ;; ── Panel position radio ────────────────────────────────────
      [:div {:style (field-style)}
       [:span {:style (label-style)} "Panel position"]
-      ;; rf2-czcg5 — the `:popout` "Popout window" option was dropped:
-      ;; the second-window pop-out is now launched from the chrome's
+      ;; There is no `:popout` "Popout window" option: the
+      ;; second-window pop-out is launched from the chrome's
       ;; visible `⛶` button (canonical) + the programmatic
       ;; `(xray/popout!)` API, not via this panel-position radio.
       (for [[pos label] [[:right-rail "Right rail (inline)"]
@@ -551,7 +519,6 @@
        "Auto-open Xray when an issue is observed"]]
 
      ;; ── Epoch history slider ─────────────────────────────────────
-     ;; Relocated from Buffer to General 2026-05-27 per Mike.
      ;; Drives BOTH `:depth` and `:trace-events-keep` via
      ;; `apply-epoch-history!` so trace is retained for every
      ;; retained epoch (when an epoch evicts, its trace evicts too).
@@ -585,22 +552,17 @@
        "inspection. Trace is retained for every retained epoch — "
        "when an epoch evicts, its trace evicts too. Default 50."]]
 
-     ;; Removed 2026-05-27 — Density radio (Cosy / Compact).
-     ;; Per Mike: the two options were visually indistinguishable in
-     ;; practice; the operator gains nothing from the toggle. Stay
-     ;; with the default (`:cosy`); the `:general :density` config
-     ;; slot + `:rf.xray/density` sub remain so any incremental
-     ;; per-panel padding/line-height consumer keeps reading the
-     ;; default value.
+     ;; There is no density radio: the two tiers are visually close
+     ;; enough that a Settings control adds nothing. The palette's
+     ;; density toggle and the host's `:density` configure key write
+     ;; the `:general :density` slot, and the `:rf.xray/density` sub
+     ;; serves per-panel padding/line-height consumers.
 
-     ;; Removed 2026-05-27 — Long-keyword threshold input had ZERO
-     ;; consumers outside the settings UI itself (grep across
-     ;; tools/xray/src/ confirmed). The sub `:rf.xray/long-keyword-
-     ;; threshold` + config slot `:general :long-keyword-threshold`
-     ;; remain for any future code that wants to honour the default
-     ;; (24), but no UI surfaces it any more.
+     ;; There is no long-keyword threshold input: nothing reads the
+     ;; threshold. The sub `:rf.xray/long-keyword-threshold` + config
+     ;; slot `:general :long-keyword-threshold` carry the default (24).
 
-     ;; ── Editor override (rf2-dudqz) ─────────────────────────────
+     ;; ── Editor override ─────────────────────────────────────────
      ;;
      ;; Per-operator override for Xray's 'Open in editor' click-to-
      ;; source target. Default `nil` (use the project's
@@ -610,25 +572,9 @@
      ;; uses the override URI without a reload.
      (editor-override-section dispatch editor-override host-editor)
 
-     ;; ── (epoch-history slider housekeeping, rf2-3zyyx) ──
+     ;; ── Power user divider ───────────────────────────────────────
      ;;
-     ;; The epoch-history slider RENDERS HERE in General (above), not in
-     ;; Buffer: rf2-pu9sb moved it to Buffer as a buffer-capacity knob,
-     ;; then Mike relocated it back to General on 2026-05-27. The slot
-     ;; stays `:general :epoch-history` (what `apply-epoch-history!`
-     ;; reads + restores) throughout — only the visual home moved. The
-     ;; dead `:buffer :retained-epochs` numeric input (no substrate
-     ;; consumer) was removed in the rf2-pu9sb cleanup — pre-pu9sb the
-     ;; popup carried two fields for the same conceptual knob, one wired
-     ;; and one not.
-
-     ;; ── Power user divider (rf2-ttnst) ───────────────────────────
-     ;;
-     ;; The divider arrived with the `:show-tool-frames?` toggle, which
-     ;; Mike removed on 2026-05-27; rf2-y8doi.27 then removed the
-     ;; orphaned setting slot behind it. The divider STAYS because the
-     ;; `:ungrouped` opt-in below it is a power-user surface too — it
-     ;; heads that section now, not an empty one.
+     ;; Heads the power-user opt-ins below it.
      [:div {:data-testid "rf-xray-settings-power-user-divider"
             :style {:display      "flex"
                     :align-items  "center"
@@ -647,25 +593,20 @@
                       :height "1px"
                       :background (:border-subtle tokens)}}]]
 
-     ;; The "Show tool frames in picker" toggle was removed 2026-05-27,
-     ;; and rf2-y8doi.27 removed the `:show-tool-frames?` setting slot
-     ;; that outlived it — a slot no surface could write is not an
-     ;; override waiting to be re-enabled, it is a promise the tree
-     ;; cannot keep. The spec/007-UX-IA frame-observation isolation
-     ;; invariant is enforced where it always was: by
-     ;; `frame-switcher/internal-frames`, unconditionally.
+     ;; There is no "Show tool frames in picker" toggle: the
+     ;; spec/007-UX-IA frame-observation isolation invariant is
+     ;; enforced by `frame-switcher/internal-frames`, unconditionally.
 
-     ;; ── Show :ungrouped pseudo-event-bundle events (rf2-r9lyy) ──────
+     ;; ── Show :ungrouped pseudo-event-bundle events ──────────────────
      ;;
      ;; Opt-in surface for the `:ungrouped` bucket produced by
      ;; `re-frame.trace.projection/group-by-event` (registry-time
      ;; emits, frame lifecycle outside a drain, `:rf.ssr/hydration-
-     ;; mismatch`, REPL evals). Default OFF preserves Xray's
-     ;; silent-by-default posture (rf2-639lc filtered the bucket out
-     ;; of L2 entirely); flipping ON reveals the bucket as a muted
+     ;; mismatch`, REPL evals). Default OFF keeps Xray's
+     ;; silent-by-default posture (L2 filters the bucket out);
+     ;; flipping ON reveals the bucket as a muted
      ;; L2 row so users debugging SSR / REPL flows can focus it and
-     ;; populate downstream panels. Per Mike 2026-05-19 closure of
-     ;; rf2-q60yf (Option B — opt-in chip/toggle).
+     ;; populate downstream panels.
      [:div {:style (field-style)}
       [:label {:style {:display "flex" :align-items "center" :gap "8px"
                        :cursor "pointer"
@@ -690,7 +631,7 @@
 
      ;; ── Always show unchanged subs (spec/021 §3.4 pin) ──────────
      ;;
-     ;; Restored rf2-16y3x. The `:show-unchanged-subs?` `:general` slot
+     ;; The `:show-unchanged-subs?` `:general` slot
      ;; is the always-expand pin for the Views panel's memo-hit "Show N
      ;; unchanged subs" disclosure. Default OFF keeps the per-event-bundle
      ;; footer-collapsed pattern (unchanged subs are coverage signal, not
@@ -698,10 +639,8 @@
      ;; every event-bundle. Composes with the panel-local quick-toggle —
      ;; either axis (this pin OR the panel toggle) opens the disclosure
      ;; (`reactive-panel-subs/:rf.xray/reactive-data` folds the two into
-     ;; `:show-unchanged?`). The slot had been kept while its control was
-     ;; removed on 2026-05-27, leaving spec/021 + the source acceptance
-     ;; promising a pin with no UI; this restores the operator-facing
-     ;; control.
+     ;; `:show-unchanged?`). This is the operator-facing control
+     ;; spec/021 promises for the pin.
      [:div {:style (field-style)}
       [:label {:style {:display "flex" :align-items "center" :gap "8px"
                        :cursor "pointer"
@@ -728,53 +667,19 @@
                        :color (:text-tertiary tokens)}}
         ":general :show-unchanged-subs?"] "."]]
 
-     ;; Removed 2026-05-27 — "Use system colors" toggle (the manual
-     ;; HCM-mode activator). The OS-level `@media (forced-colors:
-     ;; active)` detection still works automatically; the manual
-     ;; in-app override was redundant for the common case + added
-     ;; noise to the panel. The `:use-system-colors?` setting slot
-     ;; + the `apply-use-system-colors!` effect remain so a future
-     ;; UI can re-expose if needed.
+     ;; There is no "Use system colors" toggle (the manual HCM-mode
+     ;; activator): the OS-level `@media (forced-colors: active)`
+     ;; detection works automatically, and a manual in-app override
+     ;; would be redundant for the common case. The
+     ;; `:use-system-colors?` setting slot + the
+     ;; `apply-use-system-colors!` effect honour a persisted value.
      ]))
 
-;; ---- section: Filters (removed rf2-wknb3) ------------------------------
-;;
-;; The Filters tab was retired in rf2-wknb3. It carried no unique
-;; affordance: the only widget was an "Open auto-filter UI" button
-;; dispatching `:rf.xray.filters/open` — an event with no handler
-;; registered anywhere — plus a static explainer paragraph. Filter
-;; management is fully covered by the canonical surfaces:
-;;
-;;   * Top-ribbon filter pill strip (`filters/pills.cljs`) — full
-;;     pill management (add/remove/toggle) lives here per
-;;     spec/018-Event-Spine.md §7.
-;;   * Per-pill edit popup (`filters/edit_popup.cljs`) — the
-;;     `:rf.xray.filters/edit-popup-*` event family.
-;;   * Mute manager modal (rf2-ikuwt).
-;;
-;; The settings tab was a discoverability pointer per the v1 spec;
-;; with the ribbon already exposing the management surface and the
-;; tab's only button being dead chrome, the pointer was redundant.
-
-;; ---- section: Theme (removed rf2-ou3pn) --------------------------------
-;;
-;; The Theme tab was retired in rf2-ou3pn — the top-ribbon Theme icon
-;; (`ribbon-theme-toggle` in `shell.cljs`) is now the canonical
-;; light/dark affordance and dispatches the same
-;; `:rf.xray/settings-update :theme nil <kw>` event the popup radio
-;; used to drive. Both affordances persisted via the identical event,
-;; so removing the popup's copy is a pure-redundancy cleanup. The
-;; `:use-system-colors?` HCM-override checkbox moved to
-;; General → Power user — it has always been a `:general` slot; only
-;; its cosmetic home in the Theme section is gone with the tab.
-;; `config/default-settings :theme` (`:light`, Figma authority) and
-;; `settings/effects/apply-theme!` are unchanged.
-
-;; ---- section: Diff (rf2-i39w2 Phase 3) ----------------------------------
+;; ---- section: Diff ------------------------------------------------------
 
 (defn- diff-section
   "The Diff tab's body, as a PURE function of `dispatch` and the one
-  value it used to read for itself (rf2-k97c.3)."
+  value it renders, `highlight?`."
   [dispatch highlight?]
   [:div {:data-testid "rf-xray-settings-section-diff"}
    [:h2 {:style (section-heading-style)} "Diff"]
@@ -808,23 +713,22 @@
      "time); identity-different fns will surface as a distinct "
      "accent-coloured `(fn ref changed)` chip."]]])
 
-;; ---- section: Keybindings (rf2-ttnst) -----------------------------------
+;; ---- section: Keybindings -----------------------------------------------
 ;;
-;; Read-only chord table in v1. Each row mirrors one binding the
+;; Read-only chord table. Each row mirrors one binding the
 ;; global keydown listener (`keybinding.cljs`) captures, or one inner
 ;; chord that fires only inside a specific modal/popover. Source of
 ;; truth is `keybinding.cljs` + `spec/007-UX-IA.md §Keyboard`; this
 ;; table is a static catalogue rebuilt by hand on every keybinding
-;; change. A future v1.1 rebind UI will replace the catalogue with a
-;; live registry; for now the static table is the cheapest correct
-;; thing.
+;; change — the cheapest correct thing short of a live registry.
 ;;
 ;; The 'Handle keys?' master toggle aliases the
-;; `:rf.xray/keybinding-enabled?` config slot (rf2-4eyik) — flipping
-;; it false disables the global listener until next page-load. The
+;; `:rf.xray/keybinding-enabled?` config slot — flipping it false
+;; detaches the global listener and flipping it true re-attaches it,
+;; because `keybinding.cljs` watches the slot. The
 ;; effect is global; the popup is just the surface. Like every other
 ;; toggle in this popup it routes through the reactive dual-write
-;; pattern (rf2-8i1tg3): `:rf.xray/keybinding-enabled-update` flips
+;; pattern: `:rf.xray/keybinding-enabled-update` flips
 ;; the canonical `config.cljc` atom AND mirrors into app-db, and the
 ;; checkbox reads the mirror via `:rf.xray/keybinding-enabled?` — a
 ;; plain atom read would leave the controlled checkbox's `:checked`
@@ -834,10 +738,9 @@
   "Static catalogue. Group key carries a section label; rows are
   `[chord action]` pairs. Mirrors the SHIPPED set in
   `keybinding.cljs` + the tables in spec/007-UX-IA.md §Keyboard —
-  trimmed to exactly what the global listener captures (rf2-f7748x,
-  Mike ruled Option B). Any trimmed key returns as a small feature
-  bead + a new row here; do NOT list keys the listener does not
-  actually bind."
+  exactly what the global listener captures. A key the listener
+  starts binding gets a new row here; do NOT list keys the listener
+  does not actually bind."
   [{:group "Global chords"
     :rows  [["Ctrl+Shift+C"      "Toggle Xray shell visibility"]
             ["Ctrl+Shift+M / ⌘⇧M" "Toggle Dynamic ↔ Static mode"]
@@ -868,19 +771,18 @@
 
 (defn- keybindings-section
   "The Keybindings tab's body, as a PURE function of `dispatch` and the
-  one value it used to read for itself (rf2-k97c.3)."
+  one value it renders, `keys-on?`."
   [dispatch keys-on?]
   ;; The Handle-keys? master toggle is process global, not under
   ;; `:settings` — `config/keybinding-enabled?` is a bare `configure!`
   ;; slot, not a persisted settings key (see config.cljc §*keybinding-
-  ;; enabled?*). Per rf2-8i1tg3 it still routes through the same
+  ;; enabled?*). It routes through the same
   ;; reactive dual-write shape every other toggle in this popup uses:
   ;; the sub reads app-db's mirror (falling back to the atom pre-first-
   ;; dispatch), the event flips the atom AND mirrors app-db so the
-  ;; controlled checkbox re-renders immediately. NB: the underlying
-  ;; setter only suppresses ATTACH; a host that pre-attached the
-  ;; listener needs to also call `keybinding/detach!` for the change
-  ;; to land immediately.
+  ;; controlled checkbox re-renders immediately. The listener follows
+  ;; the flip immediately too: `keybinding.cljs` watches the atom and
+  ;; detaches / re-attaches the global listener on every change.
   [:div {:data-testid "rf-xray-settings-section-keybindings"}
    [:h2 {:style (section-heading-style)} "Keybindings"]
 
@@ -905,8 +807,8 @@
                                   :color (:text-tertiary tokens)}}
                    ":rf.xray/keybinding-enabled?"] ")"]]
 
-   ;; Read-only chord table. v1.1 will add rebind UI; for now
-   ;; the catalogue is enough to discover the bindings.
+   ;; Read-only chord table; the catalogue is enough to discover
+   ;; the bindings.
    [:p {:style (hint-style)}
     "Read-only in v1 — rebind UI lands in v1.1. The catalogue "
     "mirrors spec/007-UX-IA.md §Keyboard."]
@@ -942,7 +844,7 @@
                           action]])
                       rows)))))])
 
-;; ---- section: Buffer (rf2-ttnst; rf2-pu9sb epoch-history consolidation) -
+;; ---- section: Buffer ----------------------------------------------------
 ;;
 ;; Surfaces buffer-capacity knobs plus a destructive 'Clear buffer
 ;; now' button. The Clear button opens a confirmation modal — a
@@ -952,32 +854,27 @@
 ;;
 ;; Runtime plumbing.
 ;;
-;; * Epoch history (rf2-3zyyx, slot `:general :epoch-history`) — wired
+;; * Epoch history (slot `:general :epoch-history`) renders on the
+;;   General tab, not here — wired
 ;;   to the framework's per-frame epoch ring depth via
 ;;   `(rf/configure! {:epoch-history {:depth N}})` (see
-;;   `settings/effects.cljs §apply-epoch-history!`). Slot stays under
-;;   `:general` for back-compat with the persisted settings shape;
-;;   only the popup home moved here (rf2-pu9sb).
-;; * Events retained (slot `:buffer :events-retained`, rf2-5u03ig)
+;;   `settings/effects.cljs §apply-epoch-history!`).
+;; * Events retained (slot `:buffer :events-retained`)
 ;;   — wired to the framework's per-frame trace ring via
 ;;   `(rf/configure! {:trace-buffer {:events-retained N}})` (see
 ;;   `settings/effects.cljs §apply-events-retained!`). The matching
 ;;   `:rf.xray/settings-update :buffer :events-retained` event
 ;;   applies it live; `apply-all!` replays the persisted value on boot.
 ;;
-;; Two inputs that once sat in this section were removed: the
-;; `:buffer :retained-epochs` numeric input (rf2-pu9sb — no substrate
-;; consumer; it was a duplicate of the wired `:general :epoch-history`
-;; slider, which lives on the General tab) and the inert
-;; `:buffer :app-db/inspector-collapse-threshold` input (rf2-5u03ig —
-;; no runtime consumer; the App-db inspector already auto-collapses on
-;; depth/width via `:default-expanded-depth` / `:max-depth` /
-;; `:max-inline-width`).
+;; There is no epoch-count input here (the General tab's
+;; `:general :epoch-history` slider is the wired epoch-capacity knob)
+;; and no App-db inspector collapse-threshold input (the App-db
+;; inspector auto-collapses on depth/width via
+;; `:default-expanded-depth` / `:max-depth` / `:max-inline-width`).
 
 (defn- numeric-field
-  "Hiccup for a numeric setting input + label + hint. Common shape
-  for the three Buffer-tab knobs. rf2-h4mnh — `:html-for` ↔ `:id`
-  associates label with input so clicking the label focuses the
+  "Hiccup for a numeric setting input + label + hint. `:html-for` ↔
+  `:id` associates label with input so clicking the label focuses the
   input AND screen readers announce them paired."
   [{:keys [testid label value default on-commit min hint]}]
   [:div {:style (field-style)}
@@ -1081,7 +978,7 @@
 
 (defn- buffer-section
   "The Buffer tab's body, as a PURE function of `dispatch` and the two
-  values it used to read for itself (rf2-k97c.3)."
+  values it renders, `events-retained` and `confirm-open?`."
   [dispatch events-retained confirm-open?]
   [:div {:data-testid "rf-xray-settings-section-buffer"
          :style {:position "relative"}}
@@ -1092,10 +989,6 @@
     "Tune how much history Xray retains for inspection. Lower "
     "numbers keep memory smaller; higher numbers let you scroll "
     "further back through past epochs."]
-
-   ;; Epoch history slider was here; moved to General 2026-05-27
-   ;; per Mike. The slot stays `:general :epoch-history`; only
-   ;; the visual home changed.
 
    (numeric-field
      {:testid    "rf-xray-settings-buffer-events-retained"
@@ -1129,9 +1022,9 @@
 (defn- editable-target?
   "True when `event.target` is a text-input surface where unmodified
   letter keys would otherwise type characters into a field. The inner
-  tab-mnemonic capture skips these so users can still type numbers
-  into the panel-width / long-keyword / buffer-knob inputs without
-  accidentally switching tabs."
+  tab-mnemonic capture skips these so users can type into the
+  popup's text and number inputs without accidentally switching
+  tabs."
   [^js event]
   (when-let [^js target (.-target event)]
     (let [tag (some-> target .-tagName .toUpperCase)]
@@ -1142,7 +1035,7 @@
 
 (defn- handle-keydown
   "Build the dialog-level keydown handler, closing over the captured
-  frame-aware `dispatch` (rf2-nesy9). Captures:
+  frame-aware `dispatch`. Captures:
 
    - `Escape` → close the Settings popup (always).
    - Bare-letter inner-tab mnemonics → switch the active inner tab.
@@ -1150,20 +1043,18 @@
      below tests membership in `mnemonic->tab-id`, which is derived by
      comprehension from the `tabs` vector, so `tabs` is the single
      roster and this docstring cannot drift against it.
-     Per Mike 2026-05-19 §0ter.4 the mnemonics are modal-only. They
-     cannot collide with the shipped global keys — catalogued in
+     The mnemonics are modal-only. They cannot collide with the shipped global keys — catalogued in
      `spec/007-UX-IA.md` §Keyboard, not restated here — because
      `keybinding.cljs` attaches capture-phase on `document` and
      gates its bare-key spine branch on `target-inside-modal?`,
      which finds this dialog's `data-rf-xray-mode=\"settings\"`
-     marker and stands down (rf2-ttnst). The `stopPropagation`
+     marker and stands down. The `stopPropagation`
      below is what keeps the key off the host page; the spine
      listener ran before it and declined on its own.
      Mnemonics are also suppressed when the focused element is an
      INPUT / TEXTAREA / SELECT / contenteditable surface, so users
-     typing into the numeric fields (panel-width, long-keyword
-     threshold, buffer knobs) are not interrupted by an accidental
-     letter.
+     typing into the popup's fields (the custom editor template, the
+     buffer knob) are not interrupted by an accidental letter.
    - Every other key falls through to the host."
   [dispatch]
   (fn [^js e]
@@ -1198,19 +1089,17 @@
   fn assumes it is open and always renders. ESC closes; click outside
   the dialog closes; the ✕ button in the header closes.
 
-  ## rf2-k97c.3 — WAS `popup-view`, AND IT READ FOR ITSELF
+  ## WHY IT READS NOTHING
 
-  Before the migration this fn and its four section helpers performed
-  THIRTEEN ambient `@(rf/subscribe …)` reads between them. They are now
-  hoisted into the boundary, and the reason is not taste: `rf.fresco/sub`
+  The THIRTEEN reads this fn and its four section helpers need are
+  performed by the boundary, and the reason is not taste: `rf.fresco/sub`
   refuses outside a boundary render (`:rf.error/fresco-sub-outside-render`,
   `impl.collector/read-key!`), so a read-performing helper that anything
   calls from OUTSIDE a React commit — a handler, a utility path, a
-  node-lane test — becomes uncallable the moment its read is migrated.
-  Seven such callers existed. A pure fn needs neither a render window nor
-  `subscribe-once`, so hoisting keeps every lane open.
+  node-lane test — would be uncallable. A pure fn needs neither a render
+  window nor `subscribe-once`, so every lane stays open.
 
-  `data` is that hoisted read-set, keyed by the tab that consumes it:
+  `data` is that read-set, keyed by the tab that consumes it:
 
       {:active-tab       — which inner tab is showing
        :positioning      — `:rf.xray/modal-positioning` (fixed / absolute)
@@ -1220,27 +1109,27 @@
        :events-retained  — Buffer tab
        :confirm-open?}   — Buffer tab's nested confirm modal
 
-  WHAT THE HOIST COSTS, stated because it is a real behaviour change:
-  the four tabs' slots are now read whenever the popup is OPEN, where
-  before only the ACTIVE tab's were. That is the one lost conditional.
-  It is bounded — the gate is still conditional, so a CLOSED popup holds
-  ONE subscription, not fourteen, because `rf.fresco/sub` is legal inside
+  WHAT READING IN THE BOUNDARY COSTS: the four tabs' slots are read
+  whenever the popup is OPEN, not only the ACTIVE tab's. That is the one
+  lost conditional. It is bounded — the gate is conditional, so a CLOSED
+  popup holds ONE subscription, not fourteen, because `rf.fresco/sub` is legal inside
   a `when` and records its edge where the read happens (HD-002). Four
   extra `get-in`-shaped reads on an open modal is not a cost worth a
   second boundary per tab, and a per-tab boundary would put a Fresco head
   in this tree that the node lane could not walk.
 
-  `dispatch` (rf2-nesy9) is the frame-bound dispatcher — threaded down to
+  `dispatch` is the frame-bound dispatcher — threaded down to
   every section helper so deferred handlers land on the surrounding
   instance frame, not a `{:frame :rf/xray}` literal. The boundary takes
-  it from `(:dispatch (rf/capture-frame))`; the node-lane door passes
-  `rf/dispatch` under `rf/with-frame`.
+  it from `(:dispatch (rf/capture-frame))`, and the node-lane door
+  (`test-helpers/modal-trees`'s `settings-popup-tree`) defaults to the
+  same door.
 
   PURE: every helper it calls is a plain fn of its arguments."
   [dispatch {:keys [active-tab positioning general highlight? keys-on?
                     events-retained confirm-open?]}]
   (let [on-keydown (handle-keydown dispatch)]
-    ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
+    ;; Shared backdrop + dialog scaffold. Keeps this modal's
     ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
     ;; root, and its `handle-keydown` (Esc-closes + bare-letter tab
     ;; mnemonics) on BOTH the backdrop and the dialog. The
@@ -1277,7 +1166,7 @@
                                 (dispatch [:rf.xray/settings-close]))
                  :style       (close-button-style)}
         "✕"]]
-      ;; Tab strip — rf2-h4mnh: the strip wrapper is an explicit
+      ;; Tab strip: the strip wrapper is an explicit
       ;; `role="tablist"` so assistive tech reads the row as a tab
       ;; group rather than a generic div of buttons. `aria-label`
       ;; names the group ("Settings sections") for screen readers
@@ -1286,14 +1175,14 @@
                    :role        "tablist"
                    :aria-label  "Settings sections"
                    :style       (tab-strip-style)}]
-            ;; rf2-k97c.3 — `tab-button` is CALLED, not headed. The
+            ;; `tab-button` is CALLED, not headed. The
             ;; standard HD-016 repair: a plain fn in head position is
             ;; `:invalid` to Fresco's codec, and everything this one
             ;; answers is keyword-headed, so the call terminates. Its
-            ;; `:key` moved into its own attrs map with it.
+            ;; `:key` sits in its own attrs map.
             (for [tab tabs]
               (tab-button dispatch tab (= (:id tab) active-tab))))
-      ;; Body — rf2-h4mnh: closes the tabs/tabpanel loop. The body
+      ;; Body: closes the tabs/tabpanel loop. The body
       ;; carries `role="tabpanel"` + an `id` matching the active
       ;; tab button's `aria-controls`, and `aria-labelledby`
       ;; pointing back at the tab button so AT announces "<Tab>
