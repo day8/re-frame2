@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
- * Tests for `check-examples-compile.cjs` — the standalone-build COMPILE gate
- * (rf2-0vav5.1 + rf2-cn6kc.1 + rf2-in6c4).
+ * Tests for `check-examples-compile.cjs` — the standalone-build COMPILE gate.
  *
  * The gate derives its compile list from `shadow-cljs.edn`'s `:examples/*`
  * and `:testbeds/*` build ids, so a newly-declared build under either prefix
@@ -10,11 +9,11 @@
  * a build ship uncompiled-but-green, the exact regression class the gate
  * exists to prevent). Specifically:
  *
- *   - the parser recovers the previously-uncovered builds (login-uix,
- *     dashboard-uix, login-helix, process-monitor-helix) AND the covered
- *     counter trio — so the gate sweeps the whole standalone example set;
- *   - it recovers the twelve non-tenant top-level `:testbeds/*` builds
- *     rf2-in6c4 found dark, and `tenant-switcher` beside them;
+ *   - the parser recovers the UIx example builds (login-uix, dashboard-uix)
+ *     AND the counter pair — so the gate sweeps the whole standalone example
+ *     set;
+ *   - it recovers the twelve non-tenant top-level `:testbeds/*` builds no
+ *     other PR-time lane compiles, and `tenant-switcher` beside them;
  *   - a NEWLY-declared build under EITHER prefix is picked up (proven by
  *     feeding the parser a synthetic edn with an extra build — the
  *     enumeration grows, which is exactly why the live gate would compile it
@@ -61,7 +60,7 @@ function it(label, fn) {
 }
 
 console.log(
-  'check-examples-compile enumeration tests (rf2-0vav5.1 + rf2-cn6kc.1 + rf2-in6c4)',
+  'check-examples-compile enumeration tests',
 );
 
 // --- Real-file enumeration: non-vacuous + covers the gap builds -----------
@@ -79,15 +78,13 @@ it('enumeration over the real shadow-cljs.edn is non-vacuous under EVERY swept p
 });
 
 it('the previously-UNCOVERED standalone builds are swept (the gap)', () => {
-  // login-helix / process-monitor-helix were also gap builds until the
-  // Helix adapter (and its examples) left at S7/W13 (rf2-d6epb).
   for (const b of [
     'examples/login-uix',
     'examples/dashboard-uix',
   ]) {
     assert.ok(
       realBuilds.includes(b),
-      `${b} (rf2-0vav5.1 / rf2-cn6kc.1 gap build) is NOT in the gate's ` +
+      `${b} is NOT in the gate's ` +
         `compile set — the gate would not compile it, so the regression ` +
         `it exists to catch would still ship green.`,
     );
@@ -113,12 +110,12 @@ it('enumeration is sorted + de-duplicated', () => {
   );
 });
 
-// rf2-in6c4 — the twelve non-tenant top-level testbed builds the gating audit
-// found dark. They are named individually rather than counted: a count would
+// The twelve non-tenant top-level testbed builds no other PR-time lane
+// compiles. They are named individually rather than counted: a count would
 // go green again the moment a thirteenth build replaced a deleted twelfth,
 // which is exactly the drift the derivation exists to expose. `tenant-switcher`
 // is listed beside them because it is the same shadow build and costs nothing
-// extra here, even though `tenant_switcher_smoke` already covers it.
+// extra here, even though `tenant_switcher_smoke` also covers it.
 const TOP_LEVEL_TESTBED_BUILDS = [
   'testbeds/deep-machine',
   'testbeds/deliberate-throw',
@@ -159,10 +156,10 @@ it('every recovered build sits under a DECLARED swept prefix', () => {
 });
 
 it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () => {
-  // The vacuous-pass this closes: widening the roster to two prefixes makes a
-  // single TOTAL floor satisfiable by the examples alone, so the testbeds arm
-  // could silently stop matching and the gate would still pass having dropped
-  // fifteen builds. Feed the checker an examples-only roster well above any
+  // The vacuous pass this refuses: with two prefixes, a single TOTAL floor is
+  // satisfiable by the examples alone, so the testbeds arm could silently stop
+  // matching and the gate would still pass having dropped every testbed
+  // build. Feed the checker an examples-only roster well above any
   // total floor and require it to name `testbeds` anyway.
   const examplesOnly = realBuilds.filter((b) => b.startsWith('examples/'));
   assert.ok(
@@ -201,9 +198,9 @@ it('a NEWLY-declared example build is picked up automatically (auto-cover)', () 
 });
 
 it('a NEWLY-declared TESTBED build is picked up automatically (rf2-in6c4)', () => {
-  // The auto-cover property has to hold under the NEW prefix too, or the hole
-  // rf2-in6c4 closed reopens for the fourteenth testbed rather than the
-  // thirteenth. Same shape as the example case above, one prefix over.
+  // The auto-cover property has to hold under the testbeds prefix too, or a
+  // newly-declared testbed would go uncompiled. Same shape as the example
+  // case above, one prefix over.
   const base = enumerateCompiledBuilds(realEdn);
   const withExtra =
     realEdn +
@@ -265,8 +262,8 @@ it('a commented-out build id is NOT counted (no false coverage)', () => {
 });
 
 it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
-  // The removed-build note in shadow-cljs.edn references :examples/xray-rhs-smoke
-  // in prose; such mentions must never be enumerated as live builds.
+  // A comment in shadow-cljs.edn names :examples/xray-rhs-smoke in prose;
+  // such mentions must never be enumerated as live builds.
   const edn =
     '  :examples/real {:target :browser}\n' +
     '  ;; see :examples/xray-rhs-smoke for the removed variant\n' +
@@ -336,11 +333,11 @@ it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
   assert.deepStrictEqual(failed, [':examples/login-uix']);
 });
 
-// --- Coverage reconciliation teeth (rf2-nlnd9y.1) -------------------------
+// --- Coverage reconciliation teeth ----------------------------------------
 // A clean child exit + zero PARSED warning rows is NOT proof every build was
 // analysed. If a requested build's summary is missing or unparsable, the
 // warning analysis was BLIND for that build — the gate must FAIL, not pass
-// vacuously. These pin reconcileRequestedBuilds (the new teeth) so a
+// vacuously. These pin reconcileRequestedBuilds so a
 // missing/unparseable summary, a duplicate/unexpected summary, and a
 // parser-missed WARNING marker all turn the gate RED.
 
@@ -361,7 +358,8 @@ it('reconcile is clean when every requested build has exactly one summary', () =
 
 it('a requested build with NO parsable summary is a coverage FAILURE (false-green closed)', () => {
   // Request a third build (dashboard-uix) whose summary never appears — the
-  // exact false-green: child exits 0, no warning row, gate previously passed.
+  // exact false-green: child exits 0, no warning row, and a gate without
+  // reconciliation passes.
   const problems = reconcileRequestedBuilds(
     ['examples/login-uix', 'examples/login-helix', 'examples/dashboard-uix'],
     CLEAN_OUTPUT,
@@ -375,8 +373,8 @@ it('a requested build with NO parsable summary is a coverage FAILURE (false-gree
 });
 
 it('an UNPARSEABLE warning summary (singular "1 warning") FAILS the gate', () => {
-  // shadow prints `... 1 warnings` (plural) today; a format drift to the
-  // singular `1 warning` no longer matches COMPLETED_RE, so the summary is
+  // shadow prints `... 1 warnings` (plural); a format drift to the
+  // singular `1 warning` does not match COMPLETED_RE, so the summary is
   // unparseable AND a WARNING marker is present. Both the missing-summary
   // and orphan-warning teeth must fire — the warning would otherwise vanish.
   const drifted = [
@@ -388,7 +386,7 @@ it('an UNPARSEABLE warning summary (singular "1 warning") FAILS the gate', () =>
   // The unparseable summary yields zero completed rows...
   assert.deepStrictEqual(parseBuildSummaries(drifted).completed, []);
   assert.deepStrictEqual(buildsWithWarnings(drifted), []);
-  // ...so the OLD gate would pass green. The reconciler must FAIL: the
+  // ...so a gate without reconciliation would pass green. The reconciler must FAIL: the
   // requested build has no parsable summary, and a WARNING marker is orphaned.
   const problems = reconcileRequestedBuilds(['examples/login-helix'], drifted);
   assert.ok(
