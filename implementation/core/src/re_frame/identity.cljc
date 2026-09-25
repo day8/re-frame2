@@ -388,9 +388,10 @@
   work-ledger, trace, and replay identity (EP-0012 disposition 5: canonical
   EDN IS the identity).
 
-  The normalization recursively reorders map entries and set elements into
-  CEDN-1 canonical order while preserving vector / list order and EDN kind,
-  so two map spellings that differ only in insertion order return an `=`
+  The normalization recurses through maps, sets, vectors and lists,
+  preserving vector / list order and EDN kind. It does not reorder map
+  entries or set elements — CEDN-1 ordering belongs to `canonical-bytes` —
+  and two map spellings that differ only in insertion order return an `=`
   canonical value. An instant normalizes to the reserved tagged tuple
   `[:rf.identity/instant \"<millisecond-precision UTC text>\"]`, which
   `canonical-bytes` encodes to the SAME `t:<text>` token as the host instant it
