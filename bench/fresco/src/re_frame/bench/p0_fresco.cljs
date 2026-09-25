@@ -1,11 +1,11 @@
 (ns re-frame.bench.p0-fresco
   "EP-0038 P0 — **the candidate**: a Fresco-shaped boundary on the P0
   reads ladder. One subscription/epoch hook per boundary, N edges in a
-  shared index (rf2-2rtt6.34).
+  shared index.
 
   ## Why this arm exists, and why on THIS instrument
 
-  Per-read retained heap is the one axis on which the ruled architecture
+  Per-read retained heap is the one axis on which the Fresco architecture
   is structurally cheaper than the parent it is built on rather than more
   expensive. The React-hook spine pays a `useSyncExternalStore` cell (plus
   two `useRef`s and a `useMemo`) **per read**; Arm 1 pays **one**
@@ -23,20 +23,17 @@
   ## The arm IS the shipped package, not a model of it
 
   Every read goes through `re-frame.fresco/sub` — the ambient collector
-  the operator ruled the shipping read surface on 2026-07-31 — and every
-  boundary is minted by the package's own `defview`. Nothing here
+  that is the package's shipping read surface — and every boundary is
+  minted by the package's own `defview`. Nothing here
   re-implements the shell, the index, the entry cache or the commit path.
   A hand-rolled imitation would be pricing this file rather than the
   design.
 
   And it is `implementation/fresco/src` those doors reach, not the
-  `re-frame.bench.fresco.arm1.*` prototype the package was moved from
-  (rf2-fe0l). Until this repoint no heap instrument pointed at the
-  package at all: the prototype's own docstring says it lives off every
-  production source path, and `fresco/scripts/check_freeze.py` says the
-  same from the other side, so a heap figure taken through it priced a
-  frozen copy whose divergence from the product is expected and
-  permanent. The direction of the dependency is the allowed one — the
+  `re-frame.bench.fresco.arm1.*` prototype: the prototype's own docstring
+  says it lives off every production source path, so a heap figure taken
+  through it would price a frozen copy whose divergence from the product
+  is expected and permanent. The direction of the dependency is the allowed one — the
   bench tree may require the package; the SEALED rule forbids only the
   reverse.
 
@@ -62,9 +59,8 @@
   the driver gates it against B, so the claim is a counted number rather
   than an argument.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.34."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.fresco :refer [sub]])
