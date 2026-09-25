@@ -466,7 +466,7 @@
         ;; string + `:exception-data` ex-data map). No raw Throwable rides the
         ;; trace bus / epoch capture / tooling listeners by default.
         (is (not (contains? tags :ex))
-            "no raw Throwable `:ex` slot — replaced by a structured summary")
+            "no raw Throwable `:ex` slot — the failure carries a structured summary")
         (is (= "boom" (:exception-message tags))
             ":exception-message carries the plain message string")
         (is (= {:why :test} (:exception-data tags))
