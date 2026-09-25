@@ -1,14 +1,12 @@
 (ns day8.re-frame2-xray.panels.reactive-panel-view
-  "Root view for the Views panel (rf2-ad7zx.6 · Figma reconcile · prior
-  beads: rf2-e33ad / rf2-8ve8z / rf2-wyvf2 / rf2-isun6 · chrome cleanup
-  rf2-fhh34).
+  "Root view for the Views panel.
 
   Renders the reactive event-bundle as a left → right REACTIVE FLOW graph —
-  an inline-SVG node-and-edge canvas (NOT the prior three stacked
-  tables). Reconciled to `tools/xray/spec/021-Dynamic-Panel-Designs.md`
+  an inline-SVG node-and-edge canvas. Follows
+  `tools/xray/spec/021-Dynamic-Panel-Designs.md`
   §3.2 + `tools/xray/design-reference/xray_devtools_reference.cljs`
-  (the `views-panel` component — the
-  later iteration, authoritative over the §3.1.1 table iteration).
+  (the `views-panel` component, authoritative over the §3.1.1 table
+  design).
 
   ## Shape (spec/021 §3.2)
 
@@ -27,7 +25,7 @@
     outline + dim label; edges DASHED grey + visually CUT (no arrowhead).
   - **view** node → success-tinted box labelled `(rerendered)`; carries
     its per-view `:triggered-by` cause + `:elapsed-ms` timing
-    (rf2-8wrzz.1) as a sub-label.
+    as a sub-label.
   - **shared subscription** → a sub read by ≥2 views fans out to N view
     nodes; the node carries a `×N` annotation.
 
@@ -41,8 +39,8 @@
     pin expands it to the dim rows.
   - **UNMOUNTED VIEWS** — views whose component unmounted this epoch.
   - **DESTROYED SUBSCRIPTIONS** — subs cleaned up when their last reader
-    unmounted (data-availability honest: empty until the sub-dispose op
-    lands — see reactive-panel-subs/destroyed-subscriptions).
+    unmounted (the `:rf.sub/dispose` op — see
+    reactive-panel-subs/destroyed-subscriptions).
 
   A legend closes the panel with three swatches: changed (propagates) ·
   no change (short-circuits) · unmounted / destroyed.
@@ -56,7 +54,7 @@
   `reactive-flow-graph/layout`, rendered here as hiccup. Mirrors
   `chart/timing-waterfall`.
 
-  ## Hover-highlight (rf2-e33ad / rf2-8l03l — preserved)
+  ## Hover-highlight
 
   Hovering a view NODE toggles the `.rf-xray-view-highlight` class onto
   the rendered view's root DOM node (matched by `data-rf-view` — the
@@ -66,7 +64,7 @@
   perturb layout. Cleared on mouseleave.
 
   Pure hiccup — frame isolation via the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in the shell."
+  `rf.fresco/frame-provider` that `shell.cljs`'s `shell-view-tree` opens."
   (:require [clojure.string :as string]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
@@ -80,12 +78,12 @@
   "Muted caption preceding each section, echoing the Figma
   `devtools-caption tracking-wide` heading.
 
-  rf2-tha26 — the PRIMARY `Reactive Flow` heading renders in TITLE CASE
+  The PRIMARY `Reactive Flow` heading renders in TITLE CASE
   (`:title-case?`), not the all-caps the secondary teardown captions
   (`Unmounted Views` / `Destroyed Subscriptions`) keep. The Figma
   reference uppercases every caption via CSS, but the title-case
   `Reactive Flow` reads as the panel's headline rather than a shout —
-  the all-caps render flattened it into the same register as the
+  an all-caps render would flatten it into the same register as the
   smaller teardown sections."
   [title-case?]
   (cond-> {:padding        "0 0 8px 0"
@@ -98,7 +96,7 @@
 
 (defn- section-label
   "Section caption. testid: `rf-xray-reactive-section-<id>-label`.
-  `:title-case?` (rf2-tha26) renders the literal title without the
+  `:title-case?` renders the literal title without the
   CSS uppercase transform — used for the primary `Reactive Flow`
   heading."
   ([id title] (section-label id title nil))
@@ -170,14 +168,14 @@
   never masquerade as structure). Small + local to the selector below — NOT a
   general serializer.
 
-  RECORDS ARE TYPE-PRESERVING (rf2-5h9td). CLJS records satisfy `map?`, so a
+  RECORDS ARE TYPE-PRESERVING. CLJS records satisfy `map?`, so a
   bare `map?` branch would discard the record's type and render `(->A 1)`,
   `(->B 1)` and `{:x 1}` all as `{:x 1}` — three UNEQUAL concrete queries
   collapsed onto one selector. Records are matched FIRST and carry an explicit
   `#my.ns/MyRec` type tag; they can never collide with a set (`#{`, and a
   record tag is non-empty and never starts with `{`) nor with a plain map.
   Records are legal concrete-query arguments — the fresh-object cache
-  diagnostic already names them (`map / collection / record built inline`).
+  diagnostic names them (`map / collection / record built inline`).
 
   SUPPORTED DOMAIN, honestly stated. Injectivity holds for the EDN value
   space a concrete query is built from: collections (above), and scalars whose
@@ -199,26 +197,26 @@
 
 (defn- concrete-query-selector
   "GENUINELY INJECTIVE `data-testid` suffix for an unchanged-sub row's
-  concrete-query identity (rf2-bk2c6 / rf2-haoip / rf2-5h9td). `id-slug` alone
+  concrete-query identity. `id-slug` alone
   is LOSSY — it flattens every non-alnum/non-`_` char to `_`, so DISTINCT queries
   collapse to one slug (`[:item/derived :a-b]` and `[:item/derived :a/b]` both
-  slug to `__item_derived__a_b_`). Appending a 32-bit `hash` did NOT fix this:
+  slug to `__item_derived__a_b_`). Appending a 32-bit `hash` would NOT fix this:
   a 32-bit hash COLLIDES, so distinct queries (`[:item/derived \" @\"]` and
-  `[:item/derived \"!!\"]` share hash `1127258382`) still minted the identical
+  `[:item/derived \"!!\"]` share hash `1127258382`) would mint the identical
   selector — false identity, two rows onto one `data-testid` the DOM cannot
-  address independently. The discriminator is now a LOSSLESS, order-canonical
+  address independently. The discriminator is a LOSSLESS, order-canonical
   encoding of the full identity, made DOM-safe via `encodeURIComponent`:
   distinct concrete queries get distinct selectors (collision-free), and
   value-equal identities — maps in any insertion order included — get ONE
   stable selector (the dedup contract). That encoding is TYPE-PRESERVING for
-  records (rf2-5h9td): since CLJS records satisfy `map?`, a bare map branch
-  would have rendered `(->A 1)`, `(->B 1)` and `{:x 1}` identically and
-  re-collapsed three distinct queries onto one selector — see `canonical-str`
+  records: since CLJS records satisfy `map?`, a bare map branch
+  would render `(->A 1)`, `(->B 1)` and `{:x 1}` identically and
+  collapse three distinct queries onto one selector — see `canonical-str`
   for the record tag and the honestly-stated supported domain.
 
-  The readable `id-slug` stem survives; projection, React keys, the visible
-  label, and `data-query-v` are untouched;
-  only this testid encoding changes. BOTH the readable stem and the
+  The selector keeps a readable `id-slug` stem. Only the testid uses this
+  encoding; projection, React keys, the visible label, and `data-query-v`
+  do not. BOTH the readable stem and the
   discriminator derive from `canonical-str`, so the WHOLE selector is a function
   of VALUE — the `id-slug` stem cannot re-leak map insertion order."
   [ident]
@@ -234,7 +232,7 @@
       (str (/ (Math/round (* ms 10.0)) 10.0) "ms")
       (str (Math/round ms) "ms"))))
 
-;; ---- hover-highlight (rf2-e33ad / rf2-8l03l) --------------------------
+;; ---- hover-highlight ---------------------------------------------------
 ;;
 ;; Hover a view node → stamp the pink diagonal-stripe highlight class on
 ;; the rendered view's root DOM node (matched via `data-rf-view`).
@@ -266,8 +264,8 @@
 ;; ---- [code] open-chip --------------------------------------------------
 
 (defn- open-source!
-  "Dispatch the jump-to-source effect for a topology coord. rf2-vw5pi
-  — delegates to the shared `coord-link/open-in-editor!` so the
+  "Dispatch the jump-to-source effect for a topology coord. Delegates
+  to the shared `coord-link/open-in-editor!` so the
   `:rf.xray/open-in-editor` dispatch lives in ONE place; the reactive
   graph's source affordances are SVG `<g>`/`<rect>` node clicks (not
   `<button>` chips), so they bind this helper to `:on-click` directly
@@ -292,11 +290,11 @@
   "Render one event-bundle edge. Changed → solid accent line + arrowhead
   (propagates). Unchanged → dashed dim line, NO arrowhead (cut)."
   [{:keys [from-id to-id x1 y1 x2 y2 changed? kind]} i]
-  ;; rf2-k97c.3 — the React key is a LITERAL `:key` in the attribute map,
+  ;; The React key is a LITERAL `:key` in the attribute map,
   ;; not reader metadata on the returned vector. Fresco's codec reads the
   ;; attr-map slot only (`codec.cljs` head table: "literal `:key` in the
-  ;; attr map"), so a metadata key silently degrades to index-based
-  ;; reconciliation once this subtree renders inside a boundary.
+  ;; attr map"), so a metadata key would silently degrade to index-based
+  ;; reconciliation inside a boundary.
   [:line (cond-> {:key (str "edge-" kind "-" i)
                   :data-testid (str "rf-xray-reactive-edge-" (name kind))
                   :data-edge-changed (str (boolean changed?))
@@ -329,11 +327,11 @@
   Clicking the node jumps to the sub's registration source."
   [{:keys [id slug label changed? shared-count coord x y w h kind] :as node}]
   (let [click (when coord (fn [e] (open-source! coord e)))]
-    [:g (cond-> {;; rf2-k97c.3 — the sequence key rides in the attribute
+    [:g (cond-> {;; The sequence key rides in the attribute
                  ;; map. `flow-graph` CALLS this fn (a plain fn in hiccup
                  ;; head position is a loud error under Fresco), and a
                  ;; call form discards reader metadata on return anyway.
-                 ;; rf2-3x7nj.24.3 — the INSTANCE key, not the id's slug:
+                 ;; The INSTANCE key, not the id's slug:
                  ;; N instances of one sub are N siblings.
                  :key (:key node)
                  :data-testid (str "rf-xray-reactive-node-" (name kind) "-" slug)
@@ -363,15 +361,15 @@
 (defn- view-node
   "Render a view node — the event-bundle leaf + focus. Success-tinted box
   labelled `(rerendered)` (or `(mounted)`); carries the per-view
-  render CAUSE + `:elapsed-ms` timing as a sub-label (rf2-8wrzz.1).
+  render CAUSE + `:elapsed-ms` timing as a sub-label.
 
   A view re-renders for exactly one of two reasons — a SUBSCRIPTION it
   derefs changed value, or its PROPS changed (the orthogonal `:rf/props`
-  channel). The cause sub-label attributes which (rf2-bhi3t):
+  channel). The cause sub-label attributes which:
   `← :sub-id` when `:triggered-by` is present, `← props` on a re-render
   whose own subs all held value (the props channel). A mount carries no
   cause — the `(mounted)` label already conveys the first render.
-  Hovering toggles the pink DOM highlight (rf2-8l03l)."
+  Hovering toggles the pink DOM highlight."
   [{:keys [id slug label action triggered-by elapsed-ms x y w h] :as node}]
   (let [meta      (when id (rf/handler-meta {:source :store :kind :view :id id}))
         disp-name (view-display-name id meta)
@@ -379,7 +377,7 @@
                     {:file (:file meta) :line (:line meta) :ns (:ns meta)})
         mount?    (= :mount action)
         sub-label (str "(" (if mount? "mounted" "rerendered") ")")
-        ;; rf2-bhi3t — props-driven re-render attribution. On a re-render
+        ;; Props-driven re-render attribution. On a re-render
         ;; with no `:triggered-by`, none of the view's own subs changed
         ;; value, so the cause is props. Mounts show no cause.
         cause     (cond
@@ -388,8 +386,8 @@
                     :else        "← props")
         timing    (elapsed-label elapsed-ms)
         meta-line (->> [cause timing] (remove nil?) (string/join " · "))]
-    [:g {;; rf2-k97c.3 — attribute-map key; see `sub-node`.
-         ;; rf2-3x7nj.24.3 — the instance (render-key) key.
+    [:g {;; Attribute-map key; see `sub-node`.
+         ;; The instance (render-key) key.
          :key (:key node)
          :data-testid (str "rf-xray-reactive-view-node-" slug)
          :data-node-id (str id)
@@ -427,10 +425,10 @@
                      :font-family sans-stack :font-size "12px"}}
        "No subs subscribed to changed paths · no views re-rendered."]
       [:div {:data-testid "rf-xray-reactive-graph-card"
-             ;; rf2-tha26 — the card edge reads as a real rounded-lg
-             ;; card frame. The plain `:border-default` (#373737) hairline
-             ;; was near-invisible against the card's `:bg-1` fill on the
-             ;; dark theme; a `:dim`-tinted edge gives the SVG canvas a
+             ;; The card edge reads as a real rounded-lg
+             ;; card frame. A plain `:border-default` (#373737) hairline
+             ;; would be near-invisible against the card's `:bg-1` fill on
+             ;; the dark theme; a `:dim`-tinted edge gives the SVG canvas a
              ;; clearly-bounded card the operator can read at a glance.
              :style {:border (str "1px solid " (with-alpha :dim 45))
                      :border-radius "8px"
@@ -446,7 +444,7 @@
         (into [:g {:data-testid "rf-xray-reactive-edges"}]
               (map-indexed (fn [i e] (edge e i)) (:edges g)))
         (appdb-node (:appdb g))
-        ;; rf2-k97c.3 — `sub-node` / `view-node` are CALLED, never used as
+        ;; `sub-node` / `view-node` are CALLED, never used as
         ;; a hiccup head: a plain fn in head position is a loud error in a
         ;; Fresco body and a silent extra component under Reagent. Each
         ;; carries its own attribute-map `:key`.
@@ -457,16 +455,12 @@
         (into [:g {:data-testid "rf-xray-reactive-view-nodes"}]
               (map view-node (-> g :nodes :view)))]])))
 
-;; ---- hoisted row-level styles (rf2-gjiog · audit F9) -------------------
+;; ---- hoisted row-level styles ------------------------------------------
 ;;
-;; Extends the existing `list-card-style` hoist (sibling
-;; `panels/event_detail.cljs` / `panels/cancellation_event-bundle.cljs`
-;; precedents) to the list-row + sub-value-row + legend-swatch row
-;; primitives below. Each Reactive panel render produces ~10-20 list
-;; rows and ~5-15 sub-value rows; collapsing the inline `:style {...}`
-;; allocations to ns-top map references trims ~80 allocations off a
-;; representative panel render. Per-row colour variation rides a tiny
-;; `assoc`-overlay on a shared base map (the audit-F4 pattern).
+;; The list-card, list-row and legend-swatch primitives below read
+;; ns-top style maps rather than allocating inline `:style {...}` maps
+;; on every row of every render. Per-row colour variation rides a tiny
+;; `assoc`-overlay on a shared base map.
 ;;
 ;; Token reads resolve at ns-load; theme switching rides the CSS vars
 ;; seam per spec/007-UX-IA so the hoist is safe across light + dark.
@@ -512,7 +506,7 @@
   "One teardown-list row: a small tinted swatch + identifier + a muted
   trailing tag, matching the Figma `divide-y` list rows."
   [{:keys [testid swatch-token primary tag row-key]}]
-  [:div {;; rf2-k97c.3 — `row-key` is the caller's React key, carried in
+  [:div {;; `row-key` is the caller's React key, carried in
          ;; the attribute map because this fn is CALLED from a `for`
          ;; rather than used as a hiccup head. nil when the caller has
          ;; no sequence to key, which the codec treats as absent.
@@ -596,7 +590,7 @@
    :color (:text-tertiary tokens)})
 
 (defn- unchanged-row-identity
-  "Concrete-query identity a skipped-sub row keys + test-ids by (rf2-cj2yx).
+  "Concrete-query identity a skipped-sub row keys + test-ids by.
   The full `:query-v` when the skip evidence carried it — so distinct
   parameterizations of one registered sub (`[:item/derived 1]` /
   `[:item/derived 2]`) render as distinct, individually-addressable rows;
@@ -606,9 +600,9 @@
   (if (some? query-v) query-v sub-id))
 
 (defn- unchanged-row-label
-  "Display label for a skipped-sub row (rf2-cj2yx). A bare single-element
+  "Display label for a skipped-sub row. A bare single-element
   query `[:sub/id]` renders as the plain sub-id (the common unparameterized
-  case — unchanged); a parameterized query renders the FULL vector so
+  case); a parameterized query renders the FULL vector so
   `[:item/derived 1]` and `[:item/derived 2]` read distinctly. Falls back
   to the registered id when the row carries no query-v."
   [{:keys [sub-id query-v]}]
@@ -627,10 +621,10 @@
   it lists the memo-hit subs dim. The button dispatches the panel-local
   `:rf.xray/reactive-toggle-unchanged` quick-toggle.
 
-  Rows key + test-id + label by CONCRETE query-v (rf2-cj2yx), so distinct
+  Rows key + test-id + label by CONCRETE query-v, so distinct
   parameterizations of one registered sub stay individually visible.
 
-  `dispatch` (rf2-16y3x) is the facade-injected frame-aware dispatcher: the
+  `dispatch` is the facade-injected frame-aware dispatcher: the
   toggle's deferred `:on-click` calls IT, not a bare global `rf/dispatch`,
   so the flip lands on the surrounding Xray instance's frame after render
   scope unwinds (a bare dispatch would resolve no frame and raise
@@ -665,8 +659,8 @@
                   [:span {:style {:font-family sans-stack :font-size "10px"}}
                    "input unchanged · memo hit"]])))])))
 
-;; EP-0025: the STANDING `:public`-claim declassification audit section is
-;; REMOVED — classification no longer propagates input → output, so there is no
+;; There is no `:public`-claim declassification audit section:
+;; classification does not propagate input → output (EP-0025), so there is no
 ;; `:rf.egress/output-sensitivity :rf.egress/public` declassify claim to surface.
 
 ;; ---- legend ------------------------------------------------------------
@@ -727,22 +721,22 @@
   "The panel's hiccup projection — a PURE FUNCTION of the dispatcher and
   the `:rf.xray/reactive-data` VALUE. No read of its own.
 
-  Renders the left → right REACTIVE FLOW graph (rf2-ad7zx.6) followed by
+  Renders the left → right REACTIVE FLOW graph followed by
   the UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections and the closing
   legend.
 
-  rf2-k97c.3 — the read moved UP into `reactive-panel/Panel`, which is now
-  an `rf.fresco/defview` boundary reading `:rf.xray/reactive-data` with
-  `rf.fresco/sub`. Two things forced the split and neither is stylistic.
+  The read lives in `reactive-panel/Panel`, an `rf.fresco/defview`
+  boundary reading `:rf.xray/reactive-data` with `rf.fresco/sub`. Two
+  things make the split necessary and neither is stylistic.
   A boundary's body may only run inside a React render window, so `(Panel)`
-  is no longer a callable that answers hiccup; and `intent/with-frame` —
+  is not a callable that answers hiccup; and `intent/with-frame` —
   which the collector wraps every body in — binds core's REFUSAL tier, so
-  an ambient `@(rf/subscribe …)` left down here would not resolve
+  an ambient `@(rf/subscribe …)` down here would not resolve
   elsewhere, it would refuse. This is `defview`'s own documented
   extract-a-helper spelling, and it keeps every hiccup-walking unit row
-  drivable: the row supplies the value the boundary would have read.
+  drivable: the row supplies the value the boundary would read.
 
-  `dispatch` (rf2-16y3x) is the frame-aware dispatcher — `(:dispatch
+  `dispatch` is the frame-aware dispatcher — `(:dispatch
   (rf/capture-frame))` inside the boundary — threaded down so the
   panel-local unchanged-subs disclosure toggle's deferred `:on-click`
   lands on the surrounding instance frame after render scope unwinds,
