@@ -34,7 +34,7 @@ and [`lanes/hot-path-architecture.md`](lanes/hot-path-architecture.md)'s fourth:
 
 > No `:fast` flag, compiler fork, automatic promotion, profiling-dependent semantics, **per-boundary callback-cell table**, second state owner, or performance claim based only on render timing.
 
-**Each is recognised by the thing it would need, not by the words it would be described in.** A gate that fired on the word *compiler* is a gate authors route around by rewording; a gate that fires on a seventh `defmacro` cannot be reworded, because a build-time pass over body forms has to be one.
+**Each is recognised by the thing it would need, not by the words it would be described in.** A gate that fired on the word *compiler* is a gate authors route around by rewording; a gate that fires on a fourth `defmacro` cannot be reworded, because a build-time pass over body forms has to be one.
 
 ### 1.1 No second emitter
 
@@ -221,7 +221,7 @@ This matters more than one row, and `globals.md`'s own opening says why: *"a ros
 
 | Arm | What reds it |
 |---|---|
-| `mechanism` | a seventh `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
+| `mechanism` | a fourth `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
 | `retained-tooling` | a checker, a `fresco` npm script or a tool namespace with no row above, or a row whose Consumer cell is empty |
 | `mutable-globals` | a module-level owner the seven arms find whose `impl.<ns>/name` identity has no row in [`globals.md`](globals.md) |
 
