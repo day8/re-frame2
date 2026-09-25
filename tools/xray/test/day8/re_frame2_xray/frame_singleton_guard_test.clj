@@ -1,19 +1,19 @@
 (ns day8.re-frame2-xray.frame-singleton-guard-test
-  "Guard test for the EPIC rf2-1w07r frame-singleton class.
+  "Guard test for the frame-singleton class.
 
-  Xray was historically locked to a singleton `:rf/xray` frame: the
-  shell hardcoded a scope-only `[frame-provider {:frame
-  :rf/xray}]` and every out-of-render affordance dispatched a bare `{:frame :rf/xray}`
-  literal. Two shells on one page then collided on the one global
-  app-db. The de-singleton refactor (rf2-lnluk + rf2-r0o63)
-  parameterized the shell frame and made every out-of-render dispatch
-  capture the SURROUNDING instance frame via a frame-bound dispatch
-  (`reg-view`'s injected `dispatch` / `(:dispatch (rf/capture-frame))` /
-  `rf/current-frame-id`), so N instances stay isolated.
+  Xray's shell takes its frame as a parameter, and every out-of-render
+  dispatch captures the SURROUNDING instance frame via a frame-bound
+  dispatch (`reg-view`'s injected `dispatch` / `(:dispatch
+  (rf/capture-frame))` / `rf/current-frame-id`), so N instances stay
+  isolated. A shell hardcoding a scope-only `[frame-provider {:frame
+  :rf/xray}]`, or an out-of-render affordance dispatching a bare
+  `{:frame :rf/xray}` literal, would lock Xray to a singleton `:rf/xray`
+  frame, and two shells on one page would collide on the one global
+  app-db.
 
   This SOURCE-TEXT guard (JVM, runs in the fast `clojure -M:test`
-  gate) flags the two singleton-class anti-patterns so they cannot
-  regress into a de-singletoned file:
+  gate) flags the two singleton-class anti-patterns in every Xray source
+  file:
 
     A. a bare `{:frame :rf/xray}` literal — the entrenched singleton
        envelope. The ONE permitted `:rf/xray` literal is
@@ -29,22 +29,12 @@
        reg-view-injected `dispatch`, a threaded `dispatch-fn`, or
        `(:dispatch (rf/capture-frame))`).
 
-  ## Migration state — COMPLETE (rf2-1w07r EPIC closed via rf2-nesy9)
+  ## Coverage
 
-  The de-singleton chain ran to completion: the SHELL + named
-  affordances (`shell.cljs`, `views/edn_inspector.cljs`,
-  `views/resizable_table.cljs`, `panels/shared/coord_chip.cljs`,
-  `panels/shared/coord_link.cljs`) landed first; the rf2-nesy9 sweep
-  then migrated EVERY remaining surface — filters, palette, the static
-  shell + machines + routes surfaces, the machine / cancellation /
-  trace / issues / app-db-segment panels, the epoch pipeline, the share
-  + settings + spine-filter modals, and the resize handles. (The
-  edn-widget copy affordance was also migrated by that sweep; it has
-  since been retired outright under rf2-6r9j.24.) The
-  `pending-migration` allowlist below is now
-  EMPTY: every file is LOCKED clean by this guard, as is any NEW file.
-  Re-introducing a bare `{:frame :rf/xray}` literal or a global
-  `rf/dispatch` in an `:on-*` handler trips the guard immediately.
+  The `pending-migration` allowlist below is EMPTY, so every file under
+  `src/day8/re_frame2_xray/` is LOCKED clean by this guard, as is any
+  NEW file. A bare `{:frame :rf/xray}` literal or a global `rf/dispatch`
+  in an `:on-*` handler anywhere in that tree trips the guard.
 
   Mirrors the source-text-guard shape of
   `panels/click_to_source_consolidation_test.clj`."
@@ -63,8 +53,8 @@
 
 (def ^:private subscribe-literal-pattern
   "Matches `(rf/subscribe :rf/xray …)` — the positional-frame subscribe
-  form (the shell-view's own out-of-render reads used this before
-  rf2-lnluk threaded the instance frame-id)."
+  form, which pins the read to the singleton frame rather than the
+  instance frame."
   #"\(rf/subscribe\s+:rf/xray\b")
 
 (def ^:private on-handler-global-dispatch-pattern
@@ -76,7 +66,7 @@
 
 (def ^:private deferred-fn-bare-dispatch-pattern
   "Matches the DEFERRED-MULTILINE bare-dispatch leak the adjacency-only
-  `on-handler-global-dispatch-pattern` above misses (rf2-16y3x): an
+  `on-handler-global-dispatch-pattern` above misses: an
   `:on-<event>` wired to a multi-line `(fn [args] …)` whose FIRST body
   form is a single-arg bare `(rf/dispatch [ev])` / `(rf/dispatch-sync
   [ev])` carrying NO `{:frame …}` opt —
@@ -84,15 +74,14 @@
       :on-click    (fn [_e]
                      (rf/dispatch [:some/event]))
 
-  This is exactly the reactive-panel unchanged-subs toggle bug: after
-  render scope unwinds the ambient frame is gone, so the bare dispatch
-  raises `:rf.error/no-frame-context`, leaving the instance's state
-  untouched. `\\s` spans newlines (Java regex), so
+  After render scope unwinds the ambient frame is gone, so the bare
+  dispatch raises `:rf.error/no-frame-context`, leaving the instance's
+  state untouched. `\\s` spans newlines (Java regex), so
   the callback body need not be single-line. NARROW by design: it does
   NOT trip a dispatch carrying an explicit `{:frame frame}` opt (the
   `\\]\\s*\\)` tail requires the event vector to close the dispatch call)
   nor a callback whose first form is a guard like `(.stopPropagation e)`
-  — those are the correct/pre-existing shapes. The fix is to call a
+  — those are correct shapes. The fix is to call a
   captured frame-aware dispatcher (the reg-view-injected `dispatch`
   threaded down, a `dispatch-fn`, or `(:dispatch (rf/capture-frame))`)."
   #":on-[a-z-]+\s+#?\(fn\s+\[[^\]]*\]\s*\(rf/dispatch(-sync)?\s+\[[^\]]*\]\s*\)")
@@ -100,26 +89,21 @@
 ;; ---- allowlist ----------------------------------------------------------
 
 (def ^:private pending-migration
-  "Files NOT YET de-singletoned. The rf2-nesy9 sweep BURNED THIS DOWN TO
-  EMPTY — every panel / modal / static surface now captures the
-  surrounding instance frame (the reg-view-injected `dispatch`, a
-  threaded `dispatch-fn`, or a render-time `(rf/current-frame-id)` capture)
-  rather than pinning the `:rf/xray` singleton. This CLOSES the
-  rf2-1w07r frame-singleton EPIC: N isolated Xray instances on one page
-  each route to their own frame.
-
-  The set is now EMPTY and must STAY empty — any file that trips a
-  pattern is a regression. Keyed on the path RELATIVE to
-  `src/day8/re_frame2_xray/` (it must never GROW).
+  "Files exempt from the guard, keyed on the path RELATIVE to
+  `src/day8/re_frame2_xray/`. The set is EMPTY and must STAY empty —
+  every panel / modal / static surface captures the surrounding instance
+  frame (the reg-view-injected `dispatch`, a threaded `dispatch-fn`, or a
+  render-time `(rf/current-frame-id)` capture) rather than pinning the
+  `:rf/xray` singleton, so N isolated Xray instances on one page each
+  route to their own frame. Any file that trips a pattern is a
+  regression.
 
   ## The ONE permitted `:rf/xray` reference — and why it isn't here
 
   The few legitimate production-singleton seams — the trace-collector
   `note-suppressed!` dual-write (`config.cljc`) and the per-feature
   `hydrate!` init-seams (`spine-filters`, `machine-canvas`,
-  `static/machines/persistence`) — (the share-URL on-load restore in
-  `share.cljs` was another such seam until rf2-nugvv removed the whole
-  share surface) —
+  `static/machines/persistence`) —
   target the ONE production shell frame via the NAMED
   `defaults/default-frame-id` Var, NOT a bare `{:frame :rf/xray}` map
   literal. The named Var never trips `frame-literal-pattern`, so those
@@ -202,7 +186,7 @@
 (defn- multiline-offenders
   "Return a seq of `{:file rel :pattern <kw>}` for every non-allowlisted
   file whose WHOLE SOURCE TEXT (comment lines stripped) matches `pattern`
-  — the multiline scan the line-by-line `offenders` can't do (rf2-16y3x).
+  — the multiline scan the line-by-line `offenders` can't do.
   No reader / parser: one DOTALL-free `re-find` over the file text, where
   `\\s` already spans newlines."
   [pattern pattern-kw]
@@ -230,8 +214,8 @@
   (let [offs (concat (offenders frame-literal-pattern :frame-literal)
                      (offenders subscribe-literal-pattern :subscribe-literal))]
     (is (empty? offs)
-        (str "rf2-1w07r — bare `{:frame :rf/xray}` / `(rf/subscribe "
-             ":rf/xray …)` literal found in a de-singletoned (or new) "
+        (str "bare `{:frame :rf/xray}` / `(rf/subscribe "
+             ":rf/xray …)` literal found in an Xray source "
              "file. The render-tree singleton literal entrenches the "
              "one-shell lock. Capture the surrounding instance frame "
              "instead — the reg-view-injected `dispatch` / `subscribe`, a "
@@ -244,9 +228,9 @@
 (deftest no-global-dispatch-in-on-handler-in-migrated-files
   (let [offs (offenders on-handler-global-dispatch-pattern :on-handler-dispatch)]
     (is (empty? offs)
-        (str "rf2-1w07r — a global `rf/dispatch` / `rf/dispatch-sync` is "
-             "wired directly to an `:on-*` handler in a de-singletoned "
-             "(or new) file. After render unwinds the ambient frame is "
+        (str "a global `rf/dispatch` / `rf/dispatch-sync` is "
+             "wired directly to an `:on-*` handler in an Xray source "
+             "file. After render unwinds the ambient frame is "
              "gone, so a bare global dispatch raises "
              "`:rf.error/no-frame-context`. "
              "Dispatch through a captured frame-aware dispatcher (the "
@@ -255,19 +239,18 @@
              (report offs)))))
 
 (deftest no-deferred-fn-bare-dispatch-in-migrated-files
-  ;; rf2-16y3x — the reactive-panel unchanged-subs toggle installed a
-  ;; DEFERRED `(fn [_e] (rf/dispatch [ev]))` on-click. The bare dispatch
-  ;; fired after render scope unwound (ambient frame gone) → raises
-  ;; `:rf.error/no-frame-context`, leaving Xray state
-  ;; untouched. The adjacency-only guard above missed the multiline
-  ;; callback; this whole-file scan catches it so it cannot regress.
+  ;; A DEFERRED `(fn [_e] (rf/dispatch [ev]))` on-click fires after render
+  ;; scope unwinds (ambient frame gone), so its bare dispatch raises
+  ;; `:rf.error/no-frame-context`, leaving Xray state untouched. The
+  ;; adjacency-only guard above cannot see a multiline callback; this
+  ;; whole-file scan can.
   (let [offs (multiline-offenders deferred-fn-bare-dispatch-pattern
                                   :deferred-fn-bare-dispatch)]
     (is (empty? offs)
-        (str "rf2-16y3x — a DEFERRED multiline bare `(fn [args] (rf/dispatch "
+        (str "a DEFERRED multiline bare `(fn [args] (rf/dispatch "
              "[ev]))` (no `{:frame …}` opt, dispatch as the callback's first "
-             "form) is wired to an `:on-*` handler in a de-singletoned (or "
-             "new) file. After render unwinds the ambient frame is gone, so "
+             "form) is wired to an `:on-*` handler in an Xray source "
+             "file. After render unwinds the ambient frame is gone, so "
              "the bare dispatch raises `:rf.error/no-frame-context` and the "
              "instance's state never changes. Call a captured frame-aware dispatcher "
              "(the reg-view-injected `dispatch` threaded down, a "
@@ -276,12 +259,11 @@
              (report offs)))))
 
 (deftest deferred-fn-bare-dispatch-pattern-catches-multiline-callback
-  ;; Causal red/green for the guard (rf2-16y3x): the pattern MUST match the
-  ;; deferred multiline bug shape (which the old adjacency-only pattern
-  ;; missed) and MUST NOT match the fixed shape (a threaded `dispatch`) nor
-  ;; a dispatch carrying an explicit `{:frame …}` opt nor a guard-first
-  ;; callback. Proves the strengthened guard is causally sound without a
-  ;; parser.
+  ;; Causal red/green for the guard: the pattern MUST match the deferred
+  ;; multiline bug shape (which the adjacency-only pattern misses) and MUST
+  ;; NOT match the correct shape (a threaded `dispatch`) nor a dispatch
+  ;; carrying an explicit `{:frame …}` opt nor a guard-first callback.
+  ;; Proves the guard is causally sound without a parser.
   (let [bug     (str ":on-click    (fn [_e]\n"
                      "               (rf/dispatch [:rf.xray/reactive-toggle-unchanged]))")
         bug-1ln ":on-click (fn [_e] (rf/dispatch [:x/y]))"
@@ -296,9 +278,9 @@
         "catches the multiline deferred bare-dispatch bug shape")
     (is (re-find deferred-fn-bare-dispatch-pattern bug-1ln)
         "also catches the single-line form")
-    ;; The OLD adjacency-only pattern demonstrably MISSED the multiline shape.
+    ;; The adjacency-only pattern demonstrably MISSES the multiline shape.
     (is (not (re-find on-handler-global-dispatch-pattern bug))
-        "the pre-existing adjacency-only guard missed this multiline callback")
+        "the adjacency-only guard misses this multiline callback")
     (is (not (re-find deferred-fn-bare-dispatch-pattern fixed))
         "does NOT flag a threaded frame-aware `dispatch` (the fix)")
     (is (not (re-find deferred-fn-bare-dispatch-pattern framed))
@@ -307,10 +289,10 @@
         "does NOT flag a guard-first callback with an explicit frame opt")))
 
 (deftest pending-migration-allowlist-stays-honest
-  ;; The allowlist must only name files that ACTUALLY still carry a
-  ;; legacy pattern. A stale entry (file already migrated but still
-  ;; allowlisted) would silently mask a future regression in that file
-  ;; — so flag it so the rf2-nesy9 sweep prunes the entry as it lands.
+  ;; The allowlist may only name files that ACTUALLY carry a
+  ;; frame-singleton pattern. A stale entry (a clean file left on the
+  ;; allowlist) would silently mask a future regression in that file —
+  ;; so flag it for removal.
   (let [root  (src-root)
         files-by-rel (into {} (map (fn [f] [(rel-path root f) f]))
                            (cljs-source-files root))
@@ -326,8 +308,8 @@
                              (when-let [f (files-by-rel rel)]
                                (not (any-pattern (slurp f)))))))]
     (is (empty? stale)
-        (str "rf2-1w07r / rf2-nesy9 — these files are on the "
-             "`pending-migration` allowlist but no longer carry any "
-             "legacy frame-singleton pattern. Remove them from the "
+        (str "these files are on the "
+             "`pending-migration` allowlist but carry no "
+             "frame-singleton pattern. Remove them from the "
              "allowlist so the guard locks them clean:\n  "
              (str/join "\n  " stale)))))
