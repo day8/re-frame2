@@ -161,9 +161,9 @@
 
 (defn full-screen-toggle!
   "Handler for the `f` key. Flips
-  `[:chrome-visibility :full-screen?]` + persists. Escape exits via the
-  separate `Escape`-listener in the canvas's full-screen overlay (see
-  `canvas/full-screen-overlay`)."
+  `[:chrome-visibility :full-screen?]` + persists. Escape exits via
+  `exit-full-screen!`, which this ns's `dispatch!` binds to `Escape`
+  while full-screen is on."
   []
   (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-chrome-visibility :full-screen?)
   (save-to-storage! (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state))))
