@@ -1,7 +1,5 @@
 (ns re-frame.mcp-conformance.cursor-stale-test
-  "`:rf.mcp/cursor-stale` MULTI-server reason-value gate
-  (rf2-i3ffz F-GAP-5; promoted to multi-server by rf2-2js41 finding 1).
-  Split out of `wire_vocab_test.clj` by rf2-7ckmwx.
+  "`:rf.mcp/cursor-stale` MULTI-server reason-value gate.
 
   Unlike the wrapper-shaped markers in `schemas/canonical-markers`,
   `:rf.mcp/cursor-stale` rides as the `:reason` value on a generic
@@ -10,7 +8,7 @@
   itself: a rename or pluralisation would silently break every agent
   that pattern-matches on it.
 
-  BOTH MCP servers emit this reason value (rf2-2js41 finding 1):
+  BOTH MCP servers emit this reason value:
     - re-frame2-pair-mcp — epoch-id rotated out of the bounded ring
       (`tools/cursor.cljs/cursor-stale-result`).
     - story-mcp — the Docs `list-*` registry id-set changed between
@@ -31,7 +29,7 @@
        the reason).
     4. literal appears in re-frame2-pair-mcp's doc-sources (003-Tool-Catalogue.md).
     5. no near-miss spelling co-exists in any conformance-tracked file
-       — now INCLUDING story-mcp's cursor source (added to the sweep)."
+       — INCLUDING story-mcp's cursor source."
   (:require [clojure.string :as str]
             [clojure.test   :refer [deftest is testing]]
             [malli.core     :as m]
@@ -42,7 +40,7 @@
             [re-frame.mcp-conformance.wire-vocab.schemas :refer [CursorStaleResult]]
             [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]
             ;; story-mcp's cursor-stale builder, so the gate can drive the
-            ;; SECOND server's emission live (rf2-2js41 finding 1).
+            ;; SECOND server's emission live.
             [re-frame.story-mcp.tools.cursor :as rf.story-mcp.tools.cursor]))
 
 (def ^:private cursor-stale-fixture
@@ -73,7 +71,7 @@
 
 (deftest cursor-stale-fixture-conforms-to-schema
   ;; Both per-server emission-shape fixtures validate against the single
-  ;; canonical schema (rf2-2js41 finding 1 — cursor-stale is multi-server).
+  ;; canonical schema (cursor-stale is multi-server).
   (testing "re-frame2-pair-mcp emission shape (ring rotation)"
     (is (m/validate CursorStaleResult cursor-stale-fixture)
         (str "pair-mcp fixture for :rf.mcp/cursor-stale failed schema validation:\n"
@@ -97,13 +95,10 @@
 (deftest cursor-stale-reason-emitted-live-by-canonical-builder
   ;; LIVE-emission gate for `:rf.mcp/cursor-stale` (mirrors
   ;; `overflow-marker-shape-emitted-live-by-canonical-builder` for
-  ;; `:rf.mcp/overflow`). Both reason/marker builders were hoisted into
-  ;; the shared `mcp-base` ns (rf2-ee38b.19), so both are now
-  ;; JVM-reachable from this pure-JVM gate — `overflow-payload` already
-  ;; got its live counterpart, `cursor-stale-result` did not.
+  ;; `:rf.mcp/overflow`). Both reason/marker builders live in the shared
+  ;; `mcp-base` ns, so both are JVM-reachable from this pure-JVM gate.
   ;;
-  ;; The gap this closes: the existing cursor-stale coverage was exactly
-  ;; the two layers rf2-80y2h flagged as insufficient for `diff-from` —
+  ;; Without this gate, cursor-stale coverage would be two layers —
   ;; (1) an authored fixture validated against `CursorStaleResult`, and
   ;; (2) a source-text grep that the `:rf.mcp/cursor-stale` literal is
   ;; DECLARED in `mcp-base/vocab.cljc`. Neither observes the actual
@@ -111,8 +106,8 @@
   ;; `cursor-stale-result` (decoupling it from `vocab/cursor-stale-reason`),
   ;; or dropped the `:ok? false` posture, would: leave the vocab literal
   ;; in place (grep passes), leave the authored fixture untouched
-  ;; (fixture passes), and ship a builder whose emission no longer
-  ;; matches the constant agents pattern-match on. Every gate green.
+  ;; (fixture passes), and ship a builder whose emission does not
+  ;; match the constant agents pattern-match on. Every gate green.
   ;;
   ;; Drive the real builder with a minimal `error-result` that merely
   ;; returns the structured data-map (each server shapes the wire
@@ -146,19 +141,18 @@
       (is (= "epoch-9101" (:head-id emitted))))))
 
 (deftest story-cursor-stale-emitted-live-by-canonical-builder
-  ;; SECOND-server LIVE-emission gate for `:rf.mcp/cursor-stale`
-  ;; (rf2-2js41 finding 1). The gate above drives pair-mcp's reason
+  ;; SECOND-server LIVE-emission gate for `:rf.mcp/cursor-stale`.
+  ;; The gate above drives pair-mcp's reason
   ;; through the SHARED `mcp-base/cursor.cljc` builder; this one drives
   ;; STORY-MCP's own `re-frame.story-mcp.tools.cursor/cursor-stale-result`
   ;; — the builder for the Docs `list-*` pagination surface.
   ;;
-  ;; The gap this closes: before this gate, story-mcp's cursor-stale
-  ;; emission was caught ONLY by story-mcp's local unit tests
+  ;; Without this gate, story-mcp's cursor-stale emission would be
+  ;; caught ONLY by story-mcp's local unit tests
   ;; (`tools/story-mcp/test/...`). A drift in story-mcp's envelope shape
   ;; or a decoupling of its `:reason` from the cross-MCP vocab constant
   ;; would NOT trip the conformance surface that exists to enforce the
-  ;; SHARED agent vocabulary across servers. The cross-server contract
-  ;; was weaker than the (now multi-server) implementation.
+  ;; SHARED agent vocabulary across servers.
   ;;
   ;; story-mcp's `cursor-stale-result` wraps the shared mcp-base builder
   ;; in its MCP wire envelope via `result/error-result`, so the emission
@@ -205,7 +199,7 @@
 
 (def ^:private story-mcp-cursor-source
   "story-mcp's cursor source — the builder for the Docs `list-*`
-  pagination surface (rf2-2js41 finding 1). It documents the cross-MCP
+  pagination surface. It documents the cross-MCP
   `:rf.mcp/cursor-stale` reason and routes through the shared
   `mcp-base/cursor.cljc/cursor-stale-result` (sourcing `:reason` from
   the vocab symbol, not the literal). Pinned in the cursor-stale source
@@ -216,11 +210,11 @@
 
 (def ^:private cursor-stale-near-miss-source-files
   "The full set of conformance-tracked source/spec files the cursor-stale
-  near-miss anti-pin sweeps (rf2-2js41 finding 1). The base
+  near-miss anti-pin sweeps. The base
   `rf.mcp-conformance.wire-vocab.source-pins/all-source-files` covers the shared vocab declaration + pair-mcp
   specs; cursor-stale ALSO rides story-mcp's own cursor source, so that
   file is folded into story-mcp's sweep here. A near-miss spelling
-  introduced on EITHER server's cursor surface now trips the gate."
+  introduced on EITHER server's cursor surface trips the gate."
   (update rf.mcp-conformance.wire-vocab.source-pins/all-source-files :story-mcp (fnil conj []) story-mcp-cursor-source))
 
 (deftest cursor-stale-literal-in-re-frame2-pair-mcp-emit-source
@@ -249,7 +243,7 @@
         (str literal " missing from re-frame2-pair-mcp doc-sources " files))))
 
 (deftest cursor-stale-literal-in-story-mcp-cursor-source
-  ;; story-mcp source pin (rf2-2js41 finding 1). cursor-stale is a
+  ;; story-mcp source pin. cursor-stale is a
   ;; multi-server reason value; story-mcp's cursor source MUST reference
   ;; the canonical `:rf.mcp/cursor-stale` literal (it documents the
   ;; shared recovery vocabulary on the builder that routes through
@@ -270,7 +264,7 @@
   ;; pluralised, predicate `?` suffix) MUST NOT co-exist anywhere in
   ;; the conformance-tracked source/spec tree. Mirrors the marker-key
   ;; near-miss anti-pin. The sweep set is extended with story-mcp's
-  ;; cursor source (rf2-2js41 finding 1) so a near-miss introduced on the
+  ;; cursor source so a near-miss introduced on the
   ;; SECOND server's pagination surface trips here too.
   (doseq [variant (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants :rf.mcp/cursor-stale)
           [server files] cursor-stale-near-miss-source-files
