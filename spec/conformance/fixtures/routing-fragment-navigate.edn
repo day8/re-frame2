@@ -1,4 +1,4 @@
-;; Conformance fixture: routing/fragment-navigate  (rf2-k4exp1)
+;; Conformance fixture: routing/fragment-navigate
 ;;
 ;; The PROGRAMMATIC door (`:rf.route/navigate`) honours the fragment-only
 ;; short-circuit identically to the URL-driven door (`route-fragment-change.edn`
@@ -10,10 +10,10 @@
 ;; routes through :rf.nav/replace-url instead of :rf.nav/push-url but is the
 ;; same short-circuit.
 ;;
-;; This pins the cross-implementation contract the bead (rf2-k4exp1) fixes:
-;; before the fix a programmatic fragment nav took the FULL commit path
-;; (fresh token, every :on-match re-fired, stale-suppressing in-flight loaders
-;; for the route you were already on).
+;; This pins the cross-implementation contract: a programmatic fragment nav
+;; that took the FULL commit path would allocate a fresh token, re-fire every
+;; :on-match, and stale-suppress in-flight loaders for the route you are
+;; already on.
 ;;
 ;; Per [012 §Fragments](../../012-Routing.md#fragment-only-changes-do-not-re-fire-on-match)
 ;; and [012 §Programmatic navigation with fragments](../../012-Routing.md#programmatic-navigation-with-fragments).
