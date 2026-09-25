@@ -1,10 +1,10 @@
 (ns day8.re-frame2-xray.panels.reactive-flow-graph
   "Pure layout for the Views panel's left → right REACTIVE FLOW graph
-  (rf2-ad7zx.6 · spec/021 §3.2 · Figma `design-reference/xray_devtools_reference.cljs`,
+  (spec/021 §3.2 · Figma `design-reference/xray_devtools_reference.cljs`,
   the `views-panel` component).
 
-  The Views panel renders the reactive event-bundle as a node-and-edge graph,
-  not the prior three stacked tables. The event-bundle is a DAG flowing
+  The Views panel renders the reactive event-bundle as a node-and-edge
+  graph. The event-bundle is a DAG flowing
   left → right across four columns:
 
       col 0  app-db        — a single source node at the far left
@@ -41,12 +41,12 @@
      Level-1 sub.
   2. The sub→view edges come from the substrate's per-view deref-set:
      each sub INSTANCE (concrete query-v) routes to the view instances
-     whose `:deref-subs` hold it (rf2-3x7nj.24.3), and a row with no
+     whose `:deref-subs` hold it, and a row with no
      query-v falls back to the registration-level `:sub-readers` map
      (`{sub-id [view-id ...]}`). A sub read by ≥2 views is SHARED — its
      node carries `:shared-count`.
   3. `:rf.view/triggered-by` (the per-view cause sub) + `:rf.view/
-     elapsed-ms` (render timing) ride each view row (rf2-8wrzz.1); the
+     elapsed-ms` (render timing) ride each view row; the
      view node carries them through for the renderer's cause + timing
      labels.
 
@@ -104,7 +104,7 @@
 
 (defn- keyed
   "Stamp each node's `:key` — its React key — from its `:instance`
-  identity (rf2-3x7nj.24.3). A repeat of one identity in a column (the
+  identity. A repeat of one identity in a column (the
   same query-v run twice in an epoch) is disambiguated by occurrence, so
   sibling keys are unique by construction."
   [nodes]
@@ -123,7 +123,7 @@
   :input-query-vs? :coord? :readers?}`). `shared` is the set of sub-ids
   read by ≥2 views (the shared-sub set).
 
-  rf2-3x7nj.24.3 — a row is one INSTANCE of a registration: three list
+  A row is one INSTANCE of a registration: three list
   rows reading `[:todo/by-id 1]` … `[:todo/by-id 3]` are three rows
   sharing `:sub-id :todo/by-id`. `:id` stays the registration id (label,
   testid, source link); `:instance` is the concrete query-v (or the bare
@@ -158,10 +158,10 @@
 (defn- view-nodes
   "Build the view-column node maps. `view-rows` are render rows
   (`:action` ∈ #{:mount :rerender}; unmounts list separately). Each
-  carries `:triggered-by` + `:elapsed-ms` (rf2-8wrzz.1) through for the
+  carries `:triggered-by` + `:elapsed-ms` through for the
   renderer's cause + timing labels.
 
-  rf2-3x7nj.24.3 — one row per rendered INSTANCE: `:instance` is its
+  One row per rendered INSTANCE: `:instance` is its
   `:render-key` (`[view-id token]`, or `[view-id i]` without one) and
   `:deref-subs` its own read-set, which is what routes each sub
   instance's edge to the view instance that read it."
@@ -191,7 +191,7 @@
 (defn shared-sub-set
   "Set of sub-ids read by TWO OR MORE views this event-bundle — the shared-
   subscription set. Reads each sub row's `:readers` (the views that
-  deref it, from `:sub-readers` rf2-y23uw). Pure."
+  deref it, from `:sub-readers`). Pure."
   [sub-rows]
   (into #{}
         (comp (filter (fn [r] (> (count (:readers r)) 1)))
@@ -219,7 +219,7 @@
                   :changed? :kind} ...]
        :empty?  <bool>}      ; true when no subs ran AND no views rendered
 
-  Nodes are INSTANCES (rf2-3x7nj.24.3): `:id` is the registration id,
+  Nodes are INSTANCES: `:id` is the registration id,
   `:key` the unique instance key the renderer uses as the React key, and
   an edge's `:from-key` / `:to-key` name the instances it joins.
 
@@ -247,10 +247,10 @@
         l1        (col-nodes l1-rows :l1 canvas-mid shared)
         l2        (col-nodes l2-rows :l2 canvas-mid shared)
         views     (view-nodes v-rows canvas-mid)
-        ;; rf2-3x7nj.24.3 — edges resolve to INSTANCES. Keying nodes by
-        ;; registration id kept only the LAST instance per id, so every
-        ;; edge into a list of one view landed on its last box. l1 + l2
-        ;; share the sub-id key space; each id maps to all its instances.
+        ;; Edges resolve to INSTANCES. Keying nodes by registration id
+        ;; would keep only the LAST instance per id, so every edge into a
+        ;; list of one view would land on its last box. l1 + l2 share the
+        ;; sub-id key space; each id maps to all its instances.
         subs-of    (group-by :id (concat l1 l2))
         ;; The source instances for one declared input: the instance whose
         ;; identity IS the declared query-v, or — an input known by id
