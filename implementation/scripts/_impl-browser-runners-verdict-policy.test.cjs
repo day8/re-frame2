@@ -8,45 +8,42 @@
  * masked, or fail while naming the wrong cause. These classes are pinned
  * here:
  *
- *   1. an uncaught Chromium `pageerror` the suite happened not to assert on
- *      (rf2-mwx08);
+ *   1. an uncaught Chromium `pageerror` the suite happened not to assert on;
  *   2. a lane that ran ZERO tests, whose `Ran 0 tests containing 0
  *      assertions. / 0 failures, 0 errors.` summary satisfies a
- *      failure-tally-only verdict (rf2-qqzmf);
+ *      failure-tally-only verdict;
  *   3. a cljs.test async row that called `done` twice, which `run-block`
  *      degrades to a `println` on the already-realized continuation and so
- *      can never reach the failure tally (rf2-u0cy4);
- *   4. a navigation that inherited Playwright's default 30s `load` ceiling —
+ *      can never reach the failure tally;
+ *   4. a navigation that inherits Playwright's default 30s `load` ceiling —
  *      a SECOND budget BROWSER_TEST_TIMEOUT_MS cannot reach, whose CI log
- *      line reads like the summary timeout it is not (rf2-dczpv), and which
- *      turned out to be a CLASS rather than one site: run-ui-g8.cjs had the
- *      same defect one file over (rf2-bhjzn), and thirteen more sites in five
- *      other trees (rf2-taj9b). The SWEEP that pins the class therefore lives
- *      in `_navigation-ceiling-policy.test.cjs` and reads the whole
+ *      line reads like the summary timeout it is not. That is a CLASS rather
+ *      than one site, so the SWEEP that pins it lives in
+ *      `_navigation-ceiling-policy.test.cjs` and reads the whole
  *      repository; what stays here is each runner's per-file JUDGEMENT —
  *      which `waitUntil`, whose budget, what the failure says.
  *
- * Both are pinned statically for the same reason: these runners drive a
+ * All four are pinned statically for the same reason: these runners drive a
  * headless Chromium end-to-end, so their verdict paths are not cleanly
  * unit-testable without launching a browser. The test-count floor also
  * needs a static pin because it is DORMANT in a healthy tree — every lane
  * runs well above its floor, so ordinary CI would never notice the check
  * being refactored away.
  *
- * The pageerror class (1) was the rf2-wf5al correctness class fixed for the
- * examples/scripts Story play runner, here applied to:
+ * The pageerror class (1) is the correctness class the examples/scripts Story
+ * play runner guards, here applied to:
  *
- *   - run-browser-tests.cjs           (a green cljs.test summary ignored
- *                                      pageerrors)
+ *   - run-browser-tests.cjs           (a green cljs.test summary must not
+ *                                      ignore pageerrors)
  *   - serve-and-run-xray-feature-gate.cjs
- *                                     (scenario marked passed even when a
- *                                      pageerror was captured)
- *   - check-story-static.cjs          (static smoke passed on visible
- *                                      assertions, ignoring pageerrors)
- *   - serve-and-run-tenant-switcher-testbed.cjs (rf2-h5e3v7 — joined the
- *                                      pinned set when CI-wired)
+ *                                     (a scenario must not be marked passed
+ *                                      when a pageerror was captured)
+ *   - check-story-static.cjs          (the static smoke must not pass on
+ *                                      visible assertions alone)
+ *   - serve-and-run-tenant-switcher-testbed.cjs (CI-wired, so in the
+ *                                      pinned set)
  *
- * Following the rf2-wf5al precedent (_story-script-runners-policy.test.cjs),
+ * As _story-script-runners-policy.test.cjs does for the Story runner,
  * we pin the verdict wiring STATICALLY: each runner must (a) record
  * pageerrors into a separately-tracked array — NOT merely into the
  * diagnostic buffer — and (b) flip its verdict to fail when that array is
@@ -112,9 +109,9 @@ test('run-browser-tests: a green cljs.test summary still fails when pageErrors w
 
 test('run-browser-tests: the executed-test count is part of the verdict, not just the failure tally (rf2-qqzmf)', () => {
   const src = read('run-browser-tests.cjs');
-  // The runner has always PARSED `Ran N tests containing M assertions.`
-  // (RAN_RE captures both integers) and never read N. Pin that it now does,
-  // through the shared library rather than a second local regex.
+  // The runner PARSES `Ran N tests containing M assertions.` (RAN_RE
+  // captures both integers); pin that it also READS N, through the shared
+  // library rather than a second local regex.
   assert.match(
     src,
     /parseRanCounts/,
@@ -188,8 +185,8 @@ test('run-browser-tests: a double-fired cljs.test `done` is fatal, not diagnosti
 });
 
 test('run-browser-tests: the duplicate-`done` matcher is checked against the INSTALLED cljs.test (rf2-u0cy4 audit)', () => {
-  // The audit of PR #7190: asserting that this runner still contains its own
-  // regex is not drift protection. The literal belongs to ClojureScript, so a
+  // Asserting that this runner contains its own regex is not drift
+  // protection. The literal belongs to ClojureScript, so a
   // reworded upstream changes NEITHER this runner nor a test that reads it —
   // the gate stays green while FATAL_CONSOLE_RE matches nothing. The runner
   // must therefore compare the matcher against what the loaded ClojureScript
@@ -217,7 +214,7 @@ test('run-browser-tests: the duplicate-`done` matcher is checked against the INS
     'must test the matcher against the live run-block source, not against its own text',
   );
   // Fail-closed. A drift check that returns "fine" when it cannot look is the
-  // same fail-open shape this bead exists to remove.
+  // same fail-open shape this check exists to prevent.
   // An unreachable `run_block` must be REPORTED. The one exception — an
   // `:advanced` lane that declares itself blind — is pinned separately below;
   // what must never exist is a silent pass, so the branch has to end in a
@@ -249,7 +246,7 @@ test('run-browser-tests: an `:advanced` lane may only skip the drift check by DE
   // and must not be silent. It is a per-lane declaration, made on the lane's
   // own command line, and announced when used.
   const src = read('run-browser-tests.cjs');
-  // The literal itself lives in the shared lib module (rf2-u0cy4: both
+  // The literal itself lives in the shared lib module (both
   // run-browser-tests.cjs, which reads the var, and
   // serve-and-run-browser-tests.cjs, which sets it, import the SAME
   // constant from lib/browser-runner-drift-env.cjs — one name, so the two
@@ -302,7 +299,7 @@ test('the default `test:browser` lane CARRIES the drift check; only `:advanced` 
   assert.ok(
     !pkg.scripts['test:browser'].includes(FLAG),
     'the default `test:browser` lane must NEVER declare itself unverifiable — it is '
-      + 'the lane that carries the duplicate-`done` drift verification (rf2-u0cy4)',
+      + 'the lane that carries the duplicate-`done` drift verification',
   );
   // And the lanes that DO waive it must be exactly the advanced-compiled ones,
   // each of which is a `shadow-cljs release` of a prod build.
@@ -373,9 +370,9 @@ test('run-browser-tests: an aborted run is named as an abort, not waited out as 
   // cljs.test refuses an `async` row under a POSITIONAL fixture by throwing a
   // bare string out of `test-var-block*`. Nothing catches it, shadow.test runs
   // the whole lane inside ONE `run-block`, so every remaining namespace AND the
-  // closing summary are lost. The runner already held the decisive signal — a
-  // `pageerror` — and consulted it only after a summary it was never going to
-  // get, so the observed cost was a full BROWSER_TEST_TIMEOUT_MS burn ending in
+  // closing summary are lost. The runner holds the decisive signal — a
+  // `pageerror` — and consulting it only after a summary it is never going to
+  // get would cost a full BROWSER_TEST_TIMEOUT_MS burn ending in
   // "Timed out ... waiting for cljs.test summary. (source: not found)".
   //
   // Dormant in a healthy tree, like the floor and the navigation ceiling: no
@@ -399,7 +396,7 @@ test('run-browser-tests: an aborted run is named as an abort, not waited out as 
   );
   // Narrowness is the point: only the terminal class short-circuits. An
   // ordinary mid-suite `pageerror` is NOT terminal — the run usually finishes
-  // and the rf2-mwx08 arm fails it on the summary — so breaking on those would
+  // and the pageerror arm fails it on the summary — so breaking on those would
   // truncate a run that was about to report and mislabel it.
   assert.doesNotMatch(
     src,
@@ -434,8 +431,7 @@ test('run-browser-tests: an unanswerable trusted-input request stops the run ins
   // The bridge ITSELF needs no static pin, and deliberately does not get one:
   // three cljs.test suites press a real Tab and a real Escape through it on
   // every `npm run test:browser`, so it is a fact the runner observes directly
-  // rather than one a source regex would stand in for. (rf2-u0j8's worker
-  // rejected a lint on exactly that ground; the same test applies here.)
+  // rather than one a source regex would stand in for.
   //
   // What IS pinned is the arm those suites cannot reach. The page publishes a
   // request and SUSPENDS until it is acknowledged, so a request the runner
@@ -524,9 +520,9 @@ test('check-story-static: the smoke throws on a captured pageerror even when ass
   );
 });
 
-// ---- serve-and-run-tenant-switcher-testbed.cjs (rf2-h5e3v7) ----
-// The tenant-switcher testbed smoke is now CI-wired
-// (tenant-switcher-testbed-smoke job), so its verdict path joins the
+// ---- serve-and-run-tenant-switcher-testbed.cjs ----
+// The tenant-switcher testbed smoke is CI-wired
+// (tenant-switcher-testbed-smoke job), so its verdict path is in the
 // pinned set: pageerror handling is specific
 // to this runner as a maskable failure. Same discipline as the siblings —
 // pageerrors go into a dedicated array and flip the verdict to fail before
@@ -562,39 +558,33 @@ test('tenant-switcher-testbed: a captured pageerror fails the spec even when ass
   );
 });
 
-// ---- the navigation-ceiling sweep: MOVED (rf2-dczpv → rf2-bhjzn → rf2-taj9b) ----
+// ---- the navigation-ceiling sweep lives elsewhere ----
 //
-// rf2-dczpv fixed one `page.goto` that inherited Playwright's 30s default;
-// rf2-bhjzn found the identical defect in run-ui-g8.cjs and pinned it with a
-// sweep over THIS directory. rf2-taj9b then found thirteen more sites across
-// five other trees, so the sweep now lives at
-// `implementation/scripts/_navigation-ceiling-policy.test.cjs` and reads the
-// whole repository. Both reasons to move it were load-bearing:
+// The sweep for `page.goto` calls that inherit Playwright's 30s default lives
+// at `implementation/scripts/_navigation-ceiling-policy.test.cjs` and reads
+// the whole repository, for two load-bearing reasons:
 //
-//   1. SCOPE. A directory sweep cannot see `tools/`, `examples/`,
-//      `implementation/freehand/` or the adapter testbeds, which is where most
-//      of the class actually lived.
+//   1. SCOPE. A directory sweep cannot see `tools/`, `examples/` or the
+//      adapter testbeds, which is where most of the class lives.
 //
-//   2. SOUNDNESS. This sweep bounded a call by reading a flat 300 characters
-//      after `.goto(`, which reaches PAST the call's own closing paren. Both
-//      bare navigations in run-ui-g13.cjs — in this very directory — were
-//      followed within that window by a `waitForFunction(..., { timeout:
-//      TIMEOUT })`, so the window found a `timeout:` that belonged to a
-//      different call and reported the file green. Measured, both sites, on
-//      the commit this comment replaces. The replacement scans the call's own
+//   2. SOUNDNESS. A sweep that bounds a call by reading a flat 300 characters
+//      after `.goto(` reaches PAST the call's own closing paren, so a bare
+//      navigation followed within that window by a `waitForFunction(...,
+//      { timeout: TIMEOUT })` finds a `timeout:` that belongs to a different
+//      call and reports the file green. That sweep scans the call's own
 //      balanced parens, so nothing outside the call can vouch for it.
 //
 // The per-file assertions below stay here: they pin the JUDGEMENT each runner
 // made (which `waitUntil`, whose budget, what the failure says), which is not
 // mechanical and does not belong in a sweep.
 
-// ---- check-story-static.cjs navigation ceiling (rf2-bhjzn) ----
+// ---- check-story-static.cjs navigation ceiling ----
 
 test('check-story-static: the navigation budget is named, not a bare literal (rf2-bhjzn)', () => {
   const src = read('check-story-static.cjs');
-  // This smoke always passed an explicit timeout, so it never INHERITED the
-  // default — but the literal 30000 sat beside a READY_TIMEOUT_MS of 30000,
-  // two different budgets printing one number.
+  // This smoke passes an explicit timeout, so it never INHERITS the default —
+  // but a literal 30000 beside a READY_TIMEOUT_MS of 30000 would be two
+  // different budgets printing one number.
   assert.match(
     src,
     /const\s+NAV_TIMEOUT_MS\s*=/,
