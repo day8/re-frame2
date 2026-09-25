@@ -1,21 +1,21 @@
 (ns day8.re-frame2-xray.views.edn-inspector-popup-stack-boundary-dom-cljs-test
-  "THE POPUP STACK'S LIVE COLLECTOR WITNESS (rf2-7z2u).
+  "THE POPUP STACK'S LIVE COLLECTOR WITNESS.
 
-  ## What was ungraded, and why no node row can grade it
+  ## What no node row can grade
 
-  rf2-k97c.3 turned `views.edn-inspector-popup/edn-inspector-popup-stack-view`
-  into a Fresco BOUNDARY, crossed it into the still-Reagent shell through
-  `rf.fresco/as-component`, and claimed a concrete new cost with it: the
+  `views.edn-inspector-popup/edn-inspector-popup-stack-view` is a Fresco
+  BOUNDARY, crossed into the Reagent shell through
+  `rf.fresco/as-component`, and it claims a concrete cost: the
   closed stack holds ONE live subscription edge instead of three, because
   `rf.fresco/sub` records its edge WHERE THE READ HAPPENS and the other two
-  reads moved inside the `when`.
+  reads sit inside the `when`.
 
-  Every test that previously called the view now calls `popup-stack-tree`
-  with values it composed itself. That is evidence about COMPOSITION and
+  The node-lane tests call `popup-stack-tree` with values they composed
+  themselves. That is evidence about COMPOSITION and
   about nothing else, BY CONSTRUCTION: it never mounts a boundary, never
   crosses the bridge, never establishes a React-context frame, and never
   asks the collector for anything. Replacing the boundary's body with `nil`,
-  reading a wrong frame, or hoisting the two gated reads back out of the
+  reading a wrong frame, or hoisting the two gated reads out of the
   `when` leaves every one of those rows byte-for-byte green. So does the
   head-kind row, which checks markers on a tree it built.
 
@@ -52,9 +52,9 @@
   positioning attribute. It closes the top popup with a REAL CLICK, through
   the close handler the boundary's own render captured.
 
-  W4 is the bead's headline: the collector's reader edges for the three
+  W4 is the headline: the collector's reader edges for the three
   queries, read off `!cells` through the kit's runtime door. Closed is ONE
-  edge on `stack` and ZERO on the other two — the migration's claim, stated
+  edge on `stack` and ZERO on the other two — the boundary's claim, stated
   as a literal rather than as a comparison against something the same code
   computed. Open is three. Closing returns to one. Unmount releases all
   three within the runtime's own grace, and reopening returns to the same
@@ -133,8 +133,8 @@
                       (rf.fresco.impl.collector/reset-runtime!)
                       ;; The window error listener below is process-global
                       ;; too, and several suites on this page throw
-                      ;; DELIBERATELY. Measured: without this reset,
-                      ;; [[uncaught-note]] attributed a neighbouring
+                      ;; DELIBERATELY. Without this reset,
+                      ;; [[uncaught-note]] would attribute a neighbouring
                       ;; suite's planted `::planted` error to a failure of
                       ;; this one — a diagnostic that names the wrong file
                       ;; is worse than none.
@@ -313,9 +313,8 @@
   [popup/stack-slot])
 
 (def ^:private gated-reads
-  "The two reads that moved INSIDE the `when` at rf2-k97c.3. A closed stack
-  must hold no edge on either; that is the migration's whole claimed cost
-  change."
+  "The two reads that sit INSIDE the `when`. A closed stack must hold no
+  edge on either; that is the boundary's whole claimed cost."
   [[popup/entries-slot] [:rf.xray/modal-positioning]])
 
 (def ^:private boundary-reads
@@ -334,7 +333,7 @@
   "The reader slots each of the three cells holds, in `boundary-reads`
   order. One slot per boundary registration reading that cell — the fused
   reference AND dependency edge — so this vector IS the closed/open cost the
-  migration claims, read off the runtime rather than argued.
+  boundary claims, read off the runtime rather than argued.
 
   Answered as a VECTOR rather than a total: a release that freed one cell
   and retained another sums to the same number as the honest case shifted by
@@ -364,9 +363,9 @@
 ;; ===========================================================================
 
 (deftest w1-popup-stack-paints-through-the-as-component-bridge
-  (testing "rf2-7z2u — `edn-inspector-popup-stack` is the migration bridge
+  (testing "`edn-inspector-popup-stack` is the `as-component` bridge
             and the boundary behind it commits a real popup to a real DOM.
-            Closed first: the gate now lives INSIDE the boundary rather than
+            Closed first: the gate lives INSIDE the boundary rather than
             in the Reagent head, so `nil`-when-empty is a claim about the
             boundary that only a DOM can check.
 
@@ -426,7 +425,7 @@
 ;; ===========================================================================
 
 (deftest w2-the-stack-reads-resolve-through-its-own-frame
-  (testing "rf2-7z2u — the boundary takes its frame from the React context
+  (testing "the boundary takes its frame from the React context
             `rf/frame-provider` writes, so an `:open` on a SECOND live frame
             moves nothing here. Without this row the positive half of W1 is
             compatible with a boundary reading ambiently or reading
@@ -479,7 +478,7 @@
 ;; ===========================================================================
 
 (deftest w3-stack-entries-and-positioning-are-live-reads
-  (testing "rf2-7z2u — one row per read, each driven through the SHIPPED
+  (testing "one row per read, each driven through the SHIPPED
             public event and observed in the committed DOM.
 
             STACK — a second `:open` moves `data-rf-popup-count` from 1 to 2.
@@ -561,7 +560,7 @@
                   ;; uncaught TypeError that the browser runner treats as a
                   ;; PAGEERROR — which aborts the whole run at this line, so
                   ;; every later row in the build never runs and W4 reports
-                  ;; nothing at all. Measured on this file's own sabotage run.
+                  ;; nothing at all.
                   ;; Guarded, the click simply does not happen and the poll
                   ;; below reddens honestly.
                   (some-> (testid container
@@ -590,17 +589,17 @@
 ;; ===========================================================================
 
 (deftest w4-closed-stack-holds-one-edge-and-unmount-releases-all-three
-  (testing "rf2-7z2u — the bead's headline claim, measured. rf2-k97c.3 moved
-            the entries and positioning reads INSIDE the boundary's `when`,
+  (testing "the headline claim, measured. The entries and
+            positioning reads sit INSIDE the boundary's `when`,
             and `rf.fresco/sub` records its edge WHERE THE READ HAPPENS, so a
-            CLOSED stack must hold ONE reader edge and not three. The
-            `reg-view` it replaced read all three unconditionally, so its
-            docstring's 'one subscribe + a when' was aspirational — which is
+            CLOSED stack must hold ONE reader edge and not three. A head
+            that read all three unconditionally would hold three edges
+            while its docstring said 'one subscribe + a when' — which is
             exactly what makes this a measurement rather than a formality.
 
             EVERY NUMBER BELOW IS A LITERAL. A row that compared the edge
             count against something the boundary itself computed would agree
-            with itself under a revert — both sides go to the same wrong
+            with itself under a regression — both sides go to the same wrong
             number and the row goes green on the defect.
 
             THE CENSUS IS POLLED, NOT TAKEN IN THE MOUNTING TURN. React
@@ -641,7 +640,7 @@
                           (is (= [1 0 0] (reader-edges stack-frame))
                               (str "CLOSED COSTS ONE EDGE: the gate read is "
                                    "held and the two gated reads are not — "
-                                   "the migration's claimed cost, measured. "
+                                   "the boundary's claimed cost, measured. "
                                    (pr-str (census stack-frame))
                                    (uncaught-note)))
                           (is (= [stack-read] (live-cells stack-frame))
