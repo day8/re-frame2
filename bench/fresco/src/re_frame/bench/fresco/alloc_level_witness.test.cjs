@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// THE LEVEL WITNESS'S FIXTURES AND ITS CORPUS CONTROL, IN A GATE — rf2-a233t.
+// THE LEVEL WITNESS'S FIXTURES AND ITS CORPUS CONTROL, IN A GATE.
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_level_witness.test.cjs
+//     node src/re_frame/bench/fresco/alloc_level_witness.test.cjs
 //
 // `alloc_level_witness.cjs` decides whether a floor run held ONE level across
 // its own transition. Two things are checked here and they answer different
@@ -109,7 +109,7 @@ corpusTest('the runs the corpus itself excludes are excluded here, and named', (
     r.inadmissible.map((x) => `${x.corpus}/${x.run}`).sort(),
     [
       // Chromium failed to launch; the record has no `alloc` object at all and
-      // the driver still exited 1. rf2-c4hhk committed it as its own evidence.
+      // the driver still exited 1. The dataset is committed as its own evidence.
       'alloc-c4hhk/armed-25-a4a1537cb71',
       'alloc-77gz8/run12-a4a1537cb71',
       'alloc-9jrhi/bisect-5-a-4a1537cb71-replicate',
@@ -160,15 +160,15 @@ corpusTest('a bound tightened under the normal population starts refusing normal
   assert.strictEqual(tight.falsePositives.length, 60, 'a 0.4% bound did not refuse the whole normal population');
 });
 
-// THE FAIL-OPEN, ON A REAL RECORD RATHER THAN A FIXTURE — rf2-a233t.
+// THE FAIL-OPEN, ON A REAL RECORD RATHER THAN A FIXTURE.
 //
 // The fixtures above are synthetic and the corpus control only ever sees
-// COMPLETE records, so neither of them watches the defect this gate was
-// reopened for: a record that lost one whole measured segment. `segmentsOf`
-// used to instantiate only the segments that OCCURRED and the sole guard fired
-// only when ZERO occurred, so the survivor was adjudicated alone and the
-// verdict read CERTIFIED. Measured on this very record before the fix: half
-// the arm's measurement deleted, and the witness certified it without remark.
+// COMPLETE records, so neither of them watches the defect this proof exists
+// for: a record that lost one whole measured segment. A `segmentsOf` that
+// instantiated only the segments that OCCUR, with a sole guard firing only
+// when ZERO occur, would adjudicate the survivor alone and read CERTIFIED —
+// on this very record, with half the arm's measurement deleted, such a witness
+// certifies it without remark.
 //
 // So the mutation is applied to a COMMITTED dataset, in memory, and both
 // directions are asserted — the intact record certifies, the mutilated one
@@ -216,7 +216,7 @@ test('the same holds for the other segment, so the roster is not half-checked', 
 });
 
 corpusTest('and the corpus control fails rather than passes when a record loses a segment', () => {
-  // The corpus control is what the spine actually runs. Score the same corpus
+  // The corpus control is what `npm run check` actually runs. Score the same corpus
   // with a roster the records cannot satisfy: every scored run must now be
   // held out of the bands and named, not quietly certified.
   const r = witness.scoreCorpus({ expected: ['reagent-subs', 'uix-subs', 'a-segment-no-record-carries'] });
