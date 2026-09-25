@@ -21,10 +21,10 @@
 
 ;; ---- step-outcome (full-script step list) -------------------------------
 ;;
-;; The step-debugger walks the compiled plan's auto-run program (rf2-499z):
+;; The step-debugger walks the compiled plan's auto-run program:
 ;; the auto-runnable plays' scripts concatenated, or the primary play when
 ;; nothing auto-runs, `[:arg]`-substituted against the same run opts Re-run
-;; uses (active modes and cell overrides included, rf2-ad25) and with
+;; uses (active modes and cell overrides included) and with
 ;; `:compose`d fragment scripts prepended. Every step type runs, each
 ;; driven through the rich-DSL executor. Each step that has
 ;; run carries a result record (`rf.story.play.runner/step-pass` / `step-fail` /
@@ -74,8 +74,8 @@
 ;; ---- step status -------------------------------------------------------
 ;;
 ;; Each step in the stepper UI has a *position* status (pending / current /
-;; done) AND an *outcome* status (the existing :pass / :fail / :event /
-;; :skip from `rf.story.ui.test-mode.pure/play-step-statuses`). Pure: maps the cursor +
+;; done) AND an *outcome* status (the :pass / :fail / :event /
+;; :skip from `step-statuses`). Pure: maps the cursor +
 ;; the outcome list onto one fold the view renders directly.
 
 (defn step-position
@@ -94,12 +94,12 @@
     :else             :pending))
 
 (defn enrich-statuses
-  "Walk `rf.story.ui.test-mode.pure/play-step-statuses` output and stamp each row with
+  "Walk `step-statuses` output and stamp each row with
    - `:position` — :done / :current / :pending (per `step-position`)
    - `:breakpoint?` — boolean, true when the row's `:index` is in
      `breakpoints` (a set)
-   - `:outcome` — the existing `:status` (renamed so `:status` is free for
-     the position semantics the view styles glyph against)
+   - `:outcome` — the row's `:status`, the key the view's outcome glyph
+     and styling read
 
   Returns a vector of maps. Pure; JVM-testable."
   [statuses cursor breakpoints]
@@ -185,12 +185,11 @@
 
 ;; ---- event-label re-export ----------------------------------------------
 ;;
-;; The view renders `(first event)` as the per-step row label. Re-uses the
-;; existing pure helper so the stepper rows and the scrubber ticks share
-;; one label projection.
+;; The scrubber ticks' `(first event)` label projection, re-exported on the
+;; stepper's pure surface.
 
 (def play-step-label rf.story.ui.test-mode.pure/play-step-label)
 
-;; ---- assertion-event? re-export (used by the view to glyph rows) -------
+;; ---- assertion-event? re-export -----------------------------------------
 
 (def assertion-event? rf.story.predicates/assertion-event?)
