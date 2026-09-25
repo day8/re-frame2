@@ -2,12 +2,11 @@
 ;;
 ;; The snapshot's `:tags` slot on a parallel-region machine is the UNION
 ;; of every active state-node's `:tags` across every active region.
-;; Composes with Stage 1's `:fsm/tags` capability: tags from active
+;; Composes with the `:fsm/tags` capability: tags from active
 ;; states in every region all appear in the union.
 ;;
 ;; Per [005 §Tags compose across regions]
-;; (../../005-StateMachines.md#tags-compose-across-regions), Stage 1
-;; (rf2-ee0d) and Stage 2 (rf2-l67o).
+;; (../../005-StateMachines.md#tags-compose-across-regions).
 
 {:fixture/id           :machine/parallel-tags-union-across-regions
  :fixture/spec-version "1.0"
