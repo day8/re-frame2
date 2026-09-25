@@ -856,7 +856,7 @@
 ;; -- EVENT HANDLER orientation line ---------------------------------------
 ;;
 ;; A single structured orientation line under the EVENT HANDLER heading —
-;;   Processing [TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>
+;;   [TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>
 ;; — in place of a DISPATCH gloss. `[TRIGGER]` /
 ;; `[MACHINE]` / `[STATE]` are small grey chip-labels; the values follow
 ;; each chip, code-formatted (mono). One scannable line orienting the
@@ -3114,7 +3114,7 @@
       (str " · round " round-index)])])
 
 (defn- cascade-start-cause-chip
-  "Render the `[START]` row's CAUSE tag (rf2-it4vt) — `explicit` / `lazy` /
+  "Render the `[START]` row's CAUSE tag — `explicit` / `lazy` /
   `spawned`, off the `:rf.machine/started` trace's `:cause`. Tells the
   operator HOW the machine came to life. The `:lazy` cause is the ORDERING
   SMELL (something dispatched to the machine before it was explicitly
@@ -3131,7 +3131,7 @@
 
 (defn- cascade-kind-pill
   "Render the kind pill (`GUARD / ACTION / TRANSITION / TIMER`) on a
-  cascade row's header (rf2-u69j7). Smaller than the top-level badge
+  cascade row's header. Smaller than the top-level badge
   pill — the cascade is rendered INSIDE the HANDLER step's body and
   the per-row chip is a refinement on the HANDLER badge above it."
   [kind]
@@ -3142,17 +3142,17 @@
    (badge/cascade-kind-label kind)])
 
 (defn- cascade-no-op-qualifier
-  "Render the `[NO OP]` QUALIFIER chip for a `:no-op` cascade row (rf2-yueoa).
+  "Render the `[NO OP]` QUALIFIER chip for a `:no-op` cascade row.
   A no-op is still the TRANSITION step of the cascade — a transition was
   attempted; it just produced no state change — so the row renders the SAME
   `[TRANSITION]` kind pill a real transition uses (`cascade-kind-pill
   :transition`) and this qualifier marks the result: `[TRANSITION] [NO OP]
   staying in {state}`. The label is `badge/cascade-kind-label :no-op` (`NO OP`,
-  space not hyphen — rf2-iu3no) so the qualifier text stays in lockstep with
+  space not hyphen) so the qualifier text stays in lockstep with
   the kind-label table.
 
   Outlined muted chip (the `:no-op` `:text-tertiary` tone, same outlined-marker
-  grammar skmc7's `[NO-OP]` uses in the Machine tab) so it reads as a
+  grammar as the Machine tab's `[NO-OP]`) so it reads as a
   refinement on the filled magenta `[TRANSITION]` badge beside it, not a second
   solid kind pill."
   []
@@ -3161,7 +3161,7 @@
    (badge/cascade-kind-label :no-op)])
 
 (defn- cascade-row-ordinal
-  "Render the row's 1..N step ordinal on the left rail (rf2-u69j7).
+  "Render the row's 1..N step ordinal on the left rail.
   Compact monospace chip — keeps the cascade scannable across many
   rows without clipping into the rest of the row's chrome."
   [step]
@@ -3173,22 +3173,21 @@
 (defn- cascade-row-verb-link
   "Render a cascade row's verb (action-id / guard-id / transition
   label / timer state) as a click-to-source button when the machine
-  spec carries the per-element source-coord (rf2-8bp3); falls back to
+  spec carries the per-element source-coord; falls back to
   a plain coloured span otherwise.
 
-  rf2-80u5a / rf2-ehd8v — the affordance reads the same `<label> + ↗`
+  The affordance reads the same `<label> + ↗`
   shape as the HANDLER step's verb so the operator's eye trains on
   ONE source-link grammar across the panel.
 
-  rf2-ge6uj ISSUE 3 — the `:transition` row's verb (`<before> → <after>`)
+  The `:transition` row's verb (`<before> → <after>`)
   renders with the PROMINENT transition style (larger / bolder / magenta)
   so the state change is the focal point of the collapsed transition
   zone; every other kind keeps the standard verb chrome."
   [row coord verb-string]
   ;; Shared `coord-link`; the per-site styles live here. The
-  ;; testid is now a single stem (`…-verb-link-<step>`) across both the
-  ;; clickable + plain branches — the prior `…-verb-<step>` plain-only
-  ;; variant was a hand-rolled artefact, not pinned by any selector.
+  ;; testid is a single stem (`…-verb-link-<step>`) across both the
+  ;; clickable + plain branches.
   (let [transition? (= :transition (:kind row))]
     (coord-link/coord-link coord verb-string
                            (str "rf-xray-epoch-machine-cascade-verb-link-" (:step row))
@@ -3201,10 +3200,10 @@
 
 (defn- source-form->string
   "Coerce a cascade-row source-form value into a printable Clojure
-  source string for `edn/code-block`. Per rf2-wwc3j the source-form may
+  source string for `edn/code-block`. The source-form may
   arrive in one of several shapes:
 
-  - String — already a captured pr-str (rf2-ypu5i `:rf.machine/handler-
+  - String — already a captured pr-str (a `:rf.machine/handler-
     source` value). Return as-is.
   - Keyword — the user wrote a named-ref slot (`:entry :enter-a`).
     Render the keyword form; downstream the named-id slot's own row
@@ -3225,12 +3224,11 @@
 
 (defn- machine-call-site-coord
   "Lift the reg-machine CALL-SITE `{:file :line}` off the registered
-  machine's `handler-meta` (rf2-iwy0c part B-i). A machine is registered
+  machine's `handler-meta`. A machine is registered
   as an ordinary `:event` handler carrying `:rf/machine? true` + the
-  top-level call-site `:file` / `:line` (rf2-ge6uj). Returns nil when no
+  top-level call-site `:file` / `:line`. Returns nil when no
   coord was captured (production builds with `goog.DEBUG=false`,
-  value-registered machines whose definition coord isn't stamped —
-  rf2-gwj8l)."
+  value-registered machines whose definition coord isn't stamped)."
   [machine-meta]
   (when (and machine-meta
              (string? (:file machine-meta))
@@ -3238,18 +3236,14 @@
     {:file (:file machine-meta) :line (:line machine-meta)}))
 
 (defn- cascade-row-machine-def-link
-  "Render the source-not-captured FALLBACK for a cascade row (rf2-iwy0c
-  part B) — replaces the dead `<source not yet captured>` literal. Links
-  the machine id (e.g. `main`) to the machine DEFINITION:
-
-  - (i) the reg-machine CALL-SITE coord — captured TODAY off the
-    registered handler's `:file` / `:line` (rf2-ge6uj). Implemented now.
-  - (ii) the defmachine DEFINITION coord — RELATES to rf2-gwj8l (not yet
-    landed for value-registered machines). The link structure below
-    lights up automatically once gwj8l stamps a definition coord; until
-    then `machine-call-site-coord` resolves only the call-site, so the
-    link degrades GRACEFULLY to (i) alone (and to a plain non-clickable
-    label when even the call-site coord is absent — production elision).
+  "Render the source-not-captured FALLBACK for a cascade row — rather
+  than a dead `<source not yet captured>` literal, it links the machine id
+  (e.g. `main`) to the machine DEFINITION via the reg-machine CALL-SITE
+  coord, read off the registered handler's `:file` / `:line`. No
+  defmachine DEFINITION coord is stamped for value-registered machines,
+  so `machine-call-site-coord` resolves only the call-site, and the link
+  degrades GRACEFULLY to a plain non-clickable label when even the
+  call-site coord is absent (production elision).
 
   The id renders through the shared `coord-link` so the `<id> ↗` +
   open-in-editor grammar matches every other source affordance in the
@@ -3268,11 +3262,10 @@
        :plain-style cascade-source-machine-plain-style})))
 
 (defn- cascade-row-transition-delta
-  "Render a `:transition` row's LOGICAL-STATE DELTA box (rf2-iwy0c part
-  A) — REPLACES the prior transition-map source body (the rf2-wwc3j
-  'delight shape'). Shows the machine's `{:state :tags}` BEFORE → AFTER
+  "Render a `:transition` row's LOGICAL-STATE DELTA box — rather than a
+  transition-map source body. Shows the machine's `{:state :tags}` BEFORE → AFTER
   through `ei/edn-inspector` in DIFF mode (the SAME widget + posture the
-  per-action DATA Δ uses, rf2-5hjb5), with the AFTER logical-state
+  per-action DATA Δ uses), with the AFTER logical-state
   rendered against the BEFORE so changed leaves carry inline `← was X`
   annotations.
 
@@ -3284,7 +3277,7 @@
   region→state map + the tag-union shift in one object — exactly what
   the single-region headline verb (`<from> → <to>`) cannot convey.
 
-  The headline verb stays the quick read; this box is the structured
+  The headline verb is the quick read; this box is the structured
   before→after. ELIDED on a self / internal transition where neither
   `:state` nor `:tags` changed (`machine-logical-state-changed?`) — the
   box would otherwise show a no-op diff. Returns nil in that case so the
@@ -3306,23 +3299,20 @@
                              :default-expanded-depth 3}
                       (some? before-ls) (assoc :before before-ls))}]]])))
 
-;; ---- structured transition cascade render (rf2-52u5n) -------------------
+;; ---- structured transition cascade render --------------------------------
 ;;
-;; rf2-akvfe — `structured-cascade-step-row` + `structured-cascade-microstep`
-;; + `structured-cascade-body` (the up/down `↑ exit / • action / ↓ entry`
-;; walk rendered inside the transition row) RETIRED. They DUPLICATED the
-;; EVENT HANDLER cascade pipeline: the exit-phase + entry-phase actions are
-;; already their own numbered cascade rows, each carrying its source + (for
-;; the entry action) its `data Δ`, so the exit action, entry action, AND the
-;; data-delta all survive in the pipeline (the rf2-akvfe no-info-loss guard).
+;; The transition row renders no up/down `↑ exit / • action / ↓ entry`
+;; walk: it would duplicate the EVENT HANDLER cascade pipeline, where the
+;; exit-phase + entry-phase actions are their own numbered cascade rows,
+;; each carrying its source + (for the entry action) its `data Δ`.
 ;; The HISTORY restore/record banner (`structured-cascade-history-banner`,
-;; below) was NOT part of the removed block and stays. The projection-side
-;; structured-cascade helpers (`proj/cascade-regions` etc.) also stay — the
-;; machine-epochs harness reads them as the cascade-ORDER oracle.
+;; below) is the structured-cascade surface here. The projection-side
+;; structured-cascade helpers (`proj/cascade-regions` etc.) serve the
+;; machine-epochs harness, which reads them as the cascade-ORDER oracle.
 
 (defn- structured-cascade-history-banner
-  "Render the HISTORY restore / record banner for a `:transition` cascade row
-  (rf2-mle6e.5). Surfaces the headline the operator reads BEFORE walking the
+  "Render the HISTORY restore / record banner for a `:transition` cascade row.
+  Surfaces the headline the operator reads BEFORE walking the
   per-level entry steps:
 
     ⟲  restored [:player] from DEEP history · [:player :paused] → [:player :paused]
@@ -3356,13 +3346,8 @@
           [:span (fmt/history-recorded-headline rec)]])
        history-recorded)]))
 
-;; rf2-akvfe — `structured-cascade-body` RETIRED (see the retirement note
-;; above `structured-cascade-history-banner`). It rendered the up/down
-;; exit/action/entry walk that the EVENT HANDLER cascade pipeline already
-;; shows row-by-row; the data-delta survives on the entry-action row.
-
 (defn- cascade-row-start-body
-  "Render the `[START]` row's body (rf2-it4vt) — the machine's INITIAL
+  "Render the `[START]` row's body — the machine's INITIAL
   `:data` (off the `:rf.machine/started` trace's `:data` tag), shown through
   `ei/edn-inspector` (the SAME widget the transition delta + per-action
   DATA Δ use). NO `:before` (a birth has no prior state — the data is freshly
@@ -3388,9 +3373,8 @@
                    :default-expanded-depth 3}}]]]))
 
 (defn- cascade-row-source-body
-  "Render the source code body for a cascade row (rf2-u69j7 baseline +
-  rf2-wwc3j inline-fn extensions). Always visible per the bead body's
-  'interleaved source code' requirement — the operator reads what ran
+  "Render the source code body for a cascade row. Always visible
+  (interleaved source code) — the operator reads what ran
   AND its code at the same vertical position without scrolling.
 
   - `:action` / `:guard` rows: render the captured source form (named-
@@ -3398,48 +3382,45 @@
     canonical `edn/code-block` widget. When no source form is captured
     (production builds with `goog.DEBUG=false`, value-registered
     machines), FALL BACK to a click-to-source link to the machine
-    DEFINITION (rf2-iwy0c part B — `cascade-row-machine-def-link`)
+    DEFINITION (`cascade-row-machine-def-link`)
     rather than a dead placeholder.
-  - `:transition` rows (rf2-iwy0c part A): render the LOGICAL-STATE
+  - `:transition` rows: render the LOGICAL-STATE
     DELTA box (`{:state :tags}` before → after, `cascade-row-
-    transition-delta`) — REVERSES the rf2-wwc3j transition-map 'delight
-    shape' (intentional per Mike: the map literal merely restated the
-    target state the headline verb already names; the delta box earns
-    its place by carrying `:tags` + the structured parallel/compound
-    state object). Elided when the logical state didn't change.
+    transition-delta`) rather than the transition-map literal, which
+    would merely restate the target state the headline verb names; the
+    delta box earns its place by carrying `:tags` + the structured
+    parallel/compound state object. Elided when the logical state
+    didn't change.
   - `:timer` rows: no body (the spec value at the parent state path is
     a verbose state-node map; the click-to-source chip on the verb is
     the primary affordance).
 
-  rf2-66wis / rf2-93jp0 — `edn/code-block` paints clojure-syntax
+  `edn/code-block` paints clojure-syntax
   tokens with the same per-token palette as the Figma authority's
   `.syntax-*` classes, so the cascade code body matches the HANDLER
   step's source body."
   [machine-meta row source-form instance]
   (cond
-    ;; rf2-it4vt — the `[START]` row's body is the machine's INITIAL :data
+    ;; The `[START]` row's body is the machine's INITIAL :data
     ;; (the initial logical :state rides the header verb).
     (= :start (:kind row))
     (cascade-row-start-body row instance)
 
-    ;; rf2-iwy0c part A — transition rows show the logical-state delta,
+    ;; Transition rows show the logical-state delta,
     ;; NOT the transition map literal. Self/internal transitions (no
     ;; logical change) elide the box entirely.
     ;;
-    ;; rf2-akvfe — the rf2-52u5n STRUCTURED entry/exit cascade BLOCK (the
-    ;; `↑ <exited-state> / <exit-action> / ↓ <entered-state> / <entry-action>
-    ;; / {data-delta}` up/down walk, `structured-cascade-body`) is REMOVED
-    ;; from the transition row. It DUPLICATED what the EVENT HANDLER cascade
-    ;; pipeline already shows: the exit-phase + entry-phase ACTION rows are
-    ;; their own numbered cascade steps (each carrying its `:clear-hold` /
-    ;; `:count-open` source + the entry action's `data Δ` — e.g.
-    ;; `{:opened-count 1}` — via `cascade-row-action-outcome-details`), so
-    ;; the exit action, the entry action, AND the data-delta all survive in
-    ;; the pipeline (rf2-akvfe no-info-loss guard). The pipeline is now the
-    ;; single canonical place that cascade is shown. The logical-state DELTA
-    ;; box (`{:state :tags}` before → after) + the HISTORY restore/record
-    ;; banner stay — neither was part of the removed block (the banner is the
-    ;; restore/record headline; the delta box is the {:state :tags} summary).
+    ;; The transition row carries no STRUCTURED entry/exit cascade block
+    ;; (a `↑ <exited-state> / <exit-action> / ↓ <entered-state> /
+    ;; <entry-action> / {data-delta}` up/down walk): the EVENT HANDLER
+    ;; cascade pipeline shows it — the exit-phase + entry-phase ACTION rows
+    ;; are their own numbered cascade steps (each carrying its `:clear-hold`
+    ;; / `:count-open` source + the entry action's `data Δ` — e.g.
+    ;; `{:opened-count 1}` — via `cascade-row-action-outcome-details`). The
+    ;; pipeline is the single canonical place that cascade is shown. The
+    ;; transition row carries the logical-state DELTA box (`{:state :tags}`
+    ;; before → after) + the HISTORY restore/record banner (the
+    ;; restore/record headline).
     (= :transition (:kind row))
     (let [delta   (cascade-row-transition-delta row instance)
           history (structured-cascade-history-banner row)]
@@ -3460,13 +3441,13 @@
             :lang   :clojure
             :testid (str "rf-xray-epoch-machine-cascade-source-body-"
                          (:step row))})
-         ;; rf2-iwy0c part B — no captured source → link to the machine
+         ;; No captured source → link to the machine
          ;; definition instead of a dead placeholder.
          (cascade-row-machine-def-link row machine-meta))])))
 
 (defn- cascade-row-action-data-diff
   "Render an `:action` row's `:data` DELTA through the edn-inspector in
-  DIFF mode (rf2-5hjb5). The action's RETURNED `:data` (`:data-write`,
+  DIFF mode. The action's RETURNED `:data` (`:data-write`,
   the AFTER) renders with inline diff annotations against the action's
   INPUT `:data` (`:data-before`, the BEFORE), reusing the same
   inspector diff posture the App-db panel ships (`{:before <prior>}`,
@@ -3481,9 +3462,9 @@
   mounts in browse mode (no `:before`), still surfacing the written
   value."
   [{:keys [data-write data-before step] :as _row} instance]
-  ;; rf2-32kyr — the redundant "data Δ" CAPTION text is dropped; the row reads
+  ;; No "data Δ" CAPTION text; the row reads
   ;; `<arrow> <edn-inspector value>` (just the light-grey arrow into the delta
-  ;; value, no label). The arrow + the inspector value are otherwise unchanged.
+  ;; value, no label).
   [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-" step)
          :style cascade-detail-row-style}
    [:span {:style cascade-detail-data-arrow-style} "↳"]
@@ -3500,22 +3481,21 @@
 
 (defn- cascade-row-action-outcome-details
   "Render the per-action outcome details for an `:action` cascade row
-  (rf2-u69j7). Two slots ride below the row's source body:
+  Two slots ride below the row's source body:
 
   - DATA Δ — when the action returned a `:data` write, surface the
-    delta the action contributed as an edn-inspector DIFF (rf2-5hjb5 —
-    input `:data` → outcome `:data`), reusing the App-db panel's diff
-    posture. Supersedes the prior `ei/mini` one-liner.
+    delta the action contributed as an edn-inspector DIFF (input
+    `:data` → outcome `:data`), reusing the App-db panel's diff
+    posture.
   - FX — when the action returned a `:fx` list, surface each emitted
     fx-id (per-action attribution; same data as the FX step's
-    `:attributed-to` chip, now visible IN the action's row).
+    `:attributed-to` chip, visible IN the action's row).
 
-  rf2-4yrr6 / rf2-2hj0h — the EXCEPTION slot (the `✗ threw — <message>`
-  line) is REMOVED. A threw action row's failure is now rendered by the
-  per-row EXCEPTION BOX (`cascade-row-exception-box`, item 8) directly below
-  the code; the duplicate threw line here (and the duplicate `:threw`
-  outcome chip in `cascade-row-view`, plus the success `:ok` tick — item 7)
-  are gone. One signal: the exception box.
+  There is no EXCEPTION slot (a `✗ threw — <message>` line): a threw
+  action row's failure is rendered by the per-row EXCEPTION BOX
+  (`cascade-row-exception-box`) directly below the code, and
+  `cascade-row-view` paints no `:threw` outcome chip and no success
+  `:ok` tick. One signal: the exception box.
 
   Each slot elides cleanly when the underlying data is absent so the
   row stays minimal for actions that ran without side-effects."
@@ -3528,7 +3508,7 @@
        ;; Per-action DATA Δ — the data the action wrote into the
        ;; snapshot, rendered as an inspector DIFF (input → outcome) so
        ;; the cascade row tells the operator 'this action changed X
-       ;; from A to B' inline (rf2-5hjb5).
+       ;; from A to B' inline.
        (when (some? data-write)
          (cascade-row-action-data-diff row instance))
        ;; Per-action FX attribution — each fx-id the action emitted
@@ -3551,13 +3531,13 @@
                     :style cascade-detail-fx-chip-style}
              (fmt/ns-keyword fx-id)])])])))
 
-;; rf2-2hj0h item 8 — the per-row EXCEPTION BOX. When a GUARD or ACTION
+;; The per-row EXCEPTION BOX. When a GUARD or ACTION
 ;; THREW, render an exception box directly below that step's code —
 ;; modeled on the OUTER pipeline's inline exception card (`error-block`):
 ;; the same `error-block-*` chrome (✗ glyph + 'Exception Thrown' title +
 ;; verbatim message + the collapsible stack / ex-data via
 ;; `error-block-details`). This is the cascade row's FAILURE outcome
-;; display (paired with item 7: success = clean / no ok-tick; failure =
+;; display (success = clean / no ok-tick; failure =
 ;; this box). It mirrors how the fuse `:*` throw surfaces on the outer
 ;; HANDLER step, but lands IN the cascade row where the throwing step ran,
 ;; so the operator reads the code AND its exception at one vertical
@@ -3565,9 +3545,9 @@
 
 (defn- cascade-row-exception-message
   "Lift the verbatim exception message for a throwing cascade row's box
-  (rf2-2hj0h item 8). Prefers a pre-projected `:message` string; falls back
+  Prefers a pre-projected `:message` string; falls back
   to `ex-message` on the raw `:exception` object (the substrate stamps the
-  raw Throwable per rf2-wnvid). nil when neither is present."
+  raw Throwable). nil when neither is present."
   [{:keys [message exception]}]
   (cond
     (and (string? message) (not (str/blank? message))) message
@@ -3577,20 +3557,20 @@
 
 (defn- cascade-row-exception-box
   "Render the EXCEPTION BOX for a throwing GUARD / ACTION cascade row
-  (rf2-2hj0h item 8). Returns nil — renders nothing — for a clean row (the
-  common case: a successful action / passing guard shows no chrome here per
-  item 7). A throwing row carries `:exception` (the raw Throwable) and/or a
+  Returns nil — renders nothing — for a clean row (the
+  common case: a successful action / passing guard shows no chrome
+  here). A throwing row carries `:exception` (the raw Throwable) and/or a
   threw outcome (`:threw? true` for an action; `:outcome :threw` for a
   guard); the box reuses the OUTER pipeline's `error-block-*` chrome so the
   inner exception reads identically to a handler / fx / interceptor throw:
   ✗ 'Exception Thrown' title, the verbatim message, and the collapsible
   stack / ex-data disclosure (`error-block-details`).
 
-  The `<source-coord>` the bead names is carried by the row's verb-link (the
+  The throwing step's source coord is carried by the row's verb-link (the
   click-to-source affordance already lands the operator on the throwing
   guard/action's `file:line`), so the box itself does not re-render a coord
-  line — matching the outer card, which dropped its redundant jump-to-source
-  link in rf2-wnvid for the same reason."
+  line — matching the outer card, which carries no jump-to-source link for
+  the same reason."
   [{:keys [kind threw? outcome exception step] :as row} instance]
   (let [threw? (or (true? threw?)
                    (= :threw outcome)
@@ -3616,40 +3596,39 @@
          ;; reads one click away exactly as on a handler throw.
          (error-block-details testid-base {:exception exception} instance)]))))
 
-;; rf2-ge6uj ISSUE 3 — the transition zone is collapsed to ONE prominent
+;; The transition zone is ONE prominent
 ;; row. The TRANSITION row's header carries `[#step] [TRANSITION badge]
 ;; <before-state → after-state>` (the verb IS the state change — see
-;; `format/cascade-row-label`, which now emits just `<from> → <to>`),
-;; rendered visually PRIMARY via `cascade-transition-verb-link-style`. The
-;; prior repetitive body (`cascade-row-transition-details`) is REMOVED: it
-;; re-stated the state change on a labelled `state <from> → <to>` line and
-;; echoed the triggering `event [...]` underneath — both redundant (the
-;; KIND pill already says TRANSITION; the DISPATCH step + cascade context
-;; already name the event). rf2-iwy0c — the transition row's source body
-;; is now the LOGICAL-STATE DELTA box (`{:state :tags}` before → after via
-;; `cascade-row-transition-delta`), REVERSING the rf2-wwc3j transition-map
-;; 'delight shape': the map literal merely restated the target state the
-;; headline verb already names, whereas the delta box carries `:tags` + the
-;; structured parallel/compound state object the single-region verb cannot
-;; convey. The box elides on a self/internal transition (no logical change).
+;; `format/cascade-row-label`, which emits just `<from> → <to>`),
+;; rendered visually PRIMARY via `cascade-transition-verb-link-button-style`.
+;; There is no detail body restating the state change on a labelled
+;; `state <from> → <to>` line or echoing the triggering `event [...]` —
+;; both would be redundant (the KIND pill says TRANSITION; the DISPATCH
+;; step + cascade context name the event). The transition row's source
+;; body is the LOGICAL-STATE DELTA box (`{:state :tags}` before → after via
+;; `cascade-row-transition-delta`) rather than the transition-map literal,
+;; which would merely restate the target state the headline verb names,
+;; whereas the delta box carries `:tags` + the structured parallel/compound
+;; state object the single-region verb cannot convey. The box elides on a
+;; self/internal transition (no logical change).
 
 (defn- cascade-row-view
-  "Render one cascade row (rf2-u69j7). Layout — all sub-content
-  left-aligns to the BADGE left edge (rf2-2hj0h item 3 / rf2-4b6im):
+  "Render one cascade row. Layout — all sub-content
+  left-aligns to the BADGE left edge:
 
       [#step] [KIND] [phase?] verb (↗ source)    duration · outcome
               source code (always visible, monospace, syntax-highlighted)
-              ↳ <data-delta value>   (rf2-32kyr — no `data Δ` caption)
+              ↳ <data-delta value>   (no `data Δ` caption)
               ↳ fx …
 
   The row's `:kind` keys all the chrome variants: `:action` rides the
-  full layout (phase chip + source body + outcome details — incl. the
-  rf2-5hjb5 inspector data DIFF); `:guard` rides a thinner layout
+  full layout (merged phase badge + source body + outcome details — incl.
+  the inspector data DIFF); `:guard` rides a thinner layout
   (source body, no phase chip); `:transition` rides the prominent
-  state-change verb (`<before> → <after>`) + the rf2-iwy0c logical-state
+  state-change verb (`<before> → <after>`) + the logical-state
   DELTA box (`{:state :tags}` before → after), with NO repetitive detail
-  block (rf2-ge6uj ISSUE 3); `:timer` rides a minimal layout (kind +
-  state + reason, no source body); `:start` (rf2-it4vt) rides the
+  block; `:timer` rides a minimal layout (kind +
+  state + reason, no source body); `:start` rides the
   `[START]` pill + `started in {state}` verb + a CAUSE tag chip
   (`explicit` / `lazy` / `spawned`) + the initial-`:data` body box, with
   NO source-link (a birth has no spec call-site) and NO outcome chip."
@@ -3661,7 +3640,7 @@
         outcome-lbl (fmt/cascade-outcome-label row)
         long?       (and (number? duration-ms)
                          (> duration-ms proj/long-step-threshold-ms))]
-    [:div {;; rf2-wvch — LOAD-BEARING, and the only place this row's React key
+    [:div {;; LOAD-BEARING, and the only place this row's React key
            ;; can live: `machine-cascade-view` CALLS this fn from inside a
            ;; `for`, so a `^{:key …}` at the call site would be discarded on
            ;; return. `:step` is re-numbered 1..N by `projection/machine-
@@ -3674,55 +3653,55 @@
            :style cascade-row-style}
      ;; Header row: ordinal + badge + (for <state>) + verb + duration + outcome
      [:div {:style cascade-row-header-style}
-      ;; rf2-iu3no — the `:no-op` row is a SINGLE muted notice (the cascade
-      ;; collapses to one row when nothing transitioned), so its 1..N
-      ;; left-rail ordinal was an unexplained leading "1" — pure noise. Drop
-      ;; it for the no-op; every other kind keeps its scannability ordinal.
+      ;; The `:no-op` row is a SINGLE muted notice (the cascade
+      ;; collapses to one row when nothing transitioned), so a 1..N
+      ;; left-rail ordinal would be an unexplained leading "1" — pure noise.
+      ;; Drop it for the no-op; every other kind keeps its scannability ordinal.
       (when-not (= :no-op kind)
         (cascade-row-ordinal step))
-      ;; rf2-2hj0h item 5 — an `:action` row renders ONE merged badge
+      ;; An `:action` row renders ONE merged badge
       ;; (`[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` / …);
       ;; every other kind keeps its single kind pill (the state-change
       ;; `:transition` ROW keeps its own `[TRANSITION]` pill — distinct from
       ;; a `TRANSITION ACTION`).
       ;;
-      ;; rf2-yueoa — a `:no-op` row is still the TRANSITION step of the cascade
+      ;; A `:no-op` row is still the TRANSITION step of the cascade
       ;; (a transition was ATTEMPTED; it just produced no state change), so it
       ;; renders the SAME filled magenta `[TRANSITION]` pill a real transition
       ;; uses (`cascade-kind-pill :transition`) PLUS a `[NO OP]` QUALIFIER chip
       ;; that marks "this transition step resulted in no state change":
       ;; `[TRANSITION] [NO OP] staying in {state}`. The verb (`staying in
-      ;; {state}`, rf2-iu3no) follows below as before.
+      ;; {state}`) follows below.
       (cond
         (= :action kind) (cascade-action-pill phase)
         (= :no-op kind)  [:<> (cascade-kind-pill :transition)
                               (cascade-no-op-qualifier)]
         :else            (cascade-kind-pill kind))
-      ;; rf2-2hj0h item 6 + rf2-h710p item B — ` for <state> ` fronts the
+      ;; ` for <state> ` fronts the
       ;; verb on `:action` (the state the action belongs to) AND `:guard`
       ;; rows (the state whose transition the guard gates), reading the
-      ;; kind-specific belongs-to/gated state. The bare `[GUARD]` pill no
-      ;; longer needs the redundant "guard" verb word (dropped in
-      ;; `format/cascade-row-label`) — the clause + guard-id carry it.
+      ;; kind-specific belongs-to/gated state. The bare `[GUARD]` pill needs
+      ;; no redundant "guard" verb word (`format/cascade-row-label` omits
+      ;; it) — the clause + guard-id carry it.
       (when (= :action kind)
         (cascade-for-state-clause step (fmt/cascade-action-for-state row)))
       (when (= :guard kind)
         (cascade-for-state-clause step (fmt/cascade-guard-for-state row)))
-      ;; rf2-bvwv4q — a parent-owned `:always` ROUND row fronts its verb with
+      ;; A parent-owned `:always` ROUND row fronts its verb with
       ;; ` for <region> · round <n> `, so co-selected regional rows read as one
       ;; parent-owned round.
       (when (= :microstep kind)
         (cascade-microstep-round-clause step (:region row) (:round-index row)))
       (cascade-row-verb-link row coord verb)
-      ;; rf2-h710p item C — the GUARD outcome (pass/fail/threw) renders
+      ;; The GUARD outcome (pass/fail/threw) renders
       ;; INLINE, straight after the guard name + its click-to-source glyph
       ;; (`[GUARD] for :open :may-close? ↗ pass`), NOT right-aligned. The
-      ;; guard pass/fail is MEANINGFUL (it decides the branch — distinct from
-      ;; the rf2-2hj0h item-7 ACTION ok-tick, which was removed); keeping it
+      ;; guard pass/fail is MEANINGFUL (it decides the branch — unlike an
+      ;; ACTION ok-tick, which the row does not carry); keeping it
       ;; inline puts the verdict beside the predicate that produced it.
       (when (and (= :guard kind) outcome-lbl)
         (cascade-outcome-chip outcome outcome-lbl))
-      ;; rf2-it4vt — the `[START]` row's CAUSE tag (explicit / lazy /
+      ;; The `[START]` row's CAUSE tag (explicit / lazy /
       ;; spawned) rides right after the verb. The `lazy` cause is the
       ;; ordering-smell flag (warning tone).
       (when (= :start kind)
@@ -3732,57 +3711,54 @@
        (duration-chip duration-ms)
        (cascade-outcome-chip
          (cond
-           ;; rf2-h710p item C — the GUARD outcome moved INLINE (above), so it
-           ;; is no longer painted in the right-aligned slot.
+           ;; The GUARD outcome renders INLINE (above), not in
+           ;; the right-aligned slot.
            (= :guard kind)      nil
-           ;; rf2-2hj0h item 7 — an ACTION row carries NO outcome ok-tick.
-           ;; SUCCESS is clean (no `✓ ok` chip — the prior tick was redundant
+           ;; An ACTION row carries NO outcome chip.
+           ;; SUCCESS is clean (a `✓ ok` tick would be redundant
            ;; chrome in the normal case); FAILURE is the EXCEPTION BOX below
-           ;; the code (item 8), NOT a chip. A threw action already dropped
-           ;; its chip under rf2-4yrr6; item 7 drops the success `:ok` chip
-           ;; too, so the action row's outcome is signalled purely by
-           ;; presence/absence of the exception box.
+           ;; the code, NOT a chip — so the action row's outcome is
+           ;; signalled purely by presence/absence of the exception box.
            (= :action kind)     nil
            (= :timer kind)      :cancelled
-           ;; rf2-cdgva — the `:transition` row carries NO outcome chip. The
-           ;; prior `N microstep(s)` summary was redundant: every `:always`
+           ;; The `:transition` row carries NO outcome chip. An
+           ;; `N microstep(s)` summary would be redundant: every `:always`
            ;; microstep (N>0) is itself a FIRST-CLASS cascade row in this same
            ;; mini-pipeline (its own `:rf.machine/transition` + nested
-           ;; exit/action/entry rows, post akvfe/2hj0h), so the count merely
-           ;; tallied rows already present; when N=0 (the common case) it was
+           ;; exit/action/entry rows), so the count would merely tally rows
+           ;; already present; when N=0 (the common case) it would be
            ;; pure noise. The prominent `<before> → <after>` header verb is the
            ;; transition's whole story.
-           ;; rf2-iu3no — the benign no-op carries NO outcome chip. The
-           ;; "[NO OP]" kind-pill + the "staying in {state}" verb already
-           ;; tell the whole story; the prior "ignored" chip was a third
+           ;; The benign no-op carries NO outcome chip. The
+           ;; "[NO OP]" qualifier + the "staying in {state}" verb
+           ;; tell the whole story; an "ignored" chip would be a third
            ;; restatement of the same fact.
            :else                nil)
          nil)]]
-     ;; Source code body (always visible per rf2-u69j7) — actions + guards
-     ;; render their source (or the rf2-iwy0c machine-def link when none
-     ;; was captured); the `:transition` row renders the rf2-iwy0c
+     ;; Source code body (always visible) — actions + guards
+     ;; render their source (or the machine-def link when none
+     ;; was captured); the `:transition` row renders the
      ;; logical-state DELTA box (`{:state :tags}` before → after).
      (cascade-row-source-body machine-meta row source-form instance)
-     ;; rf2-2hj0h item 8 — when a GUARD or ACTION THREW, render the EXCEPTION
+     ;; When a GUARD or ACTION THREW, render the EXCEPTION
      ;; BOX directly below the step's code, modeled on the OUTER pipeline's
      ;; inline exception card (`error-block`): ✗ 'Exception Thrown' title +
      ;; verbatim message + collapsible stack / ex-data. This is the row's
-     ;; failure outcome display (paired with item 7: success = clean, no
+     ;; failure outcome display (success = clean, no
      ;; tick; failure = exception box). A clean row renders nothing here.
      (cascade-row-exception-box row instance)
-     ;; Per-row outcome details — kind-specific. rf2-ge6uj ISSUE 3 — the
+     ;; Per-row outcome details — kind-specific. The
      ;; `:transition` row carries NO extra detail body: the prominent
-     ;; header verb (`<before> → <after>`) is the focal point and the
-     ;; prior repetitive `state … / event …` lines are gone.
+     ;; header verb (`<before> → <after>`) is the focal point.
      (case kind
        :action     (cascade-row-action-outcome-details row instance)
        nil)]))
 
 (defn- machine-cascade-view
-  "Render the time-ordered machine-handler cascade (rf2-u69j7). Replaces
-  the pre-rf2-u69j7 category-grouped layout (TRANSITION / GUARDS /
-  LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) with
-  a single time-ordered row stream.
+  "Render the time-ordered machine-handler cascade — a single
+  time-ordered row stream rather than a category-grouped layout
+  (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION /
+  SNAPSHOT DIFF / FX).
 
   The cascade is REQUIRED non-empty for machine handlers — the
   substrate emits at least one `:rf.machine/transition` per macrostep
@@ -3791,17 +3767,14 @@
   any cascade events).
 
   Each row is rendered via `cascade-row-view` — see its docstring
-  for the per-row layout grammar. (rf2-nhovk dropped the redundant
-  `cascade — N step(s)` summary header; the rows below already show
-  the steps plainly. That line also carried the cascade total-ms —
-  re-surface the total elsewhere later if wanted.)
+  for the per-row layout grammar. (There is no `cascade — N step(s)`
+  summary header, which would be redundant: the rows below show the
+  steps plainly. The cascade total-ms is not surfaced.)
 
-  rf2-2hj0h item 1 + 2 — the rows render as a FLAT numbered stack. akvfe's
-  nested-pipeline vertical RAIL (the line behind the [1][2][3] ordinals) and
-  its `:border-top` rule are REMOVED (Mike door-deck review 2026-06-04); the
-  numbered ordinal chips alone carry the pipeline reading. The per-row
-  `position: relative` rail-anchor wrapper is gone with the rail, so each
-  row renders directly (no wrapper div)."
+  The rows render as a FLAT numbered stack — no nested-pipeline vertical
+  RAIL (a line behind the [1][2][3] ordinals) and no `:border-top` rule;
+  the numbered ordinal chips alone carry the pipeline reading. Each row
+  renders directly (no wrapper div)."
   [machine-meta cascade-rows instance]
   (let [n (count cascade-rows)]
     [:div {:data-testid "rf-xray-epoch-handler-machine-cascade"
@@ -3813,7 +3786,7 @@
         "— (no machine cascade events fired)"]
        (into [:div {:data-testid "rf-xray-epoch-handler-machine-cascade-rows"
                     :style machine-cascade-rows-style}]
-             ;; rf2-wvch — NO `^{:key …}` rides this call form. `cascade-row-view`
+             ;; NO `^{:key …}` rides this call form. `cascade-row-view`
              ;; is a plain `defn-`, so reader metadata here would sit on the
              ;; SOURCE LIST and be discarded the moment the form is evaluated —
              ;; the vector it returns would carry none of it. That is the
@@ -3830,19 +3803,19 @@
                (cascade-row-view machine-meta row instance))))]))
 
 (defn- event-handler-orientation-line
-  "Render the EVENT HANDLER orientation line (rf2-akvfe) — ONE structured
-  line under the EVENT HANDLER heading that REPLACES the retired rf2-18oe3
+  "Render the EVENT HANDLER orientation line — ONE structured
+  line under the EVENT HANDLER heading, in place of a
   DISPATCH gloss:
 
-      Processing [TRIGGER] <trigger-vector> for [MACHINE] <machine-id>
-                 in [STATE] <pre-transition-state>
+      [TRIGGER] <trigger-vector> for [MACHINE] <machine-id>
+      in [STATE] <pre-transition-state>
 
   `[TRIGGER]` / `[MACHINE]` / `[STATE]` paint as small grey chip-labels;
   the values follow each chip, code-formatted (the full trigger vector
   incl. args, the machine id, the pre-transition logical state). It
   orients the operator at a glance — what trigger, which machine, what
-  starting state — in a better location than a muted gloss under DISPATCH
-  and carrying the STATE the gloss never showed.
+  starting state — in a better location than a muted gloss under DISPATCH,
+  and carrying the STATE.
 
   Reads the pure-data orientation triple off the cascade
   (`proj/machine-event-orientation`); returns nil (renders nothing) for a
@@ -3853,9 +3826,9 @@
              (proj/machine-event-orientation cascade event-id)]
     [:div {:data-testid "rf-xray-epoch-event-handler-orientation"
            :style orientation-line-style}
-     ;; rf2-2hj0h item 4 — the leading "Processing" word is DROPPED. The line
+     ;; No leading "Processing" word: the line
      ;; reads `[TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>` — the
-     ;; chips + values are self-orienting; the verb was filler.
+     ;; chips + values are self-orienting; a verb would be filler.
      [:span {:style orientation-chip-style} "trigger"]
      [:span {:data-testid "rf-xray-epoch-event-handler-orientation-trigger"
              :style orientation-value-style}
@@ -3872,7 +3845,7 @@
       (fmt/orientation-value state)]]))
 
 (defn machine-cascade-mini-pipeline
-  "SHARED EVENT HANDLER machine-cascade mini-pipeline (rf2-g2axio).
+  "SHARED EVENT HANDLER machine-cascade mini-pipeline.
 
   The single renderer for the numbered machine-cascade rows (the
   microstep cascade with KIND+PHASE badges, guard pass/fail rows, verb
@@ -3885,35 +3858,33 @@
       the focused epoch's projected cascade (off the SAME
       `projection/machine-cascade-rows`).
 
-  Extract-and-reuse, NOT copy-paste: a future change to the cascade-row
-  rendering updates both surfaces at once. This was the whole point of
-  rf2-g2axio — before the extraction the Machine tab carried its OWN,
-  thinner forensic block (`focused-transition-lens`) that diverged from
-  this richer microstep view.
+  Shared, NOT copy-pasted: a change to the cascade-row rendering updates
+  both surfaces at once, so the Machine tab cannot diverge into its own
+  thinner forensic block.
 
   `cascade` is the projected cascade-row vector (see
   `projection/machine-cascade-rows`); `event-id` is the machine handler
   id used to resolve the registration meta (`rf/handler-meta :event …`)
-  so guard / action source-coords resolve. Returns the same
-  `rf-xray-epoch-handler-machine` host the Epoch panel always rendered,
+  so guard / action source-coords resolve. Returns the
+  `rf-xray-epoch-handler-machine` host on both surfaces,
   so every cascade-row testid (`rf-xray-epoch-machine-cascade-row-N`,
   `-ordinal-N`, `-kind-*`, `-phase-*`, `-verb-link-N`, `-source-body-N`,
   `-outcome-N`, `-data-write-N`, …) is identical on both surfaces.
 
-  ## `instance` — WHO IS RENDERING THIS CASCADE (rf2-3ymg)
+  ## `instance` — WHO IS RENDERING THIS CASCADE
 
-  Being consumed by two panels is what made this fn's inspector mount-ids
-  collide ACROSS them: both surfaces composed
+  Being consumed by two panels means this fn's inspector mount-ids would
+  collide ACROSS them unqualified: both surfaces would compose
   `epoch/machine-cascade-transition-delta/<step>` for the same transition,
-  so they shared one lifecycle entry, one ResizeObserver and one
-  measured-width slot, and detaching either released the other's. Measured
-  on a real Epoch-plus-Machine-Inspector commit, with NEITHER caller
-  naming anything, in
-  `panels/epoch_machine_mount_instance_id_dom_cljs_test`.
+  so they would share one lifecycle entry, one ResizeObserver and one
+  measured-width slot, and detaching either would release the other's.
+  `panels/epoch_machine_mount_instance_id_dom_cljs_test` pins this on a
+  real Epoch-plus-Machine-Inspector commit, with NEITHER caller naming
+  anything.
 
   The shared testids above are NOT affected and must not be: they are the
-  cascade ROW's identity, the thing the extraction promised would stay
-  identical on both surfaces. What `instance` qualifies is the inspector's
+  cascade ROW's identity, identical on both surfaces by design. What
+  `instance` qualifies is the inspector's
   PHYSICAL identity — the `:mount-id` alone, which the widget keys its
   per-mount store and its width slot by, and which its `effective-id`
   ignores in favour of the `:site-id` each site also passes. So expansion
@@ -3921,8 +3892,8 @@
 
   Each CALLER supplies its own, and they answer differently because the
   question differs. The Epoch panel passes [[instance-token]]'s value —
-  nil unless the embedder named that mount, which keeps every id
-  byte-for-byte. The Machine Inspector passes
+  nil unless the embedder named that mount, which leaves every id
+  bare. The Machine Inspector passes
   `machine-inspector/instance-token`'s, which NEVER answers nil: it is a
   guest in this file's id namespace, which panel is rendering is
   statically known, and a caller embedding one of each cannot see the
@@ -3930,84 +3901,73 @@
   [[dispatch-body]]."
   ([cascade event-id] (machine-cascade-mini-pipeline cascade event-id nil))
   ([cascade event-id instance]
-  ;; rf2-ge6uj ISSUE 2 — read the registration meta under the `:event`
-  ;; kind, NOT a (non-existent) `:machine` kind. A machine is registered
+  ;; Read the registration meta under the `:event`
+  ;; kind — there is no `:machine` kind. A machine is registered
   ;; as an `:event` handler carrying `:rf/machine? true` + the stamped spec
   ;; under `:rf/machine` (with co-located `:guards` / `:actions` entries
   ;; carrying `:source-coords` / `:source-code`, plus reference-site
-  ;; `:source-coords` co-located on each `:states`-tree map node,
-  ;; rf2-npvsx / rf2-vqja2). Reading under `:event` surfaces the spec so
+  ;; `:source-coords` co-located on each `:states`-tree map
+  ;; node). Reading under `:event` surfaces the spec so
   ;; the interleaved source code + click-to-source coords resolve.
   (let [machine-meta (when (some? event-id)
                        (try (rf/handler-meta {:source :store :kind :event :id event-id})
                             (catch :default _ nil)))
         cascade      (or cascade [])]
     [:div {:data-testid "rf-xray-epoch-handler-machine"}
-     ;; rf2-akvfe — the structured orientation line leads the EVENT HANDLER
+     ;; The structured orientation line leads the EVENT HANDLER
      ;; section (what trigger, which machine, what starting state), then the
      ;; numbered cascade pipeline below.
      (event-handler-orientation-line cascade event-id)
      (machine-cascade-view machine-meta cascade instance)])))
 
 (defn- machine-block
-  "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE
-  (rf2-u69j7). Delegates to the SHARED `machine-cascade-mini-pipeline`
-  (rf2-g2axio) — the SAME renderer the Xray Machine tab consumes, so the
+  "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE.
+  Delegates to the SHARED `machine-cascade-mini-pipeline`
+  — the SAME renderer the Xray Machine tab consumes, so the
   two surfaces cannot diverge. The Epoch panel arrives here with the
   cascade ALREADY projected (off the HANDLER row's `:machine {:cascade
   …}` slot, built by `projection/machine-cascade-rows`).
 
   Each row interleaves source code with the row's phase + duration +
-  outcome (per Mike's authority — Bead rf2-u69j7). The legacy
-  category-grouped sub-sections (TRANSITION / GUARDS / LIFECYCLE /
-  AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) are REPLACED, not
-  augmented (per Mike: 'pre-alpha; no back-compat shim')."
+  outcome. There are no category-grouped sub-sections (TRANSITION /
+  GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF /
+  FX)."
   [{:keys [cascade] :as _machine-row} event-id instance]
   (machine-cascade-mini-pipeline (or cascade []) event-id instance))
 
 ;; ---- handler source --------------------------------------------------
 ;;
-;; Per rf2-66wis the HANDLER body carries the registered handler's
-;; source code as a syntax-highlighted block under the header — same
-;; widget as the Event panel uses (rf2-n4ad0 routed to `edn/code-block`
+;; The HANDLER body carries the registered handler's
+;; source code as a syntax-highlighted block under the header — the same
+;; widget the Event panel uses (`edn/code-block`,
 ;; with the same per-token palette as the Figma authority's
-;; `.syntax-*` classes, rf2-93jp0). The substrate stamps source under
-;; the `:rf.handler/source` meta key (Spec 009 / rf2-xgfuy) via a
+;; `.syntax-*` classes). The substrate stamps source under
+;; the `:rf.handler/source` meta key (Spec 009) via a
 ;; DEBUG-gated macro; production goog.DEBUG=false builds carry no
 ;; source, so the slot renders a clear placeholder rather than
 ;; collapsing silently.
 ;;
-;; For machine handlers the "source" is the machine spec — read via
-;; `rf/handler-meta :event event-id` (the machine IS an `:event` handler
-;; with the spec under `:rf/machine`; rf2-iwy0c part C — the prior
-;; `:machine` kind resolved nil). The spec renders through the same
-;; `edn/inspect` widget every other top-level EDN map uses.
+;; Machine handlers render no source block: the machine CASCADE is the
+;; content (see `handler-source-block`).
 
 (defn- handler-source-string
   "Return the registered event-handler's source string from the
   `:rf.handler/source` meta key, or nil when the substrate hasn't
-  captured one (production builds, registrations that pre-date the
-  coord-annotation pass)."
+  captured one (production builds, registrations with no captured
+  source)."
   [meta]
   (let [s (:rf.handler/source meta)]
     (when (and (string? s) (seq s))
       s)))
 
-;; rf2-4yrr6 — `machine-spec-value` retired. Its sole caller was
-;; `handler-source-block`'s machine branch (the `(edn/inspect spec)` SPEC
-;; dump), which is gone: machine handlers render NO source block now (the
-;; machine CASCADE is the content). `machine-state-path-coord` resolves the
-;; spec inline (it pre-dated this var anyway, being declared above it).
-
 (defn- coord-from-handler-meta
   "Lift a `{:file :line}` source-coord off a registered handler's meta
   map (`rf/handler-meta` return shape). Returns nil when the meta
-  carries no `:file` (production builds, registrations that pre-date
-  the coord-annotation pass).
+  carries no `:file` (production builds, registrations with no
+  captured coord).
 
-  rf2-ehd8v — shared by the HANDLER source-block (event + machine
-  handlers) so the `file:line + [open]` affordance reads the same
-  shape both render-paths use."
+  Serves the HANDLER verb link for event and machine handlers alike,
+  so both render-paths read the coord the same way."
   [m]
   (when (and m (string? (:file m)) (seq (:file m)))
     {:file (:file m) :line (:line m)}))
@@ -4020,23 +3980,20 @@
   when no coord was captured (production builds, fn-form
   registrations).
 
-  rf2-ehd8v / Mike pair-debug 2026-05-26 — the verb itself IS the
-  goto-source affordance; the legacy SOURCE sub-header that
-  carried the file:line + [open] chrome is gone (handler-source-
-  block now leads with the code body directly).
+  The verb itself IS the
+  goto-source affordance; there is no SOURCE sub-header carrying
+  file:line + [open] chrome (handler-source-
+  block leads with the code body directly).
 
-  rf2-ge6uj ISSUE 1 — the EVENT HANDLER glyph was MISSING for machine
-  events. A machine is registered as an ordinary `:event` handler
+  A machine is registered as an ordinary `:event` handler
   carrying `:rf/machine? true` + the top-level `reg-machine` call-site
   `:file` / `:line` (Spec 005 §Querying machines). There is NO
   `:machine` registrar kind (`registrar/kinds` is `:event :sub :fx …
-  :machine-guard :machine-action`), so the prior `(if machine? :machine
-  :event)` lookup resolved nil for machine events → `coord` nil →
-  `coord-link` painted the plain (glyph-less) span. Reading the meta
+  :machine-guard :machine-action`), so a `:machine` lookup would
+  resolve nil for machine events → `coord` nil →
+  `coord-link` would paint the plain (glyph-less) span. Reading the meta
   under `:event` for BOTH flavours surfaces the call-site coord, so the
-  machine EVENT HANDLER carries the same `↗` glyph a plain event does.
-  (Verified machine-specific: a plain-event EVENT HANDLER already
-  resolved its coord under `:event` and had the glyph.)"
+  machine EVENT HANDLER carries the same `↗` glyph a plain event does."
   [flavour event-id]
   (let [meta     (when (some? event-id)
                    ;; Machine + plain event handlers BOTH live under the
@@ -4047,10 +4004,9 @@
                         (catch :default _ nil)))
         coord    (coord-from-handler-meta meta)
         label    (fmt/handler-flavour-label flavour)]
-    ;; rf2-vw5pi — the HANDLER verb-as-link routes through the shared
-    ;; `coord-link`. Single testid across both branches (the prior
-    ;; `…-verb-plain` variant was a hand-rolled artefact, not pinned);
-    ;; per-site link / plain styles preserved.
+    ;; The HANDLER verb-as-link routes through the shared
+    ;; `coord-link`, with a single testid across both branches and the
+    ;; per-site link / plain styles.
     (coord-link/coord-link coord label "rf-xray-epoch-handler-verb-link"
                            {:style       handler-verb-link-button-style
                             :plain-style handler-verb-plain-style})))
@@ -4065,17 +4021,17 @@
        placeholder so the slot is always present (operator learns
        where to look + when the substrate didn't stamp).
 
-  rf2-4yrr6 — MACHINE handlers render NO source block (this fn returns
+  MACHINE handlers render NO source block (this fn returns
   nil for them). Dumping the whole machine spec via `edn/inspect` under
-  the HANDLER step was noise: the machine CASCADE below (`machine-block`)
-  IS the content, and the defmachine / reg-machine value stays reachable
-  via source-links — the HANDLER verb link (rf2-ge6uj) and the per-element
-  machine-def links (rf2-iwy0c). Nothing is lost. The machine case returns
+  the HANDLER step would be noise: the machine CASCADE below (`machine-block`)
+  IS the content, and the defmachine / reg-machine value is reachable
+  via source-links — the HANDLER verb link and the per-element
+  machine-def links. The machine case returns
   nil (NOT the `<source not yet captured>` placeholder — that slot is for
   event handlers whose source the substrate didn't stamp).
 
-  rf2-ehd8v / pair-debug 2026-05-26 — the SOURCE sub-header is gone; the
-  verb in the HANDLER step header IS the click-to-source affordance now
+  There is no SOURCE sub-header; the
+  verb in the HANDLER step header IS the click-to-source affordance
   (see `handler-verb-link`). This fn renders only the code body."
   [flavour event-id]
   (when-not (= :reg-machine flavour)
@@ -4095,22 +4051,22 @@
           "<source not yet captured>"])])))
 
 (defn- handler-db-diff-block
-  "Render the HANDLER step's `:db` sub-section (rf2-93436 / design
+  "Render the HANDLER step's `:db` sub-section (design
   doc §Section 1 + §Section 2). Always renders for non-machine
   handlers.
 
-  rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]` mode
-  toggle (rf2-n2jig / rf2-yqjrd) is retired. FULL+DIFF is the single
+  There is no `[diff][full][full+diff]` mode
+  toggle. FULL+DIFF is the single
   rendering: the full post-handler `:db` tree with inline diff
   annotations driven off `:db-before`. The R1-R8 grammar paints
   gutter glyphs + row washes + leaf-scalar `← was X` suffixes;
   auto-collapse keeps unchanged subtrees folded so the density matches
-  what the prior `:diff` lens used to provide.
+  a diff-only lens.
 
-  rf2-4wywy / rf2-48oc4 — the rendered `:db` is the EFFECTIVE
+  The rendered `:db` is the EFFECTIVE
   POST-HANDLER db (the projection's `:db-post-handler`), NOT the epoch
   record's `:db-after`. `:db-after` is the FINAL post-flow / post-commit
-  state — reading it conflated the handler's change with any flow
+  state — reading it would conflate the handler's change with any flow
   recompute that followed (flows write app-db AFTER the handler). The
   HANDLER step shows ONLY what the handler returned; the FLOW step shows
   the flow's OWN `:db` diff (the pre→post reshape).
@@ -4119,42 +4075,41 @@
   handler returned a `:db` (`projection/effective-post-handler-db`):
   the t1 snapshot (`:rf.event/db-pending`) when the handler returned
   `:db`; `db-before` when the handler returned NO `:db` yet a flow
-  fired (rf2-48oc4 — the HANDLER step then shows NO `:db` change, since
+  fired (the HANDLER step then shows NO `:db` change, since
   the post-handler db equals db-before); nil otherwise. Graceful
   fallback: when the projection left the slot nil (no flow + no `:db`,
-  or a pre-rf2-ta0y7 runtime) the block falls back to the record's
-  `:db-after` so older epochs still render.
+  or a runtime that stamps no t1 snapshot) the block falls back to the
+  record's `:db-after`, so such epochs render.
 
-  rf2-wnvid — PHANTOM-`:db` fix. When the handler wrote NO `:db` effect
+  No PHANTOM `:db`. When the handler wrote NO `:db` effect
   (`db-write?` false — e.g. it returned only `:fx`), the block renders a
   `— no :db (handler returned no :db)` placeholder instead of falling
-  back to the record's full post-cascade `:db-after`. The pre-rf2-wnvid
-  fallback painted the ENTIRE app-db tree under the HANDLER step as if
+  back to the record's full post-cascade `:db-after`, which would paint
+  the ENTIRE app-db tree under the HANDLER step as if
   the handler had returned it — misleading on a handler that mutated
   nothing.
 
-  rf2-oqi0c — the THREW case no longer reaches this block at all: the
+  The THREW case never reaches this block: the
   caller (`handler-body`) OMITS the whole `:db` sub-section when the
   handler threw (the inline exception card is the signal), so the
   placeholder is only ever the clean 'returned no :db' wording.
 
   Suppressed for machine handlers — per design §Section 3 §DB DIFF
-  the snapshot IS the db change (at `[:rf.runtime/machines :snapshots <id>]` in runtime-db) so the
-  slot folds into SNAPSHOT DIFF rather than carrying a redundant
-  standalone slot.
+  the snapshot IS the db change (at `[:rf.runtime/machines :snapshots <id>]` in runtime-db), which the
+  machine cascade surfaces (per-action data Δ, transition logical-state
+  delta) rather than a redundant standalone slot.
 
-  rf2-k97c.3 — `record` ARRIVES AS AN ARGUMENT; it used to be read here
-  with `@(rf/subscribe [:rf.xray/selected-epoch-record])`. [[Panel]] is
-  now a Fresco boundary and reads it there, threading it down the `ctx`
-  map. HD-016 would have allowed the read to stay and DONATE upward into
-  the boundary's window, and that would have been correct in production —
+  `record` ARRIVES AS AN ARGUMENT rather than being read here
+  with `@(rf/subscribe [:rf.xray/selected-epoch-record])`: [[Panel]] is
+  a Fresco boundary and reads it there, threading it down the `ctx`
+  map. HD-016 would allow the read here, DONATING upward into
+  the boundary's window, and that would be correct in production —
   but it would make this helper callable only inside a React render
   window, and its diff algebra is ordinary data → data that the fast node
-  lane is the right place to test. Every migrated panel in this tree made
-  the same call. `nil` renders as `db-before` absent, which is what a
-  direct caller passing no `ctx` means.
+  lane is the right place to test. `nil` renders as `db-before` absent,
+  which is what a direct caller passing no `ctx` means.
 
-  rf2-y8doi.19 — EGRESS IS THE CALLER'S OBLIGATION, and this block is
+  EGRESS IS THE CALLER'S OBLIGATION, and this block is
   where it would otherwise be missed. Both db values it hands the shared
   edn-inspector are WHOLE app-db images: `:before` is the record's
   `:db-before` and `:value` is either the post-handler snapshot or, in
@@ -4168,37 +4123,37 @@
   a gallery fixture) gets exactly the values it passes: this block
   applies no policy of its own and cannot, having no frame to apply.
 
-  rf2-v6ftp — `result-discarded?` (a `:halted-destroy` record whose
+  `result-discarded?` (a `:halted-destroy` record whose
   handler result never reached the commit, `projection/mark-halted`) words
   the no-write line for the destroy: the handler RAN, and its result was
   discarded. 'Returned no :db' would be false there."
   [db-post-handler db-write? record instance result-discarded?]
   (let [db-before (:db-before record)
-        ;; rf2-4wywy — t1 (post-handler, pre-flow) is the authoritative
+        ;; t1 (post-handler, pre-flow) is the authoritative
         ;; HANDLER `:db`; fall back to the record's post-flow `:db-after`
         ;; only when the runtime stamped no t1 — but ONLY when the handler
-        ;; actually wrote a `:db` (rf2-wnvid). A handler that wrote no
+        ;; actually wrote a `:db`. A handler that wrote no
         ;; `:db` resolves the no-write placeholder below, never the
         ;; phantom full-app-db fallback.
         db-after  (if (some? db-post-handler)
                     db-post-handler
                     (:db-after record))]
     [:div {:data-testid "rf-xray-epoch-handler-db-diff"
-           ;; rf2-xvu24 — canonical `data-rf-xray-diff-mode` axis. Now
-           ;; a constant post-rf2-vv3m6; kept for selector compatibility
-           ;; (tools / e2e can still pin the FULL+DIFF rendering).
+           ;; Canonical `data-rf-xray-diff-mode` axis — a constant
+           ;; (FULL+DIFF is the single rendering), stamped so tools / e2e
+           ;; can pin the FULL+DIFF rendering.
            :data-rf-xray-diff-mode "full+diff"
            :data-rf-xray-db-write (str (boolean db-write?))}
      (sub-header ":db" nil)
      (cond
-       ;; rf2-v6ftp — the frame was destroyed before the result committed.
+       ;; The frame was destroyed before the result committed.
        (and (not db-write?) result-discarded?)
        [:span {:data-testid "rf-xray-epoch-handler-db-discarded"
                :style handler-db-all-missing-style}
         "— no :db (the handler ran; its result was discarded because the frame was destroyed)"]
 
-       ;; rf2-wnvid — the handler wrote no `:db` → no phantom app-db.
-       ;; rf2-oqi0c — the threw case is omitted upstream (`handler-body`),
+       ;; The handler wrote no `:db` → no phantom app-db.
+       ;; The threw case is omitted upstream (`handler-body`),
        ;; so this placeholder is only ever the clean 'returned no :db'.
        (not db-write?)
        [:span {:data-testid "rf-xray-epoch-handler-db-no-write"
@@ -4226,64 +4181,63 @@
   "Render the HANDLER step's body — source block + db-diff + fx + the
   machine block when the handler is a machine-event-handler.
 
-  Per rf2-9jvx1 the flavour + event-id row is dropped from the body —
-  the header already carries that descriptor. Per rf2-66wis the body
-  now leads with the handler's source code (or machine spec) so the
+  The body carries no flavour + event-id row —
+  the header carries that descriptor. The body
+  leads with the handler's source code so the
   operator can answer 'why did this handler do X' without leaving the
   panel.
 
-  Per rf2-93436 the `:db diff` sub-section is ALWAYS present for
-  non-machine handlers (design doc §Section 1 + §Section 2) — empty
+  The `:db diff` sub-section is present for every
+  non-machine handler that did not throw (design doc §Section 1 +
+  §Section 2) — empty
   diff renders `— (no changes)` rather than collapsing the slot. For
-  machine handlers the standalone `:db diff` is suppressed (folded
-  into SNAPSHOT DIFF per design §Section 3).
+  machine handlers the standalone `:db diff` is suppressed (the machine
+  cascade carries the db change, per design §Section 3).
 
-  Per rf2-p2zy0 (Mike pair-debug 2026-05-27) the legacy per-fx-row
-  list (one `fx-entry-line` per entry) is REPLACED by a decomposed
+  The return map's effects render as a decomposed
   `:fx` section matching how a reg-event author thinks about the
-  return map:
+  return map, rather than one row per fx entry:
 
     - `:fx` — the canonical `:fx` vector-of-vectors (when present)
       rendered fully expanded via the edn-inspector widget.
 
-  rf2-qlvui — rf2-p2zy0's SECOND section (`other`: the return map
-  minus `:db` and `:fx`) is GONE. It was deleted with the projection
-  slot that fed it (rf2-m2ye2, ed3755729c); see the tombstone at the
-  render site below for why it can never come back.
+  There is no `other` section (the return map
+  minus `:db` and `:fx`); see the note at the
+  render site below for why.
 
   The `:fx` section is `seq`-conditioned, so it renders only when the
-  handler returned one. The `:db` part stays in its own dedicated
-  block (the [diff][full][full+diff] toggle) above.
+  handler returned one. The `:db` part has its own dedicated
+  block above.
 
-  rf2-k97c.3 — the optional `ctx` is the cascade-level map [[Panel]]
+  The optional `ctx` is the cascade-level map [[Panel]]
   threads down; the only key read here is `:selected-epoch-record`, which
-  [[handler-db-diff-block]] needs for `:db-before`. The 1-arity keeps
-  every direct caller that has no cascade context working: no record
+  [[handler-db-diff-block]] needs for `:db-before`. The 1-arity serves
+  every direct caller that has no cascade context: no record
   means no `:db-before`, which renders as an absent pre-image."
   ([row] (handler-body row {}))
   ([{:keys [flavour event-id db-post-handler db-write? fx-vec
             machine errors result-discarded?] :as _row}
     ctx]
   (let [machine? (= :reg-machine flavour)
-        ;; rf2-wnvid — the handler threw iff a `:rf.error/handler-exception`
-        ;; attached to this step (`:errors`). Tunes the no-`:db` placeholder
-        ;; wording ('handler threw' vs 'returned no :db').
+        ;; The handler threw iff a `:rf.error/handler-exception`
+        ;; attached to this step (`:errors`). Gates the `:db` sub-section
+        ;; below (omitted when the handler threw).
         threw?   (boolean (seq errors))]
     [:div {:data-testid "rf-xray-epoch-handler-body"}
-     ;; Source / machine spec block — rf2-66wis
+     ;; Source block (event handlers; machines render none)
      (handler-source-block flavour event-id)
      ;; Machine cascade BEFORE db diff (the cascade IS the story for
-     ;; machines — rf2-u69j7 redesign).
+     ;; machines).
      (when machine
        (machine-block machine event-id (:instance ctx)))
-     ;; :db diff — always present for non-machine handlers (rf2-93436);
-     ;; folded into SNAPSHOT DIFF for machines. rf2-4wywy — the
+     ;; :db diff — present for non-machine handlers; machines carry the
+     ;; db change in their cascade. The
      ;; post-handler (t1) db is threaded so the diff shows ONLY the
      ;; handler's contribution, not the post-flow state.
-     ;; rf2-oqi0c — OMIT the `:db` sub-section entirely when the handler
-     ;; THREW: the redundant "— no :db (handler threw)" line was noise (the
+     ;; OMIT the `:db` sub-section entirely when the handler
+     ;; THREW: a "— no :db (handler threw)" line would be noise (the
      ;; inline 'Exception Thrown' card below is the signal). The slot
-     ;; stays present for a clean handler that simply returned no `:db`.
+     ;; is present for a clean handler that simply returned no `:db`.
      (when (and (not machine?) (not threw?))
        (handler-db-diff-block db-post-handler db-write?
                               (:selected-epoch-record ctx)
