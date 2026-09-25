@@ -166,10 +166,10 @@
     (is (= {:page nil} (rf.identity/canonical {:page nil})))
     (is (= nil (rf.identity/canonical nil)))))
 
-;; ---- canonical returns an = value, order-normalized ----------------------
+;; ---- canonical returns an = value, recursively normalized ----------------
 
 (deftest canonical-normalized-value
-  (testing "canonical of map is =-equal but key-order-normalized"
+  (testing "canonical of a map is =-equal; its entry order is not the contract"
     (is (= {:a 1 :b 2} (rf.identity/canonical {:b 2 :a 1}))))
   (testing "canonical recurses, preserving vector order"
     (is (= {:xs [3 1 2]} (rf.identity/canonical {:xs [3 1 2]}))))
