@@ -1,7 +1,7 @@
 (ns re-frame.api-manifest.cljs-probe
   "Reconciliation between the live ClojureScript public surface and the
-  curated `:cljs-only` rows of `spec/api-manifest-metadata.edn`
-  (rf2-2mtte). Pure data — no I/O, no analyzer, no React — so the same
+  curated `:cljs-only` rows of `spec/api-manifest-metadata.edn`.
+  Pure data — no I/O, no analyzer, no React — so the same
   logic runs under any shadow-cljs build (the consolidated `:node-test`
   build for the adapter / Xray surfaces; a tool artefact's own
   `:server-test` build for the pair-MCP surface) and can be unit-tested
@@ -49,25 +49,17 @@
   analyzer cannot tell from a plain `:var`.
 
   THERE IS NO HOST-SIGNATURE (kind/arity) RECONCILER HERE, and the sidecar
-  carries no signature authority for one to read. The lane that existed
-  (rf2-5bcdi / rf2-d7sso / rf2-qw31o) was written against the
-  `:ui-test-signatures` block of the `re-frame.ui.test` surface; that block went
-  with the retired donor view artefact (rf2-0yp7w.4), leaving a two-host
-  reconciler — this file's `signature-problems`/`signature-report`, its
-  `cljs-publics` arity-enumeration chain, and the JVM lane's
-  `ui-test-arity-problems` in `api-md-check` — that nothing but its own
-  synthetic fixtures ever called. Those fixtures proved the FUNCTION behaved on
-  invented data; they never made it part of the manifest gate, which is what
-  retaining it was being justified by. Removed rather than kept against a
-  hypothetical future block (rf2-k9rzr). If a real host-aware signature block is
-  ever added to `spec/api-manifest-metadata.edn`, reintroduce the reconciler
-  with it, driven by that block on both hosts.
+  carries no signature authority for one to read. A reconciler with no
+  signature block to drive it would be exercised only by its own synthetic
+  fixtures, never by the manifest gate. If a host-aware signature block is
+  added to `spec/api-manifest-metadata.edn`, a reconciler belongs with it,
+  driven by that block on both hosts.
 
   ## Why the adapters are `:fully-rowed` but the Xray mount surface is not
 
   spec/API.md tiers the Xray `mount-*!` family `internal-public` (the
   supported host-embed surface), the panel-leaf `Panel` reg-views
-  `implementation` (rf2-oekz6s — exported only so the shell composes them),
+  `implementation` (exported only so the shell composes them),
   and declares the panel-helper functions beneath them \"otherwise
   unrowed-internal\" (§Tiering of cross-tool surfaces). So the Xray mount
   surface is a CURATED subset by design — only the rowed reads
@@ -76,7 +68,7 @@
   tier, so these classifications do not change what it verifies.) The probe therefore verifies
   direction 1 (the curated rows still resolve) for the Xray surface but
   not direction 2 (full completeness), matching the spec's intent. The
-  three adapter namespaces ARE their full documented public API, so they
+  adapter namespaces ARE their full documented public API, so they
   earn the stricter bidirectional check."
   (:require [clojure.string :as str]))
 
