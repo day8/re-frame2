@@ -49,7 +49,8 @@
   nothing to refuse: pin a frame, or register a second one, and the
   session resolves cleanly — to a DIFFERENT ring, in which the live
   `:after-id` is absent, so `epochs-since` calls the healthy cursor
-  aged out. The same falsehood, reached from the other side. The `## Cursor frame ownership` witnesses below drive real
+  aged out. The same falsehood, reached from the other side. The
+  `## Cursor frame ownership` witnesses below drive real
   page-1-generated cursors through exactly those two session changes;
   the simulator answers `:frame fid` and pages at the emitted `(take
   N …)` so a page-1 cursor exists at all."
