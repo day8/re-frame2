@@ -53,8 +53,7 @@
   CI-runner play targets) is browser-gate + test-mode diagnostics
   machinery, NOT teaching variants. Each block carries a banner
   comment so the reference surface stays distinguishable from the
-  gate machinery. (A future split into a sibling fixtures file is
-  tracked separately and deliberately out of scope here.)
+  gate machinery.
 
   Every variant declares `:substrates #{:reagent}` per `001-Authoring.md`
   §Substrates (Reagent is the v1 lock; UIx variants ship post-v1).
@@ -224,8 +223,8 @@
   ;;
   ;; Per /spec/007-Stories.md §Story-tool extension hook + `001-Authoring.md` §Registration macros, panels
   ;; are the project's escape hatch into the shell's chrome. Story
-  ;; ships three v1 built-in panels (a11y / layout-debug / 10x-epoch
-  ;; stub); projects add their own via reg-story-panel.
+  ;; ships three built-in panels (a11y / chrome-a11y / layout-debug);
+  ;; projects add their own via reg-story-panel.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-story-panel :Panel.counter-with-stories/notes
@@ -242,14 +241,14 @@
   ;;
   ;; A panel pointing at an :render view id that is NEVER registered.
   ;; Exercises the panel-host's broken-render fallback branch in
-  ;; tools/story/src/re_frame/story/ui/panels.cljs:330-333:
+  ;; tools/story/src/re_frame/story/ui/panels.cljs:
   ;;
   ;;   "panel <pid> has no registered :render view (<view-id>)"
   ;;
   ;; The :for filter scopes the panel to :story.counter so test runs
   ;; against /loaded surface the fallback without leaking it into
-  ;; every variant. Pure testbed — no source-side fix; the broken-
-  ;; render path is documented dev-time UX, not a defect.
+  ;; every variant. Pure testbed — the broken-render path is
+  ;; documented dev-time UX, not a defect.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-story-panel :Panel.counter-with-stories/broken-render
@@ -280,7 +279,7 @@
 
   (rf.story/reg-story :story.counter-diagnostics
     {:doc        "Small deterministic failure surfaces for Story's
-                 diagnostics and test-mode UI. Kept separate from
+                 diagnostics and test-mode UI. Separate from
                  :story.counter so the canonical four counter variants
                  stay stable."
      :component  :counter-with-stories.views/counter-card
@@ -344,7 +343,7 @@
      :script [[:assert-db [:count] 7]
               [:assert [:rf.assert/sub-equals [:count-doubled] 14]]
               [:assert [:rf.assert/sub-equals [:count-parity]  :odd]]]
-     ;; Faceted tags alongside the existing canonical seven.
+     ;; Faceted tags alongside the canonical seven.
      ;; The sidebar groups these into per-axis chip rows.
      :tags   #{:dev :docs :test :counter-with-stories/canonical
                :status/stable :role/dev :team/counter :feature/counter}
@@ -364,7 +363,7 @@
      ;; test) but Playwright shows a different count (Reagent + StrictMode
      ;; — see reg_variant_e2e_cljs_test.cljs:18). The canonical count-3
      ;; contract is pinned by the CLJS unit test; the dispatched? assertion
-     ;; remains here because it observes the trace bus, not the rendered
+     ;; sits here because it observes the trace bus, not the rendered
      ;; count, so substrate quirks do not affect it.
      :script [[:dispatch-sync [:counter/inc]]
               [:dispatch-sync [:counter/inc]]
@@ -524,9 +523,9 @@
     {:doc    "Args that mismatch the component's expected prop shape
              (a numeric :label, an unused :settings map). The
              schema-validation panel surfaces a violation only when the
-             registered :component view carries a props schema (per
-             rf2-hwcdh2 the props schema lives on the view's reg-view
-             metadata, not on the story / variant body); counter-card
+             registered :component view carries a props schema (the
+             props schema lives on the view's reg-view metadata, not on
+             the story / variant body); counter-card
              ships none, so this variant stays interactive and the
              panel reports 'no schema registered'."
      :args   {:label 42
@@ -539,7 +538,7 @@
   (rf.story/reg-variant :story.counter-matrix/nested-controls
     {:doc    "Nested args/schema fixture for the controls panel. The
              counter card ignores :settings; the right-pane controls
-             still expose path-aware nested widgets."
+             expose path-aware nested widgets for it."
      :args   {:label "Nested"
               :settings {:title "Nested title" :enabled? true}}
      :setup [[:counter/initialise 6]]
@@ -657,8 +656,7 @@
   ;; The CI runner at `examples/scripts/serve-and-run-story-play-scripts.cjs`
   ;; discovers every registered variant whose body carries a non-empty
   ;; `:script` slot (via `re-frame.story.play.ci-runner/
-  ;; variants-with-play-scripts`; the runtime fn keeps its name after the
-  ;; `:script` → `:script` lowering), navigates the live Story shell
+  ;; variants-with-play-scripts`), navigates the live Story shell
   ;; to each, waits for the auto-run's terminal status, and asserts the
   ;; aggregate result. These two fixtures pin the contract: one passes,
   ;; one is deliberately wrong so the CI runner's failure path stays
@@ -728,7 +726,7 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
-  ;; Causal / cascade assertion fixture (rf2-x76af2.17).
+  ;; Causal / cascade assertion fixture.
   ;;
   ;; The honest over-render guard, end-to-end — the ONE authored causal
   ;; assertion in the Story testbeds, so the production
@@ -738,8 +736,8 @@
   ;; `:saving?` — it does NOT recompute `:count` — so the no-cascade guard
   ;; holds on a cause that genuinely fired. The guard is meaningful
   ;; precisely because its premise is met: were `:counter/save` renamed or
-  ;; absent, the assertion would now resolve `:cannot-run` rather than pass
-  ;; vacuously under the `[0,0]` default (the fix this fixture demonstrates).
+  ;; absent, the assertion would resolve `:cannot-run` rather than pass
+  ;; vacuously under the `[0,0]` default.
   ;; Runs under the reactive browser runner (the `:cljs-reactive` runner the
   ;; Story shell mounts); a non-reactive runner fails it closed to
   ;; `:cannot-run`, never a silent pass.
@@ -747,8 +745,7 @@
     {:doc        "Causal-assertion CI fixture — :counter/inc CAUSED a
                  :count recompute, and :counter/save (observed) did NOT
                  cascade-rerender :count. Exercises the causal
-                 plan → script → epoch → result path with a MET premise
-                 (rf2-x76af2.17)."
+                 plan → script → epoch → result path with a MET premise."
      :args       {:label "Causal honest guard"}
      :setup     [[:counter/initialise 0]]
      :script
@@ -788,11 +785,9 @@
      :script
      {:name      "type-click-and-assert-dom"
       :auto-run? true
-      ;; NO `[:wait ms]` — this script is DETERMINISTIC end to end
-      ;; (rf2-n0sz4). It used to open with a 300ms sleep for the mount and
-      ;; carry another after the `:click` for the dispatch, because neither
-      ;; the mount nor a synthetic event's async dispatch had a settle
-      ;; rung. Both now do: the runner holds a step until its
+      ;; NO `[:wait ms]` — this script is DETERMINISTIC end to end. The
+      ;; mount and a synthetic event's async dispatch each have a settle
+      ;; rung: the runner holds a step until its
       ;; preconditions hold — the frame's event queue drained, and the
       ;; node the step names present — yielding and committing the
       ;; substrate until they do, bounded, failing readably if they never
@@ -820,10 +815,9 @@
      :script
      {:name      "type-click-and-assert-dom-wrong"
       :auto-run? true
-      ;; Sleep-free for the same reason as its twin (rf2-n0sz4). The row
-      ;; must still reach `:fail`, and it does so on the ASSERTION it was
-      ;; written to fail — "99" against a settled "42" — rather than on a
-      ;; race that happened to read an unsettled DOM.
+      ;; Sleep-free for the same reason as its twin. The row reaches
+      ;; `:fail` on the ASSERTION it was written to fail — "99" against a
+      ;; settled "42" — rather than on a race reading an unsettled DOM.
       :script    [[:dispatch-sync [:counter/initialise 0]]
                   [:type          "[data-test=count-input]" "42"]
                   [:click         "[data-test=set-button]"]
@@ -857,10 +851,11 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-workspace — two workspaces, one per layout the v1 ships
+  ;; reg-workspace — five workspaces, one per layout Story ships
   ;;
   ;; `:grid` — explicit variant ids, in the order they appear, in a grid.
   ;; `:variants-grid` — enumerates the parent story's variants automatically.
+  ;; `:prose` / `:tabs` / `:custom` — layout-coverage fixtures.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-workspace :Workspace.counter/all-states
@@ -901,7 +896,7 @@
      :tags     #{:docs}})
 
   (rf.story/reg-workspace :Workspace.counter/custom
-    {:doc    "Custom layout fixture for workspace coverage. The current
+    {:doc    "Custom layout fixture for workspace coverage. The
              renderer projects the configured view id as data."
      :layout :custom
      :render :counter-with-stories.views/counter-card
