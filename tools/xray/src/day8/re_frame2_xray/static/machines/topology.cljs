@@ -42,7 +42,7 @@
   - Machine has no definition (the `:rf/machine` projection of the
     registration is nil) — render a hint pointing at `reg-machine`.
   - Definition with no `:states` map (degenerate) — falls through
-    to `mv-svg/render`'s built-in 'no states' message (rendered
+    to machines-viz `MachineChart`'s built-in 'no states' message (rendered
     inside the canvas host).
 
   ## Definition-stale post-reload
@@ -135,8 +135,8 @@
 ;; ---- chart toolbar ------------------------------------------------------
 ;;
 ;; No pop-out button: the pop-out window is not built, so the affordance is
-;; hidden until it does something (rf2-h6ooa). Its event,
-;; `:rf.xray.static.machines/open-chart-popout`, stays registered in
+;; hidden until it does something. Its event,
+;; `:rf.xray.static.machines/open-chart-popout`, is registered in
 ;; `panel.cljs` as a reserved no-op slot.
 
 (defn- source-coord-chip [source-coord]
