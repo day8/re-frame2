@@ -1,12 +1,12 @@
 (ns re-frame.story.play.settled-boundary-cljs-test
   "Node-runtime (CLJS) tests for the `settled-boundary` headless drain
-  (rf2-5x1wt.2, spec/017-Testing-Story.md §Script and `settled-boundary`).
+  (spec/017-Testing-Story.md §Script and `settled-boundary`).
 
   Dispatch / settle behaviour is host-sensitive — the JVM `.cljc` suite
   covers the pure ladder + refusal shape; this ns confirms the headless
   boundary actually drains the frame queue and synchronous re-dispatches
-  to fixed point on the CLJS host (where the legacy `:dispatch` step used
-  a `setTimeout` yield rather than a synchronous drain). The pure ladder
+  to fixed point on the CLJS host, synchronously rather than across a
+  `setTimeout` yield. The pure ladder
   helpers themselves also run here so a host-specific regression in the
   ladder math would surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -46,7 +46,7 @@
   (testing "dispatch-and-settle! drains the frame queue AND synchronous
             re-dispatches to fixed point on CLJS — the whole cascade is
             settled synchronously when the call returns, NO setTimeout
-            tick (the legacy :dispatch step relied on a yield here)"
+            tick"
     (rf/reg-event :cljs.chain/a
       (fn [{:keys [db]} _]
         {:db (update db :hops (fnil conj []) :a)
