@@ -480,21 +480,21 @@ down the propagation path don't double-fire.
 
 | Value | Meaning |
 |---|---|
-| `true` | Default. The listener is installed (by `keybinding/attach!` at load time, or by the watch below when the slot flips back); the standalone Xray shell behaves exactly as it did pre-rf2-4eyik. |
+| `true` | Default. The listener is installed (by `keybinding/attach!` at load time, or by the watch below when the slot flips back); the standalone Xray shell handles every shortcut above. |
 | `false` | No global listener on `js/document`. `keybinding/attach!` short-circuits to a no-op when the slot is already `false`; a flip that arrives after the listener is attached removes it. |
 | `nil` | Reset to default (`true`). |
 
 **The flip is self-acting at any point in the boot sequence, so host
 boot ordering does not change what the host has to call.**
-`keybinding.cljs` watches this slot (rf2-y8doi.17) and attaches /
+`keybinding.cljs` watches this slot and attaches /
 detaches the global listener on every genuine change, both directions
 idempotent through the `attached-state` CAS. That watch is what makes
 the slot mean what it says on the `:devtools/preloads` path, which is
 the documented install route: shadow-cljs loads preloads before the
 app's `:init-fn`, so the preload has already called
 `keybinding/attach!` by the time the host's `configure!` runs, and a
-slot read only at attach time was a silent no-op for every host that
-took that route.
+slot read only at attach time would be a silent no-op for every host
+that took that route.
 
 The slot exists for embed hosts (per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) — Story
