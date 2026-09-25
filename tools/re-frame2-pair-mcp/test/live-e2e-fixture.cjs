@@ -1,12 +1,11 @@
 // live-e2e-fixture.cjs — end-to-end fixture coverage for the pair-mcp
 // server, driven over stdio/JSON-RPC against the SHIPPED server bundle.
 //
-// This is the migrated home of the connect / dispatch / trace / hot-reload
-// coverage that formerly lived in `skills/re-frame2-pair/tests/e2e/`, where
-// it drove the (now-removed) `scripts/ops.clj` bash transport. The Pair MCP
-// server is the one implementation of those six operations, so the live
-// coverage lives here — INSIDE tools/re-frame2-pair-mcp — and exercises the
-// same three flows through the real MCP boundary:
+// This is the home of the connect / dispatch / trace / hot-reload live
+// coverage. The Pair MCP server is the one implementation of those
+// operations, so the live coverage lives here — INSIDE
+// tools/re-frame2-pair-mcp — and exercises three flows through the real MCP
+// boundary:
 //
 //   1. connect  — `discover-app` finds the preloaded runtime and returns a
 //                  healthy snapshot (`:ok?`, `:debug-enabled?`,
@@ -20,7 +19,7 @@
 //                  `tail-build {probe … baseline … wait-ms …}` reports
 //                  `:soft? false` once a sample leaves the baseline — the
 //                  reload is recognized whether it lands before or after
-//                  the first sample (rf2-1f60u).
+//                  the first sample.
 //
 // Unlike the CLJS unit suite (`npm test`) — which stubs nREPL and never
 // reaches `out/server.js` — this harness spawns the compiled server and
@@ -64,7 +63,7 @@ const FIXTURE_DIR =
   path.join(REPO_ROOT, 'skills', 're-frame2-pair', 'tests', 'fixture');
 const FIXTURE_URL = process.env.RE_FRAME2_PAIR_FIXTURE_URL || 'http://localhost:8030';
 // How long the browser gets to install `__re_frame2_pair_runtime`. Named
-// (rf2-taj9b) rather than left an inline literal, so the navigation ceiling
+// rather than left an inline literal, so the navigation ceiling
 // below can say it is NOT this budget. Same name and value as the hermetic
 // orchestrator's `RUNTIME_PRELOAD_TIMEOUT_MS`.
 const RUNTIME_PRELOAD_TIMEOUT_MS = 60000;
@@ -77,7 +76,7 @@ const NREPL_PORT_FILE_CANDIDATES = [
   path.join(FIXTURE_DIR, '.nrepl-port'),
 ];
 
-// The probe used by the hot-reload flow (mirrors the retired e2e spec).
+// The probe used by the hot-reload flow.
 const PROBE = '(re-frame2-pair.runtime/registrar-handler-ref :event :counter/inc)';
 
 function skip(reason) {
@@ -121,8 +120,8 @@ function pingFixture(url, timeoutMs = 1500) {
 // --------------------------------------------------------------------------
 // Minimal EDN reader — adequate for the structured shapes the pair-mcp
 // server emits (maps, vectors, keywords, strings, ints, booleans, nil).
-// Ported from the retired e2e `_helpers.cjs` so the migrated assertions
-// keep parsing the tool text structurally rather than by brittle substring.
+// It lets the assertions parse the tool text structurally rather than by
+// brittle substring.
 // Pure-keyword-keyed maps become plain objects with the leading ':' stripped
 // (`:ok?` -> `ok?`); keyword VALUES keep their leading ':' (`:rf/default`).
 // --------------------------------------------------------------------------
@@ -351,14 +350,14 @@ async function main() {
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('pageerror', (err) => process.stderr.write(`[browser:pageerror] ${err.message}\n`));
-    // rf2-taj9b — the navigation carried no timeout and so took Playwright's
-    // 30s default, a ceiling below the 60s preload wait immediately below it
-    // and reported in a form that reads like that wait. `'load'` cannot fire
-    // until the shadow-cljs `:app` bundle has arrived and run its synchronous
-    // portion — which is where the preload installs
+    // The navigation names its own timeout: left unset it would take
+    // Playwright's 30s default, a ceiling below the 60s preload wait
+    // immediately below it, reported in a form that reads like that wait.
+    // `'load'` cannot fire until the shadow-cljs `:app` bundle has arrived and
+    // run its synchronous portion — which is where the preload installs
     // `__re_frame2_pair_runtime`, i.e. exactly what the poll below waits for.
-    // Commit instead, and let the one budget that names the sentinel own the
-    // wait. (The fixture's reachability is already checked before this point,
+    // So it waits for commit, and lets the one budget that names the sentinel
+    // own the wait. (The fixture's reachability is already checked before this point,
     // so a dead fixture fails earlier, by name.)
     try {
       await page.goto(FIXTURE_URL, {
@@ -369,7 +368,7 @@ async function main() {
         'NAVIGATION FAILED — this is the page.goto ceiling (waitUntil: ' +
           `'commit', timeout: ${RUNTIME_PRELOAD_TIMEOUT_MS}ms), NOT the ` +
           'runtime-preload wait that carries the same number and had not yet ' +
-          `started (rf2-taj9b). Underlying: ${err.message}`,
+          `started. Underlying: ${err.message}`,
       );
     }
     // The preload mirrors itself onto js/globalThis at load time; wait for
@@ -381,7 +380,7 @@ async function main() {
     );
     // Same number as the two waits above, for the same reason: this is still
     // the fixture coming up, and an unnamed ceiling here would be Playwright's
-    // anonymous 30s — a third budget for one operation (rf2-vinj).
+    // anonymous 30s — a third budget for one operation.
     await page.waitForSelector('#value', { timeout: RUNTIME_PRELOAD_TIMEOUT_MS });
     const initial = (await page.textContent('#value')) || '';
     assert(initial.trim() === '5', `fixture did not initialise to 5: got "${initial}"`);
@@ -434,7 +433,7 @@ async function main() {
     console.log('OK   trace-window -> carries :counter/inc epoch');
 
     // ---- 3. hot-reload probe --------------------------------------------
-    // The documented order (rf2-1f60u): capture the probe's PRE-EDIT printed
+    // The documented order: capture the probe's PRE-EDIT printed
     // value first, edit, then hand tail-build the probe plus that baseline —
     // so a reload that lands before tail-build's first sample still reads as
     // success. Wrapping in pr-str makes :value the printed rendering the
