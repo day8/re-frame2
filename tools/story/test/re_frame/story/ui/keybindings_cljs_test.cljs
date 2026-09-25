@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.keybindings-cljs-test
-  "CLJS-side regression net for the chrome-level hotkey registry
-  (rf2-g8l8x / rf2-p3i0t).
+  "CLJS-side regression net for the chrome-level hotkey registry.
 
   Surface covered:
 
