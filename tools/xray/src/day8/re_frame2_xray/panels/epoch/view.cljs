@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.panels.epoch.view
-  "View layer for the Epoch panel (rf2-sc3r1) — the numbered cascade
+  "View layer for the Epoch panel — the numbered cascade
   rendering of a single epoch's pipeline steps as a delightful,
   detailed visual schematic.
 
   ## Visual contract
 
   Renders the pure-data projection from `panels.epoch.projection` as a
-  vertical, numbered cascade. Per the bead body's §Visual Structure:
+  vertical, numbered cascade. Its visual structure:
 
       ┌── ① DISPATCH      from ui ↗                    0.1ms
       │      [:counter-inc]
@@ -41,30 +41,30 @@
   vertical rail + numbered circles are positioned absolutely so they
   read as one continuous timeline regardless of which steps render.
 
-  ## Expansion state (registered, NOT wired by the current renderer)
+  ## Expansion state (registered, NOT wired by the renderer)
 
   The orchestrator's `install!` registers a per-row EDN-expansion
   surface — the `:rf.xray.epoch/expanded-rows` sub + the
   `:rf.xray.epoch/toggle-row-expand` event, backed by a
   `:epoch-panel-expanded-rows` set of `[step-kw row-id]` pairs in the
-  Xray app-db. The intent (rf2-h71e0 / rf2-okq7p) is that clicking a
+  Xray app-db. The intended use is that clicking a
   row's header mounts the edn-inspector widget (`:zoomable? true` +
   `:header`) under the row body.
 
-  The CURRENT view does NOT wire it: every `epoch-step-header` call
+  The view does NOT wire it: every `epoch-step-header` call
   site passes `:expandable? false`, the view does not subscribe to
   `:rf.xray.epoch/expanded-rows`, and nothing dispatches
   `:rf.xray.epoch/toggle-row-expand`. The cascade renders
   default-visible content for every step — its punch is the
-  always-visible rhythm. The sub/event infrastructure is kept in place
-  for the follow-on rich-expansion pass (see the §expansion state
-  helpers comment below); until then it is registered-but-unused.
+  always-visible rhythm. The sub/event infrastructure is registered but
+  unused, ready for a rich-expansion renderer (see the §expansion state
+  helpers comment below).
 
-  ## Hiccup, and who renders it (rf2-k97c.3)
+  ## Hiccup, and who renders it
 
-  The panel still emits hiccup, but [[Panel]] is a `rf.fresco/defview`
+  The panel emits hiccup, but [[Panel]] is a `rf.fresco/defview`
   boundary rather than an `rf/reg-view`, so FRESCO renders it — not the
-  substrate adapter installed via `rf/init!`. Each step body is still a
+  substrate adapter installed via `rf/init!`. Each step body is a
   body-returning helper composed into the numbered cascade by
   `pipeline-view`, and every one of them is CALLED rather than used as a
   hiccup head, which is what keeps this whole file under one boundary.
@@ -101,14 +101,13 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack spacing type-scale with-alpha]]))
 
-;; ---- style hoists (rf2-zlk6h) -------------------------------------------
+;; ---- style hoists -------------------------------------------------------
 ;;
 ;; Every literal `:style {...}` map in the renderers below is hoisted to
-;; ns-top defs (rf2-zlk6h, follow-on to rf2-qx414 / rf2-xjgdk / rf2-gjiog
-;; / rf2-alsnz). The Epoch panel renders ~10 step renderers, each
-;; emitting ~5-20 `:style {...}` maps; a typical focused-epoch render
-;; mints ~200 fresh JS objects to feed the React reconciler before the
-;; hoist. `tokens` values resolve to `var(--rf-xray-*)` CSS strings at
+;; ns-top defs. The Epoch panel renders ~10 step renderers, each
+;; emitting ~5-20 `:style {...}` maps; inline literals would mint ~200
+;; fresh JS objects per focused-epoch render to feed the React
+;; reconciler. `tokens` values resolve to `var(--rf-xray-*)` CSS strings at
 ;; ns load — theme switching rides the CSS-variable seam (spec/007
 ;; §UX-IA), so the hoisted maps follow light/dark without re-evaluation.
 ;;
@@ -244,9 +243,9 @@
 (def ^:private sub-header-style
   ;; Lowercase by design — sub-headers render `:db` / `:fx` /
   ;; literal labels like "cascade" as-typed so EDN-keyword identity
-  ;; reads accurately (the prior `:text-transform "uppercase"` was
-  ;; rendering `:DB` / `:FX` which read as if the framework had
-  ;; uppercase keyword names).
+  ;; reads accurately (`:text-transform "uppercase"` would render
+  ;; `:DB` / `:FX`, which reads as if the framework had uppercase
+  ;; keyword names).
   {:display        "flex"
    :align-items    "center"
    :gap            "6px"
@@ -280,11 +279,10 @@
 (def ^:private dispatch-verb-style
   {:display "inline-flex" :align-items "center" :gap "4px"})
 
-;; rf2-akvfe — `dispatch-machine-gloss-style` RETIRED with the rf2-18oe3
-;; DISPATCH gloss sub-line. The machine-event narration moved to the
-;; structured EVENT HANDLER orientation line (`orientation-*` styles below,
-;; near the HANDLER step) — chip-labels + code-formatted values, a better
-;; location than a muted italic gloss under DISPATCH.
+;; There is no DISPATCH gloss sub-line. The machine-event narration lives
+;; on the structured EVENT HANDLER orientation line (`orientation-*`
+;; styles below, near the HANDLER step) — chip-labels + code-formatted
+;; values, which read better than a muted italic gloss under DISPATCH.
 
 (def ^:private link-button-style
   {:background            "transparent"
@@ -324,11 +322,11 @@
    :display     "inline-flex"
    :align-items "center"})
 
-;; -- DISPATCH source enrichment (rf2-5qp4g) -------------------------------
+;; -- DISPATCH source enrichment -------------------------------------------
 ;;
-;; Each closed-set substrate-internal `:source` value (rf2-ejtpd:
-;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`)
-;; renders a richer label than the prior `from <source>` chrome — the
+;; Each closed-set substrate-internal `:source` value (`:after-timer`,
+;; `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`)
+;; renders a richer label than a bare `from <source>` chrome — the
 ;; specific delay / state-path / spawned-actor / parent-epoch becomes
 ;; visible chrome on the DISPATCH header.
 
@@ -400,7 +398,7 @@
    :flex       1
    :word-break "break-word"})
 
-;; rf2-lz6gl9 — the parameterized cofx REQUEST ARG (`:rf.cofx/arg`, surfaced
+;; The parameterized cofx REQUEST ARG (`:rf.cofx/arg`, surfaced
 ;; as `:input`). Rendered as a distinct labelled line so a reviewer can read
 ;; the requirement that selected/configured the produced value, distinct from
 ;; the produced `:rf.cofx/value`. The `→` glyph (vs the value line's `+`)
@@ -408,7 +406,7 @@
 (def ^:private coeffect-body-arrow-style
   {:color text-tertiary-colour :font-weight 700})
 
-;; -- RECORDABLE COEFFECTS (rf2-9fyn40 · EP-0010 · EP-0017 §9) ---------------
+;; -- RECORDABLE COEFFECTS (EP-0010 · EP-0017 §9) --------------------------
 ;;
 ;; The flat recordable-coeffect map (`:rf.cofx` off the dispatched trace).
 ;; Reuses the COEFFECT body grammar (one `<leaf-id> <value>` row per leaf)
@@ -429,7 +427,7 @@
    :white-space "nowrap"})
 
 ;; Provenance marker for a recordable fact whose value was MINTED by a
-;; generator at processing-start (EP-0017 slice B.7) rather than supplied on
+;; generator at processing-start (EP-0017) rather than supplied on
 ;; the dispatch token. Distinguishes generated-vs-supplied provenance so the
 ;; operator can tell a replayable generated coeffect apart from a token-borne
 ;; one.
@@ -474,11 +472,8 @@
 
 ;; -- db-diff / fx-entry ----------------------------------------------------
 ;;
-;; rf2-vv3m6 (2026-05-29) — `diff-row-style`, `diff-path-style`,
-;; `diff-arrow-style`, `diff-added-flex-style` retired with the
-;; HANDLER `:db` `[diff]` mode branch (db-diff-line). The before /
-;; after / glyph defs survive because the machine-cascade row + the
-;; coeffect body still consume them.
+;; The before / glyph defs serve the machine-cascade row + the
+;; coeffect body.
 
 (def ^:private diff-before-style
   {:color error-colour})
@@ -497,12 +492,11 @@
    :font-weight 600
    :white-space "nowrap"})
 
-;; rf2-2hj0h item 5 — `cascade-phase-style` (the standalone muted phase chip)
-;; is RETIRED: the phase now rides the MERGED action badge
+;; There is no standalone phase chip: the phase rides the MERGED action badge
 ;; (`cascade-action-pill`, painted with the ACTION-kind hue), not a separate
-;; pill. Kept removed (pre-alpha, no shim).
+;; pill.
 
-;; rf2-2hj0h item 6 — the ` for <state> ` clause after the merged action
+;; The ` for <state> ` clause after the merged action
 ;; badge. The `for` connective is muted (`orientation-connective-style`);
 ;; the state value is code-formatted mono.
 (def ^:private cascade-action-for-state-style
@@ -532,15 +526,15 @@
    :line-height    1
    :white-space    "nowrap"})
 
-;; rf2-yueoa — the `[NO OP]` QUALIFIER chip that follows the `[TRANSITION]`
+;; The `[NO OP]` QUALIFIER chip that follows the `[TRANSITION]`
 ;; pill on a no-op row. A no-op IS the transition STEP of the cascade (a
 ;; transition was attempted; it produced no state change), so the row carries
 ;; the SAME filled magenta `[TRANSITION]` pill a real transition uses, and
 ;; this qualifier marks "this transition step resulted in NO state change".
 ;; It reads as a refinement on the pill — NOT a second filled kind pill — so
 ;; it is an OUTLINED muted chip (the same `text-tertiary` tone badge.cljc
-;; assigns `:no-op`, and the same outlined-marker grammar skmc7's `[NO-OP]`
-;; uses in the Machine tab's focused-event header), distinguishing it from
+;; assigns `:no-op`, and the same outlined-marker grammar as the `[NO-OP]`
+;; in the Machine tab's focused-event header), distinguishing it from
 ;; the solid TRANSITION badge beside it.
 (def ^:private cascade-no-op-qualifier-style
   (assoc cascade-kind-pill-base-style
@@ -548,7 +542,7 @@
          :background "transparent"
          :border     (str "1px solid " border-default-colour)))
 
-;; rf2-it4vt — the `[START]` row's CAUSE tag (`explicit` / `lazy` /
+;; The `[START]` row's CAUSE tag (`explicit` / `lazy` /
 ;; `spawned`). A small outlined chip next to the verb that tells the
 ;; operator HOW the machine came to life. `:lazy` is the ORDERING SMELL
 ;; (something dispatched to the machine before it was explicitly started) —
@@ -573,16 +567,16 @@
          :color  warning-colour
          :border (str "1px solid " warning-colour)))
 
-;; rf2-4b6im — the `[N]` ordinal chip's outer width + the header `:gap` are
+;; The `[N]` ordinal chip's outer width + the header `:gap` are
 ;; the two constituents of the badge-left content column (`cascade-info-indent`
 ;; below). Hoisted as named px so the indent arithmetic stays in lockstep with
 ;; the chip geometry rather than a hand-tuned magic number. The ordinal carries
 ;; `box-sizing: border-box` so its RENDERED outer width is EXACTLY
 ;; `cascade-ordinal-box-width` (21px) regardless of the `:padding` — under the
-;; default `content-box` the 8px horizontal padding pushed the real outer width
-;; to ~29px, so the prior 27px indent under-shot the badge left edge (the bug
-;; rf2-4b6im observed: sub-content hung at the ordinal RIGHT edge, not the badge
-;; left). `border-box` pins the box so 21px + 6px gap lands on the badge edge.
+;; default `content-box` the 8px horizontal padding would push the real outer
+;; width to ~29px, and sub-content would hang at the ordinal RIGHT edge rather
+;; than the badge left. `border-box` pins the box so 21px + 6px gap lands on
+;; the badge edge.
 (def ^:private cascade-ordinal-box-width
   "Outer width of the `[N]` ordinal chip (`box-sizing: border-box`, so this
   is the actual rendered width). The badge that follows sits one header `:gap`
@@ -635,22 +629,18 @@
    :font-weight 600
    :white-space "nowrap"})
 
-;; rf2-2hj0h item 2 + 3 / rf2-4b6im — the per-step left connector
-;; (`:border-left`) is REMOVED (one of the two left vertical lines rf2-2hj0h
-;; retires; the full-height rail is the other). ALL of a step's subsequent
-;; content (source body, outcome, data-delta, sub-lines) ALIGNS to the
-;; `[EXIT ACTION]` / `[GUARD]` / `[TRANSITION]` badge's LEFT edge — the `[N]`
-;; ordinal chip sits outdented to its left.
+;; A cascade step has no left connector (`:border-left`). ALL of a step's
+;; subsequent content (source body, outcome, data-delta, sub-lines) ALIGNS to
+;; the `[EXIT ACTION]` / `[GUARD]` / `[TRANSITION]` badge's LEFT edge — the
+;; `[N]` ordinal chip sits outdented to its left.
 ;;
-;; rf2-4b6im CORRECTS rf2-2hj0h item 3's as-rendered behaviour. item 3 intended
-;; the badge left edge but the ordinal chip rendered ~29px wide (default
-;; `content-box` + 8px padding), so the 27px constant under-shot — content hung
-;; at the ordinal RIGHT edge instead. The fix pins the ordinal box to
-;; `border-box` (outer width = exactly `cascade-ordinal-box-width`) and computes
-;; the indent from its constituents, so it tracks the chip geometry.
+;; The ordinal box is pinned to `border-box` (outer width = exactly
+;; `cascade-ordinal-box-width`) and the indent is computed from its
+;; constituents, so it tracks the chip geometry — a hand-tuned constant would
+;; under-shoot whenever the chip's rendered width differs from it.
 (def ^:private cascade-info-indent
   "Left-edge alignment for ALL of a cascade row's subsequent content
-  (rf2-2hj0h item 3, corrected by rf2-4b6im) — the source body, the per-action
+  — the source body, the per-action
   outcome details, the data-delta, and any sub-lines. Equals the `[N]` ordinal
   chip's outer width (`cascade-ordinal-box-width`) + the header `:gap`
   (`cascade-header-gap`), so every line starts at the LEFT EDGE of the merged
@@ -662,7 +652,7 @@
    :padding-left cascade-info-indent
    :min-width    0})
 
-;; rf2-iwy0c — the source-not-captured fallback now LINKS to the machine
+;; The source-not-captured fallback LINKS to the machine
 ;; definition (the reg-machine call-site coord) rather than rendering a
 ;; dead `<source not yet captured>` literal. Reads the same `<label> + ↗`
 ;; coord-link grammar the cascade verb-link + HANDLER verb-link use.
@@ -689,10 +679,10 @@
    :font-size   "11px"
    :color       text-tertiary-colour})
 
-;; rf2-2hj0h item 3 — the per-action outcome details (`↳ data Δ` / `↳ fx`)
+;; The per-action outcome details (`↳ data Δ` / `↳ fx`)
 ;; align to the SAME badge left edge (`cascade-info-indent`) as the source
 ;; body, so a row's subsequent info lines form one left-aligned column under
-;; the badge rather than the prior 21px ordinal-only indent.
+;; the badge rather than a 21px ordinal-only indent.
 (def ^:private cascade-outcome-details-style
   {:padding        (str "2px 0 4px " cascade-info-indent)
    :display        "flex"
@@ -713,11 +703,11 @@
    :align-items "flex-start"
    :flex-wrap   "wrap"})
 
-;; rf2-fg3c4 — the per-action `↳ data Δ` arrow on the machine EVENT HANDLER
+;; The per-action `↳ data Δ` arrow on the machine EVENT HANDLER
 ;; cascade reads LIGHT GREY, matching the NORMAL (non-machine) handler's
 ;; `↳ :db diff` arrow (the `sub-header` glyph, `sub-header-glyph-style`).
 ;; Both surface the resulting data-delta below a step's body, so both ride
-;; the same muted `text-tertiary` tone — the prior `:success` green made the
+;; the same muted `text-tertiary` tone — a `:success` green would make the
 ;; machine arrow read as a status signal where the normal handler's is plain
 ;; chrome. Reuses the SAME `text-tertiary-colour` token the normal-handler
 ;; arrow uses (not a fresh hex) so the two stay in lockstep across themes.
@@ -740,17 +730,13 @@
   {:color        accent-colour
    :margin-right "6px"})
 
-;; ---- structured transition cascade (rf2-52u5n) --------------------------
+;; ---- structured transition cascade --------------------------------------
 ;;
-;; rf2-akvfe — the up/down exit/action/entry step-walk styles (root / region
-;; / region-label / step-row / kind->glyph / kind->tone / kind-glyph / state
-;; / action-chip / noaction / delta / microsteps / microstep / step-source-
-;; chip) RETIRED with `structured-cascade-body` + its step/microstep
-;; renderers. That block duplicated the EVENT HANDLER cascade pipeline; the
-;; HISTORY restore/record banner is the only structured-cascade surface that
-;; survives (its styles are kept below).
+;; The HISTORY restore/record banner is the only structured-cascade surface.
+;; There is no separate up/down exit/action/entry step-walk: it would
+;; duplicate the EVENT HANDLER cascade pipeline.
 
-;; rf2-mle6e.5 — HISTORY restore / record banner. A history restore/record is
+;; HISTORY restore / record banner. A history restore/record is
 ;; benign observability (Spec 009 §History trace events — op-type :rf.machine,
 ;; never a severity discriminator), so the banner is the Xray brand-violet
 ;; accent (informational), NOT the error / pink wash. It sits ABOVE the
@@ -779,20 +765,16 @@
    :min-width   "12px"
    :text-align  "center"})
 
-;; rf2-akvfe — `structured-cascade-step-source-chip-style` (the per-`:entry`-
-;; step `from history` / `default` origin chip) RETIRED with the step-walk
-;; renderer. The history restore/record BANNER above the cascade still carries
-;; the restore/record headline; the per-step origin chip rode the removed
-;; up/down step rows.
+;; There is no per-step `from history` / `default` origin chip: the history
+;; restore/record BANNER above the cascade carries the restore/record
+;; headline.
 
-;; rf2-4yrr6 — `cascade-detail-threw-row-style` / `cascade-threw-glyph-style`
-;; / `cascade-threw-label-style` / `cascade-threw-message-style` RETIRED with
-;; the per-action "✗ threw — <message>" detail line (the duplicate threw
-;; signal). The pink 'Exception Thrown' card + the row pink-wash are the
-;; single threw signal now.
+;; There is no per-action "✗ threw — <message>" detail line, which would
+;; duplicate the threw signal: the pink 'Exception Thrown' card + the row
+;; pink-wash are the single threw signal.
 
-;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb (`<before> → <after>`,
-;; now the focal point) renders VISUALLY PRIMARY: larger + bolder than
+;; The TRANSITION row's verb (`<before> → <after>`,
+;; the focal point) renders VISUALLY PRIMARY: larger + bolder than
 ;; the guard/action verbs so the state change is the headline of the
 ;; collapsed transition zone. The hue is the magenta TRANSITION-kind tone
 ;; (`badge/cascade-kind-colour :transition`) — the same identity the kind
@@ -822,17 +804,17 @@
    :font-weight 700
    :white-space "nowrap"})
 
-;; rf2-2hj0h item 1 — the thin HORIZONTAL line between mini-pipeline steps
-;; (`:border-bottom`) is REMOVED. The steps read as one pipeline via the
-;; ordinal chips + vertical rhythm; inter-step rules added visual noise the
-;; outer pipeline does not carry.
+;; There is no HORIZONTAL line between mini-pipeline steps
+;; (`:border-bottom`). The steps read as one pipeline via the
+;; ordinal chips + vertical rhythm; inter-step rules would add visual noise
+;; the outer pipeline does not carry.
 (def ^:private cascade-row-style
   {:display        "flex"
    :flex-direction "column"
    :padding        "5px 0 5px 0"})
 
 (def ^:private cascade-row-header-style
-  ;; `:gap` is `cascade-header-gap` (rf2-4b6im) — the same constant
+  ;; `:gap` is `cascade-header-gap` — the same constant
   ;; `cascade-info-indent` adds to the ordinal-box width so the sub-content
   ;; column tracks the badge left edge exactly.
   {:display     "flex"
@@ -859,29 +841,23 @@
    :font-style  "italic"
    :color       text-tertiary-colour})
 
-;; rf2-2hj0h item 1 + 2 — the rows host carries NO chrome lines: the
-;; `:border-top` horizontal rule (item 1) and the nested-pipeline vertical
-;; RAIL + its `padding-left` gutter (item 2) are REMOVED. akvfe added the
-;; rail (a line behind the [N] ordinals) to make the inner steps read as one
-;; pipeline; Mike's door-deck review (2026-06-04) retires it — the numbered
-;; ordinal chips alone carry the pipeline reading, and the rail + the
-;; per-step source-body connector were the two left vertical lines this bead
-;; removes. The host is now a plain vertical stack.
+;; The rows host carries NO chrome lines — no `:border-top` horizontal rule,
+;; and no nested-pipeline vertical RAIL (a line behind the [N] ordinals) or
+;; `padding-left` gutter: the numbered ordinal chips alone carry the pipeline
+;; reading. The host is a plain vertical stack.
 (def ^:private machine-cascade-rows-style
   {:display        "flex"
    :flex-direction "column"
    :margin-top     "3px"})
 
-;; rf2-2hj0h item 2 — `machine-cascade-rail-style` (the absolutely-positioned
-;; vertical rail behind the [N] ordinals) and `machine-cascade-row-wrap-style`
-;; (the per-row `position: relative` rail anchor) RETIRED with the rail
-;; itself. The rows render as a flat numbered stack; no wrapper is needed.
+;; The rows render as a flat numbered stack; no per-row wrapper or rail
+;; anchor is needed.
 
-;; -- EVENT HANDLER orientation line (rf2-akvfe) ---------------------------
+;; -- EVENT HANDLER orientation line ---------------------------------------
 ;;
 ;; A single structured orientation line under the EVENT HANDLER heading —
 ;;   Processing [TRIGGER] <vec> for [MACHINE] <id> in [STATE] <state>
-;; — REPLACING the retired rf2-18oe3 DISPATCH gloss. `[TRIGGER]` /
+;; — in place of a DISPATCH gloss. `[TRIGGER]` /
 ;; `[MACHINE]` / `[STATE]` are small grey chip-labels; the values follow
 ;; each chip, code-formatted (mono). One scannable line orienting the
 ;; operator: what trigger, which machine, what starting state.
@@ -935,8 +911,7 @@
   {:margin-top "8px"
    :min-width  "0"})
 
-;; rf2-4yrr6 — `handler-source-spec-style` retired with the machine SPEC
-;; dump (the `(edn/inspect spec)` branch of `handler-source-block`).
+;; `handler-source-block` shows no machine SPEC dump.
 
 (def ^:private handler-source-placeholder-style
   {:font-style   "italic"
@@ -947,8 +922,8 @@
 
 ;; -- db-diff rendering ----------------------------------------------------
 ;;
-;; rf2-vv3m6 (2026-05-29) — the `[diff][full][full+diff]` mode-toggle bar
-;; styles retired alongside the toggle. FULL+DIFF is the single rendering;
+;; There is no `[diff][full][full+diff]` mode toggle. FULL+DIFF is the
+;; single rendering;
 ;; the HANDLER `:db` sub-section paints unconditionally via
 ;; `handler-db-diff-block`.
 
@@ -964,8 +939,7 @@
 
 ;; -- FLOW ------------------------------------------------------------------
 ;;
-;; rf2-xnb1x — FLOW steps reuse the COEFFECT body styles (coeffect-body-*).
-;; The legacy per-row flow styles retired with the aggregate step shape.
+;; FLOW steps reuse the COEFFECT body styles (coeffect-body-*).
 
 ;; -- FX --------------------------------------------------------------------
 
@@ -989,7 +963,7 @@
 
 (def ^:private db-destination-style
   "The `:db` ledger row's args slot — the clickable '→ app-db'
-  DESTINATION marker (rf2-j630b). A bare-button affordance styled as an
+  DESTINATION marker. A bare-button affordance styled as an
   inline link in the accent hue (the db-mutation lens colour) — clicking
   it jumps to the App-db panel for this epoch (the actual db diff lives
   there; no duplication in the ledger)."
@@ -1022,12 +996,9 @@
 (def ^:private fx-row-attribution-phase-style
   {:color text-tertiary-colour})
 
-;; The flat SIDE EFFECTS ledger (rf2-j630b) carries NO header verb /
-;; caption — the per-row glyphs (`fx-row-status-glyph`) are the whole
-;; signal (the per-stage badge glyph retired in rf2-9wq0v). The
-;; pre-rf2-j630b `(post-commit)` caption + `N threw` chip styles
-;; (`fx-verb-style` / `fx-caption-style` / `fx-threw-style`) retired with
-;; the 3-tier presentation.
+;; The flat SIDE EFFECTS ledger carries NO header verb / caption and no
+;; per-stage badge glyph — the per-row glyphs (`fx-row-status-glyph`) are
+;; the whole signal.
 
 (def ^:private margin-top-5-style
   {:margin-top "5px"})
@@ -1089,12 +1060,12 @@
    :align-items "center"
    :gap         "4px"})
 
-;; rf2-1cc03 — `caused by <event-id>` chrome.
+;; `caused by <event-id>` chrome.
 ;;
 ;; Renders in the `sub` cell directly below the sub-id when the row
 ;; carries `:cause-event-id`. The event-id (head keyword of the
 ;; dispatching cascade's trigger event vector) names WHICH event
-;; invalidated this sub's reactive input — surfacing the rf2-okz1u
+;; invalidated this sub's reactive input — surfacing that
 ;; attribution at the operator's first glance of the SUBSCRIPTIONS
 ;; table.
 ;;
@@ -1119,12 +1090,11 @@
 (def ^:private subs-value-cell-fill-style
   "Wrapper for the SUBSCRIPTIONS value cell's `:full` / `:full+diff`
   edn-inspector mounts — fills the grid track + permits the
-  inspector's tree to wrap without overflow. Hoisted per rf2-zmkqi
-  (the 2 residual literals that escaped rf2-zlk6h's 189-style hoist)."
+  inspector's tree to wrap without overflow."
   {:flex      1
    :min-width 0})
 
-;; -- SUBSCRIPTIONS leaf-scalar FULL+DIFF chrome (rf2-fyd8u) ----------------
+;; -- SUBSCRIPTIONS leaf-scalar FULL+DIFF chrome ----------------------------
 ;;
 ;; The `subs-value-cell`'s `:full+diff` branch threads `:before` into
 ;; `ei/edn-inspector`, which paints the R1-R8 grammar on container
@@ -1143,13 +1113,13 @@
 ;;                       `:modified` leaf shape (`gutter-row :modified`).
 ;;                       The prev value routes through `ei/mini` for
 ;;                       syntax-token chrome; prose stays muted
-;;                       text-tertiary (rf2-o77z4).
+;;                       text-tertiary.
 
 (def ^:private subs-leaf-row-style
   "Outer wrapper for an UNCHANGED-row leaf-scalar value (the all/changed
-  filter shows the current value with NO diff chrome — rf2-o77z4). Bare
-  `inline-flex` (parity with `gutter-row`'s inline-flex shape per
-  rf2-1bra5) so the value composes inline without forcing a block-level
+  filter shows the current value with NO diff chrome). Bare
+  `inline-flex` (parity with `gutter-row`'s inline-flex shape)
+  so the value composes inline without forcing a block-level
   row break inside the table cell."
   {:display       "inline-flex"
    :align-items   "baseline"
@@ -1158,7 +1128,7 @@
    :max-width     "100%"})
 
 (def ^:private subs-leaf-was-style
-  "Inline `← was <prev>` annotation chip. Per the bead body the prose
+  "Inline `← was <prev>` annotation chip. The prose
   stays muted (text-tertiary) and the prev value picks up syntax-token
   chrome from `ei/mini` (rendered inline as a child span). Mirrors the
   shape of `edn-inspector`'s `change-annotation` chip (sans-stack,
@@ -1176,7 +1146,7 @@
 (def ^:private subs-leaf-added-row-style
   "Outer style for the `:first-run?` `:added` chrome — green left-edge
   stripe + low-alpha wash + leading `+` glyph. Parity with the
-  edn-inspector's `gutter-row` `:added` shape (rf2-fyd8u). The stripe /
+  edn-inspector's `gutter-row` `:added` shape. The stripe /
   wash colours come from the inspector's reserved diff token family
   (`:diff-added-stripe` / `:diff-added-wash`) so the SUBSCRIPTIONS row's
   chrome reads visually identical to the inspector's R1 `:added` shape."
@@ -1202,7 +1172,7 @@
 
 (def ^:private subs-leaf-modified-row-style
   "Outer style for the `:first-run?` `false` `:modified` chrome — yellow
-  left-edge stripe + low-alpha wash + leading `~` glyph (rf2-o77z4).
+  left-edge stripe + low-alpha wash + leading `~` glyph.
   Mirrors `subs-leaf-added-row-style` but swaps the diff token family to
   `:diff-modified-stripe` / `:diff-modified-wash` so a changed leaf-
   scalar reads visually identical to the inspector's R1 `:modified` leaf
@@ -1231,14 +1201,8 @@
 
 ;; -- SUBSCRIPTIONS filter button bar --------------------------------------
 ;;
-;; rf2-x8aqd (2026-05-29) — these literals were previously hoisted as
-;; `mode-toggle-{bar,button-active,button-inactive}-style` and aliased
-;; via `(def subs-filter-… mode-toggle-…)`. rf2-vv3m6 retired the
-;; mode-toggle (FULL+DIFF is the single HANDLER rendering) which deleted
-;; the upstream defs and left the aliases dangling (3 unresolved-symbol
-;; kondo warnings). The SUBSCRIPTIONS [all][changed][unchanged] filter
-;; bar is a separate live feature, so we inline the original literals
-;; here as the sole owner.
+;; The SUBSCRIPTIONS [all][changed][unchanged] filter bar is the sole
+;; owner of these literals.
 
 (def ^:private subs-filter-bar-style
   {:display       "inline-flex"
@@ -1262,12 +1226,12 @@
    :line-height    1})
 
 (def ^:private subs-filter-button-active-style
-  ;; rf2-pjze8 — the selected segment was `:accent` (GitHub blue), which
-  ;; collides with the higher-priority blue signals on the page (changed/
-  ;; recompute, active L4 tab, mode stripe, focus ring). Repaint it a
-  ;; DARKER NEUTRAL GREY (`:bg-3`, raised) with a `:text-primary` label
-  ;; and a `:border-default` edge for definition, so the selection reads
-  ;; clearly without competing with the reserved accent. Token keywords
+  ;; The selected segment is a DARKER NEUTRAL GREY (`:bg-3`, raised) with
+  ;; a `:text-primary` label and a `:border-default` edge for definition,
+  ;; so the selection reads clearly without competing with the reserved
+  ;; accent — `:accent` (GitHub blue) would collide with the
+  ;; higher-priority blue signals on the page (changed/recompute, active
+  ;; L4 tab, mode stripe, focus ring). Token keywords
   ;; (not raw hex) so both themes resolve through the CSS-var map.
   (assoc subs-filter-button-base-style
          :background bg-3-colour
@@ -1358,7 +1322,7 @@
    :color       text-tertiary-colour
    :word-break  "break-word"})
 
-;; rf2-u3lii — col-2 "render-args (DIFF)" cell. Sits BETWEEN col-1
+;; Col-2 "render-args (DIFF)" cell. Sits BETWEEN col-1
 ;; (view name + glyph) and col-3 (coloured subs). Mirrors the
 ;; SUBSCRIPTIONS value cell's wrapper shape (`subs-value-cell-fill-style`)
 ;; — fills the resizable-table track + lets the edn-inspector's tree
@@ -1393,9 +1357,7 @@
 (def ^:private views-cell-id-clickable-style
   (assoc views-cell-id-span-style :cursor "pointer"))
 
-;; rf2-3b9w4 — `views-row-duration-style` + the rf2-bhi3t render-cause
-;; chip styles (`views-row-cause-*`) RETIRED with the col-1 strip (Mike
-;; pair 2026-06-01: drop the cause chip + duration from the VIEWS row).
+;; A VIEWS row carries no render-cause chip and no duration.
 
 (def ^:private views-anonymous-style
   {:color text-tertiary-colour :font-style "italic"})
@@ -1405,7 +1367,7 @@
 
 (def ^:private italic-style {:font-style "italic"})
 
-;; rf2-3b9w4 — VIEWS row mount/re-render glyph. Mirrors the
+;; VIEWS row mount/re-render glyph. Mirrors the
 ;; SUBSCRIPTIONS leaf-scalar glyph idiom (`+` = added/mount, `~` =
 ;; modified/re-render) so the VIEWS column reads with the SAME
 ;; vocabulary the operator already learned in the SUBSCRIPTIONS step:
@@ -1428,7 +1390,7 @@
 (def ^:private views-glyph-rerender-style
   (assoc views-glyph-cell-style :color (:diff-modified-stripe tokens)))
 
-;; rf2-3b9w4 — UNMOUNTED row: red strikethrough (diff-removed posture).
+;; UNMOUNTED row: red strikethrough (diff-removed posture).
 ;; Reuses the inspector's reserved `:diff-removed-*` token family + the
 ;; same `line-through` decoration the edn-inspector paints on `:removed`
 ;; leaves, so an unmounted view row reads visually identical to a
@@ -1443,7 +1405,7 @@
 (def ^:private views-glyph-unmounted-style
   (assoc views-glyph-cell-style :color (:diff-removed-stripe tokens)))
 
-;; rf2-3b9w4 — col-3 per-sub colour code. GREEN = new (first-run this
+;; Col-3 per-sub colour code. GREEN = new (first-run this
 ;; epoch), ORANGE = changed value, GREY = unchanged. Tones reuse the
 ;; status palette (`:success` / `:warning` / `:text-tertiary`) so the
 ;; VIEWS subs column reads the same green/amber/grey story the
@@ -1454,7 +1416,7 @@
 
 (defn- views-sub-status-style
   "Map a per-sub `:new` / `:changed` / `:unchanged` status to its
-  colour-code wrapper style (rf2-3b9w4). Unknown / nil → unchanged
+  colour-code wrapper style. Unknown / nil → unchanged
   (grey) — a sub the projection didn't classify reads neutral."
   [status]
   (case status
@@ -1462,13 +1424,12 @@
     :changed   views-sub-changed-style
     views-sub-unchanged-style))
 
-;; -- SCHEMA VIOLATION sub-block (rf2-xgeag) -------------------------------
+;; -- SCHEMA VIOLATION sub-block -------------------------------------------
 ;;
 ;; Pink-wash sub-block that rides INSIDE its owning pipeline step's
-;; body. The aggregate trailing SCHEMA-VIOLATIONS step retired with
-;; rf2-xgeag in favour of this attached shape — the operator reads
-;; the failing boundary inline with the work it failed on. Hot-reload
-;; drift now surfaces via the Issues panel exclusively (rf2-7gf7v).
+;; body, rather than in an aggregate trailing SCHEMA-VIOLATIONS step —
+;; the operator reads the failing boundary inline with the work it
+;; failed on. Hot-reload drift surfaces via the Issues panel exclusively.
 
 (def ^:private schema-violation-block-style
   {:display        "flex"
@@ -1483,7 +1444,7 @@
    :font-size      "12px"})
 
 (def ^:private schema-violation-title-style
-  ;; Mixed case per rf2-2ek7t — the title reads "Schema Violation
+  ;; Mixed case — the title reads "Schema Violation
   ;; Error" rather than "SCHEMA VIOLATION". The recovery chip
   ;; (rollback variant) carries the alert tone; uppercase here
   ;; would compound visual noise without aiding legibility.
@@ -1509,8 +1470,8 @@
    :letter-spacing "0.3px"})
 
 (def ^:private schema-violation-rollback-chip-style
-  ;; Red bg + white text already conveys severity at a glance; the
-  ;; prior `:text-transform "uppercase"` SHOUTED the longer
+  ;; Red bg + white text conveys severity at a glance;
+  ;; `:text-transform "uppercase"` would SHOUT the longer
   ;; "Commit to app-db aborted" string and read as noisy. Mixed
   ;; case (`:text-transform "none"`) preserves source casing for
   ;; legibility while the red/white chrome carries the alert tone.
@@ -1536,10 +1497,8 @@
    :font-style "italic"
    :font-size  "10px"})
 
-;; `schema-violation-action-link-style` + `schema-violation-actions-style`
-;; retired (rf2-wnvid) — they backed the error-card's jump-to-source
-;; action row, which rf2-wnvid dropped as redundant with the HANDLER
-;; step's verb link.
+;; The error card has no jump-to-source action row: it would be redundant
+;; with the HANDLER step's verb link.
 
 (def ^:private schema-violation-explain-body-style
   {:color text-secondary-colour
@@ -1549,7 +1508,7 @@
    :border-radius "3px"
    :padding "6px 8px"})
 
-;; -- inline EXCEPTION card (rf2-ahhgn · sophistication pass rf2-ynvv7) ----
+;; -- inline EXCEPTION card ------------------------------------------------
 ;;
 ;; A handler / interceptor / coeffect / fx / flow EXCEPTION renders as a
 ;; raised card under its owning step (sibling to the amber schema-
@@ -1558,13 +1517,13 @@
 ;; exception is a genuine bug (the `✗` glyph + the exception MESSAGE
 ;; verbatim).
 ;;
-;; rf2-ynvv7 — the card no longer borrows the violation block's flat
-;; skeleton. It sits in the design system the way the surrounding
-;; pipeline-step cards do, sophisticated rather than basic — and, per
-;; rf2-iizhe, FLAT (no elevation): every other Xray surface is flat, so
-;; the failure tone is carried by the fill + edge + glyph, NOT a lift:
+;; The card does not borrow the violation block's flat skeleton. It sits
+;; in the design system the way the surrounding pipeline-step cards do,
+;; sophisticated rather than basic — and FLAT (no elevation): every other
+;; Xray surface is flat, so the failure tone is carried by the fill + edge
+;; + glyph, NOT a lift:
 ;;
-;;   - SURFACE — a VERY-LIGHT-RED fill (rf2-ksl5m): `:error` mixed ~7%
+;;   - SURFACE — a VERY-LIGHT-RED fill: `:error` mixed ~7%
 ;;     over the raised `:bg-2` surface the other step cards read. Still
 ;;     QUIET, NOT the saturated rose wash — a subtle tint so the error
 ;;     reads on the fill at a glance while the edge + glyph carry the
@@ -1587,10 +1546,10 @@
    :gap            (:gap-2 spacing)
    :padding        (str (:gap-2 spacing) " " (:gap-3 spacing))
    :margin         (str (:gap-1 spacing) " 0")
-   ;; A VERY-LIGHT-RED fill (rf2-ksl5m) — `:error` mixed ~7% over the
-   ;; raised `:bg-2` surface. The card still reads QUIET per rf2-ynvv7
-   ;; (a subtle tint, NOT a saturated rose wash), but the failure tone
-   ;; now joins the fill the same way it already keys the hairline, the
+   ;; A VERY-LIGHT-RED fill — `:error` mixed ~7% over the
+   ;; raised `:bg-2` surface. The card reads QUIET
+   ;; (a subtle tint, NOT a saturated rose wash), and the failure tone
+   ;; keys the fill the same way it keys the hairline, the
    ;; left rail + the glyph. An OPAQUE 2-token `color-mix` (over `:bg-2`,
    ;; not `transparent`) so it paints cleanly on both themes regardless
    ;; of the surface the card sits above.
@@ -1601,17 +1560,17 @@
    :border         (str "1px solid " (with-alpha :error 38))
    :border-left    (str "3px solid " error-colour)
    :border-radius  "4px"
-   ;; rf2-iizhe — FLAT, no `:box-shadow`. The rest of the Xray UI is flat,
-   ;; so the prior elevation (a neutral drop shadow + a faint error-tinted
-   ;; glow) read as off. The card stays fully error-keyed without the
+   ;; FLAT, no `:box-shadow`. The rest of the Xray UI is flat, so
+   ;; elevation (a neutral drop shadow or a faint error-tinted glow)
+   ;; would read as off. The card is fully error-keyed without the
    ;; lift: the tinted hairline, the solid `:error` left rail, the
-   ;; very-light-red fill (rf2-ksl5m) + the ✗ glyph carry the severity,
-   ;; and the dropped `0 0 0 1px` ring was redundant with the `:border`.
+   ;; very-light-red fill + the ✗ glyph carry the severity, and a
+   ;; `0 0 0 1px` ring would be redundant with the `:border`.
    :font-family    mono-stack
    :font-size      (:mono-body type-scale)})
 
 (def ^:private error-block-glyph-style
-  ;; A restrained `✗` glyph badge (rf2-ynvv7) — sized + vertically
+  ;; A restrained `✗` glyph badge — sized + vertically
   ;; centred in the error accent, sitting in a small fixed box so it
   ;; aligns with the headline baseline rather than floating as a bare
   ;; character.
