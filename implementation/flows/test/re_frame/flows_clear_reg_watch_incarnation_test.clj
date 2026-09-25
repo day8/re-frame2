@@ -1,5 +1,5 @@
 (ns re-frame.flows-clear-reg-watch-incarnation-test
-  "rf2-vxgfnd.155 — exact-incarnation fence for the callback-bearing flow
+  "Exact-incarnation fence for the callback-bearing flow
   registry lifecycle ops.
 
   `clear-flow` and `reg-flow` REPLACEMENT each perform callback-bearing
@@ -7,12 +7,12 @@
   the non-drain path — the app-db path vacation via `swap-frame-db!`) BEFORE
   their bare-id registry / dirty-check / commit-epoch tail. A synchronous
   container watch fired during one of those writes can destroy incarnation A
-  and publish a same-id B. Before the fix the stale A tail then dissociated B's
-  flow row, dropped B's dirty-check cache, and bumped B's commit epoch by bare
-  id — while the reserved-fx postcheck only observed the loss AFTER the whole
-  handler returned.
+  and publish a same-id B. Unfenced, the stale A tail would then dissociate B's
+  flow row, drop B's dirty-check cache, and bump B's commit epoch by bare
+  id — while the reserved-fx postcheck only observes the loss AFTER the whole
+  handler returns.
 
-  After the fix each callback-bearing write is exact-incarnation aware (the
+  Each callback-bearing write is therefore exact-incarnation aware (the
   commit-epoch bump is fenced once A is lost) and each lifecycle op rechecks A's
   live continuation after the callback, aborting before any bare-id registry /
   cache / dedup mutation reaches B. Only A's write that physically linearized
@@ -64,12 +64,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-output-mark-watch-loss-does-not-corrupt-successor
-  ;; rf2-vxgfnd.155 (red before fix). Clearing A's flow removes its output-mark
+  ;; Clearing A's flow removes its output-mark
   ;; declaration through a container write; that write's synchronous watch
   ;; destroys A and publishes same-id B (with B's own flow row + dirty-check
-  ;; cache + output-mark declaration). Before the fix A's stale clear-flow tail
-  ;; then dissociated B's flow row and dropped B's dirty-check cache, and the
-  ;; bare-id mark write bumped B's commit epoch.
+  ;; cache + output-mark declaration). Unfenced, A's stale clear-flow tail
+  ;; would then dissociate B's flow row and drop B's dirty-check cache, and a
+  ;; bare-id mark write would bump B's commit epoch.
   (let [id            :flow.incarnation/clear-loss
         armed?        (atom false)
         b-flow-row    (atom ::unset)
@@ -127,11 +127,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-replacement-mark-watch-loss-does-not-corrupt-successor
-  ;; rf2-vxgfnd.155 (red before fix). Replacing A's flow refreshes its output
+  ;; Replacing A's flow refreshes its output
   ;; marks through a container write; that write's synchronous watch destroys A
-  ;; and publishes same-id B (with B's own flow row + dirty-check cache). Before
-  ;; the fix A's stale post-mark tail then dropped B's dirty-check cache (and
-  ;; emitted a bare-id dedup trace), and the bare-id mark write bumped B's
+  ;; and publishes same-id B (with B's own flow row + dirty-check cache).
+  ;; Unfenced, A's stale post-mark tail would then drop B's dirty-check cache
+  ;; (and emit a bare-id dedup trace), and a bare-id mark write would bump B's
   ;; commit epoch.
   (let [id            :flow.incarnation/reg-loss
         armed?        (atom false)
@@ -158,7 +158,7 @@
       (rf/reg-flow :flow.incarnation/g
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
-      ;; Prime a dirty-check row for A so the (unfixed) stale
+      ;; Prime a dirty-check row for A so an unfenced stale
       ;; drop-frame-flow-last-inputs!
       ;; would have something to drop off the successor.
       (rf.flows.registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
@@ -185,11 +185,11 @@
 ;; ---------------------------------------------------------------------------
 ;; Green control — when A retains ownership through a NON-destroying watch, the
 ;; ordinary clear-flow behaviour (row removal, cache drop, mark removal, commit-
-;; epoch bump) is preserved. A wrongly-fencing exact path would silently no-op.
+;; epoch bump) holds. A wrongly-fencing exact path would silently no-op.
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-with-live-owner-still-clears-row-cache-and-marks
-  ;; rf2-vxgfnd.155 mutation tooth. The exact-incarnation writes must NOT
+  ;; Mutation tooth. The exact-incarnation writes must NOT
   ;; suppress the normal clear when A stays live: the flow row and dirty-check
   ;; cache are removed, the output-mark declaration is cleared, and the mark
   ;; write's commit epoch advances.
@@ -222,17 +222,17 @@
         (restore-plain-adapter!)))))
 
 ;; ===========================================================================
-;; rf2-mybhk3 — the APP-DB PATH-VACATION counterpart.
+;; The APP-DB PATH-VACATION counterpart.
 ;;
 ;; The three fixtures above drive their loss watch through the runtime-db
 ;; output-MARK write: the flow output leaf is never materialized, so
 ;; `vacate-output-path!`'s `swap-frame-db-exact!` sees `new-db` identical to
 ;; `db` and issues no container write — the FIRST container write while armed is
-;; the mark refresh, and the direct app-db vacation helper (its exact
-;; commit-epoch fence + its post-vacation liveness recheck) was never executed
-;; by a merged fixture. A regression to the bare-id `swap-frame-db!`, an
-;; unfenced id-keyed epoch bump, or a dropped post-vacation recheck could then
-;; corrupt a same-id B while every merged fixture stayed green.
+;; the mark refresh, so those fixtures never execute the direct app-db
+;; vacation helper (its exact commit-epoch fence + its post-vacation liveness
+;; recheck). A regression to the bare-id `swap-frame-db!`, an unfenced
+;; id-keyed epoch bump, or a dropped post-vacation recheck would corrupt a
+;; same-id B while those fixtures stayed green.
 ;;
 ;; These fixtures MATERIALIZE A's output leaf first, so clear-flow's / the
 ;; reg-flow output-path MOVE's FIRST callback-bearing write IS the app-db path
@@ -258,7 +258,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-app-db-vacation-watch-loss-does-not-corrupt-successor
-  ;; rf2-mybhk3 (red before fix). A's output leaf is materialized, so clearing A
+  ;; A's output leaf is materialized, so clearing A
   ;; issues a real app-db path vacation via `swap-frame-db-exact!` — the FIRST
   ;; container write. Its synchronous watch destroys A and publishes same-id B
   ;; (with B's own app-db leaf + flow row + dirty-check cache + output marks).
@@ -337,7 +337,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-move-app-db-vacation-watch-loss-does-not-corrupt-successor
-  ;; rf2-mybhk3 (red before fix). Re-registering A with a MOVED output-path
+  ;; Re-registering A with a MOVED output-path
   ;; vacates the old (materialized) leaf via `swap-frame-db-exact!` — the FIRST
   ;; container write. Its synchronous watch destroys A and publishes same-id B.
   ;; A's vacation stands only in A's detached container; the fence keeps B's
@@ -411,7 +411,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-app-db-vacation-with-live-owner-still-vacates-leaf-and-bumps-epoch
-  ;; rf2-mybhk3 mutation tooth. The exact-incarnation vacation must NOT suppress
+  ;; Mutation tooth. The exact-incarnation vacation must NOT suppress
   ;; the normal leaf removal + commit-epoch advance when A stays live.
   (let [id          :flow.incarnation/clear-vacate-live
         armed?      (atom false)
