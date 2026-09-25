@@ -506,8 +506,10 @@
   `goog.DEBUG=false` builds (per Spec 001 §Production elision contract).
 
   Closed set: `:doc` only. Every other standard key is load-bearing in
-  production and MUST be retained — `:sensitive?` / `:large?` drive
-  redaction / egress projection (Spec 015 / EP-0015); `:tags` /
+  production and MUST be retained — the `:sensitive` / `:large` /
+  `:large?` classification keys drive egress projection, as do a resource
+  or mutation spec's `:sensitive?` / `:large?` root props (a handler's own
+  `:sensitive?` classifies nothing) (Spec 015 / EP-0015); `:tags` /
   `:interceptors` / the resource-mutation runtime keys drive runtime
   behaviour; `:schema` drives PRODUCTION payload validation — the
   `re-frame.spec/validate-at-boundary!` production arm (the router's
