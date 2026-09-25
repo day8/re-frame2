@@ -1,15 +1,13 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-helpers
-  "Pure-data helpers for Xray's App-DB Diff panel (Phase 5, rf2-jps1o).
+  "Pure-data helpers for Xray's App-DB Diff panel.
 
   ## Why a separate `.cljc` ns
 
-  The panel view in `app_db_diff.cljs` touches DOM event handlers
-  (right-click affordances, pin buttons). The *logic* — the
+  The panel views are browser-side ClojureScript. The *logic* — the
   structural-sharing diff, the reserved-namespace filter, the
   current-state section model — is
-  pure data → data. Splitting that logic into `.cljc` so it runs
-  under the JVM unit-test target (`clojure -M:test`) is required by
-  the standing rule `feedback_jvm_interop_must_work.md`.
+  pure data → data, so it lives in `.cljc` and runs
+  under the JVM unit-test target (`clojure -M:test`).
 
   ## Diff algorithm — `diff-paths`
 
@@ -31,30 +29,17 @@
 
   ## Reserved keys — `runtime-areas` / `reserved-summary`
 
-  EP-0001 (rf2-vzld77 / rf2-tj6w9l): the runtime subsystems (machines /
-  routing / elision) moved out of app-db's `:rf/runtime` into a SEPARATE
-  runtime-db partition (`:rf.runtime/*`). The `[runtime]` group is built
+  The runtime subsystems (machines / routing / elision) live in a
+  SEPARATE runtime-db partition (`:rf.runtime/*`), not in app-db. The
+  `[runtime]` group is built
   from that partition via the `runtime-areas` table + `reserved-summary`,
   and `user-domain-db` hides any framework-internal `:rf*`-namespaced slot
   a host stashes at the app-db root, via `reserved-namespace-key?`.
 
-  ## rf2-e9tb0 — pin-store helpers dropped
+  ## No pin store, no change walker
 
-  `pin-path` / `unpin-path` / `reorder-paths` / `slice-pins-for-frame`
-  / `live-pinned-slices` and their `pinned-slices-store` slot were
-  removed when path-segment click-to-inspect replaced the pinned-
-  watches strip (Mike 2026-05-19 Q13). The matching subs / events
-  were pulled in lockstep from `app_db_diff_subs.cljs` and
-  `app_db_diff_events.cljs`.
-
-  ## rf2-y8doi.29 — 'Show me when this changed' walker dropped
-
-  `path-touched?` / `path-exists?` / `op-at-path` / `event-of-epoch` /
-  `epochs-touching-path`, and the `partition-reserved` / `reserved-path?`
-  / `triple-path` / `reserved-app-db-keys` cluster, were removed when the
-  unreachable path-click mechanisms were retired (rf2-y8doi.29,
-  2026-09-17). Zoom into a node is the path interaction; nothing
-  subscribed the walker's sub."
+  There is no pin store and no 'show me when this changed' walker: zoom
+  into a node is the path interaction."
   (:require [clojure.string :as str]))
 
 ;; ---- reserved keys --------------------------------------------------------
@@ -114,23 +99,22 @@
       - otherwise (one or both non-map; not `=`) → `:modified`
         leaf at this path
 
-  rf2-3x7nj.24.5 — the `=` test is what the runtime applies: a handler
+  The `=` test is what the runtime applies: a handler
   that rebuilds a leaf to an equal value (`(vec (remove :done todos))`
   with nothing done, a set re-built with `into`) changes nothing by
   value, `:rf.event/db-changed` does not fire for it alone, and a
   value-comparing sub does not propagate from it. `identical?` alone
-  reported it `:modified` with `before` = `after`. The `=` walk is paid
+  would report it `:modified` with `before` = `after`. The `=` walk is paid
   only on a leaf that is not already `identical?`, so the diff keeps its
   O(changed paths) shape.
 
   Non-map sub-trees (e.g., a vector slice that changed from `[a b]`
   to `[a b c]`) are emitted as a single `:modified` triple at the
-  parent path — the slice mini-panel's `before` / `after` shows the
-  whole nested value side-by-side.
+  parent path, whose `before` / `after` carry the whole nested value.
 
   Pure data → data. JVM-runnable.
 
-  Performance note (rf2-etwtm / audit 2c): the final sort caches
+  Performance note: the final sort caches
   `(pr-str :path)` onto each triple under `::sort-key` before the
   comparator runs, so `pr-str` runs O(N) (once per triple) instead of
   O(N log N) (once per comparator invocation) — measurable on large
@@ -151,8 +135,8 @@
      []
 
      ;; Both maps, not identical — walk the union of keys without
-     ;; allocating two intermediate sets per recursion (rf2-etwtm /
-     ;; audit 2b). Walk `(keys after)` first, then `(keys before)`
+     ;; allocating two intermediate sets per recursion. Walk
+     ;; `(keys after)` first, then `(keys before)`
      ;; skipping any key already seen.
      (and (map-like? before) (map-like? after))
      (let [walk-key (fn [acc k seen?]
@@ -176,7 +160,7 @@
                           [(into acc (diff-paths bv av (conj path k)))
                            (conj seen? k)]
 
-                          ;; rf2-3x7nj.24.5 — rebuilt but equal: no change.
+                          ;; Rebuilt but equal: no change.
                           (= bv av)
                           [acc (conj seen? k)]
 
@@ -203,7 +187,7 @@
      (and (some? before) (nil? after))
      [{:op :removed :path path :before before :after nil}]
 
-     ;; rf2-3x7nj.24.5 — both non-map, rebuilt but equal: no change.
+     ;; Both non-map, rebuilt but equal: no change.
      (= before after)
      []
 
@@ -213,9 +197,9 @@
 
 ;; ---- runtime subsystem area table ---------------------------------------
 ;;
-;; EP-0001 (rf2-vzld77 / rf2-tj6w9l): the framework's durable subsystem
+;; The framework's durable subsystem
 ;; state — machine snapshots, the route slice, the spawn registry, the
-;; elision registry — moved OUT of app-db's `:rf/runtime` container into a
+;; elision registry — lives OUTSIDE app-db, in a
 ;; SEPARATE runtime-db partition (`:rf.db/runtime` in the frame-state),
 ;; whose top-level keys are the reserved `:rf.runtime/*` namespace family
 ;; (`:rf.runtime/machines` / `:rf.runtime/routing` / `:rf.runtime/elision`).
@@ -225,17 +209,16 @@
 ;; value — sourced from `:rf.xray/target-frame-runtime-db` (the live
 ;; partition) and each focused epoch's runtime-db pre/post-image (the
 ;; `:rf.db/runtime` projection of `:frame-state-before` / `-after`),
-;; mirroring the Machines inspector + Routing tab which already read
+;; mirroring the Machines inspector + Routing tab, which read
 ;; runtime-db at these paths.
 
 (def runtime-areas
   "Logical area-id → sub-path under the RUNTIME-DB partition value. The
   area-ids are the operator-facing labels carried in the panel's section
-  model (stable across the EP-0001 migration so caller / test code that
-  uses `:area :rf/machines` etc. still reads as before). The paths point
+  model (`:area :rf/machines` etc.). The paths point
   into the runtime-db partition's reserved `:rf.runtime/*` roots (per
   spec/Conventions.md §Reserved runtime-db keys + spec/002-Frames.md §The
-  two-partition frame contract; EP-0001 rf2-vzld77)."
+  two-partition frame contract)."
   {:rf/machines           [:rf.runtime/machines :snapshots]
    :rf/spawned            [:rf.runtime/machines :spawned]
    :rf/route              [:rf.runtime/routing :current]
@@ -250,8 +233,8 @@
 
   Logical area-ids (`:rf/machines`, `:rf/route`, …) are the operator-
   facing labels per the `runtime-areas` table; the values are read from
-  the `[:rf.runtime/...]` sub-paths (EP-0001 rf2-vzld77 — runtime-db
-  partition, no longer app-db `:rf/runtime`).
+  the `[:rf.runtime/...]` sub-paths of the runtime-db partition, not
+  app-db.
 
   Pure data → data."
   [runtime-db]
@@ -261,7 +244,7 @@
           :when   (some? v)]
       [area-id v])))
 
-;; ---- current-state sectioning (rf2-okvit) -------------------------------
+;; ---- current-state sectioning ------------------------------------------
 ;;
 ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style), not
 ;; a diff. Its layout splits the live `app-db` value into:
@@ -290,10 +273,10 @@
 ;;     are singletons.
 ;;
 ;; Empty / absent reserved areas are FILTERED at projection time
-;; (rf2-jcdvo) — `current-state-sections` omits any area that is
+;; — `current-state-sections` omits any area that is
 ;; absent / nil / present-but-empty. The operator sees only areas
-;; that actually carry state; the panel is no longer cluttered with
-;; six labelled "No machines registered." / "No active route." /
+;; that actually carry state, with no
+;; labelled "No machines registered." / "No active route." /
 ;; etc. placeholder cards. The TOP user-domain section ALWAYS renders
 ;; (it is the panel's anchor; an empty user-domain app-db is itself
 ;; meaningful operator information).
@@ -322,13 +305,13 @@
   the user-domain app-db that heads the inspector's TOP section. The
   filter catches any framework-internal slot the framework stashes at the
   app-db root under the reserved-namespace family (`:rf/*` /
-  `:rf.<subns>/*`, e.g. a transient `:rf.machine/*` slot). EP-0001
-  (rf2-tj6w9l) — the runtime subsystems no longer live in app-db (they
-  moved to the runtime-db partition), so in practice a normal app-db has
-  no reserved key to strip; the filter remains for any host that does
-  stash one. Pure data → map. nil-safe (nil db → empty map).
+  `:rf.<subns>/*`, e.g. a transient `:rf.machine/*` slot). The runtime
+  subsystems live in the runtime-db partition, not in app-db, so in
+  practice a normal app-db has no reserved key to strip; the filter is
+  for any host that does stash one. Pure data → map. nil-safe (nil db →
+  empty map).
 
-  ## Do NOT make this return `db` identical (rf2-y8doi.25)
+  ## Do NOT make this return `db` identical
 
   It looks like free structural sharing — `db` is usually unchanged by the
   filter, so returning it verbatim would preserve pointer identity and let
@@ -339,12 +322,11 @@
   `elide-wire-value`, via `rf/project-egress`) descends structurally and
   reconstructs every map, vector and set it passes, even under a frame that
   declares nothing — its `:else` arm is *descend*, never *return `v`*.
-  Measured at the seam: for a nested db the result is `=` and never
+  At the seam, for a nested db the result is `=` and never
   `identical?` — neither to the input nor to the result of the previous call
-  on the same value — while a scalar slot does ride through identical, so
-  the reading is the walk and not the instrument. Restoring identity here is
-  therefore a FRAMEWORK-SIDE change to the elision walker, not a change to
-  this function."
+  on the same value — while a scalar slot does ride through identical.
+  Identity here would therefore take a FRAMEWORK-SIDE change to the
+  elision walker, not a change to this function."
   [db]
   (into {} (remove (fn [[k _v]] (reserved-namespace-key? k))) (or db {})))
 
@@ -363,18 +345,18 @@
   `no-diff` (no pre-image at all → render plain) AND from a real prior
   value (a genuine before → annotate the change in place).
 
-  rf2-227cz: an instance / singleton present in `:value` but absent in
+  An instance / singleton present in `:value` but absent in
   `:before` MUST read `:added` (the whole subtree lights up green),
-  NOT plain current-state. Previously such a slot was tagged `no-diff`
-  and rendered identically to an unchanged slice, so the one thing that
+  NOT plain current-state. Tagged `no-diff`, such a slot would render
+  identically to an unchanged slice, so the one thing that
   should make each event visually distinct — the newly-created machine /
-  spawn / route appearing — was invisible. The renderer translates this
-  sentinel to the edn-inspector's `:added? true` first-run signal
-  (rf2-kp7bw), which synthesises the prior side as
+  spawn / route appearing — would be invisible. The renderer translates
+  this sentinel to the edn-inspector's `:added? true` first-run signal,
+  which synthesises the prior side as
   `engine/missing-sentinel` and washes the whole subtree `:added`.
 
   Note: this is ONLY emitted in diff mode (a real pre-image is present
-  for the focused epoch). The 1-arity / cold-boot path still uses
+  for the focused epoch). The 1-arity / cold-boot path uses
   `no-diff` everywhere — with no focused epoch there is no 'this epoch
   added it' claim to make. Pure data."
   ::added)
@@ -387,9 +369,9 @@
   this stands in for a missing `:value`, and the entry's `:before` carries
   the real prior value.
 
-  rf2-3x7nj.24.2: the section model was built from the post-state alone,
-  so a destroyed machine, an emptied registry or a cleared
-  pending-navigation left no trace, and the tab answered 'nothing' to
+  A section model built from the post-state alone would leave no trace of
+  a destroyed machine, an emptied registry or a cleared
+  pending-navigation, and the tab would answer 'nothing' to
   'what did this event remove?'. The renderer translates this sentinel to
   the edn-inspector's absent-value marker, which draws the prior value in
   place as a struck-through removed ghost (spec/004 §Removed slots render
@@ -410,13 +392,13 @@
   When `before-area` is `no-diff` every instance is tagged `no-diff` —
   current-state only.
 
-  rf2-227cz: in DIFF mode (`before-area` is NOT `no-diff`) an instance
+  In DIFF mode (`before-area` is NOT `no-diff`) an instance
   id present now but ABSENT in `before-area` is tagged the `added`
   sentinel, NOT `no-diff` — the freshly-created machine / spawn must
   light up `:added` (green) rather than render identically to an
   unchanged instance.
 
-  rf2-3x7nj.24.2: and the other way round, the ids walked are the UNION
+  The other way round, the ids walked are the UNION
   of `area-value`'s and `before-area`'s, so an instance present in the
   pre-image and absent now (a destroyed machine) is a row whose `:value`
   is the `removed` sentinel and whose `:before` is its prior state.
@@ -433,7 +415,7 @@
                              no-diff
                              ;; Diff mode: a known prior snapshot diffs in
                              ;; place; an instance absent from `before-area`
-                             ;; is `:added` (rf2-227cz), not `no-diff`.
+                             ;; is `:added`, not `no-diff`.
                              (get before-area id added))})
                 now)
            (keep (fn [[id v]]
@@ -452,7 +434,7 @@
 (defn current-state-sections
   "Decompose the frame's TWO partitions — the `app-db` value + the
   `runtime-db` partition value — into the app-db tab's current-state
-  section model (rf2-okvit; EP-0001 rf2-vzld77 / rf2-tj6w9l):
+  section model:
 
       {:top   <app-db-minus-reserved-keys>      ;; user-domain app-db
        :areas [{:area  :rf/machines
@@ -468,9 +450,9 @@
   The TOP user-domain section is the `app-db` value minus the reserved
   `:rf*`-namespaced keys; the reserved AREAS are read from the SEPARATE
   `runtime-db` partition value at the `[:rf.runtime/...]` `runtime-areas`
-  paths (EP-0001 — the framework's durable subsystem state moved out of
-  app-db's `:rf/runtime` into the runtime-db partition; this panel sources
-  it the same way the Machines inspector + Routing tab do).
+  paths (the framework's durable subsystem state lives in the runtime-db
+  partition; this panel sources it the same way the Machines inspector +
+  Routing tab do).
 
   One area entry per POPULATED reserved subsystem (in
   `reserved-area-order`). Map-of-instances areas
@@ -478,7 +460,7 @@
   vector (one entry per id); every other reserved area is
   `:kind :singleton` + a `:value`.
 
-  ## Empty-area filtering (rf2-jcdvo)
+  ## Empty-area filtering
 
   Empty / absent reserved areas are OMITTED from `:areas` entirely. An
   area is empty when:
@@ -490,22 +472,22 @@
     - (for `:rf/machines` / `:rf/spawned`) the registry contains no
       instance ids.
 
-  In diff mode emptiness covers BOTH sides (rf2-3x7nj.24.2): an area
+  In diff mode emptiness covers BOTH sides: an area
   that carried state in the pre-image and none now is the removal this
   epoch made, so it stays, carrying `removed` entries (see below).
 
   The renderer is the only consumer that needs the `:empty?` flag, and
-  it never draws an empty section now (the placeholder cards added
+  it never draws an empty section (placeholder cards would add
   visual noise — six labelled 'No X' cards mostly saying 'nothing
-  here'). Populated areas still carry `:empty? false` for callers that
-  inspect the model shape; the slot is preserved for symmetry.
+  here'). Populated areas carry `:empty? false` for callers that
+  inspect the model shape.
 
   The TOP user-domain section is NOT filtered — it always appears in
   the renderer's output, even when the user-domain app-db is empty
   (it's the panel's anchor; an empty user-domain app-db is itself
   meaningful operator information).
 
-  ## Inline diff (spec/021 §4.3, rf2-ad7zx.11)
+  ## Inline diff (spec/021 §4.3)
 
   Every section ALSO carries a `:before` slot — the SAME slice from the
   event-bundle's `db-before` (the TOP user-domain section, each instance, each
@@ -519,7 +501,7 @@
   annotation but stays on the diff engine, which renders identically to
   current-state for unchanged trees.
 
-  rf2-227cz — a third `:before` value, the `added` sentinel, marks a
+  A third `:before` value, the `added` sentinel, marks a
   whole instance / singleton slice that is present in `:value` but
   ABSENT in the focused epoch's pre-image (it came into existence this
   epoch). The renderer translates `added` to the edn-inspector's
@@ -529,13 +511,13 @@
   prior user-domain map, so a NEW user-domain key already classifies
   `:added` per-key inside the diff engine.)
 
-  rf2-3x7nj.24.2 — the mirror case: an instance / singleton slice
+  The mirror case: an instance / singleton slice
   present in the pre-image and ABSENT now carries the `removed` sentinel
   as its `:value` and its prior state as `:before`, and the renderer
   draws it struck-through. (The TOP needs none either way: a user-domain
   db cleared to `{}` still carries its whole prior map on `:before-top`.)
 
-  ## Arities (EP-0001 rf2-tj6w9l)
+  ## Arities
 
     (current-state-sections app-db runtime-db)
       — current state, no diff (`:before-top` + each `:before` are the
@@ -550,18 +532,18 @@
   partitions, absent reserved keys, empty registries, absent before-images)."
   ([app-db runtime-db] (current-state-sections app-db runtime-db no-diff))
   ([app-db runtime-db before]
-   (let [;; Egress fail-closed (rf2-cra0nq): when the section model is fed a
+   (let [;; Egress fail-closed: when the section model is fed a
          ;; value the local-render seam redacted WHOLE (an unreachable /
          ;; nil observed frame ⇒ the `:rf/redacted` sentinel, NOT a map),
          ;; there is no decomposable structure — treat it as the empty
          ;; partition rather than iterate the scalar sentinel (which would
-         ;; throw). Mirrors the existing nil-safety; a whole-redacted value
+         ;; throw). Mirrors the nil-safety; a whole-redacted value
          ;; carries no user-domain content to show.
          demap         (fn [v] (if (map? v) v {}))
          app-db        (demap (or app-db {}))
          runtime-db    (demap (or runtime-db {}))
          diff?         (and (some? before) (not= no-diff before))
-         ;; A whole-redacted pre-image (rf2-cra0nq) is likewise non-map —
+         ;; A whole-redacted pre-image is likewise non-map —
          ;; `demap` it so the diff-mode user-domain / runtime walks see an
          ;; empty pre-image (everything reads `:added`) rather than throw.
          app-before    (if diff? (demap (or (:app before) {})) no-diff)
@@ -570,7 +552,7 @@
                          (if diff?
                            (let [path (get runtime-areas area-id)
                                  v    (get-in runtime-before path ::absent)]
-                             ;; rf2-227cz — in diff mode a singleton slice
+                             ;; In diff mode a singleton slice
                              ;; absent in the runtime-db pre-image is `:added`
                              ;; (the slot appeared this epoch — e.g. first
                              ;; navigation populating `:rf/route`), NOT
@@ -596,8 +578,8 @@
                                             :empty?    (empty? instances)
                                             :instances instances})
                                          (let [prior  (before-area area)
-                                               ;; rf2-3x7nj.24.2 — a slot the
-                                               ;; pre-image carried state in.
+                                               ;; A slot the pre-image
+                                               ;; carried state in.
                                                ;; Only in diff mode, and never
                                                ;; the `added` sentinel.
                                                prior? (and diff?
@@ -608,9 +590,8 @@
                                             ;; A singleton is empty when the key is absent, or
                                             ;; present-but-nil, or present-but-empty-collection
                                             ;; (e.g. `{}` pending-nav) — AND, in diff mode, it
-                                            ;; carried no state before either (rf2-3x7nj.24.2:
-                                            ;; a slot this epoch emptied stays, so its removal
-                                            ;; shows).
+                                            ;; carried no state before either (a slot this
+                                            ;; epoch emptied stays, so its removal shows).
                                             :empty? (and (blank-slot? area-value)
                                                          (not prior?))
                                             ;; An absent slot that had state is `removed`; a
@@ -619,7 +600,7 @@
                                                       removed
                                                       area-value)
                                             :before prior}))]
-                     ;; rf2-jcdvo — empty areas are omitted from :areas;
+                     ;; Empty areas are omitted from :areas;
                      ;; the renderer never draws labelled "No X" placeholder
                      ;; cards. The TOP user-domain section (above) is the
                      ;; only always-rendered slot.
