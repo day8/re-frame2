@@ -1,16 +1,15 @@
 // Live-re-frame2-pair MCP-client conformance variant exercising the
-// TURN-SHAPED observation workflow (rf2-ahjbc).
+// TURN-SHAPED observation workflow.
 //
 // ## What this test guards
 //
-// rf2-ahjbc retired Pair-MCP's push-streaming subsystem (`subscribe` /
-// `unsubscribe` / `list-streams` / `get-stream-controls` and their
-// `notifications/progress` machinery). The one supported live-app
-// observation workflow is TURN-SHAPED: every observation reaches the
-// agent as a COMPLETED tool result — no concurrent MCP calls, no
-// progress callbacks, no out-of-band teardown. This harness is the live
-// end-to-end witness for that workflow (acceptance criterion 4 of the
-// retirement):
+// Pair-MCP has no push-streaming subsystem: no `subscribe` /
+// `unsubscribe` / `list-streams` / `get-stream-controls` tools and no
+// `notifications/progress` machinery. The one live-app observation
+// workflow is TURN-SHAPED: every observation reaches the agent as a
+// COMPLETED tool result — no concurrent MCP calls, no progress callbacks,
+// no out-of-band teardown. This harness is the live end-to-end witness
+// for that workflow:
 //
 //   1. `dispatch` an event and observe its RETURNED consequence in the
 //      completed tool result (the settled epoch's summary — not a
@@ -33,7 +32,7 @@
 //
 // Every call above is awaited to completion before the next fires —
 // the sequential shape an ordinary coding agent drives. A regression
-// that reintroduced a wait-for-notification contract, broke the
+// that introduced a wait-for-notification contract, broke the
 // consequence path, or emptied the retained ring turns this RED.
 //
 // ## Flag-gate WIRE riders (eval + writes)
@@ -62,10 +61,10 @@
 //
 // **Skipped unless `$SHADOW_CLJS_NREPL_PORT` is set.** Same posture as
 // the sibling live harnesses: without a live nREPL the server runs
-// degraded and every observation tool returns `:nrepl-port-not-found`.
-// On CI the gate is unset by default → exits 0 with a SKIP marker. The
-// hermetic orchestrator (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`)
-// wires the env when run as part of the hermetic suite.
+// degraded and every observation tool returns `:nrepl-port-not-found`, so
+// the script exits 0 with a SKIP marker. The hermetic orchestrator
+// (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`) wires the env so
+// this gate fires on CI.
 
 const crypto = require('node:crypto');
 const path = require('node:path');
@@ -333,8 +332,8 @@ runWithWatchdog(
     // The recorder's FIRST tick records every signal's first sample as a
     // baseline entry (`recording-sampler-tick!`'s last-values starts
     // empty), so "at least one entry" holds before anything is driven and
-    // would stay green if the recorder missed the dispatch entirely (the
-    // rf2-ahjbc audit's false-green finding). The proof of a
+    // would stay green if the recorder missed the dispatch entirely — a
+    // false green. The proof of a
     // DISPATCH-DRIVEN capture is therefore three steps: await and DRAIN
     // the pre-dispatch baseline, pinned to the value read before `record`;
     // dispatch; then require an entry carrying the exact post-dispatch
@@ -436,9 +435,9 @@ runWithWatchdog(
     // The hermetic suite drives EVERY live harness against ONE fixture
     // runtime, sequentially. This harness enabled epoch recording
     // (depth 50) and landed several cascades in the ring; left behind,
-    // those records ride into the next harness's `trace-window` /
+    // those records would ride into the next harness's `trace-window` /
     // `watch-epochs` pulls and push its payloads over the wire cap
-    // (observed: the redaction harness's trace-window overflowed at
+    // (measured: the redaction harness's trace-window overflowed at
     // 6741 tokens against the 5000 cap). Drop the recorded history and
     // return the depth to the boot default (0 — recording disabled) so
     // the next harness meets the same pristine runtime this one did.
@@ -493,7 +492,7 @@ runWithWatchdog(
       if (!evalResp.isError) {
         throw new Error(
           'eval-cljs MUST isError when the server booted WITH --no-eval ' +
-            '(opt-out post-rf2-a0z0h); got: ' +
+            '(the eval opt-out flag); got: ' +
             JSON.stringify(evalResp).slice(0, 300),
         );
       }
@@ -521,7 +520,7 @@ runWithWatchdog(
         if (!resp.isError) {
           throw new Error(
             probe.name + ' MUST isError when the server booted WITHOUT ' +
-              '--allow-writes (default-OFF write gate, rf2-ee38b.18); got: ' +
+              '--allow-writes (default-OFF write gate); got: ' +
               JSON.stringify(resp).slice(0, 300),
           );
         }
