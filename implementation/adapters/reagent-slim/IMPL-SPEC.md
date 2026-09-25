@@ -167,7 +167,7 @@ The slim-side contract: any stock `reagent.impl.*` / `reagent.dom` / `reagent.ra
 
 The sentinel set (validated against the stock-Reagent `examples/counter` bundle on the same release commit): `Compiler.{parse-tag,as-element,get-id,make-element}` (stock's `reagent.impl.template` CompilerImpl class methods), `ReagentInput` (stock's `reagent.impl.input`), `cljsRatom` (stock's `reagent.ratom` field on React-component links), `cljsLegacyRender` (stock's `reagent.dom` legacy-render path). All seven sentinels appear in the stock counter bundle and are 0-count in the slim bundle.
 
-The complementary direction (no `reagent2.*` symbols in `examples/counter` on classic) is not currently enforced — the in-tree shadow-cljs build adds both `adapters/reagent/src` and `adapters/reagent-slim/src` to the classpath, so a per-classic-build assertion would have to coexist with the bridge's `reagent2.*` reverse-direction probe (which itself depends on stock Reagent's classpath). Stage 5 follow-up territory; rf2-5lbx's S3-008 contract is the binding claim.
+The complementary direction (no `reagent2.*` symbols in `examples/counter` on classic) is enforced by the same script. Contract 6 checks that the slim `reagent2.*` sentinels are ABSENT from the classic stock-Reagent bundle, and Contract 5 keeps that absence non-vacuous by requiring the same sentinels PRESENT in both slim bundles. The in-tree shadow-cljs build puts both `adapters/reagent/src` and `adapters/reagent-slim/src` on one classpath, so Contract 6 proves `:advanced` DCE keeps the slim rewrite out of a build that only `:require`s the classic adapter.
 
 ---
 
