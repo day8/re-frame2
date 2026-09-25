@@ -5,8 +5,8 @@
 /*
  * Policy gate for `test-mcp-conformance.cjs` — two concerns, one file.
  *
- *   A. Reproducible-install policy (rf2-vtp2er), below.
- *   B. Profile SELECTION (rf2-a9l6e): default vs `--live` vs `--help` vs an
+ *   A. Reproducible-install policy, below.
+ *   B. Profile SELECTION: default vs `--live` vs `--help` vs an
  *      unknown option, and the verdict text each one renders. These are
  *      pure-function assertions against the runner's exported
  *      `parseArgs` / `planRun` / `renderReport` / `helpText`, so the suite
@@ -18,7 +18,7 @@
  * and both are static/pure; a second `_*.test.cjs` would only duplicate the
  * fixture.
  *
- * --- A. Reproducible-install policy (rf2-vtp2er) ---
+ * --- A. Reproducible-install policy ---
  *
  * `npm run test:mcp-conformance` must be a (near-)pure verification
  * command: it must not silently re-mutate dependency state on every run,
@@ -52,8 +52,8 @@ const cp = require('child_process');
 const fs = require('fs');
 const path = require('path');
 // Shared stripComments (EXECUTABLE-source-only matching) + framework-free
-// test harness (rf2-j552l2). perTestPass:true preserves this suite's
-// per-test `PASS  <name>` line.
+// test harness. perTestPass:true gives this suite its per-test
+// `PASS  <name>` line.
 const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = __dirname;
@@ -107,7 +107,7 @@ test('test-mcp-conformance.cjs does NOT hard-code npm install args in a STEPS pr
     /args:\s*\[\s*['"]install['"]\s*\]/,
     "test-mcp-conformance.cjs hard-codes `args: ['install']` for a prep " +
       'step — declare it `install: true` and let resolveInstallStep pick ' +
-      'the reproducible command (rf2-vtp2er).',
+      'the reproducible command.',
   );
   // Sanity: the elision actually removed the resolver (so we didn't just
   // pass because the regex failed to find the function).
@@ -205,7 +205,7 @@ test('LIVE: lockfile-backed tool packages the runner installs have a present, dr
           'but package-lock.json does not record it for the root package — ' +
           'package.json and the lock have drifted. The runner installs this ' +
           'package via `npm ci`, which would FAIL. Re-run `npm install` and ' +
-          'commit the refreshed lock (rf2-vtp2er).',
+          'commit the refreshed lock.',
       );
       assert.equal(
         lockedRootDeps[name],
@@ -252,7 +252,7 @@ test('LIVE: lockfile-backed tool packages the runner installs have a present, dr
 });
 
 // ---------------------------------------------------------------------
-// B. Profile selection + verdict honesty (rf2-a9l6e).
+// B. Profile selection + verdict honesty.
 //
 // Requiring the runner is itself part of the contract: it must expose its
 // selection/rendering as pure functions and spawn NOTHING at module load.
@@ -266,7 +266,7 @@ test('the runner only spawns under require.main === module', () => {
     /require\.main\s*===\s*module/,
     'expected the run loop to be guarded by `require.main === module` so ' +
       'the profile-selection tests can require the runner without launching ' +
-      'Clojure, shadow-cljs, Chromium, or either MCP server (rf2-a9l6e).',
+      'Clojure, shadow-cljs, Chromium, or either MCP server.',
   );
 });
 
@@ -295,7 +295,7 @@ test('--help / -h select help, and help is side-effect-free text', () => {
   const help = runner.helpText();
   // Both modes, the cost boundary, the prerequisites, which mode proves
   // live runtime behaviour, and the narrower meaning of the conformance
-  // package's own `npm test` (acceptance 3).
+  // package's own `npm test`.
   for (const needle of [
     runner.ROOT_COMMAND,
     runner.LIVE_COMMAND,
@@ -370,12 +370,12 @@ test('the live gate delegates to the EXISTING hermetic entry point (no second ro
     /require\([\s\S]{0,120}?live-test-inventory\.cjs['"]/,
     'the runner must read LIVE_TESTS from ' +
       'tools/mcp-conformance/scripts/live-test-inventory.cjs rather than ' +
-      'listing live rows itself (rf2-a9l6e acceptance 6).',
+      'listing live rows itself.',
   );
 });
 
-// A green that cannot be told apart from a skip is the defect rf2-a9l6e
-// exists to close, so the verdict text is pinned as tightly as the plan.
+// A green that cannot be told apart from a skip is the defect this section
+// exists to prevent, so the verdict text is pinned as tightly as the plan.
 function reportFor(profile, fail = null) {
   const { gates } = runner.planRun(profile);
   const results = gates.map((g) => ({ name: g.name, status: 0 }));
@@ -414,16 +414,16 @@ test('the default-profile verdict names its profile and marks the live suite NOT
 });
 
 test('no unqualified all-green sentence survives anywhere in the runner', () => {
-  // The old sentinel. Renaming it is only worth anything if it cannot come
-  // back — pin the source AND the rendered default-profile report.
+  // An unqualified all-green sentinel cannot be told apart from a skipped
+  // live layer — pin its absence from the source AND the rendered
+  // default-profile report.
   const forbidden = 'ALL MCP-CONFORMANCE GATES GREEN';
-  // RUNNER_CODE, not RUNNER_SRC: the header comment legitimately QUOTES the
-  // retired sentinel to explain why it went. Comments are stripped so the
-  // pin matches executable source only.
+  // RUNNER_CODE, not RUNNER_SRC: a comment may legitimately QUOTE the
+  // sentinel. Comments are stripped so the pin matches executable source only.
   assert.ok(
     !RUNNER_CODE.includes(forbidden),
     `test-mcp-conformance.cjs must not emit "${forbidden}": it cannot be ` +
-      'told apart from a run whose live layer was skipped (rf2-a9l6e).',
+      'told apart from a run whose live layer was skipped.',
   );
   const report = reportFor(runner.PROFILE_DEFAULT);
   assert.ok(!report.includes(forbidden));
