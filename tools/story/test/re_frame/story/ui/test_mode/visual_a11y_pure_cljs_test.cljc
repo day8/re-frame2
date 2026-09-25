@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.test-mode.visual-a11y-pure-cljs-test
   "JVM + CLJS pure-data tests for the visual + a11y check-RESULTS projection
-  (rf2-ba86n.15, tools/story/spec/021-Story-UI-Test-And-Evidence.md §4).
+  (tools/story/spec/021-Story-UI-Test-And-Evidence.md §4).
 
   The substantive UI is CLJS, but the projection the dedicated visual/a11y
   results component (`re-frame.story.ui.test-mode.visual-a11y-view`)
@@ -8,7 +8,7 @@
   the JVM test corpus pins the contract without booting Reagent.
 
   The browser-tier oracle records under test are exactly the shapes the run
-  path (post-#2484) produces via
+  path produces via
   `re-frame.story.play.browser/eval-browser-assertion`:
 
   - `:rf.assert/a11y-structural` — `:actual` is the `{:rule :tag :detail}`
@@ -58,14 +58,14 @@
                           :help "Elements must have sufficient colour contrast"}]})]
     (is (= 1 (count rows)))
     (is (= "Elements must have sufficient colour contrast" (:finding (first rows))))
-    ;; rf2-ffu8t — a violation with no node target falls the locus back to the
-    ;; rule id so the finding still reads; no fabricated selector.
+    ;; A violation with no node target falls the locus back to the rule id
+    ;; so the finding still reads; no fabricated selector.
     (is (= "color-contrast" (:locus (first rows))))
     (is (nil? (:selector (first rows))) "no selector fabricated when axe carried no node target")
     (is (= "serious" (:impact (first rows))))))
 
 (deftest axe-findings-surface-selector-source-link
-  (testing "rf2-ffu8t — the axe finding's recovered :selector is the SOURCE
+  (testing "the axe finding's recovered :selector is the SOURCE
             LINK (spec/021 §4 + §5): :locus is the selector, not the rule id,
             and :selector / :targets carry the offending-element coordinates"
     (let [rows (rf.story.ui.test-mode.pure/axe-a11y-findings
@@ -131,9 +131,9 @@
     (is (= 1 (count (:findings row))))
     (is (= "image missing alt text" (:finding (first (:findings row)))))
     (is (= "<img>" (:locus (first (:findings row)))))
-    ;; rf2-ffu8t — the structural tier has NO real source coord (it walks an
-    ;; in-memory hiccup tree, not a DOM); it surfaces the hiccup-tag locus and
-    ;; offers no selector, rather than fabricating one.
+    ;; The structural tier has NO real source coord (it walks an in-memory
+    ;; hiccup tree, not a DOM); it surfaces the hiccup-tag locus and offers
+    ;; no selector, rather than fabricating one.
     (is (nil? (:selector (first (:findings row))))
         "structural findings carry no selector — honest, not fabricated")
     (is (string? (:reason row)) "the diagnostic reason is threaded through")))
@@ -141,7 +141,7 @@
 ;; ---- browser-result-rows: axe fail carries the selector source link -----
 
 (deftest browser-rows-axe-fail-carries-selector-source-link
-  (testing "rf2-ffu8t — an axe :rf.assert/a11y fail surfaces the recovered
+  (testing "an axe :rf.assert/a11y fail surfaces the recovered
             selector (the violation's :nodes → :target) end-to-end as the
             finding's SOURCE LINK (spec/021 §4 + §5 MUST)"
     (let [result {:assertions
@@ -211,11 +211,11 @@
       (is (= "new-hash" (:snapshot row)))
       (is (= "base-hash" (:baseline row))))))
 
-;; ---- browser-result-rows: legacy :passed? fallback ----------------------
+;; ---- browser-result-rows: :passed? fallback -----------------------------
 
 (deftest browser-rows-fall-back-to-passed-when-status-unstamped
-  (testing "a record minted by a status-unaware path still reads pass/fail
-            from :passed? (the legacy fallback, not the primary)"
+  (testing "a record minted by a status-unaware path reads pass/fail from
+            :passed? (the fallback, not the primary)"
     (let [result {:assertions [{:assertion :rf.assert/a11y-structural
                                 :passed? true :actual []}]}
           row    (first (rf.story.ui.test-mode.pure/browser-result-rows result))]
