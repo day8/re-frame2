@@ -221,7 +221,7 @@
        (declared :sub-overrides (slice-labels :sub-overrides) sub-ovr
                  "No live View-State controls yet — the source's declared :sub-overrides carry forward via :extends, captured-as-declared (not a live projection).")
        (not-wired :sub-overrides (slice-labels :sub-overrides)
-                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable."))
+                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable (rf2-7pgiz)."))
 
      ;; db-seed: the schema-checked app-db seed fidelity rung is not wired.
      ;; The closest declared analogue on the source body is
@@ -229,12 +229,12 @@
      ;; the report is honest about what carries forward via :extends.
      (if (some? setup)
        (declared :db-seed (slice-labels :db-seed) setup
-                 "DB-seed fidelity rung not wired — the source's declared :setup events carry forward via :extends, captured-as-declared.")
+                 "DB-seed fidelity rung not wired (rf2-blw1q) — the source's declared :setup events carry forward via :extends, captured-as-declared.")
        (not-wired :db-seed (slice-labels :db-seed)
-                  "DB-seed fidelity rung not wired and no :setup declared — not yet projectable."))
+                  "DB-seed fidelity rung not wired (rf2-blw1q) and no :setup declared — not yet projectable."))
 
      (not-wired :route (slice-labels :route)
-                "Route sub-override is not consumed yet — route state is not captured.")
+                "Route sub-override is not consumed yet (rf2-7pgiz) — route state is not captured.")
 
      (if (some? network)
        (declared :network (slice-labels :network) network
