@@ -15,20 +15,19 @@
   contract (does the `:frame` tag survive into Xray's epoch
   capture?) a single flat transition is enough.
 
-  Tests that need richer machine grammar should add a sibling
-  fixture (e.g. `deep-machine-full/install!`) once the e2e harness
-  proves out on this narrower surface.
+  Tests that need richer machine grammar belong in a sibling
+  fixture (e.g. `deep-machine-full/install!`).
 
   ## Bug class this catches
 
-  rf2-hwuki — `:rf.machine/transition` emit dropped the `:frame`
-  tag, which meant Xray's epoch-capture filter rejected the event
-  (no `:frame` → can't route into any frame's epoch ring), and the
-  Machine Inspector panel stayed empty even after a real machine
-  transition fired. With this fixture installed in the host and
+  A `:rf.machine/transition` emit that dropped the `:frame` tag would
+  make Xray's epoch-capture filter reject the event (no `:frame` →
+  can't route into any frame's epoch ring), and the Machine Inspector
+  panel would stay empty even after a real machine transition fired.
+  With this fixture installed in the host and
   Xray subscribed to `:rf.xray/machine-snapshots`, a real
   `[:deep/main [:work/go]]` dispatch into the host MUST appear in
-  Xray's snapshot map — if it doesn't, the bug is back."
+  Xray's snapshot map."
   (:require [re-frame.core :as rf]
             [re-frame.machines]))
 
