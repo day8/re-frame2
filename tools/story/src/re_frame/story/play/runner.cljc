@@ -66,9 +66,9 @@
   installed the step REFUSES (`:cannot-run`) rather than skipping — an absent
   hook does not prove an absent presence runtime, so a silent no-op there
   would let a presence-bearing play report a clean verdict over a clock that
-  never moved (rf2-36biz). A host verb MAY be Promise-backed, and the run loop
+  never moved. A host verb MAY be Promise-backed, and the run loop
   awaits it before the next step, so a rejected flush fails the step instead of being
-  lost (rf2-iz0t8).
+  lost.
 
   | Step                               | Semantics                                                     |
   |------------------------------------|---------------------------------------------------------------|
@@ -322,9 +322,9 @@
 ;; ---- spec parsing -------------------------------------------------------
 
 (def ^:const default-auto-run?
-  "Default `:auto-run?` value when the spec omits it. The bead reads
-  'After mount: auto-run play (if `:auto-run? true`)' — so we make
-  auto-run the default behaviour. Authors opt OUT explicitly."
+  "Default `:auto-run?` value when the spec omits it. Auto-run is the
+  default behaviour — after mount the play runs — and authors opt OUT
+  explicitly."
   true)
 
 (defn parse-spec
@@ -620,7 +620,7 @@
 (defn run-state-failures
   "The GENUINE step failures carried by a settled run-`state` that no
   `:rf.story/assertions` record carries, as raw assertion records the
-  unified result folds beside the accumulator (rf2-3x7nj.30.1). Pure data →
+  unified result folds beside the accumulator. Pure data →
   data. The companion of `run-state-refusals`: together they are the
   bridge from the run-state's step outcomes to the unified `:status`, so the
   two cannot disagree.
