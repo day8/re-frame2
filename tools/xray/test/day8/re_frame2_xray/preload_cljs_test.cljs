@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.preload-cljs-test
-  "Tests for the Xray Phase 1 foundation (rf2-n6x4q).
+  "Tests for the Xray preload foundation.
 
   ## Three contracts under test
 
@@ -13,7 +13,7 @@
      altogether.
 
   2. **Frame isolation.** Xray's `:rf.xray/*` registrations target a
-     frame named `:rf/xray` (per rf2-tijr Option C). Writing into
+     frame named `:rf/xray`. Writing into
      `:rf/xray` must not bleed into the host's `:rf/default` frame.
      This test exercises the contract directly: it allocates both
      frames, dispatches into each, and asserts the dbs diverge.
@@ -26,11 +26,11 @@
 
   ## Why these tests run on node-test (not browser-test)
 
-  The foundation work this bead lands is registrations and pure-data
+  The foundation under test is registrations and pure-data
   ring-buffer manipulation. Neither the DOM nor a substrate's React-
   context tier is exercised. Browser-side concerns (mount, keydown
-  listener, shell render) live in browser-test files filed under
-  per-panel browser tests — keeping the foundation's tests
+  listener, shell render) live in the per-panel browser tests —
+  keeping the foundation's tests
   on node-test keeps them fast and host-portable."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -45,13 +45,13 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; Per `re-frame.test-support` (rf2-am9d) the canonical CLJS test isolation
+;; Per `re-frame.test-support` the canonical CLJS test isolation
 ;; pattern is snapshot/restore. `(rf.registrar/clear-all!)` is hostile here:
 ;; the framework-shipped registrations land at ns-load time and cannot
-;; be re-loaded, so wiping the registrar between tests leaves any
+;; be re-loaded, so wiping the registrar between tests would leave any
 ;; subsequent test ns starting against an empty registry — and the
-;; cross-test pollution shows up as failures in unrelated suites that
-;; happened to run after ours.
+;; cross-test pollution would show up as failures in unrelated suites
+;; that happen to run after ours.
 ;;
 ;; The fixture below adds an `init-fn` that flips Xray's defonce
 ;; sentinels back and clears Xray's per-process trace buffer. Each
@@ -156,8 +156,8 @@
 (deftest xray-buffer-evicts-oldest-on-overflow
   (testing "the Xray frameless secondary ring respects its configured depth"
     ;; Frameless emits (no `:rf.trace/dispatch-id` / no `:frame`) land
-    ;; in Xray's secondary ring per the rf2-3g9nw D2=a ruling — the
-    ;; framework's per-frame rings skip them per B3 (rf2-g1b2m). This
+    ;; in Xray's secondary ring, because the framework's per-frame
+    ;; rings skip them per B3 (Spec 009). This
     ;; test exercises that overflow algebra without spinning a full
     ;; framework dispatch path.
     (preload/register-trace-collector!)
@@ -176,11 +176,11 @@
           trace-collector/default-frameless-ring-depth)))))
 
 (deftest xray-frameless-ring-releases-evicted-events
-  (testing "rf2-wotl9 — eviction leaves a plain vector holding only the kept
-            events, on overflow and on shrink. A `subvec` view keeps its whole
-            backing vector reachable and later `conj`s extend that backing, so
-            the visible count stayed at the depth while every evicted payload
-            stayed live. A `PersistentVector` holds exactly its `count`
+  (testing "eviction leaves a plain vector holding only the kept
+            events, on overflow and on shrink. A `subvec` view would keep its
+            whole backing vector reachable and later `conj`s would extend that
+            backing, so the visible count would stay at the depth while every
+            evicted payload stayed live. A `PersistentVector` holds exactly its `count`
             elements, so its type bounds what the ring retains — which a
             count-only assertion cannot see."
     (trace-collector/set-frameless-ring-depth! 3)
