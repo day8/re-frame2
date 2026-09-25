@@ -105,7 +105,7 @@
   (let [lo (apply min samples)
         hi (apply max samples)
         md (median samples)]
-    (str "[rf2-w92r8] " label
+    (str "[wire-bench] " label
          " — min=" (.toFixed (double lo) 3) "ms"
          " median=" (.toFixed (double md) 3) "ms"
          " max=" (.toFixed (double hi) 3) "ms"
