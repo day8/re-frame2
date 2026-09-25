@@ -613,10 +613,10 @@
   resolve in (`resolve-target-path`): `[]` for a flat / compound machine,
   `[<region>]` for a region body and everything under it.
 
-  A region body's own `:on-done` keeps the plain sibling
-  rule (a keyword names a SIBLING REGION, the convention the chart and
-  Mermaid share for a region's own completion); only its `:on` / `:after` /
-  `:always` resolve keywords among the region's top-level states.
+  Every slot on a region body — its `:on-done` included — resolves a keyword
+  among the region's top-level states (`sibling-scope`): the engine resolves
+  a region's own `:on-done` within the region, as it resolves the region's
+  own `:on`, and the chart and Mermaid read it the same way.
 
   A `:type :history` child of this state is emitted as a W3C `<history>`
   element (`emit-history`), NOT a nested `<state>`.
@@ -630,8 +630,6 @@
         id-str (qualified-id path)
         target->path  (partial resolve-target-path root-path
                                (sibling-scope root-path path) path)
-        done->path    (partial resolve-target-path root-path
-                               (parent-path (vec path)) path)
         tag    (if final? "final" "state")
         attrs  (cond-> (str "id=\"" (escape-xml-attr id-str) "\"")
                  (and (not final?) initial)
@@ -660,7 +658,7 @@
           ;; `onDone`). Emitted INSIDE this node's own <state>.
           (when on-done
             (emit-transitions-for-on-done (str "done.state." id-str)
-                                          on-done done->path (inc depth)))
+                                          on-done target->path (inc depth)))
           (mapcat (fn [[child-id child-node]]
                     ;; A `:type :history` child is a W3C `<history>`
                     ;; pseudo-state, not a nested `<state>`.
@@ -1117,9 +1115,8 @@
     :same-state}`, which exports as the source state's own id rather than
     a `same_2dstate` phantom.
   - a target whose parent is `siblings` (the same path the emitter's
-    keyword rule used — `sibling-scope`, or the plain parent for a
-    region's own `:on-done`) is a SIBLING — re-frame2 writes it as the
-    bare keyword (the last segment).
+    keyword rule used — `sibling-scope`) is a SIBLING — re-frame2 writes it
+    as the bare keyword (the last segment).
   - any other target is written as the absolute vector path — relative to
     `root-path`, so the region prefix comes back off an in-region path."
   [target-str root-path siblings source-path]
@@ -1255,7 +1252,7 @@
   into nested state blocks). Returns `{:on ... :after ... :always
   [...] :children-tokens [...]}`. `source-path` is the OWNING state's
   absolute path — qualified targets are decoded relative to it, within
-  the `root-path` scope (the inverse of `emit-state`'s two resolvers)."
+  the `root-path` scope (the inverse of `emit-state`'s resolver)."
   [child-tokens root-path source-path]
   (let [ts              (direct-transitions child-tokens)
         ;; The remaining stream still contains the nested-state
@@ -1301,9 +1298,7 @@
                              target  (assoc :target
                                             (decode-target
                                               target root-path
-                                              (if (and event (str/starts-with? event "done.state."))
-                                                (parent-path (vec source-path))
-                                                (sibling-scope root-path source-path))
+                                              (sibling-scope root-path source-path)
                                               source-path))
                              ;; Decode the guard symmetrically
                              ;; with the encoder (keyword->id-string at emit).

@@ -91,18 +91,22 @@
   a hand-built node that has lost its region identity, and silently
   borrowing the FIRST region that happens to share the path would
   mis-attribute that region's lifecycle refs. nil is the right answer there.
-  A synthetic node (the machine-root / region-container — empty path, or an
-  in-region path with no raw match) resolves to nil. Used to recover a
-  node's ORIGINAL `:entry` / `:exit` keyword refs (the projection rewrites
-  them to `name-of` strings)."
-  [definition {:keys [path region]}]
-  (when (seq path)
-    (if region
-      ;; region-aware: pin the node to its OWN region's states — never a
-      ;; sibling region that happens to share the in-region path.
-      (node-at-in-states (:states (get-in definition [:regions region])) path)
-      ;; non-region node: top-level states only.
-      (node-at-in-states (:states definition) path))))
+  The ROOT-CONTAINER frame stands for the machine root, so it resolves to the
+  definition itself, and a REGION container to its region body — both carry
+  the `:entry` / `:exit` the runtime runs there. Any other synthetic node (the
+  machine-root / parallel-root chips — empty path, or a path with no raw
+  match) resolves to nil. Used to recover a node's ORIGINAL `:entry` /
+  `:exit` keyword refs (the projection rewrites them to `name-of` strings)."
+  [definition {:keys [path region] :as node}]
+  (cond
+    (:root-container? node) definition
+    (:region? node)         (get-in definition [:regions region])
+    (empty? path)           nil
+    ;; region-aware: pin the node to its OWN region's states — never a
+    ;; sibling region that happens to share the in-region path.
+    region                  (node-at-in-states (:states (get-in definition [:regions region])) path)
+    ;; non-region node: top-level states only.
+    :else                   (node-at-in-states (:states definition) path)))
 
 (defn requirement-label
   "Render one `:rf.cofx/requires` entry (Spec 002 §`parse-requires` grammar:
@@ -328,6 +332,34 @@
                             #(resolve-target-path state-path %)))
         (g/transition-candidates on-done-spec)))
 
+(defn- spawn-completion-edges
+  "The edges a `:spawn`-bearing `node` draws for its child (Spec 005
+  §Spawn-spec keys; XState v5 `invoke onError` / `onDone`):
+
+  - its `:on-error`, which the engine (`pick-spawn-error-transition`) takes on
+    the reserved `:rf.machine.spawn/error` event when the child fails, as an
+    `:on-error? true` edge painting the ✗ error chip;
+  - its transition-shaped `:on-done` (`pick-spawn-done-transition`), taken on
+    the reserved `:rf.machine.spawn/done` event when the child completes, as
+    an `:on-done? true` edge painting the ✓ done chip. A fn `:on-done` is the
+    `:data` fold and draws nothing.
+
+  `base` carries the source keys (`:from`, plus `:machine-level?` for the
+  machine root's child), `self-anchor` is the path an action-only candidate
+  self-anchors on as `:internal?`, and `resolve` resolves a `:target` at the
+  level the engine resolves the slot."
+  [node base self-anchor resolve]
+  (let [oe    (get-in node [:spawn :on-error])
+        od    (get-in node [:spawn :on-done])
+        edges (fn [spec flags]
+                (keep #(transition-edge % (merge base flags) self-anchor resolve)
+                      (g/transition-candidates spec)))]
+    (concat
+      (when oe
+        (edges oe {:event :rf.machine.spawn/error :on-error? true}))
+      (when (and (some? od) (not (fn? od)))
+        (edges od {:event :rf.machine.spawn/done :on-done? true})))))
+
 (defn- collect-state-edges
   "Walk a state node and return edge-maps for every statically-
   resolvable transition declared on it. Compound substates recurse.
@@ -415,41 +447,27 @@
          ;; (its path is the `done.state.<id>` the engine raises).
          (when-let [od (:on-done state-node)]
            (on-done-edges state-path state-path od))
-         ;; The `:spawn` `:on-error` parent transition
-         ;; (Spec 005 §Spawn-spec keys; XState v5 `invoke onError`). The
-         ;; engine (`pick-spawn-error-transition`) takes it on the reserved
-         ;; `:rf.machine.spawn/error` event when the spawned child fails,
-         ;; resolved at the SPAWNING state's own level — so a keyword target
-         ;; is its sibling, exactly `resolve-tgt`. An action-only candidate
-         ;; self-anchors as `:internal?` like every other trigger.
-         (when-let [oe (get-in state-node [:spawn :on-error])]
-           (keep (fn [candidate]
-                   (transition-edge candidate
-                                    {:from      state-path
-                                     :event     :rf.machine.spawn/error
-                                     :on-error? true}
-                                    self-anchor resolve-tgt))
-                 (g/transition-candidates oe)))
-         ;; Its success twin, a transition-shaped `:spawn :on-done`
-         ;; (`pick-spawn-done-transition`), taken on the reserved
-         ;; `:rf.machine.spawn/done` event when the spawned child completes and
-         ;; resolved the same way. It rides the `:on-done?` completion flag, so
-         ;; it paints the ✓ done chip. A fn `:on-done` is the `:data` fold and
-         ;; draws nothing.
-         (let [od (get-in state-node [:spawn :on-done])]
-           (when (and (some? od) (not (fn? od)))
-             (keep (fn [candidate]
-                     (transition-edge candidate
-                                      {:from     state-path
-                                       :event    :rf.machine.spawn/done
-                                       :on-done? true}
-                                      self-anchor resolve-tgt))
-                   (g/transition-candidates od)))))
+         ;; The `:spawn` child's completion transitions, resolved at the
+         ;; SPAWNING state's own level — so a keyword target is its sibling,
+         ;; exactly `resolve-tgt`.
+         (spawn-completion-edges state-node {:from state-path} self-anchor resolve-tgt))
         nested
         (mapcat (fn [[child-id child-node]]
                   (collect-state-edges (conj state-path child-id) child-node))
                 (:states state-node))]
     (concat edges-from nested)))
+
+(defn- lifecycle-fields
+  "A node's `:tags` as a set, plus its `:entry` / `:exit` actions (Spec 005
+  §State nodes) as short name strings so the renderer can paint
+  `entry / <name>` / `exit / <name>` rows; `:entry` / `:exit` are absent when
+  the node declares none. The one projection of these three slots, shared by
+  every state node, the machine root's container and each parallel region's
+  container, because the runtime honours all three on each of them."
+  [node]
+  (cond-> {:tags (set (:tags node))}
+    (:entry node) (assoc :entry (name-of (:entry node)))
+    (:exit node)  (assoc :exit  (name-of (:exit node)))))
 
 (defn- collect-nodes
   "Walk a state-map and return a flat seq of node-maps. Each map
@@ -481,30 +499,23 @@
                 :final?         false
                 :compound?      false
                 :tags           #{}}]
-              (let [self (cond-> {:path     path
-                                :label    (name state-id)
-                                :depth    (count parent-path)
-                                :initial? (boolean (:initial? state-node))
-                                :final?   (boolean (:final? state-node))
-                                ;; An `:error?` final (Spec 005
-                                ;; §:final?) is a re-frame2 EXTENSION: a child
-                                ;; finishing via it routes the spawning parent's
-                                ;; `:spawn` `:on-error` (vs `:on-done`). Surface
-                                ;; the terminal KIND so the renderer can paint
-                                ;; the error-hue outer ring. `:error?` only
-                                ;; reads on a `:final?` leaf; gate it so a stray
-                                ;; flag on a non-final node never lights the ring.
-                                :error?   (boolean (and (:final? state-node)
-                                                        (:error? state-node)))
-                                :compound? (boolean (:states state-node))
-                                :tags     (set (:tags state-node))}
-                         ;; :entry / :exit state actions
-                         ;; (Spec 005 §State nodes) surface as
-                         ;; short name strings so the renderer can paint
-                         ;; `entry / <name>` / `exit / <name>` rows. nil
-                         ;; when absent (cond-> skips the assoc).
-                         (:entry state-node) (assoc :entry (name-of (:entry state-node)))
-                         (:exit state-node)  (assoc :exit  (name-of (:exit state-node))))
+              (let [self (merge {:path     path
+                                 :label    (name state-id)
+                                 :depth    (count parent-path)
+                                 :initial? (boolean (:initial? state-node))
+                                 :final?   (boolean (:final? state-node))
+                                 ;; An `:error?` final (Spec 005
+                                 ;; §:final?) is a re-frame2 EXTENSION: a child
+                                 ;; finishing via it routes the spawning parent's
+                                 ;; `:spawn` `:on-error` (vs `:on-done`). Surface
+                                 ;; the terminal KIND so the renderer can paint
+                                 ;; the error-hue outer ring. `:error?` only
+                                 ;; reads on a `:final?` leaf; gate it so a stray
+                                 ;; flag on a non-final node never lights the ring.
+                                 :error?   (boolean (and (:final? state-node)
+                                                         (:error? state-node)))
+                                 :compound? (boolean (:states state-node))}
+                                (lifecycle-fields state-node))
                   init-key     (:initial state-node)
                   raw-children (when (:states state-node)
                                  (collect-nodes path (:states state-node)))
@@ -847,16 +858,18 @@
 
 (defn- collect-parallel-root-edges*
   "Shared projector for a `:type :parallel` machine's OWN top-level root
-  transitions (the `:on` and `:after` collectors below). Owns the
-  region-qualified-targets / base-map / one-edge-per-target / targetless-
-  self-anchor / `:reenter?` scaffolding once; the two callers differ ONLY in:
+  transitions (the `:on`, `:after` and root `:spawn` collectors below). Owns
+  the region-qualified-targets / base-map / one-edge-per-target / targetless-
+  self-anchor / `:reenter?` scaffolding once; the callers differ ONLY in:
 
-    - `root-map`     — the trigger-keyed map (`(:on def)` / `(:after def)`),
+    - `root-map`     — the trigger-keyed map (`(:on def)` / `(:after def)`,
+                       or a root `:spawn` slot keyed by its reserved event),
     - `event-fn`     — derives the `:event` keyword from the loop key
                        (event-id verbatim, or `:after-<delay>`), AND
     - `extra-base`   — a fn of the loop key returning trigger-specific base
                        keys (`{}` for `:on`; `{:after delay
-                       :parallel-root-after? true}` for `:after`).
+                       :parallel-root-after? true}` for `:after`; the
+                       completion flag for a root `:spawn` slot).
 
   Each candidate projects ONCE PER region-qualified target, sourced from the
   synthetic MACHINE-ROOT node (`machine-root-id`) into the region's in-region
@@ -931,6 +944,27 @@
     (fn [delay] (keyword (str "after-" delay)))
     (fn [delay] {:after delay :parallel-root-after? true})))
 
+(defn- collect-parallel-root-spawn-edges
+  "Emit the completion edges of a `:type :parallel` machine's OWN root
+  `:spawn` child — a child that lives as long as the machine. Its `:on-error`
+  (the ✗ error chip) and transition-shaped `:on-done` (the ✓ done chip) are
+  the ones `spawn-completion-edges` draws for a spawning state, but a parallel
+  root's targets are REGION-QUALIFIED exactly as its root `:on`'s are
+  (Spec 005 §The machine root), so each slot projects through
+  `collect-parallel-root-edges*`: sourced from the MACHINE-ROOT chip into the
+  region-scoped target, or self-anchored on the chip when action-only. A fn
+  `:on-done` is the `:data` fold and draws nothing."
+  [definition]
+  (let [oe (get-in definition [:spawn :on-error])
+        od (get-in definition [:spawn :on-done])]
+    (concat
+      (when oe
+        (collect-parallel-root-edges* {:rf.machine.spawn/error oe} identity
+                                      (constantly {:on-error? true})))
+      (when (and (some? od) (not (fn? od)))
+        (collect-parallel-root-edges* {:rf.machine.spawn/done od} identity
+                                      (constantly {:on-done? true}))))))
+
 ;; ---- public projection --------------------------------------------------
 
 (defn- project-flat
@@ -960,11 +994,19 @@
                         (assoc n' :id (node-id path))))
                     base-nodes)
         ;; Machine-level (top-level) :on fallbacks project ONCE from the
-        ;; synthetic MACHINE-ROOT node (not one back-edge per leaf).
-        machine-edges (collect-machine-edges on)
+        ;; synthetic MACHINE-ROOT node (not one back-edge per leaf). The
+        ;; machine root's own `:spawn` child draws from the same node, the
+        ;; way a spawning state draws from its own box: its completion
+        ;; transitions resolve at the root, where a keyword target names a
+        ;; top-level state.
+        machine-edges (concat (collect-machine-edges on)
+                              (spawn-completion-edges definition
+                                                      {:from [] :machine-level? true}
+                                                      []
+                                                      #(resolve-target-path [] %)))
         ;; Surface the synthetic root node ONLY when a
-        ;; machine-level fallback exists, so a machine with no top-level
-        ;; `:on` carries no root node. The root node is
+        ;; machine-level transition exists, so a machine with no top-level
+        ;; `:on` or root `:spawn` completion carries no root node. The root node is
         ;; a top-level (no `:parent-id`) pseudo-state the projector paints
         ;; as the root-context chip; its `:label` is filled in by
         ;; `project-definition` (which knows the machine-id), defaulting to
@@ -1026,76 +1068,68 @@
      :initial-path initial-path}))
 
 (defn- collect-region-on-done-edges
-  "A REGION's OWN top-level `:on-done` (Spec 005 §Parallel
-  `:on-done`: 'A **compound region** reaching its own `:final?` child
-  raises a region-local `done.state.<region-compound>` that the region's
-  `:on-done` takes … exactly the compound case, scoped to one region').
+  "A REGION's OWN top-level `:on-done` (Spec 005 §Parallel regions: when a
+  region's active leaf is a `:final?` direct child of its body, the region is
+  done, and the region body's own `:on-done` takes that region-local done —
+  exactly the compound case, scoped to one region).
 
   `project-flat` (called once per region by `project-parallel`, treating
   the region-def as a self-contained flat/compound machine rooted at `[]`)
   never reads a definition's OWN top-level `:on-done` — only a NESTED
-  compound's (`collect-state-edges`' `(on-done-edges state-path state-path
-  od)` call, at a non-empty `state-path`). So without this collector a
-  region's own `:on-done` would be silently dropped from the chart, while
-  mermaid (`region-root-on-done-edges`) and SCXML (`emit-state`'s generic
-  `:on-done` read, which sees a region like any other state node) both
-  render it — a G9 cross-emitter-parity gap.
+  compound's (`collect-state-edges`' `on-done-edges` call). So this collector
+  runs DIRECTLY in `project-parallel`.
 
-  Threading this through `project-flat` + `project-parallel`'s generic
-  region-scoping pass (`region-scoped-id`) would be WRONG: a region's own
-  `:on-done` keyword target is a SIBLING REGION (a top-level `region__…`
-  container), not an in-region state — the exact asymmetry documented on
-  `region-root-on-done-edges` in `mermaid.cljc`. So this collector runs
-  DIRECTLY in `project-parallel` (bypassing `project-flat`/region-scoping
-  for this one shape), reusing the SHARED `on-done-edges` walker — the
-  SAME one `collect-state-edges` uses for a nested compound — with the
-  region's OWN path (`[region-id]`) doubling as both `done-path` and
-  `state-path`, exactly as a nested compound's `on-done-edges` call uses
-  its own path for both. A keyword target then resolves (via
-  `resolve-target-path`'s parent-path rule, parent of `[region-id]` is
-  `[]`) to `[target]` — a bare sibling-region id, verbatim — matching
-  SCXML's `done.state.a -> b` shape.
+  The engine resolves the slot WITHIN the region at decl-path `[]`, exactly
+  as it resolves the region's own `:on` (a target outside the region, a
+  sibling region's name included, is refused at registration). So a keyword
+  target names one of the region's top-level states and a vector target is an
+  in-region path: `:to` carries that in-region path, and the edge lands on
+  the region-scoped state node, like every other edge inside a region.
 
-  - **Target-bearing, single-segment** (`:on-done :b`) — a SIBLING
-    region: sourced from THIS region's container (`region-node-id`),
-    targeting the sibling's container.
-  - **Target-bearing, multi-segment** (`:on-done [:b :inner]`) — resolves
-    IN-REGION (mirrors every other region-level collector's vector-path
-    convention, e.g. `collect-root-fallback-edges`): region-scoped
-    against THIS region, not read as a cross-region address.
+  - **Target-bearing** — sourced from the region's OWN container
+    (`region-node-id`), targeting the region-scoped state node.
   - **Action-only** (no `:target`) — self-anchors on the region's OWN
     container as a terminal completion affordance, exactly as a nested
     compound's action-only `:on-done` self-anchors on itself (no new
     node needed — the region container already exists).
+  - **`:same-state`** — names the region body itself, so it loops on the
+    region's container.
 
-  `:done-path` carries `[region-id]` (NOT region-scoped) so the chart's
-  `:doneState` label (`chart.projection`, `(node-id done-path)`) reads
-  `done.state.<region-id>` — matching SCXML's `done.state.a` bare form,
-  the same reasoning `parallel-root-done-state-id` applies one level up
-  for the whole-parallel completion."
+  Both self-anchored forms carry the empty in-region `:to` path `[]`, the
+  region body. `:from` and `:done-path` carry `[region-id]` (NOT
+  region-scoped) so the chart's `:doneState` label (`chart.projection`,
+  `(node-id done-path)`) reads `done.state.<region-id>` — matching SCXML's
+  `done.state.a` bare form, the same reasoning `parallel-root-done-state-id`
+  applies one level up for the whole-parallel completion."
   [regions]
   (mapcat
     (fn [[region-id {:keys [on-done]}]]
       (when on-done
         (let [rid         (region-node-id region-id)
-              region-path [region-id]]
-          (->> (on-done-edges region-path region-path on-done)
+              region-path [region-id]
+              in-region   #(if (= :same-state %) [] (resolve-target-path [] %))]
+          (->> (g/transition-candidates on-done)
+               (keep (fn [candidate]
+                       (transition-edge candidate
+                                        {:from      region-path
+                                         :event     :rf.machine/done
+                                         :on-done?  true
+                                         :done-path region-path}
+                                        []
+                                        in-region)))
                (map-indexed
                  (fn [i e]
-                   (let [base      (edge-id (:to e) e)
-                         internal? (:internal? e)
-                         target    (cond
-                                     internal?                   rid
-                                     (= 1 (count (:to e)))       (region-node-id (first (:to e)))
-                                     :else                       (region-scoped-id region-id (:to e)))]
+                   (let [base (edge-id (:to e) e)]
                      (assoc e
-                       :id                    (if (zero? i) base (str base "__" i))
-                       :region-on-done?       true
-                       :source                rid
-                       :target                target
-                       :from-path             (:from e)
-                       :to-path               (:to e)
-                       :event-label           (edge-label e)))))))))
+                       :id              (if (zero? i) base (str base "__" i))
+                       :region-on-done? true
+                       :source          rid
+                       :target          (if (empty? (:to e))
+                                          rid
+                                          (region-scoped-id region-id (:to e)))
+                       :from-path       (:from e)
+                       :to-path         (:to e)
+                       :event-label     (edge-label e)))))))))
     regions))
 
 (defn- project-parallel
@@ -1204,16 +1238,19 @@
                                       rid
                                       (region-scoped-id region-id (:to-path e)))))
                         (:edges parsed))
-                  ;; The synthetic region container node.
+                  ;; The synthetic region container node. It stands for the
+                  ;; region body, whose `:entry` / `:exit` / `:tags` the
+                  ;; runtime honours as it does a state's.
                   region-node
-                  {:id        rid
-                   :path      [region-id]
-                   :label     (name region-id)
-                   :depth     0
-                   :region?   true
-                   :region    region-id
-                   :region-index idx
-                   :compound? true}]
+                  (merge {:id        rid
+                          :path      [region-id]
+                          :label     (name region-id)
+                          :depth     0
+                          :region?   true
+                          :region    region-id
+                          :region-index idx
+                          :compound? true}
+                         (lifecycle-fields region-def))]
               {:nodes (into [region-node] tagged-nodes)
                :edges scoped-edges}))
           regions)
@@ -1267,9 +1304,11 @@
         ;; <delay>` so `event-segment` paints the ⌚ glyph and
         ;; `:parallel-root-after? true` to distinguish it). Collected together
         ;; so a machine declaring ONLY a root `:after` still mints the
-        ;; machine-root chip.
+        ;; machine-root chip. The root's own `:spawn` child's completion
+        ;; transitions take the same region-qualified route.
         root-on-raw (concat (collect-parallel-root-edges (:on definition))
-                            (collect-parallel-root-after-edges (:after definition)))
+                            (collect-parallel-root-after-edges (:after definition))
+                            (collect-parallel-root-spawn-edges definition))
         root-on-edges
         (->> root-on-raw
              (reduce
@@ -1300,10 +1339,11 @@
              :out
              vec)
         ;; Surface the synthetic MACHINE-ROOT chip ONLY when the
-        ;; parallel root declares an `:on` or `:after` (mirrors
-        ;; `project-flat`'s root-node-when-fallback-exists rule). Distinct
-        ;; from the parallel-ROOT `:on-done` node (`parallel-root-segment`);
-        ;; a machine with neither carries no machine-root chip.
+        ;; parallel root declares an `:on`, an `:after` or a root `:spawn`
+        ;; completion (mirrors `project-flat`'s
+        ;; root-node-when-fallback-exists rule). Distinct from the
+        ;; parallel-ROOT `:on-done` node (`parallel-root-segment`); a machine
+        ;; with none of them carries no machine-root chip.
         machine-root-node (when (seq root-on-edges)
                             {:id            machine-root-id
                              :path          []
@@ -1325,8 +1365,8 @@
                                 ;; :on-done (distinct from `root-od-edges`,
                                 ;; the WHOLE-parallel completion). No new
                                 ;; node needed: it anchors on the existing
-                                ;; region container / sibling-region
-                                ;; container nodes.
+                                ;; region container and the region's own
+                                ;; state nodes.
                                 (collect-region-on-done-edges regions)))
      :initial-path nil
      :parallel?    true}))
@@ -1351,9 +1391,14 @@
   machine name + threads the inferred Context shape into the container's
   `:data` so `chart.nodes/root-container-node` paints the frame HEADER.
 
+  The frame stands for the machine root, so it carries the root's `:entry` /
+  `:exit` / `:tags` off `definition` exactly as a state node carries its own
+  (the runtime runs the root's `:entry` at birth and `:exit` at teardown, and
+  joins its `:tags` to the tag union).
+
   A graph with no nodes (nil / empty definition) is returned unchanged — an
   empty frame would be vacuous chrome."
-  [{:keys [nodes] :as graph}]
+  [definition {:keys [nodes] :as graph}]
   (if (empty? nodes)
     graph
     (let [rewrapped (mapv (fn [n]
@@ -1361,12 +1406,13 @@
                               (nil? (:parent-id n))
                               (assoc :parent-id root-container-id)))
                           nodes)
-          root-node {:id             root-container-id
-                     :path           []
-                     :label          "machine"
-                     :depth          0
-                     :root-container? true
-                     :compound?      true}]
+          root-node (merge {:id             root-container-id
+                            :path           []
+                            :label          "machine"
+                            :depth          0
+                            :root-container? true
+                            :compound?      true}
+                           (lifecycle-fields definition))]
       (assoc graph :nodes (into [root-node] rewrapped)))))
 
 (defn project-definition
@@ -1419,11 +1465,12 @@
                     (project-flat definition))]
         ;; Surface each guard / action / entry / exit ref's
         ;; declared `:rf.cofx/requires` (EP-0017 consumer attachment) onto the
-        ;; edges + nodes BEFORE the synthetic root-container wraps the graph (so
-        ;; the wrapper's `:path []` node is never resolved). A no-op for a
-        ;; machine that declares no requires.
-        (-> (attach-cofx-requires definition graph)
-            wrap-in-root-container)))))
+        ;; edges + nodes AFTER the synthetic root-container wraps the graph, so
+        ;; the frame's root `:entry` / `:exit` resolve too (`raw-node-at` reads
+        ;; the definition for it). A no-op for a machine that declares no
+        ;; requires.
+        (->> (wrap-in-root-container definition graph)
+             (attach-cofx-requires definition))))))
 
 (defn synthetic-node?
   "True when `node` is synthetic layout chrome rather than an occupiable

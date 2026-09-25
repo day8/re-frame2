@@ -830,40 +830,51 @@
      (str "    " (on-done-action-label on-done))
      "  end note"]))
 
+(defn- region-root-target-path
+  "Resolve a target declared on a region BODY itself, which the engine resolves
+  within the region at decl-path `[]`, as it resolves the region's own `:on`:
+  a keyword names one of the region's top-level states, a vector is an
+  in-region path, and `:same-state` names the region body."
+  [region-path target]
+  (cond
+    (= :same-state target) region-path
+    (keyword? target)      (conj region-path target)
+    (target-path? target)  (into region-path target)
+    :else                  nil))
+
 (defn- region-root-on-done-edges
-  "A REGION's OWN top-level `:on-done` (Spec 005 §Parallel
-  `:on-done`: 'A **compound region** reaching its own `:final?` child
-  raises a region-local `done.state.<region-compound>` that the region's
-  `:on-done` takes … exactly the compound case, scoped to one region').
-  Reuses `collect-on-done-edges` — the SAME walker a nested compound's
-  `:on-done` uses — with the region's OWN container path doubling as both
-  `root-path` and `source-path` (the done-source). A KEYWORD target is
-  therefore a SIBLING OF THE REGION (another key in `:regions`), exactly
-  as a nested compound's keyword `:on-done` target is a sibling of the
-  compound — the same rule `scxml.cljc`'s `emit-state` applies (it reads
-  `:on-done` off ANY state node, a region included, via the same
-  sibling-resolution rule: `:on-done :b` on region `:a` of a 2-region
-  machine emits `<transition event=\"done.state.a\" target=\"b\"/>`, `b`
-  being the SIBLING region's own qualified id). A vector-path target
-  resolves IN-REGION (prefixed with the region id via `root-path`),
-  matching every other region-level collector in this namespace
-  (`collect-root-fallback-edges` et al).
+  "A REGION's OWN top-level `:on-done` (Spec 005 §Parallel regions: when a
+  region's active leaf is a `:final?` direct child of its body, the region is
+  done, and the region body's own `:on-done` takes that region-local done —
+  exactly the compound case, scoped to one region). The edge leaves the
+  region's OWN container and lands inside the region
+  (`region-root-target-path`): a target outside the region, a sibling
+  region's name included, is refused at registration. `scxml.cljc`'s
+  `emit-state` and the chart's `collect-region-on-done-edges` resolve it the
+  same way, so `:on-done :x` on region `:a` reads `a --> a__x` here and
+  `done.state.a -> a___x` in SCXML.
 
   `render-region-block` destructures only `{:keys [initial states on]}` —
   never `:on-done` — so without this collector a target-bearing region
   `:on-done` would vanish from Mermaid with zero trace while SCXML preserves
-  the `done.state.<region> -> <sibling-region>` transition, breaking the G9
-  cross-emitter parity invariant (001-Topology-Parity.md)."
+  the transition, breaking the G9 cross-emitter parity invariant
+  (001-Topology-Parity.md)."
   [regions]
   (mapcat (fn [[region-id {:keys [on-done]}]]
             (let [region-path (vector region-id)]
-              (collect-on-done-edges region-path region-path on-done)))
+              (keep (fn [candidate]
+                      (when-let [target-path (region-root-target-path region-path
+                                                                      (:target candidate))]
+                        {:from  region-path
+                         :to    target-path
+                         :label (edge-label "✓ done" candidate)}))
+                    (when on-done (transition-candidates on-done)))))
           regions))
 
 (defn- region-root-on-done-notes
   "The ACTION-ONLY counterpart of `region-root-on-done-
   edges`: a region's own top-level `:on-done` with no resolvable target
-  has no sibling-region arrow to draw, so — exactly as
+  has no arrow to draw, so — exactly as
   `collect-compound-on-done-notes` renders a nested compound's
   action-only `:on-done` (and `render-parallel-on-done-note` renders the
   parallel-root's) — it surfaces as a `note right of` the region's OWN
@@ -897,9 +908,9 @@
                      ;; fallback edge labelled `after(<delay>)`.
                      (collect-root-fallback-after-edges [] after)
                      ;; A REGION's OWN top-level `:on-done`
-                     ;; (target-bearing form): a `✓ done` edge to the
-                     ;; SIBLING region (`render-region-block` does not read
-                     ;; `:on-done`).
+                     ;; (target-bearing form): a `✓ done` edge from the
+                     ;; region's container to a state inside the region
+                     ;; (`render-region-block` does not read `:on-done`).
                      (region-root-on-done-edges regions))
         edge-lines  (map render-edge edges)
         final-lines (mapcat (fn [[region-id {:keys [states]}]]
@@ -921,7 +932,7 @@
                   (collect-compound-on-done-notes [region-id] states))
                 regions)
         ;; A REGION's OWN top-level `:on-done` (action-only
-        ;; form): no sibling-region arrow to draw, so it surfaces as a
+        ;; form): no arrow to draw, so it surfaces as a
         ;; note on the region's own container (the region root).
         region-root-on-done-note-lines (region-root-on-done-notes regions)
         ;; An INTERNAL (action-only) `:on` / `:after` /

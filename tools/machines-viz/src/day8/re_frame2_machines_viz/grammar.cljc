@@ -533,14 +533,16 @@
 ;;   - compound-`:initial` PRESENCE (`machine-compound-state-missing-initial`);
 ;;   - transition `:target` shape + resolution for `:on` / `:after` /
 ;;     `:always` / `:on-done` / `:spawn :on-error` / transition-shaped
-;;     `:spawn :on-done` (`machine-bad-target` / `machine-unresolved-target`);
+;;     `:spawn :on-done` (`machine-bad-target` / `machine-unresolved-target`),
+;;     a region body's own `:on` / `:on-done` resolving within its region;
 ;;   - unknown BARE node / transition-map / spawn keys — NAMESPACED keys pass
 ;;     (`machine-unknown-node-key` / `machine-unknown-spawn-key`), and an
 ;;     `:on-done` on a leaf (`machine-unknown-node-key`);
 ;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
 ;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
 ;;   - `:tags` set-of-keywords (`machine-bad-tags`);
-;;   - no machine-root key the runtime never reads on the root
+;;   - no machine-root key the runtime never reads on the root, and no
+;;     region-body key it never reads on a region body
 ;;     (`machine-root-slot-not-supported`);
 ;;   - a single `:spawn` is ONE map declaring `:machine-id` XOR `:definition`,
 ;;     and an inline `:definition`'s address — `:id-prefix` or
@@ -614,6 +616,13 @@
   `validation/flat-root-unread-keys`. A parallel root's `:on-done` is its
   all-regions-final signal."
   #{:on-done})
+
+(def ^:private region-unread-keys
+  "State-node keys no runtime path reads on a parallel region body — mirror of
+  the engine's `validation/region-unread-keys`. A region body is the root of
+  its region's tree, entered at birth and exited at teardown, so it follows
+  the machine root's rule; parallel regions do not nest."
+  #{:spawn :spawn-all :always :final? :output-key :error? :deep? :default-target :regions})
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
@@ -1094,6 +1103,34 @@
         ;; A fn `:spawn :on-done` is the `:data` fold and carries no target.
         (when (and (some? od) (not (fn? od))) (check :spawn/on-done od)))))
 
+(defn- region-slot-defect
+  "The region-body keys no runtime path reads there, sorted — mirror of the
+  engine's `validation/validate-region-slots!`, which refuses them with the
+  machine-root category and names the region under `:path`. A present key is
+  refused whatever its value. A region body's `:entry` / `:exit` / `:tags`
+  are read."
+  [region-name body]
+  (let [offending (vec (sort (filter #(contains? body %) region-unread-keys)))]
+    (when (seq offending)
+      {:category :rf.error/machine-root-slot-not-supported
+       :path     [:regions region-name]
+       :keys     offending})))
+
+(defn- region-root-target-defect
+  "A region body's own `:on` (the region's ancestor fallback) and `:on-done`
+  (taken on the region's done) target resolution — mirror of the engine's
+  region branch in `validate-transition-targets!`. Both resolve within the
+  region at decl-path `[]`, so a keyword names one of the region's top-level
+  states, and a sibling region's name is unresolved. Assumes `:on` is a MAP:
+  `region-defect` guards its shape first with `transition-slot-shape-defect`."
+  [scope region-name body]
+  (let [check (fn [slot v]
+                (some (fn [{:keys [present? target]}]
+                        (when present? (target-defect scope [region-name] slot target)))
+                      (candidate-targets v)))]
+    (or (some (fn [[_ v]] (check :on v)) (:on body))
+        (when (contains? body :on-done) (check :on-done (:on-done body))))))
+
 (defn- flat-defect [d]
   (cond
     (not (keyword? (:initial d)))
@@ -1140,12 +1177,16 @@
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [region-name] body)
           (transition-keys-defect [region-name] body)
+          ;; After the nested-parallel refusal above, which names that shape
+          ;; more precisely — the engine's order.
+          (region-slot-defect region-name body)
           (some (fn [[path node]]
                   (or (when (= :parallel (:type node))
                         {:category :rf.error/machine-parallel-nested-not-supported :path (vec path)})
                       (node-defect scope path node)))
                 (walk-scope-nodes scope))
-          (history-scope-defect scope)))))
+          (history-scope-defect scope)
+          (region-root-target-defect scope region-name body)))))
 
 (defn- parallel-defect [d]
   (let [regions (:regions d)]

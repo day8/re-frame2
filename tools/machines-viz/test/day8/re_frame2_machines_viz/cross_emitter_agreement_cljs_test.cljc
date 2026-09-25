@@ -410,15 +410,15 @@
 ;; takes … exactly the compound case, scoped to one region"). A Mermaid
 ;; region block that read only `:initial` / `:states` / `:on` would lose this
 ;; shape without trace while SCXML carries the `done.state.<region> ->
-;; <sibling-region>` transition. These tests pin mermaid<->SCXML agreement;
+;; <state-in-region>` transition. These tests pin mermaid<->SCXML agreement;
 ;; the chart projects the shape through its own
 ;; `collect-region-on-done-edges`, pinned in `layout_cljs_test`.
 
 (def region-on-done-machine
-  "A parallel machine whose region :a completes into sibling region :b."
+  "A parallel machine whose region :a completes back into its own :a1."
   {:type    :parallel
    :regions {:a {:initial :a1
-                 :on-done :b
+                 :on-done :a1
                  :states  {:a1 {:on {:go :a2}}
                            :a2 {:final? true}}}
              :b {:initial :b1
@@ -441,15 +441,15 @@
 (deftest region-on-done-target-bearing-surfaced-by-mermaid-and-scxml
   (testing "a region's own top-level :on-done with a keyword
             target surfaces as a completion transition in BOTH mermaid AND
-            SCXML, resolving to the SIBLING region in both"
+            SCXML, resolving to the region's own state in both"
     ;; MERMAID
     (let [out (mermaid-body region-on-done-machine)]
-      (is (str/includes? out "a --> b : ✓ done")
-          "mermaid renders the region's completion edge to its sibling region"))
+      (is (str/includes? out "a --> a__a1 : ✓ done")
+          "mermaid renders the region's completion edge to its own state"))
     ;; SCXML
     (let [out (scxml/spec->scxml region-on-done-machine)]
-      (is (str/includes? out "event=\"done.state.a\" target=\"b\"")
-          "scxml renders the identical done.state.<region> -> <sibling> transition"))))
+      (is (str/includes? out "event=\"done.state.a\" target=\"a___a1\"")
+          "scxml renders the identical done.state.<region> -> <state> transition"))))
 
 (deftest region-on-done-action-only-surfaced-by-mermaid-and-scxml
   (testing "a region's own top-level :on-done that is
