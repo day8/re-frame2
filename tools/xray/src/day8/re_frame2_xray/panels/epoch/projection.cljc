@@ -2286,42 +2286,41 @@
   (if (some row-failed? rows) :error :ok))
 
 (defn side-effects-step
-  "The SIDE EFFECTS step (rf2-j630b — supersedes the rf2-kt6js 3-tier
-  `:db` / `:fx` / other sub-step presentation). A FLAT per-effect ledger:
+  "The SIDE EFFECTS step (not a `:db` / `:fx` / other sub-step
+  presentation). A FLAT per-effect ledger:
   ONE row per effect, down the page, in EXECUTION order:
 
     1. the synthesised `:db` row (`db-effect-row`) — WHEN a `:db` commit
        was attempted (often present; absent when the handler returned
        only `:fx` / only `:rf.db/runtime` / nothing, or THREW — no
-       phantom `:db`, per rf2-wnvid);
+       phantom `:db`);
     2. the synthesised `:rf.db/runtime` row (`runtime-db-effect-row`) —
-       WHEN a runtime-db partition commit was attempted (EP-0001
-       rf2-ff9b0d). The two STATE-effect partitions commit atomically, so
+       WHEN a runtime-db partition commit was attempted (EP-0001). The
+       two STATE-effect partitions commit atomically, so
        the runtime-db row follows the `:db` row and precedes `:fx`;
     3. the handler's `:fx`-vector entries (`fx-effect-rows`) in order.
 
-  There is NO fourth `other` tier. rf2-m2ye2 deleted `other-effect-rows`:
+  There is NO fourth `other` tier:
   a top-level key outside `re-frame.events/closed-effect-map-keys` is
-  REFUSED pre-commit (rf2-04tx) and never reaches do-fx, while every key
-  INSIDE that set is legal — so the tier had no truthful population, and
-  its 3-key copy of the closed set would have accused the four EP-0025
+  REFUSED pre-commit and never reaches do-fx, while every key
+  INSIDE that set is legal — so such a tier has no truthful population,
+  and a partial copy of the closed set would accuse the four EP-0025
   classification effects of not running. The refusal surfaces instead as
   the `:rf.error/effect-map-shape` row `attach-unclassified-errors` lands
   on this step.
 
   There are NO `:db` / `:fx` group headers — the leading status glyph +
   effect-id + args edn-inspector on each row + the execution
-  order carry the structure. After the \"EFFECT HANDLERS\" badge the view
-  paints ONE overall glyph: TICK when every present row succeeded, CROSS
-  when one or more FAILED (`side-effects-badge-status`; SKIPPED rows are
-  NEUTRAL). No post-commit / best-effort labels.
+  order carry the structure. The \"EFFECT HANDLERS\" badge carries no
+  overall glyph; `side-effects-badge-status` names the AND-of-rows
+  outcome (SKIPPED rows are NEUTRAL). No post-commit / best-effort labels.
 
   nil (step OMITTED) when NO side effect occurred — no `:db` commit, no
   runtime-db commit, no `:fx`, no other effect. ALWAYS appears when a
   `:db` commit happened (`db-commit?` keys off `:rf.event/db-changed`),
   INCLUDING a plain reg-event with no `:fx`, AND when a runtime-ONLY
   commit happened (`runtime-db-commit?` keys off the partition-tagged
-  `:rf.event/frame-state-changed` — Mike ruling #6: a runtime-only commit
+  `:rf.event/frame-state-changed` — a runtime-only commit
   emits NO `:rf.event/db-changed`).
 
   ## Atomicity
@@ -2329,22 +2328,22 @@
   A `:db` schema-fail (pre-commit transactional) rolls the cascade back
   BEFORE any `:fx` ran (Spec 002 atomicity; Spec 010 — `:fx` doesn't walk
   on a rollback) — so the ledger carries just the `:db` CROSS row and the
-  badge reads cross, with NO fx rows.
+  step's status reads `:error`, with NO fx rows.
 
   ## Single-source-of-truth row shape
 
   The step carries ONE flat `:rows` slot in execution order. This is
-  load-bearing: the rf2-ahhgn / rf2-xgeag attachment machinery
+  load-bearing: the attachment machinery
   (`attach-to-fx-db-row` / `attach-to-fx-row` / `attach-to-fx-error-row`)
   runs in `project` AFTER this builder and mutates the step's `:rows` to
   attach schema violations + exceptions by matching `:failing-id` against
   a row's `:fx-id`. The flat ledger renders the SAME `:rows`, so an
   attached violation / exception surfaces inline on the owning row — the
-  per-row exception expand is wnvid's shared 'Exception Thrown' card
-  (compatible with yz57h's exception-under-step rendering).
+  per-row exception expand is the shared 'Exception Thrown' card
+  (compatible with the exception-under-step rendering).
 
-  `:threw` is the count of rows that threw — retained for non-view
-  consumers; the single badge glyph carries the at-a-glance signal."
+  `:threw` is the count of rows that threw (the view stamps it as
+  `data-fx-threw`); the per-row glyphs carry the at-a-glance signal."
   [events]
   (let [db-row      (db-effect-row events)
         runtime-row (runtime-db-effect-row events)
@@ -2370,16 +2369,16 @@
                      `:rf.sub/cause-sub` (the single input query-vector
                      whose value drove this recompute) when present,
                      WRAPPED as `[cause]` so the row carries a one-entry
-                     vector-of-query-vectors (rf2-nlraqq); otherwise the
+                     vector-of-query-vectors; otherwise the
                      FULL realized input edge set the substrate stamps on
-                     `:rf.sub/inputs` (rf2-e3acps — already a vector of
+                     `:rf.sub/inputs` (a vector of
                      query-vectors: the literal `:inputs` list for a `:static`
                      sub, the `(input-fn query-v)` result for a
                      `:parametric` sub, both REALIZED for the concrete
                      cache entry). Layer-1 subs read app-db directly and
                      surface as `:db` (empty realized edge set).
 
-                     The WRAP (rf2-nlraqq) keeps the two sources
+                     The WRAP keeps the two sources
                      SHAPE-COMPATIBLE: `:rf.sub/cause-sub` is a SINGLE
                      query-vector (e.g. a parametric cause-sub
                      `[:article/by-id :a1]`), whereas `:rf.sub/inputs`
@@ -2392,20 +2391,20 @@
       :changed?    — true iff the sub's output value differed from the
                      prior run (`:rf.sub/value-changed?` tag).
       :first-run?  — true on the run that CREATED this sub's cache slot
-                     (`:rf.sub/first-run?` tag, per rf2-fyd8u); false on
+                     (`:rf.sub/first-run?` tag); false on
                      every subsequent recompute. Disambiguates a
                      value-change row (`← was X` chrome) from a fresh-
                      cache-entry row (`:added` chrome) when the row also
                      carries `:changed? true`. Defaults to `false` for
-                     traces that predate the flag — the row falls back
+                     traces without the flag — the row falls back
                      to the value-change shape.
       :before      — the prior value (`:rf.sub/prev-value` tag).
       :after       — the freshly-computed value (`:rf.sub/value` tag).
       :cascade?    — true for layer-2+ recomputes (an upstream SUB drove
                      this re-run); false for layer-1 subs.
       :cause-event-id — the head keyword of the dispatching cascade's
-                     trigger event vector (`:rf.sub/cause-event-id` tag,
-                     per rf2-okz1u / rf2-1cc03). Names WHICH event
+                     trigger event vector (`:rf.sub/cause-event-id`
+                     tag). Names WHICH event
                      invalidated this sub's reactive input — same source
                      the views path uses for `:rf.view/cause-event-id`.
                      Absent (key omitted) when the sub ran outside any
@@ -2413,11 +2412,10 @@
                      `caused by <event-id>` chrome on the row.
       :duration-ms — the sub's recompute duration (`:rf.sub/elapsed-ms` tag).
 
-  Per rf2-kfh1v the tag names match the substrate emit-site
-  (`re-frame.subs.memo`); pre-rf2-kfh1v the projection read against
-  legacy names (`:rf.sub/query`, `:rf.sub/changed?`, `:rf.sub/before`)
-  that the substrate has never stamped — every payload slot returned
-  nil → every row showed `app-db ✗` with no id."
+  The tag names match the substrate emit-site
+  (`re-frame.subs.memo`). The substrate never stamps `:rf.sub/query`,
+  `:rf.sub/changed?`, `:rf.sub/before` or `:rf.sub/after`; those are read
+  only as fixture fallbacks."
   [events]
   (let [evs (filterv #(or (= :rf.sub/run (op %))
                           (= :rf.sub/skip (op %)))
@@ -2431,17 +2429,17 @@
                               (when (vector? sub-vec) (first sub-vec)))
                   cause   (common/tag-of ev :rf.sub/cause-sub)
                   cascade? (common/tag-of ev :rf.sub/cascade?)
-                  ;; rf2-1cc03 — lift :rf.sub/cause-event-id onto the row.
+                  ;; Lift :rf.sub/cause-event-id onto the row.
                   ;; The tag is OMITTED (key absent, not nil) at the emit
-                  ;; site when the sub ran outside any in-flight cascade
-                  ;; (per rf2-okz1u). Threaded via `cond->` below so the
+                  ;; site when the sub ran outside any in-flight cascade.
+                  ;; Threaded via `cond->` below so the
                   ;; row slot likewise stays absent in that case, parity
                   ;; with the OMIT-vs-nil semantics of the trace tag.
                   cause-event-id (common/tag-of ev :rf.sub/cause-event-id)]]
         (cond-> {:sub-id      sub-id
-                 ;; rf2-nlraqq — `:rf.sub/cause-sub` is a SINGLE query-
+                 ;; `:rf.sub/cause-sub` is a SINGLE query-
                  ;; vector (the one upstream input whose value drove this
-                 ;; recompute); `:rf.sub/inputs` is already a vector OF
+                 ;; recompute); `:rf.sub/inputs` is a vector OF
                  ;; query-vectors. The `:inputs` slot must carry the
                  ;; uniform vector-of-query-vectors shape so the view's
                  ;; inputs cell iterates it correctly, so we WRAP the
@@ -2457,8 +2455,8 @@
                                 (or (common/tag-of ev :rf.sub/value-changed?)
                                     (common/tag-of ev :rf.sub/changed?)))
                  :first-run?  (boolean (common/tag-of ev :rf.sub/first-run?))
-                 ;; rf2-3x7nj.22.2 — first PRESENT, not first truthy: a
-                 ;; `false` sub value falls through an `or` to the legacy key.
+                 ;; First PRESENT, not first truthy: a `false` sub
+                 ;; value would fall through an `or` to the fallback key.
                  :before      (let [v (common/tag-of ev :rf.sub/prev-value)]
                                 (if (some? v) v (common/tag-of ev :rf.sub/before)))
                  :after       (let [v (common/tag-of ev :rf.sub/value)]
@@ -2470,12 +2468,12 @@
           (assoc :cause-event-id cause-event-id))))))
 
 (defn disposed-subs-rows
-  "Project `:rf.sub/dispose` events into rows (rf2-wpfjo). Each row
+  "Project `:rf.sub/dispose` events into rows. Each row
   carries:
 
       :sub-id  — the sub-cache's query-id (`:rf.sub/id` tag)
       :query   — the full query-vector that was evicted (`:rf.sub/query-v`)
-      :reason  — closed set per rf2-mrnur:
+      :reason  — closed set:
                  `:no-more-derefers` / `:hot-reload` / `:cache-clear`
       :frame   — the originating frame (`:frame` tag)
 
