@@ -1,33 +1,31 @@
 #!/usr/bin/env node
 /*
- * Teeth test for `scripts/check-ai-tracking-ratchet.sh` (rf2-fr5yx).
+ * Teeth test for `scripts/check-ai-tracking-ratchet.sh`.
  *
- * WHY THIS FILE EXISTS — the guard it tests already shipped broken once, and
- * the reason it shipped broken is precisely that its proof was not committed.
+ * WHY THIS FILE EXISTS — this guard's defining defect is invisible to any
+ * single tooth, so its proof has to be committed and re-run.
  *
- * rf2-lsp1i (#6380) landed the ratchet with three genuine, passing teeth. Each
- * one tested a SINGLE transition from a pristine baseline, and each one passed
- * honestly. The gate was nevertheless a static COUNT CEILING rather than a
- * ratchet: `89 -> 61` passed, and then `61 -> 62` ALSO passed, because 62 is
- * still under the stored 89. No individual tooth was wrong. The defect lived
- * only in the COMPOSITION of two transitions, which nothing exercised.
+ * A static COUNT CEILING looks like a ratchet and is not one: `89 -> 61`
+ * passes, and then `61 -> 62` ALSO passes, because 62 is still under the
+ * stored 89. Teeth that each test a SINGLE transition from a pristine baseline
+ * all pass honestly against such a gate; the defect lives only in the
+ * COMPOSITION of two transitions.
  *
- * rf2-ow7dz (#6403) replaced the count comparison with a SET DIFFERENCE taken
- * against the tracked `ai/` set at the change's base commit, read from git, so
- * counts never enter the decision. It proved seven arms — but the proof lived
- * in a worker's chat report, so nothing re-ran it and nothing could have caught
- * a regression back toward a ceiling. This file is that proof, committed.
+ * So the gate takes a SET DIFFERENCE against the tracked `ai/` set at the
+ * change's base commit, read from git, and counts never enter the decision.
+ * This file is the proof of its arms, committed, so a regression back toward
+ * a ceiling is caught.
  *
  * ARM 3 THEN ARM 4 ARE THE POINT. They run against ONE fixture repository, in
  * order, sharing history: the decrease must pass and the very next increase
- * must fail. Split into two pristine-baseline tests they both pass under the
- * OLD broken gate too, which is exactly how the defect survived review. Do not
- * "simplify" them into independent cases.
+ * must fail. Split into two pristine-baseline tests they both pass under a
+ * count-ceiling gate too, so the split would hide exactly the defect this file
+ * exists to catch. Do not "simplify" them into independent cases.
  *
  * NOTHING IS EVER WRITTEN UNDER THIS REPOSITORY'S `ai/`. Every arm builds a
  * throwaway git repository under the OS temp dir and creates its `ai/` paths
  * there, so the fixtures need no `git add -f` and leave no trace here. That
- * matters more than it looks: the fixed gate has NO in-band escape hatch, so a
+ * matters more than it looks: the gate has NO in-band escape hatch, so a
  * test that genuinely tracked a file under `ai/` could not clean up after
  * itself without an operator policy exception.
  *
@@ -152,19 +150,20 @@ function seedAi(h, count, prefix = 'note') {
 // ---------------------------------------------------------------------------
 // NEGATIVE CONTROL
 //
-// The strongest evidence #6403 produced was not that the fixed gate fails the
-// bad arms — a gate that failed EVERYTHING would do that too. It was that the
-// same fixtures returned 0 under the OLD script on arms 4, 5 and 6b while arms
-// 2 and 3 behaved correctly there. That proves each fixture DISCRIMINATES.
+// That the gate fails the bad arms is not the strong evidence — a gate that
+// failed EVERYTHING would do that too. The strong evidence is that a
+// count-ceiling gate returns 0 on the same fixtures for arms 4, 5 and 6b while
+// arms 2 and 3 behave correctly under it. That proves each fixture
+// DISCRIMINATES.
 //
-// Reproduced here as the old gate's DECISION RULE rather than as a resurrected
-// copy of the old script: a stored count ceiling, compared against the current
+// Modelled here as a count-ceiling gate's DECISION RULE rather than as a copy
+// of such a script: a stored count ceiling, compared against the current
 // count, blind to WHICH paths are tracked. A rule cannot be run by accident,
 // cannot rot into a second gate, and cannot drift out of sync with a shell file
-// nobody maintains. The `ceiling` each arm passes is the count that the old
-// gate's committed snapshot file would have been holding at that moment —
-// stale wherever the arm's whole point is that the snapshot was never
-// refreshed after an earlier decrease.
+// nobody maintains. The `ceiling` each arm passes is the count that a committed
+// snapshot file would be holding at that moment — stale wherever the arm's
+// whole point is that the snapshot was never refreshed after an earlier
+// decrease.
 const LEGACY_PASS = 0;
 const LEGACY_FAIL = 1;
 
@@ -207,13 +206,14 @@ test('ARM 2: a newly tracked ai/ path fails and names the path', () => {
     assert.match(r.stderr, /ADDED: ai\/decisions\/dossier\.md/);
     assert.match(r.stderr, /1 path\(s\) newly tracked under ai\//);
 
-    // Discrimination: the OLD gate caught this one too (1 -> 2 exceeds a fresh
-    // ceiling of 1). Arm 2 is here to prove the message names the path, not to
-    // prove the set rule — it is one of the two arms where old and new agree.
+    // Discrimination: a count ceiling catches this one too (1 -> 2 exceeds a
+    // fresh ceiling of 1). Arm 2 is here to prove the message names the path,
+    // not to prove the set rule — it is one of the two arms where the ceiling
+    // and the set rule agree.
     assert.equal(
       legacyCountCeilingVerdict({ ceiling: 1, currentCount: r.currentCount }),
       LEGACY_FAIL,
-      'negative control: the old count ceiling also failed a plain force-add',
+      'negative control: a count ceiling also fails a plain force-add',
     );
   });
 });
@@ -229,7 +229,7 @@ test('ARMS 3+4: 89 -> 61 passes, and THEN 61 -> 62 fails (the sequence, not the 
     const ceilingAtSnapshot = h.trackedAi().length;
     assert.equal(ceilingAtSnapshot, 89, 'fixture must start at 89 tracked ai/ files');
 
-    // ARM 3 — an S7-style removal sweep. A decrease is the expected direction
+    // ARM 3 — a removal sweep. A decrease is the expected direction
     // of travel and must never be blocked.
     for (let i = 61; i < 89; i += 1) {
       h.git('rm', '-q', `ai/findings/note-${String(i).padStart(3, '0')}.md`);
@@ -243,11 +243,11 @@ test('ARMS 3+4: 89 -> 61 passes, and THEN 61 -> 62 fails (the sequence, not the 
     assert.equal(
       legacyCountCeilingVerdict({ ceiling: 89, currentCount: decrease.currentCount }),
       LEGACY_PASS,
-      'negative control: the old ceiling also passed the decrease (old and new agree here)',
+      'negative control: a count ceiling also passes the decrease (the ceiling and the set rule agree here)',
     );
 
     // ARM 4 — the very next commit, on the SAME history. This is the transition
-    // the original gate waved through, and the whole reason this file exists.
+    // a count ceiling waves through, and the whole reason this file exists.
     h.write('ai/findings/note-999.md', '# smuggled back in after the sweep\n');
     h.commit('add one file back after the sweep');
 
@@ -256,19 +256,19 @@ test('ARMS 3+4: 89 -> 61 passes, and THEN 61 -> 62 fails (the sequence, not the 
     assert.equal(
       increase.status,
       1,
-      'an addition AFTER a decrease must fail — this is the exact hole rf2-ow7dz closed',
+      'an addition AFTER a decrease must fail — the exact hole a count ceiling leaves open',
     );
     assert.match(increase.stderr, /ADDED: ai\/findings\/note-999\.md/);
     assert.match(increase.stderr, /Base HEAD\^ tracked 61 file\(s\) under ai\/; this change tracks 62/);
 
     // The fixture's discriminating property, made explicit: 62 is still far
-    // BELOW the 89 the old snapshot was holding, so the old rule saw nothing
-    // wrong. Counts do not enter the new decision at all.
+    // BELOW the 89 the snapshot is holding, so a count ceiling sees nothing
+    // wrong. Counts do not enter the gate's decision at all.
     assert.ok(increase.currentCount < ceilingAtSnapshot, 'arm 4 only discriminates while 62 < 89');
     assert.equal(
       legacyCountCeilingVerdict({ ceiling: ceilingAtSnapshot, currentCount: increase.currentCount }),
       LEGACY_PASS,
-      'negative control: the old count ceiling PASSED this — the fixture discriminates',
+      'negative control: a count ceiling PASSES this — the fixture discriminates',
     );
   });
 });
@@ -300,14 +300,14 @@ test('ARM 5: a swap that leaves the count unchanged fails, naming the added path
     assert.equal(
       legacyCountCeilingVerdict({ ceiling: 2, currentCount: r.currentCount }),
       LEGACY_PASS,
-      'negative control: the old count ceiling PASSED an equal-count swap — the fixture discriminates',
+      'negative control: a count ceiling PASSES an equal-count swap — the fixture discriminates',
     );
   });
 });
 
 // ---------------------------------------------------------------------------
 // ARMS 6a AND 6b — the END STATE, and additions after it. Also a sequence: the
-// stale ceiling that made 6b leak only exists because of the earlier drop.
+// stale ceiling that makes 6b leak exists only because of the earlier drop.
 
 test('ARMS 6a+6b: zero vs zero passes, and THEN an addition after zero fails', () => {
   withFixtureRepo((h) => {
@@ -331,7 +331,7 @@ test('ARMS 6a+6b: zero vs zero passes, and THEN an addition after zero fails', (
     assert.match(held.stdout, /nothing under ai\/ is tracked\. END STATE reached/);
 
     // ARM 6b — an addition made after the end state was reached. Under a stored
-    // ceiling this leaked indefinitely: the ceiling was still 3.
+    // ceiling this leaks indefinitely: the ceiling is still 3.
     h.write('ai/notes/reintroduced.md', '# added after the end state\n');
     h.commit('add a file after the end state');
     const reintroduced = h.run();
@@ -342,7 +342,7 @@ test('ARMS 6a+6b: zero vs zero passes, and THEN an addition after zero fails', (
     assert.equal(
       legacyCountCeilingVerdict({ ceiling: ceilingAtSnapshot, currentCount: reintroduced.currentCount }),
       LEGACY_PASS,
-      'negative control: the old ceiling of 3 PASSED an addition after zero — the fixture discriminates',
+      'negative control: a stale ceiling of 3 PASSES an addition after zero — the fixture discriminates',
     );
   });
 });
@@ -360,8 +360,7 @@ test('ARM 7: an unresolvable base ref fails closed rather than passing vacuously
     // The realistic shape, taking the DEFAULT base: a root commit, which is
     // also what a depth-1 shallow clone looks like to this gate. This is why
     // portability.yml checks out with fetch-depth: 2 — the depth that holds
-    // HEAD^ for the manual-dispatch fallback. (This assertion outlived a spell
-    // when the workflow said 0; rf2-uol6 put the file back in step with it.)
+    // HEAD^ for the manual-dispatch fallback.
     const rootCommit = h.run();
     assert.equal(rootCommit.status, 1, 'an unresolvable HEAD^ must fail, not pass');
     assert.match(rootCommit.stderr, /cannot resolve base ref HEAD\^/);
@@ -376,7 +375,7 @@ test('ARM 7: an unresolvable base ref fails closed rather than passing vacuously
 
 // ---------------------------------------------------------------------------
 // ARM 8 — THE MULTI-COMMIT PUSH. The base must be the ACCEPTED base of the
-// push, not HEAD^. This is the rf2-7hq4l defect: on a push of more than one
+// push, not HEAD^. On a push of more than one
 // commit, HEAD^ is the push's own second-to-last commit, so a path first
 // tracked in an EARLIER commit and retained at the tip is present on both
 // sides of a HEAD^ diff and escapes. The workflow resolves the base to
@@ -385,9 +384,9 @@ test('ARM 7: an unresolvable base ref fails closed rather than passing vacuously
 // fixture and showing they disagree.
 //
 // Negative control, in the spirit of the count-ceiling controls above but
-// aimed at the BASE-SELECTION defect rather than the counting one: HEAD^ (the
-// pre-fix base) PASSES this fixture — the exact false green — while the
-// accepted push base FAILS and names the path.
+// aimed at the BASE-SELECTION defect rather than the counting one: HEAD^
+// PASSES this fixture — the exact false green — while the accepted push base
+// FAILS and names the path.
 
 test('ARM 8: a multi-commit push — an ai/ path added before the tip escapes HEAD^ but is caught by the accepted push base', () => {
   withFixtureRepo((h) => {
@@ -408,12 +407,12 @@ test('ARM 8: a multi-commit push — an ai/ path added before the tip escapes HE
     h.commit('c2: the pushed tip, probe retained');
 
     // BUG SHAPE — HEAD^ is c1, which already tracks the probe, so the diff is
-    // empty and the gate PASSES. This is what the unfixed push path did.
+    // empty and the gate PASSES.
     const viaHeadParent = h.run('HEAD^');
     assert.equal(
       viaHeadParent.status,
       0,
-      'HEAD^ points inside the push and misses a path added before the tip — the rf2-7hq4l blind spot',
+      'HEAD^ points inside the push and misses a path added before the tip',
     );
     assert.equal(viaHeadParent.currentCount, 2);
     assert.match(viaHeadParent.stdout, /unchanged from base HEAD\^/);
@@ -438,21 +437,22 @@ test('ARM 8: a multi-commit push — an ai/ path added before the tip escapes HE
 });
 
 // ---------------------------------------------------------------------------
-// ARM 9 — AN ABSENT BASE SHA FAILS CLOSED. The tooth for rf2-uol6, and the one
-// that makes a SHALLOW CI checkout safe to run this gate under.
+// ARM 9 — AN ABSENT BASE SHA FAILS CLOSED. The tooth that makes a SHALLOW CI
+// checkout safe to run this gate under.
 //
 // `git rev-parse --verify --quiet <40-hex>` echoes the sha back with EXIT 0 even
 // when the object is not in the store: for a full-length hex name git does not
-// consult the object database at all. The gate's fail-closed guard therefore did
-// not fire on the one shape a shallow clone actually produces — an accepted base
-// deeper than the fetch. `git ls-tree` then failed INTO A PIPELINE, whose POSIX
-// status is `sort`'s, so `set -e` did not fire either, and the two leaks composed
-// into "END STATE reached", exit 0, over a base that was never read.
+// consult the object database at all. A fail-closed guard built on it would not
+// fire on the one shape a shallow clone actually produces — an accepted base
+// deeper than the fetch. `git ls-tree` would then fail INTO A PIPELINE, whose
+// POSIX status is `sort`'s, so `set -e` would not fire either, and the two leaks
+// would compose into "END STATE reached", exit 0, over a base that was never
+// read.
 //
-// The negative control is the pre-fix resolution itself, run against this
-// fixture: `git rev-parse --verify --quiet <sha>` exits 0 here, which is exactly
-// what the old guard consulted. So the fixture DISCRIMINATES — it is not a base
-// that everything would reject.
+// The negative control is that resolution itself, run against this fixture:
+// `git rev-parse --verify --quiet <sha>` exits 0 here, so a guard consulting it
+// lets the sha through. So the fixture DISCRIMINATES — it is not a base that
+// everything would reject.
 
 test('ARM 9: a base sha absent from the object store fails closed, not vacuously green', () => {
   withFixtureRepo((h) => {
@@ -466,8 +466,8 @@ test('ARM 9: a base sha absent from the object store fails closed, not vacuously
     // the shape `github.event.before` takes in an over-shallow clone.
     const absent = '0123456789abcdef0123456789abcdef01234567';
 
-    // NEGATIVE CONTROL: the resolution the gate used BEFORE this arm existed.
-    // It exits 0 on this very sha, so the old guard let it through.
+    // NEGATIVE CONTROL: `rev-parse --verify` alone exits 0 on this very sha,
+    // so a guard built on it lets the sha through.
     const legacyResolve = spawnSync(
       'git',
       ['rev-parse', '--verify', '--quiet', absent],
