@@ -125,7 +125,7 @@
     field and model exactly as before. It stays out of THIS file
     because an `Event` dispatched from page script exercises neither
     React's composition plumbing nor the browser's composition state,
-    and `:browser-test` runs in-page. What the harness also measures:
+    and this file's rows are page script. What the harness also measures:
     the two implementations THIS file measures — React's own restore
     and UIx's port — rewrite a refused/normalised value mid-composition and
     silently destroy the exchange. The composition carve-out lives in
