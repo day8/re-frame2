@@ -1,6 +1,5 @@
 // Live nREPL integration test. Requires an nREPL listening on the
-// port read from $NREPL_TEST_PORT (default 17778). The bash-shim
-// equivalent is `eval-cljs.sh '(+ 1 2)'` against a real shadow.
+// port read from $NREPL_TEST_PORT (default 17778).
 //
 // This test exercises:
 //   - persistent socket survives multiple ops on one server instance
@@ -22,7 +21,7 @@ const PORT = process.env.NREPL_TEST_PORT || '17778';
 function run() {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, SHADOW_CLJS_NREPL_PORT: PORT };
-    // eval-cljs is ON by default post-rf2-a0z0h — no opt-in flag needed.
+    // eval-cljs is ON by default — no opt-in flag needed.
     // This live-nrepl probe is specifically exercising the eval surface.
     const child = spawn(process.execPath, [SERVER], {
       stdio: ['pipe', 'pipe', 'pipe'],
