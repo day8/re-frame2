@@ -99,7 +99,7 @@
 // are published as CENSORED rather than dropped, and every one of those
 // statements is a gate whose failure exits non-zero naming itself. The
 // witness's own refusals are fixtures: `node clock_run.cjs --self-test`,
-// and `clock_witness.test.cjs` in the fast-PR spine.
+// and `clock_witness.test.cjs` under `npm run check`.
 //
 // ## EVERY ROW SAYS WHICH REGIME PRODUCED IT
 //
@@ -200,11 +200,11 @@ const CTL_BUSY_MS = 50;
 // choose whichever answer it prefers — every table says which it is.
 const TARE = (process.env.HCLOCK_TARE || 'on') !== 'off';
 
-// THE FALSIFICATION KNOB for the three-point control. Set it and the
-// control's arms render this many cells while still DECLARING 1 / 100 / 200
-// to the driver, so a run in which every other gate passes exits 1 naming the
-// control. It exists because a control nobody has seen refuse is a control of
-// unmeasured sensitivity.
+// THE FALSIFICATION KNOB for the three-point statistic. Set it and the
+// statistic's top arm renders this many cells while still DECLARING 200 to
+// the driver, so the statistic reads out of premise and a run in which every
+// gate passes still exits 1, naming the knob. It exists because a statistic
+// nobody has seen move is a statistic of unmeasured sensitivity.
 const CTL3_SABOTAGE = Number(process.env.HCLOCK_CTL3_SABOTAGE || 0) || null;
 
 // Run every adjudicator's own self-test and stop, without building or opening
@@ -3152,36 +3152,39 @@ async function main() {
   );
   console.log(`;; tare      ${TARE ? 'ON' : 'OFF'} — plumb, an arm that mounts nothing and settles the same frame`);
   console.log(`;; PREDICTIONS, written before the run:`);
-  console.log(`;;   ctl-2x     = the floor at twice the boundaries -> 2.00x the floor, +/-${CONTROL_SLACK * 100}%, EVERY round`);
+  console.log(
+    `;;   ctl-2x     = the floor at twice the boundaries, the row's GATE: judged against clock_check_standard.json's ` +
+      `row-class location and dispersion limits; the +/-${CONTROL_SLACK * 100}% band about 2.00x is reported per block and decides nothing`
+  );
   for (const line of [
-    `ctl-3pt    = the three-point control. Three arms on the FLOOR'S OWN PAGE — 300 boundaries,`,
+    `ctl-3pt    = the three-point statistic, a DIAGNOSTIC that gates nothing. Three arms on the FLOOR'S OWN PAGE — 300 boundaries,`,
     `             901 elements, canonical-DOM identical and NOT exempted from the fairness gate — dirtying`,
-    `             1, 100 and 200 of them per commit. Adjudicated as (T(200)-T(1))/(T(100)-T(1)) -> 2.0101x,`,
-    `             +/-${CONTROL_SLACK * 100}%, EVERY block. The constant is not estimated or bounded: it CANCELS.`,
-    `WHAT IT CATCHES, exactly: with near-equal spacing the statistic is 1 + the ratio of the two intervals'`,
+    `             1, 100 and 200 of them per commit. Read as (T(200)-T(1))/(T(100)-T(1)) against 2.0101x,`,
+    `             +/-${CONTROL_SLACK * 100}%, printed as premiseMet. The constant is not estimated or bounded: it CANCELS.`,
+    `WHAT IT SEES, exactly: with near-equal spacing the statistic is 1 + the ratio of the two intervals'`,
     `             marginal costs, so the band is a 50% tolerance on the marginal cost moving between them.`,
-    `             At these points a power law d^k reads (200^k-1)/(100^k-1), refused below k~0.55 and above`,
-    `             k~1.33. An equally spaced 1:2:3 design could refuse NEITHER sublinear case — its reading`,
-    `             never falls below ln3/ln2 = 1.585 — which is why the ruled placement is kept.`,
-    `WHAT IT CANNOT DO: it certifies the composite of INSTRUMENT and WORKLOAD. A refusal does not by itself`,
-    `             say which of the two bent, so the SAME statistic is run on LayoutDuration alone and`,
-    `             printed beside it. Layout must scale with the dirty set; paint stops scaling once the`,
-    `             damage region covers the viewport. Holding on layout while refusing on task is a finding`,
-    `             about the PAGE. And it certifies no MOUNT row: a mount has no changed-set axis, so M1`,
-    `             keeps ctl-2x and keeps its known undershoot.`,
-    `ctl-3pt CAN FAIL, and here is how to make it: HCLOCK_CTL3_SABOTAGE=140 makes the 2D arm render 140`,
+    `             At these points a power law d^k reads (200^k-1)/(100^k-1), out of band below k~0.55 and above`,
+    `             k~1.33. An equally spaced 1:2:3 design could see NEITHER sublinear case — its reading`,
+    `             never falls below ln3/ln2 = 1.585 — which is why the points sit at 1, 100 and 200.`,
+    `WHAT IT CANNOT DO: it describes the composite of INSTRUMENT and WORKLOAD. A reading out of premise does`,
+    `             not by itself say which of the two bent, so the SAME statistic is run on LayoutDuration alone`,
+    `             and printed beside it. Layout must scale with the dirty set. Meeting the premise on layout`,
+    `             while missing it on task is a finding about the PAGE. And it says nothing about a MOUNT row:`,
+    `             a mount has no changed-set axis, so M1 is gated on ctl-2x / floor against the mount class's`,
+    `             own centre.`,
+    `ctl-3pt CAN SEE A BENT PAGE, and here is how to make one: HCLOCK_CTL3_SABOTAGE=140 makes the 2D arm render 140`,
     `             cells while still declaring 200. Canonical DOM identical, read-back verified, arm-order`,
-    `             guard clean, band unmoved — and the control refuses. Its offline fixtures are 'node`,
-    `             clock_run.cjs --self-test': eleven cases including a superlinear refusal, a`,
-    `             declaring-200-rendering-140 refusal, a degenerate denominator, one bad block in nine,`,
-    `             and the sensitivity span above asserted rather than described.`,
+    `             guard clean, band unmoved — and the statistic reads out of premise, while the run refuses on`,
+    `             the knob itself. Its offline fixtures are 'node clock_run.cjs --self-test': fifteen cases`,
+    `             including superlinear work, a declaring-200-rendering-140 arm, a degenerate denominator,`,
+    `             one bad block in nine, and the sensitivity span above asserted rather than described.`,
     `kb witness = ONE RECORD PER PHYSICAL KEY. The driver counts the keys it presses;`,
     `             web-vitals' rules form at most one interaction per key; keys that raised no entry are`,
     `             published as CENSORED under the 16 ms floor rather than dropped; and the recompute`,
     `             census must read 100 cells + 4 fields on a substrate arm and NOTHING on a floor arm.`,
     `             Each of those is a refusal that exits 1 naming itself. Its fixtures — including the`,
-    `             collapse a broken grouping produces — are 'node clock_witness.test.cjs', in the`,
-    `             fast-PR spine, and they also run on every invocation of this driver.`,
+    `             collapse a broken grouping produces — are 'node clock_witness.test.cjs', run by`,
+    `             npm run check, and they also run on every invocation of this driver.`,
   ]) console.log(`;;   ${line}`);
 
   const outcomes = [];
