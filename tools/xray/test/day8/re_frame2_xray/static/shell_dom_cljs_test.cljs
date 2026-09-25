@@ -1,7 +1,5 @@
 (ns day8.re-frame2-xray.static.shell-dom-cljs-test
-  "Browser-lane half of the Static-mode persistence tests (rf2-o5f5f.1),
-  promoted out of `day8.re-frame2-xray.static.shell-cljs-test` under
-  rf2-r51p.
+  "Browser-lane half of the Static-mode persistence tests.
 
   WHY A SEPARATE NAMESPACE. The sibling
   `day8.re-frame2-xray.static.shell-cljs-test` holds the pure mode
@@ -10,10 +8,10 @@
   round-trip and the `:rf.xray.static/persist-mode` fx need a real
   `window.localStorage`, and only a namespace ending `-dom-cljs-test`
   is ever loaded by the `:browser-test` build, whose `:ns-regexp` is
-  `.*-dom-cljs-test$`. Sitting in the sibling file these rows executed
-  in NEITHER lane: skipped under `:node-test` for want of storage, and
-  never loaded by `:browser-test` at all. The file's LOCATION was the
-  defect. The guard was not.
+  `.*-dom-cljs-test$`. Sitting in the sibling file these rows would
+  execute in NEITHER lane: skipped under `:node-test` for want of
+  storage, and never loaded by `:browser-test` at all. The file's
+  LOCATION is what matters, not the guard.
 
   THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES. `:node-test`'s
   `:ns-regexp` is `cljs-test$` — a bare SUFFIX match, which
@@ -21,22 +19,16 @@
   build loads this namespace too, and the overlap is deliberate:
   `implementation/shadow-cljs.edn` records above `:browser-test` that
   the DOM-tagged files run on BOTH targets so their cross-runtime
-  asserts keep firing in Node. Moving a row here therefore ADDS the
-  browser lane; it does not take the row off the node one.
+  asserts keep firing in Node. A row here therefore runs on the
+  browser lane AND the node one.
   `ls/available?` is what keeps the node run inert.
 
   THE SKIP BRANCH ASSERTS RATHER THAN VANISHING. A bare `(when ...)`
   body would leave the node lane holding a deftest with ZERO
-  assertions, which is the hollow shape rf2-r51p exists to remove —
-  relocated, not fixed. The marker row keeps the skip visible in the
+  assertions, which is the hollow shape this namespace exists to
+  avoid. The marker row keeps the skip visible in the
   node summary. Same shape as
-  `day8.re-frame2-xray.palette.recents-dom-cljs-test`.
-
-  These assertions had never executed in ANY lane before this
-  namespace existed. A failure here is evidence about
-  `static.persistence/save!` / `load` and the `persist-mode` fx
-  arriving for the first time, not a regression introduced by the
-  move."
+  `day8.re-frame2-xray.palette.recents-dom-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
@@ -78,8 +70,8 @@
       ;; `save!` a NON-default first, so the fallback is read off a slot
       ;; `clear!` demonstrably emptied. Asserting `:dynamic` straight
       ;; after `clear!` on a never-written slot passes on a silently
-      ;; no-op storage too — the same vacuity `save-caps-at-max` was
-      ;; tightened for in the recents dom sibling.
+      ;; no-op storage too — the same vacuity the recents dom sibling's
+      ;; `save-caps-at-max` guards against.
       (static-persistence/save! :static)
       (is (= :static (static-persistence/load))
           "precondition: the non-default value really did persist")
