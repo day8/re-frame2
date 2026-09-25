@@ -24,13 +24,13 @@
 
   Each token names one proof surface. `capability-tokens` is the closed
   P1 set. `:reactive-counts` is the reactive recompute / over-render count
-  surface (spec/017 §1a, §Runner kinds): once it was deferred pending a
-  NET-NEW instrumentation seam, but Spec 009 ALREADY emits the underlying
+  surface (spec/017 §1a, §Runner kinds). It needs no instrumentation seam
+  of its own: Spec 009 emits the underlying
   signals — one `:rf.sub/run` per true sub recompute and one
   `:rf.view/rendered` per view render, both carried into the epoch tape
   and projected at settle time (`re-frame.epoch.capture/project-all`). The
   probe is therefore a PROJECTION over those rows
-  (`re-frame.story.play.evidence/reactive-counts`), NOT a new core seam,
+  (`re-frame.story.play.evidence/reactive-counts`), NOT a core seam,
   and the `:cljs-reactive` runner — which flushes reactions so subs deref
   and views render (the `settled-boundary` reaction-flush boundary) —
   advertises it. A runner that does NOT exercise the reactive substrate
@@ -41,7 +41,7 @@
 
   `concrete-runners` is the small cost-ordered list of runners P1 can
   actually select among (cheapest first). `:cljs-reactive` IS in the list
-  now that `:reactive-counts` has a real seam (the tape projection above):
+  because `:reactive-counts` has a real seam (the tape projection above):
   it sits between `:hiccup` and `:dom` on the cost ladder — it flushes
   reactions (richer than a pure hiccup render-to-string) but stops short
   of synthetic DOM events / a real browser. `cheapest-runner` walks this
@@ -95,8 +95,8 @@
 ;; CAPABILITY TOKENS  (spec/017 §Runner kinds and capabilities)
 ;; ===========================================================================
 ;;
-;; Each token names ONE proof surface. The set is closed for P1; new proof
-;; surfaces (a future `:network-record` token, say) extend it additively.
+;; Each token names ONE proof surface. The set is closed for P1; a further
+;; proof surface (a `:network-record` token, say) would extend it.
 
 (def capability-tokens
   "The closed P1 set of capability tokens. A token names one proof surface
@@ -178,7 +178,7 @@
   qualifies\").
 
   `:cljs-reactive` sits between `:hiccup` and `:dom`: its distinguishing
-  token `:reactive-counts` now has a real seam (the
+  token `:reactive-counts` has a real seam (the
   `re-frame.story.play.evidence/reactive-counts` projection over the
   `:rf.sub/run` / `:rf.view/rendered` rows the framework retains), so it is
   the cheapest runner that can prove a reactive-count requirement
@@ -240,7 +240,7 @@
   presence-host check in `runner-events/exec-flush-presence!` — whether the
   `:flush-presence!` hook is installed is a property of the process, not of
   the runner tier, so it is unknowable to this static registry. An
-  uninstalled host refuses `:cannot-run` there (rf2-36biz); it is emphatically
+  uninstalled host refuses `:cannot-run` there; it is emphatically
   NOT left to whatever assertion happens to follow."
   {:dispatch       #{:app-db}
    :dispatch-sync  #{:app-db}
@@ -261,7 +261,7 @@
   assertion reads the schema-violation projection; the DOM family needs
   `:dom`; visual/a11y need browser-tier tokens. The reactive-count
   assertions (`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`)
-  require `:reactive-counts` — now a real seam (the
+  require `:reactive-counts` — a real seam (the
   `re-frame.story.play.evidence/reactive-counts` projection over the
   `:rf.sub/run` / `:rf.view/rendered` rows the framework retains), proven
   by the `:cljs-reactive` runner. Under a runner that does not flush
@@ -275,13 +275,13 @@
   variant/result model, NOT a separate visual-testing system:
 
   - `:rf.assert/visual-snapshot` requires `:pixels` — a real-browser
-    screenshot + pixel diff (or, reusing the existing visual-regression
+    screenshot + pixel diff (or, reusing the visual-regression
     seam, the `re-frame.story.identity` content-hash as the snapshot
     IDENTITY key). No P1 headless/hiccup runner advertises `:pixels`, so a
     headless run resolves to `:cannot-run`.
   - `:rf.assert/a11y` requires `:a11y-engine` — an axe-style scan, reusing
-    the existing `re-frame.story.ui.a11y` axe-core hook (the
-    `violations-by-frame` atom the MCP `read-a11y-violations` tool already reads). No
+    the `re-frame.story.ui.a11y` axe-core hook (the
+    `violations-by-frame` atom the MCP `read-a11y-violations` tool reads). No
     P1 headless/hiccup runner advertises `:a11y-engine`, so a headless run
     resolves to `:cannot-run`.
 
@@ -377,8 +377,8 @@
 ;;     variant to `:browser`. The variant-level aggregation rule (below)
 ;;     then decides the run's status.
 ;;   - AUTO / ESCALATE: choose the CHEAPEST concrete runner whose token set
-;;     satisfies ALL selected requirements. When none can (a requirement on
-;;     `:reactive-counts`), the run is `:cannot-run`.
+;;     satisfies ALL selected requirements. When none can (a token no
+;;     concrete runner advertises), the run is `:cannot-run`.
 
 (defn missing-tokens
   "The capability tokens `required` demands that `provided` lacks — pure
@@ -397,7 +397,7 @@
 (defn cheapest-runner
   "The cheapest concrete runner (first on `concrete-runners`) whose
   `:provides` token set is a superset of `required-tokens`, or nil when NO
-  concrete runner qualifies (a requirement on `:reactive-counts`). Pure
+  concrete runner qualifies (a token no concrete runner advertises). Pure
   data → data — the `:auto` / `:escalate` selection (spec/017 §Runner
   policy)."
   [required-tokens]
@@ -439,7 +439,7 @@
   (spec/017 §Runner policy — single pass, refuse above it). Pure data →
   data. `opts` is a normalized run-opts map (`normalize-run-opts`):
 
-      {:runner :headless|:hiccup|:dom|:browser  ; fixed-runner policy
+      {:runner :headless|:hiccup|:cljs-reactive|:dom|:browser  ; fixed-runner policy
        :mode   :fixed | :auto}                   ; :auto = escalate
 
   Returns one of:
@@ -655,7 +655,7 @@
   :required-evidence-missing`) when a required proof slot is empty — so a
   missing required evidence slot reports `:cannot-run`, NEVER a pass.
 
-  This consumes `.4`'s projection (`rf.story.play.evidence/project-evidence`) as the
+  This consumes the tape projection (`rf.story.play.evidence/project-evidence`) as the
   single source of truth: the proof check reads the SAME tape projection
   the run-result slots derive from, so a duplicate accumulator cannot
   report green when the tape is empty."
@@ -699,13 +699,13 @@
 ;;
 ;; The P1 run/is opts (spec/017 §Public execution API):
 ;;
-;;   {:runner :headless|:hiccup|:dom|:browser|:auto
+;;   {:runner :headless|:hiccup|:cljs-reactive|:dom|:browser|:auto
 ;;    :escalate boolean                ; synonym for :runner :auto when true
 ;;    :frame-binding :fresh | :attached ; MCP-as-binding, NOT a runner tier
 ;;    :platform :client | :server}
 ;;
 ;; `normalize-run-opts` is the ONE place these collapse into the canonical
-;; selection shape `select-runner` consumes, so the (deferred) three-verb
+;; selection shape `select-runner` consumes, so the three-verb
 ;; surface and the MCP transport thread the SAME normalization.
 
 (def default-runner
@@ -736,7 +736,7 @@
 
   Returns:
 
-      {:runner :headless|:hiccup|:dom|:browser   ; the FIXED runner (when :mode :fixed)
+      {:runner :headless|:hiccup|:cljs-reactive|:dom|:browser   ; the FIXED runner (when :mode :fixed)
        :mode   :fixed | :auto                     ; :auto = escalate to cheapest
        :frame-binding :fresh | :attached
        :platform :client | :server}
