@@ -3399,7 +3399,8 @@
 (deftest xyflow-graph-spawn-on-done-beside-the-other-completions
   (testing "a spawning compound declaring its own `:on-done`, a
             `:spawn :on-done` and a `:spawn :on-error` projects three distinct
-            edges; the compound completion and the spawn error are unchanged"
+            edges: the compound completion, the spawn completion and the
+            spawn failure"
     (let [parsed (layout/project-definition
                    {:initial :job
                     :states  {:job    {:initial :run
@@ -3415,7 +3416,7 @@
       (is (= [[:job] [:next]] ((juxt :from :to) (first (by-ev :rf.machine/done))))
           "the compound completion")
       (is (= (str "done.state." (layout/node-id [:job])) (:doneState (chip :rf.machine/done)))
-          "the compound completion keeps its done.state.<id> label")
+          "the compound completion carries its done.state.<id> label")
       (is (= [[:job] [:loaded]] ((juxt :from :to) (first (by-ev :rf.machine.spawn/done))))
           "the spawn completion")
       (is (nil? (:doneState (chip :rf.machine.spawn/done))))
