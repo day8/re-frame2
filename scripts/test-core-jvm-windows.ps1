@@ -1,21 +1,19 @@
-# scripts/test-core-jvm-windows.ps1 - Windows-safe bounded core JVM runner (rf2-c3hffe).
+# scripts/test-core-jvm-windows.ps1 - Windows-safe bounded core JVM runner.
 #
 # WHAT. Runs the full cross-spec core JVM suite
 #   cd implementation/core && clojure -M:test
-# under a hard timeout, on a Windows host where that suite has been observed
-# to deadlock past 10 minutes on a file-lock held by a stranded/orphaned
-# shadow-cljs/Node/JVM process from a prior test/worker run (rf2-c3hffe,
-# rf2-wad2fl).
+# under a hard timeout, on a Windows host, where that suite can deadlock past
+# 10 minutes on a file-lock held by a stranded/orphaned shadow-cljs/Node/JVM
+# process from a prior test/worker run.
 #
 # WHY A WRAPPER (not a matrix change). CI's Linux runners run this exact
 # suite green on every PR — it is the authoritative gate and is NOT split,
-# trimmed, or weakened (rf2-c3hffe disposition item 1). This wrapper is a
+# trimmed, or weakened. This wrapper is a
 # WINDOWS-LOCAL convenience + diagnostic: it turns "hangs forever" into
 # "timed out at N minutes; here are the java/node/clojure processes and (if
 # Sysinternals handle.exe is on PATH) the handles into this worktree that
 # were holding it — kill them or use the targeted-ns runner." The timeout
-# DUMP is the instrument that finally PROVES the lock-holder, closing the
-# bead's explicit "verify cause" gap.
+# DUMP is the instrument that PROVES the lock-holder.
 #
 # WHAT IT KILLS. On timeout it tree-kills ONLY the process subtree THIS
 # script launched (the clojure.exe it spawned + that clojure's java.exe
@@ -141,8 +139,7 @@ function Write-LockHolderDump([string]$worktreeRoot, [int]$ourChildPid) {
   # Opportunistic exact-handle dump (Sysinternals). Only runs if handle.exe
   # is on PATH; this is the one tool that proves the EXACT file-lock holder
   # without inference. Absent it, the command-line + IN-WORKTREE tags above
-  # are the documented best-effort instrument (the bead notes neither
-  # investigation had handle.exe; this wires it in when available).
+  # are the best-effort instrument.
   $handle = Get-Command handle.exe -ErrorAction SilentlyContinue
   if ($null -ne $handle) {
     Write-Host "Sysinternals handle.exe found - dumping handles into the worktree:"
