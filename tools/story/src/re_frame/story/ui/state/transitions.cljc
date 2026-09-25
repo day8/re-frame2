@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.state.transitions
-  "Pure shell-state transition fns (data → data). Split from
-  `re-frame.story.ui.state` to honor the leaf-size ceiling.
+  "Pure shell-state transition fns (data → data). A separate ns from
+  `re-frame.story.ui.state`, to honor the leaf-size ceiling.
 
   ## What lives here
 
@@ -10,7 +10,7 @@
   exercise them without booting Reagent.
 
   The parent ns `re-frame.story.ui.state` re-exports every Var here,
-  so consumer requires keep working unchanged."
+  so consumers need only require the parent."
   (:require [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.registrar :as rf.story.registrar]))
 
@@ -131,7 +131,7 @@
 ;; ---- cell overrides ------------------------------------------------------
 
 (defn- vivify-for-key
-  "Coerce `v` into a collection `next-key` can address into (rf2-mzfh9c).
+  "Coerce `v` into a collection `next-key` can address into.
   An integer `next-key` means the nested Malli walker is addressing a
   `:vector`/`:set`/`:tuple` repeater ENTRY, so `v` needs to be indexable:
   `nil` (no override established yet) becomes `[]`; a `set` becomes a
@@ -154,7 +154,7 @@
   value into the collection kind the NEXT path segment actually needs
   (`vivify-for-key`) instead of letting plain `assoc-in` mint an
   int-keyed MAP for a missing vector/set, or throwing when it tries to
-  `assoc` a set by index (rf2-mzfh9c). When the level being written was a
+  `assoc` a set by index. When the level being written was a
   `set`, the walked result is coerced BACK into a set before returning —
   the vector projection `vivify-for-key` uses is an addressing
   convenience, not a change of the arg's declared collection kind.
@@ -162,11 +162,11 @@
   `override` is the current override collection at this level (`nil` when
   none exists yet). `base` is the arg's resolved value navigated in
   PARALLEL along `path`, consulted ONLY to seed a not-yet-overridden
-  `:vector`/`:set` level. That distinction is load-bearing (rf2-57ikh):
+  `:vector`/`:set` level. That distinction is load-bearing:
   args resolution DEEP-MERGES maps but REPLACES vectors/sets wholesale
   (002-Runtime.md). So a `:vector`/`:set` level MUST carry its sibling
   entries — seed it from `base` or the edit truncates to a singleton
-  (rf2-mzfh9c) — while a `:map` level stays MINIMAL, vivified from `{}`
+  — while a `:map` level stays MINIMAL, vivified from `{}`
   and carrying only the edited branch: deep-merge restores its unrelated
   sibling KEYS from base at read time, so writing them into the override
   would be redundant, would make a `:title` edit spuriously mark its
@@ -196,7 +196,7 @@
   — the collection at `[:cell-overrides variant-id arg-key]` may be
   absent (no override established yet) or, for a `:set`-kind repeater, a
   real `set`; plain `assoc-in` would either mint an int-keyed MAP for the
-  absent case or throw trying to `assoc` a set by index (rf2-mzfh9c).
+  absent case or throw trying to `assoc` a set by index.
   `base` — typically the arg's current resolved value (the SAME 'saved'
   value the controls panel already computes for its diff-from-saved
   affordance, active-modes applied, cell-overrides excluded) — is
@@ -204,7 +204,7 @@
   levels, so an edit to ONE entry preserves every sibling entry instead
   of truncating to a singleton. `:map` levels stay minimal: deep-merge
   resolution restores their unrelated sibling keys from base, so a nested
-  `:title` edit leaves its `:enabled?` sibling unwritten (rf2-57ikh).
+  `:title` edit leaves its `:enabled?` sibling unwritten.
 
   An empty path is a no-op (caller error; the state is returned
   unchanged). For top-level scalar overrides use `set-cell-override-
@@ -393,8 +393,8 @@
 
 (defn dispatch-console-visible?
   "Effective visibility of the Dispatch Console panel for `variant-id` — the
-  ONE rule both the RHS panel and the toolbar chip's pressed state read
-  (rf2-qpvk). An explicit user toggle (`[:panel-visibility
+  ONE rule both the RHS panel and the toolbar chip's pressed state read.
+  An explicit user toggle (`[:panel-visibility
   :dispatch-console]` true / false) wins; otherwise the variant body's
   `:dispatch-console?`, else its parent story's, else false (opt-in
   default). A nil `variant-id` is never visible."
@@ -421,7 +421,7 @@
 ;; The slot defaults to expanded (false) so the out-of-the-box RHS still
 ;; paints the panel; the user can collapse the band to halt compute when
 ;; they're not inspecting. Collapsing unmounts the panel-host component,
-;; which releases the Xray React root via the existing microtask path —
+;; which releases the Xray React root via the embed's microtask path —
 ;; no duplicate teardown lives here.
 
 (defn xray-embed-collapsed?
@@ -464,8 +464,8 @@
 
 (defn chrome-visibility
   "Read the chrome-visibility map from `state`, merged over the default
-  shape so a fresh state (or one persisted before this slot existed)
-  still returns a well-formed map. Pure data → data."
+  shape so a state missing the slot, or any key in it, returns a
+  well-formed map. Pure data → data."
   [state]
   (merge chrome-visibility-defaults (:chrome-visibility state)))
 
