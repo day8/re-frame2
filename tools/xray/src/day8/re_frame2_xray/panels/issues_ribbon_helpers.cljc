@@ -1,24 +1,21 @@
 (ns day8.re-frame2-xray.panels.issues-ribbon-helpers
-  "Pure-data helpers for Xray's issue projection (rf2-jio48 rebuild;
-  Figma reconcile rf2-ad7zx.9; tab removed rf2-gbz39).
+  "Pure-data helpers for Xray's issue projection.
 
-  ## The dedicated Issues tab is gone (rf2-gbz39, Option (c))
+  ## Where issues surface
 
-  Mike RULED Option (c) — the dedicated Issues TAB + its aggregate
-  panel (the old `issues_ribbon.cljs` view) were removed (2026-05-31).
-  Issues now surface inline in the Epoch panel (per-step pass/fail +
-  exception block, rf2-ahhgn; `:db` schema-fail, rf2-kt6js; slow-fx
-  amber), via the L2 event-row pink-wash (rf2-b8guz), and via the
-  always-on issues ribbon signal (the auto-open-on-error watcher). The
-  session-wide aggregate / triage list was consciously dropped.
+  There is no dedicated Issues tab and no session-wide aggregate /
+  triage list. Issues surface inline in the Epoch panel (per-step
+  pass/fail + exception block; `:db` schema-fail; slow-fx amber), via
+  the L2 event-row pink-wash, and via the always-on issues ribbon
+  signal (the auto-open-on-error watcher).
 
-  This `.cljc` algebra SURVIVES the tab removal — it remains the
-  canonical issue projection feeding TWO live surfaces:
+  This `.cljc` algebra is the canonical issue projection feeding TWO
+  live surfaces:
 
     1. The `:rf.xray/issues-ribbon` composite (registered in
        `registry.cljs`), which the auto-open-on-error watcher reads
        (`settings/effects.cljs/install-auto-open-watcher!`) — the
-       cross-epoch \"something is wrong\" signal Mike kept under (c).
+       cross-epoch \"something is wrong\" signal.
     2. The L2 event-row pink-wash predicate
        (`panels/l2-timeline/event-bundle-has-issue?` reuses `issue-event?`
        so the wash stays in lockstep with the ribbon by construction).
@@ -28,13 +25,12 @@
   The *logic* — project the focused epoch's `:trace-events` to the
   issue subset (errors + warnings + hydration mismatches + schema
   violations) and project each trace event into a flat row shape — is
-  pure data → data. Splitting the algebra into `.cljc` so it runs
-  under the JVM unit-test target (`clojure -M:test`) is required by the
-  standing rule `feedback_jvm_interop_must_work.md`.
+  pure data → data. The algebra lives in `.cljc` so it runs under the
+  JVM unit-test target (`clojure -M:test`).
 
   ## Substrate (per `spec/009-Instrumentation.md` §Error event catalogue)
 
-  With the Issues panel gone, this projection is the unified issue
+  This projection is the unified issue
   feed across the catalogue Spec 009 enumerates — serving the two live
   surfaces listed above. Per the catalogue (the single normative
   source) every issue trace event carries:
@@ -47,8 +43,8 @@
        :tags      {...category-specific...}}
 
   The normative error-event prefixes are enumerated in Spec 009
-  §Error event catalogue (the single source of truth). At time of
-  writing the catalogue spans `:rf.error/`, `:rf.warning/`, `:rf.fx/`,
+  §Error event catalogue (the single source of truth). The catalogue
+  includes `:rf.error/`, `:rf.warning/`, `:rf.fx/`,
   `:rf.cofx/`, `:rf.ssr/`, `:rf.epoch/`, `:rf.http/`,
   `:rf.http.interceptor/`, `:rf.frame/`, and `:rf.route.nav-token/`,
   with more added as the catalogue grows. The panel's projection
@@ -69,11 +65,11 @@
   severity colour per the Figma design
   (`design-reference/xray_devtools_reference.cljs`, the `issues-panel` component).
 
-  `:op-type :info` is ACTIVITY, never an issue (rf2-3x7nj.24.1): the
+  `:op-type :info` is ACTIVITY, never an issue: the
   runtime emits it for success-path lifecycle rows — `:rf.http/issued`
   on every managed request, `:rf.http/replied`, `:rf.http/retry-attempt`,
   interceptor registration — which the Trace panel reads. Counting them
-  here painted the L2 issue wash on every healthy HTTP-issuing event
+  here would paint the L2 issue wash on every healthy HTTP-issuing event
   and could trip auto-open-on-error. Lifecycle / success-path traces
   (`:op-type` `:info`, `:rf.event`, `:rf.fx`, `:rf.frame`, `:rf.sub/*`,
   `:rf.view/*`, etc.) are NOT issues and never reach the panel.
@@ -86,16 +82,16 @@
   The helper exposes `category-prefix` as the canonical projection,
   used for the row's muted `category` cell.
 
-  ## No filtering (rf2-ad7zx.9)
+  ## No filtering
 
   The Figma design (spec/021 §8.2 +
   `design-reference/xray_devtools_reference.cljs`, the `issues-panel`
   component) renders pure rows
   with NO filter chrome — the focused epoch IS the scope, and issues
-  are rare-but-high-signal so every one reads inline. The legacy
-  severity / category-prefix chip-filter axes, the `since-ms` axis,
-  and the `:no-matches` empty state are gone, mirroring the Trace
-  panel's no-filter reconcile (rf2-gkczt).
+  are rare-but-high-signal so every one reads inline. There is no
+  severity / category-prefix chip filter, no `since-ms` axis and no
+  `:no-matches` empty state, matching the Trace panel, which has no
+  filter either.
 
   ## Focused-epoch scope (spec/021 §1.2 + §8)
 
@@ -112,7 +108,7 @@
   so the view renders the canonical evicted-epoch placeholder per
   spec/021 §10.7.
 
-  ## Head-fallback when focus is nil (rf2-h0120)
+  ## Head-fallback when focus is nil
 
   When `:rf.xray/focus` carries no `:epoch-id` (cold start before
   any user click; test rigs that don't pre-set focus) BUT
@@ -157,8 +153,7 @@
 (def severity->token
   "Pure semantic map from severity keyword to token keyword. Mirrors
   spec/021 §8.2 + spec/022 §Semantic & change. Splitting the semantic
-  map from the hex lookup keeps the data pure + tokens consolidated
-  (rf2-5kfxe.4)."
+  map from the hex lookup keeps the data pure + tokens consolidated."
   {:error    :error
    :warning  :warning
    :advisory :advisory})
@@ -166,7 +161,7 @@
 (defn severity-colour
   "Map a severity keyword to its swatch colour. Resolves the semantic
   token keyword through `theme/tokens` so the palette has exactly one
-  source of truth (rf2-5kfxe.4). Falls back to `:text-tertiary` for
+  source of truth. Falls back to `:text-tertiary` for
   unknown severities.
 
   Drives BOTH the row's 3px left-border and the uppercase text badge
@@ -232,9 +227,7 @@
     4. `[:tags :unresolved-input]`  — `:rf.error/no-such-sub` (the query
                                       vector that failed to resolve; per
                                       Spec 009 §Error catalogue +
-                                      `re-frame.subs` emit, rf2-agpv2.3 /
-                                      rf2-qn9ss — re-synced from the
-                                      pre-agpv2.3 `:rf.sub/query-v` slot)
+                                      `re-frame.subs` emit)
     5. `[:tags :failing-id]`        — registrar miss / effect-map shape
     6. `[:tags :path]`              — schema validation
     7. `(str operation)` only — fallback
@@ -263,8 +256,8 @@
 (defn source-coord
   "Extract a `file:line` string from `:rf.trace/trigger-handler`'s
   `:source-coord` slot. Per Spec 009 every emit inside a dispatch
-  carries this slot when handler scope is bound (per rf2-3nn8 /
-  rf2-lf84g). Returns nil when no coord is available. Pure data →
+  carries this slot when handler scope is bound. Returns nil when no
+  coord is available. Pure data →
   string-or-nil; JVM-testable."
   [ev]
   (when-let [trigger (:rf.trace/trigger-handler ev)]
@@ -317,9 +310,7 @@
         events))
 
 ;; Re-export of `now-ms`; the body lives in `common-helpers`. Nothing
-;; calls it through this ns today — the `:rf.xray/issues-ribbon-feed`
-;; sub this comment once named as its caller is registered nowhere
-;; (absent from `registry_cljs_test.cljs`'s exact-set sub roster).
+;; calls it through this ns.
 (def now-ms common/now-ms)
 
 ;; ---- composite projection (the panel reads this) ------------------------
@@ -334,19 +325,19 @@
   `:rf.xray/focus`. Walks the record's `:trace-events` via
   `project-issues` and renders newest-first.
 
-  No filtering (rf2-ad7zx.9) — the Figma design renders pure rows; the
+  No filtering — the Figma design renders pure rows; the
   focused epoch IS the scope.
 
   `focus-status` is one of:
     :no-focus       — no focused epoch AND no history (cold start
                       before any event-bundle has settled)
     :no-epoch       — focus pins a :dispatch-id whose event bundle
-                      settled no epoch (the shared resolver's 3-arity,
-                      rf2-y8doi.19); there is no record to read
+                      settled no epoch (the shared resolver's
+                      3-arity); there is no record to read
     :epoch-evicted  — focus has an :epoch-id but the matching record
                       is gone from history (capped per :epoch-history)
     :focused        — focus resolved to a real epoch record (either
-                      explicit pin or head-fallback per rf2-h0120)
+                      explicit pin or head-fallback)
 
   Returns:
 
@@ -362,14 +353,14 @@
                         is empty (cold start, no event-bundles have
                         settled). Render a terse 'No epoch focused.'
                         line so the panel skeleton doesn't look
-                        broken. Per rf2-h0120 a nil-focus with
-                        non-empty history falls back to head and
-                        renders the feed, not this empty state.
+                        broken. A nil-focus with non-empty history
+                        falls back to head and renders the feed, not
+                        this empty state.
       :no-epoch       — the operator pinned an event bundle that
                         settled no epoch. Cause-neutral, and never
                         :no-issues, which would claim a focused epoch
-                        ran and came up clean (rf2-hiri8; mapped here,
-                        not in the sub, since rf2-p766c).
+                        ran and came up clean (mapped here, not in the
+                        sub).
       :epoch-evicted  — focused epoch's record has been evicted from
                         the history ring buffer; view paints the
                         canonical placeholder per spec/021 §10.7.
@@ -382,7 +373,7 @@
         trace-events     (when record-present?
                            (:trace-events epoch-record))
         all-issues       (project-issues (or trace-events []))
-        ;; Newest first for display parity with the legacy ribbon.
+        ;; Newest first for display.
         sorted-display   (vec (reverse all-issues))
         empty-kind       (cond
                            (= focus-status :no-focus)      :no-focus
@@ -400,12 +391,12 @@
 ;; ---- focus-status resolver ----------------------------------------------
 ;;
 ;; The focus + history resolver lives in `panels.shared.focus-resolver`
-;; (rf2-o9suo) — one source of truth across every L4 panel that reads
+;; — one source of truth across every L4 panel that reads
 ;; `:rf.xray/focus` against `:rf.xray/epoch-history`. The aliases
-;; below keep `h/resolve-focus-status` / `h/find-epoch-record` working
-;; for this ns's existing callers + test suite without re-implementing
-;; the algebra. Semantics (including the rf2-h0120 head-fallback) live
-;; entirely in the shared ns.
+;; below serve `h/resolve-focus-status` / `h/find-epoch-record` to this
+;; ns's callers + test suite without re-implementing the algebra.
+;; Semantics (including the head-fallback) live entirely in the shared
+;; ns.
 
 (def resolve-focus-status focus/resolve-focus-status)
 (def find-epoch-record    focus/find-epoch-record)
