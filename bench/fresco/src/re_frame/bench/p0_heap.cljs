@@ -1,9 +1,8 @@
 (ns re-frame.bench.p0-heap
   "EP-0038 P0 — RETAINED HEAP per boundary, the second red-zone axis.
 
-  The delegated ruling on rf2-2rtt6.1 sets a UIx threshold on the clock
-  AND on retained heap, per witness family, so this axis is not a
-  supporting number either.
+  The UIx threshold is set on the clock AND on retained heap, per witness
+  family, so this axis is not a supporting number either.
 
   ## Retention, not allocation, and why that is not a preference
 
@@ -53,7 +52,7 @@
   red-zone is set from. The absolute column is a JS-heap figure and is
   labelled as one.
 
-  ## Cache cardinality is part of the witness (rf2-2rtt6.16, rf2-5prok)
+  ## Cache cardinality is part of the witness
 
   A retained-bytes-per-boundary figure is only defined relative to how
   many boundaries share a subscription, so every reading here stamps **B**
@@ -65,10 +64,8 @@
   plan asked for. A Q that is asserted rather than counted is the same
   class of decoration as a mount count that is printed and not gated.
 
-  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
-  2026-08-10, enumerated once in `docs/design/fresco/studio/README.md`;
-  this arm rf2-2rtt6.4; the fan-out family and the additive model
-  rf2-5prok."
+  Owner: the governance set enumerated in
+  `docs/design/fresco/studio/README.md`."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
@@ -84,18 +81,15 @@
             [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.frame :as rf.frame]
             ;; THE CANDIDATE ARM'S THREE DOORS, called at four seams, and
-            ;; they are the PACKAGE's now (rf2-fe0l). They used to be
-            ;; `re-frame.bench.fresco.arm1.*` — the frozen prototype
-            ;; `implementation/fresco/src` was moved from — so every
-            ;; heap figure this file ever produced priced a bench-tree
-            ;; copy rather than the product. The
-            ;; equivalents are 1:1 and named here so a reader can check
-            ;; the claim: `impl.mount/root!` for the mount door,
+            ;; they are the PACKAGE's — not the frozen
+            ;; `re-frame.bench.fresco.arm1.*` prototype, through which a
+            ;; heap figure would price a bench-tree copy rather than the
+            ;; product. They are named here so a reader can check the
+            ;; claim: `impl.mount/root!` for the mount door,
             ;; `impl.collector/reset-runtime!` for the page-wide fixture
             ;; reset, `re-frame.fresco.test.runtime/residue` for the structural census.
-            ;; Bench requiring package is the allowed direction;
-            ;; `fresco/scripts/check_freeze.py`'s SEALED rule forbids
-            ;; only package requiring bench.
+            ;; Bench requiring package is the allowed direction; the
+            ;; SEALED rule forbids only package requiring bench.
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
@@ -116,8 +110,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; `element-of` / `form-of` take the ROOT INDEX. The published arms ignore
-;; it — four roots of `grid/uix` are four copies of one page, which is the
-;; shape that produced the fan-out finding in the first place — but the
+;; it — four roots of `grid/uix` are four copies of one page — but the
 ;; fan-out family needs it, because a root's boundaries are numbered from
 ;; its own base in a GLOBAL numbering and that base is the only thing
 ;; separating "four roots sharing every key" from "four roots sharing
@@ -151,18 +144,17 @@
    :unmount-one (fn [rt] (uix-dom/unmount-root rt))})
 
 (defn- fresco-root-arm
-  "One root of the Fresco candidate arm (rf2-2rtt6.34), through the
+  "One root of the Fresco candidate arm, through the
   PACKAGE's OWN root door — `re-frame.fresco.impl.mount/root!` installs
   the frame provider, renders inside a `flushSync` and returns the handle
   its `release!` takes.
 
-  **Seam 1 of the four this file pointed at the prototype** (rf2-fe0l).
-  The other three are the runtime reset in [[prepare!]] and the two
-  `residue` reads — the live structural census in [[mount!]] and the
-  post-unmount one in [[install!]]. Nothing else in this file names a
-  substrate, which is why repointing those four is the whole of making
-  the heap ladder price the product instead of the frozen copy it was
-  moved from.
+  **Seam 1 of the four where this file reaches the package.** The other
+  three are the runtime reset in [[prepare!]] and the two `residue` reads
+  — the live structural census in [[mount!]] and the post-unmount one in
+  [[install!]]. Nothing else in this file names a substrate, so those four
+  are the whole of what makes the heap ladder price the product rather
+  than a frozen copy.
 
   The unmount is NOT `impl.mount/release!`, and the difference is the
   whole survival metric. `release!` ends with
@@ -184,12 +176,12 @@
   "The `grid` family's floor over `cells` boundaries per root — no
   subscription, no hook, nothing on the page that a write can re-render.
 
-  CONSTRUCTED rather than tabled, and that is the allocation row's doing
-  (rf2-2rtt6.138). The ladder's arms are sized by their driver, and a floor left
+  CONSTRUCTED rather than tabled, because of the allocation row. The
+  ladder's arms are sized by their driver, and a floor left
   at the published 300 would be the calibrator for a page the row never
   mounted: its `B/boundary/write` column would divide the write's own cost
   by a boundary count its own DOM did not have. At `cells` = [[per-root]]
-  it is the arm the table used to hold, to the byte."
+  it is the published 300-cell floor, to the byte."
   [cells]
   (assoc (react-root-arm (fn [_] (rf.bench.p0-floor/u-grid (vec (repeat cells 0))))
                          ".cell" cells)
@@ -209,12 +201,12 @@
   the arms it is differenced against.
 
   `:keys-expected` is **Q**, and it is written down here rather than
-  derived, because the published arms are exactly the ones whose Q the
-  ruling had to reconstruct by reading the source: every root of
-  `grid/uix` renders the same `[:p0/cell 0…299]` vectors against the same
-  frame, so four roots hold **300** reactions and not 1,200. That claim is
-  now a number this instrument checks on every mount instead of an
-  argument about a file."
+  derived, because the published arms are exactly the ones whose Q is
+  easy to get wrong by reading the source: every root of `grid/uix`
+  renders the same `[:p0/cell 0…299]` vectors against the same frame, so
+  four roots hold **300** reactions and not 1,200. That claim is a number
+  this instrument checks on every mount rather than an argument about a
+  file."
   {:list/floor
    (assoc (react-root-arm (fn [_] (rf.bench.p0-floor/w1 (mapv rf.bench.p0-fixture/row-value (range rows-per-root))))
                           ".row" rows-per-root)
@@ -239,7 +231,7 @@
           :segment :uix-subs :keys-expected per-root)})
 
 ;; ---------------------------------------------------------------------------
-;; The fan-out family — B, E and Q moved independently (rf2-5prok)
+;; The fan-out family — B, E and Q moved independently
 ;; ---------------------------------------------------------------------------
 
 (defn- fan-arm
@@ -267,7 +259,7 @@
            :keys-expected (if (zero? (long reads)) 0 (long q)))))
 
 ;; ---------------------------------------------------------------------------
-;; The ladder family — 1/3/7/20 reads at Q = E, three substrates (rf2-2rtt6.34)
+;; The ladder family — 1/3/7/20 reads at Q = E, three substrates
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The fan family moves Q with B and E/B held near-fixed; this one moves
@@ -275,8 +267,8 @@
 ;; witness, which is the regime both published per-read gates are stated
 ;; in (validation.md:136-140). It carries three substrates rather than
 ;; two, because the candidate has to be judged against donor rows taken
-;; on ITS OWN instrument (validation.md:180-189) and this instrument has
-;; no 3/7/20 rung on any substrate until now.
+;; on ITS OWN instrument (validation.md:180-189), and this family is where
+;; that instrument has its 3/7/20 rungs.
 ;;
 ;; `rf.bench.p0-fixture/fan-key` supplies the keys unchanged: at Q = B·R the rule
 ;; `(n·R + k) mod Q` is the identity over `0 … B·R−1`, so every one of
@@ -286,10 +278,10 @@
 ;; every `:p0/fan` value is 0 and a sum of zeros is zero — so the floor
 ;; subtraction stays honest as R grows.
 ;;
-;; ## The page is a PARAMETER, and the allocation row is why (rf2-2rtt6.138)
+;; ## The page is a PARAMETER, and the allocation row is why
 ;;
-;; The retention rows hold B fixed at the published 1,200 and nothing here
-;; needed to move. The allocation row cannot: its instrument is accurate
+;; The retention rows hold B fixed at the published 1,200. The allocation
+;; row cannot: its instrument is accurate
 ;; only while no collection falls inside the measured window, and one warm
 ;; write of 1,200 boundaries allocates 1.2–1.7 MB, two to three times the
 ;; ~600 KB at which the first fall appears — so the reading degrades ALWAYS
@@ -298,16 +290,16 @@
 ;;
 ;; The repair is to shrink the measured UNIT, not the window: the quantity
 ;; is per BOUNDARY, so a page of a few dozen boundaries leaves the averaging
-;; a fit needs. B was unreachable through the driver's env surface —
+;; a fit needs. B is unreachable through the driver's env surface —
 ;; `P0_ROOTS=1` floors it at the compile-time [[per-root]] — which is exactly
 ;; why the small-witness arm is this parameter and not a flag.
 ;;
-;; AND IT IS ONLY HALF THE REPAIR (rf2-2rtt6.140). Shrinking the page did not
-;; shrink the write: `:p0/write-all` rebuilds 300 cells whatever is mounted,
-;; a fixed F ~ 24.4 KB per write that at B=24 was 57% of the whole allowance
-;; before a boundary had been measured. `:p0/write-page` makes that term
-;; proportional to the page too, and `p0_run.cjs`'s certification is now read
-;; off the window's own legs rather than predicted from a constant.
+;; AND IT IS ONLY HALF THE REPAIR. Shrinking the page does not shrink the
+;; write: `:p0/write-all` rebuilds 300 cells whatever is mounted, a fixed
+;; F ~ 24.4 KB per write that at B=24 is 57% of the whole allowance before a
+;; boundary is measured. `:p0/write-page` makes that term proportional to
+;; the page too, and `p0_run.cjs`'s certification is read off the window's
+;; own legs rather than predicted from a constant.
 
 (defn- lad-arm
   "One rung of the ladder: `reads` DISTINCT subscription reads on each of
@@ -336,10 +328,10 @@
            ;; The candidate reads through `re-frame.subs` and the
            ;; substrate's single internal frame context, so it needs
            ;; NEITHER adapter's hooks and mounts correctly in either
-           ;; segment. It is measured in BOTH — and the first run of this
-           ;; row showed why that is a measurement rather than a seam
-           ;; check. Its R=0 shell read IDENTICALLY in the two segments
-           ;; (1,141 B either side) while its R=1 rung did not, because
+           ;; segment. It is measured in BOTH, and that is a measurement
+           ;; rather than a seam check: its R=0 shell reads IDENTICALLY in
+           ;; the two segments (1,141 B either side) while its R=1 rung
+           ;; does not, because
            ;; `subs/subscribe` builds a reaction whose implementation
            ;; comes from the INSTALLED ADAPTER's reactive substrate. The
            ;; two candidate columns are therefore one view layer over two
@@ -352,8 +344,7 @@
                             :fresco nil)
            :reads         reads
            ;; A boundary that reads NOTHING holds no cache entry, so the
-           ;; R=0 rung's Q is 0 whatever `q` says — [[fan-arm]]'s rule,
-           ;; unchanged.
+           ;; R=0 rung's Q is 0 whatever `q` says — [[fan-arm]]'s rule.
            :keys-expected (if (zero? reads) 0 (long q)))))
 
 (defn- arm-for
@@ -392,10 +383,10 @@
   cost the same.
 
   `grid-width` defaults to [[per-root]] — the published 300 — so the
-  retention rows and the fan-out sweep, which pass nothing, seed the page
-  they always did. The allocation row states B, because its write rebuilds
+  retention rows and the fan-out sweep, which pass nothing, seed the
+  published page. The allocation row states B, because its write rebuilds
   the grid and a grid wider than the mounted page is machinery no boundary
-  reads (rf2-2rtt6.140)."
+  reads."
   ([segment-id] (prepare! segment-id per-root))
   ([segment-id grid-width]
    ;; The Fresco runtime memoises `capture-frame` per frame id, and
@@ -405,7 +396,7 @@
    ;; every measured window and before the baseline read, so the reset's
    ;; own residue lands in the baseline, and no arm's teardown is ever
    ;; forced — which is what leaves the survival metric something to
-   ;; measure (rf2-2rtt6.34).
+   ;; measure.
    (rf.fresco.impl.collector/reset-runtime!)
    (let [segment (first (filter #(= segment-id (:id %)) rf.bench.p0-arms/segments))]
      (when segment (rf.bench.p0-arms/enter-segment! segment (long grid-width))))
@@ -435,8 +426,8 @@
   (`re-frame.subs.cache`), so between arms this reads 0 and during an arm
   it reads exactly the number of distinct query vectors the mounted page
   holds — independently of how many boundaries hold each one. That is the
-  quantity the two published heap families disagreed about, and it is
-  cheaper to count it than to argue about it."
+  quantity two heap families can read differently, and it is cheaper to
+  count it than to argue about it."
   []
   (if-some [f (rf.frame/frame rf.bench.p0-arms/frame-id)]
     (count @(:sub-cache f))
@@ -454,8 +445,8 @@
 
   A literal `#js` object rather than `clj->js`: `clj->js` would render
   `:ok?` as the key `\"ok?\"` and a driver reading `verify.ok` would see
-  `undefined` — every mount reported unverified while every mount was
-  fine. That happened, on the predecessor's first run."
+  `undefined` — every mount reported unverified while every mount is
+  fine."
   [arm-id k opts]
   (release!*)
   (let [opts       (js->clj opts :keywordize-keys true)
@@ -476,7 +467,7 @@
            :keysExpected keys-expected
            :ok           (and (= elements want) (= live keys-expected))
            ;; THE STRUCTURAL STAMP, counted off the Fresco runtime on
-           ;; every mount of every arm (rf2-2rtt6.34). On a candidate arm
+           ;; every mount of every arm. On a candidate arm
            ;; it is what makes "one hook plus N edges in a shared index" a
            ;; number the driver gates rather than a sentence in a
            ;; docstring: `boundaries` must be B WHERE ANYTHING IS READ,
@@ -484,10 +475,10 @@
            ;; B at Q = E — one read-set entry per boundary, because on the
            ;; distinct-query witness no two boundaries read the same SET
            ;; and the entry cache's sharing buys nothing. With no reads at
-           ;; all `boundaries` is 0 and `entries` is 1: since rf2-dabt3
-           ;; fused the sub-index into the cell table the runtime knows a
-           ;; boundary only through the cells it reads, so an edgeless one
-           ;; retains no membership and is correctly absent. On a DONOR
+           ;; all `boundaries` is 0 and `entries` is 1: the sub-index is
+           ;; fused into the cell table, so the runtime knows a boundary
+           ;; only through the cells it reads, and an edgeless one retains
+           ;; no membership and is correctly absent. On a DONOR
            ;; arm every one of them must be zero, which is the check that
            ;; the candidate's runtime is not standing behind the rows it
            ;; is compared to.
@@ -512,12 +503,11 @@
   merely observed. That is the entire point of a control: a figure the
   instrument has to hit, not one it gets to report.
 
-  The predecessor's first draft of this control was a flat one-byte string
-  of `8n` characters, on the same reasoning, and it was a FICTION: a
-  4.7 MB `'x'.repeat(…)` reads as 6 KB on all three readers because V8
-  does not materialise the characters. Had it shipped, the control would
-  have missed by three orders of magnitude every round and the natural
-  conclusion would have been that the instrument was broken."
+  A flat one-byte string of `8n` characters, on the same reasoning, would
+  be a FICTION: a 4.7 MB `'x'.repeat(…)` reads as 6 KB on all three
+  readers because V8 does not materialise the characters, so the control
+  would miss by three orders of magnitude every round and the natural
+  conclusion would be that the instrument was broken."
   [n]
   (let [a (js/Array. n)]
     (dotimes [i n] (aset a i (+ i 0.5)))
@@ -530,28 +520,28 @@
 ;; THE ADDITIVE MODEL — and the rule that decides whether it may be priced
 ;; ---------------------------------------------------------------------------
 ;;
-;; The heap-regime ruling (rf2-2rtt6.16 Part 3) adopts a target shape for
-;; the budget: a boundary's retained cost decomposes into a SHELL, a
-;; per-EDGE term (one boundary's attachment to one query) and a per-unique
-;; -KEY term (one cached reaction, however many boundaries hold it).
+;; The heap budget's target shape: a boundary's retained cost decomposes
+;; into a SHELL, a per-EDGE term (one boundary's attachment to one query)
+;; and a per-unique-KEY term (one cached reaction, however many boundaries
+;; hold it).
 ;;
 ;;     y  =  shell  +  (E/B)·edge  +  (Q/B)·key
 ;;
-;; It also REFUSES to freeze those numbers from cross-instrument algebra,
-;; because the paired rows came from different instruments and runs — and
-;; it makes this sweep the gate. So the sweep has to do two things a fit
+;; Those numbers are not frozen from cross-instrument algebra, because
+;; paired rows from different instruments and runs do not compose — this
+;; sweep is the gate. So the sweep has to do two things a fit
 ;; alone does not: identify each term from a CONTRAST that moves one
 ;; factor at a time, and then try to BREAK the model on a rung it was not
 ;; fitted to.
 ;;
-;; ## Two models, because the published ladder already doubts the first
+;; ## Two models, because the published ladder doubts the first
 ;;
-;; **M3** is the ruling's shape exactly, three terms. **M4** adds one:
+;; **M3** is the target shape exactly, three terms. **M4** adds one:
 ;;
 ;;     y = shell + [E>0]·step + (E/B)·edge + (Q/B)·key
 ;;
 ;; where `step` is what a boundary pays for SUBSCRIBING AT ALL, over and
-;; above what it pays per read. There is already evidence for it: the
+;; above what it pays per read. There is evidence for it: the
 ;; reads ladder's Reagent curve fits `397 + 943·R` at r² 0.9988 while its
 ;; measured R=0 shell reads 428 and its R=1 rung reads 1,562 — a first
 ;; read that costs 224 B more than the line, invisible in an r² taken
@@ -581,10 +571,10 @@
 ;;
 ;; The verdict is not an instrument fault and does not stop a run. It
 ;; decides whether the numbers may be QUOTED as component prices, and
-;; under which shape — which is exactly what the ruling gated.
+;; under which shape — which is exactly the question this sweep gates.
 
 (def additive-criterion
-  "The thresholds, fixed before the sweep ran and not moved after it.
+  "The thresholds, fixed before the sweep runs and not moved after it.
 
   `:min-r2` — the R=1 family must be a line in Q/B. 0.98 over four rungs
   is well inside what this instrument has shown it can resolve (the reads
@@ -829,24 +819,24 @@
     {:ok? (every? :ok chk) :checks chk}))
 
 ;; ---------------------------------------------------------------------------
-;; THE READS LADDER — the marginal per-read slope and the shell (rf2-2rtt6.34)
+;; THE READS LADDER — the marginal per-read slope and the shell
 ;; ---------------------------------------------------------------------------
 ;;
 ;; One line per substrate, `y = intercept + slope · R`, fitted over the
 ;; MANDATED rungs 1/3/7/20 and over nothing else.
 ;;
 ;; **R = 0 rides along as an anchor and is regressed nowhere.** That is
-;; not a style preference: the previous publication of this ladder on the
-;; freehand instrument regressed `[0 1 3 7 20]` while saying in three
-;; places that it excluded the sub-free rung, and the audit of PR #7260
-;; withdrew the whole fit over it. The intercept moved 25% when the
-;; mistake was corrected. So the exclusion is in the code, and
-;; [[ladder-self-test]]'s third check is the regression guard on it.
+;; not a style preference: regressing `[0 1 3 7 20]` instead moves the
+;; predecessor ladder's intercept by 25%, and prose saying the sub-free
+;; rung is excluded does not stop a fit from including it. So the
+;; exclusion is in the code, and [[ladder-self-test]]'s third check is the
+;; regression guard on it.
 ;;
 ;; The slope is a MARGINAL cost — what the next read costs once a boundary
 ;; already reads. The first read is a separate quantity and is reported
-;; separately: on Reagent it ran 21% above the marginal slope on the
-;; predecessor instrument, and one number standing for both hid that.
+;; separately: on Reagent it runs 21% above the marginal slope on the
+;; predecessor instrument, and one number standing for both would hide
+;; that.
 
 (def ladder-criterion
   "`:min-r2` — the rungs must be a LINE in R. A per-read cost that grew
@@ -911,8 +901,8 @@
 
   **C** is A with its R=0 rung moved to an absurd 99,999 B. The fit must
   be BIT-IDENTICAL to A's, because R=0 is regressed nowhere. It is a
-  regression guard on the exact defect the audit of PR #7260 found in the
-  predecessor ladder, and it is a check of this file's own arithmetic —
+  regression guard against R=0 entering the fit — the predecessor
+  ladder's defect — and it is a check of this file's own arithmetic —
   not independent corroboration of anything measured."
   []
   (let [mk    (fn [f] (mapv (fn [r] {:rung (str "R" r) :reads r :y (f (double r))})
@@ -947,27 +937,27 @@
                 :detail (str "shell " (.toFixed (:shell c) 0) " B, slope still "
                              (.toFixed (:slope c) 3) " B and intercept still "
                              (.toFixed (:intercept c) 3)
-                             " B — the guard on the defect the audit of PR #7260 found "
-                             "in the predecessor ladder")}]]
+                             " B — the guard against R=0 entering the fit, "
+                             "the predecessor ladder's defect")}]]
     {:ok? (every? :ok chk) :checks chk}))
 
 ;; ---------------------------------------------------------------------------
-;; THE ALLOCATION WINDOW — the survival metric's OTHER half (rf2-2rtt6.76)
+;; THE ALLOCATION WINDOW — the survival metric's OTHER half
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Everything above this line measures RETENTION, and says so in its own
-;; docstring: "Nothing here counts allocations." That is correct and it is
-;; also why the survival metric has been half-witnessed since HD-002 was
-;; written. validation.md prices the tier-3 per-read budget as "steady-state
+;; docstring: "Nothing here counts allocations." That is correct, and it is
+;; also why retention alone half-witnesses the survival metric.
+;; validation.md prices the tier-3 per-read budget as "steady-state
 ;; allocation slope across warm 1/3/7/20 reads, zero retained per-occurrence
 ;; objects after commit/teardown". The second clause is witnessed — in bytes
 ;; by the ladder's residue column and in objects by the structural stamp
-;; above (rf2-2rtt6.9). **The first clause is a different quantity measured
+;; above. **The first clause is a different quantity measured
 ;; with a different instrument**, and the reads ladder does not answer it:
 ;; a boundary's retained bytes per read and its steady-state allocation per
 ;; read are not the same number and need not even have the same sign.
 ;;
-;; ## What HD-002 actually predicted, so it can fail
+;; ## What HD-002 actually predicts, so it can fail
 ;;
 ;; `hd-002-adjudication.md` states the cost law as "allocation is
 ;; proportional to the CHANGE, not to the read count. The unchanged case
@@ -1019,9 +1009,9 @@
 (defonce ^:private alloc-sink (volatile! 0.0))
 (defonce ^:private alloc-samples (volatile! nil))
 
-;; ## SAMPLES PER ITERATION — the BY-SITE stride (rf2-rs8q6)
+;; ## SAMPLES PER ITERATION — the BY-SITE stride
 ;;
-;; 2 is the shipped window and every published figure was taken under it:
+;; 2 is the shipped window and every published figure is taken under it:
 ;; one reading before the work unit and one after, so a leg is ONE step and
 ;; the work unit is opaque. 3 opens the unit at its only seam — see
 ;; [[alloc-window!]] — and is a DIAGNOSTIC MODE the driver arms with
@@ -1038,16 +1028,16 @@
 ;; The written value, MONOTONE FOR THE LIFE OF THE PAGE rather than
 ;; restarting at 1 in every window.
 ;;
-;; It restarted, and the row read a constant. A `:p0/write-*` event writes
-;; `(vec (repeat width v))`, so writing the value that is already there
-;; produces an EQUAL app-db, no subscription changes, and React re-renders
-;; nothing — while the read-back still passed, because the warm-up pass had
-;; already put the expected text in the DOM. Every arm then reads the write
-;; pipeline's own cost and nothing else, which is why a one-write window
-;; priced the FLOOR — an arm with no subscription that cannot re-render —
-;; at 101 B/boundary and the 20-read UIx arm at 101 B/boundary too. A
-;; window whose work unit is a no-op is the allocation instrument's version
-;; of an arm that rendered nothing, and the read-back now states its
+;; Restarting it would make the row read a constant. A `:p0/write-*` event
+;; writes `(vec (repeat width v))`, so writing the value that is already
+;; there produces an EQUAL app-db, no subscription changes, and React
+;; re-renders nothing — while the read-back still passes, because the
+;; warm-up pass has already put the expected text in the DOM. Every arm
+;; then reads the write pipeline's own cost and nothing else: a one-write
+;; window prices the FLOOR — an arm with no subscription that cannot
+;; re-render — at 101 B/boundary and the 20-read UIx arm at 101 B/boundary
+;; too. A window whose work unit is a no-op is the allocation instrument's
+;; version of an arm that rendered nothing, so the read-back states its
 ;; expectation against the tick actually reached.
 (defonce ^:private alloc-tick (volatile! 0))
 
@@ -1076,10 +1066,9 @@
   control — a figure the instrument has to hit, not one it gets to
   report.
 
-  `sites` is the samples-per-iteration stride and is the ONE place it is
-  set (rf2-rs8q6). Anything but 3 is 2, which is the shipped window, so a
-  caller that passes nothing — every caller before this bead — gets
-  today's buffer to the byte. The buffer is sized from the same number
+  `sites` is the samples-per-iteration stride and this is the ONE place
+  it is set. Anything but 3 is 2, which is the shipped window, so a caller
+  that passes nothing gets the shipped buffer to the byte. The buffer is sized from the same number
   [[alloc-window!]] indexes with, because a stride the buffer was not
   sized for writes past the end of a `Float64Array`, which does not throw
   and is indistinguishable afterwards from a leg that allocated nothing."
@@ -1096,8 +1085,8 @@
   "One control allocation: a `.slice` of the template, dropped on the next
   statement. One element is summed into a volatile that outlives the call,
   because Closure is entitled to delete an expression whose value nothing
-  reads — this lane has already published a `layout-ms` of exactly 0.000
-  because a property read was dropped."
+  reads — a dropped property read is how a lane comes to publish a
+  `layout-ms` of exactly 0.000."
   []
   (when-some [t @alloc-template]
     (let [c (.slice t)]
@@ -1109,11 +1098,11 @@
   leg boundary, and answer the raw samples.
 
   `kind` is `\"write\"` — a warm bulk re-render of the arm that is ALREADY
-  MOUNTED, through the `:p0/write-page` event (rf2-2rtt6.140), which is
+  MOUNTED, through the `:p0/write-page` event, which is
   the same `dispatch-sync` through the same pipeline and signal graph as
   the bulk clock arms' `:p0/write-all` and differs only in rebuilding the
   grid at the mounted page's own width — or `\"write-all\"`, THE SAME
-  WINDOW driving `:p0/write-all` instead (rf2-gxrr) — or `\"control\"` (a
+  WINDOW driving `:p0/write-all` instead — or `\"control\"` (a
   dropped `.slice` of predicted size) or `\"idle\"` (nothing at all, which
   prices the sampler's own footprint as a constant sitting inside every
   other figure).
@@ -1122,9 +1111,8 @@
   Validity witness V1 (`allocation-instrument-rework.md`:256) measures each
   page under BOTH writes, and `F_old` is its control: \"it says the rig has
   not moved under the instrument, and it is the only way the two writes can
-  be compared like for like\" (:260-263). Until rf2-gxrr the allocation
-  window could not drive `write-all!` at all, so V1 was unrunnable on the
-  shipped instrument. The two kinds share ONE branch below and differ in the
+  be compared like for like\" (:260-263). Without this switch V1 would be
+  unrunnable on the shipped instrument. The two kinds share ONE branch below and differ in the
   event alone — the tick, the drain, the sampling and the read-back are
   literally the same code — because a control that differed anywhere else
   would not be a control. Every published allocation row is `\"write\"`;
@@ -1136,13 +1124,13 @@
   `useSyncExternalStore` spine needs to commit in this window — the same
   split `p0-arms/subs-bulk-arm` makes, so the write is like-for-like.
 
-  ## THE BY-SITE STRIDE — opening the work unit at its one seam (rf2-rs8q6)
+  ## THE BY-SITE STRIDE — opening the work unit at its one seam
 
   At the shipped stride of 2 a leg is ONE step and the work unit is
   opaque: the row can say a leg allocated 19,256 B and cannot say what
-  did. `rf2-rs8q6` measured a leg dispersion that is a function of the
-  ROUND INDEX in six of six independent browser launches, and identifying
-  a mechanism from a single opaque number is not possible in principle.
+  did. The leg dispersion is a function of the ROUND INDEX — in six of six
+  independent browser launches — and identifying a mechanism from a
+  single opaque number is not possible in principle.
 
   The work unit has exactly two statements that allocate and exactly one
   seam between them, and both are visible in the `write?` branch below:
@@ -1156,8 +1144,8 @@
 
   At stride 3 the counter is read AT THAT SEAM, so leg `k` decomposes as
   `dispatch_k + drain_k`, exactly and by construction — the outer pair is
-  the same pair the stride-2 window reads, so the leg total is unchanged
-  arithmetic over unchanged readings.
+  the same pair the stride-2 window reads, so the leg total is the same
+  arithmetic over the same readings.
 
   **There is no third seam that does not change what the arm measures.**
   Splitting inside `dispatch-sync` would mean instrumenting re-frame's own
@@ -1190,7 +1178,7 @@
         ctl?    (= kind "control")
         reagent? (= drain "reagent")
         tick0   @alloc-tick
-        ;; THE WORK CENSUS AT THE WINDOW'S OPEN (rf2-n1b9h), read here and
+        ;; THE WORK CENSUS AT THE WINDOW'S OPEN, read here and
         ;; again below so the difference is the work THIS window did.
         ;;
         ;; It sits in the `let`, which is evaluated before `buf[0]` — the
@@ -1212,7 +1200,7 @@
                      ;; THE SEAM. At stride 2 this is a test of a boolean
                      ;; local and nothing else — the same class of branch
                      ;; as the `reagent?` test immediately below it, which
-                     ;; has always sat inside the measured region.
+                     ;; also sits inside the measured region.
                      (when site? (aset buf (+ 2 base) (mem)))
                      (if reagent?
                        (react-dom/flushSync (fn [] (r/flush)))
@@ -1236,7 +1224,7 @@
       #js {:samples (js/Array.from buf)
            :n       n
            :kind    kind
-           ;; THE STRIDE RIDES BACK WITH THE SAMPLES (rf2-rs8q6). The
+           ;; THE STRIDE RIDES BACK WITH THE SAMPLES. The
            ;; driver decodes the stream by it rather than by the switch it
            ;; believes it set, so a stride that failed to reach the page
            ;; is a decode against the wrong shape rather than a silent
@@ -1249,14 +1237,14 @@
            ;; round index is.
            :tick0   tick0
            :tick    @alloc-tick
-           ;; THE WORK CENSUS, at the open and at the close (rf2-n1b9h).
+           ;; THE WORK CENSUS, at the open and at the close.
            ;; `tick` places the window in the page's sequence of WRITES;
            ;; this pair says what happened INSIDE them — handler
            ;; invocations, subscription recomputations and boundary
-           ;; renders. `rf2-77gz8`'s two surviving candidates differ
-           ;; precisely here and nowhere a byte counter can reach: one
-           ;; predicts more work per write, the other the same work
-           ;; allocating more.
+           ;; renders. The two candidate explanations of the round-index
+           ;; dispersion differ precisely here and nowhere a byte counter
+           ;; can reach: one predicts more work per write, the other the
+           ;; same work allocating more.
            ;;
            ;; Both are read OUTSIDE the sampled region — `work0` before
            ;; `buf[0]`, this one after the last leg's closing sample.
@@ -1302,14 +1290,14 @@
              ;; ONE expression of the positive-control rule too, and it is
              ;; the LANE's. The driver owns the collector, so it is the
              ;; driver that states `predicted` against this row's own
-             ;; per-round readings — and until rf2-95s5b it printed that
-             ;; pair as a bare ratio nothing adjudicated.
+             ;; per-round readings, and this door adjudicates the pair
+             ;; rather than leaving it a bare ratio.
              ;;
              ;; THE RULE IS `rf.bench.fresco.lane/control-verdict-strict`, EVERY ROUND
-             ;; INSIDE THE BAND (rf2-egdaq). It used to be the lane's
-             ;; overlap rule, which asks only that the measured RANGE meet
-             ;; the band — and on a counter this precise that is not a
-             ;; weaker gate, it is an absent one. This control's whole
+             ;; INSIDE THE BAND, not the lane's overlap rule, which asks
+             ;; only that the measured RANGE meet the band — and on a
+             ;; counter this precise that is not a weaker gate, it is an
+             ;; absent one. This control's whole
              ;; purpose is to catch a collector that has stopped seeing
              ;; transient garbage, and the shape that failure takes is a
              ;; round reading ~0 B. Under overlap, one round at 0 B beside
@@ -1318,44 +1306,39 @@
              ;; and a good round vouches for a dead one. Under this rule
              ;; that round is named and the run is refused.
              ;;
-             ;; AND THE COARSE-LEG CARVE-OUT DOES NOT REACH HERE. The
-             ;; 2026-07-31 ruling keeps overlap for legs sitting within a
-             ;; few of Chrome's 100 µs `performance.now()` quanta, where a
-             ;; low round is the clock rather than a defect, and names a
-             ;; window whose legs clear the quantum as its own revisit
-             ;; trigger. This leg is not a clock leg at all: a dense array
-             ;; of unboxed doubles read in BYTES off CDP's heap counter,
-             ;; predicted 4,700,000 B and typically published inside
-             ;; [4,699,074 – 4,700,974], ±0.02% of it. There is no quantum
-             ;; to sit on, so the exemption has nothing to exempt — and the
-             ;; ruling's own revisit trigger, a window whose legs clear the
-             ;; quantum, is met by a leg that was never on one in the first
-             ;; place. `re-frame.bench.p0-app`'s control IS a clock
-             ;; ratio and stays on overlap under that same ruling; the two
-             ;; rows of this driver are adjudicated by different rules
-             ;; because they are measured by different instruments.
+             ;; AND THE COARSE-LEG CARVE-OUT DOES NOT REACH HERE. Overlap
+             ;; is kept for legs sitting within a few of Chrome's 100 µs
+             ;; `performance.now()` quanta, where a low round is the clock
+             ;; rather than a defect. This leg is not a clock leg at all: a
+             ;; dense array of unboxed doubles read in BYTES off CDP's heap
+             ;; counter, predicted 4,700,000 B and typically published
+             ;; inside [4,699,074 – 4,700,974], ±0.02% of it. There is no
+             ;; quantum to sit on, so the carve-out has nothing to exempt.
+             ;; `re-frame.bench.p0-app`'s control IS a clock ratio and is
+             ;; on overlap; the two rows of this driver are adjudicated by
+             ;; different rules because they are measured by different
+             ;; instruments.
              ;;
              ;; RE-ADJUDICATING THE PUBLISHED SERIES COSTS NOTHING, and the
              ;; published records settle it without re-running a window: a
              ;; stated [min–max] whose two ends both sit inside the band
              ;; bounds EVERY round inside it. Across this row's published
              ;; series the widest excursion either way is 4,690,838 B —
-             ;; 0.195% below a prediction gated at ±25% — so every heap row
-             ;; ever published is `ok` under this rule too. The tightening
-             ;; buys teeth for the next run, not a revision of the last one.
+             ;; 0.195% below a prediction gated at ±25% — so every
+             ;; published heap row is `ok` under this rule too.
              ;;
              ;; The answer carries `:per-round` so a later reader can
              ;; re-adjudicate under either rule WITHOUT re-running the
-             ;; window — the durability hole rf2-egdaq's audit of PR #8326
-             ;; found, and the reason the aggregate shape is gone from
-             ;; this call rather than merely tightened.
+             ;; window, which an aggregate-only answer would make
+             ;; impossible — so this call takes the rounds, not a summary
+             ;; of them.
              ;;
              ;; A flat literal `#js` answer, never `clj->js`: that would
              ;; render `:ok?` as the key `"ok?"` and a driver reading
              ;; `v.ok` would see `undefined` — the control green for ever
-             ;; because nothing could read it. The same trap `mount!`
-             ;; already carries the scar from, and it is why `:outside`
-             ;; is built as flat `#js` objects one level down too.
+             ;; because nothing could read it. The same trap [[mount!]]
+             ;; documents, and it is why `:outside` is built as flat
+             ;; `#js` objects one level down too.
              :controlVerdict (fn [predicted per-round slack]
                                (let [vs (vec (js->clj per-round))
                                      v  (rf.bench.fresco.lane/control-verdict-strict predicted vs slack)]
@@ -1380,7 +1363,7 @@
              ;; as the arm-order guard's does.
              ;;
              ;; Flat `#js` answers, never `clj->js`, for the reason
-             ;; `mount!` carries the scar from: `clj->js` renders `:ok?`
+             ;; [[mount!]] documents: `clj->js` renders `:ok?`
              ;; as the key `"ok?"` and a driver reading `v.ok` sees
              ;; `undefined` — a gate green for ever because nothing could
              ;; read it. The EDN rides along whole, for the record file.
@@ -1421,12 +1404,12 @@
                                                               :detail (:detail c)})
                                                        (:checks v)))
                                       :edn      (pr-str v)}))
-             ;; The ladder's two doors (rf2-2rtt6.34), CLJS for the same
+             ;; The ladder's two doors, CLJS for the same
              ;; reason the fan sweep's are: a JavaScript restatement of a
              ;; fit rule would be a second place for it to drift, and this
              ;; one decides what may be quoted as a per-read price. Flat
              ;; `#js` answers, never `clj->js` — the `:ok?`-becomes-`"ok?"`
-             ;; trap `mount!` already carries the scar from.
+             ;; trap [[mount!]] documents.
              :ladderSelfTest (fn []
                                (let [st (ladder-self-test)]
                                  #js {:ok     (boolean (:ok? st))
@@ -1461,17 +1444,17 @@
                                       :boundaries (:boundaries r)
                                       :edges      (:edges r)
                                       :entries    (:entries r)}))
-             ;; The allocation row's two doors (rf2-2rtt6.76). The window
+             ;; The allocation row's two doors. The window
              ;; itself is page-side because it must contain no CDP round
              ;; trip — the whole method is that nothing collects and
              ;; nothing else runs between two readings of the counter —
              ;; and the driver owns everything on either side of it.
              :allocPrepare   (fn [d n sites] (alloc-prepare! d n sites))
              :allocWindow    (fn [n kind drain] (alloc-window! n kind drain))
-             ;; THE WORK CENSUS'S OWN DOOR (rf2-n1b9h). `workArmed` is what
+             ;; THE WORK CENSUS'S OWN DOOR. `workArmed` is what
              ;; the page was COMPILED with; the driver proves the
              ;; closure-define took rather than trusting its own
-             ;; `--config-merge`, exactly as it already proves
+             ;; `--config-merge`, exactly as it proves
              ;; `--enable-precise-memory-info` and the sampling stride.
              ;; `workCount` is the raw census, for a preflight that wants
              ;; to watch the counters move outside a window.
