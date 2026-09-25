@@ -101,8 +101,8 @@
                       "the read targets the runtime's epoch-history pass-through
                        to (rf/epoch-history) — the authoritative ring")
                   (is (not (str/includes? slice-form "observed-epochs"))
-                      "must NOT read a session-side capture buffer (the
-                       drift-prone proxy this bead removed)"))
+                      "must NOT read a session-side capture buffer (a
+                       drift-prone proxy for the ring)"))
                 (done))))))))
 
 (deftest non-empty-ring-returns-epochs
@@ -226,23 +226,22 @@
                                (done))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cursor paths driven through the REAL trace-window-tool (rf2-j9i3vh).
+;; Cursor paths driven through the REAL trace-window-tool.
 ;;
-;; Three gaps closed: the MALFORMED-:cursor short-circuit
-;; (trace_window.cljs L71-73), the AGED-OUT branch (L136-139), and — the
-;; asymmetry the bead flagged — trace-window-tool's OWN :next-cursor mint
-;; (L148-154). cursor_pagination_test only ever asserted the slice/mint
-;; logic against a HAND-REIMPLEMENTED copy (`runtime-form-output`); these
-;; drive the actual `trace-window-tool` so a divergence between the real
-;; emitted envelope and the reimplementation can no longer stay green.
+;; Three paths: the MALFORMED-:cursor short-circuit, the AGED-OUT
+;; branch, and trace-window-tool's OWN :next-cursor mint.
+;; cursor_pagination_test asserts the slice/mint logic against a
+;; HAND-REIMPLEMENTED copy (`runtime-form-output`); these drive the
+;; actual `trace-window-tool` so a divergence between the real emitted
+;; envelope and the reimplementation cannot stay green.
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-cursor-returns-cursor-stale
   (testing "a garbage :cursor short-circuits to the :rf.mcp/cursor-stale envelope before any runtime eval"
     (async done
       ;; No eval stub: the malformed branch returns before the runtime
-      ;; round-trip, so an unstubbed socket call would fail the test if it
-      ;; regressed to fall through.
+      ;; round-trip, so a branch that fell through would hit an unstubbed
+      ;; socket call and fail the test.
       (-> (tw/trace-window-tool nil (tu/args->js {:cursor "AAAA"}))
           (.then (fn [result]
                    (is (true? (tu/error? result)) "a malformed cursor rides isError")
