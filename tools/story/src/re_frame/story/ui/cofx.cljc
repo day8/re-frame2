@@ -53,7 +53,7 @@
   (rf.story.args/deep-merge-all (map mode-args (active-modes-snapshot))))
 
 (defn install-canonical-cofx!
-  "Register the three canonical Story cofx + the matching subs. Per
+  "Register the two canonical Story cofx + the matching subs. Per
   spec/010 §`with-mode` accessor:
 
   - `:story/active-modes` — vector of mode ids currently active.
