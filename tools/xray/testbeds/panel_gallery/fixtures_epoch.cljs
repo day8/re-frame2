@@ -1,23 +1,22 @@
 (ns panel-gallery.fixtures-epoch
-  "Pure fixture builders for the Xray **Epoch** panel gallery (rf2-mzcwt).
+  "Pure fixture builders for the Xray **Epoch** panel gallery.
 
   ## What the Epoch panel renders
 
   `tools/xray/spec/021-Dynamic-Panel-Designs.md` §9.1 — the focused
   epoch's complete computational timeline as a numbered vertical
   cascade: DISPATCH → COEFFECT (one per cofx) → HANDLER → FLOW
-  (one per flow, rf2-xnb1x) → FX → SUBSCRIPTIONS → VIEWS. Runtime-
+  (one per flow) → FX → SUBSCRIPTIONS → VIEWS. Runtime-
   boundary schema violations + cascade exceptions attach as inline
-  sub-blocks UNDER their owning step (rf2-xgeag + rf2-8resu +
-  rf2-yz57h); hot-reload drift surfaces inline (rf2-gbz39 — Issues is
-  no longer a tab; rf2-7gf7v retired the standalone SCHEMA HOT-RELOAD
-  tail step). Each step is
+  sub-blocks UNDER their owning step; hot-reload drift surfaces on the
+  issues ribbon (Issues is not a tab, and there is no standalone
+  SCHEMA HOT-RELOAD step). Each step is
   CONDITIONAL — only the steps whose driving trace events surfaced
   get rendered (per
   `tools/xray/src/day8/re_frame2_xray/panels/epoch/projection.cljc`).
 
-  The 10-entry badge inventory + 16ms long-step threshold ride on
-  `panels.epoch.projection` (PRs #2191 / #2193). These fixtures
+  The badge inventory rides on `panels.epoch.badge` and the 16ms
+  long-step threshold on `panels.epoch.projection`. These fixtures
   exercise every section the projection lights up, one variant per
   section, so the gallery reads as a feature-coverage table.
 
@@ -30,7 +29,7 @@
     - `:rf.xray/epoch-history` — vector of `:rf/epoch-record` maps
 
   No variant pins focus. With no spine bus seeded the focus stays nil;
-  the shared `focus-resolver`'s head-fallback (rf2-h0120) then renders
+  the shared `focus-resolver`'s head-fallback then renders
   `(peek epoch-history)` — i.e. the LAST element of the oldest-first
   history vector. Each fixture therefore returns a one-record history
   whose `:trace-events` slice surfaces the section under test.
@@ -81,13 +80,13 @@
 (defn- cofx-run-ev
   "`:rf.cofx/run` trace — one per USER-injected coeffect. System
   cofx (`:db / :event / :frame / :source / :trace-id`) are filtered
-  out by the projection (rf2-cq0ch), so fixtures only need to emit
+  out by the projection, so fixtures only need to emit
   the user-injected ids the COEFFECT step should surface.
 
-  rf2-w2r4p — substrate stamps the canonical `:rf.cofx/elapsed-ms`
-  duration tag (rf2-hhh92 · `re-frame.cofx`; spec 009 §243); fixture
-  mirrors that. The reader retains a legacy `:duration-ms` fallback
-  for older runtimes / external test fixtures."
+  The substrate stamps the canonical `:rf.cofx/elapsed-ms`
+  duration tag (`re-frame.cofx`; spec 009 §243); the fixture
+  mirrors that. The reader also accepts `:duration-ms` as a
+  fixture-compat fallback."
   [id value]
   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id          id
                              :rf.cofx/value       value
@@ -97,17 +96,18 @@
   "`:rf.event/run-end` trace — the projection reads the handler's
   finalised duration here.
 
-  rf2-slnce — substrate stamps the canonical `:rf.event/elapsed-ms`
-  (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); fixture mirrors
-  that. The reader retains legacy `:duration-ms` fallbacks for older
-  runtimes / external test fixtures."
+  The substrate stamps the canonical `:rf.event/elapsed-ms`
+  (`re-frame.router/emit-run-end-trace`); the fixture mirrors
+  that. The reader also accepts `:duration-ms` fallbacks as
+  fixture-compat."
   [duration-ms]
   (ev :rf.event :rf.event/run-end {:rf.event/elapsed-ms duration-ms}))
 
 (defn- db-changed-ev
-  "`:rf.event/db-changed` trace — drives both HANDLER's `:db-diff`
-  slot AND the dedicated APP-DB DIFF step (rf2-rrykz, same payload,
-  two surfaces). `paths` is a vec of
+  "`:rf.event/db-changed` trace — the canonical `:db`-commit signal.
+  It makes the SIDE EFFECTS step surface its `:db` row, and it is the
+  HANDLER step's `db-write?` fallback when no `:rf.event/db-pending`
+  fired. `paths` is a vec of
   `[path before after change-kind]` quads."
   [paths]
   (ev :rf.event :rf.event/db-changed
@@ -115,9 +115,9 @@
 
 (defn- do-fx-ev
   "`:rf.fx/do-fx` trace — carries the handler's returned `:rf.event/fx`
-  payload. Drives the FX step's per-row attribution AND the
-  CHILD-DISPATCHES step (rf2-yx1ae harvests dispatch-family fx from
-  this same payload)."
+  payload. Drives the SIDE EFFECTS step's per-row attribution,
+  including the dispatch-family fx rows it surfaces from this same
+  payload."
   [fx]
   (ev :rf.fx :rf.fx/do-fx {:rf.event/fx fx}))
 
@@ -126,10 +126,10 @@
   step's per-row outcome reads `:rf.fx/id` + `:rf.fx/args` +
   `:rf.fx/elapsed-ms` here.
 
-  rf2-ipaza — substrate stamps the canonical `:rf.fx/elapsed-ms`
-  (rf2-hhh92 · `re-frame.fx`; spec 009 §241); fixture mirrors that.
-  The reader retains a legacy `:duration-ms` fallback for older
-  runtimes / external test fixtures."
+  The substrate stamps the canonical `:rf.fx/elapsed-ms`
+  (`re-frame.fx`; spec 009 §241); the fixture mirrors that.
+  The reader also accepts `:duration-ms` as a fixture-compat
+  fallback."
   ([fx-id args duration-ms]
    (ev :rf.fx :rf.fx/handled {:rf.fx/id          fx-id
                               :rf.fx/args        args
@@ -139,7 +139,7 @@
   "`:rf.fx/override-applied` trace — a registered fx was diverted by a
   dev-time override (`re-frame.fx/handle-one-fx`). The SIDE EFFECTS
   `:fx` row reads this op via `fx-outcome-op->status` → `:overridden`
-  and paints the ↺ tick (rf2-kt6js)."
+  and paints the ↺ tick."
   [fx-id args]
   (ev :rf.fx :rf.fx/override-applied {:rf.fx/id   fx-id
                                       :rf.fx/args args}))
@@ -148,13 +148,13 @@
   "`:rf.fx/skipped-on-platform` trace — a platform-gated fx that did not
   run on the current target (`re-frame.fx/handle-one-fx`). The SIDE
   EFFECTS `:fx` row reads this op via `fx-outcome-op->status` →
-  `:skipped` and paints the · tick (rf2-kt6js)."
+  `:skipped` and paints the · tick."
   [fx-id args]
   (ev :rf.fx :rf.fx/skipped-on-platform {:rf.fx/id   fx-id
                                          :rf.fx/args args}))
 
 (defn- fx-handler-exception-ev
-  "`:rf.error/fx-handler-exception` trace (rf2-ahhgn) — a registered
+  "`:rf.error/fx-handler-exception` trace — a registered
   fx-handler threw during the post-commit fx walk. The fx-id rides
   `:rf.fx/id` so the projection's `attach-to-fx-error-row` matches it
   to the SIDE EFFECTS step's `:fx` row; the message rides
@@ -175,7 +175,7 @@
                                              :source-coord coord}))))
 
 (defn- handler-exception-ev
-  "`:rf.error/handler-exception` trace (rf2-ahhgn · rf2-wnvid) — a
+  "`:rf.error/handler-exception` trace — a
   handler / interceptor / injected-coeffect threw; the router emits
   this from `emit-handler-exception!`. The message rides
   `:exception-message`; the failing handler's reg-site coord rides the
@@ -198,7 +198,7 @@
                                              :source-coord coord}))))
 
 (defn- coeffect-exception-ev
-  "`:rf.error/coeffect-exception` trace (rf2-mszrz · rf2-yz57h) — a
+  "`:rf.error/coeffect-exception` trace — a
   coeffect injector threw during `:before`-chain injection. `:failing-id`
   = the cofx id, so the projection attaches the inline 'Exception Thrown'
   card to the matching COEFFECT step (synthesising a placeholder COEFFECT
@@ -218,7 +218,7 @@
                                              :source-coord coord}))))
 
 (defn- interceptor-exception-ev
-  "`:rf.error/interceptor-exception` trace (rf2-mszrz · rf2-yz57h) — a
+  "`:rf.error/interceptor-exception` trace — a
   USER interceptor threw in its `:before` or `:after` phase (`:phase`
   discriminates). `:failing-id` = the interceptor `:id`, so the
   projection's conditional INTERCEPTOR step (`interceptor-step`) renders
@@ -240,32 +240,32 @@
 
 (defn- db-pending-ev
   "`:rf.event/db-pending` trace (t1) — the POST-handler, PRE-flow db
-  value the handler chain returned, stamped under `:rf.event/db`
-  (rf2-ta0y7). The Epoch HANDLER step's `:db` sub-section reads this so
-  it shows ONLY the handler's own contribution, not the post-flow state
-  (rf2-4wywy). Its presence is also the `db-write?` signal that lets the
-  rf2-wnvid PHANTOM-`:db` fix know the handler actually wrote a `:db`."
+  value the handler chain returned, stamped under `:rf.event/db`.
+  The Epoch HANDLER step's `:db` sub-section reads this so
+  it shows ONLY the handler's own contribution, not the post-flow
+  state. Its presence is also the `db-write?` signal that tells the
+  projection the handler actually wrote a `:db`, so a handler that
+  wrote none shows no phantom `:db`."
   [db]
   (ev :rf.event :rf.event/db-pending {:rf.event/db db}))
 
 (defn- db-pending-post-flow-ev
   "`:rf.event/db-pending-post-flow` trace (t2) — the POST-flow,
-  PRE-commit (flow-augmented) db value, stamped under `:rf.event/db`
-  (rf2-ta0y7). OMITTED at the emit site when no flow changed `:db`
+  PRE-commit (flow-augmented) db value, stamped under `:rf.event/db`.
+  OMITTED at the emit site when no flow changed `:db`
   (t1 == t2). The Epoch FLOW step reads the t1→t2 pair to render the
   flow's OWN `:db` diff as a separate step from the handler's `:db`
-  write (rf2-4wywy / rf2-48oc4)."
+  write."
   [db]
   (ev :rf.event :rf.event/db-pending-post-flow {:rf.event/db db}))
 
 (defn- flow-recomputed-ev
   "`:rf.flow/computed` trace — drives the FLOW step.
 
-  rf2-yhgk8 — substrate stamps the `:rf.flow/computed` operation with
+  The substrate stamps the `:rf.flow/computed` operation with
   bare `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
-  tags (Spec 009 §Flow trace events · `re-frame.flows`). The name
-  `flow-recomputed-ev` is retained for call-site stability; the
-  payload is canonical."
+  tags (Spec 009 §Flow trace events · `re-frame.flows`); the
+  payload here is that canonical shape."
   [flow-id path before after]
   (ev :rf.flow :rf.flow/computed {:flow-id    flow-id
                                   :path       path
@@ -274,25 +274,25 @@
                                   :elapsed-ms 0.4}))
 
 (defn- sub-run-ev
-  "`:rf.sub/run` trace — drives one SUBSCRIPTIONS row. Per rf2-kfh1v
-  the canonical tag names are `:rf.sub/id`, `:rf.sub/query-v`,
+  "`:rf.sub/run` trace — drives one SUBSCRIPTIONS row. The
+  canonical tag names are `:rf.sub/id`, `:rf.sub/query-v`,
   `:rf.sub/value-changed?`, `:rf.sub/prev-value`, `:rf.sub/value` —
-  the projection reads ONLY these post-rf2-kfh1v.
+  the projection reads ONLY these.
 
   The 5-arg `opts` form admits the cascade-attribution slots the
-  substrate stamps conditionally so the rf2-1cc03 / rf2-87c8a chrome
+  substrate stamps conditionally so the caused-by and inputs chrome
   renders:
 
     `:cause-event-id` — the head keyword of the dispatching cascade's
-                        trigger event (`:rf.sub/cause-event-id`,
-                        rf2-okz1u / rf2-1cc03). The view renders this
+                        trigger event (`:rf.sub/cause-event-id`).
+                        The view renders this
                         as the `caused by <event-id>` cell. Stamped
                         only when present (OMIT-vs-nil parity with the
                         emit site).
     `:inputs`         — the sub's upstream input-signal query-vectors
                         (`:rf.sub/inputs`). The inputs column prefers
                         the live `(rf/handler-meta {:source :store :kind :sub :id <id>})` static
-                        topology (rf2-87c8a), but in the gallery's
+                        topology, but in the gallery's
                         bare-panel mount the sub isn't registered, so
                         the view falls back to this `:inputs` slot —
                         which is what makes the inputs column paint the
@@ -312,7 +312,7 @@
          (some? inputs)         (assoc :rf.sub/inputs inputs)))))
 
 (defn- view-rendered-ev
-  "`:rf.view/rendered` trace (per rf2-6djth — NOT the simpler
+  "`:rf.view/rendered` trace (NOT the simpler
   `:rf.view/render` marker; only `:rf.view/rendered` carries
   `:rf.view/id` + `:rf.view/deref-subs` + `:rf.view/elapsed-ms`)."
   [view-id deref-subs elapsed-ms]
@@ -321,8 +321,8 @@
                                   :rf.view/elapsed-ms elapsed-ms}))
 
 (defn- view-unmounted-ev
-  "`:rf.view/unmounted` trace (per rf2-9hoos / rf2-te71r) — drives
-  the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i). Substrate
+  "`:rf.view/unmounted` trace — drives
+  the VIEWS step's UNMOUNTED sub-section. Substrate
   stamps `:rf.view/id` + `:rf.view/render-key` + `:frame` on every
   view-instance teardown."
   [view-id render-key]
@@ -331,10 +331,10 @@
                                    :frame              :rf/default}))
 
 (defn- sub-dispose-ev
-  "`:rf.sub/dispose` trace (per rf2-mrnur) — drives the SUBSCRIPTIONS
-  step's DISPOSED sub-section (rf2-wpfjo). Substrate stamps
+  "`:rf.sub/dispose` trace — drives the SUBSCRIPTIONS
+  step's DISPOSED sub-section. Substrate stamps
   `:rf.sub/id` + `:rf.sub/query-v` + `:rf.sub/reason` + `:frame` on
-  every cache-eviction site (closed `:reason` set per rf2-mrnur:
+  every cache-eviction site (closed `:reason` set:
   `:no-more-derefers / :hot-reload / :cache-clear`)."
   [sub-vec reason]
   (ev :rf.sub :rf.sub/dispose {:rf.sub/id      (when (vector? sub-vec) (first sub-vec))
@@ -345,11 +345,9 @@
 ;; ---- machine-handler trace primitives -----------------------------------
 
 (defn- machine-transition-ev
-  "`:rf.machine/transition` trace — drives the HANDLER step's
-  machine TRANSITION sub-section + the DATA-REDUCTION /
-  SNAPSHOT-DIFF projections (the panel's machine-handler full
-  design, PR #2193). `before` + `after` are full machine snapshot
-  maps (`:state` + `:data` + …)."
+  "`:rf.machine/transition` trace — drives the TRANSITION row of the
+  HANDLER step's machine cascade. `before` + `after` are full machine
+  snapshot maps (`:state` + `:data` + …)."
   [machine-id event before after microsteps]
   (ev :rf.machine :rf.machine/transition
       {:machine-id machine-id
@@ -359,19 +357,18 @@
        :microsteps microsteps}))
 
 (defn- machine-guard-ev
-  "`:rf.machine/guard-evaluated` trace — drives the HANDLER step's
-  GUARDS sub-section (one row per guard, with outcome
+  "`:rf.machine/guard-evaluated` trace — drives a guard row of the
+  HANDLER step's machine cascade (one row per guard, with outcome
   `:pass / :fail / :threw`)."
   [guard-id outcome]
   (ev :rf.machine :rf.machine/guard-evaluated {:guard-id guard-id
                                                :outcome  outcome}))
 
 (defn- machine-action-ev
-  "`:rf.machine/action-ran` trace — drives the HANDLER step's
-  LIFECYCLE sub-section (one row per action, grouped by `:phase`
-  `:exit / :transition / :entry / :always / :after-action / …` per
-  rf2-82a0u). Optional `:outcome :fx` rides the rf2-9c27r
-  per-action fx attribution."
+  "`:rf.machine/action-ran` trace — drives an action row of the
+  HANDLER step's machine cascade (one row per action, carrying its
+  `:phase` `:exit / :transition / :entry / :always / :after-action /
+  …`). Optional `:outcome :fx` rides the per-action fx attribution."
   ([action-id phase outcome]
    (machine-action-ev action-id phase outcome nil nil))
   ([action-id phase outcome data action-fx]
@@ -385,9 +382,9 @@
           :input     {:data (or data {}) :event nil}}))))
 
 (defn- machine-timer-cancel-ev
-  "`:rf.machine.timer/cancelled` trace — drives the HANDLER step's
-  AFTER-TIMERS sub-section (one row per cancelled timer with
-  `:reason` in the unified rf2-82a0u set)."
+  "`:rf.machine.timer/cancelled` trace — drives a timer row of the
+  HANDLER step's machine cascade (one row per cancelled timer with
+  `:reason` in the unified reason set)."
   [machine-id state delay reason]
   (ev :rf.machine :rf.machine.timer/cancelled
       {:machine-id machine-id
@@ -398,19 +395,19 @@
 ;; ---- schema-violation trace primitives ----------------------------------
 
 (defn- schema-violation-ev
-  "`:rf.error/schema-validation-failure` trace (rf2-17vxj) — the
+  "`:rf.error/schema-validation-failure` trace — the
   runtime per-event boundary check (`:where` in
-  `:app-db / :cofx / :sub-return / :fx-args`). Drives the SCHEMA
-  VIOLATIONS step.
+  `:app-db / :cofx / :sub-return / :fx-args`). The violation attaches
+  inline under its owning step (`attach-violations`).
 
-  Per rf2-2ek7t the trace event also carries `:explain-humanized` —
+  The trace event also carries `:explain-humanized` —
   the Malli-humanized form of the raw `:explain` map. The substrate
   populates this slot via the late-bind `:schemas/humanize-explain!`
   hook (Malli adapter publishes `malli.error/humanize` under it).
   For fixture-replay tests (which bypass the substrate's
   `emit-validation-failure!` helper) we seed a representative
   humanized shape directly so the violation block demonstrates the
-  new chrome — `{<path-leaf> [<message>]}` is the canonical
+  humanized chrome — `{<path-leaf> [<message>]}` is the canonical
   humanize output for a single-error explain."
   [where failing-id path value rollback?]
   (let [path-leaf (if (sequential? path) (last path) path)]
@@ -424,12 +421,10 @@
          :explain-humanized {path-leaf [(str "should be an integer, got "
                                               (pr-str value))]}})))
 
-;; `schema-hot-reload-ev` retired per rf2-w8evg — the standalone
-;; SCHEMA HOT-RELOAD tail step was retired in rf2-7gf7v; hot-reload
-;; drift now surfaces inline (rf2-gbz39 — Issues is no longer a tab;
-;; issues fold into the Epoch panel + the L2 pink-wash + the ribbon
-;; signal), so a fixture helper that synthesises a tail-step trace is
-;; dead weight.
+;; There is no `schema-hot-reload-ev`: there is no SCHEMA HOT-RELOAD
+;; step for a tail-step trace to drive. Hot-reload drift surfaces on
+;; the issues ribbon (Issues is not a tab; issues fold into the Epoch
+;; panel + the L2 pink-wash + the ribbon signal).
 
 ;; ---- epoch-record builder ------------------------------------------------
 
@@ -438,7 +433,7 @@
   projection reads `:trace-events` + `:event-id` + `:dispatch-id`;
   the panel's empty-state branch additionally reads `:epoch-id`.
 
-  rf2-4wywy / rf2-48oc4 — the optional `:db-before` / `:db-after`
+  The optional `:db-before` / `:db-after`
   snapshots are the RAW app-db values the framework records on every
   epoch record (the framework leaves diffs to be computed JIT by
   consumers). The HANDLER step's `:db` sub-section + the FLOW step's
@@ -468,13 +463,13 @@
 ;;
 ;; Section coverage: DISPATCH + COEFFECT + HANDLER (:db-only effect-shape
 ;; flavour, with the `:db` FULL+DIFF sub-section) + SIDE EFFECTS (`:db`
-;; ✓ row — a bare db-only handler that returns ONLY `:db` now lights the
-;; SIDE EFFECTS step's `:db` sub-step because `db-commit?` keys off
-;; `:rf.event/db-changed`, rf2-kt6js) + SUBSCRIPTIONS + VIEWS. The
+;; ✓ row — a bare db-only handler that returns ONLY `:db` lights the
+;; SIDE EFFECTS step's `:db` row because `db-commit?` keys off
+;; `:rf.event/db-changed`) + SUBSCRIPTIONS + VIEWS. The
 ;; simplest possible counter-inc-style cascade — three subs / two views
 ;; / one cofx.
 ;;
-;; rf2-4wywy — the record carries `:db-before` / `:db-after` snapshots
+;; The record carries `:db-before` / `:db-after` snapshots
 ;; + the t1 (`db-pending-ev`) post-handler snapshot so the HANDLER step
 ;; renders its `:db` FULL+DIFF block (the `[:counter] 5 → 6` change) and
 ;; the view's `handler-db-diff-block` resolves a real diff rather than
@@ -503,15 +498,12 @@
       (view-rendered-ev :counter/badge [[:counter/value]] 0.8)
       (run-end-ev 0.5)]}))
 
-;; ---- VARIANT 2: SIDE EFFECTS step (rf2-kt6js) ---------------------------
+;; ---- VARIANT 2: SIDE EFFECTS step ---------------------------------------
 ;;
-;; Section coverage: the SIDE EFFECTS step (badge `:SIDE-EFFECTS`) with
-;; its THREE sub-steps in fixed order `:db → :fx → other`, each carrying
-;; its own per-effect ✓/✗ tick (the shared rf2-ahhgn `:status`
-;; primitive) AND a sub-step ✓/✗ rollup in its header:
-;;
-;; rf2-j630b — the SIDE EFFECTS step renders these as a FLAT ledger (one
-;; row per effect in execution order; no group headers):
+;; Section coverage: the SIDE EFFECTS step (badge `:SIDE-EFFECTS`), a
+;; FLAT ledger — one row per effect in execution order, no group
+;; headers — each row carrying its own per-effect ✓/✗ tick (the shared
+;; `:status` primitive):
 ;;
 ;;   :db    — the handler's app-db write, FIRST in the ledger. ✓ committed
 ;;            (no rollback this variant — the schema-fail rollback rides
@@ -524,36 +516,31 @@
 ;;              ↺ overridden (`:rf.fx/override-applied`)
 ;;              – skipped    (`:rf.fx/skipped-on-platform`; NEUTRAL)
 ;;
-;; rf2-qlvui — there is NO `other` tier in this ledger and this fixture no
-;; longer demos one. It used to carry a stray top-level `:analytics` key,
-;; described here as "an effect the runtime drops" and rendered as a muted
-;; `–` not-run row. THAT TAUGHT THE OPPOSITE OF WHAT THE RUNTIME DOES: a
-;; top-level key outside `re-frame.events/closed-effect-map-keys` is REFUSED
-;; PRE-COMMIT (rf2-04tx) and never reaches do-fx at all, so it is never a
+;; There is NO `other` tier in this ledger, so this fixture demos none. A
+;; top-level key outside `re-frame.events/closed-effect-map-keys` is
+;; REFUSED PRE-COMMIT and never reaches do-fx at all, so it is never a
 ;; not-run row; the refusal surfaces instead as the
 ;; `:rf.error/effect-map-shape` row `attach-unclassified-errors` lands on
-;; this step. rf2-m2ye2 deleted the producer (`other-effect-rows`) at
-;; ed3755729c — see the tombstone in `side-effects-step`'s docstring in
-;; projection.cljc. `:rf.db/runtime` was never an "other" key either: it is
-;; a committed runtime-db state effect with its own row.
+;; this step — see `side-effects-step`'s docstring in projection.cljc.
+;; `:rf.db/runtime` is not an "other" key either: it is a committed
+;; runtime-db state effect with its own row.
 ;;
 ;; The single SIDE EFFECTS badge is the AND-of-rows: this all-actioned
 ;; ledger (the skipped row is neutral) reads ✓.
 ;;
-;; rf2-4wywy — db snapshots + t1 so the HANDLER `:db` FULL+DIFF block
-;; renders alongside the SIDE EFFECTS `:db` ✓ row.
+;; The db snapshots + t1 let the HANDLER `:db` FULL+DIFF block
+;; render alongside the SIDE EFFECTS `:db` ✓ row.
 
 (defn effectful-history
   "`:effectful` cascade (a `reg-event` handler that returns `:db` + a
   three-entry `:fx` vector — a ran effect, an overridden effect, a platform-skipped
   effect).
-  Exercises the SIDE EFFECTS flat ledger (rf2-j630b) — the `:db` →
+  Exercises the SIDE EFFECTS flat ledger — the `:db` →
   app-db row and each per-effect glyph variant — under one ✓/✗ badge.
 
-  rf2-qlvui dropped the stray top-level `:analytics` key this fixture
-  used to return. It demoed an `other` not-run row that no longer
-  exists, and the runtime REFUSES such a map pre-commit rather than
-  dropping the effect — see the note above."
+  The return map carries no top-level key outside the closed
+  effect-map set: the runtime REFUSES such a map pre-commit rather
+  than dropping the effect — see the note above."
   []
   (single-epoch-history
     {:epoch-id  2
@@ -567,9 +554,8 @@
       ;; The handler returned {:db .. :fx [[..] [..] [..]]}.
       ;; The `:db` + `:fx` entries drive the per-effect rows. The
       ;; `:analytics/track` entry below is an ORDINARY `:fx` entry (it
-      ;; demos the overridden glyph); it is not to be confused with the
-      ;; closed-shape-violating TOP-LEVEL `:analytics` key rf2-qlvui
-      ;; removed from this return map.
+      ;; demos the overridden glyph), not a closed-shape-violating
+      ;; TOP-LEVEL key.
       (do-fx-ev {:db       ::placeholder
                  :fx       [[:http/post {:url "/api/orders" :body {:order-id 42}}]
                             [:analytics/track {:event :order-submitted}]
@@ -584,14 +570,14 @@
 
 ;; ---- VARIANT 3: machine-driven cascade ----------------------------------
 ;;
-;; Section coverage (rf2-u69j7): the machine-handler section renders as
-;; a SINGLE TIME-ORDERED CASCADE — one row per substrate emit, in trace
-;; insertion order. Replaces the pre-rf2-u69j7 7-category roll-up
-;; (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA-REDUCTION /
-;; SNAPSHOT-DIFF / FX) with a single cascade view per Mike's bead body.
+;; Section coverage: the machine-handler section renders as a SINGLE
+;; CASCADE — one row per substrate emit, re-sorted panel-side into the
+;; canonical phase order (guard → exit → TRANSITION → entry → always →
+;; after-action → timer) rather than grouped into per-category
+;; sub-sections.
 ;;
 ;; The fixture below richly exercises every cascade row kind + every
-;; rf2-82a0u phase the substrate stamps:
+;; phase the substrate stamps:
 ;;
 ;;   1. guard pass (handshake-valid?)
 ;;   2. guard fail  (retry-budget?) — exercises the fail outcome chip
@@ -606,16 +592,13 @@
 
 (defn machine-history
   "Machine-handler cascade for a `:ws/connection` machine handling
-  `:ws/open` (rf2-u69j7). Exercises every cascade row kind +
-  every rf2-82a0u phase + the long-step warning chrome (the
-  store-session action lands at 18ms — above the 16ms threshold)
-  so the gallery exercises:
+  `:ws/open`. Exercises every cascade row kind + every phase so the
+  gallery exercises:
 
     - kind variety (guard / action / transition / timer)
     - phase variety (exit / transition / entry / always / after-action)
     - outcome variety (pass / fail / ok / threw / cancelled)
-    - per-action data delta + per-action fx attribution
-    - duration warning chrome on a long-running entry action"
+    - per-action data delta + per-action fx attribution"
   []
   (let [before-snap {:state :connecting
                      :data  {:retries 2 :last-error :timeout}}
@@ -663,9 +646,8 @@
                            {:session-id "ws-7821"
                             :opened-at  1700000000000}
                            nil)
-        ;; entry phase emits per-action fx (rf2-9c27r / rf2-u69j7 —
-        ;; surfaces inline on the cascade row, not in a sibling
-        ;; FX sub-section).
+        ;; entry phase emits per-action fx (surfaces inline on the
+        ;; cascade row, not in a sibling FX sub-section).
         (machine-action-ev :ws.open/notify-subscribers
                            :entry
                            {:fx [[:dispatch [:ws/notify :open]]
@@ -695,11 +677,11 @@
         (fx-handled-ev :http/post {:url "/ws/registered"} 4.2)
         (run-end-ev 2.1)]})))
 
-;; ---- VARIANT 4: SIDE EFFECTS `:db` schema-fail rollback (rf2-kt6js) ------
+;; ---- VARIANT 4: SIDE EFFECTS `:db` schema-fail rollback ------------------
 ;;
-;; Section coverage: the SIDE EFFECTS step's `:db` sub-step painting the
-;; ✗ schema-fail rollback (rf2-kt6js + rf2-8resu inline-violation
-;; attachment). The `:where :app-db` runtime boundary failure attaches
+;; Section coverage: the SIDE EFFECTS step's `:db` row painting the
+;; ✗ schema-fail rollback (inline-violation attachment). The
+;; `:where :app-db` runtime boundary failure attaches
 ;; to the SIDE EFFECTS `:db` row (`attach-to-fx-db-row`) so the operator
 ;; reads the failing boundary INLINE with the rejected commit:
 ;;
@@ -707,7 +689,7 @@
 ;;     commit was attempted), so the SIDE EFFECTS step appears with its
 ;;     `:db` row.
 ;;   - `db-effect-row`'s `:status` is `:error` (`db-rolled-back?`), so
-;;     the per-effect tick + the sub-step + the step header all paint ✗.
+;;     the per-effect tick + the step header both paint ✗.
 ;;   - the `:app-db` violation's reason box rides the `:db` row.
 ;;   - `mark-rolled-back-downstream` mutes SUBSCRIPTIONS / VIEWS chrome.
 ;;   - the epoch `:outcome` reads `:error` (a step settled `:error`), so
@@ -715,13 +697,13 @@
 ;;
 ;; The rollback cascade carries NO user `:fx` rows (per Spec 010 the
 ;; `:fx` walk doesn't run when the commit rolls back) — so the SIDE
-;; EFFECTS step here carries ONLY the visibly-red `:db` sub-step.
+;; EFFECTS step here carries ONLY the visibly-red `:db` row.
 
 (defn schema-violations-history
   "Cascade where the app-db boundary schema rejected the handler's `:db`
   write and rolled the cascade back. Exercises the SIDE EFFECTS step's
-  `:db` ✗ schema-fail state (rf2-kt6js): the `:where :app-db` violation
-  attaches to the `:db` row, the step + sub-step + per-effect tick all
+  `:db` ✗ schema-fail state: the `:where :app-db` violation
+  attaches to the `:db` row, the step + per-effect tick both
   paint ✗, and SUBSCRIPTIONS / VIEWS mute downstream."
   []
   (single-epoch-history
@@ -740,33 +722,27 @@
       ;; Validation failure: the handler tried to set :counter to a
       ;; string; the app-db boundary schema rejected the write and
       ;; rolled the cascade back. Attaches to the SIDE EFFECTS step's
-      ;; `:db` row (rf2-8resu / rf2-kt6js) + flips downstream steps muted.
+      ;; `:db` row + flips downstream steps muted.
       (schema-violation-ev :app-db :counter/set [:counter]
                            "not-a-number" true)
       (run-end-ev 0.3)]}))
 
 ;; ---- VARIANT 5: child-dispatching cascade -------------------------------
 ;;
-;; Section coverage: CHILD DISPATCHES step
-;; (`:dispatch / :dispatch-n / :dispatch-later`). The fixture also
-;; pre-pends an OLDER epoch (the `:cart/add` child sitting in the
-;; buffer) so the panel's `find-child-epoch` joins the parent→child
-;; link; the `:audit/log` child has aged out of the buffer (rendered
-;; with the "not in buffer" muted marker) — i.e. no matching
-;; epoch-record carries the parent dispatch-id.
+;; Section coverage: the SIDE EFFECTS step's dispatch-family rows
+;; (`:dispatch / :dispatch-n / :dispatch-later`) — there is no separate
+;; CHILD DISPATCHES step. The fixture also prepends an OLDER epoch (the
+;; `:cart/add` child sitting in the buffer, its `:parent-dispatch-id`
+;; naming the parent's `:dispatch-id`).
 
 (defn child-dispatches-history
-  "Multi-record history: one resolved child cascade in the buffer +
+  "Multi-record history: one child cascade in the buffer +
   one parent cascade whose handler returns `:dispatch` /
-  `:dispatch-n` / `:dispatch-later` fx. The parent's
-  CHILD-DISPATCHES section shows all four rows; only the
-  `:cart/add` row resolves to an epoch-id (the others fall through
-  to the muted not-in-buffer marker because no child epoch records
-  carry the matching parent dispatch-id)."
+  `:dispatch-n` / `:dispatch-later` fx. The parent's SIDE EFFECTS
+  step surfaces those dispatch-family fx."
   []
   [;; OLDER child epoch — present in the buffer, parent-dispatch-id
-   ;; matches the parent's :dispatch-id below. This is the row the
-   ;; CHILD-DISPATCHES section resolves to a "jump to" affordance.
+   ;; matches the parent's :dispatch-id below.
    (-> (epoch-record
          {:epoch-id 50
           :event    [:cart/add :apple]
@@ -835,7 +811,7 @@
 ;; at the outermost :after, transforming the pending :db before the
 ;; single deferred install (per `re-frame.flow`).
 ;;
-;; rf2-xnb1x: the projection splats each flow into its OWN numbered
+;; The projection splats each flow into its OWN numbered
 ;; FLOW step (mirror of the per-cofx COEFFECT split). This fixture
 ;; renders THREE first-class FLOW steps in the cascade — operator
 ;; counts flows by counting circles, not rows-in-a-step.
@@ -843,7 +819,7 @@
 (defn flows-history
   "Cascade triggering three downstream flows — `:cart/total`,
   `:cart/item-count`, `:cart/badge`. Drives THREE numbered FLOW
-  steps in the cascade per the rf2-xnb1x per-flow split."
+  steps in the cascade per the per-flow split."
   []
   (single-epoch-history
     {:epoch-id 6
@@ -887,10 +863,10 @@
      :event    [:counter/init]
      :trace-events []}))
 
-;; ---- VARIANT 11: disposed-subs cascade (rf2-wpfjo) ----------------------
+;; ---- VARIANT 11: disposed-subs cascade ----------------------------------
 ;;
-;; Section coverage: SUBSCRIPTIONS step's DISPOSED sub-section
-;; (rf2-wpfjo). A route change tears down two view-instances; their
+;; Section coverage: SUBSCRIPTIONS step's DISPOSED sub-section.
+;; A route change tears down two view-instances; their
 ;; subs lose their last derefer and evict (`:no-more-derefers`). A
 ;; third sub was re-registered (`:hot-reload`) so the cache cleared.
 ;; One sub recomputes (the new route's root sub).
@@ -899,7 +875,7 @@
   "Cascade where three sub-cache entries are evicted (two by
   `:no-more-derefers` after the prior route's views unmounted, one
   by `:hot-reload` after a re-registration) while one sub recomputes.
-  Exercises the SUBSCRIPTIONS step's DISPOSED sub-section (rf2-wpfjo)
+  Exercises the SUBSCRIPTIONS step's DISPOSED sub-section
   with the full `:reason` closed set."
   []
   (single-epoch-history
@@ -914,9 +890,9 @@
       (sub-dispose-ev [:report/threshold-cfg] :hot-reload)
       (run-end-ev 0.7)]}))
 
-;; ---- VARIANT 10: unmounted-views cascade (rf2-gmw1i) --------------------
+;; ---- VARIANT 10: unmounted-views cascade --------------------------------
 ;;
-;; Section coverage: VIEWS step's UNMOUNTED sub-section (rf2-gmw1i).
+;; Section coverage: VIEWS step's UNMOUNTED sub-section.
 ;; A route change tears down two views; one new view mounts. Exercises
 ;; the `N re-rendered; M unmounted` header counter + the per-row red
 ;; `✗` glyph chrome on the unmounted entries.
@@ -924,7 +900,7 @@
 (defn unmounted-views-history
   "Cascade where two view instances unmount (route change tears down
   the modal + a sidebar item) while one new view re-renders.
-  Exercises the VIEWS step's UNMOUNTED sub-section (rf2-gmw1i)."
+  Exercises the VIEWS step's UNMOUNTED sub-section."
   []
   (single-epoch-history
     {:epoch-id 10
@@ -938,10 +914,10 @@
       (view-unmounted-ev :app.sidebar/CheckoutItem [:CheckoutItem 0])
       (run-end-ev 0.6)]}))
 
-;; ---- rf2-5qp4g — DISPATCH source-kind enrichment fixtures ----------------
+;; ---- DISPATCH source-kind enrichment fixtures ----------------------------
 ;;
-;; Each closed-set substrate-internal `:source` value (rf2-ejtpd:
-;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`,
+;; Each closed-set substrate-internal `:source` value
+;; (`:after-timer`, `:machine-spawn`, `:fx-dispatch`,
 ;; `:fx-dispatch-later`) produces a different rich label on the
 ;; DISPATCH step. One fixture per kind exercises the projection +
 ;; renderer path for that kind.
@@ -951,14 +927,14 @@
   `:rf.event/v` + `:source` of `dispatched-ev` AND admits extra tags
   the substrate stamps for source-kind enrichment (parent-dispatch-id,
   source-detail). Mirrors the shape `re-frame.router/emit-dispatched-
-  trace` produces under rf2-ejtpd."
+  trace` produces."
   [event source extra-tags]
   (ev :rf.event :rf.event/dispatched
       (merge {:rf.event/v event :source source} extra-tags)))
 
 (defn after-timer-source-history
-  "Cascade triggered by a machine `:after` timer firing (rf2-ejtpd ·
-  rf2-5qp4g). The dispatched event is the synthetic
+  "Cascade triggered by a machine `:after` timer firing. The
+  dispatched event is the synthetic
   `[:rf.machine.timer/after-elapsed 250 <epoch> [:active :authenticating]]`
   payload the substrate dispatches when the timer's delay elapses;
   `:source :after-timer` rides the envelope.
@@ -982,9 +958,9 @@
 
 (defn machine-spawn-source-history
   "Cascade triggered by a spawn fx — substrate dispatches the spawned
-  actor's first event with `:source :machine-spawn` (rf2-ejtpd ·
-  rf2-5qp4g). The synthetic-default path emits the spawned-id +
-  `[:rf.machine.spawn/spawned]` payload (rf2-ijm7).
+  actor's first event with `:source :machine-spawn`. The
+  synthetic-default path emits the spawned-id +
+  `[:rf.machine.spawn/spawned]` payload.
 
   Exercises the DISPATCH step's `from machine spawn ·
   :checkout/worker` rich chrome."
@@ -1003,8 +979,8 @@
 
 (defn fx-dispatch-source-history
   "Multi-record history: a parent cascade whose handler returned a
-  `:dispatch` fx, plus the resulting child cascade (rf2-ejtpd ·
-  rf2-5qp4g). The child's `:source :fx-dispatch` rides with
+  `:dispatch` fx, plus the resulting child cascade. The child's
+  `:source :fx-dispatch` rides with
   `:rf.trace/parent-dispatch-id` pointing back to the parent
   cascade's `:dispatch-id` so the DISPATCH step's parent-epoch chip
   resolves and renders as a click-to-navigate button."
@@ -1040,7 +1016,7 @@
 (defn fx-dispatch-later-source-history
   "Multi-record history: a parent cascade whose handler returned a
   `:dispatch-later` fx, plus the resulting child cascade fired by
-  the timer (rf2-ejtpd · rf2-5qp4g).
+  the timer.
 
   The child's dispatched trace carries `:source :fx-dispatch-later`
   + `:rf.trace/parent-dispatch-id` 9001 + the rich
@@ -1078,7 +1054,7 @@
 
 (defn fx-dispatch-orphaned-source-history
   "Child cascade with `:source :fx-dispatch` whose parent has aged
-  out of the buffer (rf2-5qp4g). Exercises the unresolved
+  out of the buffer. Exercises the unresolved
   parent-epoch chrome — a muted plain span carrying the
   parent-dispatch-id so the operator sees the lineage even when the
   parent isn't in the ring."
@@ -1094,10 +1070,10 @@
         {:rf.trace/parent-dispatch-id 99999})
       (run-end-ev 0.2)]}))
 
-;; ---- VARIANT 17: handler-threw EXCEPTION (rf2-ahhgn · rf2-wnvid) ---------
+;; ---- VARIANT 17: handler-threw EXCEPTION ---------------------------------
 ;;
-;; Section coverage: the inline "Exception Thrown" block (rf2-ahhgn,
-;; polished by rf2-wnvid). A handler threw BEFORE returning, so:
+;; Section coverage: the inline "Exception Thrown" block. A handler
+;; threw BEFORE returning, so:
 ;;
 ;;   - the projection's `attach-exceptions` attaches the
 ;;     `:rf.error/handler-exception` to the HANDLER step + stamps it
@@ -1105,15 +1081,14 @@
 ;;     `epoch-outcome` flips `:error` (panel-root `data-rf-xray-outcome`).
 ;;   - the HANDLER `:db` sub-section reads `db-write?` FALSE (no t1, no
 ;;     `:rf.event/db-changed`) → renders the `— no :db (handler threw)`
-;;     placeholder, NOT the phantom full post-cascade app-db (the
-;;     rf2-wnvid PHANTOM-`:db` fix).
-;;   - the error card's `Rolled back` recovery chip stays OFF: there is
-;;     no `:rf.event/db-changed`, so `db-committed?` is false — NO
-;;     SPURIOUS 'Rolled back' (the rf2-wnvid contract).
+;;     placeholder, NOT a phantom full post-cascade app-db.
+;;   - the error card's `Rolled back` recovery chip stays OFF: nothing
+;;     rolled back (no `:where :app-db` schema failure), so
+;;     `db-rolled-back?` is false — NO SPURIOUS 'Rolled back'.
 ;;   - the card's collapsible `<details>` discloses the raw exception's
-;;     `.stack` + `ex-data` (rf2-wnvid) — seeded via a real `ex-info`.
+;;     `.stack` + `ex-data` — seeded via a real `ex-info`.
 ;;
-;; SETTLE-FIRST (rf2-ahhgn): the framework recovers a handler throw and
+;; SETTLE-FIRST: the framework recovers a handler throw and
 ;; settles the epoch-record `:outcome :ok`; the panel's `:error` outcome
 ;; is DERIVED from the trace stream (`epoch-outcome`), NOT that slot —
 ;; so the record carries NO non-`:ok` framework outcome here.
@@ -1122,9 +1097,9 @@
   "Cascade where the event handler threw before returning (the
   `:rf.error/handler-exception` path). Exercises the inline 'Exception
   Thrown' card — message + collapsible stack / ex-data — with NO
-  phantom `:db` and NO spurious 'Rolled back' chip (the handler threw
-  before any commit, so `db-committed?` is false). Drives the
-  `:outcome :error` panel-root flip (rf2-ahhgn)."
+  phantom `:db` and NO spurious 'Rolled back' chip (nothing rolled
+  back, so `db-rolled-back?` is false). Drives the
+  `:outcome :error` panel-root flip."
   []
   (single-epoch-history
     {:epoch-id 25
@@ -1136,7 +1111,7 @@
      [(dispatched-ev [:checkout/charge {:amount 4200 :currency :usd}] :ui)
       ;; NO db-pending (t1) + NO db-changed — the handler threw before
       ;; returning a `:db`, so `db-write?` is false (no phantom :db) and
-      ;; `db-committed?` is false (no spurious 'Rolled back').
+      ;; `db-rolled-back?` is false (no spurious 'Rolled back').
       (handler-exception-ev
         :checkout/charge
         "No payment gateway configured for currency :usd"
@@ -1145,7 +1120,7 @@
                  {:amount 4200 :currency :usd :gateways [:eur :gbp]}))
       (run-end-ev 0.4)]}))
 
-;; ---- VARIANT 18: fx-handler-threw EXCEPTION (rf2-ahhgn) ------------------
+;; ---- VARIANT 18: fx-handler-threw EXCEPTION ------------------------------
 ;;
 ;; Section coverage: a registered fx-handler threw during the post-commit
 ;; fx walk (`:rf.error/fx-handler-exception`). Distinct from VARIANT 17
@@ -1160,7 +1135,7 @@
 ;;   - because the `:db` DID commit (a `:rf.event/db-changed` rode), the
 ;;     card's `Rolled back` chip stays OFF — re-frame2's fx atomicity is
 ;;     pre-commit-transactional / post-commit-best-effort (a post-commit
-;;     fx throw does NOT roll the committed `:db` back; rf2-wnvid).
+;;     fx throw does NOT roll the committed `:db` back).
 
 (defn fx-exception-history
   "`:effectful` cascade whose `:db` committed cleanly but a post-commit
@@ -1168,7 +1143,7 @@
   per-`:fx`-row 'Exception Thrown' card (`attach-to-fx-error-row`), the
   row's ✗ tick, the `1 threw` header chip, and the NO-'Rolled back'
   contract (the committed `:db` is not rolled back on a post-commit fx
-  throw — rf2-wnvid)."
+  throw)."
   []
   (single-epoch-history
     {:epoch-id  26
@@ -1191,12 +1166,11 @@
         {:file "src/app/email.cljs" :line 58})
       (run-end-ev 1.1)]}))
 
-;; ---- VARIANT 19: subscriptions caused-by + input-signals (rf2-1cc03 ·
-;;                  rf2-87c8a) --------------------------------------------
+;; ---- VARIANT 19: subscriptions caused-by + input-signals ----------------
 ;;
 ;; Section coverage: the SUBSCRIPTIONS table's `caused by <event-id>`
-;; cell (rf2-1cc03) + the `inputs` column's static input-signal topology
-;; (rf2-87c8a). A layer-2 derived sub recomputes because an upstream
+;; cell + the `inputs` column's static input-signal topology.
+;; A layer-2 derived sub recomputes because an upstream
 ;; layer-1 sub's value changed:
 ;;
 ;;   - `:rf.sub/cause-event-id` rides each row → the `caused by
@@ -1206,7 +1180,7 @@
 ;;     paints the upstream sub-ids. In the gallery's bare-panel mount
 ;;     the subs aren't registered, so `sub-input-signals`' live
 ;;     `(rf/handler-meta {:source :store :kind :sub :id …})` lookup returns nil and the view falls
-;;     back to the row's `:inputs` slot (the rf2-87c8a fallback arm) —
+;;     back to the row's `:inputs` slot (the fallback arm) —
 ;;     which is exactly what surfaces the upstream sub-ids in the gallery.
 ;;   - the layer-1 root sub (`:cart/items`) carries NO `:inputs` → its
 ;;     inputs cell reads the `app-db` Level-1 label (the contrast the
@@ -1216,8 +1190,8 @@
   "Cascade where a `:cart/add` handler invalidates `:cart/items`
   (layer-1, reads app-db) which cascades to two derived subs
   (`:cart/total`, `:cart/badge`). Exercises the SUBSCRIPTIONS table's
-  `caused by <event-id>` cell (rf2-1cc03) + the static `:input-signals`
-  inputs column (rf2-87c8a) — the layer-1 root reads `app-db`, the
+  `caused by <event-id>` cell + the static `:input-signals`
+  inputs column — the layer-1 root reads `app-db`, the
   derived subs name their upstream input + the invalidating event."
   []
   (single-epoch-history
@@ -1249,7 +1223,7 @@
                    :inputs         [[:cart/total]]})
       (run-end-ev 0.6)]}))
 
-;; ---- VARIANT 20: handler-`:db` vs flow-`:db`-diff (rf2-4wywy · rf2-48oc4)
+;; ---- VARIANT 20: handler-`:db` vs flow-`:db`-diff -----------------------
 ;;
 ;; Section coverage: the HANDLER step's `:db` diff (the handler's OWN
 ;; contribution, post-handler / PRE-flow == t1) rendered as a SEPARATE
@@ -1263,13 +1237,12 @@
 ;;     ONLY `[:cart :items]` changing — NOT the flow's `[:cart :total]`.
 ;;   - the FLOW step reads the t1→t2 pair (`:db-pre-flow` / `:db-post-flow`)
 ;;     so it renders the `[:cart :total] 120 → 195` reshape as its OWN
-;;     `:db` diff — the two contributions are no longer conflated
-;;     (the rf2-4wywy bug).
+;;     `:db` diff — the two contributions stay separate.
 
 (defn handler-flow-db-history
   "Cascade where the handler writes `[:cart :items]` and a downstream
   `:cart/total` flow then writes `[:cart :total]`. Exercises the
-  separation (rf2-4wywy / rf2-48oc4) of the HANDLER step's `:db` diff
+  separation of the HANDLER step's `:db` diff
   (handler-only, t1) from the FLOW step's `:db` diff (the flow's t1→t2
   reshape) — two distinct numbered steps, each scoped to its own change."
   []
@@ -1298,9 +1271,9 @@
         (db-pending-post-flow-ev t2)
         (run-end-ev 0.7)]})))
 
-;; ---- VARIANT 21: INTERCEPTOR :after throw (rf2-yz57h · rf2-mszrz) --------
+;; ---- VARIANT 21: INTERCEPTOR :after throw --------------------------------
 ;;
-;; Section coverage: the NEW conditional INTERCEPTOR step (rf2-yz57h).
+;; Section coverage: the conditional INTERCEPTOR step.
 ;; A user interceptor threw in its `:after` phase — the handler RAN
 ;; successfully (the throw fired on the way OUT), so:
 ;;
@@ -1308,24 +1281,24 @@
 ;;     present when an interceptor threw); its row carries the
 ;;     interceptor `:interceptor-id` + the `:phase :after`.
 ;;   - `attach-exceptions` places the `:rf.error/interceptor-exception`
-;;     UNDER the INTERCEPTOR step (per `exception-op->step`, rf2-yz57h —
-;;     no longer collapsing onto HANDLER) + stamps `:status :error`, so
+;;     UNDER the INTERCEPTOR step (per `exception-op->step`, rather than
+;;     collapsing onto HANDLER) + stamps `:status :error`, so
 ;;     the step header paints ✗ + carries the inline 'Exception Thrown'
 ;;     card; the epoch `:outcome` flips `:error`.
 ;;   - the HANDLER step is NOT skipped (an `:after` throw runs the
 ;;     handler first), so its `:db` write still renders normally.
 ;;
 ;; The `:after` INTERCEPTOR step rides AFTER the HANDLER in the numbered
-;; cascade (rf2-vew2n — the chain's `:after` unwinds on the way OUT, past
+;; cascade (the chain's `:after` unwinds on the way OUT, past
 ;; the handler; the step position reflects that). A `:before` throw's step
 ;; would instead sit BEFORE the handler.
 
 (defn interceptor-after-throw-history
   "Cascade where a user interceptor (`:audit/trail`) threw in its
-  `:after` phase AFTER the handler ran cleanly. Exercises the NEW
-  conditional INTERCEPTOR step (rf2-yz57h): the step renders ✗ with the
+  `:after` phase AFTER the handler ran cleanly. Exercises the
+  conditional INTERCEPTOR step: the step renders ✗ with the
   interceptor id + `:after` phase + the inline 'Exception Thrown' card,
-  while the HANDLER step's `:db` write still rendered (the handler ran —
+  while the HANDLER step's `:db` write renders too (the handler ran —
   an `:after` throw fires on the way out, so the handler is NOT skipped).
   The epoch `:outcome` flips `:error`."
   []
@@ -1347,16 +1320,16 @@
         "Audit sink unreachable (POST /audit 503)"
         {:file "src/app/interceptors.cljs" :line 31})]}))
 
-;; ---- VARIANT 22: upstream :before throw — HANDLER SKIPPED (rf2-yz57h) -----
+;; ---- VARIANT 22: upstream :before throw — HANDLER SKIPPED ----------------
 ;;
-;; Section coverage: the `:skipped` per-step status (rf2-yz57h ⊘ glyph)
+;; Section coverage: the `:skipped` per-step status (⊘ glyph)
 ;; + per-step exception placement UNDER the COEFFECT step. A coeffect
 ;; injector threw on the way IN, so:
 ;;
 ;;   - the projection synthesises a placeholder COEFFECT step keyed on
 ;;     the throwing cofx id (the injector threw before producing a
 ;;     `:rf.cofx/run` trace) so the inline 'Exception Thrown' card has a
-;;     home UNDER the COEFFECT step (rf2-yz57h) rather than on HANDLER.
+;;     home UNDER the COEFFECT step rather than on HANDLER.
 ;;   - `handler-skipped-by-upstream?` is true (a `:before`-chain throw),
 ;;     so `mark-skipped-handler` stamps the HANDLER + SIDE EFFECTS steps
 ;;     `:status :skipped` → the view renders them as SKIPPED (⊘ muted),
@@ -1366,7 +1339,7 @@
 
 (defn coeffect-throw-skipped-history
   "Cascade where a coeffect injector (`:session`) threw on the way IN,
-  so the event handler never ran. Exercises the rf2-yz57h skip path: the
+  so the event handler never ran. Exercises the skip path: the
   throwing cofx's COEFFECT step carries the inline 'Exception Thrown'
   card (✗), and the downstream HANDLER + SIDE EFFECTS steps render as
   SKIPPED (⊘) — the handler body never executed, so it must NOT read
