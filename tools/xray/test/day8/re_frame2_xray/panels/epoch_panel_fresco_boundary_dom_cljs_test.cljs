@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.panels.epoch-panel-fresco-boundary-dom-cljs-test
-  "The Epoch panel re-authored in the re-frame-native view layer, read off a
-  real React commit (rf2-k97c.3).
+  "The Epoch panel in the re-frame-native view layer, read off a real React
+  commit.
 
-  `panels.epoch.view/Panel` is now an `rf.fresco/defview` reading through
+  `panels.epoch.view/Panel` is an `rf.fresco/defview` reading through
   Fresco's shipped collector rather than an `rf/reg-view` reading through
   whatever view build the installed substrate adapter supplies. This file is
-  the behavioural evidence for that swap. Nothing in the fast node lane can
+  the behavioural evidence for that. Nothing in the fast node lane can
   make it: `view_cljs_test` drives the step renderers as pure functions, and
   a boundary's body only runs inside a React render window.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes the
@@ -22,37 +22,34 @@
   Criterion 3 (Xray's own interactions) and criterion 5 (tool activity never
   masquerading as application evidence) have no row HERE, and in both cases
   that is a division of labour rather than a gap. Criterion 5 is structural
-  and identical for every boundary in this migration — a Fresco boundary is
+  and identical for every Fresco boundary — a Fresco boundary is
   not a substrate view render, so there is no `:rf.view/*` op to gate — and
-  `static/flows/panel_fresco_boundary_dom_cljs_test` already carries it with
+  `static/flows/panel_fresco_boundary_dom_cljs_test` carries it with
   its positive `reg-view` control. Criterion 3's affordances here (the
   subscriptions filter bar, the parent-epoch and app-db jump links) dispatch
   through a frame captured at render time by `rf/current-frame-id`, which
-  this migration did not touch and which `view_cljs_test` grades directly.
+  `view_cljs_test` grades directly.
 
   ## THREE READS, AND WHY THE COUNT IS THE POINT
 
   The boundary reads `:rf.xray/epoch-pipeline`,
   `:rf.xray.epoch/parent-epoch-index` and `:rf.xray.epoch/subs-filter-mode`.
-  The filter-mode read used to be performed by a helper deep in the cascade;
-  rf2-k97c.3 hoisted it into the body so the helpers stay pure functions the
-  node lane can drive. W1 and W3 therefore assert on ALL THREE cache entries
-  rather than on one: a hoist that half-landed would leave a read stranded in
-  a helper, where it would raise `:rf.error/fresco-sub-outside-render` on the
-  first render — loudly, which is why W1 asserting the panel painted at all
-  is already most of that claim.
+  The filter-mode read is performed in the body rather than by a helper deep
+  in the cascade, so the helpers stay pure functions the node lane can drive.
+  W1 and W3 therefore assert on ALL THREE cache entries rather than on one: a
+  read stranded in a helper would raise `:rf.error/fresco-sub-outside-render`
+  on the first render — loudly, which is why W1 asserting the panel painted
+  at all is already most of that claim.
 
-  rf2-y8doi.19 SUBSTITUTED the second read, and the count is why that costs
-  this file only one line. It was `:rf.xray/selected-epoch-record` — a second
-  read of the RAW epoch record, which routed around the redaction seam the
-  pipeline sub applies to that record's `:db-before` / `:db-after`, and which
-  disagreed with the pipeline besides (it is deliberately head-fallback-free,
-  so under head-fallback the cascade rendered the head epoch while the `:db`
-  diff beside it got nil). The cascade now takes its record from the
-  pipeline's own `:record`, and the parent-epoch link — the one thing left
-  here that genuinely needs the epoch ring — gets its own narrow sub. Three
-  reads before, three after; the rf2-k97c.3 claim this file guards is about
-  reads not being stranded in helpers, and it survives the swap intact.
+  The second read is the narrow parent-epoch index rather than
+  `:rf.xray/selected-epoch-record`, a second read of the RAW epoch record:
+  that would route around the redaction seam the pipeline sub applies to
+  the record's `:db-before` / `:db-after`, and would disagree with the
+  pipeline besides (it is deliberately head-fallback-free, so under
+  head-fallback the cascade would render the head epoch while the `:db`
+  diff beside it got nil). The cascade takes its record from the
+  pipeline's own `:record`, and the parent-epoch link — the one thing here
+  that genuinely needs the epoch ring — gets its own narrow sub.
 
   ## The mount is the SHELL's mount, taken from the registry
 
@@ -61,8 +58,8 @@
   [[mount-panel!]] does exactly that, and it reaches `:panel` THROUGH
   `panel-registry/tab-by-id :dynamic :epoch` rather than naming the var — so
   the BRIDGE the registry actually holds is the thing under test. That
-  matters more here than the phrasing suggests: `Panel` is a React component
-  now, `reg-l4-tab!`'s `:pre` requires `:panel` to be CALLABLE, and a
+  matters more here than the phrasing suggests: `Panel` is a React
+  component, `reg-l4-tab!`'s `:pre` requires `:panel` to be CALLABLE, and a
   registration left pointing at `Panel` rather than `Panel-bridge` reddens
   here rather than in a browser.
 
@@ -71,10 +68,10 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports, because
+  A ratom-family adapter, which is a family Xray supports, because
   the claim being made is that the boundary is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing: the fixture's default ambient scope
-  is still in effect during a synchronous `flushSync`, and tier 1 of the
+  is in effect during a synchronous `flushSync`, and tier 1 of the
   frame resolver is the dynamic var, so an ambient frame would SHADOW the
   React-context tier W1's frame-targeting row is about — and that row would
   pass while measuring nothing.
@@ -108,7 +105,7 @@
   cache key."
   [:rf.xray/epoch-pipeline])
 
-;; rf2-y8doi.19 — THE ARGUMENT IS PART OF THE KEY, so it is spelled here.
+;; THE ARGUMENT IS PART OF THE KEY, so it is spelled here.
 ;; The sub cache is keyed by the whole query vector (spec/006 §Host value
 ;; model), and the boundary issues this one with the dispatch ids THIS
 ;; cascade carries. The fixture's cascade has no parent dispatch, so
@@ -259,11 +256,11 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-reads-land-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Epoch panel commits real DOM through
+  (testing "the Epoch panel commits real DOM through
             the registry entry the Dynamic shell mounts, and each of its
             three `rf.fresco/sub` reads resolves against the frame the
             enclosing `frame-provider` named rather than the ambient one.
-            Epic criteria 1 and 4."
+            Criteria 1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -307,9 +304,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panel re-renders itself and commits new
+  (testing "the mounted panel re-renders itself and commits new
             DOM when its read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control that
+            nothing it watches moved. Criterion 2, with the control that
             makes the update mean liveness rather than a commit that simply
             had not happened yet."
     (if-not (browser?)
@@ -367,12 +364,12 @@
 ;; ===========================================================================
 
 (deftest w3-unmount-releases-the-reads-and-reopen-does-not-grow-them
-  (testing "rf2-k97c.3 — unmounting the panel releases ALL THREE subscription
+  (testing "unmounting the panel releases ALL THREE subscription
             references completely, and mounting it again returns to the SAME
-            counts rather than higher ones. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+            counts rather than higher ones. Criterion 6, and the number a
+            leaky binding shows on: a four-call interop binding would make
+            the `:rf/xray` ref-count climb across renders and never fall on
+            unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once: the collector gives a cell whose last reader
