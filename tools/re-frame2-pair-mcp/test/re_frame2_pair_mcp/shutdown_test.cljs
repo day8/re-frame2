@@ -1,14 +1,13 @@
 (ns re-frame2-pair-mcp.shutdown-test
-  "stdin-EOF session teardown (rf2-j538f7.32).
+  "stdin-EOF session teardown.
 
   The MCP host owns process lifecycle: when it closes stdin, Node reaches
   EOF and the server must retire the session — close the persistent nREPL
-  socket and exit 0. Before the fix no `process.stdin` `end` listener was
-  installed, so a completed tool's idle nREPL socket kept the event loop
-  alive indefinitely.
+  socket and exit 0. Without a `process.stdin` `end` listener, a completed
+  tool's idle nREPL socket would keep the event loop alive indefinitely.
 
   These are the hermetic unit counterparts to the real-boundary subprocess
-  regression (`test/stdin-eof-shutdown.cjs`): they grade `shutdown!`'s
+  test (`test/stdin-eof-shutdown.cjs`): they grade `shutdown!`'s
   teardown ordering and one-shot idempotency directly, with an injected
   `exit-fn` so no process actually exits and no npm SDK / live shadow is
   required."
