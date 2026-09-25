@@ -686,8 +686,7 @@ legitimate, but it must be labelled. In the normalized plan, top-level
 `:sub-overrides` lowers to `[:world :render :sub-overrides]` and
 `:db-seed` lowers to `[:world :db-seed]` (see §Setup — Direct app-db
 seeding); `:fidelity` is computed from the resolved world inputs, so
-authors SHOULD NOT have to type it. All three rungs are wired end-to-end
-(rf2-blw1q closed the `:db-seed` middle-rung gap).
+authors SHOULD NOT have to type it. All three rungs are wired end-to-end.
 
 **Compiler contract (as implemented).** The plan compiler
 (`re-frame.story.plan`):
@@ -741,8 +740,8 @@ same rule decorators follow). A consumer reading `(:sub-overrides body)`
 straight off the side-table would see only the variant's OWN slot and drop
 the composed / inherited overrides.
 
-**Render-path read + the honesty rule (rf2-7pgiz — wired).** Overrides
-feed the RENDER PATH only, and they now **surface at render**: a
+**Render-path read + the honesty rule.** Overrides
+feed the RENDER PATH only, and they **surface at render**: a
 normally-authored view's `@(rf/subscribe [:q])` paints the pinned value
 with no events, no app-db seed. The carriage is a React context
 (`re-frame.adapter.sub-override-context`), NOT a dynamic var — the var
@@ -772,7 +771,7 @@ assertion. Subscription correctness is proven by real setup events, a
 schema-checked app-db seed, or `compute-sub`, never by an override (unless
 a future assertion explicitly opts into override-source semantics).
 
-**Override schema-validation (rf2-7pgiz fold-in).** When an override HIT
+**Override schema-validation.** When an override HIT
 targets a sub that declares an output `:schema`, the pinned value is
 validated against that schema (dev-only, through the same registered
 validator [010 §`:sub-return`](../../../spec/010-Schemas.md#validation-order-on-event-processing)
@@ -2964,7 +2963,7 @@ listener — even if `body` throws. It:
   registers a counted failure;
 - reports each violation **exactly once per failing epoch** — a
   re-fire of the same record (a back-filled render re-notify, §Run
-  result) is de-duplicated on the `[invariant-id epoch-id]` key;
+  result) is de-duplicated on the `[invariant-id frame epoch-id]` key;
 - reports a `:pass` for every invariant that held across the run, so a
   green sentinel is visible rather than silent;
 - **NEVER throws from the epoch listener**: a violated OR a broken
