@@ -117,13 +117,13 @@
                ;; `args.cljc` (the cross-MCP `args/parse-boolean` reader)
                ;; and the slot schema lives in
                ;; `schemas.cljc` (`include-sensitive-schema` injector).
-               ;; No `sensitive.cljc` (the path was a stale guess from
-               ;; the re-frame2-pair-mcp shape that doesn't apply to story-mcp).
+               ;; No `sensitive.cljc` (that is the re-frame2-pair-mcp
+               ;; shape, which doesn't apply to story-mcp).
                :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/args.cljc"
                            "tools/story-mcp/src/re_frame/story_mcp/tools/schemas.cljc"]}
     :doc      "Opt-in boolean — pass `true` to disable the spec/009 §Privacy
                default-drop on `:sensitive? true` items. Default false.
-               Wire-key has no trailing `?` (per rf2-y710n) because the
+               Wire-key has no trailing `?` because the
                Anthropic tools/input_schema regex
                `^[a-zA-Z0-9_.-]{1,64}$` rejects `?`. The predicate FUNCTION
                name `include-sensitive?` (e.g. `args/include-sensitive?`)
@@ -180,9 +180,9 @@
 
   The unqualified MCP-surface wire-key `:include-sensitive` (no `?`
   per Anthropic's tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$`) is
-  DELIBERATELY NOT in this set (rf2-njudn8): it is a per-server wire
+  DELIBERATELY NOT in this set: it is a per-server wire
   surface key, not an mcp-base constant — its only appearance in
-  vocab.cljc is a docstring MENTION, so pinning it here asserted a
+  vocab.cljc is a docstring MENTION, so pinning it here would assert a
   source-of-truth constant that does not exist and could only ever be
   satisfied by prose. Its cross-server wire parity is enforced with
   teeth by Gate 1 (`canonical-slot-literal-appears-in-every-contracted-server`,
@@ -336,7 +336,7 @@
                   files)
             (str "Slot literal " literal " missing from " server
                  " sources: " files
-                 " (full-token match — substring tolerance dropped per rf2-ihq4d)."
+                 " (full-token match — a substring match does not count)."
                  "\nIf the slot moved to a new file, extend the "
                  ":sources entry for " server "."))))))
 
@@ -398,7 +398,7 @@
 
 (deftest mcp-base-vocab-pins-the-canonical-slot-keywords
   ;; Match against `rf.mcp-conformance.fixtures/strip-comments-and-strings`-neutered source
-  ;; (rf2-njudn8): each namespaced walker-opt keyword is named in a
+  ;; — each namespaced walker-opt keyword is named in a
   ;; docstring AS WELL AS being DEF'd, so a raw `str/includes?` stays
   ;; green when the real `(def ...)` constant is removed but its prose
   ;; mention survives — no teeth against a constant removal. Stripping
