@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.views.edn-inspector-popup-cljs-test
-  "Unit tests for the edn-inspector popup overlay (rf2-s0x6x — phase
-  6 of rf2-oqa60).
+  "Unit tests for the edn-inspector popup overlay.
 
   ## What's under test
 
@@ -16,16 +15,15 @@
      body containing the wrapped edn-inspector widget.
   4. **Per-mount isolation** — the embedded widget's `:panel-id` is
      derived from the popup's mount-id, so two popups inspecting the
-     same value have independent expansion state. (The distinct-UUID
-     rows went with the inline `edn-inspector-popup` component under
-     rf2-bcub; a mount-id is the opening caller's to mint now.)
+     same value have independent expansion state. (A mount-id is the
+     opening caller's to mint.)
   5. **Close affordances** — Esc key handler dispatches
      `:close-top`; backdrop click + ✕ button both invoke
      `close-fn`; caller-supplied `:on-close` overrides the
      default rf-dispatch.
 
-  Pure-data unit tests; no DOM mount. Default for new
-  Xray/Story tests per the Xray/Story-as-CLJS-unit-test ruling."
+  Pure-data unit tests; no DOM mount, which is the default shape
+  for Xray/Story tests."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -497,14 +495,14 @@
 ;; stack view — renders every open entry; closed-state short-circuits
 ;; =========================================================================
 ;;
-;; rf2-k97c.3 — `edn-inspector-popup-stack` is now an
+;; `edn-inspector-popup-stack` is an
 ;; `rf.fresco/as-component` bridge and answers an interop vector, not a
 ;; tree to walk. The markup is `popup-stack-tree`, a pure fn of the values
 ;; the boundary reads.
 ;;
 ;; The helper below reproduces the boundary's gate and reads EXACTLY —
 ;; same gate, same order, same query vectors — so every row here asserts
-;; on the same hiccup it did before, and a boundary that stopped reading
+;; on the hiccup the boundary renders, and a boundary that stopped reading
 ;; one of these slots would diverge from its own test helper rather than
 ;; silently agreeing with it.
 ;;
@@ -514,8 +512,8 @@
 ;; — is the browser lane's subject.
 
 (defn- popup-stack-tree
-  "What calling the stack view directly returned before the migration:
-  nil while the stack is empty, the container otherwise."
+  "The hiccup the stack boundary renders: nil while the stack is
+  empty, the container otherwise."
   []
   (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
     (when (seq stack)
@@ -564,19 +562,17 @@
         "popup-count attribute reflects stack depth")))
 
 ;; =========================================================================
-;; rf2-y8doi.24 — the popup FORWARDS its opts
+;; the popup FORWARDS its opts
 ;; =========================================================================
 ;;
-;; `popup-chrome` used to destructure five known keys out of `opts` and
-;; hand the embedded widget a freshly-built FOUR-key map. Everything
-;; else the caller passed was dropped on the floor — `:zoomable?`,
-;; `:card?`, `:header`, `:added?`, `:before`.
-;;
-;; The opts really are present by then: `popup-affordance-button` in
-;; `views.edn-inspector` forwards the originating mount's whole opts
-;; map into the open payload. The popup was the only thing discarding
-;; them, so a value you popped out PRECISELY BECAUSE it was cramped
-;; arrived stripped of the affordances the cramped mount had.
+;; `popup-affordance-button` in `views.edn-inspector` forwards the
+;; originating mount's whole opts map into the open payload, and
+;; `popup-chrome` forwards it on to the embedded widget — `:zoomable?`,
+;; `:card?`, `:header`, `:added?`, `:before` and whatever else the
+;; caller passed. A popup that handed the widget a freshly-built map of
+;; a few known keys would drop the rest on the floor, so a value popped
+;; out PRECISELY BECAUSE it was cramped would arrive stripped of the
+;; affordances the cramped mount had.
 ;;
 ;; `:inspector` is the seam these tests drive: `popup-chrome` takes a
 ;; 3-arg `(fn [mount-id value opts])` for the embedded widget's head,
@@ -607,7 +603,7 @@
                              :max-inline-width 120})]
     (is (map? out) "the inspector seam was called with an opts map")
     (is (true? (:zoomable? out))
-        ":zoomable? reaches the widget — the item's named example")
+        ":zoomable? reaches the widget")
     (is (true? (:card? out))     ":card? reaches the widget")
     (is (= "Payload" (:header out)) ":header reaches the widget")
     (is (true? (:added? out))    ":added? reaches the widget")
@@ -615,14 +611,14 @@
         "an explicitly-passed width still wins")))
 
 (deftest popup-defers-to-the-widgets-own-expansion-ceiling
-  ;; The item's other half: the popup hardcoded a `:default-expanded-
-  ;; depth` of 2 while the widget's own ceiling is 8, so the ROOMY
-  ;; popup auto-expanded LESS than the cramped inline mount it was
-  ;; opened from — exactly backwards.
+  ;; The other half: the popup passes no `:default-expanded-depth` of
+  ;; its own, so the widget applies its own ceiling (8). A popup-specific
+  ;; shallower depth would make the ROOMY popup auto-expand LESS than the
+  ;; cramped inline mount it was opened from — exactly backwards.
   (let [out (forwarded-opts {})]
     (is (nil? (:default-expanded-depth out))
         "no caller value — the popup passes no depth, so the widget
-         applies its own ceiling rather than the popup's old hardcoded 2"))
+         applies its own ceiling"))
   (let [out (forwarded-opts {:default-expanded-depth 3})]
     (is (= 3 (:default-expanded-depth out))
         "a caller who DOES ask for a depth still gets it")))
