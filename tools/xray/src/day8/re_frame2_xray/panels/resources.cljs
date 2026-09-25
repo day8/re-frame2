@@ -498,7 +498,7 @@
         "owners " (count (:owners row))])
      [:span {:data-testid (str testid "-id")
              :style {:color (:text-tertiary tokens)}}
-      (str (:work-id row))]]))
+      (:work-id-text row)]]))
 
 (defn- live-work-section [{:keys [live-work stale-tally]}]
   ;; quiet when nothing is running AND nothing has been suppressed.
@@ -559,7 +559,7 @@
       "phases " (str/join " " (sort (map name (:phases arc))))]
      [:span {:data-testid (str testid "-id")
              :style {:color (:text-tertiary tokens)}}
-      (str (:work-id arc))]]))
+      (:work-id-text arc)]]))
 
 (defn- stale-races-section [stale-races]
   (let [suppressed (->> (vals stale-races)
@@ -1546,9 +1546,13 @@
          ;; resources artefact is the only family writing the ledger; any
          ;; family that writes its own ledger rows + emits its reply-envelope
          ;; trace ops surfaces here with no panel change (one vocabulary,
-         ;; many families).
-         :live-work     (reply/live-work ledger frame-buffer)
-         :stale-races   (reply/races-by-work-id frame-buffer)
+         ;; many families). `:live-work` and `:stale-races` take the
+         ;; resource-id gate for their rows' `:work-id-text`: a resource
+         ;; work-id embeds its scoped key, so printing it raw would show a
+         ;; sensitive resource's scope and params beside the rows that
+         ;; redact them.
+         :live-work     (reply/live-work ledger frame-buffer sensitive-rids)
+         :stale-races   (reply/races-by-work-id frame-buffer sensitive-rids)
          :stale-tally   (reply/stale-tally-by-kind frame-buffer)
          :route-graph   (let [current (h/routing-current routing-slice)]
                           (h/project-route-graph

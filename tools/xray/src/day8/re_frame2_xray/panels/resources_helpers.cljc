@@ -450,7 +450,10 @@
 ;; same read, so redacting some of them and printing the rest is the leak in a
 ;; different shape. The METADATA (operation, label, class, resource-id,
 ;; generation, work-id, owner, status, tags, counts) is never redacted — a
-;; redacted row still shows the whole lifecycle SHAPE.
+;; redacted row still shows the whole lifecycle SHAPE. A resource work-id
+;; embeds its scoped key, so a row keeps the raw work-id for keys and joins
+;; and renders `work-id-text`, which prints that key's scope and params
+;; through the same gate.
 ;;
 ;; NOT applied to `scope-resolutions`: its rows are named-scope RESOLVER
 ;; resolutions, whose `:resource-id` tag carries the RESOLVER id (see the
@@ -489,6 +492,26 @@
   `[redacted]` and no preview, identically to an upstream-redacted slot."
   [eg sensitive?]
   (if sensitive? (constantly redacted-sentinel) eg))
+
+(defn work-id-text
+  "The on-box display text of a work-id. A resource work-id
+  `[:rf.work/resource <scoped-key> <generation>]` embeds its scoped key, so
+  printing it prints the same scope and params the row's value slots
+  redact. For a work-id whose scoped key names a resource in
+  `sensitive-rids`, the scope and params print as the redaction sentinel
+  through `sensitive-eg`, while the head, resource-id and generation stay
+  readable. Any other work-id, and every work-id when no set is threaded,
+  prints as-is.
+
+  Text only: the raw work-id stays the row's React key, join key and
+  cancellation identity."
+  [work-id sensitive-rids]
+  (str (if-let [rid (when (and (vector? work-id) (= 3 (count work-id)))
+                      (scoped-key-resource-id (nth work-id 1)))]
+         (let [[head [scope _ params] generation] work-id
+               eg (sensitive-eg identity (names-sensitive? sensitive-rids [rid]))]
+           [head [(eg scope) rid (eg params)] generation])
+         work-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; Static resource registry projection (Spec 016 §Xray and AI tooling).

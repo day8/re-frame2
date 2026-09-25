@@ -64,7 +64,11 @@
   arrives as `:rf/redacted` and a `:large?` slot as
   `:rf.size/large-elided`; we never render a raw payload. The IDENTITY
   facts (work id, kind, status, attempt, frame, timestamps, cancel/stale
-  reasons) are framework bookkeeping and ride verbatim.
+  reasons) are framework bookkeeping and ride verbatim. A resource work id
+  embeds its scoped key, so the live-work and stale-race rows also carry
+  `:work-id-text`, the display text `resources-helpers/work-id-text`
+  builds: given the `sensitive-resource-ids` set, it prints a
+  `:sensitive?` resource's scope and params as the redaction sentinel.
 
   ## Pure
 
@@ -793,27 +797,34 @@
   `:completed` row, `:stale` if it was stale-suppressed, else nil (still
   in-flight). `:suppressed?` flags an arc that hit the stale-suppression
   correctness boundary. Rows with no `:work/id` (a non-ledger-backed managed
-  async) are grouped under the `nil` key. Pure."
-  [trace-buffer]
-  (let [rows (project-work-events trace-buffer)]
-    (->> rows
-         (group-by :work-id)
-         (reduce-kv
-           (fn [acc work-id grp]
-             (let [phases       (into #{} (map :phase) grp)
-                   completed    (some #(when (= :completed (:phase %)) (:status %)) grp)
-                   suppressed?  (contains? phases :stale-suppressed)
-                   terminal     (cond completed   completed
-                                      suppressed? :stale
-                                      :else       nil)]
-               (assoc acc work-id
-                      {:work-id         work-id
-                       :work-kind       (some :work-kind grp)
-                       :rows            (vec grp)
-                       :phases          phases
-                       :terminal-status terminal
-                       :suppressed?     suppressed?})))
-           {}))))
+  async) are grouped under the `nil` key.
+
+  Each arc also carries `:work-id-text`, the work id's display text. Pass
+  `sensitive-rids` (the `sensitive-resource-ids` set) and it prints a
+  `:sensitive?` resource's scope and params as the redaction sentinel; the
+  arc's `:work-id` and the map key stay raw. Pure."
+  ([trace-buffer] (races-by-work-id trace-buffer nil))
+  ([trace-buffer sensitive-rids]
+   (let [rows (project-work-events trace-buffer)]
+     (->> rows
+          (group-by :work-id)
+          (reduce-kv
+            (fn [acc work-id grp]
+              (let [phases       (into #{} (map :phase) grp)
+                    completed    (some #(when (= :completed (:phase %)) (:status %)) grp)
+                    suppressed?  (contains? phases :stale-suppressed)
+                    terminal     (cond completed   completed
+                                       suppressed? :stale
+                                       :else       nil)]
+                (assoc acc work-id
+                       {:work-id         work-id
+                        :work-id-text    (rh/work-id-text work-id sensitive-rids)
+                        :work-kind       (some :work-kind grp)
+                        :rows            (vec grp)
+                        :phases          phases
+                        :terminal-status terminal
+                        :suppressed?     suppressed?})))
+            {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; \"What is still running?\" — work-ledger rows joined to reply status +
@@ -867,47 +878,55 @@
        :started-at   …  :deadline-at …
        :attempt      <n>
        :transport    :rf.http/managed
-       :outcome      <summary>}                  ; terminal-row outcome summary
+       :outcome      <summary>                   ; terminal-row outcome summary
+       :work-id-text <string>}                   ; the work id's display text
 
   PRIVACY: `:causes` + `:outcome` are summarized (a cause may carry data).
+  `:work-id-text` prints the scope and params of a work id naming a
+  resource in `sensitive-rids` as the redaction sentinel
+  (`resources-helpers/work-id-text`); `:work-id` stays raw for the joins.
   The host handles (AbortControllers / promises / timer handles) live in a
   side table and are STRUCTURALLY absent from the serializable record
   (Managed-Effects §The reply map — the data-only invariant). Pure."
-  [[map-key record]]
-  (let [status (:status record)
-        ;; The production `:rf.runtime/work-ledger` map is keyed on the opaque
-        ;; CEDN-1 byte `work-id-id` STRING (resources/work-ledger §record-path);
-        ;; the kind-preserving work-id VECTOR is carried on the record as
-        ;; `:work/id`. Read the canonical vector from there — fall back to the
-        ;; map key only for a nonconforming record that lacks the stamp —
-        ;; so the displayed `:work-id`, the `:work-kind` inference, AND the
-        ;; live-work trace join all key on the kind-preserving identity, NOT the
-        ;; byte string. Mirror of resources-helpers/work-row.
-        work-id (or (:work/id record) map-key)]
-    {:work-id      work-id
-     :work-kind    (or (:work/kind record) (:kind record) (infer-work-kind work-id))
-     :status       status
-     :live?        (live? status)
-     :frame        (or (:work/frame record) (:frame-id record) (:rf.frame/id record))
-     :owners       (vec (:owners record))
-     :causes       (mapv rh/summarize (:causes record))
-     :cancellable? (boolean (:cancellable? record))
-     :started-at   (:started-at record)
-     :deadline-at  (or (:deadline-at record) (:deadline record))
-     :attempt      (or (:attempt record) (:generation record))
-     :transport    (:transport record)
-     :outcome      (when (contains? record :outcome) (rh/summarize (:outcome record)))}))
+  ([entry] (ledger-row entry nil))
+  ([[map-key record] sensitive-rids]
+   (let [status (:status record)
+         ;; The production `:rf.runtime/work-ledger` map is keyed on the opaque
+         ;; CEDN-1 byte `work-id-id` STRING (resources/work-ledger §record-path);
+         ;; the kind-preserving work-id VECTOR is carried on the record as
+         ;; `:work/id`. Read the canonical vector from there — fall back to the
+         ;; map key only for a nonconforming record that lacks the stamp —
+         ;; so the displayed `:work-id`, the `:work-kind` inference, AND the
+         ;; live-work trace join all key on the kind-preserving identity, NOT the
+         ;; byte string. Mirror of resources-helpers/work-row.
+         work-id (or (:work/id record) map-key)]
+     {:work-id      work-id
+      :work-id-text (rh/work-id-text work-id sensitive-rids)
+      :work-kind    (or (:work/kind record) (:kind record) (infer-work-kind work-id))
+      :status       status
+      :live?        (live? status)
+      :frame        (or (:work/frame record) (:frame-id record) (:rf.frame/id record))
+      :owners       (vec (:owners record))
+      :causes       (mapv rh/summarize (:causes record))
+      :cancellable? (boolean (:cancellable? record))
+      :started-at   (:started-at record)
+      :deadline-at  (or (:deadline-at record) (:deadline record))
+      :attempt      (or (:attempt record) (:generation record))
+      :transport    (:transport record)
+      :outcome      (when (contains? record :outcome) (rh/summarize (:outcome record)))})))
 
 (defn project-ledger
   "Project a frame's work-ledger map `{<work-id> <record>}` into the uniform
   cross-family work/reply rows, live (non-terminal) work first then the
   terminal recent-races tail, each group newest-first by `:attempt`. Per
-  Managed-Effects §Work-ledger integration. Pure."
-  [ledger]
-  (->> (or ledger {})
-       (mapv ledger-row)
-       (sort-by (juxt (complement :live?) (comp - (fnil identity 0) :attempt)))
-       vec))
+  Managed-Effects §Work-ledger integration. Optional `sensitive-rids` is
+  threaded to `ledger-row` for the rows' `:work-id-text`. Pure."
+  ([ledger] (project-ledger ledger nil))
+  ([ledger sensitive-rids]
+   (->> (or ledger {})
+        (mapv #(ledger-row % sensitive-rids))
+        (sort-by (juxt (complement :live?) (comp - (fnil identity 0) :attempt)))
+        vec)))
 
 (defn latest-phase-by-work-id
   "Index the LATEST reply-envelope trace phase observed per `:work/id` across
@@ -941,11 +960,14 @@
 
   The single-arity form (ledger only) returns the live rows without the trace
   join (the ledger row's own `:status` is the live fact; the trace phase is
-  the enrichment)."
+  the enrichment). Optional `sensitive-rids` (the `sensitive-resource-ids`
+  set) is threaded to `ledger-row` for the rows' `:work-id-text`; the join
+  keys on the raw `:work-id`."
   ([ledger] (live-work ledger nil))
-  ([ledger trace-buffer]
+  ([ledger trace-buffer] (live-work ledger trace-buffer nil))
+  ([ledger trace-buffer sensitive-rids]
    (let [phase-by-id (when (seq trace-buffer) (latest-phase-by-work-id trace-buffer))]
-     (->> (project-ledger ledger)
+     (->> (project-ledger ledger sensitive-rids)
           (filterv :live?)
           (mapv (fn [row]
                   (if-let [ph (get phase-by-id (:work-id row))]
