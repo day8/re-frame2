@@ -24,8 +24,9 @@
 
   ## Voice + colour
 
-  Matches the rest of the Story shell chrome: `#252526` panel ground,
-  `#cccccc` body text, `#b0b0b0` muted labels — all foreground colours
+  Matches the rest of the Story shell chrome through the theme tokens:
+  `:overlay-glass` panel ground, `:text-primary` body text,
+  `:text-secondary` muted labels — all foreground colours
   meet WCAG AA against the panel ground. Tight bulleted copy — no
   paragraphs.
 
@@ -178,7 +179,7 @@
    "t" "toggle the toolbar."})
 
 (defn help-content
-  "The body of the help overlay — pure hiccup, factored out so future
+  "The body of the help overlay — pure hiccup, factored out so
   tests can render it in isolation and so the copy stays in one place.
 
   Total copy: ~150 words, bulleted, tight."
@@ -230,8 +231,9 @@
        [kw k]
        (when-let [desc (get shortcut-descriptions k)]
          (str " — " desc))])
-    ;; ⌘K / Esc stay hand-written: the palette and the full-screen
-    ;; overlay own their own listeners, outside the registry.
+    ;; ⌘K / Esc are hand-written rows: neither is in the `bindings`
+    ;; table (the palette owns its own listener; the keybindings
+    ;; dispatcher and each overlay special-case Escape).
     [:li {:style (:list-item styles)}
      [kw "⌘K"] " / " [kw "Ctrl-K"] " — open the command palette."]
     [:li {:style (:list-item styles)}
