@@ -14,8 +14,8 @@
   map the frame was dissoc'd from RESURRECTS the entry rather than
   failing — the a11y analogue of the `(inc nil)` resurrection on the
   play-runner's `record-result!` path. The phantom slot would read
-  `:done`, and the resurrected `violations-by-frame` entry beside it is
-  what the below-the-UI executor seam (`browser/register-a11y-reader!`)
+  `:done`, and the resurrected `violations-by-frame` entry beside it would
+  be what the below-the-UI executor seam (`browser/register-a11y-reader!`)
   serves to `:rf.assert/a11y`. A scan of a frame that is GONE reporting a
   clean verdict: a fabricated green, not a hang and not an exception.
   `no-throw-and-no-resurrection` below asserts BOTH halves — that it does
