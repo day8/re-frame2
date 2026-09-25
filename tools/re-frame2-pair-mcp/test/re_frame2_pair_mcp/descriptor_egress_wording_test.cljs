@@ -11,8 +11,8 @@
       `:elision false` does NOT bypass: the rendered form always calls
       `re-frame.core/project-egress`, and a bare `:elision false` keeps
       the `:rf.egress/off-box-tool` boundary with only a large-inclusion
-      overlay — large passes, declared-sensitive slots still redact
-      (rf2-kuky.88). The bypass wording would train clients/tests to treat
+      overlay — large passes, declared-sensitive slots still redact.
+      The bypass wording would train clients/tests to treat
       a direct read as a projection bypass rather than a profile/gate-
       controlled egress.
     - `snapshot` must NOT say the `:machines` slice \"passes through
@@ -36,7 +36,7 @@
   authoritative check is the absence of the misleading claims. The
   positive posture (`:rf.egress/off-box-tool` default + trusted-local
   opt-in threading through projection) is asserted as a presence check on
-  the two amended tools."
+  the two direct-read tools, `get-path` and `snapshot`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.registry :as registry]))
@@ -58,14 +58,14 @@
    "redact-interceptor"])                        ; not part of the public API
 
 (deftest no-direct-read-descriptor-advertises-a-raw-bypass
-  (testing "no published MCP description carries a retired / ungated egress claim"
+  (testing "no published MCP description carries a false / ungated egress claim"
     (doseq [[tool desc] description-by-name
             phrase forbidden-phrases]
       (is (not (str/includes? desc phrase))
-          (str tool "'s description must not claim '" phrase "' — the landed "
+          (str tool "'s description must not claim '" phrase "' — the "
                "egress impl fails closed (sensitive still redacts) and "
-               "redact-interceptor is retired (EP-0015). Update the descriptor "
-               "source + regenerate tool-descriptors.edn (rf2-nu98y7, rf2-e47yxs).")))))
+               "redact-interceptor is not public API (EP-0015). Update the descriptor "
+               "source + regenerate tool-descriptors.edn.")))))
 
 (deftest amended-descriptors-state-the-ep-0015-posture
   (testing "get-path / snapshot describe the off-box-tool profile + trusted-local opt-in"
@@ -84,12 +84,12 @@
           "snapshot must say :machines egresses redacted under the off-box-tool profile"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ealv5 / rf2-3x7nj.32.4 — the size override is honoured on EVERY
-;; launch; only `include-sensitive` is launch-gated. The descriptions
-;; used to say `elision false` was honoured only under
-;; `--allow-sensitive-reads` (snapshot: "else both forced safe"), and the
-;; shared knob said nothing about a gate at all — two contradicting
-;; halves of one contract, neither true after the un-gating.
+;; The size override is honoured on EVERY launch; only `include-sensitive`
+;; is launch-gated, and the descriptions must say so. A description saying
+;; `elision false` is honoured only under `--allow-sensitive-reads`
+;; (snapshot: "else both forced safe"), beside a shared knob saying nothing
+;; about a gate at all, would state two contradicting halves of one
+;; contract, neither of them true.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private knob-description
@@ -115,9 +115,9 @@
         "a schema `:large?` prop is not a declaration route (EP-0025)")))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-3x7nj.32.5 — a marker's `:path` is a LIVE app-db locator. Following
-;; a marker out of a past epoch record with `get-path` returns TODAY's
-;; value, so every surface where the agent meets an epoch marker, or reads
+;; A marker's `:path` is a LIVE app-db locator. Following a marker out of
+;; a past epoch record with `get-path` returns the CURRENT value, so every
+;; surface where the agent meets an epoch marker, or reads
 ;; how to follow one, must say the path addresses the current app-db.
 ;; ---------------------------------------------------------------------------
 
@@ -125,7 +125,7 @@
   (doseq [tool ["get-path" "trace-window" "watch-epochs"]
           :let [desc (description-by-name tool)]]
     (is (str/includes? desc "CURRENT app-db")
-        (str tool " must say a marker's :path addresses the CURRENT app-db (rf2-3x7nj.32.5)")))
+        (str tool " must say a marker's :path addresses the CURRENT app-db")))
   (testing "get-path carries the eval-cljs recipe for a past epoch's value"
     (let [desc (description-by-name "get-path")]
       (is (str/includes? desc "re-frame2-pair.runtime/epoch-by-id"))
