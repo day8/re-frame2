@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /*
- * `serve-example` — one-command dev runner for a STANDALONE example build
- * (rf2-pdo5mx).
+ * `serve-example` — one-command dev runner for a STANDALONE example build.
  *
- * The gap this closes
- * -------------------
- * A standalone example (e.g. `examples/counter-uix`) was only runnable via a
- * multi-step manual recipe: `shadow-cljs watch <build>`, then hand-copy the
+ * Why this exists
+ * ---------------
+ * Without it a standalone example (e.g. `examples/counter-uix`) is runnable
+ * only via a multi-step manual recipe: `shadow-cljs watch <build>`, then hand-copy the
  * example's `index.html` AND the `examples/_shared/` design-system tree next
  * to the emitted `main.js`, then serve the output dir yourself. Easy to get
  * wrong or stale — and a compile-only gate can stay green while the page a
@@ -25,18 +24,18 @@
  *      clean-then-stage contract the adapter-smoke / Story orchestrators use,
  *      reused from examples-staging.cjs, not re-implemented. Serving from a
  *      freshly cleaned dir means no stale prior bundle/asset is ever served as
- *      a fresh run (rf2-rg2tze).
+ *      a fresh run.
  *   3. Resolves a free port (reusing the examples port resolver) and serves
  *      the output dir over http-server on 127.0.0.1, with a history-route
- *      DOCUMENT FALLBACK behind it (rf2-fzbj.35): an HTML navigation to a path
+ *      DOCUMENT FALLBACK behind it: an HTML navigation to a path
  *      no file answers — `/articles/intro` after a refresh, a bookmark or a
  *      copied link — gets the staged host page so the example's URL-bound
- *      router can resolve it, while a missing bundle/stylesheet/fixture still
- *      404s as before.
+ *      router can resolve it, while a missing bundle/stylesheet/fixture
+ *      404s.
  *   4. Spawns `shadow-cljs watch <build>` so edits recompile live. A
  *      `--no-watch` flag runs a one-shot `compile` instead (CI-shaped).
  *   5. In watch mode, WAITS for that first compile to actually publish the
- *      bundle before printing the live URL (rf2-qwy3) — the freshly cleaned
+ *      bundle before printing the live URL — the freshly cleaned
  *      output dir has no `main.js` until it lands, so announcing the page any
  *      earlier advertises one that comes up blank. It says it is waiting
  *      meanwhile, so a slow cold compile never looks like a hung tool — and
@@ -47,10 +46,10 @@
  * shell-free spawning, process-tree teardown, port pre-flight); this script
  * is just the dev-ergonomics front door.
  *
- * Policy preserved: `npm run test:adapter-smokes` stays the adapter-smoke
- * runner, and standalone examples keep their compile coverage via
- * `test:examples-compile`. This is a DEV command, not a test gate — it adds
- * no `*.spec.cjs` under examples/ (the tree stays test-free, rf2-8cevm).
+ * This is a DEV command, not a test gate: `npm run test:adapter-smokes` is the
+ * adapter-smoke runner, and standalone examples get their compile coverage
+ * from `test:examples-compile`. It adds no `*.spec.cjs` under examples/ (the
+ * tree is test-free).
  *
  * CLI
  * ---
@@ -64,7 +63,7 @@
  *
  * SPAWN FORM: resolve shadow-cljs's / http-server's own JS entry-points and
  * run them under THIS node binary (process.execPath), shell-free — never
- * `npx`/`npx.cmd` under a shell (rf2-y9o5e3). Same hardened posture as
+ * `npx`/`npx.cmd` under a shell. Same hardened posture as
  * serve-and-run-adapter-smokes.cjs.
  */
 
@@ -98,12 +97,12 @@ const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const READY_TIMEOUT_MS = 30000;
 
-// Decide the dev-runner's process exit code from the observed child outcomes
-// (rf2-35lfqo). PURE — no I/O, no process state — so it is unit-testable in
+// Decide the dev-runner's process exit code from the observed child outcomes.
+// PURE — no I/O, no process state — so it is unit-testable in
 // isolation. The runner long-runs until the user interrupts it (Ctrl+C), so a
 // shutdown the USER asked for is success; an UNEXPECTED child crash is a
-// failure the runner must surface with a non-zero exit (the prior code always
-// returned 0, false-greening a `shadow-cljs watch` that died on a compile/JVM
+// failure the runner must surface with a non-zero exit (a constant 0 would
+// false-green a `shadow-cljs watch` that died on a compile/JVM
 // error or an http-server that fell over). Each child outcome is a
 // `{ code, signal }` record (a process 'exit' event's args) or null if that
 // child was never started (e.g. no watch in --no-watch mode).
@@ -133,8 +132,8 @@ function decideRunnerExit({ server = null, watch = null, interrupted = false } =
   return childFailed(server) || childFailed(watch) ? 1 : 0;
 }
 
-// Classify a `shadow-cljs watch` termination while the runner is still up
-// (rf2-qwy3). PURE — the same shape as decideRunnerExit above, so the branch is
+// Classify a `shadow-cljs watch` termination while the runner is still up.
+// PURE — the same shape as decideRunnerExit above, so the branch is
 // exercisable without a watcher, a server or a compile.
 //
 // THE PHASE IS THE WHOLE DECISION. Before first-build readiness the watcher is
@@ -166,12 +165,12 @@ function watchExitAbortsRun({
 
 // The compiled entrypoint every example host page loads. Hardcoding the name is
 // safe rather than lucky: `check-examples-assets.cjs` MAKES a live
-// `<script src="main.js">` mandatory on every example page (all 34 standalone
-// hosts carry one), so "this run's build has produced something runnable" and
+// `<script src="main.js">` mandatory on every example page (every standalone
+// host carries one), so "this run's build has produced something runnable" and
 // "main.js is being served" are the same fact.
 const BUILD_ENTRYPOINT = 'main.js';
 
-// Wait for the first watch build to actually land (rf2-qwy3).
+// Wait for the first watch build to actually land.
 //
 // THE FACT THE BANNER CLAIMS. The clean-stage boundary above deletes the
 // previous bundle, and `shadow-cljs watch` is asynchronous, so between
@@ -222,20 +221,18 @@ async function waitForFirstBuild({ fetchBody, isAborted, sleep: sleepFn, pollMs 
 }
 
 // ---------------------------------------------------------------------------
-// History-route document fallback (rf2-fzbj.35).
+// History-route document fallback.
 //
-// THE DEFECT. A history-routed example (`examples/routing` registers `/`,
+// THE PROBLEM. A history-routed example (`examples/routing` registers `/`,
 // `/articles` and `/articles/:id`; RealWorld does the same under its own
 // prefix) boots at `/` and navigates correctly in-app — its URL-bound router
 // pushes state and re-renders. But the runner serves the staged output dir over
 // a PLAIN STATIC server, so a refresh, a bookmark, a copied link or a direct
 // hit on `/articles/intro` asks that server for a file nothing ever emitted.
-// It answers 404, the app never boots, and the URL synchronisation that would
-// have resolved the route never gets to run. Measured against the real spawn
-// path before the repair: `GET /` 200 with the host body, `GET /articles/intro`
-// 404 without it.
+// On its own the server answers 404, the app never boots, and the URL
+// synchronisation that would resolve the route never gets to run.
 //
-// THE REPAIR, AND WHY IT IS TWO PIECES. http-server's `--proxy` forwards any
+// THE FALLBACK, AND WHY IT IS TWO PIECES. http-server's `--proxy` forwards any
 // request it could not resolve to another origin; the harness exposes that as
 // `unresolvedRequestUrl` and forwards EVERYTHING unresolved, deliberately
 // keeping the policy out of the shared gate seam. This tiny responder is the
@@ -244,11 +241,11 @@ async function waitForFirstBuild({ fetchBody, isAborted, sleep: sleepFn, pollMs 
 //
 // THE DISCRIMINATION IS LOAD-BEARING, not fastidiousness. A blanket fallback
 // that returned index.html with status 200 for a missing `/main.js` would make
-// waitForFirstBuild above accept a host page as a compiled bundle and resurrect
-// rf2-qwy3 — the runner would announce a live URL over a build that never
+// waitForFirstBuild above accept a host page as a compiled bundle — the runner
+// would announce a live URL over a build that never
 // landed. A missing stylesheet or JSON fixture must stay missing for the same
 // reason: a 200 HTML body in an asset's place is a harder failure to read than
-// the 404 it replaced.
+// a 404.
 //
 // So both conditions must hold, and each covers what the other cannot:
 //   - the request ACCEPTS text/html. A browser sends `Accept: text/html,…` for
@@ -385,15 +382,15 @@ async function main() {
   const shadowRunner = resolveShadowRunner();
   const httpServerBin = resolveHttpServerBin();
 
-  // Clean-stage boundary (rf2-bf4vdy / rf2-rg2tze): remove + recreate the
+  // Clean-stage boundary: remove + recreate the
   // SELECTED build's output dir BEFORE any compile or staging, so every served
   // file is produced from the CURRENT source this run — exactly the contract
-  // the CI/Story orchestrators already honour (serve-and-run-adapter-smokes.cjs
+  // the CI/Story orchestrators honour (serve-and-run-adapter-smokes.cjs
   // cleanSelectedOutDirs, the Story load/play runners). Without this the dev
-  // runner overlaid index.html + _shared onto whatever a PRIOR run left behind,
-  // so a stale main.js (or a retired asset the manifest no longer produces)
-  // stayed serveable — and in watch mode the browser could render that old
-  // bundle while the runner had already printed a live URL, masking an initial
+  // runner would overlay index.html + _shared onto whatever a PRIOR run left
+  // behind, so a stale main.js (or an asset the manifest does not produce)
+  // would stay serveable — and in watch mode the browser could render that old
+  // bundle, masking an initial
   // compile that had not yet landed (or had failed). Cleaning first makes a
   // missing bundle VISIBLY absent until the current watch's first compile lands
   // — no stale prior main.js is ever advertised or served as a fresh run. We
@@ -425,7 +422,7 @@ async function main() {
   stageExample(entry);
 
   // Record the observed child outcomes so the runner's own exit code reflects
-  // an unexpected crash rather than always returning 0 (rf2-35lfqo). `interrupted`
+  // an unexpected crash rather than a constant 0. `interrupted`
   // flips true once a teardown signal lands so a signal-killed child during
   // Ctrl+C is read as an expected shutdown, not a crash.
   let interrupted = false;
@@ -489,7 +486,7 @@ async function main() {
   // hits localhost, which also sidesteps the Windows dual-stack EACCES
   // surprise). The shared harness owns the http-server spawn (with `-c-1` so a
   // recompiled main.js is picked up on reload), teardown tracking, early-exit
-  // abort, and the readiness + unreachable diagnostics (rf2-slapfs). It records
+  // abort, and the readiness + unreachable diagnostics. It records
   // the server outcome for decideRunnerExit via onExit, ORs a watch death into
   // the readiness abort via isAborted, and suppresses the forced-shutdown
   // "exited unexpectedly" noise while interrupted. Inherits stdio (no capture).
@@ -513,9 +510,9 @@ async function main() {
   // The server now provably owns the staged root — but in watch mode that root
   // was cleaned moments ago and holds no `main.js` until this run's first
   // compile lands. Say exactly that, and withhold the live/openable banner
-  // until the entrypoint is really being served (rf2-qwy3). `--no-watch`
-  // already compiled synchronously above, so its output is complete before the
-  // server ever started and it skips this wait unchanged.
+  // until the entrypoint is really being served. `--no-watch`
+  // compiled synchronously above, so its output is complete before the
+  // server started and it skips this wait.
   if (watch) {
     console.log(
       `\nserve-example: ${entry.build} — server ready on http://127.0.0.1:${PORT}/,` +
@@ -561,8 +558,7 @@ async function main() {
     server.on('exit', resolve);
   });
 
-  // Surface an unexpected child crash as a non-zero runner exit rather than the
-  // unconditional 0 the runner used to return (rf2-35lfqo).
+  // Surface an unexpected child crash as a non-zero runner exit.
   return decideRunnerExit({ server: serverOutcome, watch: watchOutcome, interrupted });
 }
 
