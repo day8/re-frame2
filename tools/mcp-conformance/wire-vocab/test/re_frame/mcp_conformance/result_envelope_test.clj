@@ -194,7 +194,7 @@
     (is (not (m/validate ResultEnvelope
                          {:rf.mcp/result :value :value 1 :sneaky :key}))
         "the envelope is CLOSED per tag — an unrelated sibling key is rejected"))
-  (testing "positive guard: every documented tag shape still validates"
+  (testing "positive guard: every documented tag shape validates"
     (is (m/validate ResultEnvelope {:rf.mcp/result :value :value 42}))
     (is (m/validate ResultEnvelope {:rf.mcp/result :value :value nil})
         "a :value slot may itself be nil (the slot is :any) — distinct from the :nil tag")
@@ -262,9 +262,8 @@
 
 (deftest result-key-literal-in-mcp-base-vocab-spec-doc-source
   ;; Doc-source pin (looser, raw `str/includes?`): the mcp-base
-  ;; `vocab.md` spec — where the marker catalogue row lives and where
-  ;; the "(Defined-but-not-yet-cross-gated …)" note was removed by this
-  ;; change — MUST still carry the `:rf.mcp/result` literal for human
+  ;; `vocab.md` spec — where the marker catalogue row lives — MUST carry
+  ;; the `:rf.mcp/result` literal for human
   ;; readers. re-frame2-pair-mcp's own doc-sources (Principles.md /
   ;; 003-Tool-Catalogue.md) do not catalogue this marker; the canonical
   ;; prose home is the mcp-base vocab spec.
