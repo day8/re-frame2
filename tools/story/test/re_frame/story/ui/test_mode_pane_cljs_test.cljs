@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.test-mode-pane-cljs-test
-  "CLJS-side regression net for the `:test` mode pane (rf2-aoqyy).
+  "CLJS-side tests for the `:test` mode pane.
 
   Pairs with `re-frame.story.ui.test-mode-state-cljs-test` (race-guard +
   toggle-expanded scenarios) and the JVM `re-frame.story.ui.test-widget-
@@ -53,9 +53,8 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>] — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -69,7 +68,7 @@
 (use-fixtures :each {:before reset-all!})
 
 ;; ===========================================================================
-;; rf2-7etf3 — a failed assertion row links to its beat in the Evidence panel
+;; A failed assertion row links to its beat in the Evidence panel
 ;;
 ;; spec/021 §2: a selected result row drives the evidence spine's selected
 ;; span. The row keeps its causal coordinate, and one click on its link opens
@@ -135,11 +134,10 @@
         "no narrative, no beat to land on")))
 
 ;; ===========================================================================
-;; rf2-v5p6l — the same link, driven by a REAL run rather than a hand-built row
+;; The same link, driven by a REAL run rather than a hand-built row
 ;;
-;; The two tests above build their rows by hand, which is exactly the coverage
-;; that could not see canonical assertion records arriving with no
-;; `:dispatch-id`. These take the record from a real `story/run`, project it
+;; The two tests above build their rows by hand, which cannot see a
+;; canonical assertion record arriving with no `:dispatch-id`. These take the record from a real `story/run`, project it
 ;; through `assertion-row`, and click the link the pane renders for it. The
 ;; expected beat is found by its TRIGGER EVENT, never by dispatch id.
 ;; ===========================================================================
@@ -226,7 +224,7 @@
                   (done)))))))))
 
 ;; ===========================================================================
-;; rf2-aoqyy — pass / fail / skip row detail
+;; pass / fail / skip row detail
 ;;
 ;; The :test pane's renderer derives each row's status badge from
 ;; `assertion-row :status`. Pinning the projection here means the
@@ -248,7 +246,7 @@
       (is (= :pass                  (:status row)))
       (is (string?                  (:label row)))
       (is (= (:label row)           (:row-key row))
-          ":row-key mirrors :label — stable across re-runs (rf2-tistm)")
+          ":row-key mirrors :label — stable across re-runs")
       (is (= 1                      (-> row :detail :expected)))
       (is (= 1                      (-> row :detail :actual)))
       (is (= {:file "story.cljs" :line 12}
@@ -314,7 +312,7 @@
       (is (false? (:all-passed? s3)) "a skip blocks :all-passed?"))))
 
 ;; ===========================================================================
-;; rf2-aoqyy — run-on-mount
+;; run-on-mount
 ;;
 ;; `run-variant-pane!` is the pane's mount-side entry point. Asserts:
 ;;
@@ -388,7 +386,7 @@
                       (done))))))))))
 
 ;; ===========================================================================
-;; rf2-aoqyy — re-run debounce
+;; re-run debounce
 ;;
 ;; `run-variant-pane!` short-circuits when the per-variant slot already
 ;; carries :running? true. The race-guard prevents two parallel
@@ -403,7 +401,7 @@
 ;; ===========================================================================
 
 (deftest run-variant-pane-debounce-gate-observable
-  (testing "rf2-aoqyy — `:running?` is the single debounce gate the pane
+  (testing "`:running?` is the single debounce gate the pane
             uses across all its mutation paths. Pin the contract that
             consumers (the Re-run button, the chrome widget's Run-all)
             read this flag to decide whether to fire a second run.
