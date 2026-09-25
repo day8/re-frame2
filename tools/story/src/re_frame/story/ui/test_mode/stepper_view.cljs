@@ -240,7 +240,7 @@
 
 (defn render-section
   "Pure render: build the section hiccup from `variant-id` + the slot
-  (a value, not the atom). Extracted from `stepper-section` so the
+  (a value, not the atom). Separate from `stepper-section` so the
   CLJS test corpus can pin the hiccup shape without booting Reagent's
   class lifecycle."
   [variant-id slot]
