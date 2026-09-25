@@ -114,18 +114,17 @@
   ensures Reagent's reaction-tracking observes the deref at render
   time — under the registered-view path the user fn is wrapped by
   `reg-view*`'s `frame-aware-view`, and the panel-host additionally
-  wraps it in `rf/frame-provider {:frame …}`. The form-1 shape worked
-  in isolation but didn't
+  wraps it in `rf/frame-provider {:frame …}`. A form-1 shape works
+  in isolation but does not
   re-render through the wrapper chain; the form-2 inner-fn shape is
   the canonical Reagent idiom that survives nested wrapping.
 
   The toggle event is wired via `:on-change` on the
   `<input>` (not `:on-click` on the surrounding `<label>`). Clicking
   the label propagates an implicit click to the contained input, and
-  a label-side `:on-click` ALSO sees that bubbled click — so the
-  state was being toggled twice per user click and the rendered DOM
-  reverted to its prior shape (the bug's outerHTML-byte-identical
-  symptom). Wiring `:on-change` on the input is the controlled-
+  a label-side `:on-click` ALSO sees that bubbled click — so it
+  would toggle the state twice per user click and the rendered DOM
+  would revert to its prior shape. Wiring `:on-change` on the input is the controlled-
   checkbox idiom and fires exactly once per user click."
   [_variant-id]
   (fn [variant-id]
@@ -250,11 +249,11 @@
            [:span (:title body)]
            [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens)}} (str pid)]]
           (if view-fn
-            ;; rf2-zme7: scope the panel view's subscribe / dispatch to
+            ;; Scope the panel view's subscribe / dispatch to
             ;; the active variant's frame. The SCOPE-only `rf/frame-provider
             ;; {:frame …}` keeps the `:story.x/y`-shaped variant-id
             ;; intact across the React context boundary (it routes through
-            ;; Reagent's `:r>` interop head, rf2-c5jz).
+            ;; Reagent's `:r>` interop head).
             [rf/frame-provider {:frame variant-id}
              [view-fn variant-id]]
             [:div {:style {:padding "8px" :color (:text-secondary rf.story.theme.colors/tokens)
