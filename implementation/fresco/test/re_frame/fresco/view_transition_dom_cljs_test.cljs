@@ -235,7 +235,7 @@
     c))
 
 (def ^:private fast-transitions
-  "40 ms, so ten rows do not spend three seconds waiting for the UA
+  "240 ms, so ten rows do not spend three seconds waiting for the UA
   default. Long enough that an interruption fired on the next macrotask
   still lands while the first animation is live."
   (str "::view-transition-group(*), ::view-transition-old(*), "
