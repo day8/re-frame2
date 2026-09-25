@@ -259,7 +259,7 @@ foreach ($p in $relevant) {
 $mode = "DRY-RUN (no processes will be killed; pass -Execute to kill)"
 if ($Execute) { $mode = "EXECUTE (stale processes WILL be tree-killed)" }
 
-Write-Host "=============== rf2-c3hffe stale test/dev process reaper ==============="
+Write-Host "=============== re-frame2 stale test/dev process reaper ================"
 Write-Host "Mode: $mode"
 Write-Host ""
 
