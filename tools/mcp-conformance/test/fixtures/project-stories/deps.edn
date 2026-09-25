@@ -1,5 +1,5 @@
 ;; Golden-path consumer fixture for story-mcp's project-story bootstrap
-;; (tools/story-mcp/README.md §Loading your project's stories, rf2-cfq8a).
+;; (tools/story-mcp/README.md §Loading your project's stories).
 ;;
 ;; This directory is a MINIMAL CONSUMING PROJECT: its own `:paths`, its
 ;; own pre-authored story namespace (`src/app/stories.cljc`), and one
