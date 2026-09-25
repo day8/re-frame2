@@ -4,15 +4,14 @@
   events to that frame, and appends to a per-variant ratom keyed by
   variant-id with a fixed retention cap.
 
-  ## History
+  ## Consumers
 
-  Originally this code lived in `re-frame.story.ui.trace` alongside the
-  six-domino trace panel view. Per rf2-sgdd3 the panel view was retired
-  in favour of Xray's Trace tab (richer filtering, focus, cascade
-  navigation) — Story's RHS embeds Xray now. The buffer infrastructure
-  survives because `re-frame.story.ui.schema-validation` still consumes
-  it to project Spec 010 schema-validation failures into its own
-  registered story-panel.
+  There is no Story trace panel: trace browsing is Xray's Trace tab
+  (richer filtering, focus, cascade navigation), embedded in Story's RHS.
+  The buffer serves Story panels that project Spec 010 schema-validation
+  failures — `re-frame.story.ui.schema-validation` into its own
+  registered story-panel, and `re-frame.story.ui.view-state` for live
+  sub-override failures.
 
   ## Public surface
 
@@ -30,9 +29,8 @@
   surface, including the load-time clear-on-toggle-off hook below."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
-            ;; rf2-7737vq — the canonical RAW trace-event frame reader
-            ;; (`re-frame.trace/trace-event-frame`), replacing Story's
-            ;; hand-rolled `[:tags :frame]` read.
+            ;; The canonical RAW trace-event frame reader
+            ;; (`re-frame.trace/trace-event-frame`).
             [re-frame.trace :as rf.trace]
             [re-frame.story.config :as rf.story.config]))
 
@@ -51,8 +49,8 @@
 
 (defn ensure-buffer!
   "Return the per-variant trace-buffer ratom, creating it on first
-  access. Public so consumer panels (e.g. the schema-validation panel
-  per rf2-dvue) can subscribe to the SAME ratom the listener writes."
+  access. Public so consumer panels (e.g. the schema-validation panel)
+  can subscribe to the SAME ratom the listener writes."
   [variant-id]
   (or (get @buffers variant-id)
       (let [a (r/atom [])]
@@ -61,7 +59,7 @@
 
 (defn clear-buffer!
   "Drop the buffer for `variant-id` (or all buffers when no arg).
-  Per rf2-bclgj: also clears the matching per-variant suppressed-
+  Also clears the matching per-variant suppressed-
   events counter so the `[● REDACTED]` hint hides when the buffer
   resets."
   ([]
@@ -74,7 +72,7 @@
    (rf.story.config/reset-suppressed-count! variant-id)
    nil))
 
-;; ---- retroactive scrub on egress-profile narrowing (rf2-lqmje / rf2-6z4znr)
+;; ---- retroactive scrub on egress-profile narrowing ----------------------
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015 issue 7): narrowing a
 ;; FRAME's local-render egress profile from a sensitive-revealing boundary
@@ -98,7 +96,7 @@
 ;; Story entirely, including the registration form.
 
 (defn- scrub-on-toggle-off!
-  "Frame-scoped toggle-off scrub (rf2-6z4znr). `frame-id` nil → clear every
+  "Frame-scoped toggle-off scrub. `frame-id` nil → clear every
   buffer (session-pin narrowing); a specific frame-id → clear only that
   variant's buffer."
   [frame-id]
@@ -111,7 +109,7 @@
 
 (defn drop-buffer!
   "Remove the buffer entry entirely. Called from shell unmount.
-  Per rf2-bclgj: also clears the per-variant suppressed-events
+  Also clears the per-variant suppressed-events
   counter so it doesn't leak across variant teardowns."
   [variant-id]
   (swap! buffers dissoc variant-id)
@@ -141,7 +139,7 @@
   frame. Reads via the canonical `re-frame.trace/trace-event-frame`
   reader (its `[:tags :frame]` slot); events that have no frame scope
   (registry / global) match nothing. Per Spec 009 §Frame identity on the
-  raw event (rf2-7737vq) — `:frame` rides under `:tags` on the raw layer."
+  raw event — `:frame` rides under `:tags` on the raw layer."
   [variant-id ev]
   (= variant-id (rf.trace/trace-event-frame ev)))
 
@@ -150,7 +148,7 @@
   into the per-variant buffer. Idempotent (re-registering replaces).
   Returns the listener id.
 
-  Per Spec 009 §Privacy + EP-0015 rf2-3t26eh: events whose `:sensitive?`
+  Per Spec 009 §Privacy + EP-0015: events whose `:sensitive?`
   flag is true are dropped from the buffer when Story's local-render
   egress profile redacts (`:rf.egress/local-redacted` — the default). The
   suppressed-events counter bumps for the variant so downstream
@@ -162,7 +160,7 @@
       (rf/register-listener! :trace id
         (fn [ev]
           (when (variant-event? variant-id ev)
-            ;; rf2-6z4znr — the listener is per-variant; resolve the suppress
+            ;; The listener is per-variant; resolve the suppress
             ;; decision against THIS variant's frame so revealing a sibling
             ;; variant never opens this buffer's gate.
             (if (rf.story.config/suppress-sensitive? ev variant-id)
