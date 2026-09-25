@@ -140,7 +140,7 @@ if [ "$violations" -ne 0 ]; then
   printf 'Use the neutral placeholders instead (me / my-app / myapp / proj / u),\n' >&2
   printf 'or — if the path is a deliberate redaction fixture or local guard tool —\n' >&2
   printf 'add it to the explicit ALLOWLIST in scripts/check-no-hardcoded-paths.sh\n' >&2
-  printf 'with a justification. See bead rf2-1ppe4.\n' >&2
+  printf 'with a justification.\n' >&2
   exit 1
 fi
 
