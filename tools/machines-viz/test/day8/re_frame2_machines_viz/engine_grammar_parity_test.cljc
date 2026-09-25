@@ -485,6 +485,18 @@
                                    :states {:a {:on {:tick :a}}}}
    :valid-parallel-root-only-keys {:type :parallel :region-order [:r] :data {:n 0}
                                    :regions {:r {:initial :a :states {:a {}}}}}
+   ;; The root runs its `:entry` at birth and its `:exit` at teardown, and
+   ;; joins its `:tags` to the tag union; a parallel root also schedules its
+   ;; own `:after`.
+   :valid-root-entry-exit        {:initial :a :entry :hello :exit :bye
+                                  :actions {:hello (fn [_ctx] nil) :bye (fn [_ctx] nil)}
+                                  :states  {:a {}}}
+   :valid-root-tags              {:initial :a :tags #{:busy} :states {:a {}}}
+   :valid-parallel-root-lifecycle {:type    :parallel :entry (fn [_ctx] nil) :exit (fn [_ctx] nil)
+                                   :tags    #{:busy}
+                                   :regions {:r {:initial :a :states {:a {}}}}}
+   :valid-parallel-root-after    {:type    :parallel :after {1000 {:target [:r :b]}}
+                                  :regions {:r {:initial :a :states {:a {} :b {}}}}}
    ;; An `:after` delay key may be an ISO-8601 duration, as a `:timeout` may.
    :valid-after-iso      {:initial :a :states {:a {:after {"PT1S" :b}} :b {}}}
    :valid-after-iso-frac {:initial :a :states {:a {:after {"PT0.5S" :b}} :b {}}}
@@ -504,6 +516,9 @@
    :valid-spawn-on-done-path    {:initial :a :states {:a {:spawn {:machine-id :m :on-done [:b]}} :b {}}}
    :valid-spawn-on-done-map     {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target :b :reenter? true}}} :b {}}}
    :valid-spawn-on-done-cands   {:initial :a :states {:a {:spawn {:machine-id :m :on-done [{:target :b} {:target :c}]}} :b {} :c {}}}
+   ;; A single spawn's `:on-error` is a transition.
+   :valid-spawn-on-error-keyword {:initial :a :states {:a {:spawn {:machine-id :m :on-error :b}} :b {}}}
+   :valid-spawn-on-error-map     {:initial :a :states {:a {:spawn {:machine-id :m :on-error {:target :b}}} :b {}}}
    ;; ---- invalid (both reject) ----
    :nested-no-init   {:initial :outer :states {:outer {:states {:inner {}}}}}
    :unresolved-kw    {:initial :idle :states {:idle {:on {:go :missing}}}}
@@ -575,6 +590,25 @@
    :spawn-on-done-unresolved-map {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target [:nope]}}} :b {}}}
    :spawn-on-done-bad-target     {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target 42}}} :b {}}}
    :spawn-on-done-unknown-key    {:initial :a :states {:a {:spawn {:machine-id :m :on-done {:target :b :cond :ok?}}} :b {}}}
+   ;; ---- a `:spawn :on-error` / `:on-done` value that is neither a transition
+   ;; nor, for `:on-done`, a fn ----
+   :spawn-on-error-nil          {:initial :a :states {:a {:spawn {:machine-id :m :on-error nil}} :b {}}}
+   :spawn-on-error-number       {:initial :a :states {:a {:spawn {:machine-id :m :on-error 42}} :b {}}}
+   :spawn-on-error-string       {:initial :a :states {:a {:spawn {:machine-id :m :on-error "b"}} :b {}}}
+   :spawn-on-error-fn           {:initial :a :states {:a {:spawn {:machine-id :m :on-error (fn [_ctx] nil)}} :b {}}}
+   :spawn-on-error-empty-vector {:initial :a :states {:a {:spawn {:machine-id :m :on-error []}} :b {}}}
+   :spawn-on-done-nil           {:initial :a :states {:a {:spawn {:machine-id :m :on-done nil}} :b {}}}
+   :spawn-on-done-number        {:initial :a :states {:a {:spawn {:machine-id :m :on-done 42}} :b {}}}
+   :spawn-on-done-string        {:initial :a :states {:a {:spawn {:machine-id :m :on-done "b"}} :b {}}}
+   :spawn-on-done-empty-vector  {:initial :a :states {:a {:spawn {:machine-id :m :on-done []}} :b {}}}
+   ;; ---- a machine-root key the runtime never reads on the root ----
+   :root-spawn          {:initial :a :spawn {:machine-id :m} :states {:a {}}}
+   :root-final          {:initial :a :final? true :states {:a {}}}
+   :root-flat-on-done   {:initial :a :on-done :a :states {:a {}}}
+   :parallel-root-spawn {:type :parallel :spawn {:machine-id :m} :regions {:r {:initial :a :states {:a {}}}}}
+   :root-two-slots      {:initial :a :spawn {:machine-id :m} :final? true :states {:a {}}}
+   ;; A parallel root's `:tags` is a set of keywords, as a flat root's is.
+   :parallel-root-bad-tags {:type :parallel :tags [:busy] :regions {:r {:initial :a :states {:a {}}}}}
    ;; ---- non-Named KEYS ----
    ;;
    ;; Every entry above spells its keys as keywords, so without these rows the
@@ -684,6 +718,92 @@
           (str label ": the viz category"))
       (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
           (str label ": the viz category after the boundary desugar")))))
+
+(def ^:private spawn-completion-refusal-rows
+  "Corpus labels → the category the engine refuses each `:spawn :on-error` /
+  `:spawn :on-done` value with."
+  {:spawn-on-error-nil          :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-number       :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-string       :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-fn           :rf.error/machine-bad-on-error-clause
+   :spawn-on-error-empty-vector :rf.error/machine-bad-on-error-clause
+   :spawn-on-done-nil           :rf.error/machine-bad-on-done-clause
+   :spawn-on-done-number        :rf.error/machine-bad-on-done-clause
+   :spawn-on-done-string        :rf.error/machine-bad-on-done-clause
+   :spawn-on-done-empty-vector  :rf.error/machine-bad-on-done-clause})
+
+(deftest spawn-completion-refusal-category-parity
+  (testing "the viz refuses a :spawn :on-error / :on-done value that is not a
+            transition (or, for :on-done, a fn) with the engine's own category"
+    (doseq [[label category] spawn-completion-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
+
+(def ^:private root-refusal-rows
+  "Corpus labels → the category the engine refuses each machine root with."
+  {:root-spawn             :rf.error/machine-root-slot-not-supported
+   :root-final             :rf.error/machine-root-slot-not-supported
+   :root-flat-on-done      :rf.error/machine-root-slot-not-supported
+   :parallel-root-spawn    :rf.error/machine-root-slot-not-supported
+   :root-two-slots         :rf.error/machine-root-slot-not-supported
+   :parallel-root-bad-tags :rf.error/machine-bad-tags})
+
+(deftest root-refusal-category-parity
+  (testing "the viz refuses a machine root with the engine's own category"
+    (doseq [[label category] root-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
+
+;; The refused root keys are read off the engine rather than listed here, so a
+;; key the engine starts refusing on the root is a red row until the viz
+;; refuses it too.
+
+(def ^:private engine-root-unread-keys      @#'rf.machines.lifecycle-fx.validation/root-unread-keys)
+(def ^:private engine-flat-root-unread-keys @#'rf.machines.lifecycle-fx.validation/flat-root-unread-keys)
+
+(defn- engine-offending-keys
+  "The `:offending-keys` `validate-machine!` names when it refuses `m`, or nil."
+  [m]
+  (try (rf.machines.lifecycle-fx.validation/validate-machine! m) nil
+       (catch #?(:clj Throwable :cljs :default) t (:offending-keys (ex-data t)))))
+
+(defn- flat-root-with [k] {:initial :a k nil :states {:a {}}})
+(defn- parallel-root-with [k] {:type :parallel k nil :regions {:r {:initial :a :states {:a {}}}}})
+
+(deftest root-slot-refusal-parity
+  (testing "every key the engine refuses on a root, the viz refuses on that
+            root with the engine's category, naming the same keys"
+    (doseq [[root-kind k m] (concat
+                              (for [k (sort (into engine-root-unread-keys engine-flat-root-unread-keys))]
+                                [:flat k (flat-root-with k)])
+                              (for [k (sort engine-root-unread-keys)]
+                                [:parallel k (parallel-root-with k)])
+                              [[:flat :two-keys (get validation-parity-corpus :root-two-slots)]])]
+      (is (= :rf.error/machine-root-slot-not-supported (engine-category m))
+          (str root-kind " root " k ": the engine's category"))
+      (is (= :rf.error/machine-root-slot-not-supported (:category (g/definition-defect m)))
+          (str root-kind " root " k ": the viz category"))
+      (is (= :rf.error/machine-root-slot-not-supported
+             (:category (g/definition-defect (g/desugar-grammar m))))
+          (str root-kind " root " k ": the viz category after the boundary desugar"))
+      (is (= (engine-offending-keys m) (:keys (g/definition-defect m)))
+          (str root-kind " root " k ": the viz names the engine's offending keys"))))
+
+  (testing "a parallel root reads the keys only a flat root refuses"
+    (doseq [k (sort engine-flat-root-unread-keys)
+            :let [m (parallel-root-with k)]]
+      (is (= :accept (engine-answer m)) (str "parallel root " k ": the engine accepts"))
+      (is (= :accept (viz-answer m))    (str "parallel root " k ": the viz accepts")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
