@@ -19,7 +19,7 @@
 ;;
 ;; The complementary INTERACTION arm — a click dispatching :rf.route/navigate
 ;; — is pinned by routing-navigate.edn (the one causal boundary); the INTENT
-;; arm (:prefetch :intent) is added by EP-0037 R3. Passivity is enforced by
+;; arm (:prefetch :intent) is EP-0037 R3. Passivity is enforced by
 ;; STATE here (the :final-runtime-db current-route and the :sub-values read
 ;; are unchanged), because a spurious render-side navigate/ensure would move
 ;; the current route or leave residue.
