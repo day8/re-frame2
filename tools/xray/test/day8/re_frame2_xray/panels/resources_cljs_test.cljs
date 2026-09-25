@@ -6,8 +6,8 @@
 
     1. **Registry wires the subs** — `register-xray-handlers!` installs
        every sub/event the panel reads + the test-only override slots.
-    2. **Tab inventory** — the palette's Dynamic panel list now carries
-       `:resources` (and the count grew Routing→Resources).
+    2. **Tab inventory** — the palette's Dynamic panel list carries
+       `:resources`.
     3. **Sections render** — registry / live-instances / work-ledger /
        route-graph / lifecycle-timeline / invalidation / cache-growth /
        audit all render when data is present.
@@ -24,7 +24,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
             ;; CORE canonical-identity (not the resources artefact) — the routing
-            ;; blocking slot is keyed on the CEDN-1 byte id (rf2-btdl1).
+            ;; blocking slot is keyed on the CEDN-1 byte id.
             [re-frame.identity :as rf.identity]
             [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
@@ -35,10 +35,9 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture` owns the reset: plain-atom adapter + the
+  ;; default `:all` reset tier, which includes the trace-collector ring
+  ;; reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers (mirror routing_cljs_test) --------------------------
@@ -78,12 +77,11 @@
 (defn- panel-tree
   "The panel's hiccup tree, for the section rows below.
 
-  THIS USED TO BE A DIRECT CALL TO THE PANEL VAR. rf2-k97c.3 made `Panel` an
-  `rf.fresco/defview` — a real React function component whose body may
-  only run inside a React render window — so it is no longer a callable
-  that answers hiccup, and every row here walks hiccup.
+  `Panel` is an `rf.fresco/defview` — a real React function component
+  whose body may only run inside a React render window — so it is not a
+  callable that answers hiccup, and every row here walks hiccup.
 
-  The panel's body was split out as `resources/panel-tree`, a pure fn of
+  The panel's body is `resources/panel-tree`, a pure fn of
   the one value the boundary reads. That is `re-frame.fresco/defview`'s
   own documented extract-a-helper spelling, and it keeps the division of
   labour honest: the section-rendering algebra is data → data and belongs
@@ -115,19 +113,20 @@
                   :stale-after-ms 60000 :gc-after-ms 300000
                   :tags (fn [_ _] #{}) :request (fn [_ _] {})}}})
 
-;; rf2-ybqse — the freshness horizon is anchored to the moment the fixture is
+;; The freshness horizon is anchored to the moment the fixture is
 ;; SEEDED, which is why this is a fn and not a `def`.
 ;;
 ;; `derive-stale?` is a comparison against the wall clock: an entry is stale
 ;; once `(.now js/Date)` AT RENDER TIME has passed its `:stale-at`. A horizon
-;; frozen at namespace-LOAD time therefore decays over the life of the run.
+;; frozen at namespace-LOAD time would decay over the life of the run.
 ;; `npm run test:cljs` loads every `*_cljs_test` namespace into one
 ;; consolidated bundle up front and only then starts executing, so this
-;; namespace's tests ran ~30s after its own `def`s were evaluated on an idle
-;; box — leaving only ~30s of a 60s horizon. On a loaded machine that gap
-;; exceeded 60s, the entry was *legitimately* past its `:stale-at`, and
-;; `route-graph-shows-live-active-route` read `stale (1 work)` where it
-;; expected `fresh`. The panel was right; the fixture had rotted in place.
+;; namespace's tests run ~30s after its own `def`s are evaluated on an idle
+;; box — which would leave only ~30s of a 60s horizon. On a loaded machine
+;; that gap can exceed 60s, the entry would be *legitimately* past its
+;; `:stale-at`, and `route-graph-shows-live-active-route` would read
+;; `stale (1 work)` where it expects `fresh` — the panel right, the fixture
+;; rotted in place.
 ;;
 ;; Evaluating per-seed collapses the seed→render gap from "however long the
 ;; suite takes to get here" to the microseconds inside one test body, which
@@ -175,7 +174,7 @@
                :rf.xray/resource-routing-slice
                :rf.xray/resources-tab-data]]
       (is (some? (rf.registrar/handler :sub s)) (str s " sub registered"))))
-  (testing "rf2-e8330v — production registration installs NO -for-test ids
+  (testing "production registration installs NO -for-test ids
             nor *-override subs; install-test-overrides! installs them"
     (registry/register-xray-handlers!)
     (doseq [s [:rf.xray/registered-resources-override
@@ -235,7 +234,7 @@
           ids    (set (map :id panels))]
       (is (contains? ids :resources) ":resources in palette-panels")
       (is (= 10 (count panels))
-          "10 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco (rf2-9ett2d added the EP-0014 derivation-graph tab; rf2-wtg9z4 added the ninth tab per EP-0013 — it ships as 'Frames' over the EP-0023 image -> frame model; rf2-hic-023 added the Fresco evidence tab)"))))
+          "10 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco (Graph is the EP-0014 derivation-graph tab; Frames is the EP-0013 tab over the EP-0023 image -> frame model; Fresco is the evidence tab)"))))
 
 ;; ---- (3) sections render ------------------------------------------------
 
@@ -252,7 +251,7 @@
         (is (some? (find-by-testid tree "rf-xray-resources-route-graph")) "route-graph section")
         (is (some? (find-by-testid tree "rf-xray-resources-timeline")) "timeline section")
         (is (some? (find-by-testid tree "rf-xray-resources-invalidation")) "invalidation section")
-        ;; EP-0016 slice-8 sections (always present when not silent)
+        ;; EP-0016 sections (always present when not silent)
         (is (some? (find-by-testid tree "rf-xray-resources-scope-resolvers")) "scope-resolvers section")
         (is (some? (find-by-testid tree "rf-xray-resources-scope-resolution")) "scope-resolution timeline section")
         (is (some? (find-by-testid tree "rf-xray-resources-continuations")) "continuations section")
@@ -270,7 +269,7 @@
           (is (re-find #":article/by-slug" (node-text audit))
               "global-scope audit lists the explicit-global resource"))))))
 
-;; ---- (3b) EP-0016 slice-8 surfaces --------------------------------------
+;; ---- (3b) EP-0016 surfaces ----------------------------------------------
 
 (def scope-resolver-regs
   {:realworld/session
@@ -310,7 +309,7 @@
 (deftest ep0016-surfaces-render
   (testing "scope resolvers, scope-resolution timeline, descriptor-level
             invalidation evidence, and :reply-to continuations render from the
-            registry + trace buffer (EP-0016 slice 8)"
+            registry + trace buffer (EP-0016)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
@@ -422,7 +421,7 @@
             "no stale-races section when no arc was suppressed")))))
 
 (deftest live-work-joins-the-observed-frames-rows-only
-  (testing "rf2-3x7nj.23.3 — Xray's buffer merges every frame's ring and a
+  (testing "Xray's buffer merges every frame's ring and a
             resource work-id is frame-LOCAL, so another frame that loaded
             the same resource at the same generation carries the SAME
             work-id. The composite hands the reply-envelope reads the
@@ -507,7 +506,7 @@
 (deftest ep0019-optimistic-surfaces-render
   (testing "the optimistic-mutation lifecycle renders the apply→settle pairing
             (reconciled commit + rolled-back conflict) + the force-clobber
-            warning from the trace buffer (EP-0019 slice 4b)"
+            warning from the trace buffer (EP-0019)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)
@@ -569,7 +568,7 @@
     {:frame :rf/xray}))
 
 (deftest route-graph-shows-live-active-route
-  (testing "rf2-m5u3gt — with a live routing slice override, the route/resource
+  (testing "with a live routing slice override, the route/resource
             graph flags the active route (● active) and surfaces the live
             unsettled-blocking wait point off the runtime routing slice"
     (setup-xray-frame!)
@@ -587,14 +586,14 @@
             "the blocking :article/by-slug reads :fresh from its live cache entry")))))
 
 (deftest route-graph-freshness-chip-discriminates-stale
-  (testing "rf2-ybqse — the freshness chip is DISCRIMINATING, not decorative:
+  (testing "the freshness chip is DISCRIMINATING, not decorative:
             the SAME route graph over an entry whose `:stale-at` has already
             passed reads `stale`, never `fresh`. This deterministically forces
-            the state that used to surface only as a flake (the sibling test's
-            load-time-anchored `:stale-at` decayed past its horizon mid-run and
-            read `stale (1 work)`), so both sides of the `derive-stale?`
-            comparison are now pinned by an assertion. Without this, a
-            regression that hard-wired the chip to `:fresh` would leave the
+            the state a load-time-anchored `:stale-at` would reach only as a
+            flake (decaying past its horizon mid-run and reading
+            `stale (1 work)`), so both sides of the `derive-stale?`
+            comparison are pinned by an assertion. Without this, a
+            chip hard-wired to `:fresh` would leave the
             sibling green."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -638,22 +637,22 @@
         (is (re-find #"\[redacted\]" (node-text scope))
             "a redacted scope (PII) renders [redacted] — same elision as data")))))
 
-;; ---- (4b) PRIVACY: on-box render redacts a RAW :sensitive value (rf2-9zix0u)
+;; ---- (4b) PRIVACY: on-box render redacts a RAW :sensitive value
 ;;
 ;; The `privacy-redacted-data-never-raw` test above proves the panel renders an
 ;; ALREADY-`:rf/redacted` sentinel (the runtime elided it BEFORE Xray saw it).
 ;; It does NOT prove the on-box render path redacts a RAW frame-`:sensitive`
-;; resource value — which is the actual rf2-9zix0u leak: the production sub
-;; called `project-instances` with NO egress-fn, so a LIVE `:sensitive?` entry
-;; (holding the real fetched value) `pr-str`-previewed raw to the DOM. This
-;; test drives the PRODUCTION sub `:rf.xray/resources-tab-data` end-to-end
-;; against an OBSERVED frame that declares its resource payload paths
-;; `:sensitive`, and asserts the rendered rows redact. FAILS before the fix
-;; (raw token previews), PASSES after.
+;; resource value — the leak a production sub calling `project-instances`
+;; with NO egress-fn would have: a LIVE `:sensitive?` entry (holding the real
+;; fetched value) would `pr-str`-preview raw to the DOM. This test drives the
+;; PRODUCTION sub `:rf.xray/resources-tab-data` end-to-end against an
+;; OBSERVED frame that declares its resource payload paths `:sensitive`, and
+;; asserts the rendered rows redact; without the egress-fn they would carry
+;; raw token previews.
 
 (def ^:private zix-secret "secret-session-jwt-zzz-9zix0u")
 (def ^:private zix-observed-frame :app/secure-observed)
-;; The `:entries` map key is the opaque byte key-id STRING (rf2-9e0tyq); the
+;; The `:entries` map key is the opaque byte key-id STRING; the
 ;; kind-preserving scoped-key rides on the entry as `:resource/key`.
 (def ^:private zix-key-id "kid-9zix0u-secret-1")
 (def ^:private zix-scoped-key
@@ -674,7 +673,7 @@
 (defn- install-zix-observed-frame! []
   ;; Declare the three payload SLOTS `:sensitive` at the ABSOLUTE runtime-db
   ;; paths the resources registry lowers per-instance declarations to
-  ;; (rf2-aw9cfs) — data at `[…entries <key-id> :data]`, scope at
+  ;; — data at `[…entries <key-id> :data]`, scope at
   ;; `[…entries <key-id> :resource/key 0]`, params at `[… :resource/key 2]`.
   ;; The on-box egress re-roots each slot to exactly these coordinates.
   (rf/make-frame {:id zix-observed-frame})
@@ -690,7 +689,7 @@
     (first data)))
 
 (deftest on-box-render-redacts-raw-sensitive-payload
-  (testing "rf2-9zix0u — the production :rf.xray/resources-tab-data sub redacts
+  (testing "the production :rf.xray/resources-tab-data sub redacts
             a RAW frame-`:sensitive` resource payload on the ON-BOX render path
             (screen-share safe), not just an already-`:rf/redacted` sentinel"
     (setup-xray-frame!)
@@ -795,7 +794,7 @@
 ;; running ledger record and a stale-suppressed arc per resource, and read off
 ;; the rendered text: the resource declared `:sensitive?` never shows its
 ;; scope/params sentinel anywhere in the panel, while the sibling's identity
-;; still prints in full.
+;; prints in full.
 
 (def ^:private id-secret "tok-identity-secret-4e8")
 (def ^:private id-visible "ctl-identity-visible-4e8")
@@ -856,7 +855,7 @@
         (is (some? (find-by-testid tree "rf-xray-resources-timeline-body"))
             "the timeline rendered the trace rows")
         (is (not (str/includes? (node-text tree) id-secret))))
-      (testing "CONTROL — the sibling's identity still prints its scope and params"
+      (testing "CONTROL — the sibling's identity prints its scope and params"
         (doseq [n [live-p race-p]]
           (is (str/includes? (node-text n) id-visible))))
       (testing "the composite keeps the raw work id for keys and joins"
