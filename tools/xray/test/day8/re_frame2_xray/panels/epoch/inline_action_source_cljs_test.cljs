@@ -1,23 +1,21 @@
 (ns day8.re-frame2-xray.panels.epoch.inline-action-source-cljs-test
-  "rf2-se70xj — END-TO-END rendering fidelity for an INLINE machine action's
-  source code in the Epoch panel cascade.
+  "END-TO-END rendering fidelity for an INLINE machine action's source code
+  in the Epoch panel cascade.
 
-  ## The gap it closes
+  ## Where inline source lives
 
-  Before rf2-se70xj the `reg-machine` macro stamped `:source-code` (the
-  `pr-str` of the fn literal) onto NAMED `:guards` / `:actions` entries but
-  NOT onto INLINE-fn slots (`:entry` / `:exit` / `:guard` / `:action`)
-  written directly inside the `:states` tree. An inline-fn slot holds a fn
-  VALUE, not a map (per rf2-vqja2 — the same reason `:source-coords` lives on
-  the enclosing node), so Xray's `cascade-row-source-form` fell through to the
-  bare compiled fn and `source-form->string` rendered it as an opaque
-  `#object[Function]` token. Guards rendered their CLJS source correctly; an
-  inline action did not.
-
-  The fix co-locates each inline fn's source string onto the ENCLOSING
+  The `reg-machine` macro stamps `:source-code` (the `pr-str` of the fn
+  literal) onto NAMED `:guards` / `:actions` entries and onto INLINE-fn
+  slots (`:entry` / `:exit` / `:guard` / `:action`) written directly inside
+  the `:states` tree. An inline-fn slot holds a fn VALUE, not a map (the
+  same reason `:source-coords` lives on the enclosing node), so the macro
+  co-locates each inline fn's source string onto the ENCLOSING
   `:states`-tree map node under `:source-code` (a `{<slot> <source-string>}`
-  map), parallel to the reference-site `:source-coords` already co-located
-  there. The view reads the inline source off the enclosing node.
+  map), parallel to the reference-site `:source-coords` co-located there.
+  The view reads the inline source off the enclosing node; without it,
+  Xray's `cascade-row-source-form` would fall through to the bare compiled
+  fn and `source-form->string` would render an opaque `#object[Function]`
+  token.
 
   ## What this test drives + asserts
 
@@ -41,12 +39,13 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
-;; ---- hiccup walker (rf2-k97c.3) -----------------------------------------
+;; ---- hiccup walker ------------------------------------------------------
 ;;
-;; PLAIN DESCENT — nothing is CALLED. This row used the walker in
-;; `re-frame.test-helpers`, which EXPANDS function components as it walks. The Epoch view's EDN-widget heads are now `[ei/edn-inspector-view …]`
-;; — Fresco boundaries whose bodies may only run inside a React render window
-;; — so applying one runs `rf.fresco/sub` outside the collector and raises.
+;; PLAIN DESCENT — nothing is CALLED. The walker in `re-frame.test-helpers`
+;; EXPANDS function components as it walks, and the Epoch view's EDN-widget
+;; heads are `[ei/edn-inspector-view …]` — Fresco boundaries whose bodies
+;; may only run inside a React render window — so applying one would run
+;; `rf.fresco/sub` outside the collector and raise.
 
 (defn- hiccup-nodes [tree]
   (tree-seq (some-fn vector? seq?) seq tree))
@@ -54,7 +53,7 @@
 (defn- text-content
   "String leaves under `node`, joined. Shadows the one in
   `re-frame.test-helpers`, which collects its leaves off a walk that
-  EXPANDS function components — unsafe now the Epoch view emits
+  EXPANDS function components — unsafe where the Epoch view emits
   `[ei/edn-inspector-view …]` Fresco boundaries."
   [node]
   (->> (hiccup-nodes node)
@@ -72,8 +71,7 @@
 
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; `make-xray-runtime-fixture`: the `:all` reset
   ;; tier — install (== preload's alias) + registry + mount idempotency
   ;; sentinels plus the trace-collector rings — over the Reagent adapter
   ;; this suite renders through.
@@ -102,7 +100,7 @@
   (vec (trace-collector/buffer-for-test)))
 
 (deftest inline-transition-action-renders-its-source-not-object-function
-  (testing "rf2-se70xj — an INLINE transition `:action` renders its CLJS
+  (testing "an INLINE transition `:action` renders its CLJS
             source CODE in the Epoch cascade, NOT `#object[Function]`. The
             macro-stamped inline `:source-code` (co-located on the enclosing
             transition map) is what the view reads."
@@ -112,7 +110,7 @@
     (is (string? (get-in (:rf/machine (rf/handler-meta {:source :store :kind :event :id :inline/sample}))
                          [:states :idle :on :go :source-code :action]))
         "the inline transition :action's :source-code is co-located on the
-         enclosing transition map (rf2-se70xj machine-meta contract)")
+         enclosing transition map (the machine-meta contract)")
     ;; Drive the real macrostep and render the HANDLER step. The body embeds
     ;; edn-inspectors that subscribe against the surrounding frame.
     (rf/make-frame {:id :rf/xray})
@@ -139,9 +137,9 @@
           "the macrostep produced at least one :action cascade row")
       (is (string/includes? source-bodies ":inline-action-fired?")
           "the inline transition action's CLJS source CODE renders in the
-           cascade source body (rf2-se70xj — was #object[Function])")
-      ;; The regression token must be ABSENT — the bug symptom was the
-      ;; compiled fn falling through pr-str.
+           cascade source body (not #object[Function])")
+      ;; The `#object[Function]` token must be ABSENT — it is what the
+      ;; compiled fn renders as when it falls through pr-str.
       (is (not (string/includes? source-bodies "#object"))
           "no #object[Function] token renders for the inline action source
-           (the rf2-se70xj regression symptom)"))))
+           (the compiled fn falling through pr-str)"))))
