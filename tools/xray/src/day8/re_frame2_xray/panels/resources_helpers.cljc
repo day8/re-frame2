@@ -402,9 +402,14 @@
   (AI / log) caller routes those values through the framework
   `egress-value` walker — a `:sensitive?` slot summarizes as `[redacted]`
   and a `:large?` slot as `[large — elided]`. The resource-id is a registry
-  name (never PII), so it is never egressed. The in-panel caller omits the
-  fn — the in-panel `summarize` is sufficient for human rendering and the
-  values never leave the box."
+  name (never PII), so it is never egressed.
+
+  Omitting the fn previews the raw scope + params, which is safe only for
+  a key whose resource is not declared `:sensitive?`: a preview reaches the
+  screen even though the values never leave the box. So every on-box
+  caller passes the per-row gate (`sensitive-eg` over
+  `sensitive-resource-ids`), which collapses a sensitive resource's values
+  to the redaction sentinel."
   ([scoped-key] (scoped-key-summary scoped-key nil))
   ([scoped-key egress-fn]
    (let [eg (or egress-fn identity)]
@@ -434,6 +439,11 @@
 ;; resource (`registry-row`). Joining those two gives the on-box gate for the
 ;; trace-borne sections: a row that NAMES a `:sensitive?` resource redacts its
 ;; value-bearing slots, exactly as that resource's instance row does.
+;;
+;; The WORK-LEDGER rows take the same gate. They are runtime-db state, but no
+;; per-instance declaration is lowered under `[:rf.runtime/work-ledger …]`, so
+;; the frame-classification gate has nothing to match there either, and a
+;; work record names its resource-id in its scoped key.
 ;;
 ;; The rule is deliberately ROW-level rather than slot-level: a row's scope,
 ;; params, cause and matched keys are all identity-bearing evidence about the
@@ -846,9 +856,12 @@
 
   Optional `egress-fn` is threaded to `instance-row` so the
   on-box render redacts the payload values (scope/params/data) BEFORE
-  summarization while the metadata projects from the raw entry. A caller
-  may omit it — the bare `summarize` is sufficient for human
-  rendering and the runtime-db never leaves the box."
+  summarization while the metadata projects from the raw entry. Omitting
+  it previews the raw payloads, which is safe only when the observed frame
+  classifies nothing in the entries: a preview reaches the screen even
+  though the runtime-db never leaves the box. The on-box panel therefore
+  passes the observed frame's classification
+  (`resources/on-box-resource-egress-fn`)."
   ([entries] (project-instances entries nil nil))
   ([entries now-ms] (project-instances entries now-ms nil))
   ([entries now-ms egress-fn]
@@ -889,49 +902,68 @@
        :deadline-at  1780752005100
        :attempt      2
        :transport    :rf.http/managed
-       :outcome      <summary>}"
-  [[map-key record]]
-  (let [rkey (:resource/key record)
-        {:keys [scope resource-id params]} (scoped-key-summary rkey)
-        ;; The `:rf.runtime/work-ledger` map is keyed
-        ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
-        ;; work-id VECTOR is carried on the record as `:work/id`. Read it from
-        ;; there (fall back to the map key for a record that lacks the
-        ;; stamp) so the displayed `:work-id` is the kind-preserving identity,
-        ;; NOT the byte string.
-        work-id (or (:work/id record) map-key)]
-    {:work-id      work-id
-     :kind         (or (:work/kind record) (:kind record))
-     :resource/key {:scope scope :resource-id resource-id :params params}
-     :resource-id  resource-id
-     :generation   (:generation record)
-     :status       (:status record)
-     :terminal?    (contains? terminal-work-statuses (:status record))
-     :owners       (vec (:owners record))
-     :causes       (mapv summarize (:causes record))
-     :cancellable? (boolean (:cancellable? record))
-     :deadline-at  (or (:deadline-at record) (:deadline record))
-     :attempt      (or (:attempt record) (:retry-attempt record))
-     :transport    (:transport record)
-     ;; EP-0021 — the recorded page index of an infinite-feed work record: 0
-     ;; (a page-0 first-load / whole-feed refetch) or a positive tail index (a
-     ;; load-more APPEND). A LIVE positive-index row is the durable fact behind
-     ;; the `:fetching-next?` derived sub (a load-more in flight, distinct from
-     ;; a whole-feed `:fetching?` refresh — Spec 016 §Causal event — load-more
-     ;; R2); nil for a non-infinite work record.
-     :page-index   (:page-index record)
-     :outcome      (when (contains? record :outcome) (summarize (:outcome record)))}))
+       :outcome      <summary>}
+
+  Optional `sensitive-rids`: the `sensitive-resource-ids` set from the
+  static registry. A record whose resource-id is in it redacts its
+  value-bearing slots — scope, params, causes and outcome, whose failed
+  form carries the error envelope — ON BOX, through the same resource-id
+  gate the trace-borne rows carry (see §ON-BOX sensitive-resource
+  redaction above). The metadata (work-id, resource-id, status,
+  generation, owners, timestamps) is never redacted."
+  ([entry+key] (work-row entry+key nil))
+  ([[map-key record] sensitive-rids]
+   (let [rkey (:resource/key record)
+         eg   (sensitive-eg identity
+                            (names-sensitive? sensitive-rids
+                                              [(scoped-key-resource-id rkey)]))
+         {:keys [scope resource-id params]} (scoped-key-summary rkey eg)
+         ;; The `:rf.runtime/work-ledger` map is keyed
+         ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
+         ;; work-id VECTOR is carried on the record as `:work/id`. Read it from
+         ;; there (fall back to the map key for a record that lacks the
+         ;; stamp) so the displayed `:work-id` is the kind-preserving identity,
+         ;; NOT the byte string.
+         work-id (or (:work/id record) map-key)]
+     {:work-id      work-id
+      :kind         (or (:work/kind record) (:kind record))
+      :resource/key {:scope scope :resource-id resource-id :params params}
+      :resource-id  resource-id
+      :generation   (:generation record)
+      :status       (:status record)
+      :terminal?    (contains? terminal-work-statuses (:status record))
+      :owners       (vec (:owners record))
+      :causes       (mapv #(summarize (eg %)) (:causes record))
+      :cancellable? (boolean (:cancellable? record))
+      :deadline-at  (or (:deadline-at record) (:deadline record))
+      :attempt      (or (:attempt record) (:retry-attempt record))
+      :transport    (:transport record)
+      ;; EP-0021 — the recorded page index of an infinite-feed work record: 0
+      ;; (a page-0 first-load / whole-feed refetch) or a positive tail index (a
+      ;; load-more APPEND). A LIVE positive-index row is the durable fact behind
+      ;; the `:fetching-next?` derived sub (a load-more in flight, distinct from
+      ;; a whole-feed `:fetching?` refresh — Spec 016 §Causal event — load-more
+      ;; R2); nil for a non-infinite work record.
+      :page-index   (:page-index record)
+      :outcome      (when (contains? record :outcome)
+                      (summarize (eg (:outcome record))))})))
 
 (defn project-work-ledger
   "Project a frame's work-ledger map `{<work-id> <record>}` into sorted
   render-safe rows — non-terminal (live) work first, then the terminal
   recent-races tail; within each group sorted by generation descending.
-  Per Spec 016 §Frame work ledger."
-  [ledger]
-  (->> (or ledger {})
-       (mapv work-row)
-       (sort-by (juxt :terminal? (comp - (fnil identity 0) :generation)))
-       vec))
+  Per Spec 016 §Frame work ledger.
+
+  Optional `sensitive-rids` is threaded to `work-row`, which redacts the
+  value-bearing slots of a record naming a `:sensitive?` resource. The
+  on-box panel passes it; omitting it previews every record's raw scope,
+  params, causes and outcome."
+  ([ledger] (project-work-ledger ledger nil))
+  ([ledger sensitive-rids]
+   (->> (or ledger {})
+        (mapv #(work-row % sensitive-rids))
+        (sort-by (juxt :terminal? (comp - (fnil identity 0) :generation)))
+        vec)))
 
 ;; ---------------------------------------------------------------------------
 ;; Route / resource graph (Spec 016 §Route integration / §Xray).
@@ -1273,9 +1305,10 @@
   payloads through its own egress fn. The METADATA (operation, label,
   class, resource-id, generation, work-id, owner, status) is NOT a payload
   value and is never egressed — a redacted timeline STILL exposes the
-  lifecycle shape. The in-panel caller omits the fn (the in-panel
-  `summarize` is sufficient; values never leave the box). Pure when
-  `egress-fn` is pure.
+  lifecycle shape. The in-panel caller omits the fn and passes
+  `sensitive-rids` (below) instead, because a preview reaches the screen
+  even though the values never leave the box. Pure when `egress-fn` is
+  pure.
 
   Optional `sensitive-rids`: the `sensitive-resource-ids` set
   from the static registry. A row whose resource-id is in it redacts its
