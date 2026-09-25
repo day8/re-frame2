@@ -153,7 +153,7 @@ function Invoke-NamespaceTest([string]$ns) {
   return @{ Ns = $ns; Status = 'fail' }
 }
 
-Write-Info "rf2-c3hffe per-namespace JVM sharding fallback"
+Write-Info "per-namespace JVM sharding fallback"
 Write-Info "  dir:         $CoreDir"
 Write-Info "  namespaces:  $($allNses.Count)"
 Write-Info "  per-ns cap:  ${PerNsTimeoutSeconds}s"
@@ -178,7 +178,7 @@ Write-Host "  failed:  $($failed.Count)"
 Write-Host "  timeout: $($timedOut.Count)"
 if ($timedOut.Count -gt 0) {
   Write-Host ""
-  Write-Host "  TIMED-OUT namespaces (these held a lock / hung - the rf2-c3hffe symptom):"
+  Write-Host "  TIMED-OUT namespaces (these held a lock / hung - the Windows file-lock deadlock symptom):"
   foreach ($ns in $timedOut) { Write-Host "    $ns" }
   Write-Host "  -> reap stale holders (scripts/reap-stale-test-processes.ps1) and retry,"
   Write-Host "     or inspect what file these namespaces' setup touches."
