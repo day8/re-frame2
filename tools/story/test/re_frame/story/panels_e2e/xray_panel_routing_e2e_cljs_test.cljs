@@ -1,6 +1,5 @@
 (ns re-frame.story.panels-e2e.xray-panel-routing-e2e-cljs-test
-  "Multi-frame e2e coverage for the `:xray-panel` schema-slot routing
-  (rf2-piucm; rf2-6qm77 + rf2-sgwor + rf2-v1ach).
+  "Multi-frame e2e coverage for the `:xray-panel` schema-slot routing.
 
   A variant body may declare a `:xray-panel <kw>` slot — the Story
   RHS resolves which Xray panel to mount for that variant from this
@@ -8,10 +7,10 @@
 
   ## Bugs this catches
 
-  - **rf2-6qm77 / rf2-sgwor + rf2-senbl** — `mount-fn-for` lookup
-    correctness. A variant with `:xray-panel :app-db` MUST resolve
-    to `xray-panels/mount-app-db-diff!`. A regression in the `case`
-    dispatch in `mount-fn-for` would map the slot to nil and the
+  - **`mount-fn-for` lookup correctness** — a variant with
+    `:xray-panel :app-db` MUST resolve to
+    `xray-panels/mount-app-db-diff!`. A regression in the
+    `mount-fn-for` lookup would map the slot to nil and the
     panel-host would never paint.
 
   - **Variant slot beats story slot** — the resolution chain per
@@ -36,7 +35,7 @@
 ;; ---- direct slot honoured ----------------------------------------------
 
 (deftest variant-xray-panel-slot-resolves
-  (testing "rf2-6qm77 — `:xray-panel :app-db` on a variant body
+  (testing "`:xray-panel :app-db` on a variant body
             resolves through `resolve-panel` to the :app-db panel id;
             `effective-panel` reads the variant body and beats the
             embed's default."
@@ -57,10 +56,10 @@
             "effective-panel routes the slot through with no user override")))))
 
 (deftest mount-fn-for-app-db-maps-to-xray-mount-fn
-  (testing "rf2-senbl class — the `:xray-panel :app-db` route MUST
+  (testing "the `:xray-panel :app-db` route MUST
             resolve to `xray-panels/mount-app-db-diff!`, not nil.
-            A regression in the `case` dispatch would silently leave
-            the panel-host empty (the original bug)."
+            A regression in the lookup would silently leave
+            the panel-host empty."
     (let [mfn (rf.story.ui.xray-embed/mount-fn-for :app-db)]
       (is (some? mfn)
           ":app-db panel id resolves to a non-nil mount-fn")
@@ -148,8 +147,8 @@
 
 (deftest embed-data-active-panel-reflects-routed-slot
   (testing "the embed wrapper's `data-active-panel` carries the resolved
-            slot value when the variant carries a `:xray-panel`. This
-            is the end-to-end shape the Playwright spec asserted."
+            slot value when the variant carries a `:xray-panel` — the
+            end-to-end shape a browser walk would assert."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
