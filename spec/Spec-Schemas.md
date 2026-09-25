@@ -487,7 +487,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
    EventHandlerMeta
    [:map
     [:rf/machine?  [:= true]]                                                ;; required true on machine-handler registrations
-    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and each :states-tree map node (state-node / transition map) co-locates its own reference-site :source-coords directly (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+    [:rf/machine   [:ref :rf/transition-table]]                              ;; the captured machine spec — a TransitionTable rooted at the machine. Carries :initial, :states, :guards, :actions, optional :data / :doc / :tags / :meta. When the macro path stamped it, each :guards / :actions entry co-locates :source-coords / :source-code on its `{:fn ..}` map, and the spec root, each region body and each :states-tree map node (state-node / transition map) co-locates its own reference-site :source-coords directly (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
     ]])
 ```
 
@@ -496,7 +496,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
 | Lens | Returns | Implementation |
 |---|---|---|
 | `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:rf/machine? true` and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
-| `(:rf/machine (handler-meta {:source :store :kind :event :id machine-id}))` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps (whose entries co-locate `:source-coords` / `:source-code` when macro-stamped), the initial `:data` map, and (when macro-stamped) the reference-site `:source-coords` co-located on each `:states`-tree map node. | the inner-key projection — no accessor fn |
+| `(:rf/machine (handler-meta {:source :store :kind :event :id machine-id}))` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps (whose entries co-locate `:source-coords` / `:source-code` when macro-stamped), the initial `:data` map, and (when macro-stamped) the reference-site `:source-coords` co-located on the root, each region body and each `:states`-tree map node. | the inner-key projection — no accessor fn |
 
 Visualisers walking the transition table consume the `:rf/machine` projection; tools needing source-coords on the `reg-machine` call site itself (file/line of the declaration) use `(handler-meta :event id)`. The two surfaces are independent and complementary — see [005 §Querying machines](005-StateMachines.md#querying-machines) and the reference implementation at [`implementation/machines/src/re_frame/machines.cljc`](../implementation/machines/src/re_frame/machines.cljc) (`machines`; the per-id spec is the `:rf/machine` projection).
 
@@ -2506,8 +2506,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ```clojure
 (def TransitionTable
   [:ref ::state-node])                                                     ;; a TransitionTable IS the root state-node (it just happens to be where :initial / :states begin)
-;; The root honours :entry / :exit (once at birth, once at teardown) and :tags. Registration
-;; refuses the state-node keys no runtime path reads on the root — :spawn, :spawn-all, :always,
+;; The root honours :entry / :exit (once at birth, once at teardown), :tags, and :spawn (one
+;; child spawned at birth and destroyed at teardown). Registration refuses the state-node keys
+;; no runtime path reads on the root — :spawn-all, :always,
 ;; :choice, :final?, :output-key, :error?, :deep?, :default-target, and a flat root's :on-done —
 ;; with :rf.error/machine-root-slot-not-supported. Per [005 §The machine root]
 ;; (005-StateMachines.md#the-machine-root).

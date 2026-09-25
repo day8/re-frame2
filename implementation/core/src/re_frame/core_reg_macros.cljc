@@ -365,16 +365,17 @@
 
      The two arms CO-LOCATE per-element source onto each
      `:guards` / `:actions` entry, and
-     CO-LOCATE a reference-site `:source-coords` onto each MAP node
-     inside the `:states` tree — rather than building separate
-     side-indexes:
+     CO-LOCATE a reference-site `:source-coords` onto the spec root, each
+     region body and each MAP node inside a `:states` tree — rather than
+     building separate side-indexes:
 
      - DEV arm: `rf.source-coords/collocate-element-source` merges the per-id
        `{:source-coords {...} :source-code \"...\"}` data (built by the
        compile-time `walk-element-source`) onto each entry, yielding
        `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`. Plus
        `rf.source-coords/collocate-state-source` splices the reference-site
-       `:source-coords` onto each `:states`-tree map node at its spec-path
+       `:source-coords` onto each tree map node — the root, a region body, a
+       `:states`-tree node — at its spec-path
        (the `{<map-spec-path> <coord>}` index from `walk-machine-spec`), and
        `rf.source-coords/collocate-state-inline-source` splices the inline-fn
        `:source-code` strings — a `{<slot> <source-string>}` map keyed by the
@@ -543,7 +544,8 @@
      where the literal spec is walked at expansion time and per-element
      source is co-located onto each `:guards` / `:actions` entry
      (plus a reference-site `:source-coords`
-     co-located onto each `:states`-tree map node), gated on
+     co-located onto the root, each region body and each `:states`-tree
+     map node), gated on
      `interop/debug-enabled?` so the dev-only source DCEs under
      `:advanced + goog.DEBUG=false`.
 
