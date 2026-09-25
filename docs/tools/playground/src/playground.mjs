@@ -1,21 +1,19 @@
 /*
  * re-frame2 docs/cljs playground.
- *   - rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover (plain-CLJS cells).
- *   - rf2-00zvt Phase 3 (live re-frame2 component cells — re-frame2's OWN API).
+ *   - plain-CLJS cells.
+ *   - live re-frame2 component cells — re-frame2's OWN API.
  *
  * A roll-your-own, instant-nav-safe live-CLJS-cell bootstrap — the production
- * renderer for the `docs/cljs` page. It is the production successor to the
- * Phase 0 spike (rf2-qk3sh) and replaced Klipse outright as of Phase 1b: the
- * page's ```cljs cells (`.language-cljs`) are now rendered here, and the
- * vendored ~7 MB Klipse plugin + its bootstrap have been deleted.
+ * renderer for the `docs/cljs` page: the page's ```cljs cells
+ * (`.language-cljs`) are rendered here.
  *
  * Two cell kinds:
  *   - ```cljs        -> plain-eval cell. Evaluates the source and pr-str's the
- *                       last form's value (Phase 1). No reagent/re-frame loaded.
+ *                       last form's value. No reagent/re-frame loaded.
  *   - ```cljs-rf2    -> re-frame2 render cell. Evaluates the source against
  *                       re-frame2's OWN public API (re-frame.core v2) and MOUNTS
  *                       the last form's value as a reagent2 component into the
- *                       result div (Phase 3). The cell may `require`
+ *                       result div. The cell may `require`
  *                       re-frame.core / reagent2.core and call re-frame2's
  *                       reg-event / reg-sub / dispatch / subscribe. Backed by
  *                       a self-contained SCI bundle (cljs/playground-rf2.js,
@@ -26,9 +24,8 @@
  *                       dropped its UMD build) into one self-contained file,
  *                       loaded on demand only on pages with a cljs-rf2 cell.
  *
- *   (A Phase-2 stock-reagent ```cljs-render cell kind once existed for live
- *   STOCK reagent/re-frame demos via the Scittle plugins; it was removed —
- *   the guide teaches re-frame2's own API, so no docs page ever used it.)
+ *   (There is no cell kind for STOCK reagent/re-frame demos: the guide
+ *   teaches re-frame2's own API.)
  *
  * Stack:
  *   - CodeMirror 6 (@codemirror/{state,view,commands,language} + @lezer/highlight)
@@ -55,7 +52,7 @@ import {
   complete_keymap,
 } from "@nextjournal/clojure-mode";
 
-// Pinned Scittle version (matches the validated spike rf2-qk3sh). Loaded as a
+// Pinned Scittle version. Loaded as a
 // classic <script> global from jsDelivr; installs window.scittle.core.eval_string.
 const SCITTLE_VERSION = "0.8.31";
 const SCITTLE_BASE = `https://cdn.jsdelivr.net/npm/scittle@${SCITTLE_VERSION}/dist`;
@@ -65,7 +62,7 @@ const SCITTLE_SRC = `${SCITTLE_BASE}/scittle.js`;
 // Used by the selfUrl fallback below to locate the bootstrap's own <script>.
 const SELF_BUNDLE_NAME = "playground.js";
 
-// The re-frame2 SCI bundle (Phase 3) — a self-contained shadow-cljs build
+// The re-frame2 SCI bundle — a self-contained shadow-cljs build
 // (docs/tools/playground/sci) that bundles re-frame2 core + reagent2 + React 19 and
 // installs window.rf2sci.renderLast. Sibling of this file under docs/cljs/, so
 // it is resolved relative to this file's own URL (see selfUrl below) for
@@ -80,7 +77,7 @@ const EVAL_SELECTOR = "pre.language-cljs:not([data-cljs-mounted])";
 const RF2_SELECTOR = "pre.language-cljs-rf2:not([data-cljs-mounted])";
 const ANY_CELL_SELECTOR = `${EVAL_SELECTOR}, ${RF2_SELECTOR}`;
 
-// --- Eval wiring (validated in spike rf2-qk3sh) ----------------------------
+// --- Eval wiring -----------------------------------------------------------
 
 // scittle.core.eval_string(src) returns the value of the LAST form (SCI returns
 // the real CLJS value; numbers are JS numbers) and THROWS a JS Error on failure.
@@ -96,9 +93,9 @@ const ANY_CELL_SELECTOR = `${EVAL_SELECTOR}, ${RF2_SELECTOR}`;
 //      so Scittle hands JS a real Array.
 //   4. A top-level (def x ...)/(defn ...) returns the VAR, so a bare REPL would
 //      print `#'user/x` — confusing for the non-Clojurian audience the docs/cljs
-//      page targets, and a fidelity regression vs Klipse (which showed the bound
-//      value). When the last form's value is a var, deref it and pr-str the
-//      bound value instead, matching Klipse. Other values pass through unchanged.
+//      page targets, who expect to see the bound value. When the last form's
+//      value is a var, deref it and pr-str the bound value instead. Other
+//      values pass through unchanged.
 function evalCljs(src) {
   const scittle = window.scittle;
   if (!scittle || !scittle.core || !scittle.core.eval_string) {
@@ -119,7 +116,7 @@ function evalCljs(src) {
   return { printed: out[0] || "", result: out[1] };
 }
 
-// re-frame2 render-cell eval (Phase 3). Evaluates the source against
+// re-frame2 render-cell eval. Evaluates the source against
 // re-frame2's OWN public API via the self-contained SCI bundle
 // (window.rf2sci, installed by playground-rf2.js) and mounts the last form's
 // value as a reagent2 component into `targetEl`. window.rf2sci.renderLast owns
@@ -159,11 +156,11 @@ function renderError(targetEl, err) {
 
 // Mod-Enter eval keymap. MUST be wrapped in Prec.highest so it runs BEFORE any
 // default / clojure-mode handler that might also bind Mod-Enter and swallow the
-// event (the bug that made the spike cell render nothing without Prec.highest).
+// event (without Prec.highest the cell would render nothing).
 //
 // `kind` selects the cell behaviour:
-//   "eval" -> pr-str the last form's value (Phase 1)
-//   "rf2"  -> mount last form as a re-frame2/reagent2 component (Phase 3)
+//   "eval" -> pr-str the last form's value
+//   "rf2"  -> mount last form as a re-frame2/reagent2 component
 function runCell(kind, src, resultEl) {
   if (kind === "rf2") {
     resultEl.classList.remove("cljs-result--err");
@@ -201,8 +198,8 @@ function evalKeymap(getResultEl, kind) {
 // keyword, strings -> string, LineComment/Discard! -> comment, Number ->
 // number, VarName -> definition(variableName), Nil -> null, RegExp -> regexp,
 // DocString -> emphasis), but `default_extensions` ships NO HighlightStyle and
-// no syntaxHighlighting() extension — so the tags were never painted and cells
-// rendered as plain monospace (rf2-wj623).
+// no syntaxHighlighting() extension — so without the style below the tags are
+// never painted and cells render as plain monospace.
 //
 // We map each tag the grammar emits to a CSS custom property rather than a
 // literal colour, so a SINGLE HighlightStyle reads well under BOTH Material
@@ -325,7 +322,7 @@ function mountCell(preEl) {
       ...default_extensions, // clojure-mode: lezer syntax, close/match brackets, paredit
       // Paint the Lezer tags clojure-mode emits. default_extensions parses +
       // tags but ships NO HighlightStyle — without this the cells render as
-      // plain monospace (rf2-wj623).
+      // plain monospace.
       syntaxHighlighting(highlightStyle),
       keymap.of([...complete_keymap, ...defaultKeymap, ...historyKeymap]),
       evalKeymap(() => resultEl, kind),
@@ -355,7 +352,7 @@ function mountAll() {
 
 // --- Scittle loader + instant-nav bootstrap --------------------------------
 //
-// Originally ported from the (now-deleted) Klipse bootstrap. Material's
+// Material's
 // `navigation.instant` swaps page <main> via fetch and does NOT re-execute
 // inline page <script>s, but it DOES re-run every `extra_javascript` module
 // on each instant nav.
@@ -434,7 +431,7 @@ function ensureScittle(onReady) {
   ensureScript("cljs-scittle-js", SCITTLE_SRC, scittleReady, onReady);
 }
 
-// Load the self-contained re-frame2 SCI bundle (Phase 3). It installs
+// Load the self-contained re-frame2 SCI bundle. It installs
 // window.rf2sci.renderLast and bundles its own React 19 — no external React,
 // no Scittle. Idempotent across instant navs (keyed by id); "ready" =
 // window.rf2sci present.
@@ -447,7 +444,7 @@ function ensureRf2(onReady) {
 }
 
 function loadPlayground() {
-  // Instant-nav teardown (rf2-io9mdr). Material's navigation.instant has
+  // Instant-nav teardown. Material's navigation.instant has
   // already swapped <main>, discarding the OUTGOING page's live cells. Release
   // that page's re-frame2 resources — every detached React root plus every
   // page-owned frame — BEFORE mounting this page's cells, so roots don't
@@ -494,7 +491,7 @@ if (window.document$ && typeof window.document$.subscribe === "function") {
 window.__rf2PlaygroundMountAll = mountAll;
 window.__rf2PlaygroundEvalCljs = evalCljs;
 window.__rf2PlaygroundRenderRf2 = renderComponentRf2;
-// The instant-nav entrypoint (rf2-io9mdr): the smoke drives a simulated
+// The instant-nav entrypoint: the smoke drives a simulated
 // navigation.instant swap by replacing the cell DOM then calling this, exactly
 // as Material's document$ subscription does on a real page swap.
 window.__rf2PlaygroundLoad = loadPlayground;
