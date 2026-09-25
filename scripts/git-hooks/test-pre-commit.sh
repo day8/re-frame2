@@ -2401,6 +2401,11 @@ ATTR_CI="$REPO_ROOT/scripts/check-commit-attribution.sh"
 
 AERR=/tmp/rf2-attr-test.err
 
+# A quote assertion asks whether the diagnostic carries the offending line's
+# exact BYTES, so its fixed-string grep runs under LC_ALL=C. A locale-aware
+# grep can miss a needle that carries the marker's leading emoji (MSYS GNU
+# grep 3.0 does under en_GB.UTF-8) while the guard has quoted it faithfully.
+
 # The forbidden shapes, built at runtime so the generated-with marker carries
 # its real leading emoji without putting a non-ASCII byte in this file. Both
 # co-author spellings are here because the rule matches the ADDRESS FAMILY:
@@ -2437,7 +2442,7 @@ for t in "$TRAILER_COAUTHOR" "$TRAILER_COAUTHOR_SHORT" "$TRAILER_SESSION" \
   out=$(printf 'fix(thing): a real change\n\n%s\n' "$t" | run_attr_lib 2>"$AERR") || true
   case "$out" in
     *EXIT=1*)
-      if grep -Fq "$t" "$AERR" && grep -q 'AI attribution' "$AERR"; then
+      if LC_ALL=C grep -Fq "$t" "$AERR" && grep -q 'AI attribution' "$AERR"; then
         pass "(10a) refused and quoted: $key..."
       else
         fail "(10a) refused but the diagnostic never quoted the line: $key..."
@@ -2741,7 +2746,7 @@ out=$(printf 'Fixes the thing.\n\n%s\n%s\n' "$TRAILER_GENWITH" "$TRAILER_SESSION
 case "$out" in
   EXIT=0) fail "(10p) FALSE GREEN: a PR body carrying AI attribution was allowed" ;;
   *)
-    if grep -Fq "$TRAILER_GENWITH" "$AERR" && grep -Fq "$TRAILER_SESSION_URL" "$AERR" \
+    if LC_ALL=C grep -Fq "$TRAILER_GENWITH" "$AERR" && grep -Fq "$TRAILER_SESSION_URL" "$AERR" \
        && grep -q 'pull request body' "$AERR"; then
       pass "(10p) PR-body arm refuses a body and quotes BOTH offending lines"
     else
@@ -2926,7 +2931,7 @@ for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" \
   case "$out" in
     EXIT=0) fail "(10q) DISARMED: a body CARRYING a real trailer was allowed: $key..." ;;
     *)
-      if grep -Fq "$t" "$AERR"; then
+      if LC_ALL=C grep -Fq "$t" "$AERR"; then
         pass "(10q) a body that CARRIES one is still refused, and quotes it: $key..."
       else
         fail "(10q) refused, but the diagnostic never quoted the trailer: $key..."
