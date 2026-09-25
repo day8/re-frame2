@@ -1,6 +1,6 @@
 ;; Conformance fixture: cofx/declared-only-delivery
 ;;
-;; EP-0017 Slice-A contract — DECLARED-ONLY delivery (Spec 002 §Satisfaction
+;; EP-0017 contract — DECLARED-ONLY delivery (Spec 002 §Satisfaction
 ;; algorithm + EP-0017 §5). The runtime delivers EXACTLY the facts a handler
 ;; declares via `:rf.cofx/requires`, flat, into the coeffect map. A REGISTERED
 ;; coeffect that the handler does NOT declare is NOT delivered — nothing
