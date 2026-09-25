@@ -692,8 +692,8 @@
 ;; ---- public view --------------------------------------------------------
 
 (defn panel-tree
-  "The Machine Inspector's markup, as a pure fn of the three values
-  [[Panel]] reads plus the island spelling. Shows EXACTLY THREE elements
+  "The Machine Inspector's markup, as a pure fn of the five values
+  [[Panel]] reads plus its instance token. Shows EXACTLY THREE elements
   when the focused event targets a machine:
 
     1. the Prev/Next epoch nav (header — per-machine epoch walker),
@@ -706,10 +706,10 @@
   Prev/Next moves the spine focus, which re-feeds the mini-pipeline AND
   the chart highlights together (both read the focused epoch).
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
-  documented extract-a-helper spelling rather than an invention. A
+  It lives apart from [[Panel]] by `defview`'s own documented
+  extract-a-helper spelling rather than an invention. A
   boundary's body may only run inside a React render window, so `(Panel)`
-  is no longer a callable that answers hiccup — while this panel's
+  is not a callable that answers hiccup — while this panel's
   section algebra is ordinary data → data and is worth testing in the
   fast node lane rather than behind a real React commit.
   `machine_inspector_view_cljs_test` drives THIS fn with the values it
@@ -717,37 +717,36 @@
   paint, liveness, frame targeting and teardown — is
   `machine_inspector_fresco_boundary_dom_cljs_test`'s subject.
 
-  PURE: every helper it calls is a plain fn of its arguments. Two values
-  that used to be read deep in the tree — [[focused-event-view]]'s
-  target-frame and [[focused-event-section]]'s fit-signal — are arguments
-  now and read once in [[Panel]]. HD-016 would have let them donate
-  upward instead, and that would have been correct in production; they
-  were hoisted because a `rf.fresco/sub` raises outside a collector
-  window, which would have made this whole tree callable only inside a
-  real React commit."
-  ;; rf2-3ymg — the 6-arity keeps every direct caller that has no instance
-  ;; to name working, and answers this panel's OWN token for them rather
-  ;; than nil: the cascade ids below are composed in the Epoch panel's id
-  ;; namespace, so `no instance` still has to say which panel is rendering.
+  PURE: every helper it calls is a plain fn of its arguments.
+  [[focused-event-view]]'s target-frame and [[focused-event-section]]'s
+  fit-signal are consumed deep in the tree yet arrive as arguments, read
+  once in [[Panel]]. HD-016 would let them donate upward instead, and
+  that would be correct in production; they are arguments because a
+  `rf.fresco/sub` raises outside a collector window, which would make
+  this whole tree callable only inside a real React commit."
+  ;; The 5-arity serves a direct caller that has no instance to name, and
+  ;; answers this panel's OWN token for it rather than nil: the cascade
+  ;; ids below are composed in the Epoch panel's id namespace, so
+  ;; `no instance` still has to say which panel is rendering.
   ([data records cascade fit-signal target-frame]
    (panel-tree data records cascade fit-signal target-frame
                (instance-token nil)))
   ([{:keys [empty-kind selected-machine-id]} records cascade fit-signal
     target-frame instance]
-  (let [;; rf2-mj4jp — THE ONE PLACE the Dynamic panel decides which
+  (let [;; THE ONE PLACE the Dynamic panel decides which
         ;; machine it is bound to. Both consumers below read THIS value:
         ;; the focused-event view (the chart) takes the record, and the
-        ;; prev/next nav takes its machine-id. They were two separate
-        ;; `(first records)` spellings that agreed only by coincidence
-        ;; of both being `first`; the moment an explicit selection
-        ;; outranked trace order, agreement by coincidence would have
-        ;; ended — with the nav labelled "Previous event touching A"
-        ;; over a chart drawing B, which is rf2-y9xmf's symptom wearing
-        ;; new clothes. Resolved once here, they cannot disagree.
+        ;; prev/next nav takes its machine-id. Two separate
+        ;; `(first records)` spellings would agree only by coincidence
+        ;; of both being `first`, and an explicit selection outranks
+        ;; trace order, so they would disagree — the nav labelled
+        ;; "Previous event touching A" over a chart drawing B.
+        ;; Resolved once here, they cannot disagree.
         ;;
         ;; `selected-machine-id` is `project-data`'s RAW slot echo, NOT
-        ;; its `:selected-id` — see that fn's docstring for why reading
-        ;; the effective one would re-open rf2-y8doi.23.
+        ;; its `:selected-id` — the effective one falls back to the
+        ;; alphabetically-first machine, which would outrank trace order
+        ;; when the operator has chosen nothing. See that fn's docstring.
         focused-record   (h/pick-focused-transition records
                                                    selected-machine-id)
         ;; The bound machine drives the prev/next nav (a cascade may
@@ -760,13 +759,9 @@
                :style panel-root-style}
      [:header {:data-testid "rf-xray-machine-inspector-header"
                :style panel-header-style}
-      ;; rf2-6xezz — Mike-direction 2026-05-21: the large h1 "Machine
-      ;; inspector" heading is scrubbed; the L4 tab strip is the
-      ;; panel-name source-of-truth. The header row keeps the per-machine
-      ;; prev/next nav on the right.
-      ;;
-      ;; rf2-nugvv — the Share affordance is removed (Mike, 2026-06-04);
-      ;; the prev/next nav is the only header toolbar affordance now.
+      ;; There is no h1 heading: the L4 tab strip is the panel-name
+      ;; source-of-truth. The header row carries the per-machine
+      ;; prev/next nav on the right, its only toolbar affordance.
       [:div]
       (when (not= :no-machines empty-kind)
         [:div {:style panel-header-toolbar-style}
@@ -776,9 +771,9 @@
        (empty-state)
 
        (seq records)
-       ;; rf2-zdfbm — flex column so the focused-event view fills the
+       ;; Flex column so the focused-event view fills the
        ;; host and the topology chart grows into the panel height.
-       ;; rf2-alsnz — pass `records` through so `focused-event-view`
+       ;; Pass `records` through so `focused-event-view`
        ;; does not duplicate-subscribe the same composite handle.
        [:div {:data-testid "rf-xray-machine-inspector-focused-event-host"
               :style focused-event-host-style}
@@ -789,45 +784,43 @@
        (blank-state))])))
 
 (rf.fresco/defview Panel
-  "The Machine Inspector (Machine tab) root — a FRESCO BOUNDARY
-  (rf2-k97c.3), not an `rf/reg-view`. The THREE READS, and
+  "The Machine Inspector (Machine tab) root — a FRESCO BOUNDARY,
+  not an `rf/reg-view`. The FIVE READS, and
   [[panel-tree]] for everything below them.
 
   The READS are `rf.fresco/sub` — plain calls the shipped collector
   records an edge for, with no deref and no reaction owned by the
-  INSTALLED adapter. That is the third of the epic's three couplings and
-  the one a first-paint smoke test cannot see.
+  INSTALLED adapter, a coupling a first-paint smoke test cannot see.
 
-  ALL FIVE OF THE PANEL'S READS ARE IN THIS BODY. Two of them used to sit
-  deep in the tree ([[focused-event-view]]'s target-frame and
-  [[focused-event-section]]'s fit-signal) and HD-016 would have let them
+  ALL FIVE OF THE PANEL'S READS ARE IN THIS BODY. Two of them are
+  consumed deep in the tree ([[focused-event-view]]'s target-frame and
+  [[focused-event-section]]'s fit-signal) and HD-016 would let them
   DONATE upward into this window, which is settled rather than contingent
-  and would have been correct. They were hoisted for a reason about
+  and would be correct. They are read here for a reason about
   TESTING rather than correctness: a `rf.fresco/sub` raises
   `:rf.error/fresco-sub-outside-render` outside a collector window, so a
   helper performing one is callable only inside a real React commit — and
   this panel's markup is ordinary data → data with a large fast node-lane
-  suite over it. The cost is that both are now read on every panel render
+  suite over it. The cost is that both are read on every panel render
   rather than only when a focused-event section happens to render; neither
   widens invalidation in practice.
 
   The FRAME they resolve against comes from React context, which the
   enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context — so this boundary
-  resolves `:rf/xray` identically under the Fresco root Xray owns today
+  resolves `:rf/xray` identically under the Fresco root Xray owns
   and under an `rf/frame-provider` a Reagent parent writes.
 
-  NO ISLAND SURVIVES IN THIS PANEL. The topology chart was the last one,
-  and `machine-canvas/Chart-view` — the Fresco head of the same body the
-  `reg-view` `Chart` renders — retired it; [[focused-event-section]]
-  records what moved and what is left. The island the chart still needs
-  for the machines-viz component now lives inside `machine-canvas`, one
-  level below anything this panel hands down.
+  THIS PANEL HEADS NO ISLAND. The topology chart is
+  `machine-canvas/Chart-view` — the Fresco head of the same body the
+  `reg-view` `Chart` renders; [[focused-event-section]] says why that
+  suffices. The island the chart needs for the machines-viz component
+  lives inside `machine-canvas`, one level below anything this panel
+  hands down.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
 
   ## `:instance-id` — OPTIONAL, and this panel's default is NOT nil
-  ## (rf2-3ymg)
 
   This panel reads no DATA from props: everything it renders comes from the
   five subs below. The one prop it takes is an IDENTITY, and it is passed
@@ -836,13 +829,13 @@
   rather than about taste.
 
   Element 2 is the SHARED mini-pipeline, `epoch-view/machine-cascade-mini-
-  pipeline`, the very renderer the Epoch panel's EVENT HANDLER step uses
-  (rf2-g2axio). Its inspector `:mount-id`s are composed in that file's id
+  pipeline`, the very renderer the Epoch panel's EVENT HANDLER step uses.
+  Its inspector `:mount-id`s are composed in that file's id
   namespace — `epoch/machine-cascade-transition-delta/<step>` and its
-  siblings — so an Epoch panel and a Machine Inspector displaying one
-  cascade composed IDENTICAL ids, shared one lifecycle entry, one
-  ResizeObserver and one measured-width slot ACROSS TWO DIFFERENT PANELS,
-  and detaching either released the other's.
+  siblings — so, unqualified, an Epoch panel and a Machine Inspector
+  displaying one cascade would compose IDENTICAL ids, share one lifecycle
+  entry, one ResizeObserver and one measured-width slot ACROSS TWO
+  DIFFERENT PANELS, and detaching either would release the other's.
 
   That is not a collision a caller should have to name its way out of:
   which panel is rendering is statically known, and an embedder mounting
@@ -852,37 +845,32 @@
   INSPECTORS in one frame.
 
   Accepted shapes and the Reagent-crossing rule are the siblings' — a
-  non-blank string or a keyword whose NAMESPACE is part of the name
-  (rf2-4bsq), stable across that instance's renders, tokenised by
+  non-blank string or a keyword whose NAMESPACE is part of the name,
+  stable across that instance's renders, tokenised by
   [[Panel-bridge]] BEFORE the crossing."
   [{:keys [instance-id]}]
   (panel-tree (rf.fresco/sub [:rf.xray/machine-inspector-data])
               (rf.fresco/sub [:rf.xray/machine-transitions-for-focused-event])
-              ;; rf2-g2axio — the focused epoch's projected machine-cascade
+              ;; The focused epoch's projected machine-cascade
               ;; rows for the SHARED mini-pipeline (element 2). Reads the
               ;; same focused epoch Prev/Next drives, so the mini-pipeline
               ;; and the chart move together.
               (:cascade (rf.fresco/sub [:rf.xray/machine-focused-epoch-cascade]))
               (rf.fresco/sub [:rf.xray/machine-tab-fit-signal])
               (rf.fresco/sub [:rf.xray/target-frame])
-              ;; rf2-3ymg — this mount's qualifier for the SHARED
+              ;; This mount's qualifier for the SHARED
               ;; mini-pipeline's inspector ids. Never nil; see the
               ;; docstring above and [[instance-token]].
               (instance-token instance-id)))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge ------------------------------------------
 ;;
-;; `panels/mount-machine-inspector!` mounts this panel BY NAME, and
-;; RULING 1's surviving spelling puts the Fresco boundary on the natural
-;; name with a PUBLIC bridge passed by the caller — the shape
-;; `resources/Panel-bridge` already ships, and the funnel that pointed the
-;; mount facade here (PR #9654) is what let this panel's migration happen
-;; ENTIRELY INSIDE THIS FILE: `panels.cljs` was never touched.
+;; `panels/mount-machine-inspector!` mounts this panel BY NAME, and the
+;; Fresco boundary sits on the natural name with a PUBLIC bridge passed
+;; by the caller — the shape `resources/Panel-bridge` has too.
 ;;
-;; IT IS NO LONGER A NO-OP. Until this commit `Panel-bridge` was a `def`
-;; aliasing the `reg-view` value, and nothing downstream could tell the two
-;; names apart. `Panel` is now a Fresco boundary — a React function
-;; component — and Xray's shell reaches the active tab across its L4
+;; THE BRIDGE IS NOT AN ALIAS. `Panel` is a Fresco boundary — a React
+;; function component — and Xray's shell reaches the active tab across its L4
 ;; `as-child` seam as the hiccup head
 ;; `[(:panel tab)]`, with `panel-registry/reg-l4-tab!`'s `:pre` requiring
 ;; `:panel` to be CALLABLE. A React component is neither.
@@ -899,15 +887,15 @@
 ;; `Panel` and is not independently mountable, so it needs no bridge of
 ;; its own for this panel. It does carry one
 ;; (`machine_after_rings/AfterRingsOverlay-bridge`), but NOT for this
-;; panel's sake any more: rf2-k97c.3 made `machine-canvas/Chart-view` a
-;; boundary, and it heads the overlay directly. The bridge survives for the
-;; `reg-view` `machine-canvas/Chart`, which the two Static Reagent-island
-;; consumers still head.
+;; panel's sake: `machine-canvas/Chart-view` is a boundary and heads the
+;; overlay directly. The bridge serves the `reg-view`
+;; `machine-canvas/Chart`, which the two Static Reagent-island consumers
+;; head.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-machine-inspector!`
-;; reaches this bridge through `render-panel!`, which rf2-l1jm keeps
-;; ratom-family, so a Reagent parent heads it by ruling whatever the L4
-;; registry does. The chain is `[:>]` -> `as-component` -> `Panel`.
+;; NOT SCAFFOLDING — THE PAIR IS PERMANENT. `panels/mount-machine-inspector!`
+;; reaches this bridge through `render-panel!`, which is ratom-family,
+;; so a Reagent parent heads it whatever the L4 registry does. The chain
+;; is `[:>]` -> `as-component` -> `Panel`.
 (def ^:private Panel-component
   "The React component [[Panel]] presents as, for a non-Fresco parent.
   Declared ONCE at top level beside the view, as `rf.fresco/as-component`'s
@@ -926,25 +914,25 @@
   and `panels/render-panel!` takes the view to mount as an ARGUMENT, so
   the embedding contract needs a name it can pass.
 
-  rf2-3ymg — the 1-arity is how a REAGENT parent names an instance when it
+  The 1-arity is how a REAGENT parent names an instance when it
   renders two of these under one `frame-provider`:
 
       [Panel-bridge {:instance-id \"left\"}]
 
-  The 0-arity stays because that is how the shell mounts an L4 tab
+  The 0-arity exists because that is how the shell mounts an L4 tab
   (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
   (`[panel-view]`) — one panel per frame, no instance to name. Note that
   the 0-arity is NOT the same as `no qualifier` here: [[instance-token]]
   answers this panel's own name for it, because the cascade ids it
   composes into belong to the Epoch panel.
 
-  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+  ## The prop is TOKENISED HERE, before the crossing
 
   `[:>]` converts each prop VALUE before React sees it, and Reagent's
   `convert-prop-value` converts a named value with `cljs.core/name` —
   which DROPS THE NAMESPACE. Passed through raw, `:left/machines` and
   `:right/machines` would both arrive as `\"machines\"`, so two panels the
-  caller had deliberately named apart would compose the same ids again.
+  caller had deliberately named apart would compose the same ids.
   So the bridge runs [[instance-token]] — the SAME normaliser the boundary
   uses, idempotent on its own output — and a STRING crosses, which Reagent
   preserves intact; a refused shape throws naming the CALLER's value
@@ -958,7 +946,7 @@
 ;; The raw values the production data subs read. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so each override
 ;; branch lives in ONE place (the seam), not duplicated across the
-;; production and test surfaces (rf2-e8330v).
+;; production and test surfaces.
 
 (defn- registered-machines-value
   "Registered-machine vector — the machine-ids of the HOST app (every `:event`
@@ -971,7 +959,7 @@
   runs inside the `:rf.xray/registered-machines` sub COMPUTATION, and Xray seats
   in its OWN image-loaded `:rf/xray` frame, so a generation-scoped read would
   resolve through Xray's OWN image (no host machines) and the inspector would
-  show no machines. Reading the host registrar directly restores the host's
+  show no machines. Reading the host registrar directly yields the host's
   machine list. See spec/API.md §Public registrar query API."
   []
   (try
@@ -986,7 +974,7 @@
   frame whose declarations classify the snapshot `:data` paths (EP-0025 —
   frame-owned redaction), and it must be the frame the runtime-db itself came
   from: the classification is the POLICY of the frame that owns the data, so a
-  frame-id from any other axis applies a BORROWED policy (rf2-6ev6j). The
+  frame-id from any other axis applies a BORROWED policy. The
   caller pairs both arguments off `:rf.xray/observed-frame` for that reason."
   [observed-frame-id observed-runtime-db]
   (when (map? observed-runtime-db)
@@ -1020,44 +1008,31 @@
 
 (defn install!
   "Idempotent install for the Machine Inspector panel's Xray-side
-  registrations. Post-collapse (rf2-y9xmf) the panel registers:
+  registrations. The panel registers:
 
     - the per-machine projection composite (`:rf.xray/machine-inspector-data`)
     - the focused-event lens composite (`:rf.xray/machine-transitions-for-focused-event`)
     - the per-machine prev/next nav events
     - the scrubber-position slot (read by the `:after`-rings overlay to
-      gate ring rendering to the `:present` position; rf2-nugvv removed
-      the share-URL surface that previously also round-tripped it)
+      gate ring rendering to the `:present` position)
     - the rings install (`:after` countdown ring overlay)
 
-  rf2-nugvv (2026-06-04) — the Share affordance (button + modal +
-  share-URL infra) is removed; `install!` no longer installs it.
-
-  rf2-r4nao moved the Sim engine + UI into
-  `static.machines.sim` — installed via
+  The Sim engine + UI live in `static.machines.sim`, installed via
   `static.machines.panel/install!` further down the registry."
   []
-  ;; ---- Snapshot diff-mode toggle — RETIRED 2026-05-29 (rf2-vv3m6) -----
-  ;;
-  ;; The `[diff][full][full+diff]` toggle (rf2-yqjrd) retired alongside
-  ;; its sibling toggles on the Epoch HANDLER `:db`, SUBSCRIPTIONS
-  ;; value, and App-DB panel surfaces. FULL+DIFF is the single
-  ;; rendering — `snapshot-drill-in` hard-wires that posture and this
-  ;; install no longer registers the sub/event/slot trio.
-
   ;; Registered-machine vector (the `:rf/machine?` filter over the generic
   ;; source-store read). The test-only
   ;; override seam (`:rf.xray/set-registered-machines-override-for-test`
-  ;; + the `*-override` read) lives behind `install-test-overrides!`
-  ;; (rf2-e8330v) — production registration carries no `-for-test` ids.
+  ;; + the `*-override` read) lives behind `install-test-overrides!` —
+  ;; production registration carries no `-for-test` ids.
   (rf/reg-sub :rf.xray/registered-machines
     (fn [_db _query]
       (registered-machines-value)))
 
   ;; The live snapshots map for every registered machine.
   ;;
-  ;; rf2-kq8nac (EP-0005) — EGRESS-REDACTED. The raw slot
-  ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 — runtime-db
+  ;; EGRESS-REDACTED (EP-0005). The raw slot
+  ;; `[:rf.runtime/machines :snapshots]` (EP-0001 — runtime-db
   ;; partition) is the LIVE frame-db value, NOT
   ;; a trace, so it has NOT passed through the snapshot-egress redactor
   ;; (the `re-frame.classification` trace projection) the trace stream rides. The
@@ -1070,39 +1045,37 @@
   ;; `:rf.machine/snapshot-updated` event STAMPED with the OBSERVED frame:
   ;; a FRAME-declared sensitive `:data` path lands as `:rf/redacted`, a
   ;; large one as the size marker, the plain siblings ride verbatim —
-  ;; exactly the trace-path treatment (EP-0025, rf2-398kql — durable machine
+  ;; exactly the trace-path treatment (EP-0025 — durable machine
   ;; `:data` classification is frame-owned). A frame declaring no matching
   ;; `:data` path leaves the snapshot untouched (reference-preserving fast
   ;; path inside `project-machine-tags`).
   ;;
-  ;; rf2-6ev6j — BOTH INPUTS PIVOT ON THE SAME FRAME, and they did not.
-  ;; The classification frame was read from `:rf.xray/target-frame` while the
-  ;; data came from `:rf.xray/target-frame-runtime-db`, which pivots on
-  ;; `:rf.xray/observed-frame` — `(or (:frame focus) target)`. Nothing kept
-  ;; the two equal, and in the posture the panel OPENS in they differ:
-  ;; `compose-focus` takes `:frame` from the head event-bundle's own record in
-  ;; LIVE mode, so focus resolves a real host frame while the picker is
-  ;; untouched and `:target-frame` is still nil (UNSELECTED, EP-0002).
+  ;; BOTH INPUTS PIVOT ON THE SAME FRAME. The data comes from
+  ;; `:rf.xray/target-frame-runtime-db`, which pivots on
+  ;; `:rf.xray/observed-frame` — `(or (:frame focus) target)` — and so does
+  ;; the classification frame. Reading that frame from `:rf.xray/target-frame`
+  ;; instead would split them, and in the posture the panel OPENS in they
+  ;; differ: `compose-focus` takes `:frame` from the head event-bundle's own
+  ;; record in LIVE mode, so focus resolves a real host frame while the picker
+  ;; is untouched and `:target-frame` is nil (UNSELECTED, EP-0002).
   ;; `frame-snapshot-classification` answers nil for a nil frame, and with no
   ;; author classification `project-machine-tags` returns the tags UNCHANGED —
-  ;; so a `:data` path the frame had EXPLICITLY DECLARED sensitive was
-  ;; surfaced RAW. With a target selected but focus elsewhere it fails the
+  ;; so a `:data` path the frame has EXPLICITLY DECLARED sensitive would
+  ;; surface RAW. With a target selected but focus elsewhere it would fail the
   ;; other way, applying the collector target's policy to another frame's
   ;; value.
   ;;
-  ;; The frame is NOT recovered from the payload the way rf2-a28eo's timer
-  ;; fix recovers it from the focused record's `:frame-id` stamp: a live
+  ;; The frame is NOT recovered from the payload the way the after-rings
+  ;; timers recover it from the focused record's `:frame-id` stamp: a live
   ;; runtime-db read carries no such provenance, and it does not need to —
   ;; the owning frame is the COORDINATE THAT SELECTED THE VALUE, so pivoting
   ;; both inputs on `:rf.xray/observed-frame` makes them structurally
-  ;; incapable of diverging. That is what the sibling
-  ;; `:rf.xray/current-route-slice` already does with this same runtime-db
-  ;; (`panels/routing.cljs`), and its comment gives the same reason: the
-  ;; elision registry is per-frame, so any other axis ships the value under a
-  ;; BORROWED policy. Focus-first with the collector-target fallback is
-  ;; preserved — that is `:rf.xray/observed-frame`'s own definition, untouched
-  ;; here — so an unselected focus still classifies against the target
-  ;; exactly as before.
+  ;; incapable of diverging. The sibling `:rf.xray/current-route-slice`
+  ;; does the same with this same runtime-db (`panels/routing.cljs`), for
+  ;; the same reason: the elision registry is per-frame, so any other axis
+  ;; ships the value under a BORROWED policy. Focus-first with the
+  ;; collector-target fallback is `:rf.xray/observed-frame`'s own
+  ;; definition, so an unselected focus classifies against the target.
   (rf/reg-sub :rf.xray/machine-snapshots
     {:inputs [[:rf.xray/observed-frame] [:rf.xray/target-frame-runtime-db]]}
     (fn [[observed-frame-id observed-runtime-db] _query]
@@ -1110,27 +1083,26 @@
 
   ;; The registered-machine-definition map for every machine. The
   ;; machine-snapshots / machine-definitions test-only override seams
-  ;; live behind `install-test-overrides!` (rf2-e8330v) — production
+  ;; live behind `install-test-overrides!` — production
   ;; registration carries no `-for-test` ids and no override branches.
   (rf/reg-sub :rf.xray/machine-definitions
     {:inputs [[:rf.xray/registered-machines]]}
     (fn [[machines] _query]
       (machine-definitions-value machines)))
 
-  ;; The user's per-panel machine selection (kept as a slot for the
-  ;; Sim engine + the Instances-jump focus landing; the share-URL
-  ;; round-trip that also read it was removed in rf2-nugvv. The
-  ;; collapsed Dynamic panel itself drives focus off the event lens,
-  ;; not the picker slot).
+  ;; The user's per-panel machine selection, written by
+  ;; `:rf.xray/select-machine-id` (the Instances JUMP). Read by the
+  ;; composite below, `:rf.xray/cancellation-cascade-for-focused-machine`
+  ;; and the after-rings timers sub. The Dynamic panel itself drives
+  ;; focus off the event lens, where the selection outranks trace order
+  ;; (`pick-focused-transition`).
   (rf/reg-sub :rf.xray/selected-machine-id
     (fn [db _query]
       (get db :selected-machine-id)))
 
   ;; The per-panel composite — one read produces every slot the panel
-  ;; consumes. Kept post-collapse so callers (after-rings, sim) that
-  ;; read `:selected-id` / `:empty-kind` keep working without touching
-  ;; their wiring. (The share surface was a caller until rf2-nugvv
-  ;; removed it.)
+  ;; consumes. [[panel-tree]] reads its `:empty-kind` and its RAW
+  ;; `:selected-machine-id`.
   (rf/reg-sub :rf.xray/machine-inspector-data
     {:inputs [[:rf.xray/registered-machines]
               [:rf.xray/machine-snapshots]
@@ -1143,21 +1115,21 @@
       (h/project-data
         machines (or live-snapshots {}) definitions buffer selected-id target-frame)))
 
-  ;; ---- focused-event lens composite (rf2-a9cke) ------------------
+  ;; ---- focused-event lens composite ------------------------------
 
   (rf/reg-sub :rf.xray/machine-transitions-for-focused-event
     {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history] [:rf.xray/machine-definitions]]}
     (fn [[focus history definitions] _query]
       (let [record (h/focused-epoch-record history focus)
             events (when record (:trace-events record))]
-        ;; rf2-qeemm (G3) — attach the focused epoch's fired-edge-ids to
-        ;; each per-machine section. `extract-fired-edge-ids` (B7,
-        ;; canonical) mints the SAME edge-ids the live chart mints off the
+        ;; Attach the focused epoch's fired-edge-ids to
+        ;; each per-machine section. `extract-fired-edge-ids`
+        ;; (canonical) mints the SAME edge-ids the live chart mints off the
         ;; same definition, so the set lands on real chart edges. The view
         ;; threads it into `MachineChart` so the traversed arms paint the
         ;; FIRED treatment — every microstep / guard-fork candidate the
         ;; from/to lens cannot reach.
-        ;; rf2-fzrzlw — additionally attach the guard-BLOCKED edge-ids: a
+        ;; Also attach the guard-BLOCKED edge-ids: a
         ;; guard-blocked no-op emits NO `:rf.machine/transition` (so
         ;; `fired-edge-ids` is empty for it), but the runtime DOES emit
         ;; `:rf.machine/guard-evaluated` fail/threw carrying the named
@@ -1175,9 +1147,9 @@
                     definition events machine-id)))
               (h/project-focused-event-transitions events definitions)))))
 
-  ;; ---- focused-epoch cascade events (rf2-g2axio) ------------------
+  ;; ---- focused-epoch cascade events -------------------------------
   ;;
-  ;; The SHARED EVENT HANDLER mini-pipeline (extracted from the Epoch
+  ;; The SHARED EVENT HANDLER mini-pipeline (shared with the Epoch
   ;; panel — see `panels.epoch.view/machine-cascade-mini-pipeline`)
   ;; renders off the focused epoch's RAW `:trace-events`, projecting the
   ;; numbered machine-cascade itself. The Machine tab subscribes to this
@@ -1204,15 +1176,15 @@
 
   ;; Test-only seeding events for the focused-event composite
   ;; (`:rf.xray/set-epoch-history-for-test`, `:rf.xray/set-focus-epoch-
-  ;; id-for-test`) live behind `install-test-overrides!` (rf2-e8330v) —
+  ;; id-for-test`) live behind `install-test-overrides!` —
   ;; production registration carries no `-for-test` ids.
 
   ;; ---- Machine Inspector panel events -----------------------------
 
   ;; `:rf.xray/select-machine-id` is registered further down, inside the
-  ;; prev/next `letfn` block — rf2-y8doi.23 made it LAND the selection on
-  ;; the panel rather than merely record it, and landing reuses that
-  ;; block's epoch walk verbatim. See the comment above that registration.
+  ;; prev/next `letfn` block — it LANDS the selection on the panel
+  ;; rather than merely recording it, and landing reuses that block's
+  ;; epoch walk verbatim. See the comment above that registration.
 
   (rf/reg-event :rf.xray/clear-machine-selection
     (fn [{:keys [db]} _event]
@@ -1226,7 +1198,7 @@
     (fn [{:keys [db]} _event]
       {:db (update db :machine-inspector/elk-pulse-tick (fnil inc 0))}))
 
-  ;; ---- per-machine prev/next nav (rf2-y9xmf · fixed rf2-nugvv) ----
+  ;; ---- per-machine prev/next nav ----------------------------------
   ;;
   ;; Step the spine's focus backwards / forwards to the adjacent epoch
   ;; whose cascade TARGETS THE CURRENTLY-VIEWED MACHINE — skipping
@@ -1234,33 +1206,33 @@
   ;; lens binds to the head transition's machine-id; that machine is the
   ;; nav's scope.
   ;;
-  ;; rf2-nugvv — two corrections over the original walk:
+  ;; Two rules the walk depends on:
   ;;
   ;;   1. **Start from the COMPOSED focus, not the raw `:focus` slot.**
   ;;      In LIVE+unpaused mode `compose-focus` derives the effective
   ;;      `:epoch-id` to the head event-bundle's settling epoch, ignoring the
   ;;      stored slot. Walking from the raw slot's `:epoch-id` (often nil
-  ;;      on a fresh session) made the step start from the wrong place
-  ;;      and the scope machine resolve off the wrong epoch.
+  ;;      on a fresh session) would start the step from the wrong place
+  ;;      and resolve the scope machine off the wrong epoch.
   ;;
   ;;   2. **Mutate focus through `spine/focus-event-bundle-reducer`, not a
   ;;      bare `[:focus :epoch-id]` write.** A bare epoch-id write is
   ;;      silently overridden by `compose-focus`'s LIVE+unpaused head-
   ;;      tracking (`eff-epoch-id` snaps back to head), so the panel
-  ;;      never moved — the buttons looked dead. Routing through the
+  ;;      would never move — the buttons would look dead. Routing through the
   ;;      reducer stamps `:mode :retro` + resolves the target epoch's
   ;;      settling `:dispatch-id`, the same focus mutation the L2 row
   ;;      click and the spine `[◀ ▶]` ribbon use, so the jump sticks.
-  (letfn [;; rf2-y8doi.23 — the SAME three predicates
+  (letfn [;; The SAME three predicates
           ;; `project-focused-event-transitions` folds a record from, and
-          ;; that identity is the point. This tested `transition-event?`
-          ;; ALONE, while the panel has rendered a section for a machine
-          ;; BIRTH since rf2-eldze and for a guard-blocked / unhandled
-          ;; NO-OP since rf2-skmc7 — so Prev/Next stepped straight over
-          ;; epochs the panel itself draws, and a machine whose only
-          ;; activity in the window was its birth was unreachable from the
-          ;; nav entirely. Anything the projection will render a section
-          ;; for is somewhere the walk must be able to stop.
+          ;; that identity is the point. The panel renders a section for a
+          ;; machine BIRTH and for a guard-blocked / unhandled NO-OP as
+          ;; well as a transition, so testing `transition-event?` ALONE
+          ;; would step Prev/Next straight over epochs the panel itself
+          ;; draws, and a machine whose only activity in the window was its
+          ;; birth would be unreachable from the nav entirely. Anything the
+          ;; projection will render a section for is somewhere the walk
+          ;; must be able to stop.
           (epoch-touches-machine? [epoch machine-id]
             (some (fn [ev]
                     (and (or (h/transition-event? ev)
@@ -1275,17 +1247,15 @@
                                  (spine/db->event-bundles db)
                                  (spine/db->show-ungrouped? db)
                                  (get db :epoch-history [])))
-          ;; rf2-mj4jp — SCOPED BY THE MACHINE THE PANEL IS DRAWING, via
-          ;; the very rule it draws by. This read `(first records)`,
-          ;; which agreed with the display only because the display read
-          ;; `first` too. Once an explicit selection outranks trace
-          ;; order, `first` would scope the walk to a machine the
-          ;; operator is not looking at: JUMP to B, press Prev, and the
-          ;; spine steps back through A's epochs. The existing
-          ;; `:selected-machine-id` fallback below is UNCHANGED — it
-          ;; still answers when the focused epoch projects no records at
-          ;; all — so a selection only ever gains precedence over trace
-          ;; order for a machine that actually transitioned here.
+          ;; SCOPED BY THE MACHINE THE PANEL IS DRAWING, via
+          ;; the very rule it draws by. An explicit selection outranks
+          ;; trace order, so a bare `(first records)` would scope the walk
+          ;; to a machine the operator is not looking at: JUMP to B, press
+          ;; Prev, and the spine would step back through A's epochs. The
+          ;; `:selected-machine-id` fallback below answers when the
+          ;; focused epoch projects no records at all, so a selection only
+          ;; ever gains precedence over trace order for a machine that
+          ;; actually transitioned here.
           (scope-machine-id [db focus]
             (let [history  (vec (or (get db :epoch-history) []))
                   record   (h/focused-epoch-record history focus)
@@ -1295,11 +1265,11 @@
               (or (some-> (h/pick-focused-transition records selected)
                           :machine-id)
                   selected)))
-          ;; Pin `target` (an epoch record) as the spine's focus, exactly
-          ;; as the nav does. Extracted by rf2-y8doi.23 so the JUMP landing
-          ;; below and the Prev/Next walk pin an epoch the SAME way — a
-          ;; second spelling here is how the rf2-nugvv dead-buttons bug got
-          ;; in, and it would be invisible from either call site.
+          ;; Pin `target` (an epoch record) as the spine's focus. The JUMP
+          ;; landing below and the Prev/Next walk both pin through here,
+          ;; so they pin an epoch the SAME way — a second spelling could
+          ;; let one call site write a bare epoch-id and go dead (rule 2
+          ;; above), invisibly from the other.
           (pin-epoch [db history target head-id]
             (let [epoch-id    (:epoch-id target)
                   frame-id    (:frame target)
@@ -1326,7 +1296,7 @@
             (let [event-bundles   (spine/db->event-bundles db)
                   show-ungrouped? (spine/db->show-ungrouped? db)]
               (spine/focusable-head-id event-bundles show-ungrouped?)))
-          ;; rf2-y8doi.23 — land the spine on the NEWEST epoch that
+          ;; Land the spine on the NEWEST epoch that
           ;; touches `mid`. No-op when the history holds none, so a
           ;; selection made before any activity leaves focus alone.
           (focus-latest-for-machine [db mid]
@@ -1371,28 +1341,27 @@
     (rf/reg-event :rf.xray/machine-focus-next
       (fn [{:keys [db]} _event] {:db (step-focus db :next)}))
 
-    ;; rf2-y8doi.23 — THE JUMP'S PRE-SELECT IS LIVE NOW.
+    ;; THE JUMP'S PRE-SELECT LANDS.
     ;;
     ;; `static/machines/instances_jump.cljs` telegraphs the Static →
     ;; Dynamic JUMP as three dispatches, of which this is the third, and
     ;; spec/003 §Instances promises the operator lands "with this machine
-    ;; pre-selected". It did not: rf2-y9xmf collapsed the Dynamic panel to
-    ;; an event-driven lens that binds to the FOCUSED EPOCH's first
-    ;; transition record and reads no picker, so writing
-    ;; `:selected-machine-id` changed nothing the operator could see. The
-    ;; JUMP landed on whatever the spine happened to be pointing at —
-    ;; frequently another machine entirely, which is the one outcome the
-    ;; affordance exists to prevent.
+    ;; pre-selected". The Dynamic panel is an event-driven lens that binds
+    ;; to the FOCUSED EPOCH's transition record, so writing
+    ;; `:selected-machine-id` alone would change nothing the operator can
+    ;; see: the JUMP would land on whatever the spine happened to be
+    ;; pointing at — frequently another machine entirely, which is the one
+    ;; outcome the affordance exists to prevent.
     ;;
-    ;; So the selection now LANDS: the spine focus moves to the newest
+    ;; So the selection LANDS: the spine focus moves to the newest
     ;; epoch touching `machine-id`, through the very walk Prev/Next uses
     ;; (`pin-epoch` → `spine/focus-event-bundle-reducer`), which is what
     ;; makes the move stick against `compose-focus`'s LIVE head-tracking.
     ;;
-    ;; The SLOT WRITE STAYS, and deliberately. It is the picker focus the
-    ;; Static Machines surfaces + `:rf.xray/cancellation-cascade-for-
-    ;; focused-machine` read, and retiring it is a separate change across
-    ;; files this slice does not own.
+    ;; The SLOT WRITE is deliberate too:
+    ;; `:rf.xray/cancellation-cascade-for-focused-machine` and the
+    ;; after-rings timers read the slot, and the panel's own selection
+    ;; rule gives it precedence over trace order.
     ;;
     ;; No-op when the machine has no epoch in the window — a selection
     ;; made before any activity leaves the spine where it was.
@@ -1403,9 +1372,8 @@
 
   ;; ---- scrubber-position slot ----------
 
-  ;; The scrubber UI is gone (rf2-y9xmf) and the share-URL surface that
-  ;; round-tripped this slot is gone too (rf2-nugvv), but the slot
-  ;; survives because the `:after`-rings overlay reads it
+  ;; There is no scrubber UI; the slot exists because the `:after`-rings
+  ;; overlay reads it
   ;; (`machine_after_rings*` gate ring rendering to the `:present`
   ;; position). Reads default to `:present`. The companion `set-scrubber-
   ;; position` event keeps the contract bidirectional.
@@ -1429,44 +1397,38 @@
 
   ;; ---- Sim engine ------------------------------------------------
   ;;
-  ;; rf2-r4nao — Sim engine + UI rehosted under
-  ;; `static.machines.sim` (event/sub family renamed to
-  ;; `:rf.xray.static.machines/sim-*`). The Dynamic Machine Inspector
-  ;; no longer installs Sim; the Static Machines panel does. See
+  ;; The Sim engine + UI live under `static.machines.sim` (the
+  ;; `:rf.xray.static.machines/sim-*` event/sub family), installed by the
+  ;; Static Machines panel rather than here. See
   ;; `static.machines.panel/install!`.
 
-  ;; ---- `:after` countdown rings (rf2-7hwwe) ---------------------
+  ;; ---- `:after` countdown rings ---------------------------------
   (after-rings/install!)
 
-  ;; ---- Interactive viewport adapter (rf2-y3l8z) -----------------
+  ;; ---- Interactive viewport adapter -----------------------------
   (machine-canvas/install!)
 
-  ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) is
-  ;; removed. The machine panel was the sole UI entry point to the
-  ;; share modal (`:rf.xray/share-modal-open`), so the button, the
-  ;; modal, the shell mount, and the share-URL infra all go with it.
-
-  ;; rf2-2moh1 — register the Dynamic Machines tab with the internal L4
+  ;; Register the Dynamic Machines tab with the internal L4
   ;; tab registry.
   (panel-registry/reg-l4-tab!
     {:id    :machines
-     ;; rf2-ad7zx.10 — Figma App labels the Dynamic L4 tab "Machine"
+     ;; The Figma App labels the Dynamic L4 tab "Machine"
      ;; (singular · the focused-epoch lens is on ONE machine's topology).
-     ;; The internal id stays `:machines` (mnemonic + routing unchanged).
+     ;; The internal id is `:machines`, which the mnemonic and routing use.
      :label "Machine"
      :mnem  "m"
      :modes #{:dynamic}
      :order 4
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary); `reg-l4-tab!`'s `:pre` requires
      ;; `:panel` to be CALLABLE and `shell/detail-panel` mounts it as a
      ;; Reagent hiccup head `[(:panel tab)]`, neither of which a React
      ;; component satisfies. The bridge is the one line between them and
-     ;; STAYS (rf2-lect, ruled option 2): the shell is a Fresco tree now
-     ;; and neither of those two requirements changed with it.
+     ;; is permanent: the shell is a Fresco tree and both requirements
+     ;; hold there.
      :panel Panel-bridge}))
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam ----------------------------------------------
 
 (defn install-test-overrides!
   "Install the Machine Inspector panel's test-only override seam:
