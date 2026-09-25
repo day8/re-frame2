@@ -1,42 +1,38 @@
 (ns day8.re-frame2-xray.panels-e2e.static-routes-panel-e2e-cljs-test
   "Multi-frame end-to-end coverage for Xray's Static Routes panel
-  (rf2-wj46n, spec/017 — Static Routes panel row).
+  (spec/017 — Static Routes panel row).
 
-  The original Playwright scenario `runStaticRoutesPanel` (recoverable
-  from `git show 85b86a7b:tools/xray/testbeds/feature_matrix/scenarios.cjs`)
-  exercised four observables:
+  It exercises four observables:
 
-    1. Static-mode opt-in via `configure!` + chord-into-Static.
+    1. Static mode, entered via `:rf.xray/set-mode :static` and the
+       Static Routes sub-tab.
     2. A synthetic 3-route catalogue injected via
        `:rf.xray/set-registered-routes-override-for-test`.
     3. Simulate-URL `/articles` resolves a WINNER candidate without
        mutating the host's runtime-db route slice at
-       `[:rf.runtime/routing :current]` (hermetic preview). EP-0001
-       (rf2-vzld77) moved the framework-owned route slice into
-       runtime-db; the guard compares that slice (via
-       `(:rf.db/runtime (rf/frame-state-value id))`, rf2-t3lftq —
-       API-shrink #3 retired the dedicated `rf/runtime-db-value` reader)
-       so a future accidental navigation / runtime-db write can't slip
-       past by leaving only the retired app-db path untouched.
+       `[:rf.runtime/routing :current]` (hermetic preview). The
+       framework-owned route slice lives in runtime-db (EP-0001); the
+       guard compares that slice (via
+       `(:rf.db/runtime (rf/frame-state-value id))`) so an accidental
+       navigation / runtime-db write can't slip past by leaving only an
+       app-db path untouched.
     4. The `:rf.xray.static.routes/jump-to-dynamic` cross-link flips
        mode → `:dynamic` and opens the Dynamic Routing tab.
 
-  The Playwright surface was retired (browser-level chrome/scenario
-  tests live in framework + Xray gates; the e2e tier is sub-layer).
-  This test re-authors the same four assertions against Xray's
-  `:rf.xray/*` sub graph in the multi-frame node-test harness used by
-  the rest of `panels_e2e/`.
+  Browser-level chrome/scenario tests live in framework + Xray gates;
+  the e2e tier is sub-layer. This test asserts the four observables
+  against Xray's `:rf.xray/*` sub graph in the multi-frame node-test
+  harness used by the rest of `panels_e2e/`.
 
   ## Why sub layer, not view layer
 
-  The pure-fn / view-tree coverage already lives in
+  The pure-fn / view-tree coverage lives in
   `static/routes/panel_cljs_test.cljs` (registry wiring, silent state,
   flat-list rendering, search filter, Simulate-URL row, expand toggle,
-  hermetic preview, cross-link tab + mode flip). The rf2-wj46n row in
-  the test-coverage matrix is the cross-frame e2e tier — proving that
-  the WHOLE pipeline (host frame + `:rf/xray` frame + the override
-  seam + the cross-link fx) survives the multi-frame fixture. We hit
-  exactly the four observables the Playwright scenario watched."
+  hermetic preview, cross-link tab + mode flip). This file is the
+  cross-frame e2e tier — proving that the WHOLE pipeline (host frame +
+  `:rf/xray` frame + the override seam + the cross-link fx) survives
+  the multi-frame fixture."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -49,9 +45,8 @@
 
 ;; ---- synthetic 3-route catalogue ----------------------------------------
 ;;
-;; Mirrors the synthetic routes the Playwright scenario fed into the
-;; override seam — three routes with ascending specificity so the
-;; rank cascade is exercised non-trivially.
+;; Three routes with ascending specificity so the rank cascade is
+;; exercised non-trivially.
 
 (def synthetic-routes
   {:route/home           {:path "/"             :doc "Home page."}
@@ -98,12 +93,12 @@
       (fn []
         (install-override!)
         ;; Snapshot the host's REAL current-route slice BEFORE simulating.
-        ;; EP-0001 (rf2-vzld77): real navigation writes the route slice to
-        ;; the host frame's RUNTIME-DB at [:rf.runtime/routing :current],
-        ;; not app-db. The counter fixture does not navigate, so we expect
+        ;; Real navigation writes the route slice to the host frame's
+        ;; RUNTIME-DB at [:rf.runtime/routing :current], not app-db
+        ;; (EP-0001). The counter fixture does not navigate, so we expect
         ;; nil here — and the same nil afterwards. Reading the runtime-db
-        ;; path (not the retired app-db path) is what makes the guard
-        ;; catch a future accidental runtime-db write.
+        ;; path (not an app-db path) is what makes the guard catch an
+        ;; accidental runtime-db write.
         (let [counter-before    (e2e/sub-host [:counter/value])
               host-route-before (some-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                                         (get-in [:rf.runtime/routing :current]))]
@@ -140,8 +135,7 @@
       (fn []
         (install-override!)
         ;; Start in :static mode on the Static Routes sub-tab — the
-        ;; chord-into-Static-then-Routes shape the Playwright scenario
-        ;; established.
+        ;; chord-into-Static-then-Routes shape.
         (rf/dispatch-sync [:rf.xray/set-mode :static] {:frame :rf/xray})
         (rf/dispatch-sync [:rf.xray.static/select-tab :routes] {:frame :rf/xray})
         (is (= :static (e2e/sub-xray [:rf.xray/mode]))
