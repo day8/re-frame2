@@ -2,12 +2,11 @@
 'use strict';
 
 /*
- * Gate-arming policy test for the reagent-slim CLIENT-RUNTIME smoke
- * (rf2-xsgu8a).
+ * Gate-arming policy test for the reagent-slim CLIENT-RUNTIME smoke.
  *
  * The acceptance criterion this file enforces: edits to the slim smoke
  * manifest/path must ARM the intended CI gate and cannot silently drift
- * back to Reagent/UIx-only coverage. These checks have teeth — each
+ * to Reagent/UIx-only coverage. These checks have teeth — each
  * fails RED if a future edit unwires the slim smoke, points it at the
  * wrong substrate, deletes a required file, or removes the npm gate.
  *
@@ -79,7 +78,7 @@ function read(p) {
   return fs.readFileSync(p, 'utf8');
 }
 
-console.log('reagent-slim smoke policy tests (rf2-xsgu8a)');
+console.log('reagent-slim smoke policy tests');
 
 // ---- 1) testbed source files exist ---------------------------------------
 
@@ -155,10 +154,9 @@ it('slim testbed core requires the SLIM substrate, not stock Reagent', () => {
 
 it('slim testbed core is idiomatic re-frame2 (app-db + events + subs)', () => {
   // EP-0018 Z: `reg-event` is the one-form event-registration API; the
-  // per-kind `reg-event-db`/`-fx`/`-ctx` wrappers were removed (throwing
-  // stubs). Match `(reg-event <id> ...)` — the trailing `\s` requires the
-  // bare one-form symbol and is NOT satisfied by a `reg-event-db` (etc.)
-  // wrapper name slipping back in.
+  // per-kind `reg-event-db`/`-fx`/`-ctx` names are throwing stubs. Match
+  // `(reg-event <id> ...)` — the trailing `\s` requires the bare one-form
+  // symbol and is NOT satisfied by a `reg-event-db` (etc.) wrapper name.
   assert.ok(/reg-event\s/.test(CORE_SRC), 'no reg-event (events) in slim testbed core');
   assert.ok(/reg-sub/.test(CORE_SRC), 'no reg-sub (subs) in slim testbed core');
   assert.ok(/reg-view/.test(CORE_SRC), 'no reg-view in slim testbed core');
@@ -279,9 +277,7 @@ it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx only)',
   // into the shared adapter-smoke manifest. This pins both directions of
   // the drift: the shared set does not silently grow a slim entry, and the
   // slim gate does not silently vanish into it. (The manifest's set — the
-  // two adapter smokes; the Helix arm left at S7/W13, rf2-d6epb, and the
-  // re-frame.ui substrate smoke retired with the substrate, rf2-0yp7w.4 —
-  // is pinned by _adapter-smoke-filter.test.cjs; here we pin
+  // two adapter smokes — is pinned by _adapter-smoke-filter.test.cjs; here we pin
   // the exact set too so a slim entry cannot hide behind growth.)
   const { ADAPTER_SMOKES } = require(ADAPTER_SMOKE_FILTER);
   const builds = ADAPTER_SMOKES.map((e) => e.build).sort();
