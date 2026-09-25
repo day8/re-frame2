@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch.badge
-  "Pure-data badge taxonomy for the Epoch panel (rf2-sc3r1).
+  "Pure-data badge taxonomy for the Epoch panel.
 
   Maps each cascade step badge → its visual chrome (colour
   token + label text). The colour resolver returns a CSS-variable
@@ -23,7 +23,7 @@
 
 ;; ---- badge taxonomy -----------------------------------------------------
 ;;
-;; Per the bead body's badge colour table (rf2-sc3r1 §Badge Colors):
+;; The design mock's badge colour table:
 ;;
 ;;     :DISPATCH      "#8c959f"                  ; mid grey
 ;;     :COEFFECT      "#a855f7"                  ; light purple
@@ -33,37 +33,34 @@
 ;;     :SUBSCRIPTIONS "#ec4899"                  ; pink
 ;;     :VIEWS         "var(--devtools-success)"  ; green
 ;;
-;; The hex values from the bead map onto Xray's theme tokens:
+;; The mock hex values map onto Xray's theme tokens:
 ;;
-;;     #8c959f                — `:text-tertiary` (the muted grey already
-;;                              in the palette)
+;;     #8c959f                — `:text-tertiary` (the muted grey in the
+;;                              palette)
 ;;     #a855f7                — :magenta (violet-500; the COEFFECT mock
-;;                              hue. The dark `:magenta` token's hex was
-;;                              tuned to this exact value in rf2-cgm4f so
-;;                              the badge and the mock match — and the
-;;                              shared `:magenta` consumers (redacted
-;;                              sentinel chip, filter "out" mode, etc.)
-;;                              continue to read a violet-family hue.)
+;;                              hue. The dark `:magenta` token's hex is
+;;                              this exact value so the badge and the
+;;                              mock match — and the shared `:magenta`
+;;                              consumers (redacted sentinel chip, filter
+;;                              "out" mode, etc.) read a violet-family
+;;                              hue.)
 ;;     var(--devtools-active) — `:accent` (the single blue identity)
 ;;     rgb(154,103,0)         — :orange (functional amber, perf-slow
 ;;                              tier — close enough hue for the SIDE
 ;;                              EFFECTS step's irreversible/post-commit
-;;                              signal; the pre-rf2-kt6js `:FX` step)
+;;                              signal)
 ;;     #ec4899                — :magenta-pink (the SUBSCRIPTIONS mock
-;;                              hue, added as a new palette token in
-;;                              rf2-cgm4f so the SUBSCRIPTIONS pill is
-;;                              visually distinct from COEFFECT's
-;;                              violet-magenta. Pre-rf2-cgm4f both pills
-;;                              collapsed onto `:magenta` and the eye
-;;                              couldn't separate them at a glance.)
+;;                              hue, its own palette token so the
+;;                              SUBSCRIPTIONS pill is visually distinct
+;;                              from COEFFECT's violet-magenta; on one
+;;                              shared `:magenta` the eye cannot separate
+;;                              the two pills at a glance.)
 ;;     var(--devtools-success) — `:success` / `:green`
 ;;
-;; rf2-9fyn40 — added :WORLD-INPUTS (EP-0010 causal provenance), pulling
-;; :text-secondary (a step lighter than DISPATCH's :text-tertiary — it
-;; reads as orienting causal-context metadata, not a pipeline action).
-;; rf2-g7tf6c (EP-0017 §9) — :WORLD-INPUTS → :RECORDABLE-COFX (the surface
-;; now reads the flat `:rf.cofx` map's declared recordable leaves; same
-;; muted causal-context tone).
+;; :RECORDABLE-COFX (EP-0010 causal provenance — the flat `:rf.cofx` map's
+;; declared recordable leaves, EP-0017 §9) pulls :text-secondary (a step
+;; lighter than DISPATCH's :text-tertiary — it reads as orienting
+;; causal-context metadata, not a pipeline action).
 ;;
 ;; The badge inventory is binding: the view never paints a badge
 ;; whose keyword is not in this map.
@@ -74,26 +71,21 @@
   theme's CSS variable (one badge across light + dark).
 
   COEFFECT pulls `:magenta` (violet `#a855f7`); SUBSCRIPTIONS pulls
-  `:magenta-pink` (`#ec4899`). The two were collapsed onto the same
-  token pre-rf2-cgm4f and operators couldn't separate them at a
-  glance — Mike-ruled 2026-05-26: visual distinguishability earns
-  one extra palette token. The two hues map onto the original mock's
-  assignment, which the implementer had folded for palette-minimality
-  reasons that the mock didn't actually support.
+  `:magenta-pink` (`#ec4899`). On one shared token operators cannot
+  separate them at a glance, so visual distinguishability earns one
+  extra palette token. The two hues are the mock's assignment.
 
   HANDLER + FLOW share `:accent` — the Figma export's single-accent
-  identity (rf2-ad7zx.13).
+  identity.
 
-  rf2-17vxj — SCHEMA-VIOLATIONS pulled `:warning` for the aggregate
-  trailing step. rf2-xgeag retired the aggregate; the per-step
-  violation sub-block lives inline now. Hot-reload drift carries
-  on a standalone SCHEMA-HOT-RELOAD tail step (same `:warning`
-  token; renamed badge to flag the narrowed scope).
-  rf2-yz57h — INTERCEPTOR pulls `:accent` (the same blue as HANDLER —
+  Schema violations render as an inline per-step sub-block; hot-reload
+  drift rides a standalone SCHEMA-HOT-RELOAD tail step, which pulls
+  `:warning`.
+  INTERCEPTOR pulls `:accent` (the same blue as HANDLER —
   the interceptor chain WRAPS the handler; they read as one identity
   family in the cascade, the chain around the handler body)."
   {:DISPATCH          :text-tertiary
-   ;; rf2-9fyn40 · EP-0017 §9 — RECORDABLE COEFFECTS (EP-0010 causal
+   ;; EP-0017 §9 — RECORDABLE COEFFECTS (EP-0010 causal
    ;; provenance, the flat `:rf.cofx` map's declared recordable leaves)
    ;; sits right after DISPATCH SITE and reads as CONTEXT, not a pipeline
    ;; action. `:text-secondary` (brighter muted) keeps it in the
@@ -103,7 +95,7 @@
    ;; FLOW accent, etc.).
    :RECORDABLE-COFX   :text-secondary
    :COEFFECT          :magenta
-   ;; rf2-se9a9t / EP-0022 §11 — INTERCEPTORS (plural, the AUTHORED chain)
+   ;; EP-0022 §11 — INTERCEPTORS (plural, the AUTHORED chain)
    ;; shares `:accent` with INTERCEPTOR (the exception-only step) + HANDLER:
    ;; the authored chain WRAPS the handler, so both interceptor surfaces read
    ;; as one identity family in the cascade (the chain around the body).
@@ -157,27 +149,27 @@
       "?"))
 
 (def step-numbered-circle-diameter-px
-  "21px per the bead body's numbered cascade pattern (§Numbered
-  Cascade Pattern: '21px diameter')."
+  "21px — the numbered cascade circle's diameter (the numbered cascade
+  pattern)."
   21)
 
 (def vertical-line-offset-px
-  "13px per the bead body — the vertical line starts at 13px from the
+  "13px — the vertical line starts at 13px from the
   top of the pipeline section."
   13)
 
 (def circle-left-offset-px
-  "-44px per the bead body — the numbered circle's left anchor."
+  "-44px — the numbered circle's left anchor."
   -44)
 
 (def line-left-offset-px
-  "-34px per the bead body — the vertical line's left anchor (between
+  "-34px — the vertical line's left anchor (between
   the circle column and the content column)."
   -34)
 
 (def fib
-  "Fibonacci spacing scale per the bead body's §Fibonacci Spacing
-  System (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89).
+  "Fibonacci spacing scale
+  (3 · 5 · 8 · 13 · 21 · 34 · 55 · 89).
 
   Catalogued as data so view sites read keyed values rather than
   scattered magic numbers. Pure data; JVM-portable."
@@ -199,13 +191,13 @@
     (str n "px")
     "0"))
 
-;; ---- Machine-cascade row badges (rf2-u69j7) -----------------------------
+;; ---- Machine-cascade row badges -----------------------------------------
 ;;
-;; The machine-cascade view (rf2-u69j7) renders one row per substrate
+;; The machine-cascade view renders one row per substrate
 ;; emit (`:rf.machine/guard-evaluated`, `:rf.machine/action-ran`,
 ;; `:rf.machine/transition`, `:rf.machine.timer/cancelled`). Each row
 ;; carries a small badge — the row's KIND (`:guard / :action / :transition
-;; / :timer`) — and, for `:action` rows, a PHASE chip (one of the rf2-82a0u
+;; / :timer`) — and, for `:action` rows, a PHASE chip (one of the
 ;; closed set: `:exit / :transition / :entry / :always / :after-action /
 ;; :initial-entry / :destroy-exit`).
 ;;
@@ -231,21 +223,21 @@
 ;; tone — they're refinement on the `:action` row's primary chrome.
 
 (def ^:private cascade-kind->token-key
-  "Map from machine-cascade row `:kind` keyword → theme-token keyword
-  (rf2-u69j7). The view's row-badge resolver reads off this table."
+  "Map from machine-cascade row `:kind` keyword → theme-token keyword.
+  The view's row-badge resolver reads off this table."
   {:guard       :text-tertiary
    :action      :accent
    :transition  :magenta
-   ;; rf2-bvwv4q — a parent-owned parallel `:always` ROUND's regional
+   ;; A parent-owned parallel `:always` ROUND's regional
    ;; transition. It IS a state change, so it shares the magenta transition
    ;; hue; the `[ALWAYS]` label + `for <region> · round <n>` clause
    ;; distinguish it from the outer aggregate `[TRANSITION]`.
    :microstep   :magenta
    :timer       :warning
-   ;; rf2-ugdas — the benign unhandled-event no-op. Muted/tertiary tone:
+   ;; The benign unhandled-event no-op. Muted/tertiary tone:
    ;; benign, low-signal — explicitly NOT an error/warning hue.
    :no-op       :text-tertiary
-   ;; rf2-it4vt — the machine's BIRTH (`[START]`). Green/success tone: a
+   ;; The machine's BIRTH (`[START]`). Green/success tone: a
    ;; clean creation is a GOOD event (xstate's `createActor(m).start()`),
    ;; and the green reads as "the machine came alive here" — distinct from
    ;; the blue ACTION, the magenta TRANSITION, and the muted no-op.
@@ -253,41 +245,41 @@
 
 (def ^:private cascade-kind->label
   "Map from machine-cascade row `:kind` keyword → uppercase label
-  rendered in the row's kind chip (rf2-u69j7)."
+  rendered in the row's kind chip."
   {:guard       "GUARD"
    :action      "ACTION"
    :transition  "TRANSITION"
-   ;; rf2-bvwv4q — the parent-owned `:always` ROUND regional transition. The
+   ;; The parent-owned `:always` ROUND regional transition. The
    ;; eventless `:always` source names the round; the region + round-index
    ;; ride the row's `for <region> · round <n>` clause.
    :microstep   "ALWAYS"
    :timer       "TIMER"
-   ;; rf2-iu3no — "NO OP" (space, not hyphen) is the SOLE marker for the
-   ;; benign unhandled-user-event no-op. The row collapsed to
+   ;; "NO OP" (space, not hyphen) is the SOLE marker for the
+   ;; benign unhandled-user-event no-op. The row reads
    ;; "[NO OP] staying in {state}" (`format/cascade-row-label`) — the pill
    ;; carries the one badge; the verb carries the consequence. No "ignored"
    ;; outcome chip, no "no-op —" prefix, no ", no transition" suffix.
    :no-op       "NO OP"
-   ;; rf2-it4vt — the machine's BIRTH pill. "START" mirrors xstate's
+   ;; The machine's BIRTH pill. "START" mirrors xstate's
    ;; `createActor(m).start()` — the machine ran its initial-entry cascade
    ;; and installed its initial state.
    :start       "START"})
 
 (defn cascade-kind-token-key
-  "Theme-token keyword for a cascade row's `:kind` (rf2-u69j7). Falls
+  "Theme-token keyword for a cascade row's `:kind`. Falls
   back to `:text-tertiary` for unknown kinds so the view always paints
   something."
   [kind]
   (get cascade-kind->token-key kind :text-tertiary))
 
 (defn cascade-kind-colour
-  "CSS-variable string for a cascade row's `:kind` (rf2-u69j7)."
+  "CSS-variable string for a cascade row's `:kind`."
   [kind]
   (get tokens/tokens (cascade-kind-token-key kind)
        (get tokens/tokens :text-tertiary)))
 
 (defn cascade-kind-label
-  "Uppercase label string for a cascade row's `:kind` (rf2-u69j7).
+  "Uppercase label string for a cascade row's `:kind`.
   Falls back to `(str/upper-case (name kind))` for unknown kinds so
   the cascade still paints text on a taxonomy extension."
   [kind]
@@ -296,12 +288,12 @@
       "?"))
 
 (def cascade-kind-set
-  "Closed set of cascade row kinds the view paints chrome for
-  (rf2-u69j7). New kinds extend the projection's
+  "Closed set of cascade row kinds the view paints chrome for.
+  New kinds extend the projection's
   `machine-cascade-trace-ops` AND this set in lockstep.
-  rf2-it4vt — `:start` (the machine's birth `[START]` badge).
-  rf2-bvwv4q — `:microstep` (a parent-owned parallel `:always` round's
-  regional transition, the `[ALWAYS]` badge)."
+  `:start` is the machine's birth `[START]` badge; `:microstep` is a
+  parent-owned parallel `:always` round's regional transition, the
+  `[ALWAYS]` badge."
   #{:guard :action :transition :microstep :timer :no-op :start})
 
 (defn cascade-kind?
@@ -309,12 +301,12 @@
   [kind]
   (contains? cascade-kind-set kind))
 
-;; ---- Action-phase chips (rf2-u69j7 + rf2-82a0u closed set) --------------
+;; ---- Action-phase chips (closed set) ------------------------------------
 
 (def ^:private cascade-phase->label
   "Map from machine-cascade `:action` row's `:phase` keyword →
-  short label rendered in the per-row phase chip (rf2-u69j7).
-  Closed set per rf2-82a0u."
+  short label rendered in the per-row phase chip.
+  A closed set."
   {:exit            "exit"
    :transition      "transition"
    :entry           "entry"
@@ -324,8 +316,8 @@
    :destroy-exit    "destroy-exit"})
 
 (defn cascade-phase-label
-  "Short label string for a cascade `:action` row's `:phase`
-  (rf2-u69j7). Pure-data; the view reads off this table for the
+  "Short label string for a cascade `:action` row's `:phase`.
+  Pure-data; the view reads off this table for the
   per-row phase chip."
   [phase]
   (or (get cascade-phase->label phase)
@@ -334,67 +326,65 @@
 
 (def cascade-phase-set
   "Closed set of phases the substrate stamps on `:rf.machine/action-ran`
-  trace events (rf2-82a0u). Tests + the view's chip-rendering bail-out
+  trace events. Tests + the view's chip-rendering bail-out
   read this set."
   #{:exit :transition :entry :always
     :after-action :initial-entry :destroy-exit})
 
 (defn cascade-phase?
-  "Predicate — `phase` keyword is a member of `cascade-phase-set`
-  (rf2-82a0u)."
+  "Predicate — `phase` keyword is a member of `cascade-phase-set`."
   [phase]
   (contains? cascade-phase-set phase))
 
-;; ---- merged ACTION badge (rf2-2hj0h) ------------------------------------
+;; ---- merged ACTION badge ------------------------------------------------
 ;;
-;; rf2-2hj0h item 5 — the per-`:action` row formerly carried TWO chips: the
-;; `ACTION` kind pill + a separate phase pill (`exit` / `entry` / …). They
-;; MERGE into ONE descriptive badge that names the phase AND the kind in a
-;; single token:
+;; The per-`:action` row carries ONE descriptive badge that names the phase
+;; AND the kind in a single token, rather than an `ACTION` kind pill beside
+;; a separate phase pill (`exit` / `entry` / …):
 ;;
 ;;   ACTION + :exit          → `EXIT ACTION`
 ;;   ACTION + :entry         → `ENTRY ACTION`
 ;;   ACTION + :transition    → `TRANSITION ACTION`   (the LCA action — a REAL
 ;;                             action that runs between exit + entry per
-;;                             Spec 005; resolved by Mike 2026-06-04)
+;;                             Spec 005)
 ;;   ACTION + :always        → `ALWAYS ACTION`
 ;;   ACTION + :after-action  → `AFTER-ACTION ACTION`
 ;;   ACTION + :initial-entry → `INITIAL-ENTRY ACTION`
 ;;   ACTION + :destroy-exit  → `DESTROY-EXIT ACTION`
 ;;
 ;; A state-change TRANSITION ROW (kind = `:transition`) is a DISTINCT thing
-;; (not an action) and keeps its own single `TRANSITION` pill — both can
+;; (not an action) and has its own single `TRANSITION` pill — both can
 ;; appear in one cascade (the LCA action AND the state change). See
 ;; `cascade-kind-label`; this fn governs only the `:action` kind.
 
 (defn cascade-action-badge-label
-  "Merged ACTION-badge label for an `:action` cascade row (rf2-2hj0h item
-  5). Folds the action's `:phase` and the `ACTION` kind into ONE token —
+  "Merged ACTION-badge label for an `:action` cascade row. Folds the
+  action's `:phase` and the `ACTION` kind into ONE token —
   `EXIT ACTION` / `ENTRY ACTION` / `TRANSITION ACTION` / `ALWAYS ACTION` /
   `AFTER-ACTION ACTION` / `INITIAL-ENTRY ACTION` / `DESTROY-EXIT ACTION`.
 
   Falls back to the bare `ACTION` label when no phase was stamped (an
   anonymous / phase-less action — defensive; the substrate always stamps a
-  phase off the rf2-82a0u closed set). Pure-data; the view reads off this
+  phase off the closed set). Pure-data; the view reads off this
   for the merged kind pill."
   [phase]
   (if (cascade-phase? phase)
     (str (str/upper-case (name phase)) " ACTION")
     (cascade-kind-label :action)))
 
-;; ---- Outcome chip resolver (rf2-u69j7) ----------------------------------
+;; ---- Outcome chip resolver ----------------------------------------------
 ;;
 ;; Each cascade row carries a thin outcome chip — `pass | fail | threw`
 ;; for guards and `cancelled (<reason>)` for timers. Actions carry no
-;; chip (rf2-2hj0h item 7) and `:transition` rows carry no chip
-;; (rf2-cdgva — the prior `N microstep(s)` summary was redundant with
-;; the per-microstep cascade rows). The chip colour rides the outcome
+;; chip and `:transition` rows carry no chip (an `N microstep(s)`
+;; summary would be redundant with the per-microstep cascade rows).
+;; The chip colour rides the outcome
 ;; keyword (success / warning / error) so the operator can eye-scan a
 ;; long cascade for failures without reading every label.
 
 (defn cascade-outcome-token-key
   "Theme-token keyword for a cascade row's outcome glyph + chip
-  colour (rf2-u69j7). Pure-data; the view's outcome-chrome resolver
+  colour. Pure-data; the view's outcome-chrome resolver
   keys off this table.
 
   Maps:
@@ -414,14 +404,14 @@
     :fail      :warning
     :threw     :error
     :cancelled :text-tertiary
-    ;; rf2-iu3no — the benign no-op no longer renders an outcome chip
+    ;; The benign no-op renders no outcome chip
     ;; (`format/cascade-outcome-label` returns nil for it; the "[NO OP]"
-    ;; pill + "staying in {state}" verb carry the whole notice), so the
-    ;; rf2-ugdas `:ignored` outcome value is retired.
+    ;; pill + "staying in {state}" verb carry the whole notice), so there
+    ;; is no `:ignored` outcome value.
     :text-tertiary))
 
 (defn cascade-outcome-glyph
-  "Single-char outcome glyph for a cascade row (rf2-u69j7). Pure-data;
+  "Single-char outcome glyph for a cascade row. Pure-data;
   the view's per-row outcome chip composes the glyph + label.
 
   Maps:
@@ -437,29 +427,25 @@
     :fail      "▲"
     :threw     "✗"
     :cancelled "·"
-    ;; rf2-iu3no — `:ignored` retired with the benign-no-op outcome chip.
+    ;; There is no `:ignored` outcome (the benign no-op has no outcome chip).
     "·"))
 
-;; rf2-9wq0v retired the per-STAGE status glyph primitive that used to
-;; live here (`step-status-set` / `step-status?` / `step-status-token-key`
-;; / `step-status-colour` / `step-status-glyph`, rf2-ahhgn · rf2-yz57h). A
-;; clean run painted a quiet ✓ on every stage badge — no information — and
-;; a failure is already surfaced by the inline exception card UNDER the
-;; failing stage (rf2-yz57h / rf2-wnvid), so the per-stage ✗ was redundant
-;; too. The pipeline reads quieter without it.
+;; There is no per-STAGE status glyph. On a clean run a ✓ on every stage
+;; badge carries no information, and a failure is surfaced by the inline
+;; exception card UNDER the failing stage, so a per-stage ✗ would be
+;; redundant too. The pipeline reads quieter without it.
 ;;
-;; The per-step `:ok` / `:error` / `:skipped` SHAPE still lives in the
+;; The per-step `:ok` / `:error` / `:skipped` SHAPE lives in the
 ;; projection (`projection/step-status`) — it feeds the overall
-;; cascade-outcome banner (`cascade-outcome`, the `(some #(= :error …))`
+;; cascade-outcome banner (`projection/epoch-outcome`, the `(some #(= :error …))`
 ;; scan) — and the per-EFFECT outcome glyphs (`fx-row-status-glyph`,
 ;; below) plus the cascade-outcome banner (`cascade-outcome-glyph`, above)
-;; carry the surviving, distinct signals.
+;; carry the distinct signals.
 
-;; ---- Flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------
+;; ---- Flat SIDE EFFECTS ledger row glyphs --------------------------------
 ;;
-;; The flat per-effect ledger (rf2-j630b, supersedes the kt6js 3-tier
-;; presentation) leads each row with a status glyph. The closed set
-;; extends the rf2-ahhgn `:ok` / `:error` pair with the three fx-outcome
+;; The flat per-effect ledger leads each row with a status glyph. The
+;; closed set is the `:ok` / `:error` pair plus the three fx-outcome
 ;; statuses the projection produces (`fx-outcome-op->status`):
 ;;
 ;;   :ok         → ✓ (success)   — fx handler ran ok / :db committed
@@ -477,17 +463,17 @@
 ;;                                 circled-slash (reads error-ish).
 
 (def skipped-glyph
-  "The muted en-dash glyph for a SKIPPED ledger row (rf2-j630b) —
+  "The muted en-dash glyph for a SKIPPED ledger row —
   `:skipped-on-platform` (gated, didn't run here) or a dropped `other`
   effect. Distinct from the `:cancelled` middle-dot; reads NEUTRAL."
   "–")
 
 (def skipped-hover
-  "Hover/title text for a `:skipped-on-platform` ledger row (rf2-j630b)."
+  "Hover/title text for a `:skipped-on-platform` ledger row."
   "skipped on this platform — gated, didn't run here")
 
 (defn overridden-hover
-  "Hover/title text for an `:overridden` ledger row (rf2-3x7nj.22.3). Names
+  "Hover/title text for an `:overridden` ledger row. Names
   the replacement and claims nothing about real I/O: an override replaces
   the HANDLER, and a replacement may well delegate to the real one."
   [override-to]
@@ -497,7 +483,7 @@
          (some? override-to)                   (str ", redirected to " override-to))))
 
 (def noop-glyph
-  "The empty-set glyph for a NO-OP `:db` ledger row (rf2-ekq28v) — the
+  "The empty-set glyph for a NO-OP `:db` ledger row — the
   handler returned an unchanged db (`:rf.event/db-noop`), so the commit
   skipped the write. Distinct from the `:skipped` en-dash (a gated /
   dropped effect) and the `:ok` tick (a real commit); reads NEUTRAL —
@@ -505,18 +491,18 @@
   "∅")
 
 (def noop-hover
-  "Hover/title text for a NO-OP `:db` ledger row (rf2-ekq28v)."
+  "Hover/title text for a NO-OP `:db` ledger row."
   "returned unchanged db — nothing committed")
 
 (defn fx-row-status-glyph
-  "Single-char leading glyph for a flat SIDE EFFECTS ledger row
-  (rf2-j630b). Closed set over the `fx-outcome-op->status` outcomes plus
+  "Single-char leading glyph for a flat SIDE EFFECTS ledger row.
+  Closed set over the `fx-outcome-op->status` outcomes plus
   the synthesised `:db` row's `:ok` / `:rollback` / `:noop`:
     :ok / :db-commit → ✓
     :error / :rollback → ✗
     :overridden      → ↺
     :skipped         → – (muted en-dash, NEUTRAL)
-    :noop            → ∅ (empty-set, NEUTRAL — db unchanged, rf2-ekq28v)
+    :noop            → ∅ (empty-set, NEUTRAL — db unchanged)
   Defaults to the success tick for unknown statuses."
   [status]
   (case status
@@ -528,14 +514,13 @@
     "✓"))
 
 (defn fx-row-status-token-key
-  "Theme-token keyword for a flat SIDE EFFECTS ledger row's glyph colour
-  (rf2-j630b):
+  "Theme-token keyword for a flat SIDE EFFECTS ledger row's glyph colour:
     :ok         → :success
     :error      → :error
     :rollback   → :error
     :overridden → :accent
     :skipped    → :text-tertiary  (muted/tertiary — NEUTRAL)
-    :noop       → :text-tertiary  (muted/tertiary — NEUTRAL, rf2-ekq28v)
+    :noop       → :text-tertiary  (muted/tertiary — NEUTRAL)
   Falls back to `:success` for unknown statuses (the quiet tick)."
   [status]
   (case status
@@ -547,8 +532,7 @@
     :success))
 
 (defn fx-row-status-colour
-  "CSS-variable string for a flat SIDE EFFECTS ledger row's glyph
-  (rf2-j630b)."
+  "CSS-variable string for a flat SIDE EFFECTS ledger row's glyph."
   [status]
   (get tokens/tokens (fx-row-status-token-key status)
        (get tokens/tokens :success)))
