@@ -1,9 +1,7 @@
 (ns re-frame.story.panels-e2e.loading-skeleton-lifecycle-e2e-cljs-test
-  "Multi-frame e2e coverage for the amber-shimmer loading skeleton
-  (rf2-qkcjr, replaces the Playwright
-  `amber-shimmer-loading-skeleton-during-phase-1` scenario).
+  "Multi-frame e2e coverage for the amber-shimmer loading skeleton.
 
-  Per spec/014 §Loading skeleton (rf2-0s4p1) the canvas renders a
+  Per spec/014 §Loading skeleton the canvas renders a
   three-bar amber-shimmer skeleton with an inset amber edge while the
   variant's lifecycle machine is in `:pre-mount` / `:mounting` /
   `:loading` AND no first render has committed yet AND no assertions
@@ -86,10 +84,10 @@
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): machine snapshots are durable
-  ;; RUNTIME-DB state at [:rf.runtime/machines :snapshots <id>] — the
-  ;; framework `:rf/machine` sub reads the runtime-db partition, NOT the
-  ;; retired app-db `:rf/runtime` path. Mirror `re-frame.machines`.
+  ;; Machine snapshots are durable RUNTIME-DB state (EP-0001) at
+  ;; [:rf.runtime/machines :snapshots <id>] — the framework
+  ;; `:rf/machine` sub reads the runtime-db partition. Mirror
+  ;; `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -145,7 +143,7 @@
 ;; ---- pipeline (1): phase-1 lifecycle → skeleton renders -----------------
 
 (deftest phase-1-loading-renders-skeleton
-  (testing "rf2-qkcjr — with the lifecycle machine in `:loading` AND no
+  (testing "with the lifecycle machine in `:loading` AND no
             first render committed AND no assertions recorded, the
             canvas-inner hiccup tree carries the skeleton node with the
             canonical data-test attribute. Pins the phase-1 → skeleton
@@ -155,8 +153,8 @@
       ;; Drive the lifecycle into :loading. Without an explicit
       ;; transition, `current-state` reports :pre-mount which also
       ;; lights up the skeleton — but pinning :loading specifically
-      ;; matches the bead's user-facing acceptance criterion ("canvas
-      ;; shows the skeleton when loaders run").
+      ;; matches the user-facing contract ("canvas shows the skeleton
+      ;; when loaders run").
       (rf.story.loaders/mount! variant-id)
       (rf.story.loaders/start-loaders! variant-id)
       (is (= :loading (rf.story.loaders/current-state variant-id))
@@ -173,7 +171,7 @@
 ;; ---- pipeline (2): pre-mount also renders skeleton ----------------------
 
 (deftest pre-mount-also-renders-skeleton
-  (testing "rf2-qkcjr — `:pre-mount` is also a loading phase per
+  (testing "`:pre-mount` is also a loading phase per
             `loading-phase?`. The canvas-inner skeleton lights up the
             moment the user selects a variant — before the lifecycle
             has even transitioned to :mounting. Pins the
@@ -192,7 +190,7 @@
 ;; ---- pipeline (3): :ready phase elides the skeleton ---------------------
 
 (deftest ready-phase-elides-skeleton-and-renders-user-view
-  (testing "rf2-qkcjr — once the lifecycle reaches `:ready`, the
+  (testing "once the lifecycle reaches `:ready`, the
             skeleton hides and the user-view renders. Pins the
             phase-3 transition (skeleton off, user content on)."
     (let [variant-id :story.skeleton/v]
@@ -214,7 +212,7 @@
 ;; ---- pipeline (4): first-rendered sentinel pins skeleton off ------------
 
 (deftest first-rendered-sentinel-pins-skeleton-off
-  (testing "rf2-qkcjr — once a variant has committed its first render
+  (testing "once a variant has committed its first render
             (sentinel flipped via `mark-variant-rendered!`), subsequent
             renders never re-show the skeleton — even if the lifecycle
             slips back to `:loading` for a hot-reload re-run. Reading
@@ -237,7 +235,7 @@
 ;; ---- pipeline (5): skeleton hiccup shape is the canonical one ------------
 
 (deftest skeleton-node-carries-canonical-aria-shape
-  (testing "rf2-qkcjr — the rendered skeleton carries the canonical
+  (testing "the rendered skeleton carries the canonical
             `role=\"status\"` + `aria-live=\"polite\"` shape so screen
             readers announce the loading state. Pins the
             accessibility-bearing slots on the emitted hiccup so a
