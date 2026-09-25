@@ -64,10 +64,12 @@
   ## What this boot does
 
   1. Initialises re-frame with the Reagent adapter.
-  2. Registers Xray's `:rf.xray/*` events / subs / fxs (without
-     mounting Xray's own shell — we want the bare panels embedded
-     in variants where relevant, plus the full shell mounted via the
-     chrome gallery's per-variant frame, NOT auto-mounted).
+  2. Registers Xray's `:rf.xray/*` events / subs / fxs plus the
+     test-only override seam the variants seed through
+     (`register-handlers!`), without mounting Xray's own shell — we
+     want the bare panels embedded in variants where relevant, plus the
+     full shell mounted via the chrome gallery's per-variant frame, NOT
+     auto-mounted.
   3. Installs Story's canonical vocabulary (the seven reg-* macros
      and the canonical tags / modes).
   4. Loads the per-tab gallery namespaces (their `register-all!`
@@ -97,6 +99,7 @@
             [re-frame.story :as rf.story]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-xray.registry :as xray-registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             ;; Xray's `:root` CSS-variable installer. Required
             ;; here because the panel-gallery embeds bare Xray widgets
             ;; without mounting the Xray shell; the shell normally calls
@@ -224,6 +227,19 @@
 ;; its `hashchange` listener via a `defonce` remove-then-add handle so a CLJS
 ;; hot-reload re-`run` never stacks a duplicate.
 
+(defn register-handlers!
+  "Register every handler a variant's `:setup` dispatches: Xray's
+  production `:rf.xray/*` events / subs / fxs, then the test-only
+  override seam (`:rf.xray/set-*-override-for-test` and the
+  `-for-test` seeding events). The Routes and Machines galleries seed
+  their panels through that seam — production registration carries no
+  `-for-test` ids — and an unregistered setup event does not throw: the
+  variant simply renders unseeded, which looks like a real empty state.
+  This testbed is dev-only and never ships. Idempotent."
+  []
+  (xray-registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!))
+
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
@@ -235,7 +251,7 @@
   ;; `:frame-id` opt (per-frame shell). No `:rf/xray`
   ;; literal, no testbed-local seed event — the variant's `:setup`
   ;; dispatches the canonical Xray events into its own frame.
-  (xray-registry/register-xray-handlers!)
+  (register-handlers!)
   ;; Install Xray theme CSS variables on :root so
   ;; embedded widgets paint with the themed palette rather than
   ;; browser defaults. Shell normally calls this from `ShellView`;
