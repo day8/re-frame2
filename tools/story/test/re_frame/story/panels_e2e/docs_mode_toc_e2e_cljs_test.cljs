@@ -1,13 +1,11 @@
 (ns re-frame.story.panels-e2e.docs-mode-toc-e2e-cljs-test
-  "Multi-frame e2e coverage for the `:docs` mode pane TOC (rf2-y3w2q;
-  rf2-8c7tk).
+  "Multi-frame e2e coverage for the `:docs` mode pane TOC.
 
   The `:docs` mode pane composes header / status / prose / args /
   view-arg schema / decorators / parameters / evidence / tags sections
-  vertically (rf2-ba86n.14 added status / view-arg schema / evidence per
-  spec/022); the TOC pane on the right edge of the layout (per spec/008 +
-  rf2-8c7tk) exposes a sticky table-of-contents that lets the reader jump
-  between sections.
+  vertically (status / view-arg schema / evidence per spec/022); the TOC
+  pane on the right edge of the layout (per spec/008) exposes a sticky
+  table-of-contents that lets the reader jump between sections.
 
   ## What this catches
 
@@ -38,11 +36,9 @@
 
   ## Why a multi-frame e2e (not Playwright)
 
-  The bead originally specced this as a Playwright assertion. Per
-  session direction, e2e coverage is moving to multi-frame CLJS
-  Node tests — sub-millisecond per case, no DOM, no browser, and
-  the layered hiccup walk catches the same wiring bugs the
-  browser scenario would have.
+  A multi-frame CLJS Node test is sub-millisecond per case, needs no
+  DOM and no browser, and the layered hiccup walk catches the same
+  wiring bugs a browser scenario would.
 
   Surface tested via hiccup walking; no DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -91,8 +87,8 @@
 ;; ---- helpers -----------------------------------------------------------
 
 (defn- render-docs-view
-  "Render the `:docs` mode pane for `vid`. Wrapper kept for clarity at
-  call sites."
+  "Render the `:docs` mode pane for `vid`. A named wrapper for clarity
+  at call sites."
   [vid]
   (rf.story.ui.docs/docs-view vid))
 
@@ -129,11 +125,11 @@
         (rf.story.test-helpers.e2e-multi-frame/hiccup-seq tree)))
 
 ;; ===========================================================================
-;; rf2-y3w2q — TOC pane is wired into the docs-view layout
+;; TOC pane is wired into the docs-view layout
 ;; ===========================================================================
 
 (deftest docs-view-layout-mounts-the-toc-pane
-  (testing "rf2-y3w2q / rf2-8c7tk — rendering docs-view produces a
+  (testing "rendering docs-view produces a
             layout whose final child is the (class-3) TOC pane vector.
             A regression that drops the TOC entry would leave the
             section list without in-page navigation."
@@ -153,19 +149,19 @@
                TOC anchors point into")
           (is (some? toc-vec)
               "the docs layout includes a class-3 [toc-pane variant-id]
-               invocation as a sibling of the docs-view column (rf2-8c7tk
-               wires the right-edge TOC sidebar)")
+               invocation as a sibling of the docs-view column (the
+               right-edge TOC sidebar)")
           (is (= variant-id (second toc-vec))
               "the TOC pane receives the same variant-id the docs-view
                renders — its visible-toc-entries call agrees with the
                rendered sections"))))))
 
 ;; ===========================================================================
-;; rf2-y3w2q — TOC anchors match the rendered sections
+;; TOC anchors match the rendered sections
 ;; ===========================================================================
 
 (deftest toc-targets-match-rendered-section-anchors
-  (testing "rf2-8c7tk — every entry in `visible-toc-entries` has a
+  (testing "every entry in `visible-toc-entries` has a
             matching `:section` anchor id in the rendered docs view.
             A regression that renamed a section without updating the
             TOC table (or vice versa) would point the jump buttons
@@ -196,11 +192,11 @@
                       reachable via getElementById"))))))))
 
 ;; ===========================================================================
-;; rf2-y3w2q — prose entry pruning mirrors the registry
+;; prose entry pruning mirrors the registry
 ;; ===========================================================================
 
 (deftest prose-toc-entry-pruned-when-no-prose-workspace
-  (testing "rf2-8c7tk — a variant with no referencing `:prose`-layout
+  (testing "a variant with no referencing `:prose`-layout
             workspace produces a visible TOC list with the prose entry
             pruned. Pairs with the inverse: the rich variant DOES
             surface the prose row."
@@ -219,7 +215,7 @@
           (is (not (contains? ids "docs-prose"))
               "no-prose variant: prose TOC entry pruned — the renderer
                omits the prose section, so the TOC must omit the link")
-          ;; rf2-ba86n.14 — the no-prose variant DOES compile to a plan
+          ;; The no-prose variant DOES compile to a plan
           ;; (so docs-status is visible) but declares no :view-args-schema
           ;; (so docs-schema is pruned). docs-evidence is unconditional.
           (is (= ["docs-status" "docs-args" "docs-decorators"
@@ -230,11 +226,11 @@
                source order"))))))
 
 ;; ===========================================================================
-;; rf2-y3w2q — entering docs mode mounts the docs-view (incl. TOC)
+;; entering docs mode mounts the docs-view (incl. TOC)
 ;; ===========================================================================
 
 (deftest set-active-mode-tab-docs-routes-to-docs-view-with-toc
-  (testing "rf2-y3w2q — the canonical entry into docs mode is
+  (testing "the canonical entry into docs mode is
             `rf.story.ui.state.transitions/set-active-mode-tab variant-id :docs`. After
             that transition `state/active-mode-tab` reports `:docs`,
             and rendering the docs-view for the focused variant yields
@@ -270,4 +266,4 @@
           (is (some? toc-vec)
               "the layout includes the TOC pane — entering docs mode
                surfaces the table-of-contents alongside the section
-               column (rf2-8c7tk)"))))))
+               column"))))))
