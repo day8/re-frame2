@@ -9,8 +9,7 @@
 
   The Node CLJS test process uses the plain-atom substrate, so views
   cannot mount; for multi-frame e2e tests we want fast pure-pipeline
-  coverage anyway (the rendering surface is browser-level concern,
-  out of scope per the multi-frame e2e finding).
+  coverage anyway (the rendering surface is a browser-level concern).
 
   ## Contract
 
@@ -28,7 +27,7 @@
   `:counter/initialise` seeds the slot at `5`, `:counter/inc` and
   `:counter/dec` walk it."
   []
-  ;; rf2-h1vqa4 bundle co-load hygiene: the story testbed
+  ;; Bundle co-load hygiene: the story testbed
   ;; `counter-with-stories.events` registers the SAME canonical counter ids
   ;; at its ns load (the whole point of both is to mirror the canonical
   ;; counter example). Two provenance rows for one id fail the host frame's
