@@ -19,7 +19,7 @@ function test(name, fn) {
 }
 
 // ---------------------------------------------------------------------------
-// rf2-e30e — THE ROSTER GUARD.
+// THE ROSTER GUARD.
 //
 // A roster pin naming a file that does not exist CANNOT FAIL, and that is the
 // whole hazard. The classifier arms these tiers on a DIRECTORY-prefix glob, so
@@ -27,20 +27,14 @@ function test(name, fn) {
 // row passes, the suite reports coverage of a tier it never reached, and
 // nothing on screen tells an inert row from a satisfied one. It is fail-OPEN.
 //
-// It has now happened three times in this one file:
-//   - `implementation/security/src/re_frame/security.cljc`, which has never
-//     existed at any point in history (rf2-qxg24);
-//   - `reply_vocabulary_conformance_cljs_test.cljc`, where the tracked file is
-//     `reply_vocab_conformance_cljs_test.cljc` — "vocab", not "vocabulary", so
-//     it too was wrong when written rather than drift from a rename (rf2-z23f);
-//   - and both were found BY ACCIDENT, in passing, rather than by any check.
-//
-// PR #9133 closed the second with an `fs.existsSync` assertion written inline
-// in the CONFORMANCE_TIERS loop. This is that guard generalised, and it is
-// deliberately ONE mechanism rather than an assertion each new roster's author
-// must remember to copy — two different guards in one file is exactly how the
-// third occurrence happened. Declaring a roster through `pinnedRoster` IS
-// arming the guard for it; there is no second step to forget.
+// A phantom pin is as easy to write as a real one — a path that never existed,
+// or a near-miss name (`reply_vocabulary_conformance_cljs_test.cljc` where the
+// tracked file is `reply_vocab_conformance_cljs_test.cljc`) — and only a check
+// finds it. The guard is deliberately ONE mechanism rather than an assertion
+// each new roster's author must remember to copy, because two different guards
+// in one file leave room for a roster that reaches neither. Declaring a roster
+// through `pinnedRoster` IS arming the guard for it; there is no second step to
+// forget.
 //
 // WHAT THIS GUARD IS NOT FOR. Not every path literal in this file is a roster
 // pin. A GLOB PROBE — a synthetic path whose point is the SHAPE the classifier
@@ -55,8 +49,8 @@ function pinnedRoster(name, files) {
       assert.ok(
         fs.existsSync(path.join(REPO_ROOT, file)),
         `${name} pins ${file}, which does not exist. A pin on a phantom path ` +
-          'cannot fail, so it reports coverage the suite never reached ' +
-          '(rf2-qxg24, rf2-z23f, rf2-e30e). Correct the path — or, if it is a ' +
+          'cannot fail, so it reports coverage the suite never reached. ' +
+          'Correct the path — or, if it is a ' +
           'synthetic glob probe, name it at its use site instead of in a roster.',
       );
     }
@@ -69,41 +63,36 @@ function pinnedRoster(name, files) {
 // unchanged on Windows, macOS and Linux.
 const SURFACES_SCRIPT = './.github/scripts/report-changed-surfaces.sh';
 
-// rf2-fal5 — memo table for classify(). The classifier reads NOTHING but its
-// argument list when paths are passed explicitly (the `git diff` discovery
-// branch is unreachable in that mode), so for a fixed checkout it is a pure
-// function and the same path list can only ever produce the same verdicts.
-// Measured on this suite: 447 invocations over 235 distinct argument lists.
+// Memo table for classify(). The classifier reads NOTHING but its argument
+// list when paths are passed explicitly (the `git diff` discovery branch is
+// unreachable in that mode), so for a fixed checkout it is a pure function and
+// the same path list can only ever produce the same verdicts.
 const classifyCache = new Map();
 
 /**
  * Classify one path list and return the classifier's key -> "true"/"false" map.
  *
- * rf2-fal5 — TWO spawn economies, and the suite's reliability rests on both.
+ * TWO spawn economies, and the suite's reliability rests on both.
  *
- * NOT A LOGIN SHELL. This used to build a quoted command string and hand it to
- * `bash -lc`. A login shell sources /etc/profile and every /etc/profile.d/*.sh
- * before it reaches the command, each of which forks children of its own — so
- * one classification cost a whole profile evaluation, and this suite ran
- * hundreds. Measured on the Windows host: 713ms per `bash -lc` against 75ms for
- * spawning the script as bash's own argv, a 9.5x difference in wall clock and a
- * far larger one in PROCESS CREATIONS, which is what actually ran out. Twice,
- * on different diffs and different worktrees, the msys2 fork emulation gave way
- * under concurrent load and printed the mechanism outright —
+ * NOT A LOGIN SHELL. The script is spawned as bash's own argv, never handed to
+ * `bash -lc` as a quoted command string. A login shell sources /etc/profile and
+ * every /etc/profile.d/*.sh before it reaches the command, each of which forks
+ * children of its own — so one classification would cost a whole profile
+ * evaluation, and this suite runs hundreds. On a Windows host a `bash -lc`
+ * costs about 713ms against 75ms for the argv form, a 9.5x difference in wall
+ * clock and a far larger one in PROCESS CREATIONS, which is what runs out when
+ * the msys2 fork emulation gives way under concurrent load — it prints
  * `dofork: child -1 ... exit code 0xC0000142` (STATUS_DLL_INIT_FAILED) then
- * `fork: retry: Resource temporarily unavailable` — surfacing as an exit-127
- * child that never started, on a DIFFERENT case each run, which is how it was
- * told apart from an assertion. Be precise about what is established: a
- * deliberate load test (18k login shells, three concurrent copies of this
- * suite) did NOT recreate that crash, so what this change rests on is the
- * measured cost above, not a reproduction. `_playground-sci-inputs.test.cjs`
- * recorded the same finding one file over (56s -> 3s for 144 classifications)
- * and reached for the same remedy.
+ * `fork: retry: Resource temporarily unavailable`, surfacing as an exit-127
+ * child that never started, on a DIFFERENT case each run, which is how it
+ * differs from an assertion. The argv form rests on that measured cost, not on
+ * a reproduction of the crash. `_playground-sci-inputs.test.cjs` uses the same
+ * remedy for the same cost.
  *
- * Passing the script as argv also retires the hand-rolled shell quoting the
- * command string needed: there is no shell to quote for. That is the
- * shell-free posture `_script-spawn-policy.test.cjs` already requires of every
- * launcher in this directory, applied to the suites beside them.
+ * Passing the script as argv also needs no hand-rolled shell quoting: there is
+ * no shell to quote for. That is the shell-free posture
+ * `_script-spawn-policy.test.cjs` requires of every launcher in this directory,
+ * applied to the suites beside them.
  *
  * MEMOIZED. Distinct cases legitimately re-classify the same exemplar —
  * `spec/006-ReactiveSubstrate.md` and `implementation/core/src/re_frame/
@@ -113,7 +102,7 @@ const classifyCache = new Map();
  * later case.
  *
  * NEITHER economy drops a case, weakens an assertion or merges two path lists:
- * every call still gets the classifier's real verdict for its own arguments.
+ * every call gets the classifier's real verdict for its own arguments.
  */
 function classify(...files) {
   const key = JSON.stringify(files);
@@ -138,10 +127,10 @@ function classify(...files) {
   return result;
 }
 
-// rf2-k9ekz — Story/Xray browser Playwright gate trigger is narrowed
-// to runtime-source changes under tools/{story,xray}/{src,testbeds}/**
-// AND a runtime-extension (.cljs/.cljc/.js/.cjs/.css/.scss). Spec /
-// test / EDN / deps / Markdown changes do not fire it.
+// The Story/Xray browser Playwright gate trigger covers only runtime-source
+// changes under tools/{story,xray}/{src,testbeds}/** AND a runtime-extension
+// (.cljs/.cljc/.js/.cjs/.css/.scss). Spec / test / EDN / deps / Markdown
+// changes do not fire it.
 
 test('Story src .cljs changes trigger story_xray_browser', () => {
   const result = classify('tools/story/src/foo.cljs');
@@ -163,13 +152,13 @@ test('Xray feature_matrix testbed .cljs changes trigger story_xray_browser', () 
   assert.equal(result.story_xray_browser, 'true');
 });
 
-// rf2-kttom — the `.html` hole. The browser runners COPY each testbed's
-// hand-written index.html into the served output dir and navigate to it
-// (`stageTestbedHtml` in serve-and-run-story-play-scripts.cjs and its
-// feature-load sibling), so the served document is a testbed SOURCE file:
-// break its `<script src>` or its `#app` node and every play in that deck
-// fails. It was not in the runtime-extension predicate, so an HTML-only
-// regression classified as no-surface and skipped the browser gate.
+// `.html` is a runtime extension under the testbed trees. The browser runners
+// COPY each testbed's hand-written index.html into the served output dir and
+// navigate to it (`stageTestbedHtml` in serve-and-run-story-play-scripts.cjs
+// and its feature-load sibling), so the served document is a testbed SOURCE
+// file: break its `<script src>` or its `#app` node and every play in that deck
+// fails. Outside the runtime-extension predicate, an HTML-only regression would
+// classify as no-surface and skip the browser gate.
 test('Story testbed .html changes trigger story_xray_browser (the runner serves it — rf2-kttom)', () => {
   const exemplar = 'tools/story/testbeds/fresco_counter/index.html';
   assert.ok(
@@ -184,10 +173,9 @@ test('Xray testbed .html changes trigger story_xray_browser (rf2-kttom)', () => 
   assert.equal(result.story_xray_browser, 'true');
 });
 
-// The predicate widened by ONE extension and only under the two testbed /
-// src trees. An .html elsewhere under tools/story — the spec tree, say —
-// is still inert, which is what keeps the widening a fix rather than a
-// blanket arm.
+// The predicate takes `.html` only under the two testbed / src trees. An .html
+// elsewhere under tools/story — the spec tree, say — is inert, which keeps the
+// arm narrow rather than blanket.
 test('Story spec-tree .html changes do NOT trigger story_xray_browser (rf2-kttom)', () => {
   const result = classify('tools/story/spec/diagrams/overview.html');
   assert.equal(result.story_xray_browser, 'false');
@@ -203,16 +191,13 @@ test('Xray spec-only .md changes do NOT trigger story_xray_browser (rf2-k9ekz)',
   assert.equal(result.story_xray_browser, 'false');
 });
 
-// rf2-65ajl — this row's exemplar USED to be
-// tools/story/test/story_feature_load.cjs, pinned to false. The assertion was
-// correct about the behaviour and wrong about the intent: that file is the
-// FULL Story feature-load gate's own Playwright spec, and pinning it here read
-// as a considered decision that no browser gate needs to run for it. What was
-// actually true is narrower — the PR-SMOKE tier must not run for it, because
-// neither of the smoke's two commands loads it. The full gate must. So the row
-// keeps its claim with an exemplar that really is inert (a JVM unit test), and
-// story_feature_load.cjs is now covered POSITIVELY by the story_full_gate rows
-// further down, where its own gate is asserted to run.
+// The exemplar is a JVM unit test, which really is inert for this tier.
+// tools/story/test/story_feature_load.cjs would be a misleading one: it is the
+// FULL Story feature-load gate's own Playwright spec, and pinning it false here
+// would read as a considered decision that no browser gate needs to run for
+// it. What is true is narrower — the PR-SMOKE tier must not run for it, because
+// neither of the smoke's two commands loads it. The full gate must, and the
+// story_full_gate rows further down assert that POSITIVELY.
 test('Story test-tree changes do NOT trigger the story_xray_browser PR-smoke tier (rf2-k9ekz)', () => {
   const exemplar = 'tools/story/test/re_frame/story_decorator_chain_test.clj';
   assert.ok(
@@ -242,21 +227,20 @@ test('Mixed Story src + spec change DOES trigger story_xray_browser (rf2-k9ekz)'
   assert.equal(result.story_xray_browser, 'true');
 });
 
-// rf2-f79t8 (b) — a tools/story/spec/**.md MARKDOWN change is a pure doc
-// change: it cannot affect any runtime, JVM unit test, or MCP wire surface,
-// so it must NOT fan out to the JVM/MCP probes (tools_jvm, mcp_conformance).
-// docs.yml + the nightly full matrix cover docs.
+// A tools/story/spec/**.md MARKDOWN change is a pure doc change: it cannot
+// affect any runtime, JVM unit test, or MCP wire surface, so it must NOT fan
+// out to the JVM/MCP probes (tools_jvm, mcp_conformance). docs.yml + the
+// nightly full matrix cover docs.
 //
-// THE XRAY HALF OF THIS PIN WAS DELETED (rf2-6ng7), because its premise was
-// false. Two suites under `tools/xray/test/` read the Xray spec markdown as
-// their expected value — `coverage_matrix_metadata_test.clj` (jvm-tools-xray)
-// and `panel_enum_spec_refs.clj`, whose macro compiles into the :node-test
-// build (cljs). The assertion below used to name
-// `017-Test-Coverage-Matrix.md` specifically, which is one of the two files
-// the first of those suites slurps: the pin held the classifier to exactly
-// the hole. What replaces it is the derived roster at the foot of this file,
-// which reads both suites' own path lists rather than restating them, plus
-// the surviving Story control here.
+// THERE IS NO XRAY HALF OF THIS PIN. Two suites under `tools/xray/test/` read
+// the Xray spec markdown as their expected value —
+// `coverage_matrix_metadata_test.clj` (jvm-tools-xray) and
+// `panel_enum_spec_refs.clj`, whose macro compiles into the :node-test build
+// (cljs) — so a tools_jvm-false pin on `017-Test-Coverage-Matrix.md`, one of
+// the two files the first of those suites slurps, would hold the classifier to
+// exactly the hole. The derived roster at the foot of this file covers them
+// instead, reading both suites' own path lists rather than restating them;
+// the Story control stays here.
 
 test('Story spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
   const result = classify('tools/story/spec/Spec.md');
@@ -266,9 +250,9 @@ test('Story spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f
 });
 
 test('Xray spec-only .md still does NOT fan out to mcp_conformance / template_expensive (rf2-f79t8, rf2-6ng7)', () => {
-  // The narrowing rf2-6ng7 made is on the PATH axis, not a repeal: markdown
-  // still cannot change an MCP wire surface or the generated app's compile,
-  // and no suite in either lane reads these files.
+  // The Xray spec's arms are on the PATH axis, not a blanket: markdown cannot
+  // change an MCP wire surface or the generated app's compile, and no suite in
+  // either lane reads these files.
   const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
   assert.equal(result.mcp_conformance, 'false');
   assert.equal(result.template_expensive, 'false');
@@ -295,20 +279,16 @@ test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', ()
   assert.equal(result.mcp_conformance, 'true');
 });
 
-// rf2-f79t8 (a) — jvm-core + cljs (the consolidated :node-test build) are
-// job-level gated so a spec/docs-only PR skips the two heavy always-on
-// suites. The classifier drives the `if:` via implementation_jvm
-// (jvm-core) and cljs_node_test (cljs). The pull_request trigger stays
-// UNFILTERED — gating is job-side, NOT a trigger path filter.
+// jvm-core + cljs (the consolidated :node-test build) are job-level gated so a
+// PR touching only prose that no suite reads skips both heavy suites. The
+// classifier drives the `if:` via implementation_jvm (jvm-core) and
+// cljs_node_test (cljs). The pull_request trigger is UNFILTERED — gating is
+// job-side, NOT a trigger path filter.
 
-// rf2-61ar SUPERSEDES the spec half of the case below, and the control it used
-// is the reason why. `spec/006-ReactiveSubstrate.md` was picked here (and in a
-// dozen other cases) as an inert stand-in for "some spec document" — but
-// implementation/ui/test/re_frame/ui/slice_memo_lifetime_census_jvm_test.clj
-// SLURPS that exact file and asserts on its text, inside jvm-ui, which gates on
-// implementation_jvm. So the negative control was itself a false-green witness:
-// the classifier's own mirror asserted that editing a pinned document must skip
-// the lane pinning it. The claim that survives is the one about the CLJS tier —
+// A spec page arms the JVM tier: the classifier arms `implementation_jvm` for
+// the whole of `spec/`, because suites in several JVM artefacts slurp spec
+// prose and assert on its text, so no spec page is an inert stand-in for "some
+// spec document" on that lane. What holds for spec prose is the CLJS tier —
 // Markdown compiles into nothing, so `cljs_node_test` stays false for spec
 // prose, with `spec/Spec-Schemas.md` the single measured exception (a JVM macro
 // extracts it into the `:node-test` build; it has its own case below).
@@ -317,7 +297,7 @@ test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2
   assert.equal(
     result.implementation_jvm,
     'true',
-    'spec prose arms the JVM tier — jvm-ui slurps this very file (rf2-61ar)',
+    'spec prose arms the JVM tier — the whole of spec/ is armed for the JVM suites that read it',
   );
   assert.equal(
     result.cljs_node_test,
@@ -327,14 +307,12 @@ test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2
 });
 
 test('Docs prose with NO pinning suite still skips jvm-core + cljs (rf2-f79t8, rf2-61ar)', () => {
-  // rf2-61ar armed the docs trees a test.yml suite reads (docs/machines, two
-  // docs/api pages, one docs/design page, and since rf2-8arzr.6
-  // docs/ssr/concepts.md) and left every other docs page
-  // classifying exactly as it did before. That asymmetry IS the bead's
-  // narrowing, so this case keeps its original control — a docs/core page
-  // reaches none of the armed trees. Since rf2-7v5vx that holds for the WHOLE
-  // of docs/core rather than for the part outside docs/core/freehand: the one
-  // arm that lit any of it went with the guide it pinned.
+  // The classifier arms only the docs trees a test.yml suite reads
+  // (docs/machines, two docs/api pages, one docs/design page, and
+  // docs/ssr/concepts.md); every other docs page arms nothing. That asymmetry
+  // is the narrowing, so this case's control is a docs/core page, which
+  // reaches none of the armed trees — and that holds for the WHOLE of
+  // docs/core.
   const result = classify('docs/core/intro.md');
   assert.equal(result.implementation_jvm, 'false');
   assert.equal(result.cljs_node_test, 'false');
@@ -367,25 +345,25 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
-// rf2-cujx — these three roots read `implementation_jvm` FALSE, and that is a
-// DELIBERATE, covered false rather than the hole it used to be. Four suites in
-// `implementation/core/test/` are repo-wide source WALKS that read these trees
-// (`no-rf-default-floor-lint-test` walks `tools/**/src` by name; the egress and
-// error-catalogue conformance pins walk every `src` root under
-// `implementation/` recursively since rf2-2cu7f; `warn-once-clear-governance`
-// file-seqs `implementation/`). All four ran only in `jvm-core`, which this
-// output gates — so a violation introduced here merged GREEN and the red landed
-// on main for the next unrelated implementation PR (the rf2-61ar shape).
+// These three roots read `implementation_jvm` FALSE, and that is a DELIBERATE,
+// covered false. Four suites in `implementation/core/test/` are repo-wide
+// source WALKS that read these trees (`no-rf-default-floor-lint-test` walks
+// `tools/**/src` by name; the egress and error-catalogue conformance pins walk
+// every `src` root under `implementation/` recursively;
+// `warn-once-clear-governance` file-seqs `implementation/`). Run only in
+// `jvm-core`, which this output gates, a violation introduced here would merge
+// GREEN and the red would land on main for the next unrelated implementation
+// PR.
 //
-// THE REPAIR IS NOT AN ARM, so these assertions pin false on purpose. Arming
+// THE COVERAGE IS NOT AN ARM, so these assertions pin false on purpose. Arming
 // the roots costs ~10 more PRs through a 22-job / ~21-minute tier and STILL
-// leaves the class partly open, because the walks keep widening — rf2-2cu7f
-// made the corpus depth-independent by construction, so a future artefact is
-// walked with nobody maintaining a list, while an arming predicate would have
-// to be re-widened by hand every time. Instead `test.yml`'s UNCONDITIONAL
-// `jvm-repo-source-walks` job runs those namespaces on every PR — seven of
-// them now, the roster being `REPO_SOURCE_WALK_NAMESPACES` below rather than
-// this paragraph — one step each so that a namespace which stops selecting
+// leaves the class partly open, because the walks keep widening — the corpus
+// is depth-independent by construction, so a future artefact is walked with
+// nobody maintaining a list, while an arming predicate would have to be
+// re-widened by hand every time. Instead `test.yml`'s UNCONDITIONAL
+// `jvm-repo-source-walks` job runs those namespaces on every PR — the roster
+// being `REPO_SOURCE_WALK_NAMESPACES` below rather than this paragraph — one
+// step each so that a namespace which stops selecting
 // reds on the runner's own test-count floor rather than hiding inside a
 // combined total.
 //
@@ -417,34 +395,25 @@ test('implementation/core/src still arms implementation_jvm (rf2-cujx control)',
   assert.equal(classify('implementation/core/src/foo.clj').implementation_jvm, 'true');
 });
 
-// rf2-n4a2b — THE FIFTH WALK, and the assertion the other four never had.
+// THE FIFTH WALK. `prod-gate-naming-drift-test` is a recursive walk from the
+// implementation root. Its census needs DIFFERENT probes from the four above,
+// because its domain is every artefact's `test/` tree and not `src/` — so the
+// src rows above say nothing about it either way.
 //
-// `prod-gate-naming-drift-test` became this shape the same day rf2-cujx landed:
-// rf2-sk5hf widened it from a depth-1 `.listFiles` over one artefact's test
-// tree to a recursive walk from the implementation root, and it too ran only in
-// `jvm-core`. Its census needs DIFFERENT probes from the four above, because
-// its domain is every artefact's `test/` tree and not `src/` — so the src rows
-// above say nothing about it either way.
+// AND THE COVERAGE CLAIM ITSELF IS PINNED. The census above excuses a false arm
+// by naming the unconditional lane, which is only true while the lane actually
+// runs the namespace. Unchecked, a deleted step would leave every assertion up
+// there passing, asserting a coverage that has gone — so a repair whose
+// "arming" is a workflow step rather than a classifier output is held to that
+// step below.
 //
-// AND THE COVERAGE CLAIM ITSELF IS NOW PINNED. The census above excuses a false
-// arm by naming the unconditional lane, which is only true while the lane
-// actually runs the namespace. Nothing checked that: delete a step and every
-// assertion up there goes on passing, asserting a coverage that has gone. This
-// is the rf2-6ng7 codicil applied to a repair whose "arming" is a workflow step
-// rather than a classifier output.
-//
-// rf2-6ng7 — THE SIXTH AND SEVENTH, found by this bead's bounded audit rather
-// than by tripping over them. Neither namespace was selected by any workflow or
-// script (measured: `git grep` over `.github/**` and `scripts/**` returns the
-// source file and nothing else), so both ran only inside `jvm-core`.
-//
-// `late-bind-drift-test` walks `implementation/**/src` — the SAME corpus as the
-// four src-walkers above, so the fresco / ssr-node rows already asserted here
-// are its hole verbatim. `observation-render-law-drift-test` is wider than any
-// of them and needs its own probe: its census is `git ls-files`, so its domain
-// is the whole tracked prose corpus, and rf2-61ar armed `implementation_jvm`
-// for only the pinned SLICE of that prose. `docs/design/fresco/**` is outside
-// the slice, which the row below measures.
+// THE SIXTH AND SEVENTH. `late-bind-drift-test` walks `implementation/**/src`
+// — the SAME corpus as the four src-walkers above, so the fresco / ssr-node
+// rows asserted here are its hole verbatim. `observation-render-law-drift-test`
+// is wider than any of them and needs its own probe: its census is `git
+// ls-files`, so its domain is the whole tracked prose corpus, and
+// `implementation_jvm` is armed for only the pinned SLICE of that prose.
+// `docs/design/fresco/**` is outside the slice, which the row below measures.
 const REPO_SOURCE_WALK_NAMESPACES = Object.freeze([
   're-frame.no-rf-default-floor-lint-test',
   're-frame.egress-chokepoint-conformance-test',
@@ -473,18 +442,18 @@ test('fresco + ssr-node TEST trees read implementation_jvm false — the naming-
 
 test('unpinned PROSE reads implementation_jvm false — the render-law census reads it anyway (rf2-6ng7)', () => {
   // The seventh walk's domain is `git ls-files`, not a directory: every tracked
-  // `.md` / `.clj` / `.cljc` / `.cljs` in the repo. rf2-61ar armed
-  // `implementation_jvm` for the prose a test.yml suite PINS — nearly all of
-  // `spec/*`, `docs/machines/*`, four named pages — and deliberately left the
-  // rest of `docs/` arming nothing. So the census outruns the arm, and a
-  // retired render-law claim landing on an unpinned page merged green.
+  // `.md` / `.clj` / `.cljc` / `.cljs` in the repo. `implementation_jvm` is
+  // armed for the prose a test.yml suite PINS — nearly all of `spec/*`,
+  // `docs/machines/*`, four named pages — and deliberately not for the rest of
+  // `docs/`. So the census outruns the arm, and without the unconditional lane
+  // a retired render-law claim landing on an unpinned page would merge green.
   for (const p of [
     'docs/design/fresco/product/foo.md',
     'docs/core/fresco/foo.md',
   ]) {
     assert.equal(classify(p).implementation_jvm, 'false', p);
   }
-  // The control: prose that rf2-61ar DOES arm. Without it a classifier
+  // The control: prose that DOES arm. Without it a classifier
   // returning false for every `.md` would read as this census passing.
   assert.equal(classify('docs/machines/concepts.md').implementation_jvm, 'true');
 });
@@ -496,9 +465,9 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   // "Unconditional" means NO JOB-LEVEL `if:`. That is where a read-set model of
   // what the walks walk would go, and it is the defect this lane exists to avoid
   // rather than relocate. Job properties sit at four spaces and step properties
-  // at eight, so the two are told apart by indentation alone. This assertion read
-  // `/^\s+if:/m` until rf2-gf3y — any indentation, which also forbade the step
-  // guards below and made the two halves of that repair inseparable.
+  // at eight, so the two are told apart by indentation alone. The pattern is
+  // anchored at four spaces because any indentation would also forbid the step
+  // guards below.
   assert.doesNotMatch(
     block,
     /^ {4}if:/m,
@@ -507,16 +476,17 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
       'exists to avoid rather than relocate',
   );
 
-  // Step conditions are allowed for exactly ONE spelling (rf2-gf3y, rf2-7lj2):
+  // Step conditions are allowed for exactly ONE spelling:
   //
   //     if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
   //
   // The seven walks are independent OF ONE ANOTHER, so each runs even when an
   // earlier WALK has failed. Without a condition, GitHub's default step
   // condition (`success()`) makes the first failing walk SKIP the six behind it.
-  // That never admitted a bad merge — the job reds either way — but it hid that
-  // the six were never EVALUATED, so the green after the fix was the first time
-  // they had run at all and looked identical to one that had always passed.
+  // That would not admit a bad merge — the job reds either way — but it would
+  // hide that the six were never EVALUATED, so the green after the fix would be
+  // the first time they had run at all and would look identical to one that had
+  // always passed.
   //
   // The `steps.setup` conjunct is NOT decoration, and this pin is what stops it
   // being trimmed back to a bare `!cancelled()`: a status-check function
@@ -524,9 +494,8 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   // `cancelled()` reports cancellation and never a preceding failure — so
   // `!cancelled()` ALONE selects all seven walks after a failed checkout or a
   // failed Clojure CLI install, turning one honest setup failure into seven
-  // missing-tool ones. That was the defect in rf2-gf3y's own repair, and
-  // leaving the setup steps at their default `success()` does not restore the
-  // prerequisite on the steps behind them.
+  // missing-tool ones. Leaving the setup steps at their default `success()`
+  // does not restore the prerequisite on the steps behind them.
   //
   // Anything OTHER than that exact guard at step level is the read-set model of
   // the job-level `if:` above wearing a different indentation, so it is refused.
@@ -595,9 +564,8 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   // combined step would rest entirely on a total test-count floor across suites
   // that are lopsided — several carry a single test while the error-catalogue
   // suite carries dozens. Per-namespace steps each take the runner's own
-  // default floor of 1 and red alone. (This comment quoted per-namespace counts
-  // until rf2-gf3y; nothing enforced them and they had gone stale, so they were
-  // removed rather than corrected. Please don't put them back.)
+  // default floor of 1 and red alone. (Per-namespace counts are deliberately
+  // not quoted here: nothing enforces them, so they would go stale.)
   const runs = block.match(/^\s+run: clojure -M:test[^\n]*/gm) || [];
   assert.equal(
     runs.length,
@@ -613,26 +581,20 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
   }
 });
 
-// rf2-1sd8h — the BROWSER half of the same two trees. Story/Xray
+// The BROWSER half of the same two trees. Story/Xray
 // `*_dom_cljs_test.{cljs,cljc}` namespaces are selected by BOTH CLJS builds:
 // the consolidated `:node-test` (`cljs-test$` matches a `-dom-cljs-test`
 // suffix too) and `:browser-test` (`-dom-cljs-test$`). Only the second one
-// gives them a `document`; under Node they self-skip. The classifier fired
-// only cljs_node_test for these paths, so `cljs-browser` reported SKIPPED
-// while the decisive regression test ran nowhere but the author's laptop
-// (#7037's presence-flush proof, and the pre-existing sub-overrides suite
-// beside it). These assertions are the teeth on that arm.
+// gives them a `document`; under Node they self-skip. A classifier firing only
+// cljs_node_test for these paths would report `cljs-browser` SKIPPED while the
+// decisive regression test ran nowhere but the author's laptop. These
+// assertions are the teeth on that arm.
 //
-// The live namespace named below is load-bearing, not illustrative: it is one
-// of the two files the bead was filed about, and if it is renamed out of the
-// `-dom-cljs-test` convention this pins that the arm moved with it.
-//
-// The bead's OTHER file was `play/presence_freehand_dom_cljs_test.cljs`, the
-// presence-flush proof. It retired with Freehand and Story's presence bridge
-// (rf2-5gka, rf2-0yp7w). Its assertion is not re-pointed at an arbitrary
-// substitute: the classifier arm is a property of the PATH CONVENTION, which
-// the surviving case exercises identically, so a second case naming a
-// different tree would add coverage of nothing.
+// The live namespace named below is load-bearing, not illustrative: if it is
+// renamed out of the `-dom-cljs-test` convention this pins that the arm moved
+// with it. One named case is enough: the classifier arm is a property of the
+// PATH CONVENTION, so a second case naming a different tree would add coverage
+// of nothing.
 
 test('the pre-existing Story sub-overrides DOM test schedules cljs-browser (rf2-1sd8h)', () => {
   const result = classify(
@@ -669,8 +631,8 @@ test('Xray runtime src change schedules cljs-browser (rf2-1sd8h)', () => {
 test('a JVM-only .clj test under Story does NOT schedule cljs-browser (rf2-1sd8h)', () => {
   const result = classify('tools/story/test/some_test.clj');
   assert.equal(result.cljs_browser, 'false');
-  // …and it keeps the JVM fan-out it already had, so this is a narrowing
-  // control, not a regression.
+  // …while it does fan out to the JVM tier: the browser arm narrows only the
+  // browser lane.
   assert.equal(result.tools_jvm, 'true');
 });
 
@@ -692,7 +654,7 @@ test('Xray spec-only .md does NOT schedule cljs-browser (rf2-1sd8h)', () => {
 });
 
 test('a Story DOM-test change does NOT fire the Playwright testbed gate (rf2-1sd8h)', () => {
-  // The bead asks for the browser UNIT lane, narrowly — not the
+  // The arm is the browser UNIT lane, narrowly — not the
   // story-feature-load / xray-feature-gate Playwright runners, which the
   // runtime-path predicate owns and which a test-tree edit cannot affect.
   const result = classify(
@@ -730,10 +692,9 @@ test('every Story/Xray DOM suite in the tree is armed by the classifier (rf2-1sd
   }
 });
 
-// rf2-eyyd2 — the two seams rf2-1sd8h left to the nightly matrix. Both are
-// LIVE edges of the suites armed above, so both are now armed directly:
-// the shared support helpers those suites require, and the CLJ macro
-// namespace that produces the CLJS four of them compile.
+// Two LIVE edges of the suites armed above are armed directly too: the shared
+// support helpers those suites require, and the CLJ macro namespace that
+// produces the CLJS four of them compile.
 
 const STORY_E2E_HELPER =
   'tools/story/test/re_frame/story/test_helpers/e2e_multi_frame.cljs';
@@ -746,8 +707,8 @@ const STORY_MACROS = 'tools/story/src/re_frame/story/macros.clj';
 test('Story e2e_multi_frame helper schedules cljs-browser (rf2-eyyd2)', () => {
   // Required by share_url_state_popstate_stale_override_dom_cljs_test, which
   // mounts only under `:browser-test`; on Node it finds no `window` and
-  // self-skips. Before this arm a helper-only PR ran the Node compile and
-  // skipped the suite's only real assertions.
+  // self-skips. Without this arm a helper-only PR would run the Node compile
+  // and skip the suite's only real assertions.
   const result = classify(STORY_E2E_HELPER);
   assert.equal(result.cljs_browser, 'true');
   assert.equal(result.cljs_node_test, 'true');
@@ -803,34 +764,34 @@ test('Story macros.clj schedules BOTH CLJS lanes (rf2-eyyd2)', () => {
   // re-frame.story delegates every public registration macro to this
   // CLJ-only namespace, so its emitted forms are what a `(story/reg-variant
   // …)` call site compiles to — in the browser build and the node build
-  // alike. The `.clj` extension guard on the src arm left it false on both.
+  // alike. The `.clj` extension guard on the src arm alone would leave it
+  // false on both.
   const result = classify(STORY_MACROS);
   assert.equal(result.cljs_browser, 'true');
   assert.equal(result.cljs_node_test, 'true');
 });
 
 test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
-  // The arm widens; it must not narrow. macros.clj is under
+  // The CLJS arm adds lanes; it must not remove any. macros.clj is under
   // tools/story/src/**, so the examples_compile roster and the
-  // tools_jvm / mcp_conformance fan-out all still fire.
+  // tools_jvm / mcp_conformance fan-out all fire.
   const result = classify(STORY_MACROS);
   assert.equal(result.examples_compile, 'true');
   assert.equal(result.tools_jvm, 'true');
   assert.equal(result.mcp_conformance, 'true');
-  // …and template_expensive (rf2-3x7nj.37.1): macros.clj is under
+  // …and template_expensive: macros.clj is under
   // tools/story/src/**, which every generated app's `:dev` build compiles.
   assert.equal(result.template_expensive, 'true');
 });
 
-// rf2-uqf5q — the THIRD predicate. rf2-eyyd2 armed macros.clj on the two CLJS
-// unit lanes above and left `is_story_xray_runtime_path` — the one that owns
-// story_xray_browser, i.e. the Playwright decks — still reading its `.clj`
-// extension guard. So a Story MACRO change fired NO browser gate at all:
-// story_xray_browser false skipped the PR-smoke tier, and story_full_gate arms
-// only on the feature-load gate's own spec modules, so the full tier skipped
-// with it. Commit e1cbd089c4 (rf2-3xq1v) went through that hole — it changed
-// the source-coord the Story pane renders, by way of this very macro
-// namespace, and no browser saw it until two unrelated PRs armed everything.
+// The THIRD predicate. Besides the two CLJS unit lanes above, macros.clj is
+// named in `is_story_xray_runtime_path` — the one that owns
+// story_xray_browser, i.e. the Playwright decks — past its `.clj` extension
+// guard. Without that, a Story MACRO change would fire NO browser gate at all:
+// story_xray_browser false skips the PR-smoke tier, and story_full_gate arms
+// only on the feature-load gate's own spec modules, so the full tier would
+// skip with it — and a change to the source-coord the Story pane renders, made
+// by way of this very macro namespace, would reach no browser.
 
 test('Story macros.clj fires the Playwright browser gate (rf2-uqf5q)', () => {
   // The macro namespace is the compile-time producer for every
@@ -856,8 +817,8 @@ test('Story macros.clj now arms every lane its expansion reaches (rf2-uqf5q)', (
 });
 
 test('the browser-gate arm is macros.clj by NAME, not a `.clj` widening (rf2-uqf5q)', () => {
-  // The ruling was to complete an existing pattern on ONE predicate, not to
-  // widen the browser matrix. A hypothetical JVM consumer beside macros.clj,
+  // The arm completes an existing pattern on ONE predicate; it does not widen
+  // the browser matrix. A hypothetical JVM consumer beside macros.clj,
   // and an ordinary `.clj` under the Xray src tree, both keep the general
   // exclusion — on the Playwright gate as on the two CLJS lanes.
   for (const file of [
@@ -869,8 +830,8 @@ test('the browser-gate arm is macros.clj by NAME, not a `.clj` widening (rf2-uqf
 });
 
 test('macros.clj does not drag the FULL Story feature-load tier along (rf2-uqf5q)', () => {
-  // story_full_gate stays what rf2-65ajl made it: the feature-load runner's
-  // own spec modules and orchestration. A macro change belongs on the smoke
+  // story_full_gate arms only on the feature-load runner's own spec modules
+  // and orchestration. A macro change belongs on the smoke
   // tier, which is the tier that mounts the decks.
   assert.equal(classify(STORY_MACROS).story_full_gate, 'false');
 });
@@ -885,9 +846,9 @@ test('an ordinary JVM-only .clj under Story src stays off both CLJS lanes (rf2-e
 });
 
 test('macros.clj is still the ONLY .clj under either src tree (rf2-uqf5q)', () => {
-  // The teeth on the "named, not globbed" choice. Three predicates now name
-  // this one path; a SECOND macro namespace appearing beside it would be
-  // armed on none of them and would repeat rf2-3xq1v exactly. Read the tree
+  // The teeth on the "named, not globbed" choice. Three predicates name this
+  // one path; a SECOND macro namespace appearing beside it would be armed on
+  // none of them, and its expansion would reach no browser. Read the tree
   // rather than trusting the claim, and name what was found.
   const found = [];
   for (const tool of ['story', 'xray']) {
@@ -1006,7 +967,7 @@ test('every support file a live DOM suite requires is armed by the classifier (r
   }
 });
 
-// rf2-z0cw6s — tools/machines-viz is a CLJS-only tool (day8/re-frame2-machines-viz):
+// tools/machines-viz is a CLJS-only tool (day8/re-frame2-machines-viz):
 // its src+test are :source-paths of the consolidated :node-test AND :browser-test
 // builds, so a CLJS change fires cljs (node-test) + cljs-browser, and nothing else
 // (no JVM suite, no MCP wrapper, not in the deps-new template's :app).
@@ -1049,10 +1010,9 @@ test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () =
   assert.equal(result.cljs_browser, 'true');
 });
 
-// rf2-as6bg — tools/testbed-support had NO arm in the classifier at all, so a
-// testbed-support-only PR classified as zero changed surfaces and ran zero
-// gates: not just the `.clj` suite the bijection gate found (rf2-4hc9p), but
-// its three `.cljs` suites too. Its src+test are :source-paths of the
+// tools/testbed-support has its own arm: without one, a testbed-support-only
+// PR would classify as zero changed surfaces and run zero gates — its `.clj`
+// suite and its `.cljs` suites alike. Its src+test are :source-paths of the
 // consolidated :node-test AND :browser-test builds, so those two gates own the
 // CLJS half — same shape as machines-viz above. These assertions are the teeth
 // on that arm; deleting it makes them red rather than making CI quietly empty.
@@ -1071,14 +1031,10 @@ test('testbed-support CLJS test-tree change runs cljs + cljs-browser (rf2-as6bg)
   assert.equal(result.cljs_browser, 'true');
 });
 
-// rf2-wq17m — the `.clj` half (open_in_editor_server_test.clj, which no CLJS
-// build can load) now HAS a lane: `jvm-tools-testbed-support`, gated on the
-// artefact's own output. This assertion previously pinned `tools_jvm == 'false'`
-// as the honest description of a file no job ran, and said in as many words that
-// it lands flipped when the job exists — a tripwire rather than a claim of
-// correctness. It is now flipped, and it still pins `tools_jvm` false, which is
-// the durable half of the original point: that output gates four jvm-tools-*
-// jobs (xray / story / story-mcp / mcp-base), none of which runs this artefact.
+// The `.clj` half (open_in_editor_server_test.clj, which no CLJS build can
+// load) has its own lane: `jvm-tools-testbed-support`, gated on the artefact's
+// own output. `tools_jvm` stays false: that output gates four jvm-tools-* jobs
+// (xray / story / story-mcp / mcp-base), none of which runs this artefact.
 test('testbed-support .clj fans out to its OWN jvm output, not tools_jvm (rf2-wq17m)', () => {
   const result = classify(
     'tools/testbed-support/test/re_frame/testbed/open_in_editor_server_test.clj',
@@ -1088,12 +1044,10 @@ test('testbed-support .clj fans out to its OWN jvm output, not tools_jvm (rf2-wq
   assert.equal(result.cljs_node_test, 'true');
 });
 
-// rf2-wq17m — the same three-part shape the Freehand probe rows use: the
-// classifier must ARM the surface, the job must be gated on that output and run
-// the artefact's suite, and the aggregator must depend on the job. Break any one
-// and the lane is decorative — which is exactly the state these two artefacts
-// were in, with a wired `:test` alias and a slot on test-jvm-tools.sh's roster
-// but no PR-time job at all.
+// The three-part shape of a lane: the classifier must ARM the surface, the job
+// must be gated on that output and run the artefact's suite, and the aggregator
+// must depend on the job. Break any one and the lane is decorative — a wired
+// `:test` alias and a slot on test-jvm-tools.sh's roster are not a PR-time job.
 const NEW_TOOLS_JVM_LANES = [
   {
     job: 'jvm-tools-machines-viz',
@@ -1109,7 +1063,7 @@ const NEW_TOOLS_JVM_LANES = [
   },
 ];
 
-// rf2-e30e — the roster guard reaching rows that are OBJECTS. Two of the four
+// The roster guard reaching rows that are OBJECTS. Two of the four
 // fields are repo paths and two (`job`, `output`) are CI identifiers that would
 // never resolve, so the path fields are projected out rather than the row
 // walked wholesale. `dir` is a directory and `armed` a file; `fs.existsSync`
