@@ -1,12 +1,9 @@
 (ns re-frame.story.view-args-test
-  "Production-path regression gate for the ONE shared view-args-schema
-  resolver (rf2-din8u phase-1 / rf2-p5ivc (b) / rf2-ayu6n / rf2-vnedo).
+  "Production-path gate for the ONE shared view-args-schema resolver.
 
-  THE CI BLIND SPOT this closes. The pre-ruling tests for view-args
-  resolution all threaded an explicit `:view-lookup` / `:lookup` (the
-  host-free pure path), which masked the divergence: the consumers
-  (`controls/resolve-argtypes`, `schema-validation/resolve-component-
-  schema`) read the BARE registrar body, not the compiled plan. These
+  A test that threads an explicit `:view-lookup` / `:lookup` (the
+  host-free pure path) cannot see a consumer that reads the BARE
+  registrar body rather than the compiled plan — a CI blind spot. These
   tests instead exercise the PRODUCTION path:
 
     - a REGISTERED variant (written to the Story side-table);
@@ -18,7 +15,7 @@
   Proving: a registered `:rf/props`-declared variant resolves its
   view-args schema off the compiled plan's `[:world :view-args-schema]`,
   through the shared resolver, with the canonical `[:rf/props :schema]`
-  first-match order and NO `:spec` key (dead post-M-54).
+  first-match order and NO `:spec` key (not a schema key; MIGRATION §M-54).
 
   Pure JVM + CLJS — `view-args.cljc` + `plan.cljc` + both registrars are
   JVM-runnable, so the DEFAULT lookup works under `clojure -M:test`."
@@ -52,10 +49,10 @@
   (rf.registrar/register! :view view-id
                                  (assoc metadata :handler-fn (fn [_] nil))))
 
-;; ---- the key picker (rf2-ayu6n: stale :spec dropped) ---------------------
+;; ---- the key picker (no :spec) -------------------------------------------
 
 (deftest view-args-schema-keys-drop-spec
-  (testing "the canonical key order is [:rf/props :schema] — :spec is gone"
+  (testing "the canonical key order is [:rf/props :schema] — no :spec"
     (is (= [:rf/props :schema] rf.story.view-args/view-args-schema-keys))))
 
 (deftest view-args-schema-first-match-no-composition
@@ -66,7 +63,7 @@
   (testing ":schema is the fallback location when :rf/props is absent"
     (is (= [:map [:b :string]]
            (rf.story.view-args/view-args-schema {:schema [:map [:b :string]]}))))
-  (testing "a view carrying ONLY :spec resolves NO schema (dead post-M-54)"
+  (testing "a view carrying ONLY :spec resolves NO schema (not a schema key, §M-54)"
     (is (nil? (rf.story.view-args/view-args-schema {:spec [:map [:c :string]]})))))
 
 ;; ---- the compiled-plan resolver (PRODUCTION path, DEFAULT lookup) --------
@@ -97,7 +94,7 @@
 
 (deftest compiled-resolver-schema-fallback-on-default-lookup
   (testing "a view carrying its schema under :schema (no :rf/props) still
-            resolves — :schema is the post-M-54 fallback location"
+            resolves — :schema is the fallback location"
     (reg-view-meta! :views/schemaed {:schema [:map [:title :string]]})
     (rf.story.registrar/reg-variant* :story.prod/schemaed
                             {:component :views/schemaed
@@ -107,8 +104,8 @@
            (rf.story.view-args/compiled-view-args-schema :story.prod/schemaed)))))
 
 (deftest compiled-resolver-spec-only-view-resolves-nil
-  (testing "a view whose ONLY schema slot is the dead :spec key resolves no
-            schema on the production path (rf2-ayu6n — :spec is dead)"
+  (testing "a view whose ONLY slot is :spec — not a schema key — resolves
+            no schema on the production path"
     (reg-view-meta! :views/specced {:spec [:map [:x :string]]})
     (rf.story.registrar/reg-variant* :story.prod/specced
                             {:component :views/specced
@@ -117,9 +114,9 @@
     (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/specced)))))
 
 (deftest compiled-resolver-resolves-extends-inherited-component
-  (testing "an :extends-INHERITED :component resolves its schema — the
-            divergence the bare-body resolvers (reading (:component
-            variant-body)) missed (rf2-din8u compiled-plan invariant)"
+  (testing "an :extends-INHERITED :component resolves its schema — a
+            bare-body read ((:component variant-body)) would miss it; the
+            compiled plan resolves the chain"
     (reg-view-meta! :views/base {:rf/props [:map [:label :string]]})
     ;; The parent declares :component; the child inherits it via :extends
     ;; and declares no :component of its own. A bare-body read of the child
@@ -156,7 +153,7 @@
    [:size [:int {:min 8 :max 64}]] [:disabled? :boolean]])
 
 (deftest compiled-resolver-resolves-a-variant-that-leaves-props-to-its-story
-  (testing "rf2-3x7nj.28.3: the flagship authoring pattern — required props on
+  (testing "the flagship authoring pattern — required props on
             the story's :args, a variant overriding one — resolves its schema.
             The schema is the component's :rf/props, so the read does not
             depend on which layer supplies the args"
@@ -181,7 +178,7 @@
                :story.ui.unlabelled/danger))))))
 
 (deftest compiled-resolver-resolves-a-variant-whose-steps-read-story-or-global-args
-  (testing "rf2-yfwfa: a valid variant whose :setup / :script substitutes an
+  (testing "a valid variant whose :setup / :script substitutes an
             [:arg k] that only its story or the globals supply resolves its
             schema — the read compiles with the same ambient arg layers a run
             of the variant does, so the substitution cannot throw
