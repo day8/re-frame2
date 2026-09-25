@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * `story:build` — the Story static-export driver (rf2-8wgpm).
+ * `story:build` — the Story static-export driver.
  *
  * Per tools/story/spec/013-Static-Build.md §Invocation the script:
  *
@@ -50,15 +50,15 @@ const {
 // The build target the driver compiles. Override via STORY_BUILD_TARGET
 // if the consumer has their own static-export build. The target itself
 // is a shadow-cljs build name (kebab-case keyword form); it ultimately
-// becomes a path segment under `out/`. Per rf2-o38lb we sanity-check
-// it doesn't contain path-traversal segments — defensive belt over the
+// becomes a path segment under `out/`, so we sanity-check that it
+// doesn't contain path-traversal segments — defensive belt over the
 // path-policy enforcement below.
 const BUILD_TARGET_RAW =
   process.env.STORY_BUILD_TARGET || 'story-static/counter-with-stories';
 if (/(^|[\\/])\.\.([\\/]|$)/.test(BUILD_TARGET_RAW)) {
   throw new Error(
     `STORY_BUILD_TARGET: '${BUILD_TARGET_RAW}' contains '..' traversal; ` +
-      `refusing. Per rf2-o38lb security audit.`,
+      `refusing.`,
   );
 }
 const BUILD_TARGET = BUILD_TARGET_RAW;
@@ -68,7 +68,7 @@ const BUILD_TARGET = BUILD_TARGET_RAW;
 // slash). The driver computes this from the build target so a custom
 // target maps to a custom output directory automatically.
 //
-// Per rf2-o38lb: the resolved output dir MUST land inside
+// The resolved output dir MUST land inside
 // `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is
 // set. Downstream consumers publishing to a non-repo location (e.g. a
 // docs-site staging area) set the opt-in flag explicitly.
@@ -83,9 +83,9 @@ const OUTPUT_DIR = enforcePolicy(
 // the counter_with_stories story_static.index.html; override for
 // downstream apps.
 //
-// Per rf2-o38lb: STORY_BUILD_INDEX_HTML must point at a file under
-// `<repo>/examples` or `<repo>/implementation` (the two locations
-// where per-feature index.html templates legitimately live). An
+// STORY_BUILD_INDEX_HTML must point at a file under `<repo>/examples`,
+// `<repo>/tools` or `<repo>/implementation` (the locations where
+// per-feature index.html templates legitimately live). An
 // out-of-tree HTML source requires the same `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1`
 // opt-in — the knob gates read sources as well as write targets.
 const HTML_SRC = enforcePolicy(
@@ -103,12 +103,12 @@ const HTML_SRC = enforcePolicy(
 );
 
 function release() {
-  // Spawn shadow-cljs shell-free under THIS node binary (rf2-wn4o1):
+  // Spawn shadow-cljs shell-free under THIS node binary:
   // resolve shadow-cljs's own JS entry-point and run it via
   // `process.execPath` with `shell:false` — never `npx`/`npx.cmd` under a
   // shell. This sidesteps both the Windows command-hijack accident class
   // (a workspace-local `npx.cmd` resolving ahead of PATH under
-  // `shell:true` + a repo-controlled `cwd` — rf2-33vvc) and the
+  // `shell:true` + a repo-controlled `cwd`) and the
   // `.cmd`-under-no-shell `EINVAL` from the CVE-2024-27980 mitigation.
   // Same posture dev-testbed.cjs uses for `shadow-cljs watch`. Resolution
   // is rooted at IMPL_ROOT so it finds the implementation's local install
