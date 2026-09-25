@@ -1,6 +1,4 @@
-;; Top-level shadow-cljs build (rf2-0hxm; extended per rf2-p7va, rf2-xbtj,
-;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit,
-;; rf2-ny6v7).
+;; Top-level shadow-cljs build.
 ;;
 ;; Pulls in every published artefact's source path (the core, the
 ;; per-substrate adapters, and the per-feature artefacts) plus their
@@ -11,20 +9,19 @@
 ;; this level wires the classpath via :local/root for any
 ;; clojure-tools-driven steps.
 ;;
-;; Per rf2-3yij the UIx adapter ships in implementation/adapters/uix;
-;; its sources are added to :source-paths and com.pitch/uix.{core,dom}
-;; are added to :dependencies so the per-example UIx builds resolve.
+;; The UIx adapter ships in implementation/adapters/uix; its sources
+;; are on :source-paths and com.pitch/uix.{core,dom} are in
+;; :dependencies so the per-example UIx builds resolve.
 ;;
-;; Per rf2-zha9 the per-substrate adapters live under
-;; implementation/adapters/<name>/ (renamed from substrates/ per
-;; rf2-0imy); per-feature artefacts (schemas, machines, ...) stay flat
-;; under implementation/<name>/.
-{:source-paths [;; rf2-try1x — silent-on-success reporter source (CLJC).
+;; The per-substrate adapters live under
+;; implementation/adapters/<name>/; per-feature artefacts (schemas,
+;; machines, ...) sit flat under implementation/<name>/.
+{:source-paths [;; Silent-on-success reporter source (CLJC).
                 ;; Defines re-frame.test-quiet (the cljs.test/report
                 ;; defmethod overrides) and re-frame.test-quiet.shadow-node
-                ;; (the :node-test runner wired via :main above).
+                ;; (the :node-test runner wired via :main below).
                 "test-quiet/src"
-                ;; rf2-vespg — the shadow-node runner's own CLJS contract
+                ;; The shadow-node runner's own CLJS contract
                 ;; pin (re-frame.test-quiet-shadow-node-cljs-test) lives
                 ;; under test-quiet/test; listing it here puts the pin on
                 ;; the consolidated :node-test classpath so `npm run
@@ -32,11 +29,11 @@
                 "test-quiet/test"
                 "core/src"
                 "core/test"
-                ;; rf2-2mtte — CLJS-side public-API manifest enumeration
+                ;; CLJS-side public-API manifest enumeration
                 ;; probe. The macro (analyzer-driven publics enumeration)
                 ;; + the pure reconciliation ns + the probe `*_cljs_test`
                 ;; live beside the JVM manifest generator under
-                ;; scripts/api-manifest/probe/ (kept OUT of the
+                ;; scripts/api-manifest/probe/ (OUT of the
                 ;; generator's own src/ so its analyzer-macro classpath
                 ;; never reaches the JVM `gen` build). Listing the paths
                 ;; here puts the probe test on the consolidated
@@ -50,7 +47,7 @@
                 "scripts/api-manifest/probe/test"
                 "adapters/reagent/src"
                 "adapters/reagent/test"
-                ;; rf2-eceuv — per-adapter testbed (Reagent). Standalone
+                ;; Per-adapter testbed (Reagent). Standalone
                 ;; counter app under adapters/reagent/testbed/ that proves
                 ;; the adapter wires up end-to-end. Source path here so the
                 ;; :adapters/reagent-testbed build's init-fn resolves; the
@@ -59,7 +56,7 @@
                 "adapters/reagent/testbed"
                 "adapters/reagent-slim/src"
                 "adapters/reagent-slim/test"
-                ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke (reagent-slim).
+                ;; Per-adapter CLIENT-RUNTIME smoke (reagent-slim).
                 ;; Standalone counter app under adapters/reagent-slim/testbed/
                 ;; that proves the day8/reagent-slim substrate wires up
                 ;; end-to-end in a browser (mount through reagent2.dom.client,
@@ -73,15 +70,15 @@
                 "adapters/reagent-slim/testbed"
                 "adapters/uix/src"
                 "adapters/uix/test"
-                ;; rf2-eceuv — per-adapter testbed (UIx). See the Reagent
+                ;; Per-adapter testbed (UIx). See the Reagent
                 ;; testbed comment above.
                 "adapters/uix/testbed"
-                ;; rf2-ee38b.16 — test-react adapter (headless CLJC class-3
-                ;; lifecycle simulator). src+test paths added so the
+                ;; The test-react adapter (headless CLJC class-3
+                ;; lifecycle simulator). src+test paths here so the
                 ;; :node-test build discovers re-frame.adapter.test-react-cljs-test
-                ;; (ns ends in `-cljs-test`, matching the `cljs-test$` regexp;
-                ;; renamed from `-test` per rf2-ezbzvm — a plain `-test` suffix
-                ;; does NOT match, so the CLJS half was silently excluded). The
+                ;; (the ns ends in `-cljs-test`, matching the `cljs-test$`
+                ;; regexp; a plain `-test` suffix does NOT match, so the CLJS
+                ;; half would be silently excluded). The
                 ;; JVM half runs via scripts/test-jvm-implementation.sh.
                 ;; NOT for production: bundle-isolation holds structurally —
                 ;; nothing under examples/ or production builds :requires
@@ -100,42 +97,42 @@
                 "http/test"
                 "ssr/src"
                 "ssr/test"
-                ;; Per rf2-ny6v7 — ssr-ring is the Ring/Pedestal host
+                ;; ssr-ring is the Ring/Pedestal host
                 ;; adapter for SSR. JVM-only (Ring is JVM); shadow-cljs
                 ;; ignores .clj sources at compile time, so listing the
                 ;; path here only widens the classpath. Per-feature
-                ;; placement (flat under implementation/) per rf2-zha9.
+                ;; placement (flat under implementation/).
                 "ssr-ring/src"
                 "ssr-ring/test"
                 "epoch/src"
                 "epoch/test"
-                ;; rf2-p10npe — the optional Resources artefact (Spec 016,
-                ;; EP-0003). Source + test paths added so the
+                ;; The optional Resources artefact (Spec 016,
+                ;; EP-0003). Source + test paths here so the
                 ;; consolidated :node-test build picks up the resources
-                ;; ns's + the `*-cljs-test` suites under resources/test/.
-                ;; The Resources runtime has landed (reg-resource, the
+                ;; ns's + the `*-cljs-test` suites under resources/test/,
+                ;; which exercise the Resources runtime (reg-resource, the
                 ;; :rf.resource/* events + passive subs, work ledger,
-                ;; invalidation/GC, hydration); the suites exercise it.
+                ;; invalidation/GC, hydration).
                 ;; Bundle-isolation holds: nothing under tools/ is
                 ;; required, and core never :requires re-frame.resources.
                 "resources/src"
                 "resources/test"
-                ;; rf2-hic-001 — the Fresco view substrate. src carries
+                ;; The Fresco view substrate. src carries
                 ;; the runtime under re-frame.fresco + re-frame.fresco.impl.*;
                 ;; test carries the package's own suites — the smoke
                 ;; (re-frame.fresco.smoke-cljs-test) and every
                 ;; `re-frame.fresco.*-cljs-test` beside it — which ride the
                 ;; always-on :node-test gate (`cljs-test$` matches) AND the
                 ;; focused :node-test-fresco build below. The benchmark
-                ;; harness the runtime was copied out of is NOT here: rf2-6c12m.1
-                ;; moved it to bench/fresco/, its own shadow project off this
-                ;; classpath, and check_optional_module_reachability.py's
+                ;; harness is NOT here: it is bench/fresco/, its own shadow
+                ;; project off this classpath, and
+                ;; check_optional_module_reachability.py's
                 ;; `bench tree` row is what says nothing in the package imports
                 ;; it. Bundle-isolation holds: no production build :requires
                 ;; re-frame.fresco.*.
                 "fresco/src"
                 "fresco/test"
-                ;; rf2-hic-020 — `re-frame.fresco.test`, the supported L0–L2
+                ;; `re-frame.fresco.test`, the supported L0–L2
                 ;; testing surface. Its OWN source root, deliberately outside
                 ;; `fresco/src` and outside the artefact's published :paths:
                 ;; the kit is reachable when a test uses it and unreachable
@@ -143,7 +140,7 @@
                 ;; than by review. No namespace under it is `*-cljs-test`, so
                 ;; no test-selecting ns-regexp matches the KIT itself.
                 "fresco/test_kit/src"
-                ;; rf2-kyum — the kit's own witnesses. Most of them live under
+                ;; The kit's own witnesses. Most of them live under
                 ;; `fresco/test` with everything else the lane runs; this root
                 ;; exists so a witness can be written while `fresco/test` is
                 ;; held by another branch, and so the kit's src root stays free
@@ -151,7 +148,7 @@
                 ;; suffix picks the lane (`-dom-cljs-test` → `:browser-test`,
                 ;; and `cljs-test$` → the always-on `:node-test` gate).
                 "fresco/test_kit/test"
-                ;; rf2-hic-016 — the controlled-input testbed. A standalone
+                ;; The controlled-input testbed. A standalone
                 ;; app under fresco/testbed/ whose fields are the §4.2
                 ;; policy family (accept / refuse / normalise / reset), and
                 ;; the only surface the three-engine controlled-input gate
@@ -162,9 +159,10 @@
                 ;; Firefox and WebKit.
                 "fresco/testbed"
                 ;; The build-time reader for committed `spec/` data
-                ;; (day8/re-frame2-spec-resource). Both macros named under
-                ;; the `../spec` root below go through it, and it is on
-                ;; this classpath so they can: it owns the shadow-cljs
+                ;; (day8/re-frame2-spec-resource). Every macro named under
+                ;; the `../spec` and `../tools/xray/spec` roots below goes
+                ;; through it, and it is on this classpath so they can: it
+                ;; owns the shadow-cljs
                 ;; recording read and — the reason it is ONE namespace
                 ;; rather than a helper copied into each consumer — the
                 ;; cold-load resolution of
@@ -172,12 +170,12 @@
                 ;; resolvers race however carefully each one guards itself.
                 ;; JVM-only source; nothing compilable into a bundle.
                 "spec-resource/src"
-                ;; `spec/` as a classpath ROOT — the one root under which
-                ;; every committed spec-side DATA file a build inlines is
-                ;; resolvable. Data only: no sources, nothing compilable,
+                ;; `spec/` as a classpath ROOT — the root under which the
+                ;; repo-level committed spec-side DATA files a build inlines
+                ;; are resolvable. Data only: no sources, nothing compilable,
                 ;; and no production build requires any of it.
                 ;;
-                ;; One consumer today, a macro that inlines a
+                ;; Each consumer is a macro that inlines a
                 ;; committed file at macro-expansion time — which by
                 ;; itself hides that file from the build, because a
                 ;; ClojureScript compile that caches the namespace has no
@@ -187,12 +185,14 @@
                 ;; checking. Reading through `shadow.resource/slurp-resource`
                 ;; instead records the file's classpath path and
                 ;; last-modified against the compiling namespace, so the
-                ;; data participates in that namespace's cache key. That
+                ;; data participates in that namespace's cache key. Each
                 ;; consumer reaches that reader through the one namespace
                 ;; above, never directly.
                 ;;
                 ;;   api-manifest-metadata.edn — inlined by
                 ;;     `re-frame.api-manifest.cljs-publics`.
+                ;;   conformance/fixtures/*.edn — inlined by
+                ;;     `re-frame.conformance-fixtures`.
                 ;;
                 ;; ONE root rather than one per consumer: nesting
                 ;; `spec/conformance` inside `spec` would index the same
@@ -205,18 +205,17 @@
                 ;; this root: each walks up from the compile CWD instead.
                 "../spec"
                 ;; `tools/xray/spec` as a SECOND committed-data root, for
-                ;; the same reason and through the same reader (rf2-uttbj,
-                ;; repairing rf2-863tl).
+                ;; the same reason and through the same reader.
                 ;;
                 ;;   007-UX-IA.md, 008-Embedding-Contract.md — the
                 ;;     `mount-<panel>!` inventory, inlined by
                 ;;     `day8.re-frame2-xray.panel-enum-spec-refs` into the
-                ;;     panel-enum guard. Until this root existed that macro
-                ;;     reached the files by walking up from the compile CWD
-                ;;     — a read the compiler cannot see, so correcting a
-                ;;     drifted spec row left the guard grading the PREVIOUS
-                ;;     expansion while the incremental compile reported
-                ;;     `1 compiled`, and only a cold rebuild moved it.
+                ;;     panel-enum guard. Reaching the files by walking up
+                ;;     from the compile CWD instead would be a read the
+                ;;     compiler cannot see, so correcting a drifted spec row
+                ;;     would leave the guard grading the PREVIOUS expansion
+                ;;     while the incremental compile reported `1 compiled`,
+                ;;     and only a cold rebuild would move it.
                 ;;
                 ;; The "ONE root" note above argues against nesting two
                 ;; roots over the SAME tree; these are disjoint trees, and a
@@ -230,7 +229,7 @@
                 ;; the five names the two trees share — 000-Vision.md,
                 ;; API.md, Conventions.md, Principles.md, README.md —
                 ;; resolve to the repo-root `spec/` copy. Nothing reads any
-                ;; of the five as a resource today; a consumer wanting the
+                ;; of the five as a resource; a consumer wanting the
                 ;; Xray copy of one must not address it by bare name.
                 ;;
                 ;; Data only: nothing compilable lives under it, and the
@@ -238,12 +237,12 @@
                 ;; `clojure -M:test` re-reads on every run, so it has no
                 ;; cache to invalidate.
                 "../tools/xray/spec"
-                ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
-                ;; cross-artefact test tree probing the three security
-                ;; boundaries the pin-and-assert regime missed: SSR escaping
-                ;; (rf2-1uex4), schema redaction nested at arbitrary depth
-                ;; (rf2-g5auo), and AI/MCP-boundary egress redaction
-                ;; (rf2-6wvh5). The tests sit ABOVE several artefacts (core,
+                ;; The adversarial-property SECURITY tier. A small
+                ;; cross-artefact test tree probing three security
+                ;; boundaries a pin-and-assert regime misses: SSR escaping,
+                ;; schema redaction nested at arbitrary depth, and
+                ;; AI/MCP-boundary egress redaction. The tests sit ABOVE
+                ;; several artefacts (core,
                 ;; schemas, ssr) + a tool (mcp-base), so they live in their
                 ;; own top-level `security/` surface rather than any single
                 ;; artefact's test tree — the cross-artefact node-test
@@ -253,16 +252,16 @@
                 ;; dedicated `:node-test-security` build below
                 ;; (`-security-cljs-test$`, wired as `npm run test:security`).
                 "security/test"
-                ;; rf2-wbh1ln + rf2-5ha70w — EP-0011 cross-family
+                ;; The EP-0011 cross-family
                 ;; reply-VOCABULARY-consistency tier. The umbrella
                 ;; conformance the per-family reply suites cannot hold: the
                 ;; cross-family vocab-consistency guard (every managed-async
                 ;; family — HTTP, resources, mutations, machines, routing —
-                ;; produces the ONE shared :status/:work/status/:work/id/
-                ;; canonical-stale shape, the axis rf2-mn4j89 violated) and
+                ;; produces the ONE shared :status / :rf.reply/work-status /
+                ;; :rf.reply/work-id / canonical-stale shape) and
                 ;; the shared egress-projection boundaries (`trace-summary`,
                 ;; `project-egress`) that keep classified and large reply
-                ;; slots off the wire. Reply-target functor laws stay owned
+                ;; slots off the wire. Reply-target functor laws are owned
                 ;; by core and its timer probe. The tests sit ABOVE several
                 ;; artefacts (core, http, resources, machines, routing), so
                 ;; — like security/ — they live in their own top-level
@@ -272,7 +271,7 @@
                 ;; :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is reply-conformance/deps.edn `:test`.
                 "reply-conformance/test"
-                ;; rf2-jn7frs — EP-0014 derivation/process-ALGEBRA
+                ;; The EP-0014 derivation/process-ALGEBRA
                 ;; conformance tier (Reference Implementation Plan item 9 +
                 ;; §Validation / Conformance; spec/Derivations.md
                 ;; §Conformance). The umbrella conformance the per-artefact
@@ -293,17 +292,17 @@
                 ;; always-on :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is derivation-conformance/deps.edn `:test`.
                 "derivation-conformance/test"
-                ;; rf2-xhfxcs.6 — EP-0018 one-form event-MODEL conformance tier
-                ;; (§Conformance + Bead Plan item 7). The umbrella REGRESSION
-                ;; LOCK on the public contract the EP-0018 flip settled:
+                ;; The EP-0018 one-form event-MODEL conformance tier
+                ;; (EP-0018 §Conformance). The umbrella REGRESSION
+                ;; LOCK on the public event contract:
                 ;; `reg-event` is the SINGLE public event form (reg-event-fx
                 ;; semantics — coeffects in, a closed effects map out,
                 ;; `:rf.cofx/requires` uniform); the THREE retired names
-                ;; (reg-event-db / -fx / -ctx) survive ONLY as facade-exported
+                ;; (reg-event-db / -fx / -ctx) exist ONLY as facade-exported
                 ;; ^:no-doc throwing stubs raising their exact hard errors
                 ;; (production-survivable — fan out on the always-on error
                 ;; channel THEN throw); ONE :rf/event-handler wrapper
-                ;; (:rf/default? true), :event/kind gone, reg-event-ctx NOT a
+                ;; (:rf/default? true), no :event/kind, reg-event-ctx NOT a
                 ;; public facade var. Every assertion is ADVERSARIAL — a
                 ;; re-introduced old form, a second wrapper id, a returning
                 ;; :event/kind, or a reg-event-ctx facade promotion goes RED.
@@ -311,9 +310,8 @@
                 ;; the error-emit channel — wider than any single artefact's
                 ;; test tree — so (like reply-conformance/ +
                 ;; derivation-conformance/) it lives in its own top-level
-                ;; event-conformance/ surface. (No realm-routing/frame-query
-                ;; section: the realm substrate collapsed in EP-0023/EP-0024;
-                ;; that contract is locked in core's facade-frame-read + the
+                ;; event-conformance/ surface. (No frame-query section: that
+                ;; contract is locked in core's facade-frame-read + the
                 ;; sibling event-frame-isolation conformance ns.)
                 ;; Namespaces end in `-cljs-test`, so they run under the
                 ;; always-on :node-test gate (`cljs-test$` matches); the JVM
@@ -325,11 +323,11 @@
                 ;; path added so the `:node-test` / `:node-test-security`
                 ;; builds resolve the ns for the egress adversarial tests.
                 ;; Same bundle-isolation rationale as the story/xray source
-                ;; paths above — listing the path only widens the TEST
+                ;; paths below — listing the path only widens the TEST
                 ;; classpath; nothing under implementation/ :requires it.
                 "../tools/mcp-base/src"
-                ;; tools/story (re-frame2-story Stage 2, rf2-32dk).
-                ;; Source paths added so the `:node-test` build picks up
+                ;; tools/story.
+                ;; Source paths here so the `:node-test` build picks up
                 ;; `tools/story/test/re_frame/story_cljs_test.cljs`. The
                 ;; bundle-isolation contract (tools/README.md) forbids
                 ;; reverse :require — nothing under implementation/ may
@@ -338,24 +336,23 @@
                 ;; classpath; it does NOT introduce a require dependency.
                 "../tools/story/src"
                 "../tools/story/test"
-                ;; tools/xray (Xray Phase 1 foundation, rf2-n6x4q).
+                ;; tools/xray.
                 ;; Same rationale as tools/story above — source paths
-                ;; added so the :node-test build picks up
+                ;; here so the :node-test build picks up
                 ;; `tools/xray/test/day8/re_frame2_xray/*_cljs_test.cljs`.
-                ;; Bundle-isolation contract still holds: nothing under
+                ;; Bundle-isolation contract holds: nothing under
                 ;; implementation/ may :require anything under tools/.
                 "../tools/xray/src"
                 "../tools/xray/test"
-                ;; tools/machines-viz (MachineChart artefact, rf2-o9arp).
+                ;; tools/machines-viz (the MachineChart artefact).
                 ;; Bundle-isolation contract identical to tools/xray above —
                 ;; nothing under implementation/ may :require here. Source +
-                ;; test paths added so the :node-test build picks up the
-                ;; chart suite that moved out of tools/xray under the
-                ;; rf2-0yil0 audit cluster (Xray now re-exports the chart
-                ;; via thin shims under tools/xray/src/day8/re_frame2_xray/chart/).
+                ;; test paths here so the :node-test build picks up the
+                ;; chart suite (Xray embeds machines-viz's chart rather
+                ;; than owning it).
                 "../tools/machines-viz/src"
                 "../tools/machines-viz/test"
-                ;; tools/machines-viz/page (rf2-k7l2o). The artefact's one
+                ;; tools/machines-viz/page. The artefact's one
                 ;; APPLICATION — `viewer.cljs`, the `^:export run` entry
                 ;; public/viewer.html loads — lives on its own root, OFF the
                 ;; jar's `:paths`/`:src-dirs`. The split is application-versus-
@@ -364,40 +361,29 @@
                 ;; `reagent.dom.client` root it owns — and a consumer requiring
                 ;; this jar wants the chart, not a page's mount code.
                 ;;
-                ;; When rf2-k7l2o made the split the argument was sharper: the
-                ;; page then required `re-frame.adapter.reagent`, so shipping it
-                ;; as library surface would have forced a published
-                ;; `day8/re-frame2-reagent` dependency on every consumer,
-                ;; colliding with day8/reagent-slim (which publishes ITS adapter
-                ;; at that same canonical ns) on a slim app's classpath.
-                ;; rf2-6r9j.115 deleted the page's `rf/init!` and that require
-                ;; outright — the page picks no substrate now — so the
-                ;; dependency-forcing half is discharged history rather than a
-                ;; live justification.
-                ;;
                 ;; Listed here for the two builds that DO need
                 ;; it: `:machines-viz-viewer` below, and `:node-test`, whose
                 ;; `cljs-test$` selector reaches the page's own unit suite
                 ;; (`viewer-cljs-test`, in the `test` root above).
                 "../tools/machines-viz/page"
-                ;; tools/xray/testbeds (rf2-p8f2s — examples-split step 1).
+                ;; tools/xray/testbeds.
                 ;; Tool-owned testbeds colocate their testbed app source
                 ;; (where an app is needed) with the spec that drives it.
-                ;; Source path added so the testbed entry-point namespaces
+                ;; Source path here so the testbed entry-point namespaces
                 ;; (`standard-epochs.core`, `routes-epochs.core`,
                 ;; `machine-epochs.core`, `two-frame-isolation.core`, …)
                 ;; resolve for their `:examples/*` / `:testbeds/*` builds
-                ;; below; bundle-isolation contract still holds (nothing
+                ;; below; bundle-isolation contract holds (nothing
                 ;; under implementation/ may :require anything under tools/).
                 "../tools/xray/testbeds"
-                ;; tools/story/testbeds (rf2-p8f2s — examples-split step 1).
-                ;; The `counter_with_stories/` testbed (formerly under
-                ;; examples/reagent/) lives here. Source path added so
+                ;; tools/story/testbeds.
+                ;; The `counter_with_stories/` testbed lives here. Source
+                ;; path here so
                 ;; `counter-with-stories.*` namespaces resolve for the
                 ;; `:examples/counter-with-stories` and
                 ;; `:story-static/counter-with-stories` builds below.
                 "../tools/story/testbeds"
-                ;; tools/testbed-support (rf2-5dphw — shared testbed
+                ;; tools/testbed-support (shared testbed
                 ;; helpers). One browser namespace:
                 ;; `re-frame.testbed.story-host`, the live-app ↔ Story-shell
                 ;; hash-toggle host harness the showcase testbeds share.
@@ -405,12 +391,12 @@
                 ;; here: the JVM-only `re-frame.testbed.open-in-editor-server`
                 ;; handler, wired on the `:dev-http` entries below, resolves
                 ;; classpath-relative coordinates at request time, so no
-                ;; browser-side source-root plumbing is needed (rf2-3xq1v).
+                ;; browser-side source-root plumbing is needed.
                 ;; The
                 ;; `src` path carries the helper namespaces; the dedicated
                 ;; `test` path carries the `*-cljs-test` suites the :node-test
                 ;; build's `cljs-test$` ns-regexp discovers — the same
-                ;; src/test split every other tool/artefact uses (rf2-d0631h).
+                ;; src/test split every other tool/artefact uses.
                 ;; Bundle-isolation contract holds (nothing under
                 ;; implementation/ :requires it).
                 "../tools/testbed-support/src"
@@ -430,7 +416,7 @@
                 ;;                       reagent-slim.counter.core (path-prefixed, so the
                 ;;                       substrate ports never collide with the canonical
                 ;;                       core/ namespaces in the shared test bundle)
-                ;; The example tree is test-free (rf2-8cevm): headless
+                ;; The example tree is test-free: headless
                 ;; fixtures live in the framework test tree.
                 "../examples/core"
                 "../examples/capabilities/machines"
@@ -440,12 +426,12 @@
                 "../examples/patterns"
                 "../examples/real-apps"
                 "../examples/substrates"
-                ;; rf2-kzcim Tier 1 — shared framework-behavior
+                ;; Shared framework-behavior
                 ;; testbeds. Top-level testbeds/<surface>/ siblings of
                 ;; examples/; the per-testbed CLJS namespace
                 ;; (e.g. deliberate-throw.core) resolves under this
-                ;; source path. Per the testbeds split (rf2-96nb3),
-                ;; these are framework-behavior fixtures consumed by
+                ;; source path. These are framework-behavior fixtures
+                ;; consumed by
                 ;; multiple tools (Xray, Story, re-frame2-pair-mcp); the
                 ;; sources are bundle-isolated from the examples
                 ;; surface (no example :requires anything under
@@ -465,27 +451,22 @@
                 [metosin/malli     "0.20.1"]
                 [com.pitch/uix.core "1.4.4"]
                 [com.pitch/uix.dom  "1.4.4"]
-                ;; rf2-oqa60 phase 1 — binaryage/devtools dep dropped.
-                ;; Xray's first-class edn-inspector widget
-                ;; (`views/edn-inspector`) replaces the cljs-devtools-
-                ;; backed value renderer with a roll-your-own CLJS
-                ;; tree walker; the impedance-mismatch bug class
-                ;; (rf2-dw8n7, rf2-oswhk) goes away with the dep.
-                ;; zprint — Xray's EDN widget `code-block` pre-formatter
-                ;; (rf2-6snc8). Dev-only; the bundle-isolation gate
+                ;; There is no binaryage/devtools dep: Xray's first-class
+                ;; edn-inspector widget (`views/edn-inspector`) renders
+                ;; values with its own CLJS tree walker.
+                ;; zprint — Xray's EDN widget `code-block` pre-formatter.
+                ;; Dev-only; the bundle-isolation gate
                 ;; verifies `zprint.core` does not reach production
                 ;; bundles. See tools/xray/deps.edn for the artefact-side
                 ;; rationale.
                 [zprint "1.3.0"]
-                ;; Editscript — Xray's diff engine (rf2-n2jig). A*
+                ;; Editscript — Xray's diff engine. A*
                 ;; algorithm producing optimally-small EDN edit scripts.
-                ;; Replaces Xray's home-grown leaf-walker diff at
-                ;; `tools/xray/src/.../views/edn_inspector.cljs:533-664`.
                 ;; Dev-only via the same `:devtools/preloads` gate as
                 ;; the rest of Xray; bundle-isolation verifies
                 ;; `editscript.*` does not reach production bundles.
                 [juji/editscript "0.6.5"]
-                ;; nextjournal/markdown (rf2-e2t7v4) — the RealWorld example
+                ;; nextjournal/markdown — the RealWorld example
                 ;; apps render the article body as CommonMark via
                 ;; `realworld-shared.markdown` (hiccup-emitting mode). Used
                 ;; ONLY by the `:examples/realworld` + `:examples/realworld-
@@ -498,7 +479,7 @@
                 ;; sanitization contract.
                 [io.github.nextjournal/markdown "0.7.225"]]
 
- ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
+ ;; Top-level dev-http servers. shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
  ;; through the roots in order, returning the first match. Used here for
  ;; the :testbeds/panel-gallery build so `npx shadow-cljs watch
@@ -517,7 +498,7 @@
  ;; index.html is found without a copy step; per-file requests like
  ;; /main.js fall through to the second root automatically.
  ;;
- ;; rf2-wn3bh — Option B 'open in editor' dev-server endpoint. Every
+ ;; The 'open in editor' dev-server endpoint. Every
  ;; testbed port below uses the MAP form `{:roots [...] :handler sym}`
  ;; rather than the bare-vector roots shape so shadow-cljs wires the
  ;; not-found fallback handler
@@ -533,25 +514,23 @@
  ;; /__open-in-editor, CRA, Next). shadow tries the static file roots
  ;; FIRST, so the handler only ever sees the synthetic endpoint path (no
  ;; file on disk matches it); per-file requests like /main.js fall
- ;; through to the roots exactly as before. Bundle-isolated by
+ ;; through to the roots as usual. Bundle-isolated by
  ;; construction: the handler is `.clj`, never part of any CLJS/browser
  ;; build. The Xray/Story client open-seam prefers this endpoint and
- ;; falls back to the historic `editor://` URI when no dev server is
+ ;; falls back to the `editor://` URI when no dev server is
  ;; present.
  :dev-http {8765 {:roots   ["../tools/xray/testbeds/panel_gallery"
                             "out/testbeds/panel-gallery"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Two-frame isolation testbed (rf2-6qgbs.1; replaces the
-            ;; parallel-frames prototype, rf2-gxgmt). Source dir first so
+            ;; Two-frame isolation testbed. Source dir first so
             ;; the hand-written index.html resolves at `/`; the compiled
             ;; main.js falls through to out/examples/two-frame-isolation
             ;; per the same cascade as :testbeds/panel-gallery above.
             8030 {:roots   ["../tools/xray/testbeds/two_frame_isolation"
                             "out/examples/two-frame-isolation"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Single-frame standard-epochs testbed (rf2-gsr6z; renamed
-            ;; per rf2-zthnj) — the deliberately simple Xray driving
-            ;; surface that superseded the old step-deck.
+            ;; Single-frame standard-epochs testbed — the deliberately
+            ;; simple Xray driving surface.
             ;; Source dir first so the hand-written index.html resolves at
             ;; `/`; the compiled main.js falls through to
             ;; out/examples/standard-epochs per the same cascade as the
@@ -560,7 +539,7 @@
             8031 {:roots   ["../tools/xray/testbeds/standard_epochs"
                             "out/examples/standard-epochs"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Single-frame routes-epochs testbed (rf2-5crg4) — the ROUTING
+            ;; Single-frame routes-epochs testbed — the ROUTING
             ;; sibling of standard-epochs: a tall column of numbered buttons,
             ;; each bumping a shared baseline counter + exercising one more
             ;; routing feature, so clicking top-to-bottom completely
@@ -571,9 +550,8 @@
             8032 {:roots   ["../tools/xray/testbeds/routes_epochs"
                             "out/examples/routes-epochs"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; machine-epochs testbed (rf2-w06op; reworked to a
-            ;; multi-machine frame-isolated stepper per rf2-q3lfm) — the
-            ;; STATE-MACHINE Xray driver. A left machine-picker rail; each
+            ;; machine-epochs testbed — a multi-machine frame-isolated
+            ;; stepper, the STATE-MACHINE Xray driver. A left machine-picker rail; each
             ;; of the 8 machine domains runs in its OWN frame and owns its
             ;; OWN epoch ring, and selecting one re-points Xray at that
             ;; frame so every observation panel (Epoch cascade, scrubber,
@@ -585,12 +563,12 @@
             8033 {:roots   ["../tools/xray/testbeds/machine_epochs"
                             "out/examples/machine-epochs"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Single-frame edn-inspector testbed (rf2-74u2s) — the
-            ;; WIDGET sibling of standard-epochs. Same numbered-button
-            ;; shape (one frame · one rung per press), but each rung
-            ;; seeds a value-shape into the edn-inspector widget mounted
-            ;; below the column, driving the renderer DIRECTLY rather than
-            ;; the Xray panels. Same source-dir-first cascade as 8031-8033;
+            ;; Single-frame edn-inspector testbed — a queued-step
+            ;; driving surface on the shared RUNNER (runner.core). ONE
+            ;; Step button walks the diff case matrix; each step writes a
+            ;; stressing value-shape into app-db, and the Xray Epoch and
+            ;; App-db panels render it (and its diff) through the
+            ;; edn-inspector. Same source-dir-first cascade as 8031-8033;
             ;; compiled main.js falls through to out/examples/edn-inspector.
             ;; Port 8034 is the next free testbed slot above the _epochs
             ;; trio (standard-epochs 8031, routes-epochs 8032,
@@ -598,9 +576,9 @@
             8034 {:roots   ["../tools/xray/testbeds/edn_inspector"
                             "out/examples/edn-inspector"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Single-frame managed-http testbed (rf2-6nolv) — the
+            ;; Single-frame managed-http testbed — the
             ;; MANAGED-HTTP pilot of the shared queued-step RUNNER
-            ;; (rf2-8pbjr; runner.core). One button walks the
+            ;; (runner.core). One button walks the
             ;; :rf.http/managed lifecycle (fire · success · 4xx · 5xx ·
             ;; abort · concurrent-by-actor · request-outlives-teardown),
             ;; pinning Xray focus to the latest :rf/default epoch after
@@ -614,7 +592,7 @@
             8035 {:roots   ["../tools/xray/testbeds/managed_http"
                             "out/examples/managed-http"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; --- Story showcases (rf2-xz4zn) -------------------------
+            ;; --- Story showcases -------------------------------------
             ;; The Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
             ;; the live app, `/#/stories` mounts the Story shell; the Xray
@@ -626,8 +604,8 @@
             ;;     :examples/login-with-stories \
             ;;     :examples/counter-with-stories :examples/login-form
             ;; Story shells:
-            ;;   http://localhost:8040/#/stories  nine-states showcase (rf2-rgyia)
-            ;;   http://localhost:8041/#/stories  login showcase (rf2-p8v0q)
+            ;;   http://localhost:8040/#/stories  nine-states showcase
+            ;;   http://localhost:8041/#/stories  login showcase
             ;;   http://localhost:8042/#/stories  counter (canonical minimal)
             ;;   http://localhost:8043/#/stories  login-form (5-state)
             ;;   http://localhost:8045/#/stories  fresco-counter (native substrate)
@@ -643,7 +621,7 @@
             8043 {:roots   ["../tools/story/testbeds/login_form"
                             "out/examples/login-form"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Linearlite optimistic-board example (rf2-tideyl). Source dir
+            ;; Linearlite optimistic-board example. Source dir
             ;; first so the hand-written index.html resolves at `/`; the
             ;; compiled main.js falls through to out/examples/linearlite per
             ;; the same cascade as the entries above. Port 8044 is the next
@@ -651,7 +629,7 @@
             8044 {:roots   ["../examples/capabilities/resources/linearlite"
                             "out/examples/linearlite"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; rf2-kttom — the FRESCO Story testbed. Same hash-routed shape
+            ;; The FRESCO Story testbed. Same hash-routed shape
             ;; and source-dir-first cascade as the four Story builds above:
             ;;   http://localhost:8045/#/        the live tally
             ;;   http://localhost:8045/#/stories the deck, :substrates #{:fresco}
@@ -660,18 +638,18 @@
             8045 {:roots   ["../tools/story/testbeds/fresco_counter"
                             "out/examples/fresco-counter"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
+            ;; --- Top-level testbeds ----------------------------------
             ;; The 806x band for top-level testbeds/<surface>/ dev-http
             ;; servers (Xray testbeds own 803x + 8765, Story 804x, the
-            ;; examples orchestrator 805x). The tenant-switcher testbed is
-            ;; the first such server: source dir first so the hand-written
+            ;; examples orchestrator 805x). The tenant-switcher testbed
+            ;; serves here: source dir first so the hand-written
             ;; index.html resolves at `/`, the compiled main.js falls
             ;; through to out/testbeds/tenant-switcher per the same cascade
             ;; as the testbeds above.
             8060 {:roots   ["../testbeds/tenant_switcher"
                             "out/testbeds/tenant-switcher"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; rf2-vsgq — the Fresco HMR testbed. The ONLY :dev-http entry
+            ;; The Fresco HMR testbed. The ONLY :dev-http entry
             ;; in this file that a gate depends on, and it is a `watch`
             ;; surface by necessity rather than for developer convenience:
             ;; the contract under test is what a real shadow hot reload
@@ -696,7 +674,7 @@
   {:target    :node-test
    :output-to "out/node-test.js"
    :ns-regexp "cljs-test$"
-   ;; rf2-6t03c — DO NOT `shadow-cljs compile node-test --config-merge ...`
+   ;; DO NOT `shadow-cljs compile node-test --config-merge ...`
    ;; (narrowing `:ns-regexp`, or any other override) against THIS build id
    ;; for a focused/one-off compile. shadow-cljs derives the on-disk build
    ;; cache directory from the build id alone, fixed BEFORE any
@@ -716,8 +694,6 @@
    ;;     node out/node-test.js --test=<ns>[,<ns>...]
    ;;
    ;; — which needs no recompile at all and therefore cannot poison anything.
-   ;; This is the route rf2-hofhx's measurement work settled on after hitting
-   ;; this exact bead.
    ;;
    ;; If a focused COMPILE (not just a focused RUN) is genuinely required,
    ;; go through `node scripts/compile-node-test.cjs node-test out/node-test.js
@@ -725,20 +701,19 @@
    ;; isolates the shared cache around a `--config-merge` compile (clears it
    ;; before AND after) and, unconditionally for every invocation, deletes
    ;; `:output-to` before compiling so an aborted compile can never leave the
-   ;; PREVIOUS successful bundle sitting in its place — the concrete failure
-   ;; that discarded an rf2-hofhx measurement run: a caller that didn't chain
-   ;; the compile's exit code silently re-ran a stale bundle and reported a
-   ;; green that meant nothing.
+   ;; PREVIOUS successful bundle sitting in its place — otherwise a caller
+   ;; that doesn't chain the compile's exit code silently re-runs a stale
+   ;; bundle and reports a green that means nothing.
    ;;
-   ;; rf2-try1x — silent-on-success reporter. Custom runner installs
+   ;; Silent-on-success reporter. Custom runner installs
    ;; the cljs.test/report defmethod overrides before discovery. Source
    ;; ns lives at
    ;; ../test-quiet/src/re_frame/test_quiet/shadow_node.cljs and is
-   ;; on the classpath via the source-paths list below.
+   ;; on the classpath via the source-paths list above.
    :main      re-frame.test-quiet.shadow-node/main
-   ;; rf2-ls3wn — disable externs inference (and therefore the
+   ;; Disable externs inference (and therefore the
    ;; :infer-warning class) in the test build. The cljs.test reporter is
-   ;; silent-on-success (rf2-try1x, PR #1079) but the test classpath
+   ;; silent-on-success but the test classpath
    ;; spans every artefact + every testbed + every tool's source tree,
    ;; so unrelated externs-inference noise (~16 lines per warning, ~32
    ;; warnings on a green run ≈ 500 lines) drowns the green-run signal.
@@ -756,7 +731,7 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-e3j8l — perf-emission nightly companion to `:node-test`.
+  ;; Perf-emission nightly companion to `:node-test`.
   ;;
   ;; The per-PR `:node-test` build above uses `:ns-regexp \"cljs-test$\"`,
   ;; which excludes any test file whose namespace ends in
@@ -767,11 +742,8 @@
   ;; `re-frame.views` actually fire and the test can read
   ;; `performance.getEntriesByType('measure')` for the rf:* entries.
   ;;
-  ;; Runs NIGHTLY ONLY (not per-PR). The migrated assertions were
-  ;; previously a Playwright browser smoke beside the (since-deleted,
-  ;; rf2-6cq3u) `perf_counter` testbed; that smoke itself was retired in
-  ;; Wave 4 (rf2-e3j8l) and its User-Timing assertions migrated here for
-  ;; two reasons:
+  ;; Runs NIGHTLY ONLY (not per-PR). The User-Timing assertions live here
+  ;; rather than in a browser smoke for two reasons:
   ;;
   ;;   1. The User-Timing emission is a CORE concern (every call site
   ;;      lives in `implementation/core/src/re_frame/`) so the test
@@ -784,9 +756,9 @@
   ;;     npx shadow-cljs compile node-test-perf-nightly && \\
   ;;       node out/node-test-perf-nightly.js
   ;;
-  ;; The migrated bundle-presence assertion (the `:advanced` bundle
+  ;; The bundle-presence assertion (the `:advanced` bundle
   ;; carries `performance.measure` / `clearMeasures` symbols)
-  ;; remains covered by `scripts/check-perf-bundle.cjs` via
+  ;; is covered by `scripts/check-perf-bundle.cjs` via
   ;; `npm run test:perf-bundle`.
   :node-test-perf-nightly
   {:target    :node-test
@@ -801,24 +773,24 @@
     ;; `implementation/core/src/re_frame/performance.cljc` for the
     ;; goog-define declarations.
     ;;
-    ;; `retain-entries? true` (rf2-2yv859): the bracket clears each
+    ;; `retain-entries? true`: the bracket clears each
     ;; measure by name right after emit by default, so the retained
     ;; buffer stays empty and a synchronous getEntriesByType('measure')
     ;; read finds nothing. This runner asserts the entry NAMES/BUCKETS,
     ;; so it flips retention ON to keep the buffer populated for the
-    ;; synchronous read. The clear-after-emit (leak-fix) behaviour is
+    ;; synchronous read. The clear-after-emit behaviour is
     ;; unit-tested separately in re-frame.performance-cljs-test.
     :closure-defines {re-frame.performance/enabled?        true
                       re-frame.performance/retain-entries? true}}}
 
-  ;; rf2-3cfvt — dedicated adversarial-property SECURITY tier runner.
+  ;; Dedicated adversarial-property SECURITY tier runner.
   ;;
   ;; A FOCUSED node-test build that runs ONLY the three security-boundary
   ;; namespaces (`*_security_cljs_test.cljc` under `security/test/`), via
   ;; the `-security-cljs-test$` ns-regexp. Wired as `npm run test:security`
   ;; (implementation/package.json) so the tier has a named entry-point the
   ;; gate menu + TESTING.md can point at, and so a security-focused local
-  ;; run doesn't compile + run the full ~3500-test node suite.
+  ;; run doesn't compile + run the full node suite.
   ;;
   ;; The same namespaces ALSO match the default `:node-test` build's
   ;; broader `cljs-test$` regex (`...-security-cljs-test` ends with
@@ -834,21 +806,20 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-fzgcii — FOCUSED node-test build for the tools/testbed-support slice.
+  ;; FOCUSED node-test build for the tools/testbed-support slice.
   ;;
   ;; tools/testbed-support is a tiny but cross-platform-load-bearing helper
   ;; library (the JVM open-in-editor endpoint and its browser client + the
-  ;; live-app ↔ Story-shell hash host). The browser-side project-root
-  ;; resolver it used to carry went away in 2eb0df5bdd — the endpoint
-  ;; resolves classpath-relative coordinates JVM-side at request time, so a
+  ;; live-app ↔ Story-shell hash host). The endpoint resolves
+  ;; classpath-relative coordinates JVM-side at request time, so a
   ;; repository testbed configures no project root at all. Its `deps.edn`
   ;; exists only for the JVM endpoint tests (not a packaging surface — the
-  ;; library is consumed as an extra source path), so the node-runnable CLJS
-  ;; suites' only executable home was
+  ;; library is consumed as an extra source path), so without this build the
+  ;; node-runnable CLJS suites' only executable home would be
   ;; the full consolidated `npm run test:cljs` build — which compiles + runs the whole
-  ;; ~3500-test node suite and, in a fresh worker worktree, may not even start
-  ;; without a local shadow-cljs binary. That made this small slice expensive
-  ;; to verify in worktrees and in targeted CI (the bead's finding #3).
+  ;; node suite and, in a fresh worker worktree, may not even start
+  ;; without a local shadow-cljs binary — making this small slice expensive
+  ;; to verify in worktrees and in targeted CI.
   ;;
   ;; This build runs ONLY the testbed-support node-runnable suites, matched by
   ;; the `^re-frame\.testbed\..+-cljs-test$` ns-regexp (the slice's test
@@ -870,7 +841,7 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-hic-001 — the Fresco PACKAGE's compile target. Mirrors
+  ;; The Fresco PACKAGE's compile target. Mirrors
   ;; :node-test-testbed-support above: the ns-regexp selects
   ;; only `re-frame.fresco.*` suites, and nothing else in the repo lives
   ;; under that prefix. Those namespaces also match the always-on
@@ -878,22 +849,19 @@
   ;; covered on every PR whether or not this focused build is invoked —
   ;; this is the *named* surface, not an additional required gate.
   ;;
-  ;; Why a new build id rather than --config-merge onto an existing one,
+  ;; Why a build id of its own rather than --config-merge onto another,
   ;; which is the house preference: --config-merge can add a source
   ;; path or an entry to a build that already has the right SHAPE, and
-  ;; there is no existing id whose shape is "compile the fresco package
-  ;; and run its suites". Riding the then-live :node-test-freehand would
-  ;; have compiled the package under the FREEHAND artefact's regexp and
-  ;; name, tying a new artefact's gate to a neighbour's; riding the bench
-  ;; lane's :fresco-bench (then in this file, now in
-  ;; bench/fresco/shadow-cljs.edn) would have compiled the package under
-  ;; the BENCH tree's advanced browser build, which is the very coupling
-  ;; this extraction exists to end. One id, one artefact, matching the two
-  ;; donor siblings that came before it.
+  ;; no other id has the shape "compile the fresco package
+  ;; and run its suites". Riding a neighbour artefact's build would
+  ;; compile the package under that artefact's regexp and name, tying
+  ;; this artefact's gate to a neighbour's; riding the bench lane's
+  ;; :fresco-bench (in bench/fresco/shadow-cljs.edn) would compile the
+  ;; package under the BENCH tree's advanced browser build, coupling the
+  ;; package to the bench tree. One id, one artefact.
   ;;
-  ;; The compile alone is half the acceptance: it is what proves the
-  ;; renamed impl.* graph loads with the bench tree off the classpath.
-  ;; Running it proves the other half, the defview + sub round-trip.
+  ;; The compile alone proves the impl.* graph loads with the bench tree
+  ;; off the classpath; running it proves the defview + sub round-trip.
   :node-test-fresco
   {:target    :node-test
    :output-to "out/node-test-fresco.js"
@@ -901,7 +869,7 @@
    :main      re-frame.test-quiet.shadow-node/main
    :compiler-options {:infer-externs false}}
 
-  ;; rf2-kuky.82 AMEND 2(c) — the MANUAL-ONLY Xray epoch-delivery witness.
+  ;; The MANUAL-ONLY Xray epoch-delivery witness.
   ;; Same shape as the three focused `:node-test` siblings above; here the
   ;; narrow `:ns-regexp` is not an ergonomic convenience but the WHOLE
   ;; TEETH of the gate.
@@ -935,29 +903,27 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-hic-008 — the Fresco artefact's RELEASE build: the substrate
+  ;; The Fresco artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.
   ;;
-  ;; Everything above this line is a TEST build, and until this id existed
-  ;; that was the whole inventory: nothing in the repo had ever compiled
-  ;; Fresco under `:advanced` with `goog.DEBUG` false, so the two claims
-  ;; Phase 0 has to be able to make — that a clean consumer's application
-  ;; compiles for production at all, and that the dev-only seams are not
-  ;; in the bundle when it does — had no artefact to point at.
+  ;; Everything above this line is a TEST build; this id compiles Fresco
+  ;; under `:advanced` with `goog.DEBUG` false, so two claims have an
+  ;; artefact to point at — that a clean consumer's application compiles
+  ;; for production at all, and that the dev-only seams are not in the
+  ;; bundle when it does.
   ;;
   ;; The entry is `re-frame.fresco.consumer-app`, which is a small real
-  ;; APPLICATION rather than a require-only stub, for the reason the
-  ;; departed `:freehand-release` gave: Closure keeps what is reachable
+  ;; APPLICATION rather than a require-only stub, because
+  ;; Closure keeps what is reachable
   ;; and an unused require is not, so a namespace that merely required the
   ;; door would DCE to nearly nothing and the bundle would report a cost
   ;; no consumer pays. It reaches a declared view, an ambient read, a
   ;; controlled field's converge and a root that owns its frame — and it
   ;; reaches them through `re-frame.fresco`, `re-frame.core` and one
   ;; adapter, with nothing from the bench tree or from `tools/`. That
-  ;; fence is the bead's acceptance and the entry's whole point.
+  ;; fence is the entry's whole point.
   ;;
-  ;; Shape follows the departed advanced build :freehand-release: both
-  ;; settings pinned rather than
+  ;; Both settings are pinned rather than
   ;; left to `release`'s defaults, so the build says what it is at the
   ;; point a reader is looking. The entry sits under `fresco/test/` — on
   ;; :source-paths above, outside the artefact's published :paths — which
@@ -970,8 +936,7 @@
   ;; :fresco/hmr-testbed, further down.
   ;;
   ;; Run by `npm run build:fresco-release`, as the last step of test.yml's
-  ;; `cljs` job (rf2-qy1j — it landed here with no script and no job, since
-  ;; both files were held when rf2-hic-008 built it). It has no changed-
+  ;; `cljs` job. It has no changed-
   ;; surface predicate of its own and wants none: every repo-source input
   ;; this build has — implementation/core, implementation/adapters and
   ;; implementation/fresco, plus this file and the npm pins — already arms
@@ -990,30 +955,29 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.fresco.consumer-app/-main}}}
 
-  ;; rf2-6c12m.1 — THE FRESCO PACKAGE'S WARNINGS-FATAL COMPILE of what no
+  ;; THE FRESCO PACKAGE'S WARNINGS-FATAL COMPILE of what no
   ;; other gate judges: the optional modules (motion / overlay / forms /
-  ;; native / server) and the two core attribution instruments re-homed under
-  ;; core/test/re_frame/bench (rf2-peorl). `fresco/scripts/
+  ;; native / server) and the two core attribution instruments under
+  ;; core/test/re_frame/bench. `fresco/scripts/
   ;; check_modules_compile.cjs` reads the module entries off
   ;; `check_optional_module_reachability.py --module-namespaces` and the two
   ;; instruments off its own roster, merges them in as `:entries`, and refuses
   ;; the build on ANY warning. That is the whole reason this id exists:
   ;; `:node-test-fresco` sets `:infer-externs false` and `:browser-test`
   ;; exits 0 on warnings, so this is the one compile where an un-externable
-  ;; property access can go red (rf2-9zz0y: four `:infer-warning`s in
-  ;; impl/overlay.cljs lived on main until read off a browser build by hand).
+  ;; property access can go red.
   ;;
   ;; `:browser`, MEASURED rather than assumed: the instruments' closure reads
   ;; DOM-element properties in core's spine.cljs that only Closure's browser
-  ;; externs can infer, and the same rows under a `:node-script` id raised
-  ;; four `:infer-warning`s there (rf2-bl0j). The analyser classes this gate
+  ;; externs can infer, and the same rows under a `:node-script` id raise
+  ;; `:infer-warning`s there. The analyser classes this gate
   ;; closes — a deleted def, a renamed require, a dropped arity, an undeclared
   ;; var — do not vary by `:target`. Driven by `npm run test:fresco-compile`,
   ;; a step of the required `cljs` job. No `:dev-http`; compiled, never served.
   ;;
   ;; The fresco BENCH LANE's own ids (`:fresco-bench`, `:fresco-bench-node`)
-  ;; left this file with the lane: they live in bench/fresco/shadow-cljs.edn,
-  ;; a hand-run project off this classpath (rf2-6c12m.1).
+  ;; live in bench/fresco/shadow-cljs.edn, a hand-run project off this
+  ;; classpath.
   :fresco-modules-compile
   {:target     :browser
    :output-dir "out/fresco-modules-compile"
@@ -1021,7 +985,7 @@
    :compiler-options {:infer-externs :auto}
    :modules {:main {:entries [re-frame.fresco]}}}
 
-  ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
+  ;; `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
   ;; `-dom-cljs-test` (i.e. files named `*_dom_cljs_test.cljs`). The
   ;; selected files mount real React via `react-dom/client`'s
@@ -1031,11 +995,11 @@
   ;; Tests written to be cross-runtime (those that stub via `with-redefs`
   ;; or `(when (browser?) ...)` and provide a node-fallback body) keep
   ;; the plain `-cljs-test$` suffix and run under `:node-test` only —
-  ;; `:node-test`'s `cljs-test$` regex still matches both suffixes
+  ;; `:node-test`'s `cljs-test$` regex matches both suffixes
   ;; (`-cljs-test` AND `-dom-cljs-test`), so the DOM-tagged files run
-  ;; on BOTH targets and the cross-runtime asserts continue firing in
-  ;; Node. The split eliminates the ~14m of duplicate Chromium compile
-  ;; + run on the ~3500-test bulk that needs no browser signal.
+  ;; on BOTH targets and the cross-runtime asserts fire in
+  ;; Node. The split avoids a duplicate Chromium compile
+  ;; + run of the bulk that needs no browser signal.
   ;;
   :browser-test
   {:target    :browser-test
@@ -1056,8 +1020,7 @@
    :devtools  {:http-port 8021
                :http-root "out/browser-test"}}
 
-  ;; Production-mode boundary smoke (Spec 010 §Production builds, rf2-r2uh /
-  ;; rf2-84e9).
+  ;; Production-mode boundary smoke (Spec 010 §Production builds).
   ;;
   ;; Compiles `re-frame.schemas-boundary-prod-test` under :advanced with
   ;; `goog.DEBUG=false`. Under this combination, the Closure compiler
@@ -1091,18 +1054,17 @@
    :devtools  {:http-port 8022
                :http-root "out/browser-test-schemas-boundary-prod"}}
 
-  ;; Production-mode elision smoke (Spec 009 §Production builds, beads
-  ;; rf2-2zdu / rf2-uwg5).
+  ;; Production-mode elision smoke (Spec 009 §Production builds).
   ;;
   ;; Compiles every `*-prod-test.cljs` namespace under :advanced with
   ;; goog.DEBUG=false. Under this combination, the Closure compiler
   ;; constant-folds `re-frame.interop/debug-enabled?` to `false`, so:
   ;;
   ;;   - `re-frame.trace/emit!` body DCEs — registered listeners do
-  ;;     not fire (rf2-2zdu).
+  ;;     not fire.
   ;;   - `re-frame.views/reg-view*`'s `(when interop/debug-enabled? ...)`
   ;;     source-coord injection branch DCEs — registered views render
-  ;;     without `data-rf2-source-coord` (rf2-uwg5).
+  ;;     without `data-rf2-source-coord`.
   ;;
   ;; The JVM smokes for both these contracts use `with-redefs` on the
   ;; CLJ-side debug flag — useful but cannot prove the genuine
@@ -1121,7 +1083,7 @@
   ;; schemas-boundary-prod runner) because cljs-test-display's default
   ;; runner re-assigns a Closure @define under :advanced.
   ;; Pin via ns-regexp `-elision-prod-test$` so the schemas-boundary-prod
-  ;; tests (which match `-boundary-prod-test$`) and these new
+  ;; tests (which match `-boundary-prod-test$`) and these
   ;; prod-elision tests (which match `-elision-prod-test$`) live in
   ;; separate buckets. Test files are
   ;; `trace_listener_elision_prod_test.cljs` and
@@ -1135,7 +1097,7 @@
    :devtools  {:http-port 8023
                :http-root "out/browser-test-prod-elision"}}
 
-  ;; Production-elision probe (Spec 009 §Production builds, bead rf2-11hn).
+  ;; Production-elision probe (Spec 009 §Production builds).
   ;;
   ;; Compiles re-frame.elision-probe under :advanced with goog.DEBUG=false.
   ;; The grep test (scripts/check-elision.cjs) asserts that string
@@ -1164,15 +1126,15 @@
    :compiler-options {:closure-defines {goog.DEBUG true}}
    :modules          {:probe {:init-fn re-frame.elision-probe/run}}}
 
-  ;; Schemas-artefact bundle-cost A/B (Spec 010 §Bundle cost, beads
-  ;; rf2-fqbcy / rf2-v4o7e). Two :advanced + goog.DEBUG=false builds
+  ;; Schemas-artefact bundle-cost A/B (Spec 010 §Bundle cost). Two
+  ;; :advanced + goog.DEBUG=false builds
   ;; that differ by EXACTLY ONE require, so their gzipped difference is
   ;; the schemas opt-in and nothing else:
   ;;
   ;;   :schemas-bundle-control  — `[re-frame.core]` only. The
   ;;                              subtrahend: cljs.core + re-frame.core.
   ;;   :schemas-bundle-probe    — `[re-frame.core]` + `[re-frame.schemas]`.
-  ;;                              Per rf2-v96fh the facade pulls the
+  ;;                              The facade pulls the
   ;;                              Malli adapter itself, so this is the
   ;;                              full schemas-with-Malli surface — the
   ;;                              only schemas posture a consumer can buy.
@@ -1184,7 +1146,7 @@
   ;; reads both bundles' gzipped sizes and asserts the MARGIN between
   ;; them against Spec 010's marginal budget, two-sided — never one
   ;; probe's absolute size, which cljs.core and re-frame.core dominate
-  ;; and which this gate does not exist to police (rf2-kybsf).
+  ;; and which this gate does not exist to police.
   :schemas-bundle-control
   {:target           :browser
    :output-dir       "out/schemas-bundle-control"
@@ -1219,8 +1181,8 @@
                         :depends-on #{:trace-tooling}}
     :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
                         :depends-on #{:trace-tooling}}
-    ;; rf2-gra70 — day8/re-frame2-fresco is a PUBLISHED browser-optional view
-    ;; substrate, so the release lockstep and the bundle-isolation gate now
+    ;; day8/re-frame2-fresco is a PUBLISHED browser-optional view
+    ;; substrate, so the release lockstep and the bundle-isolation gate
     ;; enrol it from the same `:aliases/:clein/build` fact. Its two sentinels
     ;; are chosen to survive `:advanced` with `goog.DEBUG` false — most Fresco
     ;; strings deliberately do not — so this module proves presence where the
@@ -1255,7 +1217,7 @@
                         :depends-on #{:trace-tooling}}}}
 
   ;; ============================================================================
-  ;; Example apps (rf2-lyj0).
+  ;; Example apps.
   ;;
   ;; Each example compiles into out/examples/<name>/ and is paired with a
   ;; hand-written examples/<concept>/<name>/index.html host page that loads
@@ -1266,10 +1228,11 @@
   ;;
   ;; The serve-and-run-examples script builds the site layout and serves it.
   ;; It runs NO example-adjacent Playwright specs, because none exist:
-  ;; examples are TEST-FREE (locked 2026-05-19, rf2-8cevm) and
+  ;; examples are TEST-FREE and
   ;; `git ls-files 'examples/**/*.spec.cjs'` returns nothing. Browser smoke
   ;; coverage is one adapter-level smoke per shipped adapter, at
-  ;; implementation/adapters/<name>/testbed/spec.cjs; real regression
+  ;; implementation/adapters/<name>/testbed/ (spec.cjs; smoke.cjs for
+  ;; reagent-slim); real regression
   ;; coverage lives in the substrate contract tests (`npm run test:cljs`),
   ;; the Xray feature-matrix gate, bundle-isolation, the perf-bundle gate
   ;; and mcp-conformance.
@@ -1293,22 +1256,19 @@
    ;; `compile`/dev with the :devtools Xray preload below and needs
    ;; goog.DEBUG at its dev default (true) so Xray's dev instrumentation
    ;; is NOT elided and the shell mounts. Pinning goog.DEBUG=false in the
-   ;; shared :compiler-options leaked into that dev compile and elided
+   ;; shared :compiler-options would leak into that dev compile and elide
    ;; Xray, so the counter smoke scenarios could not open the shell —
    ;; scoping it to :release keeps both gates green. (release always
    ;; defaults goog.DEBUG=false, so this stays explicit, never weaker.)
    :release    {:compiler-options {:closure-defines {goog.DEBUG false}}}
    :modules    {:main {:init-fn counter.core/run}}
-   ;; Xray Phase 1 smoke (rf2-n6x4q). Pulling the preload here is the
-   ;; convention-anchoring path standing rule: every Phase-2+ panel
-   ;; bead inherits this entry. The preload is dev-only — the
+   ;; The Xray preload. It is dev-only — the
    ;; `:devtools` block is honoured by `shadow-cljs watch` /
    ;; `compile` but NOT by `release` (per shadow-cljs's docs on the
-   ;; :devtools key), so the per-example Playwright spec running
-   ;; against `release` builds remains unaffected.
+   ;; :devtools key), so `release` builds are unaffected.
    :devtools   {:preloads [day8.re-frame2-xray.preload]}}
 
-  ;; rf2-5lbx — counter mounted on day8/reagent-slim (the rewrite),
+  ;; Counter mounted on day8/reagent-slim,
   ;; same six-domino logic as :examples/counter but every Reagent
   ;; import points at reagent2.* and rf/init! receives the slim
   ;; adapter Var. The Reagent Slim bundle-isolation contract from the
@@ -1325,7 +1285,7 @@
   ;; CI job is `cljs-reagent-slim-bundle-isolation` in .github/workflows/test.yml.
   ;;
   ;; The `:init-fn` is the teaching entrypoint `reagent-slim.counter.core/run`
-  ;; and nothing else (rf2-kjx1). This build is the RUNNABLE example — both
+  ;; and nothing else. This build is the RUNNABLE example — both
   ;; `npm run dev:example -- examples/counter-slim-and-fast` and a bare
   ;; `shadow-cljs watch` on it serve exactly this — and it is also the bundle
   ;; the substrates catalogue invites a reader to weigh against
@@ -1335,15 +1295,13 @@
   ;; Contract 7 of check-reagent-slim-bundle-isolation.cjs greps this output
   ;; to prove the fixture stayed out; Contract 0 pins both `:init-fn`s here so
   ;; the separation can't be undone by an edit to this file alone.
-  ;; (rf2-vyl0vt moved the fixture out of the teaching namespace; rf2-kjx1
-  ;; finished the job by moving it out of the teaching ARTEFACT.)
   :examples/counter-slim-and-fast
   {:target     :browser
    :output-dir "out/examples/counter-slim-and-fast"
    :asset-path "."
    :modules    {:main {:init-fn reagent-slim.counter.core/run}}}
 
-  ;; rf2-kjx1 — the slim counter's CI twin, and the ONLY build that compiles
+  ;; The slim counter's CI twin, and the ONLY build that compiles
   ;; the bundle-isolation fixture. Not an `:examples/*` build on purpose: it
   ;; is not staged, not served by examples/scripts/serve-example.cjs (which
   ;; only resolves `examples/…` ids), not swept by check-examples-compile.cjs,
@@ -1365,8 +1323,8 @@
    :asset-path "."
    :modules    {:main {:init-fn reagent-slim.counter.bundle-isolation-entry/run}}}
 
-  ;; Performance-API instrumented variant of the counter example
-  ;; (rf2-du3i). The SAME canonical source as `:examples/counter`
+  ;; Performance-API instrumented variant of the counter example.
+  ;; The SAME canonical source as `:examples/counter`
   ;; (`counter.core/run`, examples/core/counter/core.cljs), same
   ;; `:advanced` compilation, but with the `re-frame.performance/enabled?`
   ;; goog-define flipped to `true`. Its sole consumer is the
@@ -1382,17 +1340,10 @@
   ;; in (perf elided); this counter-perf variant proves the toggle keeps
   ;; the bracket entries when consumers opt in.
   ;;
-  ;; rf2-6cq3u: previously the `perf-counter.core` entry-point lived in a
-  ;; tool-owned testbed (tools/xray/testbeds/perf_counter/) carrying a
-  ;; deliberately non-canonical pre-EP-0018 event-registration init shape
-  ;; (a `:db` + `:fx` handler under the retired event-fx registrar), which
-  ;; only the now-deleted browser smoke (rf2-e3j8l, Wave 4) needed —
-  ;; that smoke's User-Timing assertions migrated to pure CLJS at
+  ;; The User-Timing emission assertions are pure CLJS at
   ;; implementation/core/test/re_frame/performance_emit_nightly_test.cljs
-  ;; (nightly, via :node-test-perf-nightly above). With the smoke gone,
-  ;; the perf-on bundle has no need for the bespoke shape: it simply
-  ;; reuses the canonical counter source, and the perf_counter testbed
-  ;; (its index.html / core.cljs) was deleted.
+  ;; (nightly, via :node-test-perf-nightly above), so this perf-on bundle
+  ;; needs no bespoke entry point: it reuses the canonical counter source.
   :examples/counter-perf
   {:target           :browser
    :output-dir       "out/examples/counter-perf"
@@ -1400,9 +1351,9 @@
    :compiler-options {:closure-defines {re-frame.performance/enabled? true}}
    :modules          {:main {:init-fn counter.core/run}}}
 
-  ;; Two-frame isolation testbed (rf2-6qgbs.1; repointed under rf2-wa8my)
-  ;; — THE canonical multi-frame isolation surface for Xray. Replaces the
-  ;; parallel-frames prototype (rf2-m00rw). One app, mounted in TWO frames
+  ;; Two-frame isolation testbed
+  ;; — THE canonical multi-frame isolation surface for Xray. One app,
+  ;; mounted in TWO frames
   ;; (:above + :below) on the LEFT, with a Xray instance on the RIGHT, on
   ;; ONE page, with zero cross-frame coupling. Each frame is a fully
   ;; isolated reactive context (own app-db, own sub-cache, own epoch
@@ -1412,15 +1363,12 @@
   ;;
   ;; The app code path is the SHARED standard-epochs button ladder
   ;; (standard-epochs.core/root, tools/xray/testbeds/standard_epochs/).
-  ;; rf2-wa8my deleted the bespoke testdeck tabs-as-routes panel and
-  ;; repointed this testbed to mount the standard-epochs deck TWICE: the
-  ;; cleanest possible per-frame ISOLATION proof. The routing surface the
-  ;; old testdeck tabs doubled as now lives in routes_epochs; the
+  ;; This testbed mounts the standard-epochs deck TWICE: the
+  ;; cleanest possible per-frame ISOLATION proof. The routing surface
+  ;; lives in routes_epochs; the
   ;; multi-frame isolation gate assertion rides the framework
   ;; testbeds/multi_frame surface. No deliberate bugs, no teaching layers,
-  ;; no anti-pattern demonstrations — per Mike's saved-memory rules
-  ;; (feedback_frames_are_isolated_contexts +
-  ;; feedback_testbeds_are_test_surfaces), testbeds are TEST surfaces.
+  ;; no anti-pattern demonstrations — testbeds are TEST surfaces.
   ;;
   ;; Sources live under tools/xray/testbeds/two_frame_isolation/; the
   ;; Xray preload auto-mounts inline so the frame-picker switching
@@ -1433,19 +1381,16 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Single-frame standard-epochs testbed (rf2-gsr6z; renamed per
-  ;; rf2-zthnj) — the deliberately simple Xray driving surface that
-  ;; SUPERSEDES the old step-deck. A tall column of numbered
+  ;; Single-frame standard-epochs testbed — the deliberately simple Xray
+  ;; driving surface. A tall column of numbered
   ;; buttons in ONE plainly-mounted frame; each button bumps a shared
   ;; baseline counter and exercises exactly one more feature, so clicking
   ;; top-to-bottom completely exercises any one Xray panel (Epoch / App-db
   ;; / Views / Trace / Issues). No tabs, no URL machinery, no machines /
-  ;; routes / SSR. A TEST surface — no deliberate bugs, no teaching layers
-  ;; (feedback_testbeds_are_test_surfaces).
+  ;; routes / SSR. A TEST surface — no deliberate bugs, no teaching layers.
   ;;
   ;; The events / subs / views are OWNED in standard_epochs/core.cljs — it
-  ;; is fully self-contained (the testdeck.* modules it once stood beside
-  ;; were deleted under rf2-wa8my). Its `root` ladder view is ALSO the
+  ;; is fully self-contained. Its `root` ladder view is ALSO the
   ;; shared app code path the two-frame-isolation testbed mounts twice to
   ;; prove per-frame isolation.
   ;; Sources live under tools/xray/testbeds/standard_epochs/; the Xray
@@ -1461,19 +1406,18 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Single-frame routes-epochs testbed (rf2-5crg4) — the ROUTING sibling
+  ;; Single-frame routes-epochs testbed — the ROUTING sibling
   ;; of standard-epochs. Same shape (a tall column of numbered buttons in
   ;; ONE plainly-mounted frame, each button bumping a shared baseline
   ;; counter + exercising one more feature), aimed squarely at the Xray
   ;; ROUTING panel (rf-xray-routing): click top-to-bottom and the panel's
   ;; three sections (Current route · Navigation this epoch · Route table)
   ;; are completely exercised. A TEST surface — no deliberate bugs, no
-  ;; teaching layers (feedback_testbeds_are_test_surfaces).
+  ;; teaching layers.
   ;;
   ;; The routes / events / subs / views are OWNED in routes_epochs/core.cljs
   ;; — it boots the routing artefact (`[re-frame.routing]`) and uses the
-  ;; real `reg-route` + `:rf.route/navigate` surface; it does NOT reuse the
-  ;; shared testdeck.* modules. Sources live under
+  ;; real `reg-route` + `:rf.route/navigate` surface. Sources live under
   ;; tools/xray/testbeds/routes_epochs/; the Xray preload auto-mounts
   ;; inline so every lens reads the single frame. Served at
   ;; http://localhost:8032 via the top-level `:dev-http` map (the routing
@@ -1487,10 +1431,9 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; machine-epochs testbed (rf2-w06op; reworked to a multi-machine
-  ;; frame-isolated stepper per rf2-q3lfm) — the STATE-MACHINE Xray
-  ;; driver. A left machine-picker rail over the shared queued-step
-  ;; runner, re-expressed as a multi-track picker: each of the 8 machine
+  ;; machine-epochs testbed — a multi-machine frame-isolated stepper, the
+  ;; STATE-MACHINE Xray driver. A left machine-picker rail over the shared
+  ;; queued-step runner, as a multi-track picker: each of the 8 machine
   ;; domains (door · traffic · quiz · brew · session · fuse · hvac ·
   ;; media) runs in its OWN frame and owns its OWN epoch ring. Selecting
   ;; a track boots its machine(s) and re-points Xray
@@ -1499,7 +1442,7 @@
   ;; Machine Inspector — topology highlight · focused-transition lens ·
   ;; guards / actions · snapshot drill-in · transition history · parallel
   ;; regions) shows ONLY that machine's isolated arc. A TEST surface — no
-  ;; deliberate bugs, no teaching layers (feedback_testbeds_are_test_surfaces).
+  ;; deliberate bugs, no teaching layers.
   ;;
   ;; The machines / events / subs / views are OWNED in
   ;; machine_epochs/core.cljs — it boots the machines artefact
@@ -1520,30 +1463,22 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Single-frame edn-inspector testbed (rf2-74u2s) — the WIDGET sibling
-  ;; of standard-epochs. Same numbered-button shape (a tall column in ONE
-  ;; plainly-mounted frame, one rung per press), but each rung seeds a
-  ;; value-shape into the Xray edn-inspector widget
-  ;; (day8.re-frame2-xray.views.edn-inspector) mounted BELOW the column,
-  ;; driving the single CLJS-value RENDERER directly — the renderer behind
-  ;; every Xray panel — across a progressive 13-rung ladder (resting render
-  ;; → elision → nesting/collapse → the three diff ops → redaction +
-  ;; large-elided sentinels → zoom → popup affordance → tagged literals →
-  ;; card/header chrome). Extracted from the edn-inspector test that was
-  ;; mixed into standard_epochs (its old button 9). A TEST surface — no
-  ;; deliberate bugs (feedback_testbeds_are_test_surfaces).
-  ;;
-  ;; The value shapes are REUSED from the panel_gallery edn-inspector +
-  ;; diff-mode-3 fixtures; the ladder drives them live. Sources live under
-  ;; tools/xray/testbeds/edn_inspector/.
+  ;; Single-frame edn-inspector testbed — a queued-step driving surface on
+  ;; the shared RUNNER (runner.core) that exercises the Xray edn-inspector
+  ;; (day8.re-frame2-xray.views.edn-inspector, the single CLJS-value
+  ;; renderer behind every Xray panel) THROUGH its primary use case: the
+  ;; Epoch and App-db PANELS. ONE Step button walks the diff case matrix
+  ;; SIMPLE → COMPLEX (maps · sequentials · empty-vs-removal · scalars ·
+  ;; multi-adjust · deep/mixed · sentinels · showcase); each step writes a
+  ;; stressing shape into app-db, and both panels render it and its diff
+  ;; through the inspector. A TEST surface — no deliberate bugs. Sources
+  ;; live under tools/xray/testbeds/edn_inspector/.
   ;;
   ;; NOTE the preload set differs from the _epochs trio above: this deck
-  ;; mounts the widget DIRECTLY (no Xray shell), so it does NOT wire
-  ;; day8.re-frame2-xray.preload (which auto-mounts the inline shell). The
-  ;; deck's own `run` registers Xray's handlers + installs the theme CSS
-  ;; vars for the bare widget mount (mirrors the panel_gallery boot). Only
-  ;; the pair runtime preload is wired (rf2-54jz4) so the pair-MCP can
-  ;; probe the live runtime.
+  ;; does NOT wire day8.re-frame2-xray.preload. Its own `run` mounts the
+  ;; same inline Xray shell through the public
+  ;; `day8.re-frame2-xray.core/init!` + `open!`. Only the pair runtime
+  ;; preload is wired, so the pair-MCP can probe the live runtime.
   ;; Served at http://localhost:8034 via the top-level `:dev-http` map.
   :examples/edn-inspector
   {:target           :browser
@@ -1552,26 +1487,25 @@
    :modules          {:main {:init-fn edn-inspector.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime]}}
 
-  ;; Single-frame managed-http testbed (rf2-6nolv) — the MANAGED-HTTP
-  ;; PILOT of the shared queued-step RUNNER (rf2-8pbjr; runner.core).
-  ;; ONE button (`▶ Run series`) walks the :rf.http/managed lifecycle
+  ;; Single-frame managed-http testbed — the MANAGED-HTTP
+  ;; PILOT of the shared queued-step RUNNER (runner.core).
+  ;; ONE button (`⏭ Step`) walks the :rf.http/managed lifecycle
   ;; (fire-in-flight · success · 4xx · 5xx · abort · concurrent-by-actor ·
   ;; request-outlives-frame-teardown), aimed at how the Xray Epoch /
   ;; Trace / App-db panels render managed-HTTP effects + traces. After
-  ;; each auto-advance dispatch the runner pins Xray focus to the latest
-  ;; :rf/default epoch (via day8.re-frame2-xray.focus/focus!) so the
-  ;; operator always sees the just-dispatched render. The runner cursor
-  ;; lives in a LOCAL ATOM in managed-http.core — NOT the inspected
-  ;; app-db (would pollute the App-db panel) and NOT a second frame
-  ;; (would appear in Xray's frame surfaces). Title "Xray Testbed:
+  ;; each step the runner pins Xray focus to that step's epoch (via
+  ;; day8.re-frame2-xray.focus/focus!) so the operator always sees the
+  ;; just-dispatched render. The runner cursor lives in app-db's `:step`
+  ;; slot, so each step's `:step` churn IS the per-step App-db / Epoch
+  ;; delta the panels show. Title "Xray Testbed:
   ;; Managed HTTP". A TEST surface — no deliberate bugs, no teaching
-  ;; layers (feedback_testbeds_are_test_surfaces).
+  ;; layers.
   ;;
   ;; The events / fxs / subs / step-vector are OWNED in
   ;; managed_http/core.cljs; it requires the managed-HTTP artefact
   ;; (`[re-frame.http.managed]`) + its test-support
-  ;; (`[re-frame.http.test-support]` — a testbed IS a test affordance,
-  ;; per rf2-cdmle) + the shared `[runner.core]`. The HOT success path
+  ;; (`[re-frame.http.test-support]` — a testbed IS a test affordance)
+  ;; + the shared `[runner.core]`. The HOT success path
   ;; rides a live Fetch against the static api/ok.json shipped beside the
   ;; testbed (source-dir-first cascade resolves it); the failure / abort
   ;; paths use the framework canned-stub fxs for determinism (same shape
@@ -1588,19 +1522,17 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Xray panel-gallery testbed (rf2-1o7mp) — visual gallery of Xray
+  ;; Xray panel-gallery testbed — visual gallery of Xray
   ;; panels under varying state magnitude. Sources live under
-  ;; tools/xray/testbeds/panel_gallery/ alongside the stories ns.
-  ;; Phase 1a (rf2-1o7mp) ships the event-detail panel; the namespace
-  ;; gates a Phase-2 fan-out where each remaining panel adds its own
-  ;; <panel>_stories.cljs to this same testbed (one URL, one workspace
+  ;; tools/xray/testbeds/panel_gallery/, one gallery_<panel>.cljs per
+  ;; panel family in this same testbed (one URL, one workspace
   ;; mega-grid). No Xray preload — the gallery embeds bare panels
   ;; inside Story variants and never mounts Xray's own shell.
   ;;
   ;; Served at http://localhost:8765 via the top-level `:dev-http` map
-  ;; (rf2-aqcix) — see the docstring on that key for the cascade rationale.
+  ;; — see the comment on that key for the cascade rationale.
   ;;
-  ;; rf2-54jz4 — the re-frame2-pair.runtime preload is wired so the
+  ;; The re-frame2-pair.runtime preload is wired so the
   ;; pair-MCP can probe this testbed's live runtime (discover-app /
   ;; eval-cljs / snapshot / subscribe / etc.). Dev-only: `:devtools`
   ;; preloads are honoured by `shadow-cljs watch` / `compile` but NOT
@@ -1649,7 +1581,7 @@
    :asset-path "."
    :modules    {:main {:init-fn todomvc.core/run}}}
 
-  ;; Spec 013 — Flows worked example (rf2-ee38b.25). THE canonical Flows
+  ;; Spec 013 — Flows worked example. THE canonical Flows
   ;; exemplar: a shopping cart whose subtotal + total are materialised
   ;; into app-db by registered flows (not subs), with a flow-reads-flow
   ;; topological cascade and a runtime-toggleable discount via
@@ -1660,7 +1592,7 @@
    :asset-path "."
    :modules    {:main {:init-fn flows.core/run}}}
 
-  ;; Spec 014 — managed HTTP counter (rf2-cfig).  Demonstrates
+  ;; Spec 014 — managed HTTP counter.  Demonstrates
   ;; :rf.http/managed end-to-end through Reagent + Fetch. The +1 button
   ;; hits a real api/inc.json static asset and carries :request-id
   ;; :http-counter/+1, which the Cancel button aborts through the live
@@ -1672,8 +1604,6 @@
    :output-dir "out/examples/managed-http-counter"
    :asset-path "."
    :modules    {:main {:init-fn managed-http-counter.core/run}}}
-
-  ;; Phase 3 — rf2-w3vn.
 
   :examples/crud
   {:target     :browser
@@ -1699,10 +1629,10 @@
    :asset-path "."
    :modules    {:main {:init-fn login.core/run}}}
 
-  ;; rf2-t7t6f — Reagent design-led example. Three-pane editorial layout
+  ;; Reagent design-led example. Three-pane editorial layout
   ;; (documents tree + markdown editor + live preview) proving Reagent
   ;; builds substantive UIs, not just counters. Pairs with the shared
-  ;; 'Editorial Warm' visual identity (rf2-v4fpe Option 2) from
+  ;; 'Editorial Warm' visual identity from
   ;; examples/_shared/css/style.css.
   :examples/notebook
   {:target     :browser
@@ -1710,7 +1640,7 @@
    :asset-path "."
    :modules    {:main {:init-fn notebook.core/run}}}
 
-  ;; rf2-3yij — UIx-substrate smoke trio (counter + login per Decision 7).
+  ;; UIx-substrate examples.
   ;; Each example has its own per-example shadow-cljs build, mirroring the
   ;; Reagent variants, so the bundle-isolation grep can verify a Reagent
   ;; example's main.js carries NO UIx code and vice versa. Per Spec 006
@@ -1728,17 +1658,17 @@
    :asset-path "."
    :modules    {:main {:init-fn uix.login.core/run}}}
 
-  ;; rf2-t7t6f — UIx design-led example. Analytics-dashboard layout
+  ;; UIx design-led example. Analytics-dashboard layout
   ;; (status tiles + filter chips + sparkline cards) proving UIx builds
   ;; substantive UIs. Pairs with the shared 'Editorial Warm' visual
-  ;; identity (rf2-v4fpe Option 2) from examples/_shared/css/style.css.
+  ;; identity from examples/_shared/css/style.css.
   :examples/dashboard-uix
   {:target     :browser
    :output-dir "out/examples/dashboard-uix"
    :asset-path "."
    :modules    {:main {:init-fn uix.dashboard.core/run}}}
 
-  ;; rf2-fmns2 — the THIRD login arm, on Fresco (re-frame2's own native view
+  ;; The THIRD login arm, on Fresco (re-frame2's own native view
   ;; layer). Same shape as the pair above: its own per-example build over the
   ;; ONE substrate-free `login.model`, so `check-login-bundle-isolation.cjs`
   ;; can prove each login bundle carries only its own view runtime.
@@ -1748,7 +1678,7 @@
    :asset-path "."
    :modules    {:main {:init-fn fresco.login.core/run}}}
 
-  ;; rf2-8arzr.5 — the SERVER half of the Fresco login arm: the module
+  ;; The SERVER half of the Fresco login arm: the module
   ;; `implementation/ssr-node`'s sidecar loads, so a JVM `ssr-handler`
   ;; running `re-frame.ssr.ring.node/renderer` can render this page's body
   ;; on Node. A `:node-library` rather than a `:node-script`: the sidecar
@@ -1774,9 +1704,9 @@
   ;; browser externs, so core's `substrate/spine.cljs` — DOM-reading code
   ;; this bundle never runs — raises eight `:infer-warning`s that
   ;; `check-examples-compile.cjs` treats as failures. That is the same
-  ;; measurement rf2-bl0j recorded when it put `:fresco-modules-compile` on
-  ;; a `:browser` target, and the same reason `:node-test-fresco` above
-  ;; sets the flag. Externs inference is JUDGED on the browser builds, which
+  ;; reason `:fresco-modules-compile` above uses a `:browser` target and
+  ;; `:node-test-fresco` above sets the flag. Externs inference is JUDGED
+  ;; on the browser builds, which
   ;; is where a renamed property could actually bite.
   :examples/login-fresco-server
   {:target      :node-library
@@ -1792,9 +1722,9 @@
    :asset-path "."
    :modules    {:main {:init-fn realworld-http.core/run}}}
 
-  ;; RealWorld (Conduit) ported onto EP-0003 (Spec 016) RESOURCES + MUTATIONS
-  ;; (rf2-9iiumv). A sibling of `:examples/realworld` (the `:rf.http/managed`
-  ;; counterpart, kept intact): reads are `reg-resource` + route `:resources`
+  ;; RealWorld (Conduit) on EP-0003 (Spec 016) RESOURCES + MUTATIONS.
+  ;; A sibling of `:examples/realworld` (the `:rf.http/managed`
+  ;; counterpart): reads are `reg-resource` + route `:resources`
   ;; metadata read passively via `[:rf.resource/*]` subs; writes are
   ;; `reg-mutation` with `:invalidates` driving the read→write→invalidate→
   ;; refetch loop. `realworld-resources.*` namespaces resolve via the
@@ -1805,14 +1735,14 @@
    :output-dir "out/examples/realworld-resources"
    :asset-path "."
    :modules    {:main {:init-fn realworld-resources.core/run}}
-   ;; rf2-trjh7 — Xray in dev, the same preload `:examples/counter` carries, so
+   ;; Xray in dev, the same preload `:examples/counter` carries, so
    ;; favouriting an article shows the write and the reads it invalidated in
    ;; Xray's Resources panel. `:devtools` is honoured by `watch` / `compile`
    ;; and NOT by `release`, so the production bundle carries no Xray. The page
    ;; supplies the `[data-rf-xray-host]` column Xray mounts into.
    :devtools   {:preloads [day8.re-frame2-xray.preload]}}
 
-  ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
+  ;; Pattern-Boot example. Demonstrates the canonical
   ;; re-frame2 application-boot shape: a single :app/boot state
   ;; machine owns the initialisation graph (config → parallel
   ;; dependency loads via :spawn-all → hydrate → :ready); the
@@ -1824,8 +1754,9 @@
    :asset-path "."
    :modules    {:main {:init-fn boot.core/run}}}
 
-  ;; State-machines walkthrough (rf2-vq2s) — companion to docs/core/05.
-  ;; The pure machine + headless tests live in core.cljc; views.cljs is
+  ;; State-machines walkthrough — companion to docs/machines/concepts.md.
+  ;; The pure machine lives in core.cljc (the headless tests in
+  ;; re-frame.examples-test call it directly); views.cljs is
   ;; the browser entry-point that registers the views and `run`.
   :examples/state-machine-walkthrough
   {:target     :browser
@@ -1833,7 +1764,7 @@
    :asset-path "."
    :modules    {:main {:init-fn state-machine-walkthrough.views/run}}}
 
-  ;; SSR + hydration walkthrough (rf2-vq2s). The static index.html
+  ;; SSR + hydration walkthrough. The static index.html
   ;; ships with pre-rendered HTML and a baked `<script id="__rf_payload">`,
   ;; standing in for what core.cljc's :clj-side `handle-request` would
   ;; emit. The CLJS branch reads the payload, dispatches `:rf/hydrate`,
@@ -1844,14 +1775,12 @@
    :asset-path "."
    :modules    {:main {:init-fn ssr.core/run}}}
 
-  ;; Spec 016 — Resources worked example (rf2-jxmb4p). Declarative
+  ;; Spec 016 — Resources worked example. Declarative
   ;; server-state composed as proper re-frame2: route-driven page load,
   ;; event-driven ensure under an app owner, manual refresh as a cause, and
   ;; a machine-owned resource — all read through passive [:rf.resource/*]
-  ;; subs. `resources/src` is already on :source-paths above (rf2-p10npe),
-  ;; so `resources.core` resolves without per-build deps. The Resources
-  ;; runtime has landed (EP-0003): the causal ensure/refetch bodies are
-  ;; real and operational.
+  ;; subs. `resources/src` is already on :source-paths above,
+  ;; so `resources.core` resolves without per-build deps.
   :examples/resources
   {:target     :browser
    :output-dir "out/examples/resources"
@@ -1859,14 +1788,13 @@
    :modules    {:main {:init-fn resources.core/run}}}
 
   ;; EP-0021 — infinite-resource (load-more / infinite-scroll feed) worked
-  ;; example (rf2-dly400). A single growing feed as a first-class `:infinite`
+  ;; example. A single growing feed as a first-class `:infinite`
   ;; resource: route entry ensures PAGE 0, the view reads the merged list +
   ;; page metadata via the passive `[:rf.resource/infinite-state …]` sub, and
   ;; accumulation is driven by the causal `:rf.resource/load-more` event — no
   ;; app-db list slice, no cursor threading. `resources/src` is already on
   ;; :source-paths above, so the infinite runtime + sub family resolve without
-  ;; per-build deps. The infinite-resource runtime has landed (EP-0021 waves
-  ;; 1-4). Complements `:examples/resources` (single-page lifecycle) and the
+  ;; per-build deps. Complements `:examples/resources` (single-page lifecycle) and the
   ;; numbered-pagination route in `:examples/realworld-resources`.
   :examples/infinite-feed
   {:target     :browser
@@ -1874,8 +1802,8 @@
    :asset-path "."
    :modules    {:main {:init-fn infinite-feed.core/run}}}
 
-  ;; EP-0019 — OPTIMISTIC MUTATION + ROLLBACK flagship worked example
-  ;; (rf2-tideyl). A Linearlite-class issue board where every write
+  ;; EP-0019 — OPTIMISTIC MUTATION + ROLLBACK flagship worked example.
+  ;; A Linearlite-class issue board where every write
   ;; (create / edit-title / change-status) is a `reg-mutation` with an
   ;; `:optimistic` exact-target patch over the board resource: the board
   ;; updates at phase 1.5 (before the request), then COMMITS (`:populates`)
@@ -1895,8 +1823,8 @@
    :asset-path "."
    :modules    {:main {:init-fn linearlite.core/run}}}
 
-  ;; Spec 016 §SSR — resource SSR preload + hydration worked example
-  ;; (rf2-jxmb4p). The page's server-state is a RESOURCE preloaded under an
+  ;; Spec 016 §SSR — resource SSR preload + hydration worked example.
+  ;; The page's server-state is a RESOURCE preloaded under an
   ;; [:ssr …] owner and serialized into the hydration payload's runtime-db
   ;; projection; the static index.html bakes the projection (a stand-in for
   ;; a real server). Sibling of `examples/capabilities/ssr/ssr/` (which writes
@@ -1907,8 +1835,8 @@
    :asset-path "."
    :modules    {:main {:init-fn resources-ssr.core/run}}}
 
-  ;; Streaming SSR + :rf/suspense-boundary worked example
-  ;; (rf2-ojakd / rf2-olb64 (a)). The static index.html ships the
+  ;; Streaming SSR + :rf/suspense-boundary worked example.
+  ;; The static index.html ships the
   ;; final resolved state pre-baked, standing in for what
   ;; core.cljc's :clj-side `handle-request` would stream chunk-by-
   ;; chunk via `re-frame.ssr.ring/stream-handler`. The CLJS branch
@@ -1923,7 +1851,7 @@
    :asset-path "."
    :modules    {:main {:init-fn ssr-streaming.core/run}}}
 
-  ;; Pattern-LongRunningWork worked example (rf2-o9fg) —
+  ;; Pattern-LongRunningWork worked example —
   ;; :spawn-all spawn-and-join with progress reporting and
   ;; cooperative cancellation on parent-unmount. The parent
   ;; coordinator :work/flow spawns three :work/processor children
@@ -1935,33 +1863,32 @@
    :asset-path "."
    :modules    {:main {:init-fn long-running-work.core/run}}}
 
-  ;; Story Stage 8 (rf2-c9mm) — the canonical counter with the seven
+  ;; The canonical counter with the seven
   ;; `reg-*` Story macros wired up. URL-hash-routed: `#/` renders
   ;; the live counter; `#/stories` mounts the Story shell via
   ;; `re-frame.story/mount-shell!`. Sources live under
-  ;; tools/story/testbeds/counter_with_stories/ (rf2-p8f2s relocated
-  ;; from examples/reagent/); tools/story/src is already on shadow's
+  ;; tools/story/testbeds/counter_with_stories/; tools/story/src is already on shadow's
   ;; :source-paths so the namespace resolves without per-build deps
   ;; fiddling.
   ;;
   ;; This build deliberately leaves Story ENABLED (no :closure-defines
   ;; override of re-frame.story.config/enabled?). The :advanced +
   ;; enabled?=false elision path is exercised by the plain
-  ;; examples/counter build (via the Story-sentinel addition to
+  ;; examples/counter build (via the Story sentinel in
   ;; scripts/check-bundle-isolation.cjs).
   :examples/counter-with-stories
   {:target           :browser
    :output-dir       "out/examples/counter-with-stories"
    :asset-path       "."
    :modules          {:main {:init-fn counter-with-stories.core/run}}
-   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
+   ;; The re-frame2-pair.runtime preload lets pair-MCP
    ;; probe this Story showcase's live runtime alongside Xray (the
    ;; variant-as-frame pairing workflow). Matches the standard-epochs
    ;; testbed shape (both pair runtime AND the inline Xray panel).
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Nine States Story + Xray showcase (rf2-rgyia). The
+  ;; Nine States Story + Xray showcase. The
   ;; examples/patterns/nine_states example wired up as a Story showcase:
   ;; `nine-states.stories` registers one variant per canonical UI state
   ;; (Nothing / Loading / Empty / One / Some / Too Many / Incorrect /
@@ -1979,18 +1906,18 @@
   ;; build's `:dev-http` entry runs the JVM
   ;; `re-frame.testbed.open-in-editor-server` handler, which resolves
   ;; `nine_states/stories.cljs` against the live source paths at request
-  ;; time (rf2-3xq1v).
+  ;; time.
   :examples/nine-states-with-stories
   {:target           :browser
    :output-dir       "out/examples/nine-states-with-stories"
    :asset-path       "."
    :modules          {:main {:init-fn nine-states.stories-host/run}}
-   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
-   ;; probe this Story showcase's live runtime alongside Xray.
+   ;; The re-frame2-pair.runtime preload lets pair-MCP probe this Story
+   ;; showcase's live runtime alongside Xray.
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Login Story + Xray showcase (rf2-p8v0q). The examples/core/login
+  ;; Login Story + Xray showcase. The examples/core/login
   ;; example wired up as a Story showcase: `login.stories` registers one
   ;; variant per reachable state of the `:auth.login/flow` machine (empty
   ;; / submitting / invalid-credentials / auth-error / locked-out /
@@ -2007,29 +1934,19 @@
   ;; Story 'open in editor' chips need no build-time configuration: this
   ;; build's `:dev-http` entry runs the JVM
   ;; `re-frame.testbed.open-in-editor-server` handler, which resolves
-  ;; `login/stories.cljs` against the live source paths at request time
-  ;; (rf2-3xq1v). Mirrors :examples/nine-states-with-stories above.
+  ;; `login/stories.cljs` against the live source paths at request time.
+  ;; Mirrors :examples/nine-states-with-stories above.
   :examples/login-with-stories
   {:target           :browser
    :output-dir       "out/examples/login-with-stories"
    :asset-path       "."
    :modules          {:main {:init-fn login.stories-host/run}}
-   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
-   ;; probe this Story showcase's live runtime alongside Xray.
+   ;; The re-frame2-pair.runtime preload lets pair-MCP probe this Story
+   ;; showcase's live runtime alongside Xray.
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; (removed rf2-9jfo1.2) :examples/xray-rhs-smoke build target —
-  ;; the original Playwright `spec.cjs` was deleted by rf2-piucm in
-  ;; favour of the CLJS e2e at
-  ;; `tools/story/test/re_frame/story/panels_e2e/xray_embed_e2e_cljs_test.cljs`,
-  ;; which exercises the Xray-as-RHS embed contract at hiccup level
-  ;; (sub-second per surface). The events-only loader-body example
-  ;; that the testbed's single variant pinned now lives inside
-  ;; `tools/story/testbeds/counter_with_stories/` as the
-  ;; `:story.counter/events-only-loaded` variant.
-
-  ;; Login-form testbed (rf2-0sg12) — the Story tutorial's five-state
+  ;; Login-form testbed — the Story tutorial's five-state
   ;; login-form scenario as runnable variants. Hash-routed: `#/`
   ;; renders the live login card; `#/stories` mounts the Story shell
   ;; with five variants and two workspaces wired up. Sources live
@@ -2042,13 +1959,13 @@
    :output-dir       "out/examples/login-form"
    :asset-path       "."
    :modules          {:main {:init-fn login-form.core/run}}
-   ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
-   ;; probe this Story showcase's live runtime alongside Xray.
+   ;; The re-frame2-pair.runtime preload lets pair-MCP probe this Story
+   ;; showcase's live runtime alongside Xray.
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Fresco Story testbed (rf2-kttom) — Phase D of rf2-5czki, and the
-  ;; proof that a boundary authored on the NATIVE substrate paints in
+  ;; Fresco Story testbed — the proof that a boundary authored on the
+  ;; NATIVE substrate paints in
   ;; Story's canvas. Hash-routed like the four Story builds above: `#/`
   ;; renders the live tally (a Reagent root carrying the boundary through
   ;; `h/as-component`), `#/stories` mounts the shell over a deck declaring
@@ -2057,7 +1974,7 @@
   ;; `../tools/story/testbeds` :source-paths entry near the top of this
   ;; file; `re-frame.fresco.*` resolves via the "fresco/src" entry.
   ;;
-  ;; The `:fresco` substrate render fn is HOST-registered (rf2-2dbpd) —
+  ;; The `:fresco` substrate render fn is HOST-registered —
   ;; Story ships no installer for it, so `fresco-counter.core/run` calls
   ;; `story/register-substrate!` at boot. Bundle isolation is unaffected:
   ;; this is a testbed build, and nothing under implementation/ requires
@@ -2067,12 +1984,11 @@
    :output-dir       "out/examples/fresco-counter"
    :asset-path       "."
    :modules          {:main {:init-fn fresco-counter.core/run}}
-   ;; rf2-qhhxp — pair-MCP + inline Xray, matching the sibling Story
-   ;; testbed builds.
+   ;; pair-MCP + inline Xray, matching the sibling Story testbed builds.
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Story static-export build (rf2-8wgpm) — see
+  ;; Story static-export build — see
   ;; tools/story/spec/013-Static-Build.md. Same source tree as
   ;; :examples/counter-with-stories, but the entry-point is
   ;; counter-with-stories.story-static/run (no hash routing, mounts the
@@ -2101,7 +2017,7 @@
                       {re-frame.story.config/static-mode? true}}
    :modules          {:main {:init-fn counter-with-stories.story-static/run}}}
 
-  ;; Pattern-WebSocket worked example (rf2-yf97). Canonical worked
+  ;; Pattern-WebSocket worked example. Canonical worked
   ;; example for spec/Pattern-WebSocket.md — connection machine with
   ;; hierarchical :active parent, :spawn'd socket actor, :after
   ;; backoff, :always queue-flush, :fsm/tags, request-reply
@@ -2115,11 +2031,11 @@
    :modules    {:main {:init-fn websocket.core/run}}}
 
   ;; ============================================================================
-  ;; Testbeds (rf2-kzcim — shared framework-behavior surfaces).
+  ;; Testbeds — shared framework-behavior surfaces.
   ;;
   ;; Each testbed surface compiles into out/testbeds/<name>/ and is
   ;; paired with the testbed's hand-written index.html. The Xray
-  ;; preload (rf2-n6x4q) is wired on every testbed dev build mirroring
+  ;; preload is wired on every testbed dev build mirroring
   ;; the examples convention — dev-only, DCEs from release builds.
   ;;
   ;; Bundle-isolation contract: testbeds/ source is on shadow's
@@ -2132,10 +2048,10 @@
   ;; on CI.
   ;; ============================================================================
 
-  ;; rf2-kzcim — deliberate-throw testbed (the throw-from-each-layer
+  ;; Deliberate-throw testbed (the throw-from-each-layer
   ;; surface; four buttons, four :rf.error/* categories).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/deliberate-throw
   {:target     :browser
    :output-dir "out/testbeds/deliberate-throw"
@@ -2144,10 +2060,10 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim — schema-violation testbed (the four :where surfaces of
+  ;; Schema-violation testbed (the four :where surfaces of
   ;; :rf.error/schema-validation-failure; one button per :where).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/schema-violation
   {:target     :browser
    :output-dir "out/testbeds/schema-violation"
@@ -2156,10 +2072,10 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim — http-toggle testbed (single button + outcome dropdown
+  ;; Http-toggle testbed (single button + outcome dropdown
   ;; enumerating the eight :rf.http/* categories per Spec 014).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/http-toggle
   {:target     :browser
    :output-dir "out/testbeds/http-toggle"
@@ -2168,12 +2084,12 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim Tier 2 — multi-frame testbed (three frames coexisting:
+  ;; Multi-frame testbed (three frames coexisting:
   ;; :counter/a, :counter/b, :log; the Cross-bump button fans out a
   ;; handler running on :counter/a to dispatches against :counter/b
   ;; and :log via cross-frame `:dispatch` fx per Spec 002).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/multi-frame
   {:target     :browser
    :output-dir "out/testbeds/multi-frame"
@@ -2182,11 +2098,11 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim Tier 2 — deep-machine testbed (one machine exercising
+  ;; Deep-machine testbed (one machine exercising
   ;; every Spec 005 grammar surface: parallel regions, hierarchical
   ;; compound 5+ levels deep, :always, :after, :spawn, :spawn-all).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/deep-machine
   {:target     :browser
    :output-dir "out/testbeds/deep-machine"
@@ -2195,13 +2111,12 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim Tier 2 — long-flow-w-failure testbed (a multi-second
+  ;; Long-flow-w-failure testbed (a multi-second
   ;; cascade of app-db writes driving three flows in topo order; the
   ;; middle flow throws on a configurable input threshold to
-  ;; exercise the atomicity contract per Spec 013 §Failure semantics
-  ;; rf2-hrqvg).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; exercise the atomicity contract per Spec 013 §Failure semantics).
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/long-flow-w-failure
   {:target     :browser
    :output-dir "out/testbeds/long-flow-w-failure"
@@ -2210,12 +2125,12 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim Tier 3 — drain-depth-trigger testbed (one handler that
+  ;; Drain-depth-trigger testbed (one handler that
   ;; recursively dispatches itself; the runtime's run-to-completion
   ;; drain halts at the frame's :drain-depth ceiling and rolls back
   ;; per Spec 002 rule 3 + Spec 009 :rf.error/drain-depth-exceeded).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/drain-depth-trigger
   {:target     :browser
    :output-dir "out/testbeds/drain-depth-trigger"
@@ -2224,12 +2139,12 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-kzcim Tier 3 — non-trivial-app-db testbed (a 55-leaf app-db
+  ;; Non-trivial-app-db testbed (a 55-leaf app-db
   ;; nested up to 5 levels deep; six buttons each trigger a
   ;; structurally distinct diff shape at a known path — exercises the
   ;; consumer's diff visualisation under realistic depth).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/non-trivial-app-db
   {:target     :browser
    :output-dir "out/testbeds/non-trivial-app-db"
@@ -2238,17 +2153,12 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; (removed) rf2-kzcim sensitive-dispatcher testbed — the handler-meta
-  ;; :sensitive? annotation has been removed; owner-declared classification
-  ;; supersedes it (EP-0015: frame-owned durable app-db classification +
-  ;; per-slot schema props for owner-local schema'd data).
-
-  ;; rf2-kzcim Tier 3 — large-dispatcher testbed (four handlers each
+  ;; Large-dispatcher testbed (four handlers each
   ;; commit a value to a path whose wire elision is governed by a
   ;; different nomination path — owner-local schema-slot :large? on a Malli
   ;; slot — per Spec 009 §Size elision in traces).
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe this dev testbed's live runtime alongside Xray.
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+  ;; testbed's live runtime alongside Xray.
   :testbeds/large-dispatcher
   {:target     :browser
    :output-dir "out/testbeds/large-dispatcher"
@@ -2257,7 +2167,7 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-5e22yc (EP-0013/resources) — tenant-switcher testbed. The
+  ;; Tenant-switcher testbed. The EP-0013/resources
   ;; scoped-cache leak-boundary Part-2 scenario 5 as a LIVE demonstrator:
   ;; one app, one frame, two tenant SCOPES coexisting in one cache (an
   ;; admin impersonating tenant acme then globex), with the active scope
@@ -2268,9 +2178,8 @@
   ;; `npm run test:testbed-tenant-switcher` gate. Served on :dev-http 8060
   ;; (the top-level testbeds band) — source dir first so the hand-written
   ;; index.html resolves at `/`, compiled main.js falls through to
-  ;; out/testbeds/tenant-switcher. rf2-54jz4 — re-frame2-pair.runtime
-  ;; preload added so pair-MCP can probe this dev testbed's live runtime
-  ;; alongside Xray.
+  ;; out/testbeds/tenant-switcher. The re-frame2-pair.runtime preload
+  ;; lets pair-MCP probe this dev testbed's live runtime alongside Xray.
   :testbeds/tenant-switcher
   {:target     :browser
    :output-dir "out/testbeds/tenant-switcher"
@@ -2279,22 +2188,14 @@
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; (removed rf2-9jfo1.1) known-bad-a11y testbed — the a11y-panel
-  ;; scope contract (rf2-qgms1 / PR #1080) is now exercised inside
-  ;; `tools/story/testbeds/counter_with_stories/` via the
-  ;; `:story.counter-matrix/a11y-known-bad` + `/a11y-known-good`
-  ;; variants, driven by `tools/story/test/story_browser_scenarios.cjs`.
-  ;; The standalone testbed was a zero-consumer orphan once the
-  ;; counter_with_stories variants subsumed its coverage.
-
-  ;; rf2-ik4io — ssr-basic testbed (SSR hydration baseline). The static
+  ;; Ssr-basic testbed (SSR hydration baseline). The static
   ;; index.html bakes pre-rendered HTML + a :rf/hydration-payload script
   ;; (mirroring what the JVM-side render-to-string + payload builder
   ;; would emit per spec/011-SSR.md). The browser-side run reads the
   ;; payload, dispatches :rf/hydrate, renders, and calls
   ;; verify-hydration!. A trace listener mirrors every :rf.ssr/* and
-  ;; :rf/hydrate trace event onto window.__rf_trace_events() for
-  ;; Playwright assertion.
+  ;; :rf/hydrate trace event onto window.__rf_trace_events(), where a
+  ;; browser harness can read the hydration handshake.
   ;;
   ;; :output-dir lands under out/examples/ (not out/testbeds/) so the
   ;; examples orchestrator's http-server root serves the bundle
@@ -2306,12 +2207,12 @@
    :output-dir "out/examples/testbed-ssr-basic"
    :asset-path "."
    :modules    {:main {:init-fn ssr-basic.core/run}}
-   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-   ;; probe this dev testbed's live runtime alongside Xray.
+   ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+   ;; testbed's live runtime alongside Xray.
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-ik4io — ssr-hydration-mismatch testbed (the deliberate-mismatch
+  ;; Ssr-hydration-mismatch testbed (the deliberate-mismatch
   ;; surface). The payload bakes a known-wrong :rf/render-hash so
   ;; verify-hydration! emits :rf.ssr/hydration-mismatch with
   ;; :recovery :warned-and-replaced per spec/011 §Hydration-mismatch
@@ -2322,12 +2223,12 @@
    :output-dir "out/examples/testbed-ssr-hydration-mismatch"
    :asset-path "."
    :modules    {:main {:init-fn ssr-hydration-mismatch.core/run}}
-   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-   ;; probe this dev testbed's live runtime alongside Xray.
+   ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+   ;; testbed's live runtime alongside Xray.
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
-  ;; rf2-ik4io — ssr-multi-frame testbed (per-frame hydration isolation).
+  ;; Ssr-multi-frame testbed (per-frame hydration isolation).
   ;; Three frames each receive their own :rf/hydrate dispatch with a
   ;; per-frame :rf/app-db slice; the resulting view tree's three
   ;; per-frame panels prove each frame's state was restored
@@ -2338,15 +2239,15 @@
    :output-dir "out/examples/testbed-ssr-multi-frame"
    :asset-path "."
    :modules    {:main {:init-fn ssr-multi-frame.core/run}}
-   ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-   ;; probe this dev testbed's live runtime alongside Xray.
+   ;; The re-frame2-pair.runtime preload lets pair-MCP probe this dev
+   ;; testbed's live runtime alongside Xray.
    :devtools   {:preloads [re-frame2-pair.runtime
                            day8.re-frame2-xray.preload]}}
 
   ;; ============================================================================
-  ;; Per-adapter testbeds (rf2-eceuv).
+  ;; Per-adapter testbeds.
   ;;
-  ;; Per Mike's directive ("examples are for humans, not smoke tests")
+  ;; Examples are for humans, not smoke tests, so
   ;; each adapter (Reagent / UIx) ships a dedicated standalone
   ;; smoke fixture under implementation/adapters/<name>/testbed/. Each is
   ;; a minimal counter that proves the adapter wires up — mount,
@@ -2358,8 +2259,8 @@
   ;; (discovered by the runner via ADAPTER_SMOKE_SPEC_ROOTS).
   ;; ============================================================================
 
-  ;; rf2-54jz4 — re-frame2-pair.runtime preload added so pair-MCP can
-  ;; probe each adapter testbed's live runtime. These are dev-only
+  ;; The re-frame2-pair.runtime preload lets pair-MCP probe each adapter
+  ;; testbed's live runtime. These are dev-only
   ;; smoke fixtures (the browser smoke runs them under
   ;; `shadow-cljs compile`); `:devtools` preloads DCE from `release`
   ;; builds so this never reaches a production bundle.
@@ -2377,12 +2278,12 @@
    :modules    {:main {:init-fn adapter-testbed-uix.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
-  ;; rf2-hic-016 — the Fresco controlled-input testbed. NOT in the shared
+  ;; The Fresco controlled-input testbed. NOT in the shared
   ;; adapter-smoke manifest and deliberately so: that runner is one engine
   ;; (Chromium) over N specs, and this surface's whole contract is the
   ;; SAME spec over three engines. It therefore carries its own
   ;; orchestrator, scripts/serve-and-run-fresco-controlled-testbed.cjs —
-  ;; the reagent-slim / tenant-switcher precedent — which compiles this
+  ;; as reagent-slim and tenant-switcher do — which compiles this
   ;; build, serves it, and drives Chromium, Firefox and WebKit in turn.
   ;; No :dev-http entry: the gate serves from http-server on a resolved
   ;; port like every other browser gate, and nothing here is a
@@ -2393,11 +2294,11 @@
    :asset-path "."
    :modules    {:main {:init-fn fresco-testbed.core/init}}}
 
-  ;; rf2-vsgq — the Fresco HMR testbed, and the one build in this file
+  ;; The Fresco HMR testbed, and the one build in this file
   ;; that a gate drives with `watch` rather than `compile`.
   ;;
-  ;; The #7755 audit on rf2-hic-015 requires a browser suite that drives an
-  ;; ACTUAL shadow reload through `defview`. A compiled bundle cannot: the
+  ;; Its browser suite drives an ACTUAL shadow reload through `defview`.
+  ;; A compiled bundle cannot: the
   ;; reload is the thing under test, so the gate needs shadow's devtools
   ;; client, its websocket and its module re-evaluation, which only `watch`
   ;; provides. `scripts/serve-and-run-fresco-hmr-testbed.cjs` starts the
@@ -2405,8 +2306,8 @@
   ;; views.cljs, and waits for the page to report the new code running.
   ;;
   ;; Served on :dev-http 8061 (above) rather than by http-server, so the
-  ;; page and the devtools websocket share an origin. Sources are already
-  ;; on the classpath — `fresco/testbed` is an existing :source-paths
+  ;; page and the devtools websocket share an origin. Sources are
+  ;; on the classpath — `fresco/testbed` is a :source-paths
   ;; entry — so this build id is the whole of the wiring.
   :fresco/hmr-testbed
   {:target     :browser
@@ -2414,13 +2315,13 @@
    :asset-path "."
    :modules    {:main {:init-fn fresco-hmr-testbed.core/init}}}
 
-  ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
+  ;; Per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
   ;; substrate. Same minimal-counter shape as the Reagent/UIx
   ;; testbeds above, but every Reagent import points at reagent2.* and
   ;; rf/init! receives the slim adapter Var (init value 5; inc + dec). It
-  ;; proves the slim mount/inject/click path end-to-end in a browser — the
-  ;; layer the rf2-xsgu8a review found uncovered (the slim example's prior
-  ;; browser coverage was compile-only + the release-bundle sentinel grep).
+  ;; proves the slim mount/inject/click path end-to-end in a browser — a
+  ;; layer that a compile check and the release-bundle sentinel grep
+  ;; cannot reach.
   ;;
   ;; Deliberately NOT in the shared adapter-smoke manifest
   ;; (implementation/adapters/scripts/adapter-smoke-filter.cjs): it is the slim adapter's OWN
@@ -2436,8 +2337,8 @@
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; ============================================================================
-  ;; Machines-Viz read-only viewer (rf2-8wrzz.2 — wires PR #2013's viewer
-  ;; entry into an emittable bundle).
+  ;; Machines-Viz read-only viewer — the viewer entry as an emittable
+  ;; bundle.
   ;;
   ;; tools/machines-viz/public/viewer.html is a statically-hostable single
   ;; page that decodes a `#machine=<base64url>` URL fragment and renders the
@@ -2455,7 +2356,7 @@
   ;; bundle from this consumer build introduces no production-bundle leak
   ;; (nothing under implementation/ :requires the viewer ns).
   ;;
-  ;; rf2-k7l2o — the entry ns resolves off `../tools/machines-viz/page`, not
+  ;; The entry ns resolves off `../tools/machines-viz/page`, not
   ;; `.../src`. This build IS the page's delivery vehicle: `viewer.js` beside
   ;; `public/viewer.html` is how the page ships, and the published jar
   ;; deliberately does not carry it.

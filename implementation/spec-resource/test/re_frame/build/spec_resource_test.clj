@@ -7,8 +7,7 @@
   The failure is a thread-scheduling race: a second resolver reaches a Var
   that has been INTERNED by the analysis of its `def` but not yet BOUND by
   its evaluation. Left to chance it reproduces on some runs and not
-  others, which makes a green suite worthless as evidence — the defect
-  shipped once already behind a wall of greens.
+  others, which makes a green suite worthless as evidence.
 
   So the window is not raced for, it is HELD OPEN. A synthetic namespace
   is generated per iteration whose single `def` blocks inside its
@@ -17,11 +16,10 @@
   wants — and two threads reach for it exactly as two macro-expansion
   threads do:
 
-    * the PRE-FIX shape (`clojure.core/requiring-resolve`, whose first
+    * the NAIVE shape (`clojure.core/requiring-resolve`, whose first
       `resolve` runs BEFORE the require lock is taken) hands the observer
-      the unbound Var. That is the shipped defect, pinned here as the
-      known-broken control so the fixed assertion below cannot pass
-      vacuously.
+      the unbound Var. It is pinned here as the known-broken control so
+      the assertion on the shipped shape below cannot pass vacuously.
 
     * the SHIPPED shape (`resolve-after-require`, which enters the
       serialized require path first) cannot: the observer blocks on the
@@ -30,8 +28,8 @@
 
   Two independent CALL SITES are the point — a per-consumer `delay` makes
   one consumer single-flight with itself and leaves two consumers free to
-  race each other, which is exactly how the defect returned. Neither
-  thread here shares any memoization with the other."
+  race each other. Neither thread here shares any memoization with the
+  other."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -193,8 +191,8 @@
             (observe-resolver-during-load requiring-resolve)]
         (is (= {:state :unbound} during-load)
             (str probe-var-symbol
-                 ": the pre-fix shape must reproduce the defect, otherwise the "
-                 "fixed assertion below proves nothing"))
+                 ": the naive shape must reproduce the race, otherwise the "
+                 "assertion on the shipped shape proves nothing"))
         (is (= {:state :bound} loader-result)
             (str probe-var-symbol
                  ": the LOADING site is never the one that loses — which is why "

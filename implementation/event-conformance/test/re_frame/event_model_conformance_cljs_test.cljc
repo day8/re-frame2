@@ -112,7 +112,7 @@
         (is (not (contains? coeffects :rf.world/inputs))
             "the unsupported `:rf.world/inputs` key is absent from the coeffects baseline")
         (is (not (contains? coeffects :event/kind))
-            "the `:event/kind` sub-tag is GONE from the coeffects map (one form)")))))
+            "the coeffects map carries no `:event/kind` sub-tag (one form)")))))
 
 (deftest dispatch-opt-rf-world-inputs-is-the-generic-unknown-opt-with-did-you-mean
   (testing "the unsupported :rf.world/inputs opt warns and suggests :rf.cofx"
@@ -130,10 +130,10 @@
                                               (:operation trace-event))))
                                     @traces)]
         (is (= 1 (count warning-traces))
-            "the retired draft key trips the generic unknown-dispatch-opt warning (not a dedicated error)")
+            "the unsupported key trips the generic unknown-dispatch-opt warning (not a dedicated error)")
         (let [warning-tags (:tags (first warning-traces))]
           (is (contains? (set (:unknown-keys warning-tags)) :rf.world/inputs)
-              "the retired key is named as an unrecognised opt")
+              "the unsupported key is named as an unrecognised opt")
           (is (re-find #":rf.cofx" (:reason warning-tags))
               "the warning message appends a did-you-mean naming `:rf.cofx` as the replacement"))))))
 
@@ -149,7 +149,7 @@
         (is (= 1781078400123 (:rf/time-ms coeffects))
             "the declared recordable fact arrived FLAT under its id (:rf/time-ms), not nested")
         (is (not (contains? coeffects :rf.world/inputs))
-            "the live coeffects carry NO `:rf.world/inputs` key (the retired nested envelope is gone)")
+            "the live coeffects carry NO `:rf.world/inputs` key (no nested envelope)")
         (is (not (contains? coeffects :cofx))
             "the live coeffects carry NO nested `:cofx` successor (flat delivery only)")
         (is (= 1781078400123 (get (:rf.cofx coeffects) :rf/time-ms))
@@ -255,7 +255,7 @@
             dispatch mints only when the opt rides it (EP-0017 §6). Dispatched
             into the fixture's ambient :rf/default frame the row would pass
             whether or not the opt was honoured, since that frame is already
-            :live (rf2-6r9j.99)."
+            :live."
     (let [generator-call-count (atom 0)
           delivered            (atom ::unset)]
       (rf/make-frame {:id :evt-conf/escape-frame :preset :test})
@@ -481,11 +481,11 @@
     ;; the CLJS publics surface is policed by the api-manifest --check gate.)
     #?(:clj
        (is (nil? (ns-resolve 're-frame.core 'inject-cofx))
-           "there is NO public re-frame.core/inject-cofx var — the facade surface is removed"))
-    ;; Leg 2 — the surviving private thrower is the always-on hard error.
+           "there is NO public re-frame.core/inject-cofx var — the facade does not carry it"))
+    ;; Leg 2 — the private thrower is the always-on hard error.
     (is (= :rf.error/inject-cofx-removed
            (thrown-error-id #(rf.cofx/inject-cofx :evt-conf/anything)))
-        "the surviving inject-cofx thrower raises :rf.error/inject-cofx-removed")
+        "the private inject-cofx thrower raises :rf.error/inject-cofx-removed")
     (let [reason (thrown-error-reason #(rf.cofx/inject-cofx :evt-conf/anything))]
       (is (string? reason)
           "the removal stub raises an ex-info carrying a :reason string")
@@ -519,7 +519,7 @@
         (is (= :dispatch (get-in (first shape-traces) [:tags :offending-key]))
             "the diagnostic names the offending legacy top-level key")
         (is (= :fix-effect (:recovery (first shape-traces)))
-            "the envelope violation REFUSES the event pre-commit (rf2-04tx)")))))
+            "the envelope violation REFUSES the event pre-commit")))))
 
 (deftest reg-event-bare-app-db-shaped-return-is-effect-map-shape-not-committed
   (testing "a bare app-db map is not mistaken for the explicit :db effect"
@@ -537,14 +537,14 @@
       (rf/dispatch-sync [:evt-conf/bare-db-return])
       (rf/unregister-listener! :trace :evt-conf/bare-recorder)
       (is (= :seeded @(rf/subscribe [:evt-conf/bare-count]))
-          "the bare `{:count 1}` return was NOT committed as app-db (the db-return convenience is GONE)")
+          "the bare `{:count 1}` return was NOT committed as app-db (there is no db-return convenience)")
       (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
                                        (= :count (get-in % [:tags :offending-key])))
                                  @traces)]
         (is (seq shape-traces)
             "the bare app-db-shaped return's foreign app key emits :rf.error/effect-map-shape naming :count")
         (is (= :fix-effect (:recovery (first shape-traces)))
-            "the bare-db-return shape diagnostic REFUSES the event (rf2-04tx)")))))
+            "the bare-db-return shape diagnostic REFUSES the event")))))
 
 (deftest reg-event-app-handler-runtime-effect-keeps-the-diagnostic-unless-framework-authority
   (testing "runtime-db writes warn for app handlers but not framework-authorised handlers"
@@ -663,7 +663,7 @@
       (rf/dispatch-sync [:evt-conf/malformed-fx])
       (rf/unregister-listener! :trace :evt-conf/fx-shape-recorder)
       (is (= :absent @(rf/subscribe [:evt-conf/fx-shape-db]))
-          "the sibling `:db` write did NOT commit — a malformed `:fx` refuses the whole event (rf2-04tx: no partial commit)")
+          "the sibling `:db` write did NOT commit — a malformed `:fx` refuses the whole event (no partial commit)")
       (is (false? @sentinel-ran?)
           "the non-sequential `:fx` value was never walked as a pair (sentinel never dispatched)")
       (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
@@ -712,15 +712,15 @@
       (is (fn? (:handler-fn event-metadata))
           "handler-meta surfaces the registered handler-fn")
       (is (not (contains? event-metadata :event/kind))
-          "the `:event/kind` sub-tag is GONE (one form, no kind discriminator)")
+          "there is no `:event/kind` sub-tag (one form, no kind discriminator)")
       ;; THE wrapper lock — exactly ONE framework wrapper, named :rf/event-handler.
-      ;; This EXACT-VECTOR equality is also what excludes the retired per-kind
-      ;; wrapper ids (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`):
+      ;; This EXACT-VECTOR equality is also what excludes any per-kind wrapper
+      ;; id (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`):
       ;; a singleton `[:rf/event-handler]` cannot contain any of them, and it
       ;; refuses an extra wrapper and a wrong order too. A second registration
-      ;; asserting those three non-memberships restates a consequence of this
-      ;; line rather than exercising another path — every `reg-event` takes the
-      ;; one form (rf2-6r9j.101).
+      ;; asserting those three non-memberships would restate a consequence of
+      ;; this line rather than exercise another path — every `reg-event` takes
+      ;; the one form.
       (is (= [:rf/event-handler] (mapv :id (:interceptors event-metadata)))
           "the ONLY framework wrapper is the single :rf/event-handler interceptor")
       (let [event-wrapper (first (:interceptors event-metadata))]
@@ -787,7 +787,7 @@
           "reg-event-fx removal names reg-event as the replacement"))))
 
 (deftest retired-names-are-resolvable-facade-vars
-  (testing "retired names remain callable facade tombstones"
+  (testing "retired names are callable facade tombstones"
     ;; Unlike `reg-event`, these are functions in both runtimes.
     (is (fn? rf/reg-event-db)  "reg-event-db is a resolvable callable facade fn (the throwing stub)")
     (is (fn? rf/reg-event-fx)  "reg-event-fx is a resolvable callable facade fn (the throwing stub)")
@@ -865,9 +865,9 @@
        (is (true? (:no-doc (meta #'re-frame.core/reg-event-ctx)))
            "the reg-event-ctx facade tombstone carries ^:no-doc")
        (is (true? (:no-doc (meta #'re-frame.core/reg-event-db)))
-           "the REMOVED reg-event-db carries ^:no-doc (off the public manifest)")
+           "the reg-event-db facade tombstone carries ^:no-doc (off the public manifest)")
        (is (true? (:no-doc (meta #'re-frame.core/reg-event-fx)))
-           "the REMOVED reg-event-fx carries ^:no-doc (off the public manifest)"))))
+           "the reg-event-fx facade tombstone carries ^:no-doc (off the public manifest)"))))
 
 (deftest reg-event-path-interceptor-works-with-db-slice-return
   (testing "a path interceptor splices an explicit :db slice effect into app-db"
@@ -890,8 +890,8 @@
         {:before
          (fn [ctx]
            ;; Capture (read the full context) + short-circuit the
-           ;; handler + install an effect directly — the trio that
-           ;; reg-event-ctx used to do, now an interceptor concern.
+           ;; handler + install an effect directly — context-level
+           ;; work is an interceptor concern.
            (-> ctx
                (assoc :rf/skip-handler? true)
                (assoc-in [:effects :fx]

@@ -33,7 +33,7 @@
 //      branch (which discriminates escape from benign EACCES/EBUSY) is
 //      driven by the same signal.
 //   3. an in-fixture `nrepl.port` (no symlink) IS read normally — the
-//      fix doesn't break the happy path.
+//      guard doesn't break the happy path.
 //
 // Symlink creation requires elevated rights on Windows; that arm
 // soft-skips there (matching `exec-safety.test.cjs`).
@@ -105,7 +105,7 @@ test('readPortFile: refuses an external port file behind a symlinked .shadow-clj
       (err) => {
         thrown = err;
         // Must name the candidate and the containment-escape rationale.
-        assert.match(err.message, /khav7l/);
+        assert.match(err.message, /must not be trusted as the live nREPL source/);
         return true;
       },
     );
@@ -138,7 +138,7 @@ test('readPortFile: refuses an external port file behind a symlinked LEAF (rf2-k
 
     assert.throws(
       () => readPortFile([candidate], fixture),
-      /khav7l/,
+      /must not be trusted as the live nREPL source/,
     );
     assert.equal(fs.existsSync(externalPort), true);
   } finally {

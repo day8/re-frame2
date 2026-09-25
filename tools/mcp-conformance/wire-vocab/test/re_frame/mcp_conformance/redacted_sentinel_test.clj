@@ -17,7 +17,7 @@
   protocol contract: every agent reading sensitive-leaf data pattern-
   matches on the literal `:rf/redacted`. A rename in `vocab.cljc`
   (e.g. `:rf.size/redacted`) or a near-miss spelling that escapes the canonical-marker
-  gate would slip past silently because the existing near-miss anti-
+  gate would slip past silently because the marker near-miss anti-
   pin only checks `:rf.mcp/*` / `:rf.size/*` marker keys (the namespace
   pattern fixed in `rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants`).
 
@@ -85,10 +85,9 @@
 
 (deftest redacted-sentinel-no-near-miss-in-any-server-source
   ;; Defence-in-depth: the bespoke near-miss set above MUST NOT appear
-  ;; anywhere in the conformance-tracked sources. The rf2-pv7we
-  ;; doc-drift (a `:rf.size/redacted` row in `tools/mcp-base/spec/vocab.md`)
-  ;; would surface here if it returned — the anti-pin catches it before
-  ;; the doc ships.
+  ;; anywhere in the conformance-tracked sources. A doc-drift such as a
+  ;; `:rf.size/redacted` row in `tools/mcp-base/spec/vocab.md` would
+  ;; surface here — the anti-pin catches it before the doc ships.
   (doseq [variant        redacted-sentinel-near-miss-variants
           [server files] rf.mcp-conformance.wire-vocab.source-pins/all-source-files
           rel            files]

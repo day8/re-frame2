@@ -62,7 +62,7 @@
   :bytes 1}` (a scalar with no `:value`) would both validate: unusable
   markers a future server could ship while this gate stayed green. Each
   arm is CLOSED to the documented slot set, so a scalar
-  carrying `:keys`, or a vector carrying `:value`, is now rejected too
+  carrying `:keys`, or a vector carrying `:value`, is rejected too
   (a cross-type slot leak is a contract break, not a tolerated extra).
 
   - `:map`              — `:type` + `:bytes` + `:keys` + (`:count` OR
@@ -75,7 +75,7 @@
      [:map
       {:closed true}
       [:type [:= :map]]
-      [:bytes :int]                                           ;; pr-str UTF-8 byte estimate (rf2-2rtt6.132)
+      [:bytes :int]                                           ;; pr-str UTF-8 byte estimate
       [:keys [:sequential :any]]                              ;; required for maps
       [:keys-truncated? {:optional true} :boolean]            ;; only when clamped
       [:count  {:optional true} :int]                         ;; cardinality (scalar form)
@@ -194,7 +194,7 @@
 
   The `:rf.mcp/diff-from` value is a keyword naming the
   diff-against slot — `:db-before` is the only conformant value
-  today (an epoch's `:db-after` diff-encodes against the SAME
+  (an epoch's `:db-after` diff-encodes against the SAME
   record's `:db-before`).
 
   Each section heads N patches with a breadcrumb path + a kind
@@ -264,7 +264,7 @@
   `:precheck` short-circuited the eval entirely. Same
   vocabulary, different cost saved.
 
-  Single-server today (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
+  Single-server (re-frame2-pair-mcp); the `:rf.mcp/*` namespace reserves
   it cross-MCP per Conventions §Reserved namespaces — a future MCP
   server adopting a session cache ships the same shape."
   [:map
@@ -374,19 +374,19 @@
   - `:key`       — the reserved top-level keyword
   - `:schema`    — the canonical Malli schema (wrapper shape)
   - `:fixtures`  — per-server example values (must all validate)
-  - `:servers`   — set of servers that emit/spec the marker today
+  - `:servers`   — set of servers that emit/spec the marker
 
   The conformance assertion: every fixture in `:fixtures` validates
   against `:schema`; the source/spec text of every server in
   `:servers` mentions the marker key literally."
   [{:key      :rf.mcp/overflow
     :schema   Overflow
-    ;; Multi-server marker as of rf2-yxgcsz — story-mcp's wire-boundary
-    ;; cap landed (`tools/story-mcp/.../tools/wire_pipeline.cljc` calls
-    ;; `base-cap/apply-cap`), so BOTH servers emit `:rf.mcp/overflow`
+    ;; Multi-server marker — story-mcp's wire-boundary cap
+    ;; (`tools/story-mcp/.../tools/wire_pipeline.cljc` calls
+    ;; `base-cap/apply-cap`) means BOTH servers emit `:rf.mcp/overflow`
     ;; via the shared `mcp-base.cap/apply-cap` → `overflow/overflow-payload`
     ;; builder. The body is byte-identical across both — same posture as
-    ;; `:rf.mcp/dedup-table` (rf2-90eft). Both servers source the marker
+    ;; `:rf.mcp/dedup-table`. Both servers source the marker
     ;; key from `re-frame.mcp-base.vocab/overflow-key` so the literal
     ;; stays byte-identical; an agent that learned the overflow retry
     ;; signal on either server recognises it on the other.
@@ -403,7 +403,7 @@
                                          :cap-tokens  5000
                                          :tool        "snapshot"
                                          :hint        :narrow-scope}}
-               ;; story-mcp emission (rf2-yxgcsz) — the `run-variant`
+               ;; story-mcp emission — the `run-variant`
                ;; payload (`:app-db` + `:snapshot` + the evidence slots)
                ;; can blow the cap; `wire_pipeline/invoke-tool` replaces it
                ;; via `base-cap/apply-cap`, whose `build-overflow-result`
@@ -461,9 +461,9 @@
 
    {:key      :rf.mcp/dedup-table
     :schema   DedupTable
-    ;; Multi-server marker as of rf2-90eft — story-mcp adopted the
-    ;; same wire-boundary structural-dedup transform (mirror of pair-
-    ;; mcp's rf2-obpa9). Both servers source the marker key from
+    ;; Multi-server marker — story-mcp applies the same wire-boundary
+    ;; structural-dedup transform as pair-mcp. Both servers source the
+    ;; marker key from
     ;; `re-frame.mcp-base.vocab/dedup-table-key` so the literal stays
     ;; byte-identical; an agent that learned the slot on either server
     ;; reconstructs identically via `re-frame.mcp-base.dedup/expand`.
@@ -471,19 +471,18 @@
     :fixtures {:re-frame2-pair-mcp         {:rf.mcp/dedup-table
                                    {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
                                     :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
-               ;; rf2-x0pr0 — the integer-keyed fixture
-               ;; (`{1 {...} 2 {...}}`) was REMOVED. It was fiction: the
-               ;; the codec ALWAYS keys the cache by the
-               ;; namespaced symbol `de-dupe.cache/cache-N` (root
+               ;; There is no integer-keyed fixture
+               ;; (`{1 {...} 2 {...}}`): the codec ALWAYS keys the cache
+               ;; by the namespaced symbol `de-dupe.cache/cache-N` (root
                ;; `cache-0`) — never integers (v0.3.0 `core.cljc`
                ;; `make-cache-element` / `create-cache-internal`). A
                ;; root-less integer-keyed table has no `cache-0` entry,
                ;; so the Node-side decoder (`lib/dedup-envelope.cjs`)
-               ;; THROWS on it — the exact JVM-loose / Node-strict
-               ;; disagreement this gate now closes. The
+               ;; THROWS on it — a JVM-loose / Node-strict disagreement
+               ;; this gate closes. The
                ;; `DedupTable`-rejects-malformed negative tests below
                ;; pin that the schema refuses it.
-               ;; story-mcp emission (rf2-90eft) — the `run-variant`
+               ;; story-mcp emission — the `run-variant`
                ;; payload re-keys the same `:app-db` value into
                ;; `:snapshot` and the evidence slots; dedup collapses
                ;; those into a single cache slot referenced thrice. The
@@ -498,17 +497,16 @@
                                     :de-dupe.cache/cache-1 {:cart {:items [] :total 0}}}}}}
 
    {:key      :rf.mcp/diff-from
-    ;; rf2-voux7 finding 2 — use the CLOSED `DiffFromBody` schema (the
-    ;; same schema the live-emission gate validates the real encoder
-    ;; output against) rather than the pre-fix loose
-    ;; `[:map [:rf.mcp/diff-from ...] [:sections :any]]`, which accepted
-    ;; ANY `:sections` value AND any extra sibling top-level key.
+    ;; The CLOSED `DiffFromBody` schema (the same schema the
+    ;; live-emission gate validates the real encoder output against) —
+    ;; a loose `[:map [:rf.mcp/diff-from ...] [:sections :any]]` would
+    ;; accept ANY `:sections` value AND any extra sibling top-level key.
     :schema   DiffFromBody
-    ;; re-frame2-pair-mcp specs / emits today. The schema and the marker are
+    ;; re-frame2-pair-mcp specs / emits it. The schema and the marker are
     ;; reserved in the cross-MCP family per re-frame2-pair-mcp Principles §
     ;; \"Cross-MCP vocabulary\". The body slot is the
-    ;; sections-per-cluster projection (rf2-qeous) — same
-    ;; `:rf.mcp/diff-from` marker key, new `:sections` body.
+    ;; sections-per-cluster projection — the `:rf.mcp/diff-from` marker
+    ;; key with a `:sections` body.
     :servers  #{:re-frame2-pair-mcp}
     :fixtures {:re-frame2-pair-mcp {:rf.mcp/diff-from :db-before
                            :sections [{:section-path [:cart :items]
@@ -520,11 +518,11 @@
 
    {:key      :rf.size/large-elided
     :schema   ElisionMarker
-    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits today. The
+    ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits it. The
     ;; `:reason` slot carries the declaration provenance (the `:source` that
-    ;; classified the path). EP-0025: the durable `:sensitive`/`:large {:app-db
-    ;; …}` frame annotation (`:frame`) and the imperative `add-marks`/`set-marks`
-    ;; API (`:marks`) are REMOVED; the surviving sources are the commit-plane
+    ;; classified the path). EP-0025: there is no durable `:sensitive`/`:large
+    ;; {:app-db …}` frame annotation (`:frame`) and no imperative
+    ;; `add-marks`/`set-marks` API (`:marks`); the sources are the commit-plane
     ;; classification effects (`:effect`, the canonical default), `reg-flow`
     ;; outputs (`:flow`), and the subsystem projection-relative declarations
     ;; (`:route` / `:machine`). Three fixtures below cover the `:effect` source
@@ -558,10 +556,10 @@
 
    {:key      :rf.mcp/cache-hit
     :schema   CacheHit
-    ;; re-frame2-pair-mcp emits today (rf2-3rt1f result-hash + rf2-36xod precheck
-    ;; paths in `cache.cljs/cache-hit-payload`). The literal lives in
+    ;; re-frame2-pair-mcp emits it (the result-hash + precheck paths in
+    ;; `cache.cljs/cache-hit-payload`). The literal lives in
     ;; `mcp-base/vocab.cljc` as `cache-hit-key`, where every cross-MCP
-    ;; marker is canonicalised. Per rf2-i3ffz F-GAP-4.
+    ;; marker is canonicalised.
     :servers  #{:re-frame2-pair-mcp}
     :fixtures {:re-frame2-pair-mcp-result-hash
                {:rf.mcp/cache-hit

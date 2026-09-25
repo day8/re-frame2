@@ -1,6 +1,5 @@
 #!/usr/bin/env sh
-# rewrite-local-root-coord.sh (rf2-ldkuk; extracted from the inline
-# release.yml "Rewrite <leaf> :local/root → :mvn/version" step).
+# rewrite-local-root-coord.sh
 #
 # # What this does
 #
@@ -9,8 +8,8 @@
 #
 #     {:deps {day8/re-frame2 {:local/root "../../core"}}}
 #
-# `clein pom` SILENTLY SKIPS :local/root coordinates (proved by rf2-do3m2 /
-# #6340), so a pom built straight from that deps.edn carries NO
+# `clein pom` SILENTLY SKIPS :local/root coordinates, so a pom built
+# straight from that deps.edn carries NO
 # day8/re-frame2 dependency at all. This rewrite is therefore load-bearing
 # for correctness, not convenience: it swaps the in-tree coordinate for the
 # published one
@@ -19,22 +18,19 @@
 #
 # on the throwaway runner checkout, before clein packages the jar.
 #
-# # Why the match is comment-aware (rf2-ldkuk)
+# # Why the match is comment-aware
 #
-# The step this replaces asserted `src.count(before) == 1` over the RAW
-# file text. That count is a substring count, so it cannot tell a live
-# dependency coordinate from the same characters typed inside a `;;`
-# comment — and these deps.edn files document their coordinates in prose
-# comments as a matter of house style (eight of the thirteen leaf declarations do it).
-# reagent-slim's header comment quotes the :local/root form, which pushed
-# its count to 2 and ABORTED that leaf's deploy outright: day8/reagent-slim
-# could not be released at all.
+# A `src.count(before) == 1` assertion over the RAW file text is a
+# substring count, so it cannot tell a live dependency coordinate from the
+# same characters typed inside a `;;` comment — and these deps.edn files
+# document their coordinates in prose comments as a matter of house style.
+# A header comment that quotes the :local/root form pushes such a count to
+# 2 and ABORTS that leaf's deploy outright.
 #
-# Rewording one comment would have restored green while leaving the
-# invariant satisfied by luck — the next ordinary comment reintroduces the
-# abort. So the match itself is the thing that was wrong: this script
-# counts and rewrites only occurrences in CODE, ignoring EDN line comments.
-# Comments may now say whatever is clearest.
+# Rewording the comment would leave the invariant satisfied by luck — the
+# next ordinary comment would reintroduce the abort. So the rule lives in
+# the match: this script counts and rewrites only occurrences in CODE,
+# ignoring EDN line comments, and comments may say whatever is clearest.
 #
 # This is deliberately NOT an EDN parser. The whole rule is "a `;` outside
 # a string starts a comment that runs to end of line", with string state
@@ -55,9 +51,8 @@
 # # Runner / portability
 #
 # Linux-runner-only by design: the only caller is release.yml's deploy-leaf
-# job, which runs on ubuntu-latest. POSIX sh + python3 — python3 is what
-# the inline step it replaces already used, and it is preinstalled on
-# ubuntu-latest. No .ps1 sibling (same rationale as
+# job, which runs on ubuntu-latest. POSIX sh + python3, which is
+# preinstalled on ubuntu-latest. No .ps1 sibling (same rationale as
 # transform-reagent-slim-ns.sh).
 #
 # # Usage
@@ -162,7 +157,7 @@ deps_edn.write_text("\n".join(out))
 # ASCII-only output: this script's stdout encoding follows the host locale,
 # and a non-ASCII arrow would raise UnicodeEncodeError on a non-UTF-8
 # console AFTER deps.edn had already been written — a spurious abort with
-# the mutation half-applied. Observed on a Windows cp1252 console while
-# testing; ubuntu-latest is UTF-8, but there is no reason to depend on it.
+# the mutation half-applied. A Windows cp1252 console does exactly that;
+# ubuntu-latest is UTF-8, but there is no reason to depend on it.
 print("Rewrote %s -> %s in %s" % (before, after, deps_edn))
 PY

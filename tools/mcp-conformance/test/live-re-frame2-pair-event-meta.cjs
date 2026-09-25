@@ -17,14 +17,13 @@
 // short-circuits every live-runtime tool to the SAME
 // `:nrepl-port-not-found` envelope — proving the descriptor +
 // CallToolResult wiring but never inspecting the live pair-MCP wire output
-// for event introspection. So a wire-layer regression that reintroduced
-// or decorated stale event-sub-kind metadata (`:event/kind`) or an old
-// wrapper id (`:rf/db-handler` …) on the MCP response would ship GREEN
-// there.
+// for event introspection. So a wire-layer regression that put
+// event-sub-kind metadata (`:event/kind`) or a per-kind wrapper id
+// (`:rf/db-handler` …) on the MCP response would ship GREEN there.
 //
 // This gate covers that surface: with a live runtime attached it drives
 // the EP-0018 event-metadata surface over the SDK boundary and pins both
-// the presence of the unified shape AND the absence of every retired
+// the presence of the unified shape AND the absence of every per-kind
 // marker.
 //
 // ## What this test drives (across the MCP boundary, via the SDK Client)
@@ -35,19 +34,19 @@
 //   2. `handler-meta {kind "event" id ":counter/inc"}` asserts the MCP
 //      response is `:ok? true`, `:kind :event`, `:id :counter/inc`.
 //   3. EP-0018 DRIFT REJECTION on the same response:
-//        - NO `:event/kind` key (the removed sub-kind tag).
+//        - NO `:event/kind` key (there is no event sub-kind).
 //        - NO `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`
-//          wrapper id (the retired per-kind wrappers).
+//          wrapper id (there are no per-kind wrappers).
 //        - the unified `:rf/event-handler` wrapper IS visible where the
 //          metadata exposes the effective interceptor chain (it carries
 //          `:rf/default? true`).
 //
 // ## Catches
 //
-//   - a wire-layer regression reintroducing the `:event/kind` sub-tag on
-//     the MCP response (step 3 goes RED).
-//   - a regression resurrecting an old per-kind handler wrapper id (step 3
-//     goes RED).
+//   - a wire-layer regression putting an `:event/kind` sub-tag on the MCP
+//     response (step 3 goes RED).
+//   - a regression emitting a per-kind handler wrapper id (step 3 goes
+//     RED).
 //   - the unified `:rf/event-handler` wrapper dropping out of the
 //     effective interceptor chain the metadata exposes (step 3 goes RED).
 //   - `handler-meta`/`list-handlers` event introspection breaking on the
@@ -75,8 +74,9 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // inc)})`), i.e. the canonical EP-0018 coeffects-in / effects-out shape.
 const FIXTURE_EVENT = ':counter/inc';
 
-// The retired per-kind handler-wrapper ids EP-0018 collapsed into the one
-// `:rf/event-handler`. None may appear on the live MCP response.
+// Per-kind handler-wrapper ids. EP-0018 has none of them — its one event
+// wrapper is `:rf/event-handler` — so none may appear on the live MCP
+// response.
 const RETIRED_WRAPPER_IDS = [':rf/db-handler', ':rf/fx-handler', ':rf/ctx-handler'];
 
 // Pre-flight SKIP — same posture as the sibling live-* variants.
@@ -175,29 +175,28 @@ runWithWatchdog(
     );
 
     // ---- Step 3: EP-0018 drift rejection on the same response -----------
-    // 3a. NO `:event/kind` sub-tag (removed from public metadata, EP-0018
-    // §Spec-Schemas: "event-registration schema unified; :event/kind
-    // sub-kind removed from public metadata").
+    // 3a. NO `:event/kind` sub-tag — public event metadata has no sub-kind
+    // (EP-0018, its `spec/Spec-Schemas.md` row).
     if (/:event\/kind\b/.test(metaText)) {
       throw new Error(
         'handler-meta {kind "event" id "' + FIXTURE_EVENT + '"} MUST NOT ' +
-          'carry the retired :event/kind sub-tag — EP-0018 unified the event ' +
-          'form and removed the :db|:fx|:ctx sub-kind from public metadata ' +
-          '(rf2-z0owya). A wire regression reintroduced it. Got: ' +
+          'carry an :event/kind sub-tag — EP-0018 has one event form and ' +
+          'no :db|:fx|:ctx sub-kind in public metadata. ' +
+          'A wire regression emitted it. Got: ' +
           metaText.slice(0, 400),
       );
     }
     console.log('OK   handler-meta response carries NO :event/kind sub-tag (EP-0018)');
 
-    // 3b. NO retired per-kind wrapper id.
+    // 3b. NO per-kind wrapper id.
     for (const wrapperId of RETIRED_WRAPPER_IDS) {
       if (metaText.includes(wrapperId)) {
         throw new Error(
           'handler-meta {kind "event" id "' + FIXTURE_EVENT + '"} MUST NOT ' +
-            'carry the retired per-kind handler wrapper id ' + wrapperId +
-            ' — EP-0018 collapsed :rf/db-handler / :rf/fx-handler / ' +
-            ':rf/ctx-handler into the one :rf/event-handler. A wire ' +
-            'regression resurrected it (rf2-z0owya). Got: ' +
+            'carry the per-kind handler wrapper id ' + wrapperId +
+            ' — EP-0018 has no :rf/db-handler / :rf/fx-handler / ' +
+            ':rf/ctx-handler; its one wrapper is :rf/event-handler. A wire ' +
+            'regression emitted it. Got: ' +
             metaText.slice(0, 400),
         );
       }
@@ -220,7 +219,7 @@ runWithWatchdog(
           'the unified :rf/event-handler wrapper in the effective interceptor ' +
           'chain (EP-0018 §Conformance — "the framework wrapper is ' +
           ':rf/event-handler with :rf/default? true"). It is absent — either ' +
-          'the chain is not surfaced or the wrapper id regressed (rf2-z0owya). ' +
+          'the chain is not surfaced or the wrapper id regressed. ' +
           'Got: ' + metaText.slice(0, 400),
       );
     }

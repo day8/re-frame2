@@ -1,7 +1,5 @@
 #!/usr/bin/env sh
-# transform-reagent-slim-ns.sh (rf2-olo8rc; extracted from the inline
-# release.yml "Rename adapter ns at publication (reagent-slim only)" step
-# per rf2-zvjme).
+# transform-reagent-slim-ns.sh
 #
 # # What this does
 #
@@ -11,8 +9,8 @@
 # adapter source trees on the same classpath — two namespaces with the
 # same name would clash. At PUBLICATION time, a downstream app depends on
 # EXACTLY ONE of {day8/re-frame2-reagent, day8/reagent-slim}, so the
-# adapter ns is single-source per app. Per the slim IMPL-SPEC §1.8 / §13.1
-# (and confirmed by the rf2-tba5e smoke-test findings), the slim Maven
+# adapter ns is single-source per app. Per the slim IMPL-SPEC §1.8 / §13.1,
+# the slim Maven
 # artefact ships its adapter at the canonical `re-frame.adapter.reagent`
 # ns — a downstream app's import line is
 # `(:require [re-frame.adapter.reagent :as ra])` regardless of which
@@ -37,7 +35,7 @@
 # Linux-runner-only by design: the only caller is release.yml's
 # deploy-leaf job, which runs on ubuntu-latest. Pure POSIX sh + sed (no
 # bashisms, no python) so it runs under dash as well as bash. No .ps1
-# sibling is provided — confirmed Linux-only per the rf2-olo8rc ruling.
+# sibling — Linux-only.
 #
 # # Usage
 #

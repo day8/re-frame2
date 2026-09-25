@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# preflight-story-package.sh (rf2-wht9a)
+# preflight-story-package.sh
 #
 # # Why this exists
 #
@@ -10,8 +10,8 @@
 # reagent/reagent and metosin/malli. Every framework artefact Story cannot
 # run without is absent.
 #
-# Publishing that pom would recreate, at the package boundary, the exact
-# consumer compile failure rf2-r8trk fixed in source:
+# Publishing that pom would fail a consumer's compile at the package
+# boundary:
 #
 #     No such namespace: day8.re-frame2-xray.mount
 #     ... in re_frame/story/xray_preset.cljc
@@ -36,7 +36,7 @@
 #      A rewrite that fired with the wrong value is as broken as one that
 #      did not fire — and per spec/Conventions.md §Packaging conventions
 #      every published artefact ships at the repo-root VERSION.
-#   4. the Xray edge still EXCLUDES day8/reagent-slim (rf2-qvyr / rf2-iz4x).
+#   4. the Xray edge EXCLUDES day8/reagent-slim.
 #      Without it a published Story consumer resolves TWO providers of the
 #      canonical `re-frame.adapter.reagent` ns — stock day8/re-frame2-reagent
 #      direct, and reagent-slim transitively through Xray, which
@@ -55,16 +55,16 @@
 #
 # # Set-shaped, not presence-shaped
 #
-# This mirrors preflight-reagent-slim-package.sh, and for the same reason
-# (rf2-do3m2): an absence-only check passes on an EMPTY `<dependencies/>`,
+# This mirrors preflight-reagent-slim-package.sh, and for the same reason:
+# an absence-only check passes on an EMPTY `<dependencies/>`,
 # which is precisely the pom the unrewritten deps.edn produces. Bind to
 # the expected membership, not to the absence of known-bad names.
 #
 # # Runner / portability
 #
 # Linux-runner-only by design (sole caller is release-story.yml on
-# ubuntu-latest). POSIX sh + python3 — python3 is already a runner
-# requirement for the rewrite step that runs immediately before this, and
+# ubuntu-latest). POSIX sh + python3 — python3 is a runner requirement
+# anyway, for the rewrite step that runs immediately before this, and
 # ships on ubuntu-latest. The pom is parsed with ElementTree rather than
 # grepped: this is the last gate before an irreversible publish, and a
 # text parser that mis-reads a reformatted pom would produce exactly the
@@ -137,7 +137,7 @@ MISSING_HINT = {
         " exactly the pom produced when release-story.yml's :local/root ->"
         " :mvn/version rewrite did not take effect for this coordinate."
         " Publishing it would ship a Story that cannot compile on a"
-        " consumer's machine (rf2-r8trk at the package boundary)."
+        " consumer's machine."
     )
     for coord in IN_REPO
 }
@@ -252,7 +252,7 @@ for coord, unwanted in sorted(REQUIRED_EXCLUSIONS.items()):
     if coord in declared_set and unwanted not in excluded[coord]:
         errors.append(
             "dependency %s/%s does not EXCLUDE %s/%s. That exclusion is"
-            " LOAD-BEARING (rf2-qvyr): without it a consumer whose only tool"
+            " LOAD-BEARING: without it a consumer whose only tool"
             " coordinate is day8/re-frame2-story resolves TWO providers of"
             " re-frame.adapter.reagent — day8/re-frame2-reagent directly, and"
             " reagent-slim transitively, which transform-reagent-slim-ns.sh"

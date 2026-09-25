@@ -1,20 +1,19 @@
-# MkDocs build-time hooks (rf2-qvlf, rf2-jtkc, rf2-wjfzn).
+# MkDocs build-time hooks.
 #
 # The narrative guide lives at docs/core/*.md. Many guide pages cross-link
 # to the normative spec under spec/*.md using the path ../../spec/ — that
 # is correct when the guide is browsed via the GitHub source tree (where
 # spec/ lives at the repo root, two levels up from docs/core/).
 #
-# At MkDocs build time the spec tree is staged under docs/spec/ (see the
-# `Stage spec/ into docs/spec/` step in .github/workflows/docs.yml, and
-# the equivalent local `cp -r spec docs/spec`). From a guide page the
-# correct relative path to the staged spec is therefore ../spec/, not
-# ../../spec/. Without rewriting, every guide -> spec link 404s on the
-# published site and emits a WARNING during `mkdocs build`.
+# At MkDocs build time the spec tree is staged under docs/spec/ (by
+# `on_pre_build` below). From a guide page the correct relative path to
+# the staged spec is therefore ../spec/, not ../../spec/. Without
+# rewriting, every guide -> spec link 404s on the published site and
+# emits a WARNING during `mkdocs build`.
 #
 # Rather than rewrite the source files (which would break GitHub
 # source-tree browsing for anyone reading the guide on github.com), we
-# rewrite the markdown at build time. Source on disk remains correct for
+# rewrite the markdown at build time. Source on disk is correct for
 # both contexts.
 #
 # Rewrite cases:
@@ -47,19 +46,18 @@
 #          of spec/, staged into docs/spec/conformance/) — rewrite the bare
 #          directory link to conformance/README.md.
 #
-# Pre-build staging (rf2-qw5mh).
+# Pre-build staging.
 #
 # The published site needs spec/ and migration/ to live inside docs_dir so
-# MkDocs can see them. CI did this via a shell step (.github/workflows/docs.yml:
-# "Stage spec/ + migration/ into docs/"). Locally, a contributor running
-# `mkdocs build --strict` without that step would see dozens of WARNINGs
-# about missing spec/*.md and migration/*.md targets — link-rot that's not
-# actually rot, just a missing staging step.
+# MkDocs can see them. Without staging, a local `mkdocs build --strict`
+# would see dozens of WARNINGs about missing spec/*.md and migration/*.md
+# targets — link-rot that's not actually rot, just a missing staging step.
 #
-# We promote the staging into this hook (on_pre_build), so that ANY local
-# or CI invocation of mkdocs (build, serve, --strict) auto-stages the two
-# trees. CI keeps its explicit step as a redundant belt-and-braces; both
-# are idempotent (rm -rf + copy). The staged dirs are .gitignored.
+# This hook (on_pre_build) does the staging, so that ANY local or CI
+# invocation of mkdocs (build, serve, --strict) auto-stages the two trees.
+# CI's docs.yml also runs an explicit "Stage spec/ + migration/ into docs/"
+# step as a redundant belt-and-braces; both are idempotent (rm -rf + copy).
+# The staged dirs are .gitignored.
 
 import re
 import shutil
@@ -160,11 +158,10 @@ _GUIDE_XRAY_DIR = re.compile(r'\]\(\.\./\.\./xray/\)')
 # conformance corpus is staged at docs/spec/conformance/, with README.md as
 # its index. MkDocs needs the explicit .md target.
 #
-# The trailing slash is OPTIONAL (rf2-5exqc). GitHub renders `](conformance)`
-# and `](conformance/)` identically, so authors write both; before the `/?`
-# the slashless form fell through every rule and shipped as a 404, and only
-# at MkDocs INFO — see the `validation:` block in mkdocs.yml for why that was
-# silent. `--strict` now fails on it, and this rule means it does not have to.
+# The trailing slash is OPTIONAL. GitHub renders `](conformance)` and
+# `](conformance/)` identically, so authors write both; without the `/?`
+# the slashless form would fall through every rule and ship as a 404,
+# which `--strict` fails on (see the `validation:` block in mkdocs.yml).
 _SPEC_CONFORMANCE_DIR = re.compile(r'\]\(conformance/?\)')
 
 # Case 2: cross-tree refs that don't exist in the staged docs tree.
@@ -189,13 +186,10 @@ _REWRITES = (
     # ../examples/. All resolve to the same GitHub blob URL.
     #
     # The path after the tree root is OPTIONAL, so a bare `](../examples)`
-    # naming the whole tree rewrites too (rf2-5exqc). It read as an oversight
-    # until `validation.links.unrecognized_links` was raised in mkdocs.yml,
-    # because MkDocs graded the resulting dead link INFO rather than WARNING:
-    # `spec/README.md` shipped three of them. Capturing the leading slash
-    # inside the group keeps every already-matching form byte-identical, and
-    # `examples-old/x` still does not match — after `examples` the regex needs
-    # either `/` or the closing paren.
+    # naming the whole tree rewrites too. The leading slash sits inside the
+    # group, so a form with a path maps to `.../examples/<path>` and the bare
+    # form to `.../examples`; `examples-old/x` does not match — after
+    # `examples` the regex needs either `/` or the closing paren.
     (re.compile(r'\]\(\.\./\.\./\.\./examples(/[^)\s]*)?\)'),
      rf']({GH_BLOB_BASE}/examples\1)'),
     (re.compile(r'\]\(\.\./\.\./examples(/[^)\s]*)?\)'),
@@ -225,8 +219,7 @@ _REWRITES = (
     # implementation/ tree (source files; not docs to render).  Depth-3 first:
     # chapter sub-pages at docs/core/<chapter-dir>/X.md reach the repo root
     # through ../../../, and without this rule MkDocs leaves the link as-is
-    # (an INFO, not a WARNING — so --strict stays green while the published
-    # link 404s).  The depth-2 rule below must not see the depth-3 shape, and
+    # and the published link 404s.  The depth-2 rule below must not see the depth-3 shape, and
     # cannot: the alternatives are tried in order and this one consumes it.
     (re.compile(r'\]\(\.\./\.\./\.\./implementation/([^)\s]*)\)'),
      rf']({GH_BLOB_BASE}/implementation/\1)'),
@@ -290,13 +283,13 @@ def on_page_markdown(markdown, page, config, files):
             markdown = _GUIDE_DEEP_TO_MIGRATION.sub('](../../migration/', markdown)
             # Bare ../../xray/ -> ../../xray/index.md (chapter overview).
             # Only sub-chapter pages emit this shape; depth-2 guide pages
-            # would use ../xray/ and don't appear in the warning set.
+            # would use ../xray/.
             markdown = _GUIDE_XRAY_DIR.sub('](../../xray/index.md)', markdown)
         else:
             markdown = _GUIDE_TO_SPEC.sub('](../spec/', markdown)
             markdown = _GUIDE_TO_MIGRATION.sub('](../migration/', markdown)
             # Bare ../../skills/X/ -> ../skills/X.md (in-tree summary page).
-            # Only depth-2 guide pages emit this shape today; skills/ sub-
+            # Only depth-2 guide pages emit this shape; skills/ sub-
             # paths (e.g. ../../skills/X/SKILL.md) fall through to the
             # GitHub-URL rewrite below since the published site only carries
             # the per-skill summary page, not the skill internals.

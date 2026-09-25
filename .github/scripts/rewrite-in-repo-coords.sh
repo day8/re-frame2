@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# rewrite-in-repo-coords.sh (rf2-2ii52)
+# rewrite-in-repo-coords.sh
 #
 # # What this does
 #
@@ -13,19 +13,18 @@
 #
 # `clein pom` SILENTLY SKIPS `:local/root` coordinates, so every one of
 # them has to be rewritten or the published pom omits a runtime
-# dependency — and Clojars has no yank. The existing release workflows
-# spell their coordinates out inline, one `rewrite-local-root-coord.sh`
-# call per line, and that literal is precisely what drifted: tools/xray
-# grew from one in-repo coordinate to TEN while release-xray.yml kept
-# rewriting two, and nothing noticed for as long as nobody cut a tag
-# (rf2-5dut1 / rf2-7fxf8). A hand-maintained roster cannot report on what
-# it does not list.
+# dependency — and Clojars has no yank. A release workflow that spells its
+# coordinates out inline, one `rewrite-local-root-coord.sh` call per line,
+# carries a literal that drifts: an artefact can grow new in-repo
+# coordinates while its workflow keeps rewriting the old ones, and nothing
+# notices until somebody cuts a tag. A hand-maintained roster cannot report
+# on what it does not list.
 #
 # So this script reads the coordinates OUT OF the artefact's own deps.edn.
 # Add a `:local/root` dependency and its rewrite happens on the next
 # release with no edit here and none in the workflow.
 #
-# # WHEN NOT TO USE THIS SCRIPT (rf2-5dut1)
+# # WHEN NOT TO USE THIS SCRIPT
 #
 # It rewrites EVERY declared coordinate, and it does not ask whether the
 # artefact on the other end is publishable. For an artefact whose in-repo
@@ -37,13 +36,11 @@
 # straight through to a registry with no yank. The failure moves from our
 # release job to the consumer's build.
 #
-# tools/xray WAS that case (`day8/re-frame2-freehand`, unpublishable until
-# the EP-0036 F6 gate), which is why release-xray.yml drives the
-# single-coordinate helper over an explicit roster instead. That coordinate
-# went with the Freehand tree (rf2-0yp7w) and every coordinate Xray now
-# declares is publishable (rf2-gra70), so no caller is that case today — the
-# roster stays because the hazard recurs, not because it is live. Before
-# pointing
+# release-xray.yml drives the single-coordinate helper over an explicit
+# roster instead, so an unpublishable coordinate can be deliberately left
+# unrewritten and refused by its package preflight. Every coordinate Xray
+# declares is publishable, so the roster guards a hazard that recurs rather
+# than one that is live. Before pointing
 # a new artefact at this script, check that every `:local/root` target
 # carries a `:clein/build` — or teach this script to partition on it and
 # report the skipped coordinates loudly.

@@ -82,7 +82,7 @@ test('RED: a read-only live tool that DROPS openWorldHint ⇒ throws + names it'
   tools[0].annotations = { readOnlyHint: true };
   assert.throws(
     () => assertClassificationRatchet(tools, FIXTURE),
-    /read-live is open-world[\s\S]*MUST be true[\s\S]*rf2-ppk6hy/,
+    /read-live is open-world[\s\S]*MUST be true[\s\S]*trust\/confirmation boundary/,
   );
 });
 
@@ -149,18 +149,18 @@ test('RED: a destructive tool re-labelled read-only ⇒ throws', () => {
   );
 });
 
-// --- rf2-6i2yi4 finding 4: a dangling `closed-world` entry is caught ---
+// --- a dangling `closed-world` entry is caught ---
 //
 // `closed-world` is consulted PER-TOOL inside the per-tool loop
 // (`closedWorld.has(t.name)`), which only ever iterates the LIVE
-// tool-set. Before the fix, a `closed-world` row naming a tool that no
-// longer exists at all (removed, with its `classifications` row removed
-// too — so check 0's exact-keyset guard is satisfied) was never visited
-// by that loop and therefore never validated: a real removal that
+// tool-set. A `closed-world` row naming a tool that does not exist at all
+// (removed, with its `classifications` row removed too — so check 0's
+// exact-keyset guard is satisfied) is never visited by that loop, so the
+// ratchet validates the list separately: otherwise a real removal that
 // correctly updated `classifications` but forgot to also drop the
-// matching `closed-world` row shipped GREEN. This is the same class of
-// fixture-hygiene gap check 0 already closes for `classifications`
-// (a stale row there DOES trip), just on the `closed-world` side.
+// matching `closed-world` row would ship GREEN. This is the same class of
+// fixture-hygiene gap check 0 closes for `classifications` (a stale row
+// there DOES trip), on the `closed-world` side.
 
 test('RED: rf2-6i2yi4 finding 4 — a `closed-world` row naming a REMOVED tool is caught, not silently tolerated', () => {
   // `read-inline` was removed from the server; `classifications` was
@@ -180,9 +180,9 @@ test('RED: rf2-6i2yi4 finding 4 — a `closed-world` row naming a REMOVED tool i
     tool('write-live', { destructiveHint: true, openWorldHint: true }),
     tool('pin-live', { openWorldHint: true }),
   ];
-  // Every LIVE tool here is correctly classified — under the pre-fix
-  // code this fixture would NOT throw at all (the per-tool loop never
-  // visits the absent 'read-inline', so the dangling row is invisible).
+  // Every LIVE tool here is correctly classified — a check confined to
+  // the per-tool loop would NOT throw at all (it never visits the absent
+  // 'read-inline', so the dangling row is invisible).
   assert.throws(
     () => assertClassificationRatchet(tools, staleFixture),
     (err) => {

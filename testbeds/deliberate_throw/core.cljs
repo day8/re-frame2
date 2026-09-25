@@ -72,12 +72,12 @@
 ;; Button C — throw inside flow :derive
 ;; ----------------------------------------------------------------------------
 ;;
-;; The flow is registered once at boot, inside `run` AFTER `rf/init!` has
-;; made the `:rf/default` frame live (registration order relative to the
+;; The flow is registered once at boot, inside `run` AFTER `rf/make-frame`
+;; has made the `:rf/default` frame live (registration order relative to the
 ;; events/fx/subs above doesn't matter — the runtime topsorts before the
 ;; first drain). `reg-flow` targets the current frame and rejects a
-;; non-live frame (rf2-zbxvqj guard), so it must NOT run at ns-load —
-;; init! has not run yet there. Button C's handler bumps :flow-input; on
+;; non-live frame, so it must NOT run at ns-load — no frame is live
+;; there. Button C's handler bumps :flow-input; on
 ;; the post-handler flows pass, the runtime walks this flow, calls
 ;; :derive with the new input, and the throw fires there.
 ;;
@@ -87,18 +87,17 @@
 ;; `:db` is preserved (prior writes survive); the failing flow's
 ;; `last-inputs` is NOT advanced.
 
-;; main (rf2-7gvnmy): reg-flow moved OUT of ns-load and INTO `run` AFTER
-;; `rf/init!` via this fn — a frame must be live or the rf2-zbxvqj guard in
-;; `reg-flow` rejects with :rf.error/flow-frame-not-live.
-;; EP-0002 (rf2-5q7um6 / rf2-9o48ih): reg-flow is context-required frame-local;
+;; reg-flow runs from `run` via this fn rather than at ns-load — a frame
+;; must be live or `reg-flow` rejects with :rf.error/flow-frame-not-live.
+;; Per EP-0002, reg-flow is context-required frame-local;
 ;; it needs a CARRIED frame stamp. `run` calls this inside a
 ;; `(with-frame :rf/default …)` scope so the flow registers against the
 ;; explicitly-registered `:rf/default` frame (the runtime never synthesises
 ;; one from absence).
 (defn- register-throwing-flow!
   "Register the Button-C flow against the live `:rf/default` frame.
-  Called from `run` after `rf/init!` (and inside a `with-frame :rf/default`
-  scope) — a frame must be live or the rf2-zbxvqj guard in `reg-flow`
+  Called from `run` after `rf/init!` and `rf/make-frame` (and inside a
+  `with-frame :rf/default` scope) — a frame must be live or `reg-flow`
   rejects with :rf.error/flow-frame-not-live."
   []
   (rf/reg-flow ::throws
@@ -183,12 +182,12 @@
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter, no frame).
   (rf/make-frame {:id :rf/default})
-  ;; Both the Button-C flow registration (main rf2-7gvnmy: reg-flow must run
-  ;; AFTER init! against a live frame) and the boot dispatch run inside the
+  ;; Both the Button-C flow registration (reg-flow must run against a live
+  ;; frame) and the boot dispatch run inside the
   ;; carried `:rf/default` scope. The render is wrapped in a `frame-provider`
   ;; so in-tree dispatch/subscribe resolve to `:rf/default`.
   (rf/with-frame :rf/default

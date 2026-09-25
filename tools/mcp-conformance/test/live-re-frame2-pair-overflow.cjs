@@ -12,7 +12,7 @@
 // This variant fills that gap. With a real nREPL connected:
 //
 //   1. The cap-trigger code path (`apply-cap` in
-//      `tools/re-frame2-pair-mcp/src/.../tools.cljs`) runs against a *real* live
+//      `tools/re-frame2-pair-mcp/src/.../tools/cap.cljs`) runs against a *real* live
 //      tool response — not a synthetic fixture.
 //
 //   2. The emitted `{:rf.mcp/overflow ...}` envelope passes through
@@ -32,7 +32,7 @@
 //     50K tokens and forgets to update spec/code-paths in lockstep)
 //   - marker shape regressions that only fire on real payloads
 //   - client-side parse failures on cap-marker shapes the SDK's strict
-//     CallToolResultSchema doesn't yet recognise
+//     CallToolResultSchema doesn't recognise
 //   - keyword renames (`:cap-tokens` → `:cap_tokens`,
 //     `:rf.mcp/overflow` → `:rf.mcp/overflows`) at the live emission
 //     site (the wire-vocab unit test catches them in source text; this
@@ -42,16 +42,12 @@
 //
 // **Skipped unless `$SHADOW_CLJS_NREPL_PORT` is set.** Without a real
 // nREPL the server runs in degraded mode and the cap can't be tripped
-// naturally (every response is the same tiny error envelope). On CI
-// the gate is unset by default → the script exits 0 with a SKIP
-// marker. Locally, Mike's running shadow-cljs sets the env, the
-// re-frame2-pair-mcp server attaches, and this test runs the real-overflow
-// path.
-//
-// A follow-on bead tracks the "live overflow via a worked example +
-// auto-spawned shadow-cljs" variant. That gives fully-hermetic CI
-// coverage; this script gives Mike a one-command local-runtime guard
-// today.
+// naturally (every response is the same tiny error envelope), so the
+// script exits 0 with a SKIP marker. The hermetic orchestrator
+// (`scripts/run-re-frame2-pair-live-hermetic-suite.cjs`) boots
+// shadow-cljs + Chromium against `skills/re-frame2-pair/tests/fixture/`
+// and wires the env so this gate fires on CI; locally, a running
+// shadow-cljs that sets the env does the same.
 //
 // ## How the cap is naturally tripped
 //
@@ -71,10 +67,10 @@
 // (same as the sibling harness). Exits 0 on success or SKIP. Exits 1
 // on any conformance violation.
 
-// ## DRY-on-3 resolution
+// ## What is shared with the sibling live variants
 //
 // This file and its `live-re-frame2-pair-*.cjs` siblings (turn-observation,
-// redaction, isError, cofx, event-meta) share the nREPL SKIP-gate (via
+// redaction, isError, cofx, event-meta, replace-app-db) share the nREPL SKIP-gate (via
 // $SHADOW_CLJS_NREPL_PORT) and the SDK-spawn ceremony. Both are factored:
 // the SKIP gate routes through `runWithWatchdog.skip`, and the
 // spawn+connect+teardown ceremony is `_runner.cjs`'s `connectServer` /
@@ -86,10 +82,8 @@
 // schema (`ReFrame2PairOverflowBody`), and the JVM cross-encoding gate in
 // `wire_vocab_test.clj` greps the validator's literal source rows by name —
 // folding it into a GENERIC helper would dissolve that per-schema
-// attribution and weaken the conformance contract. (The helper was
-// extracted so its pure logic is unit-testable off the live path. The
-// retired streaming harness kept its own progress-params validator inline
-// for the same per-schema reason; rf2-ahjbc removed it with the subsystem.)
+// attribution and weaken the conformance contract. (The helper lives in
+// `lib/` so its pure logic is unit-testable off the live path.)
 
 const path = require('node:path');
 const os = require('node:os');
@@ -109,11 +103,12 @@ const {
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
-// Default cap pinned by tools/re-frame2-pair-mcp/src/.../tools.cljs
-// `default-max-tokens`. Sourced here as a compile-time constant so a
-// future bump to the default surfaces as a test-failure forcing the
-// reviewer to update both pins in lockstep (re. the bead description's
-// "cap-trigger threshold drift" risk).
+// Default cap pinned by `re-frame.mcp-base.overflow/default-max-tokens`
+// (re-exported as `default-max-tokens` in
+// tools/re-frame2-pair-mcp/src/.../tools/cap.cljs). Sourced here as a
+// compile-time constant so a bump to the default surfaces as a
+// test-failure forcing the reviewer to update both pins in lockstep (the
+// "cap-trigger threshold drift" risk above).
 const DEFAULT_MAX_TOKENS = 5000;
 
 // Payload generator: a CLJS form that evaluates to a string large
@@ -203,8 +198,7 @@ runWithWatchdog(
     // `:rf.mcp/overflow` marker. We read the EDN text and validate it as
     // the CLOSED single-key wrapper — a surrounding `{:ok? true :value
     // "xxxxx..."}` (apply-cap missed) OR a mixed envelope smuggling a
-    // sibling top-level key past the wrapper (the rf2-3fc89f.20 hole) is
-    // rejected. The friendly presence check first distinguishes "cap
+    // sibling top-level key past the wrapper is rejected. The friendly presence check first distinguishes "cap
     // didn't trigger" from "cap triggered but shape wrong".
     const text = callResp.content?.[0]?.text;
     if (typeof text !== 'string') {
@@ -232,10 +226,10 @@ runWithWatchdog(
     // MCP writes the SAME marker into BOTH `content[0].text` (pr-str EDN)
     // and `structuredContent` (the namespace-preserving `clj->js`
     // projection, see `tools/cap.cljs build-overflow-result` →
-    // `wire/result`). Before rf2-3fc89f.20 the live gate never inspected
-    // structuredContent, so it could lose the namespace, gain siblings,
-    // or carry a different body while text stayed canonical and CI still
-    // reported green. `structuredContent` arrives as an already-parsed JS
+    // `wire/result`). A gate that inspected only the text slot would let
+    // structuredContent lose the namespace, gain siblings, or carry a
+    // different body while text stayed canonical and CI reported green.
+    // `structuredContent` arrives as an already-parsed JS
     // object whose top-level key is the bare string `"rf.mcp/overflow"`,
     // so the SAME closed-wrapper validator applies.
     const structured = callResp.structuredContent;
@@ -262,8 +256,7 @@ runWithWatchdog(
 
     // 6. Pin the load-bearing semantic facts about the marker:
     //   - :cap-tokens MUST equal the documented default (5000).
-    //     This catches the "default bumped silently" drift the bead
-    //     description flagged.
+    //     This catches a silently bumped default.
     //   - :tool MUST equal "eval-cljs" (the offending tool name).
     //   - :hint MUST match the per-tool entry (the wire-cap test
     //     pins the fallback path; this pins the per-tool path).
@@ -279,7 +272,7 @@ runWithWatchdog(
           DEFAULT_MAX_TOKENS +
           ' (no per-call override sent); got ' +
           body['cap-tokens'] +
-          '. If the default has changed in re-frame2-pair-mcp `tools.cljs`, ' +
+          '. If the default has changed in `re-frame.mcp-base.overflow`, ' +
           'update DEFAULT_MAX_TOKENS in this file and refresh the spec ' +
           '§"Tight token budget per response" reference together.',
       );
@@ -310,13 +303,15 @@ runWithWatchdog(
         body['token-count'],
     );
 
-    // 6b. :token-count is in TOKEN units (rf2-3x7nj.35.2). The shared
-    // cap reports the raw CHARACTER sum only on the char gate
-    // (chars > cap * 8), and before the fix it did so even when the token
-    // gate had tripped too — which is this payload's path, since the
-    // 25,000-char string rides both result slots. A token-unit count sits
-    // at or above the one-copy estimate and at or below the char ceiling;
-    // a character count can only land above that ceiling.
+    // 6b. :token-count is in TOKEN units. The shared cap's
+    // `reported-count` reports the token sum when the token gate tripped,
+    // else `(quot chars 4)`. This payload trips both the token gate and
+    // the char gate (chars > cap * 8), since the 25,000-char string rides
+    // both result slots; a cap that reported the raw CHARACTER sum
+    // whenever the char gate tripped would report characters here. A
+    // token-unit count sits at or above the one-copy estimate and at or
+    // below the char ceiling; a character count can only land above that
+    // ceiling.
     const minTokens = Math.floor(PAYLOAD_CHARS / 4);
     const charCeiling = DEFAULT_MAX_TOKENS * 8;
     if (body['token-count'] < minTokens || body['token-count'] > charCeiling) {

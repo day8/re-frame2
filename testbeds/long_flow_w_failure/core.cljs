@@ -3,7 +3,7 @@
   app-db writes that drive a three-flow topology, with a configurable
   mid-flow failure injection. A consumer (Xray, Story, re-frame2-pair-mcp)
   observes the flow-failure ATOMICITY contract (per
-  [spec/013 §Failure semantics] / rf2-u0zz5) play out over a
+  [spec/013 §Failure semantics]) play out over a
   human-visible time window:
 
     A flow throw is a PRE-INSTALL throw, so it ABORTS THE WHOLE EVENT:
@@ -133,7 +133,7 @@
 ;; Flows — three in topo order
 ;; ----------------------------------------------------------------------------
 ;;
-;; Topology pin (rf2-sabm5). Spec 013 §Topological sort orders a flow
+;; Topology pin. Spec 013 §Topological sort orders a flow
 ;; map by path-prefix overlap between one flow's `:output-path` and another's
 ;; `:inputs` — two flows that don't share such an overlap are
 ;; topologically *parallel*, and Kahn's algorithm picks an unspecified
@@ -160,21 +160,21 @@
 ;; app-db (incl. :input, :a-result, :b-result, :c-result) is frozen at
 ;; tick N-1's committed value.
 
-;; main (rf2-3khbut): the three reg-flow calls moved OUT of ns-load and INTO
-;; `run` AFTER `rf/init!` via this fn — same fix as the sibling deliberate_throw
-;; testbed (main rf2-7gvnmy). A frame must be live or the rf2-zbxvqj guard in
-;; `reg-flow` rejects with :rf.error/flow-frame-not-live (no frame is live until
-;; init!). Registration order relative to the events/fx/subs above doesn't
-;; matter — the runtime topsorts the flow map before the first drain.
-;; EP-0002 (rf2-5q7um6 / rf2-9o48ih): reg-flow is context-required frame-local;
+;; The three reg-flow calls run from `run` via this fn rather than at
+;; ns-load, as in the sibling deliberate_throw testbed. A frame must be live
+;; or `reg-flow` rejects with :rf.error/flow-frame-not-live (no frame is live
+;; until `run` makes `:rf/default`). Registration order relative to the
+;; events/fx/subs above doesn't matter — the runtime topsorts the flow map
+;; before the first drain.
+;; Per EP-0002, reg-flow is context-required frame-local;
 ;; it needs a CARRIED frame stamp. `run` calls this inside a
 ;; `(with-frame :rf/default …)` scope so all three flows register against the
 ;; explicitly-registered `:rf/default` frame (the runtime never synthesises one
 ;; from absence). This testbed hosts on :rf/default.
 (defn- register-flows!
   "Register the three cascade flows against the live `:rf/default` frame.
-  Called from `run` after `rf/init!` (and inside a `with-frame :rf/default`
-  scope) — a frame must be live or the rf2-zbxvqj guard in `reg-flow`
+  Called from `run` after `rf/init!` and `rf/make-frame` (and inside a
+  `with-frame :rf/default` scope) — a frame must be live or `reg-flow`
   rejects with :rf.error/flow-frame-not-live."
   []
 
@@ -386,14 +386,14 @@
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
   (rf/make-frame {:id :rf/default})
-  ;; Both the three-flow registration (main rf2-3khbut: reg-flow must run AFTER
-  ;; init! against a live frame) and the boot dispatch run inside the carried
+  ;; Both the three-flow registration (reg-flow must run against a live
+  ;; frame) and the boot dispatch run inside the carried
   ;; `:rf/default` scope. The render is wrapped in a `frame-provider` so in-tree
   ;; dispatch/subscribe resolve to `:rf/default`.
   (rf/with-frame :rf/default

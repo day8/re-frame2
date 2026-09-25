@@ -9,7 +9,7 @@
       event vector, and the ordinary `reg-event` pipeline receives it with normal
       coeffects/effects semantics (the natural-success case).
 
-    - A STALE completion is UNIVERSALLY non-delivering (rf2-j538f7.14): the
+    - A STALE completion is UNIVERSALLY non-delivering: the
       `suppress` outcome always carries `:deliver? false`, so an app reply target
       NEVER receives a stale envelope through the event pipeline. A framework/tool
       OBSERVER that wants to see a stale reply reads `(:reply outcome)` and
@@ -26,10 +26,10 @@
   the default registrar) can hide behind an ambient dispatch. Its non-delivery
   tooth is the PAIR of call-count reads that straddle the observer's dispatch —
   zero before, exactly one after — so a runtime that app-delivered the stale
-  reply itself would be caught. A second row that only built the `suppress`
-  outcome and then asserted nothing had happened was removed (rf2-6r9j.97): it
-  invoked no delivery code, so its zero-call and unchanged-app-db assertions
-  followed from the test rather than from the runtime. The pure `suppress` laws
+  reply itself would be caught. A row that only built the `suppress` outcome
+  and then asserted nothing had happened would invoke no delivery code, so its
+  zero-call and unchanged-app-db assertions would follow from the test rather
+  than from the runtime. The pure `suppress` laws
   — universal `:deliver? false`, the stale envelope's shape, the absent
   `:value` — are `re-frame.reply-cljs-test`'s, asserted there across every
   target shape; this suite does not restate them."
@@ -49,7 +49,7 @@
 
 (def ^:private completed-at-ms 1781078400456)
 
-;; CROSS-RECORD SPELLING (rf2-l7s7b7, Managed-Effects §The reply map). The
+;; CROSS-RECORD SPELLING (Managed-Effects §The reply map). The
 ;; TRANSIENT reply envelope single-roots the work identity as
 ;; `:rf.reply/work-id` / `:rf.reply/work-kind`. The SAME fact is spelled bare
 ;; `:work/id` / `:work/kind` on the DURABLE work-ledger row, the runtime
@@ -79,9 +79,9 @@
           :kind             :event
           :id               id}))
 
-;; THE observer's own trusted path, as a test-local helper (DESIGN,
-;; rf2-j538f7.14). `suppress` is universally non-delivering (`:deliver? false`),
-;; so an app reply target never receives a stale envelope. A framework/tool
+;; THE observer's own trusted path, as a test-local helper. `suppress` is
+;; universally non-delivering (`:deliver? false`), so an app reply target
+;; never receives a stale envelope. A framework/tool
 ;; OBSERVER that WANTS to see one reads the stale `:reply` off the outcome and
 ;; dispatches it on its OWN authority — this helper is that explicit
 ;; self-dispatch (`complete` + `dispatch-sync`). Nothing capability-bearing rides
@@ -133,7 +133,7 @@
                 ":rf.reply/work-kind preserved")
             (testing "TOOTH — ordinary delivery keeps the identity on the
                       TRANSIENT-ENVELOPE spelling and grows NO top-level bare
-                      ledger alias beside it (rf2-xy3g). A runtime that
+                      ledger alias beside it. A runtime that
                       regressed to the durable `:work/id` spelling, or that
                       carried both, is caught here rather than passing a
                       fixture that modelled the wrong record layer."
@@ -230,7 +230,7 @@
               ":rf.reply/work-status :suppressed")
           (testing "TOOTH — the suppression boundary carries the identity
                     forward on the TRANSIENT-ENVELOPE spelling and grows NO
-                    top-level bare ledger alias (rf2-xy3g). The carried gate
+                    top-level bare ledger alias. The carried gate
                     map keeps its bare `:work/id`; the envelope does not
                     inherit it."
             (is (= (:work/id carried-correlation) (:rf.reply/work-id delivered-reply))

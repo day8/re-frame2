@@ -1,38 +1,29 @@
-// Repo-wide JS lint config (rf2-2rtt6.78).
+// Repo-wide JS lint config.
 //
 // WHAT THIS IS FOR, AND WHAT IT DELIBERATELY IS NOT.
 //
-// Before this file NOTHING checked the repo's tracked `.cjs` / `.mjs` / `.js`
-// files — bench drivers, gate runners, browser harnesses, MCP conformance
-// suites, in every tool tree. A syntax error or a typo'd identifier was
-// discovered the first time somebody ran the file, which for a nightly bench
-// driver can be days. clj-kondo and Splint cover the Clojure trees; this closes
-// the JS hole with the same shape: a BUG-CLASS linter, not a style linter.
+// This checks the repo's tracked `.cjs` / `.mjs` / `.js` files — bench
+// drivers, gate runners, browser harnesses, MCP conformance suites, in every
+// tool tree. Without it a syntax error or a typo'd identifier would surface
+// only the first time somebody ran the file, which for a nightly bench driver
+// can be days. clj-kondo and Splint cover the Clojure trees; this covers JS
+// with the same shape: a BUG-CLASS linter, not a style linter.
 //
 // The rule set below is hand-picked and deliberately small. It is NOT
-// `js.configs.recommended`: measured over this corpus, `recommended` reports
-// 148 findings across 60 files, and the great majority are hygiene opinions
-// (`no-empty`, `preserve-caught-error`, `no-useless-escape`,
-// `no-useless-assignment`) that would have to be silenced with per-file
-// disable comments to land green. A gate that ships with a suppression file is
-// worse than no gate, because people stop reading it. The curated set below
-// reported 24 findings across 17 files — every one of them dead code — all of
-// which were deleted in the landing PR.
+// `js.configs.recommended`: over this corpus the great majority of what
+// `recommended` reports are hygiene opinions (`no-empty`,
+// `preserve-caught-error`, `no-useless-escape`, `no-useless-assignment`) that
+// would have to be silenced with per-file disable comments to pass. A gate
+// that ships with a suppression file is worse than no gate, because people
+// stop reading it.
 //
-// SUPPRESSIONS IN THE TREE: none.
+// SUPPRESSIONS IN THE TREE: two, both `eslint-disable-next-line no-eval` in
+// `implementation/ssr/test/react_dom_probe/`, for a rule this config does not
+// enable.
 // This claim is checkable, so check it rather than trusting it — the regex
 // matches the DIRECTIVE forms only, so prose mentioning them (this header
-// included) does not register as a hit, and a clean run prints nothing:
+// included) does not register as a hit:
 //   git grep -nE "(/\*|//) *eslint-(disable|enable)" -- '*.cjs' '*.js' '*.mjs'
-// The count has been wrong before. The header first claimed ZERO, which was
-// false the day it was written (rf2-o4ohg); it then claimed exactly one — a
-// load-bearing `no-unreachable` pair in
-// `tools/story/test/story_feature_load.cjs` holding the dead body of a probe
-// that returned early behind a `console.warn` while its assertions waited for
-// a CLJS port. That wait had already ended: every assertion had a live owner
-// in the CLJS units and in the sibling `story_browser_scenarios.cjs`. The row
-// was demoted to `kind: 'owned-by'` and the dead body deleted, and the
-// suppression went with the code it guarded (rf2-kvsm1).
 // Keep the count here honest — a suppression that no comment admits to is how
 // a gate quietly stops meaning what it says.
 //
@@ -79,9 +70,8 @@
 // rather than "this is a bug", it does not belong here.
 //
 // WHAT THIS GATE DOES NOT CATCH — stated because a linter that is assumed to
-// cover more than it does is worse than one whose edges are known. Both limits
-// below were confirmed by mutating a real driver and watching the gate stay
-// green:
+// cover more than it does is worse than one whose edges are known. A real
+// driver mutated either way below keeps the gate green:
 //
 //   - A MISSPELLED PROPERTY OR METHOD on an object that does exist.
 //     `console.errr(…)` passes. `no-undef` resolves free identifiers, and
@@ -162,15 +152,14 @@ export default [
     //
     // Flat config ignores exactly two paths of its own accord — `**/node_modules/`
     // and `.git/` (`eslint/lib/config/default-config.js`). Dot-directories in
-    // general are NOT among them; that was the old `.eslintrc` behaviour, and
-    // assuming it carried over is what left `.shadow-cljs/` linted (rf2-d4bqy).
-    // After any local `:advanced` build, `implementation/.shadow-cljs/builds/
-    // */release/externs.shadow.js` — a Closure externs file, all declarations,
-    // none of them used — reported several hundred `no-unused-vars` /
-    // `no-shadow-restricted-names` errors and failed the gate. CI never saw it,
-    // because a fresh checkout has no build output. So the gate was red locally
-    // and green in CI, which is the way round that teaches a developer to
-    // disbelieve their own lint run.
+    // general are NOT among them, unlike the legacy `.eslintrc` behaviour, so
+    // `.shadow-cljs/` needs its own entry. After any local `:advanced` build,
+    // `implementation/.shadow-cljs/builds/*/release/externs.shadow.js` — a
+    // Closure externs file, all declarations, none of them used — would report
+    // several hundred `no-unused-vars` / `no-shadow-restricted-names` errors
+    // and fail the gate, while CI, whose fresh checkout has no build output,
+    // stays green. Red locally and green in CI is the way round that teaches a
+    // developer to disbelieve their own lint run.
     //
     // The list below is this repo's build outputs as its own fourteen
     // `.gitignore` files declare them, narrowed to the trees that can carry
@@ -193,11 +182,9 @@ export default [
       // between a gate that reads the repo and one that reads the compiler's
       // output.
       '**/.shadow-cljs/**',
-      // shadow-cljs `:output-dir`s. Empty in a fresh checkout, which is the
-      // only reason neither surfaced as a symptom alongside the externs file;
-      // both are declared generated by the `.gitignore` sitting beside them
-      // (`examples/ui/minimal-counter/`, the `tools/template/` scaffold, and
-      // `skills/re-frame2-pair/`).
+      // shadow-cljs `:output-dir`s. Empty in a fresh checkout; both are
+      // declared generated by the `.gitignore` sitting beside them (the
+      // `tools/template/` scaffold and `skills/re-frame2-pair/`).
       '**/resources/public/js/**',
       '**/public/js/compiled/**',
       // Local-only trees whose contents this repo does not author. An agent
@@ -221,7 +208,7 @@ export default [
     // `tools/*-mcp/test/` all open with `require(…)` and sit under a
     // `package.json` with no `"type"` field. Should an ESM `.js` ever land
     // (the one package declaring `"type": "module"` is
-    // `docs/tools/playground/`, which today ships only `.mjs`), it wants its
+    // `docs/tools/playground/`, which ships only `.mjs`), it wants its
     // own block rather than a change here.
     files: ['**/*.cjs', '**/*.js'],
     languageOptions: {

@@ -177,10 +177,10 @@
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   (install-trace-listener!)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the client app frame and scope the
   ;; hydrate dispatch + render to it (the carried invariant). `:rf/hydrate`
-  ;; lands on the carried frame; `verify-hydration!` already names it.
+  ;; lands on the carried frame; `verify-hydration!` names it explicitly.
   (rf/make-frame {:id :rf/default})
   (let [payload (read-server-payload)]
     (rf/with-frame :rf/default
@@ -196,7 +196,7 @@
     ;; The resolved tree hashes to a value that won't equal the
     ;; payload's 'deadbeef'; verify-hydration! emits the mismatch
     ;; trace which our listener routes to ::record-mismatch.
-    ;; EP-0002 (rf2-9o48ih): invoking the reg-view'd root resolves its
+    ;; Per EP-0002, invoking the reg-view'd root resolves its
     ;; injected frame-bound bindings at call time, so do it under the
     ;; client frame scope.
     (rf/with-frame :rf/default

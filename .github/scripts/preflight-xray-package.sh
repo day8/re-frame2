@@ -1,22 +1,18 @@
 #!/usr/bin/env sh
-# preflight-xray-package.sh (rf2-5dut1)
+# preflight-xray-package.sh
 #
 # # Why this exists
 #
 # `clein pom` SILENTLY SKIPS `:local/root` coordinates. tools/xray/deps.edn
 # declares TEN of them in its main `:deps` — core, epoch, routing, flows,
 # schemas, resources, machines, fresco, machines-viz and reagent-slim —
-# and release-xray.yml rewrites all ten. (It rewrote NINE until rf2-gra70:
-# the slot now held by `day8/re-frame2-fresco` was `day8/re-frame2-freehand`
-# under rf2-5dut1, unpublishable and so deliberately unrewritten.) Run against
-# the in-tree deps.edn with no rewrite at all, `clein pom` prints ten
-# `Skipping coordinate` lines and writes a pom whose `<dependencies>` are
-# four third-party artefacts and nothing else; that was the shipping state
-# when rf2-5dut1 was filed, with the workflow rewriting two of the ten.
+# and release-xray.yml rewrites all ten. Run against the in-tree deps.edn
+# with no rewrite at all, `clein pom` prints ten `Skipping coordinate` lines
+# and writes a pom whose `<dependencies>` are four third-party artefacts and
+# nothing else.
 #
-# That is precisely the failure class rf2-wht9a found in Story and closed
-# with preflight-story-package.sh: the consumer installs the artefact,
-# resolves a pom with holes in it, and hits
+# That is the failure class preflight-story-package.sh closes for Story: the
+# consumer installs the artefact, resolves a pom with holes in it, and hits
 #
 #     No such namespace: day8.re-frame2-epoch.…
 #
@@ -27,15 +23,15 @@
 # # The required set is DERIVED, never hand-maintained
 #
 # This is the one place this script deliberately departs from its Story
-# sibling, and the reason is the bug it exists for. Story's expected set is
-# a literal in the script; Xray's rewrite list was a literal in the
-# workflow, and it drifted from two coordinates to two-of-ten without a
-# single gate noticing, because nothing tied either literal back to
-# deps.edn. So the required set here is READ OUT OF deps.edn itself, from
-# the PRISTINE committed copy (`git show HEAD:tools/xray/deps.edn` — the
-# workspace copy has already been rewritten in place by the time this
-# runs). Add an eleventh `:local/root` coordinate to Xray and this gate
-# demands its rewrite on the next release with no edit here.
+# sibling, and the reason is the failure it exists for. Story's expected set
+# is a literal in the script, and Xray's rewrite list is a literal in the
+# workflow; a literal can drift away from deps.edn without a single gate
+# noticing, because nothing ties it back. So the required set here is READ
+# OUT OF deps.edn itself, from the PRISTINE committed copy (`git show
+# HEAD:tools/xray/deps.edn` — the workspace copy has already been rewritten
+# in place by the time this runs). Add an eleventh `:local/root` coordinate
+# to Xray and this gate demands its rewrite on the next release with no edit
+# here.
 #
 # The EDN is parsed with Clojure's own reader rather than grepped: this is
 # the last gate before an irreversible publish, and a text parser that
@@ -58,36 +54,28 @@
 # There is deliberately NO "no unexpected extras" assertion (Story has
 # one). That half needs a hand-maintained roster of third-party deps, which
 # is the maintenance shape this script is avoiding, and Xray's third-party
-# pins are already guarded in deps.edn by the lockstep script.
+# pins are guarded in deps.edn by the lockstep script.
 #
-# # This gate USED TO FAIL BY DESIGN, on one coordinate (rf2-gra70)
+# # An unpublishable coordinate is refused, never special-cased
 #
-# For as long as one of Xray's ten in-repo coordinates named an artefact
-# that carried no `:clein/build`, release-xray.yml deliberately left that
-# coordinate at `:local/root`, `clein pom` skipped it, and this script
-# REFUSED the tag push with the coordinate named — rather than publishing a
-# pom with a hole in it, or minting a GAV that could not exist. The
-# coordinate was `day8/re-frame2-freehand` under rf2-5dut1, then
-# `day8/re-frame2-fresco` after rf2-l86mm deleted the Freehand edge.
-#
-# rf2-gra70 removed the last one by publishing the artefact: Fresco now
-# carries a `:clein/build` and release.yml ships `day8/re-frame2-fresco`.
-# All ten coordinates are rewritten, so this gate is expected to PASS on a
-# correctly-ordered release — a framework `v*` tag at the same lockstep
-# VERSION first, then `xray-v*`.
+# Every one of Xray's ten in-repo coordinates names an artefact that carries
+# a `:clein/build`, so all ten are rewritten and this gate is expected to
+# PASS on a correctly-ordered release — a framework `v*` tag at the same
+# lockstep VERSION first, then `xray-v*`.
 #
 # NOTHING HERE IS SPECIAL-CASED TO A COORDINATE, and that is deliberate.
-# The required set is DERIVED from the committed deps.edn every run, so the
-# refusal above was never a hard-coded exception and its removal is not a
-# weakening: if a future in-repo coordinate is again unpublishable, this
-# gate reports it missing on its own terms, because `clein pom` will skip it
-# and the derived set will not.
+# The required set is DERIVED from the committed deps.edn every run. An
+# in-repo coordinate naming an artefact with no `:clein/build` has no GAV to
+# rewrite to, so release-xray.yml leaves it at `:local/root`, `clein pom`
+# skips it, and this gate REFUSES the tag push with the coordinate named —
+# on its own terms, because the derived set still lists it — rather than
+# publishing a pom with a hole in it, or minting a GAV that cannot exist.
 #
 # # Runner / portability
 #
 # Linux-runner-only by design (sole caller is release-xray.yml on
-# ubuntu-latest). POSIX sh + python3 — python3 is already a runner
-# requirement for the rewrite step that runs immediately before this, and
+# ubuntu-latest). POSIX sh + python3 — python3 is a runner requirement
+# anyway, for the rewrite step that runs immediately before this, and
 # ships on ubuntu-latest. No .ps1 sibling (same rationale as
 # preflight-story-package.sh).
 #
@@ -172,17 +160,13 @@ MISSING_HINT = (
     " .github/scripts/verify-version-lockstep.sh, in the same PR."
 )
 
-# There was a SECOND, coordinate-specific hint here until rf2-gra70, held open
-# for whichever in-repo coordinate named an artefact that carried no
-# `:clein/build` — day8/re-frame2-freehand under rf2-5dut1, then
-# day8/re-frame2-fresco after rf2-l86mm deleted the Freehand edge. It told the
-# operator NOT to follow MISSING_HINT above, because adding an unpublishable
-# coordinate to the rewrite step mints a GAV that cannot exist. Both premises
-# are gone: the Freehand edge was deleted and Fresco is published (rf2-gra70),
-# so every in-repo coordinate Xray declares has a publishable target and
-# MISSING_HINT is the correct and only advice. Re-introduce a hint like it only
-# with a coordinate that genuinely has no publishable target — and re-introduce
-# the workflow-side omission with it, since the two are one mechanism.
+# MISSING_HINT is the only advice because every in-repo coordinate Xray
+# declares has a publishable target. A coordinate with NO publishable target
+# would need a second, coordinate-specific hint telling the operator NOT to
+# follow MISSING_HINT, because adding an unpublishable coordinate to the
+# rewrite step mints a GAV that cannot exist. Add such a hint only together
+# with the workflow-side omission of that coordinate, since the two are one
+# mechanism.
 
 
 def localname(tag):

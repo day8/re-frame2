@@ -22,7 +22,7 @@
 //
 //   0. the launch installs `plain-atom` through a `clojure.main` `-e`
 //      init-opt, exactly as tools/story-mcp/README.md tells a consumer to.
-//      Steps 5-6 cannot execute a lifecycle without it (rf2-c9t52) — see
+//      Steps 5-6 cannot execute a lifecycle without it — see
 //      ADAPTER_BOOT below.
 //   1. connect (initialize + notifications/initialized via SDK)
 //   2. tools/list — confirm the advertised catalogue matches story-mcp's
@@ -41,9 +41,9 @@
 //      the source-chain / merge / runner-requirement slots round-trip
 //   8. snapshot-identity — same args ⇒ stable content-hash twice in a
 //      row (live smoke #3)
-//   9. record-as-variant — RETIRED (rf2-5saz7): assert the name is absent
-//      from the catalogue and a tools/call naming it takes the server's
-//      existing method-not-found path. Ordered AFTER register-variant and
+//   9. record-as-variant — not a tool: assert the name is absent from the
+//      catalogue and a tools/call naming it takes the server's ordinary
+//      method-not-found path. Ordered AFTER register-variant and
 //      run-variant so the absence is proven on a server whose catalogue
 //      and execution path demonstrably work (non-vacuity).
 //  10. unregister-variant — symmetric teardown + not-found verify
@@ -90,7 +90,7 @@ const EXPECTED_TOOLS = JSON.parse(
 // Per-tool annotation-classification ratchet. Pins each descriptor's
 // EXACT readOnly/destructive posture + budget-hint prose so a tool
 // silently re-classified turns this gate RED for an unchanged tool-set.
-// Sourced from this slice's own fixture (mirrors
+// Sourced from this harness's own fixture (mirrors
 // tools/story-mcp/tool-descriptors.edn).
 const EXPECTED_CLASSIFICATIONS = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'story-classifications.json'), 'utf8'),
@@ -106,16 +106,16 @@ const FIXTURE_VARIANT = 'story.mcp-conformance/probe.primary';
 // tools/story-mcp/README.md documents: a `clojure.main` `-e` init-opt that
 // runs before `-m` hands the process to the stdio loop.
 //
-// It is a PRECONDITION of steps 5-6, not boilerplate (rf2-c9t52). A variant
-// frame takes its state substrate from an installed re-frame adapter, and
-// story-mcp deliberately installs none — per spec/006 the substrate choice
-// belongs to the app. Before rf2-c9t52 this harness booted bare and steps 5-6
-// still read `:status "pass"`: the setup dispatches reached no adapter, the
-// lifecycle never ran, and the ordinary success envelope came back over an
-// empty app-db. That is the same false green rf2-3n3dk removed from the
-// sibling `end-to-end-project-stories.cjs`, and the vacuous-pass assertion at
-// step 6 is only honest once the lifecycle can actually execute. `plain-atom`
-// is the renderer-free substrate for exactly this headless case.
+// It is a PRECONDITION of steps 5-6, not boilerplate. A variant frame takes
+// its state substrate from an installed re-frame adapter, and story-mcp
+// deliberately installs none — per spec/006 the substrate choice belongs to
+// the app. Booted bare, steps 5-6 would still read `:status "pass"`: the
+// setup dispatches would reach no adapter, the lifecycle would never run, and
+// the ordinary success envelope would come back over an empty app-db — the
+// same false green the sibling `end-to-end-project-stories.cjs` guards
+// against. The vacuous-pass assertion at step 6 is only honest once the
+// lifecycle can actually execute. `plain-atom` is the renderer-free
+// substrate for exactly this headless case.
 //
 // The trailing `nil` is load-bearing: `clojure.main`'s `-e` PRINTS a non-nil
 // result, and stdout is the JSON-RPC wire — an `rf/init!` return value echoed
@@ -214,7 +214,7 @@ runWithWatchdog(
     assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);
     console.log(
       'OK   per-tool classification ratchet: readOnly/destructive posture + ' +
-        'budget-hint prose pinned (rf2-yi451)',
+        'budget-hint prose pinned',
     );
 
     // Open-world VALUE conformance. The ratchet's `closed-world` list pins
@@ -231,8 +231,8 @@ runWithWatchdog(
       if (a.openWorldHint !== true) {
         throw new Error(
           openWorldTool +
-            ' MUST advertise openWorldHint:true over the wire (rf2-e6knrq ' +
-            'finding 2): it runs the variant author\'s lifecycle events/fx ' +
+            ' MUST advertise openWorldHint:true over the wire: it runs the ' +
+            'variant author\'s lifecycle events/fx ' +
             'which can reach external systems unless explicitly stubbed. Got ' +
             'annotations: ' + JSON.stringify(a),
         );
@@ -247,7 +247,7 @@ runWithWatchdog(
     }
     console.log(
       'OK   open-world VALUE: run-variant + preview-variant advertise ' +
-        'openWorldHint:true + destructiveHint:true (rf2-e6knrq)',
+        'openWorldHint:true + destructiveHint:true',
     );
 
     // 2e. Closed-world read-path SUCCESS-envelope conformance. The
@@ -298,7 +298,7 @@ runWithWatchdog(
     // is CLJS-only and UNREACHABLE from this JVM stdio boot (no browser
     // bridge). The truthful result is a machine-readable capability-
     // unavailable ERROR, NOT a false-empty `{:substrates []}` success an
-    // agent could mistake for 'no substrates registered' (rf2-3fc89f.21).
+    // agent could mistake for 'no substrates registered'.
     // Pin the isError verdict + the stable id so a regression turns RED.
     {
       const r = await client.callTool({ name: 'list-substrates', arguments: {} });
@@ -336,8 +336,8 @@ runWithWatchdog(
     // no runtime and no fixture (they enumerate the canonical-vocabulary
     // registry the server installs at boot), so each is a zero-arg success
     // probe routed through the SDK's CallToolResultSchema + the declared
-    // outputSchema parse — the same success-path shape pin the four reads
-    // above carry.
+    // outputSchema parse — the same success-path shape pin the read loop
+    // above carries.
     for (const readTool of ['list-stories', 'list-assertions', 'list-decorators']) {
       const r = await client.callTool({ name: readTool, arguments: {} });
       if (r.isError) {
@@ -472,8 +472,8 @@ runWithWatchdog(
         Array.isArray(ednResp.structuredContent)) {
       throw new Error(
         'variant->edn MUST carry a JSON-object :structuredContent slot ' +
-          '(the SDK outputSchema parse demands it — rf2-vyacl latent-defect ' +
-          'class); got: ' + JSON.stringify(ednResp),
+          '(the SDK outputSchema ' +
+          'parse demands it); got: ' + JSON.stringify(ednResp),
       );
     }
     console.log('OK   variant->edn -> :doc round-trips through EDN text + structuredContent present');
@@ -482,8 +482,8 @@ runWithWatchdog(
     // CLJS-in-browser only and UNREACHABLE from this JVM-standalone boot
     // (no browser bridge). The truthful result is a machine-readable
     // capability-unavailable ERROR, NOT a false-empty `{:violations []}`
-    // success an agent could read as 'zero accessibility violations'
-    // (rf2-3fc89f.21). Pins the isError verdict + stable id for the
+    // success an agent could read as 'zero accessibility violations'.
+    // Pins the isError verdict + stable id for the
     // testing-category browser-only read against the registered fixture.
     const a11yResp = await client.callTool({
       name: 'read-a11y-violations',
@@ -537,8 +537,8 @@ runWithWatchdog(
     //
     // The `pass` below is Story's INTENTIONAL vacuous green for a variant
     // that RAN and asserted nothing, and it is honest here only because
-    // ADAPTER_BOOT installed a substrate at launch (rf2-c9t52). The
-    // never-ran state now wears a different answer entirely — `isError`
+    // ADAPTER_BOOT installs a substrate at launch. The never-ran state
+    // wears a different answer entirely — `isError`
     // with `:rf.error/no-adapter-installed` — pinned in
     // `tools_test.clj/lifecycle-tools-refuse-with-no-adapter`.
     const runResp = await client.callTool({
@@ -562,7 +562,7 @@ runWithWatchdog(
     }
     if ('passing?' in runStruct) {
       throw new Error(
-        'run-variant must NOT carry the retired :passing? boolean (clean break); got: ' +
+        'run-variant must NOT carry a :passing? boolean (the unified run-result has none); got: ' +
           JSON.stringify(runResp),
       );
     }
@@ -593,7 +593,7 @@ runWithWatchdog(
     }
     if ('passing?' in failStruct) {
       throw new Error(
-        'read-failures must NOT carry the retired :passing? boolean (clean break); got: ' +
+        'read-failures must NOT carry a :passing? boolean (the unified run-result has none); got: ' +
           JSON.stringify(failResp),
       );
     }
@@ -605,7 +605,7 @@ runWithWatchdog(
     if ('dropped-sensitive' in failStruct || 'elided-large' in failStruct) {
       throw new Error(
         'read-failures clean read must OMIT indicator slots when zero ' +
-          '(Conventions §Cross-MCP indicator-field vocabulary, rf2-koq5m); got: ' +
+          '(Conventions §Cross-MCP indicator-field vocabulary); got: ' +
           JSON.stringify(failResp),
       );
     }
@@ -666,29 +666,29 @@ runWithWatchdog(
     }
     console.log('OK   snapshot-identity -> stable hash: ' + h1);
 
-    // 9. record-as-variant — RETIRED (rf2-5saz7). The blocking recorder
-    // bridge advertised a capture window no MCP client could reach (its
-    // handler slept the server's only stdio dispatch loop for
-    // :duration-ms), so it could only ever return a green EMPTY capture.
-    // Interactive canvas recording is performed through Pair in the
-    // attached CLJS runtime. NON-VACUITY: this probe runs on the SAME
+    // 9. record-as-variant — not a tool. A blocking recorder bridge would
+    // advertise a capture window no MCP client could reach (its handler
+    // would sleep the server's only stdio dispatch loop for :duration-ms),
+    // so it could only ever return a green EMPTY capture. Interactive
+    // canvas recording is performed through Pair in the attached CLJS
+    // runtime. NON-VACUITY: this probe runs on the SAME
     // launched server that just registered the fixture variant (step 3)
     // and ran it to a "pass" verdict (step 6), so the absence assertions
     // below cannot pass merely because initialization, registry loading,
     // or tool dispatch is broken.
     //
-    // 9a. The catalogue does not advertise the retired name (the
+    // 9a. The catalogue does not advertise the name (the
     // fixture-equality check at step 2 already excludes it; this explicit
     // rejection keeps the absence loud even if fixture and registry ever
     // drift back in lockstep).
     if (names.includes('record-as-variant')) {
       throw new Error(
-        'record-as-variant was retired (rf2-5saz7) but tools/list advertises it',
+        'record-as-variant is not a tool, but tools/list advertises it',
       );
     }
-    // 9b. A tools/call naming the retired tool receives the server's
-    // EXISTING method-not-found response (-32601) — the same path any
-    // unknown tool takes; no tombstone, no alias.
+    // 9b. A tools/call naming it receives the server's ordinary
+    // method-not-found response (-32601) — the same path any unknown tool
+    // takes; no tombstone, no alias.
     let recErr = null;
     try {
       await client.callTool({
@@ -700,7 +700,7 @@ runWithWatchdog(
     }
     if (recErr === null) {
       throw new Error(
-        'record-as-variant was retired (rf2-5saz7) but tools/call succeeded',
+        'record-as-variant is not a tool, but tools/call succeeded',
       );
     }
     if (recErr.code !== -32601) {
@@ -709,7 +709,7 @@ runWithWatchdog(
           (recErr.code + ': ' + recErr.message),
       );
     }
-    console.log('OK   record-as-variant -> retired: absent from catalogue, tools/call is -32601 method-not-found (rf2-5saz7)');
+    console.log('OK   record-as-variant -> absent from catalogue, tools/call is -32601 method-not-found');
 
     // 10. unregister-variant — symmetric teardown.
     const unregResp = await client.callTool({

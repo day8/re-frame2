@@ -1,5 +1,4 @@
-// Regression test for the hermetic live-suite's INNER_TESTS grading event
-// (rf2-6girz0).
+// Regression test for the hermetic live-suite's INNER_TESTS grading event.
 //
 // Uses Node's built-in `node:test` (same posture as
 // `runner-cleanup.test.cjs` / `runner-watchdog.test.cjs` — no extra
@@ -9,11 +8,11 @@
 // exported `spawnAndGradeInnerTest` factory against a FAKE `spawnFn` — no
 // real child process, no real stdio pipe.
 //
-// ## The bug this pins
+// ## The contract this pins
 //
-// The hermetic orchestrator's INNER_TESTS loop used to grade each spawned
-// inner test on the child's 'exit' event, then read the stdout it had
-// captured so far to check for the test's GREEN sentinel. Node's own docs
+// The hermetic orchestrator's INNER_TESTS loop grades each spawned inner
+// test on the child's 'close' event, not 'exit', before reading the stdout
+// it captured to check for the test's GREEN sentinel. Node's own docs
 // note that 'exit' fires as soon as the child process itself terminates,
 // which can race the stdio pipes still draining into the parent's 'data'
 // handlers — 'close' is the event Node guarantees fires only once
@@ -22,14 +21,12 @@
 // immediately followed by `process.exit(exitCode)` — the sentinel is the
 // very last write before the process tears down, a write-then-exit shape
 // that is worse on Windows (where `process.exit()` can truncate
-// not-yet-flushed pipe writes). Grading on 'exit' meant a genuinely
-// conformant, fully-passing inner gate could have its final
-// sentinel-bearing stdout chunk arrive AFTER grading already ran against a
-// truncated `stdoutText` — scoring a PASSING gate as FAILED and blocking
-// merge for a server that actually passed.
-//
-// FIX: grade on 'close' instead of 'exit' (same `(code, signal)` payload,
-// fires only after stdio is fully drained).
+// not-yet-flushed pipe writes). Grading on 'exit' would let a genuinely
+// conformant, fully-passing inner gate have its final sentinel-bearing
+// stdout chunk arrive AFTER grading already ran against a truncated
+// `stdoutText` — scoring a PASSING gate as FAILED and blocking merge for a
+// server that actually passed. 'close' carries the same `(code, signal)`
+// payload and fires only after stdio is fully drained.
 //
 // ## What this test drives
 //
@@ -37,29 +34,27 @@
 // `spawnAndGradeInnerTest` factory against fakes:
 //
 //   1. A fake child that emits its sentinel-bearing stdout chunk AFTER
-//      'exit' but BEFORE 'close' — the exact race rf2-6girz0 describes.
-//      Proves the graded `stdoutText` contains the late-arriving sentinel
-//      (would have been truncated under the old 'exit'-based grading).
+//      'exit' but BEFORE 'close' — the exact race. Proves the graded
+//      `stdoutText` contains the late-arriving sentinel (which
+//      'exit'-based grading would truncate).
 //   2. A fake child that emits 'exit' alone (no 'close' yet) — proves the
 //      grading promise does NOT resolve on 'exit' alone; it only resolves
 //      once 'close' fires.
 //   3. A fake child that exits non-zero — proves a genuinely failing
-//      child's exit code is still surfaced faithfully after the fix.
+//      child's exit code is surfaced faithfully.
 //   4. A fake child that exits 0 but never prints the sentinel (a
 //      "silently non-conformant" child, as opposed to a merely
 //      late-flushing one) — graded, then handed to the REAL verdict
 //      `main()` applies (`gradeInnerTestOutcome`), which must fail it as an
-//      orchestration failure (exit 2). The close-grading fix reads MORE of a
+//      orchestration failure (exit 2). Close-grading reads MORE of a
 //      child's stdout, but does not turn the sentinel gate into a rubber
 //      stamp.
 //   5. A fake child killed by a signal (code === null) — proves the
-//      reject-on-signal contract is unchanged by the close/exit swap.
-//   6. The verdict itself, RED and GREEN (rf2-3x7nj.36.1): a SKIP banner at
-//      the start of stdout and after a newline, an exit 0 without the
-//      sentinel and a row with no sentinel all fail with exit 2; a non-zero
-//      exit keeps the inner code; only an exit 0 with the sentinel passes.
-//      Case 4 used to assert only that its own fake child had not printed
-//      the sentinel, so deleting the guards left this file green.
+//      reject-on-signal contract holds under close-grading.
+//   6. The verdict itself, RED and GREEN: a SKIP banner at the start of
+//      stdout and after a newline, an exit 0 without the sentinel and a
+//      row with no sentinel all fail with exit 2; a non-zero exit keeps the
+//      inner code; only an exit 0 with the sentinel passes.
 
 'use strict';
 
@@ -159,7 +154,7 @@ test('spawnAndGradeInnerTest does NOT resolve on exit alone — it waits for clo
     resolved,
     false,
     "grading resolved on 'exit' alone, before 'close' fired — this is the " +
-      'exact pre-fix behaviour rf2-6girz0 reports',
+      'exact truncation race close-grading exists to prevent',
   );
 
   child.emit('close', 0, null);
@@ -186,7 +181,7 @@ test('spawnAndGradeInnerTest still fails a genuinely non-conformant child that e
     result.code,
     1,
     'a genuinely failing inner test must still surface its non-zero exit ' +
-      'code after the close-grading fix',
+      'code under close-grading',
   );
 });
 
@@ -205,9 +200,9 @@ test('spawnAndGradeInnerTest still surfaces a sentinel-less stdout for a silentl
   const result = await grade(spawnFn);
 
   assert.equal(result.code, 0);
-  // Hand the graded outcome to the verdict `main()` applies: the
-  // close-grading fix reads MORE of a child's stdout than the old
-  // exit-based grading, but it must not turn the sentinel check into a
+  // Hand the graded outcome to the verdict `main()` applies:
+  // close-grading reads MORE of a child's stdout than exit-based grading
+  // would, but it must not turn the sentinel check into a
   // rubber stamp — a child that never actually prints its sentinel, even
   // once its stdio is fully drained, still fails.
   assert.throws(

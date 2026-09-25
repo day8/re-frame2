@@ -14,7 +14,7 @@
   two frames sharing ONE image keeping independent state — belongs to
   `re-frame.live-run-frame-resolution-cljs-test`, which asserts strictly more
   (subscription values and sub-cache identity as well as app-db), so it is not
-  restated here (rf2-6r9j.96). `:ambient-frame nil` keeps every target explicit
+  restated here. `:ambient-frame nil` keeps every target explicit
   so ambient resolution cannot conceal a routing error."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -112,7 +112,7 @@
             partition ONLY within their own image-loaded frame"
     ;; Composition under test: image-generation routing × the INDEPENDENT
     ;; runtime-db commit branch (`:rf.db/runtime` — Spec 002 §Write authority).
-    ;; The existing same-id cases prove app-db (`:db`) isolation only; a
+    ;; The other same-id cases prove app-db (`:db`) isolation only; a
     ;; regression that keeps app-db routing correct but reads or commits
     ;; runtime-db through the default/sibling frame would leave them all green.
     ;;

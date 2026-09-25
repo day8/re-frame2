@@ -11,9 +11,9 @@
 // The router folds the declaration into the same atomic commit as the `:db`
 // write, installing it into the frame's durable elision registry tagged
 // `:source :effect`; the epoch assembler's `sensitive-rollup` and the
-// off-box `project-egress` both read THAT registry. The durable
-// `:sensitive {:app-db …}` *frame annotation* is removed (a frame is not
-// app-db's definition site). Schemas describe shape, not durable app-db
+// off-box `project-egress` both read THAT registry. There is no durable
+// `:sensitive {:app-db …}` *frame annotation* (a frame is not app-db's
+// definition site). Schemas describe shape, not durable app-db
 // egress policy: there is no schema-attached `:sensitive?` app-db
 // classification (EP-0015 §8).
 //
@@ -54,7 +54,7 @@
 // `:dropped-sensitive` >= 1 with no record in `:epochs` (proving the
 // strip-fn dropped it — not that the window happened to exclude it or the
 // slot was empty). With the whole-drop firing there is no surviving record
-// to carry a redacted slot. (`project-egress` value-redaction is still
+// to carry a redacted slot. (`project-egress` value-redaction is
 // the belt-and-braces inner layer for any sensitive material the
 // record-level rollup does NOT catch; this scenario's declared-sensitive
 // non-nil leaf DOES flag the rollup, so the outer whole-drop governs.)
@@ -150,8 +150,7 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 //      `:source :effect` declaration into the frame's durable elision
 //      registry that `sensitive-rollup` and `project-egress` read, in the
 //      same atomic commit as the write. No hand-seeded `swap-elision-slot!`,
-//      no schema artefact, no removed `populate-sensitive-from-schemas!`
-//      importer, no removed frame annotation;
+//      no schema artefact, no frame annotation;
 //   2. dispatch-syncs that event, writing the SENTINEL into the slot and
 //      classifying it in the SAME commit, landing in the next epoch's
 //      `:db-after`.
@@ -168,13 +167,13 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 // expand a macro the analyzer hasn't seen, so the macro call would yield
 // nil. The fn-form is a plain call against the events ns the fixture
 // already loads (transitively via re-frame.core). `reg-event` is the one
-// public event form after EP-0018 (semantically reg-event-fx): the handler
+// public event form under EP-0018 (semantically reg-event-fx): the handler
 // takes the coeffects map and returns a closed effects map (`{:db ...}`).
 // dispatch uses the owning-ns fn `re-frame.router/dispatch-sync!` — the
-// same runtime counterpart `dispatch-sync-impl` aliases in re-frame.core
-// post-rf2-m90brg (API-shrink #2 retired the PUBLIC `dispatch-sync*` twin;
-// a runtime cljs-eval form still cannot expand the `dispatch-sync` macro,
-// so it reaches the router fn directly, same as a JVM programmatic caller).
+// runtime counterpart `dispatch-sync-impl` aliases in re-frame.core. There
+// is no public `dispatch-sync*` fn, and a runtime cljs-eval form cannot
+// expand the `dispatch-sync` macro, so it reaches the router fn directly,
+// same as a JVM programmatic caller.
 //
 // Epoch recording must be ACTIVE for the pull-mode tools to have a record
 // to egress. The tiny fixture (`counter.core`) neither requires
@@ -196,8 +195,8 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 // single `(do (require ...) (configure ...) ...)` form the configure
 // throws (`:repl/exception!`) and depth stays 0, so the dispatch records
 // nothing. Splitting lets each prerequisite settle before the next call.
-// Verified empirically (ai-local probe): single-form ⇒ :repl/exception! +
-// :epoch-count 0; three separate calls ⇒ depth 50 + :epoch-count 1.
+// Measured: single-form ⇒ :repl/exception! + :epoch-count 0; three
+// separate calls ⇒ depth 50 + :epoch-count 1.
 //
 // Call 1: load the epoch namespace (publishes the `:epoch/settle!` capture
 // hook the router looks up at drain-settle, and the `:epoch/configure!`
@@ -223,8 +222,8 @@ const SEED_FORM = `
   ;; atomic commit as the \`:db\` write, installing the \`:source :effect\`
   ;; declaration that project-egress (which reads the record's :frame
   ;; elision registry) and sensitive-rollup both consult, so the leaf matches
-  ;; at egress AND the dispatched epoch's rollup stamps true. (The durable
-  ;; \`:sensitive {:app-db …}\` frame annotation is removed.)
+  ;; at egress AND the dispatched epoch's rollup stamps true. (There is no
+  ;; durable \`:sensitive {:app-db …}\` frame annotation.)
   (re-frame.events/reg-event
     :rf-conformance/write-secret
     (fn [{:keys [db]} _]
@@ -250,15 +249,15 @@ const VERIFY_WRITE_FORM =
 //
 //   1. OUTER whole-epoch DROP — `strip-sensitive` -> `sensitive-epoch?`
 //      reads the record's STAMPED `:rf.epoch/sensitive?` rollup, which
-//      `sensitive-rollup` (assembly.cljc:240-260) computes ONCE at
+//      `sensitive-rollup` (assembly.cljc) computes ONCE at
 //      record-assembly time from the THEN-current sensitive declarations.
 //      Drops the WHOLE record (reports `:dropped-sensitive` N).
 //   2. INNER value-redaction — `project-egress`, which routes a record
 //      stamped `:kind :rf/epoch-record` to the epoch projector
 //      (tool_pair.cljc §`project-record`). That projector
 //      runs SERVER-SIDE inside the eval form, reads the CURRENT registry
-//      at EGRESS time, and routes the four payload slots through
-//      `elide-wire-value` -> declared-sensitive paths become
+//      at EGRESS time, and routes the `:db-before` / `:db-after` slots
+//      through `elide-wire-value` -> declared-sensitive paths become
 //      `:rf/redacted`. The stamped rollup passes through UNCHANGED.
 //
 // The gate-OFF arm above declares the path BEFORE dispatch, so the
@@ -273,12 +272,12 @@ const VERIFY_WRITE_FORM =
 // sensitive, THEN egress. `project-egress` reads the now-declared path
 // against the CURRENT registry and MUST redact `:db-after` to
 // `:rf/redacted`. A regression to `project-egress` /
-// `elide-payload-slot` (a missed `:db-after` in the cond-> at
-// tool_pair.cljc:580-581, or `elide-wire-value` returning the raw value)
-// leaks the secret with `:dropped-sensitive 0` — and NO existing gate
-// goes RED, because the gate-OFF arm only drives the rollup-flagged
-// (whole-drop) shape and the unit `...preserves-redacted-sentinel...`
-// test pre-redacts its input.
+// `project-payload-slot` (a missed `:db-after` in the cond-> of
+// tool_pair.cljc's `project-record-slots`, or `elide-wire-value` returning
+// the raw value) would leak the secret with `:dropped-sensitive 0` — and NO
+// other gate would go RED, because the gate-OFF arm only drives the
+// rollup-flagged (whole-drop) shape and the unit
+// `...preserves-redacted-sentinel...` test pre-redacts its input.
 //
 // Distinguishable from the OUTER-drop scenarios by `:dropped-sensitive 0`
 // + sentinel ABSENT + the `:rf/redacted` marker PRESENT in the surviving
@@ -297,8 +296,8 @@ const VERIFY_WRITE_FORM =
 
 // A second, independent sensitive slot — distinct from SECRET_KEY so
 // this arm's declaration cannot interact with any other epoch in a
-// shared ring (this arm runs on its OWN server, so the ring holds only
-// the one non-sensitive-at-record-time epoch we seed here).
+// shared ring (this arm's write form wipes the ring first, so it holds
+// only the one non-sensitive-at-record-time epoch we seed here).
 const INNER_SECRET_KEY = ':rf-conformance/inner-secret';
 const INNER_SENTINEL = 'rf2-ywn27-INNER-secret-do-not-leak-9b2e4d';
 
@@ -310,18 +309,16 @@ const INNER_SENTINEL = 'rf2-ywn27-INNER-secret-do-not-leak-9b2e4d';
 // CLEAN-SLATE precondition: this arm shares the live fixture runtime
 // (same nREPL / `:rf/default` frame) with the gate-OFF arm that ran
 // before it — which declared `:rf-conformance/secret` sensitive (via the
-// frame-owned route) AND left its value in app-db. If that declaration is
-// still live when our epoch assembles, `sensitive-rollup` (assembly.cljc:
-// 240-260) sees a declared path holding a non-nil leaf and stamps the
-// rollup TRUE — the OUTER whole-drop would then govern and this arm would
-// NOT isolate the inner layer. So the form FIRST clears the frame-owned
-// sensitive declaration (re-register the frame with NO `:sensitive`
-// block — `make-frame`'s `install!` drops the prior `:source :frame`
-// entries) AND dispatches the secret-write event that also dissocs any
-// prior declared key, guaranteeing no declared-sensitive leaf exists at
-// assembly time. The clear-declarations re-registration records nothing;
-// we read the rollup off the HEAD (last) record — the inner-secret write
-// — which is the one the egress tools surface.
+// commit-plane `:sensitive` effect) AND left its value in app-db. If that
+// declaration were still live when our epoch assembles, `sensitive-rollup`
+// (assembly.cljc) would see a declared path holding a non-nil leaf and
+// stamp the rollup TRUE — the OUTER whole-drop would then govern and this
+// arm would NOT isolate the inner layer. So the form FIRST wipes the epoch
+// ring, then dispatches a secret-write event that returns
+// `:clear-sensitive` for the prior slot AND dissocs its value, guaranteeing
+// no declared-sensitive leaf exists at assembly time. We read the rollup
+// off the HEAD (last) record — the inner-secret write — which is the one
+// the egress tools surface.
 const INNER_WRITE_FORM = `
 (let [fid (re-frame2-pair.runtime/current-frame)]
   ;; This arm shares the live fixture runtime with the gate-OFF arm that
@@ -337,8 +334,8 @@ const INNER_WRITE_FORM = `
   ;; effect for the prior secret slot (the set/unset symmetry of the axis),
   ;; dropping its \`:source :effect\` declaration. The assembler then sees an
   ;; EMPTY sensitive-paths set when our epoch is built (rollup ⇒ false).
-  ;; (Re-registration no longer clears classification — the frame annotation
-  ;; is removed; \`:clear-sensitive\` is the supported un-classify path.)
+  ;; (Re-registration does not clear classification — there is no frame
+  ;; annotation; \`:clear-sensitive\` is the un-classify path.)
   (re-frame.events/reg-event
     :rf-conformance/write-inner-secret
     (fn [{:keys [db]} _]
@@ -397,13 +394,13 @@ function assertOk(resp, name) {
 // literal / `nil` immediately following the key) from an eval-cljs
 // response's text, matching the shape `re-frame.elision/sensitive-
 // declarations` actually returns: a map from classified PATH VECTOR to the
-// retained OWNER-SET (rf2-wdm1vg — the registry is multi-owner), e.g.
+// retained OWNER-SET (the registry is multi-owner), e.g.
 // `{[:rf-conformance/secret] #{{:source :effect}}}` (and, when two
 // independent owners claim one path, `#{{:source :effect} {:source :route}}`),
 // or `{}` when nothing is classified. The owner-set nests THREE brace levels
 // deep — the outer map, the `#{…}` owner-set, and each owner map — so the
-// regex tolerates three levels of brace nesting (it still matches the legacy
-// single-map `{:source :effect}` shape too). Returns `null` if `:declared` is
+// regex tolerates three levels of brace nesting (it also matches a bare
+// single-map `{:source :effect}` value). Returns `null` if `:declared` is
 // absent entirely (a malformed / unexpected eval return — the caller treats
 // that as a precondition failure too).
 function declaredValueText(text) {
@@ -415,7 +412,7 @@ function declaredValueText(text) {
   // "don't swallow a longer identifier" guard the word-boundary was
   // after, scoped to the one alternative that actually needs it. The
   // brace group is nested to depth 3 to admit the `{path #{{:source …}}}`
-  // owner-set shape (rf2-wdm1vg).
+  // owner-set shape.
   const m =
     /:declared\s+(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}|nil(?!\w))/.exec(text);
   return m ? m[1] : null;
@@ -425,24 +422,23 @@ function declaredValueText(text) {
 // NON-EMPTY map whose keys include the path THIS step just classified —
 // `pathLiteral` is the rendered path vector, e.g. `[:rf-conformance/secret]`.
 //
-// rf2-9mj9i5: `:declared` is a literal key written into every SEED_FORM /
+// `:declared` is a literal key written into every SEED_FORM /
 // INNER_DECLARE_FORM return map (`:declared (re-frame.elision/sensitive-
 // declarations fid)`), so the substring `:declared` (or
 // `sensitive-declarations`) appears in the pr-str on ANY successful eval —
-// classified or not. A bare key-PRESENCE check is a tautology that can
-// never fail: it only proves the eval didn't error, never that the
-// classification actually landed. If the EP-0025 commit-plane `:sensitive`
-// effect silently failed to register the declaration (the bypass class
-// rf2-2h7153 flags), `sensitive-declarations` would return `{}` / `nil`
-// and the old check would still pass.
+// classified or not. A bare key-PRESENCE check would be a tautology that
+// can never fail: it would only prove the eval didn't error, never that
+// the classification actually landed. If the EP-0025 commit-plane
+// `:sensitive` effect silently failed to register the declaration,
+// `sensitive-declarations` would return `{}` / `nil` and such a check would
+// pass.
 //
 // This asserts the VALUE instead: non-empty (rejects the `{}` / `nil`
 // shape `sensitive-declarations` returns when nothing is classified) AND
 // containing the exact classified-path literal — so a silently-failed
 // classification effect trips this precondition rather than passing it
-// unnoticed (today the downstream sentinel/redaction assertions still
-// catch the leak; this closes the defense-in-depth hole so the
-// precondition itself is real).
+// unnoticed (the downstream sentinel/redaction assertions catch the leak
+// too; this makes the precondition itself real, as defense in depth).
 function assertDeclared(text, pathLiteral, label) {
   const value = declaredValueText(text);
   if (value === null || value === 'nil' || value === '{}' || !value.includes(pathLiteral)) {
@@ -451,7 +447,7 @@ function assertDeclared(text, pathLiteral, label) {
         '`:declared` MUST be a non-empty map containing the classified ' +
         'path ' + pathLiteral + ' (a bare key-presence check is a ' +
         'tautology — `:declared` is a literal key in the eval form\'s ' +
-        'return value and renders on ANY successful eval, rf2-9mj9i5); ' +
+        'return value and renders on ANY successful eval); ' +
         'got :declared value: ' + JSON.stringify(value) + '. Full: ' +
         text.slice(0, 300),
     );
@@ -485,7 +481,7 @@ function assertDropped(resp, name) {
         '--allow-sensitive-reads gate OFF (default). The declared-sensitive ' +
         'slot ' + SECRET_KEY + ' flags the epoch `:rf.epoch/sensitive?`, so ' +
         'the whole record MUST be dropped by `sensitive-epoch?` before egress ' +
-        '(rf2-5613h / Spec Security.md §Epoch privacy posture).\nPayload ' +
+        '(Spec Security.md §Epoch privacy posture).\nPayload ' +
         '(first 600 chars): ' + text.slice(0, 600),
     );
   }
@@ -496,8 +492,8 @@ function assertDropped(resp, name) {
         '(`:dropped-sensitive` is ' + (dropped === null ? 'absent' : dropped) +
         '; expected >= 1). A bare sentinel-absence check would false-pass if ' +
         'the epoch fell outside the window or the slot were empty; this ' +
-        'assertion proves the strip-fn DROPPED the sensitive record ' +
-        '(rf2-5613h). Payload (first 600 chars): ' + text.slice(0, 600),
+        'assertion proves the strip-fn DROPPED the sensitive record. ' +
+        'Payload (first 600 chars): ' + text.slice(0, 600),
     );
   }
 }
@@ -517,7 +513,7 @@ function assertDropped(resp, name) {
 //     whole-drop did NOT fire (the record's stamped rollup is false), so
 //     the inner layer is provably the SOLE protection. The base envelope
 //     splices `:dropped-sensitive` onto the payload ONLY when the count
-//     is positive (mcp_base/envelope.cljc:65 `(pos? dropped)`), so a
+//     is positive (mcp_base/envelope.cljc's `(pos? (or dropped 0))`), so a
 //     zero-drop egress carries NO `:dropped-sensitive` slot at all —
 //     absence here IS the zero-drop signal. If a future regression
 //     flipped the rollup to fire the whole-drop, `:dropped-sensitive`
@@ -532,9 +528,9 @@ function assertInnerRedacted(resp, name) {
         'epoch was recorded BEFORE ' + INNER_SECRET_KEY + ' was declared ' +
         'sensitive, so its stamped `:rf.epoch/sensitive?` rollup is false and ' +
         'the OUTER whole-drop does NOT fire — the INNER `project-egress` ' +
-        'value-redaction (tool_pair.cljc:545-587) is the SOLE protection and ' +
-        'MUST turn `:db-after` into `:rf/redacted` (rf2-ywn27.3). A leak here ' +
-        'means a regression to project-egress / elide-payload-slot.\nPayload ' +
+        'value-redaction (tool_pair.cljc `project-record`) is the SOLE protection and ' +
+        'MUST turn `:db-after` into `:rf/redacted`. A leak here ' +
+        'means a regression to project-egress / project-payload-slot.\nPayload ' +
         '(first 600 chars): ' + text.slice(0, 600),
     );
   }
@@ -545,14 +541,14 @@ function assertInnerRedacted(resp, name) {
         '`:db-after` slot to `:rf/redacted`. Its absence means either the ' +
         'record did not survive to egress (a vacuous empty-ring / ' +
         'window-excludes pass — the no-leak check would false-pass) or the ' +
-        'inner projection did not fire (the regression rf2-ywn27.3 pins). ' +
+        'inner projection did not fire. ' +
         'Payload (first 600 chars): ' + text.slice(0, 600),
     );
   }
   // `:dropped-sensitive` is spliced ONLY when positive — absence (null)
   // means zero whole-drops, which is exactly the inner-layer-SOLE posture.
   // Reject any positive count: that would mean the OUTER whole-drop fired
-  // and the arm no longer isolates the inner projection.
+  // and the arm would not isolate the inner projection.
   const dropped = droppedSensitiveCount(text);
   if (dropped !== null && dropped > 0) {
     throw new Error(
@@ -560,7 +556,7 @@ function assertInnerRedacted(resp, name) {
         '(absent). This arm pins the INNER value-redaction as the SOLE ' +
         'protection: the OUTER whole-drop must NOT fire (stamped rollup ' +
         'false). A positive count means the whole-drop governed instead, so ' +
-        'this arm would no longer isolate the inner layer (rf2-ywn27.3). ' +
+        'this arm would not isolate the inner layer. ' +
         'Payload (first 600 chars): ' + text.slice(0, 600),
     );
   }
@@ -646,9 +642,10 @@ async function enableEpochRecording(client, label) {
 
 // ---- INNER project-egress value-redaction arm --------------
 //
-// A SECOND gate-OFF server (no `--allow-sensitive-reads`) so its ring
-// holds ONLY the one epoch we seed here — no other recorded epoch can
-// contaminate the `:dropped-sensitive 0` assertion. Drives the
+// A SECOND gate-OFF server (no `--allow-sensitive-reads`). Its write form
+// wipes the shared epoch ring first, so the ring holds ONLY the one epoch
+// we seed here — no other recorded epoch can contaminate the
+// `:dropped-sensitive 0` assertion. Drives the
 // record-THEN-declare ordering so the OUTER whole-drop does NOT fire and
 // the INNER `project-egress` value-redaction is the SOLE protection.
 // See the form-block + `assertInnerRedacted` comments above for the
@@ -661,8 +658,9 @@ async function runInnerProjectionArm() {
     transportSpec: {
       command: process.execPath,
       // No `--allow-sensitive-reads` — gate OFF, the published default.
-      // The inner projection runs because `project?` is true (incl? is
-      // forced false), independent of the rollup / whole-drop.
+      // The inner projection redacts because `incl?` is forced false, so
+      // the sensitive axis stays closed, independent of the rollup /
+      // whole-drop.
       args: [SERVER],
       cwd: os.tmpdir(),
       env: { ...process.env },
@@ -703,7 +701,7 @@ async function runInnerProjectionArm() {
         'inner eval-cljs write: the epoch\'s stamped `:rf.epoch/sensitive?` ' +
           'rollup is already TRUE at assembly time — the OUTER whole-drop ' +
           'would govern and this arm would NOT isolate the inner layer. The ' +
-          'fixture must record the epoch BEFORE declaring the path (rf2-ywn27.3). ' +
+          'fixture must record the epoch BEFORE declaring the path. ' +
           'Got: ' + writeText.slice(0, 300),
       );
     }
@@ -723,9 +721,9 @@ async function runInnerProjectionArm() {
     if (/:rollup-after-declare\s+true\b/.test(declareText)) {
       throw new Error(
         'inner eval-cljs declare: the recorded epoch\'s stamped rollup became ' +
-          'TRUE after the post-hoc declaration — the OUTER whole-drop would now ' +
-          'fire and this arm would no longer isolate the INNER projection ' +
-          '(rf2-ywn27.3). Got: ' + declareText.slice(0, 300),
+          'TRUE after the post-hoc declaration — the OUTER whole-drop would ' +
+          'fire and this arm would not isolate the INNER projection. ' +
+          'Got: ' + declareText.slice(0, 300),
       );
     }
     console.log('OK   inner declare -> path now sensitive; recorded epoch rollup STILL false (outer drop inert)');
@@ -803,7 +801,7 @@ async function runGateOnArm() {
       throw new Error(
         'gate-on trace-window did NOT ship the sentinel with ' +
           '--allow-sensitive-reads + :include-sensitive true. The operator\'s ' +
-          'explicit raw-state opt-in MUST be honoured (rf2-c2dtu gate parity); ' +
+          'explicit raw-state opt-in MUST be honoured (gate parity); ' +
           'forcing redaction ON regardless would break the deliberate read. ' +
           'Payload (first 400 chars): ' + responseText(tw).slice(0, 400),
       );
@@ -842,8 +840,8 @@ runWithWatchdog(
     transportSpec: {
       command: process.execPath,
       // No `--allow-sensitive-reads` — the published-build default. This
-      // is the configuration the leak shipped under and the only one
-      // where the redaction MUST hold regardless of per-call args.
+      // is the only configuration where the redaction MUST hold
+      // regardless of per-call args.
       args: [SERVER],
       cwd: os.tmpdir(),
       env: { ...process.env },
@@ -909,16 +907,17 @@ runWithWatchdog(
 
     // 3d. watch-epochs hostile per-call opt-in — the SIBLING of 3c.
     // trace-window and watch-epochs compute `incl?` at SEPARATE call sites
-    // (trace_window.cljs:61-63 vs watch_epochs.cljs:61-63) — each is an
-    // independent
+    // (the `incl?` bindings in trace_window.cljs and watch_epochs.cljs) —
+    // each is an independent
     // `(if (raw-state-allowed?) (parse-bool-arg ... :include-sensitive)
     // false)`, NOT shared code. So a regression that drops the boot-gate
-    // guard on watch-epochs ALONE (e.g. watch_epochs.cljs:61 simplified
-    // to `incl? (parse-bool-arg raw-args :include-sensitive)`) would let
-    // a caller's hostile `:include-sensitive true` talk a server booted
-    // WITHOUT --allow-sensitive-reads into shipping RAW epoch `:db-after`
-    // — `incl? true` ⇒ `project? false` ⇒ no project-egress wrap AND
-    // `strip-sensitive [items 0]` ⇒ the whole-drop is bypassed too. The
+    // guard on watch-epochs ALONE (e.g. watch_epochs.cljs's `incl?`
+    // simplified to `incl? (parse-bool-arg raw-args :include-sensitive)`)
+    // would let a caller's hostile `:include-sensitive true` talk a server
+    // booted WITHOUT --allow-sensitive-reads into shipping RAW epoch
+    // `:db-after` — `incl? true` ⇒ `project-egress` lifts the app-db
+    // sensitive axis AND `strip-sensitive` keeps every record ⇒ the
+    // whole-drop is bypassed too. The
     // default-args gate-OFF call (3b) forces `incl? false` regardless, so
     // it cannot catch this; this hostile-arg call is the one that pins the
     // boot-gate guard on watch-epochs's INDEPENDENT site.

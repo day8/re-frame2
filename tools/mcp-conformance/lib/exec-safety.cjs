@@ -11,11 +11,11 @@
 //      before PATH. A checkout that happens to carry a `npm.cmd` /
 //      `npx.cmd` / `clojure.cmd` in that cwd (e.g. a fixture dir, or
 //      anywhere reachable in PATHEXT order) would silently execute it
-//      instead of the intended toolchain. The fix is to resolve each
+//      instead of the intended toolchain. The guard resolves each
 //      tool name to a single trusted absolute path up-front via PATH
-//      search, refuse to use any candidate that resolves inside the
-//      workspace, and spawn with `shell: false` so the resolved path
-//      is the *only* thing the OS gets to interpret.
+//      search and refuses to use any candidate that resolves inside
+//      the workspace; callers spawn with `shell: false` so the resolved
+//      path is the *only* thing the OS gets to interpret.
 //
 //   2. **Symlink-escape cleanup accident** — `fs.unlinkSync` on a
 //      candidate path under a known root will happily delete a file
@@ -23,13 +23,13 @@
 //      cleanup step that wipes stale `nrepl.port` files runs before
 //      any other validation, so a fixture tree with a symlinked
 //      `.shadow-cljs/` could be coerced into deleting an arbitrary
-//      file. The fix is to `realpath` the candidate (or, for files
+//      file. The guard `realpath`s the candidate (or, for files
 //      that don't exist yet, the candidate's parent + basename) and
-//      verify the resolved path stays under the resolved allowed
+//      verifies the resolved path stays under the resolved allowed
 //      root before unlinking.
 //
-// Mike's pragmatic security stance (per project policy): trust the
-// explicit invoker, gate *accidents* rather than theoretical attacks.
+// The security stance is pragmatic: trust the explicit invoker, gate
+// *accidents* rather than theoretical attacks.
 // Both helpers below gate the accident class without adding ceremony
 // at the call sites.
 //
@@ -136,8 +136,8 @@ function isPathInside(child, parent) {
   const sep = path.sep;
   const pWithSep = p.endsWith(sep) ? p : p + sep;
   // Case-insensitive compare on Windows — the filesystem itself is
-  // case-insensitive there, and the audit's accident class doesn't
-  // care about case.
+  // case-insensitive there, and the accident class doesn't care about
+  // case.
   if (process.platform === 'win32') {
     return c.toLowerCase().startsWith(pWithSep.toLowerCase());
   }
@@ -222,14 +222,14 @@ function resolveTrustedExe(name, opts) {
       tried.push(candidate);
       // Realpath through any symlink — what we trust is the *target*,
       // not the link. A PATH entry pointing at a workspace-internal
-      // tool via a symlink is the exact accident the audit flagged.
+      // tool via a symlink is the exact accident this gates.
       const real = realpathSyncOrNull(candidate);
       if (real === null) {
         // A realpath failure means the symlink TARGET could not be
-        // verified. The prior behaviour (`realpathSyncOrNull(candidate)
-        // || candidate`) silently fell back to the raw, UNRESOLVED
-        // candidate and returned it as trusted — defeating this
-        // module's whole purpose. Known real-world trigger: on
+        // verified. Falling back to the raw, UNRESOLVED candidate
+        // (`realpathSyncOrNull(candidate) || candidate`) would return it
+        // as trusted — defeating this module's whole purpose. Known
+        // real-world trigger: on
         // Windows, `fs.realpathSync` is known to throw on certain
         // reparse points (App-Execution-Alias stubs under
         // `%LOCALAPPDATA%\Microsoft\WindowsApps`, a common default PATH
@@ -256,8 +256,8 @@ function resolveTrustedExe(name, opts) {
     throw new Error(
       `resolveTrustedExe: no candidate for "${name}" could be trusted. ` +
         `Refusing to execute a workspace-relative or unverifiable binary ` +
-        `via PATH (rf2-33vvc accident-gating; rf2-6i2yi4 realpath-failure ` +
-        `hardening).\n` +
+        `via PATH ` +
+        `(command-hijack accident-gating).\n` +
         (rejectedInsideWorkspace.length > 0
           ? `Rejected — resolved inside the workspace (${workspaceRootReal}):\n${insideList}\n`
           : '') +
@@ -359,7 +359,7 @@ function resolveContainedLeaf(candidatePath, allowedRoot, opName) {
     throw new Error(
       `${opName}: refusing to operate on ${candidatePath} — resolved ` +
         `path ${resolvedLeaf} is outside allowed root ${allowedRootReal} ` +
-        `(rf2-33vvc / rf2-khav7l symlink-escape accident-gating).`,
+        `(symlink-escape accident-gating).`,
     );
   }
 

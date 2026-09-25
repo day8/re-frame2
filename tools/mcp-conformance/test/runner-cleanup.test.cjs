@@ -113,7 +113,7 @@ test('makeCleanup AWAITS a slow promise-returning browser.close() (rf2-7ckmwx fi
   assert.ok(
     closeSettled,
     'cleanup resolved BEFORE browser.close() settled — the promise-returning ' +
-      'close was not awaited (the rf2-7ckmwx finding-1 fire-and-forget bug).',
+      'close was not awaited (a fire-and-forget teardown).',
   );
 });
 
@@ -146,7 +146,7 @@ test('makeCleanup escalates SIGTERM→SIGKILL and AWAITS the eventual exit (rf2-
   assert.ok(
     shadow.exited,
     'cleanup resolved before the shadow child exited after SIGKILL — the ' +
-      'post-kill exit was not awaited (rf2-7ckmwx finding-1 abandon).',
+      'post-kill exit was not awaited (an abandoned SIGKILL).',
   );
 });
 
@@ -180,18 +180,18 @@ test('makeCleanup HARD-CAPS a never-settling browser.close() instead of hanging 
 });
 
 // ---------------------------------------------------------------------------
-// rf2-j538f7.19: the teardown must be GRADED, not merely awaited. A bounded
-// wait that cannot prove the children were reaped is a DIRTY teardown that the
-// normal path must refuse to certify green — the pre-fix `cleanup()` resolved
-// to `undefined` (no grading) so a leaked browser / shadow JVM was silently
-// blessed by the final `process.exit(0)`.
+// The teardown must be GRADED, not merely awaited. A bounded wait that
+// cannot prove the children were reaped is a DIRTY teardown that the normal
+// path must refuse to certify green — a `cleanup()` that resolved to
+// `undefined` (no grading) would let a leaked browser / shadow JVM be
+// silently blessed by the final `process.exit(0)`.
 // ---------------------------------------------------------------------------
 
 test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DIRTY, after attempting BOTH (rf2-j538f7.19 AC1/AC3/AC6)', async () => {
   // Browser close rejects and the browser has NO isConnected() — disconnection
-  // cannot be proven. Shadow ignores every signal and never emits exit. The
-  // OLD orchestrator resolved cleanup as successful (undefined) and certified
-  // this run GREEN; the fixed factory must record BOTH failures.
+  // cannot be proven. Shadow ignores every signal and never emits exit. An
+  // ungraded cleanup would resolve as successful (undefined) and certify
+  // this run GREEN; the factory must record BOTH failures.
   const closeCalls = [];
   const browser = {
     close: () => { closeCalls.push('close'); return Promise.reject(new Error('close failed')); },
@@ -211,10 +211,10 @@ test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DI
 
   const report = await cleanup();
 
-  // THE red-then-green teeth: pre-fix, `report` was `undefined`, so reading
-  // `.clean` here throws — the OLD orchestrator had NO gradeable outcome.
+  // THE teeth: an ungraded cleanup returns `undefined`, so reading `.clean`
+  // here would throw — there would be NO gradeable outcome.
   assert.equal(report.clean, false, 'a rejected close + never-exiting shadow must be graded DIRTY');
-  // BOTH steps were attempted before the failure was surfaced (AC1: all other
+  // BOTH steps were attempted before the failure was surfaced (all other
   // resources are still cleaned before the failure is surfaced).
   assert.deepEqual(closeCalls, ['close'], 'browser.close() must still be attempted');
   assert.deepEqual(
@@ -369,8 +369,8 @@ test('waitForChildExit resolves immediately when the child already exited (rf2-7
 });
 
 // ---------------------------------------------------------------------------
-// rf2-kzbf: the teardown must grade the PROCESS TREE WE SPAWNED, not the npx
-// wrapper that fronts it.
+// The teardown must grade the PROCESS TREE WE SPAWNED, not the npx wrapper
+// that fronts it.
 //
 // On Windows cross-spawn 7.0.6 rewrites the trusted absolute `npx` into
 // `cmd.exe /d /s /c "...npx.CMD shadow-cljs watch app"`, so the handle the
@@ -380,11 +380,11 @@ test('waitForChildExit resolves immediately when the child already exited (rf2-7
 // Every test above models wrapper and JVM as ONE EventEmitter
 // (`makeFakeShadow().kill()` emits that same object's `exit`), so they pin
 // direct-child timing and escalation but CANNOT see a wrapper that exits while
-// a grandchild survives. Measured against the real code before this fix: a
-// cross-spawn'd `.cmd` wrapper emitted `exit` code=0 with its grandchild still
-// alive, `report.clean` came back `true`, `report.issues` was `[]`, and
-// `finalizeConformance` emitted the pass sentinel and returned 0 — a certified
-// GREEN hermetic run holding a live process. These pin that shut.
+// a grandchild survives. A cleanup grading on the wrapper alone would see a
+// cross-spawn'd `.cmd` wrapper emit `exit` code=0 with its grandchild still
+// alive, return `report.clean` `true` with `report.issues` `[]`, and
+// `finalizeConformance` would emit the pass sentinel and return 0 — a
+// certified GREEN hermetic run holding a live process. These pin that shut.
 //
 // The seam is platform-neutral by construction: `makeCleanup` knows no PIDs and
 // takes `reapShadowTree` as a dependency, so the grading tests below run
@@ -413,16 +413,16 @@ test('a wrapper that EXITED cannot certify clean while owned descendants survive
 
   const report = await cleanup();
 
-  // The wrapper still grades 'exited' — that observation was never wrong, it
-  // was just never sufficient.
+  // The wrapper grades 'exited' — that observation is correct, just not
+  // sufficient.
   assert.equal(report.shadow.state, 'exited', 'the wrapper did exit and should still be reported so');
-  // THE load-bearing assertion. Pre-fix this was `true`: `makeCleanup` graded
-  // shadow solely from `hasShadowExited()` and ignored the descendants entirely.
+  // THE load-bearing assertion. Grading shadow solely from
+  // `hasShadowExited()`, ignoring the descendants, would make this `true`.
   assert.equal(
     report.shadow.clean,
     false,
     'a surviving owned descendant must make the shadow teardown DIRTY even ' +
-      'though the npx/cmd wrapper reported exit (the rf2-kzbf false green)',
+      'though the npx/cmd wrapper reported exit (a wrapper-only false green)',
   );
   assert.equal(report.clean, false, 'the overall teardown must be DIRTY');
   assert.deepEqual(report.shadow.tree.survivors, [4243]);
@@ -430,7 +430,7 @@ test('a wrapper that EXITED cannot certify clean while owned descendants survive
   assert.equal(report.issues.length, 1, 'issues: ' + JSON.stringify(report.issues));
   assert.match(report.issues[0], /4243/, 'the issue must name the surviving pid');
 
-  // AC1 + AC3 end-to-end: no pass sentinel, orchestration exit 2.
+  // End-to-end: no pass sentinel, orchestration exit 2.
   let sentinel = null;
   const code = finalizeConformance(report, {
     emitPass: (line) => { sentinel = line; },
@@ -482,7 +482,7 @@ test('the owned-tree reap runs even when the wrapper never exited, and both fail
 });
 
 test('a reaped tree with no survivors still grades CLEAN (rf2-kzbf AC4 — no false RED)', async () => {
-  // The repair must not invert into refusing every run: an owned tree that was
+  // Tree grading must not invert into refusing every run: an owned tree that was
   // actually reaped is clean, and that is the normal path.
   const cleanup = makeCleanup({
     getBrowser: () => null,
@@ -535,16 +535,16 @@ test('ownedDescendants reports an empty set when the root is already gone and le
   assert.deepEqual(ownedDescendants(table, 100, 4000), []);
 });
 
-// ---- the ROOT row is fenced too (rf2-kzbf audit of PR #9213) --------------
+// ---- the ROOT row is fenced too -------------------------------------------
 //
-// The first fix fenced the DESCENDANTS on creation time and let the ROOT in on
-// its number alone, then handed that number to `taskkill /T /F`. The wrapper is
-// short-lived by construction, so its PID is exactly the kind Windows recycles
-// soonest: cleanup could tree-kill a stranger and everything below it. These
-// pin the root row to the same standard as every other row.
+// Fencing the DESCENDANTS on creation time while letting the ROOT in on its
+// number alone, then handing that number to `taskkill /T /F`, would be unsafe.
+// The wrapper is short-lived by construction, so its PID is exactly the kind
+// Windows recycles soonest: cleanup could tree-kill a stranger and everything
+// below it. These pin the root row to the same standard as every other row.
 
 test('ownedDescendants never claims a root row that PREDATES our spawn (rf2-kzbf audit, AC2)', () => {
-  // The audit's own deterministic probe. Pre-fix this returned [100, 200].
+  // A walk that admitted the root on its number would return [100, 200].
   const table = [
     { pid: 100, ppid: 1, createdMs: 1000 }, // wears our number, older than us
     { pid: 200, ppid: 100, createdMs: 6000 },
@@ -558,7 +558,7 @@ test('ownedDescendants never claims a root row that PREDATES our spawn (rf2-kzbf
 });
 
 test('ownedDescendants disowns the root once OUR handle has been reaped (rf2-kzbf audit, AC2)', () => {
-  // The scenario the audit narrates, which a creation FLOOR alone cannot see:
+  // The scenario a creation FLOOR alone cannot see:
   // the wrapper exits, Windows recycles the number to a process created AFTER
   // our spawn, and our own JVM is orphaned under the old number.
   const table = [
@@ -589,8 +589,8 @@ test('classifyRootRow separates the four cases the kill decision turns on (rf2-k
 });
 
 test('makeShadowTreeReaper never tree-kills a RECYCLED root pid (rf2-kzbf audit, AC2)', async () => {
-  // The end of the chain the audit measured: `owned` included the recycled
-  // root, so `treeKill(rootPid)` ran `taskkill /pid <stranger> /T /F`.
+  // The end of the chain: were the recycled root in `owned`,
+  // `treeKill(rootPid)` would run `taskkill /pid <stranger> /T /F`.
   const killed = [];
   const reap = makeShadowTreeReaper({
     rootPid: 100,
@@ -676,18 +676,18 @@ test('an UNDATED root row fails CLOSED: not killed, and not graded clean (rf2-kz
   assert.equal(sentinel, null, 'and emit no pass sentinel');
 });
 
-// ---- and the PPID LINK is fenced too (rf2-kzbf audit of PR #9247) ---------
+// ---- and the PPID LINK is fenced too --------------------------------------
 //
-// Fencing the root ROW answered "may we kill the row wearing our number?".
-// It left the other half unanswered — "may we kill the rows that NAME our
-// number as their parent?" — and the walk ran regardless, so a root we had
-// just declared unkillable still handed us its children to kill. These pin
-// the second half to the same standard: no positive ownership evidence, no
-// kill, and no clean grade either.
+// Fencing the root ROW answers "may we kill the row wearing our number?".
+// The other half — "may we kill the rows that NAME our number as their
+// parent?" — needs its own answer, or a root we had just declared unkillable
+// would still hand us its children to kill. These pin the second half to the
+// same standard: no positive ownership evidence, no kill, and no clean grade
+// either.
 
 test('an UNPROVABLE root does not hand us its CHILDREN either (rf2-kzbf audit of PR #9247, AC2)', () => {
-  // The audit's deterministic probe. Pre-fix `owned` was [200] — the child of
-  // a row we had just refused to kill because we could not prove it ours.
+  // An unfenced ppid walk would return [200] — the child of a row we had
+  // just refused to kill because we could not prove it ours.
   const table = [
     { pid: 100, ppid: 1, createdMs: 0 },      // wears our number; undatable
     { pid: 200, ppid: 100, createdMs: 6000 }, // its child — but whose child?
@@ -700,8 +700,8 @@ test('an UNPROVABLE root does not hand us its CHILDREN either (rf2-kzbf audit of
 });
 
 test('makeShadowTreeReaper kills NOTHING through an unprovable root (rf2-kzbf audit of PR #9247, AC2/AC3)', async () => {
-  // Pre-fix: `treeKill(200)` ran, and only THEN did the dirty error come back.
-  // Reporting dirty after the kill is not fail-closed.
+  // An unfenced walk would run `treeKill(200)` and only THEN return the dirty
+  // error. Reporting dirty after the kill is not fail-closed.
   const killed = [];
   const reap = makeShadowTreeReaper({
     rootPid: 100,
@@ -744,8 +744,9 @@ test('makeShadowTreeReaper kills NOTHING through an unprovable root (rf2-kzbf au
 
 test('a stranger that took our number, forked and EXITED does not lend us its child (rf2-kzbf audit of PR #9247, AC2)', () => {
   // Nothing wears our number now, so there is no stranger ROW whose creation
-  // instant could bound the walk — the case where `strangerCeilingMs` was
-  // Infinity and every ppid claimant above the spawn floor was swept up.
+  // instant could bound the walk — the case where `strangerCeilingMs` is
+  // Infinity and, with no other bound, every ppid claimant above the spawn
+  // floor would be swept up.
   // The bound that remains is the instant OUR wrapper exited: a DIRECT child
   // of that wrapper had to exist before the wrapper died.
   const table = [
@@ -833,7 +834,7 @@ test('an already-empty tree stays CLEAN whether or not an exit instant was recor
 
 test('makeShadowTreeReaper reports SURVIVORS when the kill removes nothing (rf2-kzbf)', async () => {
   // A tree-kill that returns success while removing nothing is precisely the
-  // failure mode this bead is about. The reaper must grade the EFFECT — is the
+  // failure mode the reaper guards against. It must grade the EFFECT — is the
   // pid still alive — never the fact that the kill call returned.
   const killed = [];
   const reap = makeShadowTreeReaper({
@@ -895,9 +896,9 @@ test('makeShadowTreeReaper surfaces an enumeration failure instead of reporting 
 });
 
 test('makeShadowTreeReaper is INERT on POSIX — current behaviour is unchanged there (rf2-kzbf)', async () => {
-  // POSIX `npx` is exec'd directly rather than behind a cmd.exe shim, so no
-  // equivalent defect was demonstrated and the repair must not change grading
-  // for the maintainers running macOS/Linux.
+  // POSIX `npx` is exec'd directly rather than behind a cmd.exe shim, so
+  // there is no wrapper/descendant split to reap and macOS/Linux grading
+  // rests on the child's own exit.
   for (const platform of ['linux', 'darwin']) {
     const reap = makeShadowTreeReaper({
       rootPid: 100,
@@ -911,7 +912,7 @@ test('makeShadowTreeReaper is INERT on POSIX — current behaviour is unchanged 
     assert.deepEqual(out.survivors, [], platform + ': no survivors are claimed');
     assert.equal(out.error, null, platform + ': and no failure is invented');
   }
-  // And an inert reap leaves the grading exactly as it was before this fix.
+  // And an inert reap leaves the grading to the child's own exit.
   const cleanup = makeCleanup({
     getBrowser: () => null,
     getShadow: () => null,
@@ -936,8 +937,8 @@ test('makeShadowTreeReaper refuses to claim a reap when no root pid was recorded
 
 // A REAL cross-spawn'd `.cmd` wrapper that exits immediately after launching a
 // long-lived grandchild — the npx/shadow-cljs shape, minus the 6-minute boot.
-// Windows-only: the defect is a cmd.exe-shim artefact and there is no POSIX
-// counterpart to model.
+// Windows-only: the wrapper/grandchild split is a cmd.exe-shim artefact and
+// there is no POSIX counterpart to model.
 test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then reaped (rf2-kzbf AC1/AC2)', { skip: process.platform !== 'win32' ? 'Windows-only: models the cmd.exe shim cross-spawn interposes' : false }, async () => {
   const crossSpawn = require('cross-spawn');
   const fs = require('node:fs');
@@ -978,7 +979,7 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
     assert.ok(shadowExited, 'the cmd wrapper should have exited on its own');
     assert.ok(Number.isInteger(grandPid) && grandPid > 0, 'the grandchild should have announced its pid');
 
-    // (a) THE PRE-FIX GRADE, reproduced: with the tree reap disabled, the
+    // (a) THE WRAPPER-ONLY GRADE, reproduced: with the tree reap disabled, the
     //     wrapper's exit alone certifies this leaking run clean and GREEN.
     const beforeReport = await makeCleanup({
       getBrowser: () => null,
@@ -991,7 +992,7 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
       beforeReport.clean,
       true,
       'sanity: without an owned-tree reap the wrapper exit alone still reads clean — ' +
-        'this is the defect being fixed, reproduced against a real process',
+        'this is the false green the tree reap exists for, reproduced against a real process',
     );
     let sentinel = null;
     finalizeConformance(beforeReport, {
@@ -1038,7 +1039,7 @@ test('a REAL cmd wrapper that exits with a live grandchild is graded DIRTY, then
       // Wired exactly as `main()` wires it, so this real-process witness also
       // exercises the recycled-root fence: the wrapper HAS exited here, so the
       // reaper may not kill through its number and must reach the grandchild
-      // through the dead parent link instead (rf2-kzbf audit).
+      // through the dead parent link instead.
       reapShadowTree: makeShadowTreeReaper({
         rootPid, spawnedAtMs, rootExited: () => shadowExited,
         rootExitedAtMs: () => shadowExitedAtMs,

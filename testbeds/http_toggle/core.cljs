@@ -35,8 +35,8 @@
             ;; dispatching `:rf.http/managed` would fail with
             ;; :rf.error/no-such-fx.
             [re-frame.http.managed]
-            ;; rf2-cdmle — this testbed drives :rf.http/managed-canned-failure
-            ;; directly via :fx (see below). Per the gate change, the
+            ;; This testbed drives :rf.http/managed-canned-failure
+            ;; directly via :fx (see below), and the
             ;; canned-stub fx ids register from re-frame.http.test-support.
             ;; A testbed IS a test affordance, so requiring it is correct.
             [re-frame.http.test-support]
@@ -79,7 +79,7 @@
 (def request-id ::in-flight)
 
 ;; ----------------------------------------------------------------------------
-;; Canned-failure-with-trace — fix for rf2-3g16l
+;; Canned-failure-with-trace
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The framework-shipped `:rf.http/managed-canned-failure` synthesises a
@@ -90,7 +90,7 @@
 ;; canned stub skips it. The testbed README documents an ordered
 ;; `:rf.http/<kind>` stream per click — so this per-testbed wrapper fx
 ;; replays the live path's emit before delegating to the
-;; canned stub. Consumers (Xray, Story, cross-cutting specs) can now
+;; canned stub. Consumers (Xray, Story, cross-cutting specs) can
 ;; assert on the `:operation :rf.http/<kind>` trace directly rather than
 ;; falling back to the `:rf.fx/handled` proxy.
 
@@ -100,7 +100,7 @@
                error row, or an :info row for :rf.http/aborted), matching
                the live failure path's finalise-failure! emit,
                and then delegates to the framework canned stub for the
-               actual reply synthesis. See rf2-3g16l."
+               actual reply synthesis."
    :platforms #{:client}}
   (fn fx-canned-failure-with-trace [frame-ctx args-map]
     (let [kind (or (:kind args-map) :rf.http/transport)
@@ -111,7 +111,7 @@
       ;; :url, and :recovery (canned failures are :no-recovery — they
       ;; classify identically to a terminal live failure). Like the live
       ;; producer, an abort is an :info row and every other kind is an
-      ;; error row (rf2-s8kcj).
+      ;; error row.
       (let [trace-tags (assoc tags
                               :kind       kind
                               :request-id (:request-id args-map)
@@ -250,7 +250,7 @@
       ;; registry; for the testbed stub, the Cancel button fires the
       ;; abort via the live :rf.http/managed-abort fx which short-
       ;; circuits the timer. Delegating to the trace-emitting wrapper
-      ;; (rf2-3g16l) keeps the abort path's trace stream uniform with
+      ;; keeps the abort path's trace stream uniform with
       ;; every other failure category.
       (js/setTimeout
         (fn []
@@ -328,7 +328,7 @@
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in a

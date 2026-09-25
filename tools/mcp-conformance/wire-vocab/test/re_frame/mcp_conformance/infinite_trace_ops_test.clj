@@ -1,5 +1,5 @@
 (ns re-frame.mcp-conformance.infinite-trace-ops-test
-  "EP-0021 infinite-resources tooling conformance (rf2-5oovkm, wave 6).
+  "EP-0021 infinite-resources tooling conformance.
 
   The four `:infinite`-feed `:rf.resource/*` trace operations and the
   `:rf.error/infinite-missing-page-accessor` registration error are the
@@ -15,11 +15,11 @@
 
     1. the NORMATIVE catalogue — `spec/009-Instrumentation.md`
        (§Where trace emission lives carries the four ops; §Error event
-       catalogue carries the error row, wave-6 landed here);
+       catalogue carries the error row);
     2. the runtime EMIT source — the four ops are `trace/emit!`'d from
        `implementation/resources/src/re_frame/resources/events.cljc`
-       (waves 3-4) and the error is `throw-error!`'d from
-       `…/resources/state.cljc` (wave 4);
+       and the error is `throw-error!`'d from
+       `…/resources/state.cljc`;
     3. the Xray consumer surface — the `tools/xray` Resources panel spec
        (`024-Resources-Panel.md`) + the closed `trace-ops` family enum
        (`panels/resources_helpers.cljc`).
@@ -68,9 +68,9 @@
 
 (def ^:private infinite-error
   "The EP-0021 loud-merge registration error — `throw-error!`'d from
-  `state.cljc`'s `merge-pages->items` (the wave-4 runtime-detected
-  counterpart of the wave-2 registry validation), catalogued in Spec 009
-  §Error event catalogue by THIS wave."
+  `state.cljc`'s `merge-pages->items` (the runtime-detected counterpart
+  of the registration-time validation), catalogued in Spec 009 §Error
+  event catalogue."
   {:op :rf.error/infinite-missing-page-accessor :emit resource-state})
 
 (def ^:private all-literals
@@ -110,8 +110,8 @@
     (testing "Spec 009 §Error event catalogue carries the loud-merge error row"
       (is (literal-as-token? (:op infinite-error) doc)
           (str (:op infinite-error) " MUST be catalogued in " spec-009
-               " (the wave-6 deliverable — the error id was reserved by wave 4 "
-               "and lands its 009 row here)."))
+               " (its Error event catalogue row is the agent-facing home "
+               "of the loud-merge error)."))
       ;; the catalogue row's Channel value: a registration-time thrown
       ;; ex-info is diagnostic-channel (Spec 009 §Error event catalogue —
       ;; "a thrown ex-info registration rejection is diagnostic-channel").
@@ -137,7 +137,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; (3) the Xray consumer surface stays in lockstep (spec 024 + the closed
-;;     family enum). The standing "xray spec updated in the same PR" rule.
+;;     family enum).
 ;; ---------------------------------------------------------------------------
 
 (deftest xray-surface-carries-the-infinite-ops
@@ -148,7 +148,7 @@
         (is (literal-as-token? op spec024)
             (str op " MUST appear in " xray-024
                  " — the Xray Resources-panel spec is the consumer surface for "
-                 "the trace family (standing same-PR currency rule)."))))
+                 "the trace family."))))
     (testing "the closed trace-ops family enum carries each op with its class"
       (doseq [{:keys [op class]} infinite-trace-ops]
         (is (literal-as-token? op enum)

@@ -20,7 +20,7 @@ if (!existsSync(src)) {
   process.exit(1);
 }
 
-// --- absolute-path normalisation (rf2-6z9clg) -------------------------------
+// --- absolute-path normalisation --------------------------------------------
 //
 // The reg-* macros' source-coord capture bakes the on-disk source path of
 // rf2_playground/sci.cljs into the bundle (the always-on error-coord registry
@@ -28,7 +28,7 @@ if (!existsSync(src)) {
 // ABSOLUTE classpath path — e.g. on a worktree checkout — that path is the
 // committer's home/worktree path, which trips the "No hardcoded personal/home
 // paths" gate (and is meaningless in the deployed artefact). Normalise any
-// embedded repo-root prefix to a repo-RELATIVE path so the committed bundle is
+// embedded repo-root prefix to a repo-RELATIVE path so the deployed bundle is
 // build-CWD-independent and carries no personal/home path. Handles both
 // forward-slash (the form CLJS emits) and OS-native (`\` on Windows) prefixes.
 function normalizeRepoPaths(text) {
@@ -52,19 +52,16 @@ function normalizeRepoPaths(text) {
 const original = readFileSync(src, "utf8");
 const normalized = normalizeRepoPaths(original);
 
-// --- input-digest provenance marker (rf2-i3e3q; rescoped by rf2-tzy13) -------
+// --- input-digest provenance marker -----------------------------------------
 //
 // Append a deterministic, unminified digest of the exact source/config/lock
 // inputs this bundle was compiled from, so any emitted artefact records its own
 // provenance — "which tree produced this file?" is answerable from a deployed or
 // downloaded copy alone.
 //
-// This marker is NOT a gate. It once was: the bundle used to be committed, and
-// check-playground-sci-freshness.sh compared this marker against a fresh digest
-// of the inputs to catch a snapshot that had drifted from its source. rf2-tzy13
-// untracked the bundle — it is generated at each consumption boundary now, so it
-// cannot lag its source — and that verifier was deleted with the artefact it
-// verified. The stamp survives as diagnostics only.
+// This marker is NOT a gate: the bundle is generated at each consumption
+// boundary and never committed, so it cannot lag its source. The stamp is
+// diagnostics only.
 //
 // The digest is over the INPUTS, not the Closure output, so it is cross-machine
 // stable (a Windows and a Linux build of the same source embed the same marker

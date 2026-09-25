@@ -1,5 +1,4 @@
-;; Splint configuration (rf2-4v147 · dual-linter CI gate; tightened in
-;; rf2-ps9u9).
+;; Splint configuration — one half of the dual-linter CI gate.
 ;;
 ;; ## Gate posture — fail on errors, warnings informational
 ;;
@@ -14,7 +13,7 @@
 ;;
 ;;   style/eq-zero {:enabled false}
 ;;
-;; — but that is a follow-on judgment call, not a gate prerequisite.
+;; — but that is a judgment call, not a gate prerequisite.
 ;;
 ;; ## The one MUST-carry exclusion — the deps-new template tree
 ;;
@@ -22,7 +21,7 @@
 ;; whose `{{top/ns}}` placeholder substitutions are not valid Clojure
 ;; (see tools/deps.edn → "Why template is NOT in the base :deps map"
 ;; for the matching shadow-cljs exclusion). Splint's reader errors on
-;; them — exactly the error-class the gate now blocks on — so they MUST
+;; them — exactly the error-class the gate blocks on — so they MUST
 ;; be excluded.
 ;;
 ;; `:excludes` entries are matched as REGEXES against the file path
@@ -30,11 +29,10 @@
 ;; noahtheduke.splint.path-matcher). The pattern accepts BOTH path
 ;; separators (`/` on Linux/macOS CI, `\` on Windows dev machines) so
 ;; the exclusion holds cross-platform. (A bare `tools/template/...`
-;; string silently failed to match on Windows, where paths use `\`.)
+;; string would silently fail to match on Windows, where paths use `\`.)
 ;; `tools/xray/design-reference/` holds the authoritative Figma-derived
 ;; L&F reference (`xray_devtools_reference.cljs`, a hiccup/reagent mockup).
-;; It is a non-compiled reference artefact (the prior TSX reference was never
-;; linted); exclude it so the mockup's shape doesn't gate production lint.
-;; Per rf2-7sxsz (Mike 2026-05-24).
+;; It is a non-compiled reference artefact; exclude it so the mockup's
+;; shape doesn't gate production lint.
 {global {:excludes ["tools[/\\\\]template[/\\\\]resources[/\\\\]"
                     "tools[/\\\\]xray[/\\\\]design-reference[/\\\\]"]}}

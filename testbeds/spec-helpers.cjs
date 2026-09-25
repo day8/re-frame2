@@ -1,8 +1,9 @@
 /*
- * Cross-cutting testbed spec helpers (rf2-fe84r).
+ * Cross-cutting testbed spec helpers.
  *
- * Shared between the six framework-behavior scenarios under
- * `testbeds/<surface>/spec.cjs`. Each scenario asserts against the
+ * Used by the Xray feature-matrix scenarios
+ * (`tools/xray/testbeds/feature_matrix/scenarios.cjs`), which drive the
+ * framework-behavior testbeds under `testbeds/`. Each scenario asserts against the
  * framework's trace bus and/or epoch history via the Xray preload's
  * mirror — every testbed wires `day8.re-frame2-xray.preload` through
  * shadow-cljs `:devtools/:preloads`, which registers a trace-collector
@@ -59,7 +60,7 @@ async function readTraceEventsAsEdn(page) {
 /**
  * Clear Xray's trace surface — framework's per-frame rings + Xray's
  * frameless secondary ring + Xray's app-db trace-buffer slot + the
- * redaction counter (per rf2-43koh + the rf2-3g9nw D5=a ruling).
+ * redaction counter.
  * Useful between sub-scenarios in one spec to keep `events.find(...)`
  * scoped to the events under test without earlier `:counter/initialise`
  * / lifecycle emits in the way.

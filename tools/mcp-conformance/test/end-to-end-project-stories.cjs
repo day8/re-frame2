@@ -1,12 +1,12 @@
 // End-to-end MCP-client conformance test for story-mcp's PROJECT-STORY
-// golden path (rf2-cfq8a).
+// golden path.
 //
-// The sibling `end-to-end-story.cjs` drives the full 20-tool catalogue
+// The sibling `end-to-end-story.cjs` drives the full tool catalogue
 // against a server whose only registrations are the canonical vocabulary
-// plus fixtures it writes AFTER connecting. That leaves the actual
-// first-use workflow unproven: a consumer project's pre-authored stories
-// reaching the registry BEFORE the first connect, through the launch
-// itself. This harness closes that gap.
+// plus fixtures it writes AFTER connecting. That does not prove the actual
+// first-use workflow: a consumer project's pre-authored stories reaching
+// the registry BEFORE the first connect, through the launch itself. This
+// harness does.
 //
 // It boots story-mcp exactly the way tools/story-mcp/README.md §Loading
 // your project's stories tells a consumer to: from a consumer-shaped
@@ -211,12 +211,11 @@ runWithWatchdog(
     // evidence: Story grades an assertion-free variant with a clean tape
     // `:pass` on purpose (tools/story/src/re_frame/story/result.cljc
     // §Status), so `isError` false plus `:status "pass"` is precisely what
-    // a variant that did NOTHING returns. Until rf2-3n3dk this phase
-    // checked only those two, and a regression that stopped playing
-    // launch-preloaded variants altogether would have left it green — as
-    // one measurably did: with no reactive substrate installed, run-variant
-    // dispatched nothing, played nothing, and still answered `:status
-    // "pass"` over an empty app-db.
+    // a variant that did NOTHING returns. Checking only those two would
+    // leave this phase green under a regression that stopped playing
+    // launch-preloaded variants altogether: with no reactive substrate
+    // installed, run-variant dispatches nothing, plays nothing, and still
+    // answers `:status "pass"` over an empty app-db.
     //
     // So the check is the ASSERTION RECORD, which the `:rf.assert/*`
     // handler mints DURING play and the runner folds into `:assertions`:

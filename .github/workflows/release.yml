@@ -1,5 +1,4 @@
-# Release workflow (rf2-r382; restructured for multi-artefact lockstep
-# deploy in rf2-ace2 / rf2-w05l).
+# Release workflow: multi-artefact lockstep deploy.
 #
 # # Topological deploy DAG
 #
@@ -36,16 +35,12 @@
 # reflects that: once core has shipped, every INDEPENDENT leaf artefact
 # is publishable on its own and they fan out in parallel, and the two
 # DEPENDENT leaves ship in stages of their own after them.
-# Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
-# Strategy B) deploy-epoch slots in as a leaf alongside the existing
-# six per-feature leaves (schemas, machines, routing, flows, http, ssr)
-# plus the substrate-adapter leaves (reagent, uix per rf2-3yij;
-# the helix leaf was removed at S7/W13, rf2-d6epb). The per-feature
-# split set is now closed; further
-# additions require a new Spec-ulation increment.
+# The independent leaves are the per-feature artefacts (schemas,
+# machines, routing, flows, http, ssr, resources, epoch) plus the
+# substrate-adapter leaves (reagent, reagent-slim, uix). The per-feature
+# split set is closed; an addition requires a new Spec-ulation increment.
 #
 # # The inter-leaf edges: ssr-ring and fresco both depend on ssr
-# # (rf2-p4a93; fresco added rf2-gra70)
 #
 # implementation/ssr-ring/deps.edn declares TWO in-repo coordinates in
 # its published :deps — day8/re-frame2 (../core) AND day8/re-frame2-ssr
@@ -85,7 +80,7 @@
 # on the whole matrix or hoisting a second job out of it; and under
 # §Failure recovery ANY leaf failure is resolved by bumping VERSION and
 # re-shipping every artefact, so a leaf skipped because a sibling failed
-# was going to be superseded regardless. Erring toward "do not publish"
+# would be superseded regardless. Erring toward "do not publish"
 # is free here, and the failure it prevents is irreversible.
 #
 # The two stages are SIBLINGS, not a chain: neither artefact appears in
@@ -96,26 +91,13 @@
 # fails if a leaf carrying a second in-repo coordinate is ever placed in
 # the fail-fast:false matrix, or if either stage loses its ordering edge.
 #
-# # re-frame.ui is NOT published (rf2-a32r7)
-#
-# implementation/ui/ (`re-frame.ui`) has no deploy leaf, no pre-deploy test
-# and no release-notes row here, and no entry in the
-# verify-version-lockstep.sh inventory. Mike ruled on 2026-07-22 that
-# day8/re-frame2-ui is not to be published: it is donor-only code being
-# absorbed into Freehand (EP-0036) and the standalone artefact is deleted
-# at the F6e gate (rf2-drpa3.57). Its deps.edn carries no :clein/build, so
-# the conditional inventory guard (rf2-qmhysc) correctly stays silent about
-# it. Publishing it would be irreversible, so this absence is load-bearing:
-# do not add a leaf back without a ruling that reverses 2026-07-22.
-#
 # # Lockstep versioning policy through 1.0
 #
-# Per the rf2-w05l decision: pre-1.0, every artefact ships at the same
-# version, sourced from the repo-root VERSION file via :clein/build
-# :version "../../VERSION" in each artefact's deps.edn. The
-# `verify-version-lockstep` job enforces the contract before we touch
-# Clojars. Independent versioning is revisited post-1.0 (rf2-w05l
-# §Decision §1).
+# Pre-1.0, every artefact ships at the same version, sourced from the
+# repo-root VERSION file via :clein/build :version "../../VERSION" in
+# each artefact's deps.edn. The `verify-version-lockstep` job enforces
+# the contract before we touch Clojars. Independent versioning is a
+# post-1.0 question.
 #
 # # Failure recovery
 #
@@ -139,7 +121,7 @@
 # # Modeled on re-frame v1's continuous-deployment-workflow.yml
 #
 # Same shape: tag-push trigger, gated on the same checks the regular
-# `tests.yml` runs (JVM, CLJS, elision probe). Each artefact's own
+# `test.yml` runs (JVM, CLJS, elision probe). Each artefact's own
 # directory carries its `:clein/build` descriptor; deploy is
 # `clojure -M:clein deploy` from that directory, with the
 # :local/root → :mvn/version rewrite happening on the throwaway runner
@@ -166,7 +148,7 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
-  # 1. Lockstep version contract gate (rf2-ace2 / rf2-w05l).
+  # 1. Lockstep version contract gate.
   #
   # Asserts every artefact's :clein/build :version points at the
   # repo-root VERSION file, and every non-core artefact references core
@@ -240,20 +222,19 @@ jobs:
         working-directory: implementation/core
         run: clojure -M:test
 
-      # The Reagent/UIx adapter :test aliases have no JVM-runnable
-      # tests of their own (the adapter ns is :cljs-only). These steps are
-      # classpath/deps probes — the empty case needs no `|| echo`
-      # fallback because the cognitect test-runner returns 0 when there
-      # are no matching test namespaces. A non-zero exit means a REAL
-      # failure (a deps/classpath break) and MUST stop the release, so we
-      # do not swallow it — mirrors the per-adapter probe jobs in
-      # .github/workflows/test.yml (rf2-1s2mhh / follow-up rf2-xcyaei
-      # finding 4).
+      # The Reagent adapter :test alias has no JVM-runnable tests of its
+      # own (the adapter ns is :cljs-only), so it is a declared classpath/
+      # deps probe (`--probe`) and exits 0 on zero tests. The UIx adapter
+      # :test alias is NOT a probe: it carries two JVM-side guards and
+      # takes the runner's test-count floor. Either way a non-zero exit
+      # means a REAL failure (a failing guard or a deps/classpath break)
+      # and MUST stop the release, so no `|| echo` fallback swallows it —
+      # mirrors the jvm-reagent / jvm-uix jobs in .github/workflows/test.yml.
       - name: JVM tests (reagent artefact, classpath probe)
         working-directory: implementation/adapters/reagent
         run: clojure -M:test
 
-      # The reagent-slim artefact (rf2-5djt Stage 4, rf2-6hyy) ships a
+      # The reagent-slim artefact ships a
       # JVM-runnable test namespace — reagent2.impl.component-test (the
       # component-shape detection contract). This is a REAL JVM surface,
       # NOT a skip-on-empty classpath probe, so the test-runner's non-zero
@@ -267,10 +248,6 @@ jobs:
         working-directory: implementation/adapters/uix
         run: clojure -M:test
 
-      # No `ui` pre-deploy step: re-frame.ui is not published (rf2-a32r7), so
-      # nothing in this workflow deploys it and there is no release-blocking
-      # obligation on its suite. The donor's JVM lane still runs on every PR
-      # via the jvm-ui job in .github/workflows/test.yml.
       - name: JVM tests (schemas artefact)
         working-directory: implementation/schemas
         run: clojure -M:test
@@ -295,8 +272,8 @@ jobs:
         working-directory: implementation/ssr
         run: clojure -M:test
 
-      # rf2-qmhysc — ssr-ring + resources are publishable :clein/build
-      # artefacts deployed by the matrix below, so their JVM suites MUST
+      # ssr-ring + resources are publishable :clein/build
+      # artefacts deployed below, so their JVM suites MUST
       # gate the release alongside the other per-feature artefacts.
       # ssr-ring is the Ring/Pedestal host adapter (spins up a real Jetty
       # host on an ephemeral port in its e2e validator); resources is the
@@ -389,10 +366,10 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────
   # 4. Per-leaf deploys, fanned out via a single matrix-strategy job
-  #    (rf2-i77u). All depend on deploy-core; none depend on each
+  #    All depend on deploy-core; none depend on each
   #    other (per Conventions §Packaging conventions §Independence
-  #    rule). Matrix values run in parallel and `fail-fast: false`
-  #    preserves the original behaviour: a single leaf failure does
+  #    rule). Matrix values run in parallel and under `fail-fast: false`
+  #    a single leaf failure does
   #    NOT halt sibling leaves — by design, since no value in THIS
   #    matrix appears in another value's published pom, so a
   #    partial-leaf-success is coherent (a consumer that pins schemas +
@@ -402,8 +379,8 @@ jobs:
   #    stay true. The two leaves that DO carry a published-pom edge to a
   #    sibling — ssr-ring → ssr and fresco → ssr — are deliberately NOT
   #    values here; they are the `deploy-ssr-ring` and `deploy-fresco`
-  #    jobs below, each gated on this whole matrix succeeding (rf2-p4a93,
-  #    rf2-gra70; see §The inter-leaf edges at the top of this file). Do
+  #    jobs below, each gated on this whole matrix succeeding (see
+  #    §The inter-leaf edges at the top of this file). Do
   #    not move either back in, and do not add a value whose published
   #    :deps reference an in-repo artefact besides core: under
   #    `fail-fast: false` such a value can publish a coordinate that
@@ -475,12 +452,11 @@ jobs:
           # NOTE — ssr-ring is NOT a value here, and neither is fresco.
           # They are the two leaves whose published :deps reference a
           # SECOND in-repo artefact besides core (both of them
-          # day8/re-frame2-ssr — ssr-ring at ../ssr per rf2-qmhysc,
-          # fresco at ../ssr per rf2-gra70), which under
+          # day8/re-frame2-ssr at ../ssr), which under
           # `fail-fast: false` would let either publish an unresolvable
           # pom while the `ssr` value above is red. They live in the
           # `deploy-ssr-ring` and `deploy-fresco` jobs below, each
-          # ordered after this whole matrix (rf2-p4a93).
+          # ordered after this whole matrix.
           - leaf: resources
             artefact: day8/re-frame2-resources
             directory: implementation/resources
@@ -525,24 +501,23 @@ jobs:
         working-directory: implementation/core
         run: clojure -M:clein install
 
-      # rf2-ldkuk — the rewrite (and its fail-loud invariants) lives in
+      # The rewrite (and its fail-loud invariants) lives in
       # .github/scripts/rewrite-local-root-coord.sh, unit-tested via
       # implementation `npm run test:script-policy`
       # (scripts/_rewrite-local-root-coord.test.cjs).
       #
-      # It matches the coordinate in CODE, ignoring EDN comments. The
-      # previous inline version asserted a RAW substring count of 1, which
-      # a prose comment quoting the same coordinate defeats — that is
-      # precisely what made day8/reagent-slim unreleasable (its header
-      # comment quotes `:local/root "../../core"`, so the count was 2 and
-      # the step aborted). Counting only code keeps the invariant honest
-      # instead of dependent on how the comments happen to be worded.
+      # It matches the coordinate in CODE, ignoring EDN comments. A RAW
+      # substring count of 1 would be defeated by a prose comment quoting
+      # the same coordinate — day8/reagent-slim's header comment quotes
+      # `:local/root "../../core"`, so a raw count reads 2 and the step
+      # would abort. Counting only code keeps the invariant honest instead
+      # of dependent on how the comments happen to be worded.
       #
       # ONE call per value: every leaf in this matrix has exactly one
       # in-repo coordinate (core). The two leaves with a second one,
       # ssr-ring and fresco, are not in this matrix — see
       # `deploy-ssr-ring` and `deploy-fresco` below, whose rewrite steps
-      # call the script twice (rf2-p4a93, rf2-gra70).
+      # call the script twice.
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
         env:
@@ -554,8 +529,7 @@ jobs:
           grep "day8/re-frame2" deps.edn
 
       # ─────────────────────────────────────────────────────────────
-      # reagent-slim publication-time ns rename (rf2-zvjme; extracted to
-      # a source-controlled script per rf2-olo8rc).
+      # reagent-slim publication-time ns rename.
       #
       # In-tree, the slim adapter ships at `re-frame.adapter.reagent-slim`
       # because the monorepo shadow-cljs build puts BOTH adapter source
@@ -563,14 +537,13 @@ jobs:
       # would clash. At publication time, downstream apps depend on
       # EXACTLY ONE of {day8/re-frame2-reagent, day8/reagent-slim} so the
       # adapter ns is single-source per app. Per the slim IMPL-SPEC §1.8
-      # / §13.1 (and confirmed by the rf2-tba5e smoke-test findings),
-      # the slim Maven artefact ships its adapter at the canonical
+      # / §13.1, the slim Maven artefact ships its adapter at the canonical
       # `re-frame.adapter.reagent` ns — so a downstream app's import line
       # is `(:require [re-frame.adapter.reagent :as ra])` regardless of
       # which adapter coord their deps.edn pins.
       #
       # The transform (mv reagent_slim.cljs → reagent.cljs + rewrite the
-      # `(ns …)` form) and its fail-loud invariants now live in
+      # `(ns …)` form) and its fail-loud invariants live in
       # .github/scripts/transform-reagent-slim-ns.sh, unit-tested via
       # implementation `npm run test:script-policy`
       # (scripts/_transform-reagent-slim-ns.test.cjs). The script runs on
@@ -584,7 +557,7 @@ jobs:
         run: "$GITHUB_WORKSPACE/.github/scripts/transform-reagent-slim-ns.sh"
 
       # ─────────────────────────────────────────────────────────────
-      # Pre-deploy package preflight (reagent-slim only; rf2-olo8rc).
+      # Pre-deploy package preflight (reagent-slim only).
       #
       # The transform above is the ONE release step where the published
       # artefact diverges from the tested tree — and nothing else verifies
@@ -601,17 +574,15 @@ jobs:
       #     ns re-frame.adapter.reagent);
       #   - the jar does NOT contain reagent_slim (the slim ns is gone);
       #   - the generated pom has NO DIRECT day8/re-frame2-reagent dep and
-      #     NO slim-owned DIRECT `reagent` dep. DIRECT-dep level ONLY:
-      #     transitive reagent via day8/re-frame2 stays until core drops
-      #     it, so a full-transitive absence assertion would be a false
-      #     invariant today.
+      #     NO slim-owned DIRECT `reagent` dep. DIRECT-dep level ONLY: the
+      #     assertion reads this pom's own <dependencies>, not the
+      #     transitive closure.
       #
       # A consumer-compile assertion (resolve [re-frame.adapter.reagent] +
       # [reagent2.core] from a temp project with day8/re-frame2-reagent
-      # ABSENT) was scoped but the temp-project npm/shadow wiring is gnarly
-      # on the runner; per the rf2-olo8rc fallback this step asserts
-      # jar-content + pom-dep + ns-grep instead, which still catches every
-      # failure the previous input-grep-only step missed.
+      # ABSENT) is not made here — the temp-project npm/shadow wiring is
+      # gnarly on the runner — so this step asserts jar-content + pom-dep +
+      # ns-grep instead, which checks the OUTPUT rather than the input tree.
       # ─────────────────────────────────────────────────────────────
       - name: Preflight — verify reagent-slim published package (reagent-slim only)
         if: matrix.leaf == 'reagent-slim'
@@ -628,7 +599,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   # 4b. Deploy ssr-ring — one of the two leaves with a published-pom edge
   #     to a sibling leaf, so it ships in a stage of its own AFTER the
-  #     matrix (rf2-p4a93; the edge itself dates to rf2-qmhysc). Its
+  #     matrix. Its
   #     sibling stage is `deploy-fresco` (4c) — same shape, same edge
   #     onto `ssr`, and the two run in parallel because neither appears
   #     in the other's published pom.
@@ -716,16 +687,15 @@ jobs:
       # Note what it does not do: resolving ssr from ~/.m2 means this job
       # never asks Clojars whether ssr is there, so the job cannot itself
       # detect a missing sibling. That detection is the `needs:` edge's
-      # job. Keep the two together — drop the edge and this step turns
-      # back into a mask, which is the rf2-p4a93 defect.
+      # job. Keep the two together — drop the edge and this step becomes
+      # a mask over a missing sibling.
       #
-      # POM FIDELITY OF THIS INSTALL (rf2-1zbpw). This is the one clein
-      # invocation in the workflow that runs against an UN-REWRITTEN
+      # POM FIDELITY OF THIS INSTALL. This is one of the clein
+      # invocations in the workflow that run against an UN-REWRITTEN
       # deps.edn: the Rewrite step below edits ssr-ring's file, never
       # ssr's, so `implementation/ssr/deps.edn` still says
-      # {:local/root "../core"} at this point. Measured locally at
-      # 0.0.1.alpha, that turns out to be inert rather than merely
-      # fail-safe. `clein install` is `clean` + `copy-src` + `b/jar` +
+      # {:local/root "../core"} at this point. That is inert rather than
+      # merely fail-safe. `clein install` is `clean` + `copy-src` + `b/jar` +
       # `b/install` and never calls `write-pom`, so it installs the JAR
       # ALONE — no sibling `.pom` in ~/.m2 and none inside the jar. The
       # locally-installed day8/re-frame2-ssr therefore declares no
@@ -740,8 +710,8 @@ jobs:
       # entirely — it is built by the `ssr` value of the deploy-leaf
       # matrix, whose Rewrite step runs BEFORE its clein deploy, so the
       # published day8/re-frame2-ssr pom carries
-      # `day8/re-frame2 <VERSION>` correctly. Verified by generating both
-      # poms from this leaf: un-rewritten prints "Skipping coordinate:
+      # `day8/re-frame2 <VERSION>` correctly. Generating both poms from
+      # this leaf shows it: un-rewritten prints "Skipping coordinate:
       # {:local/root …/core …}" and emits org.clojure/clojure only;
       # rewritten emits day8/re-frame2 at the release version.
       - name: Install ssr to runner ~/.m2
@@ -749,8 +719,8 @@ jobs:
         run: clojure -M:clein install
 
       # Two rewrites, one per in-repo coordinate — see the matrix job's
-      # Rewrite step for what the script guarantees. ssr-ring is the only
-      # leaf that needs the second call (rf2-qmhysc).
+      # Rewrite step for what the script guarantees. ssr-ring and fresco
+      # are the only leaves that need the second call.
       - name: Rewrite ${{ matrix.leaf }} :local/root → :mvn/version
         working-directory: ${{ matrix.directory }}
         env:
@@ -772,7 +742,7 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────
   # 4c. Deploy fresco — the second leaf with a published-pom edge to a
-  #     sibling leaf (rf2-gra70). Everything 4b says applies verbatim:
+  #     sibling leaf. Everything 4b says applies verbatim:
   #     implementation/fresco/deps.edn publishes day8/re-frame2 AND
   #     day8/re-frame2-ssr, so its pom only resolves if the `ssr` matrix
   #     value actually reached Clojars, and `needs: deploy-leaf` — which
@@ -852,7 +822,7 @@ jobs:
       # job never asks Clojars whether ssr is there, so the job cannot
       # itself detect a missing sibling. That detection is the `needs:`
       # edge's job — keep the two together. See the POM FIDELITY note in
-      # 4b (rf2-1zbpw) for why installing from an UN-REWRITTEN
+      # 4b for why installing from an UN-REWRITTEN
       # implementation/ssr/deps.edn is inert here: `clein install` writes
       # no pom, and the pom consumers actually get is built by the `ssr`
       # value of the deploy-leaf matrix, after its own rewrite.
@@ -892,8 +862,8 @@ jobs:
     # A `needs` entry referencing a matrix job waits for ALL of its
     # matrix values to succeed, so `deploy-leaf` alone covers the eleven
     # independent leaves. `deploy-ssr-ring` and `deploy-fresco` are
-    # listed separately because each is its own job (rf2-p4a93,
-    # rf2-gra70); without them here, a SKIPPED stage would still cut a
+    # listed separately because each is its own job; without them here,
+    # a SKIPPED stage would still cut a
     # Release announcing the artefact.
     needs:
       - deploy-core

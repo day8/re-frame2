@@ -136,7 +136,7 @@ test('runTrusted kills a hung setup command within its timeout, loop stays live 
     loopStayedLive,
     'the event loop did NOT turn while runTrusted awaited — the independent ' +
       'liveness timer never fired. This is the synchronous-spawn signature ' +
-      'finding 2 pins: a blocked loop starves both this timer AND the ' +
+      'this test pins: a blocked loop starves both this timer AND the ' +
       'whole-run HERMETIC_TIMEOUT_MS watchdog.',
   );
 });
@@ -243,7 +243,7 @@ test('runTrusted SIGKILLs a SIGTERM-ignoring setup child — the reject does not
   }
 
   // 1. The timeout path rejected, attributed to the timeout (not "killed by
-  // <signal>" — the fix defers the exit-handler signal message to the
+  // <signal>" — `runTrusted` defers the exit-handler signal message to the
   // timeout IIFE so attribution stays clear).
   assert.ok(rejected, 'runTrusted did NOT reject on the SIGTERM-ignoring child.');
   assert.ok(
@@ -252,8 +252,8 @@ test('runTrusted SIGKILLs a SIGTERM-ignoring setup child — the reject does not
   );
 
   // 2. THE LOAD-BEARING ASSERTION: the child is actually GONE after the
-  // reject. If `settle(reject)` cancelled the SIGKILL `killTimer`, a
-  // SIGTERM-ignoring child would stay alive forever and this poll would
+  // reject. If `settle(reject)` cancelled a fire-and-forget SIGKILL timer,
+  // a SIGTERM-ignoring child would stay alive forever and this poll would
   // never see ESRCH within the bound. Because the AWAITED SIGTERM→SIGKILL
   // escalation reaps it before (or as) the promise rejects, the PID is gone.
   // Poll with a small bound to cover the OS reap latency after SIGKILL.
@@ -278,7 +278,7 @@ test('runTrusted SIGKILLs a SIGTERM-ignoring setup child — the reject does not
     gone,
     'the SIGTERM-ignoring child (pid ' + childPid + ') is STILL ALIVE after ' +
       'runTrusted rejected — the SIGKILL fallback was cancelled by the ' +
-      'reject (the rf2-i4d5wr bug). The timeout path must AWAIT the ' +
+      'reject. The timeout path must AWAIT the ' +
       'SIGTERM→SIGKILL escalation so a hung setup child is actually reaped, ' +
       'not leaked.',
   );

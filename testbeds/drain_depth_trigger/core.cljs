@@ -17,8 +17,8 @@
                runs) and emits `:rf.error/drain-depth-exceeded` carrying
                `:rollback? false`.
     - The frame's epoch record for the halting event lands with outcome
-      `:halted-depth` per [Spec-Schemas §`:rf/epoch-record` Outcomes]
-      (rf2-v0jwt). Because that event never ran, its `:db-before` and
+      `:halted-depth` per [Spec-Schemas §`:rf/epoch-record` Outcomes].
+      Because that event never ran, its `:db-before` and
       `:db-after` both equal the durable last-settled `app-db`.
       Consumers read this record off `rf/epoch-history`.
 
@@ -57,7 +57,7 @@
   "Default depth ceiling registered on the surface's frame. Low enough
   that the runaway cascade halts in well under a second of wall-clock
   time, high enough to demonstrate the runtime ran multiple iterations
-  before the rollback fired. The default framework `:drain-depth` is
+  before the halt fired. The default framework `:drain-depth` is
   100 (per Spec 002 §`:drain-depth`); this surface ships with 25 so a
   visual demo halts visibly faster."
   25)
@@ -114,16 +114,13 @@
 ;; Reset
 ;; ----------------------------------------------------------------------------
 ;;
-;; Note — this testbed historically registered an error-emit listener
-;; (`register-error-listener!`) intending to flip a `:halted?`
-;; mirror when `:rf.error/drain-depth-exceeded` fired. That listener
-;; never fired: the runtime's depth-exceeded path emits ONLY via
-;; `trace/emit-error!`, not `error-emit/dispatch-on-error!` (the
-;; substrate `register-error-listener!` subscribes to). Per
-;; rf2-86k63 the mirror has been removed — the framework-side
-;; observables (`:depth-reached` rolling back to 0, the `:halted-depth`
-;; epoch record on `rf/epoch-history`) already cover the contract
-;; under test and are what the cross-cutting scenario asserts on.
+;; There is no `:halted?` mirror: the runtime's depth-exceeded path emits
+;; ONLY via `trace/emit-error!`, not `error-emit/dispatch-on-error!` (the
+;; substrate `register-error-listener!` subscribes to), so an error-emit
+;; listener would never see `:rf.error/drain-depth-exceeded`. The
+;; framework-side observables (`:depth-reached`, the `:halted-depth`
+;; epoch record on `rf/epoch-history`) cover the contract under test and
+;; are what the cross-cutting scenario asserts on.
 
 (rf/reg-event ::reset
   (fn [{:keys [db]} _ev]
@@ -205,7 +202,7 @@
   ;; per [spec/002 §Surgical update] re-registering only changes the
   ;; supplied keys (here :drain-depth), the other defaults survive.
   (rf/make-frame {:id :rf/default :drain-depth default-drain-depth})
-  ;; EP-0002 (rf2-9o48ih): scope the boot dispatch to the registered app
+  ;; Per EP-0002, scope the boot dispatch to the registered app
   ;; frame and wrap the render in a `frame-provider` — the runtime never
   ;; synthesises a frame from absence (the carried invariant).
   (rf/with-frame :rf/default

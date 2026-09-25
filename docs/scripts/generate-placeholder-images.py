@@ -44,8 +44,8 @@ PLACEHOLDERS = [
     ("xray", "05-dom-attribute.png",   "data-rf2-source-coord on every rendered element"),
     ("xray", "08-machines.png",        "Machine inspector with state-chart"),
     ("xray", "09-app-db-diff.png",     "App-DB diff for a cascade"),
-    # Additional Xray scenes — the AI co-pilot lives at ch 10; the
-    # conditional-band chapters shifted one slot down to absorb the move:
+    # Additional Xray scenes — the AI co-pilot (ch 10) and the
+    # conditional-band chapters:
     ("xray", "10-copilot-rail.png",    "AI co-pilot rail — pull-only, slash commands"),
     ("xray", "06-schema-timeline.png", "Schema-violation timeline — dot per epoch"),
     ("xray", "07-hydration.png",       "Hydration debugger — server vs client trees"),

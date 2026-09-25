@@ -95,15 +95,14 @@
 ;; and line comments to single spaces — preserving line numbering for
 ;; accurate error reporting up the stack.
 ;;
-;; Originally `defn-` in `wire_vocab_test.clj` (rf2-7dnct → rf2-xx42k),
-;; promoted to a public helper here so all three conformance test
-;; namespaces can share it (rf2-rto1l): the wire-vocab gate, the
-;; story-mcp absence tripwire, AND the indicator-field inline-emit
-;; anti-pin all need the same documentation-vs-emission distinction.
+;; A public helper here so the conformance test namespaces share it: the
+;; wire-vocab gate, the story-mcp absence tripwire, the indicator-field
+;; inline-emit anti-pin and their siblings all need the same
+;; documentation-vs-emission distinction.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; Keyword-extender-aware variant regex (rf2-qnmne).
+;; Keyword-extender-aware variant regex.
 ;;
 ;; Conformance tests grep server source for canonical literal keywords and
 ;; near-miss variants. Raw `str/includes?` false-positives when a variant
@@ -112,9 +111,8 @@
 ;; The regex pins the variant as a complete keyword token: matched only
 ;; when not immediately followed by a keyword-extender character.
 ;;
-;; Originally `defn-` in `slot_name_test.clj` (rf2-zvv65); promoted here
-;; so `indicator_field_test.clj`'s inline-emit anti-pin can use the same
-;; elegant pattern.
+;; Shared here so the slot-name, indicator-field, reply-envelope and
+;; infinite-trace-ops near-miss pins use the same pattern.
 ;; ---------------------------------------------------------------------------
 
 (defn variant-regex
@@ -181,10 +179,10 @@
                 (recur (inc index) false false)))))))))
 
 (def strip-comments-and-strings
-  "Memoised wrapper over `strip-comments-and-strings*` (rf2-re2tv).
+  "Memoised wrapper over `strip-comments-and-strings*`.
   Every conformance test reaches for this on top of `read-source`
-  output; both caches together collapse the wire-vocab suite's
-  ~4356ms wall-clock by avoiding repeated state-machine walks of
-  the same source text. Keyed on the input string itself — pure
-  function of `src`, so identity-keyed equality is fine."
+  output; both caches together spare the wire-vocab suite repeated
+  state-machine walks of the same source text. Keyed on the input
+  string itself — pure function of `src`, so identity-keyed equality
+  is fine."
   (memoize strip-comments-and-strings*))

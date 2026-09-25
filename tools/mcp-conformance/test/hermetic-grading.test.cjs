@@ -1,13 +1,12 @@
-// Entrypoint-level grading regression for the hermetic orchestrator
-// (rf2-j538f7.19).
+// Entrypoint-level grading regression for the hermetic orchestrator.
 //
-// The bug: the normal path emitted its GREEN/pass sentinel and exited 0
-// BEFORE (and regardless of) the teardown outcome. A run whose six inner
-// conformance tests all passed could still leak a Chromium or shadow-cljs JVM
-// process and be certified green — "awaited and bounded" was only a TIMING
+// A normal path that emitted its GREEN/pass sentinel and exited 0 BEFORE
+// (and regardless of) the teardown outcome would certify a run whose inner
+// conformance tests all passed even while it leaked a Chromium or
+// shadow-cljs JVM process — "awaited and bounded" would be only a TIMING
 // property, never graded.
 //
-// The fix routes the settled cleanup report through `finalizeConformance`,
+// So the settled cleanup report routes through `finalizeConformance`,
 // which certifies GREEN (pass sentinel + exit 0) ONLY when the report proves
 // every resource clean, and otherwise emits NO pass sentinel and returns
 // orchestration exit 2. This test drives that REAL grading decision against

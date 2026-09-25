@@ -574,18 +574,18 @@
 
 ;; ===========================================================================
 ;; (c++) DETERMINISTIC CANONICAL EDGE ORDER under registration/projection
-;; permutation (rf2-3fc89f.1).
+;; permutation.
 ;;
 ;; [Derivations.md] §Graph inspection promises MECHANICAL, DETERMINISTIC
 ;; assembly. The composer's `:edges` is an explicitly vector-valued collection
 ;; that callers serialize / diff / hash / snapshot / display, so two logically
 ;; identical graphs — the SAME nodes and the SAME edges, assembled under
 ;; different projection / registration INSERTION orders — must produce the
-;; SAME ordered `:edges` vector (and the same whole graph value). Before the
-;; fix the composer inherited `nodes`-map iteration + each `:edge-fn`'s scan
-;; order, so a mere insertion-order permutation emitted an edge PERMUTATION.
+;; SAME ordered `:edges` vector (and the same whole graph value). Inheriting
+;; `nodes`-map iteration + each `:edge-fn`'s scan order would let a mere
+;; insertion-order permutation emit an edge PERMUTATION.
 ;;
-;; The fix sorts the de-duplicated edge collection by
+;; The composer sorts the de-duplicated edge collection by
 ;; `re-frame.identity/canonical-bytes` of each COMPLETE edge map — a
 ;; platform-stable TOTAL key (identical on CLJ and CLJS, and order-insensitive
 ;; over each edge map's own keys, so it does not depend on nested-map SPELLING
@@ -713,9 +713,9 @@
 ;; A LIVE edge endpoint carries a subscription's whole concrete query vector,
 ;; and a query argument may legally sit outside the CEDN-1 domain: a finite
 ;; float (the cache-key contract admits them) or a fn. `canonical-bytes`
-;; throws on both, so ordering by it alone lost the WHOLE live graph as soon
-;; as two edges had to be compared (rf2-3x7nj.3.3; a one-edge `sort-by` never
-;; calls its key fn). The nodes are shaped like `sub-cache-algebra-view`'s.
+;; throws on both, so ordering by it alone would lose the WHOLE live graph as
+;; soon as two edges had to be compared (a one-edge `sort-by` never calls its
+;; key fn). The nodes are shaped like `sub-cache-algebra-view`'s.
 
 (def ^:private out-of-domain-arg-fn
   "A fn query-vector argument — one fixed object, so every assembly below sees
@@ -757,7 +757,7 @@
             (str "edges must equal the expected order for insertion order " order))))))
 
 ;; ===========================================================================
-;; (d) WHOLE-VALUE — the semantic whole-value law (slice-1).
+;; (d) WHOLE-VALUE — the semantic whole-value law.
 ;; ===========================================================================
 
 (deftest d-materialized-flow-output-equals-the-whole-value-recompute
@@ -800,7 +800,7 @@
       (is (not= (:lifecycle sub)  (:lifecycle flow)) "cache-entry vs frame")
       (is (not= (:output sub)     (:output flow)) "[:fact …] vs [:db …]")
       (is (not= (:materialized? sub) (:materialized? flow)) "false vs true"))
-    (testing "both remain derivations over the same whole value"
+    (testing "both are derivations over the same whole value"
       (is (= :derivation (:kind sub) (:kind flow)))
       ;; the flow's :derive IS sum-cart; the subscription's wraps it — both
       ;; yield the identical whole value over the identical inputs.
@@ -815,12 +815,12 @@
 
 (deftest d-delta-law-is-semantic-only-no-delta-support-still-conforms
   ;; The optional delta law applies only when an executable delta protocol is
-  ;; present. The current implementation remains whole-value only.
+  ;; present. The implementation is whole-value only.
   (register-one-of-each!)
   (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))]
     (doseq [[node-id node] nodes]
       (is (not (contains? node :step-delta))
-          (str node-id " carries a :step-delta — slice-1 ships no delta protocol")))))
+          (str node-id " carries a :step-delta — the implementation ships no delta protocol")))))
 
 ;; ===========================================================================
 ;; (e) LIFECYCLE — drive each release boundary and observe the corresponding
@@ -1054,7 +1054,7 @@
   ;; snapshot before and after so the release assertion cannot pass vacuously.
   (register-one-of-each!)
   ;; A machine with a :final? terminal state (the singleton lifecycle's
-  ;; release boundary). Distinct id from :upload/main so the existing arms are
+  ;; release boundary). Distinct id from :upload/main so the other arms are
   ;; untouched.
   (rf/reg-machine :job/runner
                   {:initial :running
@@ -1254,7 +1254,7 @@
   including map keys: as a whole string leaf, EMBEDDED in a larger string (a
   CEDN-1 token such as `v[k::rf.scope/tenant s:\"<secret>\"]` carries the raw
   value inside it), or inside the printed form of any other leaf, such as a
-  keyword or symbol built from it (rf2-3x7nj.20.1)."
+  keyword or symbol built from it."
   [v]
   (boolean
     (cond
@@ -1274,7 +1274,7 @@
   ;; Every "no raw secret survives" assertion below is only as strong as
   ;; `contains-secret?`. A handle minted from the CEDN-1 token instead of its
   ;; digest carries the secret INSIDE a larger string, and a predicate that
-  ;; matched only a leaf EQUAL to the secret let it pass (rf2-3x7nj.20.1).
+  ;; matched only a leaf EQUAL to the secret would let it pass.
   (testing "a handle that embeds the raw token trips the predicate"
     (let [leaking [:rf.resource/opaque (rf.identity/canonical-bytes secret-scope)]]
       (is (not-any? #(= secret-token %) leaking)
@@ -1433,17 +1433,16 @@
         (is (not (contains-secret? redacted)))))))
 
 (deftest g-graph-egress-nil-frame-is-unregistrable-and-fails-closed
-  ;; rf2-g1vu, retargeted by rf2-kuky.5. The fail-closed stamp `project-graph`
-  ;; applies when the governing frame is nil / unreachable had to be a value NO
-  ;; app could register a frame under, and three passes across two namespaces
-  ;; failed to find one: a `::`-namespaced keyword expands to an ordinary
-  ;; public keyword, and `make-frame` validates no `:id` type, so registering a
-  ;; live frame under the literal turned the fail-CLOSED stamp into a
-  ;; live-frame walk under that frame's (empty) declaration registry and the
-  ;; graph's value-bearing fields shipped RAW.
+  ;; The fail-closed stamp `project-graph` applies when the governing frame is
+  ;; nil / unreachable must be a value NO app can register a frame under. A
+  ;; sentinel keyword cannot be: a `::`-namespaced keyword expands to an
+  ;; ordinary public keyword, and `make-frame` validates no `:id` type, so
+  ;; registering a live frame under the literal would turn the fail-CLOSED
+  ;; stamp into a live-frame walk under that frame's (empty) declaration
+  ;; registry and ship the graph's value-bearing fields RAW.
   ;;
-  ;; `project-graph` no longer mints a substitute: it stamps the observed
-  ;; frame-id verbatim, and `elide-wire-value` reads `:frame` by KEY PRESENCE.
+  ;; `project-graph` mints no substitute: it stamps the observed frame-id
+  ;; verbatim, and `elide-wire-value` reads `:frame` by KEY PRESENCE.
   ;; `nil` is the value no app can register at, structurally — the walker
   ;; guards its live-frame arm with `(some? frame-id)`, so an explicit nil can
   ;; never take the live branch however the registry is populated. This arm
@@ -1451,9 +1450,8 @@
   ;; there being nothing to borrow.
   (rf/make-frame {:id egress-frame})
   (classify-egress-frame-sensitive!)
-  ;; Attempt the registration every earlier collision turned on, now aimed at
-  ;; nil itself. A runtime that refuses a nil id is fine — the assertion below
-  ;; must hold either way.
+  ;; Attempt that registration aimed at nil itself. A runtime that refuses a
+  ;; nil id is fine — the assertion below must hold either way.
   (let [registered? (try (rf/make-frame {:id nil}) true
                          (catch #?(:clj Throwable :cljs :default) _ false))]
     (try
@@ -1469,7 +1467,7 @@
             (is (= rf.privacy/redacted-sentinel (:value sub))
                 "a nil governing frame must redact the whole value-bearing field")
             (is (not (contains-secret? redacted))
-                "no raw secret survives a nil-frame egress (rf2-g1vu, rf2-kuky.5)"))))
+                "no raw secret survives a nil-frame egress"))))
       (finally
         (when registered?
           (try (rf/destroy-frame! nil)
@@ -1516,10 +1514,10 @@
 ;; ---- (g) the identity projection touches resource nodes only --------------
 ;;
 ;; A live sub node's `:id` and `:output` carry its query vector, and a query
-;; vector `[:sub-id :kw {…}]` has the scoped-key SHAPE. Egress used to run the
-;; resource identity projection over every node, so it rewrote such a sub's
-;; `:id` and `:output` into opaque handles while its node key and edges kept
-;; the raw query vector (rf2-3x7nj.3.5).
+;; vector `[:sub-id :kw {…}]` has the scoped-key SHAPE. Running the resource
+;; identity projection over every node would rewrite such a sub's `:id` and
+;; `:output` into opaque handles while its node key and edges kept the raw
+;; query vector.
 
 (def ^:private scoped-key-shaped-query
   [:items/page :active {:limit 10}])
@@ -1560,12 +1558,11 @@
 
 ;; ---- (g) the opaque handle is a keyed, full-width digest ------------------
 ;;
-;; The handle used to be a 32-bit `hash` of the CEDN-1 token. `{:q "Aa"}` and
+;; The handle is the full 64-char hex HMAC-SHA-256 of the CEDN-1 token under a
+;; private per-runtime key. A 32-bit `hash` would not do: `{:q "Aa"}` and
 ;; `{:q "BB"}` share a `String.hashCode`, so two live entries of one resource
-;; merged into one egressed node, and a low-entropy param such as a user id
-;; could be recovered by enumerating candidates. The handle is now the full
-;; 64-char hex HMAC-SHA-256 of the token under a private per-runtime key
-;; (rf2-3x7nj.3.4).
+;; would merge into one egressed node, and a low-entropy param such as a user
+;; id could be recovered by enumerating candidates.
 
 (defn- search-results-contributors
   "A live `:resources` contributor holding one `:search/results` entry per
@@ -1605,13 +1602,13 @@
       (is (= 2 (count (resource-node-keys raw))) "sanity: two live entries")
       (is (= 2 (count (resource-node-keys redacted)))
           "{:q \"Aa\"} and {:q \"BB\"} must not merge into one egressed node")))
-  (testing "control: a pair that never collided stays two nodes"
+  (testing "control: a pair with distinct String.hashCodes stays two nodes"
     (let [[_ redacted] (egress-search-results {:q "Aa"} {:q "Ab"})]
       (is (= 2 (count (resource-node-keys redacted)))))))
 
 (deftest g-opaque-handle-digest-is-hmac-sha256
   ;; Known answers prove the digest IS HMAC-SHA-256 on this host. Merely
-  ;; differing from the old hash would prove nothing about keying.
+  ;; differing from a plain hash would prove nothing about keying.
   (let [hmac #'rf.derivation.egress/hmac-sha256-hex
         jefe (key-bytes [0x4a 0x65 0x66 0x65])]
     (testing "RFC 4231 test vectors"
@@ -1642,7 +1639,7 @@
       (is (not= #?(:clj  (Integer/toHexString (hash token))
                    :cljs (.toString (bit-and (hash token) 0xffffffff) 16))
                 hex)
-          "not the old 32-bit hash")
+          "not a 32-bit hash")
       (is (not= (#'re-frame.schemas.digest/sha256-hex token) hex)
           "not an unkeyed SHA-256: the digest is keyed"))
     (testing "control: the same value gets the same handle within one runtime"

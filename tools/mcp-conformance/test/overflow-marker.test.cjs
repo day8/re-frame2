@@ -1,22 +1,21 @@
-// Unit tests for `lib/overflow-marker.cjs` (rf2-3fc89f.20).
+// Unit tests for `lib/overflow-marker.cjs`.
 //
-// ## The bug this pins
+// ## The contract this pins
 //
-// The live gate `live-re-frame2-pair-overflow.cjs` used to parse the EDN and
-// return `outer['rf.mcp/overflow']` WITHOUT checking that key was the sole
-// top-level key. A mixed envelope
-// `{:rf.mcp/overflow {...valid body...} :unexpected "sibling"}` therefore
-// reached the body assertions and PASSED, even though the JVM contract pins
+// A gate that parses the EDN and returns `outer['rf.mcp/overflow']`
+// WITHOUT checking that key is the sole top-level key would let a mixed
+// envelope `{:rf.mcp/overflow {...valid body...} :unexpected "sibling"}`
+// reach the body assertions and PASS, even though the JVM contract pins
 // `Overflow = [:map {:closed true} [:rf.mcp/overflow ...]]` — CLOSED and
 // SINGLE-KEY, because clients pattern-match on exactly one reserved
-// discriminator key. The live gate also validated only `content[0].text`
-// and never `structuredContent`, so the two slots could drift silently.
+// discriminator key. A gate that validates only `content[0].text` and
+// never `structuredContent` would let the two slots drift silently.
 //
 // ## What this proves
 //
-// Test 1 is the RED-then-GREEN proof: it first shows the pre-fix
-// extraction-only logic (replicated inline) ACCEPTS the malformed mixed
-// envelope, then shows the new closed-wrapper validator REJECTS it. The
+// Test 1 is the RED-then-GREEN proof: it first shows extraction-only
+// logic (replicated inline) ACCEPTS the malformed mixed envelope, then
+// shows the closed-wrapper validator REJECTS it. The
 // remaining tests cover the lookalike-key / array / multi-key / missing
 // rejections, additive-body acceptance, the required-field + token-count
 // invariants, and the dual-slot agreement check.
@@ -51,13 +50,13 @@ function validBody(overrides) {
   );
 }
 
-// The exact malformed shape from the bead reproduction.
+// The malformed mixed-envelope shape.
 const MALFORMED_MIXED_ENVELOPE =
   '{:rf.mcp/overflow {:limit :reached :cap-tokens 5000 :token-count 6250 ' +
   ':tool "eval-cljs" :hint "Slice"} :unexpected "sibling"}';
 
-// The pre-fix extraction-only logic, replicated so the RED half of test 1
-// can demonstrate the exact false-pass this bug allowed.
+// Extraction-only logic, replicated so the RED half of test 1 can
+// demonstrate the exact false-pass it allows.
 function legacyExtractionOnly(text) {
   let outer;
   try {
@@ -70,12 +69,12 @@ function legacyExtractionOnly(text) {
 }
 
 test('RED-then-GREEN: legacy extraction-only accepts an extra top-level sibling; the closed-wrapper validator rejects it', () => {
-  // RED: the pre-fix logic returns the valid inner body even though the
-  // envelope carries an unexpected sibling key — the exact false-green.
+  // RED: extraction-only logic returns the valid inner body even though
+  // the envelope carries an unexpected sibling key — the exact false-green.
   const legacy = legacyExtractionOnly(MALFORMED_MIXED_ENVELOPE);
   assert.ok(
     legacy && legacy.limit === 'reached',
-    'sanity: the extraction-only parser accepts the mixed envelope (the bug)',
+    'sanity: the extraction-only parser accepts the mixed envelope (the false-green)',
   );
   // The outer genuinely has two top-level keys.
   const outer = parseEDNString(MALFORMED_MIXED_ENVELOPE, EDN_PARSE_OPTS);
@@ -146,8 +145,8 @@ test('assertOverflowBody: rejects a wrong :limit enum and non-numeric token fiel
 });
 
 test('fractional :cap-tokens / :token-count are rejected through BOTH slots (rf2-gwye.41)', () => {
-  // Malli pins both fields as `:int`; a `typeof === 'number'` check let
-  // 5000.5 through both validators and the agreement check. Each field is
+  // Malli pins both fields as `:int`; a `typeof === 'number'` check would
+  // let 5000.5 through both validators and the agreement check. Each field is
   // fractional alone, then both (cap-tokens is checked first).
   for (const [cap, count, field] of [
     [5000.5, 6250, 'cap-tokens'],

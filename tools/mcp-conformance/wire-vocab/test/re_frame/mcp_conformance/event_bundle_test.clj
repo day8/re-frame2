@@ -1,6 +1,5 @@
 (ns re-frame.mcp-conformance.event-bundle-test
-  "Event-bundle wire-shape gate (rf2-mscih). Split out of
-  `wire_vocab_test.clj` by rf2-7ckmwx.
+  "Event-bundle wire-shape gate.
 
   An event bundle is the framework's per-run trace projection — one
   record per `:rf.trace/dispatch-id`, the shape `(rf/trace-buffer
@@ -12,12 +11,6 @@
   projection groups. The bundle is the load-bearing shape that lets AI
   consumers reason about cause→effect at `:dispatch-id` granularity
   without re-folding raw trace streams.
-
-  History: the shape first crossed the MCP wire as the `:event-bundles`
-  slot of the streaming `subscribe` tool's per-tick payload (rf2-mscih —
-  `:trace`/`:fx`/`:error` topics shipped bundles, `:epoch`/`:frameless`
-  a flat `:events` vector). rf2-ahjbc retired that subsystem; this gate
-  pins the SHAPE, which outlived its first carrier.
 
   The gate shape mirrors the per-marker pattern:
     1. A canonical Malli schema for one event-bundle.
@@ -48,16 +41,15 @@
 
   Required slots:
     :dispatch-id        — the dispatch id. Any value EXCEPT the
-                          `:ungrouped` sentinel (rf2-mscih filtered
-                          frameless events out before bundling); the
-                          bundled wire never ships `:ungrouped`.
-                          Enforced at the schema level by the
-                          `not-ungrouped?` predicate (rf2-voux7 finding 3):
-                          the pre-fix `[:dispatch-id :any]` let a regression
+                          `:ungrouped` sentinel (frameless events are
+                          filtered out before bundling); the bundled wire
+                          never ships `:ungrouped`. Enforced at the schema
+                          level by the `not-ungrouped?` predicate: a bare
+                          `[:dispatch-id :any]` would let a regression
                           that routed frameless / `:ungrouped` shapes onto
                           the bundled wire validate, breaking the
                           event-vs-frameless wire distinction this gate
-                          claims to pin.
+                          pins.
     :trace-events       — raw events for the run (vector). May
                           be empty if every event was elided / dropped.
     :event              — event vector or nil (the `:rf.event/dispatched`
@@ -91,7 +83,7 @@
 
 (def ^:private re-frame2-pair-event-bundle-fixture
   "Canonical event-bundle shape for a single run — one `group-by-event`
-  record (rf2-mscih)."
+  record."
   {:dispatch-id        17
    :frame              :rf/default
    :event              [:cart/add-item {:sku "abc"}]
@@ -118,7 +110,7 @@
    :parent-dispatch-id nil})
 
 (def ^:private re-frame2-pair-cross-frame-event-fixture
-  "Cross-frame event reconstruction sample (rf2-mscih) — two bundles
+  "Cross-frame event reconstruction sample — two bundles
   carrying the same `:dispatch-id` from two different frames. The
   consumer merges by `:dispatch-id` to reconstruct the unified
   timeline per Tool-Pair §Cross-frame event reconstruction."
@@ -152,7 +144,7 @@
              (m/explain EventBundle re-frame2-pair-event-bundle-fixture)))))
 
 (deftest cross-frame-event-bundles-conform
-  ;; The cross-frame reconstruction case (rf2-mscih) — a vector of
+  ;; The cross-frame reconstruction case — a vector of
   ;; bundles sharing `:dispatch-id` across frames. Every bundle MUST
   ;; validate; consumers merge by `:dispatch-id`.
   (is (m/validate EventBundleVector re-frame2-pair-cross-frame-event-fixture)
@@ -168,20 +160,20 @@
 (deftest event-bundle-rejects-frameless-shape
   ;; An `:ungrouped` `:dispatch-id` (`:ungrouped` is the
   ;; `group-by-event` sentinel for frameless events) MUST NOT ship on
-  ;; the event-bundle wire — rf2-mscih filtered frameless events out
-  ;; before bundling. Per rf2-voux7 finding 3 the schema ENFORCES this
-  ;; directly via the `not-ungrouped?` predicate: the pre-fix
-  ;; `[:dispatch-id :any]` let a regression that routed frameless /
-  ;; `:ungrouped` shapes onto the bundled wire validate, masking
-  ;; the event-vs-frameless distinction this gate claims to pin.
+  ;; the event-bundle wire — frameless events are filtered out before
+  ;; bundling. The schema ENFORCES this directly via the
+  ;; `not-ungrouped?` predicate: a bare `[:dispatch-id :any]` would let a
+  ;; regression that routed frameless / `:ungrouped` shapes onto the
+  ;; bundled wire validate, masking the event-vs-frameless distinction
+  ;; this gate pins.
   (testing "schema REJECTS an :ungrouped dispatch-id on an event-bundle"
     (let [frameless-bundle (assoc re-frame2-pair-event-bundle-fixture
                                   :dispatch-id :ungrouped)]
       (is (not (m/validate EventBundle frameless-bundle))
           (str "EventBundle MUST reject :dispatch-id :ungrouped — the "
                ":ungrouped sentinel marks the frameless bucket, which "
-               "never ships as a bundle (rf2-mscih / "
-               "rf2-voux7 finding 3). A bundle carrying it is a "
+               "never ships as a bundle. "
+               "A bundle carrying it is a "
                "frameless-shape leak onto the event wire."))))
   (testing "schema REJECTS an :ungrouped bundle inside an EventBundleVector"
     (let [leaky-vec [re-frame2-pair-event-bundle-fixture
@@ -191,7 +183,7 @@
           "an :event-bundles vector with even one :ungrouped bundle MUST fail")))
   (testing "schema ACCEPTS a typed/numeric dispatch id (guard against over-tightening)"
     (is (m/validate EventBundle re-frame2-pair-event-bundle-fixture)
-        "the canonical numeric :dispatch-id 17 must still validate")
+        "the canonical numeric :dispatch-id 17 must validate")
     (is (m/validate EventBundle
                     (assoc re-frame2-pair-event-bundle-fixture
                            :dispatch-id :cart/checkout))

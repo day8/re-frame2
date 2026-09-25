@@ -204,7 +204,7 @@
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
   (install-trace-listener!)
-  ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
+  ;; Per EP-0002, the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the client app frame and scope the
   ;; hydrate / boot dispatch + render to it (the carried invariant).
   (rf/make-frame {:id :rf/default})

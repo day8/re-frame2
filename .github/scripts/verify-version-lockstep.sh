@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# verify-version-lockstep.sh (rf2-ace2; substrate-paths updated rf2-zha9;
-# adapters/ rename rf2-0imy; tools/ coverage rf2-lwtke; coordinate-inventory
-# completeness rf2-7fxf8)
+# verify-version-lockstep.sh
 #
 # Asserts the lockstep-version contract documented in spec/Conventions.md
 # §Packaging conventions: every published artefact picks up its version
@@ -10,35 +8,31 @@
 # coordinates (which the release workflow rewrites to the matching
 # :mvn/version at deploy time).
 #
-# Per rf2-zha9 the adapters (reagent, uix) live at
-# implementation/adapters/<name>/ (renamed from substrates/ per
-# rf2-0imy) — one level deeper than the per-feature artefacts
-# (schemas, machines, routing, flows, http, ssr, epoch) which stay at
-# implementation/<name>/. The script tracks the difference: adapters
-# declare :version "../../../VERSION" and :local/root "../../core";
-# per-feature artefacts and core declare :version "../../VERSION" and
-# (for non-core) :local/root "../core".
+# The adapters (reagent, reagent-slim, uix) live at
+# implementation/adapters/<name>/ — one level deeper than core and the
+# per-feature artefacts, which sit at implementation/<name>/. The script
+# tracks the difference: adapters declare :version "../../../VERSION" and
+# :local/root "../../core"; per-feature artefacts and core declare
+# :version "../../VERSION" and (for non-core) :local/root "../core".
 #
-# Per rf2-lwtke the deployable jars under tools/* also participate in
-# lockstep — every Clojars-publishable tool (xray, story, story-mcp,
-# machines-viz, mcp-base) carries :clein/build :version "../../VERSION"
-# and must not hand-edit a literal :mvn/version for any day8/re-frame2-*
-# artefact.
+# The deployable jars under tools/* also participate in lockstep — every
+# Clojars-publishable tool (xray, story, story-mcp, machines-viz, mcp-base)
+# carries :clein/build :version "../../VERSION" and must not hand-edit a
+# literal :mvn/version for any day8/re-frame2-* artefact.
 #
-# Per rf2-2ii52 each also has to be PACKAGEABLE, which a :version read
-# cannot tell you: the map must satisfy clein's spec (`:main`), and every
-# runtime coordinate must be one `clein pom` can express. Both classes had
-# already shipped un-noticed — see check_clein_main /
+# Each tool also has to be PACKAGEABLE, which a :version read cannot tell
+# you: the map must satisfy clein's spec (`:main`), and every runtime
+# coordinate must be one `clein pom` can express — see check_clein_main /
 # check_no_git_coords_in_runtime_deps below.
-# tools/machines-viz/ (rf2-o9arp) ships day8/re-frame2-machines-viz with
-# the same lockstep posture as xray — :local/root "../../implementation/core"
+# tools/machines-viz/ ships day8/re-frame2-machines-viz with the same
+# lockstep posture as xray — :local/root "../../implementation/core"
 # in dev, rewritten to :mvn/version at release.
 # tools/re-frame2-pair-mcp/ ships as a Node binary on npm and carries no
 # :clein/build alias, so it is intentionally excluded. tools/template/
-# is similarly excluded as of rf2-40vmd (rf2-dolpf §2.5): it ships via
-# git-coord (no Clojars publish, no :clein/build alias) and the version
-# literals consumed by the emitted app are guarded by the in-template
-# `version_lockstep_test.clj` suite rather than by this script.
+# is similarly excluded: it ships via git-coord (no Clojars publish, no
+# :clein/build alias) and the version literals consumed by the emitted app
+# are guarded by the in-template `version_lockstep_test.clj` suite rather
+# than by this script.
 #
 # This script is the single source of truth for the lockstep contract;
 # both .github/workflows/test.yml (PR-time drift detection) and
@@ -55,15 +49,12 @@
 #
 # `--self-test` checks the CHECKERS rather than the tree: it runs
 # check_no_git_coords_in_runtime_deps and check_clein_main over sets of
-# synthetic deps.edn and asserts each verdict. Both shipped once as
-# line-oriented text greps and both were wrong for the same reason — the first
-# only saw a git coordinate when the library symbol and its map sat on the same
-# physical line (rf2-2ii52), the second asked the WHOLE FILE for a `:main` at
-# the start of a line rather than the `:clein/build` map it claims to check
-# (rf2-1xacx). Each passed a verdict on a tree it had not actually read. Both
-# read EDN structure now, and the layouts are pinned below.
-#
-# rf2-ace2 / rf2-w05l / rf2-zha9 / rf2-lwtke.
+# synthetic deps.edn and asserts each verdict. Both read EDN structure,
+# because a line-oriented text grep would pass a verdict on a tree it had not
+# actually read — one would see a git coordinate only when the library symbol
+# and its map sat on the same physical line, the other would ask the WHOLE
+# FILE for a `:main` at the start of a line rather than the `:clein/build` map
+# it claims to check. The layouts that separate the two are pinned below.
 
 set -euo pipefail
 
@@ -72,12 +63,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-# Lockstep policy through 1.0 (per rf2-w05l): single root VERSION drives
-# every artefact via :clein/build :version. Each non-core artefact
-# references core via :local/root so changes to VERSION propagate to
-# every artefact's pom at deploy time. Anything else is drift.
+# Lockstep policy through 1.0: single root VERSION drives every artefact
+# via :clein/build :version. Each non-core artefact references core via
+# :local/root so changes to VERSION propagate to every artefact's pom at
+# deploy time. Anything else is drift.
 #
-# Per rf2-zha9 the relative paths differ by tier:
+# The relative paths differ by tier:
 #   - core + per-feature (implementation/<name>/):  :version "../../VERSION"     :local/root "../core"
 #   - adapters (implementation/adapters/<name>/):   :version "../../../VERSION"  :local/root "../../core"
 
@@ -114,26 +105,16 @@ declare -A ARTEFACT_PATHS=(
   [fresco]="fresco"
 )
 
-# rf2-qmhysc — resources + ssr-ring both declare publishable
-# :clein/build artefacts (day8/re-frame2-resources, day8/re-frame2-ssr-ring)
-# and ship in the release/deploy matrix, so they MUST participate in the
-# lockstep contract. They were previously omitted: version/local-root
-# drift in those two publishable artefacts was unguarded, and the summary
-# under-counted (it said "all 15"). The fail-on-drift inventory check
-# below now also asserts that EVERY implementation/*/deps.edn carrying a
-# :clein/build alias appears in this list, so a future publishable
-# artefact cannot be omitted unnoticed.
+# Every artefact that declares a publishable :clein/build and ships in the
+# release/deploy matrix MUST participate in the lockstep contract, and the
+# fail-on-drift inventory check below asserts that EVERY
+# implementation/*/deps.edn carrying a :clein/build alias appears in this
+# list, so a publishable artefact cannot be omitted unnoticed.
 #
-# rf2-a32r7 — implementation/ui/ (re-frame.ui) is deliberately absent. Mike
-# ruled on 2026-07-22 that day8/re-frame2-ui is not published: it is donor-only
-# code being absorbed into Freehand (EP-0036) and the standalone artefact is
-# deleted at the F6e gate (rf2-drpa3.57). It carries no :clein/build, so the
-# conditional inventory guard below correctly leaves it alone.
-#
-# rf2-gra70 — fresco (day8/re-frame2-fresco) is the SECOND artefact whose
-# published :deps name an in-repo artefact besides core (day8/re-frame2-ssr,
-# for the re-frame.fresco.server module). Like ssr-ring it therefore ships
-# from a post-matrix stage in release.yml rather than from the fail-fast:false
+# fresco (day8/re-frame2-fresco) is one of two artefacts whose published
+# :deps name an in-repo artefact besides core (day8/re-frame2-ssr, for the
+# re-frame.fresco.server module). Like ssr-ring it therefore ships from a
+# post-matrix stage in release.yml rather than from the fail-fast:false
 # deploy-leaf matrix; the second-coordinate assertion for it sits beside
 # ssr-ring's below.
 ARTEFACTS=(core schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch fresco)
@@ -189,34 +170,30 @@ check_version_and_no_mvn_literal() {
   fi
 }
 
-# ---- rf2-7fxf8: the inventory must be COMPLETE, not merely correct -------
+# ---- the inventory must be COMPLETE, not merely correct -----------------
 #
-# Every check in this script asks one direction of the question: "is the
-# coordinate this script expects present in deps.edn?". Nothing asked the
-# converse — "is every coordinate deps.edn declares present in this
-# script?" — and the converse is the direction the gate actually drifted.
-# tools/xray/deps.edn grew from one in-repo `:local/root` coordinate to TEN
-# (core, epoch, routing, flows, schemas, resources, machines,
-# machines-viz, reagent-slim) while TOOLS_LOCAL_ROOTS below kept listing
-# one; tools/story-mcp/deps.edn grew a second (mcp-base) while its entry
-# kept listing one. Throughout, the gate printed "PASSED — all 18
-# artefacts" while blind to ten of the eighteen in-repo coordinates the
-# release workflows have to rewrite. A one-directional roster cannot report
-# on what it does not list, so its green is an ACTIVE false assurance
-# rather than a merely missing check.
+# Every presence check in this script asks one direction of the question:
+# "is the coordinate this script expects present in deps.edn?". The converse
+# — "is every coordinate deps.edn declares present in this script?" — is the
+# direction a roster drifts in: a deps.edn grows a new in-repo `:local/root`
+# coordinate while its roster entry keeps listing the old ones, and the gate
+# goes on printing "PASSED" while blind to coordinates the release workflows
+# have to rewrite. A one-directional roster cannot report on what it does
+# not list, so its green would be an ACTIVE false assurance rather than a
+# merely missing check.
 #
 # Every roster entry is therefore cross-checked against the set DERIVED
 # from the committed deps.edn. Same principle as
-# .github/scripts/preflight-xray-package.sh (rf2-5dut1), which derives its
-# required set instead of hand-listing it for exactly this reason — with a
-# different vehicle: the preflight is the tag-push arm and runs where
-# clojure is installed, whereas this gate is the ORDINARY-CI arm (test.yml
-# runs it on a bare `actions/checkout` with no JDK), so it reads EDN
-# through the same node authority the inventory guard above uses
-# (implementation/scripts/lib/edn.cjs, rf2-zef0e). Structure, never a text
-# grep: a reformatted deps.edn, or a coordinate quoted in a `;;` comment or
-# inside a `#_` discard, must not be able to produce the false PASS this
-# check exists to prevent.
+# .github/scripts/preflight-xray-package.sh, which derives its required set
+# instead of hand-listing it for exactly this reason — with a different
+# vehicle: the preflight is the tag-push arm and runs where clojure is
+# installed, whereas this gate is the ORDINARY-CI arm (test.yml runs it on a
+# bare `actions/checkout` with no JDK), so it reads EDN through the same node
+# authority the inventory guard below uses
+# (implementation/scripts/lib/edn.cjs). Structure, never a text grep: a
+# reformatted deps.edn, or a coordinate quoted in a `;;` comment or inside a
+# `#_` discard, must not be able to produce the false PASS this check exists
+# to prevent.
 EDN_READER="${REPO_ROOT}/implementation/scripts/lib/edn.cjs"
 
 # Every in-repo coordinate the deps.edn at $1 declares, one rendered
@@ -270,13 +247,13 @@ assert_local_roots_inventoried() {
     [[ -z "${coord}" ]] && continue
     coords_checked=$((coords_checked + 1))
     if ! grep -qxF "${coord}" <<< "${expected}"; then
-      echo "::error file=${rel_label}::in-repo coordinate '${coord}' is declared at :local/root but is NOT in this script's inventory, so NOTHING asserts the release workflow rewrites it to :mvn/version. 'clein pom' SKIPS :local/root coordinates silently, so the published pom would omit this runtime dependency and Clojars has no yank (rf2-7fxf8). Add it to this script AND to the rewrite step of the artefact's release workflow, in the same PR."
+      echo "::error file=${rel_label}::in-repo coordinate '${coord}' is declared at :local/root but is NOT in this script's inventory, so NOTHING asserts the release workflow rewrites it to :mvn/version. 'clein pom' SKIPS :local/root coordinates silently, so the published pom would omit this runtime dependency and Clojars has no yank. Add it to this script AND to the rewrite step of the artefact's release workflow, in the same PR."
       errors=$((errors + 1))
     fi
   done <<< "${derived}"
 }
 
-# ---- rf2-2ii52: the runtime coordinates `clein pom` cannot express -------
+# ---- the runtime coordinates `clein pom` cannot express -----------------
 #
 # `clein pom` can only express an :mvn/version coordinate. Handed a git
 # coordinate it prints "Skipping coordinate: …" and generates a pom WITHOUT
@@ -284,29 +261,24 @@ assert_local_roots_inventoried() {
 # :local/root → :mvn/version rewrite exists to repair. There is no equivalent
 # repair for a git coord: if the library is not on Clojars there is no version
 # to rewrite to. Publishing anyway ships a jar whose pom omits a runtime
-# dependency, and Clojars has no yank. This is not hypothetical — mcp-base and
-# story-mcp both carried `day8/de-dupe` by :git/url, and the pom clein
-# generated for story-mcp carried two of its ten dependencies.
+# dependency, and Clojars has no yank.
 #
-# THIS CHECK USED TO BE A TEXT GREP, AND THE TEXT GREP WAS FORMATTING-BOUND.
-# It extracted with `grep -oE '[^[:space:]{]+[[:space:]]+\{:git/url'`, which
-# can only match when the library symbol and `{:git/url` sit on the SAME
-# physical line. Perfectly ordinary deps.edn layout — the symbol on one line,
-# its coordinate map opening on the next — produced no finding at all. So the
-# gate passed because the text happened to be laid out the way the regex
-# expected, not because the tree was clean, and the prevention this check was
-# added to provide was really a property of one file's whitespace. It was
-# wrong in the other direction too: it stripped only `;;`, so a `;`-commented
-# coordinate, a `#_`-discarded one, and the characters `{:git/url` sitting
-# inside a string literal each produced a spurious finding; and it delimited
-# the main :deps map with a `sed` line range running from `:deps` to
-# `:aliases`, which swallows every alias in the file if a deps.edn happens to
-# declare `:aliases` first. Of seven probe shapes it judged one correctly.
+# The check reads STRUCTURE, because a text grep is formatting-bound. A
+# pattern like `grep -oE '[^[:space:]{]+[[:space:]]+\{:git/url'` can only
+# match when the library symbol and `{:git/url` sit on the SAME physical
+# line, so perfectly ordinary deps.edn layout — the symbol on one line, its
+# coordinate map opening on the next — would produce no finding at all, and
+# the gate would pass because of one file's whitespace rather than because
+# the tree was clean. It would be wrong in the other direction too: stripping
+# only `;;` reports a `;`-commented coordinate, a `#_`-discarded one, and the
+# characters `{:git/url` inside a string literal; and delimiting the main
+# :deps map with a `sed` line range from `:deps` to `:aliases` swallows every
+# alias in the file if a deps.edn declares `:aliases` first.
 #
-# So it reads STRUCTURE now, through the same node EDN authority
-# local_root_coords() uses above — and node is the runtime that is actually
-# available here: test.yml runs this gate on a bare `actions/checkout` with no
-# JDK, so a Clojure reader would break ordinary CI. The tag-push arm
+# So it reads EDN through the same node authority local_root_coords() uses
+# above — and node is the runtime that is actually available here: test.yml
+# runs this gate on a bare `actions/checkout` with no JDK, so a Clojure
+# reader would break ordinary CI. The tag-push arm
 # (.github/scripts/preflight-tool-package.sh) runs where clojure IS installed
 # and asserts the stronger property this one cannot: that every coordinate
 # resolves to a real GAV in a pom clein actually generated.
@@ -323,15 +295,11 @@ assert_local_roots_inventoried() {
 # for the test-runner. Any key in the `git` namespace therefore counts, which
 # is a strict superset of what the grep caught.
 #
-# There is deliberately NO allowlist. One used to sit here — a single
-# `GIT_COORD_KNOWN_UNRESOLVED=(day8/de-dupe)` entry holding open the operator
-# decision on the last such coordinate, with the instruction "DELETE THIS LINE
-# when the ruling lands". Mike ruled route (b) on rf2-2ii52 (vendor the codec
-# into mcp-base) and the line went with it. An allowlist is the wrong shape
-# for this check anyway: an unpublishable runtime coordinate is not a policy
-# exception, it is an artefact that cannot ship a correct pom. If one appears
-# again the answer is to publish it, vendor it, or move the edge to late-bind
-# — not to record it here.
+# There is deliberately NO allowlist. An allowlist is the wrong shape for
+# this check: an unpublishable runtime coordinate is not a policy exception,
+# it is an artefact that cannot ship a correct pom. If one appears the answer
+# is to publish it, vendor it, or move the edge to late-bind — not to record
+# it here.
 
 # One `lib :git/key …` line per main-:deps coordinate carrying a key in the
 # `git` namespace, in declaration order. Sibling of local_root_coords(): same
@@ -382,7 +350,7 @@ check_no_git_coords_in_runtime_deps() {
   done <<< "${derived}"
 }
 
-# ---- rf2-1xacx: clein's own spec requires :main in :clein/build ----------
+# ---- clein's own spec requires :main in :clein/build --------------------
 #
 # Without it every clein invocation in the directory aborts before doing any
 # work:
@@ -390,29 +358,23 @@ check_no_git_coords_in_runtime_deps() {
 #   Error in the :clein/build map: {…} - failed: (contains? % :main)
 #
 # An artefact can therefore be perfectly version-pinned and still be impossible
-# to package. rf2-4u3t1 found this in machines-viz; rf2-2ii52 found the same
-# thing in mcp-base. Asserting it here is what stops a third.
+# to package.
 #
-# THIS CHECK WAS THE SAME FAULT AS ITS SIBLING ABOVE, ONE FUNCTION OVER. It
-# asserted with `grep -qE '^[[:space:]]*:main[[:space:]]' "${deps_file}"` — a
-# WHOLE-FILE text grep that never went near the `:aliases -> :clein/build` map
-# it claims to be reading. It was wrong in both directions at once: a `:main`
-# sitting in any OTHER alias (a `:run` alias, say) satisfied it, so an
-# un-buildable artefact reported clean; and a perfectly good
-# `{:lib day8/x :main day8.x.core}` written on ONE LINE did not, so a buildable
-# one reported broken. A `:main ` at the start of a line inside a multiline
-# STRING satisfied it too. Of six probe shapes it judged three correctly.
+# The check fetches `:aliases`, then `:clein/build`, then `:main` BY KEY,
+# through the same node EDN authority git_coord_libs() and local_root_coords()
+# use — node being the runtime actually available: test.yml runs this gate on
+# a bare `actions/checkout` with no JDK. A whole-file text grep such as
+# `grep -qE '^[[:space:]]*:main[[:space:]]'` never goes near the
+# `:aliases -> :clein/build` map and would be wrong in both directions at
+# once: a `:main` sitting in any OTHER alias (a `:run` alias, say) would
+# satisfy it, so an un-buildable artefact would report clean; a perfectly good
+# `{:lib day8/x :main day8.x.core}` written on ONE LINE would not, so a
+# buildable one would report broken; and a `:main ` at the start of a line
+# inside a multiline STRING would satisfy it too.
 #
-# So it fetches `:aliases`, then `:clein/build`, then `:main` BY KEY, through
-# the same node EDN authority git_coord_libs() and local_root_coords() use —
-# node being the runtime actually available: test.yml runs this gate on a bare
-# `actions/checkout` with no JDK.
-#
-# Scope is NOT narrowed. Everything the grep flagged still reds, and a missing
-# `:clein/build` alias — which the grep only caught by accident, when the file
-# happened to carry no line-initial `:main` anywhere — now reds on its own
-# terms, because an artefact in TOOLS with no build alias is exactly as
-# un-packageable as one whose build alias lacks `:main`.
+# A missing `:clein/build` alias reds on its own terms, because an artefact in
+# TOOLS with no build alias is exactly as un-packageable as one whose build
+# alias lacks `:main`.
 
 # `present`, `absent`, or `no-build-alias` for the deps.edn's
 # `:aliases -> :clein/build -> :main`. Sibling of git_coord_libs(): same
@@ -494,8 +456,8 @@ _self_test_case() {
   printf '  %s  %-52s expected %-8s got %s\n' "${mark}" "${label}" "${expect}" "${verdict}"
 }
 
-# The same-line and multiline forms are the pair the rf2-2ii52 reopen named,
-# and the negative cases pin the scoping the grep also got wrong.
+# The same-line and multiline forms are the pair a line-oriented grep cannot
+# tell apart, and the negative cases pin the main-:deps scoping.
 git_coord_self_test() {
   _git_coord_case() { _self_test_case check_no_git_coords_in_runtime_deps "$@"; }
 
@@ -506,7 +468,8 @@ git_coord_self_test() {
 '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
         day8/de-dupe {:git/url "https://github.com/day8/de-dupe.git" :git/sha "abc1234"}}}'
 
-  # The shape the grep could not see: symbol on one line, map on the next.
+  # The shape a line-oriented grep cannot see: symbol on one line, map on
+  # the next.
   _git_coord_case 'symbol on one line, coordinate map on the next' FLAGGED \
 '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
         day8/de-dupe
@@ -538,8 +501,8 @@ git_coord_self_test() {
  :aliases {:test {:extra-deps {io.github.cognitect-labs/test-runner
                                {:git/tag "v0.5.1" :git/sha "dfb30dd"}}}}}'
 
-  # …including when :aliases is declared FIRST, which the sed line range that
-  # used to delimit the main :deps map swallowed wholesale.
+  # …including when :aliases is declared FIRST, which a sed line range from
+  # :deps to :aliases would swallow wholesale.
   _git_coord_case 'alias :extra-deps with :aliases declared before :deps' CLEAN \
 '{:aliases {:test {:extra-deps {io.github.cognitect-labs/test-runner
                                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}}}
@@ -563,8 +526,8 @@ git_coord_self_test() {
 '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}'
 }
 
-# rf2-1xacx. The whole-file grep judged three of these six wrongly — in both
-# directions, which is why the pin carries CLEAN cases as well as FLAGGED ones.
+# A whole-file grep would misjudge these in both directions, which is why the
+# pin carries CLEAN cases as well as FLAGGED ones.
 clein_main_self_test() {
   _clein_main_case() { _self_test_case check_clein_main "$@"; }
 
@@ -576,7 +539,7 @@ clein_main_self_test() {
                           :main day8.re-frame2.xray.main
                           :version "0.0.1"}}}'
 
-  # The layout the grep could not see: nothing starts the line but `{`.
+  # The layout a line-start grep cannot see: nothing starts the line but `{`.
   _clein_main_case ':main on the same line as :lib' CLEAN \
 '{:aliases {:clein/build {:lib day8/re-frame2-xray :main day8.re-frame2.xray.main}}}'
 
@@ -584,15 +547,16 @@ clein_main_self_test() {
   _clein_main_case ':main absent from :clein/build' FLAGGED \
 '{:aliases {:clein/build {:lib day8/re-frame2-xray :version "0.0.1"}}}'
 
-  # The shape the grep false-PASSED: `:main` is present in the file, but in an
-  # alias clein never reads, so `clojure -M:clein pom` still aborts.
+  # The shape a whole-file grep would false-PASS: `:main` is present in the
+  # file, but in an alias clein never reads, so `clojure -M:clein pom` still
+  # aborts.
   _clein_main_case ':main only in an unrelated alias' FLAGGED \
 '{:aliases {:clein/build {:lib day8/re-frame2-xray}
            :run {:main-opts ["-m" "day8.re-frame2.xray"]
                  :main day8.re-frame2.xray.main}}}'
 
-  # `:main ` at the start of a line inside a multiline string also satisfied
-  # the grep. Structure does not see into strings.
+  # `:main ` at the start of a line inside a multiline string would satisfy a
+  # whole-file grep too. Structure does not see into strings.
   _clein_main_case ':main at line-start inside a string literal' FLAGGED \
 '{:aliases {:clein/build {:lib day8/re-frame2-xray
                           :doc "usage:
@@ -610,9 +574,9 @@ clein_main_self_test() {
   _clein_main_case 'no :aliases map at all' FLAGGED \
 '{:deps {org.clojure/clojure {:mvn/version "1.12.0"}}}'
 
-  # --- rf2-vr11t: the build alias ends with a discarded key ----------------
-  # The reader used to throw `unexpected '}'` on this, which made the WHOLE
-  # gate exit 2 — un-runnable, from an ordinary commented-out last entry.
+  # --- the build alias ends with a discarded key ---------------------------
+  # A reader that threw `unexpected '}'` on this would make the WHOLE gate
+  # exit 2 — un-runnable, from an ordinary commented-out last entry.
   _clein_main_case ':main present, alias ends with a #_ discard' CLEAN \
 '{:aliases {:clein/build {:lib day8/re-frame2-xray
                           :main day8.re-frame2.xray.main
@@ -684,10 +648,10 @@ for artefact in "${NON_CORE[@]}"; do
   else
     expected_local_root='day8/re-frame2 {:local/root "../core"}'
   fi
-  # rf2-qmhysc — collapse runs of whitespace before matching. ssr-ring's
-  # deps.edn (newly in NON_CORE) column-aligns its dep map
-  # (`day8/re-frame2     {:local/root …}`), so a single-space literal
-  # grep -qF would spuriously report drift. Mirrors the tools/* loop's
+  # Collapse runs of whitespace before matching. ssr-ring's deps.edn
+  # column-aligns its dep map (`day8/re-frame2     {:local/root …}`), so a
+  # single-space literal grep -qF would spuriously report drift. Mirrors the
+  # tools/* loop's
   # `tr -s` normalisation below; the rewrite step in release.yml keys off
   # the `:local/root "<path>"` substring, which the normalisation
   # preserves.
@@ -699,14 +663,14 @@ for artefact in "${NON_CORE[@]}"; do
   IMPL_EXPECTED_LOCAL_ROOTS["${artefact}"]+="${expected_local_root}"$'\n'
 done
 
-# rf2-qmhysc / rf2-gra70 — TWO implementation artefacts have PUBLISHED
-# :deps referencing a SECOND in-repo framework artefact besides core, and
-# both name the same one, day8/re-frame2-ssr {:local/root "../ssr"}:
+# TWO implementation artefacts have PUBLISHED :deps referencing a SECOND
+# in-repo framework artefact besides core, and both name the same one,
+# day8/re-frame2-ssr {:local/root "../ssr"}:
 #
 #   ssr-ring — the Ring/Pedestal host adapter sits on top of the ssr renderer;
 #   fresco  — re-frame.fresco.server hands its payload to the ssr
 #              artefact's own fail-closed validator and egress projection
-#              rather than re-spelling them (rf2-gra70).
+#              rather than re-spelling them.
 #
 # The core reference is checked in the NON_CORE loop above. The release
 # workflow must rewrite BOTH of each artefact's :local/root coordinates to
@@ -735,11 +699,11 @@ while IFS='|' read -r artefact expected_coord; do
   IMPL_EXPECTED_LOCAL_ROOTS["${artefact}"]+="${expected_coord}"$'\n'
 done <<< "${SECOND_IN_REPO_COORD}"
 
-# rf2-7fxf8 — and the converse, for every implementation artefact including
-# core (whose expected set is empty: core is the lockstep root and must
-# stay dependency-free within the repo). release.yml's rewrite is a
-# hand-written matrix of one `local-root` value per leaf — ssr-ring is off
-# that matrix precisely because it has a SECOND coordinate — so an in-repo
+# And the converse, for every implementation artefact including core (whose
+# expected set is empty: core is the lockstep root and must stay
+# dependency-free within the repo). release.yml's rewrite is a hand-written
+# matrix of one `local-root` value per leaf — ssr-ring and fresco are off
+# that matrix precisely because each has a SECOND coordinate — so an in-repo
 # edge nobody inventoried here is an edge nobody rewrites there.
 for artefact in "${ARTEFACTS[@]}"; do
   deps_file="${REPO_ROOT}/implementation/${ARTEFACT_PATHS[$artefact]}/deps.edn"
@@ -750,11 +714,10 @@ for artefact in "${ARTEFACTS[@]}"; do
     "${IMPL_EXPECTED_LOCAL_ROOTS[$artefact]:-}"
 done
 
-# rf2-qmhysc — inventory drift guard. The whole risk this script exists
-# to close is "a publishable artefact ships at a stale version / broken
-# :local/root because it was never wired into the lockstep inventory" —
-# exactly how resources + ssr-ring slipped through before. Make that
-# class of omission impossible to reintroduce silently: every
+# Inventory drift guard. The whole risk this script exists to close is "a
+# publishable artefact ships at a stale version / broken :local/root
+# because it was never wired into the lockstep inventory". Make that class
+# of omission impossible to introduce silently: every
 # implementation/*/deps.edn carrying a :clein/build alias MUST appear in
 # the ARTEFACT_PATHS list above. A new publishable artefact added without
 # a matching ARTEFACTS entry fails the build here.
@@ -765,18 +728,17 @@ done
 # Adapters live under implementation/adapters/<name>/; their subpaths are
 # already registered (adapters/reagent, …).
 #
-# rf2-zef0e — publishability is discovered via the shared EDN-AWARE authority
+# Publishability is discovered via the shared EDN-AWARE authority
 # (implementation/scripts/lib/publishable-runtimes.cjs), the SAME structural
 # result the bundle-isolation gate consumes, instead of a duplicated textual
 # grep that could drift. The authority reads each deps.edn's real
 # :aliases/:clein/build KEY: a genuine alias survives `;` inside EDN strings,
 # and a :clein/build token inside a string, a `;` comment, or a `#_` discard
-# form (e.g. implementation/ui/ and implementation/adapters/test-react/ each
-# only MENTION the alias in prose) is correctly NOT treated as publishable. It
-# emits one implementation/-relative subpath per line for every publishable
-# artefact under implementation/ (bounded flat-plus-nested, same reach as the
-# previous `find -mindepth 2 -maxdepth 3`). If it cannot run we FAIL CLOSED
-# (exit) rather than skip the inventory guard.
+# form (e.g. implementation/adapters/test-react/ only MENTIONS the alias in
+# prose) is correctly NOT treated as publishable. It emits one
+# implementation/-relative subpath per line for every publishable artefact
+# under implementation/ (bounded flat-plus-nested). If it cannot run we FAIL
+# CLOSED (exit) rather than skip the inventory guard.
 PUBLISHABLE_AUTHORITY="${REPO_ROOT}/implementation/scripts/lib/publishable-runtimes.cjs"
 if ! publishable_subpaths="$(node "${PUBLISHABLE_AUTHORITY}" "${REPO_ROOT}/implementation")"; then
   echo "::error file=implementation/scripts/lib/publishable-runtimes.cjs::failed to enumerate publishable artefacts via the structural EDN authority (is node available on PATH?)"
@@ -785,12 +747,12 @@ fi
 while IFS= read -r subpath; do
   [[ -z "${subpath}" ]] && continue
   if [[ -z "${KNOWN_IMPL_PATHS[$subpath]:-}" ]]; then
-    echo "::error file=implementation/${subpath}/deps.edn::implementation/${subpath} declares a :clein/build (publishable) artefact but is NOT in the lockstep ARTEFACTS inventory — add it to ARTEFACT_PATHS / ARTEFACTS / NON_CORE in this script AND to the release.yml deploy matrix + release notes (rf2-qmhysc)"
+    echo "::error file=implementation/${subpath}/deps.edn::implementation/${subpath} declares a :clein/build (publishable) artefact but is NOT in the lockstep ARTEFACTS inventory — add it to ARTEFACT_PATHS / ARTEFACTS / NON_CORE in this script AND to the release.yml deploy matrix + release notes"
     errors=$((errors + 1))
   fi
 done <<< "${publishable_subpaths}"
 
-# Tools/* deployable jars (rf2-lwtke). Each tools/<name>/deps.edn that
+# Tools/* deployable jars. Each tools/<name>/deps.edn that
 # carries a :clein/build alias publishes to Clojars at the same lockstep
 # version as the framework artefacts above — every consumer that pins
 # `day8/re-frame2 {:mvn/version X}` should be able to pin
@@ -809,20 +771,18 @@ done <<< "${publishable_subpaths}"
 # there is no Clojars publish path for it to drift on. Per its
 # deps.edn header it has no :local/root dep on implementation/ either.
 #
-# tools/template/ is similarly excluded as of rf2-40vmd (rf2-dolpf §2.5):
-# it ships via git-coord rather than Clojars and no longer carries a
-# :clein/build alias. The template's pin literals (rf2-version,
-# shadow-version, react-version) are guarded by an in-template lockstep
-# test (`test/day8/re_frame2_template/version_lockstep_test.clj`) which
-# reads the same sources of truth this script does (repo-root VERSION,
+# tools/template/ is similarly excluded: it ships via git-coord rather than
+# Clojars and carries no :clein/build alias. The template's pin literals
+# (rf2-version, shadow-version, react-version) are guarded by an
+# in-template lockstep test
+# (`test/day8/re_frame2_template/version_lockstep_test.clj`) which reads the
+# same sources of truth this script does (repo-root VERSION,
 # implementation/package.json).
 #
-# tools/mcp-base/ was ABSENT from this inventory until rf2-2ii52, which is
-# how it reached a fifth Clojars coordinate (day8/re-frame2-mcp-base) that
-# nothing guarded — and, separately, how it sat un-BUILDABLE (no `:main`)
-# without any gate noticing. story-mcp depends on it via :local/root, so
-# story-mcp cannot publish until mcp-base does; a lockstep gate that could
-# not see mcp-base could not see that either.
+# tools/mcp-base/ is in this inventory because it publishes its own Clojars
+# coordinate (day8/re-frame2-mcp-base), and story-mcp depends on it via
+# :local/root, so story-mcp cannot publish until mcp-base does; a lockstep
+# gate that could not see mcp-base could not see that either.
 declare -A TOOLS_PATHS=(
   [xray]="xray"
   [story]="story"
@@ -837,31 +797,15 @@ declare -A TOOLS_PATHS=(
 # associative array can't carry multi-valued entries cleanly, so we use
 # a single multi-line string and split on `|`.
 #
-# rf2-7fxf8 — Xray's entry listed ONE of its in-repo coordinates and
-# story-mcp's listed one of its two, so ten of the eighteen coordinates the
-# release workflows must rewrite were asserted by nothing at all. The
-# completeness pass at the end of the tools loop now derives the true set
-# from each deps.edn, so this list cannot silently fall behind again.
+# The completeness pass at the end of the tools loop derives the true set
+# from each deps.edn, so this list cannot silently fall behind: a
+# coordinate declared there and missing here reds, and so does one listed
+# here and absent there.
 #
-# Xray's `day8/re-frame2-fresco` line used to carry a caveat: the artefact
-# was NOT publishable, so release-xray.yml deliberately left that one
-# coordinate at `:local/root` while rewriting the other nine, and
-# preflight-xray-package.sh refused the deploy rather than mint a GAV Clojars
-# would not have. rf2-gra70 removed the premise — implementation/fresco/
-# deps.edn now carries a `:clein/build` and release.yml publishes
-# day8/re-frame2-fresco — so all TEN of Xray's in-repo coordinates are
-# rewritable and release-xray.yml rewrites all ten. Xray's publishability
-# therefore now depends on the ordinary release ORDER (a framework `v*` tag
-# before an `xray-v*` tag), which docs/release-process.md §The tools tier
-# already states, rather than on an open ruling.
-#
-# rf2-l86mm — `day8/re-frame2-freehand` was the second such line until the
-# Views panel's Mounted Views + Declared View Sites sections retired with the
-# Freehand substrate, taking Xray's only production require on it
-# (`day8.re-frame2-xray.mounted-views`) and the coordinate with them. The
-# completeness pass above is what makes removing this line MANDATORY rather
-# than optional: it derives the true set from tools/xray/deps.edn, so a
-# coordinate listed here and absent there reds.
+# All TEN of Xray's in-repo coordinates are publishable and release-xray.yml
+# rewrites all ten, so Xray's publishability depends on the ordinary release
+# ORDER (a framework `v*` tag before an `xray-v*` tag), which
+# docs/release-process.md §The tools tier states.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 xray|day8/re-frame2 {:local/root "../../implementation/core"}
 xray|day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
@@ -876,11 +820,10 @@ xray|day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"
 story|day8/re-frame2 {:local/root "../../implementation/core"}
 story|day8/re-frame2-reagent {:local/root "../../implementation/adapters/reagent"}
 story|day8/re-frame2-machines {:local/root "../../implementation/machines"}
-# rf2-wht9a — Story's HTTP + Xray edges were absent from this inventory, so
-# the verifier's green could not catch either omission. Both are main-`:deps`
-# runtime coordinates (`:network` world slot / the RHS inspector), and
-# release-story.yml rewrites all FIVE before packaging: a coordinate missing
-# from this list is a coordinate nothing asserts is rewritable.
+# Story's HTTP + Xray edges are main-`:deps` runtime coordinates (`:network`
+# world slot / the RHS inspector), and release-story.yml rewrites all FIVE
+# before packaging: a coordinate missing from this list is a coordinate
+# nothing asserts is rewritable.
 story|day8/re-frame2-http {:local/root "../../implementation/http"}
 story|day8/re-frame2-xray {:local/root "../xray"}
 story-mcp|day8/re-frame2-story {:local/root "../story"}
@@ -891,14 +834,13 @@ EOF
 
 TOOLS=(xray story story-mcp machines-viz mcp-base)
 
-# ---- rf2-2ii52: two failure classes this gate used to be blind to ---------
+# ---- two failure classes a :version/:local/root read cannot see ---------
 #
-# It read `:version` and the `:local/root` coordinates, and nothing else. So
-# it reported "all 17 artefacts pinned" while `day8/re-frame2-machines-viz`
-# could not be BUILT at all, and while two artefacts carried a runtime
-# coordinate `clein pom` silently DROPS. Both are cheap to assert. Both —
-# check_clein_main (rf2-1xacx) and check_no_git_coords_in_runtime_deps
-# (rf2-2ii52) — are defined above, next to the EDN reader they share with the
+# A gate reading only `:version` and the `:local/root` coordinates would
+# report every artefact pinned while one could not be BUILT at all, or
+# carried a runtime coordinate `clein pom` silently DROPS. Both are cheap to
+# assert. Both — check_clein_main and check_no_git_coords_in_runtime_deps —
+# are defined above, next to the EDN reader they share with the
 # coordinate-inventory pass, and both are pinned by `--self-test`.
 
 for tool in "${TOOLS[@]}"; do
@@ -916,7 +858,7 @@ for tool in "${TOOLS[@]}"; do
   # per-feature artefacts under implementation/<name>/.
   check_version_and_no_mvn_literal "${deps_file}" "${rel_label}" '"../../VERSION"'
 
-  # rf2-2ii52 — buildability and pom-expressibility, the two classes a
+  # Buildability and pom-expressibility, the two classes a
   # :version/:local/root read cannot see.
   check_clein_main "${deps_file}" "${rel_label}"
   check_no_git_coords_in_runtime_deps "${deps_file}" "${rel_label}"
@@ -930,16 +872,16 @@ for tool in "${TOOLS[@]}"; do
   # (`day8/re-frame2          {:local/root …}`) so we collapse all
   # runs of whitespace to a single space before matching.
   #
-  # rf2-qvyr — the file-text match drops the inventory entry's CLOSING BRACE
-  # and matches the `<lib> {:local/root "<path>"` prefix instead. A coordinate
-  # map may legitimately carry keys BESIDE :local/root — Story's Xray edge
-  # carries `:exclusions [day8/reagent-slim]` to keep a second provider of
-  # `re-frame.adapter.reagent` out of the published Story graph — and with the
-  # brace included this check demanded that :local/root be the map's ONLY key,
-  # which is a constraint it never meant to impose and never stated. The
-  # closing brace contributed nothing to the property the entry asserts: the
-  # lib↔path PAIRING is pinned just as exactly by the prefix, which is also
-  # what the release rewrite step itself keys off. The converse pass below is
+  # The file-text match drops the inventory entry's CLOSING BRACE and matches
+  # the `<lib> {:local/root "<path>"` prefix instead. A coordinate map may
+  # legitimately carry keys BESIDE :local/root — Story's Xray edge carries
+  # `:exclusions [day8/reagent-slim]` to keep a second provider of
+  # `re-frame.adapter.reagent` out of the published Story graph — and with
+  # the brace included this check would demand that :local/root be the map's
+  # ONLY key, a constraint it does not mean to impose. The closing brace
+  # contributes nothing to the property the entry asserts: the lib↔path
+  # PAIRING is pinned just as exactly by the prefix, which is also what the
+  # release rewrite step itself keys off. The converse pass below is
   # unaffected — local_root_coords() derives the normalised
   # `<lib> {:local/root "<path>"}` form regardless of any extra keys, so the
   # inventory stays in that form and keeps matching it exactly.
@@ -955,8 +897,7 @@ for tool in "${TOOLS[@]}"; do
     tool_expected+="${entry_local_root}"$'\n'
   done <<< "${TOOLS_LOCAL_ROOTS}"
 
-  # rf2-7fxf8 — and the converse. This is the direction that was missing,
-  # and the direction Xray drifted in.
+  # And the converse — the direction a roster drifts in.
   assert_local_roots_inventoried "${deps_file}" "${rel_label}" "${tool_expected}"
 done
 
@@ -967,9 +908,9 @@ fi
 
 total_count=$((${#ARTEFACTS[@]} + ${#TOOLS[@]}))
 echo "lockstep version verification PASSED — all ${total_count} artefacts (${#ARTEFACTS[@]} implementation/ + ${#TOOLS[@]} tools/) pinned to repo-root VERSION ${VERSION}"
-# rf2-7fxf8 — report what was actually SEEN, not merely what was listed.
-# The line above was printed unchanged while ten in-repo coordinates were
-# outside the inventory entirely; this one is derived from the committed
-# deps.edn files, so it cannot overstate the gate's reach.
+# Report what was actually SEEN, not merely what was listed. The line above
+# counts roster entries and would print unchanged with coordinates outside
+# the inventory entirely; this one is derived from the committed deps.edn
+# files, so it cannot overstate the gate's reach.
 echo "lockstep coordinate inventory COMPLETE — ${coords_checked} in-repo :local/root coordinate(s) declared across those artefacts, every one of them inventoried here"
 exit 0

@@ -20,9 +20,9 @@
     Button B · Inc B          → frame :counter/b only
     Button X · Cross-bump     → handler in :counter/a fans out a
                                 testbed bridge fx that dispatches with
-                                public `rf/dispatch` frame opts. Reserved
-                                `:dispatch` is intra-frame by contract.
-                                that bumps :counter/b AND appends to
+                                public `rf/dispatch` frame opts (reserved
+                                `:dispatch` is intra-frame by contract)
+                                and bumps :counter/b AND appends to
                                 :log/entries. The three frames'
                                 app-dbs diverge in lockstep.
 
@@ -212,12 +212,12 @@
   (rf/make-frame {:id frame-a :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-b :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-log :initial-events [[::log-init]]})
-  ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view`, so its wrapper resolves
+  ;; `root` is a `reg-view` (EP-0002), so its wrapper resolves
   ;; a frame at render time for its injected bindings — it must render
   ;; under a provider. Use a neutral SHELL frame (`:rf/default`) as the
   ;; root scope; the three per-frame providers nested inside override it
-  ;; for their subtrees, and the cross-bump button still dispatches with an
+  ;; for their subtrees, and the cross-bump button dispatches with an
   ;; explicit `{:frame frame-a}` (the override wins over this shell scope),
-  ;; so the "dispatch from outside the app providers" intent is preserved.
+  ;; so it dispatches from outside the app providers.
   (rf/make-frame {:id :rf/default})
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

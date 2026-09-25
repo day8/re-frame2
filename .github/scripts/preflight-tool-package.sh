@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# preflight-tool-package.sh (rf2-2ii52)
+# preflight-tool-package.sh
 #
 # # Why this exists
 #
@@ -8,11 +8,11 @@
 # WITHOUT it. Two kinds of coordinate hit that:
 #
 #   - `:local/root`, which the `:local/root → :mvn/version` rewrite
-#     exists to repair (rf2-do3m2 / #6340); and
+#     exists to repair; and
 #   - `:git/url`, for which there is NO repair — if the library is not on
-#     Clojars there is no version to rewrite to. That is the hole that
-#     left `day8/re-frame2-mcp-base` and `day8/re-frame2-story-mcp`
-#     un-publishable until rf2-2ii52 vendored `day8/de-dupe` away.
+#     Clojars there is no version to rewrite to. An artefact carrying one
+#     is un-publishable, which is why `day8/re-frame2-mcp-base` vendors
+#     `day8/de-dupe` rather than depending on it.
 #
 # Clojars has no yank, so a pom with a hole in it is unrecoverable —
 # bump-and-supersede only. This script is the gate that proves the
@@ -26,13 +26,11 @@
 # copy (`git show HEAD:…`), because the workspace copy has already been
 # rewritten in place by the time this runs.
 #
-# That is deliberate, and it is the lesson of the two gates that drifted.
-# preflight-story-package.sh carries a literal expected set;
-# release-xray.yml carried a literal rewrite list that fell from ten
-# coordinates to two without a gate noticing; verify-version-lockstep.sh
-# inventoried 8 of 18 coordinates while printing "all artefacts, 0
-# drifts". A one-directional roster cannot report on what it does not
-# list, so its green is an ACTIVE false assurance. Add a dependency to the
+# That is deliberate: a literal roster drifts. preflight-story-package.sh
+# carries a literal expected set, and a literal rewrite list or coordinate
+# inventory can shrink without any gate noticing while still printing
+# "all artefacts, 0 drifts". A one-directional roster cannot report on
+# what it does not list, so its green is an ACTIVE false assurance. Add a dependency to the
 # artefact and this gate demands it on the next release with no edit here.
 #
 # The EDN is parsed with Clojure's own reader and the pom with
@@ -53,7 +51,7 @@
 #      fired with the wrong value is as broken as one that did not fire.
 #   4. every `:mvn/version` coordinate it declares is present, with a
 #      non-empty version. The literal pins live in deps.edn where
-#      verify-version-lockstep.sh already guards them, so this asserts
+#      verify-version-lockstep.sh guards them, so this asserts
 #      presence, not equality.
 #   5. NOTHING ELSE is published. A dependency that reached the pom
 #      without being in the committed main `:deps` is an alias leak (a
@@ -69,7 +67,7 @@
 #
 # Linux-runner-only by design (callers are the release workflows on
 # ubuntu-latest). POSIX sh + the Clojure CLI + python3, all of which the
-# deploy job already has. No .ps1 sibling (same rationale as
+# deploy job has anyway. No .ps1 sibling (same rationale as
 # preflight-story-package.sh).
 #
 # # Usage
@@ -200,7 +198,7 @@ for coord in sorted(UNEXPRESSIBLE):
         " runtime dependency and Clojars has no yank. There is no rewrite"
         " that repairs this — publish the library to Clojars under a"
         " coordinate this artefact can pin, VENDOR it into the artefact"
-        " (rf2-2ii52 did exactly that for day8/de-dupe), or move the edge"
+        " (day8/re-frame2-mcp-base vendors day8/de-dupe), or move the edge"
         " to late-bind."
         % (coord[0], coord[1], rel_deps)
     )

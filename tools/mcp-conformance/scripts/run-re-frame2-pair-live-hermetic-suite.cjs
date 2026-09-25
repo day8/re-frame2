@@ -177,10 +177,9 @@ function waitForChildExit(child, hasExited) {
 }
 
 // ---------------------------------------------------------------------------
-// Owned-process-tree teardown (rf2-kzbf)
+// Owned-process-tree teardown
 //
-// THE DEFECT THIS EXISTS TO CLOSE. On Windows the handle `crossSpawn` returns
-// is NOT shadow-cljs. cross-spawn 7.0.6 rewrites the trusted absolute `npx`
+// On Windows the handle `crossSpawn` returns is NOT shadow-cljs. cross-spawn 7.0.6 rewrites the trusted absolute `npx`
 // into `C:\Windows\system32\cmd.exe /d /s /c "...npx.CMD shadow-cljs watch
 // app"`, so the child we hold — and whose `exit` event drives
 // `hasShadowExited()` — is the COMMAND WRAPPER. The shadow-cljs Node process
@@ -190,27 +189,28 @@ function waitForChildExit(child, hasExited) {
 //
 // So `hasShadowExited() === true` proves the WRAPPER is gone and says nothing
 // about the JVM still holding the fixture's port 8030. Grading teardown on
-// that flag alone certifies a run GREEN while its residue survives — measured
-// exactly so: wrapper `exit` code=0 observed, `report.clean === true`, pass
-// sentinel emitted, grandchild still alive.
+// that flag alone would certify a run GREEN while its residue survives:
+// wrapper `exit` code=0 observed, `report.clean === true`, pass sentinel
+// emitted, grandchild still alive.
 //
-// The repair grades on the OWNED DESCENDANTS themselves. It is scoped to the
-// subtree rooted at the exact PID this runner spawned — the same discipline
-// as `scripts/test-core-jvm-windows.ps1`'s `Stop-OurSubtree` — so unrelated
-// Node/JVM processes (peer workers, other MCP servers) are never targeted.
+// Teardown therefore grades on the OWNED DESCENDANTS themselves. It is scoped
+// to the subtree rooted at the exact PID this runner spawned — the same
+// discipline as `scripts/test-core-jvm-windows.ps1`'s `Stop-OurSubtree` — so
+// unrelated Node/JVM processes (peer workers, other MCP servers) are never
+// targeted.
 //
-// AND THE SAME MISTAKE ONE LEVEL DOWN (the rf2-kzbf audit of PR #9213). "The
-// subtree rooted at the exact PID we spawned" is only as good as the claim
-// that the row wearing that number IS still ours. The first fix fenced the
-// DESCENDANTS on creation time but let the ROOT in on the number alone
-// (`if (byPid.has(rootPid)) owned.push(rootPid)`), then handed that number to
-// `taskkill /T /F`. The wrapper above is short-lived by construction — it
-// exits the moment it has launched the JVM — so its PID is exactly the kind
-// Windows recycles soonest, and cleanup would then tree-kill a STRANGER and
-// everything below it. That is the wrapper/resource confusion again, wearing
-// a PID instead of a handle: an identity check that inspects a name.
+// "The subtree rooted at the exact PID we spawned" is only as good as the
+// claim that the row wearing that number IS still ours. Fencing the
+// DESCENDANTS on creation time while letting the ROOT in on the number alone
+// (`if (byPid.has(rootPid)) owned.push(rootPid)`), then handing that number
+// to `taskkill /T /F`, would be unsafe. The wrapper above is short-lived by
+// construction — it exits the moment it has launched the JVM — so its PID is
+// exactly the kind Windows recycles soonest, and cleanup would then tree-kill
+// a STRANGER and everything below it. That is the wrapper/resource confusion
+// again, wearing a PID instead of a handle: an identity check that inspects a
+// name.
 //
-// So the root row is now classified rather than assumed (`classifyRootRow`),
+// So the root row is classified rather than assumed (`classifyRootRow`),
 // on two pieces of evidence that catch the two ways the number can lie:
 //   * we OBSERVED our own child's `exit` — the handle was reaped, the number
 //     is free, and whatever wears it now is not ours (this is the case the
@@ -316,20 +316,20 @@ function classifyRootRow(table, rootPid, notBeforeMs, opts = {}) {
 }
 
 // The evidence the KILL DECISION turns on — for the root row AND for the rows
-// that merely NAME its number as their parent (rf2-kzbf audit of PR #9247).
+// that merely NAME its number as their parent.
 //
-// Fencing the root row answered "may we kill the row wearing our number?".
-// It left the other half unanswered: the walk started at `rootPid` and swept
-// up its ppid claimants regardless of what the root had just been classified
-// as. Two holes of exactly the shape the first fix closed, one level down:
+// Fencing the root row answers "may we kill the row wearing our number?".
+// The ppid claimants need an answer of their own: a walk that starts at
+// `rootPid` and sweeps up its claimants regardless of how the root was just
+// classified has two holes of the same shape, one level down:
 //
-//   * an UNPROVABLE root still handed us its children, and the reaper
-//     tree-killed them before returning its dirty error. If the undated row
-//     is a stranger, that was the stranger's child; reporting dirty AFTER
+//   * an UNPROVABLE root would still hand us its children, and the reaper
+//     would tree-kill them before returning its dirty error. If the undated
+//     row is a stranger, that is the stranger's child; reporting dirty AFTER
 //     the kill is not fail-closed.
-//   * an ABSENT root left NO ceiling at all (`strangerCeilingMs` is Infinity
+//   * an ABSENT root leaves NO ceiling at all (`strangerCeilingMs` is Infinity
 //     when no row wears the number), so a stranger that took the number,
-//     forked, and exited before we enumerated left a child wearing our
+//     forked, and exited before we enumerated leaves a child wearing our
 //     number as PPID, above our spawn floor and below no ceiling.
 //
 // A boolean "our wrapper exited" cannot separate that child from our own
@@ -408,9 +408,9 @@ function rootOwnershipEvidence(table, rootPid, notBeforeMs, opts = {}) {
 
 // Breadth-first descendant closure of `rootPid` over `table`, EXCLUDING any
 // process created before `notBeforeMs` (a recycled PID wearing our root's
-// number). The ROOT ROW IS SUBJECT TO THE SAME FENCE (rf2-kzbf audit): it is
-// included only when `classifyRootRow` says 'ours'. Discovery of our own
-// ORPHANS is retained regardless — Windows leaves the dead wrapper's number
+// number). The ROOT ROW IS SUBJECT TO THE SAME FENCE: it is included only
+// when `classifyRootRow` says 'ours'. Discovery of our own ORPHANS happens
+// regardless — Windows leaves the dead wrapper's number
 // in its children's `ParentProcessId`, so the walk always starts from
 // `rootPid` even when no row of ours wears it any more.
 //
@@ -457,9 +457,8 @@ function ownedDescendants(table, rootPid, notBeforeMs, opts = {}) {
 // `reapShadowTree()` resolving to:
 //   { supported, owned, survivors, error }
 // `supported:false` (non-Windows) is the identity: no owned set, no
-// survivors, no error — POSIX grading is left exactly as it was, since no
-// equivalent defect was demonstrated there (a POSIX `npx` is exec'd directly,
-// not behind a `cmd.exe` shim).
+// survivors, no error — POSIX needs no owned-descendant reap, because a POSIX
+// `npx` is exec'd directly, not behind a `cmd.exe` shim.
 function makeShadowTreeReaper({
   rootPid,
   spawnedAtMs,
@@ -470,7 +469,7 @@ function makeShadowTreeReaper({
   // WHEN it emitted `exit`, as epoch ms (0 until it has). The boolean above
   // withdraws the authority to kill the NUMBER; this is what bounds the
   // orphans discovered THROUGH it, since a direct child of our wrapper had
-  // to be created before the wrapper died (rf2-kzbf audit of PR #9247).
+  // to be created before the wrapper died.
   rootExitedAtMs = () => 0,
   platform = process.platform,
   readTable = readWindowsProcessTable,
@@ -598,7 +597,7 @@ function defaultWindowsTreeKill(pid) {
 // shadow-exit wait, and all the signal/watchdog paths need to bound
 // `cleanup()`). Browser GRADING is different: a close that RESOLVED is proof
 // of shutdown, but a close that REJECTED or TIMED OUT is tolerable only if
-// disconnection can be independently proven (rf2-j538f7.19) — so the caller
+// disconnection can be independently proven — so the caller
 // must know WHICH of the three happened. Returns:
 //   { kind: 'closed'  }          — close() settled successfully within the cap
 //   { kind: 'rejected', error }  — close() rejected within the cap
@@ -626,7 +625,7 @@ function closeOutcomeWithin(closeThunk, ms) {
 // that rejected or exceeded its cap is acceptable ONLY when we can
 // independently observe the browser is gone; a missing method, a thrown
 // call, or a `true` result all mean "not proven" — the browser is graded
-// dirty so the run is not falsely certified hermetic (rf2-j538f7.19).
+// dirty so the run is not falsely certified hermetic.
 function isBrowserProvablyDisconnected(browser) {
   if (browser && typeof browser.isConnected === 'function') {
     try { return browser.isConnected() === false; } catch { return false; }
@@ -640,7 +639,7 @@ function isBrowserProvablyDisconnected(browser) {
 // can drive the REAL grading logic against a fake child that reproduces the
 // write-then-exit race without spawning a real process.
 //
-// Grades on 'close', NOT 'exit' (rf2-6girz0). Node fires 'exit' as soon as
+// Grades on 'close', NOT 'exit'. Node fires 'exit' as soon as
 // the child process itself terminates, which can race the stdio pipes
 // still draining into the `stdout`/`stderr` 'data' handlers below —
 // 'close' is the event Node guarantees fires only once stdout/stderr are
@@ -651,12 +650,11 @@ function isBrowserProvablyDisconnected(browser) {
 // final sentinel-bearing stdout chunk arrive AFTER 'exit' fires — grading
 // on 'exit' would resolve with a truncated `stdoutText` and the caller's
 // sentinel check would then fail a gate that actually passed. 'close'
-// carries the same `(code, signal)` payload as 'exit', so this is a
-// like-for-like swap with no loss of signal-death detection.
+// carries the same `(code, signal)` payload as 'exit', so grading on it
+// loses no signal-death detection.
 //
 // Resolves `{ code, stdoutText }` on a code-terminated exit (code
-// non-null); rejects on spawn error or signal-termination (code === null),
-// matching the pre-fix contract — only the event grading changed.
+// non-null); rejects on spawn error or signal-termination (code === null).
 function spawnAndGradeInnerTest({
   spawnFn,
   execPath,
@@ -697,9 +695,9 @@ function spawnAndGradeInnerTest({
 
 // The per-inner-test verdict `main()` applies to what
 // `spawnAndGradeInnerTest` resolved. Pure, and exported so the regression
-// harness (`inner-test-close-grading.test.cjs`, rf2-3x7nj.36.1) can drive the
-// REAL decision: it used to sit inline in `main()`, where no test reached it,
-// so either guard below could be deleted with every unit test still green.
+// harness (`inner-test-close-grading.test.cjs`) can drive the REAL decision:
+// inline in `main()` no test would reach it, and either guard below could be
+// deleted with every unit test still green.
 //
 // Returns normally only for an inner test that exited 0, printed no SKIP
 // banner and printed its success sentinel. Otherwise it throws, with
@@ -738,7 +736,7 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
         'but the hermetic env guarantees $SHADOW_CLJS_NREPL_PORT is set, ' +
         'so a SKIP here means the setup path regressed and left this ' +
         'load-bearing live gate UN-EXERCISED (a silent SKIP would ship ' +
-        'green via the other inner tests). rf2-ybiz0. Inner stdout tail: ' +
+        'green via the other inner tests). Inner stdout tail: ' +
         stdoutText.slice(-400),
     );
   }
@@ -747,8 +745,8 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
   if (!sentinel) {
     throw orchestrationFailure(
       `${testFile} has no success sentinel in live-test-inventory.cjs, so ` +
-        'its exit 0 cannot be told from a SKIP. rf2-ybiz0 requires every ' +
-        'inner test to PROVE it ran.',
+        'its exit 0 cannot be told from a SKIP. Every inner test must ' +
+        'PROVE it ran.',
     );
   }
   if (!stdoutText.includes(sentinel)) {
@@ -756,7 +754,7 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
       `${testFile} exited 0 but did NOT print its success sentinel ` +
         `("${sentinel}"). The live gate did not actually run to ` +
         'completion (a SKIP, an early return, or a truncated run). ' +
-        'rf2-ybiz0 requires each inner test to PROVE it ran, not just ' +
+        'Each inner test must PROVE it ran, not just ' +
         'exit 0. Inner stdout tail: ' + stdoutText.slice(-400),
     );
   }
@@ -777,7 +775,7 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
 //                        report `{ supported, owned, survivors, error }`.
 //                        On Windows `getShadow()` is the `cmd.exe`/npx WRAPPER,
 //                        not shadow-cljs, so its `exit` says nothing about the
-//                        JVM below it (rf2-kzbf). Defaults to an inert reaper.
+//                        JVM below it. Defaults to an inert reaper.
 //   log / logErr      -> structured loggers (default to the module ones)
 //   timeouts          -> overridable caps (default to the module constants;
 //                        the harness shrinks them so the test runs fast)
@@ -791,7 +789,7 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
 // EVERY step is attempted regardless of an earlier step's failure; the result
 // is a structured, gradeable report — never a throw — so the normal path can
 // refuse to certify a run whose teardown could not prove the children were
-// reaped (rf2-j538f7.19), while the signal/watchdog paths that race
+// reaped, while the signal/watchdog paths that race
 // `cleanup()` against a hard cap never see an unhandled rejection.
 //
 // Resolves to `{ clean, browser, shadow, issues }`:
@@ -803,7 +801,7 @@ function gradeInnerTestOutcome({ code, stdoutText, sentinel, testFile }) {
 //   shadow  — `{ attempted, state, clean, signals, tree }` where `state` is the
 //             WRAPPER's state ('none' | 'exited' | 'alive') and `tree` is the
 //             owned-descendant reap report. `clean` requires BOTH: a wrapper
-//             that exited AND a subtree with no survivors (rf2-kzbf).
+//             that exited AND a subtree with no survivors.
 //   issues  — human-readable strings naming each dirty resource, the signals
 //             attempted, the timeouts, and the final observed state.
 // Idempotent: repeat/concurrent calls return the SAME in-flight promise and
@@ -918,7 +916,7 @@ function makeCleanup(deps) {
         }
       }
 
-      // (3b) OWNED DESCENDANTS (rf2-kzbf). The wrapper's `exit` proves only
+      // (3b) OWNED DESCENDANTS. The wrapper's `exit` proves only
       //      that the `cmd.exe`/npx shim is gone. On Windows the shadow-cljs
       //      Node process and its JVM are GRANDCHILDREN that outlive it and
       //      keep holding the fixture's port. Reap and grade the subtree
@@ -966,7 +964,7 @@ function makeCleanup(deps) {
 // observed exit — is an ORCHESTRATION failure (exit 2) that emits NO pass
 // sentinel: the inner contract passed, but the harness could not guarantee
 // the hermetic isolation it exists to provide, so it must not falsely certify
-// a possibly-contaminating run (rf2-j538f7.19). Parameterised on its IO so the
+// a possibly-contaminating run. Parameterised on its IO so the
 // grading test can assert the sentinel/exit-code mapping without booting
 // shadow-cljs + Chromium.
 function finalizeConformance(report, {
@@ -984,7 +982,7 @@ function finalizeConformance(report, {
   logErrFn(
     'FAIL: all inner conformance tests passed but the hermetic TEARDOWN could ' +
       'NOT be proven clean — refusing to certify a possibly non-hermetic run ' +
-      `(rf2-j538f7.19): ${describeDirty(report)}`,
+      `: ${describeDirty(report)}`,
   );
   flush();
   return 2;
@@ -1015,8 +1013,8 @@ function isContainmentEscape(e) {
 }
 
 // Wipe one stale nREPL port-file candidate before boot. A symlink-ESCAPE
-// refusal is FATAL (rf2-khav7l — never continue and later trust a file
-// we refused to clean). A BENIGN unlink failure (EACCES / EBUSY — a
+// refusal is FATAL (never continue and later trust a file we refused to
+// clean). A BENIGN unlink failure (EACCES / EBUSY — a
 // Windows file lock from a not-yet-reaped prior shadow-cljs process, a
 // permission quirk) is tolerated ONLY when the file is actually gone
 // afterward. `readPortFile()` (the `waitUntil('nREPL port file', ...)`
@@ -1027,9 +1025,9 @@ function isContainmentEscape(e) {
 // that wastes the whole boot timeout; worst case it connects to a
 // stale/zombie runtime from a prior run (state bleed between runs).
 // Re-stat after a benign failure: if the file is genuinely gone (the
-// unlink raced a concurrent removal), proceed as before; if it is still
-// there, fail LOUD now instead of silently deferring the risk to the
-// read side (rf2-6i2yi4). `unlink`/`statExists`/`logFn` are injectable
+// unlink raced a concurrent removal), proceed; if it is still there, fail
+// LOUD now instead of silently deferring the risk to the read side.
+// `unlink`/`statExists`/`logFn` are injectable
 // so the call-site regression test can drive this against a fake
 // benign-failing unlink without needing a real Windows file lock.
 function wipeStalePortFileCandidate(
@@ -1045,7 +1043,7 @@ function wipeStalePortFileCandidate(
       throw new Error(
         `stale nREPL port candidate ${p} escapes FIXTURE_DIR ` +
           `(${e.message}); aborting — the runner must not continue and ` +
-          'later trust a port file it refused to clean (rf2-khav7l).',
+          'later trust a port file it refused to clean.',
       );
     }
     if (statExists(p)) {
@@ -1054,7 +1052,7 @@ function wipeStalePortFileCandidate(
           're-stat confirms it is STILL on disk — refusing to continue: ' +
           'the poll loop below has no staleness gate and would trust this ' +
           'file on its very first check, before shadow-cljs rebinds ' +
-          '(rf2-6i2yi4 stale port-file trust). The file may be held by a ' +
+          '(stale port-file trust). The file may be held by a ' +
           'lingering prior process — remove it manually and re-run.',
       );
     }
@@ -1101,7 +1099,7 @@ function readPortFile(
       // catch surfaces it as exit 2.
       throw new Error(
         `refusing to read nREPL port candidate ${p}: ${e.message} ` +
-          '(rf2-khav7l: an escaped/refused port file must not be trusted ' +
+          '(an escaped/refused port file must not be trusted ' +
           'as the live nREPL source).',
       );
     }
@@ -1417,10 +1415,8 @@ function runTrusted(name, args, cwd) {
     timer.unref();
 
     // `recordChunk` is the only consumer — the setup child's output is
-    // streamed to the run log, never re-read as a whole. The two `stdout` /
-    // `stderr` string accumulators that used to sit alongside these calls were
-    // appended to on every chunk and read by nothing, so a chatty setup
-    // command grew them for the life of the promise to no purpose.
+    // streamed to the run log, never re-read as a whole, so nothing here
+    // accumulates it.
     child.stdout.on('data', (d) => recordChunk(`[${name}:stdout] `, d));
     child.stderr.on('data', (d) => recordChunk(`[${name}:stderr] `, d, 'stderr'));
     child.on('error', (err) => settle(reject, err));
@@ -1463,9 +1459,9 @@ function runTrusted(name, args, cwd) {
 
 function resolvePlaywright() {
   // Resolve playwright either from local mcp-conformance deps or from
-  // the implementation/ tree (which already lists it as a devDep). The
-  // CI job installs both; locally Mike's machine likely has at least
-  // one path. require.resolve throws if neither has it.
+  // the implementation/ tree (which lists it as a devDep). The CI job
+  // installs both; a local checkout usually has at least one.
+  // require.resolve throws if neither has it.
   const candidates = [MCP_CONFORMANCE_ROOT, path.join(REPO_ROOT, 'implementation')];
   for (const root of candidates) {
     try {
@@ -1512,11 +1508,11 @@ async function main() {
   // fixture tree.
   //
   // A symlink-ESCAPE refusal on a load-bearing stale port candidate is
-  // FATAL (rf2-khav7l). A BENIGN unlink failure (EACCES / EBUSY) is
-  // tolerated only when the file is confirmed gone afterward — see
+  // FATAL. A BENIGN unlink failure (EACCES / EBUSY) is tolerated only when
+  // the file is confirmed gone afterward — see
   // `wipeStalePortFileCandidate`'s docstring for why a surviving stale
   // file must fail loud here rather than being silently trusted by the
-  // staleness-blind `readPortFile()` poll below (rf2-6i2yi4).
+  // staleness-blind `readPortFile()` poll below.
   for (const p of NREPL_PORT_FILE_CANDIDATES) {
     wipeStalePortFileCandidate(p, FIXTURE_DIR);
   }
@@ -1527,7 +1523,7 @@ async function main() {
     if (isContainmentEscape(e)) {
       throw new Error(
         `stale fixture bundle ${FIXTURE_BUNDLE_PATH} escapes FIXTURE_DIR ` +
-          `(${e.message}); aborting (rf2-khav7l).`,
+          `(${e.message}); aborting.`,
       );
     }
     log(`could not remove stale fixture bundle ${FIXTURE_BUNDLE_PATH} (${e.message}); continuing`);
@@ -1562,12 +1558,12 @@ async function main() {
   });
   // On Windows `shadow.pid` is the `cmd.exe` wrapper cross-spawn interposed;
   // shadow-cljs and its JVM hang below it. This is the root of the subtree we
-  // own, and the ONLY subtree teardown is allowed to touch (rf2-kzbf).
+  // own, and the ONLY subtree teardown is allowed to touch.
   const shadowRootPid = shadow.pid;
   let shadowExited = false;
   // WHEN the wrapper died, not merely THAT it did: our own direct children
   // all predate this instant, so it is the upper bound that keeps a
-  // stranger's later child out of the kill set (rf2-kzbf audit of PR #9247).
+  // stranger's later child out of the kill set.
   let shadowExitedAtMs = 0;
   shadow.on('exit', (code, sig) => {
     shadowExited = true;
@@ -1599,7 +1595,7 @@ async function main() {
     // The wrapper's `exit` is not the JVM's. Grade the subtree we spawned.
     // `rootExited` is what keeps a RECYCLED root pid out of the kill set:
     // once our own handle has been reaped, the number is free and whatever
-    // wears it now is somebody else's process (rf2-kzbf audit).
+    // wears it now is somebody else's process.
     reapShadowTree: makeShadowTreeReaper({
       rootPid: shadowRootPid,
       spawnedAtMs: shadowSpawnedAtMs,
@@ -1632,8 +1628,7 @@ async function main() {
   }
 
   // The graded teardown report the `finally` produces; `main()` returns it so
-  // the entrypoint can refuse to certify GREEN on a dirty/unknown teardown
-  // (rf2-j538f7.19).
+  // the entrypoint can refuse to certify GREEN on a dirty/unknown teardown.
   let cleanupReport = null;
   try {
     // ---- Wait for nREPL port file ---------------------------------------
@@ -1713,9 +1708,10 @@ async function main() {
         recordLine(`[browser:navigation] ${frame.url()}`);
       }
     });
-    // rf2-taj9b — this navigation carried no timeout, so it took Playwright's
-    // 30s default: a ceiling nothing in this file could see or move, sitting
-    // BELOW the 60s RUNTIME_PRELOAD_TIMEOUT_MS that owns the very wait it was
+    // The navigation carries its own timeout and waits only for 'commit'.
+    // Without a timeout it would take Playwright's 30s default: a ceiling
+    // nothing in this file could see or move, sitting BELOW the 60s
+    // RUNTIME_PRELOAD_TIMEOUT_MS that owns the very wait it would be
     // duplicating. `'load'` cannot fire until the shadow-cljs `:app` bundle
     // has arrived AND run its synchronous portion — which is where the
     // preload installs `__re_frame2_pair_runtime`, i.e. precisely what the
@@ -1733,7 +1729,7 @@ async function main() {
           `'commit', timeout: ${RUNTIME_PRELOAD_TIMEOUT_MS}ms), NOT the ` +
           'runtime-preload wait that carries the same number and had not yet ' +
           `started. The fixture at ${FIXTURE_URL} never responded, so no ` +
-          'browser runtime exists for the suite to address (rf2-taj9b).',
+          'browser runtime exists for the suite to address.',
         'stderr');
       throw err;
     }
@@ -1805,7 +1801,7 @@ async function main() {
       // Capture the inner test's stdout so we can assert it actually RAN
       // (printed its GREEN sentinel) — not merely exited 0 (a SKIP also
       // exits 0). Grading happens on 'close' — see
-      // `spawnAndGradeInnerTest` (rf2-6girz0).
+      // `spawnAndGradeInnerTest`.
       const { code: testStatus, stdoutText } = await spawnAndGradeInnerTest({
         spawnFn: crossSpawn,
         execPath: process.execPath,
@@ -1828,8 +1824,8 @@ async function main() {
     }
     // NB: no GREEN sentinel is emitted here. The run is only certified GREEN
     // once cleanup has PROVEN hermetic teardown — grading happens in
-    // `finalizeConformance` against the report the `finally` returns below
-    // (rf2-j538f7.19). Emitting GREEN before teardown could falsely certify a
+    // `finalizeConformance` against the report the `finally` returns below.
+    // Emitting GREEN before teardown could falsely certify a
     // run that then leaks a browser / shadow-cljs child.
   } finally {
     // Await the async teardown before `main()` resolves/rejects: the
@@ -1885,7 +1881,7 @@ const watchdog = setTimeout(() => {
 watchdog.unref();
 
 // Only auto-run the orchestrator when invoked as the entry-point. Required
-// as a module (by the `runTrusted` regression test),
+// as a module (by the regression harnesses listed below),
 // it exports the unit under test WITHOUT kicking off the whole hermetic run
 // (which would spawn shadow-cljs + Chromium). Guarding the run here keeps
 // the watchdog timer from arming on `require` too.
@@ -1895,7 +1891,7 @@ if (require.main === module) {
       clearTimeout(watchdog);
       // GREEN + exit 0 ONLY if the teardown proved hermetic; a dirty/unknown
       // cleanup report is an orchestration failure (exit 2) with NO pass
-      // sentinel (rf2-j538f7.19).
+      // sentinel.
       process.exit(finalizeConformance(report));
     })
     .catch((err) => {
@@ -1903,9 +1899,9 @@ if (require.main === module) {
       logErr('FAIL: ' + (err && err.message ? err.message : err));
       if (err && err.stack) logErr(err.stack);
       flushDiagnostics();
-      // err.exitCode is set when the inner live-re-frame2-pair-overflow.cjs itself
-      // exited non-zero — surface it so CI distinguishes conformance
-      // failure (1) from orchestration failure (2).
+      // err.exitCode is set by `gradeInnerTestOutcome` — an inner test's own
+      // non-zero code, or 2 for an orchestration failure — so surface it and
+      // CI distinguishes conformance failure (1) from orchestration failure (2).
       process.exit(err && typeof err.exitCode === 'number' ? err.exitCode : 2);
     });
 } else {
@@ -1936,25 +1932,25 @@ if (require.main === module) {
 // fire-and-forgotten.
 //
 // `spawnAndGradeInnerTest` is exported for the close-vs-exit grading
-// regression harness (`inner-test-close-grading.test.cjs`, rf2-6girz0): it
+// regression harness (`inner-test-close-grading.test.cjs`): it
 // drives the REAL grading logic against a fake `spawnFn` whose child emits
 // its sentinel-bearing stdout `data` AFTER `exit` but BEFORE `close`,
 // proving the harness reads the fully-drained stdout (via `close`) rather
 // than scoring a conformant, late-flushing child as failed.
-// `gradeInnerTestOutcome` is exported for the same harness
-// (rf2-3x7nj.36.1): it drives the REAL per-inner-test verdict `main()`
+// `gradeInnerTestOutcome` is exported for the same harness: it drives the
+// REAL per-inner-test verdict `main()`
 // applies, proving a SKIP banner or a missing sentinel fails an exit-0 run.
 //
 // `wipeStalePortFileCandidate` is exported for the stale-port-file-trust
-// regression harness (`stale-port-file-trust.test.cjs`, rf2-6i2yi4): it
-// drives the REAL wipe logic with an injected `unlink` that fails
-// benignly (mimicking a Windows EBUSY lock) while an injected `statExists`
-// still reports the file present, proving the runner now fails LOUD
-// instead of logging-and-continuing into a poll loop that would have
-// trusted the surviving stale file.
+// regression harness (`stale-port-file-trust.test.cjs`): it drives the
+// REAL wipe logic with an injected `unlink` that fails benignly (mimicking
+// a Windows EBUSY lock) while an injected `statExists` still reports the
+// file present, proving the runner fails LOUD instead of
+// logging-and-continuing into a poll loop that would trust the surviving
+// stale file.
 //
 // `finalizeConformance` is exported for the teardown-grading regression
-// harness (`hermetic-grading.test.cjs`, rf2-j538f7.19): it drives the REAL
+// harness (`hermetic-grading.test.cjs`): it drives the REAL
 // grading decision against clean vs dirty cleanup reports, proving a dirty
 // teardown emits NO pass sentinel and returns orchestration exit 2 while a
 // clean teardown emits the sentinel exactly once and returns 0.
@@ -1967,12 +1963,12 @@ if (require.main === module) {
 // invites coupling to the helper instead of the decision it serves.
 // `makeShadowTreeReaper` + `ownedDescendants` + `classifyRootRow` + `pidAlive`
 // are exported for the owned-tree regression harness
-// (`runner-cleanup.test.cjs`, rf2-kzbf). The factory is driven with injected
+// (`runner-cleanup.test.cjs`). The factory is driven with injected
 // `readTable`/`treeKill`/`isAlive` fakes so the ownership walk, the
 // recycled-PID guard (on the ROOT row as well as on descendants) and the
 // survivor grading are pinned on EVERY platform, and additionally against a
 // REAL cross-spawn'd `cmd.exe` wrapper whose grandchild outlives it on
-// Windows — the exact shape that previously certified a leaked JVM as a
+// Windows — the exact shape that would otherwise certify a leaked JVM as a
 // clean, GREEN, exit-0 run.
 module.exports = {
   runTrusted,

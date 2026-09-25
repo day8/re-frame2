@@ -1,25 +1,22 @@
-# Post-merge workflow-edit sanity dispatcher (rf2-b7sjp).
+# Post-merge workflow-edit sanity dispatcher.
 #
 # # Why this exists
 #
 # Workflow YAML files are scripts — typos or stale references stay
 # silent until the workflow next fires. For cron-only workflows
 # (`expensive-tests.yml` runs at 15:17 UTC daily) that's up to 24h of
-# silent breakage. The rf2-mw1c0 incident burnt 5+ consecutive nights:
-# the rf2-3pdp9 Xray rename (PR #2067; from the tool's pre-rename name) mechanically renamed
-# the tool's pre-rename npm test script to `npm run test:xray` at expensive-tests.yml
-# line 191, but the underlying npm script had already been deleted a
-# week earlier — and nobody noticed for 5 nights because nightly is the
-# only thing that runs it.
+# silent breakage per edit, and a bad edit fails every night until
+# somebody reads the nightly: a rename that points a nightly step at an
+# npm script that no longer exists would go unnoticed for as many nights
+# as nobody looks, because nightly is the only thing that runs it.
 #
 # # What it does
 #
 # On every push to `main` that touches `.github/workflows/*.yml`,
 # determine which workflow files changed and `workflow_dispatch` each
 # one against `main` (excluding this canary itself + release tag
-# workflows). The next cron tick is no longer the first verification
-# of a workflow edit — the merge commit itself triggers it within
-# minutes.
+# workflows). The next cron tick is not the first verification of a
+# workflow edit — the merge commit itself triggers it within minutes.
 #
 # # What it does NOT do
 #
@@ -83,16 +80,17 @@ jobs:
       # needs (a manual dispatch, or the all-zeros first push to a fresh ref).
       # The ACCEPTED base of a multi-commit push is arbitrarily deeper, so it is
       # FETCHED BY NAME in the step below rather than cloned up to —
-      # portability.yml:207-249 is the worked precedent, and it measured a
-      # fetch-depth: 0 clone of this history at 211 of its 216 seconds.
+      # portability.yml's `ai-tracking-ratchet` job is the worked precedent,
+      # and it measured a fetch-depth: 0 clone of this history at 211 of its
+      # 216 seconds.
       #
-      # rf2-8oh5: depth 2 ALONE made the base resolution below inert. On a push
-      # of 2+ commits the accepted base was simply absent, `git diff` failed on
-      # it, `|| true` swallowed the failure, and the step reported "No workflow
-      # files changed in this push" over a push that changed several — fail-open,
-      # defeating the very fix it applied, on exactly the multi-commit pushes
-      # rf2-34yg measured as routine here. The depth and the fetch are ONE
-      # decision; `_post-merge-sanity-base.test.cjs` pins them together.
+      # Depth 2 ALONE would make the base resolution below inert: on a push of
+      # 2+ commits the accepted base would simply be absent, `git diff` would
+      # fail on it, and a swallowed failure would report "No workflow files
+      # changed in this push" over a push that changed several — fail-open, on
+      # exactly the multi-commit pushes that are routine here. The depth and
+      # the fetch are ONE decision; `_post-merge-sanity-base.test.cjs` pins them
+      # together.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 2
@@ -107,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           # Diff this push against its ACCEPTED base — the tip `main` pointed at
-          # BEFORE the push (rf2-7hq4l). NOT HEAD^, which on a multi-commit push
+          # BEFORE the push. NOT HEAD^, which on a multi-commit push
           # is only this same push's second-to-last commit, so a workflow edited
           # in an earlier commit and untouched at the tip sits on both sides of
           # the diff and escapes.
@@ -117,8 +115,8 @@ jobs:
           fi
           # Fetch that ONE commit when the shallow checkout does not hold it.
           # Peeled to ^{commit} deliberately: `git rev-parse --verify` echoes any
-          # 40-hex string back with exit 0 WITHOUT consulting the object store
-          # (rf2-uol6), so an unpeeled check is not a reachability check at all.
+          # 40-hex string back with exit 0 WITHOUT consulting the object store,
+          # so an unpeeled check is not a reachability check at all.
           if [ -n "$base" ] && ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
             echo "base $base is deeper than this shallow clone; fetching that one commit."
             if ! git fetch --no-tags --no-recurse-submodules --depth=1 origin "$base"; then
@@ -127,7 +125,8 @@ jobs:
               # so no depth and no fetch can produce it. This canary GATES
               # NOTHING (the merge already happened; no required check consumes
               # its verdict), so a red costs one visible failure and blocks
-              # nobody. Falling back to HEAD^ would silently reinstate rf2-8oh5;
+              # nobody. Falling back to HEAD^ would silently miss a workflow
+              # edited in an earlier commit of the push;
               # dispatching everything would spend the nightly matrix to answer
               # the question and leave no trace that the base resolution broke.
               echo "::error::post-merge workflow sanity cannot resolve the accepted base $base (force-push to main?). Refusing to report 'nothing changed' over a push this run cannot read."
@@ -141,9 +140,9 @@ jobs:
             base="HEAD^"
           fi
           # List changed .github/workflows/*.yml files (basenames). NO `|| true`
-          # here: it converted a failed `git diff` — and `pipefail` with it —
-          # into "nothing changed" (rf2-8oh5). With it gone, `set -euo pipefail`
-          # reds any residual failure, so this whole path is fail-closed.
+          # here: it would convert a failed `git diff` — and `pipefail` with it —
+          # into "nothing changed". Without it, `set -euo pipefail` reds any
+          # residual failure, so this whole path is fail-closed.
           changed=$(git diff --name-only "$base" HEAD -- '.github/workflows/*.yml' \
             | xargs -I{} basename {})
           if [ -z "$changed" ]; then
@@ -199,16 +198,13 @@ jobs:
               continue
             fi
             # DELETED IN THIS PUSH. The diff reports a removed workflow as
-            # changed, and it was already skipped — but only as a side effect of
-            # `grep` exiting non-zero on a file it cannot open, which also put
-            # `No such file or directory` on stderr and then printed the WRONG
-            # reason ("no workflow_dispatch trigger") for the right outcome.
-            # Measured on runs 29638598700 (post-merge-playground-freshness.yml)
-            # and 31924373964 (freehand-bench.yml, freehand-conformance.yml).
-            # An accident is a poor thing to rest on once a dispatch failure is
-            # fatal, so the skip is stated rather than inferred. This is the one
-            # case the old `|| { echo WARN; }` could plausibly have been
-            # protecting; with it explicit here, that swallow protects nothing.
+            # changed. Without this guard it would still be skipped — but only as
+            # a side effect of `grep` exiting non-zero on a file it cannot open,
+            # which also puts `No such file or directory` on stderr and then
+            # prints the WRONG reason ("no workflow_dispatch trigger") for the
+            # right outcome. An accident is a poor thing to rest on when a
+            # dispatch failure is fatal, so the skip is stated rather than
+            # inferred.
             if [ ! -f ".github/workflows/$f" ]; then
               echo "skip (deleted in this push): $f"
               continue
@@ -222,10 +218,10 @@ jobs:
             # dispatch event" endpoint resolves `ref` in the ref namespace, so a
             # 40-character commit id — which is what `github.sha` always is —
             # cannot resolve and the call returns HTTP 422 "No ref found for:
-            # <sha>". This is not a trade-off between two workable targets: the
-            # merge commit was never dispatchable.
+            # <sha>". This is not a trade-off between two workable targets: a
+            # merge commit id is not dispatchable at all.
             #
-            # THE TOKEN IS NOT THE OBSTACLE, so a correct ref is the whole fix.
+            # THE TOKEN IS NOT THE OBSTACLE, so a correct ref is all it takes.
             # Events triggered by `GITHUB_TOKEN` do not normally create workflow
             # runs — that is the recursion guard — but `workflow_dispatch` is one
             # of the two documented exceptions that "always create workflow
@@ -234,27 +230,12 @@ jobs:
             # still silent should suspect the ref or the guards, never the token.
             # See docs.github.com/en/actions/concepts/security/github_token.
             #
-            # MEASURED (rf2-amh0). This step passed the `github.sha` context
-            # value as the ref from the file's first commit until this one — an
-            # expression not written out here, because Actions substitutes
-            # expressions everywhere in a `run:` body, comments included. Across
-            # the 155 runs whose logs are still readable (2026-06-08 to
-            # 2026-09-05), 26 reached a dispatch and made 27 attempts; ALL 27
-            # returned that same 422, and all 26 runs concluded `success`,
-            # because a `|| { echo WARN; }` swallow that this commit removes took
-            # every one of them. Zero dispatches have ever succeeded — and that
-            # last claim now rests on the whole lifetime rather than on the
-            # readable window, because a successful dispatch leaves a
-            # `workflow_dispatch` RUN behind and runs outlive their logs.
-            # Enumerated 2026-09-08 over every target this canary has named
-            # (expensive-tests.yml, freehand-conformance.yml, freehand-bench.yml)
-            # there are 7 `workflow_dispatch` runs all time, each triggered by
-            # the human maintainer on a branch ref and none by
-            # `github-actions[bot]`; freehand-conformance.yml, which the canary
-            # attempted 5 times, has ZERO. That covers the 19 runs whose logs
-            # have since expired (2026-05-28 to 2026-06-05, HTTP 410) with
-            # evidence, where this comment previously offered only a deduction
-            # from an unchanged argument.
+            # The `github.sha` context value as the ref — an expression not
+            # written out here, because Actions substitutes expressions
+            # everywhere in a `run:` body, comments included — would fail on
+            # every attempt, and a
+            # swallowed failure would leave every run concluding `success`: a
+            # dispatcher that never dispatches, green indefinitely.
             #
             # THE TIP, NOT THE MERGE COMMIT — deliberate. `github.ref_name` is
             # the branch this event is on (`main` for the push trigger; whatever
@@ -270,7 +251,7 @@ jobs:
             # above, for the same reason. Nothing consumes this canary's verdict,
             # so a red costs one visible failure and blocks nobody, whereas a
             # green that means "we tried" reads to every reader as "it ran" and
-            # is how a broken dispatcher survived 78 days. Every ordinary reason
+            # would keep a broken dispatcher green indefinitely. Every ordinary reason
             # to skip is handled by the four guards above; what is left is
             # exceptional. Failures are counted rather than aborting the loop, so
             # one bad workflow cannot hide the fate of the others, and the

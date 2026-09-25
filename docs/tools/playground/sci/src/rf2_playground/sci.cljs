@@ -1,13 +1,12 @@
 (ns rf2-playground.sci
-  "SCI eval bundle for the docs/cljs playground's `cljs-rf2` cells
-  (rf2-00zvt, Phase 3).
+  "SCI eval bundle for the docs/cljs playground's `cljs-rf2` cells.
 
   A `cljs-rf2` cell calls re-frame2's OWN public API (`re-frame.core`
   v2) and renders via reagent2 (the reagent-slim rewrite re-frame2
   actually uses). Scittle's plugins ship STOCK reagent / re-frame and
   there is no published `scittle.core` artefact a standalone plugin
   build can `:require`, so this is NOT a Scittle plugin — it is a
-  self-contained SCI eval bundle (findings doc §6 option B): a
+  self-contained SCI eval bundle: a
   shadow-cljs `:browser` build that depends on `org.babashka/sci` +
   re-frame2 core + reagent-slim, builds an SCI context exposing
   re-frame2's runtime API, and exports the `renderLast` JS entry point
@@ -23,15 +22,15 @@
       their plain names; a cell writes `(rf/reg-event :id (fn ...))`
       and it resolves to the fn-alias. No macro support needed.
       (EP-0018 Z: `reg-event` is the ONE public event registrar; the
-      former per-kind `reg-event-db` / `reg-event-fx` / `reg-event-ctx`
-      survive only as `^:no-doc` throwing stubs, so a stale cell calling
-      one raises `:rf.error/reg-event-*-removed` — the intended signal.)
+      per-kind `reg-event-db` / `reg-event-fx` / `reg-event-ctx` exist
+      only as `^:no-doc` throwing stubs, so a cell calling one raises
+      `:rf.error/reg-event-*-removed` — the intended signal.)
 
     - `dispatch` / `dispatch-sync` / `subscribe` are macro-in-call-
-      position / fn-in-value-position on CLJS (Convention A, rf2-m90brg
+      position / fn-in-value-position on CLJS (Convention A
       — same-named `def`-aliases to `re-frame.router/dispatch!` /
       `-dispatch-sync!` / `re-frame.subs/subscribe`), so `sci/copy-ns`
-      already brings the plain fn form in. We still override the three
+      brings the plain fn form in. We override the three
       entries below with playground-local wrappers — not because no
       fn-alias exists, but so every cell dispatch/subscribe defaults to
       `{:frame app-frame}` (a bare cell call has no dynamic `with-frame`
@@ -46,7 +45,7 @@
   result is one fully self-contained `playground-rf2.js`: no external
   React, no CDN, no version-mismatch risk (see `sci/shadow-cljs.edn`).
 
-  Machines (rf2-ldgpd): `re-frame.machines` is `:require`d at the top
+  Machines: `re-frame.machines` is `:require`d at the top
   of this ns so the machines artefact's late-bind hooks register at
   bundle init — that activates the `:machines/*` slots `re-frame.core-
   machines` reads on every call (`reg-machine*`, `make-machine-handler`,
@@ -54,9 +53,9 @@
   framework subs + the `:rf.machine/spawn` / `:rf.machine/destroy` /
   `:rf.machine/spawn-all-init` / `:rf.machine/after-schedule` /
   `:rf.machine/after-cancel` / `:rf.machine/update-snapshot` fxs from
-  the namespace's top-level forms. The front-porch shrink demoted the
-  machine query/build helpers off the `re-frame.core` façade to their
-  owning `re-frame.machines` namespace, so the SCI `re-frame.core`
+  the namespace's top-level forms. The machine query/build helpers
+  live on their owning `re-frame.machines` namespace, not the
+  `re-frame.core` façade, so the SCI `re-frame.core`
   namespace below adds a `reg-machine` entry bound to the
   `re-frame.machines/reg-machine*` fn-alias (same pattern as the
   `dispatch`/`subscribe` macro→fn shims) so the guide's
@@ -68,12 +67,12 @@
             [re-frame.subs :as rf.subs]
             ;; The frame api constructor behind `capture-frame` and the
             ;; `reg-view` injection — an owned implementation seam, off the
-            ;; facade (rf2-93sxp). Bound under its own SCI namespace below so
+            ;; facade. Bound under its own SCI namespace below so
             ;; the `reg-view` shim can name it exactly as the real expansion
             ;; does, without copying an internal alias into `re-frame.core`.
             [re-frame.capture-frame :as rf.capture-frame]
             ;; Consumed (not re-exposed to cells) for page-owned registration
-            ;; ownership + clear-on-disposal — see `disposePage` (rf2-u4pqs).
+            ;; ownership + clear-on-disposal — see `disposePage`.
             [re-frame.registrar :as rf.registrar]
             [re-frame.views]
             [re-frame.machines]
@@ -171,21 +170,21 @@
 
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
-;; reg-cofx, ...) AND, since rf2-m90brg, the dispatch/dispatch-sync/
+;; reg-cofx, ...) AND the dispatch/dispatch-sync/
 ;; subscribe fn-aliases (Convention A), plus init!, configure,
 ;; clear-event, current-frame-id, capture-frame, app-db-value, etc.
-;; We still override dispatch/dispatch-sync/subscribe below with the
+;; We override dispatch/dispatch-sync/subscribe below with the
 ;; playground-local default-frame wrappers (see `playground-dispatch`
 ;; et al. above) — the `merge` below wins over `copy-ns`'s entries.
-;; (`inject-cofx` was removed from the public facade in EP-0017 / rf2-w9xyx1
-;; — coeffect delivery is the `:rf.cofx/requires` declaration — so there is
-;; no public surface for a cell to reach and no SCI binding for it.)
+;; (`inject-cofx` is not on the public facade (EP-0017) — coeffect
+;; delivery is the `:rf.cofx/requires` declaration — so there is no
+;; public surface for a cell to reach and no SCI binding for it.)
 ;;
-;; Machines (rf2-ldgpd): `reg-machine` is also a JVM-only macro on the
+;; Machines: `reg-machine` is also a JVM-only macro on the
 ;; public surface (per-element source-coord stamping at expansion time);
 ;; CLJS code reaches the plain-fn alias `reg-machine*` on the owning
-;; `re-frame.machines` namespace (front-porch shrink — no longer
-;; re-exported from `re-frame.core`). For cells the source-coord story
+;; `re-frame.machines` namespace (not re-exported from
+;; `re-frame.core`). For cells the source-coord story
 ;; doesn't apply, so we bind `reg-machine` to
 ;; `re-frame.machines/reg-machine*` exactly as we do for `dispatch`/`subscribe`.
 ;; A cell calls `(rf/reg-machine :auth/flow login-flow)` and resolves to
@@ -198,15 +197,15 @@
     'subscribe     (sci/copy-var playground-subscribe rf-ns)
     'reg-machine   (sci/copy-var re-frame.machines/reg-machine* rf-ns)
     ;; Flows (guide page 7): like reg-machine, `reg-flow` is a JVM-only
-    ;; macro on the façade; the runtime fn lives on the owned namespace
-    ;; (front-porch shrink, rf2-wad2fl). Bind it so cells call the real
+    ;; macro on the façade; the runtime fn lives on the owned namespace.
+    ;; Bind it so cells call the real
     ;; 3-slot (reg-flow flow-id metadata derive-fn) grammar.
     'reg-flow      (sci/copy-var re-frame.flows/reg-flow rf-ns)
     ;; JVM-only defn-shape macro → SCI macro shim (see sci-reg-view above).
     'reg-view      (sci/new-var 'reg-view sci-reg-view
                                 {:ns rf-ns :macro true :sci/macro true})}))
 
-;; The owned constructor the `reg-view` shim expands to (rf2-93sxp). ONLY that
+;; The owned constructor the `reg-view` shim expands to. ONLY that
 ;; var is bound — not a `copy-ns` of the implementation namespace — and it is
 ;; bound under its own namespace, never merged into the `re-frame.core` map
 ;; above, so the facade a cell sees stays the real one.
@@ -247,7 +246,7 @@
 ;; once, the first time the bundle is asked to eval/render anything.
 
 ;; The reagent-slim adapter install (`rf/init!`) is PROCESS-GLOBAL: once per
-;; bundle load, never torn down. `dispose-page!` (below) reaps page-owned frames
+;; bundle load, never torn down. `disposePage` (below) reaps page-owned frames
 ;; on every instant nav but must NOT un-install the adapter, so its guard is
 ;; kept separate from the (page-owned) app-frame creation.
 (defonce ^:private adapter-inited? (atom false))
@@ -268,7 +267,7 @@
 ;; `dispatch`/`dispatch-sync`/`subscribe` wrappers default to `app-frame` (so a
 ;; DEFERRED `:on-click` dispatch resolves too).
 ;;
-;; The app frame is PAGE-OWNED (rf2-io9mdr): `dispose-page!` destroys it on each
+;; The app frame is PAGE-OWNED: `disposePage` destroys it on each
 ;; Material instant nav so the incoming page starts from `:rf/default`'s
 ;; documented initial (empty) app-db, not the outgoing page's accumulated
 ;; state. It is therefore (re)created ON DEMAND — whenever a render runs and the
@@ -279,7 +278,7 @@
   (when-not (contains? (rf/frame-ids) app-frame)
     (rf/make-frame {:id app-frame})))
 
-;; Page-owned registration ownership (rf2-u4pqs). Cells reach re-frame2's
+;; Page-owned registration ownership. Cells reach re-frame2's
 ;; process-global `reg-*` API directly (the `sci/copy-ns` over `re-frame.core`),
 ;; so a cell's `reg-event` / `reg-sub` / `reg-view` / `reg-machine` writes a
 ;; `(kind, id)` into the ONE process registrar. Those registrations are
@@ -306,7 +305,7 @@
 (defn- ensure-init! []
   (ensure-adapter!)
   ;; Snapshot the framework baseline after the adapter's process-global installs
-  ;; and before the cell about to be evaluated registers anything (rf2-u4pqs).
+  ;; and before the cell about to be evaluated registers anything.
   (capture-registration-baseline!)
   (ensure-app-frame!))
 
@@ -334,10 +333,10 @@
   So we re-establish the frame via the DYNAMIC-VAR tier instead: when the
   cell value is a component-invocation vector `[f & args]` whose head `f`
   is a fn, wrap that head in a fn that re-binds `*current-frame*` to
-  `app-frame` on every call via `with-frame` (API-shrink #1, rf2-csbbwu
-  removed the public `frame-bound-fn*` — `capture-frame` / `with-frame`
-  are the public carry/scope primitives; this is the 3-line idiom that
-  composes them for an arbitrary already-held fn). The wrapped fn re-binds
+  `app-frame` on every call via `with-frame` (there is no public
+  `frame-bound-fn*` — `capture-frame` / `with-frame` are the public
+  carry/scope primitives; this is the 3-line idiom that composes them for
+  an arbitrary already-held fn). The wrapped fn re-binds
   `*current-frame*` on EVERY invocation — including each React render —
   so the plain-fn's `subscribe`/`dispatch` resolve to `:rf/default`
   regardless of the (reg-view-only) context tier. A non-fn head (e.g. a
@@ -373,8 +372,8 @@
     ;; ALREADY-CREATED `app-frame`) AND frame-bind the cell's own component fn
     ;; so a render-time `subscribe` inside a PLAIN fn resolves `:rf/default`
     ;; via the dynamic-var tier — the React-context tier alone reaches only
-    ;; reg-views. EP-0024 (amended) merged the family into ONE config-shaped
-    ;; `frame-provider` dispatched on the prop map: `{:frame …}` is SCOPE-only
+    ;; reg-views. Per EP-0024, `frame-provider` is ONE config-shaped
+    ;; component dispatched on the prop map: `{:frame …}` is SCOPE-only
     ;; (provide an already-created frame id), `{:id …}` ENSURES a named frame.
     ;; `app-frame` is created once in `ensure-init!`, so the SCOPE-only
     ;; `{:frame …}` shape is correct here.
@@ -388,7 +387,7 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
-;; Instant-navigation teardown (rf2-io9mdr)
+;; Instant-navigation teardown
 ;; ---------------------------------------------------------------------------
 
 (defn ^:export disposePage
@@ -418,14 +417,14 @@
        navigating between pages can't reuse another cell's frame state and
        returning to a page reproduces its documented initial state.
 
-    3. Page-owned registrations (rf2-u4pqs). Cells write `(kind, id)`
+    3. Page-owned registrations. Cells write `(kind, id)`
        registrations straight into the process-global registrar
        (`reg-event`/`reg-sub`/`reg-view`/`reg-machine`), and those are NOT
        scoped to the outgoing document. Re-eval on the NEXT page overwrites only
        COLLIDING ids — it does NOT protect a later page that dispatches or
        subscribes to an id it never registers itself: without teardown the
        outgoing cell's leaked handler still resolves, so the fresh page silently
-       reuses another cell's registration (the rf2-io9mdr isolation break this
+       reuses another cell's registration (the isolation break this
        step closes). We clear exactly the page-owned set — `current − baseline`,
        where `baseline` is the framework/bundle-init snapshot captured at
        `ensure-init!` — via `rf.registrar/unregister!`, so a later page's dispatch/
@@ -453,7 +452,7 @@
   ;;    mutates the live registry — can't disturb the iteration.
   (doseq [id (rf/frame-ids)]
     (try (rf/destroy-frame! id) (catch :default _ nil)))
-  ;; 3. Clear page-owned registrations (rf2-u4pqs) so a later page cannot
+  ;; 3. Clear page-owned registrations so a later page cannot
   ;;    dispatch/subscribe through an outgoing cell's (kind,id) it never
   ;;    re-registered. `current − baseline` is exactly the cells' registrations;
   ;;    the framework/bundle-init baseline (captured in `ensure-init!`) is
@@ -477,7 +476,7 @@
   (set! (.-rf2sci js/window)
         #js {:renderLast   renderLast
              :disposePage  disposePage
-             ;; Test-only introspection (rf2-io9mdr): the count of live cached
+             ;; Test-only introspection: the count of live cached
              ;; roots, so the instant-nav smoke can prove `disposePage` released
              ;; the outgoing page's detached roots rather than leaking them.
              :liveRootCount (fn [] (count @roots))}))

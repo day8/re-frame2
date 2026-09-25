@@ -196,7 +196,7 @@
   (rf/make-frame {:id frame-a :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-b :initial-events [[::counter-init]]})
   (rf/make-frame {:id frame-log :initial-events [[::log-init]]})
-  ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view`, so its wrapper resolves
+  ;; `root` is a `reg-view` (EP-0002), so its wrapper resolves
   ;; a frame at render time for its injected bindings — it must render under
   ;; a provider. Use a neutral SHELL frame (`:rf/default`) as the page-root
   ;; scope; the three per-frame providers nested inside `root` override it

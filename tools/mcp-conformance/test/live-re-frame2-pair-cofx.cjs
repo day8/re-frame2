@@ -12,8 +12,8 @@
 //     live-runtime tool) to the shared `:nrepl-port-not-found` envelope
 //     BEFORE the tool body's `cofx` shape-check runs, so neither the
 //     malformed-`cofx` refusal NOR the positive "supplied `:rf/time-ms`
-//     reaches the resulting state" affordance was observable on the wire.
-//     (It DOES now prove a well-formed `cofx` arg is ACCEPTED into the
+//     reaches the resulting state" affordance is observable on the wire.
+//     (It DOES prove a well-formed `cofx` arg is ACCEPTED into the
 //     request envelope — but that is descriptor/arg-shape coverage, not
 //     the EP-0017 behaviour.)
 //   - The pair-mcp unit tests (`dispatch_test.cljs`) pin the `cofx`
@@ -24,7 +24,7 @@
 // re-dispatch with recorded `:rf.cofx`) a load-bearing agent affordance:
 // an agent scripts `:rf/time-ms` and asserts the SAME app-db results. A
 // regression in the descriptor/wire path for that affordance could ship
-// GREEN through every existing conformance gate while breaking the
+// GREEN through every other conformance gate while breaking the
 // agent-facing replay surface. This gate is the live SDK-boundary net.
 //
 // ## What this test drives (across the MCP boundary, via the SDK Client)
@@ -69,9 +69,8 @@
 //     dispatch anyway or return a different reason).
 //   - `:rf/time-ms` dropped from the `cofx` registrar, or its recordable
 //     grade metadata regressed — step 3 goes RED.
-//   - the authored `:rf.cofx/requires` no longer surviving onto event
-//     metadata (an EP-0017/EP-0018 inspectability regression) — step 3
-//     goes RED.
+//   - the authored `:rf.cofx/requires` dropped from event metadata (an
+//     EP-0017/EP-0018 inspectability regression) — step 3 goes RED.
 //
 // ## Gating
 //
@@ -95,7 +94,7 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // server that ignored `cofx` and stamped a live `Date.now()` cannot match
 // BOTH (a live clock can coincidentally near one fixed value but never
 // equal two different pinned pasts on two dispatches). Pinned in the past
-// (2026-06-09 / 2025-01-01) so they are visibly NOT a live clock.
+// (2026-06-10 / 2025-01-01 UTC) so they are visibly NOT a live clock.
 const SCRIPTED_TIME_A = 1781078400123;
 const SCRIPTED_TIME_B = 1735689600000;
 
@@ -194,7 +193,7 @@ runWithWatchdog(
           SCRIPTED_TIME_A + '} but :stamped-at read back ' + afterA + '. The ' +
           'supplied recordable coeffect did NOT reach the resulting state — ' +
           'the router dropped/overwrote :rf/time-ms (EP-0017 reproducible ' +
-          'dispatch regression, rf2-jyxmtq).',
+          'dispatch regression).',
       );
     }
     console.log(
@@ -210,7 +209,7 @@ runWithWatchdog(
           SCRIPTED_TIME_B + '} read back :stamped-at ' + afterB + '. A second ' +
           'distinct scripted time MUST also land verbatim — a server stamping ' +
           'a live clock could never match two distinct pinned pasts. ' +
-          '(rf2-jyxmtq replay-determinism.)',
+          '(replay-determinism.)',
       );
     }
     console.log(
@@ -237,7 +236,7 @@ runWithWatchdog(
       if (!resp.isError) {
         throw new Error(
           'dispatch [:counter/stamp] with ' + m.why + ' MUST isError ' +
-            '(EP-0017 cofx shape-check, rf2-q6s1nb); got: ' +
+            '(EP-0017 cofx shape-check); got: ' +
             responseText(resp).slice(0, 300),
         );
       }
@@ -258,7 +257,7 @@ runWithWatchdog(
         throw new Error(
           'dispatch malformed-cofx returned :nrepl-port-not-found — the ' +
             'runtime is not attached, so this gate is testing degraded mode, ' +
-            'not the live EP-0017 cofx shape-check. (rf2-jyxmtq.)',
+            'not the live EP-0017 cofx shape-check.',
         );
       }
       console.log(
@@ -275,7 +274,7 @@ runWithWatchdog(
         'after three malformed-cofx refusals :stamped-at read back ' +
           afterMalformed + ' but MUST still be the last GOOD scripted value ' +
           SCRIPTED_TIME_B + ' — a malformed cofx MUST short-circuit WITHOUT ' +
-          'dispatching (rf2-jyxmtq / rf2-q6s1nb).',
+          'dispatching.',
       );
     }
     console.log(
@@ -317,7 +316,8 @@ runWithWatchdog(
     // 3b. handler-meta {kind "cofx" id ":rf/time-ms"} surfaces the
     // framework registration metadata: :ok? true, :kind :cofx, :id
     // :rf/time-ms, and the EP-0017 recordable grade
-    // (:recordable? true :provided? true — cofx.cljc:1032).
+    // (:recordable? true :provided? true — cofx.cljc's
+    // `reg-cofx :rf/time-ms`).
     const cofxMeta = await client.callTool({
       name: 'handler-meta',
       arguments: { kind: 'cofx', id: ':rf/time-ms' },

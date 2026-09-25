@@ -9,8 +9,8 @@
 //
 //   1. `resolveTrustedExe` — must return an absolute path that
 //      realpaths to OUTSIDE the workspace root, and must throw when
-//      every PATH candidate falls inside the workspace (the exact
-//      accident-class flagged by the audit). We drive both POSIX and
+//      every PATH candidate falls inside the workspace (the
+//      command-hijack accident class). We drive both POSIX and
 //      win32 code paths via the platform parameter; the workspace
 //      itself doubles as the "compromised PATH entry" so the test is
 //      hermetic — no real binary or temp PATH munging required.
@@ -128,7 +128,7 @@ test('resolveTrustedExe: throws when every candidate resolves inside workspace',
         }),
       (err) => {
         assert.match(err.message, /workspace/);
-        assert.match(err.message, /rf2-33vvc/);
+        assert.match(err.message, /command-hijack accident-gating/);
         return true;
       },
     );
@@ -242,16 +242,16 @@ test('resolveTrustedExe: follows symlinks and rejects when target is inside work
   }
 });
 
-// A realpath FAILURE (as opposed to a clean resolution) used to fall
+// A realpath FAILURE (as opposed to a clean resolution) must not fall
 // back to the raw, unresolved candidate path
-// (`realpathSyncOrNull(candidate) || candidate`) — trusting exactly the
-// path this module exists to verify. On Windows, `fs.realpathSync` is
+// (`realpathSyncOrNull(candidate) || candidate`) — that would trust
+// exactly the path this module exists to verify. On Windows, `fs.realpathSync` is
 // known to throw on certain reparse points (App-Execution-Alias stubs
 // under `%LOCALAPPDATA%\Microsoft\WindowsApps`) that `fs.statSync` sees
 // as an ordinary file — so this isn't a hypothetical failure mode. These
 // two tests monkeypatch `fs.realpathSync` (restored in `finally`) to
 // simulate that failure on a specific candidate, independent of the
-// actual host OS/filesystem (rf2-6i2yi4 finding 6).
+// actual host OS/filesystem.
 
 test('resolveTrustedExe: a realpath failure on a candidate is rejected (not trusted unresolved) — falls through to the next candidate', () => {
   const workspace = freshTmpDir('realpath-fail-workspace');
@@ -329,7 +329,7 @@ test('resolveTrustedExe: throws (does not silently trust an unresolved candidate
         return true;
       },
       'must throw rather than falling back to the raw unresolved candidate ' +
-        '(the pre-fix behaviour)',
+        '(which would trust an unverified path)',
     );
   } finally {
     fs.realpathSync = realRealpathSync;
@@ -371,9 +371,9 @@ test('safeUnlinkInside: rejects when realpath escapes allowed root (symlinked le
   // The hostile shape: a leaf file inside the allowed root that is
   // itself a symlink pointing OUTSIDE the root. Naive unlinkSync
   // would happily remove the symlink (Unix unlink only removes the
-  // link itself, not the target — but the audit fix is to refuse to
-  // touch any path whose realpath escapes the root, which is the
-  // stronger property and gates the symlinked-parent case below.)
+  // link itself, not the target — but the helper refuses to touch any
+  // path whose realpath escapes the root, which is the stronger
+  // property and gates the symlinked-parent case below.)
   const root = freshTmpDir('unlink-escape-leaf');
   const outsideDir = freshTmpDir('unlink-escape-outside');
   try {
@@ -397,7 +397,7 @@ test('safeUnlinkInside: rejects when realpath escapes allowed root (symlinked le
 });
 
 test('safeUnlinkInside: rejects when parent dir is a symlink escaping root', { skip: process.platform === 'win32' }, () => {
-  // The exact accident class flagged by the audit: the candidate
+  // The exact accident class the helper gates: the candidate
   // path lives at `root/.shadow-cljs/nrepl.port`, but `.shadow-cljs`
   // is itself a symlink whose target is outside the root. The leaf
   // file may not even exist yet — the parent-symlink realpath check
@@ -425,7 +425,7 @@ test('safeUnlinkInside: rejects when parent dir is a symlink escaping root', { s
       () => safeUnlinkInside(candidate, root),
       /symlink-escape/,
     );
-    // The sensitive file MUST still exist — the whole point of the fix.
+    // The sensitive file MUST still exist — the whole point of the guard.
     assert.equal(fs.existsSync(sensitiveFile), true);
   } finally {
     rmrf(root);
