@@ -1,30 +1,28 @@
 (ns re-frame.bench.fresco.p0-converge-app
   "THE CONVERGED P0 CLOCK TABLE — Reagent-on-subs AND UIx-on-subs on ONE
   witness set, so the bar and the red-zones can be read down one column
-  (rf2-a4x1o; EP-0038 P0; the standard is rf2-2rtt6.1).
+  (EP-0038 P0).
 
-  ## What was wrong, precisely
+  ## Why one witness set
 
-  rf2-2rtt6.2 published the bar's DENOMINATOR — Reagent reading re-frame2
+  `p0-reagent` takes the bar's DENOMINATOR — Reagent reading re-frame2
   subscriptions — on a 901-element `M1` list and a 51-element `M2` form,
-  both reading `[:p0/cell i]`. rf2-2rtt6.4 published the RED-ZONE
-  THRESHOLDS — the measured UIx ratio per witness family, under RULING 1
-  on rf2-2rtt6.1 — on a 1,203-element `W1` list reading `[:p0/row i]`, a
+  both reading `[:p0/cell i]`. `p0-uix` takes the RED-ZONE THRESHOLDS —
+  the measured UIx ratio per witness family, under RULING 1 of the P0
+  standard — on a 1,203-element `W1` list reading `[:p0/row i]`, a
   51-element `W3` form reading `[:p0/field i]`, and a 301-element grid.
-  Its branch was designed before rf2-2rtt6.2 merged and it said so on its
-  own page.
 
-  Each of rf2-2rtt6.4's thresholds is sound AS A THRESHOLD: a ratio
-  between two arms measured in one run, on one page, through one sub
-  graph, in both orders. What is not sound is the TABLE, because a
+  Each of `p0-uix`'s thresholds is sound AS A THRESHOLD: a ratio between
+  two arms measured in one run, on one page, through one sub graph, in
+  both orders. What is not sound is a TABLE built from both, because a
   red-zone whose page differs from the bar row's page cannot be applied to
-  a candidate measured on either one. This entry re-measures the frontier
-  arm on rf2-2rtt6.2's witnesses so that every row of the clock table
+  a candidate measured on either one. This entry measures the frontier
+  arm on `p0-reagent`'s witnesses so that every row of the clock table
   describes the same page.
 
   ## Which witness set, and why that one
 
-  rf2-2rtt6.2's. Four reasons, in order of weight:
+  `p0-reagent`'s. Four reasons, in order of weight:
 
   1. **The bar's denominator defines the witness set by construction.**
      HD-012 states the ship number as `<= 1.0x Reagent, like-for-like`.
@@ -32,17 +30,13 @@
      rule about where a candidate sits relative to UIx — so it has to be
      derived on the pages the denominator lives on, not the other way
      round.
-  2. **rf2-2rtt6.2 is on main and owns the measurement lane.** HD-017
-     gives `:fresco-bench` and `run.cjs` to that arm; rf2-2rtt6.4's tree
-     rode `:freehand-release`'s compiler settings through a
-     `--config-merge` precisely because the lane had not landed. Running
-     the frontier arm on the lane retires that workaround — and rf2-0yp7w
-     since removed that build with the donor tree, so there is no longer
-     anything to ride even if it had not.
-  3. **rf2-2rtt6.4 nominated it.** Its own `Open items` names
-     rf2-2rtt6.2's set as the convergence target and names its `U-broad`
-     row as the closest existing correspondence.
-  4. **rf2-2rtt6.2's witnesses already carry the control and the lower
+  2. **`p0-reagent` owns the measurement lane.** HD-017 gives
+     `:fresco-bench` and `run.cjs` to that arm, so the frontier arm runs
+     on the lane rather than on another build's compiler settings.
+  3. **`p0-uix` nominates it.** Its own `Open items` names `p0-reagent`'s
+     set as the convergence target and names its `U-broad` row as the
+     closest existing correspondence.
+  4. **`p0-reagent`'s witnesses already carry the control and the lower
      bound.** `:ctl-2x` is an in-plan positive control at exactly twice
      the boundaries, and the `:reagent-ratom` arm is a published labelled
      lower bound on the same page. Moving to the other set would strand
@@ -50,29 +44,28 @@
 
   ## What runs
 
-  Four rows, two segments each. The rows are rf2-2rtt6.2's three plus one:
+  Four rows, two segments each. The rows are `p0-reagent`'s three plus one:
 
   | row | witness | why |
   |---|---|---|
   | `mount-M1` | 901 el, 300 boundaries, `[:p0/cell i]` | the bar row |
-  | `mount-M2` | 51 el, 12 fields, `[:p0/cell i]` | DIAGNOSTIC, per rf2-2rtt6.2 |
+  | `mount-M2` | 51 el, 12 fields, `[:p0/cell i]` | DIAGNOSTIC, per `p0-reagent` |
   | `bulk-broad` | the M1 page, one commit ALL 300 boundaries read | the bar row |
-  | `bulk-narrow` | the M1 page, `narrow-batch-k` batched commits, each of which exactly ONE boundary reads, all in one timed window | the converged counterpart of rf2-2rtt6.4's `U-narrow` — the localisation row, and the one row where that arm found UIx materially behind. It has NO counterpart in rf2-2rtt6.2, so it is a NEW row on rf2-2rtt6.2's witness, labelled as such rather than presented as a re-measurement of something |
+  | `bulk-narrow` | the M1 page, `narrow-batch-k` batched commits, each of which exactly ONE boundary reads, all in one timed window | the converged counterpart of `p0-uix`'s `U-narrow` — the localisation row, and the one row where that arm finds UIx materially behind. It has NO counterpart in `p0-reagent`, so it is a NEW row on `p0-reagent`'s witness, labelled as such rather than presented as a re-measurement of something |
 
-  ## `?ratom=on` — the reactive leg's SECOND AUTHOR (rf2-2rtt6.21)
+  ## `?ratom=on` — the reactive leg's SECOND AUTHOR
 
-  rf2-2rtt6.2's headline 1 is that reading re-frame2 subscriptions rather
+  `p0-reagent`'s headline 1 is that reading re-frame2 subscriptions rather
   than a bare cursor costs Reagent ~1.22x on mount and ~2.01x on a broad
-  commit. rf2-2rtt6.17 measured it THREE TIMES — and all three are re-runs
-  of the SAME `:reagent-ratom` arm, which bounds the instrument's
-  run-to-run noise and cannot bound a systematic error in how that arm is
-  written. That is repetition, not replication.
+  commit. It is measured THREE TIMES — and all three are runs of the SAME
+  `:reagent-ratom` arm, which bounds the instrument's run-to-run noise and
+  cannot bound a systematic error in how that arm is written. That is
+  repetition, not replication.
 
-  This page was already a genuine second implementation of the
-  DENOMINATOR — a different app namespace, a different schedule, and
-  `reagent-subs / floor` ranges overlapping rf2-2rtt6.2's on all three
-  shared rows — and it carried no `:reagent-ratom` arm at all, so it could
-  not touch the leg. `?ratom=on` puts that arm in the REAGENT SEGMENT of
+  This page is a genuine second implementation of the DENOMINATOR — a
+  different app namespace, a different schedule, and `reagent-subs /
+  floor` ranges overlapping `p0-reagent`'s on all three shared rows — and
+  without a `:reagent-ratom` arm it cannot touch the leg. `?ratom=on` puts that arm in the REAGENT SEGMENT of
   the two rows the headline names, beside this page's own `:reagent-subs`
   arm, in the same round of the same run. The leg is then formed a second
   way, by a second author, on a second page.
@@ -81,7 +74,7 @@
   |---|---|
   | rows | `M1` and `broad`. `M2`'s leg is quantum-limited on the first author's own page (all five rounds read exactly 1.0000 on one run — the quantum wearing a tie's clothes) and `M2` is the one row whose mount budget already refuses; `narrow` has no first-author counterpart to corroborate |
   | segment | the REAGENT segment only. The leg's two terms are both Reagent arms, so it is formed INSIDE one segment and the seam never enters it; putting a Reagent arm in the UIx segment would buy the leg nothing and would put Reagent's reaction machinery on the page whose whole point is UIx's |
-  | default | OFF. With the arm in the plan the Reagent segment runs FOUR arms against the UIx segment's three, so the page's mount budget and the interleave both differ from the schedule rf2-6i0i2's ten-run ensemble was measured under. Default-off keeps this instrument's published four rows reproducible at their own schedule; `?ratom=on` is a DIFFERENT plan and says so on every record it produces |
+  | default | OFF. With the arm in the plan the Reagent segment runs FOUR arms against the UIx segment's three, so the page's mount budget and the interleave both differ from the schedule the balanced ten-run ensemble was measured under. Default-off keeps this instrument's published four rows reproducible at their own schedule; `?ratom=on` is a DIFFERENT plan and says so on every record it produces |
 
   A run with the arm on still publishes its cross-segment red-zone,
   because it is computed from the same slices and hiding it would be worse
@@ -98,21 +91,18 @@
 
   ## Three arms a segment, and why not two
 
-  rf2-ouwh8: `rf.bench.fresco.lane/slot-order` rotated and then REFLECTED, and at k=2 those
-  two operations cancelled — `[0 1]` rotates to `[1 0]` and reflects back
-  to `[0 1]`, at every sample index, for ever. A two-arm plan therefore ran
-  in ONE order and `both orders` was a claim it could not support. This
-  entry was designed around that and never forms a two-arm plan: `:ctl-2x`
-  is measured INSIDE the interleave as rf2-2rtt6.2 measures it, so every
-  segment carries three arms.
+  Rotate-then-reflect cancels at k=2 — `[0 1]` rotates to `[1 0]` and
+  reflects back to `[0 1]`, at every sample index, for ever — so a
+  schedule built that way runs a two-arm plan in ONE order, and `both
+  orders` is a claim it cannot support. `rf.bench.fresco.lane/slot-order`
+  therefore drops the reflection at k=2, and the plain rotation
+  alternates, which is every order two arms have.
 
-  THE DEFECT HAS SINCE BEEN REPAIRED (PR #7267): at k=2 the reflection is
-  dropped, and the plain rotation alternates, which is every order two arms
-  have. The three-arm plan is KEPT anyway — it is what every published row
-  on this page was measured under, and the schedule an arm runs is part of
-  its window. The boot assertion therefore checks the REPAIRED property
-  rather than the defect ([[slot-order-varies-at-2?]], which records what
-  went wrong when that distinction was missed), and the run still refuses
+  This entry runs three arms a segment anyway: `:ctl-2x` is measured
+  INSIDE the interleave as `p0-reagent` measures it, and three arms is
+  what every published row on this page was measured under — the schedule
+  an arm runs is part of its window. The boot assertion checks the k=2
+  property as a canary ([[slot-order-varies-at-2?]]), and the run refuses
   to measure if it does not hold.
 
   ## Two segments, and what makes the seam legitimate
@@ -134,83 +124,75 @@
   a both-orders result rather than a single-order one however many rounds
   it averages. WHICH segment starts round 0 is a per-run parameter
   (`?start=reagent` or `?start=uix`, default reagent — the schedule every
-  five-round run used), because rf2-6i0i2's audit is right that a fixed
-  start confounds segment order with temporal position: in every earlier
-  run the Reagent-first rounds were also rounds 0, 2 and 4. Independently
+  five-round run used), because a fixed start confounds segment order
+  with temporal position: under it the Reagent-first rounds are also
+  rounds 0, 2 and 4 in every run. Independently
   launched runs counterbalance the start, and the inference about the
   order effect is made ACROSS those runs, never by pooling one run's four
   correlated rows as if they were independent trials.
 
-  ## And the order is ADJUDICATED, not merely run (rf2-a4x1o)
+  ## And the order is ADJUDICATED, not merely run
 
   Running both orders is not the same as testing whether the answer
   depends on them. `rf.bench.fresco.lane/guard!` adjudicates arms INSIDE a segment; the
-  red-zone is a ratio ACROSS the seam and no guard on this page ever
-  looked at it by segment order, while `:segment-seam-control` recorded
-  the floor's drift and stopped there. [[segment-order-verdict]] asks the
-  question the labels were already carrying, and splits the answer in two
+  red-zone is a ratio ACROSS the seam, which the in-segment guard never
+  looks at by segment order, and `:segment-seam-control` records the
+  floor's drift and stops there. [[segment-order-verdict]] asks the
+  question the round labels carry, and splits the answer in two
   because the two halves fail separately: DIRECTION is fail-closed (two
   strata pointing opposite ways across 1.0 refuse the row), and MAGNITUDE
   is publishable only when the strata OVERLAP.
 
-  It looked like it had found something, AND THAT READING IS WITHDRAWN.
-  Across three independent five-round runs the cross-segment figure read
-  HIGHER when the Reagent segment ran first in 11 of 12 row-runs, which
-  this comment once called a one-sided binomial p = 0.0032. IT IS NOT
-  TWELVE TRIALS: the four rows inside a run share a machine, a heap and a
-  collector, so the honest unit is the RUN and the sample was n = 3. And
-  every one of those runs started with Reagent, so segment order was
-  welded to round parity and a page that simply gets slower as it runs
-  produces the identical partition. On the counterbalanced ten-run
-  ensemble the effect is not established on any row, and counted the old
-  way it reads 23 of 40 (rf2-6i0i2). The QUALITATIVE suspicion was worth
-  chasing; the p-value was not warranted.
+  **No order effect is established.** Across three independent
+  five-round runs the cross-segment figure reads HIGHER when the Reagent
+  segment ran first in 11 of 12 row-runs, and that is NOT twelve trials:
+  the four rows inside a run share a machine, a heap and a collector, so
+  the honest unit is the RUN and the sample is n = 3. Every one of those
+  runs started with Reagent, too, so segment order is welded to round
+  parity and a page that simply gets slower as it runs produces the
+  identical partition. On the counterbalanced ten-run ensemble the effect
+  is not established on any row, and counted row-run by row-run it reads
+  23 of 40.
 
-  What survives is the DESIGN repair, which never needed the effect: five
-  rounds cannot balance two orders, so the raw mean over-weights whichever
-  order got the extra round — which is why `:order-balanced-mean`, the
-  mean of the two stratum means, is published on every row beside it, and
-  why [[rounds]] is even and the start is a counterbalanced per-run
-  parameter. The order question is asked across independently launched
-  runs rather than inside one. The studio page carries the ten-run table,
-  the withdrawal, and the consequence for `1.2301`.
+  The design does not depend on the effect: five rounds cannot balance
+  two orders, so the raw mean over-weights whichever order got the extra
+  round — which is why `:order-balanced-mean`, the mean of the two
+  stratum means, is published on every row beside it, and why [[rounds]]
+  is even and the start is a counterbalanced per-run parameter. The order
+  question is asked across independently launched runs rather than inside
+  one. The studio page carries the ten-run table and the consequence for
+  `1.2301`.
 
   ## One row per page
 
-  The first cut ran all four rows in one page and THE ARM-ORDER GUARD
-  REFUSED IT (exit 2) on two independent faults, both the arm's:
-  `M1/uix-subs/floor` — an arm that hand-builds React elements and cannot
-  change — read LAST-THIRD 2.1739x FIRST-THIRD with disjoint ranges while
-  every other arm on the page climbed with it, which is the accumulation
-  rf2-2rtt6.4 recorded and repaired with one round per page; and
-  `narrow/reagent-subs/ctl-2x` was refused on a two-sample stratum
-  labelled with an arm from a DIFFERENT ROW, an artefact of the shared
-  collector advancing its predecessor pointer only for recorded samples.
-  The repairs are one ROW per page (a quarter of the work in a page, and
-  no cross-row adjacency to mislabel) and
+  All four rows in one page fail THE ARM-ORDER GUARD (exit 2) on two
+  independent faults, both the arm's: `M1/uix-subs/floor` — an arm that
+  hand-builds React elements and cannot change — reads LAST-THIRD 2.1739x
+  FIRST-THIRD with disjoint ranges while every other arm on the page
+  climbs with it, the per-page accumulation `p0-uix` answers with one
+  round per page; and `narrow/reagent-subs/ctl-2x` is refused on a
+  two-sample stratum labelled with an arm from a DIFFERENT ROW, which a
+  collector advancing its predecessor pointer only for recorded samples
+  produces. The answers are one ROW per page (a quarter of the work in a
+  page, and no cross-row adjacency to mislabel) and
   [[re-frame.bench.fresco.lane/observe!]] (the warm-up advances the
   pointer without banking a sample, so every recorded sample carries its
-  real predecessor). The tolerance was not touched. That second repair
-  lived HERE, as a private `mark-predecessor!`, until `rf2-6ta5r` found
-  the same fault still standing in `rf.bench.fresco.lane/rounds!` — the shared loop this
-  entry does not use — and moved the one copy to the lane.
+  real predecessor). The tolerance is not touched.
 
   ## What this entry does NOT measure
 
-  Retained heap. The heap red-zones on rf2-2rtt6.1 come from two
-  independent witness families already — rf2-2rtt6.5's 1,200-boundary
-  reads ladder and rf2-2rtt6.4's list/grid pair — and they agree: 2.262x
-  (list) and 2.254x (grid) on markup densities that differ by 4x, against
-  a per-read ratio of 3,550/942 on a third shape. Retained bytes per
-  subscribing boundary is a property of the BOUNDARY; the clock is not,
-  because a page's element count decides what fraction of the window is
-  React's own work. The heap axis was therefore already converged in
-  substance and the clock axis was not, which is why exactly one arm is
-  re-run here.
+  Retained heap. The P0 standard's heap red-zones come from two
+  independent witness families — the 1,200-boundary reads ladder and
+  `p0-uix`'s list/grid pair — and they agree: 2.262x (list) and 2.254x
+  (grid) on markup densities that differ by 4x, against a per-read ratio
+  of 3,550/942 on a third shape. Retained bytes per subscribing boundary
+  is a property of the BOUNDARY; the clock is not, because a page's
+  element count decides what fraction of the window is React's own work.
+  The heap axis is therefore converged in substance and the clock axis is
+  not, which is why exactly one arm is measured here.
 
-  Driven by `p0_converge_run.cjs`, which sets this namespace as the
-  `:fresco-bench` build's `:init-fn` through rf2-2rtt6.2's own driver and
-  touches no build id and no `implementation/shadow-cljs.edn`."
+  Driven by `p0_converge_run.cjs`, which rides the lane's `:fresco-bench`
+  with this namespace as its `:init-fn` and adds no build id."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -226,24 +208,24 @@
             [uix.dom :as uix-dom]))
 
 (def ^:private rounds
-  "SIX, and EVEN on purpose (rf2-6i0i2). Five rounds cannot balance two
-  segment orders: the alternation split 3:2, the raw mean over-weighted
-  whichever order got the extra round, and the per-row disjointness test
-  ran at a 20% null rate (2 of C(5,2) = 10 exchangeable assignments). At
-  six the split is 3:3, the raw mean and `:order-balanced-mean` coincide
-  BY CONSTRUCTION, and the null rate halves to 10% (2 of C(6,3) = 20).
-  The four five-round rows this moves are re-published under the balanced
-  design and marked superseded IN PLACE on the studio page."
+  "SIX, and EVEN on purpose. Five rounds cannot balance two segment
+  orders: the alternation splits 3:2, the raw mean over-weights whichever
+  order got the extra round, and the per-row disjointness test runs at a
+  20% null rate (2 of C(5,2) = 10 exchangeable assignments). At six the
+  split is 3:3, the raw mean and `:order-balanced-mean` coincide BY
+  CONSTRUCTION, and the null rate halves to 10% (2 of C(6,3) = 20). The
+  studio page publishes the four rows under the balanced design, with the
+  five-round rows marked superseded IN PLACE."
   6)
 (def ^:private mount-sampling {:warmup 8 :samples 12})
 (def ^:private bulk-sampling {:warmup 8 :samples 12})
 
-;; rf2-2rtt6.2's slack, unchanged and for its reasons: the claim a clock
+;; `p0-reagent`'s slack, for its reasons: the claim a clock
 ;; control certifies is THE INSTRUMENT HAS SIGNAL, not THE MODEL IS EXACT.
 ;; A top-down React re-render is not perfectly linear in element count —
 ;; the root, the commit and the diff walk do not double — so 2.00 +/- 5%
-;; would fail an instrument that is working. (The +/-0.001% standard this
-;; wave set belongs to the HEAP control, where the predicted quantity is a
+;; would fail an instrument that is working. (The +/-0.001% standard
+;; belongs to the HEAP control, where the predicted quantity is a
 ;; known retained byte count; no clock control can be held to it and
 ;; pretending otherwise would be theatre.)
 (def ^:private control-slack 0.25)
@@ -262,8 +244,8 @@
 (defn- query-start
   "Which segment runs FIRST in round 0 — `?start=uix` or `?start=reagent`.
 
-  Defaults to `:reagent-subs`, which is the only schedule any run before
-  rf2-6i0i2 ever had. That fixed start is exactly what the audit contested:
+  Defaults to `:reagent-subs`, the schedule every five-round run used. A
+  fixed start is exactly what the counterbalanced design exists to break:
   with alternation from a constant start, `Reagent first` and `rounds 0, 2,
   4` are the same set in every run, so an order effect and a temporal one
   are indistinguishable BY DESIGN however many runs agree. The parameter
@@ -279,8 +261,8 @@
   Default OFF, and the default is the point: with the arm in it the
   Reagent segment runs four arms against the UIx segment's three, which is
   a different page, a different interleave and a different mount budget
-  from the one rf2-6i0i2's ensemble measured. An unflagged run of this
-  entry is therefore still the instrument those four rows were taken on;
+  from the one the balanced ensemble measured. An unflagged run of this
+  entry is therefore the instrument those four rows were taken on;
   a flagged run is a different plan and every record it writes says so."
   []
   (let [s (or (some-> js/window .-location .-search) "")]
@@ -310,7 +292,7 @@
   and the very next thing that happens is the OTHER adapter being
   installed over the top of them — after which every figure in the
   segment is a figure for a page carrying the previous segment's
-  reactive graph (rf2-f5roa, from the PR #7268 audit)."
+  reactive graph."
   [{:keys [adapter]}]
   (try (rf/destroy-frame! rf.bench.fresco.p0-reagent-views/subs-frame)
        (catch :default e (rf.bench.fresco.lane/teardown-failure! "enter-segment! destroy-frame!" e)))
@@ -333,9 +315,9 @@
 (defn- floor-mount-arm
   "`scale` is how many times the witness's own page this arm builds, and
   `:parity-exempt?` is DERIVED from it: an arm that builds a different page
-  is exactly the arm the canonical-DOM gate must exempt. They used to be
-  independent facts and the control carried only the exemption, which is
-  how its doubled page went unchecked."
+  is exactly the arm the canonical-DOM gate must exempt. As independent
+  facts the control could carry the exemption without the scale, and its
+  doubled page would go unchecked."
   [id element-of cells-of & [scale]]
   (let [scale (or scale 1)]
     {:id             id
@@ -381,8 +363,8 @@
 
   A page that committed only its head would pass a single-probe check at
   index 0; a CONTROL that rendered only its base prefix would pass a check
-  at index 299, which is what this was for every arm. The one arm whose
-  whole purpose is to be twice the page was the one arm nothing checked
+  at index 299, the base page's far end. Probing at the arm's own size is
+  what checks the one arm whose whole purpose is to be twice the page
   past its first half."
   [n]
   (fn [container]
@@ -391,8 +373,8 @@
 
 (defn- verify-m2
   "The first and last field AT THE ARM'S OWN SIZE. Fixed at the witness's
-  `fields-n` it read the SHARED PREFIX and could not tell a doubled form
-  from a base one."
+  `fields-n` it would read the SHARED PREFIX and could not tell a doubled
+  form from a base one."
   [n]
   (fn [container]
     (and (= (rf.bench.fresco.p0-reagent-views/field-value 0 0) (input-value container "#f0"))
@@ -403,11 +385,10 @@
   "What THIS arm's page must contain: the witness's own arithmetic applied
   to the arm's `:scale`, as `{:elements n :verify f}`.
 
-  There is no exemption. `mount-round!` used to read
-  `(if (:parity-exempt? arm) nil elements)` and skip the element count for
-  the control, while the probes read indices that exist in the base page —
-  so the `:ctl-2x` arm was the ONE arm in the plan whose page was never
-  checked, and a control that rendered only its base prefix passed. Every
+  There is no exemption. Skipping the element count for a parity-exempt
+  arm, while the probes read indices that exist in the base page, would
+  leave the `:ctl-2x` arm the ONE arm in the plan whose page is never
+  checked, and a control that rendered only its base prefix would pass. Every
   red-zone on this page rests on that control having seen the change its
   own arithmetic predicts."
   [{:keys [elements-of verify-of props]} arm]
@@ -424,14 +405,14 @@
     :elements-of rf.bench.fresco.p0-reagent-views/m1-elements
     :doc      (str "the 300-boundary sub-reading list — the bulk shape's mount "
                    "counterpart, one subscription read per boundary. "
-                   "rf2-2rtt6.2's M1, unchanged")
+                   "p0-reagent's M1, unchanged")
     :props    {:n rf.bench.fresco.p0-reagent-views/cells-n}
     :control  {:predicted (/ (double (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)))
                              (double (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n)))
                :basis     (str "element count: " (rf.bench.fresco.p0-reagent-views/m1-elements (* 2 rf.bench.fresco.p0-reagent-views/cells-n)) " / "
                                (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n))}
     ;; The `:reagent-ratom` arm sits between the denominator and the
-    ;; control, which is rf2-2rtt6.2's own order — the plan is that arm's
+    ;; control, which is `p0-reagent`'s own order — the plan is that arm's
     ;; plan with the UIx segment's arm swapped in on the other side of the
     ;; seam, so a reader comparing the two legs is comparing two authors
     ;; and not two orderings.
@@ -456,60 +437,56 @@
     :grade       :diagnostic
     :verify-of   verify-m2
     :elements-of rf.bench.fresco.p0-reagent-views/m2-elements
-    ;; A SMALLER MOUNT BUDGET THAN THE PAGE DEFAULT, and only here
-    ;; (rf2-6i0i2). The sixth round pushed this page over the arm-order
-    ;; guard's phase gate: at the default 8+12 sampling a six-round M2
-    ;; page runs 720 mounts and FOUR OF SIX invocations were refused,
-    ;; every refusal a LAST-third-slower disjoint split (2.0x-2.5x) on
-    ;; readings of one to three 100 us quanta. The direction matters —
-    ;; the page DEGRADES as it runs, which is the per-page accumulation
-    ;; rf2-2rtt6.4 recorded and rf2-flqpd tied to collector debt, and the
-    ;; dose-response was measured rather than guessed: 600 mounts a page
-    ;; (the five-round budget) ran clean, 720 refused four of six, and a
-    ;; misdiagnosed `deeper warm-up` repair — 1,296 mounts — refused
-    ;; three of three with the split widened to 2.6x-4.0x. Warm-up depth
-    ;; FEEDS the accumulation; the lever is the page's TOTAL mount
-    ;; budget. So: 4 warm-up + 10 samples = 504 mounts a page at six
-    ;; rounds, back under the budget every clean run ran at, with the
-    ;; measured window (one mount) untouched and the tolerance untouched.
+    ;; A SMALLER MOUNT BUDGET THAN THE PAGE DEFAULT, and only here. At
+    ;; the default 8+12 sampling a six-round M2 page runs 720 mounts,
+    ;; over the arm-order guard's phase gate: FOUR OF SIX such
+    ;; invocations refuse, every refusal a LAST-third-slower disjoint
+    ;; split (2.0x-2.5x) on readings of one to three 100 us quanta. The
+    ;; direction matters — the page DEGRADES as it runs, which is the
+    ;; per-page accumulation tied to collector debt, and the
+    ;; dose-response is measured rather than guessed: 600 mounts a page
+    ;; (the five-round budget) run clean, 720 refuse four of six, and a
+    ;; deeper warm-up — 1,296 mounts — refuses three of three with the
+    ;; split widened to 2.6x-4.0x. Warm-up depth FEEDS the accumulation;
+    ;; the lever is the page's TOTAL mount budget. So: 4 warm-up + 10
+    ;; samples = 504 mounts a page at six rounds, under the budget every
+    ;; clean run ran at, with the measured window (one mount) untouched
+    ;; and the tolerance untouched.
     ;; Less warm-up is safe HERE because the failure is the tail, not the
     ;; knee — a cold early sample pulls the FIRST third up, against the
     ;; climb. M1's readings are 30-50 quanta on the same budget, where
     ;; the same absolute drift is inside tolerance; it keeps the page
-    ;; default. Batching this row's mounts instead was REFUSED by the
-    ;; guard when rf2-2rtt6.2 tried it and is not re-litigated (see the
-    ;; clock-note below).
+    ;; default. Batching this row's mounts instead is REFUSED by the
+    ;; guard (see the next comment).
     :sampling    {:warmup 4 :samples 10}
-    ;; ONE mount per sample, exactly as rf2-2rtt6.2 publishes it. That arm
-    ;; TRIED the batch that would lift this witness clear of Chrome's
-    ;; 100 us clamp — eight 51-element roots in one flushSync — and THE
-    ;; ARM-ORDER GUARD REFUSED THE WHOLE RUN, exit 2, with all four M2 arms
-    ;; reading 3.2x-5.4x slower in the last third than in the first, ranges
-    ;; disjoint, while the unbatched M1 row in the same page drifted
-    ;; 1.13x-1.16x with ranges overlapping. Re-taking the batch here would
-    ;; be re-litigating a refusal the denominator arm already resolved
-    ;; against itself. The resulting coarseness is stated on the row and
-    ;; the row is graded DIAGNOSTIC.
+    ;; ONE mount per sample, exactly as `p0-reagent` publishes it. The
+    ;; batch that would lift this witness clear of Chrome's 100 us clamp
+    ;; — eight 51-element roots in one flushSync — fails THE ARM-ORDER
+    ;; GUARD, exit 2, with all four M2 arms reading 3.2x-5.4x slower in
+    ;; the last third than in the first, ranges disjoint, while the
+    ;; unbatched M1 row in the same page drifts 1.13x-1.16x with ranges
+    ;; overlapping. The resulting coarseness is stated on the row and the
+    ;; row is graded DIAGNOSTIC.
     :per-sample 1
     :clock-note (str "DIAGNOSTIC-GRADE, not a bar row and not a red-zone a "
                      "candidate is judged against. A 51-element mount takes a few "
                      "tenths of a millisecond — three to six of Chrome's 100 us "
                      "performance.now() quanta — so this witness's ratios are "
-                     "quantised more coarsely than a 10% effect. rf2-2rtt6.4 "
-                     "recorded the failure mode this row is exposed to: at one "
-                     "mount a sample its 51-element form returned exactly 0.75 ms "
-                     "from BOTH segments and the ratio came out at precisely "
+                     "quantised more coarsely than a 10% effect. p0-uix "
+                     "meets the failure mode this row is exposed to: at one "
+                     "mount a sample its 51-element form returns exactly 0.75 ms "
+                     "from BOTH segments and the ratio comes out at precisely "
                      "1.0000 — the quantum wearing a tie's clothes.")
     :doc      (str "the ordinary 12-field form on subs — the shape most "
-                   "applications are made of. rf2-2rtt6.2's M2, unchanged")
+                   "applications are made of. p0-reagent's M2, unchanged")
     :props    {:n rf.bench.fresco.p0-reagent-views/fields-n}
     :control  {:predicted (/ (double (rf.bench.fresco.p0-reagent-views/m2-elements (* 2 rf.bench.fresco.p0-reagent-views/fields-n)))
                              (double (rf.bench.fresco.p0-reagent-views/m2-elements rf.bench.fresco.p0-reagent-views/fields-n)))
                :basis     (str "element count: " (rf.bench.fresco.p0-reagent-views/m2-elements (* 2 rf.bench.fresco.p0-reagent-views/fields-n)) " / "
                                (rf.bench.fresco.p0-reagent-views/m2-elements rf.bench.fresco.p0-reagent-views/fields-n))}
     ;; `ratom?` is IGNORED here, and it is ignored for two reasons rather
-    ;; than for want of a `conj` (rf2-2rtt6.21). This is the one row whose
-    ;; mount budget already refuses — 720 mounts refused four of six, and
+    ;; than for want of a `conj`. This is the one row whose mount budget
+    ;; already refuses — 720 mounts refuse four of six, and
     ;; a fourth arm would put a six-round M2 page at 588 even off the
     ;; reduced sampling below. And the leg it would measure is one the
     ;; first author's own instrument cannot resolve: on the corrected-run
@@ -540,8 +517,8 @@
   convenience. `root.render` called outside a React event schedules at
   React's DEFAULT lane and an empty `flushSync` flushes only the SYNC
   lane, so a floor arm that rendered in `write!` would have its commit
-  land outside the measured window entirely — the recorded fault is 80 of
-  320 floor samples ending on a cell that still held its old value."
+  land outside the measured window entirely — measured, 80 of 320 floor
+  samples end on a cell that still holds its old value."
   [id n & [scale]]
   (let [state (atom (zeros n))
         rt    (volatile! nil)]
@@ -566,14 +543,13 @@
   "Both substrate bulk arms, one constructor, so they differ in exactly
   two places: the mount door and the drain.
 
-  THE WRITE IS IDENTICAL and it is rf2-2rtt6.2's write —
+  THE WRITE IS IDENTICAL and it is `p0-reagent`'s write —
   `rf.frame/replace-app-db!` — not a `dispatch-sync`. HD-012 states the bar
-  over VIEW WORK, and rf2-2rtt6.3 measured the event drain at 11%-16% of
-  a write on this substrate; routing the converged row through the event
-  pipeline would add that leg to both arms, shrink the view-work
-  difference the row exists to show, and make the Reagent figures here
-  uncomparable with the ones rf2-2rtt6.2 already published. The pipeline
-  is priced on rf2-2rtt6.3's own row.
+  over VIEW WORK, and the event drain measures 11%-16% of a write on this
+  substrate; routing the converged row through the event pipeline would
+  add that leg to both arms, shrink the view-work difference the row
+  exists to show, and make the Reagent figures here uncomparable with the
+  ones `p0-reagent` publishes. The pipeline is priced on its own row.
 
   The NARROW write installs a whole new app-db with one cell changed, so
   all 300 layer-1 subscriptions recompute and exactly one boundary's
@@ -603,7 +579,7 @@
         root))
     (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))
     ;; `reagent.core/flush` is Reagent's own documented synchronous render
-    ;; drain — the same drain rf2-2rtt6.2's published row used.
+    ;; drain — the same drain `p0-reagent`'s published row uses.
     (fn [] (react-dom/flushSync (fn [] (r/flush))))))
 
 (defn- uix-bulk-arm []
@@ -623,7 +599,7 @@
     (fn [] (react-dom/flushSync (fn [] nil)))))
 
 (defn- ratom-bulk-arm
-  "The second author's lower bound on the bulk rows (rf2-2rtt6.21): the
+  "The second author's lower bound on the bulk rows: the
   same 300-cell page, read through an `r/cursor` over a bare
   `reagent.core/atom` instead of through a subscription.
 
@@ -635,7 +611,7 @@
   (`reagent.dom.client`), the same drain (`reagent.core/flush` inside one
   `flushSync`), the same page, the same window. `subs / ratom` is then
   the price of the reactive system and nothing else, which is the term
-  rf2-2rtt6.2's headline 1 turns on.
+  `p0-reagent`'s headline 1 turns on.
 
   The write handles a single cell as well as `:all` because the arm is
   written to the same contract as its sibling; only the `:broad` row puts
@@ -656,9 +632,9 @@
    :unmount (fn [root] (react-dom/flushSync (fn [] (rdc/unmount root))))})
 
 (defn- bulk-arms
-  "`:broad` is the bulk row rf2-2rtt6.2 published a reactive leg on, so it
+  "`:broad` is the bulk row `p0-reagent` publishes a reactive leg on, so it
   is the bulk row the second author's arm joins. `:narrow` has no
-  first-author counterpart at all — rf2-2rtt6.2 has no narrow row — so a
+  first-author counterpart at all — `p0-reagent` has no narrow row — so a
   ratom arm there would be a new figure rather than a corroboration, and
   this entry does not mint one while it is answering a different question."
   [segment-id row-key ratom?]
@@ -700,7 +676,7 @@
   normal return is not taken at its word: `rf.bench.fresco.lane/container-released!` reads
   each container before it is removed, exactly as `rf.bench.fresco.lane/release!` and
   `p0_reagent_app`'s sibling do, because a root that survives its own
-  unmount does so on a DETACHED tree no later census can see (rf2-jk3vj)."
+  unmount does so on a DETACHED tree no later census can see."
   [mounts]
   (doseq [{:keys [arm handle container]} mounts]
     (when (try ((:unmount arm) handle)
@@ -711,7 +687,7 @@
     (.remove container)))
 
 (def ^:private assert-teardown-clean!
-  "Lifted into `lane.cljs` (rf2-2rtt6.2), because the Reagent baseline arm
+  "Lives in `lane.cljs`, because the Reagent baseline arm
   needs the same adjudication and a second copy of a fatal rule is a second
   authority with nothing holding it in step. Aliased rather than inlined at
   the call sites so this entry's four `assert-teardown-clean!` calls still
@@ -761,16 +737,16 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private narrow-batch-k
-  "How many narrow writes share ONE clock (rf2-zb3qg).
+  "How many narrow writes share ONE clock.
 
-  Chrome clamps `performance.now()` to 100 µs and the unbatched narrow row
-  sat one to one-and-a-half quanta above its own floor: every leg was 3–5
-  quanta (floor 2–3, reagent-subs 4–4.5, uix-subs 4.5–5), so its four
+  Chrome clamps `performance.now()` to 100 µs and an unbatched narrow row
+  sits one to one-and-a-half quanta above its own floor: every leg is 3–5
+  quanta (floor 2–3, reagent-subs 4–4.5, uix-subs 4.5–5), and its four
   published estimates read 1.0405 / 1.1556 / 1.1738 / 1.1972 — the same
-  DIRECTION every time, but whether the range cleared 1.0 depended on the
-  run, and one estimate had a minimum of exactly 1.0000. That is the
-  quantum, not a tie. The row was published as CLAMP-LIMITED rather than as
-  a resolved threshold precisely because that was the honest reading.
+  DIRECTION every time, but whether the range clears 1.0 depends on the
+  run, and one estimate has a minimum of exactly 1.0000. That is the
+  quantum, not a tie, which is why the unbatched row is published as
+  CLAMP-LIMITED rather than as a resolved threshold.
 
   Ten writes per window puts the sample 30–50 quanta up, where the quantum
   is ~2–3% of the reading instead of 20–33% of it.
@@ -783,7 +759,7 @@
   ([[rf.bench.fresco.lane/verified-writes!]]). Ten buys the clamp headroom and keeps that
   tolerance at nine turns.
 
-  THE BROAD ROW DOES NOT USE THIS. It passes a batch of ONE — the pre-batch
+  THE BROAD ROW DOES NOT USE THIS. It passes a batch of ONE — the unbatched
   window exactly — because its readings are already far above the clamp,
   and because it is a published bar row that nothing here may move."
   10)
@@ -871,7 +847,7 @@
    :straddles-1? (and (<= (apply min vs) 1.0) (>= (apply max vs) 1.0))})
 
 ;; ---------------------------------------------------------------------------
-;; The segment-order verdict — the gate the cross-segment figure never had
+;; The segment-order verdict — the gate on the cross-segment figure
 ;; ---------------------------------------------------------------------------
 
 (defn- direction-of
@@ -895,11 +871,10 @@
   `rf.bench.fresco.lane/guard!` adjudicates arms INSIDE a segment: it asks whether an arm
   reads differently for where in the plan it was measured. The red-zone is
   not an arm — it is a ratio of one segment's floor-normalised arm to the
-  OTHER segment's, and no guard on this page ever looked at it by segment
+  OTHER segment's, and the in-segment guard never looks at it by segment
   order. [[segment-order]] alternates, so every round is already labelled
-  with the answer; nothing was asking the question. The seam control
-  records the floor's own drift and stops there (rf2-a4x1o, from the PR
-  #7265 and #7268 audits).
+  with the answer, and this is what asks the question. The seam control
+  records the floor's own drift and stops there.
 
   ## Two claims, adjudicated separately, because they fail separately
 
@@ -917,7 +892,7 @@
   and its stratum bounds, and NOT a precise magnitude. Silence is not a
   pass: `:magnitude-resolved?` starts false and the overlap has to earn it.
 
-  ## `:order-balanced-mean`, and why the design is now EVEN
+  ## `:order-balanced-mean`, and why the design is EVEN
 
   With `rounds` odd the alternation is UNBALANCED — three rounds in one
   order, two in the other — so the arithmetic mean over rounds
@@ -925,10 +900,8 @@
   under an alternating design is the MEAN OF THE TWO STRATUM MEANS, and
   that is `:order-balanced-mean`, published beside the raw one whatever
   the parity of `rounds`. `:balanced-design?` says whether they can
-  differ. The five-round design could not take the even count without
-  moving four published rows; rf2-6i0i2 took it AS a re-publication, so
-  [[rounds]] is now 6 and the two estimators coincide by construction on
-  every row this entry measures. The odd-round arithmetic stays because
+  differ. [[rounds]] is 6, so the two estimators coincide by construction
+  on every row this entry measures. The odd-round arithmetic stays because
   this fn is PUBLIC and replays the published five-round vectors.
 
   ## `start`, and what one run's partition can and cannot say
@@ -936,8 +909,8 @@
   `start` is the segment that ran first in round 0, and the strata are
   keyed by the segment that actually led each round — `:reagent-first` is
   the rounds Reagent's segment led wherever they fell in the schedule.
-  Before rf2-6i0i2 the start was constant, so `Reagent first` and `rounds
-  0, 2, 4` were the same set in every run: a temporal drift and an order
+  Under a constant start `Reagent first` and `rounds 0, 2, 4` are the
+  same set in every run: a temporal drift and an order
   effect produce identical partitions under that design, and no number of
   same-start runs can tell them apart. Counterbalancing the start across
   INDEPENDENTLY LAUNCHED runs is what breaks the tie — an order effect
@@ -960,8 +933,8 @@
   ## `what`, and the figure that does not cross the seam
 
   The four-argument arity names the figure under adjudication in `:why`,
-  and it exists because the red-zone is no longer the only thing this
-  verdict judges. rf2-2rtt6.21's REACTIVE LEG — `reagent-subs` over
+  and it exists because the red-zone is not the only thing this verdict
+  judges. The REACTIVE LEG — `reagent-subs` over
   `reagent-ratom` — is formed INSIDE the Reagent segment, so the seam
   never enters it. The partition is still the right question: the Reagent
   segment leads half the rounds and follows the other half, and a leg that
@@ -1027,18 +1000,17 @@
   first author's page, and two authors disagreeing about a division is
   not a finding anybody wants to chase.
 
-  DECIDED BY THE SLICE, and that is the whole of the function
-  (rf2-2rtt6.21). `?ratom=on` is a page-global flag while arm presence is
-  ROW-SPECIFIC: the `M2` witness ignores the flag outright and
-  [[bulk-arms]] admits the arm only on `:broad`. A record that read the
-  FLAG instead of the MEASUREMENT therefore divided by a ratio those two
-  rows never produced — `subs / nil`, which JavaScript answers `Infinity`
-  rather than refusing — formed a ratom floor of nothing, ran the leg
-  verdict over it and labelled the row as carrying an arm it was never
-  given. The natural flagged invocation, `FRESCO_RATOM=on` with no
-  `FRESCO_ONLY`, is exactly the one that selects those rows; the
-  published runs escaped it only by always pairing the flag with
-  `FRESCO_ONLY=M1,broad`.
+  DECIDED BY THE SLICE, and that is the whole of the function.
+  `?ratom=on` is a page-global flag while arm presence is ROW-SPECIFIC:
+  the `M2` witness ignores the flag outright and [[bulk-arms]] admits the
+  arm only on `:broad`. A record that read the FLAG instead of the
+  MEASUREMENT would divide by a ratio those two rows never produce —
+  `subs / nil`, which JavaScript answers `Infinity` rather than refusing
+  — form a ratom floor of nothing, run the leg verdict over it and label
+  the row as carrying an arm it was never given. The natural flagged
+  invocation, `FRESCO_RATOM=on` with no `FRESCO_ONLY`, is exactly the one
+  that selects those rows, and every published run pairs the flag with
+  `FRESCO_ONLY=M1,broad`, so no published run exercises it.
 
   A PARTIAL arm is treated as no arm. Every round must carry a finite,
   positive ratom ratio, because a leg formed over some rounds and not
@@ -1065,7 +1037,7 @@
   per-row. When the arm ran, the record carries a REACTIVE LEG — and it
   also carries the fact that the red-zone beside it came off a four-arm
   Reagent segment, because a threshold and the plan it was measured under
-  are one fact and not two (rf2-2rtt6.21).
+  are one fact and not two.
 
   Public for `p0_converge_order_cljs_test`, which feeds it one round of
   each row's actual arm set and holds the flagged default selection to
@@ -1106,8 +1078,8 @@
       :witness-set "rf2-2rtt6.2"
       :rounds      rounds
       :start-segment start
-      ;; STATED ON THE ROW, because a reader comparing this against the
-      ;; pre-rf2-zb3qg numbers is comparing two different windows and has to
+      ;; STATED ON THE ROW, because a reader comparing this against
+      ;; unbatched numbers is comparing two different windows and has to
       ;; be told so. 1 means the sample IS the operation.
       :writes-per-sample (or writes-per-sample 1)
       :red-zone    (assoc (range-of rz)
@@ -1132,7 +1104,7 @@
                                  "segment ran FOUR arms against the UIx segment's "
                                  "three, so the interleave, the page's total mount "
                                  "budget and the adjacency structure all differ from "
-                                 "the schedule rf2-6i0i2's ten-run ensemble was "
+                                 "the schedule the balanced ten-run ensemble was "
                                  "measured under. It is reported because it comes off "
                                  "the same slices and hiding it would be worse than "
                                  "qualifying it; it may not be quoted as a red-zone.")))
@@ -1141,7 +1113,7 @@
       ;; THE ROW THIS RUN EXISTS FOR when the arm is in the plan. Both
       ;; terms are Reagent arms measured in the same segment of the same
       ;; round, which is what makes it a second AUTHOR'S reading of
-      ;; rf2-2rtt6.2's headline 1 rather than a fourth run of the first's.
+      ;; `p0-reagent`'s headline 1 rather than a fourth run of the first's.
       :reactive-leg
       (when arm?
         (assoc (range-of leg)
@@ -1155,10 +1127,10 @@
                          "normalised in the SAME segment of the SAME round, so the "
                          "floor divides out and the segment seam is not in the "
                          "arithmetic. This is a SECOND IMPLEMENTATION of the term "
-                         "rf2-2rtt6.2 published as ~1.22x on mount and ~2.01x on a "
+                         "p0-reagent publishes as ~1.22x on mount and ~2.01x on a "
                          "broad commit — a different app namespace, a different "
                          "schedule, a different round count and a different arm "
-                         "plan (rf2-2rtt6.21).")))
+                         "plan.")))
       :reactive-leg-segment-order leg-order
       :ratom-over-floor   (when arm? (range-of ratom-floor))
       :uix-over-floor     (range-of ux-floor)
@@ -1191,9 +1163,9 @@
   "Canonical-DOM equality across the judged arms, and the element count of
   EVERY arm — the control included — against its own arithmetic.
 
-  The count used to be checked over `rf.bench.fresco.lane/parity`'s `counts` map, which
-  excludes the parity-exempt arms by design, so the one arm building a
-  deliberately different page had that page checked nowhere. Exempt from
+  The count is NOT taken over `rf.bench.fresco.lane/parity`'s `counts` map,
+  which excludes the parity-exempt arms by design, so the one arm building
+  a deliberately different page would have that page checked nowhere. Exempt from
   the EQUALITY is not exempt from arithmetic: the control is exempt
   because its page differs, and the size it differs BY is the claim it
   exists to make."
@@ -1240,36 +1212,27 @@
     {:problems (into (vec (mapcat (comp :problems val) by-seg)) cross)}))
 
 ;; ---------------------------------------------------------------------------
-;; The schedule's own precondition (rf2-ouwh8)
+;; The schedule's own precondition
 ;; ---------------------------------------------------------------------------
 
 (defn- slot-order-varies-at-2?
   "Does `slot-order` emit MORE THAN ONE order at `k = 2`?
 
-  It does now, and that is a REVERSAL of what this function used to assert.
-  rf2-ouwh8 found that composing rotate-then-reflect at `k = 2` returns
-  `[0 1]` at every index — reversing a pair IS rotating it by one, so the
-  two operations cancel and a two-arm plan ran in ONE ORDER FOR EVER. This
-  entry was designed around that defect: it puts THREE arms in every
-  segment so it never forms a two-arm plan, and it asserted the degeneracy
-  at boot so the justification could not rot.
+  Composing rotate-then-reflect at `k = 2` returns `[0 1]` at every index
+  — reversing a pair IS rotating it by one, so the two operations cancel
+  and a two-arm plan runs in ONE ORDER FOR EVER. `slot-order` therefore
+  drops the reflection at `k = 2`, and the plain rotation alternates
+  `[0 1]` and `[1 0]`, which is every order two arms have.
 
-  The defect was then REPAIRED (`e176fed976`, PR #7267): at `k = 2` the
-  reflection is dropped and the plain rotation alternates `[0 1]` and
-  `[1 0]`, which is every order two arms have. The assertion did rot — in
-  the other direction. It went on asserting the pre-repair behaviour, went
-  false the moment the repair landed, and this entry's `-main` refused to
-  measure anything from then until rf2-zb3qg found it. Every row of
-  `docs/design/fresco/studio/p0-converged-witness-set.md` was
-  unreproducible at HEAD for that whole window: the repro command exited 1
-  before taking a sample.
+  This asserts that property as a canary — if `k = 2` ever silently
+  degenerates, this entry says so at boot rather than in a table. It must
+  assert the property the shared rule HAS: a canary asserting the
+  degenerate behaviour would refuse every run while the rule is correct,
+  leaving every row of `docs/design/fresco/studio/p0-converged-witness-set.md`
+  unreproducible, its repro command exiting 1 before taking a sample.
 
-  So it asserts the REPAIRED property instead, as a canary — if `k = 2`
-  ever silently degenerates again, this entry says so at boot rather than
-  in a table.
-
-  THE THREE-ARM PLAN IS KEPT, and not because a two-arm plan would still
-  be single-order. It would not. It is kept because three arms is what
+  THE THREE-ARM PLAN IS KEPT, and not because a two-arm plan would be
+  single-order. It would not. It is kept because three arms is what
   every published row on this page was measured under, and the schedule an
   arm runs is part of its window: changing it would move numbers that
   nothing here is re-running."
@@ -1287,7 +1250,7 @@
   Asserted whether or not the flag is set, for the reason the `k = 2`
   canary is: the property belongs to the shared rule, and an assertion
   that only fires on the days it is needed is an assertion nobody
-  maintains. That is precisely how the `k = 2` one rotted."
+  maintains."
   []
   (> (count (distinct (map #(rf.bench.order-guard/slot-order 4 %) (range 8)))) 1))
 
@@ -1302,26 +1265,25 @@
                (rf.bench.fresco.p0-reagent-views/m1-elements rf.bench.fresco.p0-reagent-views/cells-n))})
 
 (def ^:private row-specs
-  "ONE ROW PER PAGE. The first cut ran all four in one page and the guard
-  refused it — the page degraded as it ran (`M1/uix-subs/floor`, an arm
-  that cannot change, read LAST-THIRD 2.1739x FIRST-THIRD with disjoint
-  ranges) and the shared collector manufactured cross-row predecessor
-  strata. One row per page cuts a page's measured work by about four and
+  "ONE ROW PER PAGE. All four in one page fail the guard — the page
+  degrades as it runs (`M1/uix-subs/floor`, an arm that cannot change,
+  reads LAST-THIRD 2.1739x FIRST-THIRD with disjoint ranges) and a shared
+  collector manufactures cross-row predecessor strata. One row per page cuts a page's measured work by about four and
   removes cross-row adjacency by construction."
   {:M1     {:kind :mount :witness :M1 :row :mount-M1 :grade :bar}
    :M2     {:kind :mount :witness :M2 :row :mount-M2 :grade :diagnostic}
    :broad  {:kind :bulk  :witness :M1 :row :bulk-broad :grade :bar
             :doc (str "one commit that all " rf.bench.fresco.p0-reagent-views/cells-n " sub-reading boundaries read, on "
-                      "rf2-2rtt6.2's M1 page — the make-or-break row")
+                      "p0-reagent's M1 page — the make-or-break row")
             :control bulk-control}
    :narrow {:kind :bulk  :witness :M1 :row :bulk-narrow :grade :bar
             :doc (str narrow-batch-k " commits, each of which exactly ONE of " rf.bench.fresco.p0-reagent-views/cells-n
                       " sub-reading boundaries reads, all inside ONE timed window — the "
                       "localisation row. The per-commit figure is the sample divided by "
                       narrow-batch-k)
-            :note (str "NEW ROW. rf2-2rtt6.2 has no narrow counterpart, so this is not a "
-                       "re-measurement of a published figure: it is rf2-2rtt6.4's U-narrow "
-                       "question asked on rf2-2rtt6.2's witness. The two numbers are NOT "
+            :note (str "NEW ROW. p0-reagent has no narrow counterpart, so this is not a "
+                       "re-measurement of a published figure: it is p0-uix's U-narrow "
+                       "question asked on p0-reagent's witness. The two numbers are NOT "
                        "comparable with each other and neither supersedes the other; this "
                        "one is the comparable one, because its page is the page every other "
                        "row here uses.")
@@ -1332,8 +1294,8 @@
   the plan itself rather than restated beside it.
 
   Public because `?ratom=on` is a page-global flag while arm presence is
-  row-specific, and until rf2-2rtt6.21 that distinction lived in two
-  `cond->`s no test without a browser could reach. `M1` takes the arm from
+  row-specific, and this puts that distinction where a test without a
+  browser can reach it. `M1` takes the arm from
   its witness's `:arms-for` and `:broad` from [[bulk-arms]]; `M2` ignores
   the flag and `:narrow` is never offered it."
   [row-key ratom?]
@@ -1424,13 +1386,13 @@
                                        "bounds; the order-balanced mean is "
                                        (:order-balanced-mean order) "x."))
                    ;; THE AGGREGATE RULE, stated on every row because the
-                   ;; alternative is that it is assumed (rf2-6i0i2, the PR
-                   ;; #7303 audit). `:publishable` above governs THIS run's
-                   ;; mean quoted ALONE. It says nothing about ensembles, and
-                   ;; the ten-run ensemble on the studio page averaged three
-                   ;; `:direction-only` row-runs of forty into precise
-                   ;; thresholds — correctly, but silently, which is the part
-                   ;; that was wrong. So the row now answers both questions.
+                   ;; alternative is that it is assumed. `:publishable` above
+                   ;; governs THIS run's mean quoted ALONE and says nothing
+                   ;; about ensembles; the ten-run ensemble on the studio page
+                   ;; averages three `:direction-only` row-runs of forty into
+                   ;; precise thresholds — correctly, and a row that did not
+                   ;; say so would leave it silent. So the row answers both
+                   ;; questions.
                    :in-an-ensemble
                    (str "ONE OBSERVATION, whatever `:publishable` says. An "
                         "ensemble mean takes EVERY launched run — the "
@@ -1444,11 +1406,11 @@
                         "dropped for reading badly makes the whole ensemble "
                         "worthless. What an ensemble may NOT do is inherit "
                         "this row's per-run gate as if it had passed it.")
-                   :rule (str "RULING 1 on rf2-2rtt6.1: the red-zone threshold IS the "
+                   :rule (str "RULING 1 of the P0 standard: the red-zone threshold IS the "
                               "measured UIx ratio for that witness family. A candidate row "
                               "worse than it is RED and needs an explicit operator waiver "
                               "naming the dogfood benefit. Silence is not a pass. This "
-                              "SUPERSEDES the clock threshold rf2-2rtt6.4 published on its "
+                              "SUPERSEDES the clock threshold p0-uix publishes on its "
                               "own witnesses — that figure remains sound as a ratio and is "
                               "simply not comparable with the bar rows.")})
     (when-let [leg (:reactive-leg record)]
@@ -1458,7 +1420,7 @@
                      :witness-set "rf2-2rtt6.2"
                      :rounds rounds
                      :start-segment start
-                     :second-author-of "rf2-2rtt6.2 headline 1 — the price of the reactive system"
+                     :second-author-of "p0-reagent headline 1 — the price of the reactive system"
                      :leg (select-keys leg [:mean :min :max :per-round :straddles-1?
                                             :claim :direction :numerator :denominator])
                      :reagent-over-floor (:reagent-over-floor record)
@@ -1474,7 +1436,7 @@
                             "the direction and the stratum bounds; the order-balanced "
                             "mean is " (:order-balanced-mean leg-order) "x."))
                      :first-author
-                     (str "rf2-2rtt6.2 / rf2-2rtt6.17 published this leg three times off ONE "
+                     (str "p0-reagent publishes this leg three times off ONE "
                           "implementation of the arm: M1 mount 1.218 [1.122-1.310] / 1.216 "
                           "[1.185-1.241] / 1.213 [1.093-1.273], bulk broad 2.008 "
                           "[1.938-2.100] / 1.965 [1.875-2.000] / 2.073 [2.000-2.167]. Three "
@@ -1506,10 +1468,10 @@
     ;; depends on when it was measured is not a lower bound.
     (when (:refuse? leg-order)
       (set! (.-FRESCO_ORDER_REFUSED js/window) true))
-    ;; LAST, so every record above is on the console first. The count was
-    ;; published and never adjudicated: this row could read `N unverified of
-    ;; M` with N > 0 and the driver would still exit 0, which is what left
-    ;; every read-back in this entry — the written cell, the mount's element
+    ;; LAST, so every record above is on the console first. Without it the
+    ;; count would be published and never adjudicated: this row could read
+    ;; `N unverified of M` with N > 0 while the driver exits 0, leaving every
+    ;; read-back in this entry — the written cell, the mount's element
     ;; count, the far end of the page — decorative.
     (rf.bench.fresco.lane/assert-verified! t (str "row " (name row)))
     nil))
@@ -1527,7 +1489,7 @@
 
       (not (slot-order-varies-at-2?))
       (do (rf.bench.fresco.lane/fail! (str "slot-order has DEGENERATED at k=2 — it emits one order at every "
-                           "sample index, which is the rf2-ouwh8 defect returning. This entry "
+                           "sample index, which is the rotate-then-reflect degeneracy returning. This entry "
                            "runs three arms and is not itself affected, but the shared rule it "
                            "takes its schedule from is, so nothing here is measured until the "
                            "rule is repaired. The repair belongs to the schedule, never to the "
@@ -1568,7 +1530,7 @@
                                (str "; :reagent-ratom REQUESTED — this row's Reagent "
                                     "segment runs "
                                     (pr-str (reagent-segment-arm-ids row-key true))
-                                    " (rf2-2rtt6.21)"))))
+                                    " (the flag is page-global, the arm set per row)"))))
         (rf.bench.fresco.lane/record! "parity"
                       {:row row-key :problems problems :ok? (empty? problems)
                        :note (str "canonical DOM with attribute names sorted, inside each "
