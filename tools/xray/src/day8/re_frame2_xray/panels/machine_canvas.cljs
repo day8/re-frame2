@@ -1,15 +1,11 @@
 (ns day8.re-frame2-xray.panels.machine-canvas
   "Xray-side wrapper around the machines-viz `MachineChart` xyflow
-  component (rf2-gpzb4 — 2026-05-21 xyflow migration; supersedes the
-  rf2-y3l8z viewport-reducer machinery the SVG renderer needed).
-  rf2-48fwsi retired the vestigial Canvas/List view-mode toggle — no
-  view ever branched on the persisted mode after the rf2-g2axio
-  events-as-nodes redesign, so the toggle, its slot, and its
-  localStorage round-trip are gone.
+  component. There is no Canvas/List view-mode toggle, slot or
+  localStorage round-trip: no view branches on a view mode.
 
-  ## What this owns post-migration
+  ## What this owns
 
-  Two surfaces survive:
+  Two surfaces:
 
     1. **Chart-collapsed slot** — a per-machine boolean living at
        `[:rf.xray/machine-canvas :chart-collapsed-by-id machine-id]`.
@@ -18,37 +14,35 @@
     2. **The chart adapter** — a thin wrapper around
        `mv-chart/MachineChart` that wires the focused-event lens
        from-state / to-state highlights, the on-state-click
-       dispatch, and the after-rings overlay. rf2-k97c.3 split it into
-       one body, `chart-tree`, behind TWO heads: `Chart` for a Reagent
-       parent and `Chart-view` for a Fresco boundary. `chart-tree`'s
-       docstring carries why both are needed and what differs between
-       them; nothing else about this surface moved.
+       dispatch, and the after-rings overlay: one body, `chart-tree`,
+       behind TWO heads: `Chart` for a Reagent parent and `Chart-view`
+       for a Fresco boundary. `chart-tree`'s docstring carries why both
+       are needed and what differs between them.
 
-  ## What this no longer owns
+  ## What this does not own
 
-  Per the xyflow migration these surfaces moved into xyflow itself:
+  xyflow owns these itself:
 
     - **Viewport state** (`{:scale :tx :ty}` per machine) — xyflow
       manages zoom/pan/fit internally.
     - **Drag / wheel / keyboard handlers** — xyflow's
       `nodesDraggable` / `panOnDrag` / `zoomOnScroll` props give
-      the same UX without a host-side reducer.
-    - **Controls toolbar** — replaced by xyflow's built-in
-      `<Controls>` component.
-    - **The `:rf.xray.machine-canvas/apply-action` /
-      `/drag-start` / `/drag-move` / `/drag-end` / `/measure`
-      events** — removed; nothing dispatches them post-migration.
+      the UX without a host-side reducer.
+    - **Controls toolbar** — xyflow's built-in `<Controls>` component.
+    - **Viewport events** — there are no
+      `:rf.xray.machine-canvas/apply-action` / `/drag-start` /
+      `/drag-move` / `/drag-end` / `/measure` events.
 
   ## After-rings overlay
 
-  The `panels/machine_after_rings.cljs` overlay still paints
-  `:after`-timer countdown rings on top of the chart. Post-migration
-  it walks the xyflow node DOM (`[data-testid^=rf-mv-chart-node-...]`)
+  The `panels/machine_after_rings.cljs` overlay paints
+  `:after`-timer countdown rings on top of the chart. It walks the
+  xyflow node DOM (`[data-testid^=rf-mv-chart-node-...]`)
   to find each bearing node's bounding box and absolute-positions a
   ring there. No special wiring needed from this ns — the overlay
   is mounted as a sibling of the chart and reads the DOM itself.
 
-  ## Static-mode parity (rf2-md9oz)
+  ## Static-mode parity
 
   The static topology consumer (`static/machines/topology.cljs`)
   embeds this `Chart` view too, so zoom + pan + fit are uniform
@@ -59,14 +53,14 @@
   (:require [clojure.string :as str]
             [cljs.reader :as reader]
             [re-frame.core :as rf]
-            ;; rf2-y8doi.60 — `debug-enabled?` gates the `reg-view` below,
+            ;; `debug-enabled?` gates the `reg-view` below,
             ;; so a release bundle that mis-ships the preload registers
             ;; nothing of Xray's in the host's registrar.
             [re-frame.interop :as rf.interop]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
-            ;; rf2-k97c.3 — the `as-child` door [[Chart-view]] hands
+            ;; The `as-child` door [[Chart-view]] hands
             ;; [[chart-tree]] for the machines-viz mount. See that fn's
             ;; docstring for why the chart itself stays Reagent.
             [day8.re-frame2-xray.substrate :as substrate]
@@ -75,7 +69,7 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens]]))
 
-;; ---- default chart theme (rf2-az6e2 follow-on) --------------------------
+;; ---- default chart theme ------------------------------------------------
 ;;
 ;; Xray's surface is dark, so the chart's `:theme` default is `:dark`. It is
 ;; held in a module-level atom (rather than a literal `:or` default) so a
@@ -110,7 +104,7 @@
 
 (defn- chart-collapsed-of
   "Read the persisted chart-collapsed flag for `machine-id`. Defaults
-  to `false` — rf2-3d987 issue #4 fix: chart is expanded by default so
+  to `false`: the chart is expanded by default so
   first-time operators see the topology; persisting per-machine lets
   the operator hide chart real-estate to give the snapshot pair room."
   [db machine-id]
@@ -120,17 +114,17 @@
 
 (def chart-collapsed-storage-key
   "Canonical localStorage key for the per-machine chart-collapsed flag
-  map (rf2-3d987 issue #4). One EDN map keyed by machine-id.
+  map. One EDN map keyed by machine-id.
   Persisting per-machine lets one machine's Chart be collapsed
   (snapshot pair foregrounded) while another's Chart stays expanded."
   "xray.machine-canvas.chart-collapsed-by-id")
 
-;; Raw browser access lives in the shared `local-storage` seam
-;; (rf2-jkake.24); the slot is key-parameterised here.
+;; Raw browser access lives in the shared `local-storage` seam;
+;; the slot is key-parameterised here.
 
 (defn save-chart-collapsed-by-id!
-  "Persist the chart-collapsed-by-id map to localStorage (rf2-3d987
-  issue #4). Empty/nil clears the slot."
+  "Persist the chart-collapsed-by-id map to localStorage.
+  Empty/nil clears the slot."
   [m]
   (if (or (nil? m) (and (map? m) (empty? m)))
     (ls/remove-item! chart-collapsed-storage-key)
@@ -167,22 +161,16 @@
 ;; ---- events -------------------------------------------------------------
 
 (defn- install-events! []
-  ;; rf2-3d987 issue #4 — toggle the per-machine chart-collapsed flag.
+  ;; Toggle the per-machine chart-collapsed flag.
   ;; `mode` is :collapsed / :expanded / :toggle. Persists the post-mutation
   ;; map to localStorage so the operator's choice survives reloads.
   ;;
-  ;; rf2-04tx — the persist fx rides `:fx`, not the top level. The effect
+  ;; The persist fx rides `:fx`, not the top level. The effect
   ;; map is CLOSED at seven top-level keys (`#{:db :rf.db/runtime :fx}` plus
   ;; the four EP-0025 classification keys, per Spec 002 §Write authority):
   ;; an fx-id sitting at the top level is policed as
   ;; `:rf.error/effect-map-shape` and REFUSES the event pre-commit — nothing
   ;; commits, not even a well-formed `:db` beside it.
-  ;;
-  ;; BEFORE rf2-04tx, and this is why the bug below hid for eleven weeks,
-  ;; the offending key was DROPPED while the `:db` write landed anyway: the
-  ;; localStorage write never happened and the operator's collapse choice
-  ;; never survived a reload, but the toggle looked like it worked. That
-  ;; partial-success disguise is what the refusal removed.
   (rf/reg-event :rf.xray.machine-canvas/set-chart-collapsed
     (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
       (let [current (chart-collapsed-of db machine-id)
@@ -211,7 +199,7 @@
 ;; ---- hydration ----------------------------------------------------------
 
 (defn- hydrate! []
-  ;; rf2-nesy9 — init-time hydration targets the production Xray shell
+  ;; Init-time hydration targets the production Xray shell
   ;; frame via the named `defaults/default-frame-id` Var (production-
   ;; singleton seam, no surrounding render frame), not a `{:frame
   ;; :rf/xray}` literal. Consistent with `spine-filters/hydrate!`.
@@ -226,7 +214,7 @@
   "The chart's whole markup, as a pure function of its props and the two
   spellings that differ between the substrates. [[Chart]] and
   [[Chart-view]] are both one call to this and nothing else, so the two
-  heads cannot drift apart on anything an operator sees (rf2-k97c.3).
+  heads cannot drift apart on anything an operator sees.
 
   ## Why there are two heads rather than one
 
@@ -236,16 +224,16 @@
   boundary — cannot terminate here, and the door is Fresco's component
   ABI: a React ELEMENT is a legal child anywhere.
 
-  `Chart` could not simply BECOME [[Chart-view]], because two of its four
+  `Chart` cannot simply BE [[Chart-view]], because two of its
   consumers reach it from REAGENT: `static/machines/topology.cljs` and
   `static/machines/sim.cljs` render inside the `as-child` island
-  `static/machines/definition_detail.cljs` hands down, and that island is
-  that slice's to retire. A Reagent parent's only inward door to a
+  `static/machines/definition_detail.cljs` hands down. A Reagent parent's
+  only inward door to a
   boundary is `rf.fresco/as-component`, whose contract is explicit that
   `[:>]` converts first, so \"names round-trip across the crossing and
   values do not\" — and this props map is nothing BUT values a conversion
   would destroy: a nested `:definition`, keyword ids, two edge-id SETS and
-  three callbacks. So the `reg-view` head survives for them, and the
+  three callbacks. So the `reg-view` head serves them, and the
   boundary serves the consumer that is already a boundary.
 
   That is `views/edn_widget.cljs`'s dual-head facade (`inspect` beside
@@ -254,8 +242,8 @@
 
   ## The two spellings
 
-  `as-child` wraps the machines-viz mount. `identity` leaves it the
-  Reagent head it has always been; `substrate/as-element` answers a React
+  `as-child` wraps the machines-viz mount. `identity` leaves it a
+  Reagent head; `substrate/as-element` answers a React
   element through the INSTALLED adapter's own walk. The chart itself stays
   Reagent either way — xyflow is a React library reached through a Reagent
   component, and making it substrate-neutral is machines-viz's concern,
@@ -285,24 +273,24 @@
     :current-state      — live snapshot state for the active-state
                           highlight. Optional; nil renders no
                           highlight.
-    :context-band       — rf2-vcnvj. Optional CLJS map surfaced in the
+    :context-band       — Optional CLJS map surfaced in the
                           chart's top-left Context panel. The Static
                           topology path passes the machine's STATIC
                           context shape (keys of the definition's `:data`)
                           so the root context chrome renders without a
                           live snapshot; the live runtime `:data` overlay
-                          stays a separate (future) diagnostic. nil → no
+                          is a separate diagnostic. nil → no
                           panel. Forwarded verbatim to
                           `mv-chart/MachineChart`'s `:context-band`.
-    :context-band-inferred? — rf2-3q4k5b (EP-0005). Optional boolean
+    :context-band-inferred? — Optional boolean (EP-0005)
                           (default true). True → the Context band's shape is
                           INFERRED from one sample of `:data` (the `inferred
-                          from :data` badge, rf2-5tz9p). False → the shape is
+                          from :data` badge). False → the shape is
                           AUTHORITATIVE from a declared `[:schemas :data]`
                           schema (badge dropped, `declared` shown). Forwarded
                           verbatim to
                           `mv-chart/MachineChart`.
-    :fired-edge-ids     — rf2-qeemm (G3). A SET of canonical machines-viz
+    :fired-edge-ids     — A SET of canonical machines-viz
                           edge-ids that fired THIS epoch (resolved by the
                           host via
                           `panels.machines.trace-state/extract-fired-edge-ids`).
@@ -310,7 +298,7 @@
                           traversed edges paint the FIRED treatment on the
                           live chart — not just the from/to lens. nil /
                           `#{}` → no fired highlight (Static passes none).
-    :guard-blocked-edge-ids — rf2-fzrzlw. A SET of canonical machines-viz
+    :guard-blocked-edge-ids — A SET of canonical machines-viz
                           edge-ids whose guard REJECTED the event this
                           epoch (a guard-blocked no-op — resolved by the
                           host via
@@ -318,12 +306,12 @@
                           Forwarded to `mv-chart/MachineChart` so the
                           attempted-and-rejected edges paint the PINK
                           guard-blocked treatment. nil / `#{}` → none.
-    :sim?               — rf2-u422r. When true the active-state
+    :sim?               — When true the active-state
                           highlight uses the amber sim palette (so the
                           on-chart hermetic simulator reads distinct
                           from the live cool-blue highlight). Forwarded to
                           `mv-chart/MachineChart`.
-    :on-edge-click      — rf2-u422r. `(fn [#js {:eventId :fromPath
+    :on-edge-click      — `(fn [#js {:eventId :fromPath
                           :toPath}] ...)` invoked when a transition
                           edge's label is clicked. The Static Machines
                           on-chart sim wires this to `sim-step`.
@@ -333,26 +321,24 @@
                           keeps true; Static passes false.
     :show-controls?     — when true (default) render xyflow's built-in
                           zoom/pan/fit Controls inside the chart.
-    :fit-signal         — rf2-6tw7t. Opaque fit-on-entry nonce forwarded
+    :fit-signal         — Opaque fit-on-entry nonce forwarded
                           verbatim to `mv-chart/MachineChart`'s
                           `:fit-signal`. Hosts bump it on panel-entry /
                           tab-activation so the topology re-frames even
                           when the layout-key is unchanged (re-entering
                           the same machine). nil → inert (only the layout-
                           key auto-fit runs).
-    :theme              — rf2-az6e2. `:dark` (default) / `:light`.
+    :theme              — `:dark` (default) / `:light`.
                           Forwarded to `mv-chart/MachineChart`'s `:theme`
                           prop, which resolves the chart palette + reads
-                          the ACTIVE-theme tokens (the renderer no longer
-                          hardwires the dark alias). Xray's surface is
+                          the ACTIVE-theme tokens. Xray's surface is
                           dark, so callers leave this at `:dark`; the prop
-                          exists so a future host theme switch flips one
-                          value. No toggle UI is built in this bead.
+                          exists so a host theme switch flips one
+                          value. There is no toggle UI.
     :testid             — wrapper testid override.
 
   Returns hiccup. xyflow owns zoom/pan/fit + keyboard shortcuts
-  internally — no host-side viewport machinery is needed
-  post-migration."
+  internally — no host-side viewport machinery is needed."
   [{:keys [definition machine-id from-highlight to-highlight current-state
            fired-edge-ids guard-blocked-edge-ids context-band
            context-band-inferred?
@@ -363,12 +349,12 @@
     :or   {context-band-inferred?  true
            show-after-rings?       true
            show-controls?          true
-           ;; rf2-az6e2 — Xray's surface is dark; the chart `:theme`
+           ;; Xray's surface is dark; the chart `:theme`
            ;; defaults to `@default-chart-theme` (`:dark`). Held in a
            ;; module-level atom (not a literal) so a host / capture run can
            ;; flip the WHOLE palette to `:light` via `set-default-theme!`
            ;; without threading a prop through every call site. An explicit
-           ;; `:theme` prop still wins. No toggle UI is built in.
+           ;; `:theme` prop wins. No toggle UI is built in.
            theme                   @default-chart-theme
            testid                  "rf-xray-machine-canvas-host"
            inner-testid            "rf-mv-chart"}}
@@ -392,8 +378,8 @@
    [:div {:data-testid inner-testid
           :data-machine-id (str machine-id)
           :style {:width "100%" :height "100%"}}
-    ;; rf2-k97c.3 — `as-child` is the island spelling. `identity` under
-    ;; [[Chart]] leaves this the Reagent head it has always been;
+    ;; `as-child` is the island spelling. `identity` under
+    ;; [[Chart]] leaves this a Reagent head;
     ;; `substrate/as-element` under [[Chart-view]] answers a React element,
     ;; which Fresco's codec passes through as a legal child. The props map
     ;; crosses BY IDENTITY either way, because the vector itself is what is
@@ -404,11 +390,10 @@
        {:definition      definition
         :machine-id      machine-id
         :context-band    context-band
-        ;; rf2-3q4k5b (EP-0005) — declared-over-inferred provenance for the
-        ;; Context band badge. Forwarded so the Static topology path can mark
+        ;; Declared-over-inferred provenance for the Context band badge
+        ;; (EP-0005). Forwarded so the Static topology path can mark
         ;; a `[:schemas :data]`-declared shape AUTHORITATIVE (false → no
-        ;; inferred badge). Defaults true (rf2-5tz9p's inferred-by-default
-        ;; posture).
+        ;; inferred badge). Defaults true (inferred by default).
         :context-band-inferred? context-band-inferred?
         :from-highlight  from-highlight
         :to-highlight    to-highlight
@@ -419,7 +404,7 @@
         :theme           theme
         :on-state-click  on-state-click
         :on-edge-click   on-edge-click
-        ;; rf2-6tw7t — fit-on-entry nonce. The host (Machine panel /
+        ;; Fit-on-entry nonce. The host (Machine panel /
         ;; Static topology) bumps this on panel-entry / tab-activation so
         ;; the chart re-fits the topology even when the layout-key is
         ;; unchanged (re-entering the same machine). Forwarded verbatim.
@@ -429,10 +414,10 @@
         :show-background? true
         :testid          "rf-mv-chart"}])]
    ;; The overlay walks the chart's node DOM by data-testid to find bbox
-   ;; positions; no positioned-graph prop is needed post-migration (xyflow
+   ;; positions; no positioned-graph prop is needed (xyflow
    ;; owns positions internally).
    ;;
-   ;; rf2-k97c.3 — the overlay is an `rf.fresco/defview`, so WHICH head
+   ;; The overlay is an `rf.fresco/defview`, so WHICH head
    ;; mounts it is the caller's to decide and arrives as `overlay`: a
    ;; Reagent tree cannot head a boundary and takes the `as-component`
    ;; bridge, while [[Chart-view]] heads the boundary itself. Building the
@@ -440,7 +425,7 @@
    ;; only place `:show-after-rings?` is read.
    (when show-after-rings? overlay)])
 
-;; ---- the two public heads (rf2-k97c.3) ----------------------------------
+;; ---- the two public heads -----------------------------------------------
 
 (when rf.interop/debug-enabled?
   (rf/reg-view Chart
@@ -449,24 +434,20 @@
     island `static/machines/definition_detail.cljs` hands down.
 
     One call to [[chart-tree]] and nothing else; that fn's docstring carries
-    the args, the two spellings, and why this head survives beside
-    [[Chart-view]] rather than being replaced by it.
+    the args, the two spellings, and why [[Chart-view]] cannot replace
+    this head.
 
-    rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
-    React-context frame tier carries the enclosing `:rf/xray` frame through
-    to xray-internal subscribes. That reasoning is HISTORICAL as of
-    rf2-k97c.3: this body performs no read at all, so nothing here depends
-    on the frame it renders under. What `reg-view` still buys is that a
-    Reagent parent can HEAD it, which a boundary cannot offer.
+    Registered via `reg-view` so a Reagent parent can HEAD it, which a
+    boundary cannot offer. This body performs no read at all, so nothing
+    here depends on the frame it renders under.
 
     Returns hiccup."
     [props]
     (chart-tree props identity [after-rings/AfterRingsOverlay-bridge])))
 
 (rf.fresco/defview Chart-view
-  "[[Chart]], for a caller that is already a Fresco boundary — today
-  `panels/machine_inspector.cljs`'s ELEMENT 3, which headed the `reg-view`
-  through an `as-child` island until this landed.
+  "[[Chart]], for a caller that is already a Fresco boundary —
+  `panels/machine_inspector.cljs`'s ELEMENT 3.
 
   Same value, same props, same renderer; the ONLY differences are the head
   and the two spellings [[chart-tree]] takes — `substrate/as-element` for
@@ -477,32 +458,11 @@
   omission: a boundary cannot mint its own per-mount identity, but this
   body reads nothing and holds no per-instance state, so it has none to
   key. Its one stateful descendant, the machines-viz chart, keeps its
-  identity from React's own reconciliation exactly as it did under
-  `reg-view`.
+  identity from React's own reconciliation.
 
   Takes the ordinary one-props-map argument every `defview` takes."
   [props]
   (chart-tree props substrate/as-element [after-rings/AfterRingsOverlay {}]))
-
-;; ---- rf2-bcub — the canvas-side snapshot drill-in is REMOVED ------------
-;;
-;; `SnapshotDrillIn` and its private `snapshot-panel-id` are GONE, and with
-;; them the `views.edn-inspector` require this ns carried only for them.
-;;
-;; It was the "canvas-side companion to `machine_inspector/snapshot-drill-in`"
-;; — and that companion had already gone under rf2-g2axio, which cut the
-;; Machine tab back to EXACTLY Prev/Next + the shared cascade mini-pipeline +
-;; the chart. So the surface this one paired with no longer exists, and a
-;; tree-wide census found no caller of any kind outside its own test file:
-;; it is not in `Chart`'s subtree and no panel embedded it.
-;;
-;; NOTHING BECAME UNWRITABLE. Its one non-trivial helper was private with
-;; this var as its only door, but no test asserted that helper's output; and
-;; the `:popup-affordance?` contract its docstring cited (rf2-l4625) is
-;; pinned independently three times over — `trace.cljs`'s expanded-row mount
-;; asserts it through to the rendered `data-rf-popup-affordance` attribute,
-;; `edn_inspector_cljs_test` pins the widget behaviour itself, and
-;; `app_db_diff_state_cljs_test` pins the negative (omit) case.
 
 ;; ---- install ------------------------------------------------------------
 
