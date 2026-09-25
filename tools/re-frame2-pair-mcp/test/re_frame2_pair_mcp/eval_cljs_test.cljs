@@ -7,8 +7,8 @@
   NOT collapse to `{:ok? true :value nil}` for forms like `(count ...)`
   that can never be nil — shadow's `cljs-eval` against a non-running
   build yields a blank value that would otherwise read as a genuine
-  nil. The tool guards against that with two behaviours (shared with
-  the bash shim via the same `probe` logic):
+  nil. The tool guards against that with two behaviours (both in the
+  shared `probe` logic):
     1. Fail loud — preflight the runtime sentinel; a runtime-absent
        build returns `{:ok? false :reason :no-runtime-for-build ...}`
        enumerating the running builds, NEVER `:ok? true :value nil`.
