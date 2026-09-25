@@ -17,7 +17,7 @@
 ;; response status conveys the response semantics; the trace surface
 ;; carries the structured error.
 ;;
-;; This fixture composes #6 (server-platform routing) with the existing
+;; This fixture composes #6 (server-platform routing) with the
 ;; :ssr/error-known-mapping behaviour and pins the cross-spec rule that
 ;; route-not-found on the server lands at status 404 via the projector,
 ;; while the route's :on-match events still run.
@@ -51,7 +51,7 @@
 
  :fixture/expect
  ;; Submap match: the :rf/route slice carries the not-found marker, the
- ;; on-match analytics ran. Per rf2-jbcmt the response accumulator lives
+ ;; on-match analytics ran. The response accumulator lives
  ;; in a framework-private side-channel atom (re-frame.ssr/response-slots),
  ;; NOT in app-db — the projector's locked 404 status is asserted via
  ;; :ssr/public-error below.
@@ -68,10 +68,8 @@
    ;; The runtime emits :rf.error/no-such-handler when match-url returns nil.
    ;; (Per Spec 012 §Route-not-found, route-not-found IS treated as an error
    ;; on the wire — it surfaces an :rf.error/no-such-handler trace and the
-   ;; default projector maps it to a 404 public-error. See bead rf2-bhhu
-   ;; for the cross-spec doc reconciliation against the prose claim that
-   ;; "the projector does not fire — route-not-found is normal control
-   ;; flow"; this fixture pins the runtime-observable behaviour.)
+   ;; default projector maps it to a 404 public-error; this fixture pins
+   ;; that runtime-observable behaviour.)
    {:operation :rf.error/no-such-handler
     :op-type   :error
     :recovery  :replaced-with-default
