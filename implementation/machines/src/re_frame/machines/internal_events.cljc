@@ -168,10 +168,10 @@
                  (str "a machine's :internal-events declaration "
                       (pr-str ie) " is malformed — it MUST be a SET of"
                       " keywords, e.g. #{:tick :retry/internal}. A VECTOR is"
-                      " the REJECTED XState array form (EP-0029 A6"
-                      " operator-ruled divergence — re-frame2 uses a Clojure"
-                      " set: membership is the natural shape, order is"
-                      " irrelevant, duplicates are impossible).")
+                      " the REJECTED XState array form (EP-0029 A6):"
+                      " re-frame2 uses a Clojure set, because membership is"
+                      " the natural shape, order is irrelevant and duplicates"
+                      " are impossible.")
                  {:internal-events ie})))
       ;; Membership is exact: a member spelt like an `:on`-key wildcard
       ;; (`:ns/*`, `:*`) would fence only the literal keyword, so it is
