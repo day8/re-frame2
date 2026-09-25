@@ -1,5 +1,5 @@
 ;; ===========================================================================
-;; Public-API manifest — CURATED metadata sidecar (rf2-3nbl5.2).
+;; Public-API manifest — CURATED metadata sidecar.
 ;;
 ;; This file is the human-curated half of the public-API manifest's
 ;; single-source design. The generator
@@ -12,19 +12,17 @@
 ;;             :front-porch | :advanced | :tooling | :adapter | :testing
 ;;             | :internal-public | :implementation | :deprecated.
 ;;             Restrictive-by-default: when ambiguous, pick the MORE
-;;             restrictive tier. NOTE (rf2-oekz6s): `:internal-public` means
+;;             restrictive tier. NOTE: `:internal-public` means
 ;;             a SUPPORTED host/tool embedding point (the Xray `mount-<panel>!`
 ;;             family); `:implementation` means public-for-technical-reasons
 ;;             only (a cross-namespace / test reach that is NOT a supported
-;;             surface — an app or tool MUST NOT depend on it). The two used
-;;             to be conflated under `:internal-public`; the split is the
-;;             clarity win this bead landed.
+;;             surface — an app or tool MUST NOT depend on it).
 ;;   :owner  — the canonical owning Spec doc (e.g. "002", "Tool-Pair",
 ;;             "009", "007") — the "where does the contract live" anchor.
 ;;   :status — shipping lineage (spec/API.md §Conventions Status).
 ;;
-;; ...plus TWO MORE on `:facade? true` rows only — the FACADE-AUDIT axes
-;; (rf2-2hpxo). spec/Conventions.md §Facade policy makes a diff that adds a
+;; ...plus TWO MORE on `:facade? true` rows only — the FACADE-AUDIT axes.
+;; spec/Conventions.md §Facade policy makes a diff that adds a
 ;; public var to a facade record FOUR fields in the same PR: tier, owner
 ;; spec, facade-placement justification, and recommended action. Fields 1
 ;; and 2 are `:tier` / `:owner` above; fields 3 and 4 are:
@@ -52,7 +50,7 @@
 ;;                    this file.
 ;;
 ;; The generator REFUSES any `:facade? true` row missing `:justification` or
-;; carrying an `:action` outside that set, so the diff-time obligation now
+;; carrying an `:action` outside that set, so the diff-time obligation
 ;; has a mechanical home rather than living only in PR bodies. Both axes are
 ;; scoped to facade rows: Conventions puts the obligation on FACADE exports,
 ;; and requiring prose on all ~528 rows would be a different, larger rule.
@@ -74,7 +72,7 @@
  ;; Each row is the FULL manifest row, and carries its own
  ;; `:runtime-verified?` flag.
  ;;
- ;; RUNTIME VERIFICATION (rf2-2mtte). The CLJS-side enumeration probe
+ ;; RUNTIME VERIFICATION. The CLJS-side enumeration probe
  ;; (implementation/scripts/api-manifest/probe/, run by `npm run test:cljs`)
  ;; reconciles the LIVE public vars of each covered namespace against these
  ;; rows — the CLJS equivalent of the JVM `ns-publics` existence-check. A
@@ -89,10 +87,9 @@
  ;;     it still resolves to a live var (removed / renamed → RED).
  ;; The `re-frame.core` `frame-provider` reader-conditional row is owned by
  ;; the JVM generator's view of re-frame.core, not this probe, so it stays
- ;; `:runtime-verified? false`. The pair-MCP server (a CLJS-only surface
- ;; named by the keystone) compiles under its own shadow-cljs build and is
- ;; a follow-on probe target (see rf2-2mtte PR notes); it carries no rows
- ;; here yet.
+ ;; `:runtime-verified? false`. The pair-MCP server, a CLJS-only surface,
+ ;; compiles under its own shadow-cljs build and carries no rows here; a
+ ;; probe for it would ride that build.
  ;; --------------------------------------------------------------------------
  :cljs-only
  [;; --- re-frame.core CLJS-only front-porch surface ---
@@ -104,30 +101,30 @@
   {:namespace "re-frame.core" :var "frame-provider" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1" :runtime-verified? false
    :action :keep
    :justification "Front-porch: the CLJS component that binds a frame for a whole subtree so views beneath it never spell the {:frame f} override. API.md View ergonomics rows it front-porch."}
-  ;; `frame-root` is the ENSURE sibling of `frame-provider` (rf2-nyea0r split):
+  ;; `frame-root` is the ENSURE sibling of `frame-provider`:
   ;; a Reagent component re-exported from re-frame.core under `#?(:cljs ...)`,
   ;; absent from the JVM `ns-publics`. Rowed front-porch in spec/API.md
   ;; §View ergonomics. Not covered by the CLJS probe (loads adapters, not
   ;; re-frame.core's CLJS branch).
   {:namespace "re-frame.core" :var "frame-root" :kind :fn :facade? true :tier :front-porch :owner "002" :status "v1" :runtime-verified? false
    :action :keep
-   :justification "Front-porch: the ENSURE sibling of frame-provider (rf2-nyea0r) -- the mount recipe an app's root uses. Same View ergonomics home, same tier."}
+   :justification "Front-porch: the ENSURE sibling of frame-provider -- the mount recipe an app's root uses. Same View ergonomics home, same tier."}
   ;; --- Reagent adapter (day8/re-frame2-reagent) — probe fully-rowed ---
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; rf2-k5r9t — the reusable client root: allocate inert, render (create or
+  ;; The reusable client root: allocate inert, render (create or
   ;; hydrate once, then update the same Root), unmount idempotently. Backed by
   ;; the adapter's active-root ownership (Spec 006 §`render` / §Adapter
-  ;; disposal lifecycle). The published slim artefact publishes the same trio
-  ;; at this ns after its rename.
+  ;; disposal lifecycle). The published slim artefact renames its adapter ns
+  ;; to this one at publication, so it publishes the same trio here.
   {:namespace "re-frame.adapter.reagent" :var "client-root"         :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "render!"             :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "unmount!"            :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-sub"             :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; rf2-y6dz8t — capture-frame in hook position: returns EXACTLY the
+  ;; capture-frame in hook position: returns EXACTLY the
   ;; capture-frame ops map for the ambient provider frame. UIx only
   ;; (Reagent's spelling of the same hold primitive is reg-view injection).
   {:namespace "re-frame.adapter.uix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -135,8 +132,8 @@
   {:namespace "re-frame.adapter.uix" :var "frame-root"          :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; rf2-kuky.56 — the same reusable client root the ratom adapters publish
-  ;; (rf2-k5r9t), now on every React view adapter: allocate inert, render
+  ;; The same reusable client root the ratom adapters publish, on every
+  ;; React view adapter: allocate inert, render
   ;; (create or hydrate once, then update the same Root), unmount
   ;; idempotently. The tree is a React ELEMENT here (`uix.core/$`) rather
   ;; than hiccup; everything else is the Reagent contract verbatim, and both
@@ -144,10 +141,9 @@
   {:namespace "re-frame.adapter.uix" :var "client-root"         :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "render!"             :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "unmount!"            :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
-  ;; --- Xray (day8/re-frame2-xray) — the live public surface (rf2-jhn46).
-  ;;     Migrated off the `:xray-spec-known-unmanifested` allowlist into real
-  ;;     :cljs-only rows so the gkp0t Xray-spec projection check resolves them
-  ;;     to manifest rows and the 2mtte CLJS probe runtime-verifies them.
+  ;; --- Xray (day8/re-frame2-xray) — the live public surface.
+  ;;     Real :cljs-only rows, so the Xray-spec projection check resolves them
+  ;;     to manifest rows and the CLJS probe runtime-verifies them.
   ;;     The mount family is
   ;;     `internal-public` per spec/API.md §Tiering of cross-tool surfaces (the
   ;;     standing classification); the published constants + the Xray↔MCP read
@@ -155,7 +151,7 @@
   ;;     by story-mode chrome, docs generators, and the pair-MCP servers — not
   ;;     application logic). Owner "tools/xray"; status "post-v1 lib".
   ;;
-  ;;     TWO PROBE POSTURES, and the split is deliberate (rf2-ar67). The
+  ;;     TWO PROBE POSTURES, and the split is deliberate. The
   ;;     `core` FACADE below is FULLY-ROWED — the probe checks both
   ;;     directions, so an export added there without a row, or a row with no
   ;;     live var, goes RED. Every OTHER Xray namespace here stays a curated
@@ -170,12 +166,9 @@
   ;;     publish a few documented vars; holding them to completeness would
   ;;     row their internals. ---
   ;;
-  ;; day8.re-frame2-xray.core — THE FACADE (rf2-ar67, the third slice of the
-  ;; retrospective facade sweep spec/Conventions.md §Facade policy mandates
-  ;; before the first external alpha; slice 1 was re-frame.core / rf2-2hpxo,
-  ;; slice 2 re-frame.story / rf2-i6kh). Conventions line 1203 names three
-  ;; facade namespaces and this is the third; these rows are what let the
-  ;; generator's facade-audit invariants reach it.
+  ;; day8.re-frame2-xray.core — THE FACADE. spec/Conventions.md §Facade
+  ;; policy names three facade namespaces and this is the third; these rows
+  ;; are what let the generator's facade-audit invariants reach it.
   ;;
   ;; `:facade? true` is carried PER ROW here rather than derived from
   ;; `gen/facade-namespaces`, because `facade?` is a JVM-side predicate and
@@ -186,9 +179,9 @@
   ;;
   ;; `:tier :tooling` on all sixteen, per Conventions §Story / Xray nuance —
   ;; for a tooling PRODUCT, tooling can legitimately BE the front porch, and
-  ;; the discriminator is the user's workflow, not the tier label. This is the
-  ;; same reading the Story slice reached on its own evidence, not an import
-  ;; of it: the two products are alike in the one respect that matters here
+  ;; the discriminator is the user's workflow, not the tier label. Story reads
+  ;; the same way on its own evidence: the two products are alike in the one
+  ;; respect that matters here
   ;; (a single tooling artefact with no late-bind seam), and Xray's own spec
   ;; supplies the evidence per row below. `:implementation` is refused for
   ;; facade rows outright (gen/implementation-facade-rows), and the eligible
@@ -197,47 +190,40 @@
   ;; in its own spec tree instead.
   ;;
   ;; ALL SIXTEEN ARE `:action :keep`, and that is a measured result rather
-  ;; than a default. Xray's own spec has ALREADY performed the move analysis
-  ;; this audit would otherwise have to run: tools/xray/spec/API.md §Wider
+  ;; than a default. Xray's own spec performs the move analysis:
+  ;; tools/xray/spec/API.md §Wider
   ;; public surface names the TWO surfaces deliberately NOT re-exported
   ;; through the facade (the per-key config setters beyond the four
   ;; highest-traffic ones, and the keybinding attach!/detach! lifecycle pair)
   ;; and says why for each. The line between porch and workshop is drawn and
   ;; documented; every var below sits on the porch side of a line the product
-  ;; spec already argued. Nothing here is a move candidate under the audit
+  ;; spec argues. Nothing here is a move candidate under the audit
   ;; discriminator (an existing owning namespace is already a clearer door
   ;; AND ordinary hosts do not need the name) — each name backs a step of an
   ;; ordinary host workflow: install, control visibility, pick the inspected
   ;; frame, focus a panel, configure at boot.
   ;;
-  ;; NO RENAME IS RECORDED BY THE SWEEP, and the one name it left for an
-  ;; operator ruling — the SPELLING of `load-theme` — has since been RULED
-  ;; and executed (rf2-7nk1, 2026-09-06). It was the only export here that
-  ;; mutated without a bang (it installs a <style> override into <head> via
-  ;; global-styles/set-host-theme-css!, which DOES carry the bang), while the
-  ;; other fifteen were consistent — TWELVE mutators all banged, and the
-  ;; three no-bang names (`status`, `target-frame`, `valid-focus-panels`)
-  ;; are reads. `load-*` is on NO row of the closed lifecycle-verb roster,
-  ;; and Conventions §Lifecycle-verb law says in terms that adding a verb to
-  ;; that table is a Spec change rather than a per-author call — so the
-  ;; ruling took the NARROW path: the roster names WHICH lifecycle verb a
-  ;; surface takes, §Naming decides WHETHER it carries `!`, and a verb
-  ;; missing from the roster is not a reason to drop the bang. The export is
-  ;; therefore spelled `load-theme!` under §Naming bucket 3 alone, with NO
-  ;; `load-*` roster row and NO edit to Conventions.md, and it is NOT a
-  ;; licence to coin new lifecycle verbs. Pre-alpha: no alias, no stub, no
-  ;; deprecation window. The row stays `:keep` — placement was never in
-  ;; doubt, and the rename lands in the same PR as this note, so the row
-  ;; simply carries the new spelling.
+  ;; NO RENAME IS RECORDED. The spelling is consistent: the thirteen
+  ;; mutators all carry a bang, and the three no-bang names (`status`,
+  ;; `target-frame`, `valid-focus-panels`) are reads. `load-theme!` mutates
+  ;; (it installs a <style> override into <head> via
+  ;; global-styles/set-host-theme-css!, which DOES carry the bang), so it
+  ;; carries the bang under §Naming bucket 3 even though `load-*` is on NO
+  ;; row of the closed lifecycle-verb roster: the roster names WHICH
+  ;; lifecycle verb a surface takes, §Naming decides WHETHER it carries `!`,
+  ;; and a verb missing from the roster is not a reason to drop the bang.
+  ;; That is NOT a licence to coin new lifecycle verbs — Conventions
+  ;; §Lifecycle-verb law makes adding a verb to that table a Spec change
+  ;; rather than a per-author call.
   {:namespace "day8.re-frame2-xray.core" :var "init!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Front porch for a tooling product: the manual-install entry point, and one of exactly two install paths a host chooses between (the other is wiring day8.re-frame2-xray.preload into :devtools/preloads). tools/xray/spec/API.md §Canonical documents it first and rf2-g2a5v fixes its role against configure! and persisted Settings -- configure! is static boot config, init! the lifecycle hook that receives the merged config. A host that requires the facade at all requires it for this."}
+   :justification "Front porch for a tooling product: the manual-install entry point, and one of exactly two install paths a host chooses between (the other is wiring day8.re-frame2-xray.preload into :devtools/preloads). tools/xray/spec/API.md §Canonical documents it first. Its role against configure! and persisted Settings is fixed: configure! is static boot config, init! the lifecycle hook that receives the merged config. A host that requires the facade at all requires it for this."}
   {:namespace "day8.re-frame2-xray.core" :var "open!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Front porch: the default true-inline mount, and by tools/xray/spec/API.md §open! / open-overlay! / popout! what 95% of host code reaches for. Conventions §Lifecycle-verb law rows open! / close! as the visibility pair, so the spelling is the law's own. Also one of the six verbs the preload mirrors onto window.day8.re_frame2_xray, which keeps the CLJS and JS-console vocabularies identical."}
   {:namespace "day8.re-frame2-xray.core" :var "open-overlay!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Names a DISTINCT mount surface, not a mode of open!: the transient ESC-closeable overlay that floats above the host instead of participating in its layout. rf2-sa4fr ruled the rename question explicitly -- a mode-symmetric triplet (open-inline! / open-overlay! / open-popout!) was considered and REFUSED because the three verbs name kinds of mount, and flattening them would cost the rank signal that bare open! is the default. That standing ruling is why no :rename is recorded here."}
+   :justification "Names a DISTINCT mount surface, not a mode of open!: the transient ESC-closeable overlay that floats above the host instead of participating in its layout. A mode-symmetric triplet (open-inline! / open-overlay! / open-popout!) is REFUSED because the three verbs name kinds of mount, and flattening them would cost the rank signal that bare open! is the default. That is why no :rename is recorded here."}
   {:namespace "day8.re-frame2-xray.core" :var "close!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Front porch: the visibility half of the open! / close! pair Conventions §Lifecycle-verb law names -- close! hides an already-mounted shell and leaves it re-open!-able, which is why it is NOT unmount! or destroy-*. Splitting it from open! would split one two-call workflow across two requires."}
@@ -246,13 +232,13 @@
    :justification "Front porch: the verb behind Xray's own Ctrl+Shift+C chord, so a host that takes the chord back via keybinding/detach! rebinds it to exactly this var. Documented in tools/xray/spec/API.md §Canonical and mirrored onto the browser global with the other five mount verbs."}
   {:namespace "day8.re-frame2-xray.core" :var "popout!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Names a DISTINCT mount surface: the same-browser second window, where the shell gets its own document context, React root, theme cascade and keybinding. Covered by the same rf2-sa4fr ruling as open-overlay!, and by 017-Test-Coverage-Matrix as a shipped host-facing launch mode."}
+   :justification "Names a DISTINCT mount surface: the same-browser second window, where the shell gets its own document context, React root, theme cascade and keybinding. Covered by the same kinds-of-mount reasoning as open-overlay!, and by 017-Test-Coverage-Matrix as a shipped host-facing launch mode."}
   {:namespace "day8.re-frame2-xray.core" :var "status" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Front porch, and the FIRST call a host makes when Xray does not appear: it returns the mount/API state including the last non-blocking diagnostic for a missing [data-rf-xray-host] layout host. tools/xray/spec/API.md §Wider public surface rows it among the six browser globals the preload installs, so the console recovery path and the CLJS one are the same var. A read, hence no bang."}
   {:namespace "day8.re-frame2-xray.core" :var "target-frame" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Front porch: the one-shot read of which HOST frame Xray is inspecting -- the read half of the frame-picker pair, returning nil for UNSELECTED because EP-0002 (rf2-bd4div) removed the :rf/default absence-repair fallback. Reactive consumers subscribe to :rf.xray/target-frame directly, so this var exists precisely for the non-reactive host call the facade is for."}
+   :justification "Front porch: the one-shot read of which HOST frame Xray is inspecting -- the read half of the frame-picker pair, returning nil for UNSELECTED because there is no :rf/default absence-repair fallback (EP-0002). Reactive consumers subscribe to :rf.xray/target-frame directly, so this var exists precisely for the non-reactive host call the facade is for."}
   {:namespace "day8.re-frame2-xray.core" :var "set-target-frame!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "Front porch: the write half of the pair above, and the surface a host with several frames needs on its first afternoon. Named parallel to the :rf.xray/target-frame sub and :rf.xray/set-target-frame event it drives, so the facade spelling matches runtime reality. Banged per Conventions §Naming bucket 3 -- it mutates Xray's own :rf/xray frame."}
@@ -261,13 +247,13 @@
    :justification "An explicitly-recorded deliberate single-import re-export, which is the exception Conventions §Facade policy provides for: tools/xray/spec/API.md §Wider public surface rows it in the focus namespace as `focus! (the entry point, re-exported through core)`. The owning namespace day8.re-frame2-xray.focus keeps the command shape, the ownership boundary and the pure translation fn; the facade carries only the host-facing door, because the host sending the command is Story, not Xray. Contract at 008-Embedding-Contract §Host-facing focus API."}
   {:namespace "day8.re-frame2-xray.core" :var "valid-focus-panels" :kind :var :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Kept WITH focus! because it is step one of that same two-call workflow: a host validates a panel selector against this set BEFORE sending a focus command, so moving it behind the focus namespace would split a two-line host snippet across two requires for no gain. Renamed on the facade from the owner's valid-panels to say WHICH panels -- the facade has no other panel vocabulary, so the bare name would read as the whole panel inventory. It mirrors the live Dynamic L4 tab registry, so it tracks shipped tabs rather than pinning a list."}
+   :justification "Kept WITH focus! because it is step one of that same two-call workflow: a host validates a panel selector against this set BEFORE sending a focus command, so moving it behind the focus namespace would split a two-line host snippet across two requires for no gain. Spelled differently on the facade from the owner's valid-panels to say WHICH panels -- the facade has no other panel vocabulary, so the bare name would read as the whole panel inventory. It mirrors the live Dynamic L4 tab registry, so it tracks shipped tabs rather than pinning a list."}
   {:namespace "day8.re-frame2-xray.core" :var "load-theme!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "PLACEMENT is settled and is what this axis records: tools/xray/spec/API.md §Canonical rows it, and editor-driven palette sync is an ordinary host workflow reached in one call, so it stays on the facade. The SPELLING question the sweep left open is now RULED and executed (rf2-7nk1, 2026-09-06): this is the one export here that mutates -- it installs a <style> override into <head> through global-styles/set-host-theme-css!, which does carry the bang -- so Conventions §Naming bucket 3 bangs it, and it is spelled load-theme!. NO `load-*` row was added to the closed lifecycle-verb roster and Conventions.md was NOT edited: the roster names WHICH lifecycle verb a surface takes, §Naming decides WHETHER it carries !, and a verb missing from the roster is not a reason to drop the bang -- the same reading that settled register-trace-listener -> register-listener! (spec/API.md) without a roster row. Adding a bang to an existing verb coins no new operation family, and this is not a licence to invent lifecycle verbs. Pre-alpha, zero consumers outside tools/xray, spec/ and docs/xray: renamed outright, no alias, no stub, no deprecation window; behaviour unchanged."}
+   :justification "PLACEMENT is what this axis records: tools/xray/spec/API.md §Canonical rows it, and editor-driven palette sync is an ordinary host workflow reached in one call, so it stays on the facade. It mutates -- it installs a <style> override into <head> through global-styles/set-host-theme-css!, which does carry the bang -- so Conventions §Naming bucket 3 bangs it: load-theme!. There is NO `load-*` row in the closed lifecycle-verb roster: the roster names WHICH lifecycle verb a surface takes, §Naming decides WHETHER it carries !, and a verb missing from the roster is not a reason to drop the bang -- the same reading that spells register-listener! (spec/API.md) without a roster row. Adding a bang to an existing verb coins no new operation family, and this is not a licence to invent lifecycle verbs."}
   {:namespace "day8.re-frame2-xray.core" :var "configure!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Front porch, and named by Conventions §Lifecycle-verb law on THIS facade specifically -- configure! is the config-mutation verb across re-frame.core, re-frame.story and day8.re-frame2-xray.core alike. It is also the entry point the boot order is written around: requiring the facade is side-effect-free (rf2-5w06uu), so a host calls configure! and only then init!, which is what lets :rf.xray/auto-open? false win deterministically before any auto-open."}
+   :justification "Front porch, and named by Conventions §Lifecycle-verb law on THIS facade specifically -- configure! is the config-mutation verb across re-frame.core, re-frame.story and day8.re-frame2-xray.core alike. It is also the entry point the boot order is written around: requiring the facade is side-effect-free, so a host calls configure! and only then init!, which is what lets :rf.xray/auto-open? false win deterministically before any auto-open."}
   {:namespace "day8.re-frame2-xray.core" :var "set-auto-open!" :kind :fn :facade? true :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "One of exactly four per-key setters tools/xray/spec/API.md §Wider public surface names as deliberately re-exported so common boot wiring lands in one require -- and the same section names the setters deliberately NOT re-exported (set-project-root!, set-keybinding-enabled!, set-filter-seed! and the rest, which hosts reach through day8.re-frame2-xray.config). The porch/workshop line this audit exists to draw is therefore already drawn and documented for this family, and this var is on the porch side of it: suppressing auto-open is boot-time wiring almost every embedding host does."}
@@ -285,12 +271,12 @@
   ;; (007-UX-IA §Mountable panel contract). `internal-public` — the
   ;; canonical SUPPORTED host/tool embedding surface (a host that builds its
   ;; own Xray chrome may call `mount-shell!` / a `mount-<panel>!`; an app
-  ;; never should). This is exactly what `internal-public` means after
-  ;; rf2-oekz6s tightened the tier: supported-for-embedding, not the
-  ;; implementation leaves (the bare `Panel` reg-views are now
+  ;; never should). This is exactly what `internal-public` means:
+  ;; supported-for-embedding, not the
+  ;; implementation leaves (the bare `Panel` reg-views are
   ;; `implementation`). (`mount-issues-ribbon!` + `mount-inline-panel!` are
-  ;; REMOVED surfaces the spec names in removal prose — they stay on the
-  ;; allowlist, not rowed; `mount-views!` was renamed → `mount-reactive-panel!`.)
+  ;; REMOVED surfaces the spec names in removal prose — they sit on the
+  ;; allowlist, not rowed.)
   {:namespace "day8.re-frame2-xray.panels" :var "mount-app-db-diff!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-popover!"   :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-side-panel!" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
@@ -308,14 +294,14 @@
   ;; reg-views). Each panel namespace exports a single public reg-view — the
   ;; bare-var symbol the Xray-spec projection check resolves. All export a
   ;; `Panel` except `static.machines.panel`, which exports a lowercase `panel`
-  ;; (spec/API.md §Static-mode Panel reg-views). `implementation` (rf2-oekz6s):
+  ;; (spec/API.md §Static-mode Panel reg-views). `implementation`:
   ;; these are the leaves the shell composes — NOT a host-facing single-panel
   ;; embed surface (hosts embed the FULL shell via the `mount-<panel>!` family
-  ;; below, per 008-Embedding-Contract). They are exported only so the shell
+  ;; above, per 008-Embedding-Contract). They are exported only so the shell
   ;; can `:require` them across namespaces; an embedding host reaches for
-  ;; `mount-shell!`, never a bare `Panel`. Demoted off `internal-public` (which
-  ;; now means SUPPORTED host/tool embedding) to `implementation`
-  ;; (public-for-technical-reasons, unsupported) so the panel leaves do not
+  ;; `mount-shell!`, never a bare `Panel`. They are `implementation`
+  ;; (public-for-technical-reasons, unsupported) rather than `internal-public`
+  ;; (SUPPORTED host/tool embedding) so the panel leaves do not
   ;; read as a supported single-panel embed API.
   {:namespace "day8.re-frame2-xray.panels.app-db-diff"          :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels.epoch-panel"          :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
@@ -344,37 +330,28 @@
   ;; (spec/API.md §Open in editor). A documented panel-author surface — `tooling`.
   {:namespace "day8.re-frame2-xray.open-in-editor" :var "open-chip" :kind :fn :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
 
-  ;; ---- re-frame.story — the CLJS ARM of a SPLIT-HOST FACADE (rf2-i6kh) ----
+  ;; ---- re-frame.story — the CLJS ARM of a SPLIT-HOST FACADE ----
   ;;
-  ;; The rf2-i6kh sweep classified the 116 JVM-visible `re-frame.story`
-  ;; exports and left these FIVE unrowed, which its own post-merge audit
-  ;; caught: `re-frame.story` is a split-host `.cljc` exactly like
-  ;; `re-frame.fresco` below, and its `#?(:cljs …)` arm publishes five more
-  ;; facade fns the JVM `ns-publics` cannot see. Four of them
-  ;; (`registered-substrates`, `mount-shell!`, `unmount-shell!`,
-  ;; `active-shell`) were merely SILENCED on the
-  ;; `:story-spec-known-unmanifested` allowlist above; `register-substrate!`
-  ;; was not even that, because it is not a var-row of
-  ;; tools/story/spec/API.md, so the projection check never asked about it.
-  ;; The rows below end both, and this PR adds the missing var-row too.
+  ;; `re-frame.story` is a split-host `.cljc` exactly like
+  ;; `re-frame.fresco` below: the JVM `ns-publics` sees its JVM-visible
+  ;; exports (rowed under `:classification`), and its `#?(:cljs …)` arm
+  ;; publishes five more facade fns the JVM cannot see. They are rowed here
+  ;; rather than silenced on the `:story-spec-known-unmanifested` allowlist,
+  ;; so the facade-audit invariants reach them.
   ;;
   ;; `:facade? true` is carried PER ROW, the same second route the Xray block
   ;; above uses and for a related but not identical reason: `gen/facade?`
   ;; DOES name `re-frame.story`, but it is consulted only on the
   ;; JVM-introspected path (`build-rows`), so a CLJS-arm row never reaches
   ;; it. Blank these five flags and the facade-audit invariants stop seeing
-  ;; the five vars while `--check` stays green — which is precisely the gap
-  ;; the audit found.
+  ;; the five vars while `--check` stays green.
   ;;
-  ;; `:tier :tooling` and `:owner "007"` throughout, matching the 116 rows
-  ;; these five belong beside: Story is a tooling PRODUCT, so per
+  ;; `:tier :tooling` and `:owner "007"` throughout, matching the JVM-visible
+  ;; rows these five belong beside: Story is a tooling PRODUCT, so per
   ;; spec/Conventions.md §Story / Xray nuance tooling legitimately IS its
   ;; front porch and the discriminator is the user's workflow.
   ;;
-  ;; ALL FIVE ARE `:action :keep`, and no move was available to rule.
-  ;; The audit's own wording left the branch open ("add register-substrate!
-  ;; to the Story API projection OR otherwise explicitly classify/move it"),
-  ;; so it was tested rather than assumed: the move discriminator asks
+  ;; ALL FIVE ARE `:action :keep`: the move discriminator asks
   ;; whether an existing owning namespace is already a clearer door AND
   ;; ordinary users do not need the name. The doors exist
   ;; (`re-frame.story.ui.multi-substrate`, `re-frame.story.ui.shell`) but the
@@ -384,21 +361,21 @@
   ;; mount/unmount+read) across a door boundary, which is the incoherence
   ;; §Keep product facades coherent forbids.
   ;;
-  ;; `:runtime-verified? true` on all five is honest as of this PR and not a
-  ;; hand-set boolean: the CLJS enumeration probe now `:require`s
+  ;; `:runtime-verified? true` on all five is backed by the probe, not a
+  ;; hand-set boolean: the CLJS enumeration probe `:require`s
   ;; `re-frame.story` and holds it `:fully-rowed`, so a rename or removal of
   ;; any of the five turns `npm run test:cljs` RED, and
   ;; `runtime-verified-rows-are-actually-covered` fails if this flag is ever
   ;; true without that coverage.
   {:namespace "re-frame.story" :var "register-substrate!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the fresco_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) already sat on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
+   :justification "The host-boot verb of the multi-substrate feature: a host calls it once per substrate it wants Story to render against, which is ordinary consumer workflow rather than chrome-internal plumbing. tools/story/spec/002-Runtime.md §Substrate hooks and 005-SOTA-Features.md §Multi-substrate side-by-side rendering are its normative home; the fresco_counter testbed calls it through the facade at boot; story_multi_substrate_cljs_test pins rf.story/register-substrate! as THE public form (the sub-namespace call is the internal one); and skills/re-frame2 names the same qualified spelling when explaining why story-mcp list-substrates is browser-only. It is also the WRITE half of the pair whose READ half (registered-substrates) sits on the facade -- keeping the reader and moving the writer is the split §Keep product facades coherent forbids."}
   {:namespace "re-frame.story" :var "registered-substrates" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "The READ half of the substrate pair: the set of registered substrate ids, which is how a custom shell or a tooling caller enumerates what a variant's :substrates opt-in may legally name. Already a var-row of tools/story/spec/API.md §Registry queries and of docs/story/api/reference.md, so it was documented as a facade surface while carrying no manifest row at all -- the exact accretion the facade audit exists to stop. Kept with register-substrate! as one workflow: register at boot, enumerate later."}
+   :justification "The READ half of the substrate pair: the set of registered substrate ids, which is how a custom shell or a tooling caller enumerates what a variant's :substrates opt-in may legally name. A var-row of tools/story/spec/API.md §Registry queries and of docs/story/api/reference.md, so it is a documented facade surface and needs its manifest row -- a documented facade surface with no row is the exact accretion the facade audit exists to stop. Kept with register-substrate! as one workflow: register at boot, enumerate later."}
   {:namespace "re-frame.story" :var "mount-shell!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
    :action :keep
-   :justification "Front porch for a tooling product: the one call that puts Story on screen, and for most hosts the second line of their Story entry namespace after configure!. tools/story/spec/003-Render-Shell.md §Shell lifecycle is its normative home; tools/story/spec/API.md §Shell lifecycle and docs/story/api/reference.md row it; docs/story/index.md shows it in the host entry point and Tutorial-Playwright.md assumes it as the page-root mount. CLJS-only because mounting a Reagent tree at a DOM node has no JVM equivalent -- that reader conditional is why the JVM generator never saw it, and says nothing about its status."}
+   :justification "Front porch for a tooling product: the one call that puts Story on screen, and for most hosts the second line of their Story entry namespace after configure!. tools/story/spec/003-Render-Shell.md §Shell lifecycle is its normative home; tools/story/spec/API.md §Shell lifecycle and docs/story/api/reference.md row it; docs/story/index.md shows it in the host entry point and Tutorial-Playwright.md assumes it as the page-root mount. CLJS-only because mounting a Reagent tree at a DOM node has no JVM equivalent -- that reader conditional is why the JVM generator cannot see it, and says nothing about its status."}
   {:namespace "re-frame.story" :var "unmount-shell!" :kind :fn :facade? true :tier :tooling :owner "007" :status "post-v1 lib" :runtime-verified? true
    :action :keep
    :justification "The teardown half of the mount pair Conventions §Lifecycle-verb law names, and idempotent by contract: what a host calls when it leaves Story mode, and what a test fixture calls between shell mounts. Rowed in tools/story/spec/API.md §Shell lifecycle. Splitting it from mount-shell! would split one two-call workflow across two requires."}
@@ -406,7 +383,7 @@
    :action :keep
    :justification "The READ of the shell pair -- the live shell handle or nil. Load-bearing rather than cosmetic: 003-Render-Shell.md §Shell lifecycle makes v1 a singleton in which a second mount-shell! tears the first down, so a host or fixture that must not clobber an existing shell has to ask first, and this is the only way to ask. Rowed in tools/story/spec/API.md §Shell lifecycle and docs/story/api/reference.md."}
 
-  ;; ---- re-frame.fresco — the CLJS ARM of a SPLIT-HOST door (rf2-phm7g) ----
+  ;; ---- re-frame.fresco — the CLJS ARM of a SPLIT-HOST door ----
   ;;
   ;; Unlike every block above, this namespace IS JVM-loadable: it sits in the
   ;; generator's `jvm-namespaces`, where `ns-publics` returns its `#?(:clj …)`
@@ -433,14 +410,13 @@
   ;; `unmount!` — is 006's, whose §The client root states the MUST all four
   ;; React view adapters answer and whose rows for
   ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` carry the same
-  ;; three names under the same owner (rf2-kuky.59; it was 004C's while the
-  ;; door was Fresco's own `mount!` / `hydrate!` pair). The frame-boundary
+  ;; three names under the same owner. The frame-boundary
   ;; heads are 002's, and the rest are 006's, which also carries Fresco's
   ;; row in the canonical substrate inventory.
   {:namespace "re-frame.fresco" :var "as-component"   :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "as-element"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "error-boundary" :kind :var :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  ;; The two IN-TREE frame boundaries (rf2-kuky.58). Owner "002", not "006",
+  ;; The two IN-TREE frame boundaries. Owner "002", not "006",
   ;; because the contract each realises — ENSURE at commit / SCOPE a live frame,
   ;; and the did-you-mean pair between them — is Spec 002's `frame-root` /
   ;; `frame-provider`, and Fresco's heads are shells over the same shared cores
@@ -457,15 +433,11 @@
   {:namespace "re-frame.fresco" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.fresco" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
 
-  ;; ---- re-frame.fresco.server — the third ssr-node crossing ns (rf2-3ne8) --
+  ;; ---- re-frame.fresco.server — the third ssr-node crossing ns --
   ;;
-  ;; The last of the three namespaces rf2-8arzr.7 found shipping UNSCANNED:
-  ;; genuinely public vars, zero `^:no-doc` markers, and no manifest row at all.
-  ;; PR #9040 enrolled the other two (`re-frame.ssr.render-state` and
-  ;; `re-frame.ssr.ring.node`) and left this one deliberately, because
-  ;; `implementation/fresco/**` was held by PR #9035 while that work ran.
-  ;;
-  ;; It lands HERE rather than in `jvm-namespaces` because it is CLJS-ONLY: the
+  ;; The other two crossing namespaces (`re-frame.ssr.render-state` and
+  ;; `re-frame.ssr.ring.node`) are enrolled in the generator's `jvm-namespaces`.
+  ;; This one lands HERE rather than there because it is CLJS-ONLY: the
   ;; namespace `:require`s `["react-dom/server"]`, so the JVM generator cannot
   ;; require it and `ns-publics` can never reach it. That is exactly the case
   ;; this key exists for.
@@ -475,7 +447,7 @@
   ;; `:implementation`-tier host-adapter plumbing on the same footing as
   ;; `re-frame.ssr.ring`'s own vars and are not rowed below". Owner 011 is the
   ;; spec that carries their contracts (§Client-side hydration boot helper), the
-  ;; same owner #9040 gave the other two. `:implementation` is outside
+  ;; same owner the other two carry. `:implementation` is outside
   ;; `doc_api_check`'s eligible tiers, so these rows add no docs/api obligation.
   ;;
   ;; `:runtime-verified? false` — the CLJS enumeration probe
@@ -483,18 +455,18 @@
   ;; namespace. Covering it would pull `react-dom/server` into the probe's
   ;; build graph, which is a shared-build change rather than a row change; the
   ;; flag exists precisely so an unprobed row states its own status rather than
-  ;; overclaiming (see `gen.clj`'s note on the per-row flag, rf2-2mtte).
+  ;; overclaiming (see `gen.clj`'s note on the per-row flag).
   {:namespace "re-frame.fresco.server" :var "document"       :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.server" :var "payload-script" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.server" :var "render"         :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
 
-  ;; ---- The rest of the Fresco tree (rf2-3ne8) ------------------------------
+  ;; ---- The rest of the Fresco tree ------------------------------
   ;;
-  ;; `implementation/fresco/src` became a `roster-covered-roots` entry with
-  ;; these rows, so every namespace under it is now classified: the five
+  ;; `implementation/fresco/src` is a `roster-covered-roots` entry, so every
+  ;; namespace under it is classified: the five
   ;; OPTIONAL AUTHORING MODULES and the two TOOL-TIER namespaces below, plus
-  ;; the door and `.server` above, with the seventeen `re-frame.fresco.impl.*`
+  ;; the door and `.server` above, with the eighteen `re-frame.fresco.impl.*`
   ;; namespaces recorded in the generator's `internal-namespaces`.
   ;;
   ;; They land HERE rather than in `jvm-namespaces` for the same reason
@@ -502,17 +474,17 @@
   ;; whole body is a `#?(:cljs …)` arm), so the JVM generator cannot require
   ;; them and `ns-publics` can never reach them.
   ;;
-  ;; TIERS, and they were RULED rather than chosen for convenience (rf2-3ne8,
-  ;; 2026-09-03). The first five are genuine public authoring surfaces — each
+  ;; TIERS, and they follow each namespace's role rather than convenience.
+  ;; The first five are genuine public authoring surfaces — each
   ;; carries a require-me-directly example in its own ns docstring, and
   ;; `substrate/adapter` is what an application passes to `(rf/init! …)`. So
   ;; `:advanced` throughout, matching the door's own rows (Fresco is an opt-in
   ;; published substrate, so it is not the front-porch set), except
   ;; `re-frame.fresco.substrate`, which is `:adapter` on exactly the footing
-  ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` already have. Those
-  ;; tiers are docs-eligible, and the five `docs/api/re-frame.fresco.*.md`
-  ;; pages that `doc_api_check`'s coverage clause therefore obliges landed in
-  ;; the same change. `^:no-doc` was NOT used to make the gate quiet: a public
+  ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` have. Those
+  ;; tiers are docs-eligible, so `doc_api_check`'s coverage clause obliges
+  ;; the five `docs/api/re-frame.fresco.*.md` pages. `^:no-doc` is NOT used
+  ;; to make the gate quiet: a public
   ;; authoring surface with no documentation page is the friction this library
   ;; exists to remove.
   ;;
@@ -532,7 +504,7 @@
   ;; (`implementation/scripts/api-manifest/probe/`) covers the door, not these.
   ;; Covering them would pull each module's own React/DOM requires into the
   ;; probe's build graph, which is a shared-build change rather than a row
-  ;; change; #9040 and #9045 set the same precedent.
+  ;; change — the same reason `.server` above is unprobed.
   {:namespace "re-frame.fresco.evidence"  :var "envelope"               :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.evidence"  :var "loss-reasons"           :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.evidence"  :var "producer"               :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
@@ -595,34 +567,9 @@
    "machine->mermaid"       ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
    "story-view"             ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
    }
-   ;; error-boundary / client-only shipped S3 (rf2-vxgfnd.95.3) — now rowed
-   ;; under :cljs-only above (alongside handler).
-   ;; EP-0001 two-partition frame contract (rf2-xtlzrk) — SPEC landed ahead of
-   ;; the impl beads (3-10); runtime-db-value / frame-state-value /
-   ;; replace-app-db! / replace-runtime-db! / replace-frame-state! / reset-app-db!
-   ;; all shipped as live vars in due course (bead 3 / bead 9) and were
-   ;; classified below. rf2-t3lftq (API-shrink #3) then retired
-   ;; runtime-db-value / snapshot-of / replace-app-db! / reset-app-db! /
-   ;; replace-runtime-db! from the facade entirely — the manifest generator
-   ;; simply no longer sees those vars, so there is nothing left to allowlist
-   ;; or classify for them.
- ;; EP-0022 registered interceptors (Slice B, rf2-0adhqs.2) — the runtime
- ;; landed: `reg-interceptor` (macro) / `reg-interceptor*` (plain fn) now ship
- ;; as live `re-frame.core` facade vars (the inverse of Slice A's spec-ahead
- ;; reservation), so the generated manifest carries them and their tier/owner/
- ;; status classification moves into the `:classification` map below. They are
- ;; NO LONGER on the `:api-md-known-unmanifested` allowlist above.
- ;; EP-0016 named resource-scope resolvers (slice 2, rf2-hls77w) — the impl
- ;; landed: `reg-resource-scope` / `clear-resource-scope` /
- ;; `resolve-resource-scope` now ship as live `re-frame.core` facade vars
- ;; (the inverse of slice-1's spec-ahead reservation), so the generated
- ;; manifest carries them and their tier/owner/status classification moves
- ;; into the `:classification` map below (the same shape as the already-shipped
- ;; `reg-resource` / `reg-mutation` rows). They are NO LONGER on the
- ;; `:api-md-known-unmanifested` allowlist above.
 
  ;; --------------------------------------------------------------------------
- ;; SECONDARY projection-check allowlists (rf2-gkp0t). The keystone guards
+ ;; SECONDARY projection-check allowlists. api-md-check guards
  ;; spec/API.md; these guard the four secondary projections of the same
  ;; manifest (Story API spec, Xray API spec, skills, doc-guide). Each set
  ;; names the public-var references that projection LEGITIMATELY makes that
@@ -636,23 +583,20 @@
  ;; re-frame.story.ui.* — public-but-not-on-the-facade per the doc's facade
  ;; re-export discipline). See re-frame.api-manifest.story-spec-check.
  ;;
- ;; THE FOUR CLJS-ONLY FACADE VARS ARE GONE FROM THIS SET (rf2-i6kh
- ;; post-merge audit). `mount-shell!` / `unmount-shell!` / `active-shell` /
- ;; `registered-substrates` were silenced here because the JVM generator
- ;; cannot `ns-publics` a `#?(:cljs …)` arm — but silencing a FACADE export
- ;; is not the same problem as silencing a sub-namespace one. It kept four
- ;; documented `re-frame.story` facade surfaces out of the manifest entirely,
- ;; so the facade-audit invariants (tier / action / justification) could not
- ;; police them. They now carry real `:cljs-only` rows above, the projection
+ ;; NO CLJS-ONLY FACADE VAR BELONGS IN THIS SET. The JVM generator cannot
+ ;; `ns-publics` a `#?(:cljs …)` arm, but silencing a FACADE export is not
+ ;; the same problem as silencing a sub-namespace one: it would keep a
+ ;; documented `re-frame.story` facade surface out of the manifest entirely,
+ ;; beyond the facade-audit invariants (tier / action / justification). The
+ ;; facade's CLJS-only vars carry real `:cljs-only` rows above, the projection
  ;; check resolves them against those rows like any other var-row, and the
  ;; CLJS probe holds `re-frame.story` fully-rowed so a rename cannot pass.
  ;;
- ;; EVERY REMAINING ENTRY IS OFF THE FACADE, which is why they stay. Each
+ ;; EVERY ENTRY IS OFF THE FACADE, which is why they stay. Each
  ;; names a var of a SUB-NAMESPACE (`re-frame.story.test-support`,
  ;; `re-frame.story.ui.xray-embed`) that tools/story/spec/API.md legitimately
  ;; documents in its own section while `re-frame.story` re-exports none of
- ;; them — verified by grepping `story.cljc` for each: zero hits. Nothing
- ;; here is a facade export awaiting classification.
+ ;; them. Nothing here is a facade export awaiting classification.
  :story-spec-known-unmanifested
  #{"use-fixtures"            ; re-frame.story.test-support — direct-require, not on the facade (pulls cljs.test)
    "with-clean-registry"     ; re-frame.story.test-support — direct-require, not on the facade
@@ -663,7 +607,7 @@
  ;; tools/xray/spec/API.md public-var references the manifest does not carry.
  ;; The Xray-spec projection check (re-frame.api-manifest.xray-spec-check)
  ;; resolves TWO reference shapes against DIFFERENT indexes, so it carries
- ;; TWO allowlists (rf2-0u8kz):
+ ;; TWO allowlists:
  ;;
  ;;   - `:xray-spec-known-unmanifested` (BELOW) — bare var-name strings, for
  ;;     bare `mount-<panel>!` references (the aggregator family). Resolved
@@ -675,79 +619,69 @@
  ;;     ns+var pair, never merely share a bare var name (e.g. `Panel`) with
  ;;     some other manifested namespace.
  ;;
- ;; rf2-jhn46 MIGRATED the live Xray public surface (the `Panel` exports, the
- ;; `mount-<panel>!` aggregator family, the `config` published constants, the
- ;; `open-in-editor` chip, and the `runtime` discovery-sentinel + safe-egress
- ;; entry points) into real `:cljs-only` rows above — they now resolve to
- ;; manifest rows AND are runtime-verified by the 2mtte CLJS probe. The only
- ;; entries that remain are two `mount-<panel>!` names the Xray spec mentions
- ;; ONLY in REMOVAL prose: the underlying defns were deleted, so there is no
+ ;; The live Xray public surface (the `Panel` exports, the
+ ;; `mount-<panel>!` aggregator family, the `config` published constants and
+ ;; the `open-in-editor` chip) carries real `:cljs-only` rows above — it
+ ;; resolves to manifest rows AND is runtime-verified by the CLJS probe. The
+ ;; only entries here are two `mount-<panel>!` names the Xray spec mentions
+ ;; ONLY in REMOVAL prose: there is no
  ;; live var to introspect and no honest manifest row — exactly the
  ;; knowingly-unmanifested case this allowlist exists for. The check still
  ;; goes RED if any OTHER Xray panel/mount symbol enters the spec unrowed.
  :xray-spec-known-unmanifested
- #{"mount-issues-ribbon!"    ; spec/API.md §Panel reg-views — REMOVED with the Issues tab (rf2-gbz39, Option (c)); named in removal prose only
-   "mount-inline-panel!"}    ; spec/API.md §What this doesn't expose — REMOVED (rf2-sbfb7, "A — delete both"); named in removal prose only
+ #{"mount-issues-ribbon!"    ; spec/API.md §Panel reg-views — REMOVED with the Issues tab; named in removal prose only
+   "mount-inline-panel!"}    ; spec/API.md §What this doesn't expose — REMOVED; named in removal prose only
 
  ;; Fully-namespace-qualified Xray references (`[ns var]` vectors) the
  ;; manifest does not carry. Two cases qualify, and both are deliberate:
  ;;
  ;;   1. A prose / removal mention of a panel namespace that no longer
  ;;      exists (e.g. the stale `["day8.re-frame2-xray.panels.views"
- ;;      "Panel"]` spelling rf2-yxw57 corrected). No live var to
+ ;;      "Panel"]` spelling). No live var to
  ;;      introspect, so no honest manifest row.
  ;;   2. A namespace the Xray spec documents but deliberately keeps
  ;;      INTERNAL — named in the spec because a reader needs to know
  ;;      where the behaviour lives, kept off the manifest because it is
  ;;      not a surface anyone may call from outside `tools/xray/src/`.
- ;;      `day8.re-frame2-xray.egress` (rf2-7htk7) is the case: the
+ ;;      `day8.re-frame2-xray.egress` is the case: the
  ;;      panel-local fail-closed projection Xray's ONE human
  ;;      value-egress affordance uses — the command-palette
- ;;      `Snapshot app-db` verb (rf2-rshr; rf2-6r9j.24 retired the
- ;;      universal EDN-widget copy button, and Static Machines' Copy
+ ;;      `Snapshot app-db` verb (there is no universal EDN-widget copy
+ ;;      button, and Static Machines' Copy
  ;;      Mermaid is value-free by contract, so it is not an egress
- ;;      site). It replaced the public
- ;;      `day8.re-frame2-xray.runtime` seam, whose four rows this file
- ;;      carried until rf2-7htk7 retired it in favour of
- ;;      `re-frame2-pair.runtime` as the single agent runtime — the
- ;;      point of that change was to REMOVE a published tooling surface,
- ;;      so re-rowing its replacement would undo it.
+ ;;      site). `re-frame2-pair.runtime` is the single agent runtime, so
+ ;;      Xray publishes no tooling egress surface of its own, and rowing
+ ;;      this internal projection would publish one.
  ;;
  ;; Entries are `[ns var]`, never a bare var, so an entry cannot mask a
  ;; live-but-renamed panel namespace that happens to share a var name.
 
  :xray-spec-known-unmanifested-qualified
- #{["day8.re-frame2-xray.egress" "egress-value"]}  ; INTERNAL panel-local egress (rf2-7htk7) — see case 2 above
+ #{["day8.re-frame2-xray.egress" "egress-value"]}  ; INTERNAL panel-local egress — see case 2 above
 
  ;; skills/ (excl. re-frame-migration) call-position `(rf/<var>` references
  ;; the manifest does not carry. The checked skills teach against the LIVE
- ;; surface; a non-empty entry names a legitimate non-manifest reference
- ;; (e.g. a CLJS-only var) or, as here, a removed API still named in skill
- ;; prose pending that skill's rewrite (the same role `on-changes` plays in
+ ;; surface; an entry names a legitimate non-manifest reference
+ ;; (e.g. a CLJS-only var) or a removed API a checked skill names
+ ;; deliberately (the role `on-changes` plays in
  ;; :doc-guide-known-unmanifested-scoped). The re-frame-migration skill is excluded
  ;; wholesale (it names removed old APIs by design — see
  ;; re-frame.api-manifest.skills-check).
  :skills-known-unmanifested
- #{"redact-interceptor"}  ; EP-0015 §7 (rf2-mngp4o): removed from the public
-                          ; façade. Six `(rf/redact-interceptor` references
-                          ; remain in skills/re-frame2 privacy prose + evals;
-                          ; their reframe to the registration-owned
-                          ; `:sensitive` classification + project-egress model
-                          ; is the privacy/skill rewrite (EP-0015 item 12 +
-                          ; skill-update follow-up), not this façade-demote
-                          ; slice. Allowlisted so the lint gate stays green
-                          ; until that coherent rewrite lands.
+ #{"redact-interceptor"}  ; EP-0015 §7: not a public façade var — privacy is
+                          ; the registration-owned `:sensitive`
+                          ; classification + project-egress model. No
+                          ; checked skill names it in call position.
 
  ;; docs/core/ call-position `(rf/<var>` references the manifest does not
- ;; carry. This used to be a BARE-NAME allowlist (a name listed here was
- ;; silenced ANYWHERE in the guide tree). EP-0017 (rf2-hk6wd2) tightened it:
- ;; every entry here names a REMOVED API whose only legitimate guide
+ ;; carry. Every entry here names a REMOVED API whose only legitimate guide
  ;; appearance is the left-hand side of old→new MIGRATION guidance in ONE
  ;; or TWO specific files (the from-v1 chapter, plus the per-concept
- ;; migration callouts). A bare global allowlist let a future live
- ;; `(rf/inject-cofx …)` in any teaching chapter pass green even though
- ;; EP-0017 removed it and live prose must teach `:rf.cofx/requires`. So the
- ;; allowlist is now FILE-SCOPED: each entry maps the removed name to the
+ ;; migration callouts). A bare global allowlist would silence a name
+ ;; ANYWHERE in the guide tree, letting a live `(rf/inject-cofx …)` in any
+ ;; teaching chapter pass green even though live prose must teach
+ ;; `:rf.cofx/requires`. So the
+ ;; allowlist is FILE-SCOPED: each entry maps the removed name to the
  ;; set of repo-relative file paths where it is approved. A call-position
  ;; reference to the name OUTSIDE those files is RED (it leaked into live
  ;; teaching prose). See re-frame.api-manifest.doc-guide-check.
@@ -756,17 +690,17 @@
  ;; whose file equals (string `=`) any approved path is silenced.
  :doc-guide-known-unmanifested-scoped
  {"on-changes"   #{"docs/core/25-from-re-frame-v1.md"}   ; removed v1 reaction API, named as migration guidance
-  ;; EP-0017 + rf2-w9xyx1: `inject-cofx` removed from the public façade (no
-  ;; manifest row). The from-v1 chapter AND the coeffects concept page's
+  ;; `inject-cofx` is not on the public façade (no manifest row; EP-0017).
+  ;; The from-v1 chapter AND the coeffects concept page's
   ;; "From re-frame v1" callout name the v1
   ;; `(rf/inject-cofx …)` interceptor entry as the left-hand side of old→new
   ;; migration guidance (it becomes `:rf.cofx/requires` registration
   ;; metadata). A `(rf/inject-cofx …)` ANYWHERE ELSE in the guide is live
-  ;; teaching prose that EP-0017 forbids — and now goes RED.
+  ;; teaching prose, and goes RED.
   "inject-cofx"  #{"docs/core/25-from-re-frame-v1.md"
                    "docs/core/coeffects.md"}
-  ;; EP-0018 Z (rf2-xhfxcs.14): `reg-event-db` / `reg-event-fx` removed from
-  ;; the public façade (`reg-event` is the ONE public event form). Named as
+  ;; `reg-event-db` / `reg-event-fx` are not on the public façade
+  ;; (`reg-event` is the ONE public event form, EP-0018). Named as
   ;; the left-hand side of old→new migration guidance in the from-v1 chapter.
   "reg-event-db" #{"docs/core/25-from-re-frame-v1.md"}
   "reg-event-fx" #{"docs/core/25-from-re-frame-v1.md"}
@@ -774,22 +708,12 @@
   ;; config-shape syntax table, not real vars.
   "set-x!"       #{"docs/core/24-config-and-safety.md"}
   "install-x!"   #{"docs/core/24-config-and-safety.md"}}
-  ;; rf2-i4hk4b (API-shrink #5 registrar-introspection): the `frame-shadows`
-  ;; façade var was REMOVED (its classification row above is gone). No
-  ;; `:doc-guide-known-unmanifested-scoped` entry is needed because the guide's
-  ;; call-position `(rf/frame-shadows …)` mentions were rewritten to read the
-  ;; shadow report via `frame-generation`'s `:rf.gen/shadows` key, so nothing in
-  ;; docs/core/ names the removed var in call position.
-  ;; EP-0025: `add-marks` / `set-marks` (and the whole `re-frame.marks` ns) are
-  ;; removed. The privacy guide was rewritten to the commit-plane-effects model
-  ;; (docs/core/how-to/keep-secrets-out-of-traces.md) and no longer names the
-  ;; old API in call position, so no allowlist entry is needed.
 
- ;; Human-doc API-reference call-position `(rf/<var>` / `(story/<var>`
- ;; references the manifest does not carry (rf2-vzupmg). The doc-api
+ ;; Human-doc API-reference call-position `(rf/<var>` / `(rf.story/<var>`
+ ;; references the manifest does not carry. The doc-api
  ;; projection check (re-frame.api-manifest.doc-api-check) scans the three
- ;; human-facing API-reference trees the keystone + existing projection
- ;; checks left uncovered — spec/Privacy.md + docs/core/api/** + docs/story/api/**
+ ;; human-facing API-reference trees no other projection check reaches —
+ ;; spec/Privacy.md + docs/api/** + docs/story/api/**
  ;; — and goes RED on a call-position reference to a renamed / removed /
  ;; never-manifested public surface.
  ;;
@@ -800,14 +724,10 @@
  ;; call-position reference to the name OUTSIDE those files is RED (it leaked
  ;; into live reference prose).
  ;;
- ;; EMPTY TODAY. migration/from-re-frame-v1/README.md — the tombstone register — names
+ ;; EMPTY. migration/from-re-frame-v1/README.md — the tombstone register — names
  ;; removed surfaces as bare back-ticked identifiers (`add-marks`,
  ;; `reg-sub-raw`, `path`), NOT as call-position `(rf/<var>` forms, so the
- ;; call-position scope already excludes them with no allowlist entry needed.
- ;; The `path` / `unwrap` removed value constructors (EP-0022) were corrected
- ;; in the live docs/core/api/03-effects.md chapter to the canonical
- ;; `[:rf.interceptor/path …]` reference + map-payload destructuring model in
- ;; the same change (the gate doing its job), rather than allowlisted.
+ ;; call-position scope excludes them with no allowlist entry needed.
  :doc-api-known-unmanifested-scoped
  {}
 
