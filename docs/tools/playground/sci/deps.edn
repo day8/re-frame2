@@ -1,7 +1,7 @@
-;; SCI eval bundle for the docs/cljs playground's re-frame2 cells
-;; (rf2-00zvt, Phase 3). Self-contained shadow-cljs :browser build that
-;; bundles re-frame2's runtime API into an SCI context (findings doc §6
-;; option B). This is NOT a Scittle plugin: there is no published
+;; SCI eval bundle for the docs/cljs playground's re-frame2 cells.
+;; Self-contained shadow-cljs :browser build that
+;; bundles re-frame2's runtime API into an SCI context.
+;; This is NOT a Scittle plugin: there is no published
 ;; `scittle.core` artefact a standalone plugin build could `:require`,
 ;; and Scittle's plugins ship STOCK reagent/re-frame, not re-frame2.
 ;;
@@ -12,12 +12,12 @@
 ;;     for clarity.
 ;;   - day8/reagent-slim — reagent2 (the substrate re-frame2 renders
 ;;     through) + the re-frame.adapter.reagent-slim adapter.
-;;   - day8/re-frame2-machines — Spec 005 state-machine artefact
-;;     (rf2-ldgpd). `:require`d by the SCI bundle namespace so the
+;;   - day8/re-frame2-machines — Spec 005 state-machine artefact.
+;;     `:require`d by the SCI bundle namespace so the
 ;;     `:machines/*` late-bind hooks register at bundle init: the
 ;;     `reg-machine*` / `make-machine-handler` / `machine-transition`
-;;     helpers on `re-frame.machines` (the façade no longer re-exports
-;;     them — front-porch shrink, rf2-wad2fl) become live, and the
+;;     helpers on `re-frame.machines` (the façade does not re-export
+;;     them) become live, and the
 ;;     `:rf/machine` / `:rf.machine/has-tag?` framework subs +
 ;;     `:rf.machine/spawn` / `:rf.machine/destroy` fxs register from
 ;;     `re-frame.machines`'s top-level forms. Live cells in the
