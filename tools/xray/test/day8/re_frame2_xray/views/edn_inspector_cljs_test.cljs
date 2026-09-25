@@ -2714,45 +2714,45 @@
                "was capped, so every survivor pairs and the recovery run is "
                "empty")))))
 
-;; ---- rf2-idydb — `children-of-pair`'s mixed-ceiling tail ------------------
+;; ---- `children-of-pair`'s mixed-ceiling tail ------------------------------
 ;;
-;; The SIBLING of the rf2-zk4he family above, reached in the other walker and
-;; failing the OPPOSITE way. `sequential-diff-children` LOST the surplus after
-;; rows; this arm walks `(range (max …))`, so it loses nothing — it fills the
-;; truncated before tail with `::missing` instead.
+;; The SIBLING of the capped-side rows above, reached in the other walker,
+;; where the risk points the OPPOSITE way. `sequential-diff-children` could
+;; LOSE the surplus after rows; this arm walks `(range (max …))`, so it loses
+;; nothing — the risk is filling the truncated before tail with `::missing`
+;; instead.
 ;;
 ;; `::missing` is the STRUCTURAL sentinel. `leaf-diff-op` reads it BEFORE it
 ;; consults the projection — `(= before ::missing) → :added` — so a survivor
-;; whose prior value was merely never realised is painted green as a
-;; structurally new element. That is a CONFIDENT LIE in place of a silent
-;; drop, which is the trade rf2-zk4he's brief named as the thing to avoid,
-;; reached here by a different route in the sibling function.
+;; whose prior value was merely never realised would be painted green as a
+;; structurally new element: a CONFIDENT LIE in place of a silent drop,
+;; reached by a different route in the sibling function.
 ;;
 ;; The arm is live: `sequential-diff-children` FALLS BACK to it whenever it
 ;; has no projection, and its own docstring promises "same answer for the
-;; no-removal case". That promise was false in exactly this shape — the main
-;; path emits `::unrealised` where the fallback emitted `::missing`, and the
-;; two walkers return the SAME triple shape to the same renderer.
+;; no-removal case". A fallback emitting `::missing` where the main path
+;; emits `::unrealised` would break that promise in exactly this shape,
+;; because the two walkers return the SAME triple shape to the same renderer.
 ;;
-;; TWO properties, per this family's standing rule — either alone is green
-;; against a plausible wrong fix:
+;; TWO properties — either alone is green against a plausible wrong
+;; fix:
 ;;
 ;;   P1 NO CONFIDENT LIE  — a survivor past the before bound carries
 ;;                          `::unrealised`, and renders as the projection's
 ;;                          own op rather than as `:added`.
 ;;   P2 ADDITIONS AND     — a before side that ran out HONESTLY still says
 ;;      BOUND INTACT        `::missing`, and the walk realises no more of the
-;;                          before side than it did. Swapping the sentinel
+;;                          before side than the bound. Swapping the sentinel
 ;;                          unconditionally is green on P1 and red on the
 ;;                          first half of P2; widening the before bound to
 ;;                          "just look" is green on both of those and red on
 ;;                          the second.
 
 (deftest children-of-pair-capped-before-tail-is-unknown-not-added-rf2-idydb
-  ;; The item's reproduction. `map` hands back a LazySeq, which is not
+  ;; The mixed-ceiling reproduction. `map` hands back a LazySeq, which is not
   ;; `counted?`, so `bounded-vec` caps the BEFORE side at `count-bound` while
   ;; realising the `counted?` AFTER side whole — the independent ceilings
-  ;; rf2-jh12f's `counted?` split introduced.
+  ;; of the `counted?` split.
   (let [n      1050
         before (map identity (range n))
         after  (assoc (vec (range n)) (dec n) :changed-at-tail)
@@ -2769,10 +2769,10 @@
                " elements past the ceiling the other side stopped at")))
     (testing "nothing is LOST — this arm walks `(range (max …))`"
       (is (= n (count rows))
-          (str "all " n " rows are emitted. The data-loss failure rf2-zk4he "
-               "repaired one level over does not arise here, which is why a "
-               "row count cannot see this defect: the tail is PRESENT, and "
-               "mislabelled"))
+          (str "all " n " rows are emitted. The other walker's data-loss "
+               "failure does not arise here, which is why a "
+               "row count cannot see a mislabel: the tail is PRESENT either "
+               "way"))
       (is (some? tail)
           (str "after-index " (dec n) " is emitted"))
       (is (= :changed-at-tail (second tail))
@@ -2806,7 +2806,7 @@
                  (dec n) " `" proj-op "` — it is a survivor, not an addition"))
         (let [tree (render (nth tail 2))]
           (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
-              "so the row must not render as `:added` — the defect's signature")
+              "so the row must not render as `:added` — the mislabel's signature")
           (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
               (str "it renders the projection's own `" proj-op "` instead")))
         (testing "CONTROL — `::missing` in the SAME slot really does force `:added`"
@@ -2821,8 +2821,8 @@
                 "and suppresses the projection's own op entirely")))))))
 
 (deftest children-of-pair-honest-before-exhaustion-stays-missing-rf2-idydb
-  ;; P2. Green on TRUNK and must stay green: its job is to refuse a WRONG fix,
-  ;; not to catch the current defect. `::missing` is CORRECT wherever the walk
+  ;; P2. Its job is to refuse a WRONG fix, not to catch a mislabelled
+  ;; tail. `::missing` is CORRECT wherever the walk
   ;; realised the whole before side and found no element — swapping the
   ;; sentinel unconditionally would report every genuine append as an unknown
   ;; prior, which is the same confident falsehood pointing the other way.
@@ -2835,14 +2835,14 @@
                "collection whole — so indices 2 and 3 genuinely had no prior"))))
   (testing "P2 — a SHORT lazy before side ended honestly, under the ceiling"
     ;; The discriminator. This side is NOT `counted?`, exactly like the
-    ;; defect's fixture, but it ran out on its own well before `count-bound`,
+    ;; capped fixture, but it ran out on its own well before `count-bound`,
     ;; so the walk DOES know these slots are absent. A fix keyed on the KIND
     ;; of the before side rather than on the ceiling being REACHED is red here.
     (let [before (map identity (range 5))
           rows   (vec (ei/children-of-pair before (vec (range 8)) :vector))
           bs     (mapv (fn [[_ _ b]] b) rows)]
       (is (not (counted? before))
-          "a LazySeq, the same shape the defect's fixture uses")
+          "a LazySeq, the same shape the capped fixture uses")
       (is (= 8 (count rows)) "index-aligned to the longer side")
       (is (= [::ei/missing ::ei/missing ::ei/missing] (subvec bs 5))
           (str "the walk realised all 5 elements and the seq ended — under "
@@ -2862,15 +2862,13 @@
       (is (= n (count rows))
           (str "and still emits all " n " accessible AFTER rows")))))
 
-;; ---- rf2-t450s — an unknown prior carried INTO a nested container ---------
+;; ---- an unknown prior carried INTO a nested container ---------------------
 ;;
-;; The THIRD failure of the same confusion, one level DOWN from the two
-;; families above. rf2-zk4he taught `sequential-diff-children` to emit
-;; `::unrealised` for a survivor past the before bound; rf2-idydb taught
-;; `children-of-pair`'s SEQUENTIAL arm to tell that survivor from a genuine
-;; append. Neither taught the RECURSION that carries such a slot into a
-;; nested CONTAINER, and `children-of-pair`'s own docstring already states
-;; the distinction that arm does not implement.
+;; The same confusion one level DOWN from the two families above.
+;; `sequential-diff-children` emits `::unrealised` for a survivor past the
+;; before bound, and `children-of-pair`'s SEQUENTIAL arm tells that survivor
+;; from a genuine append. The RECURSION that carries such a slot into a
+;; nested CONTAINER needs the same distinction.
 ;;
 ;; When the surviving tail element is itself a map, `render-container`
 ;; descends with `before` = `::unrealised`, and the map arm opens with
@@ -2878,21 +2876,22 @@
 ;;     (let [a (when (map? after) after)
 ;;           b (when (map? before) before)]
 ;;
-;; The sentinel is not a map, so `b` binds to `nil`, the walk falls into the
-;; "only AFTER is a map" arm, and every child is emitted `[k v ::missing]`.
-;; `::missing` is the STRUCTURAL sentinel — `leaf-diff-op` reads it AHEAD of
-;; the projection — so every descendant of an entirely UNCHANGED map renders
-;; `:added`. An UNKNOWN prior is converted into an ABSENT one at a single
-;; `when`.
+;; The sentinel is not a map, so `b` binds to `nil` and the walk falls into
+;; the "only AFTER is a map" arm. Emitting every child there as
+;; `[k v ::missing]` would convert an UNKNOWN prior into an ABSENT one at a
+;; single `when`: `::missing` is the STRUCTURAL sentinel — `leaf-diff-op`
+;; reads it AHEAD of the projection — so every descendant of an entirely
+;; UNCHANGED map would render `:added`. `unpaired-prior` carries the marker
+;; down instead.
 ;;
-;; `classify-container-op` fails the same way one step earlier: its
-;; structural override compares the marker to the map as an actual VALUE,
-;; finds them different, and promotes the projection's `:same` to
-;; `:children` — so the unchanged tail is painted change-bearing before its
+;; `classify-container-op` meets the same confusion one step earlier: a
+;; structural override that compared the marker to the map as an actual
+;; VALUE would find them different and promote the projection's `:same` to
+;; `:children` — painting the unchanged tail change-bearing before its
 ;; descendants are walked at all. Two sites, one confusion.
 ;;
-;; TWO properties, per this family's standing rule — either alone is green
-;; against a plausible wrong fix:
+;; TWO properties — either alone is green against a plausible wrong
+;; fix:
 ;;
 ;;   P1 NO FABRICATED    — a container reached under an `::unrealised` prior
 ;;      ADDITIONS          gives its own children `::unrealised` priors, they
@@ -2906,7 +2905,7 @@
 ;;                         the recursion boundary is green on P1 and red here.
 
 (deftest nested-tail-container-under-unknown-prior-rf2-t450s
-  ;; The item's reproduction, verbatim: an unchanged 1050-element collection
+  ;; The reproduction: an unchanged 1050-element collection
   ;; whose LAST element is a map, diffed against a lazy-seq view of itself.
   (let [n         1050
         tail-map  {:keep 1 :other 2 :third 3 :fourth 4}
@@ -2946,8 +2945,8 @@
           (str "and the element past the ceiling is a CONTAINER — that is "
                "what carries the unknown prior into the recursion")))
     (testing "precondition — the walker hands that container an UNKNOWN prior"
-      ;; rf2-zk4he's repair, one level up. Were this ever to regress to
-      ;; `::missing` the failures below would be THAT defect, not this one.
+      ;; The capped-before-side contract, one level up. Were this ever to
+      ;; read `::missing` the failures below would be THAT defect, not this one.
       (is (= n (count rows))
           (str "all " n " accessible after rows are emitted"))
       (is (= tail-map (second tail))
@@ -2963,9 +2962,9 @@
             (str "all four of the after-map's keys are walked — the accessible "
                  "AFTER data is preserved whole"))
         (is (= (vec (repeat 4 ::ei/unrealised)) bs)
-            (str "and EVERY prior is UNKNOWN. Pre-fix the map arm bound `b` "
-                 "to `nil` (the sentinel is not a `map?`) and fell into the "
-                 "\"only AFTER is a map\" arm, emitting `::missing` for all "
+            (str "and EVERY prior is UNKNOWN. The map arm binds `b` "
+                 "to `nil` (the sentinel is not a `map?`) and takes the "
+                 "\"only AFTER is a map\" arm, which must not emit `::missing` for all "
                  "four"))
         (is (empty? (filter #{::ei/missing} bs))
             (str "never `::missing`, which `leaf-diff-op` reads AHEAD of the "
@@ -2984,7 +2983,7 @@
                      proj-op "` — it is an untouched member, not an addition"))
             (is (empty? (nodes-with-attr tree :data-rf-diff-op "added"))
                 (str "so the row for " k " must not render as `:added` — the "
-                     "defect's signature, and it fired on all four"))
+                     "fabricated-addition signature, which would fire on all four"))
             (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
                 (str "it renders the projection's own `" proj-op
                      "` instead"))))
@@ -3012,9 +3011,9 @@
         (is (not= :added proj-op)
             (str "the projection calls the tail element itself `" proj-op "`"))
         (is (= (name proj-op) (container-op tree "map"))
-            (str "so the container row reads `" proj-op "`. Pre-fix "
-                 "`differs-within-bound?` compared the marker to the map, "
-                 "found them different, and promoted it to `children`"))
+            (str "so the container row reads `" proj-op "`. Handed the marker, "
+                 "`differs-within-bound?` would compare it to the map, "
+                 "find them different, and promote it to `children`"))
         (is (not= "children" (container-op tree "map"))
             (str "and it is never painted change-bearing on the strength of "
                  "a prior nobody looked at")))
@@ -3028,8 +3027,8 @@
                    "and only the sentinel is excluded from it")))))))
 
 (deftest nested-container-honest-absence-still-added-rf2-t450s
-  ;; P2. Green on TRUNK and must stay green: its job is to refuse a WRONG
-  ;; fix, not to catch the current defect. `::missing` is CORRECT wherever
+  ;; P2. Its job is to refuse a WRONG fix, not to catch fabricated
+  ;; additions. `::missing` is CORRECT wherever
   ;; the prior genuinely does not exist — swapping the sentinel at the
   ;; recursion boundary unconditionally would report every genuinely-new
   ;; nested map as an unknown prior, the same confident falsehood pointing
@@ -3071,24 +3070,24 @@
       (is (= n (count rows))
           (str "and still emits all " n " accessible AFTER rows")))))
 
-;; ---- rf2-g61nr — `children-of-pair`'s capped-AFTER tail -------------------
+;; ---- `children-of-pair`'s capped-AFTER tail -------------------------------
 ;;
-;; The MIRROR of rf2-idydb, one line away in the same `for` comprehension, and
-;; failing in the MORE DAMAGING direction. rf2-idydb bounded the capped-BEFORE
-;; side; this is the capped-AFTER side, still conflating UNREALISED with
-;; ABSENT.
+;; The MIRROR of the mixed-ceiling tail above, one line away in the same
+;; `for` comprehension, where conflating UNREALISED with ABSENT fails in the
+;; MORE DAMAGING direction: that one is the capped-BEFORE side, this is the
+;; capped-AFTER side.
 ;;
 ;; `bounded-vec` dispatches on `counted?`, so a `counted?` BEFORE side is
 ;; realised whole while a not-`counted?` AFTER side stops at `count-bound`.
-;; Past that ceiling the arm filled the AFTER slot with `::missing` — the
+;; Filling the AFTER slot past that ceiling with `::missing` — the
 ;; STRUCTURAL sentinel, which `leaf-diff-op` reads AHEAD of the projection
-;; (`(= value ::missing) → :removed`). A RETAINED element whose after value
-;; was merely never realised was therefore presented as a confirmed DELETION:
-;; strike-through, `−` glyph, red wash. Worse than rf2-idydb's false addition,
+;; (`(= value ::missing) → :removed`) — would present a RETAINED element
+;; whose after value was merely never realised as a confirmed DELETION:
+;; strike-through, `−` glyph, red wash. Worse than a false addition,
 ;; because the operator reads it as data that is GONE.
 ;;
-;; TWO properties, per this family's standing rule — either alone is green
-;; against a plausible wrong fix:
+;; TWO properties — either alone is green against a plausible wrong
+;; fix:
 ;;
 ;;   P1 NO CONFIDENT LIE  — a retained element past the after bound carries
 ;;                          `::unrealised` in its AFTER slot, renders as the
@@ -3097,14 +3096,14 @@
 ;;                          sentinel.
 ;;   P2 DELETIONS AND     — an after side that ran out HONESTLY still says
 ;;      BOUND INTACT        `::missing` and still strikes a real deletion, and
-;;                          the walk realises no more of the after side than it
-;;                          did. Swapping the sentinel unconditionally is green
+;;                          the walk realises no more of the after side than
+;;                          the bound. Swapping the sentinel unconditionally is green
 ;;                          on P1 and red on the first half of P2; widening the
 ;;                          after bound to "just look" is green on both of
 ;;                          those and red on the last.
 
 (deftest children-of-pair-capped-after-tail-is-unknown-not-removed-rf2-g61nr
-  ;; The item's reproduction, verbatim: `before` a 1050-element vector,
+  ;; The reproduction: `before` a 1050-element vector,
   ;; `after` a LazySeq view of the SAME values. Nothing changed. `map` hands
   ;; back a LazySeq, which is not `counted?`, so `bounded-vec` caps the AFTER
   ;; side at `count-bound` while realising the `counted?` BEFORE side whole.
@@ -3136,16 +3135,16 @@
           "which the projection agrees with: no changed rows anywhere"))
     (testing "nothing is LOST — this arm walks `(range (max …))`"
       (is (= n (count rows))
-          (str "all " n " rows are emitted, so the tail is PRESENT and "
-               "MISLABELLED — which is why a row count cannot see this "
-               "defect at all"))
+          (str "all " n " rows are emitted, so the tail is PRESENT either "
+               "way — which is why a row count cannot see a "
+               "mislabel at all"))
       (is (= (- n count-bound) (count past))
           (str (- n count-bound) " of them sit past the after ceiling of "
                count-bound)))
     (testing "P1 — their AFTER slot says UNKNOWN, and is never `::missing`"
       (is (= [(dec n) ::ei/unrealised (dec n)] (vec tail))
-          (str "the last row. Pre-fix it read `[" (dec n) " ::missing "
-               (dec n) "]` — the item's own decisive measurement"))
+          (str "the last row. The confident-deletion reading is `[" (dec n) " ::missing "
+               (dec n) "]` — the decisive measurement"))
       (is (= (vec (repeat (- n count-bound) ::ei/unrealised))
              (mapv (fn [[_ a _]] a) past))
           "and so does every row past the ceiling")
@@ -3168,7 +3167,7 @@
             (str "the projection saw BOTH full trees and calls after-index "
                  (dec n) " `" proj-op "` — it is retained, not deleted"))
         (is (empty? (nodes-with-attr tree :data-rf-diff-op "removed"))
-            "so the row must not render as `:removed` — the defect's signature")
+            "so the row must not render as `:removed` — the false-deletion signature")
         (is (not (str/includes? (pr-str tree) "line-through"))
             "and carries no strike-through")
         (is (seq (nodes-with-attr tree :data-rf-diff-op (name proj-op)))
@@ -3185,7 +3184,7 @@
                 "and suppresses the projection's own op entirely")))))
     (testing "P1 — the sentinel is never printed, and the known value survives"
       ;; `render-leaf-with-diff` paints the PRESENT side of the pair, and
-      ;; `::unrealised` now reaches the VALUE slot — rf2-8pfkk's leak arriving
+      ;; `::unrealised` reaches the VALUE slot — a sentinel leak arriving
       ;; through a new door.
       (let [txt (collect-text (render (second tail)))]
         (is (not (str/includes? txt "edn-inspector/unrealised"))
@@ -3194,7 +3193,7 @@
             (str "and the accessible prior is still shown: the projection "
                  "calls this element unchanged, so its known value IS its "
                  "value"))))
-    (testing "P1 — and on the NO-projection fallback route the item names"
+    (testing "P1 — and on the NO-projection fallback route"
       ;; `sequential-diff-children` defers to this walk whenever it has no
       ;; projection, and there `leaf-diff-op` has nothing to fall through to.
       ;; The honest answer is a stated unknown, never a deletion.
@@ -3218,7 +3217,7 @@
         (is (not (str/includes? txt "edn-inspector/unrealised"))
             "and the sentinel itself is still never printed")))
     (testing "the 2x2's FOURTH CELL stays vacuous — an unknown AFTER never recurses"
-      ;; The mirror of rf2-t450s: an unknown AFTER carried INTO a nested
+      ;; The mirror of the nested-container case: an unknown AFTER carried INTO a nested
       ;; container. It cannot arise, and the reason is structural rather than
       ;; lucky: `render-node`'s descent is driven by the AFTER value BEING a
       ;; container, and a sentinel keyword never is. So `children-of-pair` is
@@ -3243,8 +3242,8 @@
             "and the marker is not printed on this route either")))))
 
 (deftest children-of-pair-honest-after-exhaustion-stays-missing-rf2-g61nr
-  ;; P2. Green on TRUNK and must stay green: its job is to refuse a WRONG fix,
-  ;; not to catch the current defect. `::missing` is CORRECT wherever the walk
+  ;; P2. Its job is to refuse a WRONG fix, not to catch a false
+  ;; deletion. `::missing` is CORRECT wherever the walk
   ;; realised the whole after side and found no element — swapping the
   ;; sentinel unconditionally would report every genuine deletion as an
   ;; unknown tail, the same confident falsehood pointing the other way.
@@ -3257,20 +3256,20 @@
                "collection whole — so indices 2 and 3 genuinely are gone"))))
   (testing "P2 — a SHORT lazy after side ended honestly, under the ceiling"
     ;; The discriminator. This side is NOT `counted?`, exactly like the
-    ;; defect's fixture, but it ran out on its own well before `count-bound`,
+    ;; capped fixture, but it ran out on its own well before `count-bound`,
     ;; so the walk DOES know these slots are absent. A fix keyed on the KIND
     ;; of the after side rather than on the ceiling being REACHED is red here.
     (let [after (map identity (range 5))
           rows  (vec (ei/children-of-pair (vec (range 8)) after :vector))
           as    (mapv (fn [[_ a _]] a) rows)]
       (is (not (counted? after))
-          "a LazySeq, the same shape the defect's fixture uses")
+          "a LazySeq, the same shape the capped fixture uses")
       (is (= 8 (count rows)) "index-aligned to the longer side")
       (is (= [::ei/missing ::ei/missing ::ei/missing] (subvec as 5))
           (str "the walk realised all 5 elements and the seq ended — under "
                "the ceiling, so absence here is KNOWN, not unknown"))))
   (testing "P2 — a real deletion still renders struck-through and `:removed`"
-    ;; The genuine-deletion control the item asks for, closed end to end
+    ;; The genuine-deletion control, closed end to end
     ;; through the renderer rather than stopped at the triple.
     (let [before (vec (range 8))
           after  (map identity (range 5))
@@ -3307,9 +3306,9 @@
           (str "and still emits all " n " rows")))))
 
 (deftest diff-renders-removed-set-member
-  ;; Canonical machine-snapshot reproduction (rf2-zuh1e bead body):
-  ;; `:tags` set loses `:ws/authenticating`. Before this fix the AFTER
-  ;; column rendered with no indication anything was removed; now the
+  ;; Canonical machine-snapshot reproduction:
+  ;; `:tags` set loses `:ws/authenticating`. Without the removed-member row
+  ;; the AFTER column would give no indication anything was removed; the
   ;; struck-through row appears alongside the survivors.
   (let [before #{:a :b :ws/authenticating}
         after  #{:a :b}
@@ -3330,7 +3329,7 @@
         "the removed row carries strike-through text-decoration")))
 
 (deftest diff-renders-machine-snapshot-tags-transition
-  ;; Mike's live repro 2026-05-26 — a Machine snapshot transition
+  ;; A Machine snapshot transition
   ;; `[:active :authenticating] → [:active :connected]` where `:tags`
   ;; loses `:ws/authenticating`. The operator sees the post-image with
   ;; the removed tag struck-through.
@@ -3358,23 +3357,23 @@
         "at least one row carries strike-through (the removed tag)")))
 
 ;; =========================================================================
-;; rf2-8pfkk — the `::missing` sentinel must NEVER reach the output, and a
+;; The `::missing` sentinel must NEVER reach the output, and a
 ;; removed CONTAINER renders as a struck-through collapsed ghost (not a
 ;; flat pr-str, not the leaked sentinel keyword).
 ;; =========================================================================
 ;;
 ;; These cases thread a REAL `engine/project` projection (the live render
-;; path) rather than the `projection nil` fallback the older diff tests
-;; use. The leak only surfaces with a projection in play: the engine
+;; path) rather than the `projection nil` fallback the other diff tests
+;; use. The leak can only surface with a projection in play: the engine
 ;; anchors a `(update db :shapes dissoc :added)` deletion on the surviving
 ;; parent (`op-at [:shapes]` → `:removed`) and classifies the removed
 ;; child slot `:children` (`op-at [:shapes :added]` → `:children`, it owns
-;; the ghost subtree in `:container-ops`). Pre-fix the leaf renderer
-;; trusted that `:children` op, fell through `case op`'s default branch,
-;; and rendered `(render-scalar ::missing)` — leaking
+;; the ghost subtree in `:container-ops`). A leaf renderer that trusted
+;; that `:children` op would fall through `case op`'s default branch and
+;; render `(render-scalar ::missing)` — leaking
 ;; `:day8.re-frame2-xray.views.edn-inspector/missing` literally into the
-;; row (`:added ::missing`). The fix makes the structural sentinel
-;; authoritative and routes removed containers through a recursive ghost.
+;; row (`:added ::missing`). So the structural sentinel is
+;; authoritative, and removed containers route through a recursive ghost.
 
 (defn- no-missing-sentinel-leak?
   "True iff the rendered hiccup carries no trace of the internal
@@ -3388,7 +3387,7 @@
     (not (re-find #"edn-inspector/missing" s))))
 
 (deftest diff-removed-only-key-renders-struck-ghost-not-sentinel
-  ;; Mike's live repro (standard_epochs button 7): `(update db :shapes
+  ;; `(update db :shapes
   ;; dissoc :added)` removes the only key of `:shapes`, leaving `{}`.
   ;; The removed `:added {…}` slot must render as a struck-through ghost,
   ;; NEVER as `:added ::missing` and NEVER as `:shapes {} :same`.
@@ -3449,7 +3448,7 @@
 (deftest diff-deleted-ancestor-children-inherit-removed-when-expanded
   ;; The deleted-ancestor hard case: when the operator EXPANDS a removed
   ;; container ghost, every descendant inherits `:removed` (the symmetric
-  ;; of rf2-bufw2's `:added` inheritance) — never an `:added` (green) or
+  ;; of an added container's `:added` inheritance) — never an `:added` (green) or
   ;; `:same` row, and never a leaked sentinel.
   (let [before {:shapes {:added {:label "added" :nested {:deep 1}}}}
         after  {:shapes {}}
@@ -3498,8 +3497,8 @@
     (is (re-find #":c" all) "dropped element :c still appears struck-through")))
 
 (deftest diff-preserves-added-modified-same-rows
-  ;; No regression — added / modified / same rows still render
-  ;; alongside the new removed rows.
+  ;; Added / modified / same rows render
+  ;; alongside the removed rows.
   (let [before {:same 1   :modify 2 :gone "g"}
         after  {:same 1   :modify 9 :added :new}
         h (ei/render-node {:value after
@@ -3522,11 +3521,11 @@
         "modified leaf still carries the change annotation")))
 
 (deftest l0us2-set-member-swap-renders-member-level-not-whole-key
-  ;; rf2-l0us2 — the bead repro: the door machine's `:tags` went
+  ;; The door machine's `:tags` going
   ;; `#{:door/locked}` → `#{:door/closed}`. The renderer must show
   ;; `-:door/locked +:door/closed` with the `:tags` KEY INTACT, NOT a
-  ;; struck-through whole `:tags` entry (the 'sea of red'). With the
-  ;; engine fix `:tags` classifies `:children` (intact) and the set's
+  ;; struck-through whole `:tags` entry (the 'sea of red'). The
+  ;; engine classifies `:tags` `:children` (intact) and the set's
   ;; member union carries per-member -/+ chrome.
   (let [before {:tags #{:door/locked}}
         after  {:tags #{:door/closed}}
@@ -3560,25 +3559,25 @@
     ;; The :tags key itself must NOT be inside a removed-ghost wrapper —
     ;; that would be the 'sea of red' whole-key removal. The
     ;; `data-rf-removed-ghost` attr is present on every container header
-    ;; but carries the value "1" ONLY for an actual removed ghost; with
-    ;; the fix :tags classifies :children so the marker stays unset.
+    ;; but carries the value "1" ONLY for an actual removed ghost;
+    ;; :tags classifies :children so the marker stays unset.
     (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
         "the :tags set is not rendered as a removed ghost (no whole-key strike)")))
 
 ;; =========================================================================
-;; rf2-yucxn — vector/list emptied renders member-level (BUG A) + multi-
-;; element removal shows every removed value distinctly (BUG B)
+;; Vector/list emptied renders member-level, and a multi-
+;; element removal shows every removed value distinctly
 ;; =========================================================================
 ;;
-;; The audit found vector/list empty edges classified as a whole-key
-;; `:modified` (a `~` amber row + `← was [1]`) instead of the member-level
-;; removal the set/map empty edges produce — and multi-element vector
-;; removals reporting one before-value repeatedly while dropping the rest.
-;; These tests drive the LIVE render path (a real `engine/project`
+;; A vector/list empty edge must not classify as a whole-key
+;; `:modified` (a `~` amber row + `← was [1]`) when the set/map empty
+;; edges produce a member-level removal — and a multi-element vector
+;; removal must not report one before-value repeatedly while dropping the
+;; rest. These tests drive the LIVE render path (a real `engine/project`
 ;; projection) so the renderer's structural handling is exercised.
 
 (deftest yucxn-vector-emptied-renders-member-level-not-whole-key
-  ;; rf2-yucxn BUG A — `{:a [1]} → {:a []}` (vector emptied, key intact):
+  ;; `{:a [1]} → {:a []}` (vector emptied, key intact):
   ;; the operator must see `:a [ ]` with the removed `1` struck-through
   ;; INSIDE it, NOT a whole-key `:a ~ [] ← was [1]`. The `:a` key must not
   ;; be a removed ghost (its value is still present, just empty).
@@ -3604,12 +3603,12 @@
     ;; The :a key is NOT a removed ghost (key intact, value just empty).
     (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
         "the :a vector is not a removed ghost (key intact)")
-    ;; No `← was [1]` whole-value annotation (that was the BUG A symptom).
+    ;; No `← was [1]` whole-value annotation (the whole-key-modify symptom).
     (is (not (re-find #"← was \[1\]" all))
         "no whole-key `← was [1]` modify annotation (member-level instead)")))
 
 (deftest yucxn-list-emptied-renders-member-level
-  ;; rf2-yucxn BUG A — the list empty edge mirrors the vector edge.
+  ;; The list empty edge mirrors the vector edge.
   (let [before {:a '(1)}
         after  {:a '()}
         proj   (engine/project before after)
@@ -3628,7 +3627,7 @@
         "the :a list is not a removed ghost (key intact)")))
 
 (deftest yucxn-vector-populated-from-empty-renders-added
-  ;; rf2-yucxn BUG A — symmetric `{:a []} → {:a [1]}` shows the new element
+  ;; The symmetric `{:a []} → {:a [1]}` shows the new element
   ;; in green (`+`), not a whole-key `~` modify.
   (let [before {:a []}
         after  {:a [1]}
@@ -3648,9 +3647,9 @@
         "the filled-from-empty vector shows the new element as an added row")))
 
 (deftest yucxn-vector-multi-removal-shows-every-removed-value-distinctly
-  ;; rf2-yucxn BUG B — `{:a [1 2 3]} → {:a [1]}` drops 2 AND 3. The
+  ;; `{:a [1 2 3]} → {:a [1]}` drops 2 AND 3. The
   ;; renderer must show BOTH struck-through, with their CORRECT values —
-  ;; not `2` twice (the pre-fix duplication) and not a vanished `3`.
+  ;; not `2` twice and not a vanished `3`.
   (let [before {:a [1 2 3]}
         after  {:a [1]}
         proj   (engine/project before after)
@@ -3669,47 +3668,45 @@
             {:before-index 2 :before-value 3}]
            (get-in proj [:vector-removals [:a]]))
         "precondition: both removed elements recovered with correct values")
-    ;; Both removed values appear in the render (3 is the proof BUG B is gone).
+    ;; Both removed values appear in the render (3 is the proof nothing is dropped).
     (is (re-find #"\b2\b" all) "removed element 2 renders")
-    (is (re-find #"\b3\b" all) "removed element 3 renders (not dropped — BUG B fixed)")
+    (is (re-find #"\b3\b" all) "removed element 3 renders (not dropped)")
     (is (re-find #"data-rf-diff-op.*removed" s)
         "the dropped elements carry the removed marker")))
 
 (deftest yucxn-vector-scattered-removal-engine-channel-correct
-  ;; rf2-yucxn BUG B — a scattered removal `[:a :b :c :d] → [:a :c]` drops
+  ;; A scattered removal `[:a :b :c :d] → [:a :c]` drops
   ;; :b (before-idx 1) and :d (before-idx 3). The ENGINE's :vector-removals
-  ;; channel now recovers both with true before-index + value (the pre-fix
-  ;; post-shift-index resolution reported :b + :c, dropping :d).
+  ;; channel recovers both with their true before-index + value; resolving
+  ;; by post-shift index would report :b + :c and drop :d.
   ;;
-  ;; The RENDERER side is a KNOWN residual gap (rf2-vu42n): the inline
-  ;; vector body uses an index-aligned `children-of-pair` walk rather than
-  ;; the engine's :vector-removals + :same-shifted projection, so a
-  ;; scattered/mid removal mis-renders which members are struck. Contiguous
-  ;; TAIL removals (the common case) render correctly — see
-  ;; `yucxn-vector-multi-removal-shows-every-removed-value-distinctly`.
-  ;; This test pins the ENGINE contract that rf2-vu42n's renderer fix will
-  ;; consume.
+  ;; The RENDERER consumes this channel: `render-container`'s diff arm walks
+  ;; a vector body through `sequential-diff-children`, which strikes the
+  ;; actually-removed members in before-order, in place, where an
+  ;; index-aligned `children-of-pair` walk would strike the surviving,
+  ;; shifted element. This test pins the ENGINE contract that walk
+  ;; consumes.
   (let [before {:v [:a :b :c :d]}
         after  {:v [:a :c]}
         proj   (engine/project before after)]
     (is (= [{:before-index 1 :before-value :b}
             {:before-index 3 :before-value :d}]
            (get-in proj [:vector-removals [:v]]))
-        "engine recovers :b (idx 1) + :d (idx 3) — not :b + :c (pre-fix bug)")))
+        "engine recovers :b (idx 1) + :d (idx 3) — not :b + :c (post-shift resolution)")))
 
 ;; =========================================================================
-;; rf2-0c6a3 — a collection value EMPTYING renders KEY-INTACT (member-level
+;; A collection value EMPTYING renders KEY-INTACT (member-level
 ;; removal inside the now-empty container), DISTINCT from a `dissoc` of the
 ;; key (a struck-through removed ghost)
 ;; =========================================================================
 ;;
-;; THE BUG: `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`, `(x)→()` rendered the whole
+;; `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`, `(x)→()` must not render the whole
 ;; KEY as a struck-through removed ghost — indistinguishable from dissoc'ing
 ;; the key. The engine's R5 `mark-wholly-changed` legitimately promotes the
 ;; emptied set / map container path to `:removed` (the opposite side is
 ;; empty — no surviving member anchors a member-level diff at the container
-;; path), and the renderer faithfully struck the KEY + painted the `−`
-;; glyph. The fix (`diff-emptied?`) keys the distinction off the SLOT shape:
+;; path), and a renderer trusting it would strike the KEY + paint the `−`
+;; glyph. `diff-emptied?` keys the distinction off the SLOT shape:
 ;; an emptied slot's AFTER value is a present empty collection (the key
 ;; survives), whereas a dissoc'd slot's AFTER value is `missing-sentinel`.
 ;;
@@ -3754,7 +3751,7 @@
                      :path [] :depth 0 :expansion-map {} :opts {}})))
 
 (deftest c0c6a3-emptied-collection-renders-key-intact-not-removed-ghost
-  ;; rf2-0c6a3 — for EACH container family, emptying the collection (key
+  ;; For EACH container family, emptying the collection (key
   ;; intact) must render the KEY un-struck (NOT a removed ghost) with the
   ;; dropped member struck-through INSIDE the now-empty container.
   (doseq [[label k populated empty-coll member-pat]
@@ -3785,7 +3782,7 @@
             (str "the dropped " label " member text still renders"))))))
 
 (deftest c0c6a3-emptied-reads-distinct-from-dissoc
-  ;; rf2-0c6a3 — the CONTRAST the testbed wires: an emptied collection
+  ;; The CONTRAST the testbed wires: an emptied collection
   ;; (key intact) MUST read DISTINCT from a `dissoc` of a sibling key (the
   ;; struck-through removed ghost). The discriminator: an emptied key's
   ;; cell is intact; a dissoc'd key's cell is struck + `−` glyph + the node
@@ -3816,7 +3813,7 @@
         "emptied vs dissoc render DISTINCTLY (ghost present only for dissoc)")))
 
 (deftest c0c6a3-diff-emptied-predicate
-  ;; rf2-0c6a3 — the render-side discriminator. True for a populated→empty
+  ;; The render-side discriminator. True for a populated→empty
   ;; same-family collection (key intact); false for a real key removal
   ;; (after missing), a populated→populated change, and a type flip.
   (testing "emptied same-family collections — true"
@@ -3840,24 +3837,21 @@
         "scalar→empty-set is not a container emptying")))
 
 ;; =========================================================================
-;; rf2-e28r3 — single render path: value (always) + before (optional)
+;; Single render path: value (always) + before (optional)
 ;; =========================================================================
 ;;
 ;; The widget has ONE renderer. With a `:before` pre-image present the
 ;; tree paints inline diff annotations + the R4 op-coloured rail + R3
 ;; chip on change-bearing containers; with no pre-image the SAME renderer
-;; shows the value plainly (no rail, no chip, no annotation). The former
-;; `:full-with-diff?` flag — which gated the rail/chip on a defunct
-;; mode-2-vs-mode-3 distinction — is GONE; the rail now keys directly on
-;; `has-change?` (which itself implies `:diff?`).
+;; shows the value plainly (no rail, no chip, no annotation). The rail
+;; keys directly on `has-change?` (which itself implies `:diff?`).
 
 (deftest with-before-paints-rail-on-change-bearing-container
-  (testing "rf2-e28r3 — a `:before` pre-image renders the change-bearing
+  (testing "a `:before` pre-image renders the change-bearing
             container with the R4 rail (`data-rf-rail`); modified leaves
             carry the `← was <prior>` annotation. The rail paints on a
             container whose OWN op is added/removed/modified (a newly-
-            added nested map here), the only chrome now that the
-            `:full-with-diff?` flag is gone."
+            added nested map here)."
     (let [before {:a 1}
           after  {:a 1 :nested {:x 1 :y 2}}
           proj   (engine/project before after)
@@ -3895,7 +3889,7 @@
        (remove nil?)))
 
 (deftest value-only-render-has-no-rail-or-annotation
-  (testing "rf2-e28r3 — with NO pre-image (`:diff?` absent) the same
+  (testing "with NO pre-image (`:diff?` absent) the same
             renderer shows the value plainly: no R4 rail, no `← was`
             annotation, no painted diff-op markers"
     (let [v {:counter 2 :stable :x :nested {:deep 1}}
@@ -3916,7 +3910,7 @@
           "the value's keys still render"))))
 
 ;; =========================================================================
-;; rf2-zpeyv — slot-vs-value anchoring (R2 + R6 whole-row treatment)
+;; Slot-vs-value anchoring (R2 + R6 whole-row treatment)
 ;; =========================================================================
 ;;
 ;; When the SLOT itself changes (key added / removed), the per-op wash
