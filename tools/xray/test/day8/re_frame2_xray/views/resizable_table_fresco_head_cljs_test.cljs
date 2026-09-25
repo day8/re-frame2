@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.views.resizable-table-fresco-head-cljs-test
-  "rf2-fcy5 slice 1b — the shared resizable-table's FRESCO SIBLING.
+  "The shared resizable-table's FRESCO SIBLING.
 
-  `views/resizable_table.cljs` now ships two heads over one renderer:
+  `views/resizable_table.cljs` ships two heads over one renderer:
   `resizable-table`, the Reagent `reg-view`, and `resizable-table-view`,
   the `rf.fresco/defview` boundary. Same props, same output; they differ
   only in how they resolve the column-widths read and the frame-bound
@@ -58,23 +58,18 @@
   scopes the SAME frame the boundary renders under, which is a match
   rather than a conflict.
 
-  ## WHO ADOPTS `resizable-table-view` (rf2-k97c.3)
+  ## WHO ADOPTS `resizable-table-view`
 
-  This section used to read \"Nothing adopts `resizable-table-view`\" —
-  the two consumer panels migrated on their own beads, and until their
-  own mounts were boundaries they had to keep mounting the Reagent head.
-  BOTH HAVE SINCE MIGRATED, so all five production call sites now head
-  the boundary: `panels/epoch/view.cljs` ×3 and `panels/trace.cljs` ×2.
-  The Reagent head has no production call site left.
+  All five production call sites head the boundary:
+  `panels/epoch/view.cljs` ×3 and `panels/trace.cljs` ×2. The Reagent
+  head has no production call site.
 
-  That does NOT make the rows below vestigial, and they are the reason
-  this namespace is still the right home for them. A Fresco boundary in
+  The rows below grade live contracts. A Fresco boundary in
   a Reagent head position is the mirror of the failure
   `reagent-head-is-invalid-to-the-codec` pins, and that refusal is what
-  makes a revert of either panel LOUD rather than silent — so the row
-  grades a live contract, not a historical one. `both-heads-resolve-the-
-  same-widths` likewise still has two heads to compare: the Reagent one
-  survives as the tree's only public pure-render door into the private
+  makes either panel mounting the Reagent head LOUD rather than silent.
+  `both-heads-resolve-the-same-widths` has two heads to compare: the
+  Reagent one is the tree's only public pure-render door into the private
   `render-table` (see its own docstring for the four namespaces that
   depend on it)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -129,7 +124,7 @@
 ;; ---- (1) the codec's own answer ----------------------------------------
 
 (deftest heads-are-what-the-codec-says-they-are
-  (testing "rf2-fcy5 slice 1b — `head-kind` is the renderer's own answer,
+  (testing "`head-kind` is the renderer's own answer,
             asked in both directions. Both heads are `def`s and neither
             spelling can be told from the other by looking; only the codec
             knows."
@@ -145,10 +140,9 @@
          answer rather than a default")))
 
 (deftest reagent-head-is-invalid-to-the-codec
-  (testing "rf2-fcy5 slice 1b — the refusal a consumer panel would meet if
-            it kept `[rt/resizable-table …]` after its own mount became a
-            boundary. It is LOUD, which is why both heads can ship at once
-            and why the panels can migrate one at a time."
+  (testing "the refusal a consumer panel meets if it mounts
+            `[rt/resizable-table …]` inside a boundary. It is LOUD,
+            which is why both heads can ship at once."
     (let [thrown (try
                    (rf.fresco.impl.codec/as-element [rt/resizable-table (opts)])
                    nil
@@ -173,7 +167,7 @@
   (:data-testid (rf.fresco.test/attrs node)))
 
 (deftest fresco-head-runs-and-reads-the-column-widths-slot
-  (testing "rf2-fcy5 slice 1b — the boundary body runs on the runtime's own
+  (testing "the boundary body runs on the runtime's own
             body-run path under exactly ONE read fixture. A body reading a
             key no fixture answers is refused by name, so a green run here
             IS the assertion that the read is
@@ -191,12 +185,11 @@
            read and not the track syntax."))))
 
 (deftest fresco-head-emits-the-gutters-as-native-nodes
-  (testing "rf2-fcy5 slice 1b — the gutters are the half that USED to be
-            impossible under a boundary: `header-gutter` held a Form-2
-            Reagent Ratom for its hover flag, so it sat in head position
-            as a plain `defn` and the codec refused it. With the hover
-            moved to CSS it is a pure fn the weaver CALLS, so what the
-            Fresco tree carries here is N-1 ordinary divs."
+  (testing "the gutters under a boundary: a Form-2 Reagent Ratom for the
+            hover flag would put `header-gutter` in head position as a
+            plain `defn`, which the codec refuses. With the hover in CSS
+            it is a pure fn the weaver CALLS, so what the Fresco tree
+            carries here is N-1 ordinary divs."
     (let [tree    (fresco-tree)
           gutters (rf.fresco.test/find-all tree #(some-> (testid-of %)
                                              (.startsWith "rf-xray-resizable-gutter-")))]
@@ -210,14 +203,13 @@
       (is (every? #(= "transparent" (:background (style-of %))) gutters)
           "no hover state to render — the accent is the global CSS rule's")
       (is (every? #(contains? (:events %) :on-pointer-down) gutters)
-          "the drag affordance survives the migration"))))
+          "every gutter carries the drag affordance"))))
 
 (deftest fresco-head-emits-every-row-with-the-consumers-key
-  (testing "rf2-fcy5 slice 1b — the row weaver's output under the boundary.
-            Slice 1 moved these keys out of metadata and into the attrs
-            map precisely so this would hold; this is that fix observed
-            through a real Fresco body run rather than through the codec's
-            element door alone."
+  (testing "the row weaver's output under the boundary. The keys sit in
+            the attrs map rather than in metadata precisely so this
+            holds; this row observes it through a real Fresco body run
+            rather than through the codec's element door alone."
     (let [tree (fresco-tree)
           rows (rf.fresco.test/find-all tree #(some-> (testid-of %) (.startsWith "r-")))]
       (is (= 2 (count rows)) "one node per row")
@@ -227,7 +219,7 @@
 ;; ---- (3) the two heads agree ------------------------------------------
 
 (deftest both-heads-resolve-the-same-widths
-  (testing "rf2-fcy5 slice 1b — one renderer, two reads. The Reagent head
+  (testing "one renderer, two reads. The Reagent head
             resolves the slot through its `reg-view`-injected `subscribe`
             and the boundary through `rf.fresco/sub`; with the SAME
             overrides in play both must produce the same grid template.
