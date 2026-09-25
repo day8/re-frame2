@@ -106,7 +106,7 @@ the sanctioned sites the spec calls out:
      durable-write file uses the explicit per-site `#_:rf.world/ambient-ok`
      escape, not ambient proximity to a debug flag.
 
-The gate is line-local on the field-key match but consults a small +/-3-line
+The gate is line-local on the field-key match but consults a small +/-6-line
 window for the form-allowlist wrappers (mirrors the SSR-redirect window in
 `check_retired_spellings.py`). It does NOT do dataflow: a value bound to a name
 far from the durable key (`(let [t (interop/now-ms)] {:loaded-at t})`) is the
