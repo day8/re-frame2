@@ -113,8 +113,8 @@
 
 ;; ---- pure: resolve a source-coord to a launchable URI --------------------
 ;;
-;; Per rf2-r2un8 (porting Xray's structure): URI building is extracted
-;; into one helper so the chip path and the dispatch path share the same
+;; Following Xray's structure, URI building lives
+;; in one helper so the chip path and the dispatch path share the same
 ;; logic — chip's `:href`, chip's `:on-click`, the inspector launcher, and
 ;; the `:rf.story/open-in-editor` event all call `resolve-uri`.
 
@@ -155,7 +155,7 @@
     - A bare display string `\"file:line\"` (defensive).
 
   Returns the map form; callers feed it to `rf.source-coords.editor-uri/editor-uri`
-  unchanged. Mirrors Xray's `coerce-coord` (rf2-r2un8 port)."
+  unchanged. Mirrors Xray's `coerce-coord`."
   [payload]
   (let [unwrapped (if (and (map? payload) (contains? payload :source-coord))
                     (:source-coord payload)
@@ -168,32 +168,32 @@
 (defn resolve-uri
   "Pure-data: source-coord → launchable URI string, or nil. Returns nil
   when the coord lacks `:file` or when `rf.source-coords.editor-uri/editor-uri` returns
-  nil (a forbidden scheme per rf2-vwcsq — `javascript:` / `data:` /
-  `vbscript:`). Per rf2-ox357n there is no positive allowlist: any
+  nil (a forbidden scheme — `javascript:` / `data:` /
+  `vbscript:`). There is no positive allowlist: any
   non-dangerous scheme (built-in or unknown custom) passes through.
 
-  Per rf2-zfy1e: threads the configured project-root through
+  Threads the configured project-root through
   `rf.source-coords.editor-uri/editor-uri`'s 3-arg form so a classpath-relative source-
   coord (the common case — macros capture the form-meta `:file` slot,
   typically classpath-relative) resolves to an absolute on-disk path
   the OS-side editor handler can find. The `:project-root` opt is
-  nil-tolerant — when unset, behaviour matches v1 (file ships
-  verbatim) so legacy hosts and tests aren't broken.
+  nil-tolerant — when unset, the file ships
+  verbatim, so hosts and tests that set no project root keep working.
 
   The chip render path, `open-source-coord!` (element-inspector), and
   the `:rf.story.fx/open-in-editor` reg-fx all call this — one source of truth for
   the URI shape across the data path and the side-effect path. Mirrors
-  Xray's `resolve-uri` (rf2-r2un8 port)."
+  Xray's `resolve-uri`."
   [source-coord]
   (when (rf.source-coords.editor-uri/has-source? source-coord)
     (let [opts {:project-root (rf.story.config/get-project-root)}]
       ;; `editor-uri` already denylist-gates the resolved URI inline at
-      ;; build time (rf2-vwcsq), returning nil on a forbidden scheme.
+      ;; build time, returning nil on a forbidden scheme.
       (rf.source-coords.editor-uri/editor-uri (rf.story.config/get-editor) source-coord opts))))
 
 ;; ---- side-effect: open the editor ----------------------------------------
 ;;
-;; Per rf2-muvs8: the navigator seam is held in an atom so tests can swap
+;; The navigator seam is held in an atom so tests can swap
 ;; it without trying to override `window.location` (which is non-
 ;; configurable in modern browsers and throws under `defineProperty`).
 ;; Production code uses the default `default-navigator!`; tests rebind
@@ -203,11 +203,11 @@
   "Default navigation seam: `(.assign js/window.location uri)`.
 
   Uses `(.assign location uri)` rather than
-  `(set! (.-location js/window) uri)` (the original implementation).
+  `(set! (.-location js/window) uri)`.
   Both should be semantically equivalent — the property-setter on
   `window.location` calls `Location.assign` internally per the HTML
-  spec — but per rf2-muvs8 some Chromium builds on Windows have been
-  observed to silently no-op the property-assignment form for non-
+  spec — but some Chromium builds on Windows
+  silently no-op the property-assignment form for non-
   http(s) schemes while honouring the explicit `.assign` call from
   the same click handler. `.assign` is the more reliable seam."
   [uri]
@@ -215,13 +215,13 @@
 
 (defonce ^:private navigator
   ;; Held in an atom so tests can swap (`set-navigator!`). Production
-  ;; code never reassigns it. Per rf2-muvs8.
+  ;; code never reassigns it.
   (atom default-navigator!))
 
 (defn set-navigator!
   "Replace the navigation seam used by `open!`. Returns the previous
   seam so tests can restore it. Test-only — production callers MUST
-  NOT call this. Per rf2-muvs8."
+  NOT call this."
   [f]
   (let [prev @navigator]
     (reset! navigator f)
@@ -232,32 +232,30 @@
   seam (default `Location.assign`). Custom URI schemes hand off to
   the OS handler chain. Returns nothing.
 
-  Public so the element-inspector (rf2-h0jc0), the `:rf.story.fx/open-in-editor`
+  Public so the element-inspector, the `:rf.story.fx/open-in-editor`
   reg-fx (registered in `install!`), and any host panel that wants the
   click-time gate can share the exact same launcher. One launcher, one
   denylist seam.
 
-  Per rf2-vwcsq + rf2-ox357n: this fn re-applies the cheap scheme
+  This fn re-applies the cheap scheme
   denylist (`rf.source-coords.editor-uri/forbidden-scheme?`) before handing the URI off.
   A URI built via `resolve-uri` was already denylist-gated at build
   time, but the `:rf.story.fx/open-in-editor` reg-fx also accepts a pre-resolved
   `{:uri ...}` arg that bypasses build-time gating — so the denylist
   must fire here too. A URI on a forbidden scheme (`javascript:` /
   `data:` / `vbscript:`, case-insensitive, leading-whitespace tolerant)
-  is a click-time no-op. Per rf2-ox357n there is no positive allowlist:
+  is a click-time no-op. There is no positive allowlist:
   unknown custom non-dangerous schemes navigate as the developer
   intended (the spec mandates a rejection list, not an allowlist).
 
-  Per rf2-muvs8: emits a `console.log` of the URI before navigation so
+  Emits a `console.log` of the URI before navigation so
   developers can diagnose silent OS-handler failures (relative paths,
   unregistered protocol handlers, etc.) without needing a debugger
   break. The log is a single line per click — low noise.
 
-  Per rf2-muvs8: navigation goes through `@navigator` (the atom-held
+  Navigation goes through `@navigator` (the atom-held
   seam, default `default-navigator!`) rather than a direct
-  `(.assign js/window.location uri)` call — `(set! ...)` was the
-  original implementation and the bug it caused (silent click on
-  Windows + VSCode) is what rf2-muvs8 fixed. The atom seam lets
+  `(.assign js/window.location uri)` call. The atom seam lets
   tests stub the navigation without mutating `js/window.location`
   (which is non-configurable in modern browsers)."
   [uri]
@@ -266,26 +264,26 @@
     (@navigator uri)
     nil))
 
-;; ---- Option B: prefer the dev-server endpoint (rf2-wn3bh) -----------------
+;; ---- Option B: prefer the dev-server endpoint ----------------------------
 ;;
 ;; The JS-ecosystem-standard jump-to-source path (Vite /__open-in-editor,
 ;; react-dev-utils, Next) is a dev-server endpoint that resolves the
 ;; (classpath-relative) source-coord against the live source-paths on the
-;; dev machine at runtime and launches the editor via launch-editor. This
-;; is ADDITIVE: `open-coord!` first tries the endpoint
+;; dev machine at runtime and launches the editor via launch-editor.
+;; `open-coord!` first tries the endpoint
 ;; (`rf.source-coords.open-endpoint/open-coord!`); on any failure (no dev server, network
 ;; error, non-2xx — static export / non-shadow host / production
-;; inspection) it falls back to navigating the historic `editor://` URI via
-;; `open!`. The URI path is never removed. Mirrors Xray's `open-coord!`.
+;; inspection) it falls back to navigating the `editor://` URI via
+;; `open!`, so the URI path is always there. Mirrors Xray's `open-coord!`.
 
 (defn open-coord!
   "Open `source-coord` in the configured editor, PREFERRING the dev-server
-  endpoint (Option B, rf2-wn3bh) and FALLING BACK to the `editor://` URI
+  endpoint (Option B) and FALLING BACK to the `editor://` URI
   navigation (`open!`) when no dev server is present.
 
   The source-coord is sent verbatim to the endpoint (the server resolves a
   classpath-relative `:file` at runtime); the URI fallback resolves the
-  coord through `resolve-uri` (rf2-zfy1e project-root prefix + the
+  coord through `resolve-uri` (project-root prefix + the
   build-time scheme denylist). When the coord cannot produce a usable
   URI either, the fallback is a harmless no-op. Returns nothing."
   [source-coord]
@@ -304,7 +302,7 @@
 
   Returns nil when the source-coord has no usable `:file` slot or when
   `rf.source-coords.editor-uri/editor-uri` returns nil (a forbidden scheme rejected by
-  the `editor-uri`-side denylist per rf2-vwcsq). Per rf2-ox357n there is
+  the `editor-uri`-side denylist). There is
   no positive allowlist — any non-dangerous scheme produces a chip. The
   UI hides the chip rather than rendering an unclickable affordance.
 
@@ -338,7 +336,7 @@
                            ;; tries to render the custom URI inside
                            ;; the tab); route through `open-coord!`,
                            ;; which prefers the dev-server endpoint
-                           ;; (Option B, rf2-wn3bh) and falls back to
+                           ;; (Option B) and falls back to
                            ;; this `:href`'s `editor://` URI when no dev
                            ;; server is present.
                            (.preventDefault e)
@@ -347,11 +345,11 @@
 
 (defn open-source-coord!
   "Open `source-coord` in the configured editor, PREFERRING the dev-server
-  endpoint (Option B, rf2-wn3bh) and FALLING BACK to the `editor://` URI
+  endpoint (Option B) and FALLING BACK to the `editor://` URI
   via `open!`. Returns true when the coord has a usable `:file` (so the
   launch was attempted), false otherwise (missing :file).
 
-  This is the imperative path the element-inspector (rf2-h0jc0) uses
+  This is the imperative path the element-inspector uses
   when the user clicks a DOM element while inspector mode is on. The
   chip's `:on-click` (above) takes the same shape — `open-coord!` is the
   single launcher both paths share.
@@ -376,23 +374,22 @@
 
 ;; ---- registration: the data-driven open-in-editor path ------------------
 ;;
-;; Per rf2-r2un8 (porting Xray's structure): a dispatch-based path
+;; Following Xray's structure: a dispatch-based path
 ;; alongside the imperative chip. Hosts that don't render the chip
 ;; directly — agents replaying via MCP, custom Story-host panels — can
 ;; dispatch `[:rf.story/open-in-editor coord]` and let the registered
 ;; fx fire the URI through the same denylist gate the chip uses. The
-;; `:rf.story.fx/open-in-editor` reg-fx is Story-owned (rf2-5ot1d): it
+;; `:rf.story.fx/open-in-editor` reg-fx is Story-owned: it
 ;; closes over Story's editor, project-root and navigator, so it gets a
 ;; Story-scoped id. Xray registers its own distinct
 ;; `:rf.xray.fx/open-in-editor`; co-loading the two tools in either
-;; order is now inert, because neither writes the other's registration.
+;; order is inert, because neither writes the other's registration.
 ;; The genuinely shared machinery (URI build, scheme denylist,
 ;; dev-server endpoint fallback) is shared as core fns in
 ;; `re-frame.source-coords.*`, not as a shared registration.
 
 (defn install!
-  "Idempotent install for the dispatch-side open-in-editor wiring
-  (rf2-r2un8).
+  "Idempotent install for the dispatch-side open-in-editor wiring.
 
   Registers two framework primitives:
 
@@ -403,9 +400,9 @@
       and returns `{:fx [[:rf.story.fx/open-in-editor {:uri ...}]]}`.
 
     - `:rf.story.fx/open-in-editor` reg-fx — the side-effectful
-      launcher. Calls `open!` (which re-applies the rf2-vwcsq scheme
+      launcher. Calls `open!` (which re-applies the scheme
       denylist + writes `window.location` via the navigator seam).
-      Story-owned and Story-scoped (rf2-5ot1d): it resolves through
+      Story-owned and Story-scoped: it resolves through
       Story's editor preference, project root and navigator seam.
       Xray's parallel `:rf.xray.fx/open-in-editor` is a separate
       registration, so load order between the two tools carries no
@@ -426,15 +423,15 @@
   ;;
   ;; Side-effect handler. Arg shapes accepted:
   ;;
-  ;;   {:source-coord {:file ... :line ...}} — PREFERRED (rf2-wn3bh):
+  ;;   {:source-coord {:file ... :line ...}} — PREFERRED:
   ;;       opens via `open-coord!`, which tries the dev-server endpoint
   ;;       first (Option B) then falls back to the `editor://` URI.
   ;;   {:uri "vscode://..."}                 — pre-resolved URI only;
   ;;       navigates the URI directly via `open!` (the endpoint needs the
   ;;       structured coord, so a uri-only arg uses the URI path).
   ;;
-  ;; Per rf2-wn3bh the event now emits `:source-coord` (not `:uri`) so
-  ;; the endpoint is preferred; the `:uri` shape stays for callers that
+  ;; The event emits `:source-coord` (not `:uri`) so
+  ;; the endpoint is preferred; the `:uri` shape serves callers that
   ;; hold a pre-resolved URI.
   ;;
   ;; Xray owns a separate `:rf.xray.fx/open-in-editor`; the two ids are
@@ -462,7 +459,7 @@
         ;; bookkeeping in one place + makes the fx the single
         ;; instrumentable seam for replay/dev-tools.
         ;;
-        ;; Per rf2-wn3bh emit the structured `:source-coord` (not a
+        ;; Emit the structured `:source-coord` (not a
         ;; pre-resolved `:uri`) so `:rf.story.fx/open-in-editor` can
         ;; prefer the dev-server endpoint and fall back to the URI.
         {:fx [[:rf.story.fx/open-in-editor {:source-coord coord}]]}))))
