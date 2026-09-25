@@ -33,7 +33,7 @@
 ;; Without it `run-variant` is INERT and silent: setup dispatches reach no
 ;; adapter, the script plays nothing, and the run still returns `:status
 ;; "pass"` over an empty app-db and zero assertions — the same success envelope
-;; a genuine run returns (measured under rf2-3n3dk). `init!` is idempotent.
+;; a genuine run returns. `init!` is idempotent.
 (rf/init! rf.substrate.plain-atom/adapter)
 
 ;; The fixture project's own event — an ordinary `reg-event`, registered at
@@ -60,7 +60,7 @@
 ;; contract deliberately grades an assertion-free variant `:pass`
 ;; (tools/story/src/re_frame/story/result.cljc §Status), so a variant with no
 ;; :setup and no :script returns the SAME success envelope whether the
-;; lifecycle ran or not — which is exactly the false green rf2-3n3dk removed.
+;; lifecycle ran or not — which would make the witness a false green.
 ;;
 ;;   phase 2 :setup  — dispatches the fixture project's own event, seeding
 ;;                     `[:fixture-app/article :headline]` in the frame's app-db
