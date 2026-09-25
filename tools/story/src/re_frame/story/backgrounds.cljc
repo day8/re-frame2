@@ -1,6 +1,6 @@
 (ns re-frame.story.backgrounds
   "Backgrounds switcher — preset table + pure state model + localStorage
-  helpers (rf2-zll4h).
+  helpers.
 
   Mirrors Storybook's `addon-backgrounds`: a toolbar dropdown that swaps
   the canvas background colour so an author can review the same story
