@@ -33,8 +33,8 @@
 (def ^:private core-ns "re-frame.core")
 
 (def ^:private min-references
-  "Non-vacuous floor (rf2-utvst). The guide carries ~504 live `(rf/<var>`
-   references across ~30 chapters; this floor sits an order of magnitude
+  "Non-vacuous floor. The guide carries several hundred live `(rf/<var>`
+   references (the check reports the count); this floor sits far
    below that, so it trips only on a near-total collapse (the guide dir
    moved, the `(rf/<var>` extraction broke, the alias convention changed) —
    the cases that would otherwise turn the gate into a vacuous green —
@@ -42,8 +42,8 @@
   100)
 
 (defn reconcile
-  "Pure reconciler (rf2-hk6wd2 — extracted so the file-scoped allowlist
-   contract is unit-testable with synthetic inputs). Returns the seq of
+  "Pure reconciler, so the file-scoped allowlist
+   contract is unit-testable with synthetic inputs. Returns the seq of
    problem maps for the supplied call-position references.
 
    `references`  — `[{:var :line :raw :file} ...]` (`:file` repo-relative).
@@ -80,20 +80,18 @@
         core-vars    (set (map :var (rf.api-manifest.projection/rows-in-ns rows core-ns)))
         scoped-allow (:doc-guide-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar))
         dir          (rf.api-manifest.projection/repo-file "docs" "core")
-        ;; require-markdown-files (rf2-utvst): fail loudly if docs/core/
+        ;; require-markdown-files: fail loudly if docs/core/
         ;; moves or is renamed, rather than silently checking zero files.
         ;;
-        ;; EXCLUDE docs/core/api/** — the framework API REFERENCE tree. It
-        ;; lives under docs/core/ (Core's API section) but is the
-        ;; doc-api-check surface, not guide teaching prose. doc-api-check
+        ;; EXCLUDE docs/core/api/** — API REFERENCE prose is the
+        ;; doc-api-check surface, not guide teaching prose (the reference
+        ;; itself lives at docs/api/, outside this scan). doc-api-check
         ;; resolves its call-position `(rf/<var>` references with
         ;; CROSS-NAMESPACE bare-name latitude — the reference legitimately
         ;; names re-frame.core, re-frame.machines, … vars under the one `rf`
         ;; alias. doc-guide-check resolves only against re-frame.core, so
-        ;; scanning the API reference here would false-positive on every
-        ;; non-core surface it names (e.g. `rf/machine-by-system-id`). doc-api-check
-        ;; already covers this subtree for BOTH var-resolution and
-        ;; keyword-drift, so the exclusion loses no coverage.
+        ;; scanning an API reference here would false-positive on every
+        ;; non-core surface it names.
         guide-files  (->> (rf.api-manifest.projection/require-markdown-files "docs/core/" dir)
                           (remove #(str/starts-with? (rf.api-manifest.projection/repo-relative %)
                                                      "docs/core/api/")))
