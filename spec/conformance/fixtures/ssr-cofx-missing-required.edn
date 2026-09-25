@@ -1,6 +1,6 @@
 ;; Conformance fixture: ssr/cofx-missing-required
 ;;
-;; rf2-sb47ni — the NEGATIVE half of the EP-0017 provided-recordable SSR
+;; The NEGATIVE half of the EP-0017 provided-recordable SSR
 ;; contract (companion to `ssr-cofx-provided-recordable.edn`). A server handler
 ;; DECLARES a provided recordable boundary fact via `:rf.cofx/requires`, but the
 ;; dispatch token does NOT carry the value under `:rf.cofx`. A `:provided?` fact
@@ -12,7 +12,7 @@
 ;; nil into app state.
 ;;
 ;; The dispatch carries `:expect-error :rf.error/missing-required-cofx`; the SSR
-;; conformance runner (rf2-sb47ni) asserts the dispatch threw an `ex-info`
+;; conformance runner asserts the dispatch threw an `ex-info`
 ;; whose `:rf.error/id` ex-data slot equals that id (mirrors the core runner's
 ;; `:expect-error` convention). The handler body never runs, so no `:never`
 ;; slot is written.
