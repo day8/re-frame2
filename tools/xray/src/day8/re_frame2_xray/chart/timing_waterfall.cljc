@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.chart.timing-waterfall
   "Wire-timing waterfall — pure SVG hiccup primitive for the
-  managed-fx wire-boundary diff panel (rf2-uyp86).
+  managed-fx wire-boundary diff panel.
 
   ## Why a separate ns
 
@@ -43,11 +43,10 @@
 ;; SVG `<text>` does not inherit the panel's CSS font-size cascade, so the
 ;; waterfall must paint a literal size. It reads the shared `:caption`
 ;; type-scale token (≈11px at the default knob) — the panel's
-;; secondary-label level — rather than the `:micro` refused-floor (≈10px)
-;; the labels used to sit at, which read uncomfortably small in live use
-;; (rf2-zyjm7). A token (calc-string) keeps the chart on the one-knob
-;; `--rf-xray-font-size` scale with the rest of the shell. Fits the 16px
-;; `row-height` comfortably.
+;; secondary-label level — rather than the `:micro` refused-floor (≈10px),
+;; which reads uncomfortably small in live use. A token (calc-string)
+;; keeps the chart on the one-knob `--rf-xray-font-size` scale with the
+;; rest of the shell. Fits the 16px `row-height` comfortably.
 (def ^:private label-font-size (:caption tokens/type-scale))
 
 (def ^:private row-height 16)
@@ -70,11 +69,11 @@
       and draws a zero-width bar: it is a real measurement rather than a
       bogus row — the managed-fx wire-timing readers emit
       `[[:issued 0] [:elapsed N]]` deliberately, `:issued` being the
-      instant the window opens rather than a span. Dropping it collapsed
-      that waterfall to a single bar and made [[bar-fill]]'s `:issued`
+      instant the window opens rather than a span. Dropping it would collapse
+      that waterfall to a single bar and make [[bar-fill]]'s `:issued`
       accent arm unreachable. The renderer clamps bar width with
-      `(max 1 …)`, so a zero-width row was always safe to draw.
-      `slowest-phase` below stays on `pos?` — a zero-length phase can
+      `(max 1 …)`, so a zero-width row is safe to draw.
+      `slowest-phase` below filters on `pos?` — a zero-length phase can
       never be the slowest.
     - `:width-pct` is `duration / total` ratio clamped to `[0, 1]`.
     - `:offset-pct` is the running sum of preceding widths — supports
