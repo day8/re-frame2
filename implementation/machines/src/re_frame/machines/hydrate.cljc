@@ -62,7 +62,18 @@
   It runs NO cascade. No `:entry`, no `:exit`, no `:action`, no `:raise`,
   no `:spawn`, no `:always` — none of the historical effects the server
   already performed are replayed, and no snapshot is written (the epoch is
-  read, never bumped). The only thing this seam creates is host work.
+  read, never bumped). Beside host work, the only thing this seam writes is
+  classification.
+
+  ## Classification is re-derived, not installed
+
+  A machine's `:sensitive` / `:large` declaration is lowered per actor into
+  the frame's elision registry at spawn and at singleton first boot. An
+  installed snapshot reaches neither, and the registry itself rides neither
+  the SSR wire nor a persisted machines subtree. So before the timer work,
+  and on every platform, each installed actor's claims are lowered again from
+  the spec dispatch resolves for it, so the installed state needs no
+  classification of its own.
 
   ## Remaining duration: the FULL declared delay
 
@@ -90,12 +101,13 @@
   rules that restore MUST NOT revive host work. The asymmetry is real and
   intended: restore rewinds a timeline that already ran its host work,
   while hydration establishes host work that was never armed at all. This
-  namespace is reached only from the `:rf/hydrate` seam and shares no
-  callback with restore.
+  namespace is reached only from the two installers, `:rf/hydrate` and
+  `:rf/install-frame-state`, and shares no callback with restore.
 
   Pure / host-agnostic CLJC apart from the one arming call — the walk is a
   pure function of `[spec snapshot]` and is tested as such."
   (:require [re-frame.frame :as rf.frame]
+            [re-frame.machines.classification :as rf.machines.classification]
             [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.paths :as rf.machines.paths]
@@ -229,6 +241,38 @@
              decl  (active-after-decls spec snapshot)]
          (assoc decl :actor-id actor-id :snapshot snapshot))))
 
+(defn- lower-installed-classification!
+  "Re-derive the machine-owned `:sensitive` / `:large` claims of every actor
+  in the installed `snapshots` into `frame-id`'s elision registry.
+
+  An installer brings back snapshots but not those claims: they live in
+  `:rf.runtime/elision`, which neither a persisted machines subtree nor the
+  SSR wire carries, and an installed snapshot never boots or spawns, so the
+  birth-time lowering never reaches it. Each actor's spec resolves the way
+  dispatch resolves it — a singleton through the destination's registrar, a
+  spawned actor through its snapshot's `:rf/machine-type` (the registered
+  type it names, or the inline definition it was spawned with) — so the
+  claims come from the definition that runs the actor, never from its
+  `:data`.
+
+  This is `rf.machines.classification/lower-at-spawn!` run once per actor, so
+  the claims land under each actor's own owner, union with every other
+  owner's claim on the same path, and re-installing the same actor adds
+  nothing. An actor whose spec declares no classification, or resolves to no
+  spec, is a no-op. Stops as soon as `owner-gone?` reports a same-id successor,
+  so no claim derived from this frame's snapshots lands in another's registry."
+  [frame-id snapshots owner-gone?]
+  (let [owner-token (rf.frame/current-event-owner-token)]
+    (loop [entries (seq snapshots)]
+      (when (and entries (not (owner-gone?)))
+        (let [[actor-id snapshot] (first entries)]
+          (when (map? snapshot)
+            (rf.machines.classification/lower-at-spawn!
+              frame-id actor-id
+              (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)
+              owner-token)))
+        (recur (next entries))))))
+
 (defn rearm-after-timers!
   "RECONCILE the host-side `:after` timer table for `frame-id` to the
   machine snapshots its runtime-db currently holds. The body behind the
@@ -237,6 +281,11 @@
   installers has committed its runtime-db — a valid `:rf/hydrate` (the SSR
   payload) or a valid `:rf/install-frame-state` (an app's persisted
   frame-state, whose machines subtree is the snapshots it saved).
+
+  Before any timer work, and on every platform, it re-derives each installed
+  actor's machine-owned classification (`lower-installed-classification!`),
+  so the installing event has classified every restored value before it
+  completes.
 
   A reconcile, not a union. An installer replaces the machines subtree WHOLESALE
   while the timer table — host state — survives the replacement untouched,
@@ -260,7 +309,7 @@
        key, so repeating an identical hydration leaves one handle per
        declaration rather than two.
 
-  Refuses a `:server` frame — the frame's own `:platform` config resolved
+  The timer phases refuse a `:server` frame — the frame's own `:platform` config resolved
   the way `registration/prepare-machine-ctx` resolves it, so this seam and
   `build-after-fx`'s server-skip can never disagree about which platform a
   frame is. A frame with no `:platform` config is a client (the machines
@@ -297,6 +346,7 @@
 
   So the reconcile captures the owning incarnation ONCE, before either
   phase, and every callback-bearing step is fenced by that ONE predicate:
+  the classification loop rechecks it before each actor's registry write,
   the cancel batch short-circuits on it, the arm loop
   rechecks it before each declaration, and each arm carries it down into
   `schedule-after-timer!` in place of a fresh capture — where it fences
@@ -308,33 +358,36 @@
   accepts the work without complaint. The loop is explicit rather than a
   `doseq` for exactly that recheck.
 
-  Returns nil; the only observables are the timer table, one
-  `:rf.machine.timer/scheduled` trace per armed declaration, and one
-  `:rf.machine.timer/cancelled` trace per released one."
+  Returns nil; the only observables are the frame's elision registry, the
+  timer table, one `:rf.machine.timer/scheduled` trace per armed
+  declaration, and one `:rf.machine.timer/cancelled` trace per released one."
   [frame-id]
-  (when (and frame-id
-             (not= :server (or (:platform (rf.frame/frame-meta frame-id)) :client)))
+  (when frame-id
     ;; Captured BEFORE anything callback-bearing runs, so it names the
-    ;; incarnation whose runtime-db the declarations below are read from.
+    ;; incarnation whose runtime-db the snapshots below are read from.
     (let [owner-gone? (rf.machines.timer/successor-published?-fn frame-id)
           snapshots   (get-in (rf.frame/frame-runtime-db-value frame-id)
-                              (rf.machines.paths/snapshot-path))
-          live        (live-declarations snapshots)]
-      ;; PHASE 1 — release the host work the replacement snapshots dropped.
-      ;; Before the arm, so a declaration that survives is superseded by its
-      ;; own re-arm rather than cancelled and re-created.
-      (rf.machines.timer/cancel-timers-absent-from!
-        frame-id
-        (into #{} (map (juxt :actor-id :invoke-id :delay-key)) live)
-        (set (keys snapshots))
-        owner-gone?)
-      ;; PHASE 2 — arm / supersede the live set, while the frame is still the
-      ;; one these declarations were enumerated from.
-      (loop [decls live]
-        (when (and (seq decls) (not (owner-gone?)))
-          (let [decl (first decls)]
-            (rf.machines.timer/rearm-hydrated-after-timer!
-              frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
-              (:delay-key decl) (:epoch decl) (:snapshot decl) owner-gone?))
-          (recur (rest decls))))))
+                              (rf.machines.paths/snapshot-path))]
+      ;; Classification first, on every platform: a server frame arms no
+      ;; timer but still projects its machines for the wire.
+      (lower-installed-classification! frame-id snapshots owner-gone?)
+      (when (not= :server (or (:platform (rf.frame/frame-meta frame-id)) :client))
+        (let [live (live-declarations snapshots)]
+          ;; PHASE 1 — release the host work the replacement snapshots dropped.
+          ;; Before the arm, so a declaration that survives is superseded by its
+          ;; own re-arm rather than cancelled and re-created.
+          (rf.machines.timer/cancel-timers-absent-from!
+            frame-id
+            (into #{} (map (juxt :actor-id :invoke-id :delay-key)) live)
+            (set (keys snapshots))
+            owner-gone?)
+          ;; PHASE 2 — arm / supersede the live set, while the frame is still the
+          ;; one these declarations were enumerated from.
+          (loop [decls live]
+            (when (and (seq decls) (not (owner-gone?)))
+              (let [decl (first decls)]
+                (rf.machines.timer/rearm-hydrated-after-timer!
+                  frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
+                  (:delay-key decl) (:epoch decl) (:snapshot decl) owner-gone?))
+              (recur (rest decls))))))))
   nil)
