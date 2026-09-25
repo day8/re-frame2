@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Retired EP-0026 image-key guardrail — the SCOPED retirement residue gate.
 
-EP-0026 (rf2-dlvmpc) RETIRES five EP-0023 image source keys and the three
-image-capability surfaces with FAIL-LOUD rejection. The public `rf/image` value
-now accepts exactly `:id`, `:select-ns`, and `:registrations`; composition
+Under EP-0026 five EP-0023 image source keys and three image-capability
+surfaces are RETIRED, with FAIL-LOUD rejection. The public `rf/image` value
+accepts exactly `:id`, `:select-ns`, and `:registrations`; composition
 resolves by IMAGE ORDER and reports shadows via
 `(:rf.gen/shadows (rf/frame-generation f))`; framework standards are protected;
-image-declared host capabilities are removed end-to-end.
+there are no image-declared host capabilities.
 
-This gate keeps that retirement done. It fails if a RETIRED spelling reappears as
+This gate fails if a RETIRED spelling appears as
 LIVE, copy-pasteable API on the teaching/reference/source surface — outside the
 historical EP record and outside removed-context discussion.
 
@@ -32,7 +32,7 @@ The gate fires on these EXACT tokens and NOTHING else:
 CRITICAL — the gate NEVER matches the bare word `capability` / `capabilities`.
 The `:rf.capability/*` host-service vocabulary, the conformance capability ids,
 the tool capability flags, and runtime profiles are UNRELATED to the
-image-capability surface EP-0026 removed, and MUST stay green. The only
+retired image-capability surface, and MUST stay green. The only
 `:capabilities` shape that fires is a literal key INSIDE a `(... make-frame ...)`
 call (the retired image-selection key) — a bare `:capabilities` elsewhere never
 fires.
@@ -140,7 +140,7 @@ _IMAGE_ONLY_RETIRED = (
 
 # `:include-ns` / `:exclude-ns` are reused as a describe-image TOOL ARG (a
 # boolean flag toggling the returned `:registrations` — a tool capability flag
-# the bead leaves UNTOUCHED), so they fire ONLY in image/make-frame proximity,
+# this gate leaves alone), so they fire ONLY in image/make-frame proximity,
 # where they are unambiguously the retired image SELECTION key.
 _CONTEXT_RETIRED = (
     (":include-ns", re.compile(r":include-ns" + _KWEND)),
@@ -178,15 +178,15 @@ _REMOVED_CTX_WINDOW = 3
 # The gate's ADVERTISED contract — the exact token set the module docstring
 # promises, written out once so the self-test can hold the implementation to it.
 # `--self-test` asserts BOTH that the detectors emit exactly this set and that
-# every member has its own positive fixture, so a token can never again lose its
-# detector (or gain one) unnoticed. See `_run_self_tests` (rf2-e1xx0).
+# every member has its own positive fixture, so a token cannot lose its
+# detector (or gain one) unnoticed. See `_run_self_tests`.
 _ADVERTISED_KINDS = frozenset({
     ":include-ns", ":exclude-ns", ":replace-standard",
     ":rf.image/requires", ":rf.gen/requires",
     ":replace", "make-frame :capabilities",
 })
 
-# THE PRE-FILTER (rf2-e1xx0) — a SUPERSET of every detector above, and the only
+# THE PRE-FILTER — a SUPERSET of every detector above, and the only
 # reason this gate is cheap.
 #
 # Each detector's pattern begins with one of these literal substrings, so text
@@ -200,8 +200,7 @@ _ADVERTISED_KINDS = frozenset({
 # string literals become runs of spaces, length preserved). Blanking can remove a
 # token, never create one — so "no literal token anywhere in this text" implies
 # "no detector can fire here", exactly. Everything the filter skips would have
-# produced no finding; the verdicts are identical, and the equivalence is held to
-# the real corpus plus a per-token/per-context synthetic corpus in the PR.
+# produced no finding, so the verdicts are identical.
 _TOKEN_PREFILTER_RE = re.compile(
     r":replace"              # covers :replace AND :replace-standard
     r"|:rf\.image/requires"
@@ -278,7 +277,7 @@ def _mask_clj_comment(line: str) -> str:
     """Blank from the first `;` to end of line, length-preserving.
 
     `str.find` rather than a `;.*$` regex: this runs on every line of every file
-    that reaches the scanner, and the regex was ~190k searches doing what an
+    that reaches the scanner, and a regex would be a search doing what an
     index lookup does. `line` never carries its newline (it comes from
     `splitlines`), so the first `;` to the end IS the whole comment.
     """
@@ -325,8 +324,7 @@ def _code_fence_lines(text: str) -> list[tuple[int, str]]:
 # A whole Clojure string literal: the opening `"`, then any run of ordinary
 # characters or backslash-escaped pairs (so `\"` does not close early), then the
 # closing `"` — or the end of the text when the string is never closed, which
-# blanks to EOF exactly as the character scanner this replaced did. DOTALL so a
-# literal spans lines.
+# blanks to EOF. DOTALL so a literal spans lines.
 _CLJ_STRING_SPAN_RE = re.compile(r'"(?:[^"\\]|\\.)*(?:"|\\?\Z)', re.DOTALL)
 
 
@@ -346,9 +344,9 @@ def _mask_multiline_clj_strings(text: str) -> str:
     unescaped `"` closes it. Escapes (`\\"`) are honoured so an embedded quote
     does not close early.
 
-    One regex sweep, not a per-character loop: the loop was 12s of this gate's
-    runtime over the corpus, 2.6M `str.join` calls for a pass that blanks whole
-    spans (rf2-e1xx0). Newlines survive because the replacement blanks every
+    One regex sweep, not a per-character loop: a loop would cost millions of
+    `str.join` calls over the corpus for a pass that blanks whole spans.
+    Newlines survive because the replacement blanks every
     character EXCEPT `\\n`, which is what keeps line numbers honest downstream.
     """
     if '"' not in text:
@@ -413,11 +411,11 @@ def _scan_lines(lines: list[tuple[int, str]], path: Path,
     masked_by_no = {ln: s for ln, s in lines}
     findings: list[Finding] = []
     for line_no, masked in lines:
-        # PRE-FILTER (rf2-e1xx0). Every hit below requires one of the retired
+        # PRE-FILTER. Every hit below requires one of the retired
         # tokens to match THIS line, so a line carrying none of their literal
         # substrings can be skipped whole — before the two context windows are
-        # joined and before the regex battery runs. That is the 9.4M searches and
-        # the 2.6M joins: the overwhelming majority of lines contain no token.
+        # joined and before the regex battery runs, which is where the cost
+        # lies: the overwhelming majority of lines contain no token.
         if not _TOKEN_PREFILTER_RE.search(masked):
             continue
         raw_context = " ".join(
@@ -443,7 +441,7 @@ def _scan_lines(lines: list[tuple[int, str]], path: Path,
 def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
     if _is_allowlisted(rel_posix):
         return []
-    # PRE-FILTER (rf2-e1xx0). Masking only blanks characters, so a file whose RAW
+    # PRE-FILTER. Masking only blanks characters, so a file whose RAW
     # text carries no retired token cannot produce one after masking either. Most
     # of the corpus lands here, and lands here before the fence walk and the
     # string-masking pass have to touch it at all.
@@ -479,12 +477,12 @@ def _iter_files(scan_root: Path, repo_root: Path,
     """Every file under `scan_root` with one of `suffixes`, excluded trees
     dropped, in sorted order.
 
-    PRUNED, not filtered-after (rf2-e1xx0). The excluded directory names are
+    PRUNED, not filtered-after. The excluded directory names are
     removed from `os.walk`'s dirnames in place, so a checkout with
     `implementation/node_modules` populated — which every worker worktree has —
-    never enumerates it. `rglob("*")` used to list all ~50k entries and discard
-    them one at a time. The surviving set is identical: nothing under an excluded
-    directory could pass the check below either.
+    never enumerates it, where `rglob("*")` would list tens of thousands of
+    entries and discard them one at a time. The surviving set is the same:
+    nothing under an excluded directory could pass the check below either.
     """
     if scan_root.is_file():
         if scan_root.suffix in suffixes:
@@ -499,9 +497,9 @@ def _iter_files(scan_root: Path, repo_root: Path,
             if os.path.splitext(name)[1] in suffixes:
                 matches.append(Path(dirpath) / name)
     for path in sorted(matches):
-        # Kept as the belt to the pruning's braces, and now on string ops:
-        # `Path.relative_to` was half a second of pathlib object churn over the
-        # corpus, for a prefix strip.
+        # The belt to the pruning's braces, on string ops: `Path.relative_to`
+        # would be pathlib object churn over the whole corpus for a prefix
+        # strip.
         posix = path.as_posix()
         if set(posix[scan_prefix_len:].split("/")) & _EXCLUDE_DIR_NAMES:
             continue
@@ -546,9 +544,9 @@ def _scan_file(path: Path, repo_root: Path) -> list[Finding]:
     The bytes are read first and filtered before anything is decoded: the vast
     majority of the corpus carries no retired token at all, and there is no
     reason to build a `str` for a file that cannot produce a finding. Files that
-    DO carry one are then read through `_read` exactly as before, so the decoding
-    (and its universal-newline translation) is untouched on the path that
-    actually scans.
+    DO carry one are then read through `_read`, so the decoding (and its
+    universal-newline translation) is the same on the path that actually
+    scans.
     """
     rel = _rel(path, repo_root)
     if _is_allowlisted(rel):
@@ -573,7 +571,7 @@ def _read(path: Path) -> str:
 # --------------------------------------------------------------------------
 
 _FIX_HINT = (
-    "EP-0026 (rf2-dlvmpc) RETIRED these image keys/surfaces — they fail loud. "
+    "EP-0026 retires these image keys/surfaces — they fail loud. "
     "Migrate the example/code:\n"
     "  :include-ns / :exclude-ns -> :select-ns {:include [globs] :exclude [globs]}\n"
     "  :replace                  -> compose a LATER image (image order wins); "
@@ -619,12 +617,11 @@ _SELF_TEST_FIXTURE_ROOT = (
 # The EXACT kind set every POSITIVE fixture must yield — ONE retired token per
 # fixture, declared here.
 #
-# WHY EXACT, AND WHY ONE TOKEN EACH (rf2-e1xx0). This assertion used to be "at
-# least one finding" over multi-token fixtures, and that is fail-open: a fixture
-# carrying `:replace` AND `make-frame :capabilities` still reports a finding when
-# either detector dies, because its sibling covers for it. Measured on the old
-# fixtures, killing a single detector left --self-test GREEN for SIX of the seven
-# tokens — every one except `:include-ns`, which happened to own a fixture alone.
+# WHY EXACT, AND WHY ONE TOKEN EACH. "At least one finding" over multi-token
+# fixtures is fail-open: a fixture carrying `:replace` AND
+# `make-frame :capabilities` still reports a finding when either detector dies,
+# because its sibling covers for it, so killing a single detector would leave
+# --self-test GREEN for every token that does not own a fixture alone.
 # One token per fixture plus an exact-set assertion is what makes a dead detector
 # red BY NAME, which is the whole job of a guard's self-test.
 _POSITIVE_EXPECTATIONS: dict[str, frozenset[str]] = {
