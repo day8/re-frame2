@@ -145,9 +145,10 @@
             "the GitHub Release body must state the pre-split release is
              NOT a usable public scaffold — the emitted coords don't
              resolve until the template repo split.")
-        (is (string/includes? job "rf2-8n4s71")
-            "the Release-body caveat must cite rf2-8n4s71 so the
-             provenance of the pre-split warning is traceable.")
+        (is (string/includes? job "tools/template/spec/005-Repo-Split.md")
+            "the Release-body caveat must cite
+             tools/template/spec/005-Repo-Split.md so a reader can trace the
+             pre-split warning to the post-split gate that lifts it.")
         (is (re-find #"(?i):local/root" job)
             "the Release-body caveat must name the :local/root rewrite —
              the reason the gate proves 'compiles' but not 'coords
