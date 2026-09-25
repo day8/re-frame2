@@ -188,11 +188,11 @@
 (deftest ambiguous-frame-rides-through-as-error
   (async done
     ;; The runtime returns the :ambiguous-frame refusal (a map with :ok?
-    ;; false); the tool MUST surface it as an :isError result (rf2-01jwrq).
-    ;; Before the fix the `:ok? false` map took the (map? v) → ok-text
-    ;; branch and shipped WITHOUT isError — a SUCCESS-shaped tools/call
-    ;; carrying a `:ok? false` payload. Now `map-envelope-result` routes it
-    ;; through wire/err-text per the universal `:ok? false` contract.
+    ;; false); the tool MUST surface it as an :isError result. Taking a
+    ;; plain (map? v) → ok-text branch would ship it WITHOUT isError — a
+    ;; SUCCESS-shaped tools/call carrying a `:ok? false` payload — so
+    ;; `map-envelope-result` routes it through wire/err-text per the
+    ;; universal `:ok? false` contract.
     (stub-eval! nil {:ok? false :reason :ambiguous-frame :operation :describe-image})
     (-> (di/describe-image-tool (fresh-conn) (args-js {}))
         (.then (fn [r]
@@ -204,8 +204,8 @@
                  (done))))))
 
 (deftest ambiguous-frame-iserror-matches-ok?
-  ;; Adversarial cross-check (rf2-01jwrq, mirrors the port_to_build_test
-  ;; rf2-bcayt7 pattern): the isError:true flag (text slot) and the
+  ;; Adversarial cross-check (mirrors the port_to_build_test pattern):
+  ;; the isError:true flag (text slot) and the
   ;; payload's :ok? false (structured slot) MUST agree. A regression back
   ;; to ok-text would ship :ok? false WITHOUT isError, decoupling the two
   ;; slots. A DISTINCT :ok? false reason (not the :ambiguous-frame the
@@ -224,8 +224,8 @@
                  (done))))))
 
 (deftest ambiguous-frame-error-is-not-cache-eligible
-  ;; SECONDARY concern (rf2-01jwrq): describe-image is `:cacheable? true`
-  ;; (registry), and apply-cache bypasses ONLY isError results. Now that a
+  ;; SECONDARY concern: describe-image is `:cacheable? true` (registry),
+  ;; and apply-cache bypasses ONLY isError results. Because a
   ;; `:ok? false` ambiguous-frame refusal rides as err-text (isError:true),
   ;; apply-cache passes it through untouched and NEVER stores it — so a
   ;; transient ambiguous-frame can't be cached and mask a later valid read.
