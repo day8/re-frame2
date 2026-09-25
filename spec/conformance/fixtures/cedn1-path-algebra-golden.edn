@@ -6,8 +6,8 @@
 ;; Canonical-identity conformance list: "Pin FIXTURES for heterogeneous map
 ;; keys that the canonical encoder supports."
 ;;
-;; This is the FROZEN cross-host byte-contract for the EP-0012 foundation
-;; (rf2-qyb9l1). The live dual-host `.cljc` property + example tests
+;; This is the FROZEN cross-host byte-contract for the EP-0012 foundation.
+;; The live dual-host `.cljc` property + example tests
 ;; (`identity-cedn1-cljs-test`, `path-laws-cljs-test`) exercise the encoder
 ;; on each host; this fixture pins the EXACT CEDN-1 token stream a value
 ;; encodes to, so an encoder rewrite that silently changed the bytes would
@@ -56,13 +56,13 @@
    :value #inst "2026-06-12T00:00:00.000-00:00"
    :expect "t:2026-06-12T00:00:00.000Z"}
 
-  ;; --- rf2-eynsfe: the reserved tagged-instant canonical form -----------
+  ;; --- the reserved tagged-instant canonical form -----------------------
   ;; `canonical` normalizes an instant to the reserved tagged tuple
   ;; [:rf.identity/instant "<UTC millisecond text>"]; `canonical-bytes` emits
   ;; the SAME t:<text> token for a host instant AND for that tuple (a plain
-  ;; string stays s:), so the FROZEN #inst canonical-bytes token above is
-  ;; UNCHANGED while an instant stays DISTINCT from a look-alike string on both
-  ;; surfaces. (This is NOT CEDN-2 — no pre-existing token changed.)
+  ;; string stays s:), so both encode to the FROZEN #inst canonical-bytes
+  ;; token above while an instant stays DISTINCT from a look-alike string on
+  ;; both surfaces.
   {:call :canonical-value
    :value #inst "2026-06-12T00:00:00.000-00:00"
    :expect [:rf.identity/instant "2026-06-12T00:00:00.000Z"]}
@@ -87,8 +87,8 @@
   ;; --- vector vs list: DISTINCT EDN facts, never collapsed --------------
   {:call :canonical-bytes :value [1 2 3]     :expect "v[i:1 i:2 i:3]"}
   {:call :canonical-bytes :value (1 2 3)     :expect "l(i:1 i:2 i:3)"}
-  ;; the authoritative identities differ (the `=`-collapse rf2-o84qq2
-  ;; notwithstanding — CEDN-1 is the authoritative identity).
+  ;; the authoritative identities differ (Clojure `=` collapses the two;
+  ;; CEDN-1 is the authoritative identity).
   {:call :canonical-distinct :a [1 2 3] :b (1 2 3)}
 
   ;; --- map canonical KEY ORDER: insertion order is not identity ---------
@@ -122,7 +122,7 @@
   {:call :path-instantiate
    :path [:a [:rf.path/param :x] :c] :bindings {:x nil}
    :expect [:a nil :c]}
-  ;; rf2-ehkut7: a COMPOSITE (vector) binding fails closed — it would
+  ;; a COMPOSITE (vector) binding fails closed — it would
   ;; smuggle a non-concrete segment into a path presented as concrete.
   {:call :path-instantiate
    :path [:by-id [:rf.path/param :id]] :bindings {:id [:nested]}
@@ -132,10 +132,10 @@
    :path [:a [:rf.path/param :x]] :bindings {}
    :expect-error :rf.error/missing-path-param}
 
-  ;; --- the `:rf/path` algebra LAWS (rf2-du585y): the frozen get/put/over/
-  ;;     compose/prefix/overlap laws become a non-Clojure conformance target
-  ;;     so a port implementing only CEDN bytes + template instantiation no
-  ;;     longer passes EP-0012 conformance. (Conventions §Path laws.)
+  ;; --- the `:rf/path` algebra LAWS: the frozen get/put/over/
+  ;;     compose/prefix/overlap laws are a non-Clojure conformance target,
+  ;;     so a port implementing only CEDN bytes + template instantiation does
+  ;;     not pass EP-0012 conformance. (Conventions §Path laws.)
 
   ;; root path [] focuses the whole value (the law raw assoc-in violates).
   {:call :path-get    :value {:a 1} :path [] :expect {:a 1}}
