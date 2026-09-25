@@ -148,21 +148,21 @@
       losing state — localStorage is still readable at the second
       call.
 
-  ## Why the frame guard is load-bearing (rf2-qw0o)
+  ## Why the frame guard is load-bearing
 
-  This fn used to dispatch UNGUARDED, on the documented premise that
-  `dispatch` queues an event aimed at a not-yet-registered frame and
-  replays it once that frame exists. It does not. `install!` runs from
+  `dispatch` does NOT queue an event aimed at a not-yet-registered
+  frame and replay it once that frame exists. `install!` runs from
   `registry/register-xray-handlers!`, which is orchestrator-time —
-  well before `ensure-xray-frame!` registers `:rf/xray` — so the
-  dispatch named a frame that did not exist, was refused with a
-  promoted `:rf.error/frame-destroyed`, and was DROPPED. The persisted
-  selection therefore never restored (silent state loss on every
-  reload), and the refusal surfaced one promoted console error on every
-  Xray-preloaded dev page load. Guarding here makes the early call an
-  honest no-op; the first-mount hook is what lands the restore.
+  well before `ensure-xray-frame!` registers `:rf/xray` — so an
+  unguarded dispatch would name a frame that does not exist, be refused
+  with a promoted `:rf.error/frame-destroyed`, and be DROPPED. The
+  persisted selection would then never restore (silent state loss on
+  every reload), and the refusal would surface one promoted console
+  error on every Xray-preloaded dev page load. Guarding here makes the
+  early call an honest no-op; the first-mount hook is what lands the
+  restore.
 
-  `frame-id` (rf2-lnluk) defaults to the production singleton
+  `frame-id` defaults to the production singleton
   `defaults/default-frame-id` (`:rf/xray`). A second shell instance
   passes its own frame-id (threaded by `ensure-xray-frame!`'s
   first-mount hook) so the durable slots land on that instance's app-db.
