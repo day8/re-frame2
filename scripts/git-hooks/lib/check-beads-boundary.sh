@@ -203,7 +203,7 @@ check_beads_boundary() {
     [ -n "$p" ] && printf '    %s\n' "$p" >&2
   done < "$_rf2b_refused"
   printf '\n' >&2
-  printf '  This is the STALE WORKER-SNAPSHOT failure mode (rf2-ia8o7).\n' >&2
+  printf '  This is the STALE WORKER-SNAPSHOT failure mode.\n' >&2
   printf '  `bd` auto-stages the full-database JSONL export in EVERY checkout,\n' >&2
   printf '  so a worker worktree carries the tracker as it stood when that\n' >&2
   printf '  worktree was created. Committing it TIME-TRAVELS the tracker: beads\n' >&2
@@ -318,10 +318,10 @@ check_beads_truncation() {
   printf '    HEAD:   %s rows\n' "$_rf2t_old" >&2
   printf '\n' >&2
   printf '  More than a tenth of the tracker would disappear in this commit.\n' >&2
-  printf '  An empty export has reached main twice by exactly this route — a\n' >&2
-  printf '  plain `git add` catching the JSONL mid-rewrite (2026-06-10 7aea52459,\n' >&2
-  printf '  2026-07-26 4d8042d80d) — and both times `git status` was clean\n' >&2
-  printf '  afterwards, so nothing said so.\n' >&2
+  printf '  A plain `git add` that catches the JSONL mid-rewrite stages exactly\n' >&2
+  printf '  this, and a commit made that way leaves `git status` clean\n' >&2
+  printf '  afterwards, so nothing else on screen would say anything was\n' >&2
+  printf '  wrong.\n' >&2
   printf '\n' >&2
   if [ "$_rf2t_new" -eq 0 ]; then
     printf '  An empty export is a REGENERATION event, not a data-loss one. The\n' >&2
