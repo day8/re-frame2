@@ -1,19 +1,17 @@
 ;; Conformance fixture: machine/reg-error-parallel-root-on
 ;;
 ;; Per [005 §Transition broadcast §Root parallel `:on`]
-;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g /
-;; rf2-wox0vd. A `:type :parallel` root's own `:on` (the ancestor fallback)
+;; (../../005-StateMachines.md#transition-broadcast). A `:type :parallel`
+;; root's own `:on` (the ancestor fallback)
 ;; AND its root-owned `:after` (the timer-driven analog) are shape-validated
 ;; at registration:
 ;;
 ;;   - a root `:on` / `:after` `:target` MUST be region-qualified — a bare
 ;;     keyword or a head that is not a declared region has no flat sibling
 ;;     state to land on: `:rf.error/machine-parallel-root-on-bad-target`.
-;;   - a `:type :parallel` root MAY now declare `:after` (rf2-wox0vd —
-;;     root-owned, scheduled at machine birth, stale-gated by the root's own
-;;     per-path epoch). A well-formed region-qualified root `:after` validates
-;;     silently (the pre-wox0vd loud rejection
-;;     `:rf.error/machine-parallel-root-after-not-supported` is removed).
+;;   - a `:type :parallel` root MAY declare `:after` (root-owned, scheduled
+;;     at machine birth, stale-gated by the root's own per-path epoch). A
+;;     well-formed region-qualified root `:after` validates silently.
 ;;
 ;; Mode-B `:reg-machine` fixture pinning the region-qualified-target member
 ;; of the registration-error taxonomy (Spec 009 §The thrown-error shape) for
@@ -23,7 +21,7 @@
 {:fixture/id           :machine/reg-error-parallel-root-on
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/parallel-regions :fsm/registration-validation}
- :fixture/doc          "A root parallel :on OR :after with a non-region-qualified :target throws :rf.error/machine-parallel-root-on-bad-target. A well-formed region-qualified root :after (rf2-wox0vd) validates silently — the old :rf.error/machine-parallel-root-after-not-supported rejection is removed. The control — region-qualified targets — validates silently."
+ :fixture/doc          "A root parallel :on OR :after with a non-region-qualified :target throws :rf.error/machine-parallel-root-on-bad-target. A well-formed region-qualified root :after validates silently. The control — region-qualified targets — validates silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -44,8 +42,8 @@
    :expect-error :rf.error/machine-parallel-root-on-bad-target}
 
   ;; (3) A root :after with a bare-keyword target — rejected with the SAME
-  ;; region-qualified-target keyword (rf2-wox0vd: root :after reuses the root
-  ;; :on target grammar). A root :after is no longer rejected for EXISTING.
+  ;; region-qualified-target keyword (root :after uses the root :on target
+  ;; grammar). A root :after is not rejected for EXISTING.
   {:call         :reg-machine
    :definition   {:type    :parallel
                   :after   {1000 {:target :two}}
@@ -62,7 +60,7 @@
                           :b {:initial :one :states {:one {} :two {}}}}}}
 
   ;; (5) Control: a well-formed region-qualified root :after validates
-  ;; silently (rf2-wox0vd — root-owned :after is now a first-class capability).
+  ;; silently (root-owned :after is a first-class capability).
   {:call       :reg-machine
    :definition {:type    :parallel
                 :after   {1000 {:target [[:a :two] [:b :two]]}
