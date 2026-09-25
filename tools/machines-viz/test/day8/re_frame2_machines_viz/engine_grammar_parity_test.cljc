@@ -605,11 +605,24 @@
    :spawn-on-done-string        {:initial :a :states {:a {:spawn {:machine-id :m :on-done "b"}} :b {}}}
    :spawn-on-done-empty-vector  {:initial :a :states {:a {:spawn {:machine-id :m :on-done []}} :b {}}}
    ;; ---- a machine-root key the runtime never reads on the root ----
-   :root-spawn          {:initial :a :spawn {:machine-id :m} :states {:a {}}}
    :root-final          {:initial :a :final? true :states {:a {}}}
    :root-flat-on-done   {:initial :a :on-done :a :states {:a {}}}
-   :parallel-root-spawn {:type :parallel :spawn {:machine-id :m} :regions {:r {:initial :a :states {:a {}}}}}
-   :root-two-slots      {:initial :a :spawn {:machine-id :m} :final? true :states {:a {}}}
+   :root-two-slots      {:initial :a :always {:target :a} :final? true :states {:a {}}}
+   ;; ---- the machine root's own `:spawn`, held to a state's spawn grammar ----
+   :root-spawn                    {:initial :a :spawn {:machine-id :m} :states {:a {}}}
+   :root-spawn-completions        {:initial :a :spawn {:machine-id :m :on-done :b :on-error [:b]} :states {:a {} :b {}}}
+   :parallel-root-spawn           {:type :parallel :spawn {:machine-id :m} :regions {:r {:initial :a :states {:a {}}}}}
+   :parallel-root-spawn-on-error  {:type :parallel :spawn {:machine-id :m :on-error {:target [:r :b]}}
+                                   :regions {:r {:initial :a :states {:a {} :b {}}}}}
+   :parallel-root-spawn-timeout   {:type :parallel :spawn {:machine-id :m :timeout 1000 :on-timeout {:target [:r :b]}}
+                                   :regions {:r {:initial :a :states {:a {} :b {}}}}}
+   :root-spawn-vector             {:initial :a :spawn [{:machine-id :m}] :states {:a {}}}
+   :parallel-root-spawn-bare-id   {:type :parallel :spawn {:machine-id :m :id :x} :regions {:r {:initial :a :states {:a {}}}}}
+   :root-spawn-on-error-number    {:initial :a :spawn {:machine-id :m :on-error 42} :states {:a {}}}
+   :parallel-root-spawn-on-done-number {:type :parallel :spawn {:machine-id :m :on-done 42}
+                                        :regions {:r {:initial :a :states {:a {}}}}}
+   :root-spawn-on-done-unresolved {:initial :a :spawn {:machine-id :m :on-done :nope} :states {:a {}}}
+   :root-spawn-timeout-ms         {:initial :a :spawn {:machine-id :m :timeout-ms 1000} :states {:a {}}}
    ;; A parallel root's `:tags` is a set of keywords, as a flat root's is.
    :parallel-root-bad-tags {:type :parallel :tags [:busy] :regions {:r {:initial :a :states {:a {}}}}}
    ;; ---- non-Named KEYS ----
@@ -766,16 +779,48 @@
 
 (def ^:private root-refusal-rows
   "Corpus labels → the category the engine refuses each machine root with."
-  {:root-spawn             :rf.error/machine-root-slot-not-supported
-   :root-final             :rf.error/machine-root-slot-not-supported
+  {:root-final             :rf.error/machine-root-slot-not-supported
    :root-flat-on-done      :rf.error/machine-root-slot-not-supported
-   :parallel-root-spawn    :rf.error/machine-root-slot-not-supported
    :root-two-slots         :rf.error/machine-root-slot-not-supported
    :parallel-root-bad-tags :rf.error/machine-bad-tags})
 
 (deftest root-refusal-category-parity
   (testing "the viz refuses a machine root with the engine's own category"
     (doseq [[label category] root-refusal-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= category (engine-category m))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar")))))
+
+;; A machine root's `:spawn` registers, and a malformed one is refused with the
+;; category a state's `:spawn` would be.
+
+(def ^:private root-spawn-accept-rows
+  [:root-spawn :root-spawn-completions :parallel-root-spawn
+   :parallel-root-spawn-on-error :parallel-root-spawn-timeout])
+
+(def ^:private root-spawn-refusal-rows
+  "Corpus labels → the category the engine refuses each root `:spawn` with."
+  {:root-spawn-vector                  :rf.error/machine-spawn-bad-shape
+   :parallel-root-spawn-bare-id        :rf.error/machine-unknown-spawn-key
+   :root-spawn-on-error-number         :rf.error/machine-bad-on-error-clause
+   :parallel-root-spawn-on-done-number :rf.error/machine-bad-on-done-clause
+   :root-spawn-on-done-unresolved      :rf.error/machine-unresolved-target
+   :root-spawn-timeout-ms              :rf.error/spawn-timeout-ms-removed})
+
+(deftest root-spawn-parity
+  (testing "a well-formed root :spawn registers on both sides, flat and parallel"
+    (doseq [label root-spawn-accept-rows
+            :let [m (get validation-parity-corpus label)]]
+      (is (= :accept (engine-answer m)) (str label ": the engine accepts"))
+      (is (= :accept (viz-answer m)) (str label ": the viz accepts"))
+      (is (= :accept (viz-answer (g/desugar-grammar m)))
+          (str label ": the viz accepts after the boundary desugar"))))
+  (testing "a malformed root :spawn is refused with the engine's own category"
+    (doseq [[label category] root-spawn-refusal-rows
             :let [m (get validation-parity-corpus label)]]
       (is (= category (engine-category m))
           (str label ": the engine's category"))
@@ -839,6 +884,14 @@
     (let [m {:initial :a :after {1000 :b} :states {:a {} :b {}}}]
       (is (= :reject (engine-answer m)) "engine rejects a flat-root :after")
       (is (= :accept (viz-answer m))    "the viz projects it as a root anchor")))
+
+  (testing "a parallel root :spawn's region-qualified target grammar is a
+            DIVERGENCE — the engine rejects a bare-keyword target; the viz
+            does not validate the parallel-root target grammar"
+    (let [m {:type :parallel :spawn {:machine-id :m :on-error :b}
+             :regions {:r {:initial :a :states {:a {} :b {}}}}}]
+      (is (= :reject (engine-answer m)) "engine rejects the unqualified target")
+      (is (= :accept (viz-answer m))    "the viz accepts it")))
 
   (testing "viz-STRICTER root shape is a DIVERGENCE — the engine resolves a
             missing / late root :initial lazily at runtime; the viz REQUIRES a
