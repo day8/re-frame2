@@ -786,15 +786,14 @@ function verdict(summary) {
   }
   if (unverified.length) {
     lines.push(
-      '[hd8clock] REFUSED — unverified operations (rf2-rr6do): a window whose value never reached ' +
+      '[hd8clock] REFUSED — unverified operations: a window whose value never reached ' +
         'the page is not a measurement of that page: ' +
         unverified.map((r) => `${r.id}: ${r.unverified} of ${r.writes}`).join(', ')
     );
   }
   if (overCeiling.length) {
     lines.push(
-      `[hd8clock] REFUSED — the run's own reproducibility band exceeds seam.cjs's ceiling ` +
-        `(rf2-ymi6j, rf2-rr6do) on: ` +
+      `[hd8clock] REFUSED — the run's own reproducibility band exceeds seam.cjs's ceiling on: ` +
         overCeiling.map((r) => `${r.id} (${pct(r.band)})`).join(', ') +
         '. ctl-2x and floor are two arms in the SAME block whose true ratio is a property of the ' +
         'page, so a band that wide means the box could not reproduce identical work — no magnitude ' +
@@ -804,7 +803,7 @@ function verdict(summary) {
   if (ctlFailed.length) {
     lines.push(
       '[hd8clock] REFUSED — the positive control did not see the change its own arithmetic ' +
-        'predicts (rf2-rr6do) on: ' +
+        'predicts on: ' +
         ctlFailed.map((r) => `${r.id} (measured ${Number(r.ctlMeasured).toFixed(4)}x)`).join(', ') +
         '. No MAGNITUDE from those rows is reportable.'
     );

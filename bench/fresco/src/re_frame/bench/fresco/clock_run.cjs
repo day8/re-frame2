@@ -670,7 +670,7 @@ function ctl3Verdict(rounds, plan, slack) {
     premiseMet: v.allInBand && sign.ok,
     gating: false,
     rule:
-      'DIAGNOSTIC / NON-GATING (rf2-8a746) — `premiseMet` is EVERY block inside the band AND every ' +
+      'DIAGNOSTIC / NON-GATING — `premiseMet` is EVERY block inside the band AND every ' +
       "block's numerator and denominator finite and strictly positive. It refuses nothing: the " +
       'prediction is mis-derived on a non-affine clock and the estimator is ill-conditioned, so the ' +
       "bulk gate is `clock_check_standard.cjs`'s",
@@ -1958,7 +1958,7 @@ function report(out) {
     const d = ctl3.dirty;
     const cells = (armPlan.find((a) => a.ctl3) || {}).cells;
     console.log(
-      `;; ---- THREE-POINT STATISTIC [DIAGNOSTIC, NON-GATING — rf2-8a746]: dirty ` +
+      `;; ---- THREE-POINT STATISTIC [DIAGNOSTIC, NON-GATING]: dirty ` +
         `${Object.values(d).join(' / ')} of ${cells} boundaries, FIXED page size — the floor's own page, ` +
         `so the canonical-DOM gate CHECKS these arms ----`
     );
@@ -2291,7 +2291,7 @@ function reportability(rows, opts) {
       const g = regimeOf(r);
       const stated = !g.statementNeedsControl || r.ctlOk;
       lines.push(
-        `[clock]   ${r.rowId} [${r.regime}, ${g.bead}] ${stated ? 'STATED' : 'WITHHELD'} — ${g.publishes}`
+        `[clock]   ${r.rowId} [${r.regime}] ${stated ? 'STATED' : 'WITHHELD'} — ${g.publishes}`
       );
       lines.push(
         `[clock]     ${stated ? g.why : `its fixed-work controls did not pass${r.ctlNote || ''}, and they are what prove the instrument moves when the work moves — the regime is withheld rather than stated`}`
@@ -2506,16 +2506,11 @@ function rowAdjudication(bars) {
  */
 const REGIMES = {
   magnitude: { publishesMagnitude: true },
-  // THIS ENTRY'S PRINTED STRINGS CITE THE RULING IN FORCE — the block above
-  // sets out why.
   'mount-regime': {
     // `false` because a single run cannot form the ensemble bootstrap the
     // published M1 magnitude is an estimate from. See the block above before
     // changing this.
     publishesMagnitude: false,
-    // The bracket names the ruling IN FORCE and keeps the superseded citation
-    // beside it, so a reader of the log meets both without a git history.
-    bead: 'rf2-diaud superseding rf2-jcm3p',
     // The statement does not turn on a control whose status is itself part of
     // the finding. (rf2-8a746: that status is not a FAILURE — the rule tests
     // per-block band membership — but the regime's independence from it is what
@@ -2540,7 +2535,6 @@ const REGIMES = {
   },
   'responsiveness-regime': {
     publishesMagnitude: false,
-    bead: 'rf2-swwud',
     // Event Timing is the adjudicator, and a fixed-work control that did not
     // move is an instrument nobody has seen respond.
     statementNeedsControl: true,
@@ -2772,7 +2766,7 @@ function reportabilitySelfTest() {
   check(
     'and it is refused as a REGIME rather than as a control that went wrong',
     m.lines.some((l) => /REGIME: these rows publish a regime and never a magnitude/.test(l)) &&
-      m.lines.some((l) => /M1 \[mount-regime, rf2-diaud superseding rf2-jcm3p\] STATED/.test(l)) &&
+      m.lines.some((l) => /M1 \[mount-regime\] STATED/.test(l)) &&
       !m.lines.some((l) => /the positive control did not see the change/.test(l)),
     m.lines.join(' | ')
   );
@@ -2799,7 +2793,7 @@ function reportabilitySelfTest() {
   );
   check(
     'and its bandless bars are named DIAGNOSTIC rather than unadjudicated magnitudes',
-    k.lines.some((l) => /keystroke \[responsiveness-regime, rf2-swwud\] STATED/.test(l)) &&
+    k.lines.some((l) => /keystroke \[responsiveness-regime\] STATED/.test(l)) &&
       k.lines.some((l) => /DIAGNOSTIC, never magnitudes/.test(l)) &&
       !k.lines.some((l) => /not every published bar can be ADJUDICATED/.test(l)),
     k.lines.join(' | ')

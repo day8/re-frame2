@@ -594,8 +594,7 @@ function checkStandardSelfTest() {
   check(
     "the expected count is the JSON's, derived from the declared design rather than written twice",
     STANDARD.evidence.expectedBlocks === 18 &&
-      STANDARD.evidence.design.rounds * STANDARD.evidence.design.segments === STANDARD.evidence.expectedBlocks &&
-      /rf2-8a746/.test(STANDARD.evidence.ruling),
+      STANDARD.evidence.design.rounds * STANDARD.evidence.design.segments === STANDARD.evidence.expectedBlocks,
     JSON.stringify(STANDARD.evidence.design)
   );
   check(
@@ -611,7 +610,6 @@ function checkStandardSelfTest() {
     'every verdict carries the standard it was taken against, by id and version',
     healthy.standard.id === STANDARD.id &&
       healthy.standard.version === STANDARD.version &&
-      healthy.standard.ruling === 'rf2-8a746' &&
       Number.isInteger(STANDARD.version)
   );
   check(
