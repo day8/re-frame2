@@ -1,14 +1,14 @@
 (ns re-frame.api-manifest.xray-spec-check-test
-  "Regression tests for the Xray API-spec projection check (rf2-0u8kz).
+  "Regression tests for the Xray API-spec projection check.
 
-  The bug: a fully-qualified `day8.re-frame2-xray.*/<var>` symbol was
-  resolved by BARE var name, so a stale / renamed / never-manifested panel
-  namespace (e.g. `day8.re-frame2-xray.panels.views/Panel`) falsely passed
+  A fully-qualified `day8.re-frame2-xray.*/<var>` symbol resolved by BARE
+  var name would let a stale / renamed / never-manifested panel
+  namespace (e.g. `day8.re-frame2-xray.panels.views/Panel`) pass
   as long as ANY Xray namespace still exported a var of that bare name
-  (`Panel` is carried for ten distinct panel namespaces). These tests pin
-  the strict `[namespace var]` resolution that fixes it — driven through
+  (`Panel` is carried for every panel namespace). These tests pin
+  the strict `[namespace var]` resolution that prevents it — driven through
   the pure `reconcile` reconciler with synthetic inputs — plus a live
-  smoke that the committed spec + manifest still reconcile clean."
+  smoke that the committed spec + manifest reconcile clean."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.api-manifest.gen :as rf.api-manifest.gen]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]
@@ -16,14 +16,15 @@
 
 ;; A minimal synthetic manifest: two distinct panel namespaces, each
 ;; exporting the SAME bare var `Panel`, plus a bare-var mount fn. This is
-;; the exact ambiguity the manifest has in reality (ten `Panel` rows).
+;; the exact ambiguity the manifest has in reality (a `Panel` row per panel
+;; namespace).
 (def ^:private synthetic-rows
   [{:namespace "day8.re-frame2-xray.panels.trace"        :var "Panel"}
    {:namespace "day8.re-frame2-xray.panels.epoch-panel"  :var "Panel"}
    {:namespace "day8.re-frame2-xray.panels"              :var "mount-trace!"}
    ;; A non-Xray row that must never satisfy an Xray reference.
    {:namespace "re-frame.core"                           :var "Panel"}
-   ;; A re-frame.core facade row, for the rf2-6264 `(rf/<var>` path. It is
+   ;; A re-frame.core facade row, for the `(rf/<var>` path. It is
    ;; deliberately NOT an Xray-namespaced row: the facade path resolves
    ;; against ALL rows, where the two Xray paths filter to the Xray prefix.
    {:namespace "re-frame.core"                           :var "trace-buffer"}])
@@ -52,7 +53,7 @@
         "panels.trace/Panel is a manifest [ns var] row — must pass")))
 
 (deftest stale-namespace-with-shared-bare-var-is-rejected
-  (testing "THE BUG (rf2-0u8kz): a stale/unmanifested Xray namespace whose
+  (testing "a stale/unmanifested Xray namespace whose
             bare var exists elsewhere must NOT pass"
     (let [problems (problems-for
                      {:qualified-refs [{:ns "day8.re-frame2-xray.panels.views"
@@ -103,12 +104,11 @@
                      :bare-allow  #{"mount-gone!"}}))))))
 
 ;; ---------------------------------------------------------------------------
-;; The facade path (rf2-6264) — `(rf/<var>` call-position references.
+;; The facade path — `(rf/<var>` call-position references.
 ;;
-;; The bead: a planted fault in a `(rf/...` form returned exit 0 with the
-;; reference count unmoved, because the extractor read only the two
-;; Xray-namespace shapes. These pin the third shape so that cannot recur
-;; silently.
+;; An extractor that read only the two Xray-namespace shapes would leave a
+;; planted fault in a `(rf/...` form at exit 0 with the reference count
+;; unmoved. These pin the third shape so that cannot happen silently.
 ;; ---------------------------------------------------------------------------
 
 (deftest facade-reference-to-a-live-var-resolves
@@ -121,9 +121,8 @@
         "rf/trace-buffer is a re-frame.core manifest row — must pass")))
 
 (deftest facade-reference-to-a-removed-var-is-rejected
-  (testing "THE BUG (rf2-6264): a `(rf/<var>` reference naming a renamed /
-            removed / never-manifested surface must go RED. This is the exact
-            plant the bead reported passing at exit 0."
+  (testing "a `(rf/<var>` reference naming a renamed /
+            removed / never-manifested surface must go RED."
     (let [problems (problems-for
                      {:facade-refs [{:var "trace-buffer-BOGUSPLANT" :line 502
                                      :raw "rf/trace-buffer-BOGUSPLANT"}]})]
@@ -137,7 +136,7 @@
             deleted repo-wide has no row in any namespace"
     (is (seq (problems-for
                {:facade-refs [{:var "sub-cache" :line 512 :raw "rf/sub-cache"}]}))
-        "rf/sub-cache was removed (rf2-80mmlf) — must not resolve")))
+        "rf/sub-cache is not a public var — must not resolve")))
 
 (deftest facade-allowlist-silences-a-named-reference
   (testing "an explicitly allowlisted facade name passes"
@@ -172,7 +171,7 @@
           "the spec must actually name fully-qualified Xray symbols")
       (is (pos? (count facade-refs))
           "the spec must actually name `(rf/<var>` facade references — a zero
-           here is the vacuous-green shape rf2-6264 was filed about, reached
-           through the facade extractor instead of the Xray ones")
+           here is the vacuous-green shape, reached through the facade
+           extractor instead of the Xray ones")
       (is (empty? problems)
           (str "live drift: " (pr-str problems))))))
