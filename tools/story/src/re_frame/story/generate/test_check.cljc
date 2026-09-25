@@ -10,11 +10,11 @@
   `re-frame.story.generate/check-property!` is driven by a pure
   `(fn [seed] event-program)` over the self-contained splitmix64 PRNG
   (`seed-seq`) and bundles NO generator library — that dependency-free path is
-  and remains the DEFAULT. This adapter is pure additive sugar:
+  the DEFAULT. This adapter is pure sugar:
   it lets a caller who ALREADY has `org.clojure/test.check` on the classpath
   hand a `test.check` generator of event programs and get back the same
-  `gen-fn` shape `check-property!` already takes. Nothing about the seed-bearing
-  artifact + promotion flow changes.
+  `gen-fn` shape `check-property!` takes. The seed-bearing artifact +
+  promotion flow is the same on both paths.
 
   `org.clojure/test.check` is NOT a hard Story dependency — it is wired into
   `tools/story/deps.edn`'s `:test` alias ONLY (so this adapter's own tests can
@@ -33,10 +33,10 @@
   `test.check`'s own deterministic RNG from the integer seed and draws ONE
   program per seed via `clojure.test.check.generators/generate` (whose third
   arg is that numeric seed), at a configurable `:size`. Because
-  the draw is fully determined by the integer seed, the existing reproducibility
-  + seed-bearing-artifact guarantees hold UNCHANGED: `check-property!`'s
-  `seed-seq` supplies the seeds, and each seed deterministically yields one
-  program. Shrinking continues to use `check-property!`'s own deterministic
+  the draw is fully determined by the integer seed, the reproducibility
+  + seed-bearing-artifact guarantees hold as on the dependency-free path:
+  `check-property!`'s `seed-seq` supplies the seeds, and each seed
+  deterministically yields one program. Shrinking uses `check-property!`'s own deterministic
   program-prefix delta-debug over the concrete program — test.check's rose-tree
   shrinking is NOT engaged, keeping ONE shrink model + a host-portable shrunk
   artifact.
