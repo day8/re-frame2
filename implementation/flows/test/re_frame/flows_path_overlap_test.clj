@@ -168,8 +168,8 @@
           "the pair is canonically ordered by (juxt hash str) — value-derived, not iteration-derived")))
   (testing "the tie-break is robust on a genuine hash collision (juxt str fallback)"
     ;; Construct two DISTINCT ids that share a hash so the `hash` key ties
-    ;; and the `str` key alone decides the order — the exact case the old
-    ;; `sort-by hash` left to iteration order. Strings whose hashCodes
+    ;; and the `str` key alone decides the order — the exact case a bare
+    ;; `sort-by hash` would leave to iteration order. Strings whose hashCodes
     ;; collide ("Aa"/"BB" is the canonical Java String hashCode collision)
     ;; give us distinct, equal-hash ids.
     (let [id-lo "Aa"
@@ -189,12 +189,12 @@
             "the str tie-break orders the colliding pair canonically (\"Aa\" < \"BB\")")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. integrated rf/reg-flow — THE bug repro: same-frame overlapping
+;; 3. integrated rf/reg-flow — the core case: same-frame overlapping
 ;;    outputs + DISJOINT inputs (no cycle, no edge) must be rejected.
 ;; ---------------------------------------------------------------------------
 
 (deftest reg-flow-rejects-overlapping-output-paths-with-disjoint-inputs
-  (testing "rf2-um6d9 — two same-frame flows whose OUTPUT :paths overlap but whose INPUTS are disjoint are rejected at registration"
+  (testing "two same-frame flows whose OUTPUT :paths overlap but whose INPUTS are disjoint are rejected at registration"
     ;; The silent-footgun shape: A reads [:src-a] writes [:dest]; B reads
     ;; [:src-b] writes [:dest]. Inputs are disjoint (neither reads the other's
     ;; output) so the topo dependency rule produces NO edge — both would be
@@ -219,7 +219,7 @@
         "the rejected flow :b never lands in the committed registry")))
 
 (deftest reg-flow-allows-disjoint-sibling-output-paths
-  (testing "rf2-um6d9 — flows writing to DISJOINT sibling paths under a shared parent register cleanly (the common valid case is unaffected) — and TERMINATES"
+  (testing "flows writing to DISJOINT sibling paths under a shared parent register cleanly (the common valid case) — and TERMINATES"
     ;; TERMINATION GUARD: the integrated equivalent of the disjoint-map test —
     ;; this reg-flow call must complete, not hang the suite.
     (rf/reg-flow :w {:inputs [[:in-w]] :output-path [:rect :w]} identity)
@@ -229,7 +229,7 @@
       (is (contains? committed :h) "the [:rect :h] flow registered — no false-positive overlap"))))
 
 (deftest reg-flow-overlap-is-frame-scoped
-  (testing "rf2-um6d9 — overlapping output :paths on DIFFERENT frames are NOT an overlap (frames are isolated app-dbs)"
+  (testing "overlapping output :paths on DIFFERENT frames are NOT an overlap (frames are isolated app-dbs)"
     (rf/make-frame {:id :frame-a :doc "isolated frame a"})
     (rf/make-frame {:id :frame-b :doc "isolated frame b"})
     ;; Same flow-id-shape, same output :output-path, but DIFFERENT frames —
@@ -242,7 +242,7 @@
         "frame-b holds its own :x flow — overlap detection is per-frame, not cross-frame")))
 
 (deftest reg-flow-re-registration-does-not-self-overlap
-  (testing "rf2-um6d9 — re-registering an existing flow-id with the SAME :output-path (hot-reload) is NOT a self-overlap"
+  (testing "re-registering an existing flow-id with the SAME :output-path (hot-reload) is NOT a self-overlap"
     ;; The footgun-adjacent case: a flow keeps its :output-path across a
     ;; hot-reload re-registration. The prospective map is
     ;; (assoc prior-frame flow-id flow) — the same key, so the map still
@@ -259,14 +259,14 @@
         "the re-registered flow :a is committed")))
 
 (deftest reg-flow-still-rejects-cycles-and-passes-clean-topologies
-  (testing "rf2-um6d9 — adding the overlap check does not disturb the cycle check or the happy path"
+  (testing "the overlap check coexists with the cycle check and the happy path"
     ;; Happy path: a real dependency (B reads what A writes) registers and
     ;; topo-sorts cleanly — disjoint OUTPUTS, a genuine input edge.
     (rf/reg-flow :a {:inputs [[:seed]] :output-path [:a-out]} identity)
     (rf/reg-flow :b {:inputs [[:a-out]] :output-path [:b-out]} identity)
     (is (= #{:a :b} (set (keys (get (rf.flows/flows-snapshot) :rf/default))))
         "a clean dependency topology (disjoint outputs, real edge) registers both flows")
-    ;; Cycle check still fires: C reads B's output [:b-out]; re-registering
+    ;; The cycle check fires alongside it: C reads B's output [:b-out]; re-registering
     ;; B to read C's output [:c-out] closes the cycle b → c → b.
     (rf/reg-flow :c {:inputs [[:b-out]] :output-path [:c-out]} identity)
     (let [thrown (try
@@ -274,4 +274,4 @@
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (= :rf.error/flow-cycle (:rf.error/id (ex-data thrown)))
-          "a cycle-forming re-registration is still rejected with :rf.error/flow-cycle"))))
+          "a cycle-forming re-registration is rejected with :rf.error/flow-cycle"))))
