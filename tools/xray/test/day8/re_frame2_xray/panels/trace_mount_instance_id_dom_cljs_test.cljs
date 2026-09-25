@@ -1,18 +1,16 @@
 (ns day8.re-frame2-xray.panels.trace-mount-instance-id-dom-cljs-test
   "TWO STANDALONE `mount-trace!` MOUNTS IN ONE FRAME, WITH MATCHING ROWS
-  EXPANDED, read off a real React commit (rf2-pua3).
+  EXPANDED, read off a real React commit.
 
   ## The claim, and why it needs a DOM
 
-  rf2-fcy5 migrated this panel's mount to a Fresco boundary and swapped its
-  inline payload head to `ei/edn-inspector-view` with a PER-ROW
-  `:mount-id`, which fixed the collisions WITHIN one panel — two rows
-  expanded at once each keep their own lifecycle. It left one ACROSS
-  panels: `mount-trace!` delegated with no props, `Panel-bridge` always
-  passed `{}`, the boundary ignored props, and `render-payload` derived the
-  `:mount-id` from the row id ALONE. So the same focused epoch mounted into
-  two containers under one frame emitted IDENTICAL mount-ids for matching
-  expanded rows.
+  The panel's inline payload head is `ei/edn-inspector-view` with a
+  PER-ROW `:mount-id`, which keeps collisions out WITHIN one panel — two
+  rows expanded at once each keep their own lifecycle. ACROSS panels the
+  row id is not enough: a `:mount-id` derived from the row id ALONE makes
+  the same focused epoch, mounted into two containers under one frame,
+  emit IDENTICAL mount-ids for matching expanded rows. So `mount-trace!`
+  takes an `:instance-id` that qualifies each payload `:mount-id`.
 
   A row asserting the opts key was THREADED would pass while both mounts
   still collided, which is the failure one level up. So nothing here reads
@@ -21,7 +19,7 @@
   reads `container.querySelector` — the DOM React committed on its own —
   the widget's own per-mount store, or the frame's app-db width slot.
 
-  ## The two observables, and the SECOND is the one the defect breaks
+  ## The two observables, and the SECOND is the one a shared identity breaks
 
   `data-rf-mount-id` is stamped by the edn-inspector widget on every
   committed container, carrying the BARE `:mount-id` this panel composed.
@@ -43,31 +41,30 @@
   ## WHAT THIS PANEL DELIBERATELY DOES NOT QUALIFY, and why it is ONE
   ## qualifier here rather than the two `app-db-diff` needs
 
-  Trace passes a stable `:site-id` (`[:rf.xray.trace/row <id>]`, rf2-pvsxs)
+  Trace passes a stable `:site-id` (`[:rf.xray.trace/row <id>]`)
   alongside its `:mount-id`, and the widget's `effective-id` is
   `(or site-id mount-id)` — so expansion and zoom are keyed
   `[panel-id site-id path]` and DO NOT READ THE MOUNT-ID AT ALL. The
-  logical disclosure identity is therefore already separate from the
+  logical disclosure identity is therefore separate from the
   physical one, and qualifying the mount-id moves the lifecycle key and the
   width slot while leaving expansion, zoom and the row's own testids
-  byte-for-byte where they were. That is the whole of the fix, and
+  alone. That is the whole of the qualifier, and
   [[two-named-mounts-share-their-disclosure-identity]] pins the half that
   must NOT move: two lists of the same rows open and close together, and
-  what they no longer share is a ResizeObserver.
+  what they do not share is a ResizeObserver.
 
   (`app-db-diff` needs two qualifiers because `value-body` composes its
   `:mount-id` and its `:site-id` separately; `managed-fx` needs one because
   `edn-widget/inspect-view` builds the `:mount-id` AND the `:panel-id` from
   one node-key and passes no `:site-id`. This panel is a third shape.)
 
-  ## The negative control IS the defect, and it is a row rather than a note
+  ## The negative control IS the collision, and it is a row rather than a note
 
   [[two-unnamed-mounts-still-collide]] mounts the same two panels with NO
   `:instance-id` and asserts the id sets are IDENTICAL. It carries two
   claims at once: the instrument can see a collision (so the disjointness
-  above is separation and not silence), and omitting the opt leaves every
-  id byte-for-byte what it always was — which is every call site in this
-  tree today.
+  above is separation and not silence), and omitting the opt composes
+  every id from the row id alone.
 
   ## Substrate: the Reagent adapter, and the mount is the PUBLIC one
 
@@ -165,8 +162,8 @@
   commit of each container.
 
   The expansion slot lives in the frame's app-db and both mounts share it
-  DELIBERATELY: this bead qualifies the inspector's PHYSICAL identity and
-  leaves the logical disclosure identity exactly where it was. Two panels
+  DELIBERATELY: the `:instance-id` qualifies the inspector's PHYSICAL
+  identity and leaves the logical disclosure identity alone. Two panels
   showing the same epoch open and close together — which is also what makes
   the rows MATCHING, and therefore what makes the collision reachable."
   []
@@ -215,7 +212,7 @@
 
 (defn- site-ids
   "Every `data-rf-site-id` in `container`'s committed DOM. The LOGICAL
-  identity, which this bead must leave alone."
+  identity, which the qualifier must leave alone."
   [container]
   (->> (.querySelectorAll container "[data-rf-site-id]")
        (js/Array.from)
@@ -238,7 +235,7 @@
 ;; ===========================================================================
 
 (deftest two-named-mounts-compose-disjoint-inspector-mount-ids
-  (testing "rf2-pua3 — `mount-trace!` given two different `:instance-id`s
+  (testing "`mount-trace!` given two different `:instance-id`s
             mounts two panels whose committed DOM carries two disjoint sets
             of `data-rf-mount-id`, in the ONE `:rf/xray` frame they both
             default to. Each id composes the widget's lifecycle key AND its
@@ -285,7 +282,7 @@
 ;; ===========================================================================
 
 (deftest two-named-mounts-each-keep-their-own-observer-and-width
-  (testing "rf2-pua3 — two named standalone mounts hold two entries in the
+  (testing "two named standalone mounts hold two entries in the
             widget's per-mount store, each with its OWN ResizeObserver and
             its OWN entry in the frame's measured-width slot, and unmounting
             one releases ONLY its own. Under the shared identity the second
@@ -309,10 +306,9 @@
 
           ;; ---- the observer half -------------------------------------
           ;; These two are LIVENESS controls rather than the discriminating
-          ;; rows, and saying so matters: under the shared identity both
-          ;; lookups resolve to the SAME entry, so both pass while the defect
-          ;; is fully present (measured — they were the two rows in this
-          ;; deftest that stayed green on the unrepaired tree). What bites
+          ;; rows, and saying so matters: under a shared identity both
+          ;; lookups resolve to the SAME entry, so both pass while the
+          ;; collision is fully present. What bites
           ;; before the unmount is `not=` above; what bites after it is the
           ;; survivor row below.
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
@@ -327,7 +323,7 @@
           ;; ---- the width half ----------------------------------------
           ;; DRIVEN through the slot's own public event rather than read off
           ;; a real measurement, and that is a finding rather than a
-          ;; shortcut. Two things were measured on the pre-fix runs. The
+          ;; shortcut. Two measurements settle it. The
           ;; synchronous measurement `container-ref-for` takes on ref-attach
           ;; reads `clientWidth` 0 for the FIRST expanded row's payload
           ;; container in this headless layout, so `measure-and-dispatch!`'s
@@ -361,11 +357,11 @@
           (is (contains? (ei/mount-state-held (ei/lifecycle-key :rf/xray id-l))
                          :observer)
               "and the mount STILL ON SCREEN is still observed — releasing
-               the survivor's entry is what the shared key did, and it left a
+               the survivor's entry is what a shared key does, leaving a
                live node with no observer and no width updates")
           ;; The store entry is dropped by a synchronous `swap!` but the width
-          ;; is cleared by a DISPATCH, which is queued — measured: the slot
-          ;; still read the pre-unmount value on the line straight after
+          ;; is cleared by a DISPATCH, which is queued — the slot
+          ;; still reads the pre-unmount value on the line straight after
           ;; `flushSync(unmount)`. So poll for the clear to land, then read
           ;; the survivor. Under the shared identity the two ids are one
           ;; string, so the poll below succeeds on the SURVIVOR's own key
@@ -393,12 +389,12 @@
 ;; ===========================================================================
 
 (deftest two-named-mounts-share-their-disclosure-identity
-  (testing "rf2-pua3 — the bound on this repair, as a row. Naming two mounts
+  (testing "the bound on the qualifier, as a row. Naming two mounts
             qualifies the PHYSICAL identity only: the `:site-id` that keys
-            expansion and zoom (rf2-pvsxs) and the row's own testid are
+            expansion and zoom and the row's own testid are
             IDENTICAL across the two panels, so two views of the same epoch
             still open and close together and an operator's expansion choices
-            still survive a tab leave-and-return. A repair that qualified the
+            still survive a tab leave-and-return. A qualifier that reached the
             site-id too would pass W1 and W2 and silently change this."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -426,16 +422,16 @@
             (unmount! left)))))))
 
 ;; ===========================================================================
-;; W4 — the negative control: unnamed mounts collide, and are unchanged
+;; W4 — the negative control: unnamed mounts collide on the row id alone
 ;; ===========================================================================
 
 (deftest two-unnamed-mounts-still-collide
-  (testing "rf2-pua3 — the defect verbatim, kept as a row. Two standalone
+  (testing "the collision verbatim, as a row. Two standalone
             mounts with NO `:instance-id` present the SAME mount-ids, which is
             what makes W1's disjointness a measurement rather than a
             coincidence; and the ids they present carry no instance segment at
-            all, so every existing single-mount call site composes exactly what
-            it always did."
+            all, so every single-mount call site composes the row id
+            alone."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_     (setup!)
@@ -454,8 +450,8 @@
                      "disjointness is a measurement rather than silence. a="
                      (pr-str ids-a)))
             (is (= ids-a [(str id-prefix "101") (str id-prefix "202")])
-                (str "and they are byte-for-byte the ids this panel composed "
-                     "before rf2-pua3 — the row id and nothing else. a="
+                (str "and they are the row id with the panel's prefix "
+                     "and nothing else. a="
                      (pr-str ids-a)))
             (is (= ids-n
                    (mapv #(str id-prefix "left/" (subs % (count id-prefix)))
@@ -464,8 +460,8 @@
                      "caller's name spliced in after the panel's own prefix "
                      "— which says both halves at once: naming qualifies the "
                      "id without disturbing the row id inside it, and an "
-                     "unnamed mount composes byte-for-byte what it always "
-                     "did. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
+                     "unnamed mount composes the row id alone, and nothing "
+                     "else. unnamed=" (pr-str ids-a) " named=" (pr-str ids-n)))
             (is (= ids-a (mount-ids (:container a)))
                 "re-reading the same container is stable — these are
                  identities, not per-render nonces"))
