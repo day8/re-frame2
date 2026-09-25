@@ -247,7 +247,7 @@
 (deftest in-drain-failure-keeps-the-drain-wording
   (testing "the same failure reached through the router describes the
             event's abort — the drain's sentence is scoped to the drain,
-            not retired"
+            where it holds"
     (let [errors (atom [])]
       (rf.error-emit/register-error-listener! ::error-recorder
                              (fn [record] (swap! errors conj record)))
