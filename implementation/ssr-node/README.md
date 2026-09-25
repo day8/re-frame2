@@ -314,7 +314,7 @@ in the refusal message:
 
 | Field | Why it is refused |
 |---|---|
-| `initialEvents` | The JVM drains the boot events. A Node side that drained them itself forks the event drain — the host fork the adversarial review rejected. Send the drained state as `state`. |
+| `initialEvents` | The JVM drains the boot events. A Node side that drained them itself forks the event drain, which is the host fork this contract refuses. Send the drained state as `state`. |
 | `payloadPolicy` | The hydration payload is built on the JVM from its own app-db, so there is no payload here for a policy to govern. |
 | `head` | The head model, response accumulator, cookies and redirects are `ssr-ring`'s. |
 
