@@ -503,8 +503,8 @@
   readable. Any other work-id, and every work-id when no set is threaded,
   prints as-is.
 
-  Text only: the raw work-id stays the row's React key, join key and
-  cancellation identity."
+  Text only: the raw work-id stays on the row as its React key and the key
+  every join matches on."
   [work-id sensitive-rids]
   (str (if-let [rid (when (and (vector? work-id) (= 3 (count work-id)))
                       (scoped-key-resource-id (nth work-id 1)))]
