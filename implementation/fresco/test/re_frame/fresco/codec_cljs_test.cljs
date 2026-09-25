@@ -827,10 +827,10 @@
 
 (deftest an-object-ref-crosses-by-identity-at-both-positions
   (testing "An object ref is a RECORD rather than a refusal. HD-016
-            reads 'callback refs only', and HD-022 — the decision that is
-            actually about `:ref`'s value space — says the whole of
-            the claim is ONE refusal branch and one error id: the reserved
-            vector. An object ref is neither reserved nor broken. React 19
+            reads 'callback refs only', but the codec has no refusal
+            branch at the ref slot: `:ref` crosses untouched whatever its
+            value, a vector included (the last rows below). An object ref
+            is not broken. React 19
             carries `ref` as an ordinary prop, so `(react/createRef)`
             attaches and detaches exactly as React documents it. It is
             untaught rather than illegal, and refusing a spelling that
