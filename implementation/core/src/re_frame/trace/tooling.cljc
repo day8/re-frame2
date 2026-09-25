@@ -58,9 +58,15 @@
                                             behind `re-frame.core`'s
                                             `configure!` + `current-config`)
 
-  Absent the load (production CLJS bundles that never `:require` this
-  ns), every lookup returns nil and the trace fast path / registrar
-  short-circuit cleanly.
+  `re-frame.core` and `re-frame.trace` both `:require` this ns
+  statically, so every bundle loads it and these hooks are always
+  published. What keeps a production CLJS bundle clean is var-level: the
+  listener / buffer surface is reached only through dev-gated call sites,
+  so Closure drops the bodies nothing calls — the `trace-tooling` entry in
+  `implementation/scripts/check-bundle-isolation.cjs` pins the
+  `trace-buffer` body's absence from the counter bundle. Consumers still
+  treat an unpublished hook as inert, so the trace fast path / registrar
+  short-circuit cleanly without one.
 
   Per Spec 009 §Per-frame trace rings."
   (:require [re-frame.interop :as rf.interop]
@@ -69,8 +75,8 @@
             ;; (`absorb` over `empty-event-bundle`) from the projection ns
             ;; rather than re-inlining the classification cond. Both nss
             ;; are dev-side and bundle-isolated from production CLJS (the
-            ;; `trace-tooling` bundle-isolation entry pins tooling's
-            ;; absence from the counter bundle); projection carries no
+            ;; `trace-tooling` bundle-isolation entry pins the tooling
+            ;; body's absence from the counter bundle); projection carries no
             ;; requires of its own, so this edge introduces no cycle.
             [re-frame.trace.projection :as rf.trace.projection]))
 
