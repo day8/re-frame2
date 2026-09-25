@@ -475,7 +475,8 @@
 ;; clojure.test routes its assertion / FAIL / ERROR / summary output
 ;; through `clojure.test/*test-out*` (bound to the real `*out*`), NOT
 ;; through `*err*`, so buffering stderr never hides failure diagnostics —
-;; the red FAIL/ERROR blocks reach stdout via the `*out*` filter.
+;; the red FAIL/ERROR blocks reach the real stdout through `*test-out*`,
+;; which `-main`'s `*out*` filter does not rebind.
 
 (def ^:private stderr-buffer-cap
   "Bounded stderr ring capacity (characters).  Caps memory + replay
