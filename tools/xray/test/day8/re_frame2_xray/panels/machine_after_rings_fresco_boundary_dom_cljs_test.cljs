@@ -1,26 +1,26 @@
 (ns day8.re-frame2-xray.panels.machine-after-rings-fresco-boundary-dom-cljs-test
-  "THE `:after`-RINGS OVERLAY RE-AUTHORED IN THE RE-FRAME-NATIVE VIEW LAYER,
-  read off a real React commit (rf2-k97c.3).
+  "THE `:after`-RINGS OVERLAY IN THE RE-FRAME-NATIVE VIEW LAYER, read off a
+  real React commit.
 
-  `machine-after-rings/AfterRingsOverlay` is now an `rf.fresco/defview`
+  `machine-after-rings/AfterRingsOverlay` is an `rf.fresco/defview`
   reading its four slots through Fresco's shipped collector rather than an
   `rf/reg-view` reading through whatever view build the installed adapter
   supplies. This file is the behavioural evidence, and it follows
   `module_view_fresco_boundary_dom_cljs_test`'s four-row template.
 
-  ## What is DIFFERENT about this boundary, and why two rows here are new
+  ## What is DIFFERENT about this boundary, and why two rows here are not in the template
 
-  Every panel migrated before this one rendered its own hiccup all the way
-  down. This one's whole job is to DELEGATE to the machines-viz
+  Other Fresco panels render their own hiccup all the way down. This
+  one's whole job is to DELEGATE to the machines-viz
   `AfterRingsOverlay`, which is a **Reagent component** living in a
   bundle-isolated sibling artefact that knows nothing of Fresco. Fresco
-  admits neither spelling the migration has used so far:
+  admits neither ordinary spelling:
 
     * as a hiccup HEAD it is a plain function, which is a loud error
       (HD-016);
-    * CALLED — the repair used for `mini`, `frame-row`, `code-block` and
-      Resources' 37 section helpers — it answers a Reagent CLASS rather
-      than hiccup, so calling it is a different bug rather than a fix.
+    * CALLED — the way `mini`, `frame-row`, `code-block` and Resources'
+      section helpers are called — it answers a Reagent CLASS rather
+      than hiccup, so calling it is a bug.
 
   The door taken is Fresco's own component ABI: *\"A React element is a
   legal child anywhere\"* (`re-frame.fresco.impl.codec`; `child-kind`
@@ -34,12 +34,12 @@
     * W1 asserts the machines-viz overlay's OWN committed DOM
       (`data-ring-count`), which exists only if the React element really
       crossed the substrate seam and Reagent really rendered it. A
-      migration that broke the crossing paints nothing there.
-    * W5 asserts the rf2-e64drj MOUNT GATE still works — the overlay's
+      boundary that broke the crossing would paint nothing there.
+    * W5 asserts the MOUNT GATE — the overlay's
       `:ref` callback clears the rAF tick loop's `:mounted?` liveness on
       unmount. `:ref` is one of the two structural slots Fresco carries
       untouched, and an off-render 60Hz loop that outlives its panel is
-      the exact regression that contract was written for.
+      exactly what that contract exists to prevent.
 
   ## Criterion 3 is answered in the NODE lane, deliberately
 
@@ -144,11 +144,11 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
-;; NO `flush-render!` HELPER HERE, and its absence is a finding rather than an
-;; omission — increment 1 measured it. A Fresco boundary is NOT in Reagent's
-;; render queue, so draining Reagent's queue commits nothing of this overlay's,
-;; and a row written that way reads a DOM that has not moved and reports a live
-;; panel as dead. Mount is committed with `flushSync` (React's own door) and
+;; NO `flush-render!` HELPER HERE, and its absence is deliberate. A Fresco
+;; boundary is NOT in Reagent's render queue, so draining Reagent's queue
+;; would commit nothing of this overlay's, and a row written that way would
+;; read a DOM that has not moved and report a live panel as dead. Mount is
+;; committed with `flushSync` (React's own door) and
 ;; everything after it is polled.
 
 (defn- settle
@@ -186,9 +186,8 @@
   silent no-op when `:rf/xray` is not registered. Seeding \"into\" any
   other frame would therefore leave `:rf.xray/trace-buffer` empty there,
   the projection empty, and the overlay rendering nil — while the three
-  override dispatches above all appeared to succeed. An earlier draft of
-  W3 did exactly that and would have asserted a zero against a container
-  with nothing in it."
+  override dispatches above all appear to succeed. A W3 written that way
+  would assert a zero against a container with nothing in it."
   []
   (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test
                      [:auth/login]] {:frame :rf/xray})
@@ -196,15 +195,14 @@
                      {:auth/login fixture-definition}] {:frame :rf/xray})
   (rf/dispatch-sync [:rf.xray/set-now-ms-override-for-test 2000]
                     {:frame :rf/xray})
-  ;; rf2-y8doi.23 — AND SAY WHICH MACHINE IS FOCUSED. The rings sub used
-  ;; to take its machine from `:rf.xray/machine-inspector-data`'s
-  ;; `:selected-id`, whose no-picker default is the ALPHABETICALLY-first
-  ;; registered machine — which is why registering one machine used to be
-  ;; enough here. That default was the defect: the Dynamic panel binds to
-  ;; the FOCUSED EVENT's first transition record and reads no picker, so
-  ;; with two machines registered the rings described one machine while
-  ;; the chart drew another. The sub now reads the focused record, so a
-  ;; row that wants a ring has to focus a machine.
+  ;; AND SAY WHICH MACHINE IS FOCUSED. The rings sub reads the focused
+  ;; event's record, so a row that wants a ring has to focus a machine. A
+  ;; sub taking its machine from `:rf.xray/machine-inspector-data`'s
+  ;; `:selected-id` would default to the ALPHABETICALLY-first registered
+  ;; machine; the Dynamic panel binds to the FOCUSED EVENT's first
+  ;; transition record and reads no picker, so with two machines
+  ;; registered the rings would describe one machine while the chart drew
+  ;; another.
   (rf/dispatch-sync
     [:rf.xray/set-epoch-history-for-test
      [{:epoch-id 1
@@ -230,8 +228,8 @@
   "Mount the overlay the way `machine-canvas/Chart` mounts it: through
   `AfterRingsOverlay-bridge`, the PUBLIC var the caller actually holds,
   inside a `frame-provider` scoping `frame`. Reaching for the bridge
-  rather than for the boundary is deliberate — a bridge that regressed to
-  something a Reagent tree cannot mount reddens here rather than in a
+  rather than for the boundary is deliberate — a bridge that a Reagent
+  tree cannot mount reddens here rather than in a
   browser. Committed synchronously; React 19's `root.render` is otherwise
   async and W1 would assert against an empty container."
   [frame]
@@ -271,14 +269,14 @@
 
 (defn- ref-count-of
   "The sub-cache ref-count the frame holds for `query-v`, or 0 when the
-  entry is absent. The spike measured the rejected design by watching this
-  number climb across renders and never fall on unmount, so it is the
-  number the migration is answerable on."
+  entry is absent. A boundary that leaks a read shows as this number
+  climbing across renders and never falling on unmount, so it is the
+  number the boundary is answerable on."
   [frame-id query-v]
   (or (:ref-count (get (cache-of frame-id) query-v)) 0))
 
 (defn- mounted-flag
-  "The rAF tick loop's `:mounted?` liveness (rf2-e64drj), owned by the
+  "The rAF tick loop's `:mounted?` liveness, owned by the
   overlay's `:ref` callback. Private var, reached the same way
   `machine_after_rings_tick_loop_cljs_test` reaches it.
 
@@ -296,7 +294,7 @@
 ;; ===========================================================================
 
 (deftest w1-overlay-paints-through-the-seam-and-reads-the-named-frame
-  (testing "rf2-k97c.3 — the migrated overlay commits real DOM through the
+  (testing "the Fresco overlay commits real DOM through the
             bridge its caller holds, the machines-viz Reagent component
             behind the substrate seam paints its own root, and the
             boundary's `rf.fresco/sub` reads resolve against the frame the
@@ -356,7 +354,7 @@
 ;; ===========================================================================
 
 (deftest w2-overlay-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted overlay re-renders and commits new DOM
+  (testing "the mounted overlay re-renders and commits new DOM
             when its read's value really changes, and does NOT when the
             underlying slot moves without moving the answer. Epic criterion
             2, with the control that makes the update mean liveness rather
@@ -420,7 +418,7 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated overlay
+  (testing "rendering the Fresco overlay
             contributes NOTHING to the substrate's view-trace stream, even
             when it is mounted INSIDE an application frame. Epic criterion
             5, proven structurally rather than by the `:rf/xray` frame
@@ -434,9 +432,9 @@
             ;; Give the composite a DEFINED answer in the application
             ;; frame — `active-timers-empty-when-nothing-is-focused` in
             ;; the node suite pins that an unfocused panel yields `[]`
-            ;; rather than throwing (rf2-y8doi.23 renamed that row: there
-            ;; is no selection to be empty of any more, since the sub
-            ;; reads the focused event's record). No timer is seeded here
+            ;; rather than throwing (there is no selection to be empty of,
+            ;; since the sub reads the focused event's record). No timer is
+            ;; seeded here
             ;; either way: the trace snapshot only
             ;; ever lands in `:rf/xray`'s slot (see `seed-one-armed-timer!`),
             ;; so there would be nothing to paint here in any case, and this
@@ -459,7 +457,7 @@
               ;; into `:rf/xray`'s slot ALONE — so inside an application
               ;; frame there are no timers, and the boundary correctly
               ;; renders nil. A DOM precondition is therefore unavailable
-              ;; HERE, and reaching for one would have made the zero below
+              ;; HERE, and reaching for one would make the zero below
               ;; vacuous in the quietest possible way.
               ;;
               ;; A reference in this frame's sub-cache is the better
@@ -515,7 +513,7 @@
   (zero? (ref-count-of :rf/xray timers-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the overlay releases its subscription
+  (testing "unmounting the overlay releases its subscription
             reference completely, and mounting it again returns to the SAME
             count rather than a higher one. Epic criterion 6.
 
@@ -582,24 +580,24 @@
             (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
-;; W5 — the rf2-e64drj MOUNT GATE survives the migration
+;; W5 — the MOUNT GATE holds across the Fresco boundary
 ;; ===========================================================================
 ;;
 ;; This row is NOT in the template, and it is the one this panel most needs.
 ;; The overlay owns the single per-chart rAF tick loop, and `tick-loop!` is
 ;; gated on a `:mounted?` liveness flag that the overlay's `:ref` callback
-;; clears. Pre-rf2-e64drj the loop was gated on app-db data ALONE, so
-;; switching away from the Machine Inspector while an `:after` timer stayed
-;; armed left it dispatching ~60x/s in the background for ever.
+;; clears. A loop gated on app-db data ALONE would, on switching away from
+;; the Machine Inspector while an `:after` timer stayed armed, keep
+;; dispatching ~60x/s in the background for ever.
 ;;
 ;; `:ref` is one of the two structural slots Fresco carries untouched rather
-;; than emitting as an attribute, so the contract SHOULD survive — but
+;; than emitting as an attribute, so the contract SHOULD hold — but
 ;; "should" is what this file exists to replace. Nothing else in the suite
 ;; can see it: `machine_after_rings_tick_loop_cljs_test` drives `overlay-ref!`
-;; by hand, which proves the flag's algebra and not that React still calls it.
+;; by hand, which proves the flag's algebra and not that React calls it.
 
 (deftest w5-unmount-clears-the-tick-loop-mount-gate
-  (testing "rf2-e64drj / rf2-k97c.3 — mounting the boundary arms the rAF
+  (testing "mounting the boundary arms the rAF
             clock's `:mounted?` liveness and unmounting CLEARS it, because
             Fresco carried the `:ref` callback through to React untouched.
             Without this the off-render 60Hz loop outlives its panel."
