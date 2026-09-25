@@ -1,47 +1,37 @@
 #!/usr/bin/env node
 /*
  * `test:examples-compile` — compile-coverage gate over EVERY declared
- * standalone `:examples/*` AND `:testbeds/*` shadow-cljs build
- * (rf2-0vav5.1 + rf2-cn6kc.1 + rf2-in6c4).
+ * standalone `:examples/*` AND `:testbeds/*` shadow-cljs build.
  *
- * The gap this closes
- * -------------------
- * Several `:examples/*` builds are declared shadow-cljs browser targets
- * with init-fns but were compiled by NO automated gate:
- *
- *   - :examples/login-uix, :examples/dashboard-uix   (UIx — rf2-0vav5.1)
- *   - :examples/login-helix, :examples/process-monitor-helix
- *                                                    (Helix — rf2-cn6kc.1)
- *
- * Only the counter trio (:examples/counter / -uix / -helix) was covered
- * (release-built by `test:bundle-isolation`), so a namespace / init-fn /
- * dependency / schema / machine / substrate-form regression in any of the
- * others shipped GREEN until a human manually ran the example. This is the
- * compile-layer fix: it does NOT add any per-example `*.spec.cjs` under
- * `examples/` (forbidden by rf2-8cevm) — it just COMPILES every declared
+ * What this covers
+ * ----------------
+ * The `:examples/*` builds are declared shadow-cljs browser targets with
+ * init-fns, and apart from the counter builds `test:bundle-isolation`
+ * release-builds, no other automated gate compiles them. Without this gate a
+ * namespace / init-fn / dependency / schema / machine / substrate-form
+ * regression in any of them would ship GREEN until a human ran the example.
+ * This is the compile layer: it adds no per-example `*.spec.cjs` under
+ * `examples/` (examples are test-free) — it just COMPILES every declared
  * standalone example so a compile-time defect fails CI.
  *
- * THE SAME GAP, ONE TREE OVER (rf2-in6c4). `:testbeds/*` had it too, and
- * worse, because nothing else reached those builds either. The classifier's
+ * THE SAME HOLE, ONE TREE OVER. `:testbeds/*` has it too, and worse,
+ * because nothing else reaches those builds either. The classifier's
  * generic `testbeds/*` case arms `cljs_browser`, but the top-level
- * `testbeds/` tree holds ZERO test files (measured: 13 `.cljs`, 0 `_test`,
- * 0 `.clj`, and one colocated `spec.cjs` under `tenant_switcher/`), and no
- * test in the armed lane `:require`s a testbed namespace — the Xray e2e
- * suites that read like they do use their OWN `host-fixtures` copies. So the
- * lane compiled none of them, and a compile break confined to a top-level
- * testbed landed green at PR time, caught only by the Xray FULL feature gate
- * (nightly). Twelve non-tenant top-level builds sat behind that hole
- * (`tenant-switcher` is the thirteenth and already has the
- * `tenant_switcher_smoke` gate; `:testbeds/panel-gallery` lives under
- * `tools/xray/testbeds/` and is the fourteenth). Adding the prefix here was the cheapest of the
- * three lanes weighed on the bead: a pure `shadow-cljs compile` in a job
+ * `testbeds/` tree holds no test files (only `.cljs` sources and one
+ * colocated `spec.cjs` under `tenant_switcher/`), and no test in the armed
+ * lane `:require`s a testbed namespace — the Xray e2e suites that read like
+ * they do use their OWN `host-fixtures` copies. So that lane compiles none of
+ * them, and without this gate a compile break confined to a top-level testbed
+ * would land green at PR time, caught only by the Xray FULL feature gate
+ * (nightly). (`tenant-switcher` also has the `tenant_switcher_smoke` gate;
+ * `:testbeds/panel-gallery` lives under `tools/xray/testbeds/`.) Sweeping
+ * the prefix here is the cheapest lane: a pure `shadow-cljs compile` in a job
  * that already exists, sharing that job's compilation cache, buying no
  * browser execution nobody asked for.
  *
- * THE FILE AND SCRIPT NAMES STILL READ "examples", deliberately. Renaming
+ * THE FILE AND SCRIPT NAMES READ "examples", deliberately. Renaming
  * them is a required-check rename plus an npm-script rename plus a
- * classifier-roster edit, for no coverage gained — the same trade
- * `ui-scaffold-smoke` records in test.yml for its own stale name. What the
+ * classifier-roster edit, for no coverage gained. What the
  * gate SWEEPS is `COMPILED_BUILD_PREFIXES` below; that is the honest roster.
  *
  * Auto-covering by construction
@@ -50,7 +40,7 @@
  * `:testbeds/*` build ids) rather than hardcoded, so a NEWLY-declared build
  * under either prefix is swept by this gate the moment it lands — no second
  * edit, no drift. This mirrors the `:dev-http` drift-guard approach in
- * `dev-testbed.test.cjs` (rf2-d3fb7.1): shadow-cljs.edn is the single source
+ * `dev-testbed.test.cjs`: shadow-cljs.edn is the single source
  * of truth and is read here ONLY (it is a hot-zone file — never edited by
  * this script).
  *
@@ -66,7 +56,7 @@
  * across builds in one process, so the cost is far below N independent
  * compiles, and `compile` (unlike `release`) does no Closure externs
  * prebuild, so there is no shared-externs.zip race (the dev-testbed.cjs
- * note that motivated explicit-build-ids applies to `watch`, not here).
+ * note on explicit build ids applies to `watch`, not here).
  *
  * WARNINGS ARE FAILURES (teeth)
  * -----------------------------
@@ -77,11 +67,11 @@
  * regression classes) would otherwise "Build completed. (… 1 warnings …)"
  * and ship GREEN. This gate therefore captures shadow's output, echoes it
  * live, and FAILS if ANY build reports `> 0 warnings` OR if shadow exits
- * non-zero (a hard error such as a missing `:require`d namespace). All 39
- * example builds compile with ZERO warnings today, so a zero-warning floor
+ * non-zero (a hard error such as a missing `:require`d namespace). Every
+ * swept build compiles with ZERO warnings, so a zero-warning floor
  * is a clean, real-teeth bar — not a noisy one.
  *
- * SPAWN FORM (rf2-wn4o1 / rf2-1ggkn): resolve shadow-cljs's own JS
+ * SPAWN FORM: resolve shadow-cljs's own JS
  * entry-point (`shadow-cljs/cli/runner.js`) and run it under THIS node
  * binary (`process.execPath`) with `shell:false` — never `npx`/`npx.cmd`
  * under a shell. Same hardened posture as story-build.cjs /
@@ -95,7 +85,7 @@
  *
  * The pure enumeration + parser are exported for
  * `check-examples-compile.test.cjs`, which pins the parser (non-vacuous
- * under EACH swept prefix, covers the previously-uncovered builds) so this
+ * under EACH swept prefix, covers the builds no other gate compiles) so this
  * gate keeps its teeth.
  */
 
@@ -110,24 +100,23 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 // shadow-cljs.edn enumeration. We hand-roll a focused scan rather than pull
 // in an EDN dependency — the only shape we read is top-level build-id keys
 // (`:examples/<name> {`, `:testbeds/<name> {`). This matches the parser style
-// already used by the dev-testbed drift guard (rf2-d3fb7.1).
+// the dev-testbed drift guard uses.
 // ---------------------------------------------------------------------------
 
 /**
  * The build-id prefixes this gate sweeps, each with the floor its
  * enumeration must clear.
  *
- * THE FLOOR IS PER PREFIX, not a single total, and that is the point
- * (rf2-in6c4). A total floor is satisfied by the examples alone: drop the
- * `testbeds` alternative out of the pattern below and 39 example builds
+ * THE FLOOR IS PER PREFIX, not a single total, and that is the point.
+ * A total floor is satisfied by the examples alone: drop the
+ * `testbeds` alternative out of the pattern below and the example builds
  * still clear any total worth setting, so the gate would go on passing
- * green having quietly stopped compiling fifteen builds — the precise
- * vacuous-pass shape the original floor was added to refuse, reintroduced
- * by widening the roster. A floor per prefix cannot be satisfied by a
- * sibling.
+ * green having quietly stopped compiling every testbed build — the precise
+ * vacuous-pass shape a floor exists to refuse. A floor per prefix cannot be
+ * satisfied by a sibling.
  *
- * The numbers are deliberately well under the live counts (39 examples, 15
- * testbeds) — they are a non-vacuity bar, not a census. A census here would
+ * The numbers are deliberately well under the live counts (`--list` prints
+ * them) — they are a non-vacuity bar, not a census. A census here would
  * red on every legitimate addition and removal.
  */
 const COMPILED_BUILD_PREFIXES = Object.freeze({
@@ -142,8 +131,8 @@ function readShadowEdn() {
 
 /**
  * Strip line comments (`;` to end-of-line) so a commented-out build id
- * (e.g. the removed `:examples/xray-rhs-smoke` note) can't be mistaken for
- * a live build. Naive but sufficient: the build-id keys we scan never
+ * (e.g. the `:examples/xray-rhs-smoke` named in a comment) can't be mistaken
+ * for a live build. Naive but sufficient: the build-id keys we scan never
  * appear inside string literals in shadow-cljs.edn.
  */
 function stripEdnComments(edn) {
@@ -213,7 +202,7 @@ function prefixesBelowFloor(builds) {
 // `bench/fresco/src/re_frame/bench/fresco/lane_build.cjs` (`:fresco-bench`). All
 // three refuse an unreadable summary; they are deliberately NOT unified, and
 // `compile-node-test.cjs`'s header carries the measured reasons and the test
-// for whether a fourth lane should mint its own (rf2-040s1). Read it before
+// for whether a fourth lane should mint its own. Read it before
 // generalising anything here.
 //
 // THE SLASH IN THE PATTERN BELOW IS LOAD-BEARING, and not merely an id capture:
@@ -285,15 +274,15 @@ function normaliseBuildId(id) {
  * exactly one parsable completed summary AND no orphan warning marker was
  * left unaccounted for.
  *
- * THE FALSE-GREEN THIS CLOSES (rf2-nlnd9y.1). The gate's teeth are the
- * per-build `warnings` count parsed out of each summary line. But the gate
- * previously failed ONLY on a parsed `warnings > 0` row (or a non-zero child
- * exit). If a requested build's summary line never appeared in the captured
- * output — or appeared in a shape the summary regex no longer matches (a
+ * THE FALSE-GREEN THIS CLOSES. The gate's teeth are the
+ * per-build `warnings` count parsed out of each summary line. Failing ONLY
+ * on a parsed `warnings > 0` row (or a non-zero child exit) is not enough:
+ * if a requested build's summary line never appears in the captured
+ * output — or appears in a shape the summary regex does not match (a
  * shadow-cljs format change, a `1 warning` singular, a truncated line) —
- * then `buildsWithWarnings` returns `[]`, the child still exited 0, and the
- * gate reported SUCCESS having verified nothing about that build. A missing
- * or unparseable summary is now a FAILURE, not a silent pass:
+ * then `buildsWithWarnings` returns `[]`, the child exits 0, and the
+ * gate would report SUCCESS having verified nothing about that build. So a
+ * missing or unparseable summary is a FAILURE, not a silent pass:
  *
  *   - every requested build must have EXACTLY ONE completed summary;
  *   - a build with zero summaries is `missing` (drift / disappeared);
@@ -474,7 +463,7 @@ if (require.main === module) {
 
     // 2) Soft failure: `compile` exits 0 on warnings (e.g. an :undeclared-var
     //    from a typo'd init-fn / symbol). Fail the gate so such a regression
-    //    cannot ship green. All example builds are warning-free today, so any
+    //    cannot ship green. Every swept build is warning-free, so any
     //    non-zero count is a real regression.
     const warned = buildsWithWarnings(captured);
     if (warned.length > 0) {
@@ -495,7 +484,7 @@ if (require.main === module) {
       process.exit(1);
     }
 
-    // 3) Coverage reconciliation (rf2-nlnd9y.1): a clean exit + zero parsed
+    // 3) Coverage reconciliation: a clean exit + zero parsed
     //    warning rows is NOT sufficient. A requested build whose summary is
     //    missing/unparsable, a duplicate/unexpected summary, or a WARNING
     //    marker the parser missed all mean the warning analysis above was
