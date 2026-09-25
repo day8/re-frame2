@@ -1,6 +1,6 @@
 (ns re-frame.story.author-expectations-test
-  "Tests for the pure expectation-authoring substrate (rf2-ba86n.12,
-  spec/021 §S5, spec/019).
+  "Tests for the pure expectation-authoring substrate (spec/021 §S5,
+  spec/019).
 
   Runs on the JVM under `clojure -M:test` AND on CLJS under shadow's
   `:node-test` build — the substrate is pure data → data (catalog / atom
@@ -25,7 +25,7 @@
     (doseq [{:keys [kind assertion-id]} rf.story.author-expectations/expectation-kinds]
       (is (rf.story.assertions/assertion-id-known? assertion-id)
           (str kind " folds onto a known assertion id"))))
-  (testing "the catalog spans every acceptance-criteria surface (rf2-ba86n.12)"
+  (testing "the catalog spans every acceptance-criteria surface"
     (let [surfaces (into #{} (map :surface) rf.story.author-expectations/expectation-kinds)]
       ;; app-db, subscriptions, rendered DOM, schema behaviour, browser/a11y
       (is (= #{:app-db :subscriptions :dom :schema :browser} surfaces)
@@ -104,7 +104,7 @@
       (is (string? (:query-v errors))))))
 
 ;; ===========================================================================
-;; RUNNER COST / :cannot-run BEFORE SAVE — reads the EXISTING registry
+;; RUNNER COST / :cannot-run BEFORE SAVE — reads the requirement registry
 ;; ===========================================================================
 
 (deftest expectation-cost-reads-the-requirement-registry
