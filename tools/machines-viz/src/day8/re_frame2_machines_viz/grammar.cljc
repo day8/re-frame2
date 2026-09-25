@@ -228,7 +228,7 @@
                                                    (update :states walk-states-choice))))
                                         {} regions))))))
 
-(declare timeout-defect)
+(declare timeout-defect region-choice-defect)
 
 (defn desugar-grammar
   "Apply every named-intent grammar desugar an emitter must lower before
@@ -240,10 +240,13 @@
   Timeouts are lowered only when `timeout-defect` finds none. Lowering an
   unpaired, unresolvable or colliding `:timeout` would drop it, and every
   boundary validates the lowered definition, so it keeps its `:timeout` keys
-  for `definition-defect` to refuse as the engine does."
+  for `definition-defect` to refuse as the engine does. Choices are lowered
+  only when `region-choice-defect` finds none, for the same reason: a region
+  body's refused `:choice` keeps its keys, so every boundary refuses it with
+  the engine's `:choice` category rather than as a lowered `:always`."
   [definition]
-  (-> (cond-> definition (nil? (timeout-defect definition)) desugar-timeouts)
-      desugar-choices))
+  (let [d (cond-> definition (nil? (timeout-defect definition)) desugar-timeouts)]
+    (cond-> d (nil? (region-choice-defect d)) desugar-choices)))
 
 ;; ---------------------------------------------------------------------------
 ;; Definition-shape validation — the SINGLE shape gate all three emitters share
@@ -544,6 +547,12 @@
 ;;   - no machine-root key the runtime never reads on the root, and no
 ;;     region-body key it never reads on a region body
 ;;     (`machine-root-slot-not-supported`);
+;;   - no `:after` on a parallel region body, hand-authored or lowered from a
+;;     region-body `:timeout` (`machine-non-parallel-root-after-not-supported`);
+;;   - a parallel region body's `:type :choice` / `:choice` grammar, checked
+;;     before anything is lowered (`machine-choice-without-type` /
+;;     `-missing-choice` / `machine-bad-choice` / `machine-choice-extra-keys` /
+;;     `-no-default` / `-self-loop`);
 ;;   - a single `:spawn` is ONE map declaring `:machine-id` XOR `:definition`,
 ;;     and an inline `:definition`'s address — `:id-prefix` or
 ;;     `:fixed-actor-id` (`machine-spawn-bad-shape`);
@@ -623,6 +632,13 @@
   its region's tree, entered at birth and exited at teardown, so it follows
   the machine root's rule; parallel regions do not nest."
   #{:spawn :spawn-all :always :final? :output-key :error? :deep? :default-target :regions})
+
+(def ^:private reserved-choice-keys
+  "State-node keys a `:type :choice` state must not declare beside its
+  `:choice` — mirror of the engine's `choice/reserved-choice-keys`. A choice
+  state only routes, so it carries no waiting-state behaviour."
+  #{:entry :exit :on :always :after :timeout :on-timeout
+    :spawn :spawn-all :initial :states :final? :output-key})
 
 (def ^:private known-spawn-spec-keys
   "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
@@ -1116,6 +1132,56 @@
        :path     [:regions region-name]
        :keys     offending})))
 
+(defn- region-after-defect
+  "A region body's own `:after`, hand-authored or lowered from a region-body
+  `:timeout` — mirror of the engine's region arm of
+  `validation/validate-non-parallel-root-after!`. The runtime schedules a
+  region's entered leaves and the parallel root's own `:after`, never a region
+  body's, so the timer would register and never fire; a region deadline
+  belongs on the region's `:initial` state. A non-empty `:after` is refused
+  whatever it holds. Assumes `:after` is a MAP: `region-defect` guards its
+  shape first with `transition-slot-shape-defect`."
+  [region-name body]
+  (when (seq (:after body))
+    {:category :rf.error/machine-non-parallel-root-after-not-supported
+     :path     [:regions region-name]}))
+
+(defn- region-choice-defect
+  "The first parallel region body's `:type :choice` / `:choice` grammar defect
+  — mirror of the engine's `choice/validate-node-choice!` on each region body,
+  which runs on the definition before anything is lowered and before any other
+  structural check but the `:timeout` grammar. A region body carries `:initial`
+  and `:states`, which a choice state may not, so a well-shaped region body
+  declaring either marker is refused. Names the region under `:path`. Total
+  over malformed input."
+  [definition]
+  (when (and (parallel-definition? definition) (map? (:regions definition)))
+    (some (fn [[rn body]]
+            (when (map? body)
+              (let [has-type?   (= :choice (:type body))
+                    has-choice? (contains? body :choice)
+                    choice      (:choice body)
+                    self?       (fn [{:keys [target]}]
+                                  (cond
+                                    (keyword? target) (= target rn)
+                                    (vector? target)  (= target [rn])
+                                    :else             false))
+                    category    (cond
+                                  (and (not has-type?) (not has-choice?)) nil
+                                  (not has-type?)  :rf.error/machine-choice-without-type
+                                  (not has-choice?) :rf.error/machine-choice-missing-choice
+                                  (not (and (vector? choice) (seq choice) (every? map? choice)))
+                                  :rf.error/machine-bad-choice
+                                  (some #(contains? body %) reserved-choice-keys)
+                                  :rf.error/machine-choice-extra-keys
+                                  (not-any? #(not (contains? % :guard)) choice)
+                                  :rf.error/machine-choice-no-default
+                                  (some self? choice)
+                                  :rf.error/machine-choice-self-loop)]
+                (when category
+                  {:category category :path [:regions rn]}))))
+          (:regions definition))))
+
 (defn- region-root-target-defect
   "A region body's own `:on` (the region's ancestor fallback) and `:on-done`
   (taken on the region's done) target resolution — mirror of the engine's
@@ -1178,7 +1244,9 @@
           (transition-slot-shape-defect [region-name] body)
           (transition-keys-defect [region-name] body)
           ;; After the nested-parallel refusal above, which names that shape
-          ;; more precisely — the engine's order.
+          ;; more precisely — the engine's order, in which the region-body
+          ;; `:after` refusal also precedes the unread-key one.
+          (region-after-defect region-name body)
           (region-slot-defect region-name body)
           (some (fn [[path node]]
                   (or (when (= :parallel (:type node))
@@ -1215,7 +1283,8 @@
   projectable. Desugars (`desugar-grammar` — EP-0029 A4/A5) FIRST so a
   `:timeout` / `:choice` authoring form is validated on its lowered shape; a
   `:timeout` the desugar cannot lower is refused before anything else, as the
-  engine's `validate-timeouts!` refuses it first. It then
+  engine's `validate-timeouts!` refuses it first, and a region body's
+  `:choice` next, as the engine's `validate-node-choice!` refuses it. It then
   recursively mirrors the runtime machine contract's projectable invariants —
   see the section comment above for the full enforced list + the documented
   viz-vs-engine divergences.
@@ -1228,6 +1297,7 @@
     (cond
       (not (map? d))           {:category :rf.error/machine-bad-definition :path []}
       (timeout-defect d)       (timeout-defect d)
+      (region-choice-defect d) (region-choice-defect d)
       (parallel-definition? d) (parallel-defect d)
       :else                    (flat-defect d))))
 

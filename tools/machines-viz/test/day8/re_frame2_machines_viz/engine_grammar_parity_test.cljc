@@ -524,6 +524,8 @@
    :valid-region-lifecycle      {:type    :parallel
                                  :regions {:r {:initial :a :entry (fn [_ctx] nil) :exit (fn [_ctx] nil)
                                                :tags #{:busy} :states {:a {}}}}}
+   ;; A region body's `:after` that declares no delay schedules nothing.
+   :valid-region-empty-after    {:type :parallel :regions {:r {:initial :a :after {} :states {:a {}}}}}
    :valid-parallel-root-on-done {:type    :parallel :actions {:announce (fn [_ctx] nil)} :on-done {:action :announce}
                                  :regions {:r {:initial :a :states {:a {:final? true}}}}}
    ;; A single spawn's `:on-done` is a fn folding `:data`, or a transition.
@@ -660,6 +662,21 @@
    :region-body-spawn     {:type :parallel :regions {:r {:initial :a :spawn {:machine-id :m} :states {:a {}}}}}
    :region-body-two-slots {:type :parallel :regions {:r {:initial :a :final? true :spawn {:machine-id :m}
                                                          :states  {:a {}}}}}
+   ;; ---- a region body's own `:after`, and a region body as a choice state ----
+   :region-body-after              {:type :parallel :regions {:r {:initial :a :after {1000 :a} :states {:a {}}}}}
+   :region-body-timeout            {:type :parallel :regions {:r {:initial :a :timeout 1000 :on-timeout :a
+                                                                  :states  {:a {}}}}}
+   :region-body-after-and-final    {:type :parallel :regions {:r {:initial :a :after {1000 :a} :final? true
+                                                                  :states  {:a {}}}}}
+   :region-body-choice-without-type {:type :parallel :regions {:r {:initial :a :choice [{:target :a}]
+                                                                   :states  {:a {}}}}}
+   :region-body-choice-missing     {:type :parallel :regions {:r {:initial :a :type :choice :states {:a {}}}}}
+   :region-body-choice             {:type :parallel :regions {:r {:initial :a :type :choice :choice [{:target :a}]
+                                                                  :states  {:a {}}}}}
+   :region-body-choice-malformed   {:type :parallel :regions {:r {:initial :a :type :choice :choice :a
+                                                                  :states  {:a {}}}}}
+   :region-body-choice-no-default  {:type :parallel :regions {:r {:type :choice :choice [{:guard :g :target :a}]}}}
+   :region-body-choice-self-loop   {:type :parallel :regions {:r {:type :choice :choice [{:target :r}]}}}
    ;; ---- non-Named KEYS ----
    ;;
    ;; Every entry above spells its keys as keywords, so without these rows the
@@ -969,6 +986,42 @@
           (str label ": the viz category after the boundary desugar"))
       (is (= (:slot (engine-refusal m)) (:slot (g/definition-defect m)))
           (str label ": the viz names the engine's slot")))))
+
+;; A region body's own `:after` never fires, and a region body is never a
+;; choice state, so the engine refuses both. It names the region under
+;; `:region` / `:state` rather than a `:path`; the viz names the same region at
+;; the region-body path its unread-key refusal carries.
+
+(def ^:private region-body-after-choice-rows
+  "Corpus labels → the category the engine refuses each region body with."
+  {:region-body-after               :rf.error/machine-non-parallel-root-after-not-supported
+   :region-body-timeout             :rf.error/machine-non-parallel-root-after-not-supported
+   :region-body-after-and-final     :rf.error/machine-non-parallel-root-after-not-supported
+   :region-body-choice-without-type :rf.error/machine-choice-without-type
+   :region-body-choice-missing      :rf.error/machine-choice-missing-choice
+   :region-body-choice              :rf.error/machine-choice-extra-keys
+   :region-body-choice-malformed    :rf.error/machine-bad-choice
+   :region-body-choice-no-default   :rf.error/machine-choice-no-default
+   :region-body-choice-self-loop    :rf.error/machine-choice-self-loop})
+
+(deftest region-body-after-and-choice-refusal-parity
+  (testing "a region body's empty :after registers on both sides"
+    (let [m (get validation-parity-corpus :valid-region-empty-after)]
+      (is (= :accept (engine-answer m)) "the engine accepts")
+      (is (= :accept (viz-answer m)) "the viz accepts")))
+  (testing "the viz refuses a region body's :after and :choice with the engine's
+            own category, naming the region the engine names"
+    (doseq [[label category] region-body-after-choice-rows
+            :let [m       (get validation-parity-corpus label)
+                  refusal (engine-refusal m)]]
+      (is (= category (:rf.error/id refusal))
+          (str label ": the engine's category"))
+      (is (= category (:category (g/definition-defect m)))
+          (str label ": the viz category"))
+      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
+          (str label ": the viz category after the boundary desugar"))
+      (is (= [:regions (or (:region refusal) (:state refusal))] (:path (g/definition-defect m)))
+          (str label ": the viz names the engine's region")))))
 
 (deftest definition-validation-documented-divergences
   (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
