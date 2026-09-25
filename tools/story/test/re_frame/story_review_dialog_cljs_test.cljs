@@ -1,6 +1,5 @@
 (ns re-frame.story-review-dialog-cljs-test
-  "CLJS-side tests for the shared review-then-commit dialog primitive
-  (rf2-7jpky).
+  "CLJS-side tests for the shared review-then-commit dialog primitive.
 
   Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
   The pure-data corpus is identical to the JVM
@@ -186,9 +185,9 @@
       (is (str/includes? flat ":story.x/example")))))
 
 (deftest copy-to-clipboard!-safe-on-node
-  (testing "rf2-jgn8 — the shared copy helper is callable without a clipboard
-            API and resolves an HONEST false outcome (it used to return nil,
-            which every caller read as success)"
+  (testing "the shared copy helper is callable without a clipboard
+            API and resolves an HONEST false outcome (a nil return
+            would read as success to every caller)"
     (async done
       (let [p (rf.story.review-dialog/copy-to-clipboard! "anything")]
         (is (instance? js/Promise p) "the shim exposes a completion result")
@@ -198,7 +197,7 @@
                          "no navigator.clipboard on node → not copied")))
             (.finally done))))))
 
-;; ---- indent-after (snippet-format helper, rf2-zs0w4) ---------------------
+;; ---- indent-after (snippet-format helper) --------------------------------
 
 (deftest indent-after-matches-prefix-width
   (testing "indent-after returns \\n + N spaces equal to the prefix length"
@@ -209,10 +208,10 @@
            (rf.story.predicates/indent-after "   :args {"))
         "both flows' prefixes collapse to the same indent")))
 
-;; ---- ARIA: modal a11y posture (rf2-p1ai7) -------------------------------
+;; ---- ARIA: modal a11y posture --------------------------------------------
 
 (deftest renderer-stamps-role-dialog-and-aria-modal
-  (testing "rf2-p1ai7: the rendered modal carries role=dialog + aria-modal=true"
+  (testing "the rendered modal carries role=dialog + aria-modal=true"
     (let [flat (str (rf.story.review-dialog/review-dialog
                       (opened-state)
                       {:title             "Save"
@@ -233,7 +232,7 @@
           "the title's id matches the data-test-prefix derived id"))))
 
 (deftest renderer-id-input-carries-aria-label
-  (testing "rf2-u01y5: the variant-id input has an accessible name"
+  (testing "the variant-id input has an accessible name"
     (let [flat (str (rf.story.review-dialog/review-dialog
                       (opened-state)
                       {:title             "Save"
