@@ -5516,16 +5516,16 @@ test('PUSH: a multi-commit push classifies over the WHOLE push, not the tip (rf2
 });
 
 test('PUSH: the CONTROL — HEAD^ alone misses that same change (rf2-34yg)', () => {
-  // The defect itself, pinned. Same history, no accepted base, so the script
-  // takes its HEAD^ default and sees only the docs tip. If this ever starts
-  // arming the UI gates the test above has stopped proving anything.
+  // The failure mode itself, pinned. Same history, no accepted base, so the
+  // script takes its HEAD^ default and sees only the docs tip. If this ever
+  // starts arming the gates the test above has stopped proving anything.
   const result = classifyViaGitDiscovery(pushHistory);
   for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(
       result[key],
       'false',
       `HEAD^ sees only the docs tip, so ${key} stays false — this is the ` +
-        'defect rf2-34yg fixes, kept as the control for the test above',
+        'failure the accepted base avoids, kept as the control for the test above',
     );
   }
 });
@@ -5561,13 +5561,13 @@ test('PUSH: an UNRESOLVABLE base arms everything rather than skipping (rf2-34yg)
         'let it skip gates',
     );
   }
-  // Not merely the UI subset: this is mark_all, so every output is true.
+  // Not merely the discovery-key subset: this is mark_all, so every output is true.
   const falses = Object.entries(result).filter(([, v]) => v !== 'true');
   assert.deepEqual(falses, [], 'an unresolvable base must arm the FULL matrix');
 });
 
 test('PUSH: a pull_request is unaffected — base...HEAD still wins (rf2-34yg)', () => {
-  // The PR branch was always correct and is deliberately untouched. Even with
+  // The PR branch is independent of the push base. Even with
   // a base ref present in the environment, a pull_request event must not take
   // the push branch. GITHUB_BASE_REF is absent here, so the PR branch's own
   // guard sends this to the HEAD^ default rather than to the push branch.
@@ -5579,7 +5579,7 @@ test('PUSH: a pull_request is unaffected — base...HEAD still wins (rf2-34yg)',
   }
 });
 
-// ─── rf2-34yg — THE TRANSPORT ITSELF, PINNED ────────────────────────────────
+// ─── THE TRANSPORT ITSELF, PINNED ────────────────────────────────
 //
 // Every push case above SUPPLIES a base and then reads the classifier's
 // verdict. That is an indirect measurement: if the base never reaches the
@@ -5613,7 +5613,7 @@ const PROBE_BASE = 'feedfacefeedfacefeedfacefeedfacefeedface';
 test('LAUNCHER: the child actually RECEIVES the supplied base (rf2-34yg — the pin)', () => {
   // THE POSITIVE ASSERTION the push cases cannot make. Not "the outputs
   // changed", but "the child echoed back the exact 40 hex characters we handed
-  // it". Red under WSL before the WSLENV extension, green under Git Bash and
+  // it". Red under WSL without the WSLENV extension, green under Git Bash and
   // Linux with or without it.
   const seen = probeLauncher(
     launcherEnv({
@@ -5637,8 +5637,9 @@ test('LAUNCHER: the child actually RECEIVES the supplied base (rf2-34yg — the 
 test('LAUNCHER: the CONTROL — with the transport removed, WSL drops the base (rf2-34yg)', () => {
   // The property removed. `launcherEnv` is bypassed AND the ambient WSLENV is
   // cleared, so this is "no transport at all" rather than "whatever this
-  // terminal happens to export". Both branches assert something real: the fix
-  // is necessary on exactly one of the three launchers, and this says which.
+  // terminal happens to export". Both branches assert something real: the
+  // transport is necessary on exactly one of the three launchers, and this says
+  // which.
   const raw = {
     ...process.env,
     GITHUB_EVENT_NAME: 'push',
@@ -5706,7 +5707,7 @@ test('LAUNCHER: launcherEnv names every transported value in WSLENV on win32 (rf
   );
 
   // Off win32 the env is returned by IDENTITY — every CI runner is Linux and
-  // must be byte-identical to what it saw before this fix.
+  // must see exactly the environment it was handed.
   const posix = { GITHUB_EVENT_NAME: 'push', CHANGED_SURFACES_BASE_REF: PROBE_BASE };
   assert.equal(launcherEnv(posix, 'linux'), posix, 'non-win32 platforms must be untouched');
   assert.equal(launcherEnv(posix, 'darwin'), posix, 'non-win32 platforms must be untouched');
@@ -5714,7 +5715,7 @@ test('LAUNCHER: launcherEnv names every transported value in WSLENV on win32 (rf
 
 test('LAUNCHER: the discovery launcher goes THROUGH launcherEnv (rf2-34yg — the caller half)', () => {
   // The caller half, for the same reason the test.yml `env:` case below exists:
-  // reverting `env: launcherEnv(env)` to `env` restores the defect with every
+  // replacing `env: launcherEnv(env)` with `env` restores the defect with every
   // Linux CI case still green, because on Linux the two are the same value.
   // Reading the function's own source is the only assertion that survives that.
   assert.match(
@@ -5727,8 +5728,8 @@ test('LAUNCHER: the discovery launcher goes THROUGH launcherEnv (rf2-34yg — th
 
 test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () => {
   // THE CALLER HALF. The script cannot read `github.event.before` on its own —
-  // Actions exports no such variable — so the fix is inert unless test.yml
-  // passes it. Dropping this `env:` would silently restore tip-only
+  // Actions exports no such variable — so the push branch is inert unless
+  // test.yml passes it. Dropping this `env:` would silently restore tip-only
   // classification with every test above still green, because they supply the
   // base themselves.
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'detect_changed_surfaces');
@@ -5737,7 +5738,7 @@ test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () =
     /CHANGED_SURFACES_BASE_REF:\s*\$\{\{\s*github\.event\.before\s*\}\}/,
     'detect_changed_surfaces must pass github.event.before as ' +
       'CHANGED_SURFACES_BASE_REF, or a multi-commit push is classified on its ' +
-      'tip alone (rf2-34yg)',
+      'tip alone',
   );
   // Via `env:`, never interpolated into the run body — portability.yml's rule
   // for the same context value, so the step is injection-safe.
@@ -5755,27 +5756,10 @@ test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () =
 });
 
 // ---------------------------------------------------------------------------
-// rf2-drpa3.58 — the Freehand JVM lane folded into the REQUIRED matrix.
+// The Fresco artefact surface.
 //
-// F1a shipped it as .github/workflows/freehand-artefact.yml because the
-// workflow file was hot-zone. `needs:` cannot span workflow files, so that
-// job could never reach `all-required-passed` — the branch ruleset's single
-// required context — and a red freehand suite did not block a merge.
-//
-// Three things have to hold together, and each has a test below: the
-// classifier must ARM the surface (a standalone workflow had its own `paths:`
-// trigger and needed no classifier case; a surface-gated job does), the job
-// must be gated on that output and actually run the suite + the donor law,
-// and the aggregator must depend on it. Break any one and the lane silently
-// reverts to advisory.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// rf2-8a6s — the Fresco artefact surface.
-//
-// rf2-hic-001 created implementation/fresco/ and was fenced out of .github/,
-// so the package landed matching NO classifier case: a fresco-only diff set
-// every output false and every job skipped. TESTING.md §Changed-surface
+// Matching NO classifier case, a fresco-only diff would set every output
+// false and skip every job. TESTING.md §Changed-surface
 // classifier names the shape — a new artefact directory needs a classifier
 // rule AND a workflow gate reading it, and either side missing is a silent
 // hole. Both halves are pinned below, and the third test pins the SCOPE, so a
@@ -5804,15 +5788,14 @@ test('implementation/fresco/** arms cljs_node_test (rf2-8a6s)', () => {
 });
 
 test('the fresco arm is ARTEFACT-ROOT matching, not an enumeration (rf2-8a6s)', () => {
-  // Same reasoning the retired freehand case once carried:
   // `implementation/fresco/*)` is
   // a POSIX `case` glob whose `*` spans `/`, so the artefact root is covered
-  // at any depth. rf2-hic-009 carves the runtime into owned modules, which is
-  // exactly the change that would rot an enumeration — silently, because a new
-  // file that classifies as nothing simply skips its gates.
+  // at any depth. Carving the runtime into owned modules is exactly the change
+  // that would rot an enumeration — silently, because a new file that
+  // classifies as nothing simply skips its gates.
   //
-  // These paths do not exist. They are the shapes the carve-up will add,
-  // pinned so a future narrowing of the case reds here instead of in CI.
+  // These paths do not exist. They are shapes a carve-up adds, pinned so a
+  // future narrowing of the case reds here instead of in CI.
   for (const file of [
     'implementation/fresco/src/re_frame/fresco/impl/commit/deeply/nested.cljs',
     'implementation/fresco/test/re_frame/fresco/impl/commit_cljs_test.cljs',
@@ -5834,28 +5817,20 @@ test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-
   // because it reads as coverage.
   //
   //   implementation_jvm — NOT because the artefact has no JVM lane. It has
-  //     one: rf2-ipx7h put `implementation/fresco` on
-  //     scripts/test-jvm-implementation.sh and added the required
-  //     `jvm-fresco` job, and its `:test` alias dropped `--probe` and took
-  //     the test-count floor. The reason this row survives is that the job is
-  //     UNCONDITIONAL, so it needs no arm — and arming this root would be
-  //     actively wrong: 22 OTHER jobs read `implementation_jvm`, so every
-  //     fresco-only diff would schedule all of them to run one five-second
-  //     one-namespace lane. The release condition that used to be written here
-  //     ("arm it the same commit a JVM-runnable suite lands") is therefore
-  //     RETIRED rather than pending; the pin that replaces it is the
-  //     `jvm-fresco is UNCONDITIONAL` test below.
+  //     one: `implementation/fresco` is on scripts/test-jvm-implementation.sh
+  //     and runs in the required `jvm-fresco` job, whose `:test` alias carries
+  //     the test-count floor. The job is UNCONDITIONAL, so it needs no arm —
+  //     and arming this root would be actively wrong: 22 OTHER jobs read
+  //     `implementation_jvm`, so every fresco-only diff would schedule all of
+  //     them to run one five-second one-namespace lane. The
+  //     `jvm-fresco is UNCONDITIONAL` test below pins that.
   //   cljs_prod — no `-elision-prod-test$` namespace.
   //   bundle_isolation — no example resolves the
   //     artefact and it mounts no testbed those smokes drive.
   //
-  // `cljs_browser` USED TO BE ON THIS LIST, and its removal is the point of
-  // the rf2-8a6s widening. The entry read "fresco IS on the :browser-test
-  // classpath, but that build selects `-dom-cljs-test$` and the package owns
-  // no such namespace" — true when written, and false from the moment
-  // rf2-hic-010 and rf2-hic-012 landed three such namespaces. This row is
-  // where the stale premise was pinned, so this row is where the correction
-  // belongs; the arm is now asserted positively by the rf2-8a6s block above.
+  // `cljs_browser` is NOT on this list: the package owns `-dom-cljs-test$`
+  // namespaces the :browser-test build selects, and that arm is asserted
+  // positively by the DOM-suite block above.
   const result = classify('implementation/fresco/src/re_frame/fresco.cljc');
   for (const key of [
     'implementation_jvm',
@@ -5867,19 +5842,19 @@ test('implementation/fresco/** stays OFF the gates no fresco suite reaches (rf2-
 });
 
 // ---------------------------------------------------------------------------
-// rf2-ipx7h — the fresco JVM lane, and why it carries no surface gate.
+// The fresco JVM lane, and why it carries no surface gate.
 //
 // `implementation/fresco/test/re_frame/fresco/slot_cljs_test.cljc`
-// is the `.cljc` EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y): one
+// is the `.cljc` EQUIVALENCE PIN for the canonical slot rule: one
 // corpus asserted twice against ONE implementation, once by `npm run test:cljs`
 // in Node and once by `clojure -M:test` on the JVM. Both arms or no mechanism —
 // a reader conditional inside the rule, or the JVM's locale-sensitive
 // `str/upper-case`, is invisible to either host alone.
 //
-// The three rows below are the MEASUREMENT that decided against gating this
-// job on `implementation_jvm`. Each is a file on the lane's JVM classpath that
-// does not arm that output, so each is a PR shape that would have skipped the
-// job — and `deps.edn` is the sharpest, because it is the file that decides
+// The rows below are why this job is not gated on `implementation_jvm`. Each
+// is a file on the lane's JVM classpath that does not arm that output, so
+// each is a PR shape that would skip a gated job — and `deps.edn` is the
+// sharpest, because it is the file that decides
 // whether the pin is discovered AT ALL. They must NOT be "fixed" by widening
 // `implementation_jvm` for the artefact root: 22 other jobs read it, and the
 // scope guard above says so. The repair is the unconditional job asserted
@@ -5912,9 +5887,9 @@ test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () =>
   // census filters on the extensions IT cares about. So the arm belongs to
   // another gate's roster and could narrow with it — a second reason this
   // job takes no gate at all. (The pin's SUBJECT, `impl/slot.cljc`, sits
-  // under `src/` and measures false like the rest of the package — the
-  // rf2-8a6s block above pins that; since rf2-6c12m.1 the pin requires the
-  // package rule directly rather than the bench tree's twin.)
+  // under `src/` and measures false like the rest of the package — the scope
+  // guard above pins that; the pin requires the package rule directly rather
+  // than the bench tree's twin.)
   assert.equal(
     classify('implementation/fresco/test/re_frame/fresco/slot_cljs_test.cljc').implementation_jvm,
     'true',
@@ -5930,7 +5905,7 @@ test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () =>
 
 test('a bench-lane diff is CLASSIFIED to no gate, not left unclassified (rf2-6c12m.1)', () => {
   // The Fresco bench lane is a hand-run shadow-cljs project off every per-PR
-  // lane by ruling: its suites exercise LOCAL COPIES of the runtime, so
+  // lane deliberately: its suites exercise LOCAL COPIES of the runtime, so
   // running them per PR could not catch a regression in the shipped one. The
   // classifier carries an explicit `bench/*` arm that sets NOTHING, so the
   // silence is stated rather than a hole (TESTING.md §Changed-surface
@@ -5994,8 +5969,7 @@ test('jvm-fresco is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
 test('the cljs job runs BOTH fresco gates the classifier arm schedules (rf2-8a6s)', () => {
   // The gate half of the classifier rule. The arm above is worthless if the
   // job it lights stops running the artefact's checks, and the invariants
-  // gate in particular has no other scheduled home — before rf2-8a6s it ran
-  // only by hand.
+  // gate in particular has no other scheduled home.
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
   assert.match(
     block,
@@ -6007,42 +5981,24 @@ test('the cljs job runs BOTH fresco gates the classifier arm schedules (rf2-8a6s
   assert.match(
     block,
     /run: npm run test:fresco-compile$/m,
-    'the cljs job must keep running the fresco modules compile (rf2-2rtt6.73, '
-      + 're-homed into the package by rf2-6c12m.1)',
+    'the cljs job must keep running the fresco modules compile '
+      + '(the package-owned modules compile gate)',
   );
 });
 
 // ---------------------------------------------------------------------------
-// rf2-kll2x — the production-elision lane.
+// The browser lane is gated AND required.
 //
-// rf2-3slzz added the first Freehand namespace matching `-elision-prod-test$`,
-// so the first Freehand code riding `:browser-test-prod-elision` (`:advanced` +
-// `{goog.DEBUG false}`). It was on that build's classpath from the day it
-// landed — freehand/test is on the global :source-paths — but cljs_prod stayed
-// false on a Freehand-only PR, so `cljs-browser-prod-elision` SKIPPED and only
-// the unconditional nightly ever ran it. Same false-green shape rf2-drpa3.58 /
-// .61 / .70 closed for the host and browser tiers of this same tree.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// rf2-drpa3.70 — the browser lane is gated AND required.
-//
-// The original subject was Freehand's interpreted React emitter and its two
-// mounted `*-dom-cljs-test` namespaces, which rode `:browser-test` while
-// `cljs-browser` stayed surface-gated — so a Freehand-only PR skipped the only
-// lane that could execute them. That subject retired with the tree
-// (rf2-0yp7w.6), but the INVARIANT it established did not: arming an output
-// helps only if the lane it arms is still gated on that output and still
+// Arming an output helps only if the lane it arms is gated on that output and
 // reachable from the single required context. The mounted fresco DOM
-// witnesses now ride `:browser-test` on exactly that basis, so the two pins
-// below stay.
+// witnesses ride `:browser-test` on exactly that basis.
 // ---------------------------------------------------------------------------
 
 test('cljs-browser is job-gated on cljs_browser and is REQUIRED (rf2-drpa3.70)', () => {
   // Arming the output only helps if the lane it arms is still surface-gated on
   // that output and still reachable from the single required context. Both
-  // halves, pinned together: rf2-drpa3.58 learned the hard way that a lane
-  // outside the aggregator is advisory however green it looks.
+  // halves, pinned together: a lane outside the aggregator is advisory however
+  // green it looks.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const block = jobBlock(workflow, 'cljs-browser');
   assert.match(block, /if: needs\.detect_changed_surfaces\.outputs\.cljs_browser == 'true'/);
@@ -6059,10 +6015,8 @@ test('the node lane reaches its jobs through REQUIRED jobs (rf2-49upn)', () => {
   // Arming an output binds nothing unless the lane it arms is still gated on
   // that output AND still reachable from the single required context. The
   // sibling pin above covers cljs-browser; `cljs` is the node lane, and this
-  // is the other leg of the same tripod. (Named for the freehand conformance
-  // INDEX arm that first needed it; that arm retired with the corpus in
-  // rf2-0yp7w.6, but every other armed output still depends on these two
-  // facts, so the pin outlives its original caller.)
+  // is the other leg of the same tripod. (Every armed output depends on these
+  // two facts.)
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   assert.match(
     jobBlock(workflow, 'cljs'),
@@ -6080,12 +6034,11 @@ test('the node lane reaches its jobs through REQUIRED jobs (rf2-49upn)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// rf2-3mh2f — the .beads PR-boundary guard's CI arm.
+// The .beads PR-boundary guard's CI arm.
 //
-// The classifier, the pre-commit hook and scripts/check-beads-pr-boundary.sh
-// all shipped together, but `.github/workflows/**` was fenced, so enforcement
-// was LOCAL-HOOK-ONLY: bypassable with `--no-verify`, inert wherever hooks
-// were never installed. These tests hold the wiring in place.
+// Enforced only by the local pre-commit hook, the guard would be bypassable
+// with `--no-verify` and inert wherever hooks were never installed. These
+// tests hold the CI wiring in place.
 //
 // The guard's own behaviour — classification, remedy text, branch-point
 // selection on diverged history, the mayor no-op — lives in
@@ -6101,7 +6054,7 @@ test('beads-pr-boundary self-tests the guard, then enforces it (rf2-3mh2f)', () 
     'the guard must be self-tested in CI — its harness runs nowhere else',
   );
   assert.match(block, /sh scripts\/check-beads-pr-boundary\.sh/);
-  // rf2-5z20y — the guard diffs from the branch point; a shallow clone
+  // The guard diffs from the branch point; a shallow clone
   // frequently lacks the fork commit, and the guard then fails closed.
   assert.match(block, /fetch-depth: 0/);
 });
@@ -6121,8 +6074,8 @@ test('beads-pr-boundary is UNCONDITIONAL — no surface gate, no path filter (rf
 });
 
 test('beads-pr-boundary passes the BASE BRANCH, not a precomputed base (rf2-3mh2f)', () => {
-  // rf2-5z20y put branch-point resolution inside the script so the local
-  // pre-flight gets the same correction. This asserts the caller does not
+  // Branch-point resolution lives inside the script so the local pre-flight
+  // gets the same answer. This asserts the caller does not
   // undo that by precomputing a base here — and never reaches for
   // `base.sha`, which goes stale as soon as main advances under an open PR.
   // The mayor checkpoints the tracker to main constantly, so either mistake
@@ -6138,7 +6091,7 @@ test('beads-pr-boundary passes the BASE BRANCH, not a precomputed base (rf2-3mh2
   assert.doesNotMatch(
     block,
     /^\s*base="\$\(git merge-base/m,
-    'the script owns branch-point resolution (rf2-5z20y) — one home for the rule',
+    'the script owns branch-point resolution — one home for the rule',
   );
 });
 
