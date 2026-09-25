@@ -41,7 +41,7 @@
     frame (observed).
   - RESTART — `:machine-epochs/restart <track-id>` RESETS the machine frame
     (`destroy-frame!` + re-`make-frame` with the same `:initial-events` — there is
-    no dedicated reset verb, rf2-lxwpob — so the ring clears and re-arcs from
+    no dedicated reset verb — so the ring clears and re-arcs from
     boot) and clears the track cursor.
 
   ## Boot-on-select
@@ -69,9 +69,9 @@
 
   ## Localized runner
 
-  The shared `runner.core` is consumed by six decks and stays UNTOUCHED. The
-  multi-track + frame-per-machine machinery is machine-epochs-LOCAL (this
-  ns). We REUSE the shared runner's host-frame + cross-frame-dispatch idiom
+  The shared `runner.core` is consumed by six decks and carries none of this
+  deck's machinery. The multi-track + frame-per-machine machinery is
+  machine-epochs-LOCAL (this ns). We REUSE the shared runner's host-frame + cross-frame-dispatch idiom
   (`{:frame host-frame}`) as a building block — the multi-machine-observation
   UX is specific to this deck (the only multi-machine one), so localizing
   contains blast radius (YAGNI: generalize only if a second deck needs it).
@@ -95,7 +95,7 @@
   (drives the substrate directly, decoupled from this view) + the
   feature-matrix gate
   (`tools/xray/testbeds/feature_matrix/scenarios.cjs` — the
-  `machine-epochs machine ladder` scenario, which selects each track then
+  `machine-epochs multi-machine frame-isolated stepper` scenario, which selects each track then
   drives its per-step RUN buttons + reads the per-machine frame's snapshot).
   The machine specs live in the sibling ns `machine-epochs.machines`, shared
   with the harness."
@@ -119,10 +119,10 @@
             ;; (`:rf.xray/select-frame`) without the deck reaching into Xray's
             ;; own `:rf/xray` frame.
             [day8.re-frame2-xray.focus :as xray-focus]
-            ;; Capture-enabling require (ai/topology/capture.cjs): pulling
+            ;; Capture-enabling require: pulling
             ;; the machines-viz export ns onto THIS testbed's build graph
             ;; exposes `window.day8.re_frame2_machines_viz.export.chart_as_svg`
-            ;; so the off-line capture harness can serialise each rendered
+            ;; so an off-line capture harness can serialise each rendered
             ;; chart to SVG alongside the PNG screenshot. The export ns is
             ;; otherwise only on the standalone-viewer + test build graphs;
             ;; it is bundle-isolated from production (tools/ never ships in a
@@ -302,7 +302,7 @@
 ;; re-arcs from boot.
 ;;
 ;; `[id [:rf.machine/start]]` is the eager kick (xstate `createActor().start()`):
-;; per F‴ it runs the initial-entry cascade then STOPS — a PURE
+;; it runs the initial-entry cascade then STOPS — a PURE
 ;; init-kick, never re-fed into the transition step.
 
 (defn- boot-machines-fx
@@ -424,7 +424,7 @@
       :watch "Inspector: ONE event broadcasts to :vehicle + :pedestrian; chart highlights BOTH active leaves; tags swap members."}
      {:label "Tick ×1 more (history ribbon)"
       :event [:traffic/light [:traffic/tick]]
-      :watch "Transition-history ribbon accumulates state → state entries; logical-state DELTA box shows :tags member swap (rf2-l0us2)."}]}
+      :watch "Transition-history ribbon accumulates state → state entries; logical-state DELTA box shows :tags member swap."}]}
 
    {:id       :quiz
     :label    "Quiz"
@@ -585,8 +585,7 @@
 
 (def default-track
   "The track auto-selected on boot so the operator lands on a live arc, not
-  an empty shell (the SHELL-FRAME-FIRST-PAINT smaller call — we auto-select
-  :door)."
+  an empty shell."
   :door)
 
 ;; ============================================================================
@@ -621,7 +620,7 @@
 (defn- track-frame-config
   "The `make-frame` record-config a track's `:machine/<id>` frame is (re-)created with —
   shared by `ensure-machine-frame!` (first creation) and `restart-track!` (the
-  destroy + re-`make-frame` RESTART composition, rf2-lxwpob — there is no
+  destroy + re-`make-frame` RESTART composition — there is no
   dedicated reset verb, so the restart re-supplies this SAME config)."
   [track]
   {:initial-events [[(:boot track)]]
@@ -680,7 +679,7 @@
     (ensure-machine-frame! track)
     (rf/dispatch [:machine-epochs/select track-id] {:frame shell-frame})))
 
-;; The Xray re-point effect — kept as a named fx so the SELECT handler stays
+;; The Xray re-point effect — a named fx so the SELECT handler stays
 ;; declarative and the one place the deck reaches into Xray is isolated +
 ;; testable. `focus!` with only a `:frame` field fires `[:rf.xray/select-frame
 ;; <frame-id>]` (re-seeding :target-frame + :epoch-history) without flipping
@@ -744,7 +743,7 @@
 ;; RESTART (shell side) — clear the SELECTED track's cursor and re-point Xray
 ;; at its (freshly-reset) frame so the operator sees the clean re-boot arc.
 ;; The actual frame RESET (destroy + re-`make-frame` — there is no dedicated
-;; reset verb, rf2-lxwpob) is NOT done here: EP-0027 forbids frame construction
+;; reset verb) is NOT done here: EP-0027 forbids frame construction
 ;; inside a handler cascade
 ;; (`:rf.error/frame-construction-in-handler`), and an fx still runs inside
 ;; `*handler-scope*`. The reset happens at the TOP LEVEL in `restart-track!`
@@ -765,7 +764,7 @@
         {:db db}))))
 
 ;; TOP-LEVEL restart boundary — the destroy + re-`make-frame` reset composition
-;; (rf2-lxwpob: no dedicated reset verb) must run OUTSIDE any handler cascade
+;; (there is no dedicated reset verb) must run OUTSIDE any handler cascade
 ;; (EP-0027). Called from the restart button's React `:on-click` (a plain
 ;; callback — `*handler-scope*` is unbound). It resets the selected track's
 ;; machine frame (the ring clears and the machine re-arcs from boot via the
