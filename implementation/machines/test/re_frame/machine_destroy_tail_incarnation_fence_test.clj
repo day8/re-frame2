@@ -4,14 +4,17 @@
   (`finalize-machine`), the spawn cascade and the timer / registrar /
   spawn-write tails. Three tails need the fence:
 
-    1. ORDINARY `:rf.machine/destroy` — the effect runs inside the destroying
-       event's drain (an exact event-owner binding), and `teardown-live-actor!`
+    1. ORDINARY `:rf.machine/destroy` — the effect runs under an exact
+       event-owner binding, and `teardown-live-actor!`
        runs a pipeline: the `:exit` cascade, the late-bound HTTP-abort
        hook, the `:rf.machine.timer/cancelled` traces, the classification
        drop, the durable teardown projection, the `:rf.machine/destroyed`
        trace, the spawn-order forget, the `:rf.registry/handler-cleared`
-       trace, and the resource-owner release. A
-       callback at ANY of those boundaries can destroy A / publish same-id B,
+       trace, and the resource-owner release. Inside the destroying event's
+       drain, trace listeners run after the drain, so only the non-trace
+       boundaries can call back mid-tail; on a direct call — the shape these
+       fixtures drive — trace listeners also run synchronously at each trace.
+       A callback at any of those boundaries can destroy A / publish same-id B,
        and an unfenced tail would continue against B. So A's continuation +
        raw token are captured ONCE at the effect entry, rechecked after every
        callback-bearing boundary, and the durable writes route through the
