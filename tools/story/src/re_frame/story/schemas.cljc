@@ -8,7 +8,7 @@
 
   The schemas enforce:
 
-  - **EDN-first variant bodies** (/spec/007-Stories.md §Variant artefact contract, Phase-2 §5.1 #10).
+  - **EDN-first variant bodies** (/spec/007-Stories.md §Variant artefact contract).
     Every variant key is data — vectors / maps / keywords / strings /
     numbers / sets. No fn-valued slots. The closure caveat (a decorator's
     `:wrap` is a fn) applies at the *decorator registration site*, not the
@@ -282,36 +282,27 @@
   "The AUTHORING LAYERS a variant may be rendered under — Story's own
   render-strategy axis, closed here and validated at registration.
 
-  ## It is not a mirror of the framework's adapter enum (rf2-1gy4e)
+  ## It is not a mirror of the framework's adapter enum
 
-  This docstring used to say *the framework supplies the closed set*,
-  and that was false in a way worth stating rather than deleting: there
-  is no framework-supplied set for it to mirror. A member here names
-  WHICH REGISTERED RENDER FN embeds the subject in the canvas
+  There is no framework-supplied set for it to mirror. A member here
+  names WHICH REGISTERED RENDER FN embeds the subject in the canvas
   (`re-frame.story.ui.multi-substrate/substrate->render-fn`) — a
   different question from which renderer `rf/init!` installed, which is
   the adapter enum's (spec/006-ReactiveSubstrate.md §CLJS reference
-  scope). The two axes coincided while the members were `:reagent` and
-  `:uix`, and the coincidence read as identity.
+  scope). For `:reagent` and `:uix` the two axes coincide, and the
+  coincidence is easy to read as identity.
 
-  `:fresco` is still the member that separates them, though no longer
-  for the reason first recorded here. That reason was that Fresco
-  shipped NO adapter — that there was no `:rf.adapter/fresco` anywhere
-  in the repository, deliberately, and that a Fresco application booted
-  on the UIx adapter. rf2-hvr5h retired it: `re-frame.fresco.substrate`
-  ships `:kind :rf.adapter/fresco`, and the install chapter teaches
-  `(rf/init! substrate/adapter)` as the default (rf2-4rozj).
-
-  The separation survives intact, because it never rested on the
-  absence. A Fresco application may install Fresco's own adapter or
-  somebody else's — the install is explicit and there is no
-  default-adapter registry — and it remains ONE authoring layer either
-  way: its views are boundaries minted by `h/defview`, reached through
-  `rf/view` on the view registrar and crossed into with
-  `h/as-element`. That is what a member of THIS set names, and it does
-  not move when the adapter beneath it does. The two enums now share a
-  `fresco` spelling and still answer different questions, which is
-  precisely the one-to-one reading this section exists to prevent.
+  `:fresco` is the member that separates them.
+  `re-frame.fresco.substrate` ships `:kind :rf.adapter/fresco`, but a
+  Fresco application may install Fresco's own adapter or somebody
+  else's — the install is explicit and there is no default-adapter
+  registry — and it is ONE authoring layer either way: its views are
+  boundaries minted by `h/defview`, reached through `rf/view` on the
+  view registrar and crossed into with `h/as-element`. That is what a
+  member of THIS set names, and it does not move when the adapter
+  beneath it does. The two enums share a `fresco` spelling and answer
+  different questions, which is precisely the one-to-one reading this
+  section exists to prevent.
 
   ## Who registers what
 
@@ -322,7 +313,7 @@
   an AUTHORING vocabulary check; it says nothing about whether the host
   actually registered a renderer, and a variant naming a substrate no
   one registered degrades loudly at render time rather than silently
-  painting Reagent (rf2-3afns).
+  painting Reagent.
 
   `:reagent-slim` is reserved for addition at reagent-slim GA / first
   published artefact — the same trigger that gates Story's own UI-shell
@@ -370,7 +361,7 @@
   REPL / MCP-write registrations may carry a partial or absent stamp
   (only `:ns`, or nothing). The slot is therefore optional on every body
   schema, and every coordinate key inside it is optional too — but it
-  MUST be declared so the now-`{:closed true}` body schemas accept the
+  MUST be declared so the `{:closed true}` body schemas accept the
   registrar's own stamp rather than rejecting it as an unknown key.
 
   All four keys are optional: `:ns` is a symbol, `:file` a string,
@@ -395,10 +386,9 @@
   so there is nothing to feature-detect.
 
   - `:open?`   — when truthy, auto-open the Xray shell on variant mount.
-                 Under the per-panel embed this is largely
-                 superseded by `:panel` — the chip-row + selected panel
-                 are the default RHS surface; `:open?` survives for the
-                 popout / whole-shell escape hatch only.
+                 Under the per-panel embed the chip-row + selected
+                 panel (`:panel`) are the default RHS surface; `:open?`
+                 serves the popout / whole-shell escape hatch only.
   - `:panel`   — the Xray panel to mount in the RHS Xray
                  host. One of:
                    `:epoch` (default)
@@ -579,7 +569,7 @@
   authoring key for ordered behaviour-under-test is `:script`, and the
   registered body carries it under that same key.
 
-  The map is `{:closed true}` (rf2-uys9): an absent `:auto-run?` means
+  The map is `{:closed true}`: an absent `:auto-run?` means
   auto-run, so a misspelt opt-out (`:auto-run`, `:autorun?`) would
   otherwise run the script with no error. It is rejected at registration
   instead, naming the key, its location and the nearest declared key."
@@ -742,14 +732,14 @@
 
   Per `tools/story/spec/017-Testing-Story.md` §Network world the plan
   compiler lowers `:network` to `[:world :network]` and then to the
-  existing managed-request stub machinery
+  managed-request stub machinery
   (`re-frame.http.test-support/install-managed-request-stubs!`). It is the
   higher-level affordance for `:rf.http/managed` — route-level replies,
   mixed success/failure, and per-route intent — distinct from the coarse
-  generic `:fx-overrides` surface, which still serves non-HTTP effects.
+  generic `:fx-overrides` surface, which serves non-HTTP effects.
 
   Unmatched managed requests fail closed at run time with the helper's
-  existing 'no stub matched' transport failure; the schema does not (and
+  'no stub matched' transport failure; the schema does not (and
   cannot) enumerate every URL a run might issue."
   [:map-of NetworkRoute NetworkReply])
 
@@ -759,10 +749,6 @@
   Per /spec/007-Stories.md §Variant artefact contract this is the load-bearing schema
   — every key is plain data; no fn-valued slots. The body is 100% EDN-
   round-trippable.
-
-  Open shape — Story-defined keys are validated; downstream tools may add
-  their own keys without registration ceremony (per Spec-Schemas's
-  open-by-default convention).
 
   ## Vocabulary
 
@@ -862,7 +848,7 @@
     ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
     ;; lowers `:network` to `[:world :network]` and on to the managed-
     ;; request stub fx (`re-frame.http.test-support`). The higher-level
-    ;; affordance for `:rf.http/managed`; generic `:fx-overrides` still
+    ;; affordance for `:rf.http/managed`; generic `:fx-overrides`
     ;; serves non-HTTP effects. See `NetworkSpec` + spec/017 §Network
     ;; world.
     [:network               {:optional true} NetworkSpec]
@@ -957,9 +943,9 @@
     ;; EP-0025 frame-owned durable classification. A variant declares which
     ;; of ITS app-db paths are sensitive / large at frame creation, in the
     ;; SAME durable `{:app-db [[:auth :token]]}` form the four commit-plane
-    ;; classification effects carry. EP-0025 removed the durable
-    ;; frame annotation: the runtime no longer threads these onto the
-    ;; variant's `make-frame` config — instead it lowers the `:app-db` paths
+    ;; classification effects carry. There is no durable
+    ;; frame annotation: the runtime does not thread these onto the
+    ;; variant's `make-frame` config — it lowers the `:app-db` paths
     ;; into the variant frame's elision registry as commit-plane
     ;; classification effects right after frame creation, BEFORE the lifecycle
     ;; / init events (`frames/apply-variant-classification!` →
@@ -968,8 +954,8 @@
     ;; (spec/015 §Frame-owned durable classification; spec/Conventions.md
     ;; §Privacy).
     ;;
-    ;; The slot is a MAP carrying app-db paths under `:app-db` (EP-0025 retired
-    ;; the frame `:sensitive {:http}` carrier block — HTTP carriers moved onto
+    ;; The slot is a MAP carrying app-db paths under `:app-db` (there is no
+    ;; frame `:sensitive {:http}` carrier block — HTTP carriers live on
     ;; the `:rf.http/managed` `reg-fx` registration's `:carriers` block — so
     ;; only `:app-db` rides here). The
     ;; `:app-db` value is a vector-of-paths; we keep it `[:vector :any]` here
@@ -1238,7 +1224,6 @@
   layout. When present, the toolbar renders one labelled group per axis
   with **single-select-within-axis** semantics. Modes without `:axis`
   render in a trailing un-grouped section with multi-select semantics.
-  The schema change is additive — unchanged bodies remain valid.
 
   ## Closed shape
 
@@ -1270,8 +1255,8 @@
    [:for       {:optional true} [:set :keyword]]])
 
 ;; ---- :rf/decorator (per-kind) ---------------------------------------------
-;; `001-Authoring.md` §Registration macros flagged that the per-kind shape needed locking;
-;; this is where that gets locked.
+;; The per-kind decorator shapes are locked here (`001-Authoring.md`
+;; §Registration macros).
 
 (def DecoratorHiccup
   "`:hiccup`-kind decorator — its `:wrap` slot is a fn that takes the
@@ -1333,10 +1318,10 @@
     The fx-id + response are baked into the decorator registration; every
     reference reuses them.
   - **Ref-args body** — `{:kind :fx-override, :ref-args? true}`. Per
-    `004-Assertions.md` §Canonical assertion vocabulary (Phase-2 §5.1 #6) the `:rf.story/force-fx-stub`
+    `004-Assertions.md` §Canonical assertion vocabulary the `:rf.story/force-fx-stub`
     built-in uses this shape so authors can pass `(fx-id, response)` at
     the reference site: `[:rf.story/force-fx-stub :http {...}]`. The
-    The decorator-resolution layer expands the ref-args into a
+    decorator-resolution layer expands the ref-args into a
     per-reference body.
 
   ## Closed shape
