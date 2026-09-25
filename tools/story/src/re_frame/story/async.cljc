@@ -29,7 +29,7 @@
 
   ## Why not core.async
 
-  Per the user-feedback rule `no_core_async`, re-frame2 does not depend
+  re-frame2 does not depend
   on core.async. Story's async surface uses native Promise (CLJS) and
   CompletableFuture (JVM) directly — the two surfaces the host runtime
   already exposes. No additional dependency."
