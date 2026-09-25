@@ -4188,8 +4188,11 @@
 
   The `:db diff` sub-section is present for every
   non-machine handler that did not throw (design doc §Section 1 +
-  §Section 2) — empty
-  diff renders `— (no changes)` rather than collapsing the slot. For
+  §Section 2): [[handler-db-diff-block]] renders the full post-handler
+  `:db` with inline diff annotations, so an unchanged `:db` is the full
+  tree with nothing marked, and a handler that wrote no `:db` (or whose
+  result was discarded) gets a placeholder line rather than a collapsed
+  slot. For
   machine handlers the standalone `:db diff` is suppressed (the machine
   cascade carries the db change, per design §Section 3).
 
