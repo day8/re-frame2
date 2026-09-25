@@ -1269,7 +1269,7 @@ function main(argv) {
             ? `   reportable subset ${fmt(ens(taskPass).mean)}x n=${taskPass.length}`
             : '   reportable subset: NONE')
       );
-      console.log(`;;     taskNet (frame-only, diagnostic) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
+      console.log(`;;     taskNet (frame-only, superseded) ${fmt(en.mean)}x  [${fmt(en.min)} – ${fmt(en.max)}]`);
       console.log(`;;     in-page performance.now()        ${fmt(ei.mean)}x  [${fmt(ei.min)} – ${fmt(ei.max)}]`);
 
       // BOTH ESTIMATORS, SIDE BY SIDE. The three lines above are
