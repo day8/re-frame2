@@ -30,7 +30,8 @@
        races-by-work-id attempt arcs.
     8. **live-work** — work-ledger rows joined to reply status + trace cause,
        uniform across families; \"what is still running?\""
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.panels.reply-envelope :as re]))
 
 ;; ---------------------------------------------------------------------------
@@ -1093,6 +1094,76 @@
                     :tags {:frame :app/b :rf.reply/work-id [:rf.work/http :r 1 1]}}]
       (is (= [] (re/trace-buffer-for-frame [http-row] :app/a))
           "the canonical raw-event [:tags :frame] spelling is read too"))))
+
+;; ---------------------------------------------------------------------------
+;; (8c) the displayed work id — a resource work id embeds its scoped key.
+;; ---------------------------------------------------------------------------
+
+(def ^:private id-secret "tok-work-id-secret-5b2")
+
+(defn- secret-work-id
+  "A resource work id in the shape the resources artefact mints,
+  `[:rf.work/resource <scoped-key> <generation>]`, whose scope and params
+  both carry `id-secret`."
+  [rid]
+  [:rf.work/resource [[:rf.scope/session {:token id-secret}] rid {:slug id-secret}] 5])
+
+(def ^:private secret-ledger
+  "One running work record per resource: `:article/by-slug` is the one the
+  set below declares `:sensitive?`, `:comments/list` is the control."
+  {"opaque-s" {:work/id (secret-work-id :article/by-slug) :work/kind :resource
+               :generation 5 :status :running}
+   "opaque-c" {:work/id (secret-work-id :comments/list) :work/kind :resource
+               :generation 5 :status :running}})
+
+(defn- secret-trace
+  "One trace row per resource's work id, on `op`, carrying `tags`."
+  [op tags]
+  (vec (map-indexed (fn [i rid]
+                      {:id i :operation op :time (* 10 (inc i))
+                       :tags (assoc tags :rf.reply/work-id (secret-work-id rid))})
+                    [:article/by-slug :comments/list])))
+
+(def ^:private sensitive-rids #{:article/by-slug})
+
+(def ^:private redacted-text
+  (str [:rf.work/resource [:rf/redacted :article/by-slug :rf/redacted] 5]))
+
+(defn- by-rid
+  "Index rows by the resource-id inside their raw work id."
+  [rows]
+  (into {} (map (juxt #(get-in % [:work-id 1 1]) identity)) rows))
+
+(deftest work-id-text-redacts-a-sensitive-resource
+  (let [started  (secret-trace :rf.resource/work-started {})
+        live     (by-rid (re/live-work secret-ledger started sensitive-rids))
+        races    (by-rid (vals (re/races-by-work-id
+                                 (secret-trace :rf.resource/stale-suppressed
+                                               {:rf.reply/status :stale})
+                                 sensitive-rids)))
+        ungated  (by-rid (re/live-work secret-ledger started))]
+    (testing "without the set the sensitive work id prints its scope and params"
+      (is (str/includes? (:work-id-text (:article/by-slug ungated)) id-secret)))
+    (testing "the live-work and stale-race rows print the sensitive resource's
+              work id with its scope and params redacted"
+      (is (= redacted-text (:work-id-text (:article/by-slug live))))
+      (is (= redacted-text (:work-id-text (:article/by-slug races)))))
+    (testing "CONTROL — a resource that is not :sensitive? prints its work id as-is"
+      (is (= (str (secret-work-id :comments/list))
+             (:work-id-text (:comments/list live))
+             (:work-id-text (:comments/list races)))))
+    (testing "the raw work id stays on the rows, so the joins still key on it"
+      (is (= (secret-work-id :article/by-slug) (:work-id (:article/by-slug live))))
+      (is (= :issued (:latest-phase (:article/by-slug live)))
+          "the live row joined its trace phase through the raw id")
+      (is (= (secret-work-id :article/by-slug) (:work-id (:article/by-slug races))))
+      (is (true? (:suppressed? (:article/by-slug races)))))
+    (testing "work ids that embed no scoped key print as-is"
+      (doseq [wid [[:rf.work/http :search 1 1]
+                   [:rf.work/resource [:rf.mutation [:editor/save "x"]] 8]]]
+        (is (= (str wid)
+               (:work-id-text (re/ledger-row ["k" {:work/id wid :status :running}]
+                                             sensitive-rids))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; live? predicate — the non-terminal ledger statuses.
