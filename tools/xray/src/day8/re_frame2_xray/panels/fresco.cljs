@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.fresco
-  "Fresco tab — the glass on the live tier (rf2-hic-023, rf2-hic-037).
+  "Fresco tab — the glass on the live tier.
 
   Six views over ONE evidence surface. The first four answer the questions
   Spec SN §10 says a developer actually asks of a view substrate:
@@ -11,7 +11,7 @@
       window?
     - **Why** — which reads changed, and what does that prove?
 
-  The last two are derivations over the same one-turn read (rf2-hic-037):
+  The last two are derivations over the same one-turn read:
 
     - **Advisor** — ranks the census by time, frequency, read churn and
       fan-out; classifies what owns the pressure; and recommends the
@@ -36,7 +36,7 @@
      for all three would verify the absence of bad news. The last of them
      splits again PER VIEW: an empty mounted census is a survey result, an
      empty intent stream is a capped window, and one sentence covering
-     both would be false of one of them (audit #7789).
+     both would be false of one of them.
   2. **Every absence is a CHIP, and the five chips differ.** `capped`,
      `opaque`, `host-opaque`, `uncorrelated` and `unknown` render with
      different words under different testids, so the distinction survives
@@ -53,13 +53,12 @@
      identity the runtime actually keys on. A body minted without a name
      renders the `unknown` chip in that position rather than a blank.
 
-  ## A Fresco boundary over pure hiccup (rf2-k97c.3)
+  ## A Fresco boundary over pure hiccup
 
   [[Panel]] is an `rf.fresco/defview` — a real React function component
-  minted by Fresco — rather than the `rf/reg-view` it was. Everything
-  below it stays what it was: pure hiccup, no Reagent or UIx reference,
-  no component-local state. The data → data projection lives in
-  `fresco_helpers.cljc` so the algebra runs under the JVM unit-test
+  minted by Fresco. Everything below it is pure hiccup, with no Reagent
+  or UIx reference and no component-local state. The data → data
+  projection lives in `fresco_helpers.cljc` so the algebra runs under the JVM unit-test
   target; the live read seam is `fresco_reads.cljs`, which passes the
   producer's envelopes through unchanged.
 
@@ -68,21 +67,21 @@
   lines inside [[Panel]], and every one of the fourteen helpers below is
   CALLED. That last part is not incidental — under Fresco a plain
   function in hiccup head position is a loud `:rf.error/fresco-bad-head`
-  (HD-016), so the six view fns and the two row fns that WERE heads are
-  now calls. See [[panel-tree]] for the split that keeps the algebra in
-  the node lane.
+  (HD-016), so the six view fns and the two row fns are calls, never
+  heads. See [[panel-tree]] for the split that keeps the algebra in the
+  node lane.
 
   The READ is `rf.fresco/sub`, a plain call the collector records an
   edge for — no deref, no reaction owned by the installed adapter, and a
   re-wire that NOTIFIES when the substrate disposes the underlying
-  derived value. That is the third of the epic's three couplings, and
-  the one a first-paint smoke test cannot see.
+  derived value. That re-wire is the coupling a first-paint smoke test
+  cannot see.
 
   The FRAME the reads resolve against comes from React context, which
   the enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context (core's
   `re-frame.adapter.context/frame-context`) — so this boundary resolves
-  `:rf/xray` identically under the Fresco root Xray owns today and under
+  `:rf/xray` identically under the Fresco root Xray owns and under
   an `rf/frame-provider` a Reagent parent writes. It never consults
   `:adapter/current-component`, the hook a foreign root cannot answer.
 
@@ -194,7 +193,7 @@
   `view` is passed because an EMPTY roster is a different fact in each of
   the four, so the sentence and the testid come from the view's own entry
   in `hh/empty-copy` rather than from one shared line that could only ever
-  be true of one view (audit #7789)."
+  be true of one view."
   [state view]
   (when-some [{:keys [testid-suffix says]} (hh/state-copy state view)]
     [:div {:data-testid (str "rf-xray-" panel-id "-" testid-suffix)
@@ -210,8 +209,8 @@
   The census cannot distinguish three states React owns: an
   Activity-hidden subtree that released its reads leaves the same census
   as an unmounted one, and a Suspense-fallback-hidden subtree stays
-  subscribed and so stays in this table while absent from the screen
-  (audit #7792). That is a fact about the producer rather than a field on
+  subscribed and so stays in this table while absent from the screen.
+  That is a fact about the producer rather than a field on
   the envelope, so the panel states it beside the rows — and not only
   when the roster is empty, which is where a reader has least else to go
   on."
@@ -273,8 +272,8 @@
                   [(overflow/overflow-row {:panel-id panel-id :over-cap? over? :hidden-count hidden})]))])
      ;; Stated whether or not there are rows. A view that showed its
      ;; qualification only when it had something to qualify would drop it
-     ;; exactly where the reader has least else to go on — which is the
-     ;; empty roster the audit found reading as a clean bill of health.
+     ;; exactly where the reader has least else to go on — the empty
+     ;; roster, which would then read as a clean bill of health.
      (visibility-note envelope)]))
 
 ;; ---- view 2 — read attribution -------------------------------------------
@@ -292,8 +291,8 @@
                          :style       row-style}
                     ;; The PROJECTED QUERY, not the bare sub-id. `[:row 1]`
                     ;; and `[:row 2]` are one registration and two cells, and
-                    ;; a view naming only the registration printed them as two
-                    ;; identical lines (audit #7802).
+                    ;; a view naming only the registration would print them as
+                    ;; two identical lines.
                     [:div [:span {:style {:font-family mono-stack}} (:label row)]
                      (loss-chip (str "rf-xray-" panel-id "-edge-" (:slug row) "-frame")
                                 (:frame-chip row))
@@ -370,7 +369,7 @@
                          :style       row-style}
                     ;; The frame rides beside the label. Frames are isolated
                     ;; contexts, so one query read in two of them is two facts
-                    ;; — and their labels are identical (audit #7802).
+                    ;; — and their labels are identical.
                     [:div
                      (view-name (str "rf-xray-" panel-id "-explain-" (:slug row) "-views") row)
                      [:span {:style {:font-family mono-stack
@@ -501,14 +500,10 @@
     [:div {:data-testid (str "rf-xray-" panel-id "-advisor")}
      (or (presence-note (hh/presence envelope (empty? rows)) :advisor)
          (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
-               ;; rf2-a38l put the key on a WRAPPING FRAGMENT because
-               ;; `[advice-row row]` was a hiccup vector whose index 1 was
-               ;; the argument, leaving nowhere for a key. rf2-k97c.3 made
-               ;; it a CALL (HD-016), so the row's own `:li` props map is
-               ;; back and holds the key directly; the wrapper is gone with
-               ;; the reason for it. The hazard rf2-a38l fixed is unchanged
-               ;; — Fresco's codec reads `(:key props)` and never vector
-               ;; metadata.
+               ;; `advice-row` is a CALL (HD-016), not a hiccup head, so the
+               ;; row's own `:li` props map holds the key directly — which
+               ;; matters because Fresco's codec reads `(:key props)` and
+               ;; never vector metadata.
                (concat (map advice-row shown)
                        [(overflow/overflow-row {:panel-id     (str panel-id "-advisor")
                                                 :over-cap?    over?
@@ -563,32 +558,32 @@
   "The slice, or the honest empty — through [[presence-note]] like the
   other five views, and not through a hardcoded `:idle`.
 
-  IT TAKES THE ENVELOPE (rf2-y8doi.26). It did not, so `(nil? slice)` was
-  the whole of its state model and every empty answered `:idle`: on a host
-  not running Fresco at all — where the door answers nil and the other
-  five views say *No Fresco evidence on this host* — this tab said *the
+  IT TAKES THE ENVELOPE. Without it `(nil? slice)` would be the whole of
+  its state model and every empty would answer `:idle`: on a host not
+  running Fresco at all — where the door answers nil and the other five
+  views say *No Fresco evidence on this host* — this tab would say *the
   advisor named no boundary to trace*, which describes a Fresco
-  application with nothing mounted. A reader on a Reagent app was sent to
-  look for boundaries that could not exist, and the one thing this panel
-  exists to distinguish — not running Fresco from running it with nothing
-  mounted — was collapsed in the one view that had no way to tell.
+  application with nothing mounted. A reader on a Reagent app would be
+  sent to look for boundaries that cannot exist, and the one thing this
+  panel exists to distinguish — not running Fresco from running it with
+  nothing mounted — would collapse in the one view that has no way to
+  tell.
 
-  `(nil? slice)` stays, as the ROWS-EMPTY argument it always was: the
-  slice is drawn for the advisor's top-ranked boundary, so no slice means
-  no boundary to trace, which is exactly `hh/empty-copy`'s `:causal`
-  sentence — now reached only when there IS a supported envelope to be
-  empty of."
+  `(nil? slice)` is the ROWS-EMPTY argument: the slice is drawn for the
+  advisor's top-ranked boundary, so no slice means no boundary to trace,
+  which is exactly `hh/empty-copy`'s `:causal` sentence — reached only
+  when there IS a supported envelope to be empty of."
   [{:keys [envelope slice]}]
   [:div {:data-testid (str "rf-xray-" panel-id "-causal")}
    (or (presence-note (hh/presence envelope (nil? slice)) :causal)
        (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
              ;; Keys live in each link's own `:li` props — see [[advice-row]]
-             ;; for why rf2-a38l's wrapping fragment went with the head.
+             ;; for why.
              (map causal-link (:links slice))))])
 
 ;; ---- the sub-strip and the panel -----------------------------------------
 
-;; `dispatch` (rf2-1w07r) is a frame-bound dispatcher threaded down from
+;; `dispatch` is a frame-bound dispatcher threaded down from
 ;; [[panel-tree]], so the deferred `:on-click` lands on the surrounding Xray
 ;; instance's frame. A bare global `rf/dispatch` would fire after render
 ;; unwinds, when the ambient frame is gone, and RAISE
@@ -598,12 +593,10 @@
 ;; React's no-provider context default is a SENTINEL, not `:rf/default`.
 ;; This is the tab's only dispatch: the six views read.
 ;;
-;; rf2-k97c.3 — it USED to be `reg-view`'s lexically injected `dispatch`.
-;; `defview` binds no name inside a body, so [[Panel]] now builds the same
-;; dispatcher from the frame it carries. The target is unchanged: the
-;; surrounding instance frame (rf2-nesy9), never a `{:frame :rf/xray}`
-;; literal. A plain fn at an `on-*` prop crosses Fresco's codec untouched,
-;; so the click itself is the same click.
+;; `defview` binds no name inside a body, so [[panel-tree]] builds the
+;; dispatcher from the frame [[Panel]] carries. Its target is the
+;; surrounding instance frame, never a `{:frame :rf/xray}` literal. A
+;; plain fn at an `on-*` prop crosses Fresco's codec untouched.
 (defn- sub-strip
   [dispatch selected]
   (into [:div {:data-testid (str "rf-xray-" panel-id "-sub-strip")
@@ -623,20 +616,19 @@
   "Everything [[Panel]] renders, as a pure function of the two values it
   read and the frame it is seated in.
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
-  documented extract-a-helper spelling rather than an invention. A
-  boundary's body may only run inside a React render window, so `(Panel)`
-  is no longer a callable that answers hiccup — but this panel's
+  SPLIT OUT OF [[Panel]], and the split is `defview`'s own documented
+  extract-a-helper spelling rather than an invention. A boundary's body
+  may only run inside a React render window, so `(Panel)` is not a
+  callable that answers hiccup — but this panel's
   projection is ordinary data → data and is worth driving in the fast
   node lane rather than behind a real React commit. `fresco_cljs_test`
   and `fresco_causal_cljs_test` drive THIS fn with the values they take
   from the two subs directly; the boundary's own behaviour — first paint,
   liveness, frame targeting, the sub-strip click, evidence isolation and
   teardown — is `fresco_live_panel_dom_cljs_test`'s subject. That file
-  is this panel's `*_fresco_boundary_dom_cljs_test` under an older and
-  better name: it already mounted this panel into a real React root
-  before the migration, so rf2-k97c.3 EXTENDED it rather than standing a
-  near-duplicate fixture up beside it.
+  is this panel's `*_fresco_boundary_dom_cljs_test` under its own name:
+  it mounts this panel into a real React root, so there is no
+  near-duplicate fixture beside it.
 
   It also keeps the reads on TWO lines inside the boundary, where it is
   easy to see that the panel takes exactly two and that nothing below it
@@ -646,8 +638,8 @@
   [{:keys [selected data frame]}]
   (let [selected (hh/normalise-sub-mode selected)
         {:keys [envelopes]} data
-        ;; rf2-k97c.3 — the dispatcher `reg-view` used to inject. See
-        ;; [[sub-strip]] for why it must carry the frame.
+        ;; The frame-bound dispatcher. See [[sub-strip]] for why it must
+        ;; carry the frame.
         dispatch (fn [event-v] (rf/dispatch event-v {:frame frame}))
         envelope (get envelopes (case selected
                                   :mounted     :mounted-boundaries
@@ -696,8 +688,8 @@
 (rf.fresco/defview Panel
   "The Fresco tab: a sub-strip over six views of one evidence surface.
 
-  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. See the ns
-  docstring for what that changes; [[panel-tree]] is everything below it.
+  A FRESCO BOUNDARY, not an `rf/reg-view`. See the ns docstring for what
+  that means; [[panel-tree]] is everything below it.
 
   Both reads are `rf.fresco/sub`. `:rf.xray.fresco/data` takes all four
   envelopes in one turn — the four rosters are projections of ONE runtime
@@ -709,11 +701,11 @@
   `rf/current-frame-id` is one of core's PURE frame doors, which
   `impl.intent/with-frame` answers with the boundary's DECLARED frame
   precisely because it neither reads nor dispatches — so the sub-strip's
-  click still lands on the surrounding instance frame (rf2-nesy9) and is
-  still not a `:rf/xray` literal.
+  click lands on the surrounding instance frame and is not a `:rf/xray`
+  literal.
 
-  THAT ID IS ALSO THE EVIDENCE READ'S ARGUMENT NOW (rf2-bgol), and the
-  render is the only place it can be taken from. The self-exclusion
+  THAT ID IS ALSO THE EVIDENCE READ'S ARGUMENT, and the render is the
+  only place it can be taken from. The self-exclusion
   filter has to know which frames are the TOOL's, Xray's shell frame is
   parameterized (008 §Parameterized shell frame-id), and a subscription
   COMPUTATION runs under no frame scope at all — `subs/memo` wraps the
@@ -732,9 +724,9 @@
        :data     (rf.fresco/sub [:rf.xray.fresco/data frame])
        :frame    frame})))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge -----------------------------------------
 ;;
-;; Xray's shell is a Fresco tree, but it still reaches this panel across
+;; Xray's shell is a Fresco tree, but it reaches this panel across
 ;; an `as-child` seam. `shell/detail-panel` mounts the active tab as the
 ;; hiccup head `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s `:pre`
 ;; requires `:panel` to be CALLABLE — neither of which a React
@@ -747,11 +739,10 @@
 ;; So there is no second root here, no adapter-kind branch, and no props
 ;; ABI.
 ;;
-;; THIS IS NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2).
-;; The shell is a Fresco tree now and both defs stayed anyway: the shell
-;; still reaches the panel across an `as-child` seam, so `[(:panel tab)]`
-;; is a Reagent hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
-;; callable `:panel`. Nothing else in the tree references them.
+;; THIS IS NOT SCAFFOLDING. The shell is a Fresco tree, yet it reaches the
+;; panel across an `as-child` seam, so `[(:panel tab)]` is a Reagent
+;; hiccup vector and `reg-l4-tab!`'s `:pre` requires a callable `:panel`.
+;; Nothing else in the tree references the pair.
 
 (def ^:private Panel-component
   "The React component `Panel` presents as, for a non-Fresco parent.
@@ -765,8 +756,8 @@
   interoping to the React component above; the enclosing shell's
   `rf/frame-provider` is what puts `:rf/xray` in React context for it.
 
-  PRIVATE, like the merged `module_view.cljs` template's equivalent and
-  unlike `resources.cljs`'s public one. The difference is the one
+  PRIVATE, like `module_view.cljs`'s equivalent and unlike
+  `resources.cljs`'s public one. The difference is the one
   `resources.cljs` documents: this tab is L4-ONLY — a `reg-l4-tab!`
   surface with no standalone `mount-*!` facade and no `panel-enum` entry —
   so the bridge has exactly one consumer, in [[install!]] below, and no
@@ -799,22 +790,23 @@
     (fn [db _query]
       (hh/normalise-sub-mode (:fresco-view db))))
 
-  ;; THE QUERY TAKES THE PANEL'S OWN FRAME (rf2-bgol). `instance-frame` is
+  ;; THE QUERY TAKES THE PANEL'S OWN FRAME. `instance-frame` is
   ;; the id `Panel` read with `rf/current-frame-id` in its render — the
   ;; shell this tab is actually inside, which 008 §Parameterized shell
   ;; frame-id lets be any id rather than `:rf/xray` alone. It is an
   ;; ARGUMENT because a sub computation has no frame scope to read one
   ;; from; see `Panel`'s docstring. A caller that passes none (the
   ;; byte-claim rows, which are about the door rather than about a shell)
-  ;; gets the singleton alone, which is what this filter did before.
+  ;; gets the singleton alone.
   ;; `:rf.xray/focus` is Spec 018 §6's SINGLE SELECTION AXIS, and the
   ;; Causal view is an L4 detail surface like any other — §6's per-layer
   ;; table binds L4 detail content to the spine's `:dispatch-id`, and its
   ;; atomicity contract says no panel maintains its own selection state and
-  ;; no panel reads `(peek history)`. Causal did: `causal/newest-dispatch`
-  ;; is `(peek ring)` under another name, so the one view whose job is *one
-  ;; dispatch, walked* re-pointed itself on every application dispatch
-  ;; while the reader was reading it (rf2-y8doi.26). The resolution — the
+  ;; no panel reads `(peek history)`. `causal/newest-dispatch` is
+  ;; `(peek ring)` under another name, so driving Causal off it would make
+  ;; the one view whose job is *one dispatch, walked* re-point itself on
+  ;; every application dispatch while the reader is reading it. The
+  ;; resolution — the
   ;; focused dispatch when the ring still holds it, else the newest — is
   ;; `causal/walked-dispatch`, in the pure CLJC namespace beside
   ;; `newest-dispatch` rather than here, so it is answerable under the JVM
@@ -823,11 +815,11 @@
     {:inputs [[:rf.xray/trace-buffer]
               [:rf.xray/focus]]}
     (fn [[_tick focus] [_ instance-frame]]
-      ;; rf2-k97c.3 — `hh/without-own-frame` drops Xray's OWN boundaries
-      ;; before anything downstream sees them. Xray's panels are Fresco
-      ;; boundaries now and Fresco's census has no frame filter, so this
-      ;; tab listed ITSELF among the inspected application's boundaries
-      ;; until this landed. It sits HERE rather than inside `reads/`
+      ;; `hh/without-own-frame` drops Xray's OWN boundaries before
+      ;; anything downstream sees them. Xray's panels are Fresco
+      ;; boundaries and Fresco's census has no frame filter, so without it
+      ;; this tab would list ITSELF among the inspected application's
+      ;; boundaries. It sits HERE rather than inside `reads/`
       ;; because that seam answers the producer's envelope VERBATIM — a
       ;; byte-for-byte contract with the AI pair, pinned by a witness —
       ;; and HERE rather than in the row projections because the advisor
@@ -854,7 +846,7 @@
          ;; about the boundary the roster just pointed at, walked on the
          ;; event the reader selected. With no focus pinned, or one the
          ;; ring has evicted, `walked-dispatch` answers the newest retained
-         ;; dispatch as this did before.
+         ;; dispatch.
          :slice       (when-some [top (first (:rows advice))]
                         (causal/slice {:envelopes    envelopes
                                        :windows      windows
@@ -868,7 +860,7 @@
      :modes #{:dynamic}
      :order 10
      ;; The BRIDGE, not the boundary: `:pre` wants a callable and `Panel`
-     ;; is a React component now (rf2-k97c.3).
+     ;; is a React component.
      :panel Panel-bridge})
 
   nil)
