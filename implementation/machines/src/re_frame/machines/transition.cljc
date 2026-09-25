@@ -748,18 +748,17 @@
   (:tags node))
 
 (defn root-tags
-  "The machine root's own `:tags` set, or `#{}`. The root is active for the
-  machine's whole life, so its tags are always in the union. A synthetic
-  region spec (`:rf/region`) is a region body, not the machine root: the
-  parallel union adds the machine root's tags once, itself."
+  "The tree root's own `:tags` set, or `#{}` — the machine root's, or, for a
+  synthetic region spec (`:rf/region`), the region body's. A root is active
+  for its tree's whole life, so its tags are always in the union. The
+  parallel union adds the machine root's tags once, itself, beside each
+  region's."
   [machine]
-  (if (:rf/region machine)
-    #{}
-    (or (node-tags machine) #{})))
+  (or (node-tags machine) #{}))
 
 (defn compute-tags
   "Per Spec 005 §State tags: walk the active configuration for `state`
-  and return the union of the machine root's `:tags` and every active
+  and return the union of the tree root's `:tags` and every active
   state-node's `:tags` set. Returns a set (possibly empty) — never `nil`."
   [machine state]
   (let [path  (state-path state)
@@ -2042,6 +2041,14 @@
   LIFECYCLE rendering can group rows by phase without spec-walking
   at render time.
 
+  Every emit also carries `:decl-path`, the path of the node that DECLARES
+  the action — the state whose `:entry` / `:exit` it is, the state whose
+  transition carries it, or `[]` for a tree root — and, inside a parallel
+  region, `:region` (the path is then region-relative, `[]` naming the
+  region body). The Xray cascade row reads it to address a root's own
+  `:entry` / `:exit` rather than borrowing a state from the surrounding
+  transition.
+
   The optional `transition-slot` — the selected
   transition's EXACT spec-path discriminator (`transition-slot`) — is
   stamped on the emit under `:transition-slot` when present (only the
@@ -2049,9 +2056,9 @@
   pass nil). The Xray cascade row reads it to address the precise
   inline-source slot (candidate index / `:after` delay-key / root) rather
   than reconstructing the path from `source-state` / `event` / `phase`."
-  ([machine snap action-ref event phase]
-   (run-action machine snap action-ref event phase nil))
-  ([machine snap action-ref event phase transition-slot]
+  ([machine snap action-ref event phase decl-path]
+   (run-action machine snap action-ref event phase decl-path nil))
+  ([machine snap action-ref event phase decl-path transition-slot]
   (if action-ref
     (let [f         (resolve-action machine action-ref)
           ;; An action runs against a LIVE actor's snapshot, so
@@ -2060,12 +2067,15 @@
           actor-id  (or (:rf/parent-id machine) (:id machine))
           ;; Epoch-capture admission requires `:frame`.
           frame-id  (:rf/frame machine)
+          region    (:rf/region machine)
           base-tags (cond-> {:actor-id   actor-id
                              :action-id  action-ref
                              :phase      phase
+                             :decl-path  (vec decl-path)
                              :input      {:data  (:data snap)
                                           :event event}
                              :frame      frame-id}
+                      region          (assoc :region region)
                       transition-slot (assoc :transition-slot transition-slot))]
       (try
         (let [r (call-action machine f snap event)]
@@ -2214,7 +2224,7 @@
                                              :action action}
                                       source (assoc :source source))]
                     (if action
-                      (let [r0 (run-action machine snap action event emit-phase transition-slot)]
+                      (let [r0 (run-action machine snap action event emit-phase state transition-slot)]
                         (if (rf.machines.result/fail? r0)
                           (reduced [r0 cascade])
                           ;; Per Spec 005 §Hard-disallow `:db`: strip any `:db`
@@ -2910,7 +2920,7 @@
         tspec (select-passing-candidate machine cands snap event)]
     (if (nil? tspec)
       (rf.machines.result/ok snap [])
-      (let [r0 (run-action machine snap (:action tspec) event :transition)]
+      (let [r0 (run-action machine snap (:action tspec) event :transition [])]
         (if (rf.machines.result/fail? r0)
           r0
           (let [r        (enforce-db-disallow machine r0 (:action tspec) (:state snap))
@@ -2944,7 +2954,7 @@
         ;; Xray cascade row addresses `[:on <event-key>]` (root-relative, no
         ;; `:states` prefix) → `:root? true`.
         transition (finalize-on-transition-slot transition [])
-        r0 (run-action machine snap (:action transition) event :transition
+        r0 (run-action machine snap (:action transition) event :transition []
                        (:rf/transition-slot transition))]
     (if (rf.machines.result/fail? r0)
       r0
@@ -3023,35 +3033,40 @@
                          vec)]
     (collect-actions machine snapshot [:rf.machine/destroy-exit] steps)))
 
-;; ---- the machine root's own :entry / :exit --------------------------------
+;; ---- a tree root's own :entry / :exit -------------------------------------
 ;;
 ;; Per Spec 005 §State nodes (the machine root): the root is active for the
 ;; machine's whole life, so it enters once at birth and exits once at
-;; teardown, and never on a transition. Its `:entry` / `:exit` are therefore
+;; teardown, and never on a transition. A parallel region body is the root
+;; of its region's tree and follows the same rule: every region is entered
+;; at birth and exited at teardown. Their `:entry` / `:exit` are therefore
 ;; composed at those two sites (`re-frame.machines.parallel`'s birth cascade
 ;; and machine-level exit cascade) rather than through `nodes-along-path`,
 ;; whose depth-indexed pairs the transition geometry slices by LCA length —
 ;; a root pair there would put the root on every root-declared transition's
 ;; exit / entry path. A step records the root as the node at the empty path
-;; `[]`, as `schedule-root-after-fx` does, and only when the root declares
-;; the action.
+;; `[]`, as `schedule-root-after-fx` does, with the region when `machine` is
+;; a region spec, and only when the root declares the action.
 
 (defn- run-root-action
-  "Run the machine root's `slot` action (`:entry` / `:exit`) as one cascade
-  step at `:state []`. A root that declares none returns `snap` unchanged
-  with no step."
+  "Run the tree root's `slot` action (`:entry` / `:exit`) as one cascade
+  step at `:state []` — the machine root's, or a region body's when
+  `machine` is a region spec. A root that declares none returns `snap`
+  unchanged with no step."
   [machine snap slot kind phase event]
   (if-let [action (get machine slot)]
     (collect-actions machine snap event
-                     [{:kind kind :phase phase :action action :state [] :region nil}])
+                     [{:kind kind :phase phase :action action :state []
+                       :region (:rf/region machine)}])
     (rf.machines.result/with-cascade (rf.machines.result/ok snap []) [])))
 
 (defn run-root-entry
-  "Run the machine root's `:entry` at birth, against the seeded snapshot and
-  before any state is entered: the action sees `:state []`, the empty
-  configuration, as the initial descent's own `:entry` actions do. Phase
-  `:initial-entry`, event `[:rf.machine/start]`. Returns the Result with the
-  snapshot's `:state` put back, or the `:fail` the action produced."
+  "Run the tree root's `:entry` at birth, against the seeded snapshot and
+  before any state below it is entered: the action sees `:state []`, the
+  empty configuration, as the initial descent's own `:entry` actions do.
+  Phase `:initial-entry`, event `[:rf.machine/start]`. Returns the Result
+  with the snapshot's `:state` put back, or the `:fail` the action
+  produced."
   [machine snap]
   (let [r (run-root-action machine (assoc snap :state []) :entry :entry
                            :initial-entry [start-marker])]
@@ -3063,8 +3078,8 @@
           (rf.machines.result/cascade r))))))
 
 (defn run-root-exit
-  "Run the machine root's `:exit` at teardown, against the snapshot the
-  active configuration's exit cascade left. Phase `:destroy-exit`, event
+  "Run the tree root's `:exit` at teardown, against the snapshot the exit
+  cascade of the configuration below it left. Phase `:destroy-exit`, event
   `[:rf.machine/destroy-exit]`, as the rest of that cascade."
   [machine snap]
   (run-root-action machine snap :exit :exit :destroy-exit [:rf.machine/destroy-exit]))

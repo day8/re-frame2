@@ -713,6 +713,70 @@
                                                  offending))))
                {:offending-keys offending})))))
 
+;; ---- parallel region-body slots no runtime path reads ----------------------
+;;
+;; Per Spec 005 §State nodes (the machine root) and §Parallel regions: a region
+;; body is the root of its region's tree and follows the machine root's rule.
+;; Every region is entered at birth and exited at teardown, never on a
+;; transition, so the body's `:entry` / `:exit` run there and its `:tags` join
+;; the tag union. The runtime also reads its `:initial` / `:states`, its `:on`
+;; (the region's ancestor fallback) and its `:type`. A region body's `:after`
+;; (and the `:timeout` / `:on-timeout` lowered onto it) keeps its own refusal
+;; (`validate-non-parallel-root-after!`), a `:choice` its own
+;; (`rf.machines.choice/validate-node-choice!`), and a nested `:type :parallel`
+;; its own (`validate-parallel!`) — each runs first. The keys below would
+;; register on a region body and do nothing.
+
+(def ^:private region-unread-keys
+  "State-node keys no runtime path reads on a parallel region body."
+  #{:spawn :spawn-all :always :final? :output-key :error? :deep? :default-target :regions})
+
+(defn- region-slot-substitute
+  "The substitute an author reaches for in place of region-body key `k`."
+  [k]
+  (case k
+    (:spawn :spawn-all)
+    (str "For a child that lives as long as the region, wrap the region's "
+         "states in one compound state and declare " k " there.")
+
+    :always
+    (str "A region is entered once, at birth, and never re-entered, so it has "
+         "no eventless settle: route the region's :initial into a state whose "
+         ":always fires at birth.")
+
+    (:final? :output-key :error?)
+    (str "A region body is never a final state: a region is final when its "
+         "active state is a :final? leaf.")
+
+    (:deep? :default-target)
+    (str ":deep? / :default-target belong on a :type :history node inside a "
+         "compound state.")
+
+    :regions
+    (str "Parallel regions do not nest: a region body declares :initial and "
+         ":states.")))
+
+(defn- validate-region-slots!
+  "Reject every key no runtime path reads on a parallel region body with
+  `:rf.error/machine-root-slot-not-supported`, naming the key(s), the
+  substitute, and the region under `:path` (`[:regions <region>]`)."
+  [machine]
+  (when (rf.machines.parallel/parallel? machine)
+    (doseq [[rn body] (:regions machine)
+            :let [offending (vec (sort (filter #(contains? body %) region-unread-keys)))]
+            :when (seq offending)]
+      (throw (validation-error
+               :rf.error/machine-root-slot-not-supported
+               (str "region " (key-label rn) " declares " (key-labels offending)
+                    ", which the runtime never reads on a region body, so "
+                    (if (next offending) "they" "it")
+                    " would be silently ignored. A region runs its :entry when "
+                    "the machine is born and its :exit at teardown, and joins "
+                    "its :tags to the tag union. "
+                    (str/join " " (distinct (map region-slot-substitute offending))))
+               {:offending-keys offending
+                :path           [:regions rn]})))))
+
 (defn- walk-state-nodes
   "Yield `[state-key state-node]` pairs for every node under `:states`,
   recursing through `:states` maps. Used by the registration-time
@@ -1710,10 +1774,13 @@
   bare-key vocabulary — a grammar addition adds ONE key here alongside its schema
   row. The machine root also accepts `known-machine-root-extra-keys`.
 
-  `:type :history` and `:type :choice` pseudo-states carry their OWN closed
-  key-sets (`validate-history!` / `rf.machines.choice/validate-node-choice!`), so the node-key
-  walk SKIPS them — their validators already reject foreign keys with the
-  node-kind-specific error id."
+  A `:type :history` pseudo-state carries its OWN closed key-set
+  (`validate-history!`), so the node-key walk SKIPS it — that validator
+  already rejects foreign keys with the history-specific error id. A
+  `:type :choice` state is walked like any other: its own validator
+  (`rf.machines.choice/validate-node-choice!`) refuses the waiting-state
+  keys it must not carry, and this walk refuses an unknown bare key and a
+  leaf's `:on-done`."
   #{;; root-shape / pseudo-state
     :type :deep? :default-target :regions
     ;; compound
@@ -1808,9 +1875,10 @@
 (defn- validate-node-keys!
   "Reject any unknown BARE key on a state node at registration with
   `:rf.error/machine-unknown-node-key`, naming the offending key(s) and the valid
-  vocabulary. `:type :history` / `:type :choice` pseudo-states are SKIPPED — they
-  carry their own closed key-sets validated elsewhere. Namespaced keys pass (the
-  open extension carve-out). The MACHINE ROOT (`at-root?`) additionally accepts
+  vocabulary. `:type :history` pseudo-states are SKIPPED — they carry their own
+  closed key-set validated elsewhere. A `:type :choice` state is checked here
+  too: it is a leaf, so an `:on-done` on it is refused like any leaf's.
+  Namespaced keys pass (the open extension carve-out). The MACHINE ROOT (`at-root?`) additionally accepts
   the root-only keys (`known-machine-root-extra-keys`: `:data`, `:guards`,
   `:actions`, the registration metadata, …); on a nested state or a region body
   the message names them as root-only.
@@ -1821,8 +1889,7 @@
   Per Conventions §No silent swallow + §Reserved state-node keys."
   [state-key state-node at-root?]
   (when (and (map? state-node)
-             (not (history-node? state-node))
-             (not (rf.machines.choice/choice-node? state-node)))
+             (not (history-node? state-node)))
     (let [known     (cond-> known-state-node-keys
                        at-root? (into known-machine-root-extra-keys))
           offending (unknown-bare-keys state-node known)
@@ -2121,7 +2188,10 @@
   state-node key no runtime path reads on the root (`:spawn`, `:spawn-all`,
   `:always`, `:choice`, `:final?`, `:output-key`, `:error?`, `:deep?`,
   `:default-target`, and a flat root's `:on-done`) throws
-  `:rf.error/machine-root-slot-not-supported`."
+  `:rf.error/machine-root-slot-not-supported`. A parallel region body follows
+  the same rule: one declaring `:spawn`, `:spawn-all`, `:always`, `:final?`,
+  `:output-key`, `:error?`, `:deep?`, `:default-target` or `:regions` throws
+  it too, with `:path` naming the region."
   [machine]
   ;; Validate the `:timeout` / `:on-timeout` grammar on the raw
   ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the
@@ -2161,8 +2231,8 @@
   ;; the RAW spec (before BOTH desugars) so diagnostics name the exact keys the
   ;; author wrote — a `:choice` / `:timeout` / `:on-timeout` key is still present
   ;; here and is a KNOWN member of the bare vocabulary, so it is not flagged; a
-  ;; typo (XState's `:invoke` / `:on-entry`) IS. `:type :history` / `:type
-  ;; :choice` pseudo-states are skipped (their own closed key-sets validate them).
+  ;; typo (XState's `:invoke` / `:on-entry`) IS. `:type :history` pseudo-states
+  ;; are skipped (their own closed key-set validates them).
   ;; Per Conventions §No silent swallow + §Reserved state-node keys /
   ;; §Spawn-spec keys. Every transition map in every slot is held to the
   ;; closed transition vocabulary the same way (`validate-node-transition-keys!`).
@@ -2207,6 +2277,10 @@
   ;; whole-machine deadline that never fires. Runs on the DESUGARED machine
   ;; so a root `:timeout` is caught via its lowered `:after` form too.
   (validate-non-parallel-root-after! machine)
+  ;; A region body follows the machine root's rule: refuse the keys no
+  ;; runtime path reads on it. Runs after the nested-parallel and region
+  ;; `:after` refusals, which name those shapes more precisely.
+  (validate-region-slots! machine)
   ;; The machine-level `:schemas` map has a closed sub-key set; an
   ;; unknown sub-key (incl. `:input`) or a non-map `:schemas` fails loud.
   (validate-schemas! machine)
@@ -2364,11 +2438,15 @@
       (doseq [root roots
               [_ t] (:after root)]
         (check-transition! t :rf/root)))
-    ;; The machine root's own `:entry` / `:exit` run at birth and teardown
-    ;; (`walk-state-nodes` does not yield the root), so their refs resolve
-    ;; here like any state's.
+    ;; The machine root's own `:entry` / `:exit`, and each parallel region
+    ;; body's, run at birth and teardown (`walk-state-nodes` yields neither),
+    ;; so their refs resolve here like any state's.
     (check-action! (:entry machine) :rf/root :entry)
     (check-action! (:exit  machine) :rf/root :exit)
+    (when (rf.machines.parallel/parallel? machine)
+      (doseq [[rn body] (:regions machine)]
+        (check-action! (:entry body) rn :entry)
+        (check-action! (:exit  body) rn :exit)))
     ;; The PARALLEL ROOT's own `:on-done` (fired when all
     ;; regions reach final) carries `:guard` / `:action` refs that must
     ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,
