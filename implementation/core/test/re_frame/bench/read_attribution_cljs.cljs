@@ -266,9 +266,13 @@
   `write_attribution.cljs`'s subject, not this one. Every S/RC/N arm is
   unaffected — none of them touches the node.
 
-  Run it:
+  Run it: no build in `implementation/shadow-cljs.edn` compiles this
+  harness, so add a `:node-script` build with `:main
+  re-frame.bench.read-attribution-cljs/-main`, `:output-to
+  \"out/read-attribution-cljs.js\"` and `:compiler-options {:optimizations
+  :advanced :infer-externs :auto :closure-defines {goog.DEBUG false}}`,
+  release it, then:
 
-      npx shadow-cljs release ui-bench --config-merge '{:main re-frame.bench.read-attribution-cljs/-main :output-to \"out/read-attribution-cljs.js\" :compiler-options {:optimizations :advanced :infer-externs :auto :closure-defines {goog.DEBUG false}}}'
       node --expose-gc out/read-attribution-cljs.js
 
   Environment: RA_N (subscriptions / inner iterations, default 300),
