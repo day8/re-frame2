@@ -1,103 +1,43 @@
 (ns day8.re-frame2-xray.acceptance.substrate-gap-dom-cljs-test
-  "THE GAP THE ROOT SWAP CLOSED — now pinned CLOSED, at the same seam
-  (rf2-k97c.3 slice D, discharged by rf2-k97c.4).
+  "THE PUBLIC `open!` VERB ACROSS BOTH ADAPTER FAMILIES.
 
   The three arms beside this file — `acceptance.uix-dom-cljs-test`,
   `acceptance.reagent-dom-cljs-test` and
   `acceptance.reagent-slim-dom-cljs-test` — witness all six behavioural
   criteria through Xray's own React root, on an element-shaped adapter and
   on both ratom-family runtimes alike. This file covers the one thing they
-  do not: the PUBLIC `open!` verb, the door a host app actually uses.
+  do not: the PUBLIC `open!` verb, the door a host app actually uses. The
+  namespace is named for the seam it pins: whether the public mount
+  crosses the gap between adapter families.
 
-  ## THE FILE KEEPS ITS NAME ON PURPOSE
+  ## THE ROWS
 
-  There is no gap left to name, and the name is kept anyway: this file IS
-  the record of the gap closing, and its two rows are the before and after
-  of the same assertion at the same seam. Renaming it would leave the
-  closure legible only in version history.
+  [[the-public-mount-succeeds-on-an-element-shaped-substrate]] pins that
+  `open!` MOUNTS on an element-shaped host. Xray paints through a root it
+  owns, so an element-shaped `:render` is never handed the hiccup shell
+  and there is nothing to refuse. Pinning the success, rather than merely
+  having no refusal row, is what keeps a deliberate behaviour from
+  becoming an accidental one later.
 
-  ## WHAT WAS HERE, AND WHY IT WENT
+  [[the-public-mount-succeeds-on-a-ratom-family-substrate]] is the second
+  FAMILY: the two rows together say the public `open!` mounts on a
+  ratom-family host and on an element-shaped one, with the installed
+  adapter the only difference between them, which is 'indifferent to the
+  installed adapter' stated where a host app can see it. Nothing else in
+  the suite covers the public verb — the six-criteria arms mount Fresco's
+  root directly (`test-helpers.criteria/mount-xray!`), never `open!` — so
+  it is coverage rather than ceremony.
 
-  `the-public-mount-refuses-an-element-shaped-substrate` asserted, against
-  the literals `false`, `:unsupported-substrate` and `:rf.adapter/uix`,
-  that `open!` REFUSED an element-shaped host — because `mount.cljs`
-  painted through the INSTALLED adapter's `:render` and a
-  `react-element-render-kinds` denylist refused the kinds whose `:render`
-  could not take the hiccup shell. Its own docstring promised the ending:
-  *'THIS ROW IS MEANT TO GO RED. When the swap lands and the denylist goes,
-  `open!` stops refusing and the first row reddens. That red is the signal,
-  not a regression ... Delete this row then, and say in the PR that you
-  did.'* rf2-k97c.3 (PR #9708) landed the root swap; rf2-k97c.4 retired the
-  denylist and deleted that row, and its PR said so.
-
-  ## WHAT REPLACED IT
-
-  [[the-public-mount-succeeds-on-an-element-shaped-substrate]] is the same
-  seam, same verb, same host element, same adapter — asserting the
-  OPPOSITE outcome. A retirement that deleted the row and stopped there
-  would have left the new truth unpinned, which is the shape in which a
-  deliberate behaviour change becomes an accidental one later.
-
-  [[the-public-mount-succeeds-on-a-ratom-family-substrate]] STAYS, and its
-  job has changed. It was the control that made the refusal a claim about
-  the SUBSTRATE rather than about this file's setup; with no refusal left
-  there is nothing for it to discriminate, so that job is discharged. What
-  it is now is the second FAMILY: the two rows together say the public
-  `open!` mounts on a ratom-family host and on an element-shaped one, with
-  the installed adapter the only difference between them, which is
-  'indifferent to the installed adapter' stated where a host app can see
-  it. Nothing else in the suite covers the public verb — the six-criteria
-  arms mount Fresco's root directly (`test-helpers.criteria/mount-xray!`),
-  never `open!` — so it is coverage rather than ceremony.
-
-  ## A SECOND GAP, MEASURED AND DELIBERATELY NOT PINNED HERE
-
-  Measured at trunk 1bf7106126 across three adapters in one browser run:
-  Xray's chrome DOES NOT PAINT under the reagent-slim adapter, on either
-  mount path — the public `open!` or Xray's own React root. In both cases
-  `frame-switcher/frame-switcher-view` raises `:rf.error/no-frame-context`
-  during render and React takes the whole subtree down. Full Reagent was
-  green on both paths in that same run, so it is a statement about
-  reagent-slim. `mount.cljs`'s own `unsupported-substrate-diagnostic` tells
-  the user Xray's shell 'is hiccup rendered through the ratom-family
-  adapters (Reagent / reagent-slim)', which that measurement contradicts.
-
-  There is NO ROW FOR IT HERE, on purpose. Reproducing it means provoking
-  an uncaught render-phase throw, and the browser runner fails a whole run
-  on an uncaught `pageerror` INDEPENDENTLY of the cljs.test summary — so a
-  row pinning it would red the lane for every unrelated suite in the build.
-  The finding is recorded in the bead and in
-  `acceptance.reagent-dom-cljs-test`'s docstring, which is why that arm
-  runs on Reagent rather than on the reagent-slim the brief named. Fixing
-  it is a production change and slice D is test-only.
-
-  THAT SECOND GAP IS CLOSED. The paragraph above is kept as history.
-  rf2-7ds8 (PR #9686) made `substrate/as-element` read the walk off the
-  INSTALLED adapter instead of naming stock Reagent's statically, and
-  `static.shell-reagent-slim-crossing-dom-cljs-test` is its witness — an
-  error boundary above the crossing, which is the instrument this
-  paragraph correctly judged a naked mount could not supply. rf2-k97c.3
-  then deleted the two crossings it names, making
-  `frame-switcher/frame-switcher-view` and `mode-pill/mode-pill`
-  boundaries.
-
-  MEASURED 2026-09-12: the six acceptance criteria run green with
-  reagent-slim installed. Xray's OWN React root only — the public `open!`
-  path was not re-measured there. The paragraph above cited
-  `mount.cljs`'s `unsupported-substrate-diagnostic` for a claim about which
-  adapters can host the shell; rf2-k97c.4 deleted that diagnostic's
-  producer along with the denylist, so the claim has no author any more and
-  the question it left open is not reopened by this file.
-
-  THE `open!` HALF IS NOW MEASURED TOO, and the answer is that it works
-  (rf2-now5, 2026-09-12, same day, one browser lane run). That question -
-  left open directly above — is what
-  [[the-public-mount-succeeds-on-a-slim-ratom-family-substrate]] below
-  answers, and it answers it in the only form that cannot go stale: a row
-  that runs on every PR. It was worth asking rather than assuming. The
-  Reagent row beside it installs STOCK Reagent, so until that third row
-  landed nothing anywhere drove the public door on the adapter whose
-  pairing with Xray was the one historically broken.
+  [[the-public-mount-succeeds-on-a-slim-ratom-family-substrate]] drives
+  the same door on reagent-slim. That pairing fails if a hiccup->React
+  crossing names stock Reagent's walk statically: a crossing loses its
+  frame, `:rf.error/no-frame-context` raises during render, React takes
+  the whole subtree down and Xray's chrome does not paint.
+  `substrate/as-element` reads the walk off the INSTALLED adapter, and
+  `static.shell-reagent-slim-crossing-dom-cljs-test` witnesses that
+  crossing with an error boundary above it — an instrument a naked mount
+  cannot supply, because the browser runner fails a whole run on an
+  uncaught `pageerror` INDEPENDENTLY of the cljs.test summary.
 
   ## FIXTURE
 
@@ -143,25 +83,19 @@
         (.remove host)))))
 
 ;; ===========================================================================
-;; The gap, CLOSED — the public mount paints on an element-shaped adapter
+;; The public mount paints on an element-shaped adapter
 ;; ===========================================================================
 
 (deftest the-public-mount-succeeds-on-an-element-shaped-substrate
-  (testing "rf2-k97c.4 — with an element-shaped adapter installed, Xray's
+  (testing "with an element-shaped adapter installed, Xray's
             PUBLIC `open!` MOUNTS: a real root in the document, a node in
             the host's own slot, and a `status` reporting health rather
             than a refusal.
 
-            This row stands where
-            `the-public-mount-refuses-an-element-shaped-substrate` stood,
-            asserting the opposite outcome at the same seam. That row was
-            written to go red here and was deleted rather than repaired.
-            What changed under it: rf2-k97c.3 stopped `open!` painting
-            through the INSTALLED adapter's `:render` — the shell is a
-            `re-frame.fresco` boundary on a root Xray owns — so an
-            element-shaped `:render` is never handed hiccup and the
-            `react-element-render-kinds` denylist rf2-k97c.4 deleted had
-            no precondition left to guard."
+            `open!` does not paint through the INSTALLED adapter's
+            `:render` — the shell is a `re-frame.fresco` boundary on a
+            root Xray owns — so an element-shaped `:render` is never
+            handed hiccup and there is nothing to refuse."
     (if-not (browser?)
       (is true "skipped: the :browser-test runner drives the real mount")
       (do
@@ -169,8 +103,8 @@
         (registry/register-xray-handlers!)
         (with-layout-host
           (fn [host]
-            ;; Caught for the same reason the deleted row caught: an
-            ;; element-shaped host is exactly where a regression in the
+            ;; Caught because an element-shaped host is exactly where a
+            ;; regression in the
             ;; owned-root path surfaces as a render-phase THROW rather
             ;; than as a false return, and an uncaught one would swallow
             ;; every assertion below it.
@@ -183,7 +117,7 @@
                                                             (ex-message e)))
                                       ". Xray is meant to own its own root "
                                       "here and never touch the host's "
-                                      ":render — see rf2-k97c.3."))
+                                      ":render."))
                              ::threw))]
               (is (= true (xray-mount/mounted?))
                   (str "`open!` mounted on an element-shaped substrate. "
@@ -199,7 +133,7 @@
                        (pr-str (:diagnostic (xray-mount/status)))))
               (is (nil? (:reason (:diagnostic (xray-mount/status))))
                   (str "naming no refusal reason — `:unsupported-substrate` "
-                       "stays a reserved id in that vocabulary and no longer "
+                       "is a reserved id in that vocabulary and never "
                        "fires. Got: "
                        (pr-str (:reason (:diagnostic (xray-mount/status))))))
               ;; ---- and it really painted --------------------------------
@@ -215,16 +149,13 @@
 ;; ===========================================================================
 
 (deftest the-public-mount-succeeds-on-a-ratom-family-substrate
-  (testing "rf2-k97c.4 — the OTHER adapter family through the same public
-            verb, same host element, same registrations. Until the denylist
-            went this was the CONTROL that made the refusal above a claim
-            about the SUBSTRATE rather than about this file's setup; with
-            no refusal left, that job is discharged. What it does now is
-            pair with the row above to say the public `open!` mounts on
-            both families with the installed adapter the only difference
-            between the two — and it remains the only place the ratom-family
-            host is driven through the public verb at all, the six-criteria
-            arms mounting Fresco's root directly instead."
+  (testing "the OTHER adapter family through the same public
+            verb, same host element, same registrations. It pairs with the
+            row above to say the public `open!` mounts on both families
+            with the installed adapter the only difference between the
+            two — and it is the only place the ratom-family host is driven
+            through the public verb at all, the six-criteria arms mounting
+            Fresco's root directly instead."
     (if-not (browser?)
       (is true "skipped: the :browser-test runner drives the real mount")
       (do
@@ -259,7 +190,7 @@
 ;; ===========================================================================
 
 (deftest the-public-mount-succeeds-on-a-slim-ratom-family-substrate
-  (testing "rf2-now5 — the ratom family's OTHER runtime through the same
+  (testing "the ratom family's OTHER runtime through the same
             public verb, same host element, same registrations. The row
             above installs stock Reagent; this one installs reagent-slim,
             which `tools/xray/deps.edn` carries as Xray's DEFAULT
@@ -267,20 +198,17 @@
             host most easily ends up on without choosing it.
 
             It is coverage rather than a third helping of the same thing.
-            Until rf2-7ds8 (PR #9686) Xray's hiccup->React crossing named
-            stock Reagent's `as-element` STATICALLY, so under THIS adapter
-            the islands were painted by the wrong ratom build and the
-            chrome came up blank — a failure specific to the pairing and
-            invisible to the Reagent row above it. rf2-k97c.3 then made
-            the two crossings that carried it boundaries. The
-            six-criteria arms witness that repair on Xray's OWN root;
-            this row is the only place it is witnessed through the PUBLIC
-            door.
+            A hiccup->React crossing that names stock Reagent's
+            `as-element` STATICALLY paints the islands with the wrong
+            ratom build under THIS adapter and the chrome comes up blank —
+            a failure specific to the pairing and invisible to the Reagent
+            row above it. The six-criteria arms witness the crossing on
+            Xray's OWN root; this row is the only place it is witnessed
+            through the PUBLIC door.
 
-            Caught for the reason the element-shaped row catches: this is
-            the adapter whose historical failure mode was a render-phase
-            THROW, and an uncaught one would swallow every assertion
-            below it."
+            Caught for the reason the element-shaped row catches: this
+            adapter's failure mode is a render-phase THROW, and an
+            uncaught one would swallow every assertion below it."
     (if-not (browser?)
       (is true "skipped: the :browser-test runner drives the real mount")
       (do
@@ -295,10 +223,10 @@
                                       "substrate: "
                                       (pr-str (:rf.error/id (ex-data e)
                                                             (ex-message e)))
-                                      ". rf2-7ds8 made `substrate/as-element` "
-                                      "read the hiccup->React walk off the "
-                                      "INSTALLED adapter; a throw here says "
-                                      "that crossing lost the frame again."))
+                                      ". `substrate/as-element` reads the "
+                                      "hiccup->React walk off the INSTALLED "
+                                      "adapter; a throw here says that "
+                                      "crossing lost the frame."))
                              ::threw))]
               (is (= true (xray-mount/mounted?))
                   (str "`open!` mounted on the slim ratom-family substrate. "
