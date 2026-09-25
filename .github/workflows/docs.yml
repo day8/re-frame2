@@ -1,4 +1,4 @@
-# Builds and publishes the re-frame2 docs site (rf2-h09k).
+# Builds and publishes the re-frame2 docs site.
 #
 # Source: docs/core/ (narrative) + spec/ (normative) + spec/API.md (reference).
 # Sink:   https://day8.github.io/re-frame2/
@@ -12,8 +12,7 @@
 # `Docs required` aggregator posts a status context on EVERY PR (see
 # REQUIRED-CHECK SHAPE below); the heavy MkDocs build is re-gated job-side
 # to the docs surface. The first publish is a deliberate manual step (run
-# via the Actions tab once Pages is configured) — see PR description for
-# rf2-h09k.
+# via the Actions tab once Pages is configured).
 
 name: docs
 
@@ -26,7 +25,7 @@ on:
     # (see mkdocs_hooks.py: tools/ and skills/ internals are rewritten to
     # GitHub blob URLs precisely because they don't exist in the staged
     # site). The per-skill summary pages that DO render live at
-    # docs/skills/X.md and are already covered by `docs/**` (rf2-8k7vm).
+    # docs/skills/X.md and are already covered by `docs/**`.
     paths:
       - 'docs/**'
       - 'spec/**'
@@ -34,7 +33,7 @@ on:
       - 'mkdocs.yml'
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
-      # rf2-2c8zq6 — root-support surfaces the retired-composition gate now
+      # Root-support surfaces the retired-composition gate
       # scans (README/CHANGELOG/SKILL-REDIRECT/AGENTS/CLAUDE + the JVM gate
       # scripts). Listed so a drift there triggers the gate. (TESTING.md above
       # is already on the surface.)
@@ -48,20 +47,19 @@ on:
       - 'scripts/test-fast-pr.sh'
       - 'scripts/test-rigorous-local.sh'
       - 'requirements.txt'
-      # (`scripts/check_doc_slugs.py` and its fixtures left this list with the
-      # gate itself — rf2-v7fui moved the corpus scan to test.yml's
-      # unconditional `verify-readme-links` job, where it needs no path filter
-      # to run. Same move, and the same reason, as
+      # (`scripts/check_doc_slugs.py` and its fixtures are not listed: the
+      # corpus scan runs in test.yml's unconditional `verify-readme-links`
+      # job, where it needs no path filter to run. Likewise
       # `scripts/check_inject_cofx_residue.py` below.)
-      # rf2-kqac1 — the provenance-pin gate reads docs/design/fresco/**, which
+      # The provenance-pin gate reads docs/design/fresco/**, which
       # `docs/**` above already arms; this line arms it on its own source, so a
       # change to the checker cannot ship without the checker running.
       - 'scripts/check_provenance_pins.py'
       - 'scripts/check_runtime_subsystem_grading.py'
-      # (`scripts/check_inject_cofx_residue.py` and its fixtures left this list
-      # with the gate itself — rf2-6ng7 moved it to test.yml's always-on
-      # invariant job, where it needs no path filter to run.)
-      # rf2-2oqj59 — the failure-corpus co-edit invariant gate scans
+      # (`scripts/check_inject_cofx_residue.py` and its fixtures are not
+      # listed: the gate runs in test.yml's always-on invariant job, where it
+      # needs no path filter to run.)
+      # The failure-corpus co-edit invariant gate scans
       # errors.md + the testbeds tree for a live retired failure spelling
       # (`:where :cofx`). A drift in either the gate, its fixtures, or the
       # testbeds it scans must trigger the docs workflow.
@@ -72,24 +70,21 @@ on:
       - 'scripts/_test_fixtures/check_retired_composition_vocab/**'
       - 'scripts/check_retired_image_keys.py'
       - 'scripts/_test_fixtures/check_retired_image_keys/**'
-      # rf2-yptjt — the warm-allocation non-claim scan reads README/CHANGELOG +
+      # The warm-allocation non-claim scan reads README/CHANGELOG +
       # docs/** (already armed above) and uses docs/design/** as its positive
       # control. This line arms it on its OWN source, so a change to the gate —
       # including one that loosens the claim pattern until it matches nothing —
       # cannot ship without the gate running. (It builds its fixtures in a
       # throwaway git tree, so there is no fixture directory to arm.)
       - 'scripts/check_allocation_non_claim.py'
-      # rf2-ps7ia moved the scan's OTHER premise, `budgets.md` §9's S7 row, out
-      # from under `docs/**` to `implementation/fresco/spec/`, and this list
-      # carried that path so a PREMISE MOVED red could not ship unraised;
-      # rf2-6c12m.8 (2026-08-30) moved the page back to
+      # The scan's OTHER premise, `budgets.md` §9's S7 row, lives at
       # `docs/design/fresco/product/budgets.md`, where `docs/**` above arms it
-      # again beside the sibling premise (`lanes/evidence-baseline.md`).
-      # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
-      # trees too; a drift there must trigger the gate.
+      # beside the sibling premise (`lanes/evidence-baseline.md`).
+      # The retired-composition gate scans the per-tool spec trees too; a
+      # drift there must trigger the gate.
       - 'tools/**/spec/**'
-      # rf2-tzy13 — the live `cljs-rf2` cells run on docs/cljs/playground-rf2.js,
-      # which is no longer committed: this workflow BUILDS it (below) and ships
+      # The live `cljs-rf2` cells run on docs/cljs/playground-rf2.js,
+      # which is not committed: this workflow BUILDS it (below) and ships
       # what it built. The bundle bakes in re-frame2 core + reagent-slim +
       # machines + flows, so a push touching any of them changes the deployed
       # live-cell engine and must republish. (docs/tools/playground/** — the
@@ -106,12 +101,12 @@ on:
   workflow_dispatch:
 
 # Two DIFFERENT concurrency concerns share this workflow, so the group is
-# event-scoped (rf2-k8l1m).
+# event-scoped.
 #
 #   push / workflow_dispatch -> group `pages`, never cancel in progress.
 #     These are the deploy path. Pages must publish one artifact at a time,
-#     so every main push serializes in the single `pages` group exactly as
-#     before. A newer main push may still supersede an older PENDING main
+#     so every main push serializes in the single `pages` group. A newer
+#     main push may still supersede an older PENDING main
 #     push — that is correct, because the newer commit contains the older
 #     one's history and will deploy it.
 #
@@ -121,17 +116,16 @@ on:
 #     PR therefore gets its own group, and a new push to that PR supersedes
 #     its own older run (the repo-wide idiom — cf. test.yml / lint.yml).
 #
-# WHY the split, not just a rename: the pull_request trigger above is
-# deliberately UNFILTERED, so EVERY open PR entered the `pages` group. GitHub
-# keeps at most one running plus one pending run per group and cancels the
-# older PENDING run when a newer one arrives — even with
-# cancel-in-progress: false. A routine PR docs check could therefore cancel a
-# queued main-push DEPLOYMENT before any job started, and because main's push
-# trigger is paths-filtered the next commit often did not re-trigger a
-# deploy at all. That is exactly how the live playground bundle went stale
-# after #6329 (main run 29638598705 cancelled by PR #6330's run 29638609140).
+# WHY the split: the pull_request trigger above is deliberately UNFILTERED,
+# so with one shared group EVERY open PR would enter the `pages` group.
+# GitHub keeps at most one running plus one pending run per group and
+# cancels the older PENDING run when a newer one arrives — even with
+# cancel-in-progress: false. A routine PR docs check could therefore cancel
+# a queued main-push DEPLOYMENT before any job started, and because main's
+# push trigger is paths-filtered the next commit often would not re-trigger
+# a deploy at all, leaving the live playground bundle stale.
 #
-# WHAT IS NEWLY PARALLEL: PR docs builds — against each other, and against a
+# WHAT RUNS IN PARALLEL: PR docs builds — against each other, and against a
 # main deploy. Nothing else. Two Pages deployments still CANNOT overlap: the
 # `deploy` job exists only on `push`, and all pushes remain in the single
 # uncancelled `pages` group. A PR run's `upload-pages-artifact` is scoped to
@@ -141,7 +135,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Lightweight changed-surface gate (rf2-aemyt). On a pull_request this
+  # Lightweight changed-surface gate. On a pull_request this
   # diffs HEAD against the merge base and lights `docs_surface` only when a
   # path that feeds the staged site changed; on push / dispatch it always
   # lights so the build runs unconditionally (push is already path-filtered
@@ -166,16 +160,16 @@ jobs:
       # .github/scripts/report-changed-surfaces.sh in test.yml.
       #
       # This path set is DELIBERATELY NARROWER than the `push.paths` filter
-      # above (rf2-tzy13). push.paths gained the four baked-in implementation
+      # above. push.paths carries the four baked-in implementation
       # surfaces so a core/reagent-slim/machines/flows merge republishes the
       # regenerated live-cell bundle; this PR-side classifier must NOT, or every
       # core PR would run a duplicate ~15-minute MkDocs build on top of the
       # tools-playground job in test.yml that already builds + smokes the bundle
       # at PR time. Deploy-time coverage here, PR-time coverage there.
       #
-      # No SCAN rides on this list any more (rf2-vc11): the source scans run in
-      # the unconditional `source-scans` job, so a path missing here can skip
-      # the MkDocs build but can no longer skip a scan.
+      # No SCAN rides on this list: the source scans run in the unconditional
+      # `source-scans` job, so a path missing here can skip the MkDocs build
+      # but cannot skip a scan.
       - name: Classify changed files against the docs surface
         id: detect
         run: |
@@ -184,7 +178,7 @@ jobs:
             echo "Non-PR event (${GITHUB_EVENT_NAME}): running MkDocs build unconditionally."
             exit 0
           fi
-          # Fetch the base branch BY NAME, with no depth cap (rf2-ihfw). Two
+          # Fetch the base branch BY NAME, with no depth cap. Two
           # things make that the right shape. First, this fetch is load-bearing
           # even under the `fetch-depth: 0` checkout above: a pull_request
           # checkout fetches `+<sha>:refs/remotes/pull/N/merge` and never
@@ -230,22 +224,22 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      # --- SCI-bundle build-on-publish (rf2-ssxvg1; sole source as of rf2-tzy13)
+      # --- SCI-bundle build-on-publish
       #
       # The docs' live `cljs-rf2` cells run on docs/cljs/playground-rf2.js — a
       # shadow-cljs :advanced bundle that bakes in re-frame2 core + reagent-slim
       # + machines + flows + react@19 (the eval engine for every `cljs-rf2`
-      # cell). rf2-ssxvg1 made this workflow rebuild it fresh on every publish,
-      # because deploying the committed snapshot verbatim let the LIVE cells run
-      # stale re-frame2 while main moved on.
+      # cell). This workflow rebuilds it fresh on every publish, because
+      # deploying a committed snapshot verbatim would let the LIVE cells run
+      # stale re-frame2 while main moves on.
       #
-      # rf2-tzy13 finished the job: the bundle is no longer committed at all. It
-      # is .gitignored and generated at each consumption boundary — here on
-      # deploy, and in test.yml's tools-playground job at PR time. The committed
-      # snapshot existed only for clean-checkout local convenience, and it cost a
-      # repo-wide write lock: every PR touching a baked-in surface had to
-      # regenerate the same binary, and two such PRs always conflicted on it.
-      # Source/config/locks are now the single authority.
+      # The bundle is not committed at all. It is .gitignored and generated at
+      # each consumption boundary — here on deploy, and in test.yml's
+      # tools-playground job at PR time. A committed snapshot would buy only
+      # clean-checkout local convenience, at the cost of a repo-wide write
+      # lock: every PR touching a baked-in surface would have to regenerate the
+      # same binary, and two such PRs would always conflict on it.
+      # Source/config/locks are the single authority.
       #
       # THIS BUILD IS THE ONLY SOURCE OF THE DEPLOYED BUNDLE. Nothing is checked
       # out to fall back on, so the steps below must not just build it but prove
@@ -310,18 +304,18 @@ jobs:
           fi
           echo "Freshly-built SCI bundle OK ($(wc -c < "$f") bytes)."
 
-      # --- Smoke the artefact that actually ships (rf2-tzy13 amendment) --------
+      # --- Smoke the artefact that actually ships ------------------------------
       #
       # This is the deploy path's runtime gate, and it is NOT redundant with the
       # PR-time tools-playground job:
       #
-      #   - PRs merge by REBASE, so PR CI validated the pre-rebase tree, not the
-      #     tree that lands on main. Runtime composition of the merged tree was
-      #     only ever proven by the post-merge canary, which rf2-tzy13 retires.
+      #   - PRs merge by REBASE, so PR CI validates the pre-rebase tree, not the
+      #     tree that lands on main; nothing else proves runtime composition of
+      #     the merged tree.
       #   - the structural pre-check above is a non-empty + rf2sci grep. It
-      #     cannot catch a bundle that is well-formed but throws at render (the
-      #     EP-0024 / rf2-qhu72t class, where a renamed frame provider made the
-      #     mount shape invalid against current core).
+      #     cannot catch a bundle that is well-formed but throws at render
+      #     (e.g. a renamed frame provider making the mount shape invalid
+      #     against current core).
       #   - expensive-tests.yml runs no playground job at all.
       #
       # Running the smoke HERE, after the build and before `mkdocs build` stages
@@ -331,7 +325,7 @@ jobs:
       # and tools-playground already smokes the bundle at PR time. This also
       # keeps main-push CI at ONE heavy bundle build instead of two.
       #
-      # rf2-169n — cache the Playwright browser binary. This step runs under
+      # Cache the Playwright browser binary. This step runs under
       # docs/tools/playground, so `npx` resolves THAT tree's Playwright
       # (^1.60.0 → 1.60.0), not implementation's pinned 1.59.1 — so the key
       # hashes the playground's own lockfile. Keying it on
@@ -344,7 +338,7 @@ jobs:
       # directory its own version asks for.) On a hit that install still runs
       # `--with-deps`: the apt system libraries live outside
       # ~/.cache/ms-playwright and are not cacheable. Only the browser
-      # DOWNLOAD is skipped — which is the hop that failed in rf2-swos.
+      # DOWNLOAD is skipped — which is the hop that fails.
       # Same `if:` as the install step it fronts, so PR runs neither restore
       # nor save a cache for a smoke they do not run.
       - name: Cache Playwright browser binary
@@ -366,11 +360,11 @@ jobs:
         working-directory: docs/tools/playground
         run: npm run smoke
 
-      # Stale-bootstrap detection on the POST-REBASE tree (rf2-tzy13). The
+      # Stale-bootstrap detection on the POST-REBASE tree. The
       # esbuild bootstrap (playground.js/.css) is still committed and is
       # byte-deterministic across platforms, so after the rebuild above a
       # non-empty diff means the committed bootstrap does not match its source —
-      # a drift that PR CI could miss because it validated the pre-rebase tree.
+      # a drift that PR CI can miss because it validates the pre-rebase tree.
       # The SCI bundle is deliberately NOT diffed: it is untracked and
       # .gitignored, and its Closure symbol allocation is not cross-machine
       # reproducible anyway.
@@ -383,11 +377,11 @@ jobs:
           fi
           echo "Committed esbuild bootstrap matches a fresh build."
 
-      # Cairo + Pango system libraries for Material's `social` plugin (rf2-orxjj).
+      # Cairo + Pango system libraries for Material's `social` plugin.
       # The plugin's image backend (CairoSVG, pulled in by material[imaging] in
       # requirements.txt) links against these native libs to rasterise the
       # OpenGraph/Twitter cards. Without them card generation throws at build
-      # time. This is the load-bearing CI change — it is what lets `CI=true`
+      # time. This is what lets `CI=true`
       # actually generate cards (the `social.cards: !ENV [CI, false]` gate in
       # mkdocs.yml). Package list per Material's "Setting up social cards" docs.
       - name: Install imaging system libraries (Cairo + Pango)
@@ -400,35 +394,34 @@ jobs:
       - name: Install MkDocs + plugins
         run: pip install -r requirements.txt
 
-      # THE MARKDOWN LINK + ANCHOR VALIDATOR IS NO LONGER HERE (rf2-v7fui).
+      # THE MARKDOWN LINK + ANCHOR VALIDATOR IS NOT HERE.
       # `scripts/check_doc_slugs.py` validates that every in-repo markdown
-      # link resolves — target .md file (rf2-unge8) and heading-slug anchor
-      # (rf2-sefq) — across docs, spec, SKILLS and migration.  It ran in this
-      # job, behind `docs_surface`, whose case list does not carry `skills/*`;
-      # so one of its four scan roots sat outside its own arming and a
-      # skills-only PR ran it nowhere.  It now runs UNCONDITIONALLY in
-      # test.yml's `verify-readme-links` job, beside the companion gate that
-      # shares its slugifier and already installs pymdown-extensions for it.
-      # Moved, not copied: two scheduled homes would be two things to drift.
+      # link resolves — target .md file and heading-slug anchor — across
+      # docs, spec, SKILLS and migration.  Behind this job's `docs_surface`
+      # guard, whose case list does not carry `skills/*`, one of its scan
+      # roots would sit outside its own arming and a skills-only PR would run
+      # it nowhere.  So it runs UNCONDITIONALLY in test.yml's
+      # `verify-readme-links` job, beside the companion gate that shares its
+      # slugifier and installs pymdown-extensions for it — one scheduled
+      # home, since two would be two things to drift.
       #
-      # Nothing is lost here.  The failure mode this job wanted — "this PR
-      # broke a doc link", not "mkdocs emitted a warning" — still holds, and
-      # arrives EARLIER, because the unconditional job does not wait on the
-      # apt-get and pip install above.  Strict mode likewise survives the move
-      # (rf2-ftkz swept the 26 broken anchors main carried at landing, so the
-      # gate is fail-loud wherever it runs).
+      # The failure mode that matters — "this PR broke a doc link", not
+      # "mkdocs emitted a warning" — holds there, and arrives EARLIER, because
+      # the unconditional job does not wait on the apt-get and pip install
+      # above.  The gate is fail-loud wherever it runs.
 
-      # THE SOURCE SCANS ARE NO LONGER HERE (rf2-vc11). The six self-test-then-
-      # live scanner pairs that stood here read only the SOURCE tree, never the
-      # built site, so they moved to the `source-scans` job below, which has no
-      # `docs_surface` guard. Same move, and the same reason, as the two gates
-      # above: behind this job's guard they ran on a PR only when the `detect`
-      # case list matched, and that list is narrower than `push.paths`.
+      # THE SOURCE SCANS ARE NOT HERE. The self-test-then-live scanner pairs
+      # read only the SOURCE tree, never the built site, so they live in the
+      # `source-scans` job below, which has no `docs_surface` guard. Same
+      # reason as the validator above: behind this job's guard they would run
+      # on a PR only when the `detect` case list matched, and that list is
+      # narrower than `push.paths`.
 
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.
-      # The local equivalent is `cp -r spec docs/spec && cp -r migration
-      # docs/migration` before `mkdocs build`. The staged copies are
+      # mkdocs_hooks.py's `on_pre_build` hook stages the same trees on every
+      # invocation, local or CI, so this step is belt-and-braces and a bare
+      # local `mkdocs build` needs no manual staging. The staged copies are
       # .gitignored — never commit them.
       - name: Stage spec/ + migration/ into docs/
         run: |
@@ -437,47 +430,46 @@ jobs:
           rm -rf docs/migration
           cp -r migration docs/migration
 
-      # --strict escalates MkDocs WARNINGs to a non-zero exit (rf2-eq90w):
+      # --strict escalates MkDocs WARNINGs to a non-zero exit:
       # nav entries pointing at missing files (nav.not_found), unresolved
-      # internal links MkDocs can see, and plugin warnings now fail the
+      # internal links MkDocs can see, and plugin warnings fail the
       # build instead of slipping through. This is complementary to the
-      # check_doc_slugs.py gate above, which validates markdown-link
+      # check_doc_slugs.py gate (see above), which validates markdown-link
       # target+anchor drift the WARNING set does not cover.
       - name: Build site (strict)
         run: mkdocs build --strict
 
       - name: Upload Pages artifact
-        # v5 (transitively pins actions/upload-artifact to a SHA, which v3 did not — see rf2-xmmh).
+        # v5 (transitively pins actions/upload-artifact to a SHA).
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: site/
 
   # ---------------------------------------------------------------------------
-  # Source scans (rf2-vc11) — UNCONDITIONAL, on purpose.
+  # Source scans — UNCONDITIONAL, on purpose.
   #
   # Every step here reads the SOURCE tree (docs/, spec/, skills/, testbeds/,
   # tools/*/spec, the root support files, implementation/ Clojure source) and
   # none reads the built site, so none needs the `build` job's JVM, Node,
   # Cairo or MkDocs setup: all six checkers are stdlib-only Python.
   #
-  # They lived in `build` until rf2-vc11, behind `docs_surface`, so on a PR
-  # they ran only when the `detect` case list matched, and that list is
-  # deliberately narrower than `push.paths`. A path on push.paths but off the
-  # case list was therefore graded on the trunk push and not on the PR that
-  # introduced it: PR #9748 touched implementation/machines/** only, merged at
-  # a full rollup with `build` skipped, and the main push then ran
-  # check_retired_image_keys.py RED. The case list also omitted that gate's
-  # own script and fixtures, so a PR loosening the gate skipped it too.
+  # Inside `build`, behind `docs_surface`, they would run on a PR only when
+  # the `detect` case list matched, and that list is deliberately narrower
+  # than `push.paths`. A path on push.paths but off the case list would then
+  # be graded on the trunk push and not on the PR that introduced it: a PR
+  # touching implementation/machines/** alone could merge at a full rollup
+  # with `build` skipped, and the main push then run
+  # check_retired_image_keys.py RED. A case list omitting a gate's own script
+  # and fixtures would let a PR loosening the gate skip it too.
   #
   # So this job has NO `if:` on detect's output and does not `needs:` detect
   # at all. It runs on every PR, whatever the diff touches, which removes the
   # class instead of re-syncing two lists that drift. The heavy MkDocs build
-  # stays narrow. test.yml's `verify-readme-links` made the same move for the
-  # corpus link scan (rf2-v7fui).
+  # stays narrow. test.yml's `verify-readme-links` runs the corpus link scan
+  # the same way.
   #
   # It sits in `docs-required`'s `needs:` (a gate nothing aggregates is a gate
-  # nobody has to pass) and in `deploy`'s, so a red scan still blocks a
-  # publish exactly as it did from inside `build`.
+  # nobody has to pass) and in `deploy`'s, so a red scan blocks a publish.
   # ---------------------------------------------------------------------------
   source-scans:
     name: Docs source scans
@@ -493,22 +485,22 @@ jobs:
           python-version: '3.12'
 
       # docs/EP/README.md restates each EP's `Status:` line in its index
-      # table; the two drift by hand (EP-0001 sat at `accepted` while the
-      # index still said `proposal`). This guard fails the build when an
-      # index status no longer matches its EP. It already runs in the PR-gate
+      # table; the two drift by hand (an EP can sit at `accepted` while the
+      # index still says `proposal`). This guard fails the build when an
+      # index status does not match its EP. It also runs in the PR-gate
       # spine (scripts/test-fast-pr.sh); this mirrors that here so CI enforces
-      # it too (rf2-bxsnp7). See scripts/check_ep_status_sync.py.
+      # it too. See scripts/check_ep_status_sync.py.
       - name: Validate EP README status-sync
         run: python scripts/check_ep_status_sync.py --verbose
 
       # EP-0006's Runtime Subsystem Contract pins every reserved `:rf.runtime/*`
       # subsystem key (spec/Conventions.md §Reserved runtime-db keys) to a
       # complete five-clause grading subsection in spec/Runtime-Subsystems.md
-      # §Grading table. The two surfaces drift by hand (PR #3817 had to hand-add
-      # the `:rf.runtime/mutations` grading row after the key was reserved). This
+      # §Grading table. The two surfaces drift by hand (a newly reserved key
+      # needs its grading row added by hand). This
       # guard fails the build on a missing/extra key, an omitted/out-of-order
       # clause, or an ungraded clause. It runs in the PR-gate spine
-      # (scripts/test-fast-pr.sh); this mirrors it in CI (rf2-ba5acq). Self-test
+      # (scripts/test-fast-pr.sh); this mirrors it in CI. Self-test
       # first (proves the guard fires on each drift shape), then the live scan.
       - name: Self-test the runtime-subsystem grading validator
         run: python scripts/check_runtime_subsystem_grading.py --self-test --verbose
@@ -516,19 +508,19 @@ jobs:
       - name: Validate runtime-subsystem grading-table coherence
         run: python scripts/check_runtime_subsystem_grading.py --verbose
 
-      # THE inject-cofx RESIDUE GATE MOVED OUT OF THIS JOB (rf2-6ng7). It
-      # scanned `docs/core`, `docs/api`, `spec/` AND `skills/` — and `skills/`
-      # is not on this workflow's documentation surface, in either the
-      # `push.paths` filter or the PR-side `detect` classifier, so a skills-only
-      # edit reintroducing a live `(rf/inject-cofx …)` snippet ran the gate
-      # nowhere. Widening the surface to `skills/**` would have bought that with
-      # a ~15-minute MkDocs build on every skills PR; the gate is instead
+      # THE inject-cofx RESIDUE GATE IS NOT IN THIS JOB. It scans
+      # `docs/core`, `docs/api`, `spec/` AND `skills/` — and `skills/` is not
+      # on this workflow's documentation surface, in either the `push.paths`
+      # filter or the PR-side `detect` classifier, so here a skills-only edit
+      # introducing a live `(rf/inject-cofx …)` snippet would run the gate
+      # nowhere. Widening the surface to `skills/**` would buy that with a
+      # ~15-minute MkDocs build on every skills PR; the gate is instead
       # unconditional in test.yml's `verify-skill-mcp-drift` job, where its
       # ~0.3s of pure-Python stdlib cannot be skipped past at all. Same remedy
-      # as the fresco complaint-catalogue and budget-ledger gates before it.
+      # as the fresco complaint-catalogue and budget-ledger gates.
       # See `.github/workflows/test.yml`, step id `check_inject_cofx_residue`.
 
-      # rf2-2oqj59 — the failure corpus (docs/core/errors.md + the
+      # The failure corpus (docs/core/errors.md + the
       # failure testbeds) is a TEACHING corpus for the Spec 009 error
       # catalogue. Spec 009 binds the catalogue ROWS to the feature specs by
       # a co-edit invariant; this gate widens that invariant to the corpus by
@@ -545,19 +537,18 @@ jobs:
       - name: Validate no live retired failure spelling in the corpus
         run: python scripts/check_failure_corpus_residue.py --verbose
 
-      # EP-0023 (image-loaded frames) retired the EP-0013 app/realm/module
-      # construction + install + inspection vocabulary from the public facade
-      # in favour of image -> frame -> event stream. The `pl97nd` epic scrubbed
-      # it repo-wide (facade exports, spec/API rows, doc/skill teaching
-      # surface). This guard keeps the scrub done: it scans docs/core,
-      # docs/EP, spec/, and skills/ markdown for the retired symbols as LIVE
-      # copy-pasteable public API (inside fenced code blocks), and (rf2-2c8zq6)
+      # The public facade is image -> frame -> event stream (EP-0023); the
+      # EP-0013 app/realm/module construction + install + inspection
+      # vocabulary is not part of it anywhere (facade exports, spec/API rows,
+      # doc/skill teaching surface). This guard keeps it out: it scans
+      # docs/core, docs/EP, spec/, and skills/ markdown for the retired symbols
+      # as LIVE copy-pasteable public API (inside fenced code blocks), and
       # the root-support surfaces the dir scan misses — README.md, TESTING.md,
       # CHANGELOG.md, SKILL-REDIRECT.md, AGENTS.md, CLAUDE.md, and the JVM gate
       # scripts (scripts/test-*.sh) — for the retired ARCHITECTURE prose phrases
       # "event[- ]program" / "realm[- ]routing" (removed-context mentions stay
-      # green). rf2-lq99wc extends the scan to the per-tool spec trees
-      # (tools/*/spec) and adds a DELETED-SUBSTRATE-as-live prose family — a
+      # green). It also scans the per-tool spec trees (tools/*/spec) for a
+      # DELETED-SUBSTRATE-as-live prose family — a
       # "retained internal substrate" claim or a deleted-namespace read
       # (re-frame.realm/* / re-frame.app-value/* / re-frame.migration/migration-map)
       # named as a current seam (removed-context mentions stay green; the Xray/
@@ -565,8 +556,8 @@ jobs:
       # All with a narrow
       # self-documenting file allowlist for the historical / internal surface
       # (the EP docs, the migration skill, the implementor/Pair/Xray tooling
-      # skills that reference the now-deleted realm/app/module substrate
-      # (EP-0024 removed it in full), and the spec
+      # skills that reference the deleted realm/app/module substrate
+      # (EP-0024), and the spec
       # meta-docs that map the removal). Removed-context prose + inline code
       # spans + masked `;` comments never fire; a `re-frame.*/`-qualified
       # internal read or an app's own `counter/install!` hook is not the retired
@@ -580,12 +571,12 @@ jobs:
       - name: Validate no live retired app/realm/module composition vocabulary
         run: python scripts/check_retired_composition_vocab.py --verbose
 
-      # EP-0026 (rf2-dlvmpc) RETIRED five EP-0023 image source keys + the three
-      # image-capability surfaces with fail-loud rejection. The public rf/image
-      # value now accepts only :id / :select-ns / :registrations; composition
-      # resolves by image order; standards are protected; image-declared host
-      # capabilities are removed end-to-end. This guard keeps the retirement
-      # done: it scans the doc/teaching markdown (fenced code) AND the Clojure
+      # Per EP-0026 the public rf/image value accepts only :id / :select-ns /
+      # :registrations, and the other image source keys + the three
+      # image-capability surfaces are rejected fail-loud; composition resolves
+      # by image order; standards are protected; there are no image-declared
+      # host capabilities. This guard keeps it that way: it scans the
+      # doc/teaching markdown (fenced code) AND the Clojure
       # source (implementation/tools/examples/skills, string literals + comments
       # masked) for the EXACT retired spellings — :include-ns / :exclude-ns /
       # :replace / :replace-standard / :rf.image/requires / :rf.gen/requires /
@@ -605,16 +596,15 @@ jobs:
       - name: Validate no live retired EP-0026 image keys
         run: python scripts/check_retired_image_keys.py --verbose
 
-      # The warm-allocation NON-CLAIM scan (rf2-hic-072, wired by rf2-yptjt).
+      # The warm-allocation NON-CLAIM scan.
       # specification.md section 6 registers one sentence — "no allocation claim
       # publishes until a fitted series clears the registered quality floor" —
-      # and this gate is that sentence, executable. No fitted series clears it
-      # (rf2-2rtt6.139, rf2-2rtt6.140, rf2-e9wr each measured a different leg of
-      # why), so the obligation is NEGATIVE and the failure it catches is
+      # and this gate is that sentence, executable. No fitted series clears it,
+      # so the obligation is NEGATIVE and the failure it catches is
       # somebody reaching for one of those refused figures to fill a cell that
-      # wants a number. It shipped unwired because .github/workflows/** was held
-      # when it landed, and present-but-unenforced is the WEAKEST of the three
-      # states — worse than absent, because it reads as covered.
+      # wants a number. It is wired here because present-but-unenforced is the
+      # WEAKEST of the three states — worse than absent, because it reads as
+      # covered.
       #
       # IT BELONGS IN THIS JOB rather than beside the provenance-pin gate below,
       # and the two are less alike than they look: that one needs `fetch-depth:
@@ -641,9 +631,9 @@ jobs:
       # exists to raise. The self-test proves each of those behaviours in a
       # throwaway git tree, naming its cases as it runs; running it first is
       # what stops the live scan's green from meaning "the pattern no longer
-      # matches anything". HOW MANY cases is deliberately not written here, for
-      # rf2-93u6's reason — a count kept in this file is linked to nothing that
-      # would update it, so the next correction is already scheduled.
+      # matches anything". HOW MANY cases is deliberately not written here: a
+      # count kept in this file is linked to nothing that would update it, so
+      # it would go stale the next time a case is added.
       - name: Self-test the warm-allocation non-claim scan
         run: python scripts/check_allocation_non_claim.py --self-test
 
@@ -651,7 +641,7 @@ jobs:
         run: python scripts/check_allocation_non_claim.py
 
   # ---------------------------------------------------------------------------
-  # Provenance pins (rf2-kqac1), following rf2-owq6p's census.
+  # Provenance pins.
   #
   # This repo rebase-merges, which mints a new SHA for every commit on the
   # branch, so a Fresco page that pins a measurement to the SHA it was authored
@@ -668,16 +658,10 @@ jobs:
   # ancestor" for pins that are perfectly landed and red the whole corpus.  The
   # MkDocs build next door does not need that history and should not pay for it.
   #
-  # SCOPED TO CHANGED PAGES on purpose, and the reason has CHANGED once already
-  # — so read this paragraph as two reasons, one expired and one standing.
+  # SCOPED TO CHANGED PAGES on purpose, and the reason is blast radius, not
+  # cost of entry — the full run exits 0 over the whole corpus.
   #
-  # THE EXPIRED ONE was cost of entry: the corpus still carried the stranded
-  # pins the census catalogued and left standing, so a full-corpus gate would
-  # have been red on main from the day it landed.  rf2-g7m6y worked that backlog
-  # off (PR #8246); the full run is now exit 0 over the whole corpus, so that
-  # objection no longer holds and is no longer why this job is scoped.
-  #
-  # THE STANDING ONE is blast radius.  Full-corpus HERE would couple every
+  # Full-corpus HERE would couple every
   # future hardening of the checker to a corpus-wide repair — and the gate
   # refuses to re-pin by design, so each repair needs a human.  That is the
   # "punish the careful ones and be routed around within a week" pressure the
@@ -688,7 +672,7 @@ jobs:
   # checker gains rules often — each one reclassifying the whole corpus.  So the
   # full-corpus run is SCHEDULED rather than dropped: `.github/workflows/lint.yml`
   # runs `python scripts/check_provenance_pins.py` (no flag) on its nightly cron
-  # and on push to main (rf2-qpk2l).  Locally, that same command is the audit.
+  # and on push to main.  Locally, that same command is the audit.
   provenance-pins:
     name: Provenance pins
     needs: detect
@@ -745,7 +729,7 @@ jobs:
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0
 
   # ---------------------------------------------------------------------------
-  # Required-checks aggregator (rf2-aemyt).
+  # Required-checks aggregator.
   #
   # ONE stable status context — `Docs required` — that is ALWAYS present on
   # every PR (the workflow's pull_request trigger is unfiltered) and that
@@ -753,8 +737,8 @@ jobs:
   # This is the single docs context the branch ruleset should require: a
   # docs-irrelevant PR skips the build (no signal, OK), but the moment the
   # build reports `failure`/`cancelled` the aggregator goes red and blocks
-  # the merge — so a broken link or a strict-mode MkDocs warning can no
-  # longer slip in on a PR that happens to touch docs paths.
+  # the merge — so a broken link or a strict-mode MkDocs warning cannot
+  # slip in on a PR that happens to touch docs paths.
   #
   # `if: always()` is mandatory — without it the aggregator would itself be
   # skipped whenever the build skips, and a skipped required check never
@@ -771,10 +755,10 @@ jobs:
     needs:
       - detect
       - build
-      # rf2-kqac1 — a gate nothing aggregates is a gate nobody has to pass.
+      # A gate nothing aggregates is a gate nobody has to pass.
       - provenance-pins
-      # rf2-vc11 — unconditional, so it reports on every PR; leaving it out
-      # would recreate the fail-open that moved it here.
+      # Unconditional, so it reports on every PR; leaving it out would let a
+      # red scan merge.
       - source-scans
     steps:
       - name: Fail if the docs build failed or was cancelled
