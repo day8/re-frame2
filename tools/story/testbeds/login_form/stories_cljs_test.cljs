@@ -24,7 +24,7 @@
   the runtime-db partition is caught even for a variant whose `:script`
   pins nothing but state. `:rf.assert/sub-equals` WOULD also reach these
   values: the play-runner hands it the full frame-state value
-  (app + runtime), so it resolves runtime-db projection subs (rf2-pecaxy).
+  (app + runtime), so it resolves runtime-db projection subs.
   The variant `:script`s pin state with `:rf.assert/state-is`
   (runtime-db-aware); this CLJS test owns the `:data`-slice
   (`:error` / `:attempts` / `:email`) verification.
@@ -53,7 +53,7 @@
             [login-form.stories :as lf-stories]
             ;; The login EXAMPLE deck — co-loaded with this testbed under the
             ;; consolidated node-test build. Required here for the
-            ;; distinct-parents regression below (rf2-tijvbd): its
+            ;; distinct-parents regression below: its
             ;; `register-all!` repopulates the `:story.login/*` variants the
             ;; `before!` fixture's `clear-all!` wiped, so the disjointness
             ;; assertion sees both decks. Already on the node-test classpath
@@ -69,13 +69,13 @@
 ;; `:rf.assert/*` handlers) survive the snapshot; per-test registrations
 ;; roll back. Map-form fixture is needed for cljs.test's async bodies.
 ;;
-;; This ns deliberately stays on this hand-rolled reset (rf.story/clear-all! +
+;; This ns deliberately uses this hand-rolled reset (rf.story/clear-all! +
 ;; register-all! + the ns-load source-store baseline restore below) rather
 ;; than `make-reset-runtime-fixture` — the async story tests need the
-;; map-form fixture the composed Story fixture does not yet expose. See
+;; map-form fixture the composed Story fixture does not expose. See
 ;; `counter_with_stories/stories_cljs_test`'s fixture header for the full
-;; cluster-wide rationale (rf2-y90h6h / rf2-vyzqca) and DO NOT re-attempt a
-;; corpus "one-idiom" migration without addressing every point there.
+;; cluster-wide rationale, and DO NOT move it in a corpus "one-idiom"
+;; sweep without addressing every point there.
 
 (def ^:private registrar-snapshot (atom nil))
 
@@ -85,7 +85,7 @@
 ;; every `reg-*`, so the provenance-tagged `login-form.*` app descriptors the
 ;; variant frames' `:select-ns {:include ["login-form.**"]}` image selects are
 ;; live), NOT per-`before!`. This mirrors `re-frame.test-support/
-;; make-reset-runtime-fixture`'s `source-store-baseline` (rf2-7hwnu): a per-test
+;; make-reset-runtime-fixture`'s `source-store-baseline`: a per-test
 ;; capture is RUN-ORDER-DEPENDENT — a sibling test ns whose own fixture clears
 ;; the source store can leave it empty (or polluted) at the moment a per-`before!`
 ;; capture runs, so `login-form.**` would zero-match / under-resolve and the
@@ -136,21 +136,20 @@
 
 (deftest projection-subs-registered
   (testing "the four machine-snapshot projection subs registered against
-            the registrar (their migration off the dead app-db path
-            keeps them registered as ordinary `reg-sub`s)"
+            the registrar as ordinary `reg-sub`s"
     (doseq [sub-id [:login/state :login/error :login/attempts :login/email]]
       (is (some? (rf.registrar/handler :sub sub-id)) (str sub-id " registered")))))
 
-;; ---- each variant runs; the migrated subs resolve the snapshot -----------
+;; ---- each variant runs; the projection subs resolve the snapshot ---------
 ;;
 ;; The regression guard. After `run-variant`, the variant frame (keyed by
 ;; the variant-id) still holds its committed state, so we compute each
-;; migrated projection sub via `rf/compute-sub` against the frame's
+;; projection sub via `rf/compute-sub` against the frame's
 ;; `frame-state-value` — the same two-partition value `subscribe` resolves
 ;; reactively. `compute-sub` extracts the `:rf.db/runtime` partition for a
 ;; `:rf/machine`-derived sub, so a green assertion PROVES the sub reads the
-;; live runtime-db snapshot. Reverting the subs to the dead app-db
-;; `:rf/runtime` path makes them resolve nil → these go red.
+;; live runtime-db snapshot. A sub reading an app-db `:rf/runtime` path
+;; instead would resolve nil → these go red.
 
 (defn- run-then
   "Run `variant-id` and, on settle, invoke `(check result frame-state)`
@@ -168,7 +167,7 @@
           (done)))))
 
 (defn- sub-value
-  "Compute migrated projection sub `query-v` against the variant frame's
+  "Compute projection sub `query-v` against the variant frame's
   `frame-state` value (resolves the `:rf.db/runtime` partition for the
   `:rf/machine`-derived projection subs)."
   [query-v frame-state]
@@ -193,7 +192,7 @@
 
 (deftest error-variant-error-sub-resolves
   (testing ":story.login-form/error — `:login/error` resolves the error message
-            off the runtime-db snapshot (NOT nil from the dead app-db path)"
+            off the runtime-db snapshot (NOT nil, as an app-db read would be)"
     (async done
       (run-then done :story.login-form/error
         (fn [_ fs]
@@ -221,20 +220,20 @@
           (is (= "ada@example.com" (sub-value [:login/email] fs))
               ":login/email returned the live email, not nil"))))))
 
-;; ---- rf2-tijvbd: the two login decks own DISTINCT parents ----------------
+;; ---- the two login decks own DISTINCT parents -----------------------------
 ;;
-;; Regression guard for the parent-id collision (rf2-tijvbd). The login
+;; Regression guard for a parent-id collision. The login
 ;; EXAMPLE deck (examples/core/login) owns the canonical `:story.login`; this
 ;; testbed owns `:story.login-form`. Under the consolidated node-test build
-;; BOTH decks' `(register-all!)` fire at ns-load, so a shared parent id made
-;; `rf.story/variants-of` return the UNION of both (they collided on
-;; `:story.login/submitting`). Co-load both decks here — the `before!` fixture
+;; BOTH decks' `(register-all!)` fire at ns-load, so a shared parent id would
+;; make `rf.story/variants-of` return the UNION of both (colliding on a
+;; shared variant id such as `:story.login/submitting`). Co-load both decks here — the `before!` fixture
 ;; already fired this testbed's `register-all!`; fire the example's too — and
 ;; assert each `variants-of` returns ONLY its own deck's variants, with no
 ;; shared variant id. Membership is `(= (namespace vid) (name story-id))`
 ;; (rf.story/registrar), so the distinct `"story.login"` / `"story.login-form"`
-;; namespaces keep the two sets disjoint. This goes RED if either deck is ever
-;; re-pointed back at the other's parent id.
+;; namespaces keep the two sets disjoint. This goes RED if either deck
+;; points at the other's parent id.
 
 (def ^:private example-variant-ids
   "The login EXAMPLE's seven canonical variants (examples/core/login/stories.cljs)."
@@ -256,8 +255,8 @@
 
 (deftest login-decks-register-under-distinct-parents
   (testing "rf.story/variants-of returns ONLY each deck's own variants — the
-            example and testbed login decks no longer share a parent story id
-            or any variant id (rf2-tijvbd)"
+            example and testbed login decks share no parent story id and no
+            variant id"
     (login-stories/register-all!)   ;; example → :story.login/*
     (lf-stories/register-all!)      ;; testbed → :story.login-form/* (idempotent; fixture fired it)
     (is (= testbed-variant-ids (rf.story/variants-of :story.login-form))
@@ -268,12 +267,12 @@
                                   (rf.story/variants-of :story.login-form)))
         "no variant id is shared between the two decks")))
 
-;; ---- rf2-wmoer: both login views carry a props schema Story reads --------
+;; ---- both login views carry a props schema Story reads -------------------
 ;;
 ;; Story's Controls panel derives rows from, and checks committed args
-;; against, the `:rf/props` schema on the variant's `:component` view. Neither
-;; login view carried one, so every login deck showed "no schema registered for
-;; the variant's :component". These pin, for each deck, that its component
+;; against, the `:rf/props` schema on the variant's `:component` view.
+;; Without one, every login deck would show "no schema registered for the
+;; variant's :component". These pin, for each deck, that its component
 ;; resolves a schema through the production path (compiled plan -> default
 ;; `:view` lookup), that Controls derives a text row for `:heading`, and that an
 ;; empty heading is a violation while the registered one conforms.
