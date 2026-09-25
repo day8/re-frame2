@@ -56,8 +56,7 @@
   consumer asserting their own handle, and [[handle-view]] renders nil
   — no double-handle, the consumer wins. Detection happens at render
   time via `getComputedStyle` on the host element. The gate sits in the
-  BOUNDARY rather than in the [[Handle]] bridge on purpose, and NOT
-  because the bridge is temporary — THE PAIR STAYS. The probe is
+  BOUNDARY rather than in the [[Handle]] bridge on purpose: the probe is
   re-evaluated on every boundary render, and
   [[Handle]] passes no props across the crossing at all.
 
@@ -141,7 +140,6 @@
     shipped boundary witness suite.
     `rf.fresco/as-component` is Fresco's own outward door; the
     component is declared once at top level, as its contract requires.
-    NOT SCAFFOLDING — THE PAIR STAYS.
 
   THE MODE GATE STAYS ON THE REAGENT SIDE OF THE CROSSING, and that is
   load-bearing rather than stylistic: `as-component`'s contract is that
@@ -547,7 +545,7 @@
   adapter. The FRAME it resolves against comes from React context,
   which `shell.cljs`'s enclosing `rf.fresco/frame-provider` writes —
   the SAME context `rf/frame-provider` writes — so it resolves the
-  instance frame identically under the Fresco root Xray owns today and
+  instance frame identically under the Fresco root Xray owns and
   under an `rf/frame-provider` a Reagent parent writes.
 
   The DISPATCHER is `(:dispatch (rf/capture-frame))` — core's own door
@@ -605,9 +603,9 @@
   `:fullscreen` is full-viewport with no width to drag, so both render
   nil.
 
-  NOT SCAFFOLDING — THIS STAYS. `shell-view` lowers to a boundary, and
-  this and [[handle-component]] are kept because a Reagent parent heads
-  them on purpose, in the shipped boundary witness suite."
+  NOT SCAFFOLDING. `shell-view` lowers to a boundary, and this and
+  [[handle-component]] exist because a Reagent parent heads them on
+  purpose, in the shipped boundary witness suite."
   [mode]
   (when (= mode :inline)
     [:> handle-component {}]))
