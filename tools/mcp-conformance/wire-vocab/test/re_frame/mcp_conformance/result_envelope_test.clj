@@ -1,7 +1,5 @@
 (ns re-frame.mcp-conformance.result-envelope-test
-  "`:rf.mcp/result` typed eval/handler result-envelope gate
-  (rf2-ihf8v; follow-on of rf2-y3qpv finding 2 / rf2-qobqy). Split out of
-  `wire_vocab_test.clj` by rf2-7ckmwx.
+  "`:rf.mcp/result` typed eval/handler result-envelope gate.
 
   ## Why this marker needs a bespoke gate
 
@@ -14,22 +12,20 @@
   and re-frame2-pair-mcp `tools/result_envelope.cljs` `wrap-form` /
   `envelope->result`). It is a wire-FIDELITY envelope: it TYPES an
   evaluation's outcome so a genuine `nil`, a thrown eval-error, and an
-  unserializable value (`#object` / `#js` / Function) stop collapsing
+  unserializable value (`#object` / `#js` / Function) do not collapse
   to a bare `null`. That tagged-union shape does not fit the wrapper
   table — so, like `:rf.mcp/cursor-stale` (a `:reason` value) and
   `:rf/redacted` (a bare scalar), it gets its own dedicated gate.
 
-  ## What this closes (the y3qpv finding-2 follow-up)
+  ## What this gate owns
 
-  rf2-y3qpv pinned the marker KEY (`:rf.mcp/result` = `vocab/result-key`)
-  in the mcp-base vocab unit test, but the cross-MCP wire-vocab corpus
-  did NOT yet pin the marker's SHAPE — the `tools/mcp-base/spec/vocab.md`
-  row carried a \"(Defined-but-not-yet-cross-gated …)\" note. This gate
-  pins the four-tag shape so a drift in the envelope grammar (a tag
+  The mcp-base vocab unit test pins the marker KEY (`:rf.mcp/result` =
+  `vocab/result-key`); this gate pins the marker's four-tag SHAPE in the
+  cross-MCP wire-vocab corpus, so a drift in the envelope grammar (a tag
   renamed, a required slot dropped, a cross-tag slot leak) trips the
-  conformance corpus. The vocab.md note is removed in the same change.
+  conformance corpus.
 
-  ## Live-vs-fixture posture (Axis 4 of the rf2-80y2h audit)
+  ## Live-vs-fixture posture
 
   The EMITTER (`result_envelope.cljs` `wrap-form`) is CLJS, with no
   JVM-reachable counterpart — same posture as `:rf.mcp/summary` /
@@ -215,9 +211,10 @@
                                     :type "function" :preview "#object[Function]"}))))
 
 (deftest result-envelope-distinguishes-nil-from-value-and-errors
-  ;; The load-bearing reason the marker exists (rf2-qobqy): a genuine
+  ;; The load-bearing reason the marker exists: a genuine
   ;; nil, an eval-error, and an unserializable value MUST be three
-  ;; DISTINCT tags — pre-marker they all collapsed to a bare null. Pin
+  ;; DISTINCT tags — without the marker they would all collapse to a
+  ;; bare null. Pin
   ;; that the schema discriminates them: the `:nil` tag is NOT the
   ;; `:value` tag, and neither error tag validates as a value.
   (let [genuine-nil {:rf.mcp/result :nil}
