@@ -8,7 +8,8 @@
   any HTML bytes reach the client:
 
     - tag-name grammar — `:rf.error/invalid-tag-name` from
-      `re-frame.ssr.emit/validate-tag-name!` when a hiccup keyword's
+      `re-frame.ssr.ui-tree/validate-tag-name!` (which the hiccup
+      emitter calls) when a hiccup keyword's
       tag-name component violates `[A-Za-z][A-Za-z0-9-]*`.
     - header / redirect / cookie CRLF gates —
       `:rf.error/header-invalid-value`, `:rf.error/cookie-invalid-attribute`
@@ -138,7 +139,7 @@
 ;; Test 1 — bad tag-name keyword → 500 via the SSR error projector
 ;; ===========================================================================
 ;;
-;; The tag-name validator (`re-frame.ssr.emit/validate-tag-name!`)
+;; The tag-name validator (`re-frame.ssr.ui-tree/validate-tag-name!`)
 ;; gates DOM tag-name components of hiccup keywords. A
 ;; hostile keyword whose tag-name carries a space — i.e. a name
 ;; built via `(keyword \"has space\")` — surfaces as tag-name "has space",
