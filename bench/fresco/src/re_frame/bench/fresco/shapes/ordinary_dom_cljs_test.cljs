@@ -1,6 +1,6 @@
 (ns re-frame.bench.fresco.shapes.ordinary-dom-cljs-test
   "**SHAPE 1'S WITNESS** — the ~50-element form/list/layout screen renders
-  what the census screen renders, and behaves like it (rf2-2rtt6.51).
+  what the census screen renders, and behaves like it.
 
   Five claims, and the last two are the ones that could not be made by
   looking at the file:
@@ -17,8 +17,7 @@
      fan-out from a commit and are named for that — they reach the
      model through `rf.bench.fresco.arm1.runtime/dispatch!`, so a missing `:on-input`, a
      substituted value placeholder or a lost submit prevent leaves every
-     one of them green. That was PR #7372's audit finding, and §3b is
-     the repair.
+     one of them green, which is why §3b exists.
   4. **Typing moves the form and nothing else.** The draft key is read by
      the form boundary alone, so a keystroke re-runs one body out of
      seven. A screen that re-rendered its list on every keystroke would
@@ -28,8 +27,8 @@
      holds three. Asserted as an arithmetic identity over the whole
      screen, so it fails if the read moves back to the top of the body.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against real React
-  DOM; under `:node-test` every claim degrades to a stated skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -158,10 +157,10 @@
 ;; explicit `settle!`. That is the right door for a FAN-OUT claim — *when
 ;; this key moves, this is what the page shows* — and the wrong one for
 ;; any claim about the handlers the page is written with, because it
-;; never runs one. So the first of them is no longer named for the
-;; caller's turn (PR #7372's audit): a `settle!` supplied by the test is
-;; the test supplying the very commit the name claimed to witness. §3b
-;; owns that claim now, through the door the browser uses.
+;; never runs one. So none of them is named for the caller's turn: a
+;; `settle!` supplied by the test is the test supplying the very commit
+;; such a name would claim to witness. §3b owns that claim, through the
+;; door the browser uses.
 
 (deftest a-draft-commit-fans-out-to-the-controlled-textarea
   (if-not (rf.bench.fresco.arm1.mount/browser?)
@@ -226,7 +225,7 @@
 ;; 3b — the same form, through the door the browser uses
 ;; ---------------------------------------------------------------------------
 ;;
-;; PR #7372's audit, and the repair it asked for. §3a never dispatches a
+;; What §3a cannot see. §3a never dispatches a
 ;; DOM event, so it never runs `:on-input`, never materialises
 ;; `::h/value`, and never gives `:on-submit`'s auto-prevent anything to
 ;; prevent. Delete any of the three from `shapes/ordinary` and every row
@@ -496,7 +495,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `rf.bench.fresco.arm1.mount/release!` resets the runtime, so a residue reading taken after it
-;; answers zero however badly teardown went (rf2-2rtt6.48). This one is
+;; answers zero however badly teardown went. This one is
 ;; taken between the unmount and the reset.
 
 (deftest the-screen-leaves-no-residue
