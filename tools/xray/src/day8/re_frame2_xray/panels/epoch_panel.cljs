@@ -254,41 +254,40 @@
   ;; The view branches on `:status` for the empty-state lines and
   ;; renders `:steps` when present.
   ;;
-  ;; ---- why this is TWO subs and no longer one (rf2-y8doi.19) ----------
+  ;; ---- why this is TWO subs, not one ------------------------------------
   ;;
   ;; `:rf.xray/epoch-history` gains a record on every settled host event,
-  ;; so a sub taking it as an input recomputes on every host event. When
-  ;; that sub is this one, every host event re-ran `project-numbered` over
-  ;; the focused record and handed the view a fresh value — even pinned
-  ;; RETRO, where the focused record had not moved and the answer was
-  ;; identical. The whole 6k-line panel re-rendered for it, and the value
-  ;; ALSO carried `:epoch-history` itself, which guaranteed a fresh value
+  ;; so a sub taking it as an input recomputes on every host event. Were
+  ;; that sub this one, every host event would re-run `project-numbered`
+  ;; over the focused record and hand the view a fresh value — even pinned
+  ;; RETRO, where the focused record has not moved and the answer is
+  ;; identical — re-rendering the whole 6k-line panel for it; and carrying
+  ;; `:epoch-history` itself in the value would guarantee a fresh value
   ;; whether or not anything else had changed.
   ;;
-  ;; Splitting the history-dependent half out fixes both. The thin
-  ;; `:rf.xray/focused-epoch-record` still recomputes per settle — it must,
+  ;; Splitting the history-dependent half out avoids both. The thin
+  ;; `:rf.xray/focused-epoch-record` recomputes per settle — it must,
   ;; it is what watches the ring — but its VALUE is `=`-equal across
   ;; settles while the focus is pinned, so the substrate's propagation
   ;; collapse stops there (spec/006 §Invalidation algorithm: `=`-equal
   ;; upstream values suppress recompute). The expensive half below sees
   ;; nothing and does not run.
   ;;
-  ;; The parent-epoch link is the one thing left that genuinely needs the
-  ;; ring, and it is why `:epoch-history` used to ride in the value. It
-  ;; now has its own narrow sub keyed on the ids the cascade actually
+  ;; The parent-epoch link is the one thing that genuinely needs the
+  ;; ring. It has its own narrow sub keyed on the ids the cascade actually
   ;; asks about — see `:rf.xray.epoch/parent-epoch-index` below.
 
   (rf/reg-sub :rf.xray/focused-epoch-record
     {:inputs [[:rf.xray/focus] [:rf.xray/epoch-history]]}
     (fn [[focus epoch-history] _query]
       (let [focus-epoch-id    (:epoch-id focus)
-            ;; rf2-y8doi.19 — the pinned `:dispatch-id` is what separates
+            ;; The pinned `:dispatch-id` is what separates
             ;; "focus unset, show the head" from "the operator pinned an
             ;; event bundle that settled no epoch". Both carry a nil
             ;; `:epoch-id`; without the dispatch-id the resolver cannot
-            ;; tell them apart and head-fallback answered BOTH, so
+            ;; tell them apart and head-fallback would answer BOTH, so
             ;; clicking the red L2 row of a dispatch with no registered
-            ;; handler rendered the HEAD epoch's cascade underneath it.
+            ;; handler would render the HEAD epoch's cascade underneath it.
             focus-dispatch-id (:dispatch-id focus)
             record            (focus/find-epoch-record focus-epoch-id
                                                        focus-dispatch-id
@@ -313,7 +312,7 @@
       (proj/parent-epoch-index epoch-history wanted-dispatch-ids)))
 
   (rf/reg-sub :rf.xray/epoch-pipeline
-    ;; rf2-y8doi.19 — `:rf.xray/observed-frame` is the REDACTION seam, not
+    ;; `:rf.xray/observed-frame` is the REDACTION seam, not
     ;; a data axis: it names the frame whose `:sensitive` policy governs
     ;; the record's raw `:db-before` / `:db-after`. See `redact-record-db`
     ;; above. It derives from `:rf.xray/focus` + `:rf.xray/target-frame`,
@@ -321,7 +320,7 @@
     {:inputs [[:rf.xray/focused-epoch-record] [:rf.xray/observed-frame]]}
     (fn [[{:keys [status epoch-id record]} observed-frame] _query]
       (let [record (redact-record-db record observed-frame)
-            ;; rf2-se9a9t — thread the registry-reading resolver so the
+            ;; Thread the registry-reading resolver so the
             ;; INTERCEPTORS step surfaces the dispatched event's AUTHORED
             ;; interceptor chain (EP-0022 §11). The projection stays pure;
             ;; the runtime read lives here, in the sub.
@@ -330,7 +329,7 @@
                        record
                        {:resolve-event-interceptors
                         resolve-event-interceptors
-                        ;; rf2-n9v5ga — the declared-recordable
+                        ;; The declared-recordable
                         ;; resolver: the RECORDABLE COEFFECTS lens
                         ;; filters the raw token's leaves to the
                         ;; handler's declared recordable inputs.
@@ -340,12 +339,12 @@
          :epoch-id       epoch-id
          ;; The REDACTED record. The view reads `:db-before` / `:db-after`
          ;; off this for the HANDLER step's `:db` diff and must not reach
-         ;; the raw one — which is why the view stopped subscribing to
+         ;; the raw one — which is why the view does not subscribe to
          ;; `:rf.xray/selected-epoch-record` for it (that sub answers the
          ;; raw record, and reaching it here would route straight around
          ;; the seam above).
          :record         record
-         ;; rf2-ahhgn — the TOOL-SIDE outcome (`:ok` / `:error`) derived
+         ;; The TOOL-SIDE outcome (`:ok` / `:error`) derived
          ;; from the projected steps (any step carrying an exception or
          ;; schema violation reads `:error`). Surfaced so the panel
          ;; header signals a failed event-bundle — the framework epoch-record
@@ -383,15 +382,12 @@
     (fn [{:keys [db]} _event]
       {:db (dissoc db :epoch-panel-expanded-rows)}))
 
-  ;; ---- SUBSCRIPTIONS [all][changed][unchanged] filter (rf2-tzmmf) ------
+  ;; ---- SUBSCRIPTIONS [all][changed][unchanged] filter ------------------
   ;;
-  ;; Per Mike pair-debug 2026-05-26 (rf2-tzmmf) the SUBSCRIPTIONS step's
+  ;; The SUBSCRIPTIONS step's
   ;; chrome to the right of the badge is a 3-button bar
-  ;; `[all][changed][unchanged]` — directly mirrors the HANDLER step's
-  ;; `[diff][all]` toggle bar above (one familiar shape, no second
-  ;; design vocabulary to learn). SUPERSEDES the prior rf2-kfh1v
-  ;; `Show unchanged` boolean toggle + the badge-adjacent text — both
-  ;; are deleted (pre-alpha masterpiece posture, no back-compat shims).
+  ;; `[all][changed][unchanged]`. There is no separate `Show unchanged`
+  ;; boolean toggle or badge-adjacent text.
   ;;
   ;; Modes:
   ;;   :changed   (default) — show only recompute rows whose value changed
@@ -400,8 +396,7 @@
   ;;
   ;; Preference lives on the Xray app-db so it survives focus shifts;
   ;; default is `:changed` because most subs recompute on an event-bundle
-  ;; but report no value change (rf2-kfh1v hide-unchanged-by-default
-  ;; rationale is preserved as the default mode).
+  ;; but report no value change, so unchanged rows are hidden by default.
 
   (rf/reg-sub :rf.xray.epoch/subs-filter-mode
     (fn [db _query]
@@ -413,44 +408,34 @@
 
   ;; ---- HANDLER :db + SUBSCRIPTIONS value rendering ---------------------
   ;;
-  ;; rf2-vv3m6 (2026-05-29) retired the `[diff][full][full+diff]` mode
-  ;; toggle entirely. FULL+DIFF is the single rendering — auto-collapse
-  ;; of unchanged subtrees (rf2-fqcdd) + the leaf-scalar `← was X`
-  ;; annotation (rf2-fyd8u) + correct add/remove colouring (rf2-9d4j8)
-  ;; together gave FULL+DIFF the density that `:diff` used to provide
-  ;; and the comparison-context that `:full` lacked, so the three-mode
-  ;; toggle (and its sub/event/slot pair per surface) retired.
-  ;;
-  ;; The two prior installs here —
-  ;;   (diff-mode/reg-mode-sub+event! :rf.xray.epoch/db)
-  ;;   (diff-mode/reg-mode-sub+event! :rf.xray.epoch/subs-value)
-  ;; — are gone; the view-layer renders FULL+DIFF unconditionally.
+  ;; FULL+DIFF is the single rendering, with no mode toggle — auto-collapse
+  ;; of unchanged subtrees + the leaf-scalar `← was X`
+  ;; annotation + correct add/remove colouring
+  ;; together give one rendering both a diff's density and a full view's
+  ;; comparison context. So there is no mode sub/event/slot to install
+  ;; here; the view layer renders FULL+DIFF unconditionally.
 
   ;; ---- L4 tab registration ----------------------------------------------
   ;;
   ;; The Epoch tab is the master inverse of the other Dynamic tabs:
   ;; each of the registered Dynamic lenses reads one slice in
   ;; event-bundle order, and Epoch renders every step they detail as
-  ;; one timeline. (History: Epoch was
-  ;; added alongside the then-existing tabs; rf2-5gl5r since retired
-  ;; the Handler tab and rf2-gbz39 removed the Issues tab — issues
+  ;; one timeline. There is no Handler tab and no Issues tab — issues
   ;; surface inline in the Epoch panel + the L2 event-row pink-wash
-  ;; + the ribbon.) Epoch sits leftmost at :order -1.
+  ;; + the ribbon. Epoch sits leftmost at :order -1.
 
   (panel-registry/reg-l4-tab!
     {:id    :epoch
      :label "Epoch"
      :mnem  "e"
      :modes #{:dynamic}
-     ;; -1 places Epoch leftmost (before Handler's :order 0). Mike's
-     ;; pair-debug call 2026-05-26: the event-bundle pipeline view is the
+     ;; -1 places Epoch leftmost: the event-bundle pipeline view is the
      ;; primary "what just happened" surface; it belongs first.
      :order -1
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary); `reg-l4-tab!`'s `:pre` requires
      ;; `:panel` to be CALLABLE and `shell/detail-panel` mounts it as a
      ;; Reagent hiccup head `[(:panel tab)]`, neither of which a React
-     ;; component satisfies. The bridge is the one line between them and
-     ;; STAYS (rf2-lect, ruled option 2): the shell is a Fresco tree now
-     ;; and neither of those two requirements changed with it.
+     ;; component satisfies. The bridge is the one line between them,
+     ;; though the shell itself is a Fresco tree.
      :panel Panel-bridge}))
