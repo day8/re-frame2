@@ -7,11 +7,11 @@
   the access. This namespace owns the one canonical guard so the
   `viewport` / `backgrounds` / `toolbar` / `help` / `keybindings` /
   `mode-tabs` / `dispatch-console` / shell-`rails` persistence helpers
-  share a single implementation instead of copy-pasting it (rf2-jkake.21).
+  share a single implementation instead of copy-pasting it.
 
   CLJS-only by nature — `js/window` does not exist on the JVM. The
-  `:clj` arm returns `nil` unconditionally, matching the existing
-  contract where every JVM caller already short-circuits its
+  `:clj` arm returns `nil` unconditionally, matching the
+  contract where every JVM caller short-circuits its
   load/save helpers to `nil` / no-op before reaching storage.")
 
 (defn safe-local-storage
