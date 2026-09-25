@@ -1,5 +1,5 @@
 (ns re-frame.story-test
-  "JVM tests for re-frame2-story Stage 2 (rf2-32dk).
+  "JVM tests for the re-frame2-story registration surface.
 
   Covers:
 
@@ -18,9 +18,8 @@
 
   JVM-runnable because the registration surface is pure data — no
   Reagent / DOM / shadow-cljs required. Per `001-Authoring.md`
-  §Registration macros + the
-  `jvm_interop_must_work` user-feedback rule, every artefact that can
-  run on the JVM should."
+  §Registration macros, every artefact that can run on the JVM
+  should."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.canonical :as rf.story.canonical]
@@ -41,7 +40,7 @@
 ;; ---- canonical-vocabulary install ---------------------------------------
 
 (deftest variant-id-shape-string-grammar
-  ;; rf2-tag30h — the STRING-level variant-id grammar that the MCP write
+  ;; The STRING-level variant-id grammar that the MCP write
   ;; paths validate against BEFORE interning. `variant-id?` delegates here,
   ;; so the keyword-level and string-level checks cannot drift.
   (testing "variant-id-shape? accepts a canonical :story.<path>/<name> decomposition"
@@ -65,11 +64,11 @@
       (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-state-tags)))))
 
 (deftest canonical-state-axis-installed
-  (testing "the five :state/* tags carry the :state axis (rf2-k1k87)"
+  (testing "the five :state/* tags carry the :state axis"
     (let [by-axis (rf.story/tags-by-axis :state)]
       (is (= rf.story.schemas/canonical-state-tags by-axis)))))
 
-;; ---- auto-install on first reg-* call (rf2-p1ydc) ----------------------
+;; ---- auto-install on first reg-* call ----------------------------------
 ;;
 ;; The canonical vocabulary auto-installs on the first `reg-*` runtime
 ;; call so authors don't need a separate `(rf.story/install-canonical-vocabulary!)`
@@ -111,7 +110,7 @@
   (testing "the first reg-tag (project-tag) after clear-all! also triggers auto-install"
     (rf.story/clear-all!)
     ;; A project tag — registering it should ALSO install the canonical
-    ;; seven first, so subsequent variants tagged `:dev` still validate.
+    ;; seven first, so subsequent variants tagged `:dev` validate.
     (rf.story/reg-tag :auth/regression-set {:doc "Auth regression-suite."})
     (is (rf.story/registered? :tag :auth/regression-set))
     (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-tags)
@@ -146,8 +145,8 @@
 
 (deftest explicit-install-before-reg-suppresses-auto-install
   (testing "calling install-canonical-vocabulary! at boot suppresses the auto-install path"
-    ;; Author who DOES make the explicit call (the v1 documented path)
-    ;; still works: the gate is true when the first reg-* fires, so
+    ;; An author who DOES make the explicit call is fine too: the gate
+    ;; is true when the first reg-* fires, so
     ;; the auto-install hook hits the early-return branch.
     (rf.story/clear-all!)
     (rf.story/install-canonical-vocabulary!)
@@ -251,7 +250,7 @@
 (deftest extends-stored-raw-at-registration-resolved-by-compiler
   (testing ":extends is stored RAW at registration (`:extends` intact,
             parent NOT merged); the PLAN COMPILER is the single merge
-            authority (rf2-f6z88, spec/017 §305-306). The side-table body
+            authority (spec/017 §305-306). The side-table body
             keeps the child's own slots verbatim; the compiled plan
             inherits the parent's :decorators via [:world :decorators]."
     (rf.story/reg-variant :story.auth.login/loading
@@ -284,9 +283,9 @@
           "compiled plan INHERITS the parent's :decorators"))))
 
 (deftest extends-unknown-parent
-  (testing ":extends to an unregistered parent no longer throws at
-            REGISTRATION (rf2-f6z88 — the raw body is stored with
-            `:extends` intact); the error surfaces at PLAN-COMPILE, where
+  (testing ":extends to an unregistered parent does not throw at
+            REGISTRATION (the raw body is stored with `:extends`
+            intact); the error surfaces at PLAN-COMPILE, where
             the compiler is the merge authority and walks the chain
             (spec/017 §305-306)."
     ;; Registration succeeds — the raw body is stored, :extends intact.
@@ -303,14 +302,13 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))))))
 
-;; Cycle detection and the depth cap were witnessed here against the
-;; standalone `re-frame.story.extends` resolver, which was retired
-;; (rf2-6r9j.11) — it had drifted from the compiled-plan merge semantics, so a
-;; green witness there proved nothing about the shipped runtime. Both now sit
-;; on the merge authority in `re-frame.story.plan-cljs-test`
-;; (§`extends-cycle-fails`, §`extends-depth-cap-fails`). Being `.cljc` they are
-;; host-free, and since that suite took its `-cljs-test` name (rf2-exlh) both
-;; gates run them: `jvm-tools-story` (`clojure -M:test` here) and the CLJS
+;; Cycle detection and the depth cap are witnessed on the merge authority in
+;; `re-frame.story.plan-cljs-test` (§`extends-cycle-fails`,
+;; §`extends-depth-cap-fails`). There is no standalone extends resolver: a
+;; second resolver could drift from the compiled-plan merge semantics, and a
+;; green witness on it would prove nothing about the shipped runtime. Being
+;; `.cljc` those tests are host-free, and with that suite's `-cljs-test` name
+;; both gates run them: `jvm-tools-story` (`clojure -M:test` here) and the CLJS
 ;; `:node-test` build, whose `cljs-test$` ns-regexp a plain `-test` namespace
 ;; does not match.
 
@@ -487,7 +485,7 @@
        :tags   #{:dev :auth/regression-set}})
     (is (rf.story/registered? :variant :story.auth.login/regression-empty))))
 
-;; ---- :axis + :default-filter slots (rf2-frtec / SB9 parity) ------------
+;; ---- :axis + :default-filter slots (SB9 parity) ------------------------
 
 (deftest reg-tag-stores-axis
   (testing ":axis is stored on the registered tag body"
@@ -511,8 +509,8 @@
     ;; Canonical inclusion tags carry neither slot — they're pre-installed
     ;; by the fixture's `install-canonical-vocabulary!`. Confirm they're
     ;; absent from every non-:state axis-keyed lookup and the
-    ;; default-excluded set. (The :state axis is populated by the rf2-k1k87
-    ;; install-canonical-tags! extension and is covered separately.)
+    ;; default-excluded set. (The :state axis is populated by
+    ;; install-canonical-tags! and is covered separately.)
     (is (= #{} (rf.story/tags-by-axis :status)))
     (is (= #{} (rf.story/tags-by-axis :role)))
     (is (= #{} (rf.story/tags-default-excluded)))
@@ -595,10 +593,9 @@
 
 (deftest variants-of-rejects-nested-namespace
   (testing "variants-of must NOT return variants of a deeper-namespaced story
-            — guards against the old string-prefix shape where
-            `:story.foo.bar/x` was a structurally-suspect 'prefix match' of
-            `:story.foo`. The namespace-equality check rules it out by
-            construction."
+            — a string-prefix match would treat `:story.foo.bar/x` as a
+            structurally-suspect 'prefix match' of `:story.foo`. The
+            namespace-equality check rules it out by construction."
     (rf.story/reg-variant :story.foo/a     {:setup []})
     (rf.story/reg-variant :story.foo.bar/x {:setup []})
     (rf.story/reg-variant :story.foo.bar/y {:setup []})
@@ -613,7 +610,7 @@
     (is (= #{:story.a/v}  (rf.story/variants-of :story.a)))))
 
 (deftest variants-by-story-single-pass-index
-  (testing "variants-by-story builds a {story-id #{variant-ids}} index in one pass (rf2-d3iso)"
+  (testing "variants-by-story builds a {story-id #{variant-ids}} index in one pass"
     (rf.story/reg-story   :story.foo {})
     (rf.story/reg-story   :story.bar {})
     (rf.story/reg-story   :story.empty {})
@@ -627,7 +624,7 @@
           "stories with zero variants land with an empty set"))))
 
 (deftest variants-by-story-matches-variants-of
-  (testing "variants-by-story's per-story slot matches `variants-of`'s output (rf2-d3iso)"
+  (testing "variants-by-story's per-story slot matches `variants-of`'s output"
     (rf.story/reg-story   :story.aa {})
     (rf.story/reg-story   :story.bb {})
     (rf.story/reg-variant :story.aa/one   {:setup []})
@@ -647,7 +644,7 @@
     (is (= #{:story.tag/a :story.tag/b} (rf.story/variants-with-tags #{:docs :dev})))))
 
 (deftest variants-with-tags-excludes-marker-removed-inherited-tag
-  (testing "rf2-n0vmq2 — a child that :extends a :dev-tagged parent and
+  (testing "A child that :extends a :dev-tagged parent and
             declares :!dev is EXCLUDED from the #{:dev} query (the inherited
             :dev was cancelled), while a sibling that keeps :dev is returned"
     (rf.story/reg-variant :story.rm/base  {:setup [] :tags #{:dev}})
@@ -660,7 +657,7 @@
           ":!dev removed the inherited :dev, so the child is not a #{:dev} hit"))))
 
 (deftest variants-with-tags-matches-inherited-story-tag
-  (testing "rf2-n0vmq2 — a variant that declares no tags inherits its parent
+  (testing "A variant that declares no tags inherits its parent
             story's :tags and is returned for a query on the inherited tag"
     (rf.story/reg-story   :story.inh {:tags #{:dev}})
     (rf.story/reg-variant :story.inh/v {:setup []})
@@ -694,7 +691,7 @@
   (testing "re-frame.story.config/enabled? is true at JVM-test time"
     (is (true? rf.story.config/enabled?))))
 
-;; ---- static-mode? (rf2-8wgpm) ----------------------------------------
+;; ---- static-mode? ----------------------------------------------------
 
 (deftest static-mode-defaults-false-on-jvm
   (testing "re-frame.story.config/static-mode? defaults to false on the JVM"
@@ -705,7 +702,7 @@
   (testing "the public probe (re-frame.story/static-mode?) reflects the flag"
     (is (false? (re-frame.story/static-mode?)))))
 
-;; ---- registrar mutation tick (rf2-zrswb) ----------------------------
+;; ---- registrar mutation tick ----------------------------------------
 
 (deftest mutation-tick-bumps-on-every-write
   (testing "every reg-* / unregister! / clear-* call bumps the tick;
@@ -732,7 +729,7 @@
       (is (>= (rf.story.registrar/current-mutation-tick) (+ t0 5))))))
 
 (deftest variants-with-tags-memoised-on-mutation-tick
-  (testing "variants-with-tags returns cached results between two registrar writes (rf2-c5nwl)"
+  (testing "variants-with-tags returns cached results between two registrar writes"
     (rf.story/reg-tag :status/stable {:axis :status})
     (rf.story/reg-tag :role/dev      {:axis :role})
     (rf.story/reg-variant :story.memo/a {:tags #{:status/stable} :setup []})
@@ -755,7 +752,7 @@
 
 (deftest public-tag-axis-index-no-axis-sentinel
   (testing "rf.story/tag->axis-index returns the ::no-axis sentinel for tags
-without :axis (rf2-jlsvj — lock the public-API contract)"
+without :axis (the public-API contract)"
     (rf.story/reg-tag :status/stable  {:axis :status})
     (rf.story/reg-tag :role/dev       {:axis :role})
     (rf.story/reg-tag :loose/freeform {:doc "no axis on this tag"})
