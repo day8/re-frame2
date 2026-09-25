@@ -918,7 +918,7 @@ Two surfaces stacked, and they have different verbs. The first is **dev-only**: 
   (rf/unregister-listener! :trace :my-app/trace-tap)
   ```
 
-There is deliberately **no** facade `clear-listeners!` verb. Dropping every listener on a stream is a test-isolation concern owned by the fixture layer. `re-frame.test-support`'s reset clears the registries through the lower-level sinks directly: `re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!`, `re-frame.error-emit/clear-error-listeners!`, and the `:epoch/clear-epoch-listeners!` reset hook. The former per-stream `clear-listeners!` façade verb was retired in API-shrink #4.
+There is deliberately **no** facade `clear-listeners!` verb. Dropping every listener on a stream is a test-isolation concern owned by the fixture layer. `re-frame.test-support`'s reset clears the registries through the lower-level sinks directly: `re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!`, `re-frame.error-emit/clear-error-listeners!`, and the `:epoch/clear-epoch-listeners!` reset hook.
 
 ### `emit-trace-event!`
 
@@ -1127,7 +1127,7 @@ which a tool requires directly.
 
 ### Epoch-settled listeners
 
-Epoch-settled listeners are the `:epoch` stream of the stream-parameterized listener verb. There is no separate facade `register-epoch-listener!` fn — the per-channel pair was retired in API-shrink #4. The epoch stream registers through the one verb exactly like `:trace`.
+Epoch-settled listeners are the `:epoch` stream of the stream-parameterized listener verb. There is no separate facade `register-epoch-listener!` fn, and no per-channel register/unregister pair: the epoch stream registers through the one verb exactly like `:trace`.
 
 - **Signature**: `(rf/register-listener! :epoch key callback-fn)` / `(rf/unregister-listener! :epoch key)`
 - **Description**: Process-global assembled-epoch listener, dev-only. The callback is a record-**publication** notification, not a once-per-event clock. It receives the assembled `:rf/epoch-record` when an epoch first commits, and again — carrying the same `:epoch-id` — when a post-settle backfill (a late render, sub-run, or unmount attributed to that epoch) corrects the record, so a consumer caching `epoch-history` re-syncs to the fixed snapshot. It also publishes non-ordinary records: a `:rf.epoch/db-replaced` record for each `replace-frame-state!` write and a `:halted-depth` record when a drain hits the depth ceiling (both ring-retained when depth permits), plus the terminal `:halted-destroy` — an already-started event interrupted by frame destruction, delivered to listeners only and never retained. Because the listener is process-global while `:epoch-id` is unique only within one frame, reconcile on the pair `[(:frame record) (:epoch-id record)]` — cache under that key and replace on re-publication rather than counting callbacks; `:outcome` is record state, not identity. Re-registering the same `key` replaces. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
