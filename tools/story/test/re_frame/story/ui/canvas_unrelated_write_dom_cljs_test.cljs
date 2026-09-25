@@ -1,28 +1,25 @@
 (ns re-frame.story.ui.canvas-unrelated-write-dom-cljs-test
-  "DOM-mount regression for rf2-ohc5: a shell-state write that cannot
-  change the variant's run must not re-render the canvas.
+  "DOM-mount regression: a shell-state write that cannot change the
+  variant's run must not re-render the canvas.
 
-  The canvas used to deref the WHOLE shell atom in both its outer render
-  (then hash the snapshot identity) and `canvas-inner` (then resolve the
-  decorator stack, which compiles the variant plan). So a rail drag, a
-  panel toggle, a tag filter or a test-run record — none of which is a run
-  input — re-ran all of that. The outer now reads the `run-key` through
-  `r/track` and hands it to `canvas-inner`, so only a change to a run input
-  (selection, hot-reload tick, modes, cell overrides, substrate) reaches
-  either render.
+  The canvas's outer render reads the `run-key` through `r/track` and hands
+  it to `canvas-inner`, so only a change to a run input (selection,
+  hot-reload tick, modes, cell overrides, substrate) reaches either render.
+  Dereffing the WHOLE shell atom in either render would re-run the snapshot
+  identity hash and the variant-plan compile for a rail drag, a panel
+  toggle, a tag filter or a test-run record — none of which is a run input.
 
   Counted at the two seams each render crosses exactly once:
   `rf.story.runtime/snapshot-identity` (outer) and
   `rf.story.render/resolve-render-sub-overrides` (inner). The hot-reload tick
   is the control — a run input, so it MUST still reach both.
 
-  The inner seam was `rf.story.decorators/resolve-decorators` until
-  `canvas-inner` stopped calling it: the render now compiles the variant plan
-  ONCE and reads the decorator refs, the effective args, these sub-overrides
-  and the loader classification off that one plan (rf2-gwye.5 / rf2-gwye.7).
-  A spy on a fn the render no longer calls counts zero for BOTH the unrelated
-  writes and the tick, which passes the two `= 0` assertions vacuously — the
-  control is what caught it, which is why the control is here.
+  The render compiles the variant plan ONCE and reads the decorator refs,
+  the effective args, these sub-overrides and the loader classification off
+  that one plan, so `canvas-inner` calls `rf.story.decorators/resolve-decorators`
+  not at all. A spy on a fn the render does not call counts zero for BOTH the
+  unrelated writes and the tick, which passes the two `= 0` assertions
+  vacuously — which is why the tick control is here.
 
   Ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build mounts
   real DOM; `:node-test` also loads it, where the body self-gates on
@@ -80,7 +77,7 @@
       (r/flush))))
 
 (deftest unrelated-shell-writes-do-not-re-render-the-canvas
-  (testing "rf2-ohc5: rail-width, panel-visibility and tag-filter writes
+  (testing "rail-width, panel-visibility and tag-filter writes
             leave the canvas alone; a hot-reload tick still re-renders it"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
