@@ -162,7 +162,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     -h|--help)
       cat <<EOF
-fast PR pre-checkin spine (rf2-r6x1t)
+fast PR pre-checkin spine
 
 Usage:
   $(basename "$0") [--all] [--with-docs|--no-docs] [--plan] [--repo-root DIR]
@@ -825,8 +825,8 @@ spine_claim_run() {
     printf 'REAPING A PREVIOUS RUN: pid %s is still live in this tree.\n' "$prev"
     printf '  It outlived the tool call that started it.  Left alone it would\n'
     printf '  interleave into this log and mutate out/node-test.js underneath\n'
-    printf '  the isolation sweep, which reads as a regression in your own diff\n'
-    printf '  (rf2-ketqy).  Killing it and its children before starting.\n'
+    printf '  the isolation sweep, which reads as a regression in your own diff.\n'
+    printf '  Killing it and its children before starting.\n'
     spine_taskkill_tree "$prev"
     spine_kill_descendants "$prev"
     kill -TERM "$prev" 2>/dev/null || true
@@ -855,7 +855,7 @@ spine_claim_run() {
 # take the harness or terminal that invoked the gate down with it.
 spine_on_signal() {
   trap - INT TERM HUP QUIT EXIT
-  printf '\n%s received — killing the child processes of this run before exiting (rf2-ketqy)\n' \
+  printf '\n%s received — killing the child processes of this run before exiting\n' \
     "$1" >&2
   spine_kill_descendants "$$"
   spine_release_run
@@ -994,7 +994,7 @@ run "retired-spelling gate (EP-0007)" "python scripts/check_retired_spellings.py
 run "thrown-error message gate self-test" "python scripts/check_thrown_error_messages.py --self-test" \
   python "$spine_root/scripts/check_thrown_error_messages.py" --self-test
 
-run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_messages.py --verbose" \
+run "thrown-error message gate" "python scripts/check_thrown_error_messages.py --verbose" \
   python "$spine_root/scripts/check_thrown_error_messages.py" --verbose
 
 # EP-0010 §Validation/Conformance ambient-durable-read gate: a
@@ -1049,7 +1049,7 @@ run "require-alias dialect ratchet" "python scripts/check_require_alias_dialect.
 run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py --self-test" \
   python "$spine_root/scripts/check_test_lane_bijection.py" --self-test
 
-run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.py" \
+run "test-lane bijection" "python scripts/check_test_lane_bijection.py" \
   python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
 
 # WORKFLOW YAML WELL-FORMEDNESS — placed AHEAD of all four gates below that
@@ -1095,7 +1095,7 @@ if python -c "import yaml" >/dev/null 2>&1; then
   run "workflow YAML self-test" "python scripts/check_workflow_yaml.py --self-test --verbose" \
     python "$spine_root/scripts/check_workflow_yaml.py" --self-test --verbose
 
-  run "workflow YAML well-formed (rf2-cb7hs)" "python scripts/check_workflow_yaml.py" \
+  run "workflow YAML well-formed" "python scripts/check_workflow_yaml.py" \
     python "$spine_root/scripts/check_workflow_yaml.py" --repo-root "$spine_root"
 else
   printf '\n    NOT CHECKED: workflow YAML — PyYAML is not importable on this\n'
@@ -1104,7 +1104,7 @@ else
   printf '      return 0 over a file no YAML parser accepts.  Left with NO local\n'
   printf '      gate: every file under .github/workflows/.  Install it\n'
   printf '      (pip install -r requirements.txt pulls PyYAML in through mkdocs).\n'
-  note_skipped "workflow YAML well-formedness — PyYAML unimportable, so no local lane parsed .github/workflows/ this run (rf2-cb7hs)"
+  note_skipped "workflow YAML well-formedness — PyYAML unimportable, so no local lane parsed .github/workflows/ this run"
 fi
 
 # JVM roster <-> CI required-job bijection.  The gate above READS the two JVM
@@ -1118,7 +1118,7 @@ fi
 run "JVM roster/CI bijection self-test" "python scripts/check_jvm_lane_rosters.py --self-test" \
   python "$spine_root/scripts/check_jvm_lane_rosters.py" --self-test
 
-run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_rosters.py" \
+run "JVM roster <-> CI bijection" "python scripts/check_jvm_lane_rosters.py" \
   python "$spine_root/scripts/check_jvm_lane_rosters.py"
 
 # Fast-PR gap map.  The two gates above assert that a JVM lane exists in both
@@ -1140,7 +1140,7 @@ run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_ros
 run "fast-PR gap map self-test" "python scripts/check_fast_pr_gap.py --self-test" \
   python "$spine_root/scripts/check_fast_pr_gap.py" --self-test
 
-run "fast-PR gap map (rf2-13zre)" "python scripts/check_fast_pr_gap.py --verbose" \
+run "fast-PR gap map" "python scripts/check_fast_pr_gap.py --verbose" \
   python "$spine_root/scripts/check_fast_pr_gap.py" --check
 
 # ---------------------------------------------------------------------------
@@ -1251,7 +1251,7 @@ run "keyword-catalogue drift" "python scripts/check_keyword_catalogue_drift.py -
 run "SSR prop-drop roster self-test" "python scripts/check_ssr_prop_drop_roster_drift.py --self-test --verbose" \
   python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --self-test --verbose
 
-run "SSR prop-drop roster drift (rf2-7ntc)" "python scripts/check_ssr_prop_drop_roster_drift.py --verbose" \
+run "SSR prop-drop roster drift" "python scripts/check_ssr_prop_drop_roster_drift.py --verbose" \
   python "$spine_root/scripts/check_ssr_prop_drop_roster_drift.py" --verbose
 
 run "CI reproduce-commands self-test" "python scripts/check_ci_reproduce_commands.py --self-test --verbose" \
@@ -1263,7 +1263,7 @@ run "CI reproduce-commands" "python scripts/check_ci_reproduce_commands.py --che
 run "gate-scheduling audit self-test" "python scripts/check_gate_scheduling.py --self-test --verbose" \
   python "$spine_root/scripts/check_gate_scheduling.py" --self-test --verbose
 
-run "gate-scheduling audit (rf2-6ckzl)" "python scripts/check_gate_scheduling.py --verbose" \
+run "gate-scheduling audit" "python scripts/check_gate_scheduling.py --verbose" \
   python "$spine_root/scripts/check_gate_scheduling.py" --verbose
 
 # Conformance-corpus EDN well-formedness.  Always-on rather than tiered:
@@ -1275,7 +1275,7 @@ run "gate-scheduling audit (rf2-6ckzl)" "python scripts/check_gate_scheduling.py
 run "conformance fixture EDN gate self-test" "python scripts/check_conformance_fixture_edn.py --self-test --verbose" \
   python "$spine_root/scripts/check_conformance_fixture_edn.py" --self-test --verbose
 
-run "conformance fixture EDN gate (rf2-x91a)" "python scripts/check_conformance_fixture_edn.py --verbose" \
+run "conformance fixture EDN gate" "python scripts/check_conformance_fixture_edn.py --verbose" \
   python "$spine_root/scripts/check_conformance_fixture_edn.py" --verbose
 
 # Egress-walker residue.  Always-on for the same reason as the
@@ -1287,7 +1287,7 @@ run "conformance fixture EDN gate (rf2-x91a)" "python scripts/check_conformance_
 run "egress-walker residue self-test" "python scripts/check_egress_walker_residue.py --self-test --verbose" \
   python "$spine_root/scripts/check_egress_walker_residue.py" --self-test --verbose
 
-run "egress-walker residue (rf2-kuky.90)" "python scripts/check_egress_walker_residue.py --verbose" \
+run "egress-walker residue" "python scripts/check_egress_walker_residue.py --verbose" \
   python "$spine_root/scripts/check_egress_walker_residue.py" --verbose
 
 # The last three are `verify-readme-links`', not the invariant job's.  Note that
@@ -1629,8 +1629,8 @@ if [ "$run_node" = true ] && [ ! -d "$spine_root/implementation/node_modules" ];
   printf '      modules-compile lanes.  CI grades all of them (test.yml `cljs`).\n'
   printf '      To run them here: npm ci --prefix implementation.  Do NOT link\n'
   printf '      another checkout'"'"'s node_modules — an installer writes THROUGH\n'
-  printf '      the link and empties the tree it points at (rf2-7ymm).\n'
-  note_skipped "npm/CLJS/isolation + fresco invariant lanes — implementation/node_modules absent in this checkout (linked worktree), so no local lane ran the JS harness self-tests, CLJS node integration, per-ns isolation or the fresco gates this run (rf2-7ymm)"
+  printf '      the link and empties the tree it points at.\n'
+  note_skipped "npm/CLJS/isolation + fresco invariant lanes — implementation/node_modules absent in this checkout (linked worktree), so no local lane ran the JS harness self-tests, CLJS node integration, per-ns isolation or the fresco gates this run"
 elif [ "$run_node" = true ]; then
   run "implementation JS harness self-tests" "cd implementation && npm run test:scripts" \
     bash -lc "cd '$spine_root/implementation' && npm run test:scripts"
