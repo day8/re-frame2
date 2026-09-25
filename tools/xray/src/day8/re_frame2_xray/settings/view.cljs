@@ -554,7 +554,7 @@
 
      ;; There is no density radio: the two tiers are visually close
      ;; enough that a Settings control adds nothing. The palette's
-     ;; density toggle and the host's `:density` configure key write
+     ;; density toggle and the host's `init!` `:density` opt write
      ;; the `:general :density` slot, and the `:rf.xray/density` sub
      ;; serves per-panel padding/line-height consumers.
 
