@@ -1,39 +1,41 @@
 (ns re-frame.story.play.presence-stale-settlement-cljs-test
-  "rf2-6pfpt — STALE SETTLEMENT of a Promise-backed `[:flush-presence]`.
+  "STALE SETTLEMENT of a Promise-backed `[:flush-presence]`.
 
-  rf2-iz0t8 (#6367) made the presence step AWAIT its host's thenable before
-  recording, closing the 'reported `:pass` over a flush that failed' hazard.
-  Awaiting introduces a gap the synchronous path never had: between the
-  executor parking on the Promise and the Promise settling, ANOTHER agent can
-  take over the run — a concurrent `run!` stamping a fresher `:run-token` on
-  the `[frame-id play-key]` slot, or frame teardown removing the slot outright.
-  Story already fences that gap for every ordinary step: `run-loop!` re-checks
-  the slot's existence AND its token before the next step mutates anything.
-  The settled-Promise callback did NOT — it called `record-result!` first and
-  re-entered the loop (where the token check lives) afterwards, so the
-  mutation happened on the far side of the fence.
+  The presence step AWAITS its host's thenable before recording, so a run
+  never reports `:pass` over a flush that failed. Awaiting introduces a gap
+  the synchronous path does not have: between the executor parking on the
+  Promise and the Promise settling, ANOTHER agent can take over the run — a
+  concurrent `run!` stamping a fresher `:run-token` on the
+  `[frame-id play-key]` slot, or frame teardown removing the slot outright.
+  Story fences that gap for every ordinary step: `run-loop!` re-checks the
+  slot's existence AND its token before the next step mutates anything. A
+  settled-Promise callback that called `record-result!` first and re-entered
+  the loop (where the token check lives) afterwards would put the mutation
+  on the far side of the fence, so the callback checks the live slot before
+  it records.
 
-  What that costs, concretely: run A parks on a presence Promise; run B takes
-  the slot; A settles and appends ITS step-result into B's run-state, bumping
-  B's cursor past a step B never ran and contaminating B's verdict. Under
-  teardown, `record-step-result` applied to a nil state does not even throw on
-  CLJS — `(inc nil)` is 1 — so it RESURRECTS a phantom run-state entry carrying
-  no `:run-token`, which the loop's token guard (`(some? (:run-token state))`)
-  then declines to abort on.
+  What that would cost, concretely: run A parks on a presence Promise; run B
+  takes the slot; A settles and appends ITS step-result into B's run-state,
+  bumping B's cursor past a step B never ran and contaminating B's verdict.
+  Under teardown, `record-step-result` applied to a nil state does not even
+  throw on CLJS — `(inc nil)` is 1 — so it would RESURRECT a phantom
+  run-state entry carrying no `:run-token`, which the loop's token guard
+  (`(some? (:run-token state))`) then declines to abort on.
 
   THE SAME SHAPE IN THE INTERACTIVE STEPPER. `rf.story.play/step-once!` amends its
-  recorded result when the presence Promise settles, guarded only by a BOUNDS
-  check (`idx < (count results)`). A bounds check is a size test, not an
-  identity test: it correctly declines when a reset has SHRUNK `:results` below
-  `idx`, and then silently permits the clobber once a new cursor has grown back
-  past `idx` — a stale amendment landing on a different session's step.
+  recorded result when the presence Promise settles. A BOUNDS check
+  (`idx < (count results)`) would not fence that: it is a size test, not an
+  identity test, so it correctly declines when a reset has SHRUNK `:results`
+  below `idx`, and then silently permits the clobber once a new cursor has
+  grown back past `idx` — a stale amendment landing on a different session's
+  step. The stepper fences on the recorded object's identity instead.
 
   Every test here is DETERMINISTIC. The host returns a hand-rolled thenable
   whose settlement this namespace triggers explicitly (`resolve!` / `reject!`
   run the stored callbacks synchronously), so 'A settles AFTER B took the slot'
   is placed exactly, not raced. A real `js/Promise` would settle on a microtask
-  the test cannot interleave against — which is what made this defect class
-  intermittent in the wild, and is precisely what a regression test must not
+  the test cannot interleave against — which is what makes this defect class
+  intermittent in the wild, and is precisely what these tests must not
   reproduce.
 
   Pure `.cljs`: the `::pending-advance` branch is reader-gated to CLJS (the JVM
@@ -59,7 +61,7 @@
   {:before (fn [] (rf.story.play.presence-cljs-test/setup!) (rf.story.play.runner-events/clear-all-runs!))
    :after  (fn [] (rf.story.play.presence-cljs-test/teardown!) (rf.story.play.runner-events/clear-all-runs!))})
 
-;; The private run-loop seam, reached via var-quote — the established
+;; The private run-loop seam, reached via var-quote — the
 ;; Story-test seam (`runner-events-cljs-test` drives the abort branches the
 ;; same way).
 (def ^:private run-loop!  @#'rf.story.play.runner-events/run-loop!)
@@ -134,11 +136,11 @@
       (is (= 0 (count (:results (slot)))) "and nothing recorded"))))
 
 (deftest stale-settlement-does-not-mutate-the-replacement-run
-  (testing "THE BUG (rf2-6pfpt): run A parks on a presence Promise, a
+  (testing "run A parks on a presence Promise, a
             concurrent run B takes over the `[frame play-key]` slot, and A
             THEN settles. A's result must not land in B's run-state — it would
             advance B's cursor past a step B never ran and contaminate B's
-            verdict. `record-result!` used to run BEFORE the token check the
+            verdict. `record-result!` must not run BEFORE the token check the
             loop performs on re-entry"
     (let [d     (deferred)
           calls (atom [])]
@@ -154,14 +156,14 @@
         (is (= "tok-B" (:run-token s))
             "B still OWNS the slot — the stale settlement did not re-stamp it")
         (is (= 0 (:step-idx s))
-            "rf2-6pfpt — A's settled result did NOT advance B's cursor")
+            "A's settled result did NOT advance B's cursor")
         (is (= 0 (count (:results s)))
             "and was NOT appended to B's results")
         (is (= :running (:status s))
             "B is still running — no terminal transition leaked in")))))
 
 (deftest teardown-while-pending-neither-throws-nor-resurrects-state
-  (testing "rf2-6pfpt — the frame is torn down (`clear-state!`, the
+  (testing "the frame is torn down (`clear-state!`, the
             `:drop-run-state` teardown hook) while the presence Promise is in
             flight. Settling must not throw, and must not RESURRECT the slot:
             `record-step-result` over a nil state does not throw on CLJS
@@ -185,9 +187,9 @@
 (deftest an-owning-run-still-records-its-resolved-result
   (testing "POSITIVE CONTROL. A fence that simply stopped recording settled
             presence results would pass every staleness test above while
-            breaking every real presence run — and would silently reinstate the
-            rf2-iz0t8 hazard it was built on top of. The run that still OWNS
-            the slot records exactly as before"
+            breaking every real presence run — and would silently let a run
+            report `:pass` over a flush that failed. The run that still OWNS
+            the slot records its settled result"
     (let [d     (deferred)
           calls (atom [])]
       (install-deferred-host! d calls)
@@ -201,7 +203,7 @@
 
 (deftest an-owning-run-still-records-its-rejected-result
   (testing "POSITIVE CONTROL, the other outcome. A rejection is the whole
-            reason the await exists (rf2-iz0t8) — it must still reach the run
+            reason the await exists — it must still reach the run
             state as the ordinary step-exception, unchanged by the fence"
     (let [d     (deferred)
           calls (atom [])]
@@ -248,9 +250,8 @@
         ((:resolve! d3) :ok)
         (is (= 1 (:step-idx (slot)))
             "3/4 ADMITTED AGAIN — the refusal did not latch the fence shut"))
-      ;; 4 — VIOLATE AGAIN: the tooth that the `ai/` ratchet was missing. A
-      ;; fence that accepted a second violation after a recovery would have
-      ;; passed all three transitions above.
+      ;; 4 — VIOLATE AGAIN: a fence that accepted a second violation after a
+      ;; recovery would pass all three transitions above.
       (let [d4 (deferred)]
         (install-deferred-host! d4 calls)
         (start-run! "tok-4" presence-script)
@@ -262,7 +263,7 @@
           "all four runs really reached the presence verb"))))
 
 (deftest a-stale-run-settles-its-own-continuation
-  (testing "rf2-6pfpt — refusing the MUTATION must not strand the CONTINUATION.
+  (testing "refusing the MUTATION must not strand the CONTINUATION.
             The stale run still owes its own `done-cb` (the play-promise, and
             the outer `run-variant` promise chained off it, resolve through it
             and carry no timeout). The fence declines to record and re-enters
@@ -284,7 +285,7 @@
         ((:resolve! d) :ok)))))
 
 (deftest a-torn-down-run-settles-its-own-continuation
-  (testing "rf2-6pfpt — the same obligation under TEARDOWN. The slot is gone,
+  (testing "the same obligation under TEARDOWN. The slot is gone,
             so there is nothing to record and nothing to transition; the
             continuation is still owed and settles with the last-known (nil)
             state rather than hanging forever"
@@ -319,8 +320,8 @@
 ;; written.
 
 (defn- seed-stepper!
-  "Seed the stepper cursor directly, as `presence-real-clock-cljs-test` does:
-  `begin-stepper!` resolves its script off a REGISTERED variant, and
+  "Seed the stepper cursor directly: `begin-stepper!` resolves its script
+  off a REGISTERED variant, and
   registering one would add a fixture without adding coverage. `stepper-state`
   is the documented substrate surface and `step-once!` is driven exactly as the
   UI widget drives it."
@@ -333,12 +334,12 @@
   (:results (get @rf.story.play/stepper-state rf.story.play.presence-cljs-test/presence-frame)))
 
 (deftest stale-stepper-settlement-does-not-clobber-a-new-session
-  (testing "THE BUG in the stepper (rf2-6pfpt): a presence step parks, the
+  (testing "the stepper: a presence step parks, the
             session is REWOUND, and the new cursor runs a different step into
-            the same index. The bounds guard (`idx < (count results)`) is a
-            SIZE test — it declines while the rewound `:results` is short, then
-            permits the clobber the moment the new cursor has grown back past
-            `idx`, overwriting a step the stale settlement never ran"
+            the same index. A bounds guard (`idx < (count results)`) is a
+            SIZE test — it would decline while the rewound `:results` is short,
+            then permit the clobber the moment the new cursor has grown back
+            past `idx`, overwriting a step the stale settlement never ran"
     (let [stale (deferred)
           live  (deferred)
           calls (atom [])]
@@ -363,7 +364,7 @@
         ;; The ABANDONED session's Promise settles.
         ((:resolve! stale) :ok)
         (is (identical? fresh (first (stepper-results)))
-            "rf2-6pfpt — the stale settlement did NOT overwrite the new
+            "the stale settlement did NOT overwrite the new
              session's record at that index")
         ;; ... and the LIVE session's own settlement is still admitted, so the
         ;; refusal above is a fence, not a blanket refusal to amend.
@@ -373,7 +374,7 @@
 
 (deftest an-owning-stepper-step-still-receives-its-settled-result
   (testing "POSITIVE CONTROL. The whole point of the stepper's settle callback
-            (rf2-iz0t8) is that the debugger shows the SAME verdict the auto-run
+            is that the debugger shows the SAME verdict the auto-run
             loop records. The fence must not cost that: an untouched session's
             record is still amended in place when its Promise rejects"
     (let [d     (deferred)
@@ -394,8 +395,8 @@
   (testing "WHY IDENTITY, NOT A GENERATION. `stepper-step-back!` pops only the
             LAST step; a pending amendment for an EARLIER index is still owed
             and still correct. A session-level generation bumped on step-back
-            would refuse it — silently reinstating the rf2-iz0t8 'clean flush
-            over a failed one' hazard. The record-identity fence admits it,
+            would refuse it — silently reporting a clean flush over a failed
+            one. The record-identity fence admits it,
             because the object at that index is still the one it recorded"
     (let [d     (deferred)
           calls (atom [])]
