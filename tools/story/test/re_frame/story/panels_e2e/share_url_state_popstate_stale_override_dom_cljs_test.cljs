@@ -1,10 +1,9 @@
 (ns re-frame.story.panels-e2e.share-url-state-popstate-stale-override-dom-cljs-test
-  "Regression coverage for rf2-cmjly3 finding 8: a Back/Forward navigation
-  used to skip the declared-key stale-override drop-and-report filter that
-  mount hydration always runs.
+  "Coverage that a Back/Forward navigation runs the declared-key
+  stale-override drop-and-report filter that mount hydration runs.
 
   `re-frame.story.ui.shell/hydrate-url-state!` runs TWO passes on mount
-  (see the sibling `share-url-state-hydration-e2e-cljs-test`, rf2-ovb1en):
+  (see the sibling `share-url-state-hydration-e2e-cljs-test`):
 
       1. rf.story.ui.url-state/hydrate-from-url!  ← installs the RAW parsed
                                          `:cell-overrides` (pure, no
@@ -14,13 +13,13 @@
                                          narrows/clears that slice + records
                                          the share-import drift hint
 
-  The popstate handler (`rf.story.ui.url-state/install-popstate-listener!`) used to
-  wire ONLY pass 1 as its `apply-fn` — pass 2 never ran on Back/Forward, so
-  a stale override (an arg-key the focused variant no longer declares,
-  e.g. renamed/removed) installed as a live orphan arg with no drop/report,
-  unlike the mount path. The fix threads `rf.story.ui.share/hydrate-from-url!` through
-  as `install-popstate-listener!`'s new `post-apply-fn`, run inside the
-  SAME hydration guard as the base apply (`shell.cljs`'s wiring).
+  The popstate handler (`rf.story.ui.url-state/install-popstate-listener!`)
+  takes pass 1 as its `apply-fn`. With pass 1 alone, a stale override (an
+  arg-key the focused variant no longer declares, e.g. renamed/removed)
+  would install as a live orphan arg with no drop/report, unlike the mount
+  path. So `rf.story.ui.share/hydrate-from-url!` is threaded through as
+  `install-popstate-listener!`'s `post-apply-fn`, run inside the SAME
+  hydration guard as the base apply (`shell.cljs`'s wiring).
 
   This needs a REAL `window`/`history`/`popstate` round-trip — jsdom is not
   part of this repo's node-test toolchain, so `js/window` does not exist
@@ -69,7 +68,7 @@
      :args     {:label "Hello"}}))
 
 (deftest popstate-runs-declared-key-stale-override-filter
-  (testing "rf2-cmjly3 finding 8: a Back/Forward pop to a URL whose
+  (testing "a Back/Forward pop to a URL whose
             `overrides=` carries arg-keys the focused variant no longer
             declares drops them (leaving NO live [:cell-overrides
             variant-id] slice) and records the share-import drift hint —
@@ -97,22 +96,21 @@
                 (is (= :story.sample/card (:selected-variant s))
                     "the popstate applied the variant selection (pass 1)")
                 (is (nil? (get-in s [:cell-overrides :story.sample/card]))
-                    "rf2-cmjly3 finding 8: both stale overrides are dropped
-                     on the POPSTATE path too — pre-fix this stayed the raw
-                     unfiltered {:gone 1 :also-gone 2} pass 1 installs")
+                    "both stale overrides are dropped on the POPSTATE path
+                     too — not left as the raw unfiltered
+                     {:gone 1 :also-gone 2} pass 1 installs")
                 (is (= 2 (get-in s [:rf.story/share-import-hint
                                     :story.sample/card :dropped-count]))
                     "the drift hint is recorded on the popstate path,
-                     mirroring mount hydration (rf2-9jthx)"))
+                     mirroring mount hydration"))
               (finally
                 (rf.story.ui.url-state/remove-popstate-listener!)
                 (try (.replaceState (.-history js/window) nil "" orig-url)
                      (catch :default _ nil))))))))))
 
 (deftest popstate-with-declared-overrides-still-hydrates
-  (testing "rf2-cmjly3 finding 8 — no regression: a declared override
-            still hydrates on popstate (the fix narrows the filter, it
-            does not break the happy path)"
+  (testing "a declared override hydrates on popstate (the filter
+            narrows stale keys only; it does not break the happy path)"
     (if-not (browser?)
       (is true ":node-test — no real window/history; :browser-test runs the real assertion")
       (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
