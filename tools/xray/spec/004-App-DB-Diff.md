@@ -127,8 +127,7 @@ changed, never the cumulative change since.
 > on R6 vector-shift, R7 type-change, and R8 redaction across the
 > `:diff` and `:full+diff` modes of the same data. Path A (Mike's
 > 2026-05-27 decision): migrate the two lenses onto the canonical
-> Editscript engine, mirroring Machine Inspector's already-canonical
-> pattern (`snapshot-flat-diff-rows`). The home-grown walker is
+> Editscript engine. The home-grown walker is
 > retained ONLY for the trace panel's `db-changed-diff-triples`
 > surface (out of scope; tracked separately).
 
