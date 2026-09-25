@@ -1,7 +1,7 @@
 (ns re-frame.story.generate-test
   "Tests for generated / property-style Story runs that emit seed-bearing run
-  artifacts + shrink data, and the fault-lattice sweep (rf2-5x1wt.31,
-  spec/017-Testing-Story.md §Generated runs and artifacts + §Fault lattice
+  artifacts + shrink data, and the fault-lattice sweep
+  (spec/017-Testing-Story.md §Generated runs and artifacts + §Fault lattice
   sweep).
 
   Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
@@ -13,7 +13,7 @@
   - HEADLESS (against a live frame): `check-property!` generates programs,
     replays them into FRESH frames, and on falsification returns a SHRUNK,
     seed-bearing failing `:rf.test/run-artifact` that promotes through the
-    existing bridge; `sweep-faults!` collects one artifact per fault cell."
+    promotion bridge; `sweep-faults!` collects one artifact per fault cell."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core   :as rf]
             [re-frame.epoch  :as rf.epoch]
@@ -32,13 +32,13 @@
 ;; ===========================================================================
 
 (deftest seed-sequence-is-reproducible
-  ;; rf2-f3ofr — seed-reproducibility is WITHIN-host: `next-seed`'s bit-pattern
+  ;; Seed-reproducibility is WITHIN-host: `next-seed`'s bit-pattern
   ;; differs JVM↔CLJS (CLJS truncates the splitmix64 mix into MAX_SAFE_INTEGER),
   ;; so a recorded bare `:seed` reproduces a run only on the host that produced
   ;; it. Within a host the sequence is fully deterministic (asserted here);
   ;; cross-host replay rides the recorded concrete `:event-program` (asserted in
   ;; `generated-failure-promotes-through-the-existing-bridge`). The spec
-  ;; (spec/017 §Generator-agnostic) now qualifies the claim as within-host.
+  ;; (spec/017 §Generator-agnostic) qualifies the claim as within-host.
   (testing "WITHIN a host the same root seed yields the SAME sequence (reproducibility)"
     (is (= (rf.story.generate/seed-seq 12345 8) (rf.story.generate/seed-seq 12345 8))
         "a property run replays identically from its recorded :seed on the same host"))
@@ -145,10 +145,10 @@
           "the artifact carries the falsifying seed")
       (is (= :fail (:status (:result res)))))))
 
-;; rf2-3x7nj.31.1 — a generated program is tagged steps (spec/017 §Generated
+;; A generated program is tagged steps (spec/017 §Generated
 ;; runs), so the natural way to state a property is an `[:assert …]`
-;; checkpoint. Replay used to drop it, so a FALSE property read `:pass` over
-;; every seed.
+;; checkpoint. A replay that dropped it would read a FALSE property as
+;; `:pass` over every seed.
 (deftest check-property-falsifies-on-a-false-assert-checkpoint
   (rf.story.assertions/install-canonical-assertions!)
   (rf/reg-event :gen/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -209,7 +209,7 @@
           "the curated plan's provenance carries the falsifying seed")
       (is (contains? (:run-artifact plan) :event-program)
           "the source link is replayable (carries the event program)")
-      ;; rf2-f3ofr — the CONCRETE :event-program (host-portable tagged-step
+      ;; The CONCRETE :event-program (host-portable tagged-step
       ;; data) is the cross-host reproducer, NOT the within-host-only :seed.
       ;; The promoted plan must carry enough program to replay the failure on
       ;; ANY host (CLJS author → JVM CI), so a non-empty tagged-step vector is
@@ -250,9 +250,9 @@
       (is (some #{:save-fails} (:failing res))
           "the faulted cell falsifies and is reported in :failing"))))
 
-;; rf2-4cdhy — sweep-faults! accepts a fault-lattice as EITHER a map
+;; sweep-faults! accepts a fault-lattice as EITHER a map
 ;; {cell-id fx-decisions} OR a seq of [cell-id fx-decisions] pairs, and both
-;; produce identical sweeps cell-for-cell (the collapsed `(seq fault-lattice)`
+;; produce identical sweeps cell-for-cell (a single `(seq fault-lattice)`
 ;; handles both — a map seqs to its entry pairs, a pair-seq seqs to its pairs).
 (deftest sweep-faults-accepts-map-and-pair-seq-equivalently
   (testing "a map lattice and the same lattice as a [cell-id fx] pair-seq sweep identically"
@@ -280,7 +280,7 @@
           "the faulted cell falsifies under the pair-seq shape too"))))
 
 ;; ===========================================================================
-;; OPTIONAL test.check adapter (rf2-6nk6d) — JVM-only
+;; OPTIONAL test.check adapter — JVM-only
 ;; ===========================================================================
 ;;
 ;; The test.check adapter late-binds test.check via `requiring-resolve` and is
@@ -290,8 +290,7 @@
 ;; file stays green on the node CLJS build too. They prove the documented
 ;; extension point — wrapping a test.check generator's draw in a `gen-fn` —
 ;; works end to end (seed → gen → seed-bearing artifact) ALONGSIDE the
-;; dependency-free path exercised above, and that the dependency-free default
-;; is unchanged.
+;; dependency-free default path exercised above, which needs no test.check.
 
 #?(:clj
    (deftest test-check-adapter-is-available-on-the-test-classpath
@@ -362,7 +361,7 @@
              "the shared shrink model keeps the failing boom step")
          (is (seq (:shrink-path res))
              "shrinking ran via check-property!'s own delta-debug, not test.check")
-         ;; The artifact promotes through the existing curated bridge unchanged.
+         ;; The artifact promotes through the curated promotion bridge as-is.
          (let [plan (rf.story.promotion/materialize-variant-plan
                      (:artifact res) {:variant/id :story.gen-tc/regression-3})]
            (is (= (:seed (:artifact res)) (get-in plan [:run-artifact :seed]))
