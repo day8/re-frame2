@@ -1,15 +1,15 @@
 ;; Conformance fixture: ssr/head-hydration
 ;; The hydration payload carries a BODY-ONLY :rf/render-hash AND a SEPARATE
-;; :rf/head-hash over the canonical head model (rf2-1oxjxk, Option B). The
+;; :rf/head-hash over the canonical head model. The
 ;; client recomputes both hashes (body via :render-tree-fn; head via
-;; active-head against the hydrated state) and they match — no
+;; head-model against the hydrated state) and they match — no
 ;; :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted.
 ;; Per [011 §Mismatch detection — head].
 
 {:fixture/id           :ssr/head-hydration
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :ssr/head-contract :ssr/hydration}
- :fixture/doc          "Hydration payload carries a BODY-ONLY :rf/render-hash and a SEPARATE :rf/head-hash over the canonical head model (rf2-1oxjxk); the client recomputes both and they match; no :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted. The head channel is omitted for explicit-:head-STRING requests."
+ :fixture/doc          "Hydration payload carries a BODY-ONLY :rf/render-hash and a SEPARATE :rf/head-hash over the canonical head model; the client recomputes both and they match; no :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted. The head channel is omitted for explicit-:head-STRING requests."
 
  :fixture/registry
  {:event {:rf/hydrate {:doc "Standard hydration handler."}}
@@ -17,7 +17,7 @@
   :head  {:head/article {:doc "Article-page head model."}}}
 
  :fixture/handlers
- {:event {;; EP-0001 (rf2-vzld77): hydration installs BOTH partitions — the
+ {:event {;; Per EP-0001, hydration installs BOTH partitions — the
           ;; payload's `:rf/app-db` into app-db AND its `:rf/runtime-db`
           ;; (the durable route slice) into the runtime-db partition.
           :rf/hydrate [[:set [] [:get-event-arg 1 :rf/app-db]]
@@ -31,20 +31,18 @@
  :fixture/frame-config {:initial-events [] :platform :client}
 
  :fixture/dispatches
- ;; Per Spec 011 §The :rf/hydrate event the payload's `:rf/app-db`
- ;; carries the active-route slice under the canonical `:rf/route`
- ;; key (matching Spec 012 §The :rf/route slice). The runtime's
- ;; `active-head` reads `:rf/route` to find the route-id whose `:head`
- ;; metadata names the head fn to invoke.
- ;; EP-0001 (rf2-vzld77): the active-route slice is durable routing
- ;; runtime-db state, so it rides the payload's `:rf/runtime-db` slice; the
- ;; `:rf/app-db` slice carries only application data.
+ ;; Per EP-0001 and Spec 012 §The :rf/route slice, the active-route slice
+ ;; is durable routing runtime-db state at `[:rf.runtime/routing :current]`,
+ ;; so it rides the payload's `:rf/runtime-db` slice; the `:rf/app-db`
+ ;; slice carries only application data. `head-model` reads that route
+ ;; slice to find the route-id whose `:head` metadata names the head fn
+ ;; to invoke.
  [[:rf/hydrate {:rf/version    1
                 :rf/frame-id   :rf/default
                 :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
                                                   :summary "How re-frame2 ships SSR"}}}
                 :rf/runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
-                ;; rf2-1oxjxk: BODY-ONLY :rf/render-hash + a SEPARATE
+                ;; BODY-ONLY :rf/render-hash + a SEPARATE
                 ;; :rf/head-hash over the canonical head model.
                 :rf/render-hash "render-hash-server-A"
                 :rf/head-hash   "head-hash-server-A"}]]
@@ -52,10 +50,10 @@
  :fixture/render-after-hydrate
  ;; Harness simulates the client recomputing BOTH channels to the same
  ;; hashes: the BODY render-tree (via :render-tree-fn) matches
- ;; :rf/render-hash, and the head model (recomputed via active-head against
+ ;; :rf/render-hash, and the head model (recomputed via head-model against
  ;; the hydrated state) matches :rf/head-hash. No mismatch trace. Per Spec
- ;; 011 §Mismatch detection — head: body and head ride SEPARATE channels
- ;; (rf2-1oxjxk); a host attributes a head-only mismatch via :failing-id.
+ ;; 011 §Mismatch detection — head: body and head ride SEPARATE channels;
+ ;; a host attributes a head-only mismatch via :failing-id.
  {:simulated-client-render-hash "render-hash-server-A"
   :simulated-client-head-hash   "head-hash-server-A"}
 
