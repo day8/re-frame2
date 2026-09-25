@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-helpers
-  "Pure-data helpers for Xray's Cancellation-cascade visualiser
-  (rf2-59e7k, parent rf2-5aw5v).
+  "Pure-data helpers for Xray's Cancellation-cascade visualiser.
 
   ## What this is
 
@@ -10,7 +9,7 @@
   or parent-frame teardown), every in-flight `:rf.http/managed` request
   the child held aborts. Each abort emits a
   `:rf.http/aborted-on-actor-destroy` trace event (per Spec 014 §Abort
-  on actor destroy / rf2-wvkn). In today's Trace tab these scatter
+  on actor destroy). In the Trace tab these scatter
   through the firehose alongside the `:rf.machine.lifecycle/destroyed`
   emit and the `:rf.machine/destroyed` enrichment — devs cannot
   reconstruct which abort came from which destroy.
@@ -72,28 +71,28 @@
   we'd ideally read: fall back to a small wall-clock window
   (`+default-actor-destroy-window-ms+`) around the anchor; group every
   `:rf.http/aborted-on-actor-destroy` trace inside the window into the
-  cascade. Divergence note: today's traces don't all carry
+  cascade. Divergence note: traces don't all carry
   `:cancel-cause`; we lift it off `:reason` / `:tags :reason` when
   available and default to `:actor-destroyed` for
   `:rf.http/aborted-on-actor-destroy` events (the canonical case).
 
-  ## Frame scoping (rf2-y8doi.15)
+  ## Frame scoping
 
   Xray's trace buffer is every host frame's ring MERGED, and a
   `:rf.trace/dispatch-id` is unique only WITHIN a frame (Spec 002 §Frame
   isolation). So both correlation paths above — the dispatch-id match and the
-  wall-clock window — could reach into a foreign frame, and on a multi-frame
-  host frame B's aborts folded into frame A's cascade. `extract-cascade` now
+  wall-clock window — could reach into a foreign frame, folding frame B's
+  aborts into frame A's cascade on a multi-frame host. `extract-cascade`
   takes an optional `:frame` on its focus map and scopes anchor, aborts,
   teardowns and the decision row to it; see `in-frame?` for the two escapes
   (no frame named, and an event carrying no frame tag at all). This is the
-  frame-strict keying rf2-bz7flo gave the managed-fx and routing panels.
+  same frame-strict keying the managed-fx and routing panels use.
 
   ## What this does NOT do
 
     - Rendering — the view ns does the SVG/hiccup work.
-    - Cross-frame causality — single-cascade-anchor scope only, and now
-      enforced rather than merely documented when the focus names a frame.
+    - Cross-frame causality — single-cascade-anchor scope only, and
+      enforced when the focus names a frame.
     - Multi-anchor merging — each call returns ONE cascade. The subs
       pick which anchor to focus (focused-machine or focused-event)."
   (:require [clojure.string :as str]
@@ -141,12 +140,12 @@
       emits one of these too: the registry emits the row above, then calls
       the request's abort-fn with `:actor-destroyed`, and the transport's
       abort choke emits `:rf.http/aborted` `:reason :actor-destroyed` for
-      the SAME request (rf2-3x7nj.23.4). `gather-related-aborts` folds that
+      the SAME request. `gather-related-aborts` folds that
       echo into its registry row, so one request counts once.
     - `:rf.ws/aborted-on-actor-destroy` (Pattern-WebSocket; defensive —
       not all installs ship this)
     - `:rf.machine.timer/cancelled` (per Spec 005 §after timer
-      lifecycle; rf2-82a0u unified every cancellation path under this
+      lifecycle; every cancellation path uses this
       single event id with a closed `:reason` set covering exit /
       destroy / resolution / supersede / frame-destroy — the
       cascade-cancellation case the visualiser anchors on is
@@ -182,10 +181,9 @@
 
 (def ^:const default-actor-destroy-window-ms
   "Best-effort wall-clock window (ms) around the anchor's `:time` for
-  associating abort traces that lack a `:dispatch-id` link. Per the
-  bead's divergence allowance: until the substrate stamps
-  `:cancel-cause` + a back-link on every abort event, proximity is
-  the structural fallback."
+  associating abort traces that lack a `:dispatch-id` link. While the
+  substrate does not stamp `:cancel-cause` + a back-link on every abort
+  event, proximity is the structural fallback."
   100)
 
 ;; ---- predicates ---------------------------------------------------------
@@ -264,10 +262,9 @@
 ;; ---- cancel-cause projection --------------------------------------------
 
 (defn cancel-cause
-  "Project the `:cancel-cause` for an abort trace event. Per the
-  divergence allowance: the substrate may or may not stamp this slot
-  today. We fall back to a structural default derived from the abort's
-  identity:
+  "Project the `:cancel-cause` for an abort trace event. The substrate
+  may or may not stamp this slot, so we fall back to a structural
+  default derived from the abort's identity:
 
     - `:rf.http/aborted-on-actor-destroy` → `:actor-destroyed`
     - `:rf.ws/aborted-on-actor-destroy`   → `:actor-destroyed`
@@ -334,26 +331,25 @@
 ;; ---- cascade extraction -------------------------------------------------
 
 (defn in-frame?
-  "Is `ev` in scope for a cascade being extracted under `frame` (rf2-y8doi.15)?
+  "Is `ev` in scope for a cascade being extracted under `frame`?
 
   Dispatch ids are unique only WITHIN a frame (Spec 002 §Frame isolation; the
   trace projection groups event-bundles by `[frame dispatch-id]` and emits two
   records for a cross-frame id collision), and Xray's trace buffer is every
   host frame's ring MERGED. So on a multi-frame host the dispatch-id match and
-  the 100 ms wall-clock window below both reached into a FOREIGN frame: frame
-  B's aborts folded into frame A's cascade, or the popover anchored on the
-  wrong frame's destroy. This is the frame-strict keying rf2-bz7flo applied to
-  the managed-fx and routing panels, which the cascade never got.
+  the 100 ms wall-clock window below would both reach into a FOREIGN frame:
+  frame B's aborts would fold into frame A's cascade, or the popover would
+  anchor on the wrong frame's destroy. This is the same frame-strict keying
+  the managed-fx and routing panels use.
 
   Two deliberate escapes, both nil:
 
     - a nil `frame` means the CALLER named none (no focus, a machine-id
-      focus, a pre-frame-set focus) — every event is in scope, i.e. exactly
-      the behaviour before this gate;
+      focus, a pre-frame-set focus) — every event is in scope;
     - an event carrying no `[:tags :frame]` is UNATTRIBUTABLE, not foreign.
       `[:tags :frame]` is the single canonical raw-event frame path and the
       key the framework's own ring routing uses, but a frameless emit reaches
-      Xray through the listener path and never carried one. Dropping those
+      Xray through the listener path and never carries one. Dropping those
       would delete rows that belong to no frame at all — and the actor-destroy
       abort the wall-clock fallback exists FOR is precisely the emit that
       fires outside the originating drain."
@@ -405,7 +401,7 @@
 (defn- actor-destroy-echo?
   "True iff `ev` is the transport-side `:rf.http/aborted` echo of an
   `:rf.http/aborted-on-actor-destroy` row in `registry-rows` — the SAME
-  request aborted once, traced twice (rf2-3x7nj.23.4). The echo carries
+  request aborted once, traced twice. The echo carries
   `:reason :actor-destroyed` and the registry row's `:actor-id`; the
   `:request-id` refines the match when both rows carry one."
   [registry-rows ev]
@@ -595,12 +591,12 @@
       `:kind nil` (or focus nil) → most-recent cancellation-destroy
                                    in the buffer.
 
-      `:frame` (rf2-y8doi.15) scopes the WHOLE extraction — anchor,
+      `:frame` scopes the WHOLE extraction — anchor,
       aborts, teardowns and the decision row — to one host frame. Xray's
       buffer is every frame's ring merged and a dispatch-id is unique only
-      within a frame, so without it frame B's aborts folded into frame A's
-      cascade. Omit it and nothing is scoped, which is the behaviour every
-      caller had before. See `in-frame?` for the two nil escapes.
+      within a frame, so without it frame B's aborts would fold into frame
+      A's cascade. Omit it and nothing is scoped. See `in-frame?` for the
+      two nil escapes.
 
   Returns the cascade record described in the ns docstring, or a
   shaped empty-state record when no anchor / aborts are present."
@@ -669,7 +665,7 @@
                   elapsed-s (conj (str elapsed-s " elapsed")))))))
 
 (def ^:const default-collapse-threshold
-  "Per the bead's contract — collapse aborts by default when there are
+  "Collapse aborts by default when there are
   more than N. The view exposes a 'Show all N' expander."
   10)
 
