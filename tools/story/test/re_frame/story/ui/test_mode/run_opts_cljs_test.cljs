@@ -1,24 +1,25 @@
 (ns re-frame.story.ui.test-mode.run-opts-cljs-test
-  "rf2-ad25 — the `:test` pane's scrubber and step-debugger read the
-  program compiled against the SAME run opts Re-run uses.
+  "The `:test` pane's scrubber and step-debugger read the program compiled
+  against the SAME run opts Re-run uses.
 
-  rf2-499z gave `play/variant-play-events`, `play/variant-play-steps` and
-  `play/begin-stepper!` an `opts` arity (the `run-variant` opts map), folded
-  into the plan compile exactly as the runtime folds it. The pane's call
-  sites still used the one-argument forms, so a script `[:arg]` fed by an
-  active mode or a cell override compiled there against the variant's
-  STATIC args while the run itself used the moded / overridden ones:
+  `play/variant-play-events`, `play/variant-play-steps` and
+  `play/begin-stepper!` take an `opts` arity (the `run-variant` opts map),
+  folded into the plan compile exactly as the runtime folds it, and the
+  pane's call sites pass it. A call site on the one-argument form would
+  compile a script `[:arg]` fed by an active mode or a cell override against
+  the variant's STATIC args while the run itself used the moded /
+  overridden ones:
 
-  - the scrubber's events never matched the run's epoch tape, so
-    `epoch-id-slice` returned [] and the scrubber showed no epochs;
-  - the step-debugger stepped the static value — a different program from
-    the one Re-run and the canvas execute — or, for an arg only a mode
-    supplies, could not compile the plan and refused to start.
+  - the scrubber's events would never match the run's epoch tape, so
+    `epoch-id-slice` would return [] and the scrubber would show no epochs;
+  - the step-debugger would step the static value — a different program
+    from the one Re-run and the canvas execute — or, for an arg only a mode
+    supplies, could not compile the plan and would refuse to start.
 
   Each witness compares against what `run-variant-pane!` actually DID (the
   run result's app-db and epoch tape), never against a re-derivation of the
   reader. The no-mode, no-override variant is the CONTROL: static and run
-  args coincide there, so it is green before and after.
+  args coincide there, so it is green whichever arity the call sites use.
 
   The reader's `opts` arity itself is pinned on the JVM by
   `re-frame.story.stepper-compiled-plan-test`
@@ -139,8 +140,8 @@
                     "the scrubber's events are the ones the run dispatched")
                 (is (= [[:tmo/set-value "override"]] (scrubbed-events slot))
                     "each tick resolves to the epoch that event committed; read
-                     against the static args, `epoch-id-slice` matched nothing
-                     and the scrubber offered no epochs")
+                     against the static args, `epoch-id-slice` would match
+                     nothing and the scrubber would offer no epochs")
                 (finish! vid done)))
             (rf.story.async/catch* (fail-on-reject vid done)))))))
 
@@ -173,8 +174,8 @@
             variant's own `:args` (`rf.story.args/run-arg-layers` `:pre`), so
             this variant declares no `:value` of its own. Compiled without the
             run's opts the plan cannot resolve the arg at all: the scrubber
-            degraded to no events and Start refused to start. With them both
-            read the program Re-run executed"
+            would degrade to no events and Start would refuse to start. With
+            them both read the program Re-run executed"
     (let [vid  :story.run-opts/moded
           mode :Mode.run-opts/moded]
       (rf.story/reg-mode mode {:args {:value "moded"}})
@@ -204,7 +205,7 @@
 (deftest control-no-mode-no-override-agrees
   (testing "CONTROL — no active mode and no override: the static args ARE
             the run args, so the scrubber and the stepper agree with Re-run
-            on either side of the fix"
+            whichever arity the call sites use"
     (let [vid :story.run-opts/plain]
       (reg-arg-variant! vid)
       (async done
