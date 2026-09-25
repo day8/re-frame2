@@ -129,8 +129,9 @@
   `:renders`, and `:other`; the `:event` slot is the bare event
   vector (not a trace map) so it's excluded.
 
-  Lifted from `panels/routing_helpers.cljc` so the matcher stays a
-  self-contained pure unit; both helpers walk the same shape."
+  Mirrors the private walk in `panels/routing_helpers.cljc` so the
+  matcher stays a self-contained pure unit; both helpers walk the same
+  shape."
   [event-bundle]
   (concat
     (when-let [handler (:handler event-bundle)] [handler])
@@ -266,9 +267,8 @@
   ;; `:event` vector and no `:rf.fx/args`, so neither arm reaches it.
   ;;
   ;; There is deliberately NO flat `:correlation-id` tag arm. No producer
-  ;; stamps one — measured by driving a real `:rf.http/managed` request
-  ;; end to end (rf2-st7j0) — and the arm that read it matched nothing but
-  ;; its own fixtures, which is why the pill filtered the list to empty.
+  ;; stamps one, so an arm reading it would match nothing but its own
+  ;; fixtures and the pill would filter the list to empty.
   [event-bundle {:keys [params]}]
   (let [target (:correlation-id params)]
     (boolean
@@ -453,8 +453,8 @@
 
 (defn filter-event-bundles
   "Apply `filters` to `event-bundles`, returning the surviving subseq in
-  order. Pure — no I/O, no atoms read. Drop-in replacement for
-  `matcher/filter-event-bundles` that routes through typed-predicate
+  order. Pure — no I/O, no atoms read. Same contract as
+  `matcher/filter-event-bundles`, routed through typed-predicate
   dispatch.
 
   Builds a frame-qualified `{[frame dispatch-id] → event-bundle}` index
