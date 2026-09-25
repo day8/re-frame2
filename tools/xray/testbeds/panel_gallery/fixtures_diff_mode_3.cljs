@@ -7,11 +7,10 @@
   descendant washes, R6 `(was N)` vector-shift suffixes, R7 type-
   change `← was <prior>` suffixes, R8 redaction-curated suffixes).
 
-  Each variant pins one R-rule + one scenario so Mike can visually
-  inspect every grammar branch when the work is complete. The Story
+  Each variant pins one R-rule + one scenario so every grammar branch
+  can be inspected visually. The Story
   set is the canonical visual demonstration surface for re-frame2
-  (the Storybook analogue per
-  `feedback_skill_anchor_to_known_mental_models`).
+  (the Storybook analogue).
 
   ## Fixture shape
 
@@ -80,7 +79,7 @@
 ;; =========================================================================
 
 (defn r3-collapsed-chip
-  "R3 (revised) — collapsed container with descendant changes shows a
+  "R3 — collapsed container with descendant changes shows a
   `[N∆]` count chip after the closing ellipsis. The fixture sets a
   shallow `:default-expanded-depth 1` so `:user`'s 3-change subtree
   collapses by default — the operator sees `▸ :user {…} [3∆]`. Click
@@ -122,7 +121,7 @@
 ;; =========================================================================
 
 (defn r5-wholly-new-subtree
-  "R5 (revised) — wholly-new subtree. `:flash` didn't exist in the
+  "R5 — wholly-new subtree. `:flash` didn't exist in the
   before-tree; the parent `:flash` row gets the `+` glyph + green
   triangle + green rail. Per-leaf gutter glyphs + stripes are
   SUPPRESSED on the descendants, but the low-opacity green wash IS
@@ -138,7 +137,7 @@
    :opts   {:full-with-diff? true}})
 
 (defn r5-wholly-removed-subtree
-  "R5 (revised) — wholly-removed subtree. Inverse of the new-subtree
+  "R5 — wholly-removed subtree. Inverse of the new-subtree
   case. The parent `:legacy` row paints the `−` glyph + red triangle
   + red rail; descendants paint with red wash but no per-leaf glyphs."
   []
@@ -230,7 +229,7 @@
 ;; =========================================================================
 
 (defn combo-all-ops-cascade
-  "All-ops cascade — the §2 canonical example from the findings doc.
+  "All-ops cascade — the canonical example.
   `:counter` modified + `:user :name` modified + `:flash` wholly-new +
   `:legacy-flag` removed. The full grammar in one mount."
   []
