@@ -39,7 +39,8 @@
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             ;; `dom-attr-aliases`, react-dom's prop →
             ;; attribute table, is read by the hiccup attribute conversion
-            ;; below. `ui-tree` requires nothing from this ns, so no cycle.
+            ;; below, and `validate-tag-name!` gates every hiccup tag.
+            ;; `ui-tree` requires nothing from this ns, so no cycle.
             [re-frame.ssr.ui-tree :as rf.ssr.ui-tree]
             #?(:cljs [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])))
 
@@ -96,57 +97,15 @@
 ;; raw-text set + escape live in `re-frame.ssr.html-helpers`
 ;; (`html/raw-text-tags` / `html/escape-raw-text`).
 
-;; Tag-name injection gate. Gate the tag
-;; component itself: HTML5 / SVG / MathML element names require an ASCII
-;; letter start, then letters / digits / hyphens. Reject anything else.
-;;
-;; Fail fast (throw) rather than escape-and-emit. A tag-name
-;; outside the grammar has no safe wire interpretation — escaping would
-;; produce `<img&#x20;src=...>` which no browser parses as a tag, just a
-;; visible glyph.
+;; Tag-name injection gate: the tag component `parse-tag-name*` splits off
+;; passes `rf.ssr.ui-tree/validate-tag-name!`, the one HTML5 / SVG / MathML
+;; element-name grammar both SSR serialisers apply, and a name outside it
+;; throws rather than being escaped.
 ;;
 ;; `:<>` (React fragment) and `:>` (Reagent-native) are special heads
 ;; consumed by `emit-element` BEFORE this validator runs — they never
-;; reach `parse-tag-name`. The grammar below applies only to actual DOM
+;; reach `parse-tag-name`. The grammar applies only to actual DOM
 ;; tag emissions.
-(def ^:private tag-name-re
-  ;; HTML5 §element-name + SVG element-name + MathML element-name all
-  ;; share the same conservative ASCII grammar: leading letter, then
-  ;; letters / digits / hyphens. Custom elements (per HTML5 §custom-
-  ;; element-name) require an ASCII-lower first letter + a `-`; the
-  ;; conservative grammar admits both standard elements and well-formed
-  ;; custom-element names.
-  ;;
-  ;; XML-namespaced SVG/MathML tags carry a single colon-
-  ;; separated prefix (e.g. `:svg:rect`, `:xlink:href`-style elements).
-  ;; Admit one optional `prefix:` segment where the prefix follows the
-  ;; same element-name grammar. A single colon only — embedded `<`, `>`,
-  ;; whitespace, `=` (the tag-injection vectors) remain rejected, and a
-  ;; bare/leading/trailing/double colon (`:rect`, `svg:`, `a::b`) still
-  ;; throws because each segment must be a well-formed element name.
-  #"(?:[A-Za-z][A-Za-z0-9-]*:)?[A-Za-z][A-Za-z0-9-]*")
-
-(defn- validate-tag-name!
-  "Throw `:rf.error/invalid-tag-name` if `tag-name` does not match the
-  HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`,
-  optionally prefixed by a single XML namespace segment `prefix:`)."
-  [tag-name source-kw]
-  (when-not (and (string? tag-name)
-                 (re-matches tag-name-re tag-name))
-    (rf.error/throw-error!
-      :rf.error/invalid-tag-name
-      're-frame.ssr.emit
-      (str "tag-name " (pr-str tag-name)
-           " (from hiccup head " (pr-str source-kw) ")"
-           " does not match the HTML5/SVG/MathML"
-           " element-name grammar"
-           " ([A-Za-z][A-Za-z0-9-]*, optionally"
-           " namespaced prefix:local) — DOM tag-name"
-           " injection forbidden. Use a grammar-valid element name.")
-      {:recovery :use-a-valid-element-name
-       :extra    {:tag-name tag-name
-                  :source   source-kw}}))
-  tag-name)
 
 ;; Tag-name parsing for the :div#id.cls syntax (Reagent / Hiccup
 ;; convention). Memoised per-render by keyword identity: the result
@@ -168,7 +127,7 @@
                      (->> (clojure.string/split classes #"\.")
                           (remove empty?)
                           (clojure.string/join " ")))]
-    (validate-tag-name! tag tag-kw)
+    (rf.ssr.ui-tree/validate-tag-name! tag tag-kw "hiccup head" 're-frame.ssr.emit)
     [tag
      (cond-> {}
        id         (assoc :id id)
