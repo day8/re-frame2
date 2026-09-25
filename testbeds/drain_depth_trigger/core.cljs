@@ -197,7 +197,7 @@
 
 (defn ^:export run []
   (rf/init! rf.adapter.reagent/adapter)
-  ;; Register the default frame with the low ceiling BEFORE init —
+  ;; Register the default frame with the low ceiling BEFORE the boot dispatch —
   ;; the Start click only needs the runtime's drain to fire the halt;
   ;; per [spec/002 §Surgical update] re-registering only changes the
   ;; supplied keys (here :drain-depth), the other defaults survive.
