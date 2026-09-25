@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.schema-validation-cljs-test
-  "Tests for the Schema-validation panel (rf2-dvue).
+  "Tests for the Schema-validation panel.
 
   Runs on both the JVM (cognitect.test-runner under
   `clojure -M:test`) and the CLJS node-test build (shadow's
@@ -279,8 +279,8 @@
 (deftest args-violations-decides-absent-keys-by-presence-not-by-validator
   (testing "an absent REQUIRED key is a violation whatever the child
             validator says about nil — one that rejects nil and one that
-            accepts it agree (rf2-scheh: this test used to pin the
-            opposite, routing the absent key's nil through the child)"
+            accepts it agree (routing the absent key's nil through the
+            child would let the nil-accepting validator pass it)"
     (let [args   {:name "alice"}    ;; :age missing
           schema [:map [:name :string] [:age :int]]]
       (doseq [vfns [{:validate string-validator :explain string-explainer}
@@ -295,7 +295,7 @@
                 [:map [:name :string] [:age {:optional true} :int]]
                 {:validate string-validator :explain string-explainer})))))
 
-;; ---- pure: args-violations agrees with Malli's map rule (rf2-scheh) -----
+;; ---- pure: args-violations agrees with Malli's map rule -----------------
 ;;
 ;; The five-shape discriminator, against REAL Malli. Each shape first asks
 ;; Malli about the WHOLE map (the oracle), then checks the per-key rows
@@ -379,12 +379,12 @@
   (testing "the explanation `malli.core/explain` really returns — `:errors`
             a seq, not a vector, and no `:message` on the error maps —
             renders as path + message, never as the pr-str of the map
-            (rf2-fhjke: the login card's cleared `:heading`)"
+            (the login card's cleared `:heading`)"
     (let [schema      [:map [:heading {:optional true} [:string {:min 1}]]]
           explanation (m/explain schema {:heading ""})]
-      ;; Guard the fixture: a hand-built VECTOR `:errors` passes with or
-      ;; without the fix, so this test only proves anything while the
-      ;; real shape is not a vector.
+      ;; Guard the fixture: a hand-built VECTOR `:errors` would pass
+      ;; whether or not `format-explain` reads a non-vector seq, so this
+      ;; test only proves anything while the real shape is not a vector.
       (is (sequential? (:errors explanation)))
       (is (not (vector? (:errors explanation)))
           "fixture carries Malli's real non-vector :errors")
@@ -420,8 +420,8 @@
 
 #?(:cljs
    (deftest ^:cljs panel-id-stable
-     (testing "panel-id is :rf.story.panel/schema-validation per the
-              SOTA audit's reservation"
+     (testing "panel-id is :rf.story.panel/schema-validation per
+              tools/story/spec/014-Chrome-Features.md"
        (is (= :rf.story.panel/schema-validation rf.story.ui.schema-validation/panel-id)))))
 
 #?(:cljs
@@ -453,8 +453,8 @@
               Per Spec 006 §Source-coord annotation the annotator can
               only attach `data-rf2-source-coord` to hiccup DOM roots;
               a bare `[panel variant-id]` root makes the panel
-              invisible to Story Inspect Mode + Xray Inspect Mode
-              (rf2-iwny7). The `[:div]` wrap is load-bearing."
+              invisible to Story Inspect Mode + Xray Inspect Mode.
+              The `[:div]` wrap is load-bearing."
        (reset-all!)
        (let [view-fn (rf/view rf.story.ui.schema-validation/panel-render-id)
              out     (view-fn :story.unknown/y)]
@@ -488,17 +488,17 @@
          (is (re-find (re-pattern (str rf.story.ui.schema-validation/panel-id))
                       (pr-str out)))))))
 
-;; ---- CLJS-only: the panel validates the LIVE Controls value (rf2-lzzrw) --
+;; ---- CLJS-only: the panel validates the LIVE Controls value -------------
 ;;
 ;; Controls validates `effective-args` resolved with the active modes and the
-;; variant's cell overrides. The panel used to resolve with NO opts, so it saw
-;; the stored args, and it derefed no shell state, so a control edit never
-;; re-rendered it. Each witness drives shell state and reads what the panel
+;; variant's cell overrides. A panel that resolved with NO opts would see the
+;; stored args, and one that derefed no shell state would never re-render on
+;; a control edit. Each witness drives shell state and reads what the panel
 ;; RENDERS; a test that only checked stored args would pass either way.
 
 #?(:cljs
    (def ^:private heading-schema
-     "The login card's props schema (rf2-fhjke's measured case)."
+     "The login card's props schema."
      [:map [:heading {:optional true} [:string {:min 1}]]]))
 
 #?(:cljs
