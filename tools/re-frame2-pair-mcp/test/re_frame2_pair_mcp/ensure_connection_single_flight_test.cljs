@@ -1,12 +1,11 @@
 (ns re-frame2-pair-mcp.ensure-connection-single-flight-test
-  "Single-flight guard for session discovery + endpoint replacement
-  (rf2-3fc89f.23).
+  "Single-flight guard for session discovery + endpoint replacement.
 
   MCP permits concurrent tool calls, so two calls can observe the same
   pre-transition session state — `:discovered? false`, or a cached port that
-  just changed. The OLD `ensure-connection!` did a bare check-then-act:
-  concurrent first calls each ran discovery, and concurrent port-change calls
-  each closed the old conn and published a fresh one. The fix routes every
+  just changed. A bare check-then-act would let concurrent first calls each
+  run discovery, and concurrent port-change calls each close the old conn
+  and publish a fresh one. `ensure-connection!` routes every
   state-changing path through `run-transition!`, so the FIRST caller becomes
   the transition owner and every concurrent caller awaits the same Promise —
   exactly one discovery, exactly one close of the old conn, exactly one
