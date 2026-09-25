@@ -1,8 +1,8 @@
 (ns hooks.re-frame.core
   "clj-kondo macro hook for `re-frame.core/reg-view`.
 
-  Per spec/002-Frames.md (§What `reg-view` injects) and rf2-kkut0
-  (frame-affordance redesign), `reg-view` is a defn-shape macro that auto-injects two lexical
+  Per spec/002-Frames.md (§What `reg-view` injects),
+  `reg-view` is a defn-shape macro that auto-injects two lexical
   bindings — `dispatch` and `subscribe` — into the body, sourced from a
   single `capture-frame` (the keystone OPERATION BUNDLE). clj-kondo doesn't
   macroexpand by default, so without this hook the body's `dispatch` /
@@ -18,7 +18,7 @@
   preserving any leading docstring + optional attr-map, so kondo's
   built-in `defn` analysis covers arglist + arity + lexical bindings. The
   real expansion builds the bundle through the owned constructor
-  `re-frame.capture-frame/make-capture-frame` (off the facade, rf2-93sxp)
+  `re-frame.capture-frame/make-capture-frame` (off the facade)
   with the view's coords; the hook names the PUBLIC `capture-frame` instead
   because the rewrite exists only to make the two bindings visible, and a
   view namespace requires `re-frame.core`, not the implementation
@@ -27,8 +27,8 @@
   (:require [clj-kondo.hooks-api :as api]))
 
 (defn with-frame
-  "clj-kondo macro hook for `re-frame.core/with-frame` — pin form only
-  (per rf2-twoc5):
+  "clj-kondo macro hook for `re-frame.core/with-frame` — pin form
+  only:
 
       (with-frame :keyword body+)        ;; pin to existing frame
 
@@ -43,7 +43,7 @@
 
 (defn with-new-frame
   "clj-kondo macro hook for `re-frame.core/with-new-frame` — eval-bind-
-  run-destroy form (per rf2-twoc5):
+  run-destroy form:
 
       (with-new-frame [sym expr] body+) ;; eval, bind, run, destroy
 
@@ -57,8 +57,7 @@
                     body))}))
 
 (defn with-trace-recorder!
-  "clj-kondo macro hook for `re-frame.test-support/with-trace-recorder!`
-  (rf2-64iuw):
+  "clj-kondo macro hook for `re-frame.test-support/with-trace-recorder!`:
 
       (with-trace-recorder! [recs-sym opts?] body+)
 
