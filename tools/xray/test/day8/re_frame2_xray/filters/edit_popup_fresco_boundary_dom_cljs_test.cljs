@@ -17,7 +17,7 @@
   `spine_filters_fresco_boundary_dom_cljs_test`, which closes
   exactly this gap for the two spine-filter bridges:
 
-    W1  Modal mounts as the shell's own hiccup head, its gate reads
+    W1  Modal mounts as a hiccup head under a `frame-provider`, its gate reads
         `:rf.xray/edit-popup-open?` TRUE, and the boundary body commits
         the real dialog DOM — with a CLOSED instance beside it proving
         the gate is a gate rather than an unconditional paint.
@@ -36,10 +36,12 @@
   calls that are the actual subject here never run at all. Only a
   committed DOM can answer, which is why these rows are `-dom-cljs-test`.
 
-  ## The mount is the SHELL's mount
+  ## The mount is a Reagent parent's mount
 
-  `shell.cljs` mounts this bridge as a plain hiccup HEAD inside the
-  shell's `[rf/frame-provider {:frame frame-id}]` (`:3161`). [[mount!]]
+  [[mount!]] heads this bridge as a plain hiccup HEAD inside
+  `[rf/frame-provider {:frame frame}]` — the Reagent-parent shape the
+  bridge exists for. (`shell.cljs` itself CALLS `(filters/Modal)` inside
+  its Fresco tree, where the `[:> …]` it answers is the head.) [[mount!]]
   does exactly that and nothing else — no wrapper, no second call. Every
   assertion after the mount reads `container.querySelector…`, i.e. the
   DOM React committed on its own.
@@ -149,7 +151,7 @@
 
 (defn- mount!
   "Mount `views` as plain hiccup HEADS inside a `frame-provider` scoping
-  `frame` — the exact shape `shell.cljs` uses at `:3161`. Committed
+  `frame` — the Reagent-parent shape the bridge exists for. Committed
   synchronously: React 19's `root.render` is otherwise async and the
   first assertion would run against an empty container."
   [frame views]
@@ -214,7 +216,7 @@
 ;; ===========================================================================
 
 (deftest w1-edit-popup-bridge-mounts-and-paints-behind-a-real-gate
-  (testing "`filters/Modal` mounted as the shell's hiccup head
+  (testing "`filters/Modal` mounted as a hiccup head under a `frame-provider`
             commits the real edit-popup DOM, which is the claim no
             node-lane row can make: the door it drives is handed the
             boundary's reads as arguments, so neither the gate nor the
