@@ -369,9 +369,10 @@
         ;; backstop for each descriptor's `additionalProperties false`
         ;; contract. A key valid for ANOTHER tool (`:body` on anything but
         ;; register-variant) survives global normalisation; without this
-        ;; branch the selected handler would silently ignore it. A
-        ;; wire-managed knob (`:dedup` on a non-eligible tool) is tolerated. Diagnose it with the same `:rf.story-mcp/unknown-arguments`
-        ;; shape before dispatch, capped on the same response cap.
+        ;; branch the selected handler would silently ignore it. Diagnose
+        ;; it with the same `:rf.story-mcp/unknown-arguments` shape before
+        ;; dispatch, capped on the same response cap. A wire-managed knob
+        ;; (`:dedup` on a non-eligible tool) is tolerated, not diagnosed.
         (seq tool-invalid)
         (cap-error tool-name cap (unknown-arg-error tool-name t tool-invalid))
 
