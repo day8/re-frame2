@@ -1,15 +1,14 @@
 (ns day8.re-frame2-xray.panels.reactive-panel-view-cljs-test
   "Tests for `reactive-panel-view` — the left → right REACTIVE FLOW graph
-  Views panel (rf2-ad7zx.6 · Figma reconcile · spec/021 §3.2 · prior:
-  rf2-e33ad / rf2-8ve8z / rf2-wyvf2 / rf2-isun6).
+  Views panel (Figma · spec/021 §3.2).
 
-  Mounts `reactive-panel` (the plain Reagent fn) and asserts the
+  Renders `reactive-panel` (the pure projection) and asserts the
   structural data-testid hooks ship: panel root, the REACTIVE FLOW SVG
   graph (app-db source node + sub nodes + view nodes + edges), the
   changed/unchanged node + edge encoding, the per-view cause + timing
   labels, the UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS sections, and the
   closing legend. The pure graph geometry is covered by
-  reactive-flow-graph-test; the projection logic by
+  reactive-flow-graph-cljs-test; the projection logic by
   reactive-panel-subs-cljs-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
@@ -39,13 +38,12 @@
 (defn- panel-tree
   "The hiccup these rows walk, driven through the pure projection.
 
-  rf2-k97c.3 — `facade/Panel` is now an `rf.fresco/defview` boundary, a
-  real React function component whose body may only run inside a React
-  render window, so it is no longer callable and neither is the old
-  0-arity `view/reactive-panel`. This helper REPRODUCES THE BOUNDARY'S
-  READ EXACTLY — the one `:rf.xray/reactive-data` query the boundary
-  issues — and hands the value to the projection, so every row below
-  asserts on the same hiccup it asserted on before. The dispatcher is nil:
+  `facade/Panel` is an `rf.fresco/defview` boundary, a real React
+  function component whose body may only run inside a React render
+  window, so it is not callable here. This helper REPRODUCES THE
+  BOUNDARY'S READ EXACTLY — the one `:rf.xray/reactive-data` query the
+  boundary issues — and hands the value to the projection, so every row
+  below asserts on the hiccup the boundary renders. The dispatcher is nil:
   no row here clicks the disclosure toggle (that is
   `reactive_panel_disclosure_dispatch_routing_cljs_test`'s subject)."
   []
@@ -71,17 +69,17 @@
           "empty-state surfaces when no cascade exists"))))
 
 (deftest reactive-panel-omits-large-h1-heading
-  (testing "rf2-6xezz — the Views panel renders NO large h1 heading; the
+  (testing "the Views panel renders NO large h1 heading; the
             tab strip is the panel-name source-of-truth."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (panel-tree)
           icon (rf.test-helpers/find-by-testid tree "rf-xray-reactive-panel-icon")]
-      (is (nil? icon) "panel-icon span is gone (lived in the deleted h1)"))))
+      (is (nil? icon) "there is no panel-icon span (the panel has no h1)"))))
 
 (deftest reactive-panel-uses-views-display-label
   (testing "the L4 tab displays as `Views` under the all-plural-domain-
-            noun convention; the panel-registry key stays `:views`."
+            noun convention; the panel-registry key is `:views`."
     (facade/install!)
     (let [registered (panel-registry/tab-by-id :dynamic :views)]
       (is (some? registered) "panel-registry has a :views entry under :dynamic")
@@ -94,12 +92,12 @@
   [data]
   (rf/reg-sub :rf.xray/reactive-data (fn [_db _q] data)))
 
-;; ---- REACTIVE FLOW graph structure (rf2-ad7zx.6) ----------------------
+;; ---- REACTIVE FLOW graph structure ------------------------------------
 
 (deftest reactive-panel-renders-flow-graph-not-tables
-  (testing "rf2-ad7zx.6 — a focused cascade renders the left → right
+  (testing "a focused cascade renders the left → right
             REACTIVE FLOW SVG graph (app-db source node + sub nodes +
-            view nodes) and NOT the prior three stacked tables."
+            view nodes) and NOT three stacked tables."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -118,13 +116,13 @@
       (is (has-testid? tree "rf-xray-reactive-node-l1-_cart_state") "Level-1 node renders")
       (is (has-testid? tree "rf-xray-reactive-node-l2-_cart_total") "Level-2 node renders")
       (is (has-testid? tree "rf-xray-reactive-view-node-_cart_Summary") "view node renders")
-      ;; the retired three-table testids must be GONE
+      ;; there are no three-table testids
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l1-table")) "no Level-1 table")
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l2-table")) "no Level-2 table")
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-views-table")) "no Views table"))))
 
 (deftest reactive-panel-section-label-is-reactive-flow
-  (testing "rf2-ad7zx.6 — the graph section is headed `Reactive Flow`."
+  (testing "the graph section is headed `Reactive Flow`."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -135,10 +133,10 @@
           "graph section heading is `Reactive Flow`"))))
 
 (deftest reactive-flow-heading-is-title-case-not-all-caps
-  (testing "rf2-tha26 — the primary `Reactive Flow` heading renders in
-            TITLE case (no CSS uppercase transform), not the all-caps
-            `REACTIVE FLOW` the prior shared section-label forced; the
-            secondary teardown captions keep their uppercase register."
+  (testing "the primary `Reactive Flow` heading renders in
+            TITLE case (no CSS uppercase transform), not all-caps
+            `REACTIVE FLOW`; the secondary teardown captions keep their
+            uppercase register."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -151,16 +149,16 @@
                                    "rf-xray-reactive-section-unmounted-label")]
       (is (not= "uppercase" (get-in flow [1 :style :text-transform]))
           "the `Reactive Flow` heading is NOT CSS-uppercased (title case)")
-      ;; The literal title is already title case (rf2-ad7zx.6); with no
-      ;; uppercase transform it renders title case as authored.
+      ;; The literal title is title case; with no uppercase transform it
+      ;; renders as authored.
       (is (= "Reactive Flow" (text-of tree "rf-xray-reactive-section-flow-label"))
           "the literal heading text reads in title case")
       (is (= "uppercase" (get-in unmnt [1 :style :text-transform]))
           "the secondary teardown caption keeps its uppercase register"))))
 
 (deftest reactive-graph-card-carries-visible-border
-  (testing "rf2-tha26 — the reactive-graph card paints a visible rounded
-            card border (the prior `:border-default` hairline was near-
+  (testing "the reactive-graph card paints a visible rounded
+            card border (a `:border-default` hairline would be near-
             invisible on the dark theme)."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -179,7 +177,7 @@
           "the card keeps its rounded-lg corner radius"))))
 
 (deftest changed-node-and-edge-encoding
-  (testing "rf2-ad7zx.6 — a changed sub node carries data-node-changed
+  (testing "a changed sub node carries data-node-changed
             true; its app-db→sub edge is a changed (propagating) edge."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -195,7 +193,7 @@
       (is (has-testid? tree "rf-xray-reactive-edges") "edge group renders"))))
 
 (deftest unchanged-node-renders-dim
-  (testing "rf2-ad7zx.6 — an unchanged sub node is tagged
+  (testing "an unchanged sub node is tagged
             data-node-changed false (renders dashed dim per the
             encoding)."
     (facade/install!)
@@ -210,7 +208,7 @@
           "unchanged node tagged data-node-changed=false"))))
 
 (deftest view-node-carries-cause-and-timing
-  (testing "rf2-ad7zx.6 / rf2-8wrzz.1 — a view node's sub-label shows the
+  (testing "a view node's sub-label shows the
             per-view cause (← triggered-by) + render timing (elapsed-ms)."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -228,7 +226,7 @@
       (is (re-find #"2ms" meta) "shows the render timing"))))
 
 (deftest view-node-attributes-props-driven-rerender
-  (testing "rf2-bhi3t — a re-render with NO triggered-by (none of the
+  (testing "a re-render with NO triggered-by (none of the
             view's own subs changed value) attributes the cause to the
             orthogonal :rf/props channel: the sub-label reads `← props`,
             NOT a blank/missing cause and NOT a mislabelled sub."
@@ -247,7 +245,7 @@
           "props-driven re-render attributes the cause to props"))))
 
 (deftest view-node-mount-carries-no-render-cause
-  (testing "rf2-bhi3t — a fresh MOUNT carries no render-cause sub-label
+  (testing "a fresh MOUNT carries no render-cause sub-label
             (the `(mounted)` label already conveys the first render; the
             cause question is about RE-renders)."
     (facade/install!)
@@ -264,7 +262,7 @@
           "no cause arrow on a mount"))))
 
 (deftest shared-sub-node-carries-fan-out-annotation
-  (testing "rf2-ad7zx.6 — a sub read by ≥2 views is shared; the node
+  (testing "a sub read by ≥2 views is shared; the node
             carries a ×N annotation + fans out to N view nodes."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -282,7 +280,7 @@
       (is (has-testid? tree "rf-xray-reactive-view-node-_app_Sidebar") "fans out to Sidebar"))))
 
 (deftest view-node-carries-hover-handlers
-  (testing "rf2-ad7zx.6 / rf2-8l03l — the view NODE carries the hover
+  (testing "the view NODE carries the hover
             handlers driving the pink DOM highlight."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -300,7 +298,7 @@
           "view node has an :on-mouse-leave handler (clear-highlight!)"))))
 
 (deftest sparse-cascade-shows-graph-empty-placeholder
-  (testing "rf2-ad7zx.6 — a focused cascade with no subs + no views
+  (testing "a focused cascade with no subs + no views
             renders the graph empty placeholder (the sparse case)."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -313,10 +311,10 @@
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-flow-svg"))
           "no SVG canvas when the graph is empty"))))
 
-;; ---- UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS (rf2-ad7zx.6) -----------
+;; ---- UNMOUNTED VIEWS + DESTROYED SUBSCRIPTIONS ---------------------------
 
 (deftest unmounted-views-section-renders
-  (testing "rf2-ad7zx.6 — the UNMOUNTED VIEWS section lists views whose
+  (testing "the UNMOUNTED VIEWS section lists views whose
             component unmounted this epoch."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -334,7 +332,7 @@
           "tooltip unmount row renders"))))
 
 (deftest unmounted-views-empty-placeholder
-  (testing "rf2-ad7zx.6 — no unmounts → the section shows its empty
+  (testing "no unmounts → the section shows its empty
             placeholder (always visible so the rhythm holds)."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -347,7 +345,7 @@
           "empty placeholder renders when nothing unmounted"))))
 
 (deftest destroyed-subs-section-renders-with-caption
-  (testing "rf2-ad7zx.6 — the DESTROYED SUBSCRIPTIONS section lists subs
+  (testing "the DESTROYED SUBSCRIPTIONS section lists subs
             cleaned up + carries the explanatory caption."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
@@ -365,10 +363,10 @@
              (text-of tree "rf-xray-reactive-destroyed-caption"))
           "the explanatory caption renders"))))
 
-;; ---- legend (rf2-ad7zx.6) ---------------------------------------------
+;; ---- legend ----------------------------------------------------------
 
 (deftest legend-renders-three-swatches
-  (testing "rf2-ad7zx.6 — the closing legend explains the encoding:
+  (testing "the closing legend explains the encoding:
             changed (propagates) · no change (short-circuits) · unmounted
             / destroyed."
     (facade/install!)
@@ -383,10 +381,10 @@
       (is (re-find #"no change \(short-circuits" legend-text) "no-change swatch labelled")
       (is (re-find #"unmounted / destroyed" legend-text) "teardown swatch labelled"))))
 
-;; ---- graph instances keep distinct React keys (rf2-3x7nj.24.3) ---------
+;; ---- graph instances keep distinct React keys -------------------------
 
 (deftest flow-graph-list-instances-render-distinct-react-keys
-  (testing "rf2-3x7nj.24.3 — three instances of one view over three cells
+  (testing "three instances of one view over three cells
             of one parametric sub render as three sibling `<g>`s per
             column with three DIFFERENT React keys, not one key thrice"
     (facade/install!)
@@ -412,10 +410,10 @@
       (is (= 3 (count views)) "three view-instance nodes")
       (is (= 3 (count (distinct views))) "with three distinct React keys"))))
 
-;; ---- unchanged-subs disclosure keys by concrete query-v (rf2-cj2yx) ----
+;; ---- unchanged-subs disclosure keys by concrete query-v ----------------
 
 (deftest unchanged-rows-key-and-label-by-concrete-query-v
-  (testing "rf2-cj2yx / rf2-bk2c6 — two skipped memo-hits sharing a registered
+  (testing "two skipped memo-hits sharing a registered
             sub-id but DISTINCT concrete query-vs render as two
             individually-addressable rows: distinct test-ids AND distinct
             labels (the full query vector), not one row collapsed by sub-id.
@@ -454,13 +452,13 @@
           "row 2 labels with its full concrete query vector"))))
 
 (deftest unchanged-row-selectors-injective-for-colliding-queries
-  (testing "rf2-bk2c6 — two DISTINCT concrete queries whose `id-slug` forms
+  (testing "two DISTINCT concrete queries whose `id-slug` forms
             COLLIDE (`[:item/derived :a-b]` and `[:item/derived :a/b]` both
-            slug to `__item_derived__a_b_`) must still receive distinct,
-            individually-addressable row test-ids. Before the injective
-            selector both rows shared one `data-testid` (find-all returned 2,
-            distinct count was 1); after, each is uniquely addressable while
-            the labels stay distinct."
+            slug to `__item_derived__a_b_`) must receive distinct,
+            individually-addressable row test-ids; a non-injective selector
+            would give both rows one `data-testid` (find-all returning 2,
+            distinct count 1). Each is uniquely addressable while the labels
+            stay distinct."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -484,15 +482,15 @@
         (is (re-find #":a/b" joined) "the :a/b parameterization is labelled")))))
 
 (deftest unchanged-row-selectors-injective-for-hash-colliding-queries
-  (testing "rf2-haoip — the ADVERSARIAL pair the 32-bit-hash suffix could not
+  (testing "the ADVERSARIAL pair a 32-bit-hash suffix cannot
             separate: `[:item/derived \" @\"]` and `[:item/derived \"!!\"]`
             collide on BOTH the `id-slug` form AND the ClojureScript vector
-            hash (`1127258382` → base-36 `in524u`), so the prior hash-suffixed
-            selector minted ONE `data-testid` for two distinct concrete queries
-            (false identity). The lossless order-canonical selector must give
-            them DISTINCT, individually-addressable test-ids while the labels
-            stay distinct. (Red before the injective fix: distinct testid count
-            was 1, the shared testid addressed 2 nodes.)"
+            hash (`1127258382` → base-36 `in524u`), so a hash-suffixed
+            selector would mint ONE `data-testid` for two distinct concrete
+            queries (false identity). The lossless order-canonical selector
+            must give them DISTINCT, individually-addressable test-ids while
+            the labels stay distinct. (A hash-suffixed selector reads a
+            distinct testid count of 1, the shared testid addressing 2 nodes.)"
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -517,7 +515,7 @@
         (is (re-find #"!!" joined) "the \"!!\" parameterization is labelled")))))
 
 (deftest unchanged-row-selector-canonical-across-map-insertion-order
-  (testing "rf2-haoip — VALUE-EQUAL concrete queries retain ONE stable selector
+  (testing "VALUE-EQUAL concrete queries retain ONE stable selector
             matching the dedup semantics: a map arg built in different insertion
             orders (`{:a 1 :b 2}` vs `{:b 2 :a 1}`) is `=` and must mint the
             SAME row test-id, while a genuinely different map (`{:a 1 :b 3}`)
@@ -542,27 +540,27 @@
           "the two value-equal map orders collapse to ONE selector; the
            genuinely-different map keeps its own — 2 distinct selectors total"))))
 
-;; rf2-5h9td — REAL ClojureScript records for the type-preservation tests
-;; below. `RecA` and `RecB` are structurally identical (one field `x`) and
-;; differ ONLY by record type, which is exactly the pair the pre-fix `map?`
-;; branch could not separate.
+;; REAL ClojureScript records for the type-preservation tests below. `RecA`
+;; and `RecB` are structurally identical (one field `x`) and differ ONLY by
+;; record type, which is exactly the pair an encoder branching on `map?`
+;; first cannot separate.
 
 (defrecord RecA [x])
 (defrecord RecB [x])
 
 (deftest unchanged-row-selectors-preserve-record-type
-  (testing "rf2-5h9td — CLJS records satisfy `map?`, so the rf2-haoip encoder's
-            leading `(map? x)` branch discarded the record TAG and rendered
+  (testing "CLJS records satisfy `map?`, so an encoder whose
+            leading branch is `(map? x)` would discard the record TAG and render
             `(->RecA 1)`, `(->RecB 1)` and `{:x 1}` all as `{:x 1}`. Those three
             concrete queries are pairwise UNEQUAL (`(= (->RecA 1) (->RecB 1))`
             and `(= (->RecA 1) {:x 1})` are both false), so collapsing them onto
-            one `data-testid` was false identity — rows the DOM cannot address
-            independently, violating rf2-haoip's every-distinct-valid-query AC.
-            Each must now mint its OWN selector. (Red before this fix: distinct
-            testid count was 1, and that shared testid addressed 3 nodes.)"
+            one `data-testid` would be false identity — rows the DOM cannot
+            address independently. Each must mint its OWN selector. (Such an
+            encoder reads a distinct testid count of 1, that shared testid
+            addressing 3 nodes.)"
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
-    (is (map? (->RecA 1)) "premise — a CLJS record IS `map?`, hence the bug")
+    (is (map? (->RecA 1)) "premise — a CLJS record IS `map?`, hence the hazard")
     (is (not= (->RecA 1) (->RecB 1)) "premise — the two record types are unequal")
     (is (not= (->RecA 1) {:x 1}) "premise — record and plain map are unequal")
     (seed-reactive-data!
@@ -586,7 +584,7 @@
             "each concrete query's test-id addresses exactly one row")))))
 
 (deftest unchanged-row-selector-canonical-across-record-extension-order
-  (testing "rf2-5h9td ADVERSARIAL — type preservation must not cost
+  (testing "ADVERSARIAL — type preservation must not cost
             order-canonicality. A record's EXTENSION entries (assoc'd beyond its
             declared fields) live in `__extmap`, whose small-map representation
             preserves INSERTION order, so `(assoc (->RecA 1) :b 2 :c 3)` and
@@ -619,12 +617,13 @@
            genuinely-different extension keeps its own — 2 distinct total"))))
 
 (deftest unchanged-row-selectors-preserve-record-type-at-depth
-  (testing "rf2-5h9td ADVERSARIAL — the record tag must survive RECURSION, not
+  (testing "ADVERSARIAL — the record tag must survive RECURSION, not
             just a top-level query argument. A record nested as a map VALUE
             (`{:k (->RecA 1)}`) and a plain map in the same slot
             (`{:k {:x 1}}`) are unequal queries and must stay individually
             addressable; a second record TYPE at that same depth must differ
-            again. (Red before the fix: all three collapsed to one testid.)"
+            again. (An encoder losing the tag at depth collapses all three to
+            one testid.)"
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
@@ -651,9 +650,9 @@
             "each nested-record query's test-id addresses exactly one row")))))
 
 (deftest unchanged-row-unparameterized-shows-plain-sub-id
-  (testing "rf2-cj2yx / rf2-bk2c6 — a bare unparameterized skip (query-v
-            `[:sub/id]`) renders the plain sub-id label (the common case is
-            unchanged), not a bracketed one-element vector; its readable slug
+  (testing "a bare unparameterized skip (query-v
+            `[:sub/id]`) renders the plain sub-id label (the common case),
+            not a bracketed one-element vector; its readable slug
             stem survives the injective encoding."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
