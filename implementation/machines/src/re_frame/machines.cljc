@@ -268,14 +268,16 @@
   {:doc "Machine-internal: cancel a previously-scheduled `:after` timer. Per Spec 005 §Timed transitions. Not for direct application use."}
   after-cancel-fx)
 
-;; SSR hydration re-arm. Emitted by the `:rf/hydrate` handler (via the
-;; `:machines/rearm-after-hydration!` presence gate) so it runs AFTER the
-;; payload's runtime-db has committed — `commit-frame-effects!` installs
-;; both partitions before `run-fx-effects!` walks `:fx`, which is exactly
-;; the ordering the re-arm needs: it reads the just-installed snapshots.
-;; Deliberately NOT a state-entry replay — see `re-frame.machines.hydrate`.
+;; Installed-snapshot re-arm. Emitted by the two framework installers — the
+;; SSR `:rf/hydrate` handler and core's `:rf/install-frame-state` handler,
+;; each via the `:machines/rearm-after-hydration!` presence gate — so it runs
+;; AFTER the installed runtime-db has committed: `commit-frame-effects!`
+;; installs both partitions before `run-fx-effects!` walks `:fx`, which is
+;; exactly the ordering the re-arm needs, since it reads the just-installed
+;; snapshots. Deliberately NOT a state-entry replay — see
+;; `re-frame.machines.hydrate`.
 (rf.fx/reg-fx :rf.machine/hydrate-rearm
-  {:doc "Machine-internal: reconstruct the host `:after` timer table for the frame's just-hydrated machine snapshots, at each snapshot's existing `:rf/after-epoch` and without replaying entry effects. Per Spec 011 §`:after` is no-op under SSR (\"`:after` timers begin running on the client\"). Not for direct application use."}
+  {:doc "Machine-internal: reconstruct the host `:after` timer table for the frame's just-installed machine snapshots, at each snapshot's existing `:rf/after-epoch` and without replaying entry effects. Emitted by `:rf/hydrate` (per Spec 011 §`:after` is no-op under SSR: \"`:after` timers begin running on the client\") and by `:rf/install-frame-state` (per Spec 002 §Installing a persisted frame-state). Not for direct application use."}
   (fn [{frame-id :frame} _args]
     (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
           ;; stamp is an invariant failure (`:rf.error/no-frame-context`),

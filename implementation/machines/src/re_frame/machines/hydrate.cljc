@@ -233,10 +233,12 @@
   "RECONCILE the host-side `:after` timer table for `frame-id` to the
   machine snapshots its runtime-db currently holds. The body behind the
   `:machines/rearm-after-hydration!` late-bind hook and the
-  `:rf.machine/hydrate-rearm` fx; called ONLY after a valid `:rf/hydrate`
-  has committed the payload's runtime-db.
+  `:rf.machine/hydrate-rearm` fx; called ONLY after one of the two framework
+  installers has committed its runtime-db — a valid `:rf/hydrate` (the SSR
+  payload) or a valid `:rf/install-frame-state` (an app's persisted
+  frame-state, whose machines subtree is the snapshots it saved).
 
-  A reconcile, not a union. `:rf/hydrate` replaces runtime-db WHOLESALE
+  A reconcile, not a union. An installer replaces the machines subtree WHOLESALE
   while the timer table — host state — survives the replacement untouched,
   so arming the replacement's live declarations is only half of it. The
   frame may hold timers from before the hydration, or from an earlier
