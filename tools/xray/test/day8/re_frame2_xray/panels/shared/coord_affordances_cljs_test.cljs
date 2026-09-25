@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.panels.shared.coord-affordances-cljs-test
   "Behavioural hiccup tests for the two shared click-to-source
   affordances — `coord-link` (label-as-link) and `coord-chip`
-  (icon-only) — per rf2-3t7rs8 finding 3.
+  (icon-only).
 
-  ## What was unpinned
+  ## What this pins
 
   `click_to_source_consolidation_test.clj` is a SOURCE-TEXT guard (it
   greps for bespoke dispatches). `open_in_editor_cljs_test.cljs` covers
   the reg-event RECEIVER and the static `open-chip` anchor — NOT the
-  rendering / click branches of these two shared helpers. So the
-  load-bearing render contract was never exercised:
+  rendering / click branches of these two shared helpers. Without this
+  suite the load-bearing render contract would go unexercised:
 
     - valid coord renders a clickable `<button>`
     - missing / `:file`-less coord degrades (link → plain `<span>`,
@@ -28,7 +28,7 @@
   `:on-click` off the rendered attrs and invoking it with a stub event
   (a JS object whose `stopPropagation` flips an atom) and a captured
   `:dispatch-fn` (an atom-collector) supplied via opts — both helpers
-  expose `:dispatch-fn` as the rf2-r0o63 frame-aware override seam, so
+  expose `:dispatch-fn` as the frame-aware override seam, so
   no real frame / dispatch bus is touched."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
@@ -44,7 +44,7 @@
 
 (defn- capturing-dispatch
   "Returns `[dispatch-fn calls-atom]`. The fn captures every event
-  vector it's handed (the rf2-r0o63 `:dispatch-fn` override seam)."
+  vector it's handed (the `:dispatch-fn` override seam)."
   []
   (let [calls (atom [])]
     [(fn [ev] (swap! calls conj ev)) calls]))
@@ -56,7 +56,7 @@
 ;; =========================================================================
 
 (deftest coord-link-renders-clickable-button-for-valid-coord
-  (testing "rf2-3t7rs8 — a valid coord renders a `<button>` carrying the
+  (testing "a valid coord renders a `<button>` carrying the
             testid, aria-label, and title (the `open <file>:<line> in
             editor` shape)"
     (let [[tree] [(coord-link/coord-link coord "open" "tid-link")]
@@ -70,7 +70,7 @@
       (is (fn? (:on-click attrs)) "click handler present"))))
 
 (deftest coord-link-degrades-to-span-when-coord-missing
-  (testing "rf2-3t7rs8 — nil coord (or one without :file) degrades to a
+  (testing "nil coord (or one without :file) degrades to a
             plain `<span>` carrying the SAME testid, with no click
             affordance — a missing coord is non-clickable label text,
             not a dead button"
@@ -83,7 +83,7 @@
             "fallback span has no click handler")))))
 
 (deftest coord-link-glyph-ordering
-  (testing "rf2-3t7rs8 — the glyph knobs: default appends the glyph
+  (testing "the glyph knobs: default appends the glyph
             AFTER the label (`label ↗`); :glyph-leading? leads with it
             (`↗ label`); :glyph? false renders the label ALONE"
     ;; default: [label glyph]
@@ -103,7 +103,7 @@
       (is (= ["L"] body) "glyph? false: label alone, no glyph"))))
 
 (deftest coord-link-click-stops-propagation-and-dispatches
-  (testing "rf2-3t7rs8 — clicking the link stops event propagation (so an
+  (testing "clicking the link stops event propagation (so an
             enclosing row handler doesn't also fire) and dispatches
             `[:rf.xray/open-in-editor {:source-coord coord}]` through the
             captured `:dispatch-fn`"
@@ -122,7 +122,7 @@
 ;; =========================================================================
 
 (deftest coord-chip-renders-button-for-valid-coord
-  (testing "rf2-3t7rs8 — a valid coord renders a focusable `<button>`
+  (testing "a valid coord renders a focusable `<button>`
             with the canonical aria-label / title (`open in editor`) and
             the supplied testid"
     (let [tree (coord-chip/coord-chip coord "tid-chip")
@@ -134,7 +134,7 @@
       (is (fn? (:on-click attrs)) "click handler present"))))
 
 (deftest coord-chip-returns-nil-when-coord-missing
-  (testing "rf2-3t7rs8 — nil coord (or one without a usable :file)
+  (testing "nil coord (or one without a usable :file)
             returns nil so call-sites can drop the chip cleanly (the
             chip has no plain-text fallback — that's the link's job)"
     (doseq [bad [nil {} {:line 5} {:file ""}]]
@@ -142,7 +142,7 @@
           (str "no usable :file → nil for " (pr-str bad))))))
 
 (deftest coord-chip-applies-pixel-knob-overrides
-  (testing "rf2-3t7rs8 — :color and :margin-left opts overlay the hoisted
+  (testing ":color and :margin-left opts overlay the ns-level
             base style; defaults are inherit / 4px"
     (let [default-style (-> (coord-chip/coord-chip coord "tid") second :style)
           override-style (-> (coord-chip/coord-chip coord "tid"
@@ -155,7 +155,7 @@
       (is (= "6px" (:margin-left override-style)) "override margin applied"))))
 
 (deftest coord-chip-click-stops-propagation-and-dispatches
-  (testing "rf2-3t7rs8 — clicking the chip stops propagation and
+  (testing "clicking the chip stops propagation and
             dispatches the open-in-editor event through the captured
             `:dispatch-fn`"
     (let [stopped?     (atom false)
@@ -173,7 +173,7 @@
 ;; =========================================================================
 
 (deftest open-in-editor!-stops-propagation-and-routes-through-dispatch-fn
-  (testing "rf2-3t7rs8 — the shared `open-in-editor!` action (the ONE
+  (testing "the shared `open-in-editor!` action (the ONE
             dispatch every affordance funnels through) stops propagation
             and routes the event through the supplied dispatch-fn"
     (let [stopped?     (atom false)
@@ -183,7 +183,7 @@
       (is (= [[:rf.xray/open-in-editor {:source-coord coord}]] @calls)))))
 
 (deftest open-in-editor!-tolerates-nil-event
-  (testing "rf2-3t7rs8 — `open-in-editor!` guards the `.stopPropagation`
+  (testing "`open-in-editor!` guards the `.stopPropagation`
             on event presence, so a nil event (a programmatic invoke
             with no DOM event) does not throw; the dispatch still fires"
     (let [[disp calls] (capturing-dispatch)]
