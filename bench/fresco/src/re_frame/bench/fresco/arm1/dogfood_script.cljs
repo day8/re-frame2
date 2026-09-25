@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.dogfood-script
-  "THE ONE REAL-DOM INTENT SCRIPT for the dogfood screen (rf2-2rtt6.67),
+  "THE ONE REAL-DOM INTENT SCRIPT for the dogfood screen,
   and the intents it is EXPECTED to dispatch.
 
   Written once, driven by everything that wants to ask whether a
@@ -8,16 +8,14 @@
   - `arm1_dogfood_dom_cljs_test` drives it at the collector rendering and
     at raw UIx, and asserts the two captures equal each other and equal
     [[interaction-intents]];
-  - `ssr/spike_dom_cljs_test` (rf2-2rtt6.87, X4) drives it at the
+  - `ssr/spike_dom_cljs_test` (X4) drives it at the
     HYDRATED screen, and asserts the capture equals the same vector.
 
-  It lives here rather than in whichever file happened to need it first
-  because the script's SIZE is part of every claim made with it. A
-  merged-PR audit (#7395) found an equivalence published over eight
-  handler sites while the script drove five; the repair was to drive all
-  eight and to carry the coverage map beside the steps. A second copy of
-  the script is a second thing that can shrink without its claim
-  shrinking with it.
+  It lives here, once, because the script's SIZE is part of every claim
+  made with it: an equivalence published over eight handler sites holds
+  only while the script drives all eight, so the coverage map is carried
+  beside the steps. A second copy of the script is a second thing that
+  can shrink without its claim shrinking with it.
 
   ## What the script is made of, and why not Playwright
 
@@ -105,9 +103,7 @@
   drain revealed.
 
   **Every handler site the screen has, and every branch of both key-maps,
-  is driven here** (rf2-2rtt6.67, merged-PR audit of #7395 — the first
-  cut left three unexercised while the page claimed equivalence over all
-  of them). The eight sites against the steps that reach them:
+  is driven here.** The eight sites against the steps that reach them:
 
   | Handler site | Steps |
   |---|---|
@@ -139,7 +135,7 @@
    #(type-into! (q1 handle "[data-id=\"0\"] .draft") "x")  ; 11
    #(keydown! (q1 handle "[data-id=\"0\"] .draft") {:key "Escape" :composing? false :key-code 27}) ; 12
    ;; 13, 14 — a row draft taken all the way to a COMMIT, the row key-map's
-   ;; branch the first cut never drove.
+   ;; Enter branch.
    #(type-into! (q1 handle "[data-id=\"3\"] .draft") "renamed")
    #(keydown! (q1 handle "[data-id=\"3\"] .draft") {:key "Enter" :composing? false :key-code 13})
    #(.click (q1 handle "[data-id=\"2\"] .remove"))         ; 15
