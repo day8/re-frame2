@@ -1,17 +1,15 @@
 (ns re-frame.bench.fresco.ledger-frame-clock-app
   "THE LEDGER'S PER-FRAME CLOCK — a run of consecutive frames under a
-  sustained scroll, on the witness application `U4` is stated over
-  (rf2-xc0bw).
+  sustained scroll, on the witness application `U4` is stated over.
 
       FRESCO_INIT_FN=re-frame.bench.fresco.ledger-frame-clock-app/-main \\
       FRESCO_OUT_DIR=out/fresco-ledger-frame \\
       FRESCO_PORT=8141 \\
-        node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+        node bench/fresco/src/re_frame/bench/fresco/run.cjs
 
   NO NEW BUILD ID. `run.cjs` takes its entry from `FRESCO_INIT_FN` and
-  rides `:fresco-bench`, the id the whole lane already shares, so this
-  arm costs `implementation/shadow-cljs.edn` — an HD-017 hot-zone file —
-  nothing.
+  rides `:fresco-bench`, the id the whole lane shares, so this arm adds
+  nothing to `bench/fresco/shadow-cljs.edn`.
 
   ## WHY THIS IS A THIRD DRIVER ON A THIRD PAGE
 
@@ -19,7 +17,7 @@
   *Dragging/animation stay inside frame budget*, estimand **per-frame
   latency**, and §9.4 governs it — with `U1`–`U3` — on a witness
   application under `implementation/fresco/test/re_frame/fresco/
-  examples/`. Both landed clock drivers sit on the SLICE, and the slice
+  examples/`. The lane's two other clock drivers sit on the SLICE, and the slice
   publishes no drag and no animation: every interaction it has is
   discrete — a keystroke, a click, a select.
   Both siblings say so at source rather than leaving it to be
@@ -32,8 +30,8 @@
   - **A per-frame estimator driven by repeating a discrete interaction
     once a frame** would publish a scripted repetition of a discrete
     interaction against a line written about a continuous one — the same
-    class of error the first driver exists to have stopped making, which
-    was a `p95` of a mount published against a line about a paint.
+    class of error as a `p95` of a mount published against a line about a
+    paint, which the first driver exists to prevent.
   - **Adding a drag to the slice** would move the population. `U1`–`U4`
     are governed on the application's OWN interactions, not on
     interactions added to reach a row.
@@ -87,14 +85,13 @@
   per visit rather than a number reuses the schedule at the one level
   where it is stated, instead of re-deriving `(count arms)`,
   `rf.bench.fresco.lane/slot-order` and the warm-up boundary here. `rf.bench.fresco.lane/visit-plan`
-  prices what a second copy of the schedule has cost this lane: the
-  `k = 2` degeneracy that survived a fix to its own sibling, and the
-  predecessor tagging that was repaired twice privately while ten apps
-  riding the shared loop kept the fault.
+  prices what a second copy of the schedule costs: a fix made to one copy
+  leaves the fault standing in every other.
 
   One guard sample is banked per VISIT — that visit's median interval —
-  so `rf.bench.fresco.lane/collect!`'s `:position` still counts visits across the whole
-  run and `:predecessor` still names the arm that ran immediately before.
+  so `rf.bench.fresco.lane/collect!`'s `:position` counts visits across the whole
+  run and `:predecessor` names the arm that ran immediately before, as on
+  the lane's own loops.
 
   ## WHAT CARRIES THE CLAIM THAT THESE ARE FRAMES UNDER A REAL SCROLL
 
@@ -125,10 +122,10 @@
      [[advance-discrimination!]] takes one idle run and one scroll run
      before anything is measured and requires the first to REFUSE and the
      second to VERIFY. The second half is the one that earns its cost:
-     `ledger.virtualized-dom-cljs-test` records two runs of its own that
-     set `scrollTop`, watched the `scrollTop` assertion pass, and found
-     the window unmoved because the notification never reached the
-     vendor. A driver that met that would otherwise publish the box's
+     `ledger.virtualized-dom-cljs-test` documents exactly this state — a
+     `scrollTop` write whose own assertion passes while the window stays
+     unmoved, because the notification never reached the vendor. A driver
+     that met that would otherwise publish the box's
      frame grid on all three arms for four minutes before saying so.
 
   5. THE POSITIVE CONTROL, whose prediction is a FLOOR — described next.
@@ -258,8 +255,8 @@
   only pass/fail it makes are the verification tally and the control, and
   §2's rule holds for both: they are structural, not distributional.
 
-  **No ledger cell moves.** `U4` stays `UNPINNED` until a window runs on
-  this driver, and what that window still owes is a reading — not a
+  **The driver itself moves no ledger cell.** `U4` stays `UNPINNED` until
+  a window runs on it, and what that window owes is a reading — not a
   driver.
 
   ## WHAT THIS DRIVER DOES NOT SERVE, STATED RATHER THAN LEFT TO BE FOUND
@@ -279,9 +276,7 @@
 
   There is no DOM self-test beside this file. `slice-echo-clock-app` has
   one; this one is owed, and its absence is why every structural claim
-  above is made by a check the RUN performs rather than by a suite row.
-
-  Owner: rf2-xc0bw."
+  above is made by a check the RUN performs rather than by a suite row."
   (:require [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
@@ -305,12 +300,12 @@
   rf.fresco.examples.ledger.events/default-total)
 
 (def sampling
-  "Per-round warm-up and measured counts. `rf2-h904p`'s values and both
+  "Per-round warm-up and measured counts. The lane's values and both
   siblings', carried rather than chosen: a figure taken on a different
   schedule from the rows it sits beside is a comparison a reader has to
   reconcile before they can read it.
 
-  **What is different here, and is carried anyway.** `rf2-h904p`'s
+  **What is different here, and is carried anyway.** The lane's
   argument for `:warmup 8` is that it puts the +27% step this lane sees
   after a site's SIXTH EXECUTION inside the warm-up — an argument about
   visits, on a driver whose visit is one window. A visit here is
@@ -416,9 +411,9 @@
   "Which visits each published figure is taken over.
 
   A def rather than a literal inside [[take-plan!]] so the claim is
-  citable: the audit that reopened `rf2-xa8wo` found a decomposition
-  published over a larger population than the summary it was described as
-  decomposing, and a label nobody can assert is how that recurs."
+  citable: a decomposition published over a larger population than the
+  summary it is described as decomposing is the error a label nobody can
+  assert lets through."
   {:summary  :measured-visits
    :entry    :measured-visits
    :advance  :all-visits})
@@ -1062,10 +1057,9 @@
 
   A floor of zero or less is cleared by any reading whatever, and a
   control with no rounds is the same thing said with no data.
-  `rf.bench.fresco.lane/control-verdict-strict` refuses both and prices the incident that
-  put the rule there: a walk profile shipped a control whose own
-  prediction had gone vacuous and reported that it saw what it never
-  predicted.
+  `rf.bench.fresco.lane/control-verdict-strict` refuses both, because a
+  control whose own prediction has gone vacuous reports that it saw what
+  it never predicted.
 
   ## `:versus-floor` is CONTEXT and not a line
 
