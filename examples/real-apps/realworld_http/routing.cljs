@@ -193,7 +193,7 @@
 ;;                                whose `GET /user` is still in flight: the
 ;;                                reader may well be signed in, and bouncing them
 ;;                                to login here is the bug this branch exists to
-;;                                prevent (rf2-k85nd). Nothing has committed —
+;;                                prevent. Nothing has committed —
 ;;                                denial is terminal — so no protected page,
 ;;                                `:on-match`, or data has been exposed while we
 ;;                                wait. `:auth/settle-deferred-entry` (auth.cljs)
