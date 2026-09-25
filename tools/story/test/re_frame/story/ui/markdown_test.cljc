@@ -1,7 +1,6 @@
 (ns re-frame.story.ui.markdown-test
-  "Pure CLJC coverage of the inline markdown → hiccup parser
-  (rf2-wl7yr, audit C-2). Lives behind the JVM `clojure -M:test`
-  runner — no DOM, no Reagent.
+  "Pure CLJC coverage of the inline markdown → hiccup parser. Lives
+  behind the JVM `clojure -M:test` runner — no DOM, no Reagent.
 
   The renderer in `re-frame.story.ui.docs/prose-section` and
   `re-frame.story.ui.workspace/prose-block` are thin projections
