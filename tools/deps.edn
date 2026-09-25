@@ -1,8 +1,7 @@
-;; Top-level tools coordinator (rf2-nuuk3).
+;; Top-level tools coordinator.
 ;;
-;; The published artefacts, grouped by the channel they actually ship
-;; on — the three are gated differently and the flat list this note
-;; used to carry hid that (rf2-gugc3):
+;; The published artefacts, grouped by the channel they ship on, because
+;; the three channels are gated differently:
 ;;
 ;;   Clojars, per-tool tag, in the lockstep inventory
 ;;   (.github/scripts/verify-version-lockstep.sh TOOLS — these five and
@@ -16,8 +15,8 @@
 ;;   Each of those five has a release workflow. story, story-mcp and
 ;;   mcp-base share ONE glob (`story-v*`, release-story.yml) because
 ;;   they are a shipping set with a dependency order between them:
-;;   mcp-base and story deploy first, story-mcp last (rf2-4u3t1,
-;;   rf2-2ii52). xray and machines-viz have a glob each.
+;;   mcp-base and story deploy first, story-mcp last. xray and
+;;   machines-viz have a glob each.
 ;;
 ;;   npm, not Clojars, no :clein/build, deliberately outside the
 ;;   lockstep inventory:
@@ -25,7 +24,7 @@
 ;;
 ;;   git coordinate on a template-v* tag, not Clojars, guarded by its
 ;;   own in-template version_lockstep_test.clj rather than by the
-;;   repo-level script (rf2-40vmd / rf2-dolpf §2.5):
+;;   repo-level script:
 ;;   - template/     (day8/re-frame2-template)
 ;;
 ;; see tools/xray/deps.edn, tools/machines-viz/deps.edn,
@@ -34,54 +33,36 @@
 ;; tools/template/deps.edn. The operational runbook for all of it is
 ;; docs/release-process.md §The tools tier.
 ;;
-;; Other tool directories (machines-viz-mcp/, mcp-conformance/) are
-;; spec-only or Node-only today — no `deps.edn` / CLJ surface to
-;; coordinate. They will be added here when their `src/` trees land.
-;; The Node-side `tools/mcp-conformance/wire-vocab/deps.edn` is a
-;; self-contained JVM conformance test; it is run from its own
-;; directory and is not coordinated here.
+;; tools/mcp-conformance/ is Node-side and publishes no artefact to
+;; coordinate. Its `wire-vocab/deps.edn` is a self-contained JVM
+;; conformance test; it is run from its own directory and is not
+;; coordinated here.
 ;;
-;; ## machines-viz is shipped (rf2-o9arp), NOT collapsed (rf2-z0cw6s)
+;; ## machines-viz is its own published artefact
 ;;
-;; A prior note here said `tools/machines-viz/` had been COLLAPSED
-;; (rf2-yamkm — Mermaid relocated, chart role absorbed by Xray). That is
-;; STALE. rf2-o9arp REVIVED machines-viz as its own published artefact:
 ;; `tools/machines-viz/deps.edn` declares real `:paths ["src"]`, a
 ;; runtime transit-cljs dep, a `:test` alias, and a `:clein/build` for
 ;; `day8/re-frame2-machines-viz` with the SAME lockstep posture as Xray.
-;; Xray now CONSUMES machines-viz (its Machine Inspector re-exports the
+;; Xray CONSUMES machines-viz (its Machine Inspector re-exports the
 ;; chart via thin shims), rather than owning the chart. The Mermaid
-;; emitter lives in THIS jar again (rf2-sqhqu), not implementation/machines.
+;; emitter lives in THIS jar, not implementation/machines.
 ;;
-;; ## What this file is — and what it is NOT (rf2-6r9j.139 / .140)
+;; ## What this file is — and what it is NOT
 ;;
 ;; A CLASSPATH coordinator, and nothing more: `:paths []` plus one
 ;; `:local/root` per tool artefact, so a REPL started from `tools/` sees the
 ;; whole tool tier on one classpath. It is not a published artefact and it
 ;; declares NO test alias.
 ;;
-;; It used to carry an aggregate `:test` alias advertised as covering "every
-;; JVM-runnable tool". It did not. Its `:extra-paths` and runner `-d` list
-;; named only xray, mcp-base, story, story-mcp and template, while
-;; machines-viz (whose `engine_grammar_parity_test.cljc` and
-;; `mermaid_public_smoke_test.cljc` have no other JVM lane),
-;; testbed-support and mcp-conformance/wire-vocab were silently absent —
-;; and no CI job ever ran the alias, so nothing could make the drift red. A
-;; developer running the advertised single-command sanity check got a green
-;; that skipped live JVM-only contracts.
+;; The tool-tier JVM command is `scripts/test-jvm-tools.sh`, the roster that
+;; scripts/check_jvm_lane_rosters.py holds against the required CI jobs. An
+;; aggregate `:test` alias here would be a second hand-written inventory
+;; that no CI job runs, so nothing would turn its drift red, and a developer
+;; running it would get a green that skips live JVM-only contracts.
 ;;
-;; The roster that IS maintained, and IS held against the required CI jobs by
-;; scripts/check_jvm_lane_rosters.py, is `scripts/test-jvm-tools.sh`. That is
-;; the tool-tier JVM command. A second hand-written inventory beside it bought
-;; a convenience whose only distinguishing property was being wrong, so it is
-;; gone rather than duplicated more carefully (rf2-6r9j.139).
-;;
-;; A sibling `tools/shadow-cljs.edn` retired with it for the same reason
-;; (rf2-6r9j.140): it mirrored two of Pair MCP's builds, never grew the
-;; `descriptor-gen` build Pair added afterwards nor the CLJS lanes mcp-base
-;; and machines-viz added, and had no workflow, npm script or gate invoking
-;; it. Every tool with a CLJS surface owns an adjacent `shadow-cljs.edn`, and
-;; those are what CI and the npm scripts already run.
+;; There is no `tools/shadow-cljs.edn` for the same reason: every tool with a
+;; CLJS surface owns an adjacent `shadow-cljs.edn`, and those are what CI and
+;; the npm scripts run.
 ;;
 ;; ## Why template is NOT in the base :deps map
 ;;
