@@ -59,6 +59,8 @@ Everything else is reached at home. `ssr/render-to-string`, `ssr/render-tree-has
     - Raises:
         - `:rf.error/ssr-ui-tree-version-unsupported` — the root `:rf.ui/tree-version` is missing, non-integer, or unsupported. Checked **first**, before any emission, and carries `{:got <received> :supported #{1}}`. This is a deploy-skew condition: the server is older than the tree it was handed.
         - `:rf.error/ui-tree-malformed` — a structurally invalid node past the version gate. The shared tree-consumer id, signalling a code bug rather than skew.
+        - `:rf.error/invalid-tag-name` — an element's `:tag` is outside the HTML5/SVG/MathML element-name grammar. The tag is read as an element name as it stands, never as `.class#id` shorthand, and is refused before any markup is composed.
+        - `:rf.error/ssr-invalid-attribute-name` — an emitted attribute name is outside the HTML5 attribute-name grammar. Names are checked after the conversion table, because a name is written into the tag unescaped.
 - **Example**:
   ```clojure
   ;; The tree arrives already rendered; this call only folds it to markup.
