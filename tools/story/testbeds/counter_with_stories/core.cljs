@@ -20,7 +20,7 @@
             [day8.re-frame2-xray.config :as xray-config]
             ;; Source the events + subs + views via the stories ns,
             ;; which itself requires them. When Story is elided the
-            ;; stories ns still loads (it's a regular CLJS ns) but
+            ;; stories ns loads (it's a regular CLJS ns) but
             ;; every reg-* expansion elides to nil.
             [counter-with-stories.views :as views]
             ;; Privacy + Size elision demo. Requiring the ns fires
@@ -68,7 +68,7 @@
   ;; Story owns this page's full-width browser-test canvas. When the
   ;; Xray preload is present in shared dev test runs, keep its trace
   ;; collectors/API/keybinding installed but skip the default panel
-  ;; launch; app pages that want Xray inline still provide the normal
+  ;; launch; app pages that want Xray inline provide the normal
   ;; `[data-rf-xray-host]` contract.
   (xray-config/configure! {:rf.xray/auto-open? false})
   (rf/init! rf.adapter.reagent/adapter)
@@ -91,7 +91,7 @@
   ;; `:rf/default` frame is already `make-frame`'d above).
   ;;
   ;; EP-0025: durable app-db size/sensitivity classification rides the
-  ;; commit-plane classification effects (the frame annotation is removed).
+  ;; commit-plane classification effects (there is no frame annotation).
   ;; The frame is registered plain; the `[:user/avatar-pdf]` slot is classified
   ;; LARGE by the `:counter/classify-avatar-large` event dispatched in the boot
   ;; scope below, so the slot elides to the `:rf.size/large-elided` marker at
