@@ -12,38 +12,37 @@
   file. The `.cljc` sibling stays the home for the deep-merge / resolve
   pure-data tests that round-trip through both JVM and CLJS.
 
-  ## Why there is ALSO a `_dom_cljs_test.cljs` sibling (rf2-r51p)
+  ## Why there is ALSO a `_dom_cljs_test.cljs` sibling
 
   `re-frame.story.xray-preset-dom-cljs-test` owns the one contract this
   lane cannot state: that `wire-cross-host!` REMOVES the keydown
   listener. `keybinding/attach!` and `keybinding/detach!` both open with
   `(exists? js/document)`, and this runtime has no document, so nothing
   can attach here and an `attached?` assertion would pass without
-  meaning anything — which is exactly what it did until rf2-r51p (see
-  the note above `wire-cross-host-flips-the-keybinding-slot` below).
+  meaning anything (see the note above
+  `wire-cross-host-flips-the-keybinding-slot` below).
   Only a namespace ending `-dom-cljs-test` is loaded by `:browser-test`,
   which is the sole lane with a real document.
 
   ## Coverage
 
-  - `disable-keybinding!` (rf2-q7who.1): writes
+  - `disable-keybinding!`: writes
     `{:rf.xray/keybinding-enabled? false}` into Xray's config slot via
     its `configure!` surface. Verified directly against Xray's
     config-atom in the node-test build (Xray's source path is on the
     test classpath) and via a shimmed `configure!` fn that captures
     the call payload.
-  - `detach-keybinding!` (rf2-ycrt2): drives Xray's
+  - `detach-keybinding!`: drives Xray's
     `keybinding/detach!` so the listener Xray's preload installed
     under the default-true posture is removed at runtime (the slot
     alone is read only at attach time).
-  - `wire-cross-host!` (rf2-q7who.1 + rf2-ycrt2): calls
+  - `wire-cross-host!`: calls
     `disable-keybinding!` then `detach-keybinding!` as part of the
     cross-host bridge so Story's RHS-mounted Xray never swallows the
     host's Cmd/Ctrl+K command palette — both the intent declaration
     (slot flip) and the runtime mechanism (detach!) fire together.
-    (rf2-ee38b.3 removed the DEPRECATED `ensure-xray-mounted!` shim;
-    the legacy whole-shell-open composes
-    `(do (wire-cross-host!) (apply-open!))` directly.)"
+    (A whole-shell open composes `(do (wire-cross-host!) (apply-open!))`
+    directly.)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as xray-config]
             [day8.re-frame2-xray.filters.typed-predicates :as xray-typed]
@@ -62,9 +61,9 @@
 ;;
 ;; Self-sufficient setup: this namespace installs its own adapter and
 ;; canonical vocabulary rather than relying on an earlier namespace
-;; having called `init!`. Story has a documented false-green history
-;; where a suite only passed because a neighbour had seated the adapter
-;; first; the per-ns isolation gate exists to catch exactly that.
+;; having called `init!`. A suite that passes only because a neighbour
+;; seated the adapter first is a false green; the per-ns isolation gate
+;; exists to catch exactly that.
 
 (defn reset-all! []
   (rf.story/clear-all!)
@@ -76,7 +75,7 @@
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
-;; ---- Xray-side helpers (rf2-q5pd6) --------------------------------------
+;; ---- Xray-side helpers ---------------------------------------------------
 ;;
 ;; The `:filters` tests assert against Xray's REAL `:active-filters`
 ;; slot, so they need Xray's handler set + the `:rf/xray` frame. This is
@@ -151,7 +150,7 @@
   (testing "disable-keybinding! calls Xray's configure! with the exact slot map"
     ;; Belt-and-braces test: redef Xray's `configure!` var directly
     ;; (the bridge calls it through a declared `:require`, not a
-    ;; runtime symbol lookup — rf2-r8trk) so we capture the exact opts
+    ;; runtime symbol lookup) so we capture the exact opts
     ;; map. Guards the payload shape against accidental extras / typos.
     (let [captured (atom nil)]
       (with-redefs [xray-config/configure!
@@ -161,12 +160,12 @@
         (is (= {:rf.xray/keybinding-enabled? false} @captured)
             "configure! is called with exactly the keybinding-disable slot")))))
 
-;; ---- detach-keybinding! (rf2-ycrt2) --------------------------------------
+;; ---- detach-keybinding! --------------------------------------------------
 
 (deftest detach-keybinding-drives-xray-keybinding-detach
   (testing "detach-keybinding! removes Xray's global keydown listener"
     ;; Belt-and-braces test: redef Xray's `detach!` var directly. The
-    ;; bridge calls it through a declared `:require` (rf2-r8trk), so
+    ;; bridge calls it through a declared `:require`, so
     ;; the assertion mirrors that direct-reference contract rather
     ;; than a runtime symbol lookup.
     (let [called? (atom false)]
@@ -177,11 +176,10 @@
         (is (true? @called?)
             "keybinding/detach! was driven by the bridge")))))
 
-;; ---- wire-cross-host! drives the bridges (rf2-ee38b.3) -------------------
+;; ---- wire-cross-host! drives the bridges ---------------------------------
 ;;
-;; The shim `ensure-xray-mounted!` was removed; the legacy whole-shell
-;; open is `(do (wire-cross-host!) (apply-open!))`. These tests pin the
-;; same bridge ordering against that composition.
+;; A whole-shell open is `(do (wire-cross-host!) (apply-open!))`. These
+;; tests pin the bridge ordering against that composition.
 
 (deftest wire-cross-host-disables-keybinding
   (testing "wire-cross-host! drives disable-keybinding! + detach-keybinding!;
@@ -210,7 +208,7 @@
             "the composed open still fires (keybinding wire-up does not break mount)")))))
 
 (deftest wire-cross-host-sequences-slot-then-detach
-  (testing "rf2-ycrt2 — wire-cross-host! flips the slot BEFORE removing
+  (testing "wire-cross-host! flips the slot BEFORE removing
             the listener; sequencing matters because a host (or test
             runner) inspecting the slot mid-flow must always see the
             declared intent. We capture the order via a shared log and
@@ -228,13 +226,13 @@
             "slot flip (intent) lands before detach! (runtime removal)
              which lands before the composed apply-open!")))))
 
-;; ---- runtime integration: the slot half (rf2-ycrt2) ----------------------
+;; ---- runtime integration: the slot half ----------------------------------
 ;;
-;; rf2-r51p SPLIT THIS ROW, AND THE HALF THAT LEFT WAS A FALSE GREEN.
-;;
-;; What stood here drove `wire-cross-host!` for real and then asserted
-;; BOTH halves of the contract — the slot flip and the listener removal.
-;; Only the `attach!` PRECONDITION was guarded:
+;; This lane can prove only the SLOT half of `wire-cross-host!`'s contract.
+;; It has no document (no jsdom or happy-dom in any dependency list), and
+;; `attach!` opens with `(exists? js/document)`, so nothing ever installs a
+;; listener here. A row asserting BOTH halves with only the `attach!`
+;; PRECONDITION guarded —
 ;;
 ;;     (when (exists? js/document)
 ;;       (xray-keybinding/attach!)
@@ -243,27 +241,21 @@
 ;;     (is (false? (xray-keybinding/attached?))
 ;;         "wire-cross-host! removed the listener")
 ;;
-;; This lane has no document (no jsdom or happy-dom in any dependency
-;; list), so the precondition never ran, `attach!` — which opens with
-;; `(exists? js/document)` — never installed anything, and the UNGUARDED
-;; assertion below it then read `(false? false)` and PASSED. It had been
-;; reporting a removed listener to CI on every PR without one ever being
-;; installed. The guarded row was dead; the live row it hollowed out was
-;; worse, because a dead row merely fails to cover — a hollow one claims
-;; to.
+;; — would skip the precondition, read `(false? false)` in the UNGUARDED
+;; assertion and PASS, reporting a removed listener that was never
+;; installed. A dead row merely fails to cover; a hollow one claims to.
 ;;
-;; The listener half now lives in `re-frame.story.xray-preset-dom-cljs-test`,
+;; The listener half lives in `re-frame.story.xray-preset-dom-cljs-test`,
 ;; where a real document makes `attach!` and `detach!` reach their bodies.
-;; What stays here is the half this lane can actually prove: the slot flip
-;; is plain atom arithmetic and needs no host.
+;; The slot flip is plain atom arithmetic and needs no host.
 
 (deftest wire-cross-host-flips-the-keybinding-slot
-  (testing "rf2-ycrt2 — wire-cross-host! drives the REAL (unshimmed)
+  (testing "wire-cross-host! drives the REAL (unshimmed)
             disable-keybinding!, so Xray's :rf.xray/keybinding-enabled?
             slot reads false afterwards. That is the INTENT declaration.
             The RUNTIME half — that the keydown listener attach!
             installed is actually removed — cannot be asserted on this
-            lane and lives in the -dom-cljs-test sibling (rf2-r51p)."
+            lane and lives in the -dom-cljs-test sibling."
     ;; Restore baseline so the flip is a real transition rather than a
     ;; read of a slot that was already false.
     (xray-config/set-keybinding-enabled! true)
@@ -272,8 +264,8 @@
     (try
       ;; Drive the cross-host bridge for real — `disable-keybinding!`
       ;; and `detach-keybinding!` reference Xray's live config /
-      ;; keybinding namespaces through declared `:require`s
-      ;; (rf2-r8trk), so no availability shim is needed. No shell mount
+      ;; keybinding namespaces through declared `:require`s, so no
+      ;; availability shim is needed. No shell mount
       ;; happens — `wire-cross-host!` never calls `apply-open!`.
       (rf.story.xray-preset/wire-cross-host!)
       (is (false? (xray-config/keybinding-attach-enabled?))
@@ -284,17 +276,15 @@
 
 ;; ---- apply-preset! -------------------------------------------------------
 ;;
-;; rf2-r8trk moved the three tests below out of the `.cljc` sibling
-;; `re-frame.story.xray-preset-test`. That namespace does not match the
-;; `:node-test` build's `cljs-test$` ns-regexp, so its `#?(:cljs …)`
-;; blocks ran on no host at all — dead code that read as coverage.
+;; `apply-preset!`'s CLJS rows live here rather than in the `.cljc`
+;; sibling `re-frame.story.xray-preset-test`. That namespace does not
+;; match the `:node-test` build's `cljs-test$` ns-regexp, so `#?(:cljs …)`
+;; blocks there would run on no host at all — dead code that reads as
+;; coverage.
 ;;
-;; rf2-r8trk also retired a fourth, `cljs-apply-preset-no-xray-no-op`:
-;; it shimmed `xray-available?` to `false` to exercise an absent-Xray
-;; posture the artefact cannot reach. `day8/re-frame2-xray` is a
+;; No row exercises an absent-Xray posture: `day8/re-frame2-xray` is a
 ;; declared Story dependency, so a build that resolves
-;; `re-frame.story.xray-preset` has already resolved Xray's mount ns,
-;; and the predicate it shimmed no longer exists.
+;; `re-frame.story.xray-preset` has already resolved Xray's mount ns.
 
 (deftest apply-preset-nil-on-missing-preset
   (testing "no :xray slot → no work, returns nil"
@@ -305,18 +295,13 @@
       {:doc "v"})
     (is (nil? (rf.story.xray-preset/apply-preset! :story.nilpre/v)))))
 
-;; ---- :filters preset drives Xray's real filter surface (rf2-q5pd6) -------
-;;
-;; Before this bead the `:filters` slot was accepted by the schema,
-;; produced no validation error, and did nothing: `apply-filters!` probed
-;; `day8.re-frame2-xray.filters.config/configure!`, a namespace Xray has
-;; never shipped, so the detect was permanently false and every non-empty
-;; preset only warned.
+;; ---- :filters preset drives Xray's real filter surface -------------------
 ;;
 ;; These tests assert the REAL `:rf/xray` `:active-filters` slot and a
 ;; real matcher outcome. They deliberately do NOT assert that a
-;; `configure!` shim was called — a shimmed-call assertion is exactly the
-;; shape that let an inert preset read as covered.
+;; `configure!` shim was called — a shimmed-call assertion would let an
+;; inert preset (one the schema accepts and that then does nothing) read
+;; as covered.
 
 (deftest filters-preset-lands-on-live-active-filters-slot
   (testing "a schema-valid {:out [:app/noise]} preset becomes Xray's
@@ -341,8 +326,8 @@
             "the OUT pill matches the event-bundle the story declared")
         (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/signal) pill))
             "and does not match an unrelated event")
-        ;; The regression this bead closes, stated directly: Story's
-        ;; own wire shape must not reach Xray unlowered.
+        ;; Stated directly: Story's own wire shape must not reach Xray
+        ;; unlowered.
         (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) :app/noise))
             "a BARE keyword canonicalises to :never — the inert shape")))))
 
@@ -367,13 +352,13 @@
             "the seed carries the lowered pill shape too"))
       (finally (xray-config/set-filter-seed! nil)))))
 
-;; ---- pre-first-mount: the parked set (rf2-q5pd6) -------------------------
+;; ---- pre-first-mount: the parked set -------------------------------------
 
 (deftest filters-preset-parks-then-flushes-when-frame-arrives
   (testing "an initially selected variant can resolve its preset BEFORE
             the RHS panel's first mount created :rf/xray. The lowered set
             parks and the embed's post-mount flush lands it — dropping it
-            would be the same silent no-op this bead removes."
+            would make the preset a silent no-op."
     ;; Model the pre-mount world: drain any prior park, then remove the
     ;; frame so `apply-preset!` genuinely has nowhere to dispatch.
     (install-xray-frame!)
@@ -409,7 +394,7 @@
       (is (= {:in [] :out []} (active-filters))
           "the user's cleared slot survives the second mount"))))
 
-;; ---- empty vs absent :filters (rf2-q5pd6) -------------------------------
+;; ---- empty vs absent :filters --------------------------------------------
 
 (deftest explicit-empty-filters-clears-the-slot
   (testing "a PRESENT but empty :filters map asserts the whole filter
@@ -436,14 +421,12 @@
       (is (= [{:pattern :user/pill}] (:out (active-filters)))
           "the user's pill survives a preset that says nothing about filters"))))
 
-;; ---- :panel preset selects Xray's real tab (rf2-dsbob) --------------------
+;; ---- :panel preset selects Xray's real tab -------------------------------
 ;;
-;; The `:panel` arm used to dispatch `:rf.xray/select-panel`, an event Xray
-;; stopped registering when the 4-layer shell replaced it with
-;; `:rf.xray/select-tab`. Dispatching an unregistered id raises nothing, so
-;; the slot was a silent no-op — and the only test asserted that the
-;; dispatch HAPPENED, which stayed green throughout. This test reads the
-;; OUTCOME instead: Xray's own `:rf.xray/selected-tab` sub.
+;; The `:panel` arm dispatches `:rf.xray/select-tab`. Dispatching an
+;; unregistered id raises nothing, so a test asserting only that the
+;; dispatch HAPPENED would stay green over a silent no-op. This test reads
+;; the OUTCOME instead: Xray's own `:rf.xray/selected-tab` sub.
 ;;
 ;; The preset dispatches asynchronously; the redef routes that one dispatch
 ;; through `dispatch-sync` in the frame the caller named, so the real
@@ -469,18 +452,13 @@
       (is (= :trace (selected-tab))
           "the preset's :panel reached a handler Xray actually registers"))))
 
-;; ---- project-root propagator (rf2-r1uod) ---------------------------------
+;; ---- project-root propagator ---------------------------------------------
 
 (deftest propagate-project-root-reaches-xray
   (testing "propagate-project-root! bridges Story's root into Xray's config slot"
-    ;; This test previously asserted `(false? (xray-config-available?))`
-    ;; under the comment "this test assumes Xray is NOT on the
-    ;; classpath". That claim was already untrue — the old `resolve-fn`
-    ;; namespace-property walk was returning a false-negative for a
-    ;; namespace that WAS present — and nothing caught it because the
-    ;; test never ran. Xray is now a declared dependency and the bridge
-    ;; calls `xray-config/configure!` through a direct `:require`, so
-    ;; the honest assertion is that the propagation LANDS (rf2-r8trk).
+    ;; Xray is a declared dependency and the bridge calls
+    ;; `xray-config/configure!` through a direct `:require`, so the honest
+    ;; assertion is that the propagation LANDS.
     ;;
     ;; Seed Story's project-root via configure! — exercises the whole
     ;; configure! → set-project-root! → propagator pipeline.
@@ -505,27 +483,28 @@
         "no propagation when Story's project-root is nil")))
 
 ;; ===========================================================================
-;; STATIC EXPORT — the preset drive boundary (rf2-n440v)
+;; STATIC EXPORT — the preset drive boundary
 ;; ===========================================================================
 ;;
-;; The shell's SELECTION-WATCHER has refused to drive Xray under
-;; `static-mode?` since rf2-n7lql, but it only fires on a CHANGE of
-;; selection. `hydrate-url-state!` runs earlier in the same
-;; `component-did-mount`, so an ordinary DEEP LINK arrives with its
-;; variant already selected and reached `wire-cross-host!` +
-;; `on-variant-selected!` without ever passing the watcher. A story
-;; carrying a valid `:xray {:open? true :panel :epoch}` preset therefore
-;; still attempted Xray open/panel/filter operations in a published
-;; static export, where rf2-cljo6 ruled there is deliberately no Xray at
-;; all. These tests pin the boundary at the namespace entry points, so no
-;; caller — the mount-time path included — can route around it.
+;; The shell's SELECTION-WATCHER refuses to drive Xray under
+;; `static-mode?`, but it only fires on a CHANGE of selection.
+;; `hydrate-url-state!` runs earlier in the same `component-did-mount`, so
+;; an ordinary DEEP LINK arrives with its variant already selected and
+;; reaches `wire-cross-host!` + `on-variant-selected!` without ever passing
+;; the watcher. A guard on the watcher alone would therefore let a story
+;; carrying a valid `:xray {:open? true :panel :epoch}` preset attempt
+;; Xray open/panel/filter operations in a published static export, where
+;; there is deliberately no Xray at all (`tools/story/spec/013-Static-Build.md`
+;; §Static-mode runtime semantics). These tests pin the boundary at the
+;; namespace entry points, so no caller — the mount-time path included —
+;; can route around it.
 ;;
 ;; Each test runs its DEV control FIRST, because the failure this class of
 ;; guard actually produces is an over-broad one that kills the feature in
 ;; dev as well, which a static-only assertion cannot see.
 
 (deftest drive-xray?-is-false-only-in-a-static-export
-  (testing "rf2-n440v — the single predicate both namespace entry points consult"
+  (testing "the single predicate both namespace entry points consult"
     (is (true? (rf.story.xray-preset/drive-xray?))
         "dev control: the node-test build may drive Xray")
     (with-redefs [rf.story.config/static-mode? true]
@@ -535,7 +514,7 @@
         "the redef is scoped — dev is restored afterwards")))
 
 (deftest static-export-wire-cross-host-touches-no-xray-config
-  (testing "rf2-n440v — wire-cross-host! is inert under static-mode?.
+  (testing "wire-cross-host! is inert under static-mode?.
             Asserted against Xray's REAL config slot with no shims, so this
             is an effect-level reading rather than a call-count one."
     ;; Baseline: the default-true posture, so a flip is a real transition.
@@ -553,7 +532,7 @@
         (xray-config/set-keybinding-enabled! true)))))
 
 (deftest static-export-mount-time-preset-drives-nothing
-  (testing "rf2-n440v — the MOUNT-TIME entry point a preset-bearing deep link
+  (testing "the MOUNT-TIME entry point a preset-bearing deep link
             reaches. `on-variant-selected!` applies the preset for an
             already-selected variant; under static-mode? not one of the three
             preset operations (open / panel / filters) is attempted."
