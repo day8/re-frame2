@@ -716,7 +716,7 @@ Live in-process feed of [trace events](#trace-event) at every pipeline stage —
 
 ### **trace event**
 
-One immutable record on the [trace stream](#trace-stream): `:operation`, `:op-type`, timestamp, tags (including the id that correlates a whole [pipeline run](#event-pipeline)). Filter by `:op-type`. Always-on `:errors` / `:events` records are the production-surviving subset.
+One immutable record on the [trace stream](#trace-stream): `:operation`, `:op-type`, timestamp, tags (including the id that correlates a whole [pipeline run](#event-pipeline)). Filter by `:op-type`. The always-on error and handled-event records are not trace events: they reach `:observability` sinks and survive production.
 
 ### **listener**
 
