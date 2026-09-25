@@ -3328,6 +3328,103 @@
                   (layout/project-definition compound-machine) {} {})]
       (is (empty? (filter #(:onDone (:data %)) (:nodes graph)))))))
 
+;; ---- transition-shaped `:spawn :on-done` projection ---------------------
+;;
+;; A `:spawn :on-done` that is not a fn is the parent transition the engine
+;; takes on the reserved `:rf.machine.spawn/done` when the spawned child
+;; completes, resolved at the spawning state's own level. It projects as the
+;; same ✓ done chip as a compound completion, naming no done node. A fn
+;; `:on-done` is the `:data` fold, and so is every `:spawn-all` child's: they
+;; project nothing.
+
+(defn- spawn-done-edges
+  "The parsed edges a definition's `:spawn :on-done` transitions project."
+  [parsed]
+  (filter #(= :rf.machine.spawn/done (:event %)) (:edges parsed)))
+
+(deftest xyflow-graph-spawn-on-done-projects-done-event-node
+  (testing "a transition-shaped `:spawn :on-done` projects ONE ✓ done
+            event-node, spawning state → sibling target, that is not
+            click-to-send and names no done node"
+    (let [parsed  (layout/project-definition
+                    {:initial :idle
+                     :states  {:idle    {:on {:go :working}}
+                               :working {:spawn {:machine-id :child :on-done {:target :loaded}}}
+                               :loaded  {:final? true}}})
+          od      (spawn-done-edges parsed)
+          graph   (projection/xyflow-graph parsed {} {})
+          ev-node (event-node-for graph (:id (first od)))]
+      (is (= 1 (count od)) "exactly one spawn :on-done edge")
+      (is (some? ev-node) "the spawn :on-done transition projects an event-node")
+      (is (= "✓ done" (:eventLabel (:data ev-node))) "the ✓ done completion chip")
+      (is (= "on-done" (:variant (:data ev-node))) "bucketed as the :on-done variant")
+      (is (true? (:onDone (:data ev-node))))
+      (is (nil? (:doneState (:data ev-node)))
+          "a spawn completion carries no done.state.<id> label")
+      (is (nil? (:eventId (:data ev-node)))
+          "the engine-raised :rf.machine.spawn/done is NOT click-to-send")
+      (is (= (layout/node-id [:loaded]) (:target (outbound-edge-for graph (:id (first od)))))
+          "the completion edge lands on the sibling :loaded"))))
+
+(deftest xyflow-graph-spawn-on-done-action-only-is-terminal
+  (testing "an action-only `:spawn :on-done` is a terminal ✓ done chip on
+            the spawning state, with no outgoing segment"
+    (let [parsed  (layout/project-definition
+                    {:initial :working
+                     :states  {:working {:spawn {:machine-id :child
+                                                 :on-done    {:action :store-result}}}}})
+          od      (first (spawn-done-edges parsed))
+          graph   (projection/xyflow-graph parsed {} {})
+          ev-node (event-node-for graph (:id od))]
+      (is (some? ev-node) "the action-only spawn :on-done projects an event-node")
+      (is (= "✓ done" (:eventLabel (:data ev-node))))
+      (is (true? (:internal (:data ev-node))) "a terminal (internal) affordance")
+      (is (= "store-result" (:action (:data ev-node))) "the action surfaces on the chip")
+      (is (nil? (outbound-edge-for graph (:id od))) "no outgoing segment"))))
+
+(deftest xyflow-graph-spawn-on-done-fold-projects-nothing
+  (testing "a fn `:spawn :on-done` and a `:spawn-all` child's fn `:on-done`
+            fold `:data` and project no edge"
+    (doseq [[label m] {:spawn     {:initial :working
+                                   :states  {:working {:spawn {:machine-id :child
+                                                               :on-done    (fn [{:keys [data]}] data)}}}}
+                       :spawn-all {:initial :working
+                                   :states  {:working {:spawn-all {:children [{:id :c1 :machine-id :child
+                                                                               :on-done (fn [{:keys [data]}] data)}]
+                                                                   :on-all-complete [:done]}}}}}]
+      (let [parsed (layout/project-definition m)]
+        (is (nil? (:definition-error parsed)) (str label ": the definition projects"))
+        (is (empty? (:edges parsed)) (str label ": no edge"))))))
+
+(deftest xyflow-graph-spawn-on-done-beside-the-other-completions
+  (testing "a spawning compound declaring its own `:on-done`, a
+            `:spawn :on-done` and a `:spawn :on-error` projects three distinct
+            edges; the compound completion and the spawn error are unchanged"
+    (let [parsed (layout/project-definition
+                   {:initial :job
+                    :states  {:job    {:initial :run
+                                       :on-done :next
+                                       :spawn   {:machine-id :child :on-done :loaded :on-error :failed}
+                                       :states  {:run {:on {:finish :fin}} :fin {:final? true}}}
+                              :next   {}
+                              :loaded {}
+                              :failed {}}})
+          by-ev  (group-by :event (:edges parsed))
+          graph  (projection/xyflow-graph parsed {} {})
+          chip   #(:data (event-node-for graph (:id (first (by-ev %)))))]
+      (is (= [[:job] [:next]] ((juxt :from :to) (first (by-ev :rf.machine/done))))
+          "the compound completion")
+      (is (= (str "done.state." (layout/node-id [:job])) (:doneState (chip :rf.machine/done)))
+          "the compound completion keeps its done.state.<id> label")
+      (is (= [[:job] [:loaded]] ((juxt :from :to) (first (by-ev :rf.machine.spawn/done))))
+          "the spawn completion")
+      (is (nil? (:doneState (chip :rf.machine.spawn/done))))
+      (is (= [[:job] [:failed]] ((juxt :from :to) (first (by-ev :rf.machine.spawn/error))))
+          "the spawn failure")
+      (is (= "on-error" (:variant (chip :rf.machine.spawn/error))))
+      (is (= 4 (count (:edges parsed)))
+          "control: :finish, the compound done, the spawn done and the spawn error"))))
+
 ;; ---- parallel-root completion ANCHOR is inert ---------------------------
 ;;
 ;; The synthetic PARALLEL-ROOT node (the anchor for the whole-parallel

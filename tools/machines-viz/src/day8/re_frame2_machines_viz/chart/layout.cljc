@@ -354,7 +354,10 @@
   A `:spawn` map's `:on-error` (the parent transition taken
   when the spawned child fails) emits an `:on-error? true` edge on the
   reserved `:rf.machine.spawn/error` event, resolved like `:on-done` at the
-  spawning state's own level."
+  spawning state's own level. A transition-shaped (non-fn) `:spawn :on-done`,
+  taken when the child completes, emits an `:on-done? true` edge on the
+  reserved `:rf.machine.spawn/done` event, resolved the same way; a fn
+  `:on-done` folds `:data` and emits nothing."
   [state-path state-node]
   (let [self-anchor  (vec state-path)
         resolve-tgt  #(resolve-target-path state-path %)
@@ -426,7 +429,22 @@
                                      :event     :rf.machine.spawn/error
                                      :on-error? true}
                                     self-anchor resolve-tgt))
-                 (g/transition-candidates oe))))
+                 (g/transition-candidates oe)))
+         ;; Its success twin, a transition-shaped `:spawn :on-done`
+         ;; (`pick-spawn-done-transition`), taken on the reserved
+         ;; `:rf.machine.spawn/done` event when the spawned child completes and
+         ;; resolved the same way. It rides the `:on-done?` completion flag, so
+         ;; it paints the ✓ done chip. A fn `:on-done` is the `:data` fold and
+         ;; draws nothing.
+         (let [od (get-in state-node [:spawn :on-done])]
+           (when (and (some? od) (not (fn? od)))
+             (keep (fn [candidate]
+                     (transition-edge candidate
+                                      {:from     state-path
+                                       :event    :rf.machine.spawn/done
+                                       :on-done? true}
+                                      self-anchor resolve-tgt))
+                   (g/transition-candidates od)))))
         nested
         (mapcat (fn [[child-id child-node]]
                   (collect-state-edges (conj state-path child-id) child-node))
@@ -655,7 +673,9 @@
                               against ordinary event-labelled arrows)
     - `:on-done` completion  → `\"✓ done\"` (XState `onDone`:
                               a compound / parallel-root completion
-                              transition. A checkmark-done chip reads as
+                              transition, or a transition-shaped
+                              `:spawn :on-done` taken when the spawned
+                              child completes. A checkmark-done chip reads as
                               the 'sub-flow finished, advance the outer
                               flow' arrow Stately Studio renders, distinct
                               from an ordinary event arrow)

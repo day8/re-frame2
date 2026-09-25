@@ -251,10 +251,11 @@
 
 (defn- internal-candidate-lines
   "Note-body lines for every INTERNAL candidate declared on
-  one state's `:on` / `:after` / `:always` / `:spawn :on-error`. `:on`
-  candidates carry their event id as the descriptor; `:after` candidates
-  `after(<delay>)`; `:always` candidates `always`; `:on-error` candidates
-  `✗ error`."
+  one state's `:on` / `:after` / `:always` / `:spawn :on-error` /
+  `:spawn :on-done`. `:on` candidates carry their event id as the
+  descriptor; `:after` candidates `after(<delay>)`; `:always` candidates
+  `always`; `:on-error` candidates `✗ error`; `:on-done` candidates
+  `✓ done`."
   [state-node]
   (concat
     (mapcat (fn [[event-id spec]]
@@ -284,13 +285,20 @@
     (when-let [oe (get-in state-node [:spawn :on-error])]
       (->> (transition-candidates oe)
            (filter internal-candidate?)
-           (map #(internal-note-line "✗ error" %))))))
+           (map #(internal-note-line "✗ error" %))))
+    ;; Its success twin, an action-only transition-shaped `:spawn :on-done`.
+    ;; A fn `:on-done` is the `:data` fold and has no note.
+    (let [od (get-in state-node [:spawn :on-done])]
+      (when (and (some? od) (not (fn? od)))
+        (->> (transition-candidates od)
+             (filter internal-candidate?)
+             (map #(internal-note-line "✓ done" %)))))))
 
 (defn- collect-internal-transition-notes
   "Emit a `note right of <state>` for every state with one or
   more INTERNAL (action-only, target-less) `:on` / `:after` / `:always` /
-  `:spawn :on-error` candidates. Walks the state tree the same way
-  `collect-edges` does so a nested state's internal transitions are covered
+  `:spawn :on-error` / `:spawn :on-done` candidates. Walks the state tree
+  the same way `collect-edges` does so a nested state's internal transitions are covered
   too. Returns a flat seq of note lines. The chart self-anchors these
   candidates (`:internal? true`) and SCXML emits them as target-less
   `<transition>`s, so the three emitters agree."
@@ -523,7 +531,13 @@
          ;; resolved at the spawning state's own level). An action-only
          ;; candidate has no arrow; `internal-candidate-lines` notes it.
          (when-let [oe (get-in state-node [:spawn :on-error])]
-           (collect-transition-edges root-path state-path "✗ error" oe)))
+           (collect-transition-edges root-path state-path "✗ error" oe))
+         ;; Its success twin, a transition-shaped `:spawn :on-done` taken
+         ;; when the spawned child completes, labelled `✓ done`. A fn
+         ;; `:on-done` is the `:data` fold and draws nothing.
+         (let [od (get-in state-node [:spawn :on-done])]
+           (when (and (some? od) (not (fn? od)))
+             (collect-transition-edges root-path state-path "✓ done" od))))
 
         nested-edges
         (mapcat (fn [[child-id child-node]]

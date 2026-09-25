@@ -915,3 +915,96 @@
       (is (= (:source oe) (:target oe)))
       (is (str/includes? out "note right of working"))
       (is (str/includes? out "✗ error / log-failure")))))
+
+;; ---------------------------------------------------------------------------
+;; The transition-shaped `:spawn :on-done`
+;;
+;; Spec 005 §Final states D2: a `:spawn :on-done` that is not a fn is a
+;; TRANSITION the engine takes (`pick-spawn-done-transition`) when the spawned
+;; child completes, resolved at the spawning state's own level exactly as
+;; `:on-error` is. A fn `:on-done` folds the parent's `:data` and moves nothing,
+;; and so does every `:spawn-all` child's.
+
+(def spawn-on-done-machine
+  "A spawning state whose only way on is its `:on-done` target."
+  {:initial :idle
+   :states  {:idle    {:on {:go :working}}
+             :working {:spawn {:machine-id :child :on-done {:target :loaded}}}
+             :loaded  {:final? true}}})
+
+(defn- chart-spawn-done-arrows
+  "The `[from to]` pairs of the chart's `:spawn :on-done` edges."
+  [definition]
+  (->> (:edges (layout/project-definition definition))
+       (filter #(= :rf.machine.spawn/done (:event %)))
+       (map (juxt :from :to))
+       set))
+
+(defn- mermaid-done-arrows
+  "The `[from to]` pairs of the `✓ done` arrows in a flat machine's Mermaid."
+  [definition]
+  (->> (re-seq #"  (\w+) --> (\w+) : ✓ done" (mermaid-body definition))
+       (map (fn [[_ from to]] [[(keyword from)] [(keyword to)]]))
+       set))
+
+(deftest spawn-on-done-drawn-by-chart-and-mermaid-dropped-by-scxml
+  (testing "chart and Mermaid draw working -> loaded; SCXML omits it as
+            documented"
+    ;; CHART
+    (let [edges (:edges (layout/project-definition spawn-on-done-machine))
+          od    (filter #(= :rf.machine.spawn/done (:event %)) edges)]
+      (is (= 1 (count od)) "exactly one :spawn :on-done edge")
+      (let [e (first od)]
+        (is (= [:working] (:from e)) "sourced from the spawning state")
+        (is (= [:loaded] (:to e)) "lands on the SIBLING target")
+        (is (true? (:on-done? e)) "the ✓ done completion bucket")
+        (is (= "✓ done" (:event-label e)))
+        (is (not (:internal? e))))
+      (is (= 2 (count edges)) "control: the :go edge and the :on-done edge, nothing else"))
+    ;; MERMAID
+    (let [out (mermaid-body spawn-on-done-machine)]
+      (is (str/includes? out "working --> loaded : ✓ done"))
+      (is (str/includes? out "idle --> working : go") "control: the :on edge renders too"))
+    ;; SCXML — the documented drop, as for `:on-error`.
+    (let [out (scxml/spec->scxml spawn-on-done-machine)]
+      (is (not (str/includes? out "child")))
+      (is (= {:initial :idle
+              :states  {:idle    {:on {:go :working}}
+                        :working {}
+                        :loaded  {:final? true}}}
+             (scxml/scxml->spec out))
+          "the export still reads back through our importer, spawn omitted")))
+  (testing "chart and Mermaid draw the same arrows for every transition shape"
+    (doseq [[label on-done] {:keyword    :b
+                             :path       [:b]
+                             :map        {:target :b}
+                             :candidates [{:target :b :guard :ok?} {:target :c}]}
+            :let [m {:initial :a
+                     :states  {:a {:spawn {:machine-id :child :on-done on-done}}
+                               :b {}
+                               :c {}}}]]
+      (is (seq (chart-spawn-done-arrows m)) (str label ": the chart draws the edge"))
+      (is (= (chart-spawn-done-arrows m) (mermaid-done-arrows m))
+          (str label ": chart and Mermaid agree"))))
+  (testing "an ACTION-ONLY :on-done self-anchors in the chart and surfaces as
+            a note in Mermaid"
+    (let [m   {:initial :working
+               :states  {:working {:spawn {:machine-id :child
+                                           :on-done    {:action :store-result}}}}}
+          od  (first (filter :on-done? (:edges (layout/project-definition m))))
+          out (mermaid-body m)]
+      (is (true? (:internal? od)) "chart: internal, self-anchored")
+      (is (= (:source od) (:target od)))
+      (is (str/includes? out "note right of working"))
+      (is (str/includes? out "✓ done / store-result"))))
+  (testing "a fn :on-done, on a :spawn or a :spawn-all child, draws nothing in
+            either emitter"
+    (doseq [[label m] {:spawn     {:initial :working
+                                   :states  {:working {:spawn {:machine-id :child
+                                                               :on-done    (fn [{:keys [data]}] data)}}}}
+                       :spawn-all {:initial :working
+                                   :states  {:working {:spawn-all {:children [{:id :c1 :machine-id :child
+                                                                               :on-done (fn [{:keys [data]}] data)}]
+                                                                   :on-all-complete [:done]}}}}}]
+      (is (empty? (:edges (layout/project-definition m))) (str label ": no chart edge"))
+      (is (not (str/includes? (mermaid-body m) "✓ done")) (str label ": no Mermaid arrow or note")))))
