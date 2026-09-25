@@ -3,7 +3,7 @@
   registry entry and the frame's `last-inputs` rows). Symmetric with the
   machines `:machines/teardown-on-frame-destroy!` hook.
 
-  SINGLE-STORE (rf2-en00bk): the per-frame `flows` atom is the SOLE store —
+  SINGLE-STORE: the per-frame `flows` atom is the SOLE store —
   there is no frame-blind registrar `:flow` slot to prune / realign. Teardown
   is purely dropping the destroyed frame's per-frame entries; a surviving frame
   registering the same id keeps its OWN authoritative entry in place.
@@ -101,7 +101,7 @@
 ;; ---- per-frame entry dropped when destroyed frame was last owner --------
 
 (deftest destroy-frame-drops-per-frame-entry-when-last-owner
-  (testing "destroying the only frame that owned a flow id drops its per-frame entry (rf2-en00bk: no registrar slot to prune)"
+  (testing "destroying the only frame that owned a flow id drops its per-frame entry (no registrar slot to prune)"
     (rf/make-frame {:id :fc/scratch :doc "scratch frame"})
     (rf/reg-flow :sole-area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (some? (rf.flows/flow-meta {:frame :fc/scratch :id :sole-area}))
@@ -112,12 +112,12 @@
     (is (nil? (rf.flows/flow-meta {:frame :fc/scratch :id :sole-area}))
         "post-destroy: the per-frame entry is gone — no leaked entry")
     (is (nil? (rf.registrar/lookup :flow :sole-area))
-        "registrar slot stays empty (rf2-en00bk)")))
+        "registrar slot stays empty")))
 
 ;; ---- sibling frame keeps its OWN authoritative entry on destroy ---------
 
 (deftest destroy-frame-leaves-sibling-entry-authoritative-in-place
-  (testing "destroying frame A leaves frame B's per-frame entry intact and authoritative in place (rf2-en00bk: no slot to realign)"
+  (testing "destroying frame A leaves frame B's per-frame entry intact and authoritative in place (no slot to realign)"
     (rf/make-frame {:id :fc/a :doc "frame A"})
     (rf/make-frame {:id :fc/b :doc "frame B"})
     (let [f-a (fn [w h] (* (or w 0) (or h 0)))
@@ -129,12 +129,12 @@
       (is (nil? (rf.flows/flow-meta {:frame :fc/a :id :shared}))
           ":fc/a's entry is gone")
       (is (= f-b (:derive (rf.flows/flow-meta {:frame :fc/b :id :shared})))
-          ":fc/b's entry is intact and authoritative IN PLACE — no realignment needed (rf2-en00bk)")
+          ":fc/b's entry is intact and authoritative IN PLACE — no realignment needed")
       (is (nil? (rf.registrar/lookup :flow :shared))
-          "registrar :flow slot stays empty throughout (rf2-en00bk)"))))
+          "registrar :flow slot stays empty throughout"))))
 
 (deftest destroy-frame-non-owner-leaves-owner-entry-intact
-  (testing "destroying a frame that does NOT register the id leaves the registering frame's entry untouched (rf2-en00bk)"
+  (testing "destroying a frame that does NOT register the id leaves the registering frame's entry untouched"
     (rf/make-frame {:id :fc/a :doc "frame A"})
     (rf/make-frame {:id :fc/b :doc "frame B"})
     (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] h))
@@ -160,7 +160,7 @@
       (is (empty? (rf.flows/last-inputs-snapshot))
           "last-inputs is empty after N destroy cycles")
       (is (nil? (rf.registrar/lookup :flow :churn))
-          "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
+          "registrar :flow slot is RESERVED-but-empty throughout (single-store)"))))
 
 ;; ---- frame-id reuse: new make-frame starts clean -------------------------
 
@@ -179,7 +179,7 @@
     (is (nil? (rf.flows/flow-meta {:frame :fc/scratch :id :area}))
         "the new frame has no inherited per-frame flow entry")
     (is (nil? (rf.registrar/lookup :flow :area))
-        "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk)")))
+        "registrar :flow slot is RESERVED-but-empty throughout")))
 
 ;; ---- flow-output elision marks ride the frame-record drop ----------------
 ;;
@@ -193,7 +193,7 @@
 ;; flow-sourced declarations, and a reused frame-id starts with NONE.
 
 (deftest destroy-frame-drops-flow-output-marks
-  (testing "Per rf2-yt5bbl: destroying a frame makes its flow-output elision
+  (testing "Destroying a frame makes its flow-output elision
             marks unobservable — both :sensitive (sensitive-declarations) and
             :large (declarations) flow-sourced entries vanish with the frame
             record, with no explicit teardown scrub"
@@ -220,7 +220,7 @@
         "the destroyed frame exposes no flow-sourced large declarations")))
 
 (deftest make-frame-after-destroy-observes-no-stale-flow-output-marks
-  (testing "Per rf2-yt5bbl (adversarial): a frame-id reused after a destroy
+  (testing "Adversarial: a frame-id reused after a destroy
             that left flow-output marks behind starts with a FRESH empty
             container — the second incarnation observes NONE of the first
             incarnation's flow-sourced elision declarations. This is the
@@ -229,8 +229,7 @@
             explicit elision scrub"
     ;; First incarnation: register a flow whose output is whole-sensitive.
     ;; EP-0025: classify the whole output explicitly with `:sensitive [[]]` (the
-    ;; whole-value convention) — the removed `:rf.egress/output-sensitivity`
-    ;; propagation claim's replacement.
+    ;; whole-value convention).
     (rf/make-frame {:id :fc/scratch :doc "first incarnation"})
     (rf/reg-flow :token {:frame :fc/scratch :inputs [[:n]] :output-path [:auth :token] :sensitive [[]]} (fn [n] {:jwt n}))
     (is (contains? (rf.elision/sensitive-declarations :fc/scratch) [:auth :token])
@@ -252,13 +251,13 @@
 ;; for a non-live frame, so without the guard the registration would install a
 ;; `flows` row and an elision declaration stamped with the dead frame-id — and
 ;; a later `make-frame` reusing that id would inherit the resurrected flow.
-;; SINGLE-STORE (rf2-en00bk): there is no registrar `:flow` slot to install,
+;; SINGLE-STORE: there is no registrar `:flow` slot to install,
 ;; so the `registrar/lookup :flow` checks below are nil throughout (the slot is
 ;; RESERVED-but-empty) — the per-frame `flows`-snapshot equality checks are the
 ;; load-bearing "mutated nothing" assertions.
 
 (deftest reg-flow-against-destroyed-frame-rejects-and-mutates-nothing
-  (testing "Per rf2-zbxvqj: reg-flow on a DESTROYED frame throws a stable
+  (testing "reg-flow on a DESTROYED frame throws a stable
             structured error and leaves flows / last-inputs / the :flow
             registrar untouched (no dormant state for the dead frame)"
     (rf/make-frame {:id :fc/scratch :doc "scratch frame, then destroyed"})
@@ -288,7 +287,7 @@
           "specifically: no :flow registrar slot was installed"))))
 
 (deftest reg-flow-against-never-registered-frame-rejects
-  (testing "Per rf2-zbxvqj: reg-flow against a NEVER-registered (typo'd) frame
+  (testing "reg-flow against a NEVER-registered (typo'd) frame
             id is rejected the same way as a destroyed one — no dormant state"
     (is (nil? (rf.frame/frame :fc/never))
         "precondition: the frame id was never registered")
@@ -309,7 +308,7 @@
           "the :flow registrar slot is unchanged"))))
 
 (deftest reg-flow-after-destroy-then-make-frame-reuse-starts-without-resurrected-flow
-  (testing "Per rf2-zbxvqj: a reg-flow against a frame in its destroyed window,
+  (testing "A reg-flow against a frame in its destroyed window,
             followed by re-registering that frame id, leaves the fresh frame
             with NO inherited flow — the resurrection path is closed"
     (rf/make-frame {:id :fc/scratch :doc "first incarnation"})
