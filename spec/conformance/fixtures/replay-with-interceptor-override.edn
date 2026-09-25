@@ -1,16 +1,16 @@
 ;; Conformance fixture: epoch/replay-with-interceptor-override
-;; Pin the rf2-yigokd contract: :rf/epoch-record captures the envelope's
+;; Pins the contract that :rf/epoch-record captures the envelope's
 ;; SERIALIZABLE per-call :fx-overrides / :interceptor-overrides — including
 ;; an [id arg] PARAMETERIZED interceptor-override key (Spec 002 §Interceptor
 ;; references) — verbatim, so a Tool-Pair strict replay can re-supply them
 ;; beside :rf.cofx. The fixture never REGISTERS either override target; the
 ;; MATCHING / redirect semantics are covered by the fx-overrides /
-;; interceptor-overrides conformance corpus already. This fixture pins
+;; interceptor-overrides conformance corpus. This fixture pins
 ;; ENVELOPE -> RECORD capture only, and — because the whole fixture is pure
 ;; EDN parsed, dispatched, assembled, and compared by the harness — its
 ;; [id arg] key is an end-to-end EDN round-trip proof for an exact-reference
-;; interceptor-override carrying an arbitrary factory arg (review
-;; residual-uncertainty item d). The replacement value is a REF (not `nil`)
+;; interceptor-override carrying an arbitrary factory arg. The replacement
+;; value is a REF (not `nil`)
 ;; deliberately — the harness's :epoch-records comparator is submap-based and
 ;; `(get actual k)` returns `nil` both for "key present with value nil" and
 ;; "key absent", so a nil-valued expectation would pass vacuously even if
@@ -20,7 +20,7 @@
 {:fixture/id           :epoch/replay-with-interceptor-override
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace}
- :fixture/doc          "A dispatch carrying per-call :fx-overrides / :interceptor-overrides is captured VERBATIM on the settling :rf/epoch-record (rf2-yigokd) beside :rf.cofx, so a Tool-Pair strict replay can re-supply them. The [id arg] interceptor-override key round-trips through EDN unchanged."
+ :fixture/doc          "A dispatch carrying per-call :fx-overrides / :interceptor-overrides is captured VERBATIM on the settling :rf/epoch-record beside :rf.cofx, so a Tool-Pair strict replay can re-supply them. The [id arg] interceptor-override key round-trips through EDN unchanged."
 
  :fixture/registry
  {:event {:counter/initialise {:doc "Seed the counter."}
