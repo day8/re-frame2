@@ -865,7 +865,7 @@ it('TEETH: a remote srcset candidate is REJECTED by the network policy (rf2-arkv
   const { errors } = scanPage(fullIo({ [PAGE]: html, [HERO320]: 'PNGDATA' }), PAGE);
   assert.ok(
     errors.some(
-      (e) => e.includes('srcset') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+      (e) => e.includes('srcset') && e.includes('cdn.example.com') && e.includes('Direct-HTML external asset refs'),
     ),
     `expected the remote srcset candidate to be rejected, got: ${errors.join(' | ')}`,
   );
@@ -1317,7 +1317,7 @@ it('TEETH: a remote @font-face src: url(https://…) is REJECTED', () => {
     errors.some(
       (e) =>
         e.includes("CSS url('https://fonts.example.com/inter.woff2')") &&
-        e.includes('rf2-o18ava'),
+        e.includes('Remote CSS url() fetches are forbidden'),
     ),
     `expected a rejected remote @font-face url(), got: ${errors.join(' | ')}`,
   );
@@ -1337,7 +1337,7 @@ it('TEETH: a protocol-relative background-image: url(//cdn…) is REJECTED', () 
   const { errors } = scanPage(io, PAGE);
   assert.ok(
     errors.some(
-      (e) => e.includes("CSS url('//cdn.example.com/bg.png')") && e.includes('rf2-o18ava'),
+      (e) => e.includes("CSS url('//cdn.example.com/bg.png')") && e.includes('Remote CSS url() fetches are forbidden'),
     ),
     `expected a rejected protocol-relative url(), got: ${errors.join(' | ')}`,
   );
@@ -1458,7 +1458,7 @@ it('TEETH: a remote url() in the _shared tree is rejected by checkSharedTree', (
       (e) =>
         e.includes('style.css') &&
         e.includes('fonts.example.com') &&
-        e.includes('rf2-o18ava'),
+        e.includes('Remote CSS url() fetches are forbidden'),
     ),
     `expected checkSharedTree to reject the remote url(), got: ${errors.join(' | ')}`,
   );
@@ -1480,7 +1480,7 @@ it('TEETH: a direct external <script src> (CDN) is REJECTED', () => {
   const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
   assert.ok(
     errors.some(
-      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('Direct-HTML external asset refs'),
     ),
     `expected a rejected external script, got: ${errors.join(' | ')}`,
   );
@@ -2385,7 +2385,7 @@ it('TEETH: a sub-AA accent foreground in style.css fails checkSharedTree', () =>
   });
   const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes('WCAG AA') && e.includes('rf2-febmqu')),
+    errors.some((e) => e.includes('WCAG AA') && e.includes('Use an AA-safe token')),
     `expected a sub-AA contrast error, got: ${errors.join(' | ')}`,
   );
 });
@@ -2422,7 +2422,7 @@ it('TEETH: a bare outline:none focus rule (no :focus-visible ring) fails', () =>
   });
   const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes('focus-visible') && e.includes('rf2-mon7tz')),
+    errors.some((e) => e.includes('focus-visible') && e.includes('must carry a visible')),
     `expected a missing-focus-indicator error, got: ${errors.join(' | ')}`,
   );
 });
@@ -2442,7 +2442,7 @@ it('TEETH: the old low-alpha amber focus ring rgba(200,116,26,0.18) is rejected'
   });
   const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes('low-alpha amber') && e.includes('rf2-mon7tz')),
+    errors.some((e) => e.includes('low-alpha amber') && e.includes('below the 3:1 focus-indicator bar')),
     `expected the low-alpha amber ring to be rejected, got: ${errors.join(' | ')}`,
   );
 });
@@ -2555,7 +2555,7 @@ function noResponsiveIo(structureCss) {
 it('LIVE: the shipped structure.css stacks the Xray-host shell below a breakpoint', () => {
   const errors = checkSharedTree(require('fs'));
   assert.ok(
-    !errors.some((e) => e.includes('rf2-testbed-shell') && e.includes('rf2-y82dk9')),
+    !errors.some((e) => e.includes('rf2-testbed-shell') && e.includes('no responsive fallback')),
     `the shipped shell must carry a responsive fallback, got: ${errors.join(' | ')}`,
   );
 });
@@ -2566,7 +2566,7 @@ it('TEETH: a structure.css with no responsive shell media query is flagged', () 
   });
   assert.ok(
     errors.some(
-      (e) => e.includes("'.rf2-testbed-shell'") && e.includes('rf2-y82dk9'),
+      (e) => e.includes("'.rf2-testbed-shell'") && e.includes('no responsive fallback'),
     ),
     `expected a missing-responsive-shell error, got: ${errors.join(' | ')}`,
   );
@@ -2581,7 +2581,7 @@ it('TEETH: a max-width media query that does NOT stack the shell is still flagge
   const errors = checkSharedTree(noResponsiveIo(bad), { sharedRoot: SHARED_ROOT });
   assert.ok(
     errors.some(
-      (e) => e.includes("'.rf2-testbed-shell'") && e.includes('rf2-y82dk9'),
+      (e) => e.includes("'.rf2-testbed-shell'") && e.includes('no responsive fallback'),
     ),
     `a non-stacking media query must not satisfy the contract, got: ${errors.join(' | ')}`,
   );
@@ -2627,7 +2627,7 @@ it('TEETH: a commented-out :focus-visible ring reads red (rf2-3x7nj.44.3)', () =
   );
   const errors = checkSharedTree(sharedTreeIo({ style }), { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes(':focus-visible') && e.includes('rf2-mon7tz')),
+    errors.some((e) => e.includes(':focus-visible') && e.includes('must carry a visible')),
     `a commented-out focus ring must read red, got: ${errors.join(' | ')}`,
   );
 });
@@ -2637,7 +2637,7 @@ it('TEETH: a commented-out .cells-grid input width:56px reads red (rf2-3x7nj.44.
   assert.ok(structure.includes(CELLS_INPUT), 'fixture: the rule text must still be present');
   const errors = checkSharedTree(sharedTreeIo({ structure }), { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes('width: 56px') && e.includes('rf2-gv5xd')),
+    errors.some((e) => e.includes('width: 56px') && e.includes('must pin the compact')),
     `a commented-out cells-grid width must read red, got: ${errors.join(' | ')}`,
   );
 });
@@ -2647,7 +2647,7 @@ it('TEETH: a commented-out responsive-shell media query reads red (rf2-3x7nj.44.
   assert.ok(structure.includes(RESPONSIVE_SHELL), 'fixture: the rule text must still be present');
   const errors = checkSharedTree(sharedTreeIo({ structure }), { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes("'.rf2-testbed-shell'") && e.includes('rf2-y82dk9')),
+    errors.some((e) => e.includes("'.rf2-testbed-shell'") && e.includes('no responsive fallback')),
     `a commented-out responsive shell must read red, got: ${errors.join(' | ')}`,
   );
 });
@@ -2709,7 +2709,7 @@ it('TEETH: the retired #8A8270 used as an og.svg fill is flagged', () => {
   const errors = checkSharedTree(ogSvgIo(badSvg), { sharedRoot: SHARED_ROOT });
   assert.ok(
     errors.some(
-      (e) => e.includes('og.svg') && e.includes(RETIRED_INK_FAINT) && e.includes('rf2-y82dk9'),
+      (e) => e.includes('og.svg') && e.includes(RETIRED_INK_FAINT) && e.includes('source art uses the retired'),
     ),
     `expected a retired-source-colour error, got: ${errors.join(' | ')}`,
   );
@@ -2746,7 +2746,7 @@ it('a doc COMMENT naming the retired colour (migration note) does NOT trip the g
 it('LIVE: the shipped og.svg uses no retired/sub-AA palette literal', () => {
   const errors = checkSharedTree(require('fs'));
   assert.ok(
-    !errors.some((e) => e.includes('og.svg') && e.includes('rf2-y82dk9')),
+    !errors.some((e) => e.includes('og.svg') && e.includes('source art uses the retired')),
     `the shipped source art must use the AA-safe palette, got: ${errors.join(' | ')}`,
   );
 });
@@ -3063,7 +3063,7 @@ it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible
   const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
   assert.ok(
     errors.some(
-      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('Direct-HTML external asset refs'),
     ),
     `expected the unquoted external script to be rejected, got: ${errors.join(' | ')}`,
   );
@@ -3163,7 +3163,7 @@ it('TEETH rf2-nrieg0: a sub-AA rgb() accent foreground now FAILS (was skipped)',
   );
   const errors = checkSharedTree(paletteIo(badStyle), { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes('WCAG AA') && e.includes('rf2-febmqu')),
+    errors.some((e) => e.includes('WCAG AA') && e.includes('Use an AA-safe token')),
     `expected the rgb() sub-AA foreground to fail, got: ${errors.join(' | ')}`,
   );
 });
@@ -3175,7 +3175,7 @@ it('TEETH rf2-nrieg0: a declared-but-unparseable var() contrast token FAILS LOUD
   );
   const errors = checkSharedTree(paletteIo(badStyle), { sharedRoot: SHARED_ROOT });
   assert.ok(
-    errors.some((e) => e.includes('rf2-nrieg0') && e.includes('cannot evaluate')),
+    errors.some((e) => e.includes('is declared as') && e.includes('cannot evaluate')),
     `expected a fail-loud unverifiable-token error, got: ${errors.join(' | ')}`,
   );
 });

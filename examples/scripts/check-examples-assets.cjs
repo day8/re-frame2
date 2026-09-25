@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
  * `check-examples-assets` — STATIC asset-contract gate over every example
- * index.html (rf2-8r0mj.2 + rf2-8r0mj.3 + rf2-emvyd).
+ * index.html.
  *
- * The gap this closes
- * -------------------
+ * Why this gate exists
+ * --------------------
  * examples/_shared/ ships a shared design system (stylesheet + favicon +
  * Open Graph card) that examples/_shared/README.md declares is "consumed by
  * every example index.html". The only automated gate that touches _shared
@@ -13,17 +13,15 @@
  * implementation/adapters/<name>/testbed/. Those testbed pages link NONE of
  * _shared, so a broken shared stylesheet, a missing/renamed _shared asset, a
  * bad @import target, or a stageShared regression all pass test:adapter-smokes —
- * the staged copy is never loaded by any page the runner navigates to. The
- * shared design system had ZERO automated coverage.
+ * the staged copy is never loaded by any page the runner navigates to. Without
+ * this gate the shared design system has no automated coverage.
  *
- * On top of that, the "every example page references the shared assets"
- * contract was review-only: nothing failed when a non-exempt page omitted an
- * asset, and the one real exception (TodoMVC uses the official TodoMVC CSS
- * packages instead of the shared stylesheet) was not encoded as an explicit
- * allowlisted exception anywhere. That exception now lives — once — in the
- * shared examples asset/exception manifest (examples-asset-manifest.cjs), which
- * this gate consumes via ALLOWLIST and the staging helper consumes for the same
- * entry.
+ * This gate also enforces the "every example page references the shared
+ * assets" contract: a non-exempt page that omits an asset fails. The one real
+ * exception (TodoMVC uses the official TodoMVC CSS packages instead of the
+ * shared stylesheet) lives once, in the shared examples asset/exception
+ * manifest (examples-asset-manifest.cjs), which this gate consumes via
+ * ALLOWLIST and the staging helper consumes for the same entry.
  *
  * What this gate does (STATIC — no browser, no Playwright)
  * -------------------------------------------------------
@@ -31,43 +29,43 @@
  *
  *   1. RESOLVES every local asset reference (link href, script src,
  *      img/source/video src, each `srcset`/`imagesrcset` candidate, a
- *      `<video poster>` still (rf2-arkvq8), og:image meta, and transitively the
+ *      `<video poster>` still, og:image meta, and transitively the
  *      @import targets inside any referenced local CSS) to a real file in the
  *      repo source tree. A
  *      reference to a missing/renamed/typo'd local asset fails the gate.
  *      The build output main.js (produced by shadow-cljs, not source) is
  *      skipped.
  *
- *      DIRECT-HTML NETWORK REFS are NOT skipped (rf2-bf4vdy). An
+ *      DIRECT-HTML NETWORK REFS are NOT skipped. An
  *      asset-bearing external reference in the page — a `<script src>`, an
  *      asset `<link href>` (stylesheet / preload / modulepreload / icon /
  *      manifest / prefetch), an `<img>/<source>/<video>/<audio> src`, an
  *      `<img>/<source> srcset` or `<link imagesrcset>` candidate, a
- *      `<video poster>` still (rf2-arkvq8), or a LOCAL-staged-but-external
+ *      `<video poster>` still, or a LOCAL-staged-but-external
  *      og:image — pulls a third-party CDN
  *      script / hosted stylesheet / hosted font / external media into every
  *      staged example at load time. That is the same reproducibility /
  *      offline-dev / hidden-dependency regression the external-CSS-@import
- *      policy already guards (rf2-vou5mm / rf2-byf7y), so the gate REJECTS
+ *      policy guards, so the gate REJECTS
  *      any asset-bearing direct-HTML network ref unless its exact URL is
  *      allowlisted (with a reason) in EXTERNAL_HTML_REF_ALLOWLIST below.
  *      Pure NAVIGATION / metadata refs (anchors, in-page #fragments,
  *      mailto:/tel: links, and inlined data: URIs) are NOT network asset
- *      fetches and stay exempt. The allowlist starts EMPTY: no shipped
+ *      fetches and are exempt. The allowlist is EMPTY: no shipped
  *      example page loads a remote asset, so the contract is fail-closed.
  *
- *      EXTERNAL CSS @import is NOT skipped (rf2-vou5mm). An external
+ *      EXTERNAL CSS @import is NOT skipped. An external
  *      `@import url(https://…)` (or a protocol-relative `@import url(//…)`)
  *      inside any scanned CSS pulls a third-party network dependency into
- *      every staged example at load time — exactly the Google-Fonts
- *      regression rf2-byf7y removed. So the gate REJECTS any external CSS
+ *      every staged example at load time — a Google Fonts @import, for
+ *      example. So the gate REJECTS any external CSS
  *      @import unless its URL is explicitly allowlisted (with a reason) in
- *      EXTERNAL_IMPORT_ALLOWLIST below. The allowlist starts EMPTY: the
+ *      EXTERNAL_IMPORT_ALLOWLIST below. The allowlist is EMPTY: the
  *      shared design system declares zero remote fonts / hosts (see
  *      examples/_shared/README.md §Visual identity), so the contract is
- *      fail-closed — a re-introduced external @import turns the gate RED.
+ *      fail-closed — an external @import turns the gate RED.
  *
- *      REMOTE CSS url() FETCHES are NOT skipped either (rf2-o18ava). A
+ *      REMOTE CSS url() FETCHES are NOT skipped either. A
  *      stylesheet can pull a third-party font / image without an @import — a
  *      `@font-face { src: url(https://…) }`, a `background-image: url(//cdn…)`,
  *      or a mask / cursor / border-image remote `url(...)` fires the same
@@ -76,7 +74,7 @@
  *      in scanned CSS, reusing EXTERNAL_IMPORT_ALLOWLIST. `data:` URIs (inlined,
  *      no request) and same-document `url(#fragment)` paint refs stay exempt.
  *
- *      LOCAL url() TARGETS are resolved to disk too (rf2-35lfqo). A
+ *      LOCAL url() TARGETS are resolved to disk too. A
  *      `background-image: url('missing.png')`, a `@font-face { src: url(x.woff2) }`,
  *      or a `cursor: url(img/cursor.png)` pointing at a missing LOCAL file fires
  *      no network request (so the remote-url policy above skips it) yet still
@@ -94,7 +92,7 @@
  *      relative to the page's own directory.
  *
  *      Resolving in the source folder is not the whole of it for a page-local
- *      asset the page LOADS (rf2-3x7nj.44.2). `npm run dev:example` serves a
+ *      asset the page LOADS. `npm run dev:example` serves a
  *      freshly cleaned output dir holding only index.html, _shared/ and the
  *      dests examples-asset-manifest.cjs declares for the page, so such a ref
  *      must also be one of those dests. An undeclared colocated stylesheet or
@@ -113,7 +111,7 @@
  *      link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) do
  *      not render an SVG og:image, so an SVG card silently produces no large
  *      preview while a pure "the file exists" check stays green. The .svg is
- *      kept only as editable source art. (rf2-lr4am3)
+ *      kept only as editable source art.
  *
  * Steps 4-6 run ONCE over the examples/_shared source tree itself, independent
  * of any page's reference graph, so each contract holds even if no scanned page
@@ -128,58 +126,57 @@
  *          illegal '--' inside a comment, no unterminated comment, no mismatched
  *          /unclosed tags, a single <svg> root. A malformed comment makes strict
  *          XML parsers AND Chrome render a <parsererror> (the favicon cannot show
- *          and the OG source cannot be re-exported), which the old existence /
- *          palette-literal checks missed (rf2-3fc89f.27).
+ *          and the OG source cannot be re-exported), which an existence /
+ *          palette-literal check alone misses.
  *      (c) OG RASTER DECODE: og.png is a STRUCTURALLY COMPLETE, decodable PNG —
  *          signature + IHDR (length 13) declaring the documented 1200x630
  *          dimensions, every chunk bounded inside the file with a matching
  *          CRC-32, at least one IDAT whose zlib stream actually inflates, and a
  *          terminal IEND. A header prefix, a byte-flipped/corrupt chunk, or a
- *          mid-stream truncation fails — not just a missing/renamed file
- *          (rf2-mon7tz + full structural decode rf2-3fc89f.27). The RASTER
+ *          mid-stream truncation fails — not just a missing/renamed file.
+ *          The RASTER
  *          SEMANTICS are validated too, since zlib inflation is not PNG decoding:
  *          the IHDR colour-type/bit-depth pairing and the compression/filter/
  *          interlace methods must be legal + supported, and the inflated bytes
  *          must be EXACTLY the declared image — `height` scanlines of a 1-byte
  *          filter tag (0..4) + a `ceil(width*channels*bitDepth/8)`-byte pixel row.
  *          A forbidden colour type, an IDAT that expands to the wrong byte count,
- *          or an illegal per-row filter byte fails (rf2-j538f7.24).
+ *          or an illegal per-row filter byte fails.
  *      (d) OG SOURCE-ART PALETTE: og.svg carries no retired / sub-AA colour
- *          literal as a live paint value, so the re-exported card cannot drift
- *          back below the shared palette's accessibility decisions (rf2-y82dk9).
+ *          literal as a live paint value, so the re-exported card cannot fall
+ *          below the shared palette's accessibility decisions.
  *      (e) NO REMOTE STYLING: style.css / structure.css carry no external
- *          @import (rf2-vou5mm) and no remote url() fetch (rf2-o18ava), checked
+ *          @import and no remote url() fetch, checked
  *          here so the contract holds even for an unlinked shared stylesheet.
  *
  *   5. Asserts the shared ACCESSIBILITY contracts on style.css:
  *      (a) WCAG CONTRAST: every shipped foreground/background --ex-* token pair
  *          clears its floor (AA 4.5:1 normal text, 3:1 focus ring), computed
  *          from the parsed tokens; a palette edit that drops a pair below the
- *          floor turns the gate RED (rf2-febmqu).
+ *          floor turns the gate RED.
  *      (b) FOCUS INDICATOR: form controls keep a visible ':focus-visible' ring
- *          on the AA-safe --ex-accent-deep token, and the pre-fix low-alpha
- *          amber ring (≈1.5:1) is banned from returning (rf2-mon7tz).
+ *          on the AA-safe --ex-accent-deep token, and the low-alpha amber ring
+ *          (≈1.5:1) is banned.
  *
  *   Steps 5(b) and 6 read the CSS with its comments stripped, so a
  *   commented-out rule does not satisfy a presence check and a comment naming a
- *   banned rule does not trip an absence check (rf2-3x7nj.44.3).
+ *   banned rule does not trip an absence check.
  *
  *   6. Asserts the shared CSS-CASCADE + RESPONSIVE contracts on structure.css
  *      (static, since the gate cannot observe layout):
  *      (a) CASCADE SCOPING: the WebSocket send-form text-input baseline stays
  *          scoped to '.send-form' (no global 'input[type="text"]' rule) and the
  *          7GUIs Cells grid keeps its compact '.cells-grid input { width:56px }',
- *          so the send-form sizing cannot blow out the spreadsheet grid
- *          (rf2-gv5xd).
+ *          so the send-form sizing cannot blow out the spreadsheet grid.
  *      (b) RESPONSIVE SHELL: the inline-Xray '.rf2-testbed-shell' carries a
  *          max-width media query that stacks it to a column instead of
- *          overflowing horizontally on narrow viewports (rf2-y82dk9).
+ *          overflowing horizontally on narrow viewports.
  *
- * This is NOT a per-example *.spec.cjs — examples/ stays test-free
- * (rf2-8cevm). It is a pure static scanner, wired into the always-run
+ * This is NOT a per-example *.spec.cjs — examples/ is test-free. It is a pure
+ * static scanner, wired into the always-run
  * `test:scripts` gate (see implementation/scripts/
  * check-examples-assets.test.cjs) so a missing/broken _shared asset turns
- * that gate RED in CI without a new .github workflow job.
+ * that gate RED in CI with no workflow job of its own.
  *
  * CLI
  * ---
@@ -243,14 +240,14 @@ const SOCIAL_PREVIEW_REQUIRED = '_shared/img/og.png';
 // ---------------------------------------------------------------------------
 const ALLOWLIST = pageExemptions();
 
-// Every dest the manifest stages, keyed by page relIndex (rf2-3x7nj.44.2). The
+// Every dest the manifest stages, keyed by page relIndex. The
 // served output dir holds only index.html, _shared/ and these, so a page-local
 // asset a page LOADS must be one of them. Staging-only entries count too: what
 // matters is that the file reaches the output dir, not how it is referenced.
 const STAGED_DESTS = stagedDestsByPage();
 
 // ---------------------------------------------------------------------------
-// External CSS network allowlist (rf2-vou5mm + rf2-o18ava) — the ONE encoded
+// External CSS network allowlist — the ONE encoded
 // place that names an external CSS network reference the scanner is permitted to
 // see inside scanned CSS, each with a reason. It covers BOTH an external
 // `@import url(https://…|http://…|//…)` AND a remote `url(...)` fetch in a
@@ -259,10 +256,10 @@ const STAGED_DESTS = stagedDestsByPage();
 //
 // Why this exists: an external CSS @import (e.g. Google Fonts) OR a remote
 // `url()` font/image makes every staged example fire a third-party network
-// request at load time — the exact regression rf2-byf7y removed. The shared
+// request at load time. The shared
 // design system deliberately loads NO remote fonts/hosts (examples/_shared/
-// README.md §Visual identity), so this allowlist starts EMPTY and the contract
-// is fail-closed: re-introducing an external @import / url() without an entry
+// README.md §Visual identity), so this allowlist is EMPTY and the contract
+// is fail-closed: an external @import / url() without an entry
 // here turns the gate RED.
 //
 // Shape mirrors ALLOWLIST: key = the external URL with any ?query/#hash
@@ -280,7 +277,7 @@ const EXTERNAL_IMPORT_ALLOWLIST = {
 };
 
 // ---------------------------------------------------------------------------
-// Direct-HTML external network-ref allowlist (rf2-bf4vdy) — the ONE encoded
+// Direct-HTML external network-ref allowlist — the ONE encoded
 // place that names an asset-bearing external reference (a `<script src>`, an
 // asset `<link href>`, an `<img>/<source>/<video>/<audio> src`, or an external
 // og:image) the scanner is permitted to see directly in an example page, each
@@ -291,9 +288,9 @@ const EXTERNAL_IMPORT_ALLOWLIST = {
 // stylesheet/font <link>, an external image/media src) makes every staged
 // example fire a third-party network request at load time — the same
 // reproducibility / offline-dev / hidden-dependency regression the external-CSS
-// @import policy already guards (rf2-vou5mm / rf2-byf7y), just on the HTML side
+// @import policy guards, just on the HTML side
 // rather than inside a stylesheet. The shared design system ships ZERO remote
-// assets, so this allowlist starts EMPTY and the contract is fail-closed.
+// assets, so this allowlist is EMPTY and the contract is fail-closed.
 //
 // Shape mirrors EXTERNAL_IMPORT_ALLOWLIST: key = the external URL with any
 // ?query/#hash STRIPPED (the scanner normalises HTML refs that way before the
@@ -314,13 +311,13 @@ const EXTERNAL_HTML_REF_ALLOWLIST = {
 
 // Build output produced by shadow-cljs at stage time — never a repo-source
 // file, so the resolver skips it (every index.html ships <script src=main.js>).
-// The exemption is from on-disk RESOLUTION only: since rf2-y1kbf the page must
-// still REFERENCE it (see loadsBuildEntrypoint / the boot-script contract in
-// scanPage), so "not resolved" no longer means "not required".
+// The exemption is from on-disk RESOLUTION only: the page must still
+// REFERENCE it (see loadsBuildEntrypoint / the boot-script contract in
+// scanPage), so "not resolved" does not mean "not required".
 const BUILD_OUTPUTS = new Set(['main.js']);
 
 // Does the page's TAGGED asset inventory carry a LIVE `<script src>` pointing at
-// the generated build entrypoint? (rf2-y1kbf)
+// the generated build entrypoint?
 //
 // Reads the inventory's `assets` view, never the raw HTML, so the answer is only
 // yes for an actual load-time script fetch. Everything that merely MENTIONS
@@ -340,17 +337,13 @@ function loadsBuildEntrypoint(assets) {
 //
 // A "host page" is the page's own `index.html` OR an auxiliary showcase host
 // page named `<prefix>.index.html`. That second shape is enumerated
-// PROSPECTIVELY: no example under examples/ carries one today. The two Story
-// showcase pages that motivated rf2-x48bp4 — `login/stories.index.html` and
-// `nine_states/stories.index.html` — were retired under rf2-j7w2u, because the
+// PROSPECTIVELY: no example under examples/ carries one, because the Story
 // showcase builds serve their example's own `index.html` (`#/stories` is a hash
-// route on that page), so nothing ever fetched them. The shape stays enumerated
-// so that a future `<prefix>.index.html` is held to the SAME shared-asset
-// contract as its sibling index.html (favicon + OG card + style.css) the moment
-// it lands, rather than carrying the assets unenforced the way the retired pages
-// did before rf2-x48bp4.
+// route on that page). The shape is enumerated so that a `<prefix>.index.html`
+// is held to the SAME shared-asset contract as its sibling index.html
+// (favicon + OG card + style.css) the moment it lands.
 //
-// STANDALONE example projects are pruned (rf2-vxgfnd.281). Every gallery example
+// STANDALONE example projects are pruned. Every gallery example
 // is monorepo-STAGED: it is source-only, built from implementation/'s shadow
 // config with a central `:examples/*` build id, and the orchestrator copies
 // _shared into its output dir — so the shared-design-system contract (favicon +
@@ -360,10 +353,9 @@ function loadsBuildEntrypoint(assets) {
 // classpath (it is "the tree you would have created yourself"). It links none
 // of _shared — nor should it, a minimal user-facing scaffold is not a gallery
 // showcase — and its host-page contract is owned end-to-end by its own
-// scaffold smoke. The scaffold this used to name, examples/ui/minimal-counter/,
-// went with the donor tree under rf2-0yp7w, and no standalone scaffold is in
-// the tree today — nothing under examples/ carries its own shadow-cljs.edn — so
-// the rule below is prospective. Enumerating it here would force the
+// scaffold smoke. No standalone scaffold is in the tree — nothing under
+// examples/ carries its own shadow-cljs.edn — so
+// the rule below is prospective. Enumerating one here would force the
 // gallery chrome onto a page that must stay minimal, so a project root bearing
 // its own shadow-cljs.edn is pruned from this walk (any future standalone
 // scaffold under examples/ is excluded by the same marker, no per-path list).
@@ -391,11 +383,11 @@ function isStandaloneExampleProject(dir, io = fs) {
 }
 
 // Enumerate every example host page under `root`, FAIL-CLOSED. A directory that
-// cannot be read is NOT silently dropped (the old catch-and-continue turned a
+// cannot be read is NOT silently dropped (catching and continuing would turn a
 // partial walk into an ordinary smaller array that could stay above the CLI
-// floor and green an incomplete scan — rf2-3fc89f.31); an unreadable path throws
+// floor and green an incomplete scan); an unreadable path throws
 // via assertWalkComplete, naming the path + cause. The `node_modules` / `_shared`
-// prunes stay a POLICY skip (not an error). `io` is injectable so a test can
+// prunes are a POLICY skip (not an error). `io` is injectable so a test can
 // drive a deterministic partial-walk failure.
 function listExampleIndexHtml(root = EXAMPLES_ROOT, { io = fs } = {}) {
   const { items, walkErrors } = walkDir({
@@ -416,7 +408,7 @@ function listExampleIndexHtml(root = EXAMPLES_ROOT, { io = fs } = {}) {
 // HTML/CSS parser — the only shapes we read are href/src (quoted or unquoted)
 // attributes, srcset/imagesrcset candidate lists, a <video> poster, the
 // og:image meta content, and CSS @import / url(...) targets. Each page's HTML is
-// tokenized ONCE by extractHtmlReferenceInventory below (rf2-6a3rgx).
+// tokenized ONCE by extractHtmlReferenceInventory below.
 // ---------------------------------------------------------------------------
 
 // True for references the resolver does not check on disk: absolute URLs
@@ -434,8 +426,8 @@ function isExternalRef(ref) {
 // http(s):// and the protocol-relative `//host/...` form. A `data:` URI is
 // inlined (no request), and `#fragment` / `mailto:` / `tel:` are pure
 // navigation — none of those is a network asset dependency. Used to gate the
-// external CSS @import policy (rf2-vou5mm) AND the direct-HTML asset-ref policy
-// (rf2-bf4vdy) with one shared notion of "is this a remote fetch".
+// external CSS @import policy AND the direct-HTML asset-ref policy
+// with one shared notion of "is this a remote fetch".
 function isNetworkRef(ref) {
   return /^https?:/i.test(ref) || ref.startsWith('//');
 }
@@ -460,7 +452,7 @@ const ASSET_LINK_RELS = new Set([
 ]);
 
 // Parse an HTML `srcset` / `imagesrcset` attribute value into its candidate
-// URLs, discarding the width/density descriptors (rf2-arkvq8). srcset is a
+// URLs, discarding the width/density descriptors. srcset is a
 // comma-separated list of `<url> [descriptor]` candidates — e.g.
 // `hero-320.png 320w, hero-640.png 640w` (width descriptors) or
 // `logo.png 1x, logo@2x.png 2x` (density descriptors). Every candidate URL is a
@@ -504,9 +496,9 @@ function parseSrcset(value) {
 
 // Read a single attribute's value off a tag string, ORDER-INDEPENDENTLY and
 // regardless of the value's quoting. HTML attribute order is insignificant
-// (rf2-cnu7qy) and HTML5 permits unquoted values (`<script src=main.js>`), so
+// and HTML5 permits unquoted values (`<script src=main.js>`), so
 // the value form is one of: "double" | 'single' | bare-unquoted. The unquoted
-// form ends at the first whitespace / `>` / quote / `=` (rf2-3dzb6h). The name
+// form ends at the first whitespace / `>` / quote / `=`. The name
 // match is BOUNDARY-SAFE (a `-`/word char may not immediately precede it), so a
 // `data-src` / `data-poster` / `aria-*` lazy-load hook is never misread as the
 // bare `src`/`poster` attribute. Returns null when the attribute is absent.
@@ -521,7 +513,7 @@ function attr(tag, name) {
 // Read a srcset / imagesrcset candidate list off a tag. QUOTED only — a
 // candidate list carries spaces and commas, so there is no meaningful unquoted
 // form — and boundary-safe like attr() so a `data-srcset` lazy-load hook is not
-// misread (rf2-arkvq8). Returns the raw attribute value, or null when absent.
+// misread. Returns the raw attribute value, or null when absent.
 function srcsetAttr(tag, name) {
   const m = tag.match(
     new RegExp(`(?<![-\\w])${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
@@ -532,8 +524,8 @@ function srcsetAttr(tag, name) {
 
 // Strip CSS block comments `/* … */` from a source before scanning it for live
 // declarations. Commented-out CSS is inert, so an `@import`/`url()` inside a
-// comment must not be read as a live network fetch or an on-disk ref
-// (rf2-lvw3z9). Mirrors the og.svg comment strip used for the source-art check.
+// comment must not be read as a live network fetch or an on-disk ref.
+// Mirrors the og.svg comment strip used for the source-art check.
 function stripCssComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
@@ -542,7 +534,7 @@ function stripCssComments(css) {
 // live tags. A tag inside a comment is inert — the browser never fetches it nor
 // exposes it as document metadata — so a commented link/meta/script/img must
 // not satisfy a required-asset contract, trip the direct-network policy, or
-// enter on-disk resolution (rf2-j538f7.28). An UNTERMINATED `<!--` (no closing
+// enter on-disk resolution. An UNTERMINATED `<!--` (no closing
 // `-->`) comments out the remainder of the document, so it is stripped through
 // end-of-input too. Mirrors the stripCssComments posture: one lexical pass feeds
 // the single inventory walk, no general HTML parser.
@@ -550,12 +542,11 @@ function stripHtmlComments(html) {
   return html.replace(/<!--[\s\S]*?-->/g, '').replace(/<!--[\s\S]*/, '');
 }
 
-// Build the page's complete HTML reference inventory in ONE pass over its tags
-// (rf2-6a3rgx). Every supported reference shape — a quoted OR unquoted attribute
-// (rf2-3dzb6h), each srcset/imagesrcset candidate + a <video> poster
-// (rf2-arkvq8), and an order-independent og:image meta (rf2-cnu7qy) — is
-// tokenized EXACTLY ONCE here, replacing the three competing extractors that
-// each re-parsed the same HTML and had to be taught every new shape separately.
+// Build the page's complete HTML reference inventory in ONE pass over its tags.
+// Every supported reference shape — a quoted OR unquoted attribute, each
+// srcset/imagesrcset candidate + a <video> poster, and an order-independent
+// og:image meta — is tokenized EXACTLY ONCE here, so a new shape is taught to
+// one extractor rather than to several that each re-parse the same HTML.
 // Returns three views over the single walk:
 //
 //   {
@@ -573,7 +564,7 @@ function stripHtmlComments(html) {
 // og:image).
 //
 // assets is the subset that is an ACTUAL load-time fetch, TAGGED with a
-// human-readable origin so the direct-HTML network policy (rf2-bf4vdy) can
+// human-readable origin so the direct-HTML network policy can
 // distinguish a remote asset fetch (rejected) from harmless navigation/metadata
 // (exempt). What counts as asset-bearing:
 //   - <script src=...>                          (always a fetch)
@@ -588,7 +579,7 @@ function stripHtmlComments(html) {
 // (source, ref); element order (scripts, links, media, og). assets ⊆ localRefs
 // as ref-sets — every load-time asset is also a local candidate.
 //
-// ogImages is the social-preview target the raster contract (rf2-lr4am3)
+// ogImages is the social-preview target the raster contract
 // checks. De-duplicated, document order.
 function extractHtmlReferenceInventory(html) {
   const clean = (raw) => (raw == null ? null : raw.split(/[?#]/)[0].trim());
@@ -618,13 +609,13 @@ function extractHtmlReferenceInventory(html) {
   const mediaEls = new Set(['img', 'source', 'video', 'audio', 'track']);
 
   // Remove inert comment markup FIRST so a commented tag contributes zero
-  // references to any of the three views below (rf2-j538f7.28), mirroring the
-  // stripCssComments strip the CSS extractors already perform.
+  // references to any of the three views below, mirroring the
+  // stripCssComments strip the CSS extractors perform.
   for (const m of stripHtmlComments(html).matchAll(/<([a-zA-Z][a-zA-Z0-9:-]*)[^>]*>/g)) {
     const tag = m[0];
     const el = m[1].toLowerCase();
 
-    // Generic local-resolution refs off EVERY element (preserves the broad
+    // Generic local-resolution refs off EVERY element (the broad
     // local-href handling: an <a href> / rel="canonical" href lands here too).
     addRef(hrefSrc, attr(tag, 'href'));
     addRef(hrefSrc, attr(tag, 'src'));
@@ -641,7 +632,7 @@ function extractHtmlReferenceInventory(html) {
       const isAsset = rel.split(/\s+/).filter(Boolean).some((t) => ASSET_LINK_RELS.has(t));
       // A `<link rel="preload" as="image" imagesrcset=...>` carries a responsive
       // candidate list (like <img srcset>) and often has NO href, so imagesrcset
-      // is asset-bearing independently of the href/rel gate (rf2-arkvq8).
+      // is asset-bearing independently of the href/rel gate.
       if (isAsset) addAsset(linkAssets, attr(tag, 'href'), `<link rel="${label}" href>`);
       for (const u of parseSrcset(srcsetAttr(tag, 'imagesrcset') || '')) {
         addAsset(linkAssets, u, `<link rel="${label}" imagesrcset>`);
@@ -656,7 +647,7 @@ function extractHtmlReferenceInventory(html) {
       if (el === 'video') addAsset(mediaAssets, attr(tag, 'poster'), '<video poster>');
     } else if (el === 'meta') {
       // Order-independent: a `content`-before-`property` og:image meta is
-      // equally valid and must be seen (rf2-cnu7qy).
+      // equally valid and must be seen.
       if ((attr(tag, 'property') || '').toLowerCase() === 'og:image') {
         const content = clean(attr(tag, 'content'));
         if (content) {
@@ -710,7 +701,7 @@ function extractCssImports(css) {
     if (clean && !out.includes(clean)) out.push(clean);
   };
   // Strip block comments first: a commented-out `@import` is inert and must
-  // not be read as a live network dep / on-disk ref (rf2-lvw3z9).
+  // not be read as a live network dep / on-disk ref.
   for (const m of stripCssComments(css).matchAll(
     /@import\s+(?:url\(\s*("([^"]*)"|'([^']*)'|([^)'"]*))\s*\)|("([^"]*)"|'([^']*)'))/gi,
   )) {
@@ -733,10 +724,10 @@ function extractCssImports(css) {
 function extractCssUrls(css) {
   const out = [];
   const seen = new Set();
-  // Strip block comments first (rf2-lvw3z9) — a commented-out `url(...)` is
+  // Strip block comments first — a commented-out `url(...)` is
   // inert and must not be read as a live fetch — then blank out `@import
   // url(...)` occurrences so they are not re-collected here (extractCssImports
-  // already owns the @import contract).
+  // owns the @import contract).
   const body = stripCssComments(css).replace(
     /@import\s+url\(\s*(?:"[^"]*"|'[^']*'|[^)'"]*)\s*\)/gi,
     '',
@@ -787,7 +778,7 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const OG_PNG_WIDTH = 1200;
 const OG_PNG_HEIGHT = 630;
 
-// PNG IHDR semantic tables (PNG spec §11.2.2, Table 11.1) — rf2-j538f7.24. A
+// PNG IHDR semantic tables (PNG spec §11.2.2, Table 11.1). A
 // structurally wrapped chunk stream (bounded chunks + valid CRCs + an IDAT that
 // zlib-inflates) can still declare an ILLEGAL raster: a forbidden colour type,
 // an illegal bit-depth/colour-type pairing, or an unsupported
@@ -833,12 +824,12 @@ function pngCrc32(buf) {
 // chunk envelope whose IDAT happens to zlib-inflate. Returns
 // { ok, width, height, reason }.
 //
-// The 24-byte header sniff let a header prefix / byte-flipped IDAT / mid-stream
-// truncation report ok:true (rf2-3fc89f.27); walking the chunk stream fixed that
-// but still called a PNG "decodable" once its IDAT merely INFLATED, so a raster
+// A 24-byte header sniff would let a header prefix / byte-flipped IDAT /
+// mid-stream truncation report ok:true; a chunk walk that called a PNG
+// "decodable" once its IDAT merely INFLATED would still pass a raster
 // with a forbidden IHDR colour type, an unsupported interlace method, or an IDAT
 // that expands to the wrong number of bytes / carries an illegal per-row filter
-// byte still passed — zlib inflation is not PNG decoding (rf2-j538f7.24).
+// byte — zlib inflation is not PNG decoding.
 //
 // This validates the byte envelope AND the raster semantics, failing on any of:
 //   - the 8-byte PNG signature and an IHDR first chunk (length exactly 13),
@@ -855,7 +846,7 @@ function pngCrc32(buf) {
 //   - RASTER GEOMETRY: the inflated bytes are EXACTLY the declared image —
 //     `height` scanlines, each a 1-byte filter tag (0..4) plus a packed pixel
 //     row of `ceil(width * channels * bitDepth / 8)` bytes. A stream that
-//     expands to too few (the four-byte payload) or too many bytes, or a
+//     expands to too few or too many bytes, or a
 //     scanline whose leading filter byte is not 0..4, is a broken raster.
 // The IHDR dimensions are checked against the expected size before the geometry
 // (a wrong-size card is reported as such, then the geometry confirms the raster
@@ -936,7 +927,7 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
     return { ok: false, width, height, reason: 'no terminal IEND chunk (truncated raster)' };
   }
 
-  // IHDR SEMANTIC fields (rf2-j538f7.24). The chunk walk above proved the IHDR
+  // IHDR SEMANTIC fields. The chunk walk above proved the IHDR
   // chunk is fully present and CRC-valid, so its 13 data bytes (16..28) are safe
   // to read here. A structurally wrapped stream can still declare an ILLEGAL
   // raster no decoder can render — a forbidden colour type, an illegal
@@ -1016,12 +1007,12 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
     };
   }
 
-  // RASTER GEOMETRY (rf2-j538f7.24). Inflating the IDAT proves the zlib stream is
+  // RASTER GEOMETRY. Inflating the IDAT proves the zlib stream is
   // well-formed, NOT that its bytes form the declared image. A non-interlaced PNG
   // decompresses to EXACTLY `height` scanlines, each `1 + ceil(width * channels *
   // bitDepth / 8)` bytes: a leading filter-type tag (0..4) followed by the packed
-  // pixel row. An IDAT that inflates to the wrong length (the bead's four-byte
-  // payload, or an over-long one) or a scanline carrying an illegal filter tag is
+  // pixel row. An IDAT that inflates to the wrong length (too short or
+  // over-long) or a scanline carrying an illegal filter tag is
   // a structurally-broken raster that zlib-only validation waves through.
   const bytesPerScanline = Math.ceil((width * channels * bitDepth) / 8);
   const stride = 1 + bytesPerScanline;
@@ -1056,7 +1047,7 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
 
 // Cross-platform XML/SVG well-formedness check — a zero-dependency validator
 // that fails on the exact defects a lax "the file exists" / palette-literal scan
-// misses (rf2-3fc89f.27): an XML comment containing the illegal '--' sequence
+// misses: an XML comment containing the illegal '--' sequence
 // (which every strict XML parser AND Chrome reject with a <parsererror>), an
 // unterminated comment, and broken element structure (mismatched / unclosed
 // tags, unquoted-run-away attributes, no root <svg>). Returns an array of
@@ -1202,32 +1193,32 @@ function checkSvgWellFormed(svg, name) {
 
 // ---------------------------------------------------------------------------
 // WCAG contrast — the shared palette must clear AA for normal text and the
-// focus-indicator must clear the 3:1 non-text bar (rf2-febmqu + rf2-mon7tz).
+// focus-indicator must clear the 3:1 non-text bar.
 // A small static check over the :root tokens declared in style.css, so a
-// regression that re-introduces a sub-AA foreground (or restores the old
-// low-alpha amber focus ring) turns the gate RED — examples are teaching
-// surfaces and must not model an accessibility-regressed default.
+// sub-AA foreground (or the low-alpha amber focus ring) turns the gate
+// RED — examples are teaching surfaces and must not model an
+// accessibility-regressed default.
 // ---------------------------------------------------------------------------
 
 const WCAG_AA_NORMAL_TEXT = 4.5; // 1.4.3 — normal-size text
 const WCAG_NON_TEXT = 3.0; // 1.4.11 — UI component / focus indicator
 
-// Retired shared-palette colour literals that must not reappear in source art
-// (rf2-y82dk9). og.svg is the editable master the shipped og.png is exported
+// Retired shared-palette colour literals that must not appear in source art.
+// og.svg is the editable master the shipped og.png is exported
 // from; its palette literals intentionally mirror the --ex-* CSS tokens. When a
 // token is darkened for AA (e.g. --ex-ink-faint #8A8270 → #6E6654, 3.45:1 →
-// 5.14:1 on paper, rf2-febmqu) the og.png raster can silently lag behind because
-// the existing gate treats it as opaque bytes beyond dimensions/signature. Each
+// 5.14:1 on paper) the og.png raster can silently lag behind, because the
+// og.png check validates its structure and dimensions and never its colours. Each
 // row names a retired value, its AA-safe replacement, and the reason — a static
-// scan over og.svg so re-introducing the stale literal turns the gate RED.
+// scan over og.svg so the stale literal turns the gate RED.
 const RETIRED_OG_SOURCE_COLORS = [
   {
     retired: '#8A8270',
     replacement: '#6E6654',
     token: '--ex-ink-faint',
     reason:
-      'sub-AA on the shared paper background (3.45:1 < 4.5:1); darkened to ' +
-      '#6E6654 (5.14:1) in style.css, rf2-febmqu',
+      'sub-AA on the shared paper background (3.45:1 < 4.5:1); style.css uses ' +
+      '#6E6654 (5.14:1)',
   },
 ];
 
@@ -1282,7 +1273,7 @@ function hslToHex(h, s, l) {
 // not a computable opaque colour (var(), color-mix(), a named colour, …). Used
 // so the WCAG contrast gate can verify a palette expressed in ANY of the common
 // notations — not just #hex — and can tell a genuinely-opaque token from one it
-// cannot evaluate (rf2-nrieg0). Handles #rgb/#rgba/#rrggbb/#rrggbbaa (alpha
+// cannot evaluate. Handles #rgb/#rgba/#rrggbb/#rrggbbaa (alpha
 // dropped), rgb()/rgba() (0-255 or %), and hsl()/hsla().
 function colorToHex(value) {
   const v = String(value).trim();
@@ -1327,7 +1318,7 @@ function colorToHex(value) {
 // map (value un-normalised, comments stripped). parseExTokens normalises each
 // value to hex; the contrast gate consults the raw map to distinguish a token
 // that is ABSENT/renamed (skip) from one that is DECLARED but not a computable
-// opaque colour (fail-loud) — rf2-nrieg0.
+// opaque colour (fail-loud).
 function extractExTokenDecls(css) {
   const decls = {};
   for (const m of stripCssComments(css).matchAll(
@@ -1340,7 +1331,7 @@ function extractExTokenDecls(css) {
 
 // Parse the `--ex-*` custom-property declarations out of a style.css source
 // into a { tokenName: '#rrggbb' } map. Values in #hex / rgb() / hsl() notation
-// are all normalised to opaque hex (rf2-nrieg0); a token whose value is not a
+// are all normalised to opaque hex; a token whose value is not a
 // computable opaque colour is omitted (and surfaced fail-loud by the contrast
 // gate when a contract row references it) — the contrast checks operate on
 // opaque token pairs.
@@ -1404,12 +1395,12 @@ function resolveRef(ref, pageDir, sharedParent = EXAMPLES_ROOT) {
   return path.resolve(pageDir, ref);
 }
 
-// Reject any unallowlisted network `url(...)` reference inside a CSS source
-// (rf2-o18ava). An `@font-face { src: url(https://…) }`, a
+// Reject any unallowlisted network `url(...)` reference inside a CSS source.
+// An `@font-face { src: url(https://…) }`, a
 // `background-image: url(//cdn…)`, a masked/cursor/border-image remote `url()`,
 // etc. fires a third-party network request at load time — the SAME
 // reproducibility / offline-dev / hidden-dependency regression the external CSS
-// `@import` policy (rf2-vou5mm / rf2-byf7y) already guards, just via a `url()`
+// `@import` policy guards, just via a `url()`
 // declaration rather than an `@import`. Only http(s) and the protocol-relative
 // `//host/...` form are gated: `data:` URIs are inlined (no request) and a
 // `url(#fragment)` is a same-document paint reference (SVG filter/gradient), not
@@ -1424,19 +1415,19 @@ function checkCssNetworkUrls(css, displayRef, errors, externalAllowlist = EXTERN
         `dependency (remote font / image / mask / cursor) into staged ` +
         `examples at load time. Remote CSS url() fetches are forbidden unless ` +
         `explicitly allowlisted with a reason in EXTERNAL_IMPORT_ALLOWLIST in ` +
-        `check-examples-assets.cjs (rf2-o18ava).`,
+        `check-examples-assets.cjs.`,
     );
   }
 }
 
 // Resolve every LOCAL `url(...)` reference inside a CSS source against the CSS
-// file's own directory and report any that does not resolve to a real file
-// (rf2-35lfqo). A broken local image / font / cursor / mask referenced from a
+// file's own directory and report any that does not resolve to a real file.
+// A broken local image / font / cursor / mask referenced from a
 // stylesheet (`background-image: url('missing-local.png')`,
 // `@font-face { src: url(fonts/gone.woff2) }`, `cursor: url(img/cursor.png)`)
-// would otherwise pass the asset gate silently: extractCssUrls already surfaces
+// would otherwise pass the asset gate silently: extractCssUrls surfaces
 // these targets and the network-url policy SKIPS them (they fire no network
-// request), but nothing checked that the file is actually present. Network
+// request), so this is the check that the file is actually present. Network
 // refs (http(s)/protocol-relative) are the network-url policy's job and are
 // skipped here; `data:` URIs (inlined, no fetch) and `url(#fragment)`
 // same-document paint refs (SVG filter/gradient) are exempt. CSS urls resolve
@@ -1464,17 +1455,16 @@ function checkCssLocalUrls(io, css, cssAbsPath, displayRef, errors) {
 // Resolve + check a single local CSS file's @import targets, recursively.
 // Records an error for any local import that does not resolve to a real file,
 // for any EXTERNAL @import (http/https/protocol-relative) not present in the
-// external-import allowlist (rf2-vou5mm), for any remote `url(...)` fetch
-// in the CSS body (rf2-o18ava), and for any missing LOCAL `url(...)` asset
-// (rf2-35lfqo).
+// external-import allowlist, for any remote `url(...)` fetch
+// in the CSS body, and for any missing LOCAL `url(...)` asset.
 function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllowlist = EXTERNAL_IMPORT_ALLOWLIST) {
   if (seen.has(cssAbsPath)) return;
   seen.add(cssAbsPath);
   const css = readFileSafe(io, cssAbsPath);
   if (css == null) return; // a missing CSS file is reported by its referrer
-  // Remote url() fetches (font-face/background/mask/cursor/…) — rf2-o18ava.
+  // Remote url() fetches (font-face/background/mask/cursor/…).
   checkCssNetworkUrls(css, displayRef, errors, externalAllowlist);
-  // Missing LOCAL url() assets (font-face/background/mask/cursor/…) — rf2-35lfqo.
+  // Missing LOCAL url() assets (font-face/background/mask/cursor/…).
   checkCssLocalUrls(io, css, cssAbsPath, displayRef, errors);
   for (const imp of extractCssImports(css)) {
     if (isExternalRef(imp)) {
@@ -1488,7 +1478,7 @@ function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllow
           `${displayRef}: external @import '${imp}' pulls a third-party ` +
             `network dependency into staged examples. External CSS @imports ` +
             `are forbidden unless explicitly allowlisted with a reason in ` +
-            `EXTERNAL_IMPORT_ALLOWLIST in check-examples-assets.cjs (rf2-vou5mm).`,
+            `EXTERNAL_IMPORT_ALLOWLIST in check-examples-assets.cjs.`,
         );
       }
       continue;
@@ -1528,7 +1518,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
     return { relIndex, errors, refs: [] };
   }
 
-  // ONE parse per page (rf2-6a3rgx): the single inventory pass yields every view
+  // ONE parse per page: the single inventory pass yields every view
   // this scan needs — the broad local-resolution refs (steps 1-2), the tagged
   // load-time asset refs (step 0 network policy), and the og:image refs (step 3
   // raster contract) — so the page's HTML is tokenized exactly once.
@@ -1537,7 +1527,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
   const pageDir = path.dirname(indexAbsPath);
   const seenCss = new Set();
 
-  // 0) Direct-HTML network policy (rf2-bf4vdy): an asset-bearing external
+  // 0) Direct-HTML network policy: an asset-bearing external
   //    reference in the page — a <script src>, an asset <link href>, an
   //    <img>/<source>/<video>/<audio> src, or an external og:image — pulls a
   //    third-party CDN script / hosted stylesheet/font / external media into
@@ -1553,7 +1543,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
         `dependency into staged examples. Direct-HTML external asset refs ` +
         `(remote scripts / stylesheets / fonts / images) are forbidden ` +
         `unless explicitly allowlisted with a reason in ` +
-        `EXTERNAL_HTML_REF_ALLOWLIST in check-examples-assets.cjs (rf2-bf4vdy).`,
+        `EXTERNAL_HTML_REF_ALLOWLIST in check-examples-assets.cjs.`,
     );
   }
 
@@ -1574,7 +1564,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
       continue;
     }
     // Existing in the SOURCE folder is not enough for a page-local asset the
-    // page LOADS (rf2-3x7nj.44.2): `npm run dev:example` serves a freshly
+    // page LOADS: `npm run dev:example` serves a freshly
     // cleaned output dir holding only index.html, _shared/ and the manifest's
     // declared dests, so an undeclared colocated asset 404s there. Only the
     // tagged load-time view is held to this; an <a href> or <base href> is
@@ -1588,8 +1578,8 @@ function scanPage(io, indexAbsPath, opts = {}) {
         `${relIndex}: page-local asset '${ref}' exists in source but ` +
           `dev:example never stages it — declare it in ` +
           `examples-asset-manifest.cjs (the served output dir holds only ` +
-          `index.html, _shared/ and the manifest's declared assets) ` +
-          `(rf2-3x7nj.44.2)`,
+          `index.html, _shared/ and the manifest's ` +
+          `declared assets)`,
       );
     }
     // Transitively check @import targets inside any referenced local CSS.
@@ -1628,7 +1618,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
   //    point at a raster (PNG/JPG/WebP/GIF), never an SVG. Link-preview
   //    scrapers (Facebook / X / LinkedIn / Slack / Discord) ignore an SVG
   //    og:image and render no large preview card — a failure mode invisible to
-  //    a pure "the referenced file exists" check. (rf2-lr4am3)
+  //    a pure "the referenced file exists" check.
   for (const og of ogImages) {
     // Remote targets are governed separately by the direct-HTML network
     // allowlist. Their URL suffix is not reliable evidence of the response
@@ -1646,14 +1636,14 @@ function scanPage(io, indexAbsPath, opts = {}) {
     }
   }
 
-  // 4) BOOT-SCRIPT contract (rf2-y1kbf): the host must LOAD the compiled
+  // 4) BOOT-SCRIPT contract: the host must LOAD the compiled
   //    entrypoint, not merely carry the shared design-system assets. The
   //    required-asset contract above proves a page is DRESSED (favicon, OG card,
-  //    stylesheet); nothing proved it can RUN. BUILD_OUTPUTS exempts main.js from
-  //    on-disk resolution (it is shadow-cljs output, not repo source), and that
-  //    exemption used to make its ABSENCE unobservable: deleting the one
-  //    `<script src="main.js">` from any host left every other check green while
-  //    the staged page could not boot, render, or hydrate. The compile gate
+  //    stylesheet), not that it can RUN. BUILD_OUTPUTS exempts main.js from
+  //    on-disk resolution (it is shadow-cljs output, not repo source), so
+  //    without this check its ABSENCE is unobservable: deleting the one
+  //    `<script src="main.js">` from any host would leave every other check green
+  //    while the staged page could not boot, render, or hydrate. The compile gate
   //    never consumes the HTML and the headless wrappers require namespaces
   //    directly, so this gate is the only one that visits the host page.
   //
@@ -1669,8 +1659,8 @@ function scanPage(io, indexAbsPath, opts = {}) {
         `<body>. A preload <link>, an <a href>, plain text, or commented-out ` +
         `markup naming '${entrypoint}' does NOT satisfy this: only a live ` +
         `<script src> does. ('${entrypoint}' remains build output — it is ` +
-        `required as a page REFERENCE, never resolved as a source file.) ` +
-        `(rf2-y1kbf)`,
+        `required as a page REFERENCE, never resolved as a ` +
+        `source file.)`,
     );
   }
 
@@ -1703,12 +1693,12 @@ function checkSharedTree(io, opts = {}) {
     }
   }
 
-  // SVG WELL-FORMEDNESS (rf2-3fc89f.27). Both shared SVGs (the favicon every
+  // SVG WELL-FORMEDNESS. Both shared SVGs (the favicon every
   // page links + the editable OG source art) must be well-formed XML. A comment
   // containing the illegal '--' sequence, an unterminated comment, or broken
   // element nesting makes a strict XML parser AND Chrome emit a <parsererror>
   // document — so the favicon cannot render and the OG source cannot be reliably
-  // re-exported — while the old existence/palette-literal checks stayed green.
+  // re-exported — while an existence/palette-literal check stays green.
   // Validate the actual markup so a malformed shared SVG turns the gate RED.
   for (const svgName of ['favicon.svg', 'og.svg']) {
     const svgPath = path.join(sharedRoot, 'img', svgName);
@@ -1723,7 +1713,7 @@ function checkSharedTree(io, opts = {}) {
   // bare existence check (above) would stay green if the bytes were replaced
   // by non-PNG content (a renamed SVG/text file) or a wrong-size export — both
   // break link-preview scrapers silently. Validate the actual bytes: decodable
-  // PNG signature + IHDR + the documented 1200x630 dimensions (rf2-mon7tz).
+  // PNG signature + IHDR + the documented 1200x630 dimensions.
   const ogPngPath = path.join(sharedRoot, 'img', 'og.png');
   if (io.existsSync(ogPngPath)) {
     const bytes = readBytesSafe(io, ogPngPath);
@@ -1737,25 +1727,24 @@ function checkSharedTree(io, opts = {}) {
             `social-preview PNG — ${v.reason}. The canonical card is the ` +
             `${OG_PNG_WIDTH}x${OG_PNG_HEIGHT} raster (examples/_shared/README.md); ` +
             `re-export img/og.svg to a real PNG. Link-preview scrapers receive a ` +
-            `broken/wrong-size image otherwise (rf2-mon7tz).`,
+            `broken/wrong-size image otherwise.`,
         );
       }
     }
   }
-  // OG SOURCE-ART palette conformance (rf2-y82dk9). The shipped og.png is
+  // OG SOURCE-ART palette conformance. The shipped og.png is
   // re-exported from og.svg, whose colour literals intentionally mirror the
   // --ex-* CSS tokens. The og.png byte-check above is opaque to colour, so a
-  // shared-palette darkening (e.g. the AA fix --ex-ink-faint #8A8270 → #6E6654,
-  // rf2-febmqu) can leave og.svg/og.png stale and still pass. Reject any retired
-  // /sub-AA literal re-appearing in the source art so it can't silently drift
-  // back below the palette's own accessibility decisions.
+  // shared-palette darkening (e.g. --ex-ink-faint #8A8270 → #6E6654 for AA)
+  // can leave og.svg/og.png stale and still pass. Reject any retired
+  // /sub-AA literal appearing in the source art so it can't silently fall
+  // below the palette's own accessibility decisions.
   const ogSvgPath = path.join(sharedRoot, 'img', 'og.svg');
   const ogSvg = readFileSafe(io, ogSvgPath);
   if (ogSvg != null) {
-    // Strip XML/SVG comments first: the source-art header documents the
-    // retired→AA-safe migration BY NAMING the retired value, which is prose,
+    // Strip XML/SVG comments first: a comment naming a retired value is prose,
     // not a live colour. We only flag the literal where it is an actual paint
-    // attribute (fill / stroke / stop-color), so the doc note can cite it.
+    // attribute (fill / stroke / stop-color), so a doc note can cite it.
     const ogSvgNoComments = ogSvg.replace(/<!--[\s\S]*?-->/g, '');
     for (const c of RETIRED_OG_SOURCE_COLORS) {
       // A LIVE colour is the retired hex used as a paint value:
@@ -1770,7 +1759,7 @@ function checkSharedTree(io, opts = {}) {
           `examples/_shared/img/og.svg: source art uses the retired ` +
             `${c.retired} colour (${c.reason}). Replace it with the AA-safe ` +
             `${c.replacement} (${c.token}) and re-export og.png, so the social ` +
-            `card keeps the shared palette's accessibility decisions (rf2-y82dk9).`,
+            `card keeps the shared palette's accessibility decisions.`,
         );
       }
     }
@@ -1779,10 +1768,10 @@ function checkSharedTree(io, opts = {}) {
   const externalImportAllowlist =
     opts.externalImportAllowlist || EXTERNAL_IMPORT_ALLOWLIST;
 
-  // No EXTERNAL @import in the shared CSS (rf2-vou5mm). An external
-  // `@import url(https://…|//…)` here makes every staged example fire a
-  // third-party network request at load time — the Google-Fonts regression
-  // rf2-byf7y removed. Fail-closed: reject any external @import in style.css /
+  // No EXTERNAL @import in the shared CSS. An external
+  // `@import url(https://…|//…)` here (a Google Fonts @import, for example)
+  // makes every staged example fire a third-party network request at load
+  // time. Fail-closed: reject any external @import in style.css /
   // structure.css whose exact URL is not allowlisted. Checked HERE (not only
   // via the page reference graph) so the contract holds even if no scanned page
   // happens to link the file.
@@ -1803,11 +1792,11 @@ function checkSharedTree(io, opts = {}) {
             `examples/_shared/README.md §Visual identity). External CSS ` +
             `@imports are forbidden unless explicitly allowlisted with a ` +
             `reason in EXTERNAL_IMPORT_ALLOWLIST in ` +
-            `check-examples-assets.cjs (rf2-vou5mm).`,
+            `check-examples-assets.cjs.`,
         );
       }
     }
-    // No remote `url(...)` fetch in the shared CSS (rf2-o18ava). A
+    // No remote `url(...)` fetch in the shared CSS. A
     // `@font-face { src: url(https://…) }` / `background-image: url(//cdn…)` /
     // mask / cursor remote url() here makes every staged example fire a
     // third-party request at load time — the SAME no-remote-styling contract
@@ -1838,7 +1827,7 @@ function checkSharedTree(io, opts = {}) {
     }
   }
 
-  // CSS-cascade contract (rf2-gv5xd): the WebSocket send-form text-input
+  // CSS-cascade contract: the WebSocket send-form text-input
   // baseline (padding/flex/min-width:240px) MUST stay scoped to the
   // `.send-form` so it cannot leak into other examples. Component-specific
   // sizing lives behind a component selector, never as a global element rule.
@@ -1850,10 +1839,11 @@ function checkSharedTree(io, opts = {}) {
   const structurePath = path.join(sharedRoot, 'css', 'structure.css');
   const structure = readFileSafe(io, structurePath);
   if (structure != null) {
-    // Every structure.css contract below reads the LIVE rules only
-    // (rf2-3x7nj.44.3). A commented-out rule is inert in the browser, so it must
+    // Every structure.css contract below reads the LIVE rules only.
+    // A commented-out rule is inert in the browser, so it must
     // not satisfy a presence check, and a comment that merely names a banned
-    // rule must not trip an absence check (the rf2-lvw3z9 posture).
+    // rule must not trip an absence check (the posture stripCssComments gives
+    // every CSS extractor here).
     const liveStructure = stripCssComments(structure);
     // A bare `input[type="text"]` selector (no class/id/attribute qualifier
     // to its LEFT) is global; the send-form baseline must be qualified.
@@ -1864,24 +1854,24 @@ function checkSharedTree(io, opts = {}) {
           `min-width:240px on EVERY text input in EVERY example and blows ` +
           `out the 7GUIs Cells grid (whose inline editors are text inputs ` +
           `inside .cells-grid intended at width:56px). Scope it to the send ` +
-          `form (e.g. '.send-form input[type="text"]') — see rf2-gv5xd.`,
+          `form (e.g. '.send-form input[type="text"]').`,
       );
     }
     // The Cells grid editor must keep its compact width.
     if (!/\.cells-grid\s+input\s*\{[^}]*width:\s*56px/m.test(liveStructure)) {
       errors.push(
         `examples/_shared/css/structure.css: the '.cells-grid input' rule ` +
-          `must pin the compact 'width: 56px' cell-editor size (rf2-gv5xd).`,
+          `must pin the compact 'width: 56px' cell-editor size.`,
       );
     }
 
-    // RESPONSIVE Xray-host shell contract (rf2-y82dk9). The .rf2-testbed-shell
+    // RESPONSIVE Xray-host shell contract. The .rf2-testbed-shell
     // is a side-by-side flex with the inline Xray host fixed at
     // --rf-xray-inline-width (flex-shrink:0) + a 320px min-width, so it needs
     // ~624px before any app content shows and overflows on narrow viewports.
     // Examples are teaching surfaces, so the shared shell must encode a
     // deliberate narrow-viewport behaviour (stack/collapse) rather than
-    // silently regress to an unbounded horizontal layout. Require a max-width
+    // an unbounded horizontal layout. Require a max-width
     // media query that flips the shell to a stacked (column) flow.
     const stacksUnderBreakpoint =
       /@media[^{]*max-width[\s\S]*?\.rf2-testbed-shell\s*\{[^}]*flex-direction:\s*column/m.test(
@@ -1895,15 +1885,15 @@ function checkSharedTree(io, opts = {}) {
           `is flex-shrink:0 at ~560px + 320px min-width, ~624px before any app ` +
           `content). Add a '@media (max-width: …)' rule that stacks the shell ` +
           `('.rf2-testbed-shell { flex-direction: column }') so the Xray host ` +
-          `drops below the app instead of overflowing (rf2-y82dk9). See ` +
+          `drops below the app instead of overflowing. See ` +
           `examples/_shared/README.md §Responsive Xray-host shell.`,
       );
     }
   }
 
-  // Accessibility contracts on style.css (rf2-febmqu + rf2-mon7tz).
+  // Accessibility contracts on style.css.
   if (style != null) {
-    // (a) Shared palette CONTRAST contract (rf2-febmqu): every shipped
+    // (a) Shared palette CONTRAST contract: every shipped
     //     foreground/background token pair must clear its WCAG floor (AA 4.5:1
     //     for normal text, 3:1 for the focus-indicator ring). Computed from the
     //     parsed --ex-* tokens so a palette edit that drops a pair below the
@@ -1916,8 +1906,8 @@ function checkSharedTree(io, opts = {}) {
     // renamed/removed (skip — not this check's job) OR it is declared in the CSS
     // but as a value the contrast gate cannot evaluate to an opaque colour
     // (var()/color-mix()/named). The latter must FAIL LOUD, otherwise a palette
-    // refactor to an unparseable form silently disables the contrast gate
-    // (rf2-nrieg0). rgb()/hsl() are parsed, so they never reach this path.
+    // refactor to an unparseable form silently disables the contrast gate.
+    // rgb()/hsl() are parsed, so they never reach this path.
     const unverifiable = (name) =>
       name.startsWith('--ex-') &&
       Object.prototype.hasOwnProperty.call(decls, name) &&
@@ -1931,7 +1921,7 @@ function checkSharedTree(io, opts = {}) {
               `${row.fg} is declared as '${decls[row.fg]}', which the WCAG ` +
               `contrast gate cannot evaluate as an opaque colour. Express it as ` +
               `#hex / rgb() / hsl() so its contrast can be verified — a token ` +
-              `the gate cannot read silently disables the check (rf2-nrieg0).`,
+              `the gate cannot read silently disables the check.`,
           );
         }
         continue; // token not declared (renamed) — not this check's job
@@ -1944,7 +1934,7 @@ function checkSharedTree(io, opts = {}) {
               `examples/_shared/css/style.css: the ${row.role} background token ` +
                 `${bg} is declared as '${decls[bg]}', which the WCAG contrast ` +
                 `gate cannot evaluate as an opaque colour. Express it as #hex / ` +
-                `rgb() / hsl() so its contrast can be verified (rf2-nrieg0).`,
+                `rgb() / hsl() so its contrast can be verified.`,
             );
           }
           continue;
@@ -1958,20 +1948,20 @@ function checkSharedTree(io, opts = {}) {
             `examples/_shared/css/style.css: ${row.role} fails WCAG ` +
               `${row.min === WCAG_AA_NORMAL_TEXT ? 'AA' : 'non-text'} — ` +
               `${pair} is ${ratio.toFixed(2)}:1, below ${row.min}:1. Use an ` +
-              `AA-safe token (prefer --ex-accent-deep / --ex-ink-muted) ` +
-              `(rf2-febmqu).`,
+              `AA-safe token (prefer --ex-accent-deep / ` +
+              `--ex-ink-muted).`,
           );
         }
       }
     }
 
-    // (b) FOCUS-INDICATOR contract (rf2-mon7tz): the form-control focus rule
+    // (b) FOCUS-INDICATOR contract: the form-control focus rule
     //     must not strip the native outline without an accessible replacement.
-    //     The old rule paired `outline: none` with a ≈1.5:1 low-alpha amber
-    //     ring (rgba(200,116,26,0.18)) — keyboard users lost the indicator.
+    //     A rule pairing `outline: none` with a ≈1.5:1 low-alpha amber
+    //     ring (rgba(200,116,26,0.18)) leaves keyboard users without an indicator.
     //     Require a :focus-visible treatment whose ring uses the AA-safe accent
-    //     token, and forbid the low-alpha amber ring from coming back. Both read
-    //     the LIVE rules only, as the structure.css contracts do (rf2-3x7nj.44.3).
+    //     token, and forbid the low-alpha amber ring. Both read
+    //     the LIVE rules only, as the structure.css contracts do.
     const liveStyle = stripCssComments(style);
     const hasFocusVisible = /input:focus-visible[^{]*\{[^}]*box-shadow:[^}]*--ex-accent-deep/m.test(
       liveStyle,
@@ -1981,17 +1971,17 @@ function checkSharedTree(io, opts = {}) {
         `examples/_shared/css/style.css: form controls must carry a visible ` +
           `':focus-visible' indicator whose ring uses the AA-safe ` +
           `'--ex-accent-deep' token (≥3:1 on every surface). A bare ` +
-          `'outline: none' without an accessible replacement is forbidden ` +
-          `(rf2-mon7tz).`,
+          `'outline: none' without an accessible replacement is ` +
+          `forbidden.`,
       );
     }
-    // The low-alpha amber ring (the pre-fix ≈1.5:1 indicator) must not return.
+    // The low-alpha amber ring (a ≈1.5:1 indicator) is banned.
     if (/box-shadow:[^;}]*rgba\(\s*200\s*,\s*116\s*,\s*26\s*,\s*0?\.\d+\s*\)/m.test(liveStyle)) {
       errors.push(
         `examples/_shared/css/style.css: the low-alpha amber focus ring ` +
           `'rgba(200,116,26,0.18)' is below the 3:1 focus-indicator bar and ` +
           `must not be used as the focus indicator. Use a solid ` +
-          `'--ex-accent-deep' ring (rf2-mon7tz).`,
+          `'--ex-accent-deep' ring.`,
       );
     }
   }
@@ -2037,15 +2027,15 @@ module.exports = {
   scanPage,
   checkSharedTree,
   scanAll,
-  // og.png raster byte-validation (rf2-mon7tz + full structural decode rf2-3fc89f.27)
+  // og.png raster byte-validation (full structural decode)
   PNG_SIGNATURE,
   OG_PNG_WIDTH,
   OG_PNG_HEIGHT,
   validatePng,
   pngCrc32,
-  // SVG well-formedness validation (rf2-3fc89f.27)
+  // SVG well-formedness validation
   checkSvgWellFormed,
-  // shared palette contrast + focus-indicator contract (rf2-febmqu + rf2-mon7tz)
+  // shared palette contrast + focus-indicator contract
   WCAG_AA_NORMAL_TEXT,
   WCAG_NON_TEXT,
   contrastRatio,
@@ -2054,7 +2044,7 @@ module.exports = {
   extractExTokenDecls,
   parseExTokens,
   sharedContrastContract,
-  // OG source-art palette + responsive Xray-host shell contracts (rf2-y82dk9)
+  // OG source-art palette contract
   RETIRED_OG_SOURCE_COLORS,
 };
 
@@ -2064,8 +2054,8 @@ module.exports = {
 if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
   // Fail-closed enumeration: a directory-read failure throws (naming the path)
-  // rather than silently shrinking the set (rf2-3fc89f.31), so the walk itself
-  // is the completeness proof. The count floor below is now a SECONDARY drift
+  // rather than silently shrinking the set, so the walk itself
+  // is the completeness proof. The count floor below is a SECONDARY drift
   // ratchet only (catches a genuinely-empty layout / a wholesale rename), not
   // the primary guard against a partial walk. Surface the actionable
   // discovery-failure message cleanly (no JS stack) and exit non-zero.
@@ -2079,8 +2069,7 @@ if (require.main === module) {
 
   // Secondary drift ratchet: even a fully-readable walk that recovers almost
   // nothing (a layout collapse / mass rename) must NOT green a vacuous gate.
-  // The repo ships well over a dozen example host pages (index.html + the
-  // *.index.html showcase pages); require a sane floor.
+  // The repo ships well over a dozen example host pages; require a sane floor.
   if (indexes.length < 10) {
     console.error(
       `check-examples-assets: only ${indexes.length} example host page(s) ` +
