@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.managed-fx-http-join-cljs-test
-  "The managed-HTTP record's cross-buffer completion join (rf2-6ooch),
-  pinned on PRODUCER-DERIVED captures.
+  "The managed-HTTP record's cross-buffer completion join, pinned on
+  PRODUCER-DERIVED captures.
 
   Nothing HTTP-shaped here is typed by hand. Every scenario drives the real
   `:rf.http/managed` fx through the real CLJS transport, with `js/fetch`
@@ -12,7 +12,7 @@
   helpers exactly as the `:rf.xray/managed-fx-for-focused-event` composite
   hands them the trace buffer. Where a scenario needs a capture the runtime
   cannot be asked for directly — a ring that evicted the issued row, a
-  capture from before the issued row existed, a foreign op — it is a real
+  capture with no issued row at all, a foreign op — it is a real
   capture with rows REMOVED or a real row RE-LABELLED, never a row built
   from nothing.
 
@@ -395,9 +395,8 @@
       done)))
 
 ;; ===========================================================================
-;; (e) the rf2-n3sx9 residue: an explicit `[:rf.http/managed-abort :y]`
-;; beside a same-id re-issue in ONE bundle. MEASURED HERE, and not what the
-;; ruling expected: the abort is terminal for `:y`, so it evicts `:y`'s
+;; (e) an explicit `[:rf.http/managed-abort :y]` beside a same-id re-issue
+;; in ONE bundle. The abort is terminal for `:y`, so it evicts `:y`'s
 ;; issuance counter and the re-issue is `[:rf.work/http :y 1 1]` AGAIN — the
 ;; two attempts share one work id, and it is POSITION over the trace `:id`
 ;; that separates them (the abort fires before the re-issue's issued row).
@@ -447,7 +446,7 @@
                           (let [bundle-only (first (managed-records (h/event-bundle->managed-fx-records b2)))]
                             (is (= :issued (:status bundle-only)))
                             (is (nil? (:cancel-cause bundle-only)))))
-                        (testing "control — attributed by request-id alone (the pre-join rule), the new record takes the old attempt's abort"
+                        (testing "control — attributed by request-id alone (no join), the new record takes the old attempt's abort"
                           (let [legacy (h/http-adapter fx-new (:other b2) {:sole-http-fx? false})]
                             (is (= :cancelled (:status legacy)))
                             (is (= :user (:cancel-cause legacy)))))
@@ -491,8 +490,8 @@
       done)))
 
 ;; ===========================================================================
-;; (g) terminal row present, issued row AGED OUT; (h) a capture from before
-;; the issued row existed. Both stay unattributed ISSUED, without error.
+;; (g) terminal row present, issued row AGED OUT; (h) a capture with no
+;; issued row at all. Both stay unattributed ISSUED, without error.
 ;; ===========================================================================
 
 (deftest g-h-no-issued-row-stays-unattributed
@@ -529,7 +528,7 @@
                             (is (= :issued (:status r)))
                             (is (nil? (:completion r)))
                             (is (nil? (:reply-link r)))))
-                        (testing "(h) pre-issued-row capture"
+                        (testing "(h) a capture with no issued row"
                           (let [r (only-managed pre [:t/gh])]
                             (is (= :issued (:status r)))
                             (is (nil? (:completion r)))
@@ -625,7 +624,7 @@
       done)))
 
 ;; ===========================================================================
-;; (l) the reply link is the delivery of THIS completion (rf2-2dd4h). A named
+;; (l) the reply link is the delivery of THIS completion. A named
 ;; id reused after completion puts the IDENTICAL full work id on both
 ;; requests' completions AND on both replies, so a completion whose reply
 ;; was SILENCED — `:on-failure nil`, or `:reply-to nil` — must not borrow
@@ -741,12 +740,13 @@
       done)))
 
 ;; ===========================================================================
-;; (m) an OVERRIDDEN `:rf.http/managed` (rf2-3x7nj.23.5). An override replaces
-;; the fx HANDLER, so the record reads what the capture evidences about the
+;; (m) an OVERRIDDEN `:rf.http/managed`. An override replaces the fx
+;; HANDLER, so the record reads what the capture evidences about the
 ;; replacement — OVERRIDDEN with no issued row, the ordinary joined status
 ;; when it really issued — and carries the override marker either way. The
-;; walker used to drop the override row (no `:rf.fx/id`), so a no-op stub read
-;; ISSUED like a real request and a keyword redirect's record vanished.
+;; override row carries no `:rf.fx/id`, so a walker keying on it alone would
+;; read a no-op stub as ISSUED like a real request and lose a keyword
+;; redirect's record.
 ;; ===========================================================================
 
 (deftest m-overridden-requests-read-what-the-capture-evidences
@@ -798,7 +798,7 @@
                         (testing "a keyword redirect keeps its record, under the id the handler emitted"
                           (is (= [:overridden true :t/m-fake-http]
                                  ((juxt :status :overridden? :override-to) redir))))
-                        (testing "a delegating override reads the joined OK, still marked"
+                        (testing "a delegating override reads the joined OK, marked"
                           (is (= [:ok :joined true]
                                  ((juxt :status :completion :overridden?) deleg))))
                         (testing "CONTROL — the unoverridden request reads the joined OK, unmarked"
