@@ -58,7 +58,7 @@
   `rf.story.save-variant/capture-slices` — the dialog renders its honesty-floor
   warnings (which slices are captured-as-declared / not-yet-projectable)
   so a saved variant is honest about what it does and does NOT capture.
-  May be nil (legacy 3/4-arity callers)."
+  May be nil (the 3/4-arity forms)."
   ([source-variant-id args-snapshot now-ms]
    (open-dialog! source-variant-id args-snapshot now-ms nil nil))
   ([source-variant-id args-snapshot now-ms violations]
@@ -193,7 +193,7 @@
 ;; `rf.story.save-variant/capture-slices` classifies every slice; this component
 ;; renders the warnings (every slice that is NOT a clean live projection)
 ;; so the user knows, BEFORE pasting, that a saved variant captures args
-;; live, carries declared slices forward via `:extends`, and does NOT yet
+;; live, carries declared slices forward via `:extends`, and does NOT
 ;; project sub-overrides / db-seed / route / network / fx-overrides, nor
 ;; the chrome-wide viewport. The honesty floor is load-bearing — we warn,
 ;; never silently drop or fabricate.
