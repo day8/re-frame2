@@ -92,8 +92,9 @@
   ([variant-id opts]  (rf.story.runtime/snapshot-identity variant-id opts)))
 
 (defn destroy-variant!
-  "Tear down a variant frame allocated via `run-variant`. Per IMPL-
-  SPEC §5.1 — the caller (UI shell / test fixture) owns teardown."
+  "Tear down a variant frame allocated via `run-variant`. Per
+  `002-Runtime.md` §Per-variant frame allocation — the caller (UI shell /
+  test fixture) owns teardown."
   [variant-id]
   (rf.story.frames/destroy! variant-id))
 
