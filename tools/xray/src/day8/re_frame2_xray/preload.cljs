@@ -17,7 +17,7 @@
      host. The seat is unconditional: it is what makes the `:rf.xray/*`
      instruction set registered in step 1 actually WRITABLE, so a host can
      dispatch into Xray (`set-target-frame!`, `focus!`) without ever opening
-     the shell (rf2-avi7). Missing host is reported via `console.error` and
+     the shell. Missing host is reported via `console.error` and
      the inspectable Xray status API; startup is not blocked.
 
   All four are idempotent: re-loading the namespace (shadow-cljs
@@ -44,7 +44,8 @@
   in shadow-cljs's dev-only `:devtools` block; the remaining guards make
   an accidental production load inert rather than useful."
   (:require [re-frame.interop :as rf.interop]
-            ;; Time Travel requires the epoch listener and history API;
+            ;; Time travel (the ribbon's epoch nav) requires the epoch
+            ;; listener and history API;
             ;; deps.edn makes the artefact part of every Xray build.
             [re-frame.epoch]
             [day8.re-frame2-xray.config :as config]
@@ -99,14 +100,8 @@
   (registry/register-xray-handlers!)
   (install/register-trace-collector!)
   (install/register-epoch-collector!)
-  ;; No view-substrate evidence step here, and none is missing (rf2-l86mm).
-  ;; Two predecessors sat in exactly this position. The first claimed the
-  ;; donor `re-frame.ui` evidence projection under a stable owner identity,
-  ;; because that tier had a single-owner registry a second tool could hold.
-  ;; The second was no step at all — `re-frame.freehand.tool` had no registry
-  ;; to claim, so the Views panel's subs read it directly. Both are gone with
-  ;; the substrates they read. The Fresco tab's door is a reader on the same
-  ;; terms and acquires nothing from here either.
+  ;; No view-substrate evidence step here, and none is missing: the Fresco
+  ;; tab's door is a reader and acquires nothing from here.
   (install/install-browser-api-exports!)
   (keybinding/attach!)
   ;; Apply the persisted CSS-var + theme-class effects. The shell
