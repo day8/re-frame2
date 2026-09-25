@@ -930,8 +930,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 
 (def HandlerExceptionTags
   ;; The EVENT HANDLER itself threw (the terminal :before). Scoped to the
-  ;; handler — coeffect / user-interceptor throws in the same
-  ;; chain carry their own categories below. `:failing-id` and `:handler-id`
+  ;; handler — a user interceptor's throw in the same chain, and a coeffect
+  ;; supplier's throw at context assembly before the chain runs, carry their
+  ;; own categories below. `:failing-id` and `:handler-id`
   ;; are both the event id; `:phase` is :before (the handler-wrapper's slot).
   [:map
    [:category          [:= :rf.error/handler-exception]]
