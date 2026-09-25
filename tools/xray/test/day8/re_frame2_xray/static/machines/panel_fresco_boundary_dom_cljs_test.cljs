@@ -1,19 +1,18 @@
 (ns day8.re-frame2-xray.static.machines.panel-fresco-boundary-dom-cljs-test
-  "The Static Machines sub-tab re-authored in the re-frame-native view
-  layer, read off a real React commit (rf2-k97c.3).
+  "The Static Machines sub-tab in the re-frame-native view layer, read off
+  a real React commit.
 
   `static.machines.panel/panel`, `…browse-list/browse-list` and
-  `…definition-detail/detail` are now `rf.fresco/defview`s reading
+  `…definition-detail/detail` are `rf.fresco/defview`s reading
   through Fresco's shipped collector rather than `rf/reg-view`s reading
   through whatever view build the installed substrate adapter supplies.
-  This file is the behavioural evidence for that swap.
+  This file is the behavioural evidence for those boundaries.
 
-  The rows are the template `static/flows/panel_fresco_boundary_dom
-  _cljs_test` established, adapted to this sub-tab's THREE boundaries,
-  its own dependency lever, its own key site — and one row no earlier
-  slice needed.
+  The rows follow the template of `static/flows/panel_fresco_boundary_dom
+  _cljs_test`, adapted to this sub-tab's THREE boundaries, its own
+  dependency lever, its own key site — and one row of its own, W6.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1, and it is a THREE-boundary claim:
                                     the panel's chrome, the left pane and
@@ -30,7 +29,7 @@
       MASQUERADING AS APPLICATION
       EVIDENCE                    — W3, in BOTH directions, and SCOPED to
                                     the three boundaries' own renders — see
-                                    the last paragraph below
+                                    the W3 section below
     6 CLEAN TEARDOWN              — W4
 
   Criterion 3 (Xray's own interactions) has no row of its own here: the
@@ -43,11 +42,11 @@
 
   ## W5 — the row key, and why the PIP key gets no row like it
 
-  The migration moved React keys out of Clojure metadata, which Fresco's
-  codec reads NOWHERE, at TWO sites in `browse_list.cljs`: the per-row
-  seq and each row's live-instance pip seq. Only the FIRST is witnessable
-  by a reorder, and the reason generalises (it is #9622's finding, met
-  again here): the pip key expression is `i`, POSITIONAL, so removing a
+  `browse_list.cljs` keys TWO seqs on the attribute map rather than in
+  Clojure metadata, which Fresco's codec reads NOWHERE: the per-row seq
+  and each row's live-instance pip seq. Only the FIRST is witnessable by
+  a reorder, and the reason generalises (the Static Flows inputs seq has
+  the same property): the pip key expression is `i`, POSITIONAL, so removing a
   pip shifts the survivor's key and React correctly reuses the removed
   node — a positional key and no key at all are indistinguishable under
   exactly the operation a reorder-identity row performs. The row key is
@@ -56,13 +55,13 @@
   THE ATTRIBUTE MAP) is real — `browse_list_cljs_test`'s
   `row-and-pip-keys-ride-the-attribute-map-not-metadata`.
 
-  ## W6 — the REAGENT ISLAND, and no earlier slice has this row
+  ## W6 — the REAGENT ISLAND
 
-  This is the first migrated panel whose interior must reach code that
+  This panel's interior must reach code that
   CANNOT be a Fresco head: `topology/body` bottoms out in
   `machine-canvas/Chart`, an `rf/reg-view`, which grades `:invalid` in
   hiccup head position exactly as a plain `defn` does. `detail-tree`
-  therefore crosses it as a React ELEMENT through `reagent.core/
+  therefore crosses it as a React ELEMENT through `substrate/
   as-element` — Fresco's documented `:as-child` door, the same one
   `panels/machine_after_rings.cljs` uses. W6 is that crossing measured:
   three nodes that exist ONLY if Reagent rendered fn heads inside the
@@ -85,7 +84,7 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is the family Xray supports —
   because the claim being made is that the boundaries are INDIFFERENT to
   it. It is also the adapter W6's island genuinely needs.
   `:ambient-frame nil` is load-bearing exactly as it is in the template:
@@ -95,7 +94,7 @@
   W1's frame-targeting row is about and that row would pass while
   measuring nothing.
 
-  ## W3's ZERO IS SCOPED, AND THE SCOPE WAS MEASURED RATHER THAN CHOSEN
+  ## W3's ZERO IS SCOPED TO THE BOUNDARIES
 
   Criterion 5 is a claim about the BOUNDARIES: a Fresco boundary is not a
   substrate view render, so it emits no `:rf.view/*` op. That holds, and
@@ -104,16 +103,16 @@
   SUB-TREE is trace-silent: the Reagent island W6 measures contains
   `machine-canvas/Chart`, an `rf/reg-view`, and a reg-view emits view
   trace wherever it renders. Written against the page's ambient machine
-  list, W3's first run read `[:rf.view/render :rf.view/rendered]` — the
+  list, W3 would read `[:rf.view/render :rf.view/rendered]` — the
   island, faithfully doing what a Reagent tree does.
 
   So W3 pins the machine list EMPTY, which means no machine is selected,
   which means no Topology body and therefore no island; and it ASSERTS
   that absence rather than assuming it, so the zero cannot quietly become
   a zero about a tree that was not there for a different reason. The
-  island's trace emission is a KNOWN CONSEQUENCE of the migration
-  scaffolding, not a regression, and it goes when `Chart` is itself a
-  Fresco body — the same commit that deletes the `as-child` seam.
+  island's trace emission is a KNOWN CONSEQUENCE of the `as-child` seam,
+  not a regression, and it lasts while `Chart` is a `reg-view` rather
+  than a Fresco body.
 
   ## Test target
 
@@ -245,10 +244,10 @@
 (defn- override-machines!
   "Pin the registered-machine list the panes project.
 
-  MEASURED NECESSITY, not tidiness: `:rf.xray/registered-machines`
+  A NECESSITY, not tidiness: `:rf.xray/registered-machines`
   computes from the PROCESS-GLOBAL registrar, so what a row sees depends
-  on what every other suite sharing this page has registered — the first
-  run of this file found `:auth.login/flow` on screen where it expected a
+  on what every other suite sharing this page has registered — another
+  suite's `:auth.login/flow` can be on screen where a row expects a
   cold start. Any row asserting an ABSENCE, or asserting on the whole row
   set, pins the list first. Rows that assert about ONE named probe do not
   need to, and W2 deliberately does not: its lever is a real registration
@@ -333,12 +332,12 @@
 ;; ===========================================================================
 
 (deftest w1-three-boundaries-paint-and-their-reads-land-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Static Machines sub-tab commits real
+  (testing "the Static Machines sub-tab commits real
             DOM through the registry entry the Static shell mounts, its two
             nested pane boundaries mount under it, and their
             `rf.fresco/sub` reads resolve against the frame the enclosing
-            `frame-provider` named rather than the ambient one. Epic
-            criteria 1 and 4."
+            `frame-provider` named rather than the ambient one.
+            Criteria 1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup-with-overrides!)
@@ -393,9 +392,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panes re-render themselves and commit new
+  (testing "the mounted panes re-render themselves and commit new
             DOM when a read's value really changes, and do NOT when nothing
-            they watch moved. Epic criterion 2, with the control that makes
+            they watch moved. Criterion 2, with the control that makes
             the update mean liveness rather than a commit that simply had not
             happened yet."
     (if-not (browser?)
@@ -459,15 +458,15 @@
                        (done)))))))))
 
 (deftest w2b-the-right-pane-updates-on-a-read-only-it-performs
-  (testing "rf2-k97c.3 — the RIGHT pane is independently live, and this row is
+  (testing "the RIGHT pane is independently live, and this row is
             what makes the three-boundary claim mean something rather than
             being a fact about file layout. Its lever is
             `:rf.xray.static.machines/sub-mode`, a read ONLY `detail`
             performs: the left pane never touches it, so a commit here can
             only have come from the right pane's own boundary re-rendering.
 
-            The reactive granularity is the reason the migration kept three
-            boundaries instead of hoisting both panes' reads into `panel` —
+            The reactive granularity is the reason there are three
+            boundaries rather than both panes' reads hoisted into `panel` —
             with one boundary, every search keystroke would re-render this
             Topology chart."
     (if-not (browser?)
@@ -520,9 +519,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated sub-tab
+  (testing "rendering the sub-tab
             contributes NOTHING to the substrate's view-trace stream, even
-            when it is mounted INSIDE an application frame. Epic criterion 5,
+            when it is mounted INSIDE an application frame. Criterion 5,
             proven structurally rather than by the `:rf/xray` frame gate: a
             Fresco boundary is not a substrate view render, so there is no
             event to gate. The control is an ordinary `reg-view` in the same
@@ -532,7 +531,7 @@
       (let [_        (setup-with-overrides!)
             ;; PIN THE LIST EMPTY IN THE FRAME THE SUBJECT MOUNTS IN, and
             ;; the scope of the zero below turns on it — see the docstring's
-            ;; last paragraph. The override slot is per-frame, so this is
+            ;; W3 section. The override slot is per-frame, so this is
             ;; `app-frame`'s and not `:rf/xray`'s.
             _        (override-machines! app-frame [])
             traces   (atom [])
@@ -592,12 +591,12 @@
   (zero? (ref-count-of :rf/xray data-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the sub-tab releases its subscription
+  (testing "unmounting the sub-tab releases its subscription
             references completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+            count rather than a higher one. Criterion 6, and the number
+            that separates a correct binding from a four-call interop
+            binding, under which the `:rf/xray` ref-count would climb across
+            renders and never fall on unmount.
 
             THE COUNT IS TWO HERE, not one — both pane boundaries read
             `:rf.xray.static.machines/data` — which is what makes the
@@ -658,9 +657,9 @@
 ;; ===========================================================================
 
 (deftest w5-row-identity-survives-a-head-removal
-  (testing "rf2-k97c.3 — the row React key the migration moved out of Clojure
-            metadata and onto a keyed fragment's ATTRIBUTE MAP is the key
-            React actually reconciles on. Removing the HEAD of a two-row list
+  (testing "the row React key, carried on a keyed fragment's ATTRIBUTE MAP
+            rather than in Clojure metadata, is the key React actually
+            reconciles on. Removing the HEAD of a two-row list
             leaves the survivor as the SAME DOM node; under index-based
             reconciliation — which is what a lost key silently degrades to —
             React would reuse the head's node for the survivor and destroy the
@@ -715,8 +714,8 @@
 ;; ===========================================================================
 
 (deftest w6-the-topology-body-crosses-as-a-reagent-island
-  (testing "rf2-k97c.3 — `detail-tree` hands the Topology body to
-            `reagent.core/as-element`, so it reaches React as a finished
+  (testing "`detail-tree` hands the Topology body to
+            `substrate/as-element`, so it reaches React as a finished
             ELEMENT — a legal child anywhere per Fresco's component ABI —
             and everything inside it renders under REAGENT rather than under
             Fresco's codec.
@@ -730,8 +729,8 @@
             does — rendered too, resolving its own frame from the SAME React
             context the boundary read.
 
-            This is the row no earlier panel slice needed, and the door it
-            measures is the one `panels/machine_after_rings.cljs` documents."
+            The door it measures is the one
+            `panels/machine_after_rings.cljs` documents."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup-with-overrides!)]
@@ -750,9 +749,8 @@
                  rendered inside it — Fresco's codec would have refused that
                  head, so this node is the crossing itself")
             (is (nil? (testid container "rf-xray-static-machines-topology-popout"))
-                "rf2-h6ooa — the inert pop-out affordance is NOT committed: its
-                 handler is a registered no-op, so the toolbar hides it until
-                 it does something")
+                "the inert pop-out affordance is NOT committed: its
+                 handler is a registered no-op, so the toolbar hides it")
             (is (some? (testid container "rf-xray-machine-canvas-host"))
                 "and `machine-canvas/Chart` — an `rf/reg-view` one level deeper,
                  under `[chart …]`, the head shape the codec grades `:invalid`
