@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.static.machines.topology-cljs-test
-  "rf2-eao0s0 — Static Machines Topology → machine-canvas/Chart prop
+  "Static Machines Topology → machine-canvas/Chart prop
   boundary.
 
   The Dynamic topology + focused-event charts forward the machine's
   STATIC context shape into `machine-canvas/Chart` so the root Context
-  band renders without a live snapshot. The Static Topology chart
-  wrapper had been mounting only definition / machine-id, so the root
-  Context band was missing there. These tests pin that the wrapper now
+  band renders without a live snapshot, and so does the Static Topology
+  chart wrapper: a wrapper mounting only definition / machine-id would
+  drop the root Context band. These tests pin that the wrapper
   forwards `:context-band` (the {key → type-caption} shape) +
   `:context-band-inferred?` for BOTH an inferred (`:data`-sample) and a
   declared (`[:schemas :data]`) definition.
@@ -70,7 +70,7 @@
 ;; ---- tests --------------------------------------------------------------
 
 (deftest topology-forwards-inferred-context-shape-to-chart
-  (testing "rf2-eao0s0 — an inferred (:data, no schema) machine: the Static
+  (testing "an inferred (:data, no schema) machine: the Static
             Topology chart forwards the {key → type-caption} shape with
             :context-band-inferred? TRUE."
     (let [props (chart-props inferred-definition)]
@@ -82,7 +82,7 @@
           "inferred sample → :context-band-inferred? TRUE reaches the chart"))))
 
 (deftest topology-forwards-declared-context-shape-to-chart
-  (testing "rf2-eao0s0 — a declared ([:schemas :data]) machine: the Static
+  (testing "a declared ([:schemas :data]) machine: the Static
             Topology chart forwards the AUTHORITATIVE schema shape with
             :context-band-inferred? FALSE."
     (let [props (chart-props declared-definition)]
@@ -93,21 +93,20 @@
           "declared schema → :context-band-inferred? FALSE reaches the chart"))))
 
 (deftest topology-hides-context-panel-when-no-shape
-  (testing "rf2-eao0s0 — a machine that declares neither :data nor a
+  (testing "a machine that declares neither :data nor a
             [:schemas :data] schema forwards a nil :context-band so the chart hides
-            the Context panel (the existing chart contract)."
+            the Context panel (the chart contract)."
     (let [props (chart-props no-data-definition)]
       (is (some? props) "the chart wrapper still mounts machine-canvas/Chart")
       (is (nil? (:context-band props))
           "no shape → :context-band is nil (Context panel stays hidden)"))))
 
 (deftest topology-toolbar-renders-no-inert-popout-affordance
-  (testing "rf2-h6ooa — the toolbar's 'Pop out' button dispatched
-            `:rf.xray.static.machines/open-chart-popout`, whose handler is a
-            registered NO-OP (no pop-out window exists), so clicking a
-            promised control silently did nothing. Hide it until it does
-            something: the RENDERED toolbar carries no pop-out affordance,
-            and no control in it dispatches the no-op event.
+  (testing "`:rf.xray.static.machines/open-chart-popout`'s handler is a
+            registered NO-OP (no pop-out window exists), so a 'Pop out'
+            button dispatching it would be a promised control that silently
+            does nothing. The RENDERED toolbar carries no pop-out
+            affordance, and no control in it dispatches the no-op event.
 
             `body` is rendered with a RECORDING dispatch; the toolbar mount
             it emits is taken off the RAW tree (so the chart's reg-view is
