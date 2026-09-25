@@ -497,8 +497,10 @@ egress to trace / epochs / SSR."})
   diagnostic and no scroll. There is no extension seam here (no registry,
   callback, or late-bound hook interprets a strategy), so an unrecognised
   value is a caller bug, not an extension point. It emits a loud
-  `:rf.error/unsupported-scroll-strategy` naming the offending value and
-  the supported set.
+  `:rf.error/unsupported-scroll-strategy` naming the supported set on both
+  channels; only the dev trace names the offending value (its `:strategy`
+  tag), because the always-on record carries a constant reason and
+  structural slots.
 
   This is the ALWAYS-ON leg. The
   `:schema` on the registration rejects the same values one step earlier
