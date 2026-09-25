@@ -11,12 +11,11 @@
  * `:fail`, or `:cannot-run`), and prints a per-play report. `:cannot-run` is
  * terminal but never expected, so it produces a failed row without a timeout.
  *
- * The roster (rf2-kttom)
- * ----------------------
- * This runner drove ONE hardcoded testbed until the Fresco deck landed.
- * `TESTBEDS` is now the list, modelled on the roster/clean/compile/stage
- * loop the sibling `serve-and-run-story-feature-load-tests.cjs` already
- * keeps. Each entry owns its build id, HTML source, output dir, base path
+ * The roster
+ * ----------
+ * `TESTBEDS` is the list of testbeds this runner drives, modelled on the
+ * roster/clean/compile/stage loop the sibling
+ * `serve-and-run-story-feature-load-tests.cjs` keeps. Each entry owns its build id, HTML source, output dir, base path
  * AND ITS OWN NON-VACUITY FLOOR — the floors differ on purpose:
  *
  *   counter-with-stories  four rows, both sides. It owns proof of THIS
@@ -57,8 +56,8 @@
  *   :story.counter-play-script/failing            → expects :fail
  *
  * Exit code: 0 if every play matched its expected status; 1 if any
- * play deviated, if an uncaught browser `pageerror` fired (rf2-wf5al),
- * OR if play discovery was VACUOUS (rf2-54xbp) — zero / a
+ * play deviated, if an uncaught browser `pageerror` fired,
+ * OR if play discovery was VACUOUS — zero / a
  * near-empty / a one-sided (no expected-fail) row set fails closed,
  * because the testbed seeds fixtures precisely to keep both the pass and
  * the expected-fail paths under continuous coverage, so an empty gate is
@@ -82,7 +81,7 @@ const { navigate, reloadPage } = require('./spec-helpers.cjs');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
-// rf2-315cf: on a RED gate, persist the per-row run evidence the runner
+// On a RED gate, persist the per-row run evidence the runner
 // already computed to a stable path so the browser-gate workflow can
 // upload it as a downloadable post-mortem (spec/017
 // §Failed-run artifacts in CI). The substrate guarantees the low-level
@@ -101,14 +100,15 @@ const READY_TIMEOUT_MS = 30000;
 const TERMINAL_TIMEOUT_MS = Number(
   process.env.STORY_PLAY_SCRIPT_TERMINAL_TIMEOUT_MS || 30000,
 );
-// rf2-taj9b — the runner's three navigations carried no timeout and so took
-// Playwright's 30s default. That made THREE budgets in this file print the
-// same number — server readiness, per-play terminal wait, and an invisible
-// navigation ceiling — so `Timeout 30000ms exceeded` in a CI log named none
-// of them. Same number, now this file's own and distinct from its siblings;
+// The runner's three navigations carry this file's OWN timeout rather than
+// Playwright's implicit 30s default. An implicit ceiling would make THREE
+// budgets in this file print the same number — server readiness, per-play
+// terminal wait, and an invisible navigation ceiling — so
+// `Timeout 30000ms exceeded` in a CI log would name none of them. The number
+// is the same, but it is this file's own and distinct from its siblings, and
 // the helper's failure says which one fired.
 //
-// `waitUntil: 'load'` is KEPT (the helper's default) and is load-bearing
+// `waitUntil: 'load'` (the helper's default) is load-bearing
 // here, not incidental: `bootShell` primes localStorage AFTER the document
 // has loaded and then RELOADS so the shell re-mounts having read the prime,
 // and `navigateToVariant` documents that each variant needs a full load so
@@ -119,7 +119,7 @@ const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 // Resolve the browser toolchain lazily (inside main()) rather than at
 // module top-level, so the script-policy unit test can `require(...)`
 // this module for its pure helpers without http-server / playwright
-// installed (rf2-wf5al). These are only ever used by the harness path.
+// installed. These are only ever used by the harness path.
 function httpServerBin() {
   return require.resolve('http-server/bin/http-server', { paths: [IMPL_ROOT] });
 }
@@ -132,7 +132,7 @@ function loadChromium() {
 // browser/build toolchain installed. compileTestbed() spawns the
 // resolved runner shell-free under process.execPath — never
 // npx/npx.cmd/cmd.exe (the Windows command-hijack accident class).
-// rf2-y9o5e3; matches story-build.cjs / dev-testbed.cjs.
+// Matches story-build.cjs / dev-testbed.cjs.
 function shadowCljsRunner() {
   try {
     return require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
@@ -156,10 +156,10 @@ function log(line) {
   process.stdout.write(`${line}\n`);
 }
 
-// Clean-stage boundary (rf2-bf4vdy): remove + recreate each testbed's output
+// Clean-stage boundary: remove + recreate each testbed's output
 // dir BEFORE shadow-cljs compiles into it, so every served file is produced
 // from the current source this run — no stale file from a previous run can
-// satisfy a browser request the current testbed no longer produces. Cleans
+// satisfy a browser request the current testbed does not produce. Cleans
 // only the roster's own dirs (not the shared OUT_ROOT); the helper
 // path-guards every target to live strictly under OUT_ROOT.
 function cleanTestbedOutDirs() {
@@ -168,7 +168,7 @@ function cleanTestbedOutDirs() {
 
 function compileTestbeds() {
   // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
-  // shell-free (rf2-y9o5e3). Quiet-on-success: capture output and surface
+  // shell-free. Quiet-on-success: capture output and surface
   // it only on failure (or under RF2_VERBOSE_TESTS). ONE invocation for the
   // whole roster — shadow-cljs compiles the builds against a single JVM, so
   // the second testbed costs a fraction of the first.
@@ -288,10 +288,10 @@ async function readPlayRunStateOnce(page, variantId, playKey) {
  * `re-frame.story.play.ci-runner/terminal?` (spec/017 §`:cannot-run`):
  * a run is terminal once its status is `pass`, `fail`, OR `cannot-run`.
  *
- * rf2-wf5al(3): `cannot-run` is a genuine terminal run status (the
+ * `cannot-run` is a genuine terminal run status (the
  * runner core finishes a play as cannot-run when every unmet step is a
- * capability/refusal row). Treating only pass/fail as terminal made an
- * honest cannot-run look like a hang — the wait loops below burned the
+ * capability/refusal row). Treating only pass/fail as terminal would make an
+ * honest cannot-run look like a hang — the wait loops below would burn the
  * full STORY_PLAY_SCRIPT_TERMINAL_TIMEOUT_MS per affected row before
  * the (no-state-change) timeout surfaced the failure. Accepting it here
  * returns immediately so `expectedStatusFor` can mark it as an
@@ -414,7 +414,7 @@ function summariseResults(results) {
       // The CLJS `project-state` serialises `:passed?` as the literal
       // string key `"passed?"` (keyword → name preservation); read it
       // via bracket-access so the `?` survives the JS identifier rules.
-      // Older drafts read `.passed` and silently dropped every failure
+      // Reading `.passed` would silently drop every failure
       // line — leaving only the row-level MISS with no step diagnostic.
       const fails = (r.runState && r.runState.results) || [];
       for (const stepR of fails) {
@@ -436,7 +436,7 @@ function summariseResults(results) {
 }
 
 /**
- * rf2-315cf — persist the run evidence for a RED gate to a stable path
+ * Persist the run evidence for a RED gate to a stable path
  * so the browser-gate workflow's `if: failure()` upload step can surface
  * it as a downloadable post-mortem (spec/017 §Failed-run artifacts in CI).
  *
@@ -460,7 +460,7 @@ function writeFailureReport(failures, allResults, browserMessages, pageErrors = 
     capturedAt: new Date().toISOString(),
     totalRows: allResults.length,
     unexpectedOutcomes: failures.length,
-    // rf2-wf5al(1): record uncaught browser exceptions explicitly so a
+    // Record uncaught browser exceptions explicitly so a
     // pageerror-only RED gate (all play rows matched, but the shell
     // threw) still produces an actionable post-mortem.
     uncaughtPageErrors: pageErrors.length,
@@ -485,15 +485,15 @@ function writeFailureReport(failures, allResults, browserMessages, pageErrors = 
 }
 
 /**
- * rf2-wf5al(1): compute the gate verdict from BOTH signals — the
+ * Compute the gate verdict from BOTH signals — the
  * per-row play-status matches AND any uncaught browser `pageerror`.
  *
- * Previously the runner returned success solely from `failures.length`
- * (derived from play-status expectation matches), so an uncaught
- * runtime/browser exception could FALSE-GREEN the play-scripts gate as
- * long as every play row still reported its expected pass/fail status.
- * That contradicted the pageerror discipline the adjacent example and
- * Story feature-load runners already keep. Any pageerror is now fatal.
+ * A verdict taken solely from `failures.length` (derived from play-status
+ * expectation matches) would let an uncaught runtime/browser exception
+ * FALSE-GREEN the play-scripts gate as long as every play row still
+ * reported its expected pass/fail status, contradicting the pageerror
+ * discipline the adjacent example and Story feature-load runners keep. Any
+ * pageerror is fatal.
  *
  * Console errors are intentionally NOT fatal in this runner: play status and
  * uncaught page errors own its verdict, while console messages are captured
@@ -507,7 +507,7 @@ function computeExitCode({ failures, pageErrors }) {
   return unexpectedOutcomes === 0 && uncaughtErrors === 0 ? 0 : 1;
 }
 
-// rf2-54xbp: the non-vacuous floor for play discovery.
+// The non-vacuous floor for play discovery.
 //
 // The counter-with-stories testbed INTENTIONALLY seeds play
 // fixtures (stories.cljs §`:script` CI fixtures) so this gate keeps both
@@ -530,12 +530,12 @@ function computeExitCode({ failures, pageErrors }) {
 // only one side of the contract is still a trust hole.
 const MIN_PLAY_ROWS = 4;
 
-// rf2-kttom — THE ROSTER.
+// THE ROSTER.
 //
 // One entry per Story testbed this gate drives. `vacuity` is the entry's
 // own non-vacuity floor, and the two floors differ because the two
-// testbeds prove different things (see this file's header). Nothing about
-// the counter entry changed: it keeps `MIN_PLAY_ROWS` and both sides.
+// testbeds prove different things (see this file's header). The counter
+// entry keeps `MIN_PLAY_ROWS` and both sides.
 const TESTBEDS = [
   {
     label: 'counter-with-stories',
@@ -566,8 +566,8 @@ const TESTBEDS = [
       requireBothSides: false,
       seededBy:
         'the fresco-counter deck seeds ONE meaningful play — mount the ' +
-        'boundary, click it, assert the resulting DOM and frame state ' +
-        '(rf2-kttom). Zero rows means the :fresco registration, the view ' +
+        'boundary, click it, assert the resulting DOM and frame ' +
+        'state. Zero rows means the :fresco registration, the view ' +
         'alias, or the deck has drifted',
     },
   },
@@ -582,17 +582,16 @@ function basePathFor(testbed) {
 }
 
 /**
- * rf2-54xbp: NON-VACUOUS guard over the discovered play rows.
+ * NON-VACUOUS guard over the discovered play rows.
  *
- * The play-scripts gate previously treated an EMPTY row set as success —
- * `runAllVariants` logged "Nothing to assert" and returned 0. So if the
+ * Treating an EMPTY row set as success would mean that if the
  * Story CI hook, the testbed registration, or fixture discovery
  * drifted to expose zero rows, the
- * gate FALSE-GREENED while exercising NONE of the runner contract (and
- * silently skipped the failure-report artifact upload, which only fires
- * on a non-zero exit). The adjacent static gates already fail closed on a
+ * gate would FALSE-GREEN while exercising NONE of the runner contract (and
+ * silently skip the failure-report artifact upload, which only fires
+ * on a non-zero exit). The adjacent static gates fail closed on a
  * vacuous scan (see check-examples-assets.cjs's `indexes.length < 10`
- * floor) — this brings the play-scripts gate in line.
+ * floor), and so does this one.
  *
  * The invariant is deliberately stronger than `rows.length > 0`:
  *
@@ -604,11 +603,10 @@ function basePathFor(testbed) {
  *      runner's failure path uncovered — also trips, even if the floor
  *      is otherwise met.
  *
- * rf2-kttom made BOTH halves per-testbed, because a roster of decks that
+ * BOTH halves are per-testbed, because a roster of decks that
  * prove different things cannot share one floor. `requireBothSides` is the
  * second half's switch and it defaults TRUE, so the counter entry — and
- * any caller that passes no opts, including every existing unit case —
- * keeps exactly the invariant rf2-54xbp wrote. A deck opts OUT only by
+ * any caller that passes no opts — keeps both halves. A deck opts OUT only by
  * saying so in the roster, and only where it has a reason: the fresco
  * deck's job is to prove the native substrate paints, not to re-prove the
  * runner's failure path, which the counter already holds under continuous
@@ -650,7 +648,7 @@ function checkRowsNonVacuous(rows, opts = {}) {
         'Story CI hook (window.__rf2_story_ci), the testbed ' +
         'registration, or fixture discovery has ' +
         'DRIFTED — not that there is nothing to assert. Refusing to ' +
-        'false-green an empty gate (rf2-54xbp).',
+        'false-green an empty gate.',
     };
   }
   if (rowCount < minRows) {
@@ -666,7 +664,7 @@ function checkRowsNonVacuous(rows, opts = {}) {
           'the counter-with-stories testbed seeds eight rows across six variants'
         }; a near-empty set is ` +
         `a discovery/registration drift signal, not success. ` +
-        `Refusing to pass a vacuous gate (rf2-54xbp).`,
+        `Refusing to pass a vacuous gate.`,
     };
   }
   if (requireBothSides && (passRows === 0 || failRows === 0)) {
@@ -681,14 +679,14 @@ function checkRowsNonVacuous(rows, opts = {}) {
         `path AND the expected-fail path of the runner contract. The ` +
         `counter-with-stories testbed seeds both (e.g. .../passing and ` +
         `.../failing); a one-sided discovery means the failure path is no ` +
-        `longer under coverage. Refusing to pass a one-sided gate (rf2-54xbp).`,
+        `longer under coverage. Refusing to pass a one-sided gate.`,
     };
   }
   if (!requireBothSides && passRows === 0) {
     // The opt-out drops the EXPECTED-FAIL requirement and only that. A deck
     // whose every discovered row is an expected-fail has no successful play
     // at all, which for an opted-out entry is the whole of what it was
-    // rostered to prove — so it is still a red (rf2-kttom).
+    // rostered to prove — so it is still a red.
     return {
       ok: false,
       rowCount,
@@ -698,7 +696,7 @@ function checkRowsNonVacuous(rows, opts = {}) {
         `Discovered ${rowCount} row(s) and NONE of them is expected-pass. ` +
         `This entry waives the expected-fail requirement, not the pass one: ` +
         `${opts.seededBy || 'its floor is at least one successful play'}. ` +
-        `Refusing to pass a gate with no successful play (rf2-kttom).`,
+        `Refusing to pass a gate with no successful play.`,
     };
   }
   return { ok: true, rowCount, passRows, failRows, diagnostic: null };
@@ -735,7 +733,7 @@ async function runTestbed(browser, baseUrl, testbed) {
   const context = await browser.newContext();
   const page = await context.newPage();
   const browserMessages = [];
-  // rf2-wf5al(1): pageErrors are tracked SEPARATELY from browserMessages
+  // pageErrors are tracked SEPARATELY from browserMessages
   // so an uncaught browser/runtime exception can flip the gate verdict
   // regardless of RF2_VERBOSE_TESTS. browserMessages stays diagnostics
   // -only (and only populated when VERBOSE); pageErrors is the fatal
@@ -747,8 +745,8 @@ async function runTestbed(browser, baseUrl, testbed) {
   page.on('pageerror', (err) => {
     const message = `[browser:pageerror] ${err.message}`;
     pageErrors.push(message);
-    // Mirror into browserMessages so the existing diagnostics dump and
-    // the failure-report's `browserDiagnostics` slice still surface it.
+    // Mirror into browserMessages so the diagnostics dump and
+    // the failure-report's `browserDiagnostics` slice surface it too.
     browserMessages.push(message);
   });
 
@@ -766,7 +764,7 @@ async function runTestbed(browser, baseUrl, testbed) {
     }
     const variants = discovery.variants;
     // Prefer the per-play `rows` enumeration; fall back to the
-    // per-variant shape when the CI hook predates `rows`.
+    // per-variant shape when the CI hook carries no `rows`.
     const rows =
       discovery.context && Array.isArray(discovery.context.rows)
         ? discovery.context.rows
@@ -781,7 +779,7 @@ async function runTestbed(browser, baseUrl, testbed) {
         );
       }
     }
-    // rf2-54xbp: NON-VACUOUS guard. A play-scripts gate that exercises
+    // NON-VACUOUS guard. A play-scripts gate that exercises
     // zero rows (or a one-sided / near-empty set) is a trust hole — the
     // testbed seeds fixtures precisely to keep both the pass and the
     // expected-fail paths under continuous coverage, so a drift to no
@@ -877,14 +875,14 @@ async function runAllVariants(browser, baseUrl) {
 
   const { lines, failures } = summariseResults(results);
   log(lines);
-  // rf2-wf5al(1): an uncaught browser `pageerror` is fatal even when
+  // An uncaught browser `pageerror` is fatal even when
   // every play row matched its expected status — otherwise a runtime
   // regression (shell/hydration/dispatch exception) false-greens the
   // gate behind a clean play-status summary.
   if (pageErrors.length > 0) {
     log('');
     log(
-      `Detected ${pageErrors.length} uncaught browser pageerror(s) — failing the gate (rf2-wf5al).`,
+      `Detected ${pageErrors.length} uncaught browser pageerror(s) — failing the gate.`,
     );
   }
   const gateFailed = failures.length > 0 || pageErrors.length > 0;
@@ -912,9 +910,9 @@ async function main() {
   // Serve implementation/out/examples on loopback. The shared harness owns
   // the http-server spawn, teardown tracking, early-exit abort, bounded
   // output capture (surfaced as the failure tail), and the readiness +
-  // unreachable diagnostics (rf2-slapfs). Bind 127.0.0.1 (not http-server's
+  // unreachable diagnostics. Bind 127.0.0.1 (not http-server's
   // 0.0.0.0 default): the runner only ever hits http://127.0.0.1:<port> and
-  // resolveStoryFeatureLoadPort pre-flights loopback. rf2-wf5al(2).
+  // resolveStoryFeatureLoadPort pre-flights loopback.
   // `exiting` suppresses the forced-shutdown "exited unexpectedly" noise once
   // main() has already returned its own verdict.
   const { ready } = await startLocalHttpServer({
@@ -950,7 +948,7 @@ async function main() {
 // Guarding on `require.main` lets the script-policy unit test
 // (_story-script-runners-policy.test.cjs) `require(...)` this module to
 // exercise the pure helpers below WITHOUT spawning the browser harness
-// or calling process.exit (rf2-wf5al).
+// or calling process.exit.
 if (require.main === module) {
   main()
     .then(async (code) => {
@@ -970,13 +968,13 @@ module.exports = {
   expectedStatusFor,
   isTerminalStatus,
   computeExitCode,
-  // rf2-54xbp: the non-vacuous discovery guard + its floor, exported so
+  // The non-vacuous discovery guard + its floor, exported so
   // the script-policy unit gate can simulate empty / under-floor /
   // one-sided discovery and assert a fail-closed verdict without a
   // browser (symmetric with the computeExitCode unit coverage).
   checkRowsNonVacuous,
   MIN_PLAY_ROWS,
-  // rf2-kttom: the roster, exported so the script-policy gate can assert
+  // The roster, exported so the script-policy gate can assert
   // it names BOTH testbeds and that each entry carries its own floor —
   // a deck silently dropped from the roster is a gate that stopped
   // running without going red.
