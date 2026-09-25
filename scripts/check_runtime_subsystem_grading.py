@@ -2,7 +2,7 @@
 """Conformance drift gate: every reserved :rf.runtime/* subsystem key has a
 complete five-clause grading row in spec/Runtime-Subsystems.md.
 
-EP-0006 finalised the Runtime Subsystem Contract — the five-clause shape every
+EP-0006 defines the Runtime Subsystem Contract — the five-clause shape every
 framework-owned durable-state subtree under the runtime-db partition satisfies
 (subtree / write authority / read API / projection-elision / teardown).  Two
 spec surfaces co-describe the shipped subsystems and MUST stay in lockstep:
@@ -16,9 +16,8 @@ spec surfaces co-describe the shipped subsystems and MUST stay in lockstep:
 
 They drift apart by hand: a new subsystem lands a Conventions reserved-key row
 but its grading subsection is forgotten (or vice versa); a grading table loses
-a clause row; a clause is left ungraded.  PR #3817 (spec-coherence) had to
-hand-add the `:rf.runtime/mutations` grading row after it was reserved without
-one.  This guard keeps the two in sync so future drift fails loudly.
+a clause row; a clause is left ungraded.  This guard keeps the two in sync so
+drift fails loudly.
 
 What is checked:
     * MISSING ROW    — a reserved `:rf.runtime/*` key (Conventions) has no
@@ -40,8 +39,6 @@ Exit code:
 The script is dependency-light — Python stdlib only.  It is wired into the
 docs gate (.github/workflows/docs.yml) and the local PR spine
 (scripts/test-fast-pr.sh) alongside the other spec-coherence guards.
-
-Tracked: rf2-ba5acq (EP-0006 open erratum — the conformance drift test).
 """
 
 from __future__ import annotations
@@ -622,7 +619,7 @@ def main(argv: list[str]) -> int:
         description=(
             "Check that every reserved :rf.runtime/* subsystem key has a "
             "complete five-clause grading row in spec/Runtime-Subsystems.md "
-            "(rf2-ba5acq, EP-0006 Runtime Subsystem Contract)."
+            "(EP-0006 Runtime Subsystem Contract)."
         ),
     )
     parser.add_argument(
