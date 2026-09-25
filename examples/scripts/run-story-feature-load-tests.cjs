@@ -25,16 +25,15 @@ const TIMEOUT_MS = parseInt(process.env.STORY_FEATURE_LOAD_TIMEOUT_MS || '300000
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
 /*
- * The `_jsx*`-prop noise filter (rf2-mw1c0) was removed by rf2-5fyo3.
+ * There is no console-noise filter: every console error trips the gate
+ * unfiltered, because a filter would only mask a regression.
  *
- * It masked the "React does not recognize the `_jsxFileName` prop on a
- * DOM element" warnings the framework's JSX-dev-source-coord injection
- * leaked. That injection never worked (DevTools reads `__source` off
- * React.createElement's third arg, not element props) and was dropped
- * at source by rf2-rohdn — the `data-rf2-source-coord` DOM attribute
- * already gives pair tools what they need. With the leak gone the
- * filter is dead code; keeping it would only mask a future regression,
- * so every console error now trips the gate unfiltered.
+ * In particular there is no `_jsx*`-prop filter. The framework injects no
+ * `_jsxFileName` / `_jsxLineNumber` props onto DOM elements (DevTools reads
+ * `__source` off React.createElement's third arg, not element props, so such
+ * props would buy nothing), and the `data-rf2-source-coord` DOM attribute
+ * gives pair tools what they need — so React's "does not recognize the
+ * `_jsxFileName` prop" warning has no source to fire from.
  */
 
 const ALL_SPEC_FILES = [
