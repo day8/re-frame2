@@ -1,38 +1,33 @@
 (ns re-frame.bench.fresco.walk-profile-control-cljs-test
-  "THE WALK PROFILE'S POSITIVE CONTROL MUST REFUSE — pinned (rf2-1huc).
+  "THE WALK PROFILE'S POSITIVE CONTROL MUST REFUSE — pinned.
 
-  `walk_profile_app` had no positive control at all until rf2-1huc: it
-  never set `window.FRESCO_CONTROL_FAILED`, so `run.cjs`'s control exit
-  path was dead for this arm and a run whose ablations had stopped biting
-  would still print a full table and exit 0.
+  `walk_profile_app`'s positive control sets `window.FRESCO_CONTROL_FAILED`,
+  which is what makes `run.cjs`'s control exit path live for this arm.
+  Without it a run whose ablations had stopped biting would print a full
+  table and exit 0.
 
-  The control now exists, and it was proven against a planted fault —
-  `walk-parse` at `M-PARSE-RAW` swapped back to `codec/cached-parse`, so
-  the arm did exactly the work `local` does. `parse-raw`'s p50 collapsed
-  onto `local`'s, the per-round deltas went to ~0 with one NEGATIVE, and
-  the driver exited 1. That is the proof the exit path is live; it is not
-  a proof anyone will repeat, because it costs an `:advanced` build and a
-  Chromium run.
+  A planted fault proves the exit path live: with `walk-parse` at
+  `M-PARSE-RAW` swapped back to `codec/cached-parse`, the arm does exactly
+  the work `local` does, `parse-raw`'s p50 collapses onto `local`'s, the
+  per-round deltas go to ~0 with one NEGATIVE, and the driver exits 1.
+  That proof costs an `:advanced` build and a Chromium run, so it is not
+  one anybody repeats routinely.
 
-  So the RULE is pinned here instead, in the always-on `cljs-test$` gate,
-  over synthetic readings. What that buys is narrow and specific: a later
-  worker cannot quietly weaken the adjudication — the failure mode this
-  whole bead is about — without going red in a suite that costs nothing.
+  So the RULE is pinned here instead, over synthetic readings. What that
+  buys is narrow and specific: the adjudication cannot be quietly
+  weakened without going red in a suite that costs nothing.
 
   ## The one assertion that carries the design
 
   [[strict-rule-beats-overlap]] is the reason this file is not merely
   belt-and-braces. `rf.bench.fresco.lane/control-verdict`'s `:ok?` asks whether the
   measured range OVERLAPS the band; the walk profile's control asks
-  whether EVERY ROUND clears the bar. rf2-egdaq has since settled that
-  disagreement, and it settled as a SPLIT — one rule per instrument, not
-  one rule for both arms: the HEAP arm went strict, and the CLOCK arm
-  REFUSED strict under the 2026-07-31 quantum ruling, a refusal that
-  STANDS. That split adjudicates the p0 heap and clock rows and does not
-  reach this control, which was the stricter rule already and stays it.
-  It took that rule from birth — legal precisely because it is NEW and has
-  no published row to re-adjudicate — rather than adopting the lane's
-  overlap rule or retroactively tightening it.
+  whether EVERY ROUND clears the bar. The lane keeps one rule per
+  instrument, not one rule for every arm: legs sitting on Chrome's
+  100 µs `performance.now()` clamp are judged on overlap, and a window
+  clear of the quantum on every round (`lane_control_strict_cljs_test`).
+  This control takes the every-round rule, and it can, because it has no
+  published row that a stricter rule would re-adjudicate.
 
   That test drives ONE dataset through BOTH rules and asserts they
   disagree on it: overlap passes, every-round refuses. A worker who
@@ -42,10 +37,10 @@
 
   ## The assertions the planted fault could not reach
 
-  Merged-PR audit #8149 then found the control FAILING OPEN on its own
-  prediction: the bar is `n-tags x (fresh - hit)` less slack, and nothing
-  required that difference to be positive, so converged primitives put
-  the bar at zero where every reading clears it. A browser proof cannot
+  A control can also FAIL OPEN on its own prediction: the bar is
+  `n-tags x (fresh - hit)` less slack, and unless that difference is
+  required to be positive, converged primitives put the bar at zero
+  where every reading clears it. A browser proof cannot
   find that — mutating the measured ARM leaves the micro table healthy —
   so [[a-converged-prediction-refuses-however-healthy-the-deltas-look]]
   and its siblings below pin it by arithmetic instead. That is the second
@@ -125,7 +120,7 @@
 
 (deftest strict-rule-beats-overlap
   (testing "ONE dataset, TWO rules, opposite verdicts — this is why the
-            control does not call `rf.bench.fresco.lane/control-verdict` (rf2-egdaq)"
+            control does not call `rf.bench.fresco.lane/control-verdict`"
     (let [readings [(healthy 0.20) (healthy 0.20) (healthy 0.03)]
           strict   (rf.bench.fresco.walk-profile-app/tag-cache-floor-row readings census roster micro)
           ;; The same three rounds offered to the lane's overlap rule, as
@@ -138,25 +133,24 @@
       (is (= 0.03 (:worst strict))))))
 
 ;; ---------------------------------------------------------------------------
-;; The prediction must STATE something (rf2-1huc, merged-PR audit #8149)
+;; The prediction must STATE something
 ;; ---------------------------------------------------------------------------
 ;;
-;; The control shipped FAILING OPEN in the one direction its own subject
-;; makes reachable. The bar is `n-tags x (fresh - hit)` less 25%, and the
-;; verdict was `worst >= bar` with nothing requiring `fresh - hit` to be
-;; positive. So if the two primitives CONVERGE — which is precisely the
+;; A control can FAIL OPEN in the one direction its own subject makes
+;; reachable. The bar is `n-tags x (fresh - hit)` less 25%, and a verdict
+;; of `worst >= bar` with nothing requiring `fresh - hit` to be positive
+;; fails open whenever the two primitives CONVERGE — which is precisely the
 ;; tag cache having stopped mattering, the ablation this row exists to
-;; catch — the prediction collapses to zero or below at the same moment
-;; the measured delta does, the bar lands at or under zero, and any
-;; reading at all clears it. The audit reproduced both directions against
-;; the exact compiled function at merge 825cd611c8:
+;; catch — because the prediction collapses to zero or below at the same
+;; moment the measured delta does, the bar lands at or under zero, and any
+;; reading at all clears it. Both directions, under that unguarded verdict:
 ;;
 ;;   cached 50 ns, fresh 50 ns, delta 0  ->  predicted 0,    bar 0,      ok TRUE
 ;;   cached 150 ns, fresh 50 ns, delta 0 ->  predicted -0.1, bar -0.075, ok TRUE
 ;;
-;; The planted-fault proof could not have found this: it moved the WALK
-;; call site and left the micro table's primitive difference healthy, so
-;; the prediction stayed positive and the bar stayed real. A control's
+;; The planted-fault proof cannot find this: it moves the WALK call site
+;; and leaves the micro table's primitive difference healthy, so the
+;; prediction stays positive and the bar stays real. A control's
 ;; own prediction going vacuous is a mode no mutation of the measured arm
 ;; can reach, and it is why these cases are pinned by arithmetic here
 ;; rather than by a browser run.
@@ -186,8 +180,8 @@
           "and the refusal is attributed to the PREDICTION, not to the arms"))))
 
 (deftest the-audits-exact-converged-case
-  (testing "cached 50 ns, fresh 50 ns, observed delta 0 — reported ok TRUE
-            at merge 825cd611c8"
+  (testing "cached 50 ns, fresh 50 ns, observed delta 0 — which an
+            unguarded verdict reports ok TRUE"
     (let [r (rf.bench.fresco.walk-profile-app/tag-cache-floor-row [(healthy 0.0)] census roster micro-converged)]
       (is (= 0.0 (:predicted r)))
       (is (= 0.0 (:bar r)))
@@ -195,9 +189,9 @@
       (is (false? (:ok? r))))))
 
 (deftest the-audits-exact-inverted-case
-  (testing "cached 150 ns, fresh 50 ns, observed delta 0 — reported ok TRUE
-            at merge 825cd611c8, because a NEGATIVE floor puts the bar
-            below every real measurement"
+  (testing "cached 150 ns, fresh 50 ns, observed delta 0 — which an
+            unguarded verdict reports ok TRUE, because a NEGATIVE floor puts
+            the bar below every real measurement"
     (let [r (rf.bench.fresco.walk-profile-app/tag-cache-floor-row [(healthy 0.0)] census roster micro-inverted)]
       (is (= -0.1 (:predicted r)))
       (is (= -0.075 (:bar r)))
@@ -231,7 +225,7 @@
                                        [(healthy 0.20)] census roster micro)))))))
 
 (deftest a-real-prediction-still-passes-on-real-signal
-  (testing "the repair must not have closed the door on the healthy case —
+  (testing "refusing a vacuous prediction must not close the door on the healthy case —
             the whole point is a control that can still say yes"
     (is (true? (:ok? (rf.bench.fresco.walk-profile-app/tag-cache-floor-row [(healthy 0.20) (healthy 0.18)]
                                              census roster micro))))))
