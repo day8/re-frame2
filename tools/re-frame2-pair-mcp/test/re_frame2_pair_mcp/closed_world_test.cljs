@@ -1,12 +1,12 @@
 (ns re-frame2-pair-mcp.closed-world-test
-  "Server-boundary closed-world dispatch tests (rf2-6amhbt).
+  "Server-boundary closed-world dispatch tests.
 
   The server handler (`server.cljs/handle-call`) runs `ensure-connection!`
   for the connected tools BEFORE the dispatcher. But one tool —
   `get-re-frame2-pair-instructions` — reads only
   server-local state (an inline text `def`) with
   NO nREPL round-trip. On a stock / degraded install with no nREPL port,
-  routing them through `ensure-connection!` would REJECT with
+  routing it through `ensure-connection!` would REJECT with
   `:nrepl-port-not-found` and the closed-world body would never run,
   contradicting the spec/003 'answers even when the runtime is down'
   contract.
