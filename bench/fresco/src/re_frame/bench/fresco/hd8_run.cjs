@@ -837,7 +837,7 @@ function verdictSelfTest() {
   // --- (a) THE FAILED DOM READ-BACK ----------------------------------------
   const rb = verdict(summarise({ runs: [readBackRun()] }));
   check('a failed DOM read-back cannot exit 0', rb.code !== 0, `code ${rb.code}`);
-  check('and it exits 3, as hd8_clock_run.cjs numbers the same refusal', rb.code === 3, `code ${rb.code}`);
+  check('and it exits 3, as hd8_clock_run.cjs already numbered the same refusal', rb.code === 3, `code ${rb.code}`);
   check(
     'and the refusal NAMES the run, the row, the figure and the counts',
     /slim \/ write-narrow \/ reagent-slim vs floor: failed-dom-read-back \(1 of 78 unverified\)/.test(rb.lines.join('\n')),
@@ -880,16 +880,16 @@ function verdictSelfTest() {
   // --- (c) A pageerror BESIDE THE SENTINEL --------------------------------
   const pe = verdict(summarise({ runs: [run({ pageErrors: ['pageerror: Cannot read properties of undefined'] })] }));
   check('a page error recorded beside the sentinel cannot exit 0', pe.code !== 0, `code ${pe.code}`);
-  check('and it exits 1, the code the header documents for a page error', pe.code === 1, `code ${pe.code}`);
+  check('and it exits 1, the code this driver already documented for a page error', pe.code === 1, `code ${pe.code}`);
 
   // --- THE OTHER GATES, each on its own code --------------------------------
   const hf = verdict(summarise({ hardFail: 'slim: boom', runs: [] }));
-  check('a hard failure exits 1', hf.code === 1 && /FAILED: slim: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
+  check('a hard failure still exits 1, exactly as before', hf.code === 1 && /FAILED: slim: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
   const cf = verdict(summarise({ contractFailed: 'slim: fixtures', runs: [] }));
-  check('a contract self-test failure exits 1', cf.code === 1, `code ${cf.code}`);
+  check('a contract self-test failure still exits 1', cf.code === 1, `code ${cf.code}`);
   const or = verdict(summarise({ orderRefused: true, runs: [] }));
   check(
-    'the arm-order guard exits 2, and says repair the arm',
+    'the arm-order guard still exits 2, and still says repair the arm',
     or.code === 2 && /Repair the arm, not the guard/.test(or.lines[0] || ''),
     or.lines.join(' | ')
   );
