@@ -1,6 +1,6 @@
 (ns re-frame.story.promotion
-  "The run-artifact → variant promotion bridge (NewTestStory rf2-5x1wt.25,
-  spec/017-Testing-Story.md §Promotion — Promotion bridge).
+  "The run-artifact → variant promotion bridge
+  (spec/017-Testing-Story.md §Promotion — Promotion bridge).
 
   ## What promotion is
 
@@ -18,7 +18,7 @@
   - `materialize-variant-plan` — PURE. Reads a run artifact, projects its
     dispatch program into the four-bucket authoring shape (preconditions →
     `[:world :setup]`, behaviour-under-test → `:script`), compiles it
-    through the `.10` variant-plan compiler (read-only), and returns a
+    through the variant-plan compiler (read-only), and returns a
     readable, data-shaped normalized plan. Side-effect-free: it registers
     NOTHING. A tool or an author can materialize a plan to READ what a
     promotion WOULD produce, then decide.
@@ -45,7 +45,7 @@
 
   ## Source-artifact link (spec/017 §Promotion)
 
-  Both the materialized plan and the promoted variant body preserve a
+  Both the materialized plan and the promoted variant body carry a
   back-link to the source artifact under the `:run-artifact` slot — the
   same slot `replay-result` stamps on a replay run-result (§Run result),
   so provenance reads the same everywhere. The link is a TRIMMED
@@ -55,7 +55,7 @@
   captured evidence (`:epoch-tape`, `:trace`, `:result`). `:network`
   rides the core (not the evidence) because replay RE-INSTALLS the
   per-route stubs from it; without it a `:network`-stubbed run cannot be
-  re-derived (rf2-tymyh, rf2-87duu). A curated variant can explain where
+  re-derived. A curated variant can explain where
   it came from and re-derive the run; it does not drag a full epoch tape
   into the registrar side-table.
 
@@ -75,27 +75,28 @@
             [re-frame.story.registrar  :as rf.story.registrar]))
 
 ;; ===========================================================================
-;; The source variant's intent (rf2-5vmog)
+;; The source variant's intent
 ;; ===========================================================================
 ;;
 ;; A promoted regression must be able to FAIL for the reason its source
-;; failed. Two things carried that reason and neither survived:
+;; failed. Two things carry that reason, and a body built from the artifact
+;; alone would keep neither:
 ;;
 ;;   - DECLARATIVE expectations authored beside the program — the source's
-;;     terminal `:assertions` (and `:checks`). The body used to copy neither,
-;;     so a source that ran `:fail` promoted into a variant that ran `:pass`
-;;     with zero assertions.
+;;     terminal `:assertions` (and `:checks`). A body that copied neither
+;;     would promote a source that ran `:fail` into a variant that runs
+;;     `:pass` with zero assertions.
 ;;   - `:script` steps that are not dispatches — clicks, typing, waits and
 ;;     `[:assert …]` checkpoints. Test mode captures a run as the flat
 ;;     DISPATCH-ONLY projection of its program (`variant-play-events`), so
-;;     those steps never reached the artifact at all.
+;;     those steps never reach the artifact at all.
 ;;
-;; A check named in the source's `:compose` carries that reason too, and it was
-;; dropped the same way (rf2-6h2z3): `:compose` is child-only, so neither the
+;; A check named in the source's `:compose` carries that reason too, and would
+;; be dropped the same way: `:compose` is child-only, so neither the
 ;; artifact nor an `:extends` of the source recovers it. Promotion reads the
 ;; check ids off the source's compiled plan instead of its raw body.
 ;;
-;; Ordinary `:extends` inheritance is deliberately NOT the fix: terminal
+;; Ordinary `:extends` inheritance deliberately does NOT carry them: terminal
 ;; assertions, `:script` and `:compose` stay child-only, a coherent reuse rule. Promotion
 ;; is the one transformation that must preserve intent, so it carries them
 ;; explicitly, and only from the variant the artifact records as its source.
@@ -196,7 +197,7 @@
   `re-frame.story.ui.promotion/result->artifact`). An API artifact
   (`re-frame.story.determinism/->artifact` of a compiled plan) cannot name its
   plan's run inputs, so it records the args the plan resolved under
-  `[:source :args]` (rf2-30a8k). The inputs supplied the keys whose value
+  `[:source :args]`. The inputs supplied the keys whose value
   differs from what `source-id` resolves with none, or every key when the
   source does not compile without them. They stand in as cell overrides, the
   top layer, so the source compiles to the values that ran."
@@ -210,7 +211,7 @@
 
 (defn- run-input-args
   "The args the run inputs recorded on an artifact supplied to `source-id`, at
-  the values the run resolved (rf2-rky08): each top-level key an active mode
+  the values the run resolved: each top-level key an active mode
   or a cell override names, read off `plan`, the source compiled with those
   inputs (`source-plan`). nil when nothing was recorded or `plan` is nil.
 
@@ -239,7 +240,7 @@
   is a dispatch, the source program carries at least one step that is not,
   and the two dispatch sequences are equal. The source program is compiled
   with the run inputs the artifact recorded, so a dispatch whose `[:arg]` a
-  mode or cell override supplied still matches its source (rf2-cml0h). Reads
+  mode or cell override supplied matches its source. Reads
   the Story side-table; registers nothing."
   [artifact source-id]
   (let [program (vec (:event-program artifact))]
@@ -256,11 +257,11 @@
   plan does not compile here. A variant with no `:script` yields `[]`.
 
   `run-opts` is the `run-variant` opts map of the run being captured; its
-  `:active-modes` and `:cell-overrides` compile in as they did for the run
-  (rf2-cml0h). Without it only the ambient arg layers apply.
+  `:active-modes` and `:cell-overrides` compile in as they did for the run.
+  Without it only the ambient arg layers apply.
 
   Test mode captures this for a run whose script dispatched nothing, which
-  has no dispatch-only projection to stand in for it (rf2-vgthk). Reads the
+  has no dispatch-only projection to stand in for it. Reads the
   Story side-table; registers nothing."
   ([source-id] (source-program source-id nil))
   ([source-id run-opts]
@@ -268,23 +269,23 @@
      (source-steps source-id run-opts))))
 
 ;; ===========================================================================
-;; Runnable reproducibility slots (rf2-vf8es)
+;; Runnable reproducibility slots
 ;; ===========================================================================
 ;;
 ;; A promoted variant must RUN to the same result as the source artifact —
 ;; the docstring promises it is "indistinguishable from a hand-authored one
 ;; except for its :run-artifact provenance slot." For a `:network`-stubbed
-;; or `:fx-override`-bearing run that promise was FALSE: the variant body
-;; carried only the program (`:setup`/`:script`) + the provenance link, so
-;; the registered variant's `[:world :network]` / `[:world :frame
-;; :fx-overrides]` were EMPTY. Run normally, a managed HTTP request
-;; fail-closed ("no stub matched") and any fx-decision redirect was gone —
-;; a SILENT fidelity gap (the gallery cell renders a degraded run).
+;; or `:fx-override`-bearing run, a body carrying only the program
+;; (`:setup`/`:script`) + the provenance link would leave the registered
+;; variant's `[:world :network]` / `[:world :frame :fx-overrides]` EMPTY.
+;; Run normally, a managed HTTP request would fail closed ("no stub
+;; matched") and any fx-decision redirect would be gone — a SILENT fidelity
+;; gap (the gallery cell would render a degraded run).
 ;;
-;; rf2-87duu preserved `:network` on the provenance LINK so
-;; `replay-run-artifact` could re-derive the run from the artifact. That is
-;; a DIFFERENT path: it replays the artifact, not the registered variant.
-;; This fix lifts the runnable inputs onto the variant BODY itself:
+;; The provenance LINK carries `:network` too, so `replay-run-artifact` can
+;; re-derive the run from the artifact. That is a DIFFERENT path: it
+;; replays the artifact, not the registered variant. So the runnable inputs
+;; are lifted onto the variant BODY itself:
 ;;
 ;;   - the artifact's `:network` route map → the body's `:network` slot
 ;;     (the plan compiler keeps it at `[:world :network]` and lowers it to
@@ -301,19 +302,19 @@
 ;; HARD-FAILS when both `:network` and an explicit `:fx-overrides` target
 ;; `:rf.http/managed`. So when `:network` is present we DROP `:rf.http/managed`
 ;; from the lifted `:fx-overrides` — `:network` owns that key. Any OTHER
-;; fx-decision (a non-HTTP override) still rides `:fx-overrides`.
+;; fx-decision (a non-HTTP override) rides `:fx-overrides`.
 
 (def managed-fx-id
   "Re-export of the managed-HTTP fx id (`rf.story.plan/managed-fx-id`,
   `:rf.http/managed`) the `:network` slot owns. A `:network`-stubbed
   artifact's `:fx-decisions` carries the lowered redirect for this id; we
   drop it from the lifted `:fx-overrides` so it does not conflict with the
-  body's `:network` slot (rf2-vf8es)."
+  body's `:network` slot."
   rf.story.plan/managed-fx-id)
 
 (defn lift-fx-overrides
   "Project an artifact's `:fx-decisions` onto a variant body's
-  `:fx-overrides` slot (rf2-vf8es). Pure data → data.
+  `:fx-overrides` slot. Pure data → data.
 
   Drops the `:rf.http/managed` redirect when `network?` is true: the
   body's `:network` slot re-derives that redirect through
@@ -343,8 +344,8 @@
   not bulk: the `:fx-decisions` managed-stub REDIRECT
   (`{:rf.http/managed :rf.http/managed-test-stub}`) survives on its own,
   but `replay-run-artifact` / `with-network-stubs!` RE-INSTALL the actual
-  per-route stubs from the artifact's `:network` map (rf2-tymyh,
-  spec/017 §The network surface). Drop it and a variant promoted from a
+  per-route stubs from the artifact's `:network` map (spec/017
+  §The network surface). Drop it and a variant promoted from a
   `:network`-stubbed run carries a link that fail-closes on every managed
   HTTP request (\"no stub matched\") — a DIFFERENT run than the one
   promoted, breaking the docstring's re-derivability promise. Route
@@ -427,7 +428,7 @@
   link rides on `:run-artifact` (see `provenance-link`).
 
   The RUNNABLE reproducibility inputs are lifted onto the body too
-  (rf2-vf8es) so a promoted variant runs the SAME as the source artifact,
+  so a promoted variant runs the SAME as the source artifact,
   not just the artifact's replay:
   - `:network` — the artifact's per-route HTTP reply map, onto the body's
     `:network` slot (compiler keeps it at `[:world :network]` and lowers
@@ -437,7 +438,7 @@
     `:network` is present (the `:network` slot owns it — see
     `lift-fx-overrides`), so the two surfaces never conflict.
 
-  The SOURCE VARIANT'S INTENT is carried too (rf2-5vmog), so a promoted
+  The SOURCE VARIANT'S INTENT is carried too, so a promoted
   regression fails for the reason its source failed. When the artifact
   records the variant it was captured from (`source-variant-id`) and that
   variant is registered:
@@ -451,12 +452,12 @@
   Both compile the source with the run inputs the artifact records
   (`recorded-run-opts`: a Test-mode capture's `[:source :run-opts]`, or those
   an API artifact's `[:source :args]` show its plan compiled with), so an
-  `[:arg]` a mode or cell override supplied resolves to the value that ran
-  (rf2-cml0h, rf2-30a8k). Those inputs also ride the
+  `[:arg]` a mode or cell override supplied resolves to the value that ran.
+  Those inputs also ride the
   body's `:args`, at the values the run resolved (`run-input-args`), so the
   context a promotion inherits by `:extends`-ing its source — its `:setup`
   above all — substitutes the input that ran rather than the source's
-  default (rf2-rky08).
+  default.
   An artifact with no registered source is promoted exactly as captured.
   Registers nothing; the source is read from the Story side-table.
 
@@ -471,7 +472,7 @@
                  source, so the promotion inherits the source's `:setup` and
                  world (`:decorators`, `:db-seed`, loaders …) exactly once,
                  as the Test-mode dialog's default draft does; neither route's
-                 program carries that setup (rf2-hyheo). An artifact with no
+                 program carries that setup. An artifact with no
                  registered source gets no default.
   - `:tags`    — a tag set for the curated variant.
   - `:args`    — an args map for the curated variant, deep-merged over any
@@ -486,7 +487,7 @@
          source-body   (when source-id
                          (rf.story.registrar/handler-meta :variant source-id))
          ;; A registered source supplies setup and world through :extends,
-         ;; as the Test-mode dialog's default draft does (rf2-hyheo).
+         ;; as the Test-mode dialog's default draft does.
          extends       (or (:extends opts) (when source-body source-id))
          run-opts      (recorded-run-opts artifact (when source-body source-id))
          plan          (when source-body (source-plan source-id run-opts))
@@ -518,7 +519,7 @@
        (some? args)   (assoc :args args)))))
 
 ;; ===========================================================================
-;; The artifact precondition (rf2-vgthk)
+;; The artifact precondition
 ;; ===========================================================================
 
 (defn- refuse-non-artifact!
@@ -550,7 +551,7 @@
   1. Build a variant body from the artifact (`artifact->variant-body`) —
      the program's preconditions on `:setup`, behaviour on `:script`, the
      source-artifact link on `:run-artifact`.
-  2. Compile the body through the `.10` variant-plan compiler
+  2. Compile the body through the variant-plan compiler
      (`re-frame.story.plan/variant-plan`) — called READ-ONLY as an inline
      map target, resolving `:extends`, lowering the four-bucket
      vocabulary, substituting `[:arg …]`, and emitting the normalized
@@ -574,8 +575,8 @@
     registrar).
 
   Returns the normalized plan map with a `:run-artifact` source link.
-  FAILS with `:rf.error/story-promote-no-artifact` on a nil or non-artifact
-  (rf2-vgthk), and with the compiler's structured `:rf.error/story-*` ex-info
+  FAILS with `:rf.error/story-promote-no-artifact` on a nil or non-artifact,
+  and with the compiler's structured `:rf.error/story-*` ex-info
   on an unknown `:extends` parent, an `:extends` cycle, a missing
   `[:arg …]`, or view-args that violate the view schema."
   ([artifact] (materialize-variant-plan artifact nil))
@@ -613,7 +614,7 @@
   the auto-register the projection rule forbids.
 
   `artifact` MUST be a `:rf.test/run-artifact`. A nil or non-artifact throws
-  `:rf.error/story-promote-no-artifact` and registers nothing (rf2-vgthk):
+  `:rf.error/story-promote-no-artifact` and registers nothing:
   the body it would build has no program and no source to carry
   expectations from, so it would pass with zero assertions.
 
