@@ -1,33 +1,30 @@
 #!/usr/bin/env python3
 """Partition-aware + HTTP-fx + API-name + reply-contract drift guard for the
-re-frame2-implementor skill (rf2-whsb0c + rf2-6c59ob + rf2-3fc89f.34).
+re-frame2-implementor skill.
 
 The implementor skill is a control surface: API names and contract shapes copied
-from it become a port author's tests, docs, and public surface. Two senior
-reviews caught the skill drifting from shipped reality:
+from it become a port author's tests, docs, and public surface, so drift from
+the shipped framework propagates into every port it teaches. The drift classes:
 
-  * **rf2-whsb0c** — partition-aware teaching drift after EP-0001 landed the
-    two-partition frame (app-db `:rf.db/app` / runtime-db `:rf.db/runtime`):
-    stale `register-listener!` / `deregister-listener!` naming, and the
-    public-lifecycle verb `destroy-adapter!` blurred with the adapter-spec map's
-    internal `:dispose-adapter!` slot.
-  * **rf2-6c59ob** — HTTP-fx + data-classification summary drift: the reference
-    tour described the Spec 014 managed HTTP lifecycle as "the `:http` fx"
-    (the canonical surface is `:rf.http/managed`), and the SKILL.md / tour
-    summaries implied that *every* classification site accepts a
-    `{:sensitive [paths] :large [paths]}` metadata map — contradicting the
-    `reg-machine` schema-first exception (no top-level `:sensitive` / `:large`
-    keys). EP-0015 then made the model owner-owned (one declaration surface per
-    owner): durable app-db classification was then frame-owned (the frame
-    config's `:sensitive`/`:large {:app-db ...}` keys — since moved to the
-    EP-0025 commit-plane effects); machine `:data`, resource data/params,
-    and HTTP bodies classify via per-slot `:sensitive?` / `:large?` schema props
-    (the schema-first route — still NO top-level `reg-machine` keys); transient
+  * **Partition-aware teaching** — the two-partition frame (app-db
+    `:rf.db/app` / runtime-db `:rf.db/runtime`) names the trace-listener
+    verbs `register-listener!` / `unregister-listener!`, and the
+    public-lifecycle verb `destroy-adapter!` is distinct from the adapter-spec
+    map's internal `:dispose-adapter!` slot.
+  * **HTTP-fx + data-classification summaries** — the Spec 014 managed HTTP
+    lifecycle is `:rf.http/managed`, not "the `:http` fx", and NOT every
+    classification site accepts a `{:sensitive [paths] :large [paths]}`
+    metadata map: `reg-machine` is the schema-first exception (no top-level
+    `:sensitive` / `:large` keys). Under EP-0015 the model is owner-owned (one
+    declaration surface per owner): durable app-db classification rides the
+    EP-0025 commit-plane effects; machine `:data`, resource data/params, and
+    HTTP bodies classify via per-slot `:sensitive?` / `:large?` schema props
+    (the schema-first route — NO top-level `reg-machine` keys); transient
     payloads classify via `:sensitive`/`:large` registration metadata. Rule 4
-    below polices exactly the surviving invariant: a `reg-machine` line must
-    never imply top-level `:sensitive` / `:large` keys.
+    below polices that invariant: a `reg-machine` line must never imply
+    top-level `:sensitive` / `:large` keys.
 
-This guard makes each of those re-introductions a build failure. It scans the
+This guard makes each of those drifts a build failure. It scans the
 user-facing implementor docs and asserts:
 
   1. **No `deregister-listener!`** — the public trace-listener removal verb is
@@ -55,41 +52,33 @@ user-facing implementor docs and asserts:
      entries, or a fully-qualified public PR link where it helps an external
      reader. The skill's own `spec/` meta-docs MAY mention bead ids (authoring /
      internal context) and are out of this scan's scope.
-  6. **Unified reply-address / envelope contract** — after the unified reply-
-     addressing migration, the app-facing authoring key is `:reply-to`;
+  6. **Unified reply-address / envelope contract** — the app-facing
+     authoring key is `:reply-to`;
      `:rf/reply-to` is the internal / normalized descriptor it lowers to. HTTP
      `:on-success` / `:on-failure` are SPLIT ROUTING sugar that receive the
      IDENTICAL canonical reply map (which event routes on success vs failure) —
      they do NOT reshape the reply into a second, narrower payload dialect. The
      transient reply map spells the work identity `:rf.reply/work-id`; bare
      `:work/id` is the durable ledger / verification / abstract-attempt identity.
-     A user-facing leaf that reintroduces the retired teaching (`:rf/reply-to`
+     A user-facing leaf that teaches otherwise (`:rf/reply-to`
      as the public key / HTTP sugar as a reshaped envelope / bare `:work/id` on
      the reply map) can turn a conforming new port non-conforming. This rule is
      context-sensitive: legitimate INTERNAL `:rf/reply-to` descriptor mentions
      still pass.
-  7. RETIRED DELIBERATELY (2026-08 skill reduction). Rule 7 was a
-     positive-PRESENCE scan that pinned the frame-root lifecycle tokens
-     ("host preflight, never render", `:committed`, `:mount-incomplete`,
-     `[REACT-ADAPTERS]`, `useLayoutEffect`,
-     `:rf.error/frame-root-reconfigured`) and the two Spec-002 heading
-     anchors into the implementor guide's prose, plus the `day8/re-frame2`
-     core artifact inventory row in `spec/Conventions.md` (the L6 arm). The
-     reduction replaced the Phase-2 contract mirror with a compact EP index
-     that LINKS the owners — `spec/004C-Roots-and-Mount.md` §3,
-     `spec/006-ReactiveSubstrate.md` §The client root and
-     `spec/002-Frames.md` §frame-root / §frame-provider — instead of
-     restating them, so a guard requiring a second prose rendering of the
-     runtime contract is the exact failure mode the reduction removed
-     (rf2-ihw9q / rf2-hu5uz are the history: pinned prose kept dead porting
-     guidance alive behind a required checker). Per the retirement protocol
-     the old rule itself stated: every arm's row is deleted and the
-     contracts they held are recorded as unguarded BY THIS SCRIPT — the
-     frame-root lifecycle stays normatively owned by spec/004C §3, spec/006
-     §The client root and spec/002 and exercised by the adapter DOM tests; the Conventions
-     inventory row (L6) is guarded only by spec review now. Adapter *status*
-     was never scanned here — it is owned by
-     `scripts/check_adapter_disposition.py` (rf2-vxgfnd.290).
+  7. **Deliberately NOT guarded here: the frame-root lifecycle prose.** This
+     script does not pin frame-root lifecycle tokens or heading anchors into
+     the implementor guide. The guide's compact EP index LINKS the owners —
+     `spec/004C-Roots-and-Mount.md` §3, `spec/006-ReactiveSubstrate.md`
+     §The client root and `spec/002-Frames.md` §frame-root /
+     §frame-provider — instead of restating them, and a guard requiring a
+     second prose rendering of the runtime contract would keep stale porting
+     guidance alive behind a required checker. Those contracts are therefore
+     unguarded BY THIS SCRIPT: the frame-root lifecycle is normatively owned
+     by spec/004C §3, spec/006 §The client root and spec/002 and exercised by
+     the adapter DOM tests; the `day8/re-frame2` core artifact inventory row
+     in `spec/Conventions.md` is guarded only by spec review. Adapter
+     *status* is not scanned here — it is owned by
+     `scripts/check_adapter_disposition.py`.
 
 Exit code:
     0  no drift detected
@@ -101,8 +90,6 @@ Usage:
     python scripts/check_skill_implementor_partition_drift.py --verbose
     python scripts/check_skill_implementor_partition_drift.py --ci
     python scripts/check_skill_implementor_partition_drift.py --self-test
-
-rf2-whsb0c + rf2-6c59ob.
 """
 
 from __future__ import annotations
@@ -188,10 +175,10 @@ MACHINE_EXCEPTION_RE = re.compile(
 # are deliberately excluded (L7 permits bead ids there).
 BEADID_RE = re.compile(r"\brf2-[a-z0-9]+(?:\.[0-9]+)?\b")
 
-# --- Rule 6: unified reply-address / envelope contract drift (rf2-3fc89f.34).
+# --- Rule 6: unified reply-address / envelope contract drift.
 # Three context-sensitive sub-checks. Each is deliberately narrow so legitimate
 # INTERNAL `:rf/reply-to` descriptor mentions (the normalized target) still pass
-# — the rules only fire on the retired teaching, not on the token itself.
+# — the rules only fire on the wrong teaching, not on the token itself.
 
 # 6a — `:rf/reply-to` claimed as the PUBLIC / app-facing / authoring target key.
 # The public authoring key is `:reply-to`; `:rf/reply-to` is the internal /
@@ -370,13 +357,11 @@ def find_beadid_drift(files: list[Path]) -> tuple[list[str], int]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 7 — RETIRED (2026-08 skill reduction; see item 7 in the module
-# docstring). The positive-presence frame-root lifecycle arms (L1/L2/L4 over
-# the implementor guide, L6 over spec/Conventions.md's core artifact inventory
-# row) and their ARM-NOT-RUN coverage floor were deleted with the contract
-# mirror they pinned. The lifecycle contract's normative owners are
+# No Rule 7 scan (see item 7 in the module docstring): nothing in this script
+# reads the frame-root lifecycle contract or spec/Conventions.md's core
+# artifact inventory row. The lifecycle contract's normative owners are
 # spec/004C-Roots-and-Mount.md §3, spec/006-ReactiveSubstrate.md §The client
-# root and spec/002-Frames.md §frame-root / §frame-provider; nothing in this script reads them any more, and that is
+# root and spec/002-Frames.md §frame-root / §frame-provider, and that is
 # recorded here deliberately rather than left to be noticed.
 # ---------------------------------------------------------------------------
 
@@ -444,7 +429,7 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # FAIL fixtures — the exact rf2-whsb0c / rf2-6c59ob drift shapes.
+    # FAIL fixtures — the drift shapes.
     expect(
         "The trace stream — `register-listener!` / `deregister-listener!`, the rich emits.",
         dirty=True, label="A1 deregister-listener",
@@ -463,7 +448,7 @@ def _self_test() -> int:
         dirty=True, label="A4 reg-machine implies :sensitive/:large",
     )
 
-    # PASS fixtures — the corrected wording must NOT flag.
+    # PASS fixtures — the conforming wording must NOT flag.
     expect(
         "The trace stream — `register-listener!` / `unregister-listener!`, the rich emits.",
         dirty=False, label="B1 unregister-listener (correct)",
@@ -494,8 +479,8 @@ def _self_test() -> int:
     )
 
     # Rule 6 — reply-address / envelope contract. FAIL fixtures reproduce the
-    # exact rf2-3fc89f.34 retired teaching; PASS fixtures are the corrected prose
-    # and the legitimate INTERNAL `:rf/reply-to` descriptor mentions.
+    # wrong teaching; PASS fixtures are the conforming prose and the
+    # legitimate INTERNAL `:rf/reply-to` descriptor mentions.
     expect(
         "The canonical public target key is `:rf/reply-to` (short vector form, "
         "or the internal descriptor form).",
@@ -511,7 +496,7 @@ def _self_test() -> int:
         "HTTP reply payload.",
         dirty=True, label="E3 bare :work/id on the reply payload",
     )
-    # PASS — corrected prose and legitimate internal-descriptor references.
+    # PASS — conforming prose and legitimate internal-descriptor references.
     expect(
         "The app-facing authoring key is `:reply-to`; it normalizes to the one "
         "internal / normalized `:rf/reply-to` descriptor it lowers to.",
@@ -554,7 +539,7 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # LEAK fixtures — the exact rf2-ij6ulc finding-2 shapes.
+    # LEAK fixtures — bead ids as they leak into user-facing prose.
     expect_beadid(
         "a stray `:rf/runtime` root now HARD-ERRORS (shipped EP-0001 bead 9, rf2-tfepxu).",
         leaked=True, label="C1 plain bead id",
@@ -568,7 +553,7 @@ def _self_test() -> int:
         leaked=True, label="C3 bead id with .N sub-task suffix",
     )
 
-    # CLEAN fixtures — the corrected public-evidence wording must NOT flag.
+    # CLEAN fixtures — the public-evidence wording must NOT flag.
     expect_beadid(
         "a stray `:rf/runtime` root now HARD-ERRORS (`:rf.error/legacy-runtime-root`).",
         leaked=False, label="D1 spec error keyword, no bead id",
