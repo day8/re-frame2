@@ -1,22 +1,22 @@
-// stdin-eof-shutdown.cjs — adversarial regression for the documented
-// stdin-EOF lifecycle contract (rf2-j538f7.32).
+// stdin-eof-shutdown.cjs — adversarial test for the documented stdin-EOF
+// lifecycle contract.
 //
-// Contract (spec/001-Wire-Protocol.md:16-25, spec/API.md:245-257,
+// Contract (spec/001-Wire-Protocol.md:16-25, spec/API.md §Standalone,
 // server.cljs lifecycle step 6): when the MCP stdio client closes stdin,
 // the Node process reaches EOF, closes its persistent nREPL socket, and
 // exits 0 — WITHOUT relying on an out-of-band kill.
 //
-// Before the fix the server installed no `process.stdin` `end` listener,
-// so a completed app-facing tool left an idle nREPL TCP socket as a live
-// event-loop handle: closing stdin neither closed the socket nor exited
-// the process. This harness reproduces that leak and grades the fix.
+// Without a `process.stdin` `end` listener, a completed app-facing tool
+// would leave an idle nREPL TCP socket as a live event-loop handle:
+// closing stdin would neither close the socket nor exit the process. This
+// harness sets up exactly that situation and grades the listener.
 //
 // It is fully self-contained — a minimal fake bencode nREPL stands in for
 // shadow-cljs, so no live runtime is required. Run with:
 //   node test/stdin-eof-shutdown.cjs   (after `npm run build`)
 // Exits 0 on success, non-zero on any failure.
 //
-// CRITICAL (acceptance criteria 1-2): the SUCCESS path never calls
+// CRITICAL: the SUCCESS path never calls
 // `child.kill()`. Force-kill lives only in the failure/cleanup finally so
 // the oracle cannot mask a lingering process by killing it.
 
@@ -29,8 +29,8 @@ const path = require('node:path');
 const SERVER = path.join(__dirname, '..', 'out', 'server.js');
 
 // The bound within which a healthy server must retire itself after EOF.
-// Generous enough for a slow CI runner; short enough that the pre-fix
-// hang (which never exits) is caught deterministically.
+// Generous enough for a slow CI runner; short enough that a hang (a
+// server that never exits) is caught deterministically.
 const EXIT_BOUND_MS = 4000;
 
 // --------------------------------------------------------------------------
@@ -221,8 +221,8 @@ function spawnServer(extraEnv, extraArgs) {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: m, params: p }) + '\n');
 
   // Resolves { code, signal } when the child exits; rejects if it stays
-  // alive past `ms` (the pre-fix behaviour this regression is designed to
-  // catch). Deliberately does NOT kill on timeout — the caller's finally
+  // alive past `ms` (the hang this harness is designed to catch).
+  // Deliberately does NOT kill on timeout — the caller's finally
   // owns force-kill so a hung child surfaces as a red, not a masked pass.
   const waitForExit = (ms) =>
     new Promise((resolve, reject) => {
@@ -260,7 +260,7 @@ async function handshake(client, name) {
   client.notify('notifications/initialized', {});
 }
 
-// Case A — the core regression: a completed app-facing tool leaves an idle
+// Case A — the core case: a completed app-facing tool leaves an idle
 // nREPL socket; stdin EOF must close it AND exit 0.
 async function caseWithNrepl() {
   const fake = startFakeNrepl();
@@ -308,7 +308,7 @@ async function caseWithNrepl() {
   }
 }
 
-// Case B — no-nREPL counterpart (acceptance criterion 3): a closed-world
+// Case B — no-nREPL counterpart: a closed-world
 // session (discovery never resolves a port) must still exit promptly on EOF.
 async function caseNoNrepl() {
   // Empty SHADOW_CLJS_NREPL_PORT + a closed --http-port forces the degraded
@@ -336,7 +336,7 @@ async function caseNoNrepl() {
 
 // Case C — EOF before the first tool call (no socket ever opened) must be
 // harmless, and a duplicate terminal event (end after already-ended stdin)
-// must not change the exit status (idempotency, acceptance criteria 4-5).
+// must not change the exit status (idempotency).
 async function caseEofBeforeFirstTool() {
   const fake = startFakeNrepl();
   const port = await fake.listen();
