@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.resize-handle-cljs-test
-  "CLJS tests for the Xray shell's horizontal resize handle (rf2-x8h9y).
+  "CLJS tests for the Xray shell's horizontal resize handle.
 
   Asserts:
-    1. `Handle` — the `as-component` bridge since rf2-k97c.3 — mounts on
+    1. `Handle` — the `as-component` bridge — mounts on
        `:inline` mode and short-circuits to nil on `:popout` /
        `:fullscreen`, and `handle-tree` carries the documented markup.
     2. The shell-view tree MOUNTS the handle when in default `:inline`
@@ -16,13 +16,15 @@
        clamps to [320, viewport×0.9] before persisting.
     5. Double-click handler dispatches `:rf.xray/reset-panel-width`
        which dispatches set-panel-width-px with the default value.
-    6. `apply-panel-width!` writes the CSS custom property on the
-       `<html>` root so it cascades to the host via inheritance
-       (rf2-6fqr5 — writing it on the host's own inline style would
-       shadow consumer overrides on `:root`).
-    7. `apply-all!` restores the persisted width on boot.
-    8. Reload survival — `update-setting!` round-trips through
-       localStorage (covered indirectly by config + effects)."
+    6. `apply-panel-width!` is a safe no-op with no layout host. Its
+       write of the CSS custom property on the `<html>` root — so it
+       cascades to the host via inheritance; writing it on the host's
+       own inline style would shadow consumer overrides on `:root` — is
+       `resize_handle_dom_cljs_test`'s subject.
+
+  Not asserted here: `apply-all!` restoring the persisted width on boot,
+  and reload survival (`update-setting!` round-tripping through
+  localStorage), both covered indirectly by config + effects."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -39,7 +41,7 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom + the `:runtime`
+  ;; `make-xray-runtime-fixture`: plain-atom + the `:runtime`
   ;; reset tier (sentinels + trace rings + persisted settings); `:post-reset`
   ;; force-clears the module-level drag-state defonce (survives the runtime
   ;; reset) so no stale drag leaks between tests.
@@ -52,11 +54,10 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` / `expand-tree` directly —
+;; there is no Xray walker facade.
 
-;; ---- the handle's own markup (rf2-k97c.3) -------------------------------
+;; ---- the handle's own markup --------------------------------------------
 ;;
 ;; `handle-tree` is the boundary's PURE inner fn — of the live width, the
 ;; announced ARIA ceiling and a dispatcher. Driving it directly is what
@@ -89,11 +90,11 @@
 
 ;; ---- mount on :inline / short-circuit on others ------------------------
 ;;
-;; The MODE GATE is [[resize-handle/Handle]]'s whole remaining job since
-;; rf2-k97c.3: it is the `as-component` bridge `shell-view-tree` heads,
+;; The MODE GATE is [[resize-handle/Handle]]'s whole job: it is the
+;; `as-component` bridge `shell-view-tree` heads,
 ;; and it decides in CLJS — before the props crossing — because
 ;; `as-component` round-trips prop names but not prop VALUES, so a
-;; keyword `mode` would not survive it. Non-`:inline` still answers nil;
+;; keyword `mode` would not survive it. Non-`:inline` answers nil;
 ;; `:inline` answers the bridge's `[:>]` vector rather than markup.
 
 (deftest handle-mounts-the-bridge-on-inline-mode
@@ -116,8 +117,8 @@
 
 ;; ---- shell mounts the handle in :inline mode ---------------------------
 ;;
-;; rf2-k97c.3 — a hiccup walk of the shell STOPS at the bridge's `[:>]`
-;; interop head, exactly as `shell.cljs` already records for its own
+;; A hiccup walk of the shell STOPS at the bridge's `[:>]`
+;; interop head, exactly as `shell.cljs` records for its own
 ;; `surface-bridge`. So what these two rows owe is that the shell MOUNTS
 ;; the handle in `:inline` and does not in `:popout`; the markup behind
 ;; the bridge is `handle-tree`'s subject above, and the mounted
@@ -270,7 +271,7 @@
     (is (some #(= [:rf.xray/reset-panel-width] %) @dispatches)
         "double-click dispatched the reset event")))
 
-;; ---- keyboard navigation (rf2-70u8q a11y) -------------------------------
+;; ---- keyboard navigation (a11y) -----------------------------------------
 
 (defn- stub-key-event [key shift?]
   (let [prevented? (atom false)]
@@ -382,16 +383,13 @@
 
 ;; ---- yield-to-consumer + the real-DOM writes: see the dom sibling -------
 ;;
-;; rf2-r51p MOVED the yield-predicate rows and `apply-panel-width!`'s
-;; `<html>` writes out to `day8.re-frame2-xray.resize-handle-dom-cljs-test`.
-;; They were guarded by `(when (exists? js/document) ...)` in THIS file,
-;; whose name does not end `-dom-cljs-test`, so `:browser-test` never loaded
-;; them while `:node-test` -- which ships no jsdom -- skipped every one:
-;; ELEVEN assertions executing in neither lane. `getComputedStyle` resolving
-;; an inline `resize:` declaration is the behaviour under test and cannot be
-;; stubbed, so the repair was the file LOCATION rather than the guard. The
-;; dom sibling loads on BOTH lanes (`:node-test`'s `cljs-test$` is a bare
-;; suffix match) and answers node with a stated skip per row.
+;; The yield-predicate rows and `apply-panel-width!`'s `<html>` writes live
+;; in `day8.re-frame2-xray.resize-handle-dom-cljs-test`. `getComputedStyle`
+;; resolving an inline `resize:` declaration is the behaviour under test and
+;; cannot be stubbed, and `:node-test` ships no jsdom, so those rows need a
+;; namespace ending `-dom-cljs-test` for `:browser-test` to load them at
+;; all. The dom sibling loads on BOTH lanes (`:node-test`'s `cljs-test$` is
+;; a bare suffix match) and answers node with a stated skip per row.
 ;;
 ;; What stays here is everything that needs no host: the pure `handle-tree`
 ;; markup, the drag lifecycle, write-time clamping, the keyboard rows and the
