@@ -1,13 +1,11 @@
 (ns re-frame2-pair-mcp.instructions-budget-test
-  "Authoring-time budget guard for the onboarding prose (rf2-3dmj).
+  "Authoring-time budget guard for the onboarding prose.
 
   `get-re-frame2-pair-instructions` returns one hand-written string —
   `instructions-text` in `tools/get_re_frame2_pair_instructions.cljs`.
-  It used to grow with every tool added; rf2-wyza retired the per-tool
-  enumeration that made it do so, and what remains is conventions and
-  six routing rules, all constant in the tool count. So a breach now
-  means the PROSE grew — which is exactly why the guard is still here.
-  It egresses through the same wire-boundary cap as every other response,
+  It carries conventions and six routing rules, all constant in the
+  tool count — it does not enumerate the tools — so a breach means the
+  PROSE grew. It egresses through the same wire-boundary cap as every other response,
   so once the response exceeds `default-max-tokens` the WHOLE payload is
   replaced by the `{:rf.mcp/overflow ...}` marker: the first call an
   agent makes on a fresh session returns no onboarding text at all, and
@@ -17,15 +15,15 @@
   ## Why a dedicated test rather than letting the cap speak
 
   The cap already stops the over-budget payload from reaching the wire —
-  correctness is not in question. What was missing is a failure that
-  NAMES THE CAUSE. Without this ns the breach surfaces as three
+  correctness is not in question. What this ns adds is a failure that
+  NAMES THE CAUSE. Without it the breach would surface as three
   unrelated-looking reds — `closed_world_test`'s
   `instructions-answered-before-connection` (`:ok?` is absent from an
   overflow marker, and so is `:text`), the `conformance_test` fixture
   `:get-re-frame2-pair-instructions/happy` (`:edn-submap` mismatch), and
   the mcp-conformance closed-world block — none of which mentions
-  tokens, and all of which land in whatever PR happened to add the next
-  tool. This test fails in the same run with the budget, the current
+  tokens, and all of which would land in whatever PR happened to grow
+  the prose. This test fails in the same run with the budget, the current
   usage and the remaining margin in the message, pointing at the file
   that must be edited.
 
@@ -47,33 +45,26 @@
   about half a token of budget, and the effective prose budget is about
   half the nominal cap. An author estimating headroom from the raw
   character count of `instructions-text` will be wrong by a factor of
-  two, which is precisely how a draft lands 88 tokens over.
+  two.
 
-  ## Two lines, not one: a reserve as well as the cap (rf2-wyza)
+  ## Two lines, not one: a reserve as well as the cap
 
-  rf2-3dmj landed only the hard assertion — a reserve BELOW the cap was
-  deferred, because at 4,888/5,000 any reserve would have been red the
-  day it landed, and trimming prose to create one was the exact
-  deferral that bead forbade. Retiring the `## Tool catalogue` removed
-  ~3,600 tokens and with them that obstacle, so the reserve lands here.
-
-  It buys an EARLY WARNING. Without it the only signal is the hard
+  The reserve, a line BELOW the cap, buys an EARLY WARNING. Without it the only signal is the hard
   stop, which arrives as a broken first-contact response; with it, an
   author who is spending the headroom hears about it while the response
   still ships perfectly. The reserve is a FRACTION of the cap rather
   than an absolute, so it tracks `default-max-tokens` the way the hard
   assertion does — one constant to change, not two.
 
-  ## A third line: the advertised hint must match the payload (rf2-wyza)
+  ## A third line: the advertised hint must match the payload
 
   The two lines above bound the payload. `instructions-response-
   advertises-its-real-size` bounds what the descriptor CLAIMS the
   payload costs — its `:typicalTokens`, which clients read off
-  `tools/list` to budget the call. Retiring the catalogue cut the
-  response roughly in half and the hint stayed at 1,500 while the
-  response measured 2,164: 44% low when the rf2-wyza audit caught it,
-  and low in the direction that matters, since a client sizing a
-  context window against it under-provisions.
+  `tools/list` to budget the call. A hint left behind by a prose edit
+  drifts silently, and a LOW one is wrong in the direction that
+  matters, since a client sizing a context window against it
+  under-provisions.
 
   This tool is the one place that hint is knowable EXACTLY. Every other
   descriptor advertises a response whose size depends on the app and the
@@ -87,7 +78,7 @@
   So the guard measures rather than remembers: it compares the shipped
   hint against `cap/sum-payload-tokens` of the real response, through
   the same production summing rule the cap uses. Pinning a second
-  hand-written constant here would have created exactly the drift it is
+  hand-written constant here would create exactly the drift it is
   meant to catch, one file further away."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.tools.cap :as cap]
@@ -98,11 +89,10 @@
 
 (def ^:private authoring-reserve-fraction
   "Share of `default-max-tokens` the onboarding prose may consume before
-  the early-warning assertion trips — the reserve rf2-3dmj deferred and
-  rf2-wyza made affordable.
+  the early-warning assertion trips.
 
   0.6 is chosen against what the prose costs and what it is for, not as
-  a round number. Post-rf2-wyza the text measures ~2,270 tokens — 45% of
+  a round number. The text measures ~2,270 tokens — 45% of
   the cap — so a 3,000-token reserve leaves ~730 tokens of authoring
   room, about 1,450 characters: a new convention section and a routing
   rule or two, which is the realistic edit here. It still trips ~2,800
@@ -131,8 +121,8 @@
        "get_re_frame2_pair_instructions.cljs. Every section there is a "
        "CONVENTION or a routing rule - constant in size, none of it indexed by "
        "the tool count - so a breach means the prose itself grew, and trimming "
-       "it is the whole fix. NOT by re-adding a per-tool enumeration: that was "
-       "retired (rf2-wyza) precisely because it was the one part that grew, and "
+       "it is the whole fix. NOT by adding a per-tool enumeration: that is the "
+       "one part that would grow with every tool added, and "
        "`tools/list` plus the :unknown-tool hint already carry the tool set.\n"
        "EXCHANGE RATE: the prose rides the wire TWICE - once as the pr-str EDN "
        ":content[0].text and once as the :structuredContent JSON - so one "
@@ -140,7 +130,7 @@
        "token, not the ~4 a single copy would suggest).\n"
        "NOT THE FIX: raising default-max-tokens. It is a cross-MCP constant in "
        "re-frame.mcp-base.overflow shared with story-mcp, and raising it only "
-       "defers the same failure to a larger blob (rf2-3dmj)."))
+       "defers the same failure to a larger blob."))
 
 (defn- over-reserve-message
   "The EARLY warning. Distinguished from `over-budget-message` in the
@@ -154,7 +144,7 @@
        "  reserve: " reserve " tokens (" (int (* 100 authoring-reserve-fraction))
        "% of the " budget "-token wire cap)\n"
        "  to cap : " (- budget tokens) " tokens still remaining\n"
-       "This is the warning rf2-3dmj deferred and rf2-wyza made affordable: it "
+       "This is the early warning: it "
        "fires while there is still room to think, so the onboarding text never "
        "reaches the cap - where the WHOLE response becomes an overflow marker "
        "and a fresh session gets no onboarding text at all.\n"
@@ -170,8 +160,8 @@
   the readable thing to ship, and exact equality would red this test on
   every comma — turning a correctness guard into a two-file chore and
   training authors to retype the number without reading it. 10% is
-  wide enough for a round hint and for ordinary prose edits, and far
-  too narrow for the 44% miss that occasioned it (rf2-wyza)."
+  wide enough for a round hint and for ordinary prose edits, and narrow
+  enough to catch a hint a substantial edit has left behind."
   0.10)
 
 (defn- typical-tokens-hint
@@ -203,9 +193,9 @@
        "WHY IT MATTERS: clients read :typicalTokens off tools/list to size a "
        "call before making it. A hint reading LOW under-provisions the context "
        "budget for the first call of a session - which is this tool's whole "
-       "purpose. Retiring the tool catalogue (rf2-wyza) halved the response and "
-       "left the hint 44% low; that is the drift this guard exists to stop "
-       "recurring.\n"
+       "purpose. A substantial edit to `instructions-text` moves the response "
+       "size and leaves an unedited hint behind; that is the drift this guard "
+       "exists to stop.\n"
        "NOTE: after editing `instructions-text`, expect this red - it is the "
        "guard doing its job. Re-run and copy the measured figure; do NOT widen "
        "hint-tolerance-fraction to clear it."))
