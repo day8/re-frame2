@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
- * Bundle-isolation verifier (bead rf2-51x5, discovered-from rf2-o423
- * test-coverage audit; scope since broadened to tools/ + dev-only deps).
+ * Bundle-isolation verifier.
  *
  * The counter example is the canonical no-feature app: it imports zero
  * per-feature artefacts AND nothing under tools/. Three families of
@@ -16,8 +15,7 @@
  *     Xray preload;
  *   - dev-only npm/Maven dependencies machines-viz + the Xray EDN widget
  *     pull in (xyflow / elkjs / zprint / editscript).
- * Every one of these was verified at PR-time with a one-shot grep against
- * this same bundle; this script makes the assertion permanent so a future
+ * This script pins all three absent, so a
  * change that accidentally re-imports a split-out namespace into core
  * (e.g. `(:require [re-frame.flows])` slipping into `re-frame.core`) — or
  * drags a tools/ ns / dev dep into a production-reachable path — is caught
@@ -43,7 +41,7 @@
  * Allow-list contract: a small set of consumer-side keyword strings
  * (e.g. `flows/reg-flow-fx!`, `rf.http/managed`) intentionally remain
  * in the counter bundle even when the per-feature artefacts are NOT
- * loaded — they are the late-bind hook keys / fx-case keys that core
+ * loaded — they are the late-bind hook keys / fx keys that core
  * publishes for the artefact to populate at ns-load time. The
  * isolation contract distinguishes those (consumer-side, expected) from
  * the implementation-internal sentinels (must be absent).
@@ -80,12 +78,11 @@ const report = createGateReporter();
 //     body has been pulled in — bundle isolation is broken.
 //   - `consumerAllowList`: a single regex matching consumer-side
 //     keyword strings core publishes for this artefact even when the
-//     artefact is NOT loaded (late-bind hook keys, fx-case keys). Used
+//     artefact is NOT loaded (late-bind hook keys, fx keys). Used
 //     to distinguish 'expected' counter-bundle hits from the
 //     implementation-internal sentinels above.
-//   - `expectedAllowListHits`: the count established at PR-time for
-//     the per-feature split that introduced the consumer-side surface.
-//     Captured against examples/counter on origin/main, 2026-05-09.
+//   - `expectedAllowListHits`: the ceiling on consumer-side hits in
+//     the examples/counter bundle.
 //     The contract fails on EXCEEDS, not on DECREASE — a refactor that
 //     shrinks the consumer-side surface is a strict win.
 const ARTEFACTS = [
@@ -152,12 +149,11 @@ const ARTEFACTS = [
     ],
     // Two consumer-side strings:
     //   `flows/reg-flow`     — late-bind hook key core publishes for
-    //                          the flows artefact's reg-flow surface
-    //                          (rf2-tfw3 split; rf2-7ppmo consolidated
-    //                          the fx-side path onto the same hook).
-    //   `rf.fx/reg-flow`     — fx-case key core's case-block dispatches
-    //                          on; the flows artefact registers its
-    //                          handler against this key.
+    //                          the flows artefact's reg-flow surface;
+    //                          the public API and the fx side share it.
+    //   `rf.fx/reg-flow`     — reserved fx-id in core's reserved-fx
+    //                          table; its body calls the
+    //                          `:flows/reg-flow` hook.
     consumerAllowList: /flows\/reg-flow|rf\.fx\/reg-flow/g,
     expectedAllowListHits: 2,
   },
@@ -170,25 +166,24 @@ const ARTEFACTS = [
       // ns is loaded; the keyword string survives :advanced).
       { source: 're-frame.http.managed reg-fx (rf.http/managed-abort)',
         sentinel: 'rf.http/managed-abort' },
-      // http/test_support.cljc — canned-failure stub fx (rf2-cdmle: the
-      // canned-stub fx registrations moved out of http/managed.cljc to a
-      // sibling test-support namespace; the keyword string still lives
-      // in the http artefact's source tree, just under a different .cljc
-      // file. examples/counter never requires either ns, so the sentinel
-      // continues to assert the http artefact's bodies aren't pulled in).
+      // http/test_support.cljc — canned-failure stub fx. The canned-stub
+      // fx registrations live in this test-support namespace of the http
+      // artefact, beside http/managed.cljc. examples/counter requires
+      // neither ns, so the sentinel asserts the http artefact's bodies
+      // aren't pulled in.
       { source: 're-frame.http.test-support reg-fx (rf.http/managed-canned-failure)',
         sentinel: 'rf.http/managed-canned-failure' },
       // http/managed.cljc — failure taxonomy: decode failure.
       { source: 're-frame.http.managed classify-failure (decode-failure)',
         sentinel: 'rf.http/decode-failure' },
     ],
-    // Three consumer-side strings (Spec 014, rf2-5kpd split):
+    // Three consumer-side strings (Spec 014):
     //   `rf.http/managed`                — fx-name core's preset map
     //                                      maps to in :test/:story
     //                                      modes (frame.cljc).
     //   `rf.http/managed-canned-success` — canned-stub fx-name the
     //                                      preset map redirects to.
-    //   `rf.http/managed`                — rf2-32ffq1: the fx-args
+    //   `rf.http/managed`                — the fx-args
     //                                      classification walk's case key in
     //                                      re-frame.classification/project-fx-args
     //                                      (a keyword literal gating the
@@ -202,9 +197,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 3,
   },
 
-  // Epoch artefact (rf2-69ad2 / rf2-lt4e split — re-frame.epoch lives
-  // at implementation/epoch/; Tool-Pair §Time-travel surface, the
-  // seventh per-feature split per rf2-5vjj Strategy B). Counter imports
+  // Epoch artefact (re-frame.epoch lives at implementation/epoch/;
+  // Tool-Pair §Time-travel surface). Counter imports
   // zero epoch symbols — the `day8/re-frame2-epoch` artefact must DCE
   // entirely when the consuming app doesn't `:require` re-frame.epoch.
   // Xray's preload.cljs `:requires` re-frame.epoch to anchor it onto the
@@ -214,8 +208,8 @@ const ARTEFACTS = [
   // public re-exports (`rf/epoch-history`, `rf/restore-epoch!`, …) look
   // the producing fns up through the late-bind hook table at call time;
   // a non-zero internal-sentinel hit means the epoch namespace got
-  // dragged in (most likely a stray `:require` in a core/* ns — per
-  // audit rf2-i0veg §5c). These two literals survive the real
+  // dragged in (most likely a stray `:require` in a core/* ns).
+  // These two literals survive the real
   // goog.DEBUG=false owner module: listener-failure reporting and record
   // assembly remain reachable while the debug-only restore trace ids DCE.
   {
@@ -258,8 +252,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // Resources runtime (rf2-sh0sp4 — the `day8/re-frame2-resources`
-  // artefact, Spec 016). A separately published, browser-reachable OPTIONAL
+  // Resources runtime (the `day8/re-frame2-resources` artefact,
+  // Spec 016). A separately published, browser-reachable OPTIONAL
   // per-feature runtime (`.github/scripts/verify-version-lockstep.sh` ships it
   // in the release inventory); `re-frame.core` MUST NOT `:require` it — the
   // resources.cljc header (§Optionality + bundle isolation) pins that, and the
@@ -297,7 +291,7 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // Fresco, the lean-React view substrate (rf2-gra70 — the
+  // Fresco, the lean-React view substrate (the
   // `day8/re-frame2-fresco` artefact). A separately published,
   // browser-reachable OPTIONAL substrate: nothing in core or the adapters
   // `:require`s it, and the counter example is a Reagent app that never names
@@ -335,18 +329,17 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
-  // surface split off from re-frame.trace for production DCE). The
+  // re-frame.trace.tooling (the dev-tooling buffer + listener surface,
+  // kept apart from re-frame.trace for production DCE). The
   // counter example never `:require`s `re-frame.trace.tooling`
   // (test-support / Xray preload / Story / re-frame2-pair-mcp do, but counter
   // is the no-feature reference app). When this contract holds, the
   // tooling sibling's body is absent from the bundle entirely. The property
   // pinned here is VAR-level, not namespace-level: `re-frame.core` and
   // `re-frame.trace` both `:require` `re-frame.trace.tooling` statically on
-  // both platforms, and since rf2-kuky.52 the facade's `:trace` arm plus
+  // both platforms, and the facade's `:trace` arm plus
   // `rf/trace-buffer` / `rf/clear-trace-buffer!` name
-  // `re-frame.trace.tooling/…` directly — the `re-frame.trace/…` re-exports
-  // they used to route through are gone, and `re-frame.trace` now publishes
+  // `re-frame.trace.tooling/…` directly — `re-frame.trace` publishes
   // no listener/buffer surface of its own. The counter bundle stays clean
   // because it never CALLS that surface, so Closure drops the bodies. The
   // sentinel below is a distinctive string fragment from the tooling's
@@ -364,8 +357,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.subs.tooling (rf2-bmzq0 — `sub-topology` and
-  // `sub-cache-snapshot` split off from re-frame.subs for production
+  // re-frame.subs.tooling (`sub-topology` and
+  // `sub-cache-snapshot`, kept apart from re-frame.subs for production
   // DCE). Counter never `:require`s `re-frame.subs.tooling` (Xray /
   // re-frame2-pair-mcp / re-frame-10x do, but counter is the no-feature
   // reference app). When this contract holds, the tooling sibling's
@@ -383,8 +376,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.flows.tooling (rf2-s8w3nw — EP-0014 slice-3
-  // `flow-algebra-view` split off from the flows artefact for production
+  // re-frame.flows.tooling (EP-0014
+  // `flow-algebra-view`, kept apart from the flows artefact for production
   // DCE). The whole flows artefact is ALREADY bundle-isolated from
   // counter (counter never `:require`s `re-frame.flows` — the `flows`
   // entry above pins that), so this sibling can never reach a no-flows
@@ -404,8 +397,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.resources.tooling (rf2-gn9juw — EP-0014 slice-4
-  // `resource-algebra-view` / `resource-cache-algebra-view` split off from
+  // re-frame.resources.tooling (EP-0014
+  // `resource-algebra-view` / `resource-cache-algebra-view`, kept apart from
   // the resources artefact for production DCE). The whole resources artefact
   // is ALREADY bundle-isolated from counter (counter never `:require`s
   // `re-frame.resources`), so this sibling can never reach a no-resources
@@ -425,8 +418,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.routing.tooling (rf2-eiiifu — EP-0014 slice-5
-  // `route-algebra-view` / `route-slice-algebra-view` split off from the
+  // re-frame.routing.tooling (EP-0014
+  // `route-algebra-view` / `route-slice-algebra-view`, kept apart from the
   // routing artefact for production DCE). The whole routing artefact is
   // ALREADY bundle-isolated from counter (counter never `:require`s
   // `re-frame.routing`), so this sibling can never reach a no-routing app's
@@ -446,9 +439,9 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.machines.tooling (rf2-2axssk — EP-0014 slice-6
+  // re-frame.machines.tooling (EP-0014
   // `machine-algebra-view` / `machine-instance-algebra-view` /
-  // `machine-selector?` split off from the machines artefact for production
+  // `machine-selector?`, kept apart from the machines artefact for production
   // DCE). The whole machines artefact is ALREADY bundle-isolated from
   // counter (counter never `:require`s `re-frame.machines` — the `machines`
   // entry above pins that), so this sibling can never reach a no-machines
@@ -468,7 +461,7 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.derivation.graph (rf2-6xm07h — EP-0014 slice-7: the internal
+  // re-frame.derivation.graph (EP-0014: the internal
   // graph-inspection COMPOSER that stitches the five algebra-view siblings
   // (subs / flows / resources / routes / machines) into one DerivationGraph
   // view). It lives in core/src but composes the four OPTIONAL siblings
@@ -490,10 +483,10 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.derivation.egress (rf2-mm3y49 — the OFF-BOX graph-egress
-  // redaction ALGORITHM centralized out of the two drifting copies: the Xray
-  // call site (`derivation-graph-helpers/redact-graph-for-egress`) and the
-  // derivation-conformance suite's in-tree mirror. It lives in core/src beside
+  // re-frame.derivation.egress (the OFF-BOX graph-egress redaction
+  // ALGORITHM, one copy shared by the Xray call site
+  // (`derivation-graph-helpers/redact-graph-for-egress`) and the
+  // derivation-conformance suite). It lives in core/src beside
   // the derivation-graph composer but is TOOLING: it is NOT exposed from the
   // `re-frame.core` facade and NOT `:require`d by any production-reachable ns
   // — only Xray (whose `redact-graph-for-egress` delegates to it) and the
@@ -503,33 +496,27 @@ const ARTEFACTS = [
   // bundle (most likely a stray `:require` from a production-reachable ns, or
   // an accidental re-export from the core facade). The sentinel is the opaque
   // resource-handle marker the egress projection MINTS: `opaque-handle` emits
-  // `[:rf.resource/opaque <digest>]` and `opaque-handle?` reads the same
+  // `[:rf.resource/opaque <digest>]` and `already-projected?` reads the same
   // keyword back, both on the live path reached from `project-graph`, so the
   // keyword's fully-qualified name is interned into this module's emitted JS.
   //
-  // TWO literals were tried here before this one and BOTH are traps worth
-  // naming, because each is what reading the source alone would pick (rf2-fgco):
+  // TWO other kinds of literal are traps worth naming, because each is what
+  // reading the source alone would pick:
   //
-  //   `re-frame.derivation.egress/no-egress-frame` — the old `::no-egress-frame`
-  //     dead-frame stamp. rf2-g1vu correctly replaced that keyword with a fresh
-  //     host object (`#?(:clj (Object.) :cljs (js/Object.))`) so no app-spellable
-  //     id can collide with it, and a keyword interns its name as a string where
-  //     an identity value interns nothing. The literal left the artefact and this
-  //     positive control went 0/1 — which is the whole point of rf2-e6qmxk, and
-  //     is how the drift was caught rather than shipped as a vacuous green.
+  //   A dead-frame stamp keyword. Egress mints none — the walker takes an
+  //     explicit nil frame at face value — and an identity value would intern
+  //     nothing where a keyword interns its name as a string. A sentinel naming
+  //     a literal the artefact does not emit reads 0/1 in this positive
+  //     control, which is how such drift fails loud instead of shipping as a
+  //     vacuous green.
   //
-  //   `rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename` — a
-  //     `defonce ^:private bundle-isolation-sentinel` that used to sit at the
-  //     bottom of egress.cljc. It read like the obvious choice and it was NOT
-  //     one: the var is private and nothing consumes its value, so Closure
-  //     `:advanced` drops it and the emitted module carries 0 occurrences
-  //     (measured on out/bundle-isolation-positive-control/derivation-egress.js).
-  //     That is why 4e43784ec7 moved this entry — and its `derivation-graph`
-  //     sibling, onto `rf/family` — off the planted strings when the controls
-  //     became emitted-module greps rather than source greps. rf2-yk2d then
-  //     REMOVED the var itself, because its only remaining effect was to be the
-  //     first thing a reader grepping egress.cljc for "the sentinel" would find.
-  //     Do not re-plant one: egress.cljc's own comment now points back here.
+  //   A planted string, such as a `defonce ^:private bundle-isolation-sentinel`
+  //     in egress.cljc. It reads like the obvious choice and is NOT one: the var
+  //     is private and nothing consumes its value, so Closure `:advanced` drops
+  //     it and the emitted module carries 0 occurrences. The controls grep the
+  //     emitted module, not the source, which is why this entry and its
+  //     `derivation-graph` sibling (on `rf/family`) count live literals instead.
+  //     Do not plant one: egress.cljc's own comment points back here.
   //
   // The rule both traps teach: pick a literal a LIVE code path emits, and verify
   // the count in the emitted module, never in the .cljc.
@@ -543,7 +530,7 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG
+  // re-frame.trace.cascade (the focused-event-only cascade-DAG
   // aggregator). Same posture as `trace.tooling`: the namespace is
   // autoloaded from `re-frame.core` only via the JVM-only conditional
   // `#?@(:clj [[re-frame.trace.cascade]])` require; CLJS production
@@ -562,7 +549,7 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // Story Stage 8 (rf2-c9mm) per IMPL-SPEC §6.5. The plain
+  // Story (tools/story/). The plain
   // examples/counter bundle imports zero Story symbols — the
   // tools/story/ jar must DCE entirely when the consuming app
   // doesn't `:require` any re-frame.story.* namespace. The sentinels
@@ -596,7 +583,7 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // xyflow / @xyflow/react (rf2-uwvyj — Machines panel render-engine
+  // xyflow / @xyflow/react (the Machines panel render engine,
   // Path B per spec/021 §6.0 + §17.4). The xyflow library is a
   // `devDependency` of `implementation/package.json` consumed only by
   // tools/machines-viz/ (the chart engine under
@@ -637,8 +624,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // elkjs (rf2-gpzb4 — Mike's 2026-05-21 xyflow override; elk.js
-  // runs as xyflow's layout engine inside the MachineChart). Same
+  // elkjs (elk.js runs as xyflow's layout engine inside the
+  // MachineChart). Same
   // posture as xyflow: dev-only, used only by
   // `tools/machines-viz/src/.../chart.cljs` and gated behind the
   // Xray preload. Production bundles MUST NOT pull elkjs — it's
@@ -689,9 +676,8 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  // editscript — Xray's diff engine (rf2-n2jig). A* algorithm
-  // producing optimally-small EDN edit scripts; replaces the home-grown
-  // leaf-walker classifier. Same posture as zprint:
+  // editscript — Xray's diff engine. A* algorithm
+  // producing optimally-small EDN edit scripts. Same posture as zprint:
   // dev-only, consumed only by tools/ (Xray), gated behind Xray's
   // `:devtools/preloads`. Production bundles MUST NOT pull editscript
   // — the engine ships ~25KB of source over multiple cljc files +
@@ -715,7 +701,7 @@ const ARTEFACTS = [
   },
 ];
 
-// ----- the positive control (rf2-e6qmxk) -------------------------------------
+// ----- the positive control --------------------------------------------------
 
 // The checks above prove each internal sentinel is ABSENT from the counter
 // (no-feature) production bundle. On their own they are only HALF a contract:
@@ -729,7 +715,7 @@ const ARTEFACTS = [
 // exists to catch — lands flows bodies in the counter bundle and the gate
 // STILL passes.
 //
-// The sibling check-perf-bundle.cjs solved this with an ON-bundle POSITIVE
+// The sibling check-perf-bundle.cjs answers this with an ON-bundle POSITIVE
 // CONTROL: it also greps a build that DOES load the instrumented code and
 // asserts the sentinels are PRESENT (onCount > 0) there, so a moved / renamed
 // string fails LOUD rather than degrading to a vacuous pass. This map mirrors
@@ -742,7 +728,7 @@ const ARTEFACTS = [
 //       live literal that survives `:advanced` compilation into a real
 //       production bundle. `login` (examples/core/login/model.cljc) requires
 //       the schemas / machines / http artefacts, so its bundle carries their
-//       sentinels — empirically 1+ each (rf2-e6qmxk validation).
+//       sentinels.
 //
 //   { onModule: '<module-name>' }
 //       Grep exactly one module from the dedicated
@@ -763,7 +749,7 @@ const POSITIVE_CONTROL = {
   machines: { onBundle: 'login' },
   http:     { onBundle: 'login' },
 
-  // On-bundle (rf2-sh0sp4): realworld-resources `:require`s re-frame.resources
+  // On-bundle: realworld-resources `:require`s re-frame.resources
   // and registers 20 resources + 11 mutations, so its `:advanced` release
   // carries both registration-validator reason-ids. The strongest control
   // (a real same-options production bundle), matching the schemas/machines/http
@@ -800,8 +786,7 @@ const POSITIVE_CONTROL = {
 
 // Bundle reading + grep primitives (escapeRe / countSubstring /
 // countMatches) are shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-qlk4w bundle reader;
-// rf2-jkake.15 folded the grep primitives in alongside it). The reader
+// scripts/lib/read-release-bundle.cjs, beside the bundle reader. The reader
 // returns only top-level *.js — the release artefact — so a stale
 // dev-build `cljs-runtime/` subdir from a prior `shadow-cljs compile`
 // doesn't get grep-ed alongside.
@@ -845,7 +830,7 @@ function checkArtefact(blob, artefact) {
   };
 }
 
-// ----- positive control (rf2-e6qmxk) -----------------------------------------
+// ----- positive control ------------------------------------------------------
 
 // Lazy blob cache: real example bundles are keyed by directory, while focused
 // controls are keyed by their exact emitted module file.
@@ -964,13 +949,13 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
   };
 }
 
-// ----- canonical publishable-runtime coverage (rf2-sh0sp4 / rf2-klyw5 / rf2-zef0e) -------
+// ----- canonical publishable-runtime coverage --------------------------------
 
 // assertPositiveControlComplete only cross-checks this script's own two local
 // tables (ARTEFACTS <-> POSITIVE_CONTROL): an artefact absent from BOTH is
-// defined away, not detected. That is exactly how the resources runtime slipped
-// the gate — a separately published, browser-reachable optional runtime omitted
-// from every internal table stayed green. This check closes that hole by
+// defined away, not detected — a separately published, browser-reachable
+// optional runtime omitted from every internal table would stay green. This
+// check closes that hole by
 // deriving the REQUIRED set STRUCTURALLY from the real publishable surface: the
 // shared EDN-aware authority (scripts/lib/publishable-runtimes.cjs) that reads
 // each deps.edn's real `:aliases/:clein/build` KEY — the SAME parsed fact the
@@ -982,8 +967,8 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 // NEITHER fails automatically (FAIL-CLOSED). The check does NOT compare two
 // copies of its own local table.
 //
-// rf2-zef0e makes the enrolment causal — the fail-closed claim can no longer be
-// discharged by text or names:
+// The enrolment is causal — the fail-closed claim cannot be discharged by text
+// or names:
 //   - Discovery is EDN-structural (via publishable-runtimes.cjs): a genuine
 //     `:clein/build` survives `;` inside strings (so a real runtime is never
 //     silently omitted), and a token inside a string / comment / `#_` discard is
@@ -996,10 +981,10 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 //     checker, or an uninvoked command can NOT enrol a runtime.
 //
 // Discovery CONSUMES the shared authority's listPublishableRuntimes directly
-// (rf2-o58c2) rather than maintaining a second, narrower traversal: the
+// rather than maintaining a second, narrower traversal: the
 // authority's bounded flat-plus-nested walk is the SAME inventory the release
-// lockstep enrols, so a publishable runtime nested OUTSIDE adapters/ can no
-// longer reach release inventory while escaping bundle coverage. Bundle
+// lockstep enrols, so a publishable runtime nested OUTSIDE adapters/ cannot
+// reach release inventory while escaping bundle coverage. Bundle
 // isolation then applies only its explicit browser/JVM exclusions below.
 //
 // Excluded from the REQUIRED set (published, but NOT a browser-optional client
@@ -1009,7 +994,7 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 //   ssr-ring — JVM-only ring server adapter (all .clj; no CLJS runtime body can
 //              reach a production client bundle).
 // Keyed by exact implementation-relative PATH (both entries are flat, so path
-// == leaf today) so the exclusion is applied against the authority's relPath.
+// == leaf) so the exclusion is applied against the authority's relPath.
 const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 
 // Browser-optional runtimes covered by a REAL dedicated isolation gate rather
@@ -1019,7 +1004,7 @@ const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);
 // value is a MACHINE-READABLE descriptor: `checkers` are the real gate-script
 // filenames under scripts/, and `command` is the package.json script that
 // invokes them. validateDedicatedGate() binds it to the EXACT runtime AND the
-// EXACT executable (rf2-kfn9q):
+// EXACT executable:
 //   - every checker is a REGULAR FILE under scripts/;
 //   - `command` is a real package script whose body RUNS each checker as a
 //     directly-invoked, reachable `node scripts/<checker>` step — the checker
@@ -1079,9 +1064,9 @@ function normaliseScriptOperand(operand) {
 // package-root-relative path (`scripts/<checker>`). Substring / echo / comment /
 // argument-only mentions, and any step guarded behind a statically-failing
 // `false &&` short-circuit, do NOT count — so a checker's mere textual presence
-// in the body can not launder coverage (rf2-kfn9q).
+// in the body can not launder coverage.
 //
-// Two identity rules make the operand the ACTUAL executed script (rf2-n36v6):
+// Two identity rules make the operand the ACTUAL executed script:
 //
 //   - POSITION. Node's script operand is the token IMMEDIATELY after `node`.
 //     Matching "the first token that does not start with `-`" instead is wrong
@@ -1126,7 +1111,7 @@ function commandRunsChecker(body, checker, { scriptsDir = SCRIPTS_DIR } = {}) {
 
 // True iff `p` is a REGULAR file. Descriptors name checker SCRIPTS, so mere path
 // existence is too weak — a directory (or any non-file entry) sharing a
-// checker's name must not discharge enrolment (rf2-n36v6).
+// checker's name must not discharge enrolment.
 function isRegularFile(p) {
   try {
     return fs.statSync(p).isFile();
@@ -1138,7 +1123,7 @@ function isRegularFile(p) {
 // The implementation-relative runtimes a checker OWNS (its exported
 // COVERS_RUNTIMES), or null if it declares none / can't be loaded. The checker
 // is the source of truth for what it isolates, so a descriptor can not bind a
-// checker to a runtime the checker never inspects (rf2-kfn9q). `require` is safe
+// checker to a runtime the checker never inspects. `require` is safe
 // because the checkers guard their `main()` behind `require.main === module`, so
 // loading one for its contract runs no bundle work.
 function checkerCoversRuntimes(scriptsDir, checker) {
@@ -1208,7 +1193,7 @@ function validateDedicatedGate(gate, { scriptsDir = SCRIPTS_DIR, scripts = readP
 }
 
 // Discover every publishable browser-optional runtime under implementation/ by
-// CONSUMING the shared authority's listPublishableRuntimes (rf2-o58c2) — the
+// CONSUMING the shared authority's listPublishableRuntimes — the
 // SAME parsed `:aliases/:clein/build` inventory, over the SAME bounded
 // flat-plus-nested reach, that the release lockstep enrols — then dropping the
 // runtimes that are not browser-optional client bundles (the always-present
@@ -1277,7 +1262,7 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
   };
 }
 
-// ----- example ns-load co-load isolation (rf2-k4oe) --------------------------
+// ----- example ns-load co-load isolation -------------------------------------
 
 // Every check above this line asks whether an artefact's body reached a bundle
 // it should be absent from. This one asks the ns-LOAD question underneath that,
@@ -1285,17 +1270,16 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
 // cannot answer about itself: does each example app load on its OWN, or only
 // because a SIBLING app happened to be co-loaded beside it?
 //
-// THE DEFECT THIS EXISTS FOR (rf2-k4oe). examples/capabilities/resources/resources/core.cljs
-// called `rf/reg-machine` while requiring neither `re-frame.machines` nor
-// anything pulling it in. Machines are an OPTIONAL artefact whose façade export
+// THE DEFECT THIS EXISTS FOR. An example that calls `rf/reg-machine` while
+// requiring neither `re-frame.machines` nor anything pulling it in only works
+// by accident. Machines are an OPTIONAL artefact whose façade export
 // resolves through the late-bind hook table, so the call succeeds exactly when
 // some other namespace has already loaded the artefact. In the consolidated
-// bundle one always had. Alone, the example's ns-load threw
-// `:rf.error/machines-artefact-missing` before a single test ran. Every gate in
-// the repo was GREEN across that defect, and — the part that made it worth a
-// permanent control rather than a one-off fix — every gate would be green again
-// the moment somebody deleted the require that fixed it. The fifteen single-app
-// builds that found it were audit evidence, far too expensive to keep.
+// bundle one always has. Alone, the example's ns-load throws
+// `:rf.error/machines-artefact-missing` before a single test runs. Every other
+// gate stays GREEN across that defect, and would go green again the moment
+// somebody deleted the require that fixes it. A single-app build per example
+// would witness it, and is far too expensive to keep.
 //
 // WHY THIS IS A SOURCE CHECK AND NOT AN EMITTED-ARTEFACT ONE, since the roster
 // comment above rightly insists on the emitted module for every claim it makes:
@@ -1303,7 +1287,7 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
 // missing `:require` is invisible in any bundle that contains the artefact for
 // some other reason, which is precisely the co-load being ruled out — so the
 // only artefact that could witness it is a single-app build, and that is the
-// cost the audit forbade. The ns form is the honest subject, so the ns form is
+// cost this check avoids. The ns form is the honest subject, so the ns form is
 // what is read.
 //
 // THE RULE. An example that CALLS an optional artefact's registration façade
@@ -1327,7 +1311,7 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
 // side-effecting require into the definition namespace. The sibling self-test
 // pins BOTH halves of the distinction (a defmachine-only ns passes; a
 // `reg-machine` call in that same ns still fails, and the violation must name
-// `reg-machine` alone), so restoring the row fails the gate by name.
+// `reg-machine` alone), so adding the row fails the gate by name.
 const OPTIONAL_ARTEFACT_FACADES = [
   { call: 'reg-machine',    artefact: 're-frame.machines',  absentError: 'rf.error/machines-artefact-missing' },
   { call: 'reg-route',      artefact: 're-frame.routing',   absentError: 'rf.error/routing-artefact-missing' },
@@ -1341,15 +1325,14 @@ const EXAMPLES_DIR = path.resolve(ROOT, '..', 'examples');
 
 // Reduce a source file to the text that is CODE: line comments removed, string
 // bodies blanked (delimiters and newlines kept, so paren balance and line
-// structure survive). Both halves are load-bearing, and each was established by
-// a fixture in the sibling self-test rather than assumed:
+// structure survive). Both halves are load-bearing:
 //
 //   - a `;` inside a string does not start a comment, and `\;` is a character
 //     literal, so a naive line strip mangles real code;
-//   - a façade named in a comment or a docstring is PROSE, not a call. This
-//     file's own subject, resources/core.cljs, writes `rf/reg-machine` in a
-//     comment two lines above the genuine call, and blanking string bodies is
-//     what stops `(def doc "call (rf/reg-flow …)")` from demanding a require.
+//   - a façade named in a comment or a docstring is PROSE, not a call.
+//     examples/capabilities/resources/resources/core.cljs names `rf/reg-machine`
+//     in a comment in its ns form as well as calling it, and blanking string
+//     bodies is what stops `(def doc "call (rf/reg-flow …)")` from demanding a require.
 //
 // Blanking rather than deleting keeps the ns-form reader's paren balance intact
 // through a docstring containing an unbalanced bracket.
@@ -1523,7 +1506,7 @@ function assertExampleCoLoadIsolation(files = listExampleSources(EXAMPLES_DIR)) 
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Bundle isolation: counter example (rf2-51x5) ===');
+  report.detail('=== Bundle isolation: counter example ===');
 
   const bundleDir = path.join(ROOT, 'out', 'examples', 'counter');
   const { status, blob } = classifyReleaseBundle(bundleDir);
@@ -1531,7 +1514,7 @@ function main() {
   if (status !== 'ok') {
     report.flushDetails();
     if (status === 'empty') {
-      // Non-vacuous floor (rf2-utvst): a present-but-empty output dir
+      // Non-vacuous floor: a present-but-empty output dir
       // satisfies every absence check and would false-GREEN. Reject it.
       console.error(`[bundle-isolation] bundle present but empty (zero top-level JS) — ${bundleDir}`);
       console.error('                   The release emitted no inspectable bundle, so the');
@@ -1550,15 +1533,15 @@ function main() {
   report.detail(`bundle size: ${blob.length} chars`);
   report.detail('');
 
-  // Completeness (rf2-e6qmxk): every artefact must declare a positive control.
+  // Completeness: every artefact must declare a positive control.
   const completeness = assertPositiveControlComplete();
 
-  // Canonical coverage (rf2-sh0sp4): every browser-optional publishable runtime
+  // Canonical coverage: every browser-optional publishable runtime
   // (deps.edn `:clein/build` authority) must carry a primary isolation entry,
   // so an artefact omitted from every internal table cannot be defined away.
   const coverage = assertCanonicalInventoryCovered();
 
-  // ns-load co-load isolation (rf2-k4oe): an example that CALLS an optional
+  // ns-load co-load isolation: an example that CALLS an optional
   // artefact's façade must `:require` that artefact itself, rather than loading
   // only because a sibling app in the consolidated bundle already did.
   const coLoad = assertExampleCoLoadIsolation();
@@ -1580,7 +1563,7 @@ function main() {
       failures.push({ name: artefact.name, ...res });
     }
 
-    // Positive control (rf2-e6qmxk): prove the sentinels still exist where they
+    // Positive control: prove the sentinels still exist where they
     // SHOULD, so a drifted / renamed sentinel fails LOUD instead of silently
     // turning the negative grep above into a vacuous pass. Skip artefacts with
     // no declared control — assertPositiveControlComplete already flagged them.
@@ -1616,10 +1599,10 @@ function main() {
     if (failures.length) {
       console.error('At least one per-feature artefact (or tools/story) leaked');
       console.error('into the counter bundle. Per the bundle-isolation contracts');
-      console.error('(rf2-51x5 per-feature, rf2-c9mm story tools):');
+      console.error('(per-feature artefacts, and the tools/story jar):');
       console.error('  - Counter imports zero per-feature artefacts.');
-      console.error('  - Each artefact ships as its own Maven jar (rf2-p7va,');
-      console.error('    rf2-xbtj, rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).');
+      console.error('  - Each artefact ships as its own Maven jar, so a');
+      console.error('    consumer that never requires one never pays for it.');
       console.error('  - core/* MUST NOT `:require` any per-feature ns; the');
       console.error('    re-export wrappers look the API up through the');
       console.error('    late-bind hook table at call time.');
@@ -1629,13 +1612,13 @@ function main() {
       console.error('A non-zero internal-sentinel hit means a per-feature ns');
       console.error('got pulled into the bundle (most likely a `:require` was');
       console.error('added to a core/* namespace). A consumer-allow-list count');
-      console.error('above the expected value means core grew a new preset-map');
-      console.error('/ case-block reference — verify the change is intentional');
+      console.error('above the expected value means core gained another reference');
+      console.error('to a consumer-side hook / fx key — verify it is intentional');
       console.error('and bump expectedAllowListHits in this script.');
       console.error('');
     }
     if (!completeness.ok) {
-      console.error('Positive-control completeness (rf2-e6qmxk):');
+      console.error('Positive-control completeness:');
       if (completeness.missing.length) {
         console.error(`  Artefact(s) with NO positive control declared: ${completeness.missing.join(', ')}`);
         console.error('  Add a POSITIVE_CONTROL entry (onBundle / onModule) so the');
@@ -1657,7 +1640,7 @@ function main() {
       console.error('');
     }
     if (!coverage.ok) {
-      console.error('Canonical inventory coverage (rf2-sh0sp4 / rf2-klyw5 / rf2-zef0e):');
+      console.error('Canonical inventory coverage:');
       console.error('  Browser-optional publishable runtime(s) with NO valid isolation gate:');
       for (const rt of coverage.missing) {
         console.error(`    - ${rt.relPath}: ${(rt.reasons || []).join('; ')}`);
@@ -1677,7 +1660,7 @@ function main() {
       console.error('');
     }
     if (!coLoad.ok) {
-      console.error('Example ns-load co-load isolation (rf2-k4oe):');
+      console.error('Example ns-load co-load isolation:');
       for (const v of coLoad.violations) {
         console.error(`  - ${v.file} calls ${v.call} (${v.hits} site(s)) but does not`);
         console.error(`    :require ${v.artefact} in its own ns form.`);
@@ -1705,7 +1688,7 @@ function main() {
     }
     if (positiveFailures.length) {
       console.error('Positive control FAILED — a sentinel is no longer PRESENT where');
-      console.error('it should be (rf2-e6qmxk). The sentinel string has DRIFTED (most');
+      console.error('it should be. The sentinel string has DRIFTED (most');
       console.error('likely an error-id / message literal was renamed in the artefact');
       console.error('source without updating this script), so the negative counter-');
       console.error('bundle check above has LOST ITS TEETH for that artefact: it would');
