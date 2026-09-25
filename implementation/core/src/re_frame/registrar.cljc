@@ -64,10 +64,13 @@
   is **elidable** in production iff it has ZERO production runtime use AND
   zero production observability use — i.e. it is pure dev/authoring
   documentation. `:doc` is the one such key across every `reg-*` surface;
-  every other standard key is load-bearing in production
-  (`:sensitive?` / `:large?` drive redaction / egress projection;
-  `:tags` / `:interceptors` / the resource-mutation runtime keys drive
-  runtime behaviour; `:rf/id` + the handler fn ARE the registration).
+  every other standard key is load-bearing in production (the
+  `:sensitive` / `:large` / `:large?` classification keys drive egress
+  projection, as do a resource or mutation spec's `:sensitive?` /
+  `:large?` root props — a handler's own `:sensitive?` classifies
+  nothing; `:tags` / `:interceptors` / the resource-mutation runtime keys
+  drive runtime behaviour; `:rf/id` + the handler fn ARE the
+  registration).
 
   `register!` is the single chokepoint every `reg-*` surface funnels
   through, so the strip lives here: under `:advanced` + `goog.DEBUG=false`
