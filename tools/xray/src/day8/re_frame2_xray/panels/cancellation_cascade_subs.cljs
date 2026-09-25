@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-subs
-  "Composite subs for the Cancellation-cascade visualiser (rf2-59e7k).
+  "Composite subs for the Cancellation-cascade visualiser.
 
   Three reactive surfaces:
 
@@ -42,8 +42,8 @@
 
   ;; ---- cascade for focused machine ------------------------------------
   ;;
-  ;; The Machines tab side-panel mount reads this. We compose against
-  ;; the existing `:rf.xray/selected-machine-id` (the picker's
+  ;; The side-panel mount reads this. We compose against
+  ;; `:rf.xray/selected-machine-id` (the picker's
   ;; selection) + the trace buffer. When no machine is selected the
   ;; composite returns a `:no-trigger` shape so the view can branch
   ;; cleanly.
@@ -68,14 +68,14 @@
               [:rf.xray/cancellation-cascade-popover-focus]
               [:rf.xray/focus]]}
     (fn [[buffer popover-focus spine-focus] _query]
-      ;; rf2-y8doi.15 — carry the focused FRAME, not the dispatch-id alone.
+      ;; Carry the focused FRAME, not the dispatch-id alone.
       ;; Dispatch ids are unique only within a frame and Xray's buffer is
-      ;; every host frame's ring merged, so a dispatch-id-only focus let
-      ;; another frame's aborts fold into this cascade (and could anchor the
-      ;; popover on the wrong frame's destroy). Same frame-strict keying
-      ;; rf2-bz7flo gave the managed-fx and routing panels. An explicit frame
+      ;; every host frame's ring merged, so a dispatch-id-only focus would
+      ;; let another frame's aborts fold into this cascade (and could anchor
+      ;; the popover on the wrong frame's destroy). Same frame-strict keying
+      ;; the managed-fx and routing panels use. An explicit frame
       ;; on the popover focus wins; otherwise the spine's focused frame is
-      ;; supplied. A focus with no frame scopes nothing — the prior behaviour.
+      ;; supplied. A focus with no frame scopes nothing.
       (let [focus (or popover-focus
                       (when-let [d (:dispatch-id spine-focus)]
                         {:kind :dispatch-id :id d}))]
