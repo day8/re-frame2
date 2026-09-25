@@ -1,32 +1,29 @@
 (ns re-frame.bench.fresco.arm1.render-measure-emit-nightly-test
-  "SPEC 009's `:render` BUCKET — THE ON HALF (rf2-2rtt6.125).
+  "SPEC 009's `:render` BUCKET — THE ON HALF.
 
   The measures actually landing. Every claim below is about entries a
   `PerformanceObserver` would have received and a
   `getEntriesByType('measure')` reader can filter by the `rf:render:`
   prefix, produced by rendering real `defview` boundaries through React.
 
-  ## Run gate — the `:node-test-perf-nightly` build
+  ## Run gate — a build with both perf flags on
 
-  Same vehicle core's `re-frame.performance-emit-nightly-test` uses, and
-  for the same reason: the brackets are a COMPILE-TIME decision, so the
-  only honest way to assert emission is a build with
+  The brackets are a COMPILE-TIME decision, so the only honest way to
+  assert emission is a build with
   `:closure-defines {re-frame.performance/enabled? true
-                     re-frame.performance/retain-entries? true}`.
-  `:node-test-perf-nightly`'s `:ns-regexp` is `\"-emit-nightly-test$\"`,
-  which this ns matches and the per-PR `:node-test` build's
-  `\"cljs-test$\"` does not — so no shadow-cljs.edn change was needed to
-  wire this in, and the per-PR runner is not asked to time anything.
-
-      cd implementation
-      npx shadow-cljs compile node-test-perf-nightly && \\
-        node out/node-test-perf-nightly.js
+                     re-frame.performance/retain-entries? true}` — the
+  vehicle core's `re-frame.performance-emit-nightly-test` rides, whose
+  `:node-test-perf-nightly` build selects `\"-emit-nightly-test$\"`.
+  This ns carries that suffix, but that build's classpath does not reach
+  the bench tree and the bench lane's own `shadow-cljs.edn` has no
+  perf-flag build, so running it takes a build that merges those
+  `:closure-defines` in.
 
   `retain-entries? true` is what makes a synchronous read possible at
   all: the bracket clears each measure by name right after emit
   (Spec 009 §Observer-first contract), so with retention off a
-  `getEntriesByType` snapshot finds an empty buffer — which is the leak
-  fix working, and is asserted in `re-frame.performance-cljs-test`.
+  `getEntriesByType` snapshot finds an empty buffer — which is the
+  clear-after-emit working, and is asserted in `re-frame.performance-cljs-test`.
 
   ## THIS FILE FAILS RATHER THAN SKIPS IN A FLAG-OFF BUILD
 
@@ -127,7 +124,7 @@
 (defn- rf-mark-count
   "Marks whose name starts with `rf:`. The options-bag measure form
   allocates ZERO of them (Spec 009 §What gets bracketed), and a
-  `:render` bracket is the newest call site that could break that."
+  `:render` bracket is one more call site that could break that."
   []
   (->> (.getEntriesByType js/performance "mark")
        (map #(.-name %))
@@ -166,7 +163,7 @@
             precondition nobody checks."
     (is rf.performance/enabled?
         (str "re-frame.performance/enabled? is FALSE in this runner. This ns "
-             "belongs to the :node-test-perf-nightly build "
+             "needs a build with "
              "(:closure-defines {re-frame.performance/enabled? true "
              "re-frame.performance/retain-entries? true}); run it there."))
     (is rf.performance/retain-entries?
@@ -179,7 +176,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest each-rendered-boundary-emits-one-prefixed-render-measure
-  (testing "The bead's acceptance clause: a page of N distinct `defview`
+  (testing "The acceptance clause: a page of N distinct `defview`
             heads produces `rf:render:<view-id>` measures a consumer
             filters by the `rf:render:` prefix, with ids matching the
             pinned naming rule (the head's displayName)."
@@ -283,7 +280,7 @@
 
 (deftest the-frame-prop-boundary-reports-on-the-same-channel
   (testing "`mint-frame-prop-view!` is the arm's second view-substrate
-            wrapper (rf2-2rtt6.39). A `:render` bucket wired to one mint
+            wrapper. A `:render` bucket wired to one mint
             and not the other would report half a page, so the twin gets
             its own row rather than an assumption."
     (fresh!)
