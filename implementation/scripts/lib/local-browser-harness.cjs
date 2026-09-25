@@ -499,8 +499,8 @@ function statOrNull(target) {
 // Human-readable diagnostic for each structured owned-readiness failure, so a
 // caller's log surfaces WHY the gate refused (a foreign tree, a tokenless
 // responder, an early child exit, or a plain timeout), not merely that it did.
-// The 'timeout' wording is preserved verbatim — it is the only outcome the
-// unowned path could ever produce, and callers/tests key on it.
+// The 'timeout' wording is the unowned path's own (a timeout is the only
+// outcome waitForHttpReady can produce), and callers/tests key on it verbatim.
 function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
   switch (result.reason) {
     case 'token-mismatch':
@@ -536,7 +536,7 @@ function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
 // http-server's 0.0.0.0), `-p <port>`, `-s` (silent), `-c-1` (no cache) —
 // so a recompiled bundle is never served stale and the run's assets aren't
 // exposed on non-loopback interfaces. The host stays a parameter only so a
-// caller could serve elsewhere; every current caller uses the 127.0.0.1
+// caller could serve elsewhere; every caller uses the 127.0.0.1
 // default.
 //
 // Options:
@@ -583,15 +583,15 @@ function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
 //                 caller is already tearing down / was interrupted, so the
 //                 forced-shutdown exit isn't reported as a crash).
 //   - log        — sink for the readiness/exit diagnostics (default
-//                 console.error, matching every caller's current output).
+//                 console.error, matching every caller's output).
 //   - failureTailLines — how many trailing captured lines to print on a
 //                 readiness failure (default 40).
-//   - unresolvedRequestUrl — OPT-IN (default null, i.e. today's behaviour
-//                 unchanged for every gate). An absolute `http://host:port`
+//   - unresolvedRequestUrl — OPT-IN (default null, every gate's posture: an
+//                 unresolved request gets http-server's own 404). An absolute `http://host:port`
 //                 origin that http-server forwards a request to when no file
 //                 under `root` resolves it — its `--proxy` fallback. The ONLY
-//                 caller is serve-example's history-route document fallback
-//                 (rf2-fzbj.35): a history-routed example serves fine at `/`
+//                 caller is serve-example's history-route document fallback:
+//                 a history-routed example serves fine at `/`
 //                 and navigates fine in-app, but a refresh or a direct hit on
 //                 `/articles/intro` asks a STATIC server for a file that was
 //                 never emitted, so the app never boots and its otherwise
@@ -603,7 +603,8 @@ function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
 //                 belongs to the caller that owns the staged host page. A
 //                 blanket 200-HTML fallback here would make serve-example's
 //                 own first-build wait accept a host page as a compiled
-//                 `main.js` and resurrect rf2-qwy3, so no gate gets this for
+//                 `main.js` and announce a live URL over a build that never
+//                 landed, so no gate gets this for
 //                 free — a caller opts in and brings its own responder.
 //
 // Returns { server, ready, output, isDown }:
@@ -637,7 +638,7 @@ async function startLocalHttpServer(opts = {}) {
     unresolvedRequestUrl = null,
   } = opts;
 
-  // Owned readiness is the DEFAULT lifecycle (rf2-3fc89f.14): a local browser
+  // Owned readiness is the DEFAULT lifecycle: a local browser
   // gate must proceed only after proving the responder on `port` serves THIS
   // run's staged root — never a foreign/stale asset tree that squatted the port
   // during the non-atomic resolveServePort()->spawn handoff. Fail loudly BEFORE
@@ -680,8 +681,8 @@ async function startLocalHttpServer(opts = {}) {
     '-s',
     '-c-1',
   ];
-  // Opt-in only: absent (the default, and every gate's posture) the argv is
-  // byte-for-byte what it always was, so http-server keeps answering an
+  // Opt-in only: absent (the default, and every gate's posture) there is no
+  // `--proxy`, so http-server answers an
   // unresolved request with its own 404. The ownership token is a REAL file
   // under `root`, so it resolves before this fallback is ever consulted and
   // the readiness handshake below is unaffected either way.
@@ -723,7 +724,7 @@ async function startLocalHttpServer(opts = {}) {
   const aborted = () =>
     down || (typeof isAborted === 'function' && isAborted());
 
-  // Readiness WITH ownership-token verification (rf2-84gzw / rf2-gkf9 shared
+  // Readiness WITH ownership-token verification (the shared
   // primitive): reachability alone is NOT proof — a foreign responder that won
   // the port race would answer the liveness probe and yield a false green.
   // Accept ready:true ONLY when the responder serves this run's token; return
