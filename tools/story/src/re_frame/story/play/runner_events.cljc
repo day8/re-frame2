@@ -14,7 +14,7 @@
   - `:flush-presence` → the presence-clock advance
     (`re-frame.story.play.presence/advance!` → the host's own installed
     advance); `:cannot-run`
-    with no presence host installed (rf2-36biz — an advance that did not
+    with no presence host installed (an advance that did not
     happen never reports a clean verdict).
   - `:assert-db` path value → read from `rf/app-db-value` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
@@ -68,7 +68,7 @@
          swaps the slot on every step transition. CLJS uses a Reagent
          ratom (so UI re-renders observe it); JVM uses a plain atom.
 
-         rf2-tl7zk multi-play: the stored state carries a `:play-key`
+         Multi-play: the stored state carries a `:play-key`
          slot (the play's `:name` for `:plays` variants, nil for the
          single-script `:script` slot). The chip uses this to
          show which play was last run; per-play history lives in
@@ -78,7 +78,7 @@
      :clj  (atom  {})))
 
 (defonce
-  ^{:doc "[frame-id play-key] → runner-state. rf2-tl7zk: per-play
+  ^{:doc "[frame-id play-key] → runner-state. Per-play
          history so the toolbar dropdown can show each play's last
          outcome and the CI runner can read per-play terminal state.
          For single-script (`:script`) variants the only key is
@@ -88,7 +88,7 @@
      :clj  (atom  {})))
 
 (defonce
-  ^{:doc "frame-id → play-key. rf2-tl7zk: the play the toolbar is
+  ^{:doc "frame-id → play-key. The play the toolbar is
          currently focused on. Default is the first play's name (or
          nil for single-script variants). Changed by the dropdown's
          `select-play!`. Reagent ratom on CLJS."}
@@ -98,7 +98,7 @@
 
 (defonce
   ^{:doc "[frame-id play-key] → vector of per-dispatch-step settle
-         boundaries (rf2-rkd14). Each element is the `:epoch-id` of the
+         boundaries. Each element is the `:epoch-id` of the
          most-recently-committed epoch at the moment a dispatch-opening
          step's settle BEGAN (0 when none has committed yet), recorded in
          dispatch-step execution order. The evidence projection
@@ -108,7 +108,7 @@
          EXACT narrative attribution (`spans-from-stamps`) instead of the
          EVEN heuristic.
 
-         rf2-96qsjr: boundaries are the framework's genuine, globally-
+         Boundaries are the framework's genuine, globally-
          monotonic `:epoch-id` — NOT an `epoch-history` ring-LENGTH
          snapshot. A length snapshot plateaus at the configured ring
          depth (default 50) once the ring fills, so two boundaries
@@ -121,14 +121,14 @@
          against each SURVIVING record's own `:epoch-id`, so eviction can
          only ever drop beats, never misattribute them.
 
-         rf2-m0cge5 finding 2: keyed by the `[frame-id play-key]` PAIR, not
+         Keyed by the `[frame-id play-key]` PAIR, not
          `frame-id` alone. A multi-play sequencer (`run-plays-sequentially!`
          / `runtime/run-phase-4!`) accumulates boundaries across several
          play-keys on ONE frame (`:clear-boundaries? false`); the per-`[frame
          play-key]` run-token guard (`current-state-for-play`) does NOT block
          a CONCURRENT `run!` / `run-play!` for a DIFFERENT
          play-key on the SAME frame — that concurrent call's default
-         `:clear-boundaries? true` used to wipe this ONE shared frame-id
+         `:clear-boundaries? true` would wipe a shared frame-id
          bucket out from under the in-flight sequence. Keying by the pair
          confines each play's boundaries to its own slot so a same-frame,
          different-play-key run can never collide with it; a multi-play
@@ -144,8 +144,8 @@
 (defonce ^:private ^{:doc "Set of variant ids that have already received
                           the both-:script-and-:plays console
                           warning. One warning per variant per page
-                          lifetime keeps the console quiet. rf2-a1lvd:
-                          re-armed by `clear-all-runs!` so a fresh test
+                          lifetime keeps the console quiet.
+                          Re-armed by `clear-all-runs!` so a fresh test
                           + each hot-reload reset can warn again (a
                           warn-once cache that is never reset suppresses
                           the affordance across test order + hot-reload)."}
@@ -162,7 +162,7 @@
   `[frame-id play-key]`, or nil. The runner-recorded narrative attribution
   the evidence projection consumes to stamp `:rf.story/script-idx`.
 
-  rf2-m0cge5 finding 2: keyed by the pair, not `frame-id` alone — see
+  Keyed by the pair, not `frame-id` alone — see
   `step-boundaries`'s docstring. A caller reading a MULTI-play sequence's
   accumulated boundaries calls this once per play-key it drove (in the
   same order) and concatenates the results."
@@ -175,7 +175,7 @@
   framework counter is 1-based (`re-frame.epoch.state/next-epoch-id`) — so
   it composes as a safe exclusive lower bound with plain `<` comparisons.
 
-  rf2-96qsjr: this is a genuine, globally-monotonic IDENTITY, not a
+  This is a genuine, globally-monotonic IDENTITY, not a
   ring-length/count snapshot. `rf/epoch-history` is a bounded per-frame
   ring (default depth 50); a count of its current length PLATEAUS once
   the ring is full (`(count (rf/epoch-history frame-id))` stops growing
@@ -209,7 +209,7 @@
   per-play clear would drop every earlier play's boundaries, leaving only
   the last play's to be mis-zipped.
 
-  rf2-m0cge5 finding 2: writes to the `[frame-id play-key]` composite key
+  Writes to the `[frame-id play-key]` composite key
   (see `step-boundaries`'s docstring), so a same-frame run of a DIFFERENT
   play-key accumulates into its OWN slot and can never collide with — or
   be wiped alongside — this one."
@@ -255,7 +255,7 @@
   replay-in-place / stepping session never inherits stale accumulated
   offsets that would mis-attribute the exact narrative.
 
-  rf2-m0cge5 finding 2: scoped to ONE `[frame-id play-key]` slot (see
+  Scoped to ONE `[frame-id play-key]` slot (see
   `step-boundaries`'s docstring) — clearing play-key K's boundaries never
   touches a DIFFERENT play-key's slot on the same frame, closing the
   concurrent-run wipe hazard."
@@ -276,8 +276,8 @@
                         (into {} (remove (fn [[[fid _]]]
                                            (= fid frame-id)) m))))
   (swap! active-play dissoc frame-id)
-  ;; `step-boundaries` is keyed by [frame-id play-key] (rf2-m0cge5 finding
-  ;; 2) — evict every play-key's slot for this frame, mirroring the
+  ;; `step-boundaries` is keyed by [frame-id play-key] — evict every
+  ;; play-key's slot for this frame, mirroring the
   ;; `runs-by-play` cleanup just above.
   (swap! step-boundaries (fn [m]
                            (into {} (remove (fn [[[fid _]]]
@@ -517,7 +517,7 @@
 
   The step-fail is marked `:recorded?` — its record is already on the
   accumulator, so the unified result must not count it a second time
-  (`rf.story.play.runner/run-state-failures`, rf2-3x7nj.30.1)."
+  (`rf.story.play.runner/run-state-failures`)."
   [frame-id prev idx step]
   (let [failed (failed-since frame-id prev)]
     (if (seq failed)
@@ -691,7 +691,7 @@
                                                                (pr-str atom-v)))})
       (:passed? result)  (rf.story.play.runner/step-pass idx step)
       ;; Recorded on the slot just above — `:recorded?` keeps the unified
-      ;; result from counting it twice (rf2-3x7nj.30.1).
+      ;; result from counting it twice.
       :else              (rf.story.play.runner/step-fail idx step
                                            (assoc result :recorded? true)))))
 
@@ -889,7 +889,7 @@
   consults so a tape-evaluated checkpoint is NEVER dispatched into the
   frame (which, with no handler, would mint a spurious
   `:rf.error/no-such-handler` trace and skip the real tape evaluation).
-  It deliberately reads the existing `re-frame.story.assertions`
+  It deliberately reads the `re-frame.story.assertions`
   predicates / id-sets — the ONE source of truth for which family an id
   belongs to — so a future tape-evaluated family is covered by adding it
   there, with no special-case to grow here.
@@ -917,9 +917,8 @@
   Four routes, by atom family:
 
   - The DOM family (`:rf.assert/dom-visible` / `:rf.assert/dom-hidden` /
-    `:rf.assert/dom-text`) has no reg-event handler yet (the DOM runner
-    that proves it lands later); it is EVALUATED directly through the DOM
-    executor (`exec-assert-dom-atom!`), recording a canonical
+    `:rf.assert/dom-text`) has no reg-event handler; it is EVALUATED
+    directly through the DOM executor (`exec-assert-dom-atom!`), recording a canonical
     `:rf.assert/dom-*` record on the slot.
   - The browser-tier oracle family (`:rf.assert/visual-snapshot` /
     `:rf.assert/a11y` / `:rf.assert/a11y-structural`) is EVALUATED directly
@@ -985,18 +984,17 @@
                                    :message   (or (:reason rec)
                                                   (str (:assertion rec) " "
                                                        (pr-str (:payload rec)) " failed"))
-                                   ;; `rec` IS the accumulator record (rf2-3x7nj.30.1).
+                                   ;; `rec` IS the accumulator record.
                                    :recorded? true})
                 :else                 (rf.story.play.runner/step-pass idx step))))))))
 
 (defn- frame-router-state
   "Read the raw `{:queue :scheduled? ...}` router state for `frame-id`, or
-  nil for an unknown / destroyed frame. There is no dedicated public
-  accessor for router/queue state on the framework facade (`re-frame.core`)
-  yet; Story already depends on `re-frame.frame` directly elsewhere
-  (`re-frame.story.frames`), so this reaches one level further into the
-  SAME already-depended-on ns rather than adding a new cross-boundary
-  dependency. Tolerant — a throwing host (or an absent/destroyed frame)
+  nil for an unknown / destroyed frame. The framework facade
+  (`re-frame.core`) has no public accessor for router/queue state; Story
+  depends on `re-frame.frame` directly elsewhere (`re-frame.story.frames`),
+  so this reaches one level further into that SAME ns rather than adding a
+  cross-boundary dependency. Tolerant — a throwing host (or an absent/destroyed frame)
   reads as nil."
   [frame-id]
   (try
@@ -1006,12 +1004,10 @@
 (defn- queue-empty?
   "True iff `frame-id`'s event queue has GENUINELY drained — no envelope
   left in the router's `:queue` AND no pending async drain tick
-  (`:scheduled?`). A real read of the frame's router state (rf2-m0cge5
-  finding 1) — the previous implementation was a hard-coded `true` stub.
+  (`:scheduled?`). A real read of the frame's router state.
 
-  That stub's own comment justified it ONLY from the `[:dispatch …]` case:
-  under `settled-boundary` a preceding dispatch step already ran the
-  router to a fixed point, so the queue IS drained by the time a
+  After a `[:dispatch …]` step the queue IS drained — under
+  `settled-boundary` that step ran the router to a fixed point before a
   following `[:wait-until [:queue-empty]]` runs. But this step can ALSO
   follow a `:click` / `:type` / `:focus` step — `exec-click!` / `exec-type!`
   / `exec-focus!` (above) fire a synthetic DOM event directly and never
@@ -1019,12 +1015,11 @@
   triggers may issue an ASYNC `[:dispatch …]` that has not yet drained —
   the router schedules an async drain via `rf.interop/next-tick`, genuinely
   deferred, never inline (`re-frame.router/ensure-drain-scheduled!`). A
-  hard-coded `true` silently reported that pending dispatch as settled, so
-  a following `:assert-*` step could read app-db BEFORE it landed — the
+  hard-coded `true` would silently report that pending dispatch as settled,
+  so a following `:assert-*` step could read app-db BEFORE it landed — the
   exact dispatch-vs-settle race `[:wait-until [:queue-empty]]` exists to
   catch. Per `exec-wait-until!`'s one-shot (non-polling) headless contract,
-  an unmet predicate now correctly FAILS readably instead of passing
-  vacuously.
+  an unmet predicate FAILS readably instead of passing vacuously.
 
   Tolerant — an unregistered / destroyed frame reads as drained (nothing
   left to wait for)."
@@ -1108,7 +1103,7 @@
   only the exits that come due — the arity that lets a script observe the
   retained `:unmounting` phase before its terminal removal.
 
-  A no-host advance FAILS CLOSED to `:cannot-run` (rf2-36biz). The step was
+  A no-host advance FAILS CLOSED to `:cannot-run`. The step was
   REQUESTED, and with no host installed it did not happen — so the run reports
   the distinct THIRD status rather than a clean verdict over a clock that
   never moved. \"No hook installed\" does not prove \"no presence runtime
@@ -1119,7 +1114,7 @@
   the headless floor. The refusal NAMES its install path so it is actionable.
 
   A host verb that THROWS is a step-exception — never swallowed. So is one
-  whose Promise REJECTS (rf2-iz0t8): the canonical CLJS host is Promise-backed,
+  whose Promise REJECTS: the canonical CLJS host is Promise-backed,
   so `advance!` hands back a `:pending` thenable that has not settled yet. The
   step-result returned here is provisional in that case and rides
   `::pending-advance`; `settle-step-result!` replaces it with the real one
@@ -1188,15 +1183,14 @@
   what `dispatch-and-settle!` already does with its fail-closed refusal —
   it decides before it acts, not after.
 
-  This is what retired the `setTimeout` 0 as Story's settle signal
-  (rf2-ek9qb). The run-loop's macrotask yield stays where it is: it drains
-  the MICROTASK queue after a synthetic DOM event, which is a different
-  job and still a real one. What it never did was ask the substrate to
+  This, not a `setTimeout` 0, is Story's settle signal. The run-loop's
+  macrotask yield drains the MICROTASK queue after a synthetic DOM event,
+  which is a different job and a real one. It never asks the substrate to
   COMMIT, and on a rAF-scheduled substrate no amount of yielding makes it.
 
   Cheap and inert below `:cljs-reactive` — the overwhelming majority of
   steps — and inert on any host whose hooks register no richer flush,
-  which is every headless host. So the JVM path is unchanged."
+  which is every headless host. So it never fires on the JVM."
   [frame-id idx step]
   (let [required (step-settle-boundary step)]
     (when (rf.story.play.settled-boundary/boundary>= required :cljs-reactive)
@@ -1345,28 +1339,27 @@
       (let [step [:assert atom-v]]
         ;; Terminal assertions are the OTHER place a DOM atom is evaluated,
         ;; so they get the same pre-read settle the in-script checkpoint
-        ;; gets (rf2-ek9qb). Without it the rule would be half-applied: a
+        ;; gets. Without it the rule would be half-applied: a
         ;; terminal `:rf.assert/dom-*` would read whatever the DOM happened
         ;; to be when the script phase ended, which is settled only if the
         ;; script's LAST step happened to be a DOM step.
         ;;
-        ;; And the settle GATES the read. `exec-step!` has always short-
-        ;; circuited on a non-settled pre-step result — `(or (settle… ) …)`
-        ;; — but this path discarded the same result and evaluated anyway,
-        ;; so a terminal DOM assertion could still read, and record a PASS,
-        ;; over a substrate whose commit had just thrown or timed out. The
-        ;; settle failure then disappeared from the terminal verdict
-        ;; entirely: the step-result is dropped here by design (terminal
-        ;; assertions are not a runner step stream), and the executor's own
-        ;; record said only what the stale DOM happened to show. A pass
-        ;; earned against a substrate that never committed is exactly the
-        ;; false-GREEN class this bead exists to close, so the refusal now
+        ;; And the settle GATES the read, as `exec-step!` short-circuits on
+        ;; a non-settled pre-step result — `(or (settle… ) …)`. Discarding
+        ;; that result and evaluating anyway would let a terminal DOM
+        ;; assertion read, and record a PASS, over a substrate whose commit
+        ;; had just thrown or timed out. The settle failure would then
+        ;; disappear from the terminal verdict entirely: the step-result is
+        ;; dropped here by design (terminal assertions are not a runner step
+        ;; stream), and the executor's own record would say only what the
+        ;; stale DOM happened to show. A pass earned against a substrate that
+        ;; never committed is exactly the false-GREEN class, so the refusal
         ;; REPLACES the evaluation rather than preceding it.
         ;;
         ;; Inert on a settled substrate: the commit is no-op-safe and
         ;; `settle-substrate-for-step!` returns nil below `:cljs-reactive`,
         ;; so every headless run (JVM included) takes the `exec-assert!`
-        ;; arm unchanged.
+        ;; arm.
         (if-let [refused (settle-substrate-for-step! frame-id idx step)]
           (rf.story.assertions/record!
             frame-id
@@ -1403,8 +1396,8 @@
 
   `settled-cb` (optional) receives the FINAL step-result. It is invoked
   exactly once, and SYNCHRONOUSLY for every step but one: a
-  `[:flush-presence]` against a Promise-backed host settles a microtask later
-  (rf2-iz0t8), and only then is it known whether the flush actually
+  `[:flush-presence]` against a Promise-backed host settles a microtask later,
+  and only then is it known whether the flush actually
   succeeded. The RETURN value is the synchronously-known result, which for
   that one case is provisional — a caller that records step outcomes must
   take them from `settled-cb`, or the stepper would show a clean flush the
@@ -1440,7 +1433,7 @@
      `Thread/sleep` then a `recur`) so it stays in tail position rather than
      nesting a scheduled continuation per wait — a JVM `schedule!` would do
      `(Thread/sleep ms)(f)`, a fresh `run-loop!` frame per wait, growing the
-     call stack (rf2-epqsvh)."
+     call stack."
      [ms f]
      (js/setTimeout f ms)))
 
@@ -1516,14 +1509,14 @@
   settle this run's own continuation, mutate nothing):
 
     - the slot is GONE (nil `state`) — the frame was torn down mid-run;
-    - the slot carries a DIFFERENT `:run-token` — a newer `run!` took it over
-      (rf2-ftow6), and the newer loop owns the continuation now.
+    - the slot carries a DIFFERENT `:run-token` — a newer `run!` took it over,
+      and the newer loop owns the continuation now.
 
   A slot carrying NO token is deliberately NOT stale: a hand-seeded state
   (tests, a caller driving `run-loop!` directly) predates the token scheme and
   is left alone.
 
-  Why a plain value rather than a `^:dynamic` Var or a ThreadLocal (rf2-6pfpt):
+  Why a plain value rather than a `^:dynamic` Var or a ThreadLocal:
   the hazard here is a run OUTLIVING its claim on shared state, not a claim
   failing to reach a child. `token` is already conveyed correctly — it rides as
   an argument through `run-loop!` and is captured by the settlement closure, so
@@ -1536,22 +1529,21 @@
     (or (nil? state)
         (and token (some? (:run-token state)) (not= token (:run-token state))))))
 
-;; ---- step preconditions: the settle rung for asynchrony (rf2-n0sz4) ------
+;; ---- step preconditions: the settle rung for asynchrony ------------------
 ;;
-;; rf2-ek9qb gave a step's required BOUNDARY a producer: before a step that
-;; reads or drives the DOM, `settle-substrate-for-step!` asks the live
-;; adapter to COMMIT. That closed the render race, and it closed only that
-;; one, because a synchronous commit can only commit what the host has
-;; already SCHEDULED. Two things a play waits on are scheduled but not yet
-;; landed at the instant the step wants them, and no flush can conjure
-;; either (both MEASURED on the browser lane, rf2-n0sz4):
+;; A step's required BOUNDARY has a producer: before a step that reads or
+;; drives the DOM, `settle-substrate-for-step!` asks the live adapter to
+;; COMMIT. That closes the render race, and only that one, because a
+;; synchronous commit can only commit what the host has already SCHEDULED.
+;; Two things a play waits on are scheduled but not yet landed at the
+;; instant the step wants them, and no flush can conjure either:
 ;;
 ;;   1. THE ASYNC DISPATCH. `exec-click!` / `exec-type!` / `exec-focus!` fire
 ;;      a synthetic DOM event; React runs the handler; the handler
 ;;      dispatches; the router schedules its drain through
 ;;      `rf.interop/next-tick` — `goog.async.nextTick`, a genuine macrotask,
-;;      never inline. The next step then read app-db before the handler's
-;;      event had run: `expected 42 at [:count] but got 0`. Note that this
+;;      never inline. Unwaited, the next step reads app-db before the
+;;      handler's event has run: `expected 42 at [:count] but got 0`. Note that this
 ;;      is NOT "nothing drains the queue" — `dispatch-sync!` pushes its seed
 ;;      at the FRONT of the queue and drains, so an assertion dispatched at
 ;;      the next step JUMPS AHEAD of the click's still-queued event and
@@ -1562,28 +1554,28 @@
 ;;      `component-did-mount`, and sync-class steps `recur` rather than
 ;;      yielding, so a script's leading steps run INSIDE that hook — while
 ;;      the canvas has committed its loading SKELETON and the variant's own
-;;      markup is not in the document at all. A first `[:assert-dom …]`
-;;      reported `selector matched no node`.
+;;      markup is not in the document at all. Unwaited, a first
+;;      `[:assert-dom …]` reports `selector matched no node`.
 ;;
 ;; ## Why a bounded poll, and why that is not `[:wait ms]` with extra steps
 ;;
-;; The choice was between growing the flush-hooks contract a new
-;; drain-only rung verb and settling here, in the runner. This is the
+;; The alternative to settling here, in the runner, is growing the
+;; flush-hooks contract a new drain-only rung verb. This is the
 ;; runner's own concern and not the host's: every host's router schedules
 ;; the same way, so a verb per host would ask each of them to re-describe
 ;; one framework-wide fact. It would also be PUBLIC surface added for a
 ;; test harness's convenience, which the project's stance rejects. Nothing
 ;; below is reachable by an author.
 ;;
-;; A poll is not a sleep, and the difference is the whole point of the
-;; bead. `[:wait 300]` proceeds after 300ms whether or not anything
+;; A poll is not a sleep, and the difference is the whole point.
+;; `[:wait 300]` proceeds after 300ms whether or not anything
 ;; settled — it is a GUESS, it is spec/017's explicit determinism OPT-OUT,
 ;; and `assert-deterministic` refuses a script containing one. This
 ;; proceeds on an OBSERVED condition, on the first tick the condition
 ;; holds (so it costs a tick, not 300ms, on a fast machine), and when the
 ;; condition never holds it FAILS LOUDLY naming what never settled rather
-;; than proceeding on a stale read. spec/017 already anticipated exactly
-;; this and assigned it to exactly this layer: `exec-wait-until!` is
+;; than proceeding on a stale read. spec/017 assigns exactly this to
+;; exactly this layer: `exec-wait-until!` is
 ;; one-shot by contract, and its docstring hands the bounded re-check to
 ;; "a richer DOM/browser runner … that poll is the adapter caller's
 ;; concern".
@@ -1591,7 +1583,7 @@
 ;; CLJS ONLY, by construction. The JVM runner has no event loop to yield
 ;; to, `dispatch-sync!` has already drained the queue by the time any step
 ;; observes it, and no DOM is available — so every precondition below
-;; reads as met there and the JVM path is byte-for-byte unchanged.
+;; reads as met there and the JVM path never polls.
 
 (def settle-poll-timeout-ms
   "Wall-clock budget for one step's preconditions to settle before the
@@ -1636,7 +1628,7 @@
   one assertion whose pass condition is absence, and burning the entire
   `settle-poll-timeout-ms` budget waiting for a node the author declared
   should not be there, where the identical assertion in folded form passes
-  immediately (rf2-n0sz4, audit #8319). So the raw step is folded here
+  immediately. So the raw step is folded here
   through the SAME `fold-assert-step` `exec-step!` will apply to it, and
   the presence requirement is read off the canonical atom — rather than a
   second, mode-blind notion of 'this one needs a node'.
@@ -1713,7 +1705,7 @@
   commits whatever the substrate has pending, and re-checks, WITHOUT
   advancing the cursor; `settle-deadline` carries the wall-clock bound
   across those re-entries and is nil whenever the loop is not mid-poll.
-  Exhausting the bound FAILS the step readably (rf2-n0sz4) — it is never
+  Exhausting the bound FAILS the step readably — it is never
   a silent proceed, and never a silent pass. A poll whose own COMMIT
   fails reports that failure verbatim and advances, rather than
   re-running a broken flush until the budget expires and then reporting
@@ -1750,12 +1742,11 @@
           (let [ms (or (rf.story.play.runner/step-wait-ms step) 0)]
             (record-result! frame-id play-key nm idx step (rf.story.play.runner/step-skip idx step))
             ;; JVM: fold the wait INTO the loop so it stays in TAIL position.
-            ;; `schedule!` on the JVM used to nest `(Thread/sleep ms)(f)` — a
-            ;; fresh `run-loop!` frame per wait — so a script of many
-            ;; `[:wait ms]` steps grew the call stack (StackOverflowError) and
-            ;; blocked the caller for the summed waits. `recur` keeps the stack
-            ;; flat. CLJS keeps async `setTimeout` scheduling so the event loop
-            ;; drains between steps (rf2-epqsvh).
+            ;; Nesting `(Thread/sleep ms)(f)` — a fresh `run-loop!` frame per
+            ;; wait — would make a script of many `[:wait ms]` steps grow the
+            ;; call stack (StackOverflowError) and block the caller for the
+            ;; summed waits. `recur` keeps the stack flat. CLJS keeps async
+            ;; `setTimeout` scheduling so the event loop drains between steps.
             #?(:clj  (do (when (pos? ms) (Thread/sleep ^long ms))
                          (recur frame-id play-key token done-cb nil))
                :cljs (schedule! ms #(run-loop! frame-id play-key token done-cb nil))))
@@ -1774,7 +1765,7 @@
                (let [deadline (or settle-deadline
                                   (+ (rf.interop/now-ms) settle-poll-timeout-ms))
                      ;; Commit anything the substrate has already scheduled.
-                     ;; This is rf2-ek9qb's own rung, reused: on a
+                     ;; This is the pre-step settle rung, reused: on a
                      ;; rAF-scheduled substrate in a throttled tab the
                      ;; pending render would otherwise never land no matter
                      ;; how long we yielded.
@@ -1783,18 +1774,17 @@
                    ;; THE COMMIT ITSELF FAILED — a flush threw, or blew its
                    ;; boundary budget. Record that exact result and advance.
                    ;;
-                   ;; This used to be discarded, on the reasoning that
-                   ;; `exec-step!` establishes the same boundary and would
-                   ;; report the refusal properly when the step ran. It is
-                   ;; the precondition that makes that false: a step parks
-                   ;; here precisely because it is NOT running yet, and a
+                   ;; Discarding it, on the reasoning that `exec-step!`
+                   ;; establishes the same boundary and would report the
+                   ;; refusal properly when the step ran, would be wrong
+                   ;; because of the precondition: a step parks here
+                   ;; precisely because it is NOT running yet, and a
                    ;; selector that stays absent never reaches `exec-step!`
-                   ;; at all. So the loop re-ran the same broken flush every
-                   ;; tick for the whole budget and then replaced a named,
-                   ;; actionable settle error with the generic "preconditions
-                   ;; never settled" timeout — the true cause discarded and
-                   ;; the symptom reported in its place (rf2-n0sz4, audit
-                   ;; #8319).
+                   ;; at all. So the loop would re-run the same broken flush
+                   ;; every tick for the whole budget and then replace a
+                   ;; named, actionable settle error with the generic
+                   ;; "preconditions never settled" timeout — the true cause
+                   ;; discarded and the symptom reported in its place.
                    ;;
                    ;; Advancing is right, not merely convenient: polling
                    ;; exists to wait out work that is IN FLIGHT, and a commit
@@ -1831,7 +1821,7 @@
                                                      :cljs (str e)))))
                 yield? (rf.story.play.runner/async-yield? step)]
             (if (::pending-advance result)
-              ;; A Promise-backed presence host has NOT settled (rf2-iz0t8).
+              ;; A Promise-backed presence host has NOT settled.
               ;; AWAIT it before recording anything: a rejection is the step's
               ;; own exception, and recording the provisional pass first would
               ;; leave the run reporting `:pass` over a flush that failed.
@@ -1840,24 +1830,24 @@
               #?(:cljs (settle-step-result!
                          idx step result
                          (fn [settled]
-                           ;; RUN-TOKEN FENCE (rf2-6pfpt). Awaiting the
+                           ;; RUN-TOKEN FENCE. Awaiting the
                            ;; thenable opens a window the synchronous path
-                           ;; never had: between parking here and settling,
+                           ;; never has: between parking here and settling,
                            ;; a newer `run!` can take the slot or the frame
                            ;; can be torn down. EVERY ordinary step is
-                           ;; already fenced — `run-loop!` re-checks the slot
-                           ;; before the next one mutates it — but this
-                           ;; callback used to `record-result!` FIRST and
-                           ;; re-enter the loop (where the check lives)
-                           ;; afterwards, putting the mutation on the far
-                           ;; side of the fence. A stale settlement then
-                           ;; appended ITS result to the REPLACEMENT run,
+                           ;; fenced — `run-loop!` re-checks the slot
+                           ;; before the next one mutates it — but a
+                           ;; callback that ran `record-result!` FIRST and
+                           ;; re-entered the loop (where the check lives)
+                           ;; afterwards would put the mutation on the far
+                           ;; side of the fence. A stale settlement would
+                           ;; append ITS result to the REPLACEMENT run,
                            ;; advancing a cursor past a step that run never
-                           ;; took; under teardown it fabricated a run-state
-                           ;; entry out of nil (`(inc nil)` is 1 on CLJS, so
-                           ;; nothing even threw) which, carrying no
-                           ;; `:run-token`, the guard below then declined to
-                           ;; abort on — a resurrected run reaching a
+                           ;; took; under teardown it would fabricate a
+                           ;; run-state entry out of nil (`(inc nil)` is 1 on
+                           ;; CLJS, so nothing even throws) which, carrying
+                           ;; no `:run-token`, the guard below would decline
+                           ;; to abort on — a resurrected run reaching a
                            ;; `finish!` verdict for a frame that was gone.
                            ;;
                            ;; Checking the live slot HERE closes it. The
@@ -1905,8 +1895,7 @@
   Drives the variant frame AS IT STANDS: app-db, the stub-call log and the
   run's epoch baseline are NOT reset, so this is the engine a run owner
   drives, not a fresh run. The author-facing fresh run is the one run
-  owner's `runtime/resume-run!` with a play selection (`runtime/rerun!`,
-  rf2-3x7nj.30.3).
+  owner's `runtime/resume-run!` with a play selection (`runtime/rerun!`).
 
   Returns the initial run-state (NOT a promise) so synchronous callers
   can immediately observe `:status :running` + `:total`. CLJS callers
@@ -1978,18 +1967,18 @@
      ;; 2nd…Nth play so the boundaries ACCUMULATE across the whole auto-run
      ;; sequence. The narrative spans the CONCATENATED script
      ;; (`(mapcat :script auto-plays)`), and `:epoch-id` only ever increases
-     ;; across the run (rf2-96qsjr — true regardless of ring eviction), so
+     ;; across the run (true regardless of ring eviction), so
      ;; each play's boundaries tail the previous play's — keeping the
      ;; dispatch-order zip in `stamp-tape` aligned. Clearing per-play would
      ;; drop every earlier play's boundaries, leaving only the LAST play's
      ;; to be mis-zipped against the concatenated script's leading dispatch
      ;; steps — a false-green evidence-provenance failure.
      ;;
-     ;; rf2-m0cge5 finding 2: clears ONLY this run's OWN `[variant-id pk]`
+     ;; Clears ONLY this run's OWN `[variant-id pk]`
      ;; slot, never the whole frame — a concurrent run! for a DIFFERENT
      ;; play-key on this SAME frame (not blocked by the per-`[frame
-     ;; play-key]` run-token guard above) writes to its OWN slot and can
-     ;; no longer wipe an in-flight multi-play sequence's accumulator.
+     ;; play-key]` run-token guard above) writes to its OWN slot and cannot
+     ;; wipe an in-flight multi-play sequence's accumulator.
      (when clear-boundaries?
        (clear-step-boundaries! variant-id pk))
      (set-state! variant-id pk started)
@@ -2004,8 +1993,7 @@
   `:script`).
 
   Drives the frame AS IT STANDS, like `run!`. The author-facing 'Run play'
-  is a FRESH run through the one run owner — `runtime/rerun!`
-  (rf2-3x7nj.30.3)."
+  is a FRESH run through the one run owner — `runtime/rerun!`."
   ([variant-id play-key]
    (run-play! variant-id play-key nil))
   ([variant-id play-key done-cb]
@@ -2060,12 +2048,11 @@
   Clears the per-dispatch-step settle boundaries for EVERY play-key this
   sequence is about to drive, ONCE up front, then drives each play with
   `:clear-boundaries? false` so each play's OWN `[variant-id play-key]`
-  slot ACCUMULATES across the sequence (rf2-m0cge5 finding 2: boundaries
-  are keyed by the pair, not by `variant-id` alone, so this clear can never
+  slot ACCUMULATES across the sequence (boundaries are keyed by the pair, not by `variant-id` alone, so this clear can never
   wipe a DIFFERENT, concurrently-running play-key's slot on this same
   frame — see `step-boundaries`'s docstring). The evidence narrative spans
   the CONCATENATED play scripts, and `:epoch-id` only ever increases across
-  the run (rf2-96qsjr — independent of ring eviction), so each play's
+  the run (independent of ring eviction), so each play's
   boundaries tail the previous play's for `stamp-tape`'s dispatch-order
   zip to stay aligned. Letting each `run!` clear would leave only the
   last play's boundaries, mis-attributing later-play effects to
