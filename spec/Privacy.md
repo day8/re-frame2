@@ -106,7 +106,7 @@ Built-in denylists ship populated with the obvious cross-app names (`authorizati
 
 ### `re-frame.schemas` (declarative — no imperative surface)
 
-Schema-attached slot props. These are the **one and only** classification route for *owner-local schema'd data* — machine `[:schemas :data]`, resource `:data-schema` / `:params-schema`, an HTTP request's `:decode` schema (one owner, one route) — and they drive **schema-validation error-trace** redaction. They are **not** a route for durable *app-db* classification (that rides the four commit-plane effects per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)); there are no schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`; see the note above).
+Schema-attached slot props. On an HTTP request's `:decode` schema they classify the decoded response body; elsewhere they drive only **schema-validation error-trace** redaction, and only where the runtime validates against that schema. They are **not** a route for durable classification — app-db, or machine / resource / mutation state — per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy); there are no schema→registry hydrators (`populate-elision-from-schemas!` / `populate-sensitive-from-schemas!`; see the note above).
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
