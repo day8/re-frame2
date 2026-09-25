@@ -72,18 +72,18 @@
   - The variant's `:sub-overrides` / `:db-seed` / `:network` /
     `:fx-overrides` / `:interceptor-overrides` / `:images` render inputs —
     pinned sub outputs, pre-script app-db seed, stubbed HTTP replies, the
-    handlers its effects are redirected to (rf2-38gqa), the interceptors it
-    swaps and the behaviour images its handlers resolve through (rf2-0ae7o.8)
+    handlers its effects are redirected to, the interceptors it
+    swaps and the behaviour images its handlers resolve through
   - The same render-input slots of each registered fragment the variant's
     `:compose` names, in declared order — spec/017 §Strict composition
-    folds them into the variant's world (rf2-pt0d1). The `:composed` slot
-    is absent when no composed fragment carries one, so every other
-    variant's identity is unchanged.
+    folds them into the variant's world. The `:composed` slot
+    is absent when no composed fragment carries one, so it perturbs no
+    other variant's identity.
   - The same render-input slots, minus `:script` / `:plays` / `:images`, of each
     registered `:extends` ancestor, nearest first — spec/017 §`:extends`
-    passes an ancestor's world down and never its behaviour (rf2-0ae7o.5).
-    The `:inherited` slot is absent when no ancestor carries one, so every
-    other variant's identity is unchanged.
+    passes an ancestor's world down and never its behaviour.
+    The `:inherited` slot is absent when no ancestor carries one, so it
+    perturbs no other variant's identity.
   - Parent story `:component` id
   - Parent story `:decorators` and `:images`
   - The *registered* schema digest of the view (per spec/011
@@ -97,7 +97,7 @@
   ## Hash function
 
   `002-Runtime.md` §Snapshot-identity computation specifies `sha-256` of a transit-serialised canonical
-  form. The current implementation uses a **portable** hash function: a stable
+  form. The implementation uses a **portable** hash function: a stable
   string serialisation (deterministic key order; sets/vectors written
   with stable order) hashed with `hash` (JVM `clojure.lang.Util/hasheq`,
   CLJS `cljs.core/hash`).
@@ -132,7 +132,7 @@
    :loaders :loaders-complete-when :loaders-teardown
    :decorators :args->events :platforms :substrates
    :viewport :background
-   ;; rf2-bah5o2 — the per-variant `:component` view-id
+   ;; The per-variant `:component` view-id
    ;; OVERRIDE (schemas §`:component`). The renderer resolves
    ;; variant-first `(or (:component variant) (:component
    ;; story))`, so a variant's own `:component` decides WHICH
@@ -141,25 +141,24 @@
    ;; produces no drift. (Story-level `:component` rides
    ;; `story-body-slice`.)
    :component
-   ;; rf2-38gqa — `:fx-overrides` redirects an effect to another handler
+   ;; `:fx-overrides` redirects an effect to another handler
    ;; (spec/017 §The effect-override surface), so the settled app-db and
    ;; the verdict follow it.
    :fx-overrides
-   ;; rf2-0ae7o.8 — `:interceptor-overrides` swaps an interceptor in every
+   ;; `:interceptor-overrides` swaps an interceptor in every
    ;; dispatch the frame runs (spec/017 §The interceptor-override surface),
    ;; so the settled app-db and the verdict follow it too.
    :interceptor-overrides
-   ;; rf2-0ae7o.8 — `:images` picks the behaviour image the frame resolves
+   ;; `:images` picks the behaviour image the frame resolves
    ;; its handlers through (002-Runtime §Image composition), so swapping it
    ;; changes which handler runs. An ancestor's never reach the child
    ;; (`inherited-input-keys`), and a fragment body cannot carry one.
    :images
-   ;; rf2-9zj0nc — render inputs that change the settled
+   ;; Render inputs that change the settled
    ;; rendered state: `:sub-overrides` pins subscription outputs
    ;; the renderer surfaces, `:db-seed` seeds app-db before the
    ;; script, `:network` stubs the HTTP replies a fetch-on-mount
-   ;; view settles to. All three already land in the plan-hash;
-   ;; the snapshot-identity path was the straggler.
+   ;; view settles to. All three also land in the plan-hash.
    :sub-overrides :db-seed :network])
 
 (defn- variant-body-slice
@@ -201,17 +200,16 @@
     the renderer surfaces, the pre-script app-db seed, and stubbed HTTP
     replies a fetch-on-mount view settles to. Plain authored data — the
     canonicaliser handles them (hashing the raw authored map incl. any
-    `[:arg]` placeholders is sufficient for identity). All three already
-    land in the plan-hash; the snapshot path was the straggler.
+    `[:arg]` placeholders is sufficient for identity). All three also
+    land in the plan-hash.
   - `:fx-overrides` — the effect redirects spec/017 §The effect-override
     surface makes a first-class world input. Pointing an effect at a
-    different handler changes the settled app-db and the verdict
-    (rf2-38gqa).
+    different handler changes the settled app-db and the verdict.
   - `:interceptor-overrides` — the interceptor swaps spec/017 §The
     interceptor-override surface installs for the variant. Swapping an
-    interceptor changes the settled app-db and the verdict (rf2-0ae7o.8).
+    interceptor changes the settled app-db and the verdict.
   - `:images` — the behaviour images the variant's frame resolves its
-    handlers through. Swapping one changes which handler runs (rf2-0ae7o.8).
+    handlers through. Swapping one changes which handler runs.
 
   Excluded (documented, not an oversight):
   - `:args` — captured via `:effective-args` in `snapshot-tuple` (post-
@@ -248,7 +246,7 @@
 
 (defn- composed-fragment-slices
   "The render inputs contributed by each registered fragment in
-  `variant-id`'s `:compose`, in declared order (rf2-pt0d1). spec/017
+  `variant-id`'s `:compose`, in declared order. spec/017
   §Strict composition folds a composed fragment's `:setup`, `:script`,
   `:db-seed`, `:network`, `:sub-overrides`, `:fx-overrides`,
   `:interceptor-overrides`, `:loaders` and `:decorators` into the variant's
@@ -277,13 +275,13 @@
   `:script` and `:plays` stay with it. Its `:images` stay with it too: a
   frame composes only its own variant's and its story's images (002-Runtime
   §Image composition), so an ancestor's image never decides what the child
-  settles to (rf2-0ae7o.8)."
+  settles to."
   (into [] (remove #{:script :plays :images}) render-input-keys))
 
 (defn- inherited-slices
   "The render inputs `variant-id` inherits through `:extends`: each
   registered ancestor's slice over `inherited-input-keys`, nearest first
-  (rf2-0ae7o.5). spec/017 §`:extends` passes an ancestor's world (setup,
+  spec/017 §`:extends` passes an ancestor's world (setup,
   render fixtures, network stubs, effect and interceptor overrides,
   decorators) down to the
   child, so each is a render input of the child exactly as its own body's
@@ -316,7 +314,7 @@
   Per `002-Runtime.md` §Snapshot-identity computation the parent story's
   `:component` id and `:decorators` are part of the variant's identity, and
   so are its `:images`: every variant frame composes the story's behaviour
-  images first, so swapping one changes which handler runs (rf2-0ae7o.8).
+  images first, so swapping one changes which handler runs.
 
   The parent story's `:tags` are NOT selected here — they reach the hash
   (as a fallback default) through the variant's `:effective-tags` slot in
@@ -336,7 +334,7 @@
   snapshot identity and spec/011 §`:rf/schema-digest`.
 
   Public so the watch-mode detector's testable-hash cache can fold this
-  SAME per-frame digest into its cache key (rf2-3y7l7u). A view-schema
+  SAME per-frame digest into its cache key. A view-schema
   hot-reload perturbs the snapshot-tuple through this slot but does NOT
   bump the Story registrar mutation-tick (the schema registry is the
   FRAMEWORK side-table), so the cache — keyed on the Story tick — would
@@ -442,14 +440,14 @@
               ;; no id, so there is no analogous collision risk.)
               :active-modes          (vec (or active-modes []))
               :substrate             substrate}
-       ;; rf2-pt0d1 — composed fragments' render inputs, in declared order.
+       ;; Composed fragments' render inputs, in declared order.
        ;; Absent unless one carries a render input, so a variant composing
-       ;; nothing (or only checks / `:args`) keeps the identity it had.
+       ;; nothing (or only checks / `:args`) hashes as if the slot did not exist.
        (seq composed) (assoc :composed composed)
-       ;; rf2-0ae7o.5 — the inheritable render inputs of `:extends`
+       ;; The inheritable render inputs of `:extends`
        ;; ancestors, nearest first. Absent unless one carries such an input,
        ;; so a variant with no ancestor (or ancestors carrying only args, tags
-       ;; or behaviour) keeps the identity it had.
+       ;; or behaviour) hashes as if the slot did not exist.
        (seq inherited) (assoc :inherited inherited)))))
 
 (defn snapshot-identity
