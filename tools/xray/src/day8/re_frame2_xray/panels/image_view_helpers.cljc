@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.image-view-helpers
   "Pure-data helpers for Xray's EP-0023 IMAGE / FRAME inspection — the
-  `image -> frame -> event stream` public model (rf2-32siq3.12).
+  `image -> frame -> event stream` public model.
 
   ## The EP-0023 model this surface presents
 
@@ -110,9 +110,8 @@
   `generation` is the inert sealed value `assemble` returns
   (`:rf.gen/resolver` / `:rf.gen/images` / `:rf.gen/kinds`). A nil generation
   projects to the empty image-row (no descriptors). Pure `data -> data`;
-  JVM-testable. (EP-0026, rf2-dlvmpc: the generation no longer carries
-  `:rf.gen/requires` — image-declared host capabilities are removed — so the
-  projection no longer surfaces a `:requires` set.)"
+  JVM-testable. A generation carries no image-declared host capabilities
+  (EP-0026), so the projection has no `:requires` set."
   [generation]
   (let [resolver (:rf.gen/resolver generation)
         descs    (->> resolver
@@ -142,12 +141,12 @@
 
   `frame-id` is the registry key; `frame-object` is the inert FRAME VIEW the
   `image-view-frames` seam projects per image-loaded record
-  (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` / …, EP-0024
-  rf2-tu2vr7). The frame's IMAGE is its resolved generation projected via
+  (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` / …,
+  EP-0024). The frame's IMAGE is its resolved generation projected via
   `project-generation` — that is the `frame -> resolved image generation` half
-  of the EP-0023 resolution path. Pure `data -> data`; JVM-testable. (EP-0026,
-  rf2-dlvmpc: frame views no longer carry `:rf.frame/capabilities` — image
-  capabilities are removed — so the row no longer surfaces `:capabilities`.)"
+  of the EP-0023 resolution path. Pure `data -> data`; JVM-testable. Frame
+  views carry no image capabilities (EP-0026), so the row has no
+  `:capabilities`."
   [frame-id frame-object]
   (let [gen (:rf.frame/generation frame-object)]
     {:frame-id     frame-id
@@ -157,7 +156,7 @@
 
 (defn project-frames
   "Project the image-loaded frames `{frame-id frame-view}` into sorted
-  frame-rows (EP-0024 §One live frame registry, rf2-tu2vr7 — the `image-view-frames`
+  frame-rows (EP-0024 §One live frame registry — the `image-view-frames`
   read over the one `frames` registry). Returns a vector of frame-rows sorted by
   frame-id str. Only PUBLIC `:id`-bearing image-loaded frames are enumerated;
   direct (no-id) frames bypass enumeration (their private `:rf.frame/<gensym>` id
@@ -201,12 +200,12 @@
 
 (defn project-image-view
   "Top-level EP-0023 image/frame projection — produce every slot the
-  image/frame sections of the Module-view tab need (rf2-32siq3.12). Pure
+  image/frame sections of the Module-view tab need. Pure
   `data -> data`; JVM-testable.
 
   `live-frames` is the image-loaded-frames snapshot `{frame-id frame-view}`
   (from `re-frame.live-frame/image-view-frames`, read in `image_view_reads.cljs`
-  — EP-0024 §One live frame registry, rf2-tu2vr7: the seam projects each
+  — EP-0024 §One live frame registry: the seam projects each
   one-registry record carrying a generation into an inert frame view).
   Returns
 
@@ -255,7 +254,7 @@
 
 (def no-images-caption
   "The calm empty-state caption the image/frame sections render when NO live
-  frame runs a resolved image generation (rf2-32siq3.12). EP-0023's public
+  frame runs a resolved image generation. EP-0023's public
   `image -> frame -> event stream` model is OPT-IN: a process on the bare
   `reg-*` default path creates no `rf/make-frame` image-loaded frames, so there
   is no image/frame model to show here yet. Names why the section is empty so
