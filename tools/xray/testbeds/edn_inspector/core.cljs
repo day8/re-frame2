@@ -5,7 +5,7 @@
 
   ## Shape — the shared queued-step RUNNER
 
-  ONE purple `Step` button walks the diff-audit case matrix top to
+  ONE purple `Step` button walks the diff case matrix top to
   bottom while the operator watches how the Xray panels render each
   step. The runner (`runner.core`) is the shared harness; this deck
   supplies a `steps` vector (CODE DATA) + a testid `prefix`. Each step
@@ -30,7 +30,7 @@
 
   ## The matrix
 
-  The step vector is organised SIMPLE → COMPLEX along the audit matrix;
+  The step vector is organised SIMPLE → COMPLEX along the case matrix;
   each step drives ONE case, in order:
 
     MAPS                — key added · key removed · value changed
@@ -166,7 +166,7 @@
     {:db initial-db}))
 
 ;; ============================================================================
-;; EVENTS — the step ladder, grouped by the audit matrix
+;; EVENTS — the step ladder, grouped by the case matrix
 ;; ============================================================================
 ;;
 ;; The per-step App-db / Epoch delta is the runner's `:step` write on the
