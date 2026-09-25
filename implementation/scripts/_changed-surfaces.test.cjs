@@ -1127,8 +1127,8 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
     }
     // The control is a surface with NO declared edge to either artefact.
     // spec prose is the honest one: it changes no classpath either job reads.
-    // (A core change is deliberately NOT the control any more — see the
-    // dependency-edge assertions below, rf2-wq17m's audit reopen.)
+    // (A core change is deliberately NOT the control — see the
+    // dependency-edge assertions below.)
     assert.equal(
       classify('spec/006-ReactiveSubstrate.md')[lane.output],
       'false',
@@ -1137,13 +1137,12 @@ test('the new tools JVM lanes arm on their artefact and nowhere else (rf2-wq17m)
   }
 });
 
-// rf2-2rtt6.143 — the Reagent `[:>]` → Fresco codemod lane, the same
-// three-part shape one tree over. Its own block rather than a row in
-// NEW_TOOLS_JVM_LANES above because the artefact is not under `tools/`: it is
-// the first `migration/` path to reach test.yml at all. Before it, a
-// codemod-only diff classified to NOTHING — `migration/**` reaches docs.yml,
-// which stages the tree into the site and executes none of it — so 22 tests
-// and the golden corpus that IS the tool's spec ran in no lane anywhere.
+// The Reagent `[:>]` → Fresco codemod lane, the same three-part shape one tree
+// over. Its own block rather than a row in NEW_TOOLS_JVM_LANES above because
+// the artefact is under `migration/`, not `tools/`. Without it a codemod-only
+// diff would classify to NOTHING — `migration/**` reaches docs.yml, which
+// stages the tree into the site and executes none of it — so the tests and the
+// golden corpus that IS the tool's spec would run in no lane anywhere.
 
 const CODEMOD_LANE = {
   job: 'jvm-migration-fresco-codemod',
@@ -1152,27 +1151,19 @@ const CODEMOD_LANE = {
   armed: 'migration/reagent-to-fresco/codemod/src/re_frame/migration/fresco/rewrite.clj',
   // The cross-tree `:paths` edge: the codemod puts
   // `../../../implementation/fresco/src` on its classpath so it and the
-  // runtime door share ONE slot rule (rf2-ani6y), and shared_rule_test.clj
-  // pins the two `identical?`.
+  // runtime door share ONE slot rule, and shared_rule_test.clj pins the two
+  // `identical?`.
   //
-  // rf2-r4j91 moved it. rf2-ani6y extracted the rule while the runtime still
-  // lived in the bench tree, so the path used to be
-  // `implementation/freehand/test/re_frame/bench/fresco/front/slot.cljc`;
-  // rf2-hic-001 moved the runtime into the package and frozen-sources.edn
-  // pins the two files byte-for-byte, so BOTH answer identically today and
-  // only one survives Freehand's retirement. `twinSharedRule` below is the
-  // other one, kept so the negative can be asserted rather than assumed.
+  // frozen-sources.edn pins this file and a byte-identical twin, so BOTH
+  // answer identically. `twinSharedRule` below is the other one, kept so the
+  // negative can be asserted rather than assumed.
   sharedRule: 'implementation/fresco/src/re_frame/fresco/impl/slot.cljc',
-  // rf2-0yp7w P0 re-homed the harness, so the twin moved with it — this was
-  // `implementation/freehand/test/re_frame/bench/fresco/front/slot.cljc`
-  // when rf2-r4j91 wrote it, and rf2-6c12m.1 then moved the whole harness
-  // out of the package to bench/fresco/. Pointing a live assertion at a
-  // deleted file is the failure mode this constant was extracted to avoid,
-  // so it follows the file.
+  // The twin lives in the bench harness. Naming it once here keeps every live
+  // assertion on the file itself rather than on a path that may be deleted.
   twinSharedRule: 'bench/fresco/src/re_frame/bench/fresco/front/slot.cljc',
-  // rf2-erjv — the SECOND cross-tree edge, and a different mechanism. The one
+  // The SECOND cross-tree edge, and a different mechanism. The one
   // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
-  // `the-callback-contracts-are-the-doors` (rf2-vi11) slurps the door's own
+  // `the-callback-contracts-are-the-doors` slurps the door's own
   // `.cljs` with a relative `io/file` and asserts the roster the codemod prints
   // into its `defhost` sketch equals the door's `callback-contracts`.
   door: 'implementation/fresco/src/re_frame/fresco/impl/codec.cljs',
@@ -1207,7 +1198,7 @@ test('the codemod JVM job is gated on its own output and runs the artefact (rf2-
     `${CODEMOD_LANE.output} must be declared as a detect_changed_surfaces output`,
   );
   // Required, not advisory. A job absent from the aggregator's needs: is a
-  // job a merge can skip past, which is the state this artefact was already in.
+  // job a merge can skip past.
   assert.ok(
     jobBlock(workflow, 'all-required-passed').includes(`- ${CODEMOD_LANE.job}`),
     `aggregator must list ${CODEMOD_LANE.job} in needs:`,
@@ -1227,7 +1218,7 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
     'true',
     `${CODEMOD_LANE.sharedRule} is on the codemod's classpath and must arm its lane`,
   );
-  // …and that file keeps every output it already had. The arm is shared with
+  // …and that file arms the package's own outputs too. The arm is shared with
   // the package's own, so a narrowing here would be silent.
   const shared = classify(CODEMOD_LANE.sharedRule);
   for (const output of ['cljs_node_test', 'cljs_browser', 'fresco_controlled']) {
@@ -1236,32 +1227,23 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
 });
 
 test('the TWIN shared rule is not what the codemod loads (rf2-r4j91, rf2-0yp7w)', () => {
-  // The negative half of rf2-r4j91's move, asserted rather than assumed. A
-  // byte-identical twin of the slot rule exists — frozen-sources.edn pins it —
-  // so reading the wrong one would look harmless and be a lie about which tree
-  // the codemod reads. Worse, before rf2-r4j91 it made a file inside a tree
-  // scheduled for deletion the thing that catches a broken slot rule.
+  // The negative, asserted rather than assumed. A byte-identical twin of the
+  // slot rule exists — frozen-sources.edn pins it — so reading the wrong one
+  // would look harmless and be a lie about which tree the codemod reads.
   //
-  // WHAT THIS TEST COULD ASSERT CHANGED UNDER rf2-0yp7w P0, AND THE REASON IS
-  // WORTH READING RATHER THAN THE ASSERTION BEING QUIETLY WEAKENED.
+  // The negative is NOT "the twin's path must not arm
+  // migration_fresco_codemod": arming is the classifier's question and has
+  // other reasons to answer yes (the `implementation/fresco/*` arm sets that
+  // output for the SOURCE-TEXT edge on `impl/codec.cljs`), and
+  // over-classifying a seconds-long pure JVM suite is the cheaper error, which
+  // TESTING.md says to prefer.
   //
-  // rf2-r4j91 wrote the negative as "the twin's path must NOT arm
-  // migration_fresco_codemod", which held while the twin lived under
-  // `implementation/freehand/*`. P0 re-homed the harness into
-  // `implementation/fresco/test/`, and the whole `implementation/fresco/*`
-  // arm sets that output — not for the classpath edge this test is about, but
-  // for rf2-erjv's SOURCE-TEXT edge on `impl/codec.cljs`. So the twin does arm
-  // the lane now, correctly and for an unrelated reason, and re-pointing the
-  // old assertion at the new path would fail for a reason that is not a
-  // regression. Over-classifying a seconds-long pure JVM suite is the cheaper
-  // error and TESTING.md says to prefer it.
-  //
-  // The load-bearing negative therefore lives where it can still be stated
-  // exactly: `shared_rule_test.clj` resolves the rule through `io/resource`
-  // and refuses a path containing `re_frame/bench/` — by NAMESPACE, so it
-  // names the twin rather than its address and survives the next relocation.
-  // What remains checkable HERE is that the twin is not on the codemod's
-  // classpath root, which is the property the arm is derived from.
+  // The load-bearing negative lives where it can be stated exactly:
+  // `shared_rule_test.clj` resolves the rule through `io/resource` and refuses
+  // a path containing `re_frame/bench/` — by NAMESPACE, so it names the twin
+  // rather than its address and survives a relocation. What is checkable HERE
+  // is that the twin is not on the codemod's classpath root, which is the
+  // property the arm is derived from.
   const deps = fs.readFileSync(
     path.join(REPO_ROOT, CODEMOD_LANE.dir, 'deps.edn'),
     'utf8',
@@ -1276,8 +1258,7 @@ test('the TWIN shared rule is not what the codemod loads (rf2-r4j91, rf2-0yp7w)'
       + `${CODEMOD_LANE.twinSharedRule} — the tool would load the prototype's copy`,
   );
   // Non-vacuity: the twin must actually exist, or this asserts nothing. It is
-  // the file `frozen-sources.edn` pins, and it outlives Freehand because
-  // rf2-0yp7w P0 moved it out of that tree.
+  // the file `frozen-sources.edn` pins.
   assert.ok(
     fs.existsSync(path.join(REPO_ROOT, CODEMOD_LANE.twinSharedRule)),
     `${CODEMOD_LANE.twinSharedRule} does not exist, so this test asserts nothing`,
@@ -1285,7 +1266,7 @@ test('the TWIN shared rule is not what the codemod loads (rf2-r4j91, rf2-0yp7w)'
 });
 
 test('the shared rule the codemod loads is the file the arm names (rf2-r4j91)', () => {
-  // NON-VACUITY for the CLASSPATH edge, the same shape rf2-erjv gave the
+  // NON-VACUITY for the CLASSPATH edge, the same shape as the
   // source-text edge below. Arming a lane off a path is worth nothing if the
   // artefact's classpath points somewhere else, so this does not assert the
   // edge in prose: it lifts the cross-tree `:paths` entry out of deps.edn,
@@ -1316,20 +1297,18 @@ test('the shared rule the codemod loads is the file the arm names (rf2-r4j91)', 
 });
 
 test('the codemod lane arms on the DOOR the roster pin reads (rf2-erjv)', () => {
-  // The second reverse edge, and the one that was missing. PR #7762 put the
-  // roster pin in the codemod's JVM lane while the classifier armed that lane
-  // from `implementation/freehand/*` only — so a fourth contract at the door,
-  // or a renamed one, ran no suite that pins it and reds later on an unrelated
-  // PR that happens to arm the lane.
+  // The second reverse edge. The roster pin runs in the codemod's JVM lane, so
+  // unless the door arms that lane, a fourth contract at the door, or a renamed
+  // one, would run no suite that pins it and red later on an unrelated PR that
+  // happens to arm the lane.
   assert.equal(
     classify(CODEMOD_LANE.door)[CODEMOD_LANE.output],
     'true',
     `${CODEMOD_LANE.door} is read by shared_rule_test.clj and must arm ${CODEMOD_LANE.output}`,
   );
-  // …and the arm WIDENS the fresco case rather than replacing it. The arm is
-  // shared, `cljs_browser` and `fresco_controlled` joined it only recently,
-  // and trading one output for another here would close this hole by opening
-  // others — the same constraint rf2-8a6s pinned one block down.
+  // …and the arm ADDS to the fresco case rather than replacing it. The arm is
+  // shared, and trading one output for another here would close this hole by
+  // opening others — the same constraint pinned one block down.
   const door = classify(CODEMOD_LANE.door);
   for (const output of ['cljs_node_test', 'cljs_browser', 'fresco_controlled']) {
     assert.equal(door[output], 'true', `${CODEMOD_LANE.door} must still arm ${output}`);
@@ -1384,7 +1363,7 @@ test('the codemod lane stays dark for surfaces it does not depend on (rf2-2rtt6.
 test('a codemod change does NOT fire the rest of the matrix (rf2-2rtt6.143)', () => {
   // The artefact loads no re-frame2 runtime — rewrite-clj over source text —
   // so arming implementation_jvm or the CLJS tiers would be fan-out with no
-  // dependency behind it, and would still not have run this suite.
+  // dependency behind it, and would not run this suite anyway.
   const result = classify(CODEMOD_LANE.armed);
   assert.equal(result[CODEMOD_LANE.output], 'true');
   for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'tools_jvm']) {
@@ -1392,11 +1371,9 @@ test('a codemod change does NOT fire the rest of the matrix (rf2-2rtt6.143)', ()
   }
 });
 
-// rf2-0qzh — the v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod (EP-0018
-// Slice E): the identical hole one tree over, and the same four-sided fix.
-// Measured on main, `from-re-frame-v1` appeared ZERO times in the classifier,
-// in test.yml and on scripts/test-jvm-tools.sh, while deps.edn carried a
-// working `:test` alias — 45 tests, 158 assertions — that nothing ran.
+// The v1 `reg-event-db/-fx/-ctx` → `reg-event` codemod: the identical shape
+// one tree over, and the same four-sided lane. Without it, the working `:test`
+// alias in its deps.edn would run nowhere.
 
 const V1_CODEMOD_LANE = {
   job: 'jvm-migration-v1-codemod',
@@ -1432,7 +1409,7 @@ test('the v1 codemod JVM job is gated on its own output and runs the artefact (r
     `${V1_CODEMOD_LANE.output} must be declared as a detect_changed_surfaces output`,
   );
   // Required, not advisory. A job absent from the aggregator's needs: is a
-  // job a merge can skip past, which is where this artefact already was.
+  // job a merge can skip past.
   assert.ok(
     jobBlock(workflow, 'all-required-passed').includes(`- ${V1_CODEMOD_LANE.job}`),
     `aggregator must list ${V1_CODEMOD_LANE.job} in needs:`,
@@ -1453,26 +1430,24 @@ test('the v1 codemod lane arms on its own tree (rf2-0qzh)', () => {
   }
 });
 
-// rf2-fk5jy — the REVERSE edge, and the reason the dark list below no longer
-// names core. PR #8857 (rf2-36u96) wired `clojure -M:integration` into this
-// job as a second step, and that alias declares
+// The REVERSE edge, and the reason the dark list below does not name core. The
+// job runs `clojure -M:integration` as a second step, and that alias declares
 // `day8/re-frame2-core {:local/root "../../../implementation/core"}` — the
 // codemod's emitted output is evaluated against the REAL v2 `reg-event`
-// contract at namespace load. So core IS on this lane's classpath now, while
-// the arm still fired on the codemod subtree alone: a core-only diff left the
-// lane SKIPPED on exactly the commit that could break it, which is the
-// surface-armed gate that does not run on the breaking push while the rollup
-// reads green throughout.
+// contract at namespace load. So core IS on this lane's classpath: an arm
+// firing on the codemod subtree alone would leave the lane SKIPPED on a
+// core-only diff, exactly the commit that could break it — the surface-armed
+// gate that does not run on the breaking push while the rollup reads green
+// throughout.
 //
 // The edge is ONE-WAY, and the test after the dark list pins the other side:
-// core changes arm the codemod lane, but a codemod-only diff must still not
-// arm `implementation_jvm`. The codemod is downstream of core, not upstream,
-// so widening in that direction would be fan-out with no dependency behind it.
+// core changes arm the codemod lane, but a codemod-only diff must not arm
+// `implementation_jvm`. The codemod is downstream of core, not upstream, so
+// widening in that direction would be fan-out with no dependency behind it.
 //
-// Spelled as ONE boolean on an already-declared :local/root edge, the way every
-// other reverse edge in the classifier is — the `implementation/core/*` arm
-// already carries three of them under rf2-wq17m. Not a dependency-graph engine,
-// and not mark_all.
+// Spelled as ONE boolean on a declared :local/root edge, the way every other
+// reverse edge in the classifier is — the `implementation/core/*` arm carries
+// several. Not a dependency-graph engine, and not mark_all.
 //
 // SCOPED TO core, not to `implementation/*`: implementation/core/deps.edn puts
 // only `:paths ["src"]` and two mvn coordinates on the base classpath — its own
@@ -1492,8 +1467,8 @@ test('a core change arms the v1 codemod lane over the :integration edge (rf2-fk5
       `${file} is on the codemod's :integration classpath and must arm ${V1_CODEMOD_LANE.output}`,
     );
   }
-  // The fan-out core already had is untouched — the new output is additional,
-  // not a replacement.
+  // Core's other fan-out is unaffected — this output is additional, not a
+  // replacement.
   const result = classify('implementation/core/src/re_frame/core.cljc');
   assert.equal(result.implementation_jvm, 'true');
   assert.equal(result.tools_jvm_machines_viz, 'true');
@@ -1505,11 +1480,10 @@ test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qz
   // five hand-written migration guides, and the arm is the codemod SUBTREE,
   // not the parent — a guide edit must not queue a JVM lane.
   //
-  // rf2-fk5jy — implementation/core USED to sit in this list, and its
-  // removal is the tripwire that makes that reopen visible rather than
-  // silent: core is now on the lane's :integration classpath, pinned
-  // positively by the test above. A per-feature sibling stands in its place
-  // so the list still proves the edge is core-SPECIFIC — implementation/flows
+  // implementation/core is NOT in this list: core is on the lane's
+  // :integration classpath, pinned positively by the test above. A
+  // per-feature sibling is, so the list proves the edge is core-SPECIFIC —
+  // implementation/flows
   // is reached by no alias of the codemod's deps.edn, so 'any implementation/
   // change arms this lane' would fail here.
   for (const file of [
@@ -1528,11 +1502,11 @@ test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qz
 });
 
 test('a v1 codemod change does NOT fire the rest of the matrix (rf2-0qzh)', () => {
-  // The DOWNSTREAM half of the rf2-fk5jy edge. The artefact's base classpath
+  // The DOWNSTREAM half of the core edge. The artefact's base classpath
   // is `:paths ["src"]` plus clojure and rewrite-clj, and its one cross-tree
   // edge — `:integration`'s :local/root onto implementation/core — runs the
   // OTHER way: core is this lane's dependency, not its dependent. So this lane
-  // is still the only thing a codemod-only diff should queue.
+  // is the only thing a codemod-only diff should queue.
   const result = classify(V1_CODEMOD_LANE.armed);
   assert.equal(result[V1_CODEMOD_LANE.output], 'true');
   for (const output of [
@@ -1546,17 +1520,14 @@ test('a v1 codemod change does NOT fire the rest of the matrix (rf2-0qzh)', () =
   }
 });
 
-// rf2-n8vp — the ssr-node package's lane, the same four-sided shape one tree
-// over. PR #8028 landed implementation/ssr-node/ — 26 files, 73 test rows
-// across 7 suites, runnable as `node implementation/ssr-node/test/run.cjs` —
-// and the string `ssr-node` then appeared in neither
-// implementation/package.json nor any file under .github/workflows/. So the
-// package classified to nothing, ran nowhere, and the five bounded guarantees
-// its README documents were claims rather than gates.
+// The ssr-node package's lane, the same four-sided shape one tree over. The
+// package's suites run as `node implementation/ssr-node/test/run.cjs`; without
+// a lane the package would classify to nothing, run nowhere, and the bounded
+// guarantees its README documents would be claims rather than gates.
 //
 // The half that makes an arm real is a regression that fails when the arm goes
 // wrong, in BOTH directions: a lane that never fires is the same defect as no
-// lane, and a lane that fires on everything is the cost this bead exists to
+// lane, and a lane that fires on everything is the cost a narrow arm exists to
 // avoid.
 
 const SSR_NODE_LANE = {
@@ -1571,22 +1542,21 @@ const SSR_NODE_LANE = {
   fixture: 'implementation/ssr-node/test/fixtures/bad-no-allowlist.cjs',
 };
 
-// THE JOB IS UNGATED, AND THIS ROW NOW PINS THAT — rf2-8arzr.9, reversing the
-// half of the shape above that turned out to be wrong for this lane.
+// THE JOB IS UNGATED, AND THIS ROW PINS THAT — the one half of the shape above
+// that is wrong for this lane.
 //
 // The four-sided shape is right for a lane whose suite tests the tree the
 // classifier arms on. This one's does not: `absence.test.cjs` walks
 // `git ls-files` across implementation/, examples/, tools/, scripts/ and
 // .github/ and asserts that nothing out there can load this package or spells
-// its refusal codes. Arming that on `implementation/ssr-node/**` made a
-// whole-repo control blind to every tree it polices — and it was measured
-// blind: slice E broke two rows in five files outside the package, the job was
-// skipped on that PR and on every branch after it, and main was red for days
-// with the alert channel silent.
+// its refusal codes. Arming that on `implementation/ssr-node/**` would make a
+// whole-repo control blind to every tree it polices: a break in files outside
+// the package would skip the job on that PR and on every branch after it,
+// leaving main red with nothing alerting.
 //
-// So the direction of this row flips. What must never come back is the `if:`,
-// because re-adding it restores exactly the blindness, and it would look like
-// tidying. The rest of the shape is unchanged and still load-bearing.
+// So this row pins the ABSENCE of the `if:`, because re-adding it restores
+// exactly the blindness, and it would look like tidying. The rest of the shape
+// is load-bearing.
 test('the ssr-node job is UNGATED and runs the suite (rf2-8arzr.9, was rf2-n8vp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const block = jobBlock(workflow, SSR_NODE_LANE.job);
@@ -1613,8 +1583,8 @@ test('the ssr-node job is UNGATED and runs the suite (rf2-8arzr.9, was rf2-n8vp)
     stepRunning(block, `npm run ${SSR_NODE_LANE.script}`),
     `the job must run \`npm run ${SSR_NODE_LANE.script}\` as a step`,
   );
-  // The output survives this job losing its `if:`, because `jvm-node-crossing`
-  // arms on it — the sidecar is half of that crossing. So it must still be
+  // The output is live without this job's `if:`, because `jvm-node-crossing`
+  // arms on it — the sidecar is half of that crossing. So it must be
   // plumbed out of detect_changed_surfaces, or THAT job's `if:` reads an empty
   // string and can never fire, silently.
   assert.match(
@@ -1629,7 +1599,7 @@ test('the ssr-node job is UNGATED and runs the suite (rf2-8arzr.9, was rf2-n8vp)
       + 'rows below guard it, not this job',
   );
   // Required, not advisory. A job absent from the aggregator's needs: is a job
-  // a merge can skip past, which is where this artefact already was.
+  // a merge can skip past.
   assert.ok(
     jobBlock(workflow, 'all-required-passed').includes(`- ${SSR_NODE_LANE.job}`),
     `aggregator must list ${SSR_NODE_LANE.job} in needs:`,
@@ -1728,12 +1698,11 @@ test('an ssr-node change fires that lane and NOTHING else (rf2-n8vp)', () => {
   }
 });
 
-// rf2-8m344 — the viewer PAGE lane, same three-part shape. The `:machines-viz-
-// viewer` build was declared in implementation/shadow-cljs.edn and compiled by
-// no workflow, npm script or gate, while README.md and spec/API.md documented
-// building it as the way a consumer self-hosts the page. "Buildable" was an
-// unverified claim of exactly the kind the 404 default host had just been
-// removed for.
+// The viewer PAGE lane, same three-part shape. The `:machines-viz-viewer`
+// build is declared in implementation/shadow-cljs.edn, and README.md and
+// spec/API.md document building it as the way a consumer self-hosts the page,
+// so this lane compiles it: "buildable" is a gated claim, not an unverified
+// one.
 test('the machines-viz viewer-page job is gated on its own output and runs the recipe (rf2-8m344)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const block = jobBlock(workflow, 'machines-viz-viewer-page');
@@ -1793,25 +1762,20 @@ test('the viewer-page lane arms on the page, the HTML and the build that declare
   );
 });
 
-// rf2-wq17m, audit reopen of #7005 — the DEPENDENCY side. Both new jobs run a
-// suite whose subject is code in implementation/, reached over a :local/root
-// declared in the artefact's own deps.edn, so a change on the framework side
-// must arm them. Before this, classifying implementation/machines/src/... or
-// implementation/core/src/... left both outputs false: an engine grammar
-// change could merge with the parity ratchet skipped, and a source-coords
-// change with the endpoint delegation suite skipped.
-//
-// The assertion above USED to pin `a core change must not fire ${lane.output}`
-// — the honest description of the classifier as #7005 left it, and the
-// tripwire that makes this reopen visible rather than silent. It is inverted
-// here deliberately, in the same PR that adds the edges.
+// The DEPENDENCY side. Both tools JVM jobs run a suite whose subject is code
+// in implementation/, reached over a :local/root declared in the artefact's
+// own deps.edn, so a change on the framework side must arm them. With both
+// outputs false for implementation/machines/src/... or
+// implementation/core/src/..., an engine grammar change could merge with the
+// parity ratchet skipped, and a source-coords change with the endpoint
+// delegation suite skipped.
 
 test('an engine change arms the machines-viz parity ratchet (rf2-wq17m)', () => {
   const result = classify('implementation/machines/src/re_frame/machines.cljc');
   assert.equal(result.tools_jvm_machines_viz, 'true');
   // …and not the sibling lane: testbed-support declares no machines edge.
   assert.equal(result.tools_jvm_testbed_support, 'false');
-  // The per-feature fan-out it already had is untouched.
+  // Its per-feature fan-out is unaffected.
   assert.equal(result.implementation_jvm, 'true');
   assert.equal(result.cljs_node_test, 'true');
 });
@@ -1820,8 +1784,8 @@ test('a core change arms BOTH new tools JVM lanes (rf2-wq17m)', () => {
   const result = classify('implementation/core/src/re_frame/core.cljc');
   assert.equal(result.tools_jvm_machines_viz, 'true');
   assert.equal(result.tools_jvm_testbed_support, 'true');
-  // tools_jvm still fires from core for its own four jobs — the new outputs
-  // are additional, not a replacement.
+  // tools_jvm fires from core too, for its own four jobs — the per-artefact
+  // outputs are additional, not a replacement.
   assert.equal(result.tools_jvm, 'true');
 });
 
@@ -1849,15 +1813,16 @@ test('a sibling per-feature artefact does NOT arm the machines-viz lane (rf2-wq1
   }
 });
 
-// rf2-odlm3 — tools/machines-viz's OWN CLJS lane. The two suites the JVM job
-// above exists for (`engine_grammar_parity_test.cljc`,
-// `mermaid_public_smoke_test.cljc`) are `.cljc`, so "JVM-only" described the
-// LANES, not the files: the consolidated `:node-test` bundle does not contain
-// either namespace, because its `cljs-test$` selector never reaches a name
-// ending `-test`. `tools/machines-viz/shadow-cljs.edn` declares the artefact's
-// own `:machines-viz-node-test` build for them — its own bundle, so arming them
-// cannot contaminate the shared run — and declaring it INSIDE the artefact also
-// moves the ownership line the test-lane bijection gate reads.
+// tools/machines-viz's OWN CLJS lane. The two suites the JVM job above exists
+// for (`engine_grammar_parity_test.cljc`, `mermaid_public_smoke_test.cljc`)
+// are `.cljc`, so they need a CLJS lane as well, and the consolidated
+// `:node-test` bundle does not contain either namespace, because its
+// `cljs-test$` selector never reaches a name ending `-test`.
+// `tools/machines-viz/shadow-cljs.edn` declares the artefact's own
+// `:machines-viz-node-test` build for them — its own bundle, so arming them
+// cannot contaminate the shared run — and declaring it INSIDE the artefact
+// also puts it on the artefact's side of the ownership line the test-lane
+// bijection gate reads.
 
 test('a machines-viz change schedules the artefact CLJS lane (rf2-odlm3)', () => {
   const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs');
@@ -1995,19 +1960,17 @@ test('Other spec/*.md change does NOT light cljs_node_test (scope discipline) (r
 });
 
 // template_expensive is armed by the generated app's ACTUAL inputs and nothing
-// else. rf2-6r9j.108 removed the Story/Xray arm when rf2-zq34m's reduced
-// scaffold stopped compiling against either tool. rf2-1bkoc (PR #9821) put
-// Story back: every emitted deps.edn carries `day8/re-frame2-story` under
-// `:dev`, the emitted stories.cljs requires re-frame.story, the `:app` build's
-// `:dev` override boots `stories/init`, and Story's shell requires Xray — and
-// `emitted_test_run_test.clj` compiles exactly that with `-M:shadow:dev`. So
-// rf2-3x7nj.37.1 re-arms it, for exactly the files that compile can read: both
-// tools declare `:paths ["src"]`, so `src/**` plus each `deps.edn`. Their own
-// lanes stay armed alongside, so a mistaken "narrow everything" edit reds.
+// else. Story and Xray are among them: every emitted deps.edn carries
+// `day8/re-frame2-story` under `:dev`, the emitted stories.cljs requires
+// re-frame.story, the `:app` build's `:dev` override boots `stories/init`, and
+// Story's shell requires Xray — and `emitted_test_run_test.clj` compiles
+// exactly that with `-M:shadow:dev`. So the arm covers exactly the files that
+// compile can read: both tools declare `:paths ["src"]`, so `src/**` plus each
+// `deps.edn`. Their own lanes stay armed alongside, so a mistaken "narrow
+// everything" edit reds.
 //
-// schemas (below) is NOT re-armed: the scaffold still registers no schema,
-// and the transitive artefacts Xray pulls in are left to the nightly by
-// ruling.
+// schemas (below) is NOT armed: the scaffold registers no schema, and the
+// transitive artefacts Xray pulls in are left to the nightly.
 
 const STORY_XRAY_SCAFFOLD_INPUTS = pinnedRoster('STORY_XRAY_SCAFFOLD_INPUTS', [
   'tools/xray/src/day8/re_frame2_xray/preload.cljs',
@@ -2020,7 +1983,7 @@ for (const file of STORY_XRAY_SCAFFOLD_INPUTS) {
   test(`${file} arms template_expensive — the scaffold's :dev build compiles it (rf2-3x7nj.37.1)`, () => {
     const result = classify(file);
     assert.equal(result.template_expensive, 'true');
-    // ...and the tool's own lanes are untouched.
+    // ...and the tool's own lanes stay armed.
     assert.equal(result.tools_jvm, 'true');
     assert.equal(result.mcp_conformance, 'true');
   });
@@ -2076,16 +2039,16 @@ test('Other per-feature artefact (machines) does NOT arm template_expensive — 
   assert.equal(result.template_expensive, 'false');
 });
 
-// rf2-ribu5a — epoch live-MCP-redaction routing false-green fix. The
+// Epoch live-MCP-redaction routing. The
 // re-frame2-pair live fixture resolves day8/re-frame2-epoch as a
 // :local/root, and the hermetic mcp-conformance-re-frame2-pair job's
 // INNER_TESTS include live-re-frame2-pair-redaction.cjs (the
 // egress-protection regression for the pull-mode epoch tools
 // trace-window / watch-epochs). That job is gated on mcp_live='true'.
 // Folded into the generic per-feature bucket, an
-// implementation/epoch/src/... change set NEITHER mcp_live NOR
+// implementation/epoch/src/... change would set NEITHER mcp_live NOR
 // mcp_conformance — so a PR breaking the epoch egress/redaction contract
-// merged GREEN at PR time (a false-green on a data-leak guard). These
+// would merge GREEN at PR time (a false-green on a data-leak guard). These
 // assertions lock the dedicated epoch case arming the live gate, while
 // keeping the OTHER per-feature artefacts off it (they have no live MCP
 // dependency) so the scope stays disciplined.
@@ -2115,8 +2078,8 @@ test('implementation/epoch does NOT arm template_expensive — transitive only, 
 });
 
 test('Other per-feature artefacts (machines/flows/ssr) do NOT arm mcp_live — no live MCP dep (rf2-ribu5a scope)', () => {
-  // The mcp_live half is this test's subject and is UNCHANGED: epoch's live
-  // fixture :local/root is epoch's alone, and none of these three has one.
+  // The mcp_live half is this test's subject: epoch's live fixture
+  // :local/root is epoch's alone, and none of these three has one.
   for (const file of [
     'implementation/machines/src/re_frame/machines.cljc',
     'implementation/flows/src/re_frame/flows.cljc',
@@ -2129,16 +2092,12 @@ test('Other per-feature artefacts (machines/flows/ssr) do NOT arm mcp_live — n
     );
   }
 
-  // rf2-17a0v — the mcp_conformance half now runs over flows and ssr ONLY, and
-  // machines has left the list on evidence rather than convenience. When this
-  // was written no per-feature artefact was read by any conformance suite, so
-  // one sample stood for the whole class. That is no longer true: the
-  // wire-vocab suites read FIVE files under implementation/machines/src as
-  // text, so machines/src arms mcp_conformance deliberately and the row above
-  // would have been pinning the very hole rf2-17a0v closed. flows and ssr are
-  // still read by no conformance suite and still carry the scope statement —
-  // which is the assertion that would catch these arms widening into the
-  // generic per-feature bucket.
+  // The mcp_conformance half runs over flows and ssr ONLY. machines is not in
+  // it: the wire-vocab suites read FIVE files under
+  // implementation/machines/src as text, so machines/src arms mcp_conformance
+  // deliberately. flows and ssr are read by no conformance suite and carry the
+  // scope statement — which is the assertion that would catch these arms
+  // widening into the generic per-feature bucket.
   for (const file of [
     'implementation/flows/src/re_frame/flows.cljc',
     'implementation/ssr/src/re_frame/ssr.cljc',
@@ -2153,7 +2112,7 @@ test('Other per-feature artefacts (machines/flows/ssr) do NOT arm mcp_live — n
 
 test('Epoch live-redaction job (mcp-conformance-re-frame2-pair) is gated on mcp_live (rf2-ribu5a)', () => {
   // Workflow-shape pin: the job that runs live-re-frame2-pair-redaction.cjs
-  // must be job-level gated on the mcp_live output the classifier now
+  // must be job-level gated on the mcp_live output the classifier
   // arms for epoch source changes. If the gate output is renamed, this
   // and the classifier routing must move together.
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'mcp-conformance-re-frame2-pair');
@@ -2164,7 +2123,7 @@ test('Epoch live-redaction job (mcp-conformance-re-frame2-pair) is gated on mcp_
   );
 });
 
-// rf2-01dix — the HTTP wire-vocabulary false-green. Two JVM suites under
+// The HTTP wire-vocabulary arm. Two JVM suites under
 // tools/mcp-conformance/wire-vocab READ HTTP SOURCE AS TEXT, through
 // `re-frame.mcp-conformance.fixtures/read-source` (a `slurp` off a repo root
 // derived from the classpath, not a `:local/root` — implementation/http is on
@@ -2178,9 +2137,9 @@ test('Epoch live-redaction job (mcp-conformance-re-frame2-pair) is gated on mcp_
 // and both roster it precisely so a RENAME of the MCP-visible
 // `:rf.reply/*` / trace vocabulary trips a gate. The only job that runs those
 // suites is mcp-conformance-wire-vocab, gated on `mcp_conformance`. Folded into
-// the generic per-feature bucket, an HTTP source change set neither — so a diff
-// that renamed a pinned reply-envelope key in the very file these suites read
-// merged GREEN at PR time, with the one job that reads it SKIPPED.
+// the generic per-feature bucket, an HTTP source change would set neither — so
+// a diff that renamed a pinned reply-envelope key in the very file these suites
+// read would merge GREEN at PR time, with the one job that reads it SKIPPED.
 //
 // The arm is `implementation/http/src/*` — the directory the suites read from,
 // not the two rostered files. An enumeration here would be a second copy of a
@@ -2215,8 +2174,8 @@ test('a NON-rostered HTTP source file arms mcp_conformance too — the arm is th
 });
 
 test('HTTP source keeps its whole generic per-feature fan-out (regression) (rf2-01dix)', () => {
-  // The edit adds one output inside the existing per-feature arm. If it were
-  // ever refactored into a case of its own, this is what would silently go.
+  // The HTTP arm adds one output inside the per-feature arm. If it were ever
+  // refactored into a case of its own, this is what would silently go.
   const result = classify('implementation/http/src/re_frame/http/transport.cljc');
   for (const key of [
     'implementation_jvm',
@@ -2231,7 +2190,7 @@ test('HTTP source keeps its whole generic per-feature fan-out (regression) (rf2-
 });
 
 test('HTTP source does NOT arm mcp_live — it is on no live MCP fixture classpath (rf2-01dix)', () => {
-  // mcp_live is epoch's (rf2-ribu5a): the re-frame2-pair live fixture resolves
+  // mcp_live is epoch's: the re-frame2-pair live fixture resolves
   // day8/re-frame2-epoch as a :local/root. Nothing resolves re-frame2-http, and
   // the wire-vocab suites need no classpath edge at all — they read text.
   assert.equal(classify('implementation/http/src/re_frame/http/transport.cljc').mcp_live, 'false');
@@ -2271,9 +2230,9 @@ test('sibling per-feature artefacts with no rostered source stay OFF mcp_conform
 });
 
 test('mcp-conformance-wire-vocab is job-level gated on mcp_conformance (rf2-01dix)', () => {
-  // Workflow-shape pin, the same posture rf2-ribu5a takes for the live gate: the
-  // job that runs the suites reading HTTP source must be gated on the output the
-  // classifier now arms for it. Rename the output and both sides move together.
+  // Workflow-shape pin, the same posture the live-gate pin takes: the job that
+  // runs the suites reading HTTP source must be gated on the output the
+  // classifier arms for it. Rename the output and both sides move together.
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'mcp-conformance-wire-vocab');
   assert.match(block, /needs: detect_changed_surfaces/);
   assert.match(
@@ -2282,16 +2241,16 @@ test('mcp-conformance-wire-vocab is job-level gated on mcp_conformance (rf2-01di
   );
 });
 
-// rf2-17a0v — THE REMAINDER OF THE WIRE-VOCAB HOLE, DECIDED PER TREE.
+// THE WIRE-VOCAB ROSTER BEYOND HTTP, DECIDED PER TREE.
 //
-// The suites' roster is TWELVE implementation files, not the two rf2-01dix
-// closed. The same `read-source` slurp reaches five under
+// The suites' roster is TWELVE implementation files, not only the two HTTP
+// ones. The same `read-source` slurp reaches five under
 // implementation/machines/src and four under implementation/resources/src, and
-// two of the resources entries arrive through a THIRD suite the rf2-01dix work
-// never saw — infinite_trace_ops_test.clj, which pins the four EP-0021
-// `:rf.resource/*` ops and the loud-merge error as DATA.
+// two of the resources entries arrive through a THIRD suite —
+// infinite_trace_ops_test.clj, which pins the four EP-0021 `:rf.resource/*`
+// ops and the loud-merge error as DATA.
 //
-// The roster below was NOT read off the suites' source. It is the union of a
+// The roster below is NOT read off the suites' source. It is the union of a
 // dynamic recording: the whole wire-vocab suite run under a JVM open-audit
 // (a permissive SecurityManager plus wrappers over slurp / io reader /
 // io input-stream), filtered to repo-rooted paths. That is what a file the
@@ -2299,32 +2258,31 @@ test('mcp-conformance-wire-vocab is job-level gated on mcp_conformance (rf2-01di
 //
 // WHY MACHINES AND RESOURCES ARE ARMED AND ROUTING IS NOT is a measurement,
 // and the pins below carry both halves so neither can be widened by reflex.
-// Each tree got the same treatment: plant the regression the wire-vocab suite
-// exists to catch, then run the artefact's OWN already-armed JVM suite against
-// the same plant.
+// Each tree is decided the same way: plant the regression the wire-vocab suite
+// exists to catch, and ask whether the artefact's OWN armed JVM suite catches
+// it too.
 //
 //   machines  — a bare `:work/id` beside `:rf.reply/work-id` in one emitter
-//               map. wire-vocab RED; the machines artefact suite GREEN, with
-//               test and assertion counts identical to its baseline.
+//               map. wire-vocab reds; the machines artefact suite stays
+//               GREEN, on test and assertion counts identical to its baseline.
 //   resources — a snake_case rename of `:rf.resource/page-appended`.
-//               wire-vocab RED twice over (the per-file emit pin AND the
-//               near-miss anti-pin); the resources artefact suite GREEN, again
-//               on identical counts.
+//               wire-vocab reds twice over (the per-file emit pin AND the
+//               near-miss anti-pin); the resources artefact suite stays
+//               GREEN, again on identical counts.
 //   routing   — the wire-vocab positive pin is `some` ACROSS four emit
-//               sources, so a routing-confined RENAME ran GREEN. The only
+//               sources, so a routing-confined RENAME passes it. The only
 //               assertion a routing-only diff can red is the per-file
 //               near-miss anti-pin — and
 //               implementation/routing/test/re_frame/routing_nav_token_test.clj
 //               reds on that same plant, inside implementation_jvm, which a
-//               routing/src diff already arms. Confirmed on the weakest key
-//               too. So the four MCP jobs would buy no discrimination the
-//               armed lane lacks.
+//               routing/src diff arms, on the weakest key too. So the four
+//               MCP jobs would buy no discrimination the armed lane lacks.
 //
 // Both rosters go through `pinnedRoster` deliberately, and that is not
 // bookkeeping: the arm is a DIRECTORY prefix, so a phantom path under it
 // classifies `true` byte-identically to the real file beside it and a positive
-// pin on one passes VACUOUSLY. rf2-01dix observed exactly that live. The
-// existence guard is what makes each row below able to fail.
+// pin on one passes VACUOUSLY. The existence guard is what makes each row
+// below able to fail.
 
 const MACHINES_WIRE_VOCAB_EMIT_SOURCES = pinnedRoster('MACHINES_WIRE_VOCAB_EMIT_SOURCES', [
   'implementation/machines/src/re_frame/machines/lifecycle_fx/finalize.cljc',
@@ -2353,11 +2311,11 @@ for (const file of [...MACHINES_WIRE_VOCAB_EMIT_SOURCES, ...RESOURCES_WIRE_VOCAB
 }
 
 test('a NON-rostered machines/resources source file arms mcp_conformance too — the arm is the directory (rf2-17a0v)', () => {
-  // The same deliberate over-arm rf2-01dix took for HTTP, and here it is not
-  // hypothetical: BOTH of these carry more `:rf.reply/*` occurrences than any
-  // file the suites actually roster in their tree. The suites' roster already
-  // trails the emitters, so an enumeration in the classifier would drift in
-  // the reassuring direction — the missing row being a skipped gate.
+  // The same deliberate over-arm as HTTP's, and here it is not hypothetical:
+  // BOTH of these carry more `:rf.reply/*` occurrences than any file the
+  // suites actually roster in their tree. The suites' roster trails the
+  // emitters, so an enumeration in the classifier would drift in the
+  // reassuring direction — the missing row being a skipped gate.
   assert.equal(
     classify('implementation/machines/src/re_frame/machines/reply.cljc').mcp_conformance,
     'true',
@@ -2369,8 +2327,8 @@ test('a NON-rostered machines/resources source file arms mcp_conformance too —
 });
 
 test('machines and resources source keep their whole generic per-feature fan-out (regression) (rf2-17a0v)', () => {
-  // The edit adds one output inside the existing per-feature arm; this is what
-  // would silently go if it were ever refactored into a case of its own.
+  // The wire-vocab arm adds one output inside the per-feature arm; this is
+  // what would silently go if it were ever refactored into a case of its own.
   // machines carries the widest fan-out of the two, so it is pinned in full.
   const machines = classify('implementation/machines/src/re_frame/machines/transition.cljc');
   for (const key of [
@@ -2401,7 +2359,7 @@ test('machines and resources source keep their whole generic per-feature fan-out
 });
 
 test('machines and resources source do NOT arm mcp_live (rf2-17a0v)', () => {
-  // mcp_live is epoch's (rf2-ribu5a): the re-frame2-pair live fixture resolves
+  // mcp_live is epoch's: the re-frame2-pair live fixture resolves
   // day8/re-frame2-epoch as a :local/root. Nothing resolves these two, and the
   // wire-vocab suites need no classpath edge at all — they read text.
   assert.equal(
@@ -2435,15 +2393,15 @@ test('machines and resources test/ and deps.edn stay OFF mcp_conformance — the
 });
 
 test('routing source is DELIBERATELY not armed for mcp_conformance (rf2-17a0v)', () => {
-  // NOT an oversight, and not the hole rf2-01dix found: this one was measured
-  // and declined. reply_envelope_test.clj does roster
+  // NOT an oversight: this one is measured and declined.
+  // reply_envelope_test.clj does roster
   // implementation/routing/src/re_frame/routing/nav_token.cljc, but its
   // positive pin is `some` across four emit sources, so a routing-confined
   // rename cannot red it. The one assertion that can — the per-file near-miss
   // anti-pin — is matched by
   // implementation/routing/test/re_frame/routing_nav_token_test.clj, which
   // reds on the same plant inside implementation_jvm, a lane a routing/src
-  // diff ALREADY arms. Arming here would add four MCP jobs and no
+  // diff arms anyway. Arming here would add four MCP jobs and no
   // discrimination.
   //
   // Widen this only on new evidence: a second reply-envelope emitter landing
@@ -2467,13 +2425,12 @@ test('tools/template change still arms template_expensive (regression) (rf2-jdj1
 });
 
 // ---------------------------------------------------------------------------
-// rf2-q4s8 (from the rf2-v37n post-mortem) — the template -> adapter reverse
-// edge. `uix_consumer_deps_recipe_test.clj` lives in the UIx ADAPTER tree but
-// slurps a file out of the TEMPLATE tree as its version source, so a
-// template-only diff can red a job the classifier was not scheduling. PR #9543
-// dropped com.pitch/uix.dom from the template, the recipe test still asserted
-// the pin, jvm-uix read SKIPPED, and trunk stayed red until an unrelated PR
-// armed the surface and wore the failure.
+// The template -> adapter reverse edge. `uix_consumer_deps_recipe_test.clj`
+// lives in the UIx ADAPTER tree but slurps a file out of the TEMPLATE tree as
+// its version source, so a template-only diff can red jvm-uix. Unarmed, a
+// template change that broke the recipe test would read jvm-uix SKIPPED, and
+// trunk would stay red until an unrelated PR armed the surface and wore the
+// failure.
 //
 // Three assertions, and the third is what keeps the other two honest: an arm
 // pinned by path alone would survive the recipe test being rewritten to stop
@@ -2501,7 +2458,7 @@ test('jvm-uix is gated on adapter_diagnostic, so the template arm reaches it (rf
   assert.match(
     block,
     /if: needs\.detect_changed_surfaces\.outputs\.adapter_diagnostic == 'true'/,
-    'jvm-uix must ride adapter_diagnostic — the arm added under rf2-q4s8 schedules nothing otherwise',
+    'jvm-uix must ride adapter_diagnostic — the tools/template arm schedules nothing otherwise',
   );
 });
 
@@ -2529,16 +2486,16 @@ test('Adapter change still arms template_expensive (regression) (rf2-jdj17.1)', 
   assert.equal(result.template_expensive, 'true');
 });
 
-// rf2-6yuzo4 — template npm-pin lockstep false-green. hooks.clj pins
+// Template npm-pin lockstep. hooks.clj pins
 // :shadow-version + :react-version; version_lockstep_test asserts those
 // emitted pins match implementation/package.json's react / react-dom /
 // shadow-cljs entries (the source of truth), and the emitted-app smoke
 // symlinks implementation/node_modules (populated from
-// implementation/package-lock.json). Before the fix, a PR bumping those
-// package.json pins or the lockfile classified template_expensive=false
-// — so jvm-tools-template (the ONLY PR gate running version_lockstep_test
-// + the emitted-app smoke) was skipped and the template could keep
-// emitting a stale npm pin GREEN. These assertions lock the classifier
+// implementation/package-lock.json). If a PR bumping those package.json pins
+// or the lockfile classified template_expensive=false, jvm-tools-template (the
+// ONLY PR gate running version_lockstep_test + the emitted-app smoke) would be
+// skipped and the template could keep emitting a stale npm pin GREEN. These
+// assertions lock the classifier
 // arming template_expensive on the npm source-of-truth + its lockfile,
 // while keeping shadow-cljs.edn / implementation/scripts/* off it (they
 // carry no emitted npm pin).
