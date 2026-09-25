@@ -160,9 +160,9 @@
    :viewport           "Viewport"})
 
 (defn- declared-slot
-  "Read a declared slot from the resolved SOURCE variant body, or nil.
-  `variant-body` is `(rf.story.registrar/handler-meta :variant id)` (may be nil
-  for an unregistered source — then every declared slot is nil)."
+  "Read slot `k` from the SOURCE variant body, or nil. The save flow passes
+  `carried-source-body` (nil for an unregistered source — then every slot is
+  nil)."
   [variant-body k]
   (when (map? variant-body) (get variant-body k)))
 
@@ -180,10 +180,12 @@
   - `args-snapshot` — the resolved effective args (the live `:args`
                       projection; transient `:cell-overrides` already
                       folded in by `resolve-args`).
-  - `variant-body`  — the resolved source variant body (or nil) — read
-                      for declared `:sub-overrides` / `:network` /
-                      `:fx-overrides` / `:db-seed` / `:setup` /
-                      `:viewport` slots.
+  - `variant-body`  — the source variant body (or nil) — read for the
+                      `:sub-overrides` / `:network` / `:fx-overrides` /
+                      `:db-seed` / `:setup` / `:viewport` slots. The save
+                      flow passes `carried-source-body`, whose `:db-seed`
+                      and `:setup` are the ones the saved variant runs
+                      with, declared or inherited through `:extends`.
   - `shell`         — the shell-state map — read for the live chrome-wide
                       `:viewport` selection (the viewport fork).
 
@@ -229,8 +231,8 @@
                   "No live View-State controls and none declared on the source — sub-overrides are not yet projectable."))
 
      ;; db-seed: no control captures the live app-db. This row reads the
-     ;; source body's declared `:db-seed`, which `:extends` carries into the
-     ;; saved variant. A declared `:setup` is not a seed, so it never sets
+     ;; source body's `:db-seed`, declared or inherited, which `:extends`
+     ;; carries into the saved variant. A `:setup` is not a seed, so it never sets
      ;; this row's status or value; the note says separately that its
      ;; events re-run through `:extends`.
      (if (some? db-seed)
@@ -445,6 +447,24 @@
   [shell-state]
   (:selected-variant shell-state))
 
+(defn- carried-source-body
+  "The source body the capture report reads: the registered body of
+  `source-id`, with `:db-seed` and `:setup` replaced by the ones the saved
+  variant actually runs with. The saved variant is `{:extends source-id :args
+  args-snapshot}`, so its compiled plan's `[:world :db-seed]` and
+  `[:world :setup]` hold whatever the source declares or inherits through
+  `:extends`. When that plan cannot compile, the registered body is returned
+  as it is."
+  [source-id args-snapshot]
+  (let [body  (rf.story.registrar/handler-meta :variant source-id)
+        world (try
+                (:world (rf.story.plan/variant-plan {:extends source-id
+                                                     :args    args-snapshot}))
+                (catch #?(:clj Exception :cljs :default) _ nil))]
+    (cond-> body
+      world (assoc :db-seed (:db-seed world)
+                   :setup   (:setup world)))))
+
 (defn save-current-as-variant!
   "Capture the current canvas state as a save-as-variant snapshot and
   surface the EDN form in the dialog modal. Idempotent — calling while
@@ -488,12 +508,13 @@
                ;; The eight-slice capture report. The honesty
                ;; floor: every slice without a live projection is captured-
                ;; as-declared (carried via :extends) or not-wired, and warned
-               ;; about. Never fabricated. Read the resolved source body so
-               ;; declared :sub-overrides / :network / :fx-overrides /
-               ;; :db-seed / :viewport slots surface as captured-as-declared.
+               ;; about. Never fabricated. The source body carries the
+               ;; :db-seed and :setup the saved variant runs with, so a seed
+               ;; or setup inherited through :extends reads exactly like a
+               ;; declared one.
                slices     (capture-slices
                             snapshot
-                            (rf.story.registrar/handler-meta :variant target)
+                            (carried-source-body target snapshot)
                             shell)
                record     {:source-id  target
                            :args       snapshot

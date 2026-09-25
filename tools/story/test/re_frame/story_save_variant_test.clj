@@ -260,6 +260,45 @@
           "the declared :sub-overrides carry forward as-declared")
       (is (= {[:s] :v} (-> by-slice :sub-overrides :value))))))
 
+(deftest save-current-as-variant!-reports-the-seed-and-setup-the-source-inherits
+  (testing "the DB seed row reads the :db-seed and :setup the saved variant
+            runs with, whether the source declares them or inherits them
+            through :extends"
+    (rf.story.save-variant/set-open-dialog-fn! (fn [& _] nil))
+    (let [db-seed-row (fn [variant-id]
+                        (->> (rf.story.save-variant/save-current-as-variant!
+                               {:variant-id variant-id})
+                             :slices
+                             (filter #(= :db-seed (:slice %)))
+                             first))]
+      (testing "a declared :db-seed is captured-as-declared"
+        (rf.story/reg-variant :story.seed/declared {:args {:n 1} :db-seed {[:count] 1}})
+        (let [row (db-seed-row :story.seed/declared)]
+          (is (= :captured-as-declared (:status row)))
+          (is (= {[:count] 1} (:value row)))))
+      (testing "an inherited :db-seed reads exactly like a declared one"
+        (rf.story/reg-variant :story.seed/parent {:args {:n 1} :db-seed {[:count] 1}})
+        (rf.story/reg-variant :story.seed/child {:extends :story.seed/parent})
+        (let [row (db-seed-row :story.seed/child)]
+          (is (= :captured-as-declared (:status row))
+              "the inherited seed carries forward via :extends")
+          (is (= {[:count] 1} (:value row)) "the row's value is the inherited seed")
+          (is (not (str/includes? (:note row) "app-db state is not captured")))))
+      (testing "an inherited :setup is named beside the seed, not as the seed"
+        (rf.story/reg-variant :story.setup/parent {:args {:n 1} :setup [[:counter/inc]]})
+        (rf.story/reg-variant :story.setup/child {:extends :story.setup/parent})
+        (let [row (db-seed-row :story.setup/child)]
+          (is (= :not-wired (:status row)) ":setup events are not a seed")
+          (is (str/includes? (:note row) ":setup events re-run"))))
+      (testing "a chain with no seed and no setup stays not-wired"
+        (rf.story/reg-variant :story.bare/parent {:args {:n 1}})
+        (rf.story/reg-variant :story.bare/child {:extends :story.bare/parent})
+        (let [row (db-seed-row :story.bare/child)]
+          (is (= :not-wired (:status row)))
+          (is (nil? (:value row)))
+          (is (str/includes? (:note row) "app-db state is not captured"))
+          (is (not (str/includes? (:note row) ":setup"))))))))
+
 (deftest save-current-as-variant!-nil-when-no-focus
   (testing "without a focused variant the trigger is a no-op"
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant nil)
