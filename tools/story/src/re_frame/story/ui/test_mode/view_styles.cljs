@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.test-mode.view-styles
   "Style map for `re-frame.story.ui.test-mode.view`. Pure data; no
-  Reagent dependency. Extracted from `view.cljs` per rf2-gv5kq so the
-  view ns drops below the 250-LoC leaf-size ceiling (rf2-zkca8).
+  Reagent dependency. Lives apart from `view.cljs` so the view ns
+  carries only renderers (the leaf-size ceiling).
 
   CLJS-only — the JVM pure helpers don't need styles."
   (:require [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
@@ -71,7 +71,7 @@
                    :color            (:danger rf.story.theme.colors/tokens)}
    :pill-empty    {:background       (:bg-3 rf.story.theme.colors/tokens)
                    :color            (:text-secondary rf.story.theme.colors/tokens)}
-   ;; rf2-ba86n.11 — `:error` reads as a louder fail; `:cannot-run` is the
+   ;; `:error` reads as a louder fail; `:cannot-run` is the
    ;; distinct THIRD state (spec/018 §12.6 — visually distinct from
    ;; pass/fail/error); `:pending` is the muted never-run/no-signal state.
    :pill-error    {:background       (:danger-bg rf.story.theme.colors/tokens)
@@ -143,7 +143,7 @@
                    :margin-top       "8px"
                    :display          "block"}
 
-   ;; ---- unified run-result surfaces (rf2-ba86n.11) ----------------
+   ;; ---- unified run-result surfaces --------------------------------
    ;; runner selected vs required badge (spec/021 §1)
    :runner-row    {:display          "flex"
                    :align-items      "center"
@@ -248,7 +248,7 @@
    :evidence-pending {:color         (:text-tertiary rf.story.theme.colors/tokens)
                       :font-style    "italic"}
 
-   ;; ---- step-through scrubber (rf2-lc36w) -------------------------
+   ;; ---- step-through scrubber -------------------------------------
    :scrub-wrap    {:margin           "8px 0 0 0"
                    :padding          "8px 10px"
                    :background       (:bg-2 rf.story.theme.colors/tokens)
