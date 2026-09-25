@@ -1,11 +1,11 @@
 (ns re-frame.build.spec-resource
-  "Read a committed `spec/` data file at MACRO-EXPANSION time, so that a
+  "Read a committed spec-side data file at MACRO-EXPANSION time, so that a
   ClojureScript build that inlines the value still depends on the bytes.
 
   ## Why a shared reader
 
-  A macro inlines a committed file — today the api-manifest
-  sidecar. Inlining at macro-expansion time by
+  A macro inlines a committed file — the api-manifest sidecar, a
+  conformance fixture, an Xray spec page. Inlining at macro-expansion time by
   itself HIDES that file from the build — a compile that caches the
   expanding namespace has no edge back to the bytes it froze, so a
   DATA-ONLY edit leaves the cached namespace asserting the previous
@@ -15,10 +15,10 @@
   `shadow.resource/slurp-resource` records the file's classpath path and
   last-modified against the compiling namespace, and shadow-cljs
   re-checks both before reusing that namespace's cache: edit the data,
-  the consumer recompiles, no cache clearing and no ritual. `spec/` is a
-  shadow-cljs `:source-path` — the one classpath root under which every
-  committed spec-side data file a build inlines is resolvable — so a
-  consumer names its file relative to that root.
+  the consumer recompiles, no cache clearing and no ritual. `spec/` and
+  `tools/xray/spec/` are shadow-cljs `:source-paths` — the classpath roots
+  under which the committed spec-side data files a build inlines are
+  resolvable — so a consumer names its file relative to its root.
 
   Every consumer is a ClojureScript macro, so that recorded edge is the
   only lane this reader has: [[slurp-resource]] requires a ClojureScript
@@ -80,8 +80,8 @@
   (delay (resolve-after-require 'shadow.resource/slurp-resource)))
 
 (defn slurp-resource
-  "Return the text of the committed `spec/` data file at `path` (relative
-  to that root, e.g. `conformance/fixtures/after-hierarchy.edn`),
+  "Return the text of the committed spec-side data file at `path` (relative
+  to its classpath root, e.g. `conformance/fixtures/after-hierarchy.edn`),
   read in the ClojureScript macro-expansion environment `env`.
 
   `env` MUST be a ClojureScript macro `&env` — it carries the compiling
