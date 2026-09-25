@@ -1,7 +1,6 @@
 (ns re-frame.story.invariants
-  "Invariant sentinels + the first-bad-epoch utility (NewTestStory
-  rf2-5x1wt.5 + rf2-5x1wt.6, spec/017-Testing-Story.md §Invariant
-  sentinels).
+  "Invariant sentinels + the first-bad-epoch utility
+  (spec/017-Testing-Story.md §Invariant sentinels).
 
   ## What an invariant is
 
@@ -14,13 +13,13 @@
   Two surfaces share this one notion of an invariant, so they share one
   namespace:
 
-  - `with-invariants` — the live SENTINEL fixture (rf2-5x1wt.5). It
-    registers an epoch listener per invariant before `body` runs, checks
+  - `with-invariants` — the live SENTINEL fixture. It
+    registers one epoch listener before `body` runs, checks
     each invariant after every committed epoch, and reports failures
     through `clojure.test` / `cljs.test`. It NEVER throws from the
     listener (§Never throw): a broken predicate, or a violated one,
     reports and the run continues.
-  - `first-bad-epoch` — the pure POST-HOC utility (rf2-5x1wt.6). Given a
+  - `first-bad-epoch` — the pure POST-HOC utility. Given a
     retained epoch tape and an invariant, it returns the first epoch
     where the invariant fails (enriched with the trigger event, the
     db-diff, and the trace events), or `nil` when the invariant holds
@@ -49,7 +48,7 @@
 
   ## Diagnostics
 
-  Each violation carries the spec/017 §A1 diagnostic spine where the
+  Each violation carries the diagnostic spine where the
   epoch record provides it — frame id, epoch id, the triggering event,
   the path / expected / actual for a `:db`-path invariant, the predicate
   source where the author supplied an `:id`, and the predicate exception
@@ -173,7 +172,7 @@
 ;; `:error`, so a broken invariant fails the test rather than the run.
 
 (defn- diagnostic-spine
-  "The spec/017 §A1 diagnostic spine read from the epoch record alone —
+  "The diagnostic spine read from the epoch record alone —
   frame id, epoch id, and the triggering event. The path / expected /
   actual slots come from the check's return map (the `[:db …]` shorthand)
   and are merged on top. Pure data → data."
@@ -217,10 +216,10 @@
   (into [] (keep #(check-epoch % epoch)) invariants))
 
 ;; ===========================================================================
-;; FIRST-BAD-EPOCH  (pure post-hoc utility, rf2-5x1wt.6)
+;; FIRST-BAD-EPOCH  (pure post-hoc utility)
 ;; ===========================================================================
 ;;
-;; spec/017 §First-bad-epoch / NewTestStory §A2: a pure utility over an
+;; spec/017 §`first-bad-epoch`: a pure utility over an
 ;; epoch tape. It walks the tape forward and returns the FIRST epoch where
 ;; the invariant fails, enriched with the trigger event, the db-diff, and
 ;; the trace events (the spec's named enrichment slots), or `nil` when the
@@ -246,7 +245,7 @@
 (defn first-bad-epoch
   "Return the first epoch in `epoch-tape` where `invariant` fails, or
   `nil` when the invariant holds across the whole tape. Pure /
-  never-throws (per spec/017 §First-bad-epoch / NewTestStory §A2).
+  never-throws (per spec/017 §`first-bad-epoch`).
 
   `invariant` is any authored shape `coerce-invariant` accepts (a bare
   predicate, a `[:db path …]` shorthand, or a `{:check …}` map). The
@@ -321,7 +320,7 @@
   nil)
 
 ;; ===========================================================================
-;; LISTENER ORCHESTRATION  (the live sentinel core, rf2-5x1wt.5)
+;; LISTENER ORCHESTRATION  (the live sentinel core)
 ;; ===========================================================================
 ;;
 ;; `with-invariants` (below) brackets the body with one registered epoch
@@ -330,28 +329,28 @@
 ;; report-once / exception-isolation logic is itself testable.
 ;;
 ;; report-once policy: a violation is reported at most ONCE per
-;; (invariant, frame, epoch-id) triple (spec/017 §A1 "exactly once per
-;; failing epoch"). The listener threads a `seen` set of
+;; (invariant, frame, epoch-id) triple (spec/017 §Invariant sentinels,
+;; "exactly once per failing epoch"). The listener threads a `seen` set of
 ;; `[invariant-id frame epoch-id]` tuples through an atom so a re-fire of
-;; the same record (a back-filled render re-notify, rf2-qs6dl) does not
+;; the same record (a back-filled render re-notify) does not
 ;; double-count.
 ;;
 ;; The `:frame` component is defensive. `with-invariants` observes EVERY
-;; frame's epochs, so report-once must be per-frame. It is collision-proof
-;; today only incidentally — epoch-ids come from a single global counter
+;; frame's epochs, so report-once must be per-frame. A frame-less key is
+;; collision-proof only incidentally — epoch-ids come from a single global counter
 ;; (`re-frame.epoch.state/next-epoch-id`), so `[invariant-id epoch-id]`
 ;; cannot collide across frames. Should epoch-ids ever become per-frame (a
 ;; plausible refactor — per-frame rings already exist), two frames could
 ;; both produce epoch-id 1, and a violation in frame B's epoch 1 would be
 ;; SILENTLY DROPPED under a frame-less key once frame A reported. Keying on
-;; `:frame` (already on every violation via the diagnostic spine) is
-;; equivalent today and robust under a per-frame-id world (rf2-ilatz).
+;; `:frame` (on every violation via the diagnostic spine) is
+;; equivalent under the global counter and robust under a per-frame-id world.
 
 (defn dedup-key
   "The report-once key for a violation against an epoch: the
   `[invariant-id frame epoch-id]` triple. Including `:frame` keeps
-  report-once per-frame even if epoch-ids stop being globally unique
-  (rf2-ilatz). Pure."
+  report-once per-frame even if epoch-ids stop being globally unique.
+  Pure."
   [violation]
   [(:invariant violation) (:frame violation) (:epoch-id violation)])
 
@@ -397,7 +396,7 @@
       (body-fn)
       (finally
         (rf/unregister-listener! :epoch key)
-        ;; Per spec/017 §A1 — a green sentinel is visible: report a
+        ;; Per spec/017 §Invariant sentinels — a green sentinel is visible: report a
         ;; `:pass` for every invariant that recorded no violation across
         ;; the whole run.
         (let [violated (into #{} (map :invariant) (:violations @state))]
@@ -406,7 +405,7 @@
             (report-pass! id)))))))
 
 ;; ===========================================================================
-;; with-invariants  (the public fixture macro, rf2-5x1wt.5)
+;; with-invariants  (the public fixture macro)
 ;; ===========================================================================
 
 #?(:clj
