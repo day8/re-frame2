@@ -210,9 +210,13 @@
 
 (defn cancel-for-key!
   "Cancel ALL THREE the stale + GC + poll timers for a resource
-  `[frame-id resource-key]` (used on entry removal — remove / clear-scope /
-  GC / last-owner release). Idempotent. Returns nil. EP-0020: the `:poll`
-  kind joins the cancel so a removed / owner-free entry never keeps polling."
+  `[frame-id resource-key]`, used on entry removal: the
+  `:rf.resource/cancel-timers` fx (remove / clear-scope / a fired GC / a
+  mutation's removals) and `clear-resource`'s disposal. Last-owner release
+  does not use it — the entry stays alive and keeps its GC reaper, so that
+  path cancels only the poll (`:rf.resource/cancel-poll-timers`).
+  Idempotent. Returns nil. EP-0020: the `:poll` kind is in the cancel so a
+  removed entry never keeps polling."
   [frame-id resource-key]
   (cancel! frame-id resource-key stale-kind)
   (cancel! frame-id resource-key gc-kind)
