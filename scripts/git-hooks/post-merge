@@ -4,10 +4,11 @@
 # Two advisory blocks, both about things a `git pull` (which invokes
 # `git merge`, and thus this hook) can silently invalidate:
 #
-#   rf2-6jj3r — source changes for an MCP server whose compiled binary is
-#               gitignored: the binary on disk is now stale.
-#   rf2-zt65l — changes under scripts/git-hooks/: the installed hooks are
-#               copies, so they are now stale.
+#   MCP staleness          — source changes for an MCP server whose compiled
+#                            binary is gitignored: the binary on disk is now
+#                            stale.
+#   hook-install staleness — changes under scripts/git-hooks/: the installed
+#                            hooks are copies, so they are now stale.
 #
 # Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
 # Source of truth: scripts/git-hooks/post-merge.
@@ -48,10 +49,9 @@
 # Managed by scripts/install-git-hooks.sh. Do not edit between markers.
 {
   # The hooks on disk are COPIES of scripts/git-hooks/*. A pull that lands a
-  # new or changed guard leaves the copies behind, silently, forever — that
-  # is rf2-zt65l: the beads boundary block sat unwritten for seven weeks
-  # while every checkout believed it was guarded. `git pull` is the moment
-  # the drift is created, so it is the moment to report it.
+  # new or changed guard leaves the copies behind, silently, forever, while
+  # every checkout believes it is guarded. `git pull` is the moment the drift
+  # is created, so it is the moment to report it.
   #
   # This arm covers the pulls that MERGE or FAST-FORWARD. The rebasing pull
   # (`git pull --rebase` with a local commit) never reaches this hook; its
