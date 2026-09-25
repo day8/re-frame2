@@ -61,10 +61,10 @@
    left can't overwrite the current one's data, status, error, timestamp or
    machine presentation. Same law as `:slug`, different route param.
 
-   What is NOT here is the follow/unfollow latch. It used to ride on
-   `:profile` as a `:follow-pending?` boolean, which meant it died whenever
-   `:profile/load` rebuilt that slice for a new username — so a walk away and
-   back returned an unlatched profile with its mutation still in flight. The
+   What is NOT here is the follow/unfollow latch. Riding on `:profile` as a
+   `:follow-pending?` boolean, it would die whenever `:profile/load` rebuilt
+   that slice for a new username — so a walk away and back would return an
+   unlatched profile with its mutation still in flight. The
    latch belongs to the MUTATION rather than to the screen, so it lives in its
    own top-level `:profile.follow-pending` slice, keyed by username. See
    SERIALISING THE TOGGLE in profile.cljs."
@@ -106,9 +106,9 @@
    ;; Two things it gets right that a hand-drawn four-key map does not:
    ;;   - the address branch is MINIMAL. `destination-of` emits `{:to id}` and adds
    ;;     `:params` / `:query` / `:fragment` only when non-empty, so demanding all
-   ;;     four made the commonest denial of all — a bare `/settings` — fail
-   ;;     validation and roll the stash back, silently costing the reader their
-   ;;     post-login return (rf2-k85nd).
+   ;;     four would make the commonest denial of all — a bare `/settings` —
+   ;;     fail validation and roll the stash back, silently costing the reader
+   ;;     their post-login return.
    ;;   - the RAW branch exists. A destination the runtime cannot reify without
    ;;     changing the requested URL stays `{:url …}`, and that must be storable
    ;;     too.
