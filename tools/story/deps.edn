@@ -15,7 +15,7 @@
  :deps  {day8/re-frame2          {:local/root "../../implementation/core"}
          day8/re-frame2-reagent  {:local/root "../../implementation/adapters/reagent"}
 
-         ;; Reagent is Story's UI-shell substrate at v1 (see IMPL-SPEC §8).
+         ;; Reagent is Story's UI-shell substrate.
          ;; Reagent ships in implementation/core's :deps; this entry is
          ;; explicit because Story's UI shell directly :require's reagent.
          ;; If implementation/core's coupling to Reagent ever loosens, this
@@ -53,11 +53,10 @@
          ;; `re-frame.story.xray-preset`, and
          ;; `re-frame.story.ui.evidence-spine` — so Xray belongs in the
          ;; package graph, declared and lockstep-versioned like every
-         ;; other Story dep. The repository-wide Shadow build previously
-         ;; masked the omission by carrying `../tools/xray/src` on its
-         ;; global :source-paths; a consumer whose only tool dep was
-         ;; `day8/re-frame2-story` could not compile the shell at all
-         ;; (rf2-r8trk).
+         ;; other Story dep. Without it a consumer whose only tool dep is
+         ;; `day8/re-frame2-story` could not compile the shell at all — an
+         ;; omission a repository-wide Shadow build carrying
+         ;; `../tools/xray/src` on its global :source-paths would mask.
          ;;
          ;; Direction: Story → Xray only. Xray never requires Story, so
          ;; there is no cycle. Both are dev-only tools artefacts and
@@ -65,7 +64,7 @@
          ;; unaffected (that gate forbids `implementation/` → `tools/`,
          ;; not `tools/story` → `tools/xray`).
          ;;
-         ;; THE :exclusions IS LOAD-BEARING — do not drop it (rf2-qvyr).
+         ;; THE :exclusions IS LOAD-BEARING — do not drop it.
          ;; Xray declares `day8/reagent-slim` as its default transitive
          ;; adapter (tools/xray/deps.edn, "Reagent Slim supplies the default
          ;; transitive adapter"), and at PUBLICATION
@@ -83,14 +82,14 @@
          ;; complete pom all go green on the colliding graph, because they
          ;; prove the GAVs exist, not that they provide disjoint namespaces.
          ;;
-         ;; THE STATED REPLACEMENT (this is a re-point, not a silent drop):
+         ;; WHAT SUPPLIES THE ADAPTER INSTEAD:
          ;; Story supplies the substrate adapter for its embedded Xray
          ;; itself, through the `day8/re-frame2-reagent` coordinate on line
-         ;; 16. Xray's rendering is SPLIT today, so the claim is scoped to
+         ;; 16. Xray's rendering is SPLIT, so the claim is scoped to
          ;; the half that runs on the host's adapter:
          ;;   • THE EMBEDDED PANEL DOOR — `panels/render-panel!` and
          ;;     `panels/mount-shell!`, the chokepoint behind every
-         ;;     `mount-<panel>!` facade the RHS inspector reaches — still
+         ;;     `mount-<panel>!` facade the RHS inspector reaches —
          ;;     delegates to `rf.substrate.adapter/render` with a hiccup
          ;;     tree, so the adapter the HOST installs does govern that
          ;;     path and Story's stock-Reagent adapter does serve it.
@@ -98,18 +97,18 @@
          ;;     `mount/open-overlay!` and `mount/popout!`, the last being
          ;;     Story's popout escape hatch — paint through
          ;;     `re-frame.fresco` client roots Xray owns and do not consult
-         ;;     the host adapter at all (rf2-k97c.3 severed that coupling).
+         ;;     the host adapter at all.
          ;; Neither half disturbs the ground this exclusion stands on,
          ;; which is PUBLICATION and classpath rather than render path:
          ;; Xray's src requires neither `reagent2.*` nor the adapter ns.
-         ;; Xray's own deps.edn is deliberately UNTOUCHED, so a standalone
-         ;; `day8/re-frame2-xray` consumer still gets reagent-slim by
-         ;; default — this narrows Story's edge only.
+         ;; The exclusion narrows Story's edge only: Xray's own deps.edn
+         ;; keeps reagent-slim, so a standalone `day8/re-frame2-xray`
+         ;; consumer gets reagent-slim by default.
          day8/re-frame2-xray     {:local/root "../xray"
                                   :exclusions [day8/reagent-slim]}
 
          ;; Malli drives Story's three-level args / argtypes auto-derivation
-         ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
+         ;; from Spec 010 schemas. Malli is
          ;; already a transitive dep via implementation/core; the version
          ;; pin matches implementation/shadow-cljs.edn's :dependencies
          ;; entry so the top-level CLJS test build (`npm run test:cljs`)
@@ -121,44 +120,28 @@
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
                        ;; NO SUBSTRATE-DONOR COORDINATE — deliberately.
                        ;;
-                       ;; NO re-frame.ui (rf2-2og6s). Story used to carry
-                       ;; `day8/re-frame2-ui` here to compile four test-only
-                       ;; consumers of the compiled-view tool tier: the
-                       ;; `re-frame.story.view-tool` shaper over the five frozen
-                       ;; `re-frame.ui.tool` projections, its CLJS and JVM
-                       ;; suites, and the realworld-ui substrate-consumer suite.
-                       ;; re-frame.ui is retired (rf2-0yp7w), so all four are
-                       ;; gone and nothing on this classpath names the substrate.
+                       ;; There is no `day8/re-frame2-ui` coordinate, and
+                       ;; nothing on this classpath names that substrate.
+                       ;; Story carries no consumer of a compiled-view tool
+                       ;; tier, and `re-frame.fresco.tool` cannot host one —
+                       ;; for reasons of question shape rather than effort. A
+                       ;; view-keyed tool tier answers `view-manifest` /
+                       ;; `view-dependencies` / `view-event-sites` about a
+                       ;; view named by its id; Fresco mints no boundary
+                       ;; identity at all (a boundary is keyed by its READ
+                       ;; SET, `:view` and `:source` projected `unknown` under
+                       ;; an `:opaque` naming projection), so those three
+                       ;; reads have no counterpart and `mounted-views` cannot
+                       ;; be keyed on a view. A JVM structural tree has no
+                       ;; counterpart either: `re-frame.fresco.tool` is
+                       ;; `.cljs`-only and Fresco ships no headless render. Do
+                       ;; not add a substrate coordinate to build such a tier.
                        ;;
-                       ;; They were RETIRED rather than re-pointed at
-                       ;; `re-frame.fresco.tool`, and the reason is question
-                       ;; shape rather than effort — the same refusal
-                       ;; `rf2-jkdy` reached for Xray's Views panel and
-                       ;; `rf2-l86mm` re-confirmed. The donor tier answers
-                       ;; `view-manifest` / `view-dependencies` /
-                       ;; `view-event-sites` about a view named by its id;
-                       ;; Fresco mints no boundary identity at all (a boundary
-                       ;; is keyed by its READ SET, `:view` and `:source`
-                       ;; projected `unknown` under an `:opaque` naming
-                       ;; projection), so those three reads have no counterpart
-                       ;; and `mounted-views` cannot be keyed on a view. The JVM
-                       ;; structural tree (`re-frame.ui.test/render`,
-                       ;; `:rf.ui/tree-version`) has no counterpart either:
-                       ;; `re-frame.fresco.tool` is `.cljs`-only and Fresco
-                       ;; ships no headless render. Do not re-add a substrate
-                       ;; coordinate to revive them; the compatibility claim
-                       ;; they proved retired with the surface it was about.
+                       ;; NO FREEHAND COORDINATE — deliberately. There is no
+                       ;; `day8/re-frame2-freehand` coordinate and no
+                       ;; presence-rung host bridge on this classpath.
                        ;;
-                       ;; NO FREEHAND COORDINATE — deliberately (rf2-5gka).
-                       ;; Story used to carry `day8/re-frame2-freehand` here to
-                       ;; compile the presence-rung HOST BRIDGE
-                       ;; (`re-frame.story.play.presence-host`) and its two
-                       ;; Freehand-only witness suites. Freehand is retired
-                       ;; (rf2-0yp7w), so the bridge and those suites are gone
-                       ;; and nothing on this classpath names the substrate.
-                       ;;
-                       ;; The presence RUNG itself stays and is
-                       ;; substrate-neutral: `re-frame.story.play.presence`
+                       ;; The presence RUNG is substrate-neutral: `re-frame.story.play.presence`
                        ;; requires only `re-frame.story.late-bind`, and a host
                        ;; registers its own advance through the public
                        ;; `install-presence-flush!`. With no host installed a
@@ -189,7 +172,7 @@
                        ;; `re-frame.story.generate.test-check` adapter, which
                        ;; late-binds test.check via `requiring-resolve` so the
                        ;; published Story jar never depends on it. The
-                       ;; dependency-free splitmix64 `gen-fn` path remains the
+                       ;; dependency-free splitmix64 `gen-fn` path is the
                        ;; default; this dep only lets the adapter's tests prove
                        ;; the test.check draw → gen-fn → seed-bearing-artifact
                        ;; path end to end.
