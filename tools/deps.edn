@@ -43,8 +43,8 @@
 ;; `tools/machines-viz/deps.edn` declares real `:paths ["src"]`, a
 ;; runtime transit-cljs dep, a `:test` alias, and a `:clein/build` for
 ;; `day8/re-frame2-machines-viz` with the SAME lockstep posture as Xray.
-;; Xray CONSUMES machines-viz (its Machine Inspector re-exports the
-;; chart via thin shims), rather than owning the chart. The Mermaid
+;; Xray CONSUMES machines-viz (its Machine Inspector panels require the
+;; chart namespaces directly), rather than owning the chart. The Mermaid
 ;; emitter lives in THIS jar, not implementation/machines.
 ;;
 ;; ## What this file is — and what it is NOT
