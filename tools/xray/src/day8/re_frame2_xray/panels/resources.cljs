@@ -1522,7 +1522,11 @@
             instance-rows (h/project-instances
                             entries now-ms
                             (on-box-resource-egress-fn observed-frame))
-            work-rows     (h/project-work-ledger ledger)
+            ;; The work ledger takes the resource-id gate: no per-instance
+            ;; declaration is lowered under it, so the frame classification
+            ;; above cannot match its values, and the §3 row renders a
+            ;; failed record's outcome, which carries the error envelope.
+            work-rows     (h/project-work-ledger ledger sensitive-rids)
             resolver-rows (h/project-scope-resolvers scope-resolvers)]
         {:silent?       (and (empty? registry-rows) (empty? instance-rows)
                              (empty? resolver-rows))

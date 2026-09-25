@@ -40,7 +40,8 @@
        value-bearing slots; the pre-filtered projection buffer; the
        `:error` freshness arm; the fourth optimistic outcome
        `:superseded`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
             ;; rf2-hgy5kf — the live `:entries` / `:rf.runtime/work-ledger` maps
             ;; are keyed on the CEDN-1 byte `key-id` STRING (rf2-9e0tyq), with the
@@ -1376,6 +1377,79 @@
       (is (= 1 (:refetched s)))
       (is (= :article/by-slug (get-in s [:matched 0 :resource-id]))
           "the resource-id is a registry name, never PII — it must stay"))))
+
+;; The work ledger is runtime-db state, but its records sit at
+;; `[:rf.runtime/work-ledger <work-id>]`, where no per-instance declaration is
+;; lowered, so the instance rows' frame-classification gate has nothing to
+;; match there. A work record carries the resource-id in its scoped key, so it
+;; takes the same resource-id gate the trace-borne rows do. The failed
+;; outcome is the case that reaches the screen: the work-ledger section renders
+;; `:outcome`'s preview, and a failed outcome carries the error envelope.
+
+(def ^:private work-secret "tok-9f3e-secret")
+
+(def ^:private mixed-work-ledger
+  "Two failed work records side by side — `:article/by-slug` (declared
+  `:sensitive?` in `sensitive-registrations`) and `:comments/list` (not) —
+  each carrying the same secret in its scope, params, cause and outcome."
+  (let [record (fn [rid]
+                 (let [k [[:rf.scope/session {:token work-secret}] rid {:slug work-secret}]]
+                   {:work/id      [:rf.work/resource k 3]
+                    :work/kind    :resource
+                    :resource/key k
+                    :generation   3
+                    :status       :failed
+                    :owners       #{[:route :route/article "nav-1"]}
+                    :causes       [[:route-entry :route/article work-secret]]
+                    :outcome      {:error {:status 401 :body work-secret}
+                                   :completed-at 42}}))]
+    (byte-keyed-ledger [(record :article/by-slug) (record :comments/list)])))
+
+(defn- work-row-for [rows rid]
+  (first (filter #(= rid (:resource-id %)) rows)))
+
+(defn- leaks-secret? [summary]
+  (boolean (some #(and (string? %) (str/includes? % work-secret)) (vals summary))))
+
+(deftest work-ledger-redacts-a-sensitive-resource-on-box
+  (let [gated   (h/project-work-ledger mixed-work-ledger sensitive-rids)
+        ungated (h/project-work-ledger mixed-work-ledger)
+        s       (work-row-for gated :article/by-slug)
+        ok      (work-row-for gated :comments/list)
+        before  (work-row-for ungated :article/by-slug)]
+    (testing "without the gate the sensitive resource's values print raw"
+      (is (leaks-secret? (get-in before [:resource/key :scope])))
+      (is (leaks-secret? (:outcome before))
+          "the outcome preview — the one the work-ledger section renders —
+           carries the error body verbatim"))
+    (testing "the sensitive resource's value-bearing slots redact"
+      (is (true? (get-in s [:resource/key :scope :redacted?])))
+      (is (true? (get-in s [:resource/key :params :redacted?])))
+      (is (every? #(true? (:redacted? %)) (:causes s)))
+      (is (true? (get-in s [:outcome :redacted?])))
+      (is (= "[redacted]" (get-in s [:outcome :preview])))
+      (is (not-any? leaks-secret?
+                    (concat [(get-in s [:resource/key :scope])
+                             (get-in s [:resource/key :params])
+                             (:outcome s)]
+                            (:causes s)))
+          "no summary slot carries the secret"))
+    (testing "CONTROL — the sibling resource in the same ledger still prints"
+      (is (false? (get-in ok [:resource/key :scope :redacted?])))
+      (is (false? (get-in ok [:outcome :redacted?])))
+      (is (leaks-secret? (:outcome ok))
+          "a resource that is not :sensitive? keeps its diagnostic preview"))
+    (testing "METADATA is never redacted — the row keeps its lifecycle shape"
+      (is (= :article/by-slug (:resource-id s)))
+      (is (= :article/by-slug (get-in s [:resource/key :resource-id])))
+      (is (= :failed (:status s)))
+      (is (true? (:terminal? s)))
+      (is (= 3 (:generation s)))
+      (is (= [[:route :route/article "nav-1"]] (:owners s))))
+    (testing "an empty / nil rid set redacts nothing"
+      (is (false? (get-in (work-row-for (h/project-work-ledger mixed-work-ledger #{})
+                                        :article/by-slug)
+                          [:outcome :redacted?]))))))
 
 ;; ---- (11) rf2-y8doi.15 — the pre-filtered buffer -------------------------
 
