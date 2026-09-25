@@ -2,19 +2,17 @@
 // scripts/playground-sci-input-digest.mjs
 //
 // Deterministic input digest for the generated playground SCI bundle
-// (docs/cljs/playground-rf2.js) — build PROVENANCE (rf2-i3e3q, rescoped by
-// rf2-tzy13).
+// (docs/cljs/playground-rf2.js) — build PROVENANCE.
 //
-// STATUS. This digest is no longer a freshness AUTHORITY. rf2-tzy13 untracked
-// the bundle: it is .gitignored and generated at each consumption boundary
-// (test.yml's tools-playground job at PR time, docs.yml on deploy), so there is
-// no committed snapshot that can lag its source and nothing to verify a marker
-// against. The former verifier, scripts/check-playground-sci-freshness.sh, was
-// deleted with the committed artefact. What survives — and why this module is
-// still here — is provenance: copy-bundle.mjs stamps the digest into the file it
-// emits, so any generated bundle records the exact input set it was compiled
-// from. That is diagnostic (answering "which tree produced this artefact?" for a
-// downloaded or deployed copy), not gating.
+// STATUS. This digest is not a freshness AUTHORITY. The bundle is untracked: it
+// is .gitignored and generated at each consumption boundary (test.yml's
+// tools-playground job at PR time, docs.yml on deploy), so there is no
+// committed snapshot that can lag its source, nothing to verify a marker
+// against, and no freshness verifier. What this module provides is
+// provenance: copy-bundle.mjs stamps the digest into the file it emits, so any
+// generated bundle records the exact input set it was compiled from. That is
+// diagnostic (answering "which tree produced this artefact?" for a downloaded
+// or deployed copy), not gating.
 //
 // The bundle is a shadow-cljs :advanced (Closure) build whose minified-symbol
 // allocation is NOT cross-machine reproducible, so it cannot be byte-diffed
@@ -48,10 +46,10 @@ import { pathToFileURL } from "node:url";
 // pathspec expands (via `git ls-files`) to every tracked file under it, so a new
 // source file in any of these trees is automatically in the roster.
 //
-// WHY HARDCODED, AND THE BOUND (rf2-nyjml). This list is declared, not derived.
+// WHY HARDCODED, AND THE BOUND. This list is declared, not derived.
 // Deriving it truthfully would mean resolving the CLJS `:require` graph across
 // the shadow-cljs build plus the deps.edn classpath — a general build-graph
-// analyser, which this gate is explicitly scoped NOT to grow. The declaration is
+// analyser, which this module is explicitly scoped NOT to grow. The declaration is
 // held honest from two sides instead:
 //   1. computeInputDigest below fails if ANY entry matches no tracked file, so a
 //      renamed or moved tree REDS rather than silently leaving the digest.
@@ -84,14 +82,14 @@ export const ROSTER = [
   // --- dependency lock: react/react-dom/shadow-cljs pins bundled into the file
   "docs/tools/playground/sci/package.json",
   "docs/tools/playground/sci/package-lock.json",
-  // --- postprocess: copy-bundle.mjs is the last writer of the emitted artefact
-  // (rf2-nyjml). It rewrites absolute repo-root paths to repo-relative and
+  // --- postprocess: copy-bundle.mjs is the last writer of the emitted artefact.
+  // It rewrites absolute repo-root paths to repo-relative and
   // appends the digest marker itself, so its content CHANGES THE BYTES of
   // docs/cljs/playground-rf2.js. Omitted, a copy-bundle edit could alter every
   // emitted bundle while the provenance marker claimed an unchanged input set —
   // the marker would be attesting to a tree that no longer describes the file.
   "docs/tools/playground/sci/scripts",
-  // --- the digest algorithm itself (rf2-nyjml). Self-referential but not
+  // --- the digest algorithm itself. Self-referential but not
   // circular: this is a `git hash-object` of the file's own blob, which
   // terminates. A digest is a claim about WHICH inputs were hashed and HOW;
   // changing the roster or the hashing changes what the marker MEANS, so two
@@ -110,14 +108,13 @@ function git(args, opts = {}) {
 export function computeInputDigest() {
   const root = git(["rev-parse", "--show-toplevel"]).trim();
 
-  // Expand PER ENTRY, never as one combined pathspec (rf2-nyjml). One
+  // Expand PER ENTRY, never as one combined pathspec. One
   // `git ls-files -- <all entries>` reports only the UNION, which hides
   // per-entry drift: rename one baked-in tree and the surviving entries still
   // return ~all of the files, so a whole-roster emptiness check stays silent
   // while that input class has silently left the digest — the bundle could then
   // change with no digest movement, which is the precise failure this module
-  // exists to make impossible. Measured before the fix: renaming
-  // implementation/flows/src left 140 of 144 files and the guard did not fire.
+  // exists to make impossible.
   const seen = new Set();
   const emptyEntries = [];
   for (const entry of ROSTER) {
