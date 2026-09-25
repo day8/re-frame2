@@ -2,7 +2,7 @@
 'use strict';
 
 /*
- * Bounded, EDN-aware publishable-artefact discovery authority (rf2-zef0e).
+ * Bounded, EDN-aware publishable-artefact discovery authority.
  *
  * The single STRUCTURAL source of truth for "is implementation/<path> a
  * separately publishable artefact?" — a deps.edn whose real `:aliases` map
@@ -10,11 +10,11 @@
  * rather than grepping text, so the fail-closed enrolment claim actually holds:
  *
  *   - a genuine `:aliases/:clein/build` survives `;` inside EDN strings
- *     (the old `stripEdnComments` regex truncated the line at the first `;`,
- *     silently dropping a real alias — a publishable runtime slipped the gate);
+ *     (a comment-stripping regex would truncate the line at the first `;`,
+ *     silently dropping a real alias — a publishable runtime would slip the gate);
  *   - a `:clein/build` token inside a string, a `;` comment, or a `#_`
- *     reader-discarded form is NOT mistaken for a build alias (the old
- *     `/:clein\/build/` search invented aliases from prose).
+ *     reader-discarded form is NOT mistaken for a build alias (a bare
+ *     `/:clein\/build/` search would invent aliases from prose).
  *
  * Consumed by:
  *   - check-bundle-isolation.cjs — via `pathDeclaresBuildAlias`, to enrol every
@@ -25,7 +25,7 @@
  * of maintaining two drifting textual greps.
  *
  * This is not a general EDN / discovery framework: it is a thin predicate over
- * the existing edn.cjs reader plus one bounded flat-plus-nested traversal.
+ * the edn.cjs reader plus one bounded flat-plus-nested traversal.
  */
 
 const fs = require('fs');
@@ -84,7 +84,7 @@ function pathDeclaresBuildAlias(root, relPath) {
 // their own surface (the lockstep keeps them all; the bundle-isolation gate
 // drops the always-present / JVM-only runtimes).
 //
-// Read faults FAIL CLOSED (rf2-o58c2): a nonexistent / unreadable root, or an
+// Read faults FAIL CLOSED: a nonexistent / unreadable root, or an
 // unreadable subtree we just listed as a directory, is a torn checkout or
 // permissions fault — NOT "no runtimes". Throwing (naming the path) makes both
 // consumers (release lockstep + bundle isolation) hard-fail instead of silently
