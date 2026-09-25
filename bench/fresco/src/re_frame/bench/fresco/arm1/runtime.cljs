@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.runtime
-  "FRESCO ARM 1 — LEAN-REACT. The runtime skeleton (rf2-2rtt6.9).
+  "FRESCO ARM 1 — LEAN-REACT. The runtime skeleton.
 
   A boundary is a real React function component minted by `defview`
   (`re-frame.bench.fresco.arm1.lang`). React owns identity,
@@ -19,7 +19,7 @@
       1. `useContext(frame-context)`         the frame hook
       2. `useSyncExternalStore(sub, snap)`   the subscription/epoch hook
 
-  There is no third hook, and — this is the part that took the design —
+  There is no third hook, and — this is the heart of the design —
   **no per-instance render-phase state at all**. That is not a saving,
   it is what makes the budget reachable: React offers a function
   component no per-instance storage except a hook cell, so a shell that
@@ -53,14 +53,13 @@
 
   ## The collector is the surface being made to work
 
-  The operator ruled on 2026-07-31 that the ambient collector — `sub` as
+  The ambient collector — `sub` as
   an ordinary function call, legal inside a `when`, inside a `for`, and
   inside an inlined helper — is the only read surface acceptable on
-  ergonomics, and that grouped `use-subs` sits below the usability bar.
+  ergonomics, and grouped `use-subs` sits below the usability bar.
   So [[sub]] is the surface this arm engineers for and [[use-subs]] is
-  kept as the control it is measured against. That inverts which tier is
-  defended; it waives none of HD-002's correctness gates, and the
-  tripwire still overrides the clock.
+  the control it is measured against. That waives none of HD-002's
+  correctness gates, and the tripwire overrides the clock.
 
   ### The ownership state machine (clause (a))
 
@@ -94,13 +93,11 @@
   and the allocation slope across warm 1/3/7/20 reads is flat.
 
   **The replacement is `unmount-all` + `mount-all`, not a set difference,
-  and it is worth being exact about that (rf2-2rtt6.47).** The clause
-  used to be discharged against a separate index namespace's
-  `record-reads` difference, and this wiring never took its dropping
-  half: a boundary id here is the registration object minted inside
+  and it is worth being exact about that.** A boundary id here is the
+  registration object minted inside
   [[make-subscribe]], so a changed read set means a new entry, a new
   `subscribe` and therefore a new registration, whose held edge set is
-  empty by construction. Since rf2-dabt3 **there is no difference left to
+  empty by construction. **There is no difference to
   take** — a registration installs itself in each acquired cell's reader
   list and its cleanup removes itself from exactly those, which *is* the
   wholesale replacement rather than a degenerate case of something more
@@ -113,9 +110,9 @@
   `n` [[acquire-cell!]]s, each pushing one slot onto a cell's reader
   list. There is **no cheap route for \"19 of 20 keys unchanged\"**, and a
   page whose rows change read set on a data change pays it per row. That
-  is the honest price and the thing to watch on the bulk rows. What it no
-  longer includes is the pair of whole-map rebuilds of a second
-  process-global map that the separate index charged on the same commit.
+  is the honest price and the thing to watch on the bulk rows. It
+  includes no rebuild of a second process-global map, because the cells'
+  own reader lists are the index.
 
   A durable per-boundary id would make the difference live, and it is
   **unavailable at this arm's fences rather than merely unbuilt**. It has
@@ -164,12 +161,12 @@
   turns hiccup into elements, and moving the codec call out of `run-once`
   fails `a-lazy-for-registers-its-edges-and-its-readers-re-run`.
 
-  The fourth clause is a repair, and the shape of what it repairs is the
-  reason [[read-key!]]'s guard below is not the whole story: the boundary
-  hand-off used to pass its props map through raw, so a seq written in
-  one body was realised inside ANOTHER body's render — where the guard
-  finds a frame, does not throw, and files the read under the wrong
-  boundary. rf2-2rtt6.45, and `arm1/boundary-crossing-cljs-test`.
+  The fourth clause is the reason [[read-key!]]'s guard below is not the
+  whole story: a boundary hand-off that passed its props map through raw
+  would let a seq written in one body be realised inside ANOTHER body's
+  render — where the guard finds a frame, does not throw, and files the
+  read under the wrong boundary. `arm1/boundary-crossing-cljs-test`
+  pins it.
 
   **An eager codec is only half of it, and the other half matters more.**
   A codec can force the reads it walks; nothing can force a read the
@@ -187,33 +184,31 @@
   the crossing — and an explicit deferral is REFUSED there, by the same
   walk, because forcing a `delay` would change what the author wrote.
   `front.codec/refuse-deferred!`, and `arm1/deferred-read-cljs-test`.
-  rf2-2rtt6.32.
 
   ### The cold read, and what it costs (clause (a) consequence)
 
   A render-phase read is a **pure deref** when the key already has a
   committed cell — the overwhelming case, and the one validation.md's
   \"an unchanged hot read performs no new attach/release\" describes. A
-  read of a key nothing holds yet is a **cold probe** ([[cold-read!]],
-  rf2-6c237): reuse a live sub-cache reaction by deref alone when one
+  read of a key nothing holds yet is a **cold probe** ([[cold-read!]]):
+  reuse a live sub-cache reaction by deref alone when one
   exists, else compute PURE against one coherent frame-state snapshot
-  through one render-scoped memo — the cold-probe discipline the internal
-  observation port carried before it was retired (rf2-63t1i), reached now
-  through the core seam it too used (`re-frame.subs/compute-sub-with-memo`). The probe
+  through one render-scoped memo, reached through the core seam
+  `re-frame.subs/compute-sub-with-memo`. The probe
   creates no cache entry, takes no reference, installs no watch and
   leaves no disposal obligation, so an abandoned render leaves the world
-  exactly as it found it — and unlike the `subscribe-once` crossing it
-  replaces (profiled on the acceptance shape's 141-read mount,
+  exactly as it found it — and unlike a `subscribe-once` crossing
+  (profiled on the acceptance shape's 141-read mount,
   `read_profile_app.cljs`), it does not pay a reaction build, a cache
   insert, an in-tick evict and a dispose cascade per read to arrive at a
   value it retains nothing of. Acquisition happens at commit, without a
   render-phase deref.
 
-  A cold key still computes twice — once at render (the probe), once
-  when the commit acquires and takes its baseline. What rf2-6c237
-  removed is the second *construction*, not the second compute. The
+  A cold key computes twice — once at render (the probe), once
+  when the commit acquires and takes its baseline. What the probe
+  saves is the second *construction*, not the second compute. The
   shipping React spine attacks the same double build with a render-phase
-  escrow (rf2-2rtt6.25), and this arm deliberately does **not** copy it:
+  escrow, and this arm deliberately does **not** copy it:
   an escrow is a render-phase ref-count mutation, which is the one thing
   the state machine above forbids — the probe moves the read the other
   way, to a path that mutates nothing at all, transiently or otherwise.
@@ -243,9 +238,8 @@
   *inside a body* — a commit landing between two of one render's reads.
   The other is the **render→commit gap** — a commit landing after the
   body returned and before React runs the effect that acquires its
-  edges. The predecessor guarded the second by re-reading every
-  subscription at commit; this arm may not (HD-002), so it needs
-  something else there.
+  edges. Re-reading every subscription at commit would guard the second;
+  this arm may not (HD-002), so it needs something else there.
 
   Both windows are judged against one number, [[commit-basis]]:
 
@@ -260,8 +254,8 @@
   render→commit gap?* — because it answers without watching anything.
   [[registry-epoch]] counts `:sub` registrations, which are neither a
   flush nor an install, so a `reg-sub` in the gap would otherwise move no
-  term at all (rf2-2rtt6.50). The second term is what the runtime was
-  missing, and it is why the basis is not just the generation:
+  term at all. The second term is why the basis is not just the
+  generation:
 
   > The generation only moves when `flush!` bumps it, `flush!` only runs
   > from `mark-dirty!`, and `mark-dirty!`'s only caller is the
@@ -285,7 +279,7 @@
      compares it against the snapshot **that fiber** captured at render,
      so the comparison is per boundary, costs one number, and needs no
      record of what any read returned. **A staged read that moves in the
-     gap now heals.** rf2-2rtt6.42.
+     gap heals.**
 
   It is conservative in the safe direction and only there: an install
   that moved nothing this boundary read still moves the basis, so a
@@ -301,26 +295,26 @@
 
   ### The other two axes, and which half of each the basis carries
 
-  The predecessor compared three things. The other two — a `:sub`
-  registration (its `:registry-epoch`) and a same-id frame reincarnation
-  (its `:node-key`) — split cleanly by whether the boundary in question
+  A re-read-at-commit design compares three things. The other two — a
+  `:sub` registration (a `:registry-epoch`) and a same-id frame
+  reincarnation (a `:node-key`) — split cleanly by whether the boundary in question
   **already holds a cell** for the key, and the two halves want opposite
   answers.
 
-  For a boundary that holds one, rf2-2rtt6.44 established that **adding a
-  term would have closed nothing**: each transition leaves the cell
+  For a boundary that holds one, **adding a term would close nothing**:
+  each transition leaves the cell
   holding a reaction that can no longer answer for its key, so a number
-  that moved would have bought exactly one extra render, and that render
-  would have read back through the same dead reference. That half is
+  that moved would buy exactly one extra render, and that render
+  would read back through the same dead reference. That half is
   carried by the substrate's own events, below.
 
   For a boundary inside the render→commit gap there is no cell, so there
   is no dead reference — the commit acquires against whatever is live
-  *then*, and one extra render is exactly the repair. rf2-2rtt6.50 closes
-  the registry half of that, with the [[registry-epoch]] term of the
-  basis; because a held key contributes a frozen stamp and only a staged
+  *then*, and one extra render is exactly the repair. The
+  [[registry-epoch]] term of the basis closes the registry half of that;
+  because a held key contributes a frozen stamp and only a staged
   key reads the basis live, the term reaches the gap and costs the
-  mounted case nothing. The `:node-key` half stays open and is stated in
+  mounted case nothing. The `:node-key` half is open and is stated in
   [[commit-basis]] — the basis TIES across a reincarnation, so no
   arithmetic over these terms could report it.
 
@@ -344,13 +338,12 @@
   registered. It costs no React hook and no per-boundary object.
 
   The gap half rides the same hook, one line earlier, as a `vswap!` on
-  [[registry-epoch]] — so the arm reads a registry count it keeps itself
-  and `observation/registry-epoch*` stays `^:private`. **What
-  rf2-2rtt6.44 rejected is still rejected**: that was a registry term in
-  every key's *live* contribution to [[make-snapshot]], which moves every
+  [[registry-epoch]] — so the arm reads a registry count it keeps itself.
+  **A registry term in every key's *live* contribution to
+  [[make-snapshot]] is rejected**: it would move every
   mounted boundary in the application on every `reg-sub`. This term is in
   the basis, which [[make-snapshot]] reads live for staged keys only, so
-  an unrelated registration still moves no *mounted* boundary's
+  an unrelated registration moves no *mounted* boundary's
   snapshot — the invariant
   `a-first-registration-of-an-id-no-cell-holds-disturbs-nothing` states,
   and the one that distinguishes the two options.
@@ -407,7 +400,7 @@
   [[run-once]] exactly as the scratch is). One JS object for the whole
   runtime — not one per render."
   #js {"frame"    nil "collector" false "grouped" false "entry" nil "probe" nil
-       ;; The always-on body-run counter (rf2-2rtt6.84 (6)) — one integer
+       ;; The always-on body-run counter — one integer
        ;; on the object that already exists, bumped by [[run-once]] and
        ;; read by [[body-runs]].
        "bodyRuns" 0})
@@ -427,7 +420,7 @@
   (some? (.-frame rstate)))
 
 ;; ---------------------------------------------------------------------------
-;; The adoption window (rf2-2rtt6.84)
+;; The adoption window
 ;; ---------------------------------------------------------------------------
 
 (def ^:private ^js adoption
@@ -508,17 +501,17 @@
   (HD-020(a)), memoised per frame so binding it allocates nothing.
 
   **Public because a boundary shell is not the only thing that lowers
-  hiccup** (rf2-2rtt6.66). `arm1.presence` renders retained children
+  hiccup**. `arm1.presence` renders retained children
   inside its OWN React render, after the parent body's dynamic extent has
   unwound, so it must re-bind the ambient frame before it hands them to
   the codec — and the dispatch it binds has to be *this* one. Handing it
   a private route of its own (a fresh `(fn [e] (dispatch! frame-kw e))`
   per render) would allocate a closure per presence render and would make
   \"a presence child lowers exactly as it would in the parent's body\" an
-  approximation rather than an identity. Nothing new is exported: the
+  approximation rather than an identity. It exports nothing extra: the
   memo, the `capture-frame` pin and the [[with-commit]] batching are the
-  ones `run-once` already binds, and [[frame-ops]] beside it has been
-  public for the same reason."
+  ones `run-once` binds, and [[frame-ops]] beside it is public for the
+  same reason."
   [frame-kw]
   (or (get @!frame-dispatch frame-kw)
       (let [f (fn dispatch-for-frame [event] (dispatch! frame-kw event))]
@@ -535,8 +528,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; THE CELL TABLE — one cell per unique (frame, query), shared by every
-;; reader, created and acquired ONLY at commit; and, since rf2-dabt3, the
-;; dependency index itself
+;; reader, created and acquired ONLY at commit; and the dependency index
+;; itself
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A sub-key is `[frame-kw query-v]`. validation.md pins sub-key identity
@@ -546,17 +539,16 @@
 ;; a value, so every law below reads it exactly as it reads a bare query
 ;; vector.
 ;;
-;; ## The reverse edge lives on the cell (rf2-dabt3)
+;; ## The reverse edge lives on the cell
 ;;
-;; This table used to run beside a second process-global structure — a
-;; `front.sub-index` holding `sub-key -> #{boundary}` and
-;; `boundary -> #{sub-key}` — and the two were keyed by the SAME B·R key
-;; space. Every read therefore paid two persistent map entries where the
-;; design needs one table, plus, at fan-out 1 (which is what the
+;; A second process-global structure beside this table — an index holding
+;; `sub-key -> #{boundary}` and `boundary -> #{sub-key}`, keyed by the SAME
+;; B·R key space — would make every read pay two persistent map entries
+;; where the design needs one table, plus, at fan-out 1 (which is what the
 ;; distinct-query ladder rung measures), a singleton `PersistentHashSet`
-;; per key whose whole job was to hold one pointer.
+;; per key whose whole job is to hold one pointer.
 ;;
-;; So the readers moved onto the cell. `.-readers` is that key's reverse
+;; So the readers live on the cell. `.-readers` is that key's reverse
 ;; edge, and one slot in it is simultaneously **the boundary's edge on the
 ;; key and its reference to the key's cell** — which is why the cell has
 ;; no `refs` counter beside it: the reader list IS the count, and two
@@ -565,16 +557,14 @@
 ;; already holds `.-reads`, the read-set entry's own key set, by
 ;; reference.
 ;;
-;; **No lookup got worse.** The dirty set was already a walk of the dirty
-;; keys' reader sets, and [[flush!]] already holds the dirty CELLS — it
-;; used to map `.-subKey` over them purely so the index could map them
-;; straight back. That round trip is what went away; the union is now
-;; taken directly off the cells in hand.
+;; **No lookup pays for it.** The dirty set is a walk of the dirty keys'
+;; reader sets, and [[flush!]] holds the dirty CELLS, so the union is taken
+;; directly off the cells in hand — with no round trip through `.-subKey`
+;; to a separate index and back.
 ;;
-;; The tournament is what makes this available. While two arms shared the
-;; front half, the index had to be a general, separately-testable algebra
-;; serving both; Arm 2 was withdrawn on 2026-07-31 and the sole surviving
-;; consumer owns the table (architecture.md §2).
+;; One consumer owning the table is what makes this available: an index
+;; shared by two arms would have to be a general, separately-testable
+;; algebra serving both (architecture.md §2).
 ;;
 ;; Cells are plain JS objects rather than a deftype on purpose: this is
 ;; the object the heap ladder prices per unique key, and a deftype would
@@ -592,7 +582,7 @@
 
 (def ^:private cell-watch-key
   "**One constant keyword for every cell's value-change watch** — not a
-  minted-per-cell identity (rf2-aqgr2).
+  minted-per-cell identity.
 
   A watch key has to be unique *within the watched reference*, and it is:
   there is at most one cell per `(frame, query)`, `rf.subs/subscribe` hands
@@ -601,14 +591,13 @@
   arm installs, and its namespace keeps it clear of any other watcher keyed
   per observer on the same reactions.
 
-  It used to be `(keyword \"rf-fresco-arm1\" (str \"w\" (vswap! counter inc)))`,
-  which bought that same uniqueness by allocating a `Keyword`, its name
+  A keyword minted per cell from a counter would buy that same uniqueness
+  by allocating a `Keyword`, its name
   string and its fully-qualified string per cell and retaining all three
   in the cell and in the reaction's watch map — per *unique key*, which is
   per *read* on the distinct-query rung the per-read heap ladder is taken
-  on. The uniqueness was already structural; only the identity was being
-  paid for. The counter goes with it: a global that numbered something
-  that never needed a number."
+  on. The uniqueness is structural, so a minted identity would only pay
+  for it twice."
   ::cell-watch)
 
 (defn generation
@@ -620,9 +609,8 @@
   "**The arm's own count of `:sub` registrations** — first-time and
   replacement alike — and the third term of [[commit-basis]].
 
-  It is the arm's rather than the substrate's on purpose.
-  `observation/registry-epoch*` counts exactly this and is `^:private`;
-  the arm already installs a registration hook for [[first-registration!]],
+  It is the arm's own count on purpose: the arm installs a registration
+  hook for [[first-registration!]],
   so the counter is a `vswap!` on a hook that runs anyway rather than a
   new public reader on a production namespace. Monotone, like both other
   terms."
@@ -652,14 +640,12 @@
   advances it, which costs at most one redundant re-render and cannot
   cost a missed one. Pure read; allocates nothing.
 
-  ## Why the registry term costs the mounted case nothing (rf2-2rtt6.50)
+  ## Why the registry term costs the mounted case nothing
 
-  This is the term rf2-2rtt6.44 costed and declined, and **it is not the
-  thing that was declined.** What that costing priced was a registry term
-  in every key's *live* contribution to [[make-snapshot]] — which would
-  have moved every mounted boundary's number on every `reg-sub` in the
-  application, and bought a re-render that read straight back through a
-  dead cell. This term is in the basis, and the basis is read live by
+  A registry term in every key's *live* contribution to [[make-snapshot]]
+  would move every mounted boundary's number on every `reg-sub` in the
+  application, and buy a re-render that reads straight back through a
+  dead cell. **This term is not that.** It is in the basis, and the basis is read live by
   exactly one branch of that sum: **a key no cell holds yet**. A held key
   contributes its cell's *frozen* stamp, which no registration touches.
 
@@ -668,21 +654,21 @@
   mounted boundary holds a reference to every key it reads, so it has no
   staged term at all and an unrelated `reg-sub` moves its snapshot by
   zero — `a-first-registration-of-an-id-no-cell-holds-disturbs-nothing`
-  asserts exactly that, and it is unchanged by this term, which is the
+  asserts exactly that, and this term leaves it green, which is the
   cleanest available proof that the two options are different options.
 
   Conservative in the safe direction and only there, exactly as the
-  install term already is: a boundary mounting as an *unrelated* module
+  install term is: a boundary mounting as an *unrelated* module
   registers its subs re-renders once for nothing. A MISSED move would be
   the P0, and adding a monotone term to a monotone sum cannot cause one.
 
-  Still silent on one axis, and permanently so: a same-id frame
+  Silent on one axis, and permanently so: a same-id frame
   reincarnation RESTARTS `frame-commit-epoch` at 0 (measured: A's epoch
   and B's are both 1, so the basis TIES across the reincarnation), which
   is the case Spec 006 invariant 5's `:node-key` axis exists for. That
-  axis is not this number's to carry, and rf2-2rtt6.44 settled why: the
+  axis is not this number's to carry: the
   transition leaves the cell holding a reaction that can no longer answer
-  for its key, so a moved number would only buy a re-render that read
+  for its key, so a moved number would only buy a re-render that reads
   back through the same dead reference. [[invalidate-cell!]] carries the
   *held*-cell half of all three axes; this term carries the *staged* half
   of the registry one, where there is no dead reference to read back
@@ -725,17 +711,14 @@
   performed twice — once when the cell is born and once when the
   substrate disposes the reaction out from under it.
 
-  **Activation comes first, and it is not optional** (rf2-2kshh; the same
-  defect the observation port carried as rf2-8cnxg, and repaired at
-  `substrate/observation.cljc` — \"ACTIVATE, then watch, then observe\").
-  A subscription under the ratom family IS a bare `reagent.ratom/Reaction`,
+  **Activation comes first, and it is not optional.** A subscription under the ratom family IS a bare `reagent.ratom/Reaction`,
   built deliberately without `:auto-run`, and a Reaction learns its sources
   only through `deref-capture`: a plain deref taken outside `*ratom-context*`
   runs the body raw and leaves `watching` nil. The reaction is then not in
   app-db's watcher set, so the watch below never fires, [[mark-dirty!]] never
   fires — that watch is its only caller — and no write after the mount ever
-  becomes re-render work. Measured: the arm painted once and was deaf
-  thereafter. `rf.interop/activate-derived-value!` is the substrate's own op for
+  becomes re-render work. Measured without it: the arm paints once and is
+  deaf thereafter. `rf.interop/activate-derived-value!` is the substrate's own op for
   this and is a routed no-op on the React-hook spine, which wires one watch
   per source at construction.
 
@@ -744,7 +727,7 @@
   node — the activation left it clean, so the baseline recomputes nothing.
 
   The disposal hook is the arm's counterpart to the two axes
-  `commit-basis` cannot see (rf2-2rtt6.44), and it is deliberately an
+  `commit-basis` cannot see, and it is deliberately an
   *event* rather than a term in the epoch sum: the substrate already
   tells us, exactly and only when it happens, and a term would have to be
   read by every key on every snapshot to discover the same thing later.
@@ -768,7 +751,7 @@
 
 (defn- invalidate-cell!
   "**The repair for a cell whose reaction can no longer answer for its
-  key** (rf2-2rtt6.44). A cell holds its reaction for the life of every
+  key**. A cell holds its reaction for the life of every
   boundary that reads the key — that is what makes a warm read a pure
   deref — and three substrate transitions retire what it is holding:
 
@@ -781,10 +764,10 @@
 
   The first two leave the cell holding a container whose `-dispose` has
   already run `(reset! watchers {})`, so the watch this arm installed is
-  gone and `mark-dirty!` can never fire for that key again. Measured,
-  before this hook existed: the boundary read the RETIRED computation
-  forever and no later write notified it. That is why neither axis was
-  ever closable by adding a term to `getSnapshot` — the extra render a
+  gone and `mark-dirty!` can never fire for that key again. Measured
+  without this hook: the boundary reads the RETIRED computation
+  forever and no later write notifies it. That is why neither axis is
+  closable by adding a term to `getSnapshot` — the extra render a
   moved number buys reads back through the same dead cell. The third
   leaves it holding the substrate's nil-recovery, which was never wired
   to anything, and is deaf for the same reason.
@@ -817,8 +800,8 @@
   nil)
 
 (defn- first-registration!
-  "**The registry transition no disposal announces** (rf2-2rtt6.44
-  audit follow-up). `rf.registrar/add-replacement-hook!` — the hook the
+  "**The registry transition no disposal announces.**
+  `rf.registrar/add-replacement-hook!` — the hook the
   sub-cache eviction that [[invalidate-cell!]] rides is built on — fires
   only when a previous handler existed. A *first* `reg-sub` for a query
   therefore evicts nothing, disposes nothing, and would reach an arm that
@@ -831,11 +814,11 @@
   later registration is observed by the next `subscribe`
   (`rf.subs/build-and-cache!*`). This arm has exactly one property that
   breaks that assumption — a cell holds its reaction for the life of
-  every boundary reading the key, and never subscribes again — so the
-  recovery the substrate declined to cache was cached anyway, in a cell,
-  where nothing evicted it. Measured before this: the boundary painted
-  nil for the life of the mount and no later write notified it, on a
-  query that was by then registered.
+  every boundary reading the key, and never subscribes again — so
+  without this hook the recovery the substrate declines to cache is
+  cached anyway, in a cell, where nothing evicts it. Measured without it:
+  the boundary paints nil for the life of the mount and no later write
+  notifies it, on a query that is by then registered.
 
   So the repair is to restore the substrate's assumption rather than to
   keep the recovery honest: the same [[invalidate-cell!]] the disposal
@@ -847,10 +830,11 @@
   already mid-rebuild has dropped its reference and is about to subscribe
   against this very registration.
 
-  **Not the rejected registry term, and the difference is the whole
-  costing.** That term sat in every key's contribution to
-  `getSnapshot`, so every mounted boundary in the application re-rendered
-  on every `reg-sub` — and read back through a dead cell when it did.
+  **Not a registry term in `getSnapshot`, and the difference is the whole
+  cost.** Such a term would sit in every key's contribution to
+  `getSnapshot`, so every mounted boundary in the application would
+  re-render on every `reg-sub` — and read back through a dead cell when
+  it did.
   This reaches the cells that hold the id being registered and nothing
   else: an unrelated first registration moves no snapshot, notifies no
   boundary, and rebuilds no attachment.
@@ -863,7 +847,7 @@
   **It is the held-cell half of the axis, and only that half.** A
   boundary inside the render→commit gap has no cell for the id, so this
   scan reaches nothing on its behalf; the [[registry-epoch]] term of
-  [[commit-basis]] carries that half instead. rf2-2rtt6.50."
+  [[commit-basis]] carries that half instead."
   [{:keys [kind id was]}]
   (when (and (= :sub kind) (nil? was))
     ;; `first`, not `(nth … 0)`: a registrar hook's throw is SWALLOWED by
@@ -919,7 +903,7 @@
 
   Taking the reference and recording the edge are **one act**: `reg` is
   pushed onto the cell's reader list, which is both the key's reverse
-  edge and its reference count (rf2-dabt3). A registration acquires each
+  edge and its reference count. A registration acquires each
   key of its read SET exactly once, so a slot per reader is the whole
   invariant and `.indexOf` in [[release-cell!]] cannot find the wrong
   one."
@@ -942,7 +926,7 @@
                                      ;; in the gap — it contributes a
                                      ;; different one, and React's
                                      ;; post-subscribe re-check corrects
-                                     ;; the boundary. rf2-2rtt6.42.
+                                     ;; the boundary.
                                      "epoch"    (commit-basis frame-kw)
                                      ;; The key's reverse edge AND its
                                      ;; reference count, in one array —
@@ -958,7 +942,7 @@
                    ;; is silent: a derived value starts at an `unset`
                    ;; baseline that is never `rf=` a real value, and the
                    ;; render's own read went through the cold probe,
-                   ;; which built no reaction at all (rf2-6c237). So
+                   ;; which built no reaction at all. So
                    ;; a freshly acquired reaction whose baseline is still
                    ;; `unset` reports movement on the FIRST later commit
                    ;; whatever the commit did — every newly mounted
@@ -1003,28 +987,24 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Two lines — a holder and a setter — so dev tooling can attach to the
-;; dependency edges later with no redesign. It moved here from the retired
-;; `front.sub-index` unchanged in shape: the `:edges-changed` and `:commit`
-;; events keep their keys, so anything written against the seam attaches to
-;; the fused table without being rewritten.
+;; dependency edges with no redesign. The `:edges-changed` and `:commit`
+;; events are the seam's whole vocabulary, so anything written against the
+;; seam attaches to the fused table as it is.
 ;;
 ;; Detached cost is one deref and one nil test at each of the two tap
 ;; points, and **that is a literal count, which it only is because the nil
 ;; test is the outermost form at each tap point**: nothing the sink would
-;; have been handed gets built when there is no sink. A third line used to
-;; own that check — a private `evidence!` the tap points called with the
-;; event already constructed — and the indirection is what hid the cost,
-;; charging the detached path one event map per boundary per commit and one
-;; per commit, garbage the moment it was made and so invisible to a
-;; retained-heap ladder (rf2-e3i6y). Factoring the guard back out restores
-;; the claim's falsity, which is why it reads as duplication and stays.
+;; have been handed gets built when there is no sink. A third line owning
+;; that check — a private `evidence!` the tap points call with the event
+;; already constructed — would hide the cost in the indirection, charging
+;; the detached path one event map per boundary per commit and one per
+;; commit, garbage the moment it is made and so invisible to a
+;; retained-heap ladder. Factoring the guard out into such a helper would
+;; make the claim false, which is why it reads as duplication and stays.
 ;;
-;; Fusing the index in moved one more allocation behind the guard
-;; (rf2-dabt3): [[flush!]]'s `(into #{} (map .-subKey) dirty)` used to be
-;; built unconditionally because the index's `commit!` took sub-keys, and
-;; the cells were mapped straight back. The dirty set is now taken off the
-;; cells in hand, so that set is evidence-only and is built only when a
-;; sink is listening.
+;; [[flush!]]'s `(into #{} (map .-subKey) dirty)` sits behind the guard
+;; too: the dirty set is taken off the cells in hand, so that sub-key set is
+;; evidence-only and is built only when a sink is listening.
 ;;
 ;; **No evidence subsystem ships**: no manifest, no registry, no buffering,
 ;; and the sink is nil until something sets it.
@@ -1121,24 +1101,23 @@
 
 (defn- cold-read!
   "One cold read — a key no committed cell answers for — on the cold-probe
-  discipline (rf2-6c237).
+  discipline.
 
   Three rungs, cheapest first, all of them mutation-free:
 
   1. **A live sub-cache reaction is reused by deref alone.** Some other
      holder (a cell on another boundary mid-anything, a tool, a test)
-     keeps the reaction warm; the acquire/release round trip
-     `subscribe-once` performed to reach the same deref bumped a
-     ref-count both ways for nothing. The peek is exactly the port's
-     (`observation/probe`), and single-threaded CLJS is what makes the
-     unguarded deref safe: nothing can evict between the `get` and the
+     keeps the reaction warm; an acquire/release round trip through
+     `subscribe-once` to reach the same deref would bump a
+     ref-count both ways for nothing. Single-threaded CLJS is what makes
+     the unguarded deref safe: nothing can evict between the `get` and the
      `@`.
   2. **A truly cold key computes PURE** — `rf.subs/compute-sub-with-memo`
      against ONE coherent frame-state snapshot, minted lazily on the
      run's first cold read ([[run-once]] resets the box, so a fence
      re-run or a StrictMode double-invoke computes against the state
      that is current THEN). No cache entry, no ref-count, no watch, no
-     disposal obligation — where `subscribe-once` paid a reaction build,
+     disposal obligation — where `subscribe-once` pays a reaction build,
      a cache insert, an in-tick evict and a dispose cascade per read,
      this path pays a registrar lookup and the sub's own body. Each
      compute threads a FRESH per-read memo seeded with
@@ -1150,8 +1129,8 @@
      (`read_profile_app.cljs`, phase A) is why the memo is per read
      rather than one threaded across the run: on the acceptance shape's
      141 distinct layer-1 reads a run-shared memo's own bookkeeping —
-     three `swap!`s per sub against a map grown to 141 entries — cost
-     more than it deduplicated (`probe` 2.75 vs `probe-fresh` 1.42
+     three `swap!`s per sub against a map grown to 141 entries — costs
+     more than it deduplicates (`probe` 2.75 vs `probe-fresh` 1.42
      µs/read), and mid-graph parent sharing, the thing only a threaded
      memo can buy, prices at zero on a page whose subs are all
      single-source. A layered consumer pays one extra parent compute
@@ -1159,8 +1138,8 @@
      commit's worth — and the trade is re-openable the day a shape
      with deep shared chains prices it the other way.
   3. **A missing or destroyed frame falls back to `subscribe-once`**,
-     which emits `:rf.error/frame-destroyed` and recovers to nil — the
-     predecessor's whole behaviour on that edge, kept rather than
+     which emits `:rf.error/frame-destroyed` and recovers to nil —
+     `subscribe-once`'s own behaviour on that edge, reused rather than
      re-spelled.
 
   The compute sits inside `rf.live-frame/call-with-frame-resolution` for
@@ -1179,8 +1158,7 @@
   the sub-cache reaction would have answered against the same committed
   state — `compute-sub` and the reactive path share the input grammar,
   the recover-to-nil contracts and the schema validation, which is why
-  the port could stake commit-free Tier-1 reads on the equivalence
-  first."
+  commit-free Tier-1 reads can stake themselves on the equivalence."
   [frame-kw query-v]
   (let [frame-record (rf.frame/frame frame-kw)]
     (if (nil? frame-record)
@@ -1228,8 +1206,7 @@
   incarnation that are live NOW, so a render in the window between
   the invalidation and its rebuild reads the new computation rather than
   the retired one — or, for a key registered for the FIRST time while the
-  boundary was mounted, the real handler rather than the nil-recovery.
-  rf2-2rtt6.44."
+  boundary was mounted, the real handler rather than the nil-recovery."
   [query-v]
   (when (nil? (.-frame rstate))
     (fail! :rf.error/fresco-sub-outside-render
@@ -1248,8 +1225,8 @@
       (cold-read! frame-kw query-v))))
 
 (defn sub
-  "**The ambient collector** — the surface the operator ruled the only
-  acceptable one (2026-07-31). A plain function call, legal anywhere in a
+  "**The ambient collector** — the only read surface acceptable on
+  ergonomics. A plain function call, legal anywhere in a
   body: inside a `when`, inside a `for`, inside an inlined helper. The
   edge is *recorded* where the read happens, and the recorded set is what
   the commit installs — so a branch not taken contributes no edge."
@@ -1269,9 +1246,9 @@
                        :editing? [:todo.ui/editing? id]})]
         …)
 
-  Kept, and kept working, because the three-rendering dogfood judgement
-  needs it and because it is the surface the collector is measured
-  against — not because it is being defended. The operator ruled it below
+  It is maintained because the three-rendering dogfood
+  judgement needs it and because it is the surface the collector is
+  measured against — not because it is being defended. It sits below
   the ergonomics bar."
   [query-map]
   (set! (.-grouped rstate) true)
@@ -1286,8 +1263,8 @@
 
 (defonce ^:private !entries
   ;; read-sequence hash -> vector of entries. See [[scratch-bucket-key]]
-  ;; for why the key is a hash of the WHOLE sequence and not, as it once
-  ;; was, the first sub-key.
+  ;; for why the key is a hash of the WHOLE sequence and not the first
+  ;; sub-key.
   (atom {}))
 
 (defn- scratch-bucket-key
@@ -1310,13 +1287,13 @@
   no allocation, which is what keeps the steady-state hit path at zero
   bytes.
 
-  **Why the first sub-key was not enough (rf2-2rtt6.46).** Bucketing on
-  `(aget scratch 0)` made the scan's cost a function of how an author
+  **Why the first sub-key is not enough.** Bucketing on
+  `(aget scratch 0)` would make the scan's cost a function of how an author
   ordered their `let` bindings. A row body reading its per-row key first
-  put one entry in each bucket; the same body reading a page-wide key
-  first — one line moved — put every live row's entry in ONE bucket, and
-  every probe then passed the length test and the index-0 test and failed
-  only at the last key. Mounting N such rows cost `sum(i)` probes, and
+  puts one entry in each bucket; the same body reading a page-wide key
+  first — one line moved — puts every live row's entry in ONE bucket, and
+  every probe then passes the length test and the index-0 test and fails
+  only at the last key. Mounting N such rows costs `sum(i)` probes, and
   N = 300 is a rung this programme benchmarks. Same page, same edges,
   same DOM, ~150x the entry-lookup work. Hashing the whole sequence makes
   the bucket a function of the read set rather than of its first element,
@@ -1341,9 +1318,9 @@
     nil))
 
 (def ^:private entry-reap-horizon-ms
-  "The provisional-entry reaper's delay: **4 ms, not 0** (rf2-2rtt6.84).
+  "The provisional-entry reaper's delay: **4 ms, not 0**.
 
-  ## What the 0 raced
+  ## What a 0 would race
 
   An entry is minted during the RENDER ([[entry-for]], from
   [[render-body]]) and claimed during the COMMIT — React calls the
@@ -1357,25 +1334,24 @@
   `subscribe` — so React tears the subscription down and rebuilds it,
   releasing and re-acquiring every cell, immediately after adoption.
 
-  `hydrateRoot` is exactly such a root, which is why this moved with the
-  hydration door. It is the same class rf2-2rtt6.71 fixed in the spine,
-  where a `setTimeout 0` escrow reaper beat `createRoot().render()`'s
-  passive flush and cost `bodyRuns` 2.00N on every consumer mount; 4 ms
-  was the SHORTEST delay measured to win there, at N = 1 and N = 300
+  `hydrateRoot` is exactly such a root. The spine meets the same class,
+  where a `setTimeout 0` escrow reaper beats `createRoot().render()`'s
+  passive flush and costs `bodyRuns` 2.00N on every consumer mount; 4 ms
+  is the SHORTEST delay measured to win there, at N = 1 and N = 300
   alike, and this arm adopts that number rather than inventing one.
 
   ## A MARGIN, NOT A CONTRACT
 
   React documents no maximum render-to-subscribe interval, so 4 ms cannot
-  be sized against a guarantee — it is the measured distance on React 19
-  today, and a scheduling change can silently reintroduce the rebuild.
+  be sized against a guarantee — it is the measured distance on React 19,
+  and a scheduling change can silently reintroduce the rebuild.
   **No caller may rely on it.** Correctness does not: a lost race costs
   a cache miss and a rebuilt subscription, never a wrong value, because
   the entry object itself survives in the closure that was handed out.
   What the horizon buys is that the adoption is realised, and what it
   costs is that an abandoned render's entry sits in the cache 4 ms longer
-  than it used to — the zero-leak property is unchanged, its zero-POINT
-  moved."
+  than a 0 would leave it — the zero-leak property holds, with its
+  zero-POINT 4 ms later."
   4)
 
 (defn- arm-entry-reaper!
@@ -1419,9 +1395,8 @@
   set.
 
   The bucket is [[scratch-bucket-key]]'s hash of the whole read sequence,
-  so what a lookup scans is the set of read sequences that COLLIDE — not,
-  as it once was, the set of live boundaries that happen to share a first
-  key. `drop-entry!`'s rebuild of the bucket vector is O(1) for the same
+  so what a lookup scans is the set of read sequences that COLLIDE — not
+  the set of live boundaries that happen to share a first key. `drop-entry!`'s rebuild of the bucket vector is O(1) for the same
   reason."
   []
   (let [bucket-key (scratch-bucket-key)
@@ -1449,17 +1424,16 @@
   commit has created its cell, `basis@commit` — the same number when
   nothing moved in between and a different one when something did. It is
   a *live* [[commit-basis]] read, which is why the basis's registry term
-  reaches a `reg-sub` in the gap (rf2-2rtt6.50) and why a held key —
+  reaches a `reg-sub` in the gap and why a held key —
   whose contribution is the cell's frozen stamp — is untouched by one.
   React re-reads this closure immediately after `subscribe` returns
   (`updateStoreInstance` is the next passive effect) and compares
   against the value **that fiber** captured at render, so the tear check
   is per boundary, is one number, and holds no record of what any read
-  returned. Returning 0 there — which is what a key with no epoch used
-  to contribute — meant a staged key answered the same number before and
-  after the commit however far its value had moved, so React saw no tear
-  and scheduled no re-render, and nothing ever corrected the boundary.
-  rf2-2rtt6.42.
+  returned. Returning 0 there would make a staged key answer the same
+  number before and after the commit however far its value had moved, so
+  React would see no tear and schedule no re-render, and nothing would
+  ever correct the boundary.
 
   Steady state pays nothing for it: a mounted boundary holds a reference
   to every key it reads, so every term is a cell epoch and the staged
@@ -1494,7 +1468,7 @@
 
   **The forward edge needs no home**: `.-reads` on the registration IS
   it — the entry's own key set, shared by reference and never copied, so
-  the fused table stores the reverse edge and nothing else (rf2-dabt3).
+  the fused table stores the reverse edge and nothing else.
 
   **The registration is also the boundary id, and that is what makes the
   replacement wholesale here** — a fresh id every time, so a read-set
@@ -1502,8 +1476,8 @@
   `subscribe`: the edge-set replacement in full, done by the pair. See
   the ns docstring, clause (b).
 
-  **Abandoned renders are safe structurally rather than by a guard.** The
-  retired index needed a liveness check in `record-reads` so a stale
+  **Abandoned renders are safe structurally rather than by a guard.** An
+  index written from the render would need a liveness check so a stale
   body run could not resurrect an unmounted boundary's edges; here there
   is no render-phase write to guard, because the only write is inside
   this closure and React calls it at commit and nowhere else."
@@ -1556,7 +1530,7 @@
   double-invoke correct here rather than additive.
 
   The two `goog.DEBUG` lines around the lowering are the codec's key
-  warnings asking who is lowering (rf2-2rtt6.104). This is the arm's sole
+  warnings asking who is lowering. This is the arm's sole
   body-lowering site — `render-body` is its only caller, and the fence's
   re-runs are idempotent set/clear pairs — so the clear rides the
   `finally` the frame reset already needed, and a throwing body, a thrown
@@ -1598,7 +1572,7 @@
   so no watch, so no `mark-dirty!`, so no bump. A body that read a
   staged key, dispatched, and read again could straddle two commits with
   the generation sitting perfectly still. The frame's install epoch
-  moves for that write, so the basis does. rf2-2rtt6.42."
+  moves for that write, so the basis does."
   [frame-kw body-fn props]
   (loop [attempt 0]
     (let [before  (commit-basis frame-kw)
@@ -1649,13 +1623,13 @@
   "How many boundary bodies this runtime has run, since the process
   started or since the last [[reset-body-runs!]].
 
-  ## Always on, and why that was the choice (rf2-2rtt6.84 (6))
+  ## Always on, and why
 
   The SSR spike's adoption row has to read body runs out of the build it
   actually drives, and the arm's builds are `:advanced` with
   `goog.DEBUG false` — so a `goog.DEBUG`-gated instrument is not an
   instrument there, it is dead code the compiler removes. The two
-  candidates were a declared dev-build witness row and an always-on
+  candidates are a declared dev-build witness row and an always-on
   counter. **The counter wins**, because a dev-build row would answer
   about a build nobody ships and would have to be believed rather than
   read, and because the price is a single integer increment on a JS
@@ -1719,7 +1693,7 @@
     element))
 
 ;; ---------------------------------------------------------------------------
-;; The frame-as-a-prop variant (rf2-2rtt6.39) — ONE hook
+;; The frame-as-a-prop variant — ONE hook
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A HYPOTHESIS UNDER MEASUREMENT, not the default. HD-020(b) spends the
@@ -1783,27 +1757,25 @@
 
   **The returned value is still the function**, and that is a constraint
   rather than an accident: `React.memo` answers an object, the codec and
-  these tests require a minted head to BE a function, and the ruling on
-  rf2-2rtt6.52 is that no memo object escapes as the public
-  representation. `memoize-boundary!` therefore attaches the wrapper to
+  these tests require a minted head to BE a function, and no memo object
+  escapes as the public representation. `memoize-boundary!` therefore attaches the wrapper to
   the head and hands the head back; the codec creates elements from the
   wrapper. See [[re-frame.bench.fresco.front.codec/memoize-boundary!]].
 
-  ## Why there is a bail-out at all (HD-006 as amended, rf2-2rtt6.52)
+  ## Why there is a bail-out at all (HD-006 as amended)
 
-  Without one, a write that moves a key the PAGE reads re-rendered the
+  Without one, a write that moves a key the PAGE reads re-renders the
   page and then every boundary beneath it — 300 of 300 cards on the
   tier-1 feed shape, every card's props and every card's subscription
-  values equal. That contradicted the programme's central claim — that
+  values equal. That would contradict the programme's central claim — that
   boundaries are independent, and a write wakes only its readers — on
   precisely the bulk row the bar is set on, and it is the axis Reagent's
-  argv compare already wins.
+  argv compare wins.
 
   ## Why bailing out on PROPS is safe when bodies read SUBSCRIPTIONS
 
-  This is the question the repair has to answer, because a memo that
-  bailed while a subscription moved would freeze a row on screen — the
-  exact failure class this arm has repaired four times. It is safe
+  This is the question the bail-out has to answer, because a memo that
+  bailed while a subscription moved would freeze a row on screen. It is safe
   because props are not the only channel into the shell, and memo blocks
   only one of them:
 
@@ -1826,14 +1798,14 @@
   is the contract: bodies stay pure and re-runnable, and memoization is a
   scheduling optimization and never observable semantics. The residue is
   a body reading something that is none of the three — a bare atom,
-  `Date.now()` — which was never tracked and never woke a boundary on its
-  own before either; the cascade merely re-ran it by accident. Reagent's
+  `Date.now()` — which is not tracked and wakes no boundary on its own;
+  only a cascade would re-run it, and by accident. Reagent's
   argv compare has the identical residue.
 
   ## What it costs, stated rather than claimed away
 
   **No hook** — the comparator is React's, not the shell's, so the ≤2-hook
-  budget is untouched and the ledger still reads `useContext` +
+  budget is untouched and the ledger reads `useContext` +
   `useSyncExternalStore`. **One fiber per boundary**: a `React.memo`
   carrying a custom comparator stays a `MemoComponent` rather than
   collapsing to React's `SimpleMemoComponent`, so React keeps a wrapper
@@ -1843,13 +1815,12 @@
   discover.
 
   ## Spec 009's `:render` bucket, and why the bracket is HERE
-  (rf2-2rtt6.125)
 
   Spec 009 §What gets bracketed names four hot paths; three of them
-  (`:event`, `:sub`, `:fx`) are core's and are already live for a
+  (`:event`, `:sub`, `:fx`) are core's and are live for a
   Fresco app, because they sit in the router, the subs layer and the fx
-  layer this arm consumes unchanged. The fourth — `:render` — is the
-  **view substrate's**, and until this bead a Fresco app was the only
+  layer this arm consumes as they are. The fourth — `:render` — is the
+  **view substrate's**, and without it a Fresco app would be the only
   re-frame2 app whose per-view render was absent from the User-Timing
   stream. It is a `:render` in the spec's own terms: the bucket is keyed
   on the *representation* of the work — one view boundary's body run,
@@ -1867,8 +1838,8 @@
   avoid (and which [[hydrate-cljs-test]] would have to be edited to
   accommodate). `view-name` is already closed over at this exact point,
   so under `:advanced` + `re-frame.performance/enabled? false` the macro
-  constant-folds to `(shell body-fn js-props)` — byte-for-byte the call
-  that was here before, with nothing added anywhere.
+  constant-folds to `(shell body-fn js-props)` — byte-for-byte the bare
+  call, with nothing added anywhere.
 
   Placing it at the component fn also makes four behaviours fall out
   rather than be arranged:
@@ -1913,21 +1884,21 @@
     (rf.bench.fresco.front.codec/memoize-boundary! (rf.bench.fresco.front.codec/mark-boundary! component))))
 
 (defn mint-frame-prop-view!
-  "[[mint-view!]]'s frame-fed twin (rf2-2rtt6.39): the same boundary, the
+  "[[mint-view!]]'s frame-fed twin: the same boundary, the
   same memo wrapper, the same marking — plus the codec marker that makes
   every element of this head carry `rfFrame`, and [[frame-prop-shell]] in
   place of [[shell]].
 
-  Everything [[mint-view!]]'s docstring says about the bail-out holds
-  unchanged, with one addition it names there: the frame reaches this
+  Everything [[mint-view!]]'s docstring says about the bail-out holds,
+  with one addition it names there: the frame reaches this
   boundary through PROPS rather than through context, so the comparator
   compares it — see
   [[re-frame.bench.fresco.front.codec/boundary-props=]].
 
-  Everything it says about Spec 009's `:render` bucket holds unchanged
-  too, and the bracket is here for the same reason it is there: this is
+  Everything it says about Spec 009's `:render` bucket holds too, and
+  the bracket is here for the same reason it is there: this is
   the wrapper the substrate emits, `view-name` is already closed over, so
-  the OFF bundle is byte-for-byte the call that preceded it. The two mint
+  the OFF bundle is byte-for-byte the bare call. The two mint
   fns are the arm's two view-substrate wrappers, and a `:render` bucket
   wired to one of them and not the other would report half a page."
   [view-name body-fn]
@@ -1950,28 +1921,28 @@
   if nobody writes it down.
 
   **The classification is the ladder's input, so where a token sits is a
-  measurement and not a filing convenience (rf2-2rtt6.46).** The read-set
-  entry sat under `:shared` and does not belong there: an entry is shared
+  measurement and not a filing convenience.** The read-set entry does
+  not belong under `:shared`: an entry is shared
   only between boundaries whose read SEQUENCES are identical, and the
-  shape the per-read heap ladder is taken on (rf2-2rtt6.34) is the
+  shape the per-read heap ladder is taken on is the
   distinct-query one — every row reading its own key, so every row a read
   sequence of its own and an entry of its own. Filed as `:shared` it
-  under-counted per-boundary retention by one entry per boundary, on
+  would under-count per-boundary retention by one entry per boundary, on
   exactly the rung being measured, in the direction that flatters this
   arm. Filed here it over-counts in the coincident-sequence case, which
   is the direction a candidate's own instrument should err in."
   []
   {:per-boundary
    [{:token :registration
-     :what  "one JS object: the read set (shared with its entry, never copied — and since rf2-dabt3 this IS the forward edge, so no map holds a second copy of it), React's onStoreChange, and the acquired cell vector"}
+     :what  "one JS object: the read set (shared with its entry, never copied — and this IS the forward edge, so no map holds a second copy of it), React's onStoreChange, and the acquired cell vector"}
     {:token :cell/reader-membership
-     :what  "one slot in each read key's cell-local reader list — the key's reverse edge and this boundary's reference to the key's cell, which are ONE membership since rf2-dabt3. It replaces the retired index's :index/b->subs entry, its :index/sub->bs membership, and the singleton reader SET the second map retained per key at fan-out 1"}
+     :what  "one slot in each read key's cell-local reader list — the key's reverse edge and this boundary's reference to the key's cell, which are ONE membership. A separate index would hold a boundary->subs entry, a sub->boundaries membership, and a singleton reader SET per key at fan-out 1 in its place"}
     {:token :react/use-sync-external-store
      :what  "React's own hook cell for the one subscription hook"}
     {:token :react/use-context
-     :what  "React's own hook cell for the frame hook, plus the fiber's context dependency record — held by the CONTEXT-fed shell only. The frame-fed variant ([[mint-frame-prop-view!]]) does NOT hold it: its frame arrives as the element prop `rfFrame`, which costs one slot in every boundary element's props object instead. A ladder reading this table for that variant must subtract this token and add that slot (rf2-2rtt6.39, priced on rf2-2rtt6.72)"}
+     :what  "React's own hook cell for the frame hook, plus the fiber's context dependency record — held by the CONTEXT-fed shell only. The frame-fed variant ([[mint-frame-prop-view!]]) does NOT hold it: its frame arrives as the element prop `rfFrame`, which costs one slot in every boundary element's props object instead. A ladder reading this table for that variant must subtract this token and add that slot"}
     {:token :react/memo-fiber
-     :what  "one EXTRA React fiber — `mint-view!`'s props-equality bail-out is a `React.memo` carrying a comparator, and a memo with a custom comparator stays a MemoComponent rather than collapsing into React's SimpleMemoComponent, so React holds a wrapper fiber above the component's own (rf2-2rtt6.52)"}
+     :what  "one EXTRA React fiber — `mint-view!`'s props-equality bail-out is a `React.memo` carrying a comparator, and a memo with a custom comparator stays a MemoComponent rather than collapsing into React's SimpleMemoComponent, so React holds a wrapper fiber above the component's own"}
     {:token :read-set-entry
      :what  "one key array, key SET, subscribe and getSnapshot per distinct read SEQUENCE — shared ONLY with boundaries whose sequence is identical, so on the distinct-query rung the ladder is taken on there is one per boundary"}]
    :shared
@@ -1985,7 +1956,7 @@
      :what  "the codec's tag and prop caches, per distinct literal in the build"}]
    :absent
    [{:token :use-ref   :what "no useRef anywhere in the shell (HD-020(b))"}
-    {:token :use-state :what "no per-instance render-phase state of any kind IN THE SHELL. The one useState on an Arm 1 page belongs to `front.controlled`'s composition shadow and is a controlled TEXT ELEMENT's, one per field — never a boundary's, and priced per field on `shapes/hook_budget_dom_cljs_test` (rf2-digtt)"}
+    {:token :use-state :what "no per-instance render-phase state of any kind IN THE SHELL. The one useState on an Arm 1 page belongs to `front.controlled`'s composition shadow and is a controlled TEXT ELEMENT's, one per field — never a boundary's, and priced per field on `shapes/hook_budget_dom_cljs_test`"}
     {:token :view-cell :what "no per-boundary object graph, reaction, watcher or scheduler"}
     {:token :candidate-ledger
      :what  "one scratch buffer, never two; nothing keyed by render, attempt, lane or generation; no per-read object; no commit-phase deref"}]})
@@ -1995,7 +1966,7 @@
   either because nothing holds the key, or because the substrate disposed
   the reaction and [[invalidate-cell!]] dropped the reference.
 
-  A witness reader, and the one the rf2-2rtt6.44 rows need: the failure
+  A witness reader, and the one the invalidation rows need: the failure
   they pin is what a HELD container answers after its disposal, so they
   have to be able to hold it."
   [sub-key]
@@ -2008,10 +1979,9 @@
   A witness reader, answered as a SNAPSHOT: the cell's live array is
   cloned before it is wrapped, so a caller may hold the result across a
   mount, an unmount or a remount and read back what it captured. That is
-  the guarantee the reader-counting rows assert against, and it replaces
-  the retired index's `readers-of`.
+  the guarantee the reader-counting rows assert against.
 
-  **The clone is load-bearing and `vec` alone was not it (rf2-0oy4).**
+  **The clone is load-bearing and `vec` alone is not it.**
   `cljs.core/vec` says so in its own docstring — *\"JavaScript arrays will
   be aliased and should not be modified\"* — because on an array it calls
   `PersistentVector.fromArray` with `no-clone` true, and below length 32,
@@ -2022,14 +1992,11 @@
   construction while `reduce` walks each chunk by the tail's live
   `alength`, so the same vector answers 2 to `count` and `[b b]` to
   `mapv`. A baseline that mutates into the result is a witness that cannot
-  see a leak, and by symmetry a leaking runtime that reads clean — which
-  is how this presented, as rf2-vsgq's HMR baseline.
+  see a leak, and by symmetry a leaking runtime that reads clean.
 
-  This file is the PACKAGE's donor and is no longer digest-pinned to it
-  (`fresco/frozen-sources.edn`, \"the first retirement\"), so the two
-  copies are kept in step by hand. The package's own
-  `re-frame.fresco.impl.inventory/cell-readers` carries this fix, and
-  `re-frame.fresco.inventory-snapshot-cljs-test` pins it."
+  This file is the PACKAGE's donor and is not digest-pinned to it, so
+  the two copies are kept in step by hand. The package's own
+  `re-frame.fresco.test.runtime/cell-readers` carries the same clone."
   [sub-key]
   (if-some [^js c (get @!cells sub-key)]
     (vec (aclone (.-readers c)))
@@ -2039,9 +2006,9 @@
   "The sub-key set `reg` reads — the fused table's `edges-of`.
 
   It is a field read rather than a lookup, and that is the point: the
-  forward edge was always on the registration (`.-reads`, the read-set
-  entry's own key set, shared by reference), which is why retiring the
-  index cost no structure (rf2-dabt3)."
+  forward edge is on the registration (`.-reads`, the read-set
+  entry's own key set, shared by reference), so no separate structure
+  holds it."
   [^js reg]
   (.-reads reg))
 
@@ -2076,7 +2043,7 @@
   The scan's cost is `:max-bucket`, and the point of hashing the whole
   read sequence is that it stays put while the number of live boundaries
   grows. Computed on demand from the cache, so nothing on the hot path
-  counts anything. rf2-2rtt6.46."
+  counts anything."
   []
   (let [sizes (map (fn [[_ v]] (count v)) @!entries)]
     {:buckets (count sizes) :max-bucket (reduce max 0 sizes)}))
@@ -2084,7 +2051,7 @@
 (defn residue
   "What must be zero after a clean teardown. `:cell-refs` is the standing
   zero-leaked-subscription-ref-counts assertion; `:boundaries` and
-  `:edges` are the dependency edges' half of it — now read off the same
+  `:edges` are the dependency edges' half of it — read off the same
   memberships, which is why a leak cannot show in one and hide in the
   other."
   []
@@ -2100,12 +2067,12 @@
   macrotask after an unclaimed render still counts entries the runtime
   is about to drop. A baseline taken there is a state the runtime never
   returns to, and an instrument gating on residue EQUALITY against it
-  throws on the first arm whose row outlives the horizon — which is
-  exactly what rf2-981nt was: `read_profile_app`'s phase B baselined six
-  entries at ~0 ms and found five thereafter, every run, byte-identical.
+  throws on the first arm whose row outlives the horizon — measured on
+  `read_profile_app`'s phase B, a baseline at ~0 ms reads six entries
+  where every later reading finds five, every run, byte-identical.
 
   Exported so a caller settles against the runtime's own horizon rather
-  than against a copy of it, because the copy is what drifted. Nothing
+  than against a copy of it, because a copy drifts. Nothing
   here becomes a contract: [[entry-reap-horizon-ms]] stays a margin no
   caller may rely on, and this promise says only *wait for me*, never
   *here is my number*."
