@@ -1,14 +1,14 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-events
-  "Events for the Cancellation-cascade visualiser (rf2-59e7k).
+  "Events for the Cancellation-cascade visualiser.
 
-  Per the bead's contract the visualiser has three event surfaces:
+  The visualiser's event surfaces:
 
     `:rf.xray/cancellation-cascade-open`    ; popover open (anchor focus)
     `:rf.xray/cancellation-cascade-close`   ; popover close
     `:rf.xray/cancellation-cascade-toggle-expand` ; show-all-N toggle
     `:rf.xray/focus-trace-entry`            ; jump-to-trace from a row
-    `:rf.xray/cancellation-cascade-set-collapse-default`
-       ; per-panel collapse default override (test hook)
+    `:rf.xray/cancellation-cascade-set-expanded`
+       ; set the show-all-N flag explicitly
 
   All events run against Xray's `:rf/xray` frame; the storage slots
   live at `:cancellation-cascade-popover-open?`,
@@ -17,10 +17,10 @@
   `:cancellation-cascade-expanded?`.
 
   `:rf.xray/focus-trace-entry` is a small jump-event the visualiser
-  rows dispatch when clicked — it delegates into the existing
+  rows dispatch when clicked — it delegates into the
   `:rf.xray/select-dispatch-id` spine shim when a dispatch-id is
-  present, otherwise no-ops. The slot is the bead's contract for
-  'click a row → jump to the trace entry'."
+  present, otherwise no-ops. It is the 'click a row → jump to the
+  trace entry' affordance."
   (:require [re-frame.core :as rf]))
 
 (defn install!
@@ -55,21 +55,20 @@
 
   ;; ---- focus-trace-entry: row-click jump --------------------------------
   ;;
-  ;; Per the bead's contract: clicking any row in the visualiser
+  ;; Clicking any row in the visualiser
   ;; surfaces the underlying trace entry. The row carries the dispatch-id
   ;; (when the trace event was emitted during a drain); we delegate into
-  ;; the legacy spine shim `:rf.xray/select-dispatch-id` so the
-  ;; existing event-detail panel takes the focus pivot.
+  ;; the spine shim `:rf.xray/select-dispatch-id` so the
+  ;; Epoch panel takes the focus pivot.
   (rf/reg-event :rf.xray/focus-trace-entry
     (fn [_ctx [_ {:keys [dispatch-id frame trace-id]}]]
-      ;; trace-id rides through for the future per-event focus surface
-      ;; (rf2-pending event-row direct focus); today the dispatch-id is
+      ;; trace-id rides through unused: the dispatch-id is
       ;; the only addressable axis the spine accepts. When no dispatch-id
       ;; is available (e.g. an actor-destroy abort outside a drain), the
       ;; event becomes a no-op — the visualiser still has the trace-id
       ;; pinned via the row's data-testid so the user can grep on it.
       ;;
-      ;; rf2-nesy9 — the re-dispatched events target the SURROUNDING
+      ;; The re-dispatched events target the SURROUNDING
       ;; instance frame captured at handler entry (the handler runs in
       ;; the dispatching frame's context), not a `{:frame :rf/xray}`
       ;; literal that pins the singleton.
@@ -80,15 +79,14 @@
                                   dispatch-id frame]
                                  {:frame here}]])
                ;; Flip the visible tab to Epoch so the row jump lands on
-               ;; the focused cascade's pipeline detail. The retired
-               ;; `:event` tab id (and its event-detail panel) folded
-               ;; into Epoch — Epoch is the cascade-pipeline master view
+               ;; the focused cascade's pipeline detail. Epoch is the
+               ;; cascade-pipeline master view
                ;; the `:rf.xray/select-dispatch-id` spine pin drives
-               ;; (epoch_panel.cljs :order -1). Selecting `:event` here
-               ;; landed the shell's unknown-tab stub (rf2-cduftx F1);
-               ;; `:epoch` is a LIVE Dynamic L4 tab (focus.cljc
-               ;; `valid-panels`). The legacy `:rf.xray/select-panel`
-               ;; slot is no longer read by the 4-layer shell (rf2-qy0nu).
+               ;; (epoch_panel.cljs :order -1), and `:epoch` is a LIVE
+               ;; Dynamic L4 tab (focus.cljc `valid-panels`). There is no
+               ;; `:event` tab, so selecting one would land the shell's
+               ;; unknown-tab stub, and the 4-layer shell reads no
+               ;; `:rf.xray/select-panel` slot.
                dispatch-id
                (conj [:dispatch [[:rf.xray/select-tab :epoch]
                                  {:frame here}]])
