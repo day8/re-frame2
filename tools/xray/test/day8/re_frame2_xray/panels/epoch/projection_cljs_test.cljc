@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch.projection-cljs-test
-  "Pure-data tests for the Epoch panel's projection layer (rf2-sc3r1).
+  "Pure-data tests for the Epoch panel's projection layer.
 
   ## Why `.cljc` + `_cljs_test` naming
 
@@ -20,7 +20,7 @@
        :effectful / :reg-machine) from the trace stream.
     4. `flow-rows` — one row per `:rf.flow/computed` event;
        `project` splats into N first-class FLOW steps in the
-       cascade (rf2-xnb1x, mirror of cofx per-step split).
+       cascade (mirror of cofx per-step split).
     5. `fx-step` — conditional: present iff any `:rf.fx/*` event fired.
     6. `subscriptions-step` — conditional: present iff `:rf.sub/*`
        events fired.
@@ -37,26 +37,23 @@
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
-            ;; rf2-ugdas / rf2-e7yhv — the canonical issue-projection
+            ;; The canonical issue-projection
             ;; predicate (`issue-event?`) + the L2 pink-wash predicate
             ;; (`event-bundle-has-issue?`) the no-op MUST NOT trip and the
             ;; `:*`-action throw MUST trip (the contrast).
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]
             [day8.re-frame2-xray.panels.l2-timeline :as l2]
-            ;; rf2-tyivx — canonical trace-event builders shared with
-            ;; the panel-gallery synth fixtures + any other projection
-            ;; test. Pre-rf2-tyivx every `*-ev` helper was duplicated
-            ;; per call site; the rf2-e0xjx cluster (rf2-yhgk8 /
-            ;; rf2-slnce / rf2-ipaza / rf2-w2r4p) is what happens when
-            ;; copies drift in lock-step. ONE canonical name set, one
-            ;; ns, one diff to land a substrate-side rename.
+            ;; Canonical trace-event builders shared with the
+            ;; panel-gallery synth fixtures + any other projection
+            ;; test: ONE canonical name set, one ns, one diff to land a
+            ;; substrate-side rename, so per-call-site copies cannot
+            ;; drift apart.
             [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
 ;; ---- local fixture aliases ----------------------------------------------
 ;;
-;; Thin aliases over `teb/*` so existing call sites read identically to
-;; the pre-rf2-tyivx file. A single re-name lands in one place when the
-;; substrate emit shape rotates.
+;; Thin aliases over `teb/*` so call sites stay short. A single re-name
+;; lands in one place when the substrate emit shape rotates.
 
 (def ^:private ev                   teb/ev)
 (def ^:private dispatched-ev        teb/dispatched-ev)
@@ -120,11 +117,10 @@
     (is (nil? (proj/dispatch-row [] nil)))))
 
 (deftest dispatch-row-reads-canonical-event-v-tag-test
-  (testing "rf2-93a7s — the dispatched trace stamps the event vector at
+  (testing "the dispatched trace stamps the event vector at
             the substrate-canonical `:rf.event/v` tag; the projection
-            must read that tag (the pre-rf2-93a7s read against `:event`
-            silently returned nil — DISPATCH step appeared without its
-            event-vector body)"
+            must read that tag (reading `:event` would silently return
+            nil — a DISPATCH step without its event-vector body)"
     (let [ev {:op-type   :rf.event
               :operation :rf.event/dispatched
               :tags      {:rf.event/v [:counter/inc 7]
@@ -134,19 +130,19 @@
           "event vector resolves through :rf.event/v")
       (is (= :ui (:source r))))))
 
-;; ---- rf2-5qp4g — per-source-kind enrichment -----------------------------
+;; ---- per-source-kind enrichment -----------------------------------------
 ;;
-;; Each closed-set source value from rf2-ejtpd produces a different
+;; Each closed-set source value produces a different
 ;; enrichment payload under `:source-enrichment` so the view layer can
 ;; render the rich label per kind. Vanilla sources (`:ui`,
 ;; `:frame-init`, `:test-harness`, `:unknown`) carry no enrichment.
 
 (deftest dispatch-row-after-timer-enrichment-test
-  (testing "rf2-5qp4g — `:source :after-timer` enrichment extracts
+  (testing "`:source :after-timer` enrichment extracts
             delay-ms + source-state-path + machine-id from the
             event-vector shape
             `[<machine-id> [:rf.machine.timer/after-elapsed <delay>
-                            <epoch> <invoke-id>]]` (rf2-ejtpd
+                            <epoch> <invoke-id>]]` (the
             timer.cljc stamp site)"
     (let [event [:ws/connection [:rf.machine.timer/after-elapsed
                                  250 42 [:active :authenticating]]]
@@ -165,7 +161,7 @@
           "source-state-path from the inner vector's slot 3 (invoke-id)"))))
 
 (deftest dispatch-row-after-timer-defensive-degrade-test
-  (testing "rf2-5qp4g — when `:source :after-timer` is stamped but the
+  (testing "when `:source :after-timer` is stamped but the
             event vector doesn't match the canonical timer shape, the
             row carries no enrichment (defensive fall-through; the
             view renders the kind label only)"
@@ -179,7 +175,7 @@
           "non-canonical timer-event shape → no enrichment"))))
 
 (deftest dispatch-row-after-timer-scalar-slot3-fail-soft-test
-  (testing "rf2-q25i4o — a partial `:rf.machine.timer/after-elapsed`
+  (testing "a partial `:rf.machine.timer/after-elapsed`
             event whose slot-3 invoke-id is a SCALAR (or nil) passes the
             keyword + count shape checks but must NOT crash on
             `(vec <scalar>)`. The row fails soft: it preserves
@@ -201,7 +197,7 @@
             (str "scalar/nil slot-3 → no enrichment for " (pr-str slot3)))))))
 
 (deftest dispatch-row-machine-spawn-enrichment-test
-  (testing "rf2-5qp4g — `:source :machine-spawn` enrichment extracts
+  (testing "`:source :machine-spawn` enrichment extracts
             the spawned actor-id (event vector's head) so the renderer
             can label the dispatch as `from machine spawn ·
             :child-actor-id`"
@@ -217,7 +213,7 @@
           "spawned-actor-id is the first element of the event vector"))))
 
 (deftest dispatch-row-fx-dispatch-enrichment-test
-  (testing "rf2-5qp4g — `:source :fx-dispatch` enrichment reads the
+  (testing "`:source :fx-dispatch` enrichment reads the
             parent-dispatch-id off the dispatched trace's
             `:rf.trace/parent-dispatch-id` tag (already stamped by
             router.cljc `emit-dispatched-trace` per spec/018
@@ -236,7 +232,7 @@
           "`:fx-dispatch` carries no delay-ms"))))
 
 (deftest dispatch-row-fx-dispatch-later-enrichment-test
-  (testing "rf2-5qp4g — `:source :fx-dispatch-later` enrichment reads
+  (testing "`:source :fx-dispatch-later` enrichment reads
             parent-dispatch-id + optional delay-ms (the original
             scheduled delay) off `:rf.event/source-detail :ms`"
     (let [ev {:op-type   :rf.event
@@ -253,8 +249,8 @@
           "delay-ms surfaces when `:rf.event/source-detail :ms` is present"))))
 
 (deftest dispatch-row-fx-dispatch-later-without-detail-test
-  (testing "rf2-5qp4g — when no `:rf.event/source-detail` tag rides on
-            the trace (older runtime, no per-fx detail stamping yet),
+  (testing "when no `:rf.event/source-detail` tag rides on
+            the trace (a runtime that stamps no per-fx detail),
             `:fx-dispatch-later` still surfaces parent-dispatch-id; the
             delay-ms slot is just absent"
     (let [ev {:op-type   :rf.event
@@ -268,10 +264,10 @@
       (is (nil? (:delay-ms enrich))))))
 
 (deftest dispatch-row-vanilla-source-has-no-enrichment-test
-  (testing "rf2-5qp4g — vanilla source kinds (`:ui`, `:frame-init`,
+  (testing "vanilla source kinds (`:ui`, `:frame-init`,
             `:test-harness`, `:unknown`) carry no `:source-enrichment`
-            slot; their labels render through the existing pre-rf2-5qp4g
-            `from <source>` chrome unchanged"
+            slot; their labels render through the plain
+            `from <source>` chrome"
     (doseq [src [:ui :frame-init :test-harness :unknown]]
       (let [ev {:op-type   :rf.event
                 :operation :rf.event/dispatched
@@ -282,7 +278,7 @@
             (str src " — vanilla source kinds carry no enrichment"))))))
 
 (deftest dispatch-row-fx-dispatch-without-parent-test
-  (testing "rf2-5qp4g — when `:source :fx-dispatch` is stamped but the
+  (testing "when `:source :fx-dispatch` is stamped but the
             trace carries no `:rf.trace/parent-dispatch-id` (root
             cascade / test fixtures that omit dispatch-id correlation),
             the row carries no enrichment (the parent-epoch link is
@@ -296,16 +292,15 @@
       (is (nil? (:source-enrichment r))
           "no parent-dispatch-id → no enrichment map (graceful degrade)"))))
 
-;; ---- RECORDABLE COEFFECTS (rf2-9fyn40 · EP-0010 · EP-0017 §9) ------------
+;; ---- RECORDABLE COEFFECTS (EP-0010 · EP-0017 §9) -------------------------
 ;;
 ;; The dispatch envelope's flat recordable-coeffect map `:rf.cofx` rides
 ;; under `[:tags :rf.cofx]` on the `:rf.event/dispatched` trace (the
-;; substrate stamps it per rf2-alc1lf). EP-0017 renamed it from the nested
-;; `:rf.world/inputs` (key `:time-ms`) to the flat `:rf.cofx` (key
-;; `:rf/time-ms`). The Event lens surfaces the declared recordable leaves as
+;; substrate stamps it; the time fact's key is `:rf/time-ms`). The Event
+;; lens surfaces the declared recordable leaves as
 ;; a dedicated RECORDABLE COEFFECTS step right after DISPATCH SITE (§9).
 ;;
-;; PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11; EP-0017 §9):
+;; PRIVACY (EP-0010 §Privacy / Open Issue 4; EP-0017 §9):
 ;; `:rf/time-ms` is ALWAYS safe to surface (rides verbatim); every other
 ;; leaf is value-bearing and REDACTS BY DEFAULT — routed through
 ;; `resources-helpers/summarize` (the same path reply_envelope.cljc uses),
@@ -313,7 +308,7 @@
 
 (defn- dispatched-with-cofx
   "A `:rf.event/dispatched` trace event carrying a flat `:rf.cofx` map
-  under `:tags` (the substrate-canonical placement per rf2-alc1lf)."
+  under `:tags` (the substrate-canonical placement)."
   [event cofx]
   {:op-type   :rf.event
    :operation :rf.event/dispatched
@@ -322,7 +317,7 @@
                :rf.cofx    cofx}})
 
 (deftest recordable-cofx-row-time-ms-only-test
-  (testing "rf2-9fyn40 · EP-0017 — a :rf.cofx map carrying only :rf/time-ms
+  (testing "EP-0017 — a :rf.cofx map carrying only :rf/time-ms
             produces a RECORDABLE COEFFECTS row surfacing the time fact
             verbatim (always safe per EP-0010 Open Issue 4), with no
             value-bearing leaf rows"
@@ -334,7 +329,7 @@
       (is (nil? (:inputs r)) "no value-bearing leaves → no :inputs slot"))))
 
 (deftest recordable-cofx-row-value-bearing-leaves-summarized-test
-  (testing "rf2-9fyn40 · EP-0017 — value-bearing owner-qualified leaves
+  (testing "EP-0017 — value-bearing owner-qualified leaves
             (the app's :counter/delta, a subsystem's :rf.route/location) are
             routed through resources-helpers/summarize: the leaf id rides
             verbatim (owner-qualified vocabulary, not PII); the VALUE is a
@@ -363,7 +358,7 @@
       (is (= :rf.route/location (:key (by-key :rf.route/location)))))))
 
 (deftest recordable-cofx-row-filters-to-declared-recordables-test
-  (testing "rf2-n9v5ga · EP-0017 §9 — when a DECLARED RECORDABLE id set is
+  (testing "EP-0017 §9 — when a DECLARED RECORDABLE id set is
             supplied, the RECORDABLE COEFFECTS lens shows ONLY the handler's
             declared recordable leaves; an UNDECLARED extra leaf that merely
             rode the raw dispatch token (EP-0017 does NOT deliver it to the
@@ -385,7 +380,7 @@
           "the undeclared token leaf NEVER appears as a recordable input"))))
 
 (deftest recordable-cofx-rows-declared-filter-unit-test
-  (testing "rf2-n9v5ga — `recordable-cofx-rows` with a declared set keeps
+  (testing "`recordable-cofx-rows` with a declared set keeps
             only the intersection; nil declared set is the show-all fallback"
     (let [cofx {:rf/time-ms 1 :a/x 1 :b/y 2 :c/z 3}]
       (is (= [:a/x :b/y :c/z] (mapv :key (proj/recordable-cofx-rows cofx nil)))
@@ -396,7 +391,7 @@
           "a declared set that matches no leaf ⇒ no rows"))))
 
 (deftest project-threads-declared-recordables-resolver-test
-  (testing "rf2-n9v5ga — `project` threads `:resolve-event-recordables`
+  (testing "`project` threads `:resolve-event-recordables`
             through to the RECORDABLE COEFFECTS step so an undeclared token
             leaf is filtered out end-to-end"
     (let [cofx {:rf/time-ms 1781078400123
@@ -415,8 +410,8 @@
       (is (= [:counter/delta] keys)
           "the resolver-supplied declared set filters out :app/extra")))
 
-  (testing "rf2-n9v5ga — with NO resolver the show-all fallback holds (pure
-            JVM-projection callers / older runtimes)"
+  (testing "with NO resolver the show-all fallback holds (pure
+            JVM-projection callers / runtimes without a resolver)"
     (let [cofx {:rf/time-ms 1781078400123
                 :counter/delta {:roll 4}
                 :app/extra {:leak "me"}}
@@ -428,7 +423,7 @@
           "no resolver ⇒ all non-time leaves surface (documented fallback)"))))
 
 (deftest recordable-cofx-row-redacted-value-stays-sentinel-test
-  (testing "rf2-9fyn40 · EP-0017 — a value already redacted UPSTREAM (the
+  (testing "EP-0017 — a value already redacted UPSTREAM (the
             framework :rf/redacted sentinel for a :sensitive? slot) keeps its
             sentinel status through summarize: the row renders [redacted],
             NEVER the raw value (EP-0015 — marks/projection redact by default)"
@@ -443,14 +438,14 @@
           "renders the redaction marker, not the raw value"))))
 
 (deftest recordable-cofx-row-absent-when-no-map-test
-  (testing "rf2-9fyn40 · EP-0017 — silent-by-default: no :rf.cofx tag (older
-            runtimes / prod-elided arm / fixtures) → no RECORDABLE COEFFECTS step"
+  (testing "EP-0017 — silent-by-default: no :rf.cofx tag (runtimes
+            that stamp none / prod-elided arm / fixtures) → no RECORDABLE COEFFECTS step"
     (let [ev (dispatched-ev [:counter/inc] :ui)]  ;; builder stamps no cofx
       (is (nil? (proj/recordable-cofx-row [ev]))
           "no :rf.cofx map → nil row")))
-  (testing "rf2-9fyn40 — no dispatched trace at all → nil row"
+  (testing "no dispatched trace at all → nil row"
     (is (nil? (proj/recordable-cofx-row []))))
-  (testing "rf2-9fyn40 — an EMPTY :rf.cofx map → nil row (nothing to show)"
+  (testing "an EMPTY :rf.cofx map → nil row (nothing to show)"
     (let [ev (dispatched-with-cofx [:counter/inc] {})]
       (is (nil? (proj/recordable-cofx-row [ev]))))))
 
@@ -550,7 +545,7 @@
       (is (not (contains? by-key :app/extra)) "undeclared token leaf filtered out"))))
 
 (deftest project-places-recordable-cofx-after-dispatch-test
-  (testing "rf2-9fyn40 · EP-0017 — `project` slots the RECORDABLE COEFFECTS
+  (testing "EP-0017 — `project` slots the RECORDABLE COEFFECTS
             step RIGHT AFTER DISPATCH SITE (before the ambient COEFFECTS), and
             numbers it as a first-class cascade entry"
     (let [ev    (dispatched-with-cofx [:counter/inc] {:rf/time-ms 1781078400123})
@@ -559,7 +554,7 @@
       (is (= :dispatch (first kinds)) "DISPATCH first")
       (is (= :recordable-cofx (second kinds)) "RECORDABLE COEFFECTS immediately after DISPATCH")
       (is (= 2 (:step-number (second steps))) "numbered as step 2")))
-  (testing "rf2-9fyn40 — no :rf.cofx map → no RECORDABLE COEFFECTS step in the cascade"
+  (testing "no :rf.cofx map → no RECORDABLE COEFFECTS step in the cascade"
     (let [ev    (dispatched-ev [:counter/inc] :ui)
           steps (proj/project (record [ev]))
           kinds (mapv :step steps)]
@@ -569,7 +564,7 @@
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
-  (testing "rf2-mmlgk / rf2-sepqgg — granular `:rf.cofx/run` events are
+  (testing "granular `:rf.cofx/run` events are
             walked; each row carries the PRODUCED VALUE off the run-end's
             `:rf.event/coeffects` map. The per-call REQUIREMENT ARG of a
             parameterized `[id arg]` declaration (e.g.
@@ -594,12 +589,12 @@
           "bare cofx carries no :input (no requirement arg)"))))
 
 (deftest project-threads-cofx-input-through-cofx-steps-test
-  (testing "rf2-lz6gl9 — the `cofx-steps` flattening in `project` /
+  (testing "the `cofx-steps` flattening in `project` /
             `project-numbered` MUST thread the parameterized request arg
             (`:rf.cofx/arg`, surfaced as `:input` on the row) onto the
-            numbered COEFFECT step. The pre-rf2-lz6gl9 flattening rebuilt
-            each step with only `:id` / `:value` / `:duration-ms` and
-            dropped `:input` before the UI saw it — so a reviewer saw the
+            numbered COEFFECT step. A flattening that rebuilt each step
+            with only `:id` / `:value` / `:duration-ms` would drop
+            `:input` before the UI saw it — a reviewer would see the
             produced value but never the request arg that selected it."
     (let [rec   (record [(dispatched-ev [:auth/login] :ui nil)
                          ;; a parameterized `[:session :auth-token]` request:
@@ -623,7 +618,7 @@
       (is (= :auth-token (:input cofx))
           ":input survives project-numbered too")))
 
-  (testing "rf2-lz6gl9 — a BARE (non-parameterized) cofx produces a step
+  (testing "a BARE (non-parameterized) cofx produces a step
             WITHOUT `:input` (clean absence, matching the row's
             `cond-> (some? input)` shape)"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
@@ -636,11 +631,11 @@
           "no requirement arg on the row → :input absent on the step"))))
 
 (deftest coeffect-rows-granular-without-run-end-test
-  (testing "rf2-mmlgk / rf2-sepqgg — when granular `:rf.cofx/run` events
+  (testing "when granular `:rf.cofx/run` events
             exist but no `:rf.event/run-end` carries the coeffects map
             (interrupted cascades), the row falls back to the run-op's
-            `:rf.cofx/value` (the PRODUCED value) — which since rf2-sepqgg
-            agrees with the run-end egress — rather than reading the
+            `:rf.cofx/value` (the PRODUCED value, which agrees with the
+            run-end egress) rather than reading the
             requirement arg as if it were the result."
     (let [evs  [(cofx-run-ev :testdeck/now #inst "2026-02-02")]
           rows (proj/coeffect-rows evs)]
@@ -667,11 +662,11 @@
     (is (= [] (proj/coeffect-rows [])))))
 
 (deftest coeffect-rows-reads-canonical-elapsed-ms-test
-  (testing "rf2-w2r4p — substrate stamps the per-cofx invocation
+  (testing "substrate stamps the per-cofx invocation
             duration as `:rf.cofx/elapsed-ms` on `:rf.cofx/run`
-            (rf2-hhh92 · `re-frame.cofx`; spec 009 §243). The
-            pre-rf2-w2r4p reader looked for the never-emitted
-            `:duration-ms` — every cofx row showed nil duration."
+            (`re-frame.cofx`; spec 009 §243). A reader looking for
+            the never-emitted `:duration-ms` would show nil duration
+            on every cofx row."
     (let [cofx-ev  {:op-type   :rf.cofx
                     :operation :rf.cofx/run
                     :tags      {:rf.cofx/id         :session
@@ -683,12 +678,12 @@
           "cofx row duration resolves through canonical :rf.cofx/elapsed-ms"))))
 
 (deftest project-threads-cofx-duration-through-cofx-steps-test
-  (testing "rf2-w2r4p — the `cofx-steps` flattening in `project` MUST
+  (testing "the `cofx-steps` flattening in `project` MUST
             thread the row's `:duration-ms` through to the step map.
-            The pre-rf2-w2r4p flattening built each step with only
-            `:id` + `:value` and dropped the duration — even with the
-            reader stamping the canonical tag, the cascade'"'"'s COEFFECT
-            step rendered nil and never crossed the long-step
+            A flattening that built each step with only `:id` +
+            `:value` would drop the duration — even with the reader
+            stamping the canonical tag, the cascade'"'"'s COEFFECT
+            step would render nil and never cross the long-step
             threshold."
     (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
                          (cofx-run-ev :session {:user-id 1} 18.5)
@@ -699,10 +694,10 @@
       (is (= 18.5 (:duration-ms cofx))
           ":duration-ms threaded from cofx-row into cofx-step")
       (is (true? (proj/long-step? cofx))
-          "long-step? predicate now keys off the threaded duration"))))
+          "long-step? predicate keys off the threaded duration"))))
 
 (deftest project-cofx-step-omits-duration-when-absent-test
-  (testing "rf2-w2r4p — cofx with no duration produces a step without
+  (testing "cofx with no duration produces a step without
             `:duration-ms` (clean absence vs. explicit nil), matching
             the row's `cond-> (some? duration-ms)` shape"
     (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
@@ -713,7 +708,7 @@
           "no duration on the row → :duration-ms absent on the step"))))
 
 (deftest coeffect-rows-skip-system-cofx-test
-  (testing "rf2-cq0ch — system-injected defaults (:db / :event / :frame /
+  (testing "system-injected defaults (:db / :event / :frame /
             :source / :trace-id) are filtered out at projection time"
     (let [evs  (concat (mapv #(cofx-run-ev % nil) [:db :event :frame :source :trace-id])
                        [(cofx-run-ev :session {:user-id 42})])
@@ -721,13 +716,13 @@
       (is (= 1 (count rows)) "only the user-defined :session row survives")
       (is (= :session (-> rows first :id)))))
 
-  (testing "rf2-cq0ch — fallback path also filters system defaults"
+  (testing "fallback path also filters system defaults"
     (let [evs  [(run-end-ev 0.1 {:db {} :event [:x] :session {:user-id 7}})]
           rows (proj/coeffect-rows evs)]
       (is (= 1 (count rows)))
       (is (= :session (-> rows first :id)))))
 
-  (testing "rf2-cq0ch — pure db-only handler (only system cofx) emits NO step"
+  (testing "pure db-only handler (only system cofx) emits NO step"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (cofx-run-ev :db nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
@@ -738,13 +733,12 @@
 ;; ---- HANDLER -------------------------------------------------------------
 
 (deftest handler-row-reads-canonical-elapsed-ms-test
-  (testing "rf2-slnce — substrate stamps the per-handler duration as
-            `:rf.event/elapsed-ms` on `:rf.event/run-end` (rf2-hhh92 ·
-            `re-frame.router/emit-run-end-trace`; spec 009 §238). The
-            pre-rf2-slnce reader looked for the never-emitted
-            `:duration-ms` / `:rf.event/duration-ms` — HANDLER duration
-            was always nil and the cascade-summary chip total was
-            systematically under-counted."
+  (testing "substrate stamps the per-handler duration as
+            `:rf.event/elapsed-ms` on `:rf.event/run-end`
+            (`re-frame.router/emit-run-end-trace`; spec 009 §238). A
+            reader looking for the never-emitted `:duration-ms` /
+            `:rf.event/duration-ms` would leave HANDLER duration nil and
+            systematically under-count the cascade-summary chip total."
     (let [run-end {:op-type   :rf.event
                    :operation :rf.event/run-end
                    :tags      {:rf.event/elapsed-ms 4.2}}
@@ -752,22 +746,21 @@
       (is (= 4.2 (:duration-ms r))
           "handler duration resolves through canonical :rf.event/elapsed-ms")))
 
-  (testing "rf2-slnce — fixture-compat: a runtime that still stamps
-            `:duration-ms` (older or external) falls through the
-            preserved fallback chain"
+  (testing "fixture-compat: a runtime that stamps `:duration-ms` (an
+            external one, or a fixture) falls through the fallback
+            chain"
     (let [run-end {:op-type   :rf.event
                    :operation :rf.event/run-end
                    :tags      {:duration-ms 9.9}}
           r       (proj/handler-row [run-end] :counter-inc)]
       (is (= 9.9 (:duration-ms r))
-          "legacy :duration-ms fallback retained for older fixtures"))))
+          ":duration-ms fallback serves fixtures that stamp it"))))
 
 (deftest handler-row-db-only-flavour-test
   (testing "no fx + no machine = :db-only effect-shape flavour.
 
-  rf2-sp0n9 — the prior `:db-diff` Editscript flat-row slot is gone
-  (the view re-derived its own diff and discarded the projection's);
-  the HANDLER `:db` is now rendered from `:db-post-handler` diffed
+  There is no precomputed `:db-diff` slot (the view derives its own
+  diff); the HANDLER `:db` is rendered from `:db-post-handler` diffed
   against `:db-before` by the view's edn-inspector."
     (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
                               :counter-inc)]
@@ -776,7 +769,7 @@
       (is (= :db-only (:flavour r)))
       (is (= :counter-inc (:event-id r)))
       (is (not (contains? r :db-diff))
-          "rf2-sp0n9 — no precomputed :db-diff slot on the handler row")
+          "no precomputed :db-diff slot on the handler row")
       (is (= [] (:fx r))))))
 
 (deftest handler-row-effectful-flavour-test
@@ -788,23 +781,21 @@
       (is (= 2 (count (:fx r))))
       (is (= #{:db :navigate} (into #{} (map :fx-id (:fx r))))))))
 
-;; ---- :fx-vec — the PRODUCER shape (rf2-m2ye2) ---------------------------
+;; ---- :fx-vec — the PRODUCER shape ---------------------------------------
 
 (deftest handler-row-fx-vec-producer-shape-test
-  (testing "rf2-m2ye2 — `:fx-vec` is read off the tag the PRODUCER actually
+  (testing "`:fx-vec` is read off the tag the PRODUCER actually
             stamps. `re-frame.fx/do-fx` stamps `:rf.event/fx` as
             `(:fx effects)` — the fx VECTOR-of-vectors, never the effects
             MAP (`implementation/core/src/re_frame/fx.cljc`, the
             `(assoc :rf.event/fx (:fx effects) …)` on the terminal
-            `:rf.fx/do-fx` marker). Measured live on the JVM: a handler
-            returning `{:db {:n 1} :fx [[:probe/noop 1]]}` put
-            `[[:probe/noop 1]]` in that slot, a PersistentVector.
+            `:rf.fx/do-fx` marker): a handler returning
+            `{:db {:n 1} :fx [[:probe/noop 1]]}` puts `[[:probe/noop 1]]`
+            in that slot, a vector.
 
-            Pre-rf2-m2ye2 the projection guarded on `(map? fx)`, so the slot
-            was nil for every real cascade and the HANDLER body's `:fx`
-            sub-section never rendered. EVERY do-fx fixture in this file
-            passed a MAP, which is exactly why nothing caught it — the
-            fixture-versus-producer drift rf2-y8doi.10 finding 1 names. This
+            Guarding on `(map? fx)` would leave the slot nil for every real
+            cascade, so the HANDLER body's `:fx` sub-section would never
+            render. A fixture that passes a MAP cannot catch that — this
             test is deliberately the one that carries the producer shape."
     (let [fx-vector [[:http/post {:url "/x"}] [:navigate {:to :home}]]
           r         (proj/handler-row [(do-fx-ev fx-vector)
@@ -815,13 +806,13 @@
       (is (= :effectful (:flavour r))
           "the do-fx marker still classifies the flavour")))
 
-  (testing "rf2-m2ye2 — a handler that returned no `:fx` leaves the tag nil,
+  (testing "a handler that returned no `:fx` leaves the tag nil,
             so `:fx-vec` stays nil and the view's `seq`-conditioned `:fx`
             sub-section renders nothing"
     (is (nil? (:fx-vec (proj/handler-row [(do-fx-ev nil) (db-changed-ev [])]
                                          :counter-inc)))))
 
-  (testing "rf2-m2ye2 — the MAP carrier is FIXTURE-COMPAT, not a producer
+  (testing "the MAP carrier is FIXTURE-COMPAT, not a producer
             shape. `handler-fx-vec` reads `:fx` out of a whole-effects-map
             tag the way `fx-entries` beside it does, so the synthetic
             fixtures in this file and in the panel gallery keep rendering;
@@ -835,7 +826,7 @@
                                       :navigate-to)))
         "the map carrier surrenders the same :fx vector"))
 
-  (testing "rf2-m2ye2 — neither carrier surfaces anything BUT `:fx`. A map
+  (testing "neither carrier surfaces anything BUT `:fx`. A map
             carrying a legal EP-0025 classification effect yields the fx
             vector alone; the classification key is not decomposed, not
             reported, and has no slot on the handler row."
@@ -846,14 +837,14 @@
                               :navigate-to)]
       (is (= [[:navigate "/x"]] (:fx-vec r)))
       (is (not (contains? r :other-effects))
-          "rf2-m2ye2 — the :other-effects slot is gone from the handler row"))))
+          "the handler row has no :other-effects slot"))))
 
 (deftest handler-row-reg-machine-test
-  (testing "rf2-bhxtr — action-ran present → reg-machine flavour; the
-            `:machine` block carries the SINGLE `:cascade` row vector (the
-            legacy category slots :transition / :guards / :lifecycle /
-            :timers were dropped — the cascade carries the same per-row data
-            keyed by `:kind`)."
+  (testing "action-ran present → reg-machine flavour; the
+            `:machine` block carries the SINGLE `:cascade` row vector (there
+            are no per-category slots :transition / :guards / :lifecycle /
+            :timers — the cascade carries the same per-row data keyed by
+            `:kind`)."
     (let [evs [(machine-transition-ev :ws/conn [:idle] [:connecting])
                (machine-guard-ev :ready? :pass)
                (machine-action-ev :open-socket :entry :ok)
@@ -866,7 +857,7 @@
       (is (= :reg-machine (:flavour r)))
       (is (some? m))
       (is (= [:cascade] (keys m))
-          "the machine block carries ONLY :cascade post-rf2-bhxtr")
+          "the machine block carries ONLY :cascade")
       (is (= :ws/conn (-> (:transition by-kind) first :machine-id)))
       (is (= 1 (count (:guard by-kind))))
       (is (= 2 (count (:action by-kind))))
@@ -874,10 +865,10 @@
       (is (= :on-exit (-> (:timer by-kind) first :reason))))))
 
 (deftest handler-row-machine-transition-no-action-test
-  (testing "rf2-eue07 — a real macrostep that fires NO `:rf.machine/action-ran`
+  (testing "a real macrostep that fires NO `:rf.machine/action-ran`
             (an entry-cascade-only / pure-state-move transition — the
-            framework does NOT emit `action-ran` for `:entry` actions, see
-            rf2-n9f4z) is STILL a machine cascade. The substrate's
+            framework does NOT emit `action-ran` for `:entry` actions) is
+            STILL a machine cascade. The substrate's
             `:rf.machine/transition` summary rides the macrostep
             UNCONDITIONALLY (commit-or-finalize · lifecycle_fx ·
             registration.cljc), so `:rf.machine/transition` is the
@@ -885,12 +876,12 @@
             (render the machine section), NOT `:effectful` / `:db-only`
             (the raw `:db` diff of the snapshot write).
 
-  RED before the fix: handler-flavour saw only the do-fx (the machine handler
-  always rides one) → fell through to `:effectful`; `:machine` slot absent."
+  A classifier that saw only the do-fx (the machine handler always rides
+  one) would fall through to `:effectful`, with no `:machine` slot."
     (let [snap-before {:state [:off]      :data {}}
           snap-after  {:state [:running]  :data {}}
           ;; A machine handler ALWAYS rides a `:rf.fx/do-fx` (the snapshot
-          ;; write). The pre-fix classifier let that do-fx win → :effectful.
+          ;; write). Letting that do-fx win would classify :effectful.
           evs [(do-fx-ev {:db {:hvac/controller {:state {:climate [:running]}}}})
                (machine-transition-ev :hvac/controller snap-before snap-after
                                        [:hvac/power-cycle] 2)
@@ -906,8 +897,8 @@
           "the transition row threads through into the machine cascade"))))
 
 (deftest handler-row-bootstrap-initial-entry-transition-test
-  (testing "rf2-eue07 — the post-carve-out bootstrap macrostep (rf2-t4582:
-            bootstrap runs `:initial-entry`, never a no-op) emits a
+  (testing "the bootstrap macrostep (bootstrap runs
+            `:initial-entry`, never a no-op) emits a
             `:rf.machine/transition` summary. Even were its `:initial-entry`
             actions untraced, the transition marks it a machine cascade →
             `:reg-machine`, so the EVENT HANDLER renders the machine section
@@ -924,37 +915,36 @@
           "the bootstrap renders the machine section"))))
 
 (deftest handler-flavour-negative-guards-test
-  (testing "rf2-eue07 NEGATIVE GUARD — a genuine fx-bearing handler (a do-fx with
-            NO machine trace at all) STILL classifies :effectful; the new
+  (testing "NEGATIVE GUARD — a genuine fx-bearing handler (a do-fx with
+            NO machine trace at all) classifies :effectful; the
             transition predicate must not over-claim"
     (let [evs [(do-fx-ev {:db {} :navigate "/x"})
                (db-changed-ev [])]
           r   (proj/handler-row evs :navigate-to)]
       (is (= :effectful (:flavour r))
-          "no machine trace → plain :effectful, unchanged")
+          "no machine trace → plain :effectful")
       (is (nil? (:machine r))
           "no machine section on a plain fx handler")))
 
-  (testing "rf2-eue07 NEGATIVE GUARD — a genuine db-only handler (no fx, no
-            machine trace) STILL classifies :db-only"
+  (testing "NEGATIVE GUARD — a genuine db-only handler (no fx, no
+            machine trace) classifies :db-only"
     (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
                               :counter-inc)]
       (is (= :db-only (:flavour r))
-          "no fx, no machine trace → :db-only, unchanged")
+          "no fx, no machine trace → :db-only")
       (is (nil? (:machine r))))))
 
 (deftest machine-transition-cascade-row-hoists-data-snapshots-test
-  (testing "rf2-9c27r / rf2-bhxtr — the `:transition` CASCADE row exposes
+  (testing "the `:transition` CASCADE row exposes
             `:data-before / :data-after` from the `:before / :after`
-            snapshots, plus the `:event` + `:microsteps` slots (formerly
-            asserted via the dropped `:machine :transition` slot)"
+            snapshots, plus the `:event` + `:microsteps` slots"
     (let [snap-before {:state [:idle]      :data {:count 0}}
           snap-after  {:state [:connected] :data {:count 1}}
           evs [(machine-transition-ev :ws/conn snap-before snap-after
                                        [:ws/start] 2)
                ;; action-ran event drives the :reg-machine flavour
                ;; discriminator so handler-row populates the machine
-               ;; block (rf2-9c27r — the transition row only lands
+               ;; block (the transition row only lands
                ;; when the flavour is :reg-machine).
                (machine-action-ev :open-socket :entry :ok)]
           r   (proj/handler-row evs :ws/start)
@@ -969,9 +959,9 @@
           ":data-after hoisted off the after snapshot"))))
 
 (deftest machine-action-fx-attribution-test
-  (testing "rf2-9c27r / rf2-bhxtr — when an action returns a map carrying
+  (testing "when an action returns a map carrying
             `:fx`, the `:action` CASCADE row exposes the per-action fx
-            attribution (formerly asserted via the dropped `:lifecycle` slot)"
+            attribution"
     (let [outcome {:fx [[:http/get {:url "/x"}]
                         [:dispatch [:other]]]
                    :data {:n 1}}
@@ -990,7 +980,7 @@
           "the action's :data write is also surfaced for attribution"))))
 
 (deftest machine-action-without-fx-omits-slot-test
-  (testing "rf2-9c27r / rf2-bhxtr — actions whose outcome carries no :fx
+  (testing "actions whose outcome carries no :fx
             leave the `:fx` slot ABSENT (not nil) on the `:action` cascade row"
     (let [evs [(machine-action-ev :open-socket :entry :ok)]
           r   (proj/handler-row evs :ws/start)
@@ -998,10 +988,10 @@
       (is (not (contains? row :fx))
           ":fx slot absent on actions without per-action fx"))))
 
-;; ---- rf2-u69j7 — machine cascade (time-ordered) -----------------------
+;; ---- machine cascade (time-ordered) -----------------------------------
 
 (deftest machine-cascade-rows-canonical-phase-order-test
-  (testing "rf2-tjqd8 — `machine-cascade-rows` returns rows in CANONICAL
+  (testing "`machine-cascade-rows` returns rows in CANONICAL
             phase order (guard → exit → TRANSITION → entry → always →
             after-action → timer), with a STABLE sort that preserves
             intra-phase emit order. The substrate emits the
@@ -1027,7 +1017,7 @@
       ;; always(4) timer(6).
       (is (= [:guard :action :action :transition :action :action :action :timer]
              (mapv :kind cascade))
-          "rf2-tjqd8 — rows in canonical (kind,phase) rank order")
+          "rows in canonical (kind,phase) rank order")
       (is (= [nil :exit :transition nil :entry :entry :always nil]
              (mapv :phase cascade))
           "the TRANSITION (nil phase) lands between transition-phase and entry actions")
@@ -1038,7 +1028,7 @@
           ":step renumbered 1..N over the FINAL canonical order"))))
 
 (deftest machine-cascade-row-fields-test
-  (testing "rf2-u69j7 / rf2-tjqd8 — each cascade row exposes the
+  (testing "each cascade row exposes the
             substrate-canonical slots the view layer consumes; rows are
             CANONICALLY ORDERED (guard → transition → entry-action →
             timer), not in raw emit order. The substrate emits the
@@ -1060,7 +1050,7 @@
           ;; canonical sort moves the entry action AFTER the transition.
           rows (proj/machine-cascade-rows [g a t tm])]
       (is (= [:guard :transition :action :timer] (mapv :kind rows))
-          "rf2-tjqd8 — canonical order: guard → TRANSITION → entry action → timer")
+          "canonical order: guard → TRANSITION → entry action → timer")
       (is (= [1 2 3 4] (mapv :step rows))
           ":step renumbered 1..N over the canonical order")
       ;; Guard row
@@ -1068,7 +1058,7 @@
         (is (= :guard (:kind r)))
         (is (= :form-valid? (:guard-id r)))
         (is (= :fail (:outcome r))))
-      ;; Transition row — now BEFORE the entry action (rf2-tjqd8)
+      ;; Transition row — BEFORE the entry action
       (let [r (nth rows 1)]
         (is (= :transition (:kind r)))
         (is (= :ws/conn (:machine-id r)))
@@ -1079,7 +1069,7 @@
         (is (= {:n 0} (:data-before r)))
         (is (= {:n 1} (:data-after r)))
         (is (= [:ws/start] (:event r))))
-      ;; Entry action row — now AFTER the transition (rf2-tjqd8)
+      ;; Entry action row — AFTER the transition
       (let [r (nth rows 2)]
         (is (= :action (:kind r)))
         (is (= :open-socket (:action-id r)))
@@ -1090,7 +1080,7 @@
         (is (= {:n 1} (:data-write r))
             "per-action data delta (outcome :data) is hoisted onto the row")
         (is (= {} (:data-before r))
-            "rf2-5hjb5 — input :data hoisted as the diff pre-image"))
+            "input :data hoisted as the diff pre-image"))
       ;; Timer row
       (let [r (nth rows 3)]
         (is (= :timer (:kind r)))
@@ -1098,19 +1088,19 @@
         (is (= 250 (:delay r)))
         (is (= :on-supersede (:reason r)))))))
 
-;; ---- rf2-bvwv4q — parent-owned parallel `:always` ROUND rows -------------
+;; ---- parent-owned parallel `:always` ROUND rows -------------------------
 ;;
 ;; A `:type :parallel` macrostep commits ONE aggregate `:rf.machine/transition`
 ;; (settled before/after region-map) but emits one standalone
 ;; `:rf.machine.microstep/transition` per SELECTED regional round, sharing an
-;; `:actor-id` + `:microstep-index`. Since rf2-akvfe retired the transition
-;; row's nested structured-cascade body, this per-emit pipeline is the sole
+;; `:actor-id` + `:microstep-index`. The transition row carries no nested
+;; structured-cascade body, so this per-emit pipeline is the sole
 ;; canonical cascade display — so each such round is harvested as a first-class
 ;; `:microstep` row. Region-tagging keeps this scoped to parallel: a single-
 ;; active `:always` microstep carries no `:region` and produces no row.
 
 (deftest machine-cascade-rows-parallel-always-round-projects-microstep-rows-test
-  (testing "rf2-bvwv4q — a parallel macrostep whose :go moves both regions
+  (testing "a parallel macrostep whose :go moves both regions
             :idle→:staged then a parent round co-selects both :staged→:done
             projects ONE parent-owned round: two :microstep rows for regions
             [:a :b], both at round-index 0, in deterministic region order"
@@ -1138,7 +1128,7 @@
           "the round is eventless — :source :always (hoisted off the envelope)"))))
 
 (deftest machine-cascade-rows-actionless-parallel-round-visible-test
-  (testing "rf2-bvwv4q — an ACTIONLESS regional :always round emits no
+  (testing "an ACTIONLESS regional :always round emits no
             :rf.machine/action-ran, so its :rf.machine.microstep/transition
             trace is its ONLY first-class evidence; it must still render a row"
     (let [tx     (machine-transition-ev :par/quiet
@@ -1156,10 +1146,9 @@
              ((juxt :from-state :to-state) (first micros)))))))
 
 (deftest machine-cascade-rows-single-active-microstep-produces-no-row-test
-  (testing "rf2-bvwv4q — a SINGLE-ACTIVE :always microstep carries NO :region
+  (testing "a SINGLE-ACTIVE :always microstep carries NO :region
             (it rides the transition row's structured `cascade-microsteps`),
-            so it is NOT harvested as a first-class row — single-active
-            behaviour is unchanged"
+            so it is NOT harvested as a first-class row"
     (let [tx     (machine-transition-ev :flat/quiz
                                         {:state [:asking]  :data {}}
                                         {:state [:winner] :data {}}
@@ -1173,7 +1162,7 @@
           "no first-class :microstep row for a region-less (single-active) event"))))
 
 (deftest machine-cascade-microstep-op-is-first-class-test
-  (testing "rf2-bvwv4q — the microstep op is a member of the harvested closed
+  (testing "the microstep op is a member of the harvested closed
             set + maps to the :microstep kind, and the :microstep kind is a
             painted cascade kind. This gate FAILS if
             `:rf.machine.microstep/transition` is filtered out of the epoch
@@ -1187,7 +1176,7 @@
           "the harvested op projects a :microstep-kind row"))))
 
 (deftest machine-cascade-rows-action-threw-test
-  (testing "rf2-u69j7 — an action that threw stamps `:threw? true`
+  (testing "an action that threw stamps `:threw? true`
             on its cascade row + carries the exception"
     (let [exc  #?(:clj  (RuntimeException. "boom")
                   :cljs (ex-info "boom" {}))
@@ -1202,10 +1191,10 @@
       (is (true? (:threw? r)))
       (is (= exc (:exception r))))))
 
-;; ---- rf2-ugdas — the benign unhandled-event no-op -----------------------
+;; ---- the benign unhandled-event no-op -----------------------------------
 
 (deftest machine-cascade-rows-unhandled-no-op-test
-  (testing "rf2-ugdas — a :rf.machine.event/unhandled-no-op trace projects
+  (testing "a :rf.machine.event/unhandled-no-op trace projects
             to a :no-op cascade row carrying machine-id / event / state"
     (let [evs  [(machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)]
           rows (proj/machine-cascade-rows evs)
@@ -1217,7 +1206,7 @@
       (is (= :alarming (:state r)))
       (is (= 1 (:step r)))))
 
-  (testing "rf2-iu3no — a SINGLE-machine genuine no-op collapses to the
+  (testing "a SINGLE-machine genuine no-op collapses to the
             CONSEQUENCE only: '[NO OP] staying in {state}'. The `NO OP`
             kind-pill is the sole marker; the verb is just 'staying in
             <state>' — no 'no-op —' prefix, no 'received [event]' echo
@@ -1228,9 +1217,9 @@
                      [(machine-unhandled-no-op-ev :door/main
                                                   [:door/insert-coin] :alarming)]))
           verb (fmt/cascade-row-label r)]
-      ;; RED before rf2-iu3no: verb == "no-op — :door/main received
-      ;; [:door/insert-coin] in :alarming, no transition" (the four-way
-      ;; restatement) + a non-nil "ignored" outcome label.
+      ;; The verb is NOT the four-way restatement "no-op — :door/main
+      ;; received [:door/insert-coin] in :alarming, no transition", and
+      ;; there is no "ignored" outcome label.
       (is (= "staying in :alarming" verb))
       (is (= "NO OP" (badge/cascade-kind-label :no-op))
           "the pill is the sole marker — `NO OP` (space, not hyphen)")
@@ -1244,7 +1233,7 @@
       (is (nil? (fmt/cascade-outcome-label r))
           "no outcome chip — the pill + verb are the whole notice")))
 
-  (testing "rf2-iu3no — a MULTI-MACHINE epoch (broadcast event / parallel
+  (testing "a MULTI-MACHINE epoch (broadcast event / parallel
             regions) keeps the machine name on each no-op row so the
             operator can tell WHICH machine stood pat:
             '[NO OP] :hvac/controller staying in {state}'"
@@ -1263,7 +1252,7 @@
       (is (= ":hvac/fan staying in [:idle]"
              (fmt/cascade-row-label (by-id :hvac/fan))))))
 
-  (testing "rf2-ugdas — a cascade whose ONLY machine activity is the no-op
+  (testing "a cascade whose ONLY machine activity is the no-op
             is still :reg-machine flavour, so the EVENT HANDLER machine
             section renders the notice (no action ran)"
     (let [r (proj/handler-row
@@ -1273,7 +1262,7 @@
       (is (some? (:machine r)))
       (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))))))
 
-;; ---- rf2-35mwxv — a GUARD-BLOCKED no-op surfaces the blocking guard ------
+;; ---- a GUARD-BLOCKED no-op surfaces the blocking guard ------------------
 ;;
 ;; When a guard FAILS and blocks a transition (a clause for the event-id
 ;; exists but its `:guard` returned false / threw, and no unguarded
@@ -1287,15 +1276,14 @@
 ;;
 ;; BOTH ops are members of `machine-cascade-trace-ops`, so the cascade
 ;; projection (consumed by the Epoch panel HANDLER mini-pipeline AND the
-;; Machine Inspector lens via `:rf.xray/machine-focused-epoch-cascade`,
-;; rf2-g2axio) surfaces the failing guard as a `[GUARD ✗]` row NAMING the
-;; blocking guard + its fail/threw outcome — NOT just a bare `[NO OP]`. This
-;; resolved the follow-on the spec's §guard-blocked flagged; the test pins
-;; it so the shared-cascade wiring cannot silently regress back to a
+;; Machine Inspector lens via `:rf.xray/machine-focused-epoch-cascade`)
+;; surfaces the failing guard as a `[GUARD ✗]` row NAMING the blocking
+;; guard + its fail/threw outcome — NOT just a bare `[NO OP]`. The test
+;; pins it so the shared-cascade wiring cannot silently degrade to a
 ;; guard-blind no-op.
 
 (deftest guard-blocked-no-op-surfaces-blocking-guard-test
-  (testing "rf2-35mwxv — a guard-blocked no-op cascade carries a :guard
+  (testing "a guard-blocked no-op cascade carries a :guard
             fail row NAMING the blocking guard alongside the :no-op row;
             the guard's fail outcome renders (not just a bare [NO OP])."
     ;; The two traces the runtime emits for a guard-blocked no-op, in the
@@ -1317,10 +1305,10 @@
           "the LIST row identifies the blocking guard (not a bare [NO OP])")
       (is (= "fail" (fmt/cascade-outcome-label guard-row))
           "the fail outcome renders on the guard row's chip")
-      ;; The no-op row is still present (the consequence: stayed put).
+      ;; The no-op row is also present (the consequence: stayed put).
       (is (= "staying in :open" (fmt/cascade-row-label no-op-row)))))
 
-  (testing "rf2-35mwxv — a guard that THREW while blocking surfaces a :threw
+  (testing "a guard that THREW while blocking surfaces a :threw
             outcome row naming the guard."
     (let [evs  [(machine-guard-ev :may-close? :threw)
                 (machine-unhandled-no-op-ev :door/main [:door/close] :open)]
@@ -1330,8 +1318,8 @@
       (is (= "threw" (fmt/cascade-outcome-label guard-row))
           "a throwing blocking guard surfaces its :threw outcome in the LIST")))
 
-  (testing "rf2-35mwxv — the SHARED projection feeds the Machine Inspector
-            lens cascade identically (rf2-g2axio): the handler-row's machine
+  (testing "the SHARED projection feeds the Machine Inspector
+            lens cascade identically: the handler-row's machine
             cascade carries the guard fail row + the no-op row."
     (let [r (proj/handler-row
               [(machine-guard-ev :may-close? :fail)
@@ -1341,10 +1329,10 @@
       (is (= [:guard :no-op] (mapv :kind (-> r :machine :cascade)))
           "the shared machine cascade (lens + Epoch panel) carries BOTH rows"))))
 
-;; ---- rf2-it4vt — the machine's [START] badge -----------------------------
+;; ---- the machine's [START] badge -----------------------------------------
 
 (deftest machine-started-projects-to-start-row-test
-  (testing "rf2-it4vt — a :rf.machine/started trace projects to a :start
+  (testing "a :rf.machine/started trace projects to a :start
             cascade row carrying machine-id / initial state / initial data
             / cause"
     (let [ev   (machine-started-ev :door/main :locked {:attempts 0} :explicit)
@@ -1358,8 +1346,8 @@
       (is (= :explicit (:cause r)))
       (is (= 1 (:step r)))))
 
-  (testing "rf2-it4vt — EAGER (explicit) start: a standalone [START] is the
-            cascade's SOLE row (a pure init-kick — rf2-gl588 — runs the
+  (testing "EAGER (explicit) start: a standalone [START] is the
+            cascade's SOLE row (a pure init-kick runs the
             initial-entry cascade then STOPS, emitting no transition / action
             rows)"
     (let [evs  [(machine-started-ev :door/main :locked {} :explicit)]
@@ -1367,7 +1355,7 @@
       (is (= [:start] (mapv :kind rows))
           "EAGER → standalone [START], no transition rows")))
 
-  (testing "rf2-it4vt — LAZY start: when a machine is first reached by a REAL
+  (testing "LAZY start: when a machine is first reached by a REAL
             event, init folds into the SAME epoch, so [START] renders at the
             FRONT of the cascade — ahead of that event's transition rows"
     (let [start (machine-started-ev :door/main :locked {} :lazy)
@@ -1385,7 +1373,7 @@
       (is (= 1 (:step (first rows)))  ":step renumbered 1..N over the sorted order")
       (is (= :lazy (:cause (first rows))))))
 
-  (testing "rf2-it4vt — the cause tag renders: explicit / lazy / spawned,
+  (testing "the cause tag renders: explicit / lazy / spawned,
             with :lazy flagged as the ordering smell"
     (is (= "explicit" (fmt/start-cause-label :explicit)))
     (is (= "lazy"     (fmt/start-cause-label :lazy)))
@@ -1395,7 +1383,7 @@
     (is (false? (fmt/start-cause-smell? :explicit)))
     (is (false? (fmt/start-cause-smell? :spawned))))
 
-  (testing "rf2-it4vt — the [START] verb names the machine + its initial
+  (testing "the [START] verb names the machine + its initial
             state; the kind pill reads START; flat / compound / parallel
             states render verbatim"
     ;; flat
@@ -1420,14 +1408,14 @@
     (is (badge/cascade-kind? :start)
         ":start is a member of the closed cascade-kind-set"))
 
-  (testing "rf2-it4vt — a [START] carries NO outcome chip and NO source-link
+  (testing "a [START] carries NO outcome chip and NO source-link
             spec-path key (a birth has no transition outcome / call-site)"
     (let [r (first (proj/machine-cascade-rows
                      [(machine-started-ev :door/main :locked {} :explicit)]))]
       (is (nil? (fmt/cascade-outcome-label r)))
       (is (nil? (fmt/cascade-row-source-key r)))))
 
-  (testing "rf2-it4vt — an EAGER pure start makes the cascade :reg-machine
+  (testing "an EAGER pure start makes the cascade :reg-machine
             (it emits :rf.machine/started but no transition/action/no-op), so
             handler-row renders the [START] row in the :machine :cascade slot
             rather than collapsing to a plain :effectful :db diff"
@@ -1440,38 +1428,37 @@
       (is (some? (:machine r)))
       (is (= [:start] (mapv :kind (-> r :machine :cascade))))))
 
-  (testing "rf2-it4vt — the [START] is benign birth (op-type :rf.machine),
+  (testing "the [START] is benign birth (op-type :rf.machine),
             so issue-event? is FALSE — no pink wash, no ribbon entry"
     (let [ev (machine-started-ev :door/main :locked {} :explicit)]
       (is (= :rf.machine (:op-type ev)))
       (is (false? (issues/issue-event? ev)))
       (is (false? (l2/event-bundle-has-issue? {:other [ev]}))))))
 
-;; ---- rf2-it4vt — the rf2-e6q97 band-aid is RETIRED -----------------------
+;; ---- a no-op cascade carries no transition row --------------------------
 
 (deftest no-op-cascade-carries-no-transition-row-test
-  (testing "rf2-it4vt / rf2-coozg — the rf2-e6q97 `drop-spurious-no-op-
-            transition` band-aid is RETIRED. rf2-coozg fixed the
-            double-emit at the SOURCE: a no-op macrostep (`:before` ==
-            `:after`, empty cascade, zero microsteps) no longer emits the
-            redundant `:rf.machine/transition` at all. So a genuine
+  (testing "there is no tool-side no-op transition drop: the SOURCE
+            suppresses it, so a no-op macrostep (`:before` ==
+            `:after`, empty cascade, zero microsteps) emits no
+            `:rf.machine/transition` at all. So a genuine
             unknown-user-event no-op cascade carries ONLY the
             `:rf.machine.event/unhandled-no-op` trace — the projection
             renders the single `:no-op` row with no transition to suppress."
     (let [state {:vehicle :red :pedestrian :walk}
-          ;; post-coozg the substrate emits the no-op ALONE (no companion
+          ;; the substrate emits the no-op ALONE (no companion
           ;; {X}->{X} transition); this fixture mirrors that real trace.
           no-op (machine-unhandled-no-op-ev :traffic/light
                                             [:traffic/unknown] state)
           rows  (proj/machine-cascade-rows [no-op])]
       (is (= [:no-op] (mapv :kind rows))
-          "the single :no-op row — coozg emits no companion transition")
+          "the single :no-op row — the substrate emits no companion transition")
       (is (= 1 (count rows)))
       (is (not-any? #(= :transition (:kind %)) rows))
       (is (= 1 (:step (first rows)))
           ":step renumbered 1..N over the cascade")))
 
-  (testing "rf2-it4vt — the no-op flows through handler-row into the
+  (testing "the no-op flows through handler-row into the
             :machine :cascade slot the view renders (the live surface)"
     (let [state {:vehicle :red :pedestrian :walk}
           evs   [(machine-unhandled-no-op-ev :traffic/light
@@ -1482,13 +1469,11 @@
           "the view's :cascade carries the no-op row alone"))))
 
 (deftest genuine-self-transition-keeps-its-row-test
-  (testing "rf2-it4vt NEGATIVE GUARD — a genuine EXTERNAL self-transition
+  (testing "NEGATIVE GUARD — a genuine EXTERNAL self-transition
             (:target :same-state; :exit + :entry FIRE, microsteps > 0) is a
             REAL transition (Spec 005 L291-296). It has a real `match`, so the
             unhandled-no-op branch is never reached — NO :no-op row fires —
-            and its transition row renders untouched (the retired e6q97
-            band-aid never gated on state-equality, only on a :no-op row's
-            presence, which a self-transition never carries)."
+            and its transition row renders untouched."
     (let [state [:active]
           ;; exit + entry actions fired (the external self-transition
           ;; semantics) and a microstep ran — a real transition, NO no-op.
@@ -1507,7 +1492,7 @@
         (is (= 1 (:microsteps tx))
             "microsteps > 0 — a real transition, not a no-op"))))
 
-  (testing "rf2-it4vt NEGATIVE GUARD — an INTERNAL self-transition (omit
+  (testing "NEGATIVE GUARD — an INTERNAL self-transition (omit
             :target; action runs, no exit/entry) likewise has a real match,
             so no :no-op row — its transition row is preserved per semantics"
     (let [state :idle
@@ -1521,9 +1506,9 @@
       (is (= 1 (count (filterv #(= :transition (:kind %)) rows)))))))
 
 (deftest unhandled-no-op-is-not-an-issue-test
-  (testing "rf2-ugdas — the no-op trace's op-type is :rf.machine (NOT a
+  (testing "the no-op trace's op-type is :rf.machine (NOT a
             severity), so issue-event? returns FALSE — NO pink wash, NO
-            ribbon entry, for free (the bead's automatic consequence)"
+            ribbon entry, for free"
     (let [no-op (machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)]
       (is (= :rf.machine (:op-type no-op)))
       (is (false? (issues/issue-event? no-op))
@@ -1531,10 +1516,10 @@
       (is (false? (l2/event-bundle-has-issue? {:other [no-op]}))
           "event-bundle-has-issue? FALSE — no pink wash for a no-op-only cascade"))))
 
-;; ---- rf2-e7yhv — the :* wildcard-action throw (the inverse) --------------
+;; ---- the :* wildcard-action throw (the inverse) --------------------------
 
 (deftest machine-action-exception-is-an-issue-test
-  (testing "rf2-e7yhv — a :rf.error/machine-action-exception IS an issue
+  (testing "a :rf.error/machine-action-exception IS an issue
             (op-type :error) — issue-event? + event-bundle-has-issue? TRUE
             (pink); the inverse of the benign no-op above"
     (let [exc (machine-action-exception-ev
@@ -1548,7 +1533,7 @@
           "event-bundle-has-issue? TRUE — the event row goes pink"))))
 
 (deftest machine-action-exception-row-attributes-wildcard-test
-  (testing "rf2-e7yhv — exception-row lifts the machine attribution +
+  (testing "exception-row lifts the machine attribution +
             the :rf/via-wildcard? flag off the :transition slot so the
             EXCEPTION card can name a :* wildcard-action throw"
     (let [exc  (machine-action-exception-ev
@@ -1566,7 +1551,7 @@
       (is (true? (:via-wildcard? r))
           "the :* wildcard attribution flag rides through")))
 
-  (testing "rf2-e7yhv — a NAMED-transition action throw is NOT flagged as
+  (testing "a NAMED-transition action throw is NOT flagged as
             a wildcard (:rf/via-wildcard? absent from the transition slot)"
     (let [exc (machine-action-exception-ev
                 {:machine-id :fuse/box :action-id :named-action
@@ -1577,7 +1562,7 @@
           "named-transition throw is not attributed to the wildcard"))))
 
 (deftest machine-cascade-rows-empty-when-no-machine-events-test
-  (testing "rf2-u69j7 — non-machine cascades produce an empty cascade
+  (testing "non-machine cascades produce an empty cascade
             vec; the view's empty-state branch keys off this"
     (is (= [] (proj/machine-cascade-rows [])))
     (is (= [] (proj/machine-cascade-rows
@@ -1587,7 +1572,7 @@
         "non-machine events are filtered out — empty cascade")))
 
 (deftest machine-cascade-total-ms-test
-  (testing "rf2-u69j7 — cascade-total sums every row's :duration-ms"
+  (testing "cascade-total sums every row's :duration-ms"
     (is (= 3.5 (proj/machine-cascade-total-ms
                  [{:kind :guard :duration-ms 0.1}
                   {:kind :action :duration-ms 3.4}])))
@@ -1598,7 +1583,7 @@
         "no row carries a duration → nil")))
 
 (deftest machine-logical-state-test
-  (testing "rf2-iwy0c — `machine-logical-state` projects a snapshot to
+  (testing "`machine-logical-state` projects a snapshot to
             `{:state :tags}` ONLY, excluding `:data`, `:meta`, and the
             framework `:rf/*` bookkeeping slots."
     (is (= {:state :locked :tags #{:locked}}
@@ -1623,7 +1608,7 @@
         "nil snapshot → nil (caller elides)")))
 
 (deftest machine-logical-state-changed?-test
-  (testing "rf2-iwy0c — `machine-logical-state-changed?` keys the delta-box
+  (testing "`machine-logical-state-changed?` keys the delta-box
             elision: true iff `{:state :tags}` differs across before/after."
     (is (true? (proj/machine-logical-state-changed?
                  {:state :locked :tags #{:locked} :data {:n 0}}
@@ -1640,7 +1625,7 @@
                     {:state :open :tags #{:open} :data {:n 2} :rf/spawn-counter {:a 1}}))))))
 
 (deftest project-machine-populates-cascade-slot-test
-  (testing "rf2-u69j7 / rf2-tjqd8 — `(handler-row …)` populates `:machine
+  (testing "`(handler-row …)` populates `:machine
             :cascade` with the CANONICALLY-ORDERED cascade the view
             consumes. The entry action emits before the transition but
             renders AFTER it (canonical guard → TRANSITION → entry)."
@@ -1654,12 +1639,12 @@
       (is (= 3 (count c))
           "one row per substrate emit (guard + action + transition)")
       (is (= [:guard :transition :action] (mapv :kind c))
-          "rf2-tjqd8 — canonical order: guard → TRANSITION → entry action"))))
+          "canonical order: guard → TRANSITION → entry action"))))
 
-;; ---- rf2-52u5n — STRUCTURED transition cascade ------------------------
+;; ---- STRUCTURED transition cascade ------------------------------------
 ;;
 ;; The `:rf.machine/transition` trace carries a structured `:cascade` step
-;; vector (rf2-n9f4z) — the ordered exit/action/entry/microstep steps that
+;; vector — the ordered exit/action/entry/microstep steps that
 ;; explain HOW the macrostep reached its after-state. The projection threads
 ;; it through the transition row + groups it per-region for the view.
 ;;
@@ -1692,7 +1677,7 @@
             {:kind :entry  :state [:winner] :region nil :action nil  :data-delta {}}]}])
 
 (deftest transition-cascade-row-threads-structured-cascade-test
-  (testing "rf2-52u5n / rf2-bhxtr — the `:transition` CASCADE row threads the
+  (testing "the `:transition` CASCADE row threads the
             structured `:cascade` step vector off the `:rf.machine/transition`
             trace so the view can render the step-by-step entry/exit cascade."
     (let [snap-before {:state {:climate :idle :fan :off} :data {}}
@@ -1706,7 +1691,7 @@
           "the transition CASCADE row threads the structured cascade for the view"))))
 
 (deftest cascade-regions-groups-parallel-per-region-test
-  (testing "rf2-52u5n — `cascade-regions` groups the LCA-cascade steps by
+  (testing "`cascade-regions` groups the LCA-cascade steps by
             `:region`, preserving first-encounter (declaration) order, so
             the view renders climate before fan. Microsteps are excluded."
     (let [regions (proj/cascade-regions hvac-power-cycle-cascade)]
@@ -1729,7 +1714,7 @@
         (is (= [nil :fan-on :enter-fan-on] (mapv :action fan)))))))
 
 (deftest cascade-regions-flat-machine-single-nil-region-test
-  (testing "rf2-52u5n — a flat/compound machine's steps all carry `:region
+  (testing "a flat/compound machine's steps all carry `:region
             nil`, so `cascade-regions` returns ONE group keyed nil (the view
             renders one ungrouped column, no region label)."
     (let [regions (proj/cascade-regions flat-go-cascade)]
@@ -1741,7 +1726,7 @@
           "a single-region cascade is not parallel"))))
 
 (deftest cascade-microsteps-extracts-and-orders-test
-  (testing "rf2-52u5n — `cascade-microsteps` extracts the `:always`
+  (testing "`cascade-microsteps` extracts the `:always`
             microstep steps, ordered by `:microstep-index`, each carrying
             its nested `:steps`; structural steps are excluded."
     (let [ms (proj/cascade-microsteps always-quiz-cascade)]
@@ -1756,7 +1741,7 @@
           "a non-:always cascade has no microsteps"))))
 
 (deftest parallel-cascade-and-step-count-test
-  (testing "rf2-52u5n — `parallel-cascade?` is true only for >1 region;
+  (testing "`parallel-cascade?` is true only for >1 region;
             `cascade-step-count` totals structural steps incl. nested
             microstep steps."
     (is (true? (proj/parallel-cascade? hvac-power-cycle-cascade))
@@ -1771,8 +1756,8 @@
         "empty cascade → nil count")))
 
 (deftest transition-row-without-cascade-falls-back-test
-  (testing "rf2-52u5n negative guard — a `:rf.machine/transition` trace with
-            NO structured `:cascade` (older trace / 5-arg fixture) leaves the
+  (testing "negative guard — a `:rf.machine/transition` trace with
+            NO structured `:cascade` (e.g. a 5-arg fixture) leaves the
             transition row's `:cascade` nil, so the view falls back to the
             `{from}→{to}` summary. The cascade-grouping helpers degrade to
             empty / nil."
@@ -1790,16 +1775,16 @@
       (is (false? (proj/parallel-cascade? nil))))))
 
 (deftest cascade-row-label-test
-  (testing "rf2-u69j7 — `cascade-row-label` renders a human verb per kind"
-    ;; rf2-h710p item B — the GUARD verb is JUST the guard-id; the leading
-    ;; "guard" word DUPLICATED the `[GUARD]` kind-pill and is dropped (the
+  (testing "`cascade-row-label` renders a human verb per kind"
+    ;; The GUARD verb is JUST the guard-id; a leading
+    ;; "guard" word would duplicate the `[GUARD]` kind-pill (the
     ;; gated state rides the view's `for <state>` clause). The header reads
     ;; `[GUARD] for <state> :ready?`, not `[GUARD] guard :ready?`.
     (is (= ":ready?"
            (fmt/cascade-row-label {:kind :guard :guard-id :ready?})))
-    ;; rf2-nhovk — the ACTION verb is JUST the action-id; the kind-pill +
-    ;; phase chip already convey kind + phase, so the redundant
-    ;; "{phase} action " prefix is dropped (empty for an anonymous action).
+    ;; The ACTION verb is JUST the action-id; the kind-pill +
+    ;; phase chip already convey kind + phase, so there is no
+    ;; "{phase} action " prefix (empty for an anonymous action).
     (is (= ":open-socket"
            (fmt/cascade-row-label {:kind :action :action-id :open-socket
                                     :phase :entry})))
@@ -1809,9 +1794,9 @@
     (is (= "timer [:idle] · on-exit"
            (fmt/cascade-row-label {:kind :timer :state [:idle]
                                     :reason :on-exit})))
-    ;; rf2-ge6uj ISSUE 3 — the transition label is JUST the state change
-    ;; `<from> → <to>`; the redundant "transition" word + machine-name
-    ;; echo are dropped (the KIND pill + cascade context carry those).
+    ;; The transition label is JUST the state change
+    ;; `<from> → <to>`; there is no "transition" word or machine-name
+    ;; echo (the KIND pill + cascade context carry those).
     (is (= "[:idle] → [:connecting]"
            (fmt/cascade-row-label {:kind :transition
                                     :machine-id :ws/conn
@@ -1819,7 +1804,7 @@
                                     :to-state   [:connecting]})))))
 
 (deftest cascade-guard-for-state-test
-  (testing "rf2-h710p item B — `cascade-guard-for-state` resolves the state a
+  (testing "`cascade-guard-for-state` resolves the state a
             guard gates (the transition's `:source-state`), for the GUARD row's
             ` for <state> ` clause (`[GUARD] for :open :may-close?`)."
     (is (= :open
@@ -1834,7 +1819,7 @@
         "nil when neither state was stamped — the view omits the clause (no dangling `for`)")))
 
 (deftest cascade-row-source-key-test
-  (testing "rf2-u69j7 — `cascade-row-source-key` returns the spec-path
+  (testing "`cascade-row-source-key` returns the spec-path
             tuple for source-coord lookup (named cases)"
     (is (= [:actions :open-socket]
            (fmt/cascade-row-source-key
@@ -1847,10 +1832,10 @@
     (is (nil? (fmt/cascade-row-source-key {:kind :timer}))
         "timers with no state context → nil")))
 
-;; ---- rf2-wwc3j — inline-fn / transition / timer source-key extensions -----
+;; ---- inline-fn / transition / timer source keys --------------------------
 
 (deftest cascade-row-source-key-inline-entry-action-test
-  (testing "rf2-wwc3j — inline-fn `:entry` action resolves to its
+  (testing "inline-fn `:entry` action resolves to its
             target-state's `[:states <s> :entry]` slot"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :connected :entry]
@@ -1870,7 +1855,7 @@
           "hierarchical target-state expands to nested :states path"))))
 
 (deftest cascade-row-source-key-inline-exit-action-test
-  (testing "rf2-wwc3j — inline-fn `:exit` action resolves to its
+  (testing "inline-fn `:exit` action resolves to its
             source-state's `[:states <s> :exit]` slot"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :idle :exit]
@@ -1884,7 +1869,7 @@
           ":destroy-exit phase also maps to the :exit slot"))))
 
 (deftest cascade-row-source-key-inline-transition-action-test
-  (testing "rf2-wwc3j — inline-fn transition `:action` resolves to
+  (testing "inline-fn transition `:action` resolves to
             `[:states <src> :on <event> :action]`"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :idle :on :submit :action]
@@ -1893,7 +1878,7 @@
                 :source-state :idle :event-id :submit}))))))
 
 (deftest cascade-row-source-key-inline-always-action-test
-  (testing "rf2-k7yqod — inline-fn `:always` `:action` resolves to the
+  (testing "inline-fn `:always` `:action` resolves to the
             INDEX-FREE single-map shape `[:states <src> :always :action]`,
             mirroring the single-map `:on` convention (the macro keys a
             single-map `:always` at the bare `:always` path). The view
@@ -1910,8 +1895,8 @@
                {:kind :action :action-id inline-fn :phase :always
                 :source-state [:outer :inner]}))
           "hierarchical source-state expands to nested :states path")
-      ;; The key must NOT bake in index 0 (the rf2-k7yqod regression — that
-      ;; mis-resolved a single-map `:always` AND hardcoded the wrong
+      ;; The key must NOT bake in index 0 (that would
+      ;; mis-resolve a single-map `:always` AND hardcode the wrong
       ;; candidate for a multi-candidate vector).
       (is (not (some #{0} (fmt/cascade-row-source-key
                             {:kind :action :action-id inline-fn :phase :always
@@ -1923,7 +1908,7 @@
           "missing source-state → nil"))))
 
 (deftest cascade-row-source-key-inline-guard-test
-  (testing "rf2-wwc3j — inline-fn `:guard` resolves to
+  (testing "inline-fn `:guard` resolves to
             `[:states <src> :on <event> :guard]`"
     (let [inline-fn (fn [_] true)]
       (is (= [:states :idle :on :submit :guard]
@@ -1936,17 +1921,17 @@
                    :source-state :idle}))
           "missing event-id → nil (the source-key cannot be built)"))))
 
-;; ---- rf2-lai1qv — EXACT transition spec-path for inline source ----------
+;; ---- EXACT transition spec-path for inline source -----------------------
 ;;
-;; The substrate now stamps the selected transition's exact spec-path
+;; The substrate stamps the selected transition's exact spec-path
 ;; DISCRIMINATOR (`:transition-slot`) on the `:rf.machine/action-ran`
 ;; trace; `action-cascade-row` carries it onto the row and
 ;; `cascade-row-source-key` builds the precise inline-source slot from it —
 ;; addressing the candidate index, the `:after` delay-key, and the
-;; root-vs-state distinction the reconstruct-from-phase fallback could not.
+;; root-vs-state distinction the reconstruct-from-phase fallback cannot.
 
 (deftest transition-slot->spec-prefix-test
-  (testing "rf2-lai1qv — the discriminator → inline-source spec-path PREFIX
+  (testing "the discriminator → inline-source spec-path PREFIX
             covers every selection form"
     ;; Single-map :on (index-free, matching the macro's bare-slot keying).
     (is (= [:states :idle :on :submit]
@@ -1978,7 +1963,7 @@
         ":on with no event-key cannot build a slot path")))
 
 (deftest cascade-row-source-key-candidate-vector-on-action-test
-  (testing "rf2-lai1qv — an inline `:action` on a multi-candidate `:on`
+  (testing "an inline `:action` on a multi-candidate `:on`
             VECTOR resolves to the EXACT matched-candidate index, not the
             reconstruct-from-phase index-0 / index-free shape"
     (let [inline-fn (fn [_] {})]
@@ -1989,7 +1974,7 @@
                 :transition-slot {:slot :on :event-key :submit
                                   :decl-path [:idle] :candidate-idx 2}}))
           "the carried discriminator's index (2) wins over the phase fallback")
-      ;; Without the discriminator the legacy reconstruction still applies
+      ;; Without the discriminator the reconstruct-from-phase fallback applies
       ;; (single-map / index-free shape).
       (is (= [:states :idle :on :submit :action]
              (fmt/cascade-row-source-key
@@ -1998,7 +1983,7 @@
           "no discriminator → reconstruct-from-phase fallback"))))
 
 (deftest cascade-row-source-key-candidate-vector-on-guard-test
-  (testing "rf2-lai1qv — an inline `:guard` on a candidate-vector `:on`
+  (testing "an inline `:guard` on a candidate-vector `:on`
             resolves via an EXACT carried `:spec-path` (the substrate may
             stamp it on the guard-evaluated trace)"
     (let [inline-fn (fn [_] true)]
@@ -2015,9 +2000,9 @@
           "no carried :spec-path → reconstruct-from-state+event fallback"))))
 
 (deftest cascade-row-source-key-after-action-test
-  (testing "rf2-lai1qv — an inline `:after` `:action` resolves to the EXACT
+  (testing "an inline `:after` `:action` resolves to the EXACT
             `[:states <s> :after <delay-key>]` slot (the delay-key the
-            reconstruct-from-phase path could not name)"
+            reconstruct-from-phase path cannot name)"
     (let [inline-fn (fn [_] {})]
       (is (= [:states :idle :after 1000 :action]
              (fmt/cascade-row-source-key
@@ -2026,7 +2011,7 @@
                 :transition-slot {:slot :after :delay-key 1000
                                   :decl-path [:idle] :candidate-idx nil}}))
           "the carried delay-key (1000) addresses the exact :after slot")
-      ;; Legacy fallback: a row with no discriminator lands on the bare
+      ;; Fallback: a row with no discriminator lands on the bare
       ;; `[:states <s> :after :action]` (delay-key unknown).
       (is (= [:states :idle :after :action]
              (fmt/cascade-row-source-key
@@ -2035,7 +2020,7 @@
           "no discriminator → reconstruct-from-phase fallback (no delay-key)"))))
 
 (deftest cascade-row-source-key-always-nonzero-candidate-test
-  (testing "rf2-lai1qv — an inline `:always` `:action` on a multi-candidate
+  (testing "an inline `:always` `:action` on a multi-candidate
             VECTOR resolves to the EXACT nonzero candidate index, not the
             index-free / index-0 shape"
     (let [inline-fn (fn [_] {})]
@@ -2048,9 +2033,9 @@
           "the carried candidate index (1) wins over the index-free fallback"))))
 
 (deftest cascade-row-source-key-root-on-fallback-test
-  (testing "rf2-lai1qv — a root / parallel-root `:on` `:action` (decl-path
+  (testing "a root / parallel-root `:on` `:action` (decl-path
             []) resolves to a root-relative `[:on <event>]` slot OUTSIDE
-            `:states` — the reconstruct path's `:states`-prefixed shape was
+            `:states` — the reconstruct path's `:states`-prefixed shape is
             wrong for a root transition"
     (let [inline-fn (fn [_] {})]
       (is (= [:on :logout :action]
@@ -2062,7 +2047,7 @@
           "root :on resolves to [:on :logout :action], no :states prefix"))))
 
 (deftest cascade-row-source-key-transition-row-test
-  (testing "rf2-wwc3j — `:transition` row resolves to `[:states <src>
+  (testing "`:transition` row resolves to `[:states <src>
             :on <event>]` so the click-through opens the transition map
             literal in the spec"
     (is (= [:states :idle :on :submit]
@@ -2078,7 +2063,7 @@
         "missing event-id → nil")))
 
 (deftest cascade-row-source-key-timer-row-test
-  (testing "rf2-wwc3j — `:timer` row resolves to `[:states <state>]`
+  (testing "`:timer` row resolves to `[:states <state>]`
             (D1 minimum-viable: parent state's source-coord chip)"
     (is (= [:states :idle]
            (fmt/cascade-row-source-key
@@ -2090,8 +2075,8 @@
         "missing state → nil")))
 
 (deftest cascade-row-source-key-named-shadows-inline-test
-  (testing "rf2-wwc3j — a named action-id keyword always wins over the
-            inline derivation (the existing definition-site path covers
+  (testing "a named action-id keyword always wins over the
+            inline derivation (the definition-site path covers
             the named case end-to-end)"
     (is (= [:actions :open-socket]
            (fmt/cascade-row-source-key
@@ -2105,7 +2090,7 @@
         ":guard-id keyword → definition-site path, ignores :source-state / :event-id")))
 
 (deftest machine-cascade-rows-enriches-rows-with-states-test
-  (testing "rf2-wwc3j — `machine-cascade-rows` stamps `:source-state` /
+  (testing "`machine-cascade-rows` stamps `:source-state` /
             `:target-state` / `:event-id` onto each non-transition row
             from the surrounding transition emit so inline-fn source-
             key lookup can resolve spec-path tuples"
@@ -2133,7 +2118,7 @@
           "transition row stamps its own :target-state from :to-state"))))
 
 (deftest machine-cascade-rows-no-transition-leaves-state-slots-nil-test
-  (testing "rf2-wwc3j — when the cascade fires no transition row
+  (testing "when the cascade fires no transition row
             (e.g. a guard-only failed cascade), state-slots remain nil"
     (let [evs [(machine-guard-ev :ready? :fail)]
           rows (proj/machine-cascade-rows evs)]
@@ -2142,12 +2127,12 @@
       (is (nil? (:event-id (first rows)))))))
 
 (deftest machine-cascade-rows-post-transition-row-falls-back-to-prior-test
-  (testing "rf2-w6yfq — when rows trail BEHIND the last transition
+  (testing "when rows trail BEHIND the last transition
             (post-commit timer-cancels), `enrich-cascade-rows` falls
             back to the most recent preceding transition's
             :from-state / :to-state / :event. Pins the two-pass
-            (right-to-left then left-to-right) shape that replaced the
-            O(n²) forward-scan."
+            (right-to-left then left-to-right) shape, O(n) rather than
+            an O(n²) forward-scan."
     (let [evs [(machine-guard-ev :ready? :pass)
                (machine-transition-ev :ws/conn
                                        {:state :idle :data {}}
@@ -2164,8 +2149,8 @@
       (is (= :idle      (-> rows (nth 1) :source-state)))
       (is (= :connected (-> rows (nth 1) :target-state)))
       ;; Post-transition timer-cancel — no next-ahead transition;
-      ;; falls back to `prior` (the preceding transition row). This
-      ;; is the exact path rf2-w6yfq tightened from O(n²) to O(n).
+      ;; falls back to `prior` (the preceding transition row).
+      ;; This is the path the two-pass shape keeps O(n).
       (is (= :idle      (-> rows (nth 2) :source-state))
           "post-transition row inherits :source-state from the preceding transition (prior fallback)")
       (is (= :connected (-> rows (nth 2) :target-state))
@@ -2174,7 +2159,7 @@
           "post-transition row inherits :event-id from the preceding transition"))))
 
 (deftest state-spec-path-prefix-test
-  (testing "rf2-wwc3j — `state-spec-path-prefix` coerces a state form
+  (testing "`state-spec-path-prefix` coerces a state form
             into the spec-path prefix the macro's source-coord index uses"
     (is (= [:states :idle]
            (proj/state-spec-path-prefix :idle))
@@ -2194,7 +2179,7 @@
         "empty vector → nil")))
 
 (deftest state-node-source-coords-test
-  (testing "rf2-vqja2 — `state-node-source-coords` reads the co-located
+  (testing "`state-node-source-coords` reads the co-located
             `:source-coords` off the MAP node at a spec-path, and walks UP
             to the nearest enclosing map for inline-fn slot keys (which
             hold a value, not a map)"
@@ -2234,7 +2219,7 @@
       (is (nil? (proj/state-node-source-coords nil [:states :active])) "nil spec → nil"))))
 
 (deftest cascade-outcome-label-test
-  (testing "rf2-u69j7 — `cascade-outcome-label` renders kind-specific
+  (testing "`cascade-outcome-label` renders kind-specific
             outcome strings"
     (is (= "pass"  (fmt/cascade-outcome-label {:kind :guard :outcome :pass})))
     (is (= "fail"  (fmt/cascade-outcome-label {:kind :guard :outcome :fail})))
@@ -2244,11 +2229,11 @@
                      {:kind :action :threw? true :outcome :rf.error/action-threw})))
     (is (= "cancelled (on-exit)"
            (fmt/cascade-outcome-label {:kind :timer :reason :on-exit}))))
-  (testing "rf2-cdgva — the `:transition` row carries NO outcome label.
-            The prior `N microstep(s)` summary was redundant: every
+  (testing "the `:transition` row carries NO outcome label.
+            An `N microstep(s)` summary would be redundant: every
             `:always` microstep is itself a first-class cascade row in the
-            same mini-pipeline (post akvfe/2hj0h), so the count tallied
-            rows already present; at N=0 (the common case) it was noise.
+            same mini-pipeline, so the count would tally rows already
+            present; at N=0 (the common case) it would be noise.
             The headline `<before> → <after>` verb is the whole story."
     ;; N>0 — the microstep rows themselves carry the signal; no count chip.
     (is (nil? (fmt/cascade-outcome-label {:kind :transition :microsteps 3})))
@@ -2260,7 +2245,7 @@
 ;; ---- FLOW ---------------------------------------------------------------
 
 (deftest flow-steps-event-bundle-shape-test
-  (testing "rf2-xnb1x — no flow events → no FLOW step in the cascade"
+  (testing "no flow events → no FLOW step in the cascade"
     (let [record {:trace-events [{:op-type   :rf.event
                                   :operation :rf.event/dispatched
                                   :tags      {:rf.event/event [:noop]}}]}
@@ -2269,7 +2254,7 @@
       (is (empty? flows)
           "zero flow events → no FLOW step rendered")))
 
-  (testing "rf2-xnb1x — one flow event → ONE FLOW step"
+  (testing "one flow event → ONE FLOW step"
     (let [record {:trace-events [{:op-type   :rf.event
                                   :operation :rf.event/dispatched
                                   :tags      {:rf.event/event [:counter/inc]}}
@@ -2285,7 +2270,7 @@
         (is (= 5             (:before f)))
         (is (= 6             (:after f))))))
 
-  (testing "rf2-xnb1x — N flow events → N first-class FLOW steps, each
+  (testing "N flow events → N first-class FLOW steps, each
             carrying its own flow-id + path + before/after pair"
     (let [record {:trace-events [{:op-type   :rf.event
                                   :operation :rf.event/dispatched
@@ -2301,12 +2286,12 @@
           "preserves substrate-order"))))
 
 (deftest flow-rows-reads-canonical-substrate-shape-test
-  (testing "rf2-yhgk8 — substrate emits `:rf.flow/computed` with BARE
+  (testing "substrate emits `:rf.flow/computed` with BARE
             `:flow-id` / `:path` / `:before` / `:result` / `:elapsed-ms`
-            tags (Spec 009 §Flow trace events · `re-frame.flows`). The
-            pre-rf2-yhgk8 reader looked for `:rf.flow/recomputed` op +
-            `:rf.flow/{id,path,before,after}` tags — every slot
-            returned nil and the FLOW step silently dropped. The
+            tags (Spec 009 §Flow trace events · `re-frame.flows`). A
+            reader looking for a `:rf.flow/recomputed` op +
+            `:rf.flow/{id,path,before,after}` tags would return nil for
+            every slot and silently drop the FLOW step. The
             view-side `:after` maps to the substrate's `:result`."
     (let [ev {:op-type   :rf.flow
               :operation :rf.flow/computed
@@ -2327,18 +2312,17 @@
             "duration reads `:elapsed-ms`")))))
 
 (deftest flow-rows-empty-against-legacy-shape-test
-  (testing "rf2-yhgk8 — a trace event under the LEGACY `:rf.flow/recomputed`
-            op (pre-canonical fixture shape) produces no flow rows; the
-            reader is canonical-only post-fix"
+  (testing "a trace event under the non-canonical `:rf.flow/recomputed`
+            op produces no flow rows; the reader is canonical-only"
     (let [ev {:op-type   :rf.flow
               :operation :rf.flow/recomputed
               :tags      {:rf.flow/id    :legacy/flow
                           :rf.flow/path  [:x]
                           :rf.flow/after 1}}]
       (is (= [] (proj/flow-rows [ev]))
-          "legacy op-name produces zero rows — no silent fallthrough"))))
+          "the non-canonical op-name produces zero rows — no silent fallthrough"))))
 
-;; ---- t1 / t2 db attribution (rf2-4wywy) ---------------------------------
+;; ---- t1 / t2 db attribution ---------------------------------------------
 ;;
 ;; standard-epochs button 5 (`:standard-epochs/increment-flow`): the handler bumps
 ;; `:base`; the `:standard-epochs/derived` flow then recomputes `:derived =
@@ -2347,19 +2331,19 @@
 ;; FLOW step must show the flow's OWN contribution (`:derived` recomputed)
 ;; as a SEPARATE `:db` diff. The two must not be conflated.
 ;;
-;; The fix reads the t1 (`:rf.event/db-pending`, post-handler/pre-flow) +
-;; t2 (`:rf.event/db-pending-post-flow`, post-flow) snapshots off the trace
-;; stream (rf2-ta0y7). The epoch record's `:db-after` is the FINAL
-;; post-flow state — reading it for the HANDLER step was the bug.
+;; The projection reads the t1 (`:rf.event/db-pending`, post-handler/pre-flow)
+;; + t2 (`:rf.event/db-pending-post-flow`, post-flow) snapshots off the trace
+;; stream. The epoch record's `:db-after` is the FINAL post-flow state —
+;; reading it for the HANDLER step would conflate the two.
 
 (deftest db-pending-t1-t2-readers-test
-  (testing "rf2-4wywy — t1 reader pulls the post-handler db off
+  (testing "t1 reader pulls the post-handler db off
             `:rf.event/db-pending`'s `:rf.event/db` tag"
     (is (= {:base 2 :baseline 1}
            (proj/db-pending-t1 [(db-pending-ev {:base 2 :baseline 1})])))
     (is (nil? (proj/db-pending-t1 []))
         "absent t1 → nil (caller falls back to record :db-after)"))
-  (testing "rf2-4wywy — t2 reader pulls the post-flow db off
+  (testing "t2 reader pulls the post-flow db off
             `:rf.event/db-pending-post-flow`'s `:rf.event/db` tag"
     (is (= {:base 2 :baseline 1 :derived 4}
            (proj/db-pending-t2 [(db-pending-post-flow-ev {:base 2 :baseline 1 :derived 4})])))
@@ -2367,7 +2351,7 @@
         "absent t2 → nil (no flow changed :db this epoch)")))
 
 (deftest handler-step-db-reflects-post-handler-not-post-flow-test
-  (testing "rf2-4wywy ACCEPTANCE — the HANDLER step's `:db` reflects ONLY
+  (testing "ACCEPTANCE — the HANDLER step's `:db` reflects ONLY
             the handler's change (post-handler / t1). The epoch record's
             `:db-after` carries the FLOW-augmented `:derived` slot, but the
             HANDLER step must NOT surface it — `:db-post-handler` (t1) is
@@ -2391,7 +2375,7 @@
       (is (= 2 (:derived (:db-post-handler h)))
           "the HANDLER step's :derived is the PRE-flow value (2), NOT the
            flow's recomputed value (4) — the handler did not touch it")
-      ;; rf2-sp0n9 — the view diffs `:db-post-handler` (t1) against
+      ;; The view diffs `:db-post-handler` (t1) against
       ;; `:db-before`, so the HANDLER step shows ONLY the handler's :base
       ;; bump; the flow's :derived recompute belongs to the FLOW step.
       (is (= 2 (:base (:db-post-handler h)))
@@ -2399,7 +2383,7 @@
            handler's :base bump (1 → 2)"))))
 
 (deftest flow-step-carries-its-own-db-diff-snapshots-test
-  (testing "rf2-4wywy ACCEPTANCE — the FLOW step carries the t1 (pre-flow)
+  (testing "ACCEPTANCE — the FLOW step carries the t1 (pre-flow)
             + t2 (post-flow) db snapshots so the view renders the flow's
             OWN `:db` diff (`:derived` recomputed) separately from the
             handler's change."
@@ -2432,8 +2416,8 @@
           "post-flow db carries :derived = 2 × :base = 4"))))
 
 (deftest handler-step-db-falls-back-to-record-when-no-t1-test
-  (testing "rf2-4wywy — graceful fallback: when no t1 fired (handler
-            returned no `:db`, or a pre-rf2-ta0y7 runtime) the HANDLER
+  (testing "graceful fallback: when no t1 fired (handler
+            returned no `:db`, or a runtime that stamps no t1) the HANDLER
             step carries no `:db-post-handler`; the view falls back to
             the record's `:db-after` and diffs it against `:db-before`."
     (let [record {:event-id     :legacy/no-t1
@@ -2449,9 +2433,9 @@
            back to the record's :db-after)"))))
 
 (deftest flow-step-falls-back-to-scalar-when-no-snapshots-test
-  (testing "rf2-4wywy — when no t1/t2 snapshots rode the stream (pre-
-            rf2-ta0y7 fixture) the FLOW step carries no `:db-pre-flow` /
-            `:db-post-flow`; the view renders the legacy scalar
+  (testing "when no t1/t2 snapshots rode the stream (a
+            fixture without them) the FLOW step carries no `:db-pre-flow` /
+            `:db-post-flow`; the view renders the scalar
             before→after line. Projection-side: the slots are simply
             absent."
     (let [record {:event-id     :counter/inc
@@ -2469,11 +2453,11 @@
       (is (= 5 (:before f)))
       (is (= 6 (:after f))))))
 
-;; ---- no-`:db`-effect-but-has-flow edge case (rf2-48oc4) -----------------
+;; ---- no-`:db`-effect-but-has-flow edge case -----------------------------
 ;;
 ;; A handler can return NO `:db` effect yet still trigger a flow. The
 ;; substrate then stamps NO t1 (`:rf.event/db-pending` fires only
-;; `(when has-db?)` — router `flows-after-interceptor`, rf2-ta0y7) but
+;; `(when has-db?)` — router `flows-after-interceptor`) but
 ;; DOES stamp t2 (`:rf.event/db-pending-post-flow`) with the flow-augmented
 ;; db (a flow synthesised one from app-db and changed it). The post-handler
 ;; db here equals `db-before` (the handler wrote nothing). The HANDLER step
@@ -2482,7 +2466,7 @@
 ;; NOT attribute the flow's change to the handler.
 
 (deftest no-db-effect-with-flow-discriminator-test
-  (testing "rf2-48oc4 — `no-db-effect-with-flow?` is true iff no t1 but a
+  (testing "`no-db-effect-with-flow?` is true iff no t1 but a
             t2 fired (handler wrote no `:db`, a flow synthesised + changed
             one)"
     (is (true? (proj/no-db-effect-with-flow?
@@ -2493,10 +2477,10 @@
                    (db-pending-post-flow-ev {:a 1 :derived 2})]))
         "t1 present → false (handler DID return :db; standard case)")
     (is (false? (proj/no-db-effect-with-flow? []))
-        "neither t1 nor t2 → false (no flow / pre-rf2-ta0y7)")))
+        "neither t1 nor t2 → false (no flow)")))
 
 (deftest effective-post-handler-db-resolution-test
-  (testing "rf2-48oc4 — `effective-post-handler-db` resolution order"
+  (testing "`effective-post-handler-db` resolution order"
     (is (= {:a 1} (proj/effective-post-handler-db
                     [(db-pending-ev {:a 1})] {:a 0}))
         "t1 present → t1 (handler-supplied db), regardless of db-before")
@@ -2506,10 +2490,10 @@
          post-handler db; handler wrote nothing)")
     (is (nil? (proj/effective-post-handler-db [] {:a 0}))
         "neither t1 nor t2 → nil (caller falls back to record :db-after);
-         the pre-rf2-ta0y7 / no-flow path is left to the legacy fallback")))
+         the no-flow path is left to that fallback")))
 
 (deftest handler-step-shows-no-db-change-when-handler-wrote-no-db-test
-  (testing "rf2-48oc4 ACCEPTANCE (b) — when the handler returned NO `:db`
+  (testing "ACCEPTANCE (b) — when the handler returned NO `:db`
             but a flow fired, the HANDLER step shows NO `:db` change: the
             effective post-handler db equals `db-before` (NOT the
             flow-augmented post-flow state), so the view's diff against
@@ -2534,11 +2518,11 @@
           "the HANDLER step's effective post-handler db = db-before (the
            handler wrote nothing); NOT the post-flow t2")
       (is (= 2 (:derived (:db-post-handler h)))
-          "rf2-sp0n9 — the flow's :derived recompute (2 → 4) does NOT leak
+          "the flow's :derived recompute (2 → 4) does NOT leak
            into the HANDLER step's effective db; it stays at the pre-flow 2"))))
 
 (deftest flow-step-diffs-against-db-before-when-handler-wrote-no-db-test
-  (testing "rf2-48oc4 ACCEPTANCE (a) — when the handler returned NO `:db`
+  (testing "ACCEPTANCE (a) — when the handler returned NO `:db`
             but a flow fired, the FLOW step's diff baseline is the ACTUAL
             post-handler db (= db-before), threaded as `:db-pre-flow`; the
             POST endpoint is t2 (`:db-post-flow`). The step renders a real
@@ -2569,15 +2553,15 @@
       (is (= 4 (:derived (:db-post-flow f)))
           "post-flow :derived = the flow's recomputed value"))))
 
-;; ---- SIDE EFFECTS step — flat ledger (rf2-j630b) ------------------------
+;; ---- SIDE EFFECTS step — flat ledger ------------------------------------
 ;;
-;; The rf2-kt6js 3-tier `:db` / `:fx` / other sub-step presentation became
-;; a FLAT per-effect ledger (rf2-j630b): `proj/side-effects-step` returns
+;; The SIDE EFFECTS step is a FLAT per-effect ledger:
+;; `proj/side-effects-step` returns
 ;; ONE `:rows` vec in EXECUTION order — synthesised `:db` row first (when
 ;; present), then the `:fx`-vector rows in order. There is no `other`
-;; tier (rf2-m2ye2 deleted it — see `side-effects-no-other-tier-test`). NO
+;; tier (see `side-effects-no-other-tier-test`). NO
 ;; `:sub-kinds` slot. The single badge status is `proj/side-effects-badge-
-;; status` (AND-of-rows; SKIPPED neutral); each row keeps the rf2-ahhgn
+;; status` (AND-of-rows; SKIPPED neutral); each row keeps its own
 ;; `:status`. See the projection ns's SIDE EFFECTS settle-first note for
 ;; what's recorded vs derived.
 
@@ -2596,7 +2580,7 @@
   (testing "no side effect at all → step is OMITTED"
     (is (nil? (proj/side-effects-step []))))
 
-  (testing "rf2-j630b — :fx-vector entries → SIDE EFFECTS step with one
+  (testing ":fx-vector entries → SIDE EFFECTS step with one
             flat row per fx in execution order (no :db row when no commit)"
     (let [s (proj/side-effects-step
               [(fx-handled-ev :http/post {:url "/x"} 12.0)
@@ -2609,10 +2593,10 @@
           "all fx ran → badge :ok")
       (is (= :ok (-> s :rows first :status))))))
 
-;; ---- :db row — FIRST, pass / schema-fail (rf2-j630b) --------------------
+;; ---- :db row — FIRST, pass / schema-fail --------------------------------
 
 (deftest side-effects-db-row-first-and-pass-test
-  (testing "rf2-j630b — a bare db-only handler (only :db, NO :fx) STILL shows
+  (testing "a bare db-only handler (only :db, NO :fx) STILL shows
             the SIDE EFFECTS step with a passing :db row, FIRST in the
             ledger. The :db commit is keyed off `:rf.event/db-changed` —
             the ALWAYS-APPEARS contract."
@@ -2622,7 +2606,7 @@
       (is (= :ok (-> (row-with-id s :db) :status)) ":db committed → ✓")
       (is (= :ok (proj/side-effects-badge-status (:rows s)))) ))
 
-  (testing "rf2-j630b — :db row leads, then the :fx rows in order"
+  (testing ":db row leads, then the :fx rows in order"
     (let [s (proj/side-effects-step
               [(do-fx-ev {:db {:n 1} :fx [[:http/post {}] [:navigate {}]]})
                (db-changed-ev [[[:n] 0 1 :edit]])
@@ -2632,7 +2616,7 @@
           ":db first, then :fx vector in execution order"))))
 
 (deftest side-effects-db-row-schema-fail-only-test
-  (testing "rf2-j630b — a :db schema-fail (pre-commit transactional)
+  (testing "a :db schema-fail (pre-commit transactional)
             rolls back BEFORE any :fx ran (atomicity): the ledger carries
             just the :db CROSS row + badge cross, NO fx rows"
     (let [s (proj/side-effects-step
@@ -2643,10 +2627,10 @@
       (is (= :error (proj/side-effects-badge-status (:rows s)))
           "badge cross when the :db row failed"))))
 
-;; ---- :db row — NO-OP commit (rf2-ekq28v) -------------------------------
+;; ---- :db row — NO-OP commit --------------------------------------------
 
 (deftest side-effects-db-row-noop-test
-  (testing "rf2-ekq28v — a :db effect that left app-db UNCHANGED emits
+  (testing "a :db effect that left app-db UNCHANGED emits
             :rf.event/db-noop (the complement of db-changed). The SIDE
             EFFECTS step STILL surfaces the :db row, status :noop (∅ —
             'returned unchanged db, nothing committed'), so the operator
@@ -2660,36 +2644,36 @@
       (is (= :ok (proj/side-effects-badge-status (:rows s)))
           "a :noop :db row is neutral, never a failure")))
 
-  (testing "rf2-ekq28v — db-commit? / db-noop? predicates: db-noop fires,
+  (testing "db-commit? / db-noop? predicates: db-noop fires,
             db-changed does not"
     (let [evs [(db-noop-ev)]]
       (is (true? (proj/db-commit? evs)) "db-commit? true on a no-op (commit attempted)")
       (is (true? (proj/db-noop? evs))   "db-noop? true on a db-noop trace")
       (is (false? (proj/db-rolled-back? evs)) "not a rollback")))
 
-  (testing "rf2-ekq28v — a REAL commit (db-changed) takes precedence: status
+  (testing "a REAL commit (db-changed) takes precedence: status
             :ok, db-noop? false (exactly one of db-changed / db-noop fires)"
     (let [evs [(db-changed-ev [[[:counter] 0 1 :edit]])]]
       (is (false? (proj/db-noop? evs)) "db-noop? false when db-changed fired")
       (is (= :ok (-> (proj/db-effect-row evs) :status)) "real commit → :ok")))
 
-  (testing "rf2-ekq28v — handler-wrote-db? recognises db-noop: the HANDLER
+  (testing "handler-wrote-db? recognises db-noop: the HANDLER
             step's :db section shows the returned db, not the no-write
             placeholder (the handler DID return a :db, it just didn't change)"
     (is (true? (proj/handler-wrote-db? [(db-noop-ev)]))
         "handler-wrote-db? true on a db-noop (a :db was returned)")))
 
-;; ---- per-row glyph + badge AND-of-rows (rf2-j630b) ----------------------
+;; ---- per-row glyph + badge AND-of-rows ----------------------------------
 
 (deftest side-effects-per-row-status-test
-  (testing "rf2-j630b — each :fx row carries a per-effect status:
+  (testing "each :fx row carries a per-effect status:
             :ok ran / :error threw / :overridden / :skipped on-platform.
             Per-fx success is ALREADY RECORDED on the trace stream."
-    ;; The override is in the PRODUCER's shape (rf2-3x7nj.22.3): override-
+    ;; The override is in the PRODUCER's shape: override-
     ;; applied carries only `:rf.fx/from` / `:rf.fx/to`, never `:rf.fx/id`,
-    ;; and the replacement's own `:rf.fx/handled` follows it. This fixture
-    ;; used to put `:rf.fx/id` on the override row, which the producer never
-    ;; does — so it passed while no real trace could ever paint `↺`.
+    ;; and the replacement's own `:rf.fx/handled` follows it. A fixture that
+    ;; put `:rf.fx/id` on the override row, which the producer never
+    ;; does, would pass while no real trace could ever paint `↺`.
     (let [s  (proj/side-effects-step
                [(fx-handled-ev :http/post {} 1.0)
                 (teb/fx-override-applied-ev :metrics :re-frame.fx/fn-value)
@@ -2704,7 +2688,7 @@
       (is (= :error      (:bad-fx    by)) "fx-handler-exception → :error")
       (is (= 1 (:threw s)) "threw count = the one fx that threw"))))
 
-;; ---- `↺` overridden, off override PROVENANCE only (rf2-3x7nj.22.3) -------
+;; ---- `↺` overridden, off override PROVENANCE only ------------------------
 ;;
 ;; Every fixture is the producer's shape, as a real `:fx-overrides` dispatch
 ;; emits it (captured from the runtime): a function override emits
@@ -2715,7 +2699,7 @@
 
 (deftest side-effects-overridden-fx-reads-overridden-test
   (testing "REGRESSION — a function override paints ↺ on the emitted id, and
-            names the replacement; it used to read ✓ like the real handler"
+            names the replacement, rather than reading ✓ like the real handler"
     (let [rows (proj/fx-effect-rows
                  [(teb/fx-override-applied-ev :http/post :re-frame.fx/fn-value)
                   (fx-handled-ev :http/post {:url "/x"} 0.1)])]
@@ -2723,8 +2707,8 @@
              (mapv #(select-keys % [:fx-id :status :override-to]) rows)))
       (is (= "↺" (badge/fx-row-status-glyph (:status (first rows)))))))
   (testing "REGRESSION — a keyword redirect is keyed on the id the handler
-            EMITTED, the target as detail; it used to read `✓ <target>`, the
-            emitted id gone from the ledger"
+            EMITTED, the target as detail, rather than reading `✓ <target>`
+            with the emitted id gone from the ledger"
     (let [rows (proj/fx-effect-rows
                  [(teb/fx-override-applied-ev :http/post :http/fake)
                   (fx-handled-ev :http/fake {:url "/x"} 0.1 :http/post)])]
@@ -2765,7 +2749,7 @@
                     (fx-handled-ev :app/other {} 0.1)]))))))
 
 (deftest side-effects-badge-and-of-rows-test
-  (testing "rf2-j630b — the badge is the AND of the present rows: cross
+  (testing "the badge is the AND of the present rows: cross
             iff ≥1 real failure; SKIPPED rows are NEUTRAL (don't trip it)"
     ;; all ✓ → :ok
     (is (= :ok (proj/side-effects-badge-status
@@ -2794,8 +2778,8 @@
         "an attached :errors vec lifts the badge to cross")))
 
 (deftest side-effects-fx-reads-canonical-elapsed-ms-test
-  (testing "rf2-ipaza — :fx row duration resolves through the canonical
-            `:rf.fx/elapsed-ms`; legacy `:duration-ms` is a fallback"
+  (testing ":fx row duration resolves through the canonical
+            `:rf.fx/elapsed-ms`; `:duration-ms` is a fallback"
     (let [s (proj/side-effects-step
               [{:op-type :rf.fx :operation :rf.fx/handled
                 :tags {:rf.fx/id :http/post :rf.fx/elapsed-ms 3.4}}])]
@@ -2804,10 +2788,10 @@
               [{:op-type :rf.fx :operation :rf.fx/handled
                 :tags {:rf.fx/id :http/get :duration-ms 7.7}}])]
       (is (= 7.7 (-> s :rows first :duration-ms))
-          "legacy :duration-ms fallback retained for older fixtures"))))
+          ":duration-ms fallback serves fixtures that stamp it"))))
 
 (deftest side-effects-fx-attribution-from-machine-actions-test
-  (testing "rf2-uffov — when a machine action's outcome :fx emits a
+  (testing "when a machine action's outcome :fx emits a
             fx-id, the corresponding :fx ledger row carries :attributed-to"
     (let [evs [(ev :rf.machine :rf.machine/action-ran
                    {:action-id :open-socket
@@ -2820,40 +2804,40 @@
       (is (= :open-socket (-> row :attributed-to :action-id)))
       (is (= :entry       (-> row :attributed-to :phase)))))
 
-  (testing "rf2-uffov — pure :effectful cascades have no per-action
+  (testing "pure :effectful cascades have no per-action
             attribution; the slot stays absent"
     (let [row (-> (proj/side-effects-step [(fx-handled-ev :http/post {} 0.1)])
                   :rows first)]
       (is (not (contains? row :attributed-to))))))
 
-;; ---- NO `other` tier (rf2-m2ye2) ----------------------------------------
+;; ---- NO `other` tier ----------------------------------------------------
 ;;
-;; `other-effect-rows` is DELETED. It rendered every top-level effect key
+;; There is no `other` tier. One rendering every top-level effect key
 ;; outside a hand-copied 3-key closed set as ":skipped — an effect the
-;; runtime ignored", and its true-positive population is empty. Measured
-;; live against the router on the JVM, both directions:
+;; runtime ignored" has an empty true-positive population. Against the
+;; router, both directions:
 ;;
 ;;   - `{:db {:n 1} :sensitive [[:creds :password]] :fx [[:probe/noop 1]]}`
-;;     is a LEGAL return. It commits (`:rf.event/db-changed` fired), emits
+;;     is a LEGAL return. It commits (`:rf.event/db-changed` fires), emits
 ;;     do-fx, and the framework applies the declaration — the frame's
-;;     `:sensitive-declarations` gained `[:creds :password]`. The 3-key
-;;     arithmetic nevertheless yields `{:sensitive …}`, i.e. the panel
-;;     accusing the runtime of ignoring an effect it demonstrably applied.
-;;     That IS the 3-vs-7 drift against `re-frame.events/closed-effect-map-keys`.
+;;     `:sensitive-declarations` gains `[:creds :password]`. The 3-key
+;;     arithmetic would nevertheless yield `{:sensitive …}`, i.e. the panel
+;;     accusing the runtime of ignoring an effect it demonstrably applied —
+;;     a 3-vs-7 drift against `re-frame.events/closed-effect-map-keys`.
 ;;
-;;   - `{:db {:n 2} :legacy/persist {:to :disk}}` — the population the tier
-;;     was WRITTEN for — is REFUSED pre-commit (rf2-04tx). Its ops run
+;;   - `{:db {:n 2} :legacy/persist {:to :disk}}` — a genuinely foreign
+;;     key — is REFUSED pre-commit. Its ops run
 ;;     `… :rf.event/db-pending → :rf.error/effect-map-shape →
 ;;     :rf.event/run-end` with NO `:rf.fx/do-fx`, so it never reaches a do-fx
-;;     reader however that reader is repaired. The refusal surfaces instead
+;;     reader at all. The refusal surfaces instead
 ;;     through `attach-unclassified-errors` (see the cascade-exception tests
 ;;     at the foot of this file).
 ;;
 ;; These tests are the standing guard: they go RED the moment an `other`
-;; tier comes back.
+;; tier appears.
 
 (deftest side-effects-no-other-tier-test
-  (testing "rf2-m2ye2 — the PRODUCER-shaped cascade: the ledger is the `:db`
+  (testing "the PRODUCER-shaped cascade: the ledger is the `:db`
             row plus one row per `:fx` entry, and nothing else"
     (let [s (proj/side-effects-step
               [(do-fx-ev [[:http/post {}]])
@@ -2863,13 +2847,13 @@
           "no fourth `other` tier")
       (is (= :ok (proj/side-effects-badge-status (:rows s))))))
 
-  (testing "rf2-m2ye2 — THE FALSE ACCUSATION, pinned shut. A handler that
+  (testing "THE FALSE ACCUSATION, pinned shut. A handler that
             returned an EP-0025 commit-plane classification effect beside
             `:db` and `:fx` gets NO `:sensitive` row: the framework applies
             that effect with the `:db` write, so reporting it as ignored
             slanders correct behaviour. Written against the MAP carrier on
-            purpose — that is the shape the deleted reader consumed, so this
-            reddens if an `other` tier is reintroduced in its old form."
+            purpose — that is the shape such a reader would consume, so this
+            reddens if an `other` tier is added in that form."
     (let [s (proj/side-effects-step
               [(do-fx-ev {:db {:n 1}
                           :sensitive [[:creds :password]]
@@ -2882,9 +2866,9 @@
           "no `:sensitive` row — the runtime applied it, it was not ignored")
       (is (= :ok (proj/side-effects-badge-status (:rows s))))))
 
-  (testing "rf2-m2ye2 — the other three EP-0025 keys behave identically;
+  (testing "the other three EP-0025 keys behave identically;
             the four are one closed family, and a copy of the set that names
-            only three of the seven legal keys is what produced the
+            only three of the seven legal keys would produce the
             accusation above"
     (doseq [k [:large :clear-sensitive :clear-large]]
       (let [s (proj/side-effects-step
@@ -2895,8 +2879,8 @@
         (is (= [:db :http/post] (ids-of s))
             (str "no ledger row for the legal classification effect " k)))))
 
-  (testing "rf2-m2ye2 — a genuinely FOREIGN top-level key is refused
-            pre-commit (rf2-04tx), so the cascade carries no do-fx and no
+  (testing "a genuinely FOREIGN top-level key is refused
+            pre-commit, so the cascade carries no do-fx and no
             commit at all; the ledger is the step's OMITTED shape, not a
             `:skipped` diagnostic row"
     (is (nil? (proj/side-effects-step
@@ -2907,15 +2891,15 @@
                  (run-end-ev 0.4)]))
         "refused pre-commit → no :db row, no :fx rows, no `other` row")))
 
-;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 (rf2-ff9b0d) --
+;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 --------------
 
 (deftest side-effects-runtime-db-row-test
-  (testing "rf2-ff9b0d — a runtime-ONLY commit ({:rf.db/runtime ...},
+  (testing "a runtime-ONLY commit ({:rf.db/runtime ...},
             NO :db, NO :fx) STILL shows the SIDE EFFECTS step with a
             first-class :rf.db/runtime ✓ row. Keyed off the partition-
             tagged :rf.event/frame-state-changed (#{:runtime-db}) — the
             substrate emits NO :rf.event/db-changed for a runtime-only
-            commit (Mike ruling #6), so frame-state-changed is the sole
+            commit, so frame-state-changed is the sole
             signal."
     (let [s (proj/side-effects-step
               [(do-fx-ev {:rf.db/runtime {:machines {:foo {:state [:idle]}}}})
@@ -2927,7 +2911,7 @@
       (is (= :ok (proj/side-effects-badge-status (:rows s)))
           "all state effects applied → badge ✓")))
 
-  (testing "rf2-ff9b0d — an app-db + runtime-db commit shows BOTH state
+  (testing "an app-db + runtime-db commit shows BOTH state
             effects: the :db row leads, the :rf.db/runtime row follows
             (atomic partition writes), both ✓"
     (let [s (proj/side-effects-step
@@ -2940,7 +2924,7 @@
       (is (= :ok (-> (row-with-id s :rf.db/runtime) :status)))
       (is (= :ok (proj/side-effects-badge-status (:rows s))))))
 
-  (testing "rf2-ff9b0d — a MIXED {:rf.db/runtime ... :fx [...]} return
+  (testing "a MIXED {:rf.db/runtime ... :fx [...]} return
             shows the runtime write as APPLIED (an ✓ state-effect row),
             NOT under :skipped/other. Order is runtime-db row then :fx."
     (let [s (proj/side-effects-step
@@ -2956,11 +2940,9 @@
           ":rf.db/runtime is NEVER a dropped/other row")
       (is (= :ok (proj/side-effects-badge-status (:rows s))))))
 
-  (testing "rf2-ff9b0d — :rf.db/runtime is a LEGAL closed-effect key with
+  (testing ":rf.db/runtime is a LEGAL closed-effect key with
             its own first-class state-effect row, never a dropped/`other`
-            diagnostic. rf2-m2ye2 — the `other` tier it used to be
-            contrasted against is gone; the contrast that survives is the
-            one that matters, a committed partition write reading ✓."
+            diagnostic: a committed partition write reads ✓."
     (let [s    (proj/side-effects-step
                  [(do-fx-ev {:db {:n 1}
                              :rf.db/runtime {:machines {}}
@@ -2977,7 +2959,7 @@
       (is (= :ok (proj/side-effects-badge-status (:rows s)))
           "every row applied — badge stays ✓")))
 
-  (testing "rf2-ff9b0d — a runtime-db schema-fail rollback (:where
+  (testing "a runtime-db schema-fail rollback (:where
             :machine-data, :rollback?) paints the runtime-db row ✗ and
             trips the badge to cross"
     (let [s (proj/side-effects-step
@@ -2992,7 +2974,7 @@
           "badge cross when the runtime-db row failed"))))
 
 (deftest runtime-db-machine-data-violation-attaches-to-row-test
-  (testing "rf2-ff9b0d — a :where :machine-data violation attaches to the
+  (testing "a :where :machine-data violation attaches to the
             SIDE EFFECTS step's :rf.db/runtime row (the runtime-db sibling
             of the :app-db → :db attach)"
     (let [se-step (proj/side-effects-step
@@ -3010,7 +2992,7 @@
       (is (= :error (proj/step-status out))
           "the SIDE EFFECTS step reads :error with the attached violation")))
 
-  (testing "rf2-ff9b0d — a :where :machine-data rollback marks the cascade
+  (testing "a :where :machine-data rollback marks the cascade
             rolled back (downstream-mute signal), symmetric with :app-db"
     (let [rows (proj/schema-violation-rows
                  [(schema-violation-ev :machine-data :some/machine
@@ -3034,11 +3016,11 @@
       (is (false? (-> s :rows second :changed?))))))
 
 (deftest subscriptions-row-reads-canonical-substrate-tags-test
-  (testing "rf2-kfh1v — projection reads the substrate's canonical
+  (testing "projection reads the substrate's canonical
             `:rf.sub/id`, `:rf.sub/query-v`, `:rf.sub/value-changed?`,
-            `:rf.sub/prev-value`, `:rf.sub/value` tags (NOT the legacy
+            `:rf.sub/prev-value`, `:rf.sub/value` tags (NOT a
             `:rf.sub/changed?` / `:rf.sub/before` / `:rf.sub/after`
-            shape the pre-rf2-kfh1v projection read against)"
+            shape)"
     (let [s (proj/subscriptions-step [(sub-run-ev [:counter/total] true 5 6)])
           row (-> s :rows first)]
       (is (= :counter/total (:sub-id row))
@@ -3053,7 +3035,7 @@
           "after is read from `:rf.sub/value`"))))
 
 (deftest false-valued-tags-survive-projection-test
-  (testing "rf2-3x7nj.22.2 — a boolean sub flipping true → false projects
+  (testing "a boolean sub flipping true → false projects
             `false`, not nil. The tags are the ones a live `:rf.sub/run`
             carries for `(rf/reg-sub :user/flag (fn [db _] (:flag db)))`."
     (let [row (first (proj/subscription-rows
@@ -3067,7 +3049,7 @@
       (is (true? (:before row)))
       (is (true? (:changed? row)))))
 
-  (testing "a false primary tag is not shadowed by the legacy key"
+  (testing "a false primary tag is not shadowed by the fallback key"
     (let [row (first (proj/subscription-rows
                        [(ev :rf.sub :rf.sub/run
                             {:rf.sub/id         :user/flag
@@ -3092,7 +3074,7 @@
         "flow :result false")))
 
 (deftest subscriptions-row-carries-first-run-flag-test
-  (testing "rf2-fyd8u — projection lifts `:rf.sub/first-run?` onto
+  (testing "projection lifts `:rf.sub/first-run?` onto
             each sub-run row as `:first-run?` so the view-side
             renderer can pick `:added` chrome (first-cache-entry) vs
             `← was X` annotation (value change against an existing
@@ -3127,17 +3109,17 @@
         (is (true? (:changed? row)))
         (is (= 0 (:before row)))
         (is (= 1 (:after row)))))
-    (testing "absent `:rf.sub/first-run?` tag (legacy / pure compute-sub
+    (testing "absent `:rf.sub/first-run?` tag (a pure compute-sub
               path) → row defaults to first-run? false"
       (let [row (-> (proj/subscriptions-step
                       [(sub-run-ev [:counter/total] true 5 6)])
                     :rows first)]
         (is (false? (:first-run? row))
-            "no flag stamped → defaults to false (legacy path falls back
+            "no flag stamped → defaults to false (the path falls back
              to the value-change shape)")))))
 
 (deftest subscriptions-row-carries-cause-event-id-test
-  (testing "rf2-1cc03 — projection lifts `:rf.sub/cause-event-id` onto
+  (testing "projection lifts `:rf.sub/cause-event-id` onto
             each sub-run row as `:cause-event-id` so the view-side
             renderer can paint a `caused by <event-id>` chrome
             attributing the sub-run to the dispatching cascade."
@@ -3156,7 +3138,7 @@
         (is (true? (:changed? row))
             ":changed? still carries the value-changed signal")
         (is (= 1 (:after row))
-            "other slots ride alongside the new attribution slot")))
+            "other slots ride alongside the attribution slot")))
     (testing "cause-event-id ABSENT (post-settle reactive flush, no
               live cascade) → row slot is OMITTED (not nil-bearing)"
       (let [row (-> (proj/subscriptions-step
@@ -3169,7 +3151,7 @@
                     :rows first)]
         (is (not (contains? row :cause-event-id))
             ":cause-event-id key is ABSENT when the trace tag was omitted
-             (parity with the rf2-okz1u OMIT-vs-nil semantics — the row
+             (parity with the OMIT-vs-nil semantics — the row
              stays minimal so consumers can `(some? (:cause-event-id row))`
              cleanly)")
         (is (true? (:changed? row))
@@ -3177,7 +3159,7 @@
              attribution slot only, not the whole row)")))))
 
 (deftest subscriptions-row-wraps-cause-sub-as-query-vector-test
-  (testing "rf2-nlraqq — `:rf.sub/cause-sub` is a SINGLE upstream query-
+  (testing "`:rf.sub/cause-sub` is a SINGLE upstream query-
             vector (the one input whose value drove this recompute); the
             projection WRAPS it as `[cause]` so the row's `:inputs` slot
             carries the uniform VECTOR-OF-QUERY-VECTORS shape. The view's
@@ -3247,7 +3229,7 @@
             "no cause-sub + no realized inputs → nil → view renders app-db")))))
 
 (deftest subscriptions-step-counts-changed-vs-unchanged-test
-  (testing "rf2-kfh1v — step header carries `changed` + `unchanged`
+  (testing "step header carries `changed` + `unchanged`
             counts so the view can render `N recomputed (M changed,
             K unchanged)` without re-walking the rows"
     (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)
@@ -3257,7 +3239,7 @@
       (is (= 2 (:unchanged s))))))
 
 (deftest disposed-subs-rows-test
-  (testing "rf2-wpfjo — `disposed-subs-rows` walks every
+  (testing "`disposed-subs-rows` walks every
             `:rf.sub/dispose` trace event into a row carrying
             `:sub-id`, `:query`, `:reason`, `:frame`"
     (let [rows (proj/disposed-subs-rows
@@ -3273,12 +3255,12 @@
       (is (= :cache-clear  (-> rows last :reason)))
       (is (= [:cart/items 42] (-> rows last :query)))))
 
-  (testing "rf2-wpfjo — no `:rf.sub/dispose` events → empty vec"
+  (testing "no `:rf.sub/dispose` events → empty vec"
     (is (= [] (proj/disposed-subs-rows
                 [(sub-run-ev [:counter/total] true 5 6)])))))
 
 (deftest subscriptions-step-surfaces-disposed-rows-test
-  (testing "rf2-wpfjo — `subscriptions-step` carries `:disposed-rows`
+  (testing "`subscriptions-step` carries `:disposed-rows`
             when `:rf.sub/dispose` events fired alongside the
             recompute rows"
     (let [s (proj/subscriptions-step
@@ -3289,7 +3271,7 @@
       (is (= :cart/items (-> s :disposed-rows first :sub-id)))
       (is (= :no-more-derefers (-> s :disposed-rows first :reason)))))
 
-  (testing "rf2-wpfjo — dispose-only cascade (no run/skip) → step
+  (testing "dispose-only cascade (no run/skip) → step
             still present; `:rows` empty, `:disposed-rows` populated"
     (let [s (proj/subscriptions-step
               [(sub-dispose-ev [:cart/items] :no-more-derefers)])]
@@ -3298,10 +3280,10 @@
       (is (= [] (:rows s)))
       (is (= 1 (count (:disposed-rows s))))))
 
-  (testing "rf2-wpfjo — no sub events at all → step OMITTED"
+  (testing "no sub events at all → step OMITTED"
     (is (nil? (proj/subscriptions-step []))))
 
-  (testing "rf2-wpfjo — only recomputes, no disposals → `:disposed-rows`
+  (testing "only recomputes, no disposals → `:disposed-rows`
             slot ABSENT (omit-by-absence)"
     (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)])]
       (is (not (contains? s :disposed-rows))
@@ -3320,14 +3302,14 @@
       (is (= 1 (count (:rows s))))
       (is (= ::counter-view (-> s :rows first :view-id)))
       (is (= :rendered (-> s :rows first :status))
-          "rf2-3b9w4 — a rendered row carries :status :rendered"))))
+          "a rendered row carries :status :rendered"))))
 
 (deftest views-step-reads-rich-rendered-marker-test
-  (testing "rf2-6djth — projection reads the substrate's rich
+  (testing "projection reads the substrate's rich
             `:rf.view/rendered` marker (carries `:rf.view/id`,
-            `:rf.view/deref-subs`, `:rf.view/elapsed-ms`). The
-            previously-read `:rf.view/render` marker only carried
-            `:rf.view/render-key` — read against it the row had nil
+            `:rf.view/deref-subs`, `:rf.view/elapsed-ms`). Reading a
+            `:rf.view/render` marker, which carries only
+            `:rf.view/render-key`, would leave the row with nil
             view-id + empty subs-read"
     (let [s   (proj/views-step
                 [(view-render-ev :app.counter/Counter
@@ -3339,7 +3321,7 @@
       (is (= 1.2 (:duration-ms row))))))
 
 (deftest render-cause-classifier-test
-  (testing "rf2-bhi3t — `render-cause` classifies WHY a view rendered
+  (testing "`render-cause` classifies WHY a view rendered
             purely from the substrate's `:rf.view/mount?` +
             `:rf.view/triggered-by` slots"
     (testing "first render → :mount (mount? true wins even with a
@@ -3361,7 +3343,7 @@
       (is (= :props (proj/render-cause nil nil))))))
 
 (deftest views-step-attributes-render-cause-test
-  (testing "rf2-bhi3t — each view-row carries a `:cause` attributing the
+  (testing "each view-row carries a `:cause` attributing the
             re-render to a sub-change vs a props-change. A view re-renders
             for exactly one of two reasons (a deref'd sub changed, or its
             props changed); the row makes that the first-class answer."
@@ -3384,9 +3366,9 @@
           "fresh mount carries :mount, not a re-render cause"))))
 
 (deftest unmounted-views-rows-test
-  (testing "rf2-gmw1i / rf2-3b9w4 — `unmounted-views-rows` projects each
+  (testing "`unmounted-views-rows` projects each
             `:rf.view/unmounted` trace event into a row with `:view-id`,
-            `:instance`, `:frame`, and the rf2-3b9w4 `:status :unmounted`
+            `:instance`, `:frame`, and the `:status :unmounted`
             + `:unmounted? true` markers so it can ride the same
             views-table as the rendered rows (red strikethrough)"
     (let [rows (proj/unmounted-views-rows
@@ -3402,13 +3384,12 @@
           "an unmounted instance dereffed nothing this cascade")
       (is (= :app/Sidebar (-> rows second :view-id)))))
 
-  (testing "rf2-gmw1i — no `:rf.view/unmounted` events → empty vec"
+  (testing "no `:rf.view/unmounted` events → empty vec"
     (is (= [] (proj/unmounted-views-rows
                 [(view-render-ev :app/Counter [])])))))
 
 (deftest views-step-folds-unmounted-into-rows-test
-  (testing "rf2-3b9w4 (SUPERSEDES rf2-gmw1i :unmounted-rows sub-section) —
-            `views-step` folds unmounted rows into the SAME `:rows`
+  (testing "`views-step` folds unmounted rows into the SAME `:rows`
             (rendered first, unmounted following) + carries
             `:unmounted-count`"
     (let [s    (proj/views-step
@@ -3422,9 +3403,9 @@
       (is (= :app/SidebarItem (-> rows second :view-id)))
       (is (= 1 (:unmounted-count s)) "tail count for the header verb")
       (is (not (contains? s :unmounted-rows))
-          "the separate :unmounted-rows slot is RETIRED")))
+          "there is no separate :unmounted-rows slot")))
 
-  (testing "rf2-3b9w4 — unmount-only cascade (no renders) → step still
+  (testing "unmount-only cascade (no renders) → step still
             present; `:rows` is the unmounted rows; `:unmounted-count`
             equals the row count"
     (let [s (proj/views-step
@@ -3435,10 +3416,10 @@
       (is (= :unmounted (-> s :rows first :status)))
       (is (= 1 (:unmounted-count s)))))
 
-  (testing "rf2-3b9w4 — no view events at all → step OMITTED"
+  (testing "no view events at all → step OMITTED"
     (is (nil? (proj/views-step []))))
 
-  (testing "rf2-3b9w4 — only re-renders, no unmounts → `:unmounted-count`
+  (testing "only re-renders, no unmounts → `:unmounted-count`
             slot ABSENT (omit-by-absence)"
     (let [s (proj/views-step [(view-render-ev :app/Counter [])])]
       (is (not (contains? s :unmounted-count))
@@ -3446,7 +3427,7 @@
       (is (= 1 (count (:rows s)))))))
 
 (deftest views-row-sub-status-join-test
-  (testing "rf2-3b9w4 — `view-rows` joins each dereffed sub against the
+  (testing "`view-rows` joins each dereffed sub against the
             epoch's `subscription-rows` to colour-code col-3: :new
             (first-run this epoch) / :changed (value changed) /
             :unchanged. Keyed by the SAME value the cell renders."
@@ -3472,7 +3453,7 @@
         (is (= :changed   (get-in row [:sub-status [:counter/parity]])))
         (is (= :unchanged (get-in row [:sub-status [:counter/label]]))))))
 
-  (testing "rf2-3b9w4 — a sub the view read but that ran outside the
+  (testing "a sub the view read but that ran outside the
             captured run-set is absent from `:sub-status` (the cell
             defaults it to grey/unchanged)"
     (let [row (-> (proj/views-step
@@ -3481,7 +3462,7 @@
       (is (not (contains? (:sub-status row) [:counter/orphan]))))))
 
 (deftest views-row-render-args-diff-test
-  (testing "rf2-u3lii — `view-rows` carries the col-2 render-args DIFF
+  (testing "`view-rows` carries the col-2 render-args DIFF
             slots: `:render-args` (THIS render's args, consumed AS-IS
             from the already-elided `:rf.view/render-args` slot) +
             `:prev-render-args` (the SAME view INSTANCE's previous render
@@ -3549,13 +3530,10 @@
   (testing "minimal epoch (dispatch + handler + a :db write, no
             cofx/flow/user-fx/sub/view).
 
-  rf2-kt6js — the SIDE EFFECTS step ALWAYS appears when a `:db` commit
-  happened, INCLUDING a bare db-only handler with no `:fx` (`db-commit?`
-  keys off `:rf.event/db-changed`). Pre-rf2-kt6js a plain db-only handler
-  surfaced NO side-effects step at all (the FX step keyed off a
-  non-existent fx-id-less `:rf.fx/handled`). rf2-j630b — the minimal
-  :db-writing cascade is :dispatch + :handler + :side-effects (a flat
-  ledger with the single :db row)."
+  The SIDE EFFECTS step ALWAYS appears when a `:db` commit happened,
+  INCLUDING a bare db-only handler with no `:fx` (`db-commit?` keys off
+  `:rf.event/db-changed`). The minimal :db-writing cascade is :dispatch
+  + :handler + :side-effects (a flat ledger with the single :db row)."
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [[[:counter] 5 6 :modified]])])
           steps (proj/project rec)
@@ -3567,7 +3545,7 @@
           "the flat ledger carries the single :db row — no :fx, no other"))))
 
 (deftest project-no-db-no-fx-omits-side-effects-test
-  (testing "rf2-kt6js — a cascade with NO :db commit and NO :fx (e.g. a
+  (testing "a cascade with NO :db commit and NO :fx (e.g. a
             handler that returned nothing) omits the SIDE EFFECTS step
             entirely — silence is correct when nothing happened"
     (let [rec   (record [(dispatched-ev [:noop] :ui nil)
@@ -3579,12 +3557,11 @@
 (deftest project-full-pipeline-test
   (testing "full epoch with every cascade step.
 
-  Post pair-debug 2026-05-26 (commits ee9def224 / eccb6db1b /
-  862288aca): both standalone APP-DB DIFF (rf2-rrykz) and CHILD
-  DISPATCHES (rf2-yx1ae) steps were retired. APP-DB DIFF folds into
-  the HANDLER `:db` `[diff][all]` toggle; CHILD DISPATCHES is
-  redundant with the FX step which already surfaces every
-  `:dispatch` / `:dispatch-n` / `:dispatch-later` fx entry."
+  There are no standalone APP-DB DIFF or CHILD DISPATCHES steps: the
+  app-db diff folds into the HANDLER `:db` `[diff][all]` toggle, and
+  child dispatches would be redundant with the SIDE EFFECTS step, which
+  surfaces every `:dispatch` / `:dispatch-n` / `:dispatch-later` fx
+  entry."
     (let [rec   (record [(dispatched-ev [:cart/checkout] :ui nil)
                          (cofx-run-ev :session {:user 1})
                          (do-fx-ev {:db {} :http/post {:url "/x"}})
@@ -3599,12 +3576,12 @@
       (is (= [:dispatch :coeffect :handler :flow :side-effects
               :subscriptions :views]
              kws)
-          "rf2-kt6js — the :fx step is now the :side-effects step")
+          "the effects step is :side-effects")
       (is (= 7 (count steps))))))
 
 (deftest project-numbered-test
   (testing "number-steps assigns sequential 1..N regardless of omissions.
-            rf2-kt6js — the `:db` write surfaces the SIDE EFFECTS step
+            The `:db` write surfaces the SIDE EFFECTS step
             between HANDLER and SUBSCRIPTIONS."
     (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
                          (db-changed-ev [])
@@ -3646,45 +3623,40 @@
           steps (proj/project rec)]
       (is (every? proj/valid-badge? (map :badge steps)))
       (is (= 10 (count proj/badge-set))
-          "rf2-sc3r1 7 + rf2-yz57h (INTERCEPTOR) + rf2-9fyn40
-           (RECORDABLE-COFX, EP-0010 causal provenance, renamed from
-           WORLD-INPUTS by EP-0017 §9) + rf2-se9a9t (INTERCEPTORS, the
-           PLURAL authored-chain step) = 10.
-           rf2-btt0s deleted :CHILD-DISPATCHES + :APP-DB-DIFF and
-           rf2-y8doi.19 deleted :SCHEMA-HOT-RELOAD (retired steps the
-           projection can no longer emit).
-           THE COUNT IS NOT THE GUARD. rf2-y8doi.19 swapped one badge in
-           and one out, so this number did not move across the very drift
-           it is here to catch; the authored-interceptor arm below is what
-           catches it.")
+          "7 core badges + INTERCEPTOR + RECORDABLE-COFX (EP-0010
+           causal provenance, EP-0017 §9) + INTERCEPTORS (the PLURAL
+           authored-chain step) = 10.
+           THE COUNT IS NOT THE GUARD. Swapping one badge in and one out
+           leaves this number unmoved; the authored-interceptor arm below
+           is what catches that drift.")
       (is (contains? proj/badge-set :RECORDABLE-COFX)
-          "rf2-9fyn40 · EP-0017 — RECORDABLE-COFX badge is in the inventory")
-      ;; rf2-btt0s — guard against step-level drift: badge-set must NOT
+          "EP-0017 — RECORDABLE-COFX badge is in the inventory")
+      ;; Guard against step-level drift: badge-set must NOT
       ;; advertise a badge no step can produce. The conditional steps
       ;; (FLOW / SIDE-EFFECTS / INTERCEPTOR) are covered by their own
-      ;; dedicated projection tests; here we pin the RETIRED badges are
-      ;; gone so the dead-badge class is CI-visible.
+      ;; dedicated projection tests; here we pin that the badges no step
+      ;; can produce are absent, so the dead-badge class is CI-visible.
       (is (not (contains? proj/badge-set :CHILD-DISPATCHES))
-          "retired CHILD-DISPATCHES badge removed from badge-set")
+          "no CHILD-DISPATCHES badge in badge-set")
       (is (not (contains? proj/badge-set :APP-DB-DIFF))
-          "retired APP-DB-DIFF badge removed from badge-set")
-      ;; rf2-y8doi.19 — the SCHEMA HOT-RELOAD pipeline step retired with
-      ;; rf2-7gf7v (hot-reload drift surfaces in the Issues panel, never
-      ;; as a cascade step). `hot-reload-violation-no-tail-step-test`
-      ;; already pins that the STEP is not appended; this pins that the
-      ;; inventory stopped advertising its BADGE.
+          "no APP-DB-DIFF badge in badge-set")
+      ;; There is no SCHEMA HOT-RELOAD pipeline step (hot-reload drift
+      ;; surfaces in the Issues panel, never as a cascade step).
+      ;; `hot-reload-violation-no-tail-step-test` pins that the STEP is
+      ;; not appended; this pins that the inventory does not advertise
+      ;; its BADGE.
       (is (not (contains? proj/badge-set :SCHEMA-HOT-RELOAD))
-          "retired SCHEMA-HOT-RELOAD badge removed from badge-set")))
+          "no SCHEMA-HOT-RELOAD badge in badge-set")))
 
-  ;; rf2-y8doi.19 — THE ARM THE OLD FIXTURE COULD NOT REACH.
+  ;; THE ARM THE FIXTURE ABOVE CANNOT REACH.
   ;;
   ;; `every? valid-badge?` above is only as wide as the steps the fixture
-  ;; projects, and the fixture declared no authored interceptors — so the
-  ;; INTERCEPTORS step (`authored-interceptors-step`, rf2-se9a9t) was never
-  ;; among them and its badge's absence from `badge-set` was invisible for
-  ;; as long as it stood. The resolver opts are the only way to reach that
-  ;; step; this arm threads them.
-  (testing "rf2-y8doi.19 — a cascade carrying an AUTHORED interceptor chain
+  ;; projects, and that fixture declares no authored interceptors — so the
+  ;; INTERCEPTORS step (`authored-interceptors-step`) is never among them
+  ;; and a badge missing from `badge-set` would be invisible there. The
+  ;; resolver opts are the only way to reach that step; this arm threads
+  ;; them.
+  (testing "a cascade carrying an AUTHORED interceptor chain
             projects the INTERCEPTORS step, and its badge is in badge-set"
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (db-changed-ev [[[:cart] 0 1 :modified]])
@@ -3701,17 +3673,15 @@
           steps (proj/project rec opts)
           istep (some #(when (= :interceptors (:step %)) %) steps)]
       ;; The control: without this the arm would pass vacuously on a
-      ;; cascade that projected no INTERCEPTORS step at all, which is
-      ;; exactly how the drift survived.
+      ;; cascade that projected no INTERCEPTORS step at all.
       (is (some? istep)
           "the fixture really did project an INTERCEPTORS step — without
            this the badge assertion below passes on an empty search")
       (is (= :INTERCEPTORS (:badge istep))
           "the step's badge is the PLURAL :INTERCEPTORS")
       (is (proj/valid-badge? (:badge istep))
-          "rf2-y8doi.19 — :INTERCEPTORS is in the public badge-set. It was
-           NOT until this bead: the projection emitted it at two sites
-           while the inventory omitted it.")
+          ":INTERCEPTORS is in the public badge-set (the projection
+           emits it at two sites).")
       (is (every? proj/valid-badge? (map :badge steps))
           "every badge in an authored-chain cascade is in the inventory"))))
 
@@ -3731,18 +3701,18 @@
     (is (= ":my/foo"    (fmt/ns-keyword :my/foo)))
     (is (= "non-kw"     (fmt/ns-keyword "non-kw")))))
 
-;; ---- rf2-982212 — inline action/guard verb label ------------------------
+;; ---- inline action/guard verb label -------------------------------------
 ;;
 ;; An INLINE `(fn …)` declared directly in an `:on` / `:always` / `:entry` /
 ;; `:exit` / `:after` slot has a FUNCTION OBJECT — not a keyword — as its
-;; `:action-id` / `:guard-id` (the runtime carries the bare fn). The prior
-;; `(ns-keyword <fn>)` fell through to `(str <fn>)`, rendering the raw
+;; `:action-id` / `:guard-id` (the runtime carries the bare fn).
+;; `(ns-keyword <fn>)` would fall through to `(str <fn>)`, rendering the raw
 ;; fn-object toString (`#object[Function …]` / a minified blob) as the
-;; cascade-row VERB. `verb-label` renders the `⟨inline⟩` placeholder for a
+;; cascade-row VERB, so `verb-label` renders the `⟨inline⟩` placeholder for a
 ;; non-keyword id; named (keyword) ids render unchanged.
 
 (deftest verb-label-test
-  (testing "rf2-982212 — `verb-label` renders a NAMED id (keyword) cleanly,
+  (testing "`verb-label` renders a NAMED id (keyword) cleanly,
             an INLINE (non-keyword fn) id as the `⟨inline⟩` placeholder, and
             nil as the empty string."
     (is (= ":may-close?" (fmt/verb-label :may-close?))
@@ -3753,31 +3723,31 @@
         "inline fn → the legible synthetic placeholder, NOT the fn-object str")
     (is (= "" (fmt/verb-label nil))
         "nil id → empty string (pill + chip carry it)")
-    ;; The defect: the placeholder must NOT be the fn-object toString — no
+    ;; The placeholder must NOT be the fn-object toString — no
     ;; `#object` / `$` / `@` host-runtime garbage leaks into the verb.
     (let [inline-fn (fn [_] true)]
       (is (not= (str inline-fn) (fmt/verb-label inline-fn))
-          "verb-label must NOT be the raw fn-object toString (the rf2-982212 defect)")
+          "verb-label must NOT be the raw fn-object toString")
       (is (not (str/includes? (fmt/verb-label inline-fn) "object"))
           "no `#object[...]` blob leaks into the verb"))))
 
 (deftest cascade-row-label-inline-verb-test
-  (testing "rf2-982212 — an INLINE-declared guard AND an INLINE-declared
+  (testing "an INLINE-declared guard AND an INLINE-declared
             action cascade row render a LEGIBLE verb (`⟨inline⟩`), not a
             fn-object / minified blob; NAMED rows are unchanged."
     (let [inline-guard  (fn [_ctx] true)
           inline-action (fn [_ctx] {})]
-      ;; INLINE guard — was the raw fn-object str; now the legible placeholder.
+      ;; INLINE guard — the legible placeholder, not the raw fn-object str.
       (is (= "⟨inline⟩"
              (fmt/cascade-row-label {:kind :guard :guard-id inline-guard}))
           "inline guard verb is legible, not a fn-object blob")
-      ;; INLINE action — same defect on the action arm (format.cljc :256).
+      ;; INLINE action — the same on the action arm (format.cljc :256).
       (is (= "⟨inline⟩"
              (fmt/cascade-row-label {:kind :action :action-id inline-action
                                      :phase :entry}))
           "inline action verb is legible, not a fn-object blob")
       ;; Regression guard: the rendered verb must carry NO host-runtime
-      ;; fn-object garbage (the symptom Mike observed live, 2026-06-14).
+      ;; fn-object garbage.
       (doseq [row [{:kind :guard :guard-id inline-guard}
                    {:kind :action :action-id inline-action :phase :exit}]]
         (let [verb (fmt/cascade-row-label row)]
@@ -3794,7 +3764,7 @@
           "named action verb unchanged"))))
 
 (deftest machine-event-orientation-test
-  (testing "rf2-akvfe — the EVENT HANDLER orientation triple is projected off
+  (testing "the EVENT HANDLER orientation triple is projected off
             the cascade: the inner TRIGGER vector, the MACHINE id, and the
             PRE-transition STATE."
     (let [rows [{:kind :action :step 1 :phase :exit :machine-id :door/main
@@ -3807,19 +3777,19 @@
       (is (= {:trigger [:door/close] :machine-id :door/main :state :open}
              (proj/machine-event-orientation rows))
           "trigger = inner trigger vector; machine-id off the row; state = pre-transition (from)")))
-  (testing "rf2-akvfe — a guarded-BLOCKED / unhandled event produces a :no-op
+  (testing "a guarded-BLOCKED / unhandled event produces a :no-op
             row (no transition); the orientation reads off it."
     (let [rows [{:kind :guard :step 1 :machine-id :door/main :guard-id :may-close? :outcome :fail}
                 {:kind :no-op :step 2 :machine-id :door/main :event [:door/close] :state :open}]]
       (is (= {:trigger [:door/close] :machine-id :door/main :state :open}
              (proj/machine-event-orientation rows))
           "no-op row supplies the trigger + pre-event state when no transition fired")))
-  (testing "rf2-akvfe — the machine-id arg backstops a row that stamped none."
+  (testing "the machine-id arg backstops a row that stamped none."
     (let [rows [{:kind :transition :step 1 :event [:tick] :from-state :red :to-state :green
                  :before {:state :red} :after {:state :green}}]]
       (is (= :traffic/light (:machine-id (proj/machine-event-orientation rows :traffic/light)))
           "falls back to the explicit machine-id (the HANDLER step's event-id)")))
-  (testing "rf2-akvfe — nil for a cascade with no transition / no-op row (a
+  (testing "nil for a cascade with no transition / no-op row (a
             pure :start creation kick, or a non-machine handler)."
     (is (nil? (proj/machine-event-orientation
                 [{:kind :start :step 1 :machine-id :door/main :cause :explicit}]))
@@ -3828,7 +3798,7 @@
         "empty cascade → nil")))
 
 (deftest orientation-value-test
-  (testing "rf2-akvfe — orientation VALUES render code-formatted"
+  (testing "orientation VALUES render code-formatted"
     (is (= "[:door/close]"   (fmt/orientation-value [:door/close]))
         "a trigger vector renders via pr-str (args included)")
     (is (= "[:door/close 42]" (fmt/orientation-value [:door/close 42]))
@@ -3838,7 +3808,7 @@
     (is (= ":closed"         (fmt/orientation-value :closed)))
     (is (= "—"               (fmt/orientation-value nil))
         "nil renders the muted em-dash placeholder"))
-  (testing "rf2-gl588 — the reserved start-marker constant is unchanged"
+  (testing "the reserved start-marker constant"
     (is (= :rf.machine/start fmt/machine-start-marker)
         "the marker constant is the reserved :rf.machine/start keyword")))
 
@@ -3848,7 +3818,7 @@
     (is (= "abcd…" (fmt/truncate "abcdefg" 4)))))
 
 (deftest elide-large-render-args-test
-  (testing "rf2-yi0nr — a SMALL render arg passes through inline, a LARGE
+  (testing "a SMALL render arg passes through inline, a LARGE
             one collapses to the framework's `:rf.size/large-elided`
             size-marker (the SAME sentinel + chip the App-db panel surfaces
             for large state); per-element so a small arg beside a fat one
@@ -3896,21 +3866,21 @@
         (is (nil? (fmt/elide-large-render-args nil)))
         (is (= :not-a-vec (fmt/elide-large-render-args :not-a-vec)))))))
 
-;; ---- rf2-2rtt6.131 -- the budget is BYTES, on both hosts ----------------
+;; ---- the budget is BYTES, on both hosts ---------------------------------
 ;;
 ;; `render-args-byte-budget` is not a label, it is a REFUSAL: an element over
 ;; it is replaced by the size marker, and the marker's `:bytes` slot is then
-;; PUBLISHED as the chip's figure. Until this bead the CLJS arm of
-;; `pr-str-bytes` was `(count s)` -- UTF-16 CODE UNITS -- so one budget had
-;; two rulers: the same render arg could ride through inline in the browser
-;; panel and elide under the JVM test.
+;; PUBLISHED as the chip's figure. A CLJS arm of `pr-str-bytes` measuring
+;; `(count s)` -- UTF-16 CODE UNITS -- would give one budget two rulers:
+;; the same render arg could ride through inline in the browser panel and
+;; elide under the JVM test.
 ;;
-;; An ASCII-only fixture CANNOT see that. Code units and UTF-8 bytes agree
-;; exactly on ASCII, which is why the defect survived a green suite. The
+;; An ASCII-only fixture CANNOT see that: code units and UTF-8 bytes agree
+;; exactly on ASCII. The
 ;; fixtures below are picked so code units, code POINTS and bytes are three
 ;; different numbers, and they are written as `\uXXXX` escapes so the source
 ;; file stays pure ASCII and no encoding hop can perturb them (the convention
-;; `story-mcp`'s frame-cap fixtures already use).
+;; `story-mcp`'s frame-cap fixtures use).
 ;;
 ;; This file runs under BOTH the cognitect JVM runner and shadow's
 ;; `:node-test` build (see the ns docstring), so a green run here IS the
@@ -3953,10 +3923,10 @@
       (is (= 522 (:bytes (marker score)))
           "130 * 4 bytes + the 2 quote chars -- a code-unit ruler said 262"))
 
-    (testing "the ASCII control at the SAME code-unit length still passes --
-              the correction only ever TIGHTENS (UTF-8 bytes are never fewer
-              than UTF-16 code units), so nothing that used to be refused can
-              now slip through"
+    (testing "the ASCII control at the SAME code-unit length passes --
+              a byte ruler only ever TIGHTENS (UTF-8 bytes are never fewer
+              than UTF-16 code units), so nothing a code-unit ruler refuses
+              can slip through"
       (is (nil? (marker ascii))
           "202 bytes == 202 code units, still well under the 512 budget"))))
 
@@ -3978,15 +3948,15 @@
     (is (= "on-supersede"     (fmt/timer-reason-label :on-supersede)))
     (is (= "on-frame-destroy" (fmt/timer-reason-label :on-frame-destroy)))))
 
-;; ---- rf2-nqt3d — per-step elapsed time + cascade total ------------------
+;; ---- per-step elapsed time + cascade total ------------------------------
 
 (deftest long-step-threshold-test
-  (testing "rf2-nqt3d — 16ms = one display frame at 60Hz; the threshold
+  (testing "16ms = one display frame at 60Hz; the threshold
             documents the long-step warning boundary"
     (is (= 16 proj/long-step-threshold-ms))))
 
 (deftest long-step-predicate-test
-  (testing "rf2-nqt3d — `long-step?` is true iff duration > 16ms"
+  (testing "`long-step?` is true iff duration > 16ms"
     (is (false? (proj/long-step? {:duration-ms 0.1})))
     (is (false? (proj/long-step? {:duration-ms 16})))
     (is (true?  (proj/long-step? {:duration-ms 16.1})))
@@ -3996,18 +3966,17 @@
     (is (false? (proj/long-step? {}))
         "missing duration returns false")))
 
-;; ---- rf2-17vxj / rf2-xgeag — schema violations -------------------------
+;; ---- schema violations --------------------------------------------------
 ;;
-;; rf2-xgeag retired the trailing aggregate SCHEMA-VIOLATIONS step in
-;; favour of per-step inline attachment + a hot-reload-only tail step.
-;; The per-row data shape (`schema-violation-rows`) is unchanged; only
-;; the aggregation moved.
+;; A schema violation attaches inline to the step it belongs to; there is
+;; no trailing aggregate SCHEMA-VIOLATIONS step. `schema-violation-rows`
+;; supplies the per-row data shape.
 
 (deftest schema-violation-rows-basic-test
   (testing "no violation events → empty rows vec"
     (is (= [] (proj/schema-violation-rows []))))
 
-  (testing "rf2-17vxj — `:rf.error/schema-validation-failure` event
+  (testing "`:rf.error/schema-validation-failure` event
             surfaces a row with canonical fields"
     (let [rows (proj/schema-violation-rows
                  [(schema-violation-ev :app-db :counter/inc [:count]
@@ -4022,7 +3991,7 @@
         (is (= :rf.error/schema-validation-failure    (:kind r)))))))
 
 (deftest schema-violation-rows-hot-reload-test
-  (testing "rf2-17vxj — `:rf.schema/violation` event (hot-reload drift)
+  (testing "`:rf.schema/violation` event (hot-reload drift)
             also produces a row; `:where` defaults to `:hot-reload`"
     (let [rows (proj/schema-violation-rows
                  [(schema-hot-reload-ev :rf/default [:count]
@@ -4035,16 +4004,15 @@
         (is (= "not-an-int"         (:value r)))
         (is (= :logged-and-skipped  (:recovery r)))))))
 
-;; ---- rf2-zn6u5 / rf2-plev0 — Malli explain expected/got decomposition ----
+;; ---- Malli explain expected/got decomposition ---------------------------
 ;;
-;; rf2-plev0 relocated `decode-malli-explain` (and these unit tests) from
-;; the epoch VIEW into the projection layer. The pure transform is data-in
-;; / data-out (no view/DOM deps), so it belongs beside its sibling
-;; `schema-violation-row` and now runs on the JVM `clojure -M:test` gate
-;; via this `.cljc` test ns rather than the node-runtime view-test ns.
+;; `decode-malli-explain` lives in the projection layer: the pure transform
+;; is data-in / data-out (no view/DOM deps), so it belongs beside its
+;; sibling `schema-violation-row` and runs on the JVM `clojure -M:test`
+;; gate via this `.cljc` test ns.
 
 (deftest decode-malli-explain-returns-expected-got-test
-  (testing "rf2-zn6u5 — `decode-malli-explain` lifts the first error's
+  (testing "`decode-malli-explain` lifts the first error's
             :schema + :value into a programmer-friendly summary map.
             Pure data fn; JVM-testable."
     (is (= {:expected :int :got "bad" :more-errors 0}
@@ -4054,7 +4022,7 @@
               :errors [{:path [] :in [] :schema :int :value "bad"}]})))))
 
 (deftest decode-malli-explain-falls-back-to-root-value-test
-  (testing "rf2-zn6u5 — when the first error does NOT carry :value
+  (testing "when the first error does NOT carry :value
             (the value rides on the explain map's root), :got reads
             from `explain`'s `:value` slot."
     (is (= {:expected :int :got 42 :more-errors 0}
@@ -4063,7 +4031,7 @@
               :errors [{:path [] :schema :int}]})))))
 
 (deftest decode-malli-explain-counts-additional-errors-test
-  (testing "rf2-zn6u5 — multi-error explain maps surface
+  (testing "multi-error explain maps surface
             `:more-errors (- N 1)` so the call-site can paint a
             `(+N more)` chip beneath the first-error summary."
     (let [exp {:schema [:map [:a :int] [:b :int]]
@@ -4075,7 +4043,7 @@
           "explain with 3 errors → :more-errors 2"))))
 
 (deftest decode-malli-explain-non-malli-returns-nil-test
-  (testing "rf2-zn6u5 — non-Malli validators / pre-rf2-2ek7t framework
+  (testing "non-Malli validators
             produce explain maps without the canonical {:errors [...]}
             shape; the decoder degrades to nil so the view drops the
             decomposition row cleanly."
@@ -4086,7 +4054,7 @@
     (is (nil? (proj/decode-malli-explain "not a map")))))
 
 (deftest schema-violation-row-stamps-decoded-test
-  (testing "rf2-plev0 — `schema-violation-rows` stamps the projected
+  (testing "`schema-violation-rows` stamps the projected
             `:decoded {:expected :got :more-errors}` summary onto a row
             whose `:explain` is a canonical Malli map, and omits the
             slot when the explain is non-Malli / absent (so the view's
@@ -4110,23 +4078,19 @@
       (is (not (contains? plain-row :decoded))
           "no explain → :decoded slot omitted (view drops the block)"))))
 
-;; `hot-reload-step-conditional-test` retired in rf2-7gf7v
-;; (commit 9b96f9f6a — `refactor(xray/epoch): retire SCHEMA HOT-RELOAD
-;; pipeline step + rollback chip wording`). Hot-reload drift is a
-;; dev-time event, not a cascade event; rendering it as a standalone
-;; pipeline tail step produced an opaque step content lacking the
-;; rich context the operator needs (pre/post schema, file:line of
-;; re-registration). The Issues panel — which already consumes
-;; `:rf.schema/violation` trace events — is its natural home. The
-;; `hot-reload-step` defn and its base-steps call site are gone;
-;; nothing to test at the projection layer. The runtime-boundary
+;; There is no SCHEMA HOT-RELOAD pipeline step. Hot-reload drift is a
+;; dev-time event, not a cascade event; a standalone pipeline tail step
+;; would be opaque, lacking the rich context the operator needs (pre/post
+;; schema, file:line of re-registration). The Issues panel — which
+;; consumes `:rf.schema/violation` trace events — is its natural home, so
+;; there is nothing to test at the projection layer. The runtime-boundary
 ;; attachment path is covered by `attach-violations-*-test` above
 ;; + `project-attaches-app-db-violation-to-handler-test` below; the
 ;; negative assertion `not-any? :schema-hot-reload` in that test
 ;; pins down that no tail step is appended.
 
 (deftest attach-violations-event-test
-  (testing "rf2-xgeag — `:event` violation attaches to the DISPATCH step"
+  (testing "`:event` violation attaches to the DISPATCH step"
     (let [steps  [{:step :dispatch :badge :DISPATCH}
                   {:step :handler  :badge :HANDLER}]
           rows   [{:where :event :failing-id :counter/inc}]
@@ -4135,7 +4099,7 @@
       (is (nil? (:violations (second out)))))))
 
 (deftest attach-violations-cofx-by-id-test
-  (testing "rf2-xgeag — `:cofx` violation attaches to the COEFFECT step
+  (testing "`:cofx` violation attaches to the COEFFECT step
             whose `:id` matches `:failing-id`"
     (let [steps  [{:step :coeffect :badge :COEFFECT :id :session}
                   {:step :coeffect :badge :COEFFECT :id :session/now}
@@ -4148,7 +4112,7 @@
           "matching cofx step attached"))))
 
 (deftest attach-violations-app-db-to-fx-db-row-test
-  (testing "rf2-8resu / rf2-kt6js — `:app-db` violation attaches to the
+  (testing "`:app-db` violation attaches to the
             SIDE EFFECTS step's `:db` row (the handler's app-db write).
             The schema violation belongs on the row representing the
             failed commit, not on HANDLER (which describes what the
@@ -4163,7 +4127,7 @@
       (is (nil? (:violations (nth out 0)))
           "DISPATCH step untouched")
       (is (nil? (:violations (nth out 1)))
-          "HANDLER step untouched — the violation no longer attaches here")
+          "HANDLER step untouched — the violation does not attach here")
       (is (nil? (:violations fx))
           "SIDE EFFECTS step-level :violations untouched — the violation
            routes into the :db row, not the step")
@@ -4171,7 +4135,7 @@
           "SIDE EFFECTS :db row carries the attached violation"))))
 
 (deftest attach-violations-fx-row-test
-  (testing "rf2-xgeag / rf2-kt6js — `:fx-args` violation attaches to the
+  (testing "`:fx-args` violation attaches to the
             SIDE EFFECTS row whose `:fx-id` matches `:failing-id`"
     (let [steps  [{:step :side-effects :badge :SIDE-EFFECTS
                    :rows [{:fx-id :http/post :status :ok}
@@ -4185,7 +4149,7 @@
           ":db fx row untouched"))))
 
 (deftest attach-violations-sub-row-test
-  (testing "rf2-xgeag — `:sub-return` violation attaches to the
+  (testing "`:sub-return` violation attaches to the
             SUBSCRIPTIONS row whose `:sub-id` matches `:failing-id`"
     (let [steps  [{:step :subscriptions :badge :SUBSCRIPTIONS
                    :rows [{:sub-id :user/profile}
@@ -4197,7 +4161,7 @@
       (is (= 1 (count (:violations (second (:rows subs)))))))))
 
 (deftest cascade-rolled-back?-test
-  (testing "rf2-xgeag — true iff any `:app-db` violation carries
+  (testing "true iff any `:app-db` violation carries
             `:rollback? true`"
     (is (false? (proj/cascade-rolled-back? [])))
     (is (false? (proj/cascade-rolled-back?
@@ -4209,7 +4173,7 @@
                   [{:where :app-db :rollback? true}])))))
 
 (deftest mark-rolled-back-downstream-test
-  (testing "rf2-8resu / rf2-kt6js — rollback flags every step AFTER the
+  (testing "rollback flags every step AFTER the
             SIDE EFFECTS step (not after HANDLER). The SIDE EFFECTS step
             itself is NOT muted — its `:db` row IS the visible rollback
             indicator (red ✗ + violation sub-block); muting the entire
@@ -4232,31 +4196,26 @@
       (is (true? (:rolled-back? (nth out 4)))
           "VIEWS downstream of SIDE EFFECTS gets muted")))
 
-  (testing "rf2-xgeag — no rollback → no `:rolled-back?` flags"
+  (testing "no rollback → no `:rolled-back?` flags"
     (let [steps [{:step :dispatch} {:step :handler} {:step :side-effects}]
           rows  [{:where :sub-return :rollback? true}]
           out   (proj/mark-rolled-back-downstream steps rows)]
       (is (every? #(nil? (:rolled-back? %)) out)))))
 
-;; ---- rf2-zkiu5 — retired cascade steps (APP-DB DIFF + CHILD DISPATCHES) --
+;; ---- parent-epoch correlation ------------------------------------------
 ;;
-;; The standalone APP-DB DIFF (rf2-rrykz) and CHILD-DISPATCHES
-;; (rf2-yx1ae) steps were retired pair-debug 2026-05-26 — both redundant
-;; with existing steps (HANDLER `:db` surfaces the post-handler diff; the
-;; FX step surfaces every dispatch-family fx entry). rf2-btt0s deleted
-;; the dead projection / view / badge code that lingered after the
-;; cascade-emit was dropped (`child-dispatch-rows`, `child-dispatches-step`,
-;; `find-child-epoch`, the `:CHILD-DISPATCHES` / `:APP-DB-DIFF` badge-set
-;; members) along with their tests. The surviving parent-epoch
-;; correlation (`find-parent-epoch` / `dispatch-id->epoch-id-index`) is
-;; a DIFFERENT, live concern — the DISPATCH step's `:fx-dispatch`
-;; parent-link resolver — and keeps its tests below.
+;; There are no standalone APP-DB DIFF or CHILD-DISPATCHES steps — both
+;; would be redundant (HANDLER `:db` surfaces the post-handler diff; the
+;; SIDE EFFECTS step surfaces every dispatch-family fx entry). The
+;; parent-epoch correlation (`find-parent-epoch` /
+;; `dispatch-id->epoch-id-index`) is a DIFFERENT, live concern — the
+;; DISPATCH step's `:fx-dispatch` parent-link resolver — tested below.
 
 (deftest find-parent-epoch-by-dispatch-id-test
-  (testing "rf2-5qp4g — find-parent-epoch resolves a parent epoch's
+  (testing "find-parent-epoch resolves a parent epoch's
             `:epoch-id` from its `:dispatch-id`: looks up the supplied
             parent-dispatch-id in a precomputed
-            `{dispatch-id → epoch-id}` index (rf2-x25e0; built once
+            `{dispatch-id → epoch-id}` index (built once
             per render via `parent-epoch-index`), returning
             the matched record's `:epoch-id`. The view layer uses
             this to wire the `from fx · parent epoch #N` chrome on
@@ -4280,10 +4239,10 @@
           "empty index → nil"))))
 
 (deftest parent-epoch-index-test
-  (testing "rf2-x25e0 — `parent-epoch-index` builds the
+  (testing "`parent-epoch-index` builds the
             O(1) lookup map the view threads through `ctx`. Each
             record contributes via its first-class `:dispatch-id`
-            slot (rf2-rly4a) AND via `dispatch-id-of-epoch`'s trace-
+            slot AND via `dispatch-id-of-epoch`'s trace-
             walk fallback (for restored fixtures lacking the slot)."
     (let [history [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}
                    {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}
@@ -4300,14 +4259,13 @@
       (is (= {} (proj/parent-epoch-index nil [9000]))
           "nil history → empty index")))
 
-  ;; rf2-y8doi.19 — the narrowing, and why it exists. The index is a SUB
-  ;; value now, and the whole-ring form it replaced gained an entry on
-  ;; every settled host event, so the panel reading it re-rendered on
-  ;; every host event however long the operator had been pinned to one
-  ;; epoch. `=`-equality across a settle is the property that stops it
+  ;; The narrowing, and why it exists. The index is a SUB value, and a
+  ;; whole-ring form would gain an entry on every settled host event, so
+  ;; the panel reading it would re-render on every host event however
+  ;; long the operator had been pinned to one epoch. `=`-equality across a settle is the property that stops it
   ;; (spec/006 §Invalidation algorithm), so it is asserted here rather
   ;; than left to be inferred from the narrowing.
-  (testing "rf2-y8doi.19 — the index carries ONLY the requested ids, and
+  (testing "the index carries ONLY the requested ids, and
             is `=` across a settle that appends an unrelated epoch"
     (let [history  [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}
                     {:epoch-id 42 :dispatch-id 9001 :trigger-event [:parent]}]
@@ -4320,8 +4278,8 @@
       (is (= before after)
           "a settle that appends an unrelated epoch leaves the narrow index
            `=`, so the substrate's propagation collapse stops the re-render
-           there. The whole-ring form this replaced would have differed by
-           the new entry every single time.")
+           there. A whole-ring form would differ by the new entry every
+           single time.")
       ;; The control, and it runs the other way: the SAME two histories
       ;; DO differ once the new record is one the cascade asked about, so
       ;; the equality above is the narrowing working and not the index
@@ -4330,7 +4288,7 @@
                 (proj/parent-epoch-index settled [9001 9002]))
           "asking about the newly-settled id DOES move the index")))
 
-  (testing "rf2-y8doi.19 — an empty request answers `{}` without consulting
+  (testing "an empty request answers `{}` without consulting
             the ring, which is the common parentless cascade"
     (is (= {} (proj/parent-epoch-index
                 [{:epoch-id 41 :dispatch-id 9000 :trigger-event [:root]}]
@@ -4340,7 +4298,7 @@
                 nil)))))
 
 (deftest parent-dispatch-ids-test
-  (testing "rf2-y8doi.19 — `parent-dispatch-ids` reads the DISPATCH step's
+  (testing "`parent-dispatch-ids` reads the DISPATCH step's
             `:source-enrichment :parent-dispatch-id`, de-duplicates, and
             answers a vector in cascade order. It is the query arg of the
             `:rf.xray.epoch/parent-epoch-index` sub, and the sub cache is
@@ -4372,7 +4330,7 @@
           "same steps → `=` vector, so the sub cache hits across renders"))))
 
 (deftest project-attaches-app-db-violation-to-fx-db-row-test
-  (testing "rf2-8resu / rf2-kt6js / rf2-j630b — top-level `project`
+  (testing "top-level `project`
             attaches `:app-db` boundary violations to the SIDE EFFECTS
             step's `:db` row (the handler's app-db write, leading the flat
             ledger). The step is synthesised when a `:db` commit was
@@ -4392,7 +4350,7 @@
           db-row  (some #(when (= :db (:fx-id %)) %) (:rows se))]
       (is (some? handler))
       (is (nil? (:violations handler))
-          "HANDLER step carries no violations — routing moved to the :db row")
+          "HANDLER step carries no violations — they route to the :db row")
       (is (some? se)
           "SIDE EFFECTS step is synthesised when a :where :app-db rollback
            fires even with no user-emitted fx")
@@ -4409,11 +4367,11 @@
            rendered ledger row (single-source-of-truth :rows slot)")
       (is (true? (-> db-row :violations first :rollback?)))
       (is (not-any? #(= :schema-violations (:step %)) steps)
-          "the retired aggregate SCHEMA-VIOLATIONS step never appears")
+          "no aggregate SCHEMA-VIOLATIONS step appears")
       (is (not-any? #(= :schema-hot-reload (:step %)) steps)
           "no hot-reload tail step when violation is runtime-boundary")))
 
-  (testing "rf2-xgeag — no violations → no attached `:violations` +
+  (testing "no violations → no attached `:violations` +
             no `:rolled-back?` flags"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (db-changed-ev [[[:count] 0 1 :modified]])])
@@ -4421,11 +4379,10 @@
       (is (every? #(nil? (:violations %)) steps))
       (is (every? #(nil? (:rolled-back? %)) steps))))
 
-  (testing "rf2-7gf7v — hot-reload drift no longer surfaces as a
-            standalone cascade tail step; the Option A SCHEMA-HOT-RELOAD
-            step was retired (hot-reload is a dev-time event, not a
-            cascade event — Issues panel is its home). The trace
-            events still flow through `schema-violation-rows` for
+  (testing "hot-reload drift does not surface as a standalone
+            cascade tail step (hot-reload is a dev-time event, not a
+            cascade event — the Issues panel is its home). The trace
+            events flow through `schema-violation-rows` for
             consumers like the Issues panel; only the projection
             pipeline declines to materialise them as a step."
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
@@ -4435,21 +4392,21 @@
       (is (not-any? #(= :schema-hot-reload (:step %)) steps)
           "no SCHEMA-HOT-RELOAD tail step appended"))))
 
-;; ---- rf2-ahhgn — inline exception attachment + per-step status ----------
+;; ---- inline exception attachment + per-step status ----------------------
 ;;
 ;; The live button-15 (`:standard-epochs/throw-handler`) scenario: the handler
 ;; threw, the router caught it (db rolled back), the epoch settled with the
 ;; framework `:outcome :ok` (by spec — the reference runtime recovers + does
 ;; NOT emit `:halted-handler-exception`) and a `:rf.error/handler-exception`
-;; trace landed under `:trace-events`. Pre-rf2-ahhgn the Epoch panel surfaced
-;; NONE of it. These tests pin (a) the message + coord projection, (b) the
+;; trace landed under `:trace-events`. These tests pin (a) the message +
+;; coord projection, (b) the
 ;; per-step `:status` primitive, (c) the tool-side `epoch-outcome :error`,
 ;; and (d) the top-level `project` attachment end-to-end.
 
 (deftest exception-row-reads-message-and-coord-test
-  (testing "rf2-ahhgn — `exception-row` lifts the message off
-            `:exception-message` (NOT `:message` — the bead's probe checked
-            the wrong key) and the source-coord off the hoisted
+  (testing "`exception-row` lifts the message off
+            `:exception-message` (NOT `:message`) and the source-coord
+            off the hoisted
             `:rf.trace/trigger-handler :source-coord`"
     (let [ev  (handler-exception-ev
                 :standard-epochs/throw-handler
@@ -4465,8 +4422,8 @@
       (is (= :standard-epochs/throw-handler (:failing-id row)))
       (is (= :no-recovery (:recovery row)))))
 
-  (testing "rf2-oqi0c — the `:reason` CATEGORY boilerplate is NO LONGER
-            surfaced as the card message: when the throw carried no real
+  (testing "the `:reason` CATEGORY boilerplate is NOT surfaced as the
+            card message: when the throw carried no real
             `:exception-message`, `:message` is nil (the card shows only
             the position + 'Exception Thrown' heading, no boilerplate line).
             nil-safe coord when neither trigger-handler nor call-site
@@ -4474,12 +4431,12 @@
     (let [ev  (handler-exception-ev :foo/bar nil)
           row (proj/exception-row ev)]
       ;; handler-exception-ev stamps `:reason "Event handler threw."` —
-      ;; rf2-oqi0c drops the :reason fallback, so :message resolves nil.
+      ;; there is no :reason fallback, so :message resolves nil.
       (is (nil? (:message row))
           "no :exception-message → :message nil (the :reason boilerplate is dropped)")
       (is (nil? (:coord row)))))
 
-  (testing "rf2-wnvid — `exception-row` lifts the raw `:exception` object
+  (testing "`exception-row` lifts the raw `:exception` object
             off `[:tags :exception]` (the view's collapsible details read
             the stack / ex-data off it)"
     (let [boom (ex-info "boom" {:surface :handler-exception})
@@ -4488,30 +4445,30 @@
       (is (identical? boom (:exception row))
           "the raw exception object rides the row")))
 
-  (testing "rf2-wnvid — no `:exception` tag → `:exception` slot is nil"
+  (testing "no `:exception` tag → `:exception` slot is nil"
     (let [row (proj/exception-row (handler-exception-ev :e "boom"))]
       (is (nil? (:exception row))))))
 
 (deftest handler-wrote-db?-test
-  (testing "rf2-wnvid — true when t1 (`:rf.event/db-pending`) fired"
+  (testing "true when t1 (`:rf.event/db-pending`) fired"
     (is (true? (proj/handler-wrote-db?
                  [(db-pending-ev {:count 1})]))))
-  (testing "rf2-wnvid — true when a `:rf.event/db-changed` commit fired"
+  (testing "true when a `:rf.event/db-changed` commit fired"
     (is (true? (proj/handler-wrote-db?
                  [(db-changed-ev [[[:count] 0 1 :modified]])]))))
-  (testing "rf2-wnvid — FALSE for the handler-threw shape (button-15: no
+  (testing "FALSE for the handler-threw shape (button-15: no
             t1, no db-changed — handler threw before returning a :db)"
     (is (false? (proj/handler-wrote-db?
                   [(dispatched-ev [:standard-epochs/throw-handler] :ui nil)
                    (handler-exception-ev :standard-epochs/throw-handler "boom" nil)
                    (run-end-ev 1)]))))
-  (testing "rf2-wnvid — FALSE for an :effectful handler that returned only :fx"
+  (testing "FALSE for an :effectful handler that returned only :fx"
     (is (false? (proj/handler-wrote-db?
                   [(do-fx-ev {:fx [[:navigate "/x"]]})
                    (run-end-ev 1)])))))
 
 (deftest handler-row-db-write?-slot-test
-  (testing "rf2-wnvid — the HANDLER row carries `:db-write?` so the view's
+  (testing "the HANDLER row carries `:db-write?` so the view's
             `:db` sub-section chooses the no-write placeholder over the
             phantom full-app-db fallback"
     (let [threw (proj/handler-row
@@ -4531,7 +4488,7 @@
           "handler that wrote a :db → db-write? true"))))
 
 (deftest exception-rows-harvests-cascade-exceptions-test
-  (testing "rf2-ahhgn — `exception-rows` harvests the `cascade-exception-ops`
+  (testing "`exception-rows` harvests the `cascade-exception-ops`
             subset (handler / fx exceptions) and ignores non-exception traces"
     (let [events [(dispatched-ev [:e] :ui nil)
                   (handler-exception-ev :e "boom" nil)
@@ -4542,12 +4499,12 @@
       (is (= #{:rf.error/handler-exception :rf.error/fx-handler-exception}
              (set (map :operation rows))))))
 
-  (testing "rf2-ahhgn — empty vec when no exception traces fired"
+  (testing "empty vec when no exception traces fired"
     (is (= [] (proj/exception-rows
                 [(dispatched-ev [:e] :ui nil) (run-end-ev 1)])))))
 
 (deftest attach-exceptions-handler-test
-  (testing "rf2-ahhgn — a `:rf.error/handler-exception` attaches to the
+  (testing "a `:rf.error/handler-exception` attaches to the
             HANDLER step's `:errors` + stamps `:status :error`"
     (let [steps [{:step :dispatch :badge :DISPATCH}
                  {:step :handler  :badge :HANDLER}
@@ -4562,7 +4519,7 @@
       (is (nil? (:status (nth out 0))) "DISPATCH not flagged"))))
 
 (deftest attach-exceptions-fx-row-test
-  (testing "rf2-ahhgn / rf2-kt6js — a `:rf.error/fx-handler-exception`
+  (testing "a `:rf.error/fx-handler-exception`
             attaches to the SIDE EFFECTS step's matching `:fx-id` row +
             stamps the step `:status :error`"
     (let [steps [{:step :side-effects :badge :SIDE-EFFECTS
@@ -4577,7 +4534,7 @@
       (is (= 1 (count (:errors (second (:rows fx)))))
           "http/post row carries the exception")))
 
-  (testing "rf2-ahhgn — an fx exception with no matching row falls back to
+  (testing "an fx exception with no matching row falls back to
             the SIDE EFFECTS step-level `:errors`"
     (let [steps [{:step :side-effects :badge :SIDE-EFFECTS :rows [{:fx-id :db}]}]
           rows  [(proj/exception-row
@@ -4585,12 +4542,12 @@
           out   (proj/attach-exceptions steps rows)]
       (is (= 1 (count (:errors (first out)))))))
 
-  (testing "rf2-ahhgn — empty rows leaves steps unchanged"
+  (testing "empty rows leaves steps unchanged"
     (let [steps [{:step :handler}]]
       (is (= steps (proj/attach-exceptions steps []))))))
 
 (deftest step-status-test
-  (testing "rf2-ahhgn — `:ok` for a clean step, `:error` when the step (or
+  (testing "`:ok` for a clean step, `:error` when the step (or
             a row) carries an exception or violation"
     (is (= :ok    (proj/step-status {:step :handler})))
     (is (= :error (proj/step-status {:step :handler :status :error})))
@@ -4604,7 +4561,7 @@
         "clean rows keep :ok")))
 
 (deftest epoch-outcome-test
-  (testing "rf2-ahhgn — `:error` when ANY step errored, else `:ok`"
+  (testing "`:error` when ANY step errored, else `:ok`"
     (is (= :ok    (proj/epoch-outcome [{:step :dispatch} {:step :handler}])))
     (is (= :error (proj/epoch-outcome [{:step :dispatch}
                                        {:step :handler :status :error}])))
@@ -4614,7 +4571,7 @@
     (is (= :ok (proj/epoch-outcome [])) "empty step vec → :ok")))
 
 (deftest project-attaches-handler-exception-end-to-end-test
-  (testing "rf2-ahhgn — the live button-15 scenario: a handler-exception
+  (testing "the live button-15 scenario: a handler-exception
             trace under `:trace-events` surfaces on the HANDLER step inline
             (message + coord) AND the projected cascade reads `:error`. The
             handler step also carries `:status :error` so the view paints ✗."
@@ -4638,25 +4595,25 @@
         (is (= "standard-epochs / handler (intentional — exercises the handler error surface)"
                (:message err)))
         (is (= {:file "standard_epochs/core.cljs" :line 322} (:coord err)))
-        ;; rf2-s6oqd — the live button-16 handler threw before returning,
+        ;; The live button-16 handler threw before returning,
         ;; so NO :db committed AND nothing rolled back. The exception row's
         ;; event-bundle-level `:db-rolled-back?` is false → the view omits the
         ;; spurious 'Rolled back' chip.
         (is (false? (:db-rolled-back? err))
             "no rollback (pre-commit handler throw) → :db-rolled-back? false (no spurious chip)"))
-      ;; rf2-wnvid — the HANDLER step carries :db-write? false (it threw
+      ;; The HANDLER step carries :db-write? false (it threw
       ;; before producing a :db), so the view shows 'no :db (handler
       ;; threw)' rather than the phantom full app-db.
       (is (false? (:db-write? handler))
           "no :db write → :db-write? false (no phantom :db)")
-      ;; rf2-wnvid — no schema rollback fired, so NO step is marked
+      ;; No schema rollback fired, so NO step is marked
       ;; rolled-back (the downstream-mute path is correctly inert).
       (is (every? #(nil? (:rolled-back? %)) steps)
           "no schema rollback → no :rolled-back? flags (no spurious rollback chrome)")
       (is (= :error (proj/epoch-outcome steps))
           "the epoch outcome reflects the exception (NOT :ok)")))
 
-  (testing "rf2-ahhgn — a clean cascade reads :ok with no attached errors"
+  (testing "a clean cascade reads :ok with no attached errors"
     (let [rec   (record [(dispatched-ev [:counter/inc] :ui nil)
                          (db-changed-ev [[[:count] 0 1 :modified]])
                          (run-end-ev 1)]
@@ -4666,7 +4623,7 @@
       (is (every? #(nil? (:errors %)) steps))
       (is (every? #(= :ok (proj/step-status %)) steps)))))
 
-;; ---- rf2-s6oqd — 'Rolled back' chip gates on ACTUAL rollback ------------
+;; ---- 'Rolled back' chip gates on ACTUAL rollback ------------------------
 ;;
 ;; fx are POST-COMMIT / best-effort (the FX atomicity asymmetry): a throwing
 ;; fx leaves the `:db` committed (the baseline bump survives) — nothing
@@ -4680,7 +4637,7 @@
 ;;     chip (covered above).
 
 (deftest fx-exception-stamps-db-rolled-back-false-test
-  (testing "rf2-s6oqd — a POST-COMMIT fx throw (`:standard-epochs/boom`)
+  (testing "a POST-COMMIT fx throw (`:standard-epochs/boom`)
             leaves the :db committed; the cascade did NOT roll back, so the
             attached exception row carries `:db-rolled-back? false` → the
             view omits the spurious 'Rolled back' chip"
@@ -4711,7 +4668,7 @@
           "but nothing rolled back"))))
 
 (deftest schema-rollback-stamps-db-rolled-back-true-test
-  (testing "rf2-s6oqd — a `:where :app-db` schema-fail rollback DID revert
+  (testing "a `:where :app-db` schema-fail rollback DID revert
             the commit, so an exception row this cascade carries
             `:db-rolled-back? true` → the 'Rolled back' chip DOES paint.
             (The schema-fail rolled back AND a handler exception fired.)"
@@ -4733,16 +4690,15 @@
       (is (true? (:db-rolled-back? err))
           ":db-rolled-back? true → the 'Rolled back' chip paints (correct)"))))
 
-;; ---- rf2-yz57h — per-step exception placement + INTERCEPTOR step --------
+;; ---- per-step exception placement + INTERCEPTOR step --------------------
 ;;
-;; rf2-mszrz split the blanket `:rf.error/handler-exception` into three
-;; component-attributed ops; rf2-yz57h places each under the step where it
-;; actually occurred (coeffect → COEFFECT, interceptor → INTERCEPTOR,
+;; A cascade exception arrives as one of three component-attributed ops;
+;; the projection places each under the step where it actually occurred (coeffect → COEFFECT, interceptor → INTERCEPTOR,
 ;; handler → HANDLER) and renders an upstream-skipped HANDLER / SIDE
 ;; EFFECTS step as SKIPPED rather than 'ran, returned no :db'.
 
 (deftest exception-op->step-covers-new-ops-test
-  (testing "rf2-yz57h — the new component-attributed ops are in the
+  (testing "the component-attributed ops are in the
             exception set"
     (is (contains? proj/cascade-exception-ops :rf.error/coeffect-exception))
     (is (contains? proj/cascade-exception-ops :rf.error/interceptor-exception))
@@ -4751,7 +4707,7 @@
 ;; -- COEFFECT placement (button-19) --------------------------------------
 
 (deftest attach-coeffect-exception-to-matching-step-test
-  (testing "rf2-yz57h — a `:rf.error/coeffect-exception` attaches to the
+  (testing "a `:rf.error/coeffect-exception` attaches to the
             COEFFECT step whose :id matches :failing-id (not HANDLER)"
     (let [steps [{:step :coeffect :badge :COEFFECT :id :other/cofx}
                  {:step :coeffect :badge :COEFFECT :id :app/session}
@@ -4764,7 +4720,7 @@
       (is (= :error (:status (nth out 1))) "matching COEFFECT stamped :error")
       (is (nil? (:errors (nth out 2))) "HANDLER does NOT carry it")))
 
-  (testing "rf2-yz57h — falls back to the FIRST COEFFECT step when no :id
+  (testing "falls back to the FIRST COEFFECT step when no :id
             matches (e.g. the throwing cofx produced no :rf.cofx/run)"
     (let [steps [{:step :coeffect :badge :COEFFECT :id :app/session}
                  {:step :handler  :badge :HANDLER}]
@@ -4775,7 +4731,7 @@
       (is (nil? (:errors (nth out 1)))))))
 
 (deftest project-synthesises-coeffect-placeholder-on-throwing-cofx-test
-  (testing "rf2-yz57h — a coeffect-exception with NO matching :rf.cofx/run
+  (testing "a coeffect-exception with NO matching :rf.cofx/run
             synthesises a placeholder COEFFECT step (no value), carries the
             exception, and marks the HANDLER + SIDE EFFECTS skipped"
     (let [rec   (record [(dispatched-ev [:standard-epochs/throw-cofx] :ui nil)
@@ -4800,13 +4756,13 @@
 ;; -- INTERCEPTOR step (button-17 :before / button-18 :after) -------------
 
 (deftest interceptor-step-projection-test
-  (testing "rf2-yz57h — `interceptor-step` is nil when no interceptor threw"
+  (testing "`interceptor-step` is nil when no interceptor threw"
     (is (nil? (proj/interceptor-step [(dispatched-ev [:x] :ui nil)
                                       (run-end-ev 1)] :before)))
     (is (nil? (proj/interceptor-step [(dispatched-ev [:x] :ui nil)
                                       (run-end-ev 1)] :after))))
 
-  (testing "rf2-vew2n — `interceptor-step` is PHASE-FILTERED: the :before
+  (testing "`interceptor-step` is PHASE-FILTERED: the :before
             step carries only :before throws, the :after step only :after"
     (let [events [(interceptor-exception-ev :app/auth :before "intc boom")]
           before (proj/interceptor-step events :before)
@@ -4819,7 +4775,7 @@
       (is (= :before   (:phase (first (:rows before)))))
       (is (nil? after) "no :after throw → no :after interceptor step")))
 
-  (testing "rf2-vew2n — an :after throw populates ONLY the :after step"
+  (testing "an :after throw populates ONLY the :after step"
     (let [events [(interceptor-exception-ev :app/audit :after "intc boom")]
           before (proj/interceptor-step events :before)
           after  (proj/interceptor-step events :after)]
@@ -4828,7 +4784,7 @@
       (is (= 1 (count (:rows after))))
       (is (= :app/audit (:interceptor-id (first (:rows after)))))))
 
-  (testing "rf2-siheh — a macro-captured :source-coord on the trace lifts
+  (testing "a macro-captured :source-coord on the trace lifts
             onto the INTERCEPTOR row's :coord (the slot the view's
             jump-to-source chip reads)"
     (let [coord  {:ns 'app.icpt :file "/abs/app/icpt.cljs" :line 42}
@@ -4839,14 +4795,14 @@
       (is (= coord (:coord row))
           "the row carries the interceptor's definition-site coord")))
 
-  (testing "rf2-siheh — no :source-coord on the trace → the row's :coord is
+  (testing "no :source-coord on the trace → the row's :coord is
             nil (the ->interceptor* fn / framework-interceptor path; the
             view's chip drops out cleanly)"
     (let [events [(interceptor-exception-ev :app/auth :before "boom")]
           before (proj/interceptor-step events :before)]
       (is (nil? (:coord (first (:rows before)))))))
 
-  (testing "rf2-siheh — a coord lacking :file is treated as no-coord
+  (testing "a coord lacking :file is treated as no-coord
             (defensive — the chip needs :file to resolve a URI)"
     (let [events [(interceptor-exception-ev :app/auth :before "boom" nil
                                             {:ns 'app.icpt :line 7})]
@@ -4855,7 +4811,7 @@
           "no :file → :coord nil"))))
 
 (deftest attach-interceptor-exception-to-interceptor-step-test
-  (testing "rf2-yz57h — a `:rf.error/interceptor-exception` attaches to the
+  (testing "a `:rf.error/interceptor-exception` attaches to the
             INTERCEPTOR step (not HANDLER)"
     (let [steps [{:step :interceptor :badge :INTERCEPTOR :phase :before
                   :rows [{:interceptor-id :app/auth :phase :before}]}
@@ -4867,7 +4823,7 @@
       (is (= :error (:status (nth out 0))) "INTERCEPTOR stamped :error")
       (is (nil? (:errors (nth out 1))) "HANDLER untouched")))
 
-  (testing "rf2-vew2n — with TWO phase-split INTERCEPTOR steps, an exception
+  (testing "with TWO phase-split INTERCEPTOR steps, an exception
             routes to the step whose :phase matches (NOT the first one)"
     (let [steps [{:step :interceptor :badge :INTERCEPTOR :phase :before
                   :rows [{:interceptor-id :app/before :phase :before}]}
@@ -4884,7 +4840,7 @@
       (is (= :error (:status (nth out 2))) "the :after step is stamped :error"))))
 
 (deftest project-interceptor-before-end-to-end-test
-  (testing "rf2-yz57h — button-17 live scenario: a `:before` interceptor
+  (testing "button-17 live scenario: a `:before` interceptor
             threw → INTERCEPTOR step present, carries the exception, HANDLER
             skipped"
     (let [rec   (record [(dispatched-ev [:standard-epochs/throw-interceptor] :ui nil)
@@ -4909,12 +4865,11 @@
       (is (= :error (proj/epoch-outcome steps))))))
 
 (deftest project-interceptor-after-end-to-end-test
-  (testing "rf2-yz57h / rf2-vew2n — button-18 live scenario: an `:after`
+  (testing "button-18 live scenario: an `:after`
             interceptor threw → INTERCEPTOR step present, HANDLER NOT skipped
             (it ran first; the throw fired on the way out), and the
-            INTERCEPTOR step renders AFTER the EVENT HANDLER step (the
-            rf2-vew2n bug fix — it used to land at position 2, before the
-            handler)"
+            INTERCEPTOR step renders AFTER the EVENT HANDLER step (not at
+            position 2, before the handler)"
     (let [rec   (record [(dispatched-ev [:standard-epochs/throw-interceptor-after] :ui nil)
                          ;; the handler ran + committed a :db on the way in
                          (db-pending-ev {:n 1})
@@ -4934,15 +4889,15 @@
       (is (not= :skipped (proj/step-status h))
           "HANDLER NOT skipped — it ran before the :after interceptor threw")
       (is (true? (:db-write? h)) "the handler DID write a :db (it ran)")
-      ;; rf2-vew2n — cascade-position: the :after INTERCEPTOR sits AFTER
-      ;; the EVENT HANDLER (the bug: it used to render at position 2).
+      ;; Cascade-position: the :after INTERCEPTOR sits AFTER
+      ;; the EVENT HANDLER (not at position 2).
       (let [step-kws (mapv :step steps)
             i-idx    (.indexOf step-kws :interceptor)
             h-idx    (.indexOf step-kws :handler)]
         (is (> i-idx h-idx) "INTERCEPTOR (:after) renders AFTER HANDLER"))
       (is (= :error (proj/epoch-outcome steps)))))
 
-  (testing "rf2-vew2n — BOTH a :before and an :after interceptor throw in the
+  (testing "BOTH a :before and an :after interceptor throw in the
             same cascade → TWO INTERCEPTOR steps, one on each side of HANDLER"
     (let [rec   (record [(dispatched-ev [:multi/intc] :ui nil)
                          (interceptor-exception-ev :app/before :before "before boom")
@@ -4967,15 +4922,15 @@
         (is (= :app/before (:failing-id (first (:errors before-step)))))
         (is (= :app/after  (:failing-id (first (:errors after-step)))))))))
 
-;; -- INTERCEPTORS step (authored / resolved chain, rf2-se9a9t) ------------
+;; -- INTERCEPTORS step (authored / resolved chain) ------------------------
 
 (deftest interceptor-ref-row-test
-  (testing "rf2-se9a9t — the framework auto-wrapper (:rf/default?) is dropped"
+  (testing "the framework auto-wrapper (:rf/default?) is dropped"
     (is (nil? (proj/interceptor-ref-row
                 {:id :rf/event-handler :rf/default? true :before identity}
                 (constantly nil)))))
 
-  (testing "rf2-se9a9t — a bare-keyword authored ref resolves its descriptor"
+  (testing "a bare-keyword authored ref resolves its descriptor"
     (let [resolve-fn (fn [id]
                        (when (= id :auth/required)
                          {:doc "auth gate" :file "auth.cljs" :line 12
@@ -4990,7 +4945,7 @@
       (is (= {:file "auth.cljs" :line 12} (:coord row)) "resolved coord present")
       (is (not (:missing-ref? row)))))
 
-  (testing "rf2-se9a9t — an [id arg] factory ref keeps the vector + arg"
+  (testing "an [id arg] factory ref keeps the vector + arg"
     (let [resolve-fn (fn [id]
                        (when (= id :rf.interceptor/path)
                          {:rf/interceptor-descriptor {:factory identity}}))
@@ -5000,13 +4955,13 @@
       (is (= [:cart] (:arg row)))
       (is (true? (:factory? row)) "a :factory descriptor reports as a factory")))
 
-  (testing "rf2-se9a9t — an UNREGISTERED ref is flagged :missing-ref?, not dropped"
+  (testing "an UNREGISTERED ref is flagged :missing-ref?, not dropped"
     (let [row (proj/interceptor-ref-row :nope/unregistered (constantly nil))]
       (is (= :nope/unregistered (:interceptor-id row)))
       (is (true? (:missing-ref? row)))
       (is (nil? (:coord row)))))
 
-  (testing "rf2-se9a9t — a stale inline value surfaces under :inline?"
+  (testing "a stale inline value surfaces under :inline?"
     (let [row (proj/interceptor-ref-row {:id :legacy/inline :before identity}
                                         (constantly nil))]
       (is (= :legacy/inline (:interceptor-id row)))
@@ -5015,17 +4970,17 @@
       (is (nil? (:authored row))))))
 
 (deftest authored-interceptors-step-test
-  (testing "rf2-se9a9t — nil when only the framework wrapper is present"
+  (testing "nil when only the framework wrapper is present"
     (is (nil? (proj/authored-interceptors-step
                 :evt
                 [{:id :rf/event-handler :rf/default? true}]
                 (constantly nil)))))
 
-  (testing "rf2-se9a9t — nil for an empty / absent chain"
+  (testing "nil for an empty / absent chain"
     (is (nil? (proj/authored-interceptors-step :evt [] (constantly nil))))
     (is (nil? (proj/authored-interceptors-step :evt nil (constantly nil)))))
 
-  (testing "rf2-se9a9t — builds an INTERCEPTORS step over the authored refs,
+  (testing "builds an INTERCEPTORS step over the authored refs,
             wrapper filtered out, order preserved"
     (let [resolve-fn (fn [id] {:rf/interceptor-descriptor {:before identity}})
           step (proj/authored-interceptors-step
@@ -5044,7 +4999,7 @@
       ;; the step carries no :status — it is informational, never an error
       (is (nil? (:status step)))))
 
-  (testing "rf2-9vx0jk — no override-summary => rows carry NO :override stamp"
+  (testing "no override-summary => rows carry NO :override stamp"
     (let [resolve-fn (fn [_id] {:rf/interceptor-descriptor {:before identity}})
           step (proj/authored-interceptors-step
                  :cart/add [:auth/required :auth/audit] resolve-fn nil)]
@@ -5052,7 +5007,7 @@
           "the override-free path leaves rows unstamped"))))
 
 (deftest authored-interceptors-step-override-summary-test
-  (testing "rf2-9vx0jk — the per-dispatch override-summary marks replaced/removed rows"
+  (testing "the per-dispatch override-summary marks replaced/removed rows"
     (let [resolve-fn (fn [_id] {:rf/interceptor-descriptor {:before identity}})
           summary    {:matched  [:auth/required :auth/audit]
                       :replaced [:auth/audit]
@@ -5071,7 +5026,7 @@
       (is (nil? (get-in by-id [:auth/untouched :override]))
           "a ref the summary did not touch carries no :override")))
 
-  (testing "rf2-9vx0jk — an [id arg]-authored row matches the summary's bare head id"
+  (testing "an [id arg]-authored row matches the summary's bare head id"
     (let [resolve-fn (fn [_id] {:rf/interceptor-descriptor {:before identity}})
           ;; the summary projection reduces [id arg] refs to their head id, so
           ;; the summary carries the bare keyword while the chain row authored
@@ -5090,7 +5045,7 @@
           "[id arg]-authored row matched the summary's bare head id"))))
 
 (deftest project-authored-interceptors-end-to-end-test
-  (testing "rf2-se9a9t — the resolver opts inject the INTERCEPTORS step
+  (testing "the resolver opts inject the INTERCEPTORS step
             BEFORE the HANDLER step in a clean cascade"
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (db-changed-ev [[[:cart] 0 1 :modified]])
@@ -5115,7 +5070,7 @@
       ;; the clean authored chain does NOT inflate the outcome
       (is (= :ok (proj/epoch-outcome steps)))))
 
-  (testing "rf2-se9a9t — NO INTERCEPTORS step when the event carries only the
+  (testing "NO INTERCEPTORS step when the event carries only the
             framework wrapper (the common case)"
     (let [rec   (record [(dispatched-ev [:plain/evt] :ui nil)
                          (db-changed-ev [[[:n] 0 1 :modified]])
@@ -5129,7 +5084,7 @@
       (is (not (some #(= :interceptors (:step %)) steps))
           "no INTERCEPTORS step — only the wrapper")))
 
-  (testing "rf2-se9a9t — the default (no-opts) project is byte-identical:
+  (testing "the default (no-opts) project:
             NO INTERCEPTORS step is ever emitted without a resolver"
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (db-changed-ev [[[:cart] 0 1 :modified]])
@@ -5137,9 +5092,9 @@
                         :cart/add)
           steps (proj/project rec)]
       (is (not (some #(= :interceptors (:step %)) steps))
-          "no resolver → no INTERCEPTORS step (pure / back-compat)")))
+          "no resolver → no INTERCEPTORS step (pure path)")))
 
-  (testing "rf2-9vx0jk — project reads :rf.interceptor/override-summary off the
+  (testing "project reads :rf.interceptor/override-summary off the
             run-start trace and stamps the affected INTERCEPTORS rows"
     (let [run-start (teb/ev :rf.event :rf.event/run-start
                             {:rf.event/v [:cart/add]
@@ -5174,7 +5129,7 @@
 ;; -- SKIPPED-step marking -------------------------------------------------
 
 (deftest mark-skipped-handler-test
-  (testing "rf2-yz57h — a coeffect throw marks HANDLER + SIDE EFFECTS skipped"
+  (testing "a coeffect throw marks HANDLER + SIDE EFFECTS skipped"
     (let [steps  [{:step :handler} {:step :side-effects} {:step :subscriptions}]
           events [(coeffect-exception-ev :app/session "boom")]
           out    (proj/mark-skipped-handler steps events)]
@@ -5182,32 +5137,32 @@
       (is (= :skipped (:status (nth out 1))) "SIDE EFFECTS skipped")
       (is (nil? (:status (nth out 2))) "SUBSCRIPTIONS not stamped here")))
 
-  (testing "rf2-yz57h — a :before interceptor throw marks the handler skipped"
+  (testing "a :before interceptor throw marks the handler skipped"
     (let [out (proj/mark-skipped-handler
                 [{:step :handler}]
                 [(interceptor-exception-ev :app/auth :before "boom")])]
       (is (= :skipped (:status (first out))))))
 
-  (testing "rf2-yz57h — an :after interceptor throw does NOT mark skipped
+  (testing "an :after interceptor throw does NOT mark skipped
             (the handler ran)"
     (let [out (proj/mark-skipped-handler
                 [{:step :handler}]
                 [(interceptor-exception-ev :app/auth :after "boom")])]
       (is (nil? (:status (first out))))))
 
-  (testing "rf2-yz57h — a plain handler throw does NOT mark skipped (the
+  (testing "a plain handler throw does NOT mark skipped (the
             handler ran, then threw)"
     (let [out (proj/mark-skipped-handler
                 [{:step :handler}]
                 [(handler-exception-ev :e "boom")])]
       (is (nil? (:status (first out))))))
 
-  (testing "rf2-yz57h — a clean cascade leaves steps untouched"
+  (testing "a clean cascade leaves steps untouched"
     (let [steps [{:step :handler} {:step :side-effects}]]
       (is (= steps (proj/mark-skipped-handler steps [(run-end-ev 1)]))))))
 
 (deftest step-status-skipped-test
-  (testing "rf2-yz57h — `:skipped` status reads through `step-status`"
+  (testing "`:skipped` status reads through `step-status`"
     (is (= :skipped (proj/step-status {:step :handler :status :skipped})))
     (is (= :ok (proj/step-status {:step :handler})))
     ;; a step both skipped AND carrying an error reads :error (error wins)
@@ -5215,7 +5170,7 @@
                                      :errors [{:message "x"}]})))))
 
 (deftest skipped-handler-not-flagged-error-test
-  (testing "rf2-yz57h — the SKIPPED handler does NOT inflate the epoch
+  (testing "the SKIPPED handler does NOT inflate the epoch
             outcome (the failing COEFFECT/INTERCEPTOR step is the :error
             signal; a skip is neutral)"
     (let [;; clean handler step that was skipped + no real exception on it
@@ -5227,7 +5182,7 @@
       (is (= :skipped (proj/step-status (second steps)))
           "the skipped handler reads :skipped, not :error"))))
 
-;; -- HALTED-DEPTH record (rf2-3x7nj.22.1) ----------------------------------
+;; -- HALTED-DEPTH record ---------------------------------------------------
 
 (defn- halted-depth-record
   "A `:halted-depth` record in the shape the producer commits, read off a
@@ -5249,7 +5204,7 @@
    :trace-events  [(dispatched-ev [:user/loop] :ui nil)]})
 
 (deftest halted-depth-record-projects-the-halt-test
-  (testing "rf2-3x7nj.22.1 — the event a drain-depth halt refused reads as
+  (testing "the event a drain-depth halt refused reads as
             refused: a halt card on DISPATCH, HANDLER skipped (not 'ran,
             returned no :db'), and the panel outcome :error"
     (let [steps (proj/project (halted-depth-record))
@@ -5288,15 +5243,15 @@
       (is (= steps (proj/mark-halted steps {}))))))
 
 (deftest interceptor-badge-in-badge-set-test
-  (testing "rf2-yz57h — :INTERCEPTOR is a valid badge"
+  (testing ":INTERCEPTOR is a valid badge"
     (is (proj/valid-badge? :INTERCEPTOR))))
 
 ;; ============================================================================
-;; HISTORY restore / record projection (rf2-mle6e.5, spec/009 §History trace)
+;; HISTORY restore / record projection (spec/009 §History trace)
 ;; ============================================================================
 
 (deftest history-restored-rows-recorded-source-test
-  (testing "rf2-mle6e.5 — `:rf.machine.history/restored` (source :recorded)
+  (testing "`:rf.machine.history/restored` (source :recorded)
             projects to a restore record carrying the full spec/009 tag bag"
     (let [evs  [(machine-history-restored-ev
                   {:machine-id :media/deep :compound-path [:player] :kind :deep
@@ -5314,7 +5269,7 @@
       (is (nil? (:fallback r)) ":fallback absent on the :recorded path"))))
 
 (deftest history-restored-rows-default-source-test
-  (testing "rf2-mle6e.5 — the :default path carries :fallback + nil :restored-config"
+  (testing "the :default path carries :fallback + nil :restored-config"
     (let [r (first (proj/history-restored-rows
                      [(machine-history-restored-ev
                         {:machine-id :media/deep :compound-path [:player] :kind :deep
@@ -5325,7 +5280,7 @@
       (is (nil? (:restored-config r)) "nothing recorded ⇒ no :restored-config"))))
 
 (deftest history-recorded-rows-test
-  (testing "rf2-mle6e.5 — `:rf.machine.history/recorded` projects to a record
+  (testing "`:rf.machine.history/recorded` projects to a record
             with :prev-config present only on an overwrite"
     (let [first-write (first (proj/history-recorded-rows
                                [(machine-history-recorded-ev
@@ -5343,7 +5298,7 @@
           ":prev-config = the overwritten value"))))
 
 (deftest machine-cascade-rows-stamps-history-on-transition-test
-  (testing "rf2-mle6e.5 — `machine-cascade-rows` stamps :history-restored /
+  (testing "`machine-cascade-rows` stamps :history-restored /
             :history-recorded (keyed by machine-id) onto the :transition row,
             and an ORDINARY transition carries neither key"
     (let [before  {:state [:player :stopped] :data {}}
@@ -5367,7 +5322,7 @@
       (is (nil? (:history-recorded ordinary)) "non-history transition: no :history-recorded"))))
 
 (deftest history-restored-headline-test
-  (testing "rf2-mle6e.5 — the restored headline reads the recorded config →
+  (testing "the restored headline reads the recorded config →
             resolved leaf, NAMES the kind, and on :default names the fallback"
     (is (= "restored [:player] from DEEP history · [:player :playing :mid-track] → [:player :playing :mid-track]"
            (fmt/history-restored-headline
@@ -5386,7 +5341,7 @@
               :resolved-leaf [:player :playing :at-start]})))))
 
 (deftest history-recorded-headline-test
-  (testing "rf2-mle6e.5 — the recorded headline reads 'advanced from X to Y'
+  (testing "the recorded headline reads 'advanced from X to Y'
             on an overwrite, 'recorded = Y' on the first-ever write"
     (is (= "history recorded [:player] = [:player :playing :mid-track]"
            (fmt/history-recorded-headline
@@ -5399,18 +5354,19 @@
               :prev-config [:player :playing :at-start]})))))
 
 ;; ============================================================================
-;; GENERIC error catch-all (rf2-y8doi.19)
+;; GENERIC error catch-all
 ;; ============================================================================
 ;;
 ;; `cascade-exception-ops` names SEVEN ops. Every other cascade
-;; `:rf.error/*` trace was read and discarded: no card, no `:status
-;; :error`, and `epoch-outcome` reading `:ok` for an event that did not
-;; complete. The fixtures below are built from the PRODUCER's emit shape
+;; `:rf.error/*` trace goes through the generic catch-all; without it the
+;; trace would be read and discarded: no card, no `:status :error`, and
+;; `epoch-outcome` reading `:ok` for an event that did not complete. The
+;; fixtures below are built from the PRODUCER's emit shape
 ;; (`router/emit-effect-map-shape!`'s tag map, verbatim) rather than by
-;; hand, per rf2-y8doi.10 finding 1.
+;; hand.
 
 (defn- effect-map-shape-ev
-  "`:rf.error/effect-map-shape` trace (rf2-04tx) — the router's
+  "`:rf.error/effect-map-shape` trace — the router's
   FINAL-effects boundary REFUSING a malformed effect-map envelope. Tag
   shape mirrors `re-frame.router/emit-effect-map-shape!`: `:offending-key`
   is the structural discriminator, `:reason` the prose naming it, and
@@ -5427,12 +5383,12 @@
          :recovery :fix-effect))
 
 (deftest unclassified-error-surfaces-on-side-effects-test
-  (testing "rf2-y8doi.19 — a handler returning a foreign top-level effect key
-            is REFUSED by the router (`:rf.error/effect-map-shape`, rf2-04tx),
-            and the cascade must show it. Before this bead the op was outside
-            the closed `cascade-exception-ops` set, so the panel drew a clean
-            `{:db}` cascade reading `outcome=ok` while the L2 row and the
-            ribbon went red beside it."
+  (testing "a handler returning a foreign top-level effect key
+            is REFUSED by the router (`:rf.error/effect-map-shape`), and
+            the cascade must show it. The op is outside the closed
+            `cascade-exception-ops` set, so without the generic pass the
+            panel would draw a clean `{:db}` cascade reading `outcome=ok`
+            while the L2 row and the ribbon went red beside it."
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (effect-map-shape-ev :cart/add :bogus-fx)]
                         :cart/add)
@@ -5460,9 +5416,9 @@
       (is (= :error (proj/step-status se))
           "the step reads :error")
       (is (= :error (proj/epoch-outcome steps))
-          "and so does the epoch — the panel and the ribbon now agree")))
+          "and so does the epoch — the panel and the ribbon agree")))
 
-  (testing "rf2-y8doi.19 — the card carries a MESSAGE. Nothing threw, so there
+  (testing "the card carries a MESSAGE. Nothing threw, so there
             is no `:exception-message`; `:reason` is the whole diagnosis and
             names the offending key."
     (let [rec  (record [(dispatched-ev [:cart/add] :ui nil)
@@ -5475,7 +5431,7 @@
       (is (re-find #":bogus-fx" (:message row))
           "and it names the key the programmer has to go and fix")))
 
-  (testing "rf2-y8doi.19 — an existing SIDE EFFECTS step is used, not duplicated"
+  (testing "an existing SIDE EFFECTS step is used, not duplicated"
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (db-changed-ev [[[:cart] 0 1 :modified]])
                          (effect-map-shape-ev :cart/add :bogus-fx)]
@@ -5488,7 +5444,7 @@
       (is (= 1 (count (:errors (first ses))))
           "carrying the refusal")))
 
-  (testing "rf2-y8doi.19 — an op with NO placement entry lands on HANDLER
+  (testing "an op with NO placement entry lands on HANDLER
             rather than vanishing. This is the case that matters most: the
             framework's `:rf.error/*` vocabulary grows, and an op nobody has
             classified must still reach the operator."
@@ -5505,10 +5461,10 @@
           "the unknown op attached to HANDLER")
       (is (= :rf.error/some-future-op (:operation (first (:errors h)))))
       (is (= :error (proj/epoch-outcome steps))
-          "and the epoch is no longer green"))))
+          "and the epoch is not green"))))
 
 (deftest cascade-error-event-discrimination-test
-  (testing "rf2-y8doi.19 — `cascade-error-event?` accepts BOTH the live
+  (testing "`cascade-error-event?` accepts BOTH the live
             envelope field and the fixture spelling. `trace/emit-error!`
             stamps `:op-type :error`; most synth fixtures in this tree name
             the operation and omit the field."
@@ -5524,7 +5480,7 @@
     (is (false? (proj/cascade-error-event? {:operation nil}))
         "nil operation does not throw and is not an error"))
 
-  (testing "rf2-y8doi.19 — `unclassified-error-rows` takes ONLY what
+  (testing "`unclassified-error-rows` takes ONLY what
             `attach-exceptions` leaves. Overlap would double-report every
             throw as two cards on two steps."
     (let [evs  [(dispatched-ev [:cart/add] :ui nil)
@@ -5541,11 +5497,11 @@
           "and `exception-rows` takes exactly the one this pass skipped"))))
 
 (deftest violation-catch-all-test
-  (testing "rf2-y8doi.19 — a schema violation whose owning step is absent from
+  (testing "a schema violation whose owning step is absent from
             the cascade falls back to HANDLER instead of being discarded.
             `:sub-return` wants a SUBSCRIPTIONS step; a cascade with no sub
-            recompute has none, and the violation used to disappear with the
-            panel still reading `:ok`."
+            recompute has none, and without the fallback the violation
+            would disappear with the panel still reading `:ok`."
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (db-changed-ev [[[:cart] 0 1 :modified]])
                          (run-end-ev 1)
@@ -5562,10 +5518,9 @@
       (is (= :error (proj/epoch-outcome steps))
           "and the epoch reads :error rather than a green cascade")))
 
-  (testing "rf2-y8doi.19 — a violation carrying an UNRECOGNISED `:where` lands
-            on HANDLER too. The old default branch dropped it under a comment
-            saying it rode the standalone hot-reload step, which rf2-7gf7v had
-            already retired — so it rode nothing."
+  (testing "a violation carrying an UNRECOGNISED `:where` lands
+            on HANDLER too, rather than being dropped (there is no
+            standalone hot-reload step for it to ride)."
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
                          (db-changed-ev [[[:cart] 0 1 :modified]])
                          (run-end-ev 1)
@@ -5577,7 +5532,7 @@
       (is (= 1 (count (:violations h))))
       (is (= :error (proj/epoch-outcome steps)))))
 
-  (testing "rf2-y8doi.19 — `:hot-reload` is still the ONE kind dropped here,
+  (testing "`:hot-reload` is the ONE kind dropped here,
             deliberately: it is not a cascade event and the issues ribbon
             owns it. The catch-all must not have swept it onto HANDLER."
     (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
@@ -5594,12 +5549,11 @@
           "and the cascade stays green — nothing about it failed"))))
 
 (deftest schema-violations-are-not-double-reported-test
-  ;; rf2-y8doi.19 — this arm exists because the first cut of the generic
-  ;; catch-all DID double-report. Schema-violation traces are `:op-type
-  ;; :error` and `:rf.error/schema-validation-failure` is an `:rf.error/*`
-  ;; op, so a sweep excluding only `cascade-exception-ops` swallowed every
-  ;; one of them and attached a second card beside the violation block.
-  (testing "rf2-y8doi.19 — a runtime schema violation attaches ONCE, as a
+  ;; Schema-violation traces are `:op-type :error` and
+  ;; `:rf.error/schema-validation-failure` is an `:rf.error/*` op, so a
+  ;; sweep excluding only `cascade-exception-ops` would swallow every one
+  ;; of them and attach a second card beside the violation block.
+  (testing "a runtime schema violation attaches ONCE, as a
             violation, and the generic error pass leaves it alone"
     (let [evs   [(dispatched-ev [:cart/add] :ui nil)
                  (db-changed-ev [[[:count] 0 "boom" :modified]])
