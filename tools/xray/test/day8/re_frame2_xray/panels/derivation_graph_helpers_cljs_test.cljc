@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.derivation-graph-helpers-cljs-test
-  "Pure-data tests for the Derivation-Graph panel helpers (EP-0014 prop-3,
-  rf2-9ett2d).
+  "Pure-data tests for the Derivation-Graph panel helpers (EP-0014 prop-3).
 
   Dual-target naming (`.cljc` + `_cljs_test`):
     - Cognitect's test-runner (CLJ) picks it up via the default `.*-test$`
@@ -26,7 +25,7 @@
        rides through untouched.
     6. **graph-summary** — counts + superkind / family / role tallies.
 
-  The OFF-BOX egress redaction (rf2-yjarv6) needs a live frame elision
+  The OFF-BOX egress redaction needs a live frame elision
   policy, so it lives in the runtime test
   `derivation_graph_redaction_cljs_test.cljc`."
   (:require [clojure.test :refer [deftest is testing]]
@@ -173,7 +172,7 @@
       (is (true? (:redacted? s))))))
 
 (deftest y8doi25-summarize-bounds-the-serialisation-not-just-the-string
-  (testing "rf2-y8doi.25 — the Graph tab re-summarises every cached value-
+  (testing "the Graph tab re-summarises every cached value-
             bearing field on every coalesced tick, so the COST is the
             serialisation, not the 80 characters kept from it. Truncating a
             string after the fact buys nothing: `summarize` has to bound the
@@ -225,10 +224,10 @@
 (deftest rf2-3hnvn-bounded-pr-str-bounds-every-string-the-print-reaches
   ;; THE DISCRIMINATOR IS THE PRINT, NOT THE PREVIEW. `summarize` keeps 80
   ;; characters, and the bounded and the unbounded print agree on every one
-  ;; of them — so an assertion about `:preview` passes AGAINST the bug (the
-  ;; merged code printed 200010 characters here and previewed 81, exactly as
-  ;; the fixed code previews 81). What the coalesced tick actually pays is
-  ;; the LENGTH OF THE PRINT, which is what these pin.
+  ;; of them — so an assertion about `:preview` would pass against an
+  ;; unbounded nested print (200010 characters printed here, 81 previewed,
+  ;; exactly as a bounded print previews 81). What the coalesced tick
+  ;; actually pays is the LENGTH OF THE PRINT, which is what these pin.
   (let [huge   (apply str (repeat 200000 "x"))
         nested (h/bounded-pr-str {:body huge})
         root   (h/bounded-pr-str huge)
@@ -236,16 +235,16 @@
         in-set (h/bounded-pr-str #{huge})
         as-key (h/bounded-pr-str {huge 1})]
 
-    (testing "rf2-3hnvn — `*print-length*` does not reach inside a string, so
-              bounding only a string at the ROOT left an ordinary nested one
-              serialising in full on every tick"
+    (testing "`*print-length*` does not reach inside a string, so
+              bounding only a string at the ROOT would leave an ordinary
+              nested one serialising in full on every tick"
       (is (< (count nested) 1000)
           (str "printed " (count nested)
                " characters for a 200000-character string nested one level"))
       (is (< (count root) 1000)
           (str "printed " (count root)
-               " characters for the scalar root — the half that already"
-               " worked, pinned so a later change cannot regress it")))
+               " characters for the scalar root, pinned so a change cannot"
+               " leave it unbounded")))
 
     (testing "every string the print walk can REACH is bounded, not just a
               map value one level down"
@@ -253,7 +252,7 @@
       (is (< (count in-set) 1000) "an element of a set")
       (is (< (count as-key) 1000) "a map KEY"))
 
-    (testing "and the operator sees exactly what they saw before: bounding
+    (testing "and the operator sees what the unbounded print shows: bounding
               SOURCE characters cannot change the printed prefix, because
               escapes only lengthen"
       (let [s (h/summarize {:body huge})]
@@ -262,7 +261,7 @@
             "the preview's kept characters are the unbounded print's")
         (is (<= (count (:preview s)) 81))
         (is (= :map (:type s)) "`:type` is unchanged")
-        (is (= 1 (:size s))    "and so is `:size` — summarize is untouched")))))
+        (is (= 1 (:size s))    "and so is `:size`")))))
 
 (deftest rf2-kbo64-a-shortened-key-or-member-is-never-put-back
   ;; TWO DIFFERENT PROPERTIES, AND NEITHER TEST CATCHES THE OTHER'S DEFECT —
@@ -354,20 +353,20 @@
 
 (deftest rf2-xpitj-a-rendered-key-window-keeps-the-record-type-tag
   ;; TWO PROPERTIES AGAIN, AND NEITHER CATCHES THE OTHER'S DEFECT — the
-  ;; lesson rf2-kbo64 learned on this walk, arriving one level on through
-  ;; the RECORD branch:
+  ;; same pair as the key/member test above, one level on through the
+  ;; RECORD branch:
   ;;
   ;;   1. PREFIX FIDELITY. A record whose extension KEY needs bounding takes
-  ;;      the rendered-window path, and that window opened with a hard-coded
-  ;;      `{`. So `#my.ns.Rec{:body "short", ...` printed as
-  ;;      `{:body "short", ...` and the operator lost the type from the very
-  ;;      characters the panel shows them. The print stays SHORT against
-  ;;      that defect — 101 characters for this fixture — so no length
-  ;;      assertion can see it.
+  ;;      the rendered-window path. A window opening with a hard-coded `{`
+  ;;      would print `#my.ns.Rec{:body "short", ...` as
+  ;;      `{:body "short", ...`, and the operator would lose the type from
+  ;;      the very characters the panel shows them. The print stays SHORT
+  ;;      against that defect — 101 characters for this fixture — so no
+  ;;      length assertion can see it.
   ;;
   ;;   2. BOUNDED WORK. The tag must not be bought back by putting the
-  ;;      shortened key back. That is precisely the `dissoc`/`assoc`
-  ;;      rf2-kbo64 removed: on keys colliding in their first
+  ;;      shortened key back. That is precisely the `dissoc`/`assoc` the
+  ;;      key/member test above rules out: on keys colliding in their first
   ;;      `preview-limit` characters it COLLAPSES the record and drags an
   ;;      entry the walk never visited into the window with its value still
   ;;      unbounded. The opening characters are unchanged against THAT
