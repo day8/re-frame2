@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 /*
- * Inventory/lockstep guard for `scripts/test-rigorous-local.sh` (rf2-lm5mu9).
+ * Inventory/lockstep guard for `scripts/test-rigorous-local.sh`.
  *
  * The rigorous local script is the local mirror of the rigorous
  * browser-bundle-and-story sweep in `.github/workflows/expensive-tests.yml`.
- * It had drifted behind that sweep: it ran `test:story-feature-load`,
- * `test:xray-feature-gate`, and `test:story-static` but omitted
- * `test:story-play-scripts` (a sweep command) and `test:examples-compile`
+ * If it drifts behind that sweep — omitting, say,
+ * `test:story-play-scripts` (a sweep command) or `test:examples-compile`
  * (the example-build compile gate that test.yml runs in its own parallel
- * cljs-examples-compile job — split out of cljs-browser per rf2-9cw850). A
+ * cljs-examples-compile job) — a
  * developer running `scripts/test-rigorous-local.sh`
- * before a release-sized change could get `PASS rigorous local suite` without
+ * before a release-sized change gets `PASS rigorous local suite` without
  * the example-compile coverage gate or the Story play-script browser gate —
- * exactly the wiring regressions those gates were added to catch.
+ * exactly the wiring regressions those gates exist to catch.
  *
  * This guard pins, as a TEXT/policy assertion over committed files (no Actions
  * runtime needed, mirroring the test.yml-shape assertions in
@@ -23,21 +22,20 @@
  *     (lockstep — the local mirror must not drift BEHIND the nightly sweep
  *     for implementation browser/bundle commands).
  *  2. The `DIRECT_PINS` commands are present in the local script — a direct
- *     pin, independent of the parse above, so none can silently drop out again.
+ *     pin, independent of the parse above, so none can silently drop out.
  *     Assertion (1) can only ever see commands that live in that one workflow
- *     job; a gate whose scheduled home is elsewhere is invisible to it, which is
- *     precisely how `bench:freehand-browser` went missing (rf2-rmtj0).
- *  3. Each pin's declared BASIS still matches the workflow (rf2-0l1nv) — see
+ *     job; a gate whose scheduled home is elsewhere is invisible to it.
+ *  3. Each pin's declared BASIS still matches the workflow — see
  *     `DIRECT_PINS`. A pin's reason is a claim about where the command is
  *     scheduled, and that claim rots when the workflow moves.
  *  4. Every command the local script invokes is a real `package.json` script
  *     (catches a typo'd or renamed-away gate).
- *  5. Each of those nightly commands runs in its OWN named step (rf2-wh5to).
+ *  5. Each of those nightly commands runs in its OWN named step.
  *
- * SCOPE, STATED SO THE BLIND SPOT IS INTENTIONAL RATHER THAN ACCIDENTAL
- * (rf2-0l1nv). This guard mirrors the EXPENSIVE sweep and nothing else. It is
- * not an inventory of `implementation/package.json`, and deriving one was
- * considered and rejected.
+ * SCOPE, STATED SO THE BLIND SPOT IS INTENTIONAL RATHER THAN ACCIDENTAL.
+ * This guard mirrors the EXPENSIVE sweep and nothing else. It is
+ * not an inventory of `implementation/package.json`, and deliberately does
+ * not derive one.
  *
  * A command belongs in `scripts/test-rigorous-local.sh` when BOTH hold:
  *
@@ -48,58 +46,42 @@
  *
  * Those two conjuncts DERIVE the script's contents rather than describing them
  * after the fact, and they are why the implementation gates outside this guard's
- * window today are correctly outside the script too. The `test.yml`-only ones
+ * window are correctly outside the script too. The `test.yml`-only ones
  * fail (b): that workflow is surface-classified, so the change that would break
  * such a gate is the change that queues it, and a PR cannot land past it in
- * silence. The sharpest worked examples of (a) and (b) were the Freehand ones,
- * and they are kept because what they teach is the DERIVATION rather than the
- * commands: `build:freehand-matched` failed (a) — it was the matched-pair
- * build step feeding `freehand-bench.yml`, not a gate. `test:freehand` failed
- * (b) for a subtler reason worth knowing: `freehand-bench.yml` ran it to
- * CAPTURE the B5 records, but its assertions already gated every PR through
- * the `:node-test` build, which `test:cljs` runs — test.yml calls that "the
- * cheap NAMED surface for local + worker iteration, not a second gate".
+ * silence. What the conjuncts teach is the DERIVATION rather than any list of
+ * commands: a build step that feeds a benchmark workflow fails (a) — it
+ * produces an artefact, not a verdict. A suite a nightly lane runs to CAPTURE
+ * records fails (b) when its assertions already gate every PR through the
+ * `:node-test` build, which `test:cljs` runs — test.yml calls that "the cheap
+ * NAMED surface for local + worker iteration, not a second gate".
  * (`test:cljs` and `test:scripts` reach here transitively anyway, via
  * `test-fast-pr.sh`, which the rigorous script runs first.)
  *
- * `bench:freehand-browser` was the one command that satisfied both, which is
- * why it was pinned and the others were not. All three retired with the
- * Freehand tree on 2026-08-16 (rf2-0yp7w) — no `freehand` script survives in
- * `package.json` and `freehand-bench.yml` is gone — so none of them is pinned
- * today, and the `DIRECT_PINS` map below is the authority on what is. The full
- * census sits on rf2-0l1nv rather than here, because a list of command names in
- * this file would be a second authority with nothing holding it in step with
- * the workflows.
+ * The `DIRECT_PINS` map below is the authority on what is pinned; a list of
+ * command names in this comment would be a second authority with nothing
+ * holding it in step with the workflows.
  *
- * A package.json census would ALSO not have caught the failure that raised the
- * question. rf2-mf4uy (PR #7193) moved the seven `re-frame.freehand.bench.*` DOM
- * namespaces between two builds that both already existed — `bench:freehand-
- * browser` had been a script since PR #6891 and already had its job in
- * `freehand-bench.yml` — and the only line it changed in package.json was the
- * `test:script-policy` chain. Every script name stayed put, so a name-level
- * census would not have moved and would have stayed green while the local
- * sweep's coverage narrowed. That failure was a migration of test CONTENT, and
- * the gate that sees that class is `_browser-dom-lane-partition.test.cjs`, which
+ * A package.json census would ALSO miss the likeliest drift. Moving test
+ * CONTENT between builds that already exist changes no script name, so a
+ * name-level census stays green while the local sweep's coverage narrows. The
+ * gate that sees that class is `_browser-dom-lane-partition.test.cjs`, which
  * derives the DOM lane's `:ns-regexp` from `shadow-cljs.edn` and proves it
- * selects every `*_dom_cljs_test` namespace in the repo. (It proved a PARTITION
- * of two lanes until the bench lane retired with the Freehand corpus; see that
- * file's header.) Content-level derivation is the answer to content-level
- * drift; a name-level census is not.
+ * selects every `*_dom_cljs_test` namespace in the repo. Content-level
+ * derivation is the answer to content-level drift; a name-level census is not.
  *
  * A command earns a `DIRECT_PINS` entry on top of that when it must also declare
  * a `kind` — and that declaration is CHECKED against the workflow rather than
  * believed. See the map.
  *
- * On (5): the eleven browser/bundle/Story/Xray gates used to be one unnamed
- * `run: |` block. A `set -e` chain aborts at the first failing gate, so a red
- * night could only ever reveal ONE broken gate — which is why the
- * 2026-07-08..07-21 nightly outage took two repair rounds and fourteen red
- * nights: `test:story-static` broke on 07-13 but stayed invisible behind
- * `test:story-feature-load` until 07-21. The blob was also a single step-level
- * result, so neither the Actions UI nor the jobs API recorded WHICH gate had
- * failed. One command per named step is therefore load-bearing, not cosmetic,
- * and is pinned here so a later tidy-up cannot silently reintroduce the
- * masking shape.
+ * On (5): if the browser/bundle/Story/Xray gates shared one unnamed `run: |`
+ * block, a `set -e` chain would abort at the first failing gate, so a red
+ * night could only ever reveal ONE broken gate, and a gate broken behind
+ * another would stay invisible until the first was repaired. The blob would
+ * also be a single step-level result, so neither the Actions UI nor the jobs
+ * API would record WHICH gate had failed. One command per named step is
+ * therefore load-bearing, not cosmetic, and is pinned here so a tidy-up
+ * cannot silently introduce the masking shape.
  *
  * Comment lines are stripped from BOTH files before any parse — the workflow's
  * `#` YAML comments and the shell script's `#` comments alike — so prose
@@ -204,7 +186,7 @@ test('every nightly sweep command runs in its own named step (rf2-wh5to)', () =>
     [],
     'each nightly gate must be the whole body of its OWN named step, so a red night '
       + 'names the failing gate and reports EVERY broken gate instead of aborting the '
-      + `chain at the first one (rf2-wh5to). Offending step(s): ${offenders.join('; ')}`,
+      + `chain at the first one. Offending step(s): ${offenders.join('; ')}`,
   );
 });
 
@@ -219,10 +201,9 @@ test('local rigorous script runs every expensive-tests.yml sweep command (lockst
 });
 
 // Commands pinned DIRECTLY: the local script must run them whether or not the
-// lockstep parse above can require them. Each cost a real hole before it was
-// pinned.
+// lockstep parse above can require them. Each closes a real hole.
 //
-// `kind` is the pin's BASIS, and rf2-0l1nv makes it a CHECKED claim rather than
+// `kind` is the pin's BASIS, and it is a CHECKED claim rather than
 // prose, because a pin's reason is a statement about where a command is
 // scheduled and workflows move:
 //
@@ -234,26 +215,24 @@ test('local rigorous script runs every expensive-tests.yml sweep command (lockst
 //                      the workflow keeps it there. The pin makes the local
 //                      script's coverage independent of that.
 //
-// The rot this catches is not hypothetical: `test:examples-compile` was pinned
-// on 2026-06-16 as "never in the nightly sweep" (true then), and a606d05763
-// added it to the gates job on 2026-07-15 as an unconditional coverage net. The
-// reason went false that day, nothing said so, and PR #7227 restated it verbatim
-// six weeks later. Assertion (3) would have gone red on 07-15.
+// The rot this catches: a pin whose reason reads "never in the nightly sweep"
+// goes false the day the workflow adds the command to the gates job, and
+// nothing else says so. Assertion (3) goes red that day.
 const DIRECT_PINS = {
   'test:examples-compile': {
     kind: 'belt-and-braces',
     why:
       'the example-build compile gate. test.yml queues it only when the surface '
-      + 'classifier says so — a core-only PR skips it (rf2-gzavkm) — which is why '
-      + 'a606d05763 also made it an unconditional step of the nightly sweep. This '
-      + 'pin keeps the local mirror running it even if that step moves again '
-      + '(rf2-lm5mu9)',
+      + 'classifier says so — a core-only PR skips it — which is why it is also '
+      + 'an unconditional step of the nightly sweep. This '
+      + 'pin keeps the local mirror running it even if that step '
+      + 'moves',
   },
   'test:story-play-scripts': {
     kind: 'belt-and-braces',
     why:
-      'the Story play-script browser gate, a sweep command the local mirror had '
-      + 'silently dropped (rf2-lm5mu9)',
+      'the Story play-script browser gate, a sweep command the local mirror must '
+      + 'not silently drop',
   },
 };
 
@@ -301,8 +280,8 @@ test('every DIRECT_PINS basis still matches the workflow (rf2-0l1nv)', () => {
     stale,
     [],
     'a DIRECT_PINS entry states WHERE its command is scheduled, and workflows move: '
-      + '`test:examples-compile` was pinned as "never in the nightly sweep" on '
-      + '2026-06-16 and a606d05763 put it there on 2026-07-15, with nothing to say so. '
+      + 'a basis that goes false does so '
+      + 'with nothing else to say so. '
       + `Stale basis: ${stale.join('; ')}`,
   );
 });
