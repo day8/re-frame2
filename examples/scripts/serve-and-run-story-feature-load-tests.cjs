@@ -29,7 +29,7 @@ const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
 });
 // Resolve shadow-cljs's JS entry-point so compileAll() spawns it
 // shell-free under process.execPath — never npx/npx.cmd/cmd.exe (the
-// Windows command-hijack accident class). rf2-y9o5e3; matches
+// Windows command-hijack accident class); matches
 // story-build.cjs / dev-testbed.cjs.
 let SHADOW_CLJS_RUNNER;
 try {
@@ -60,10 +60,10 @@ const TESTBEDS = [
   },
 ];
 
-// Clean-stage boundary (rf2-bf4vdy): remove + recreate each testbed's output
+// Clean-stage boundary: remove + recreate each testbed's output
 // dir BEFORE shadow-cljs compiles into it, so every served file is produced
 // from the current source this run — no stale file from a previous run can
-// satisfy a browser request the current testbed no longer produces. Cleans
+// satisfy a browser request the current testbed does not produce. Cleans
 // only these two dirs (not the shared OUT_ROOT); the helper path-guards every
 // target to live strictly under OUT_ROOT.
 function cleanTestbedOutDirs() {
@@ -73,9 +73,9 @@ function cleanTestbedOutDirs() {
 function compileAll() {
   const builds = TESTBEDS.map((t) => t.build);
   // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
-  // shell-free (rf2-y9o5e3). Capture output and surface it only on
-  // failure (or under RF2_VERBOSE_TESTS) — the quiet-on-success posture
-  // this gate already kept.
+  // shell-free. Capture output and surface it only on
+  // failure (or under RF2_VERBOSE_TESTS) — this gate's quiet-on-success
+  // posture.
   const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
@@ -112,9 +112,9 @@ async function main() {
   // Serve implementation/out/examples on loopback. The shared harness owns
   // the http-server spawn, teardown tracking, early-exit abort, bounded
   // output capture (surfaced as the failure tail), and the readiness +
-  // unreachable diagnostics (rf2-slapfs). Bind 127.0.0.1 (not http-server's
+  // unreachable diagnostics. Bind 127.0.0.1 (not http-server's
   // 0.0.0.0 default): the runner and resolveStoryFeatureLoadPort only ever
-  // touch loopback. Matches the adapter-smoke orchestrator. rf2-wf5al(2).
+  // touch loopback. Matches the adapter-smoke orchestrator.
   const { ready } = await startLocalHttpServer({
     cleanup,
     httpServerBin: HTTP_SERVER_BIN,
