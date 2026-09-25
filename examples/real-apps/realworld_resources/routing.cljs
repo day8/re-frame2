@@ -213,11 +213,11 @@
 ;; The profile SHELL. `:realworld.profile/show` (the authored-articles tab, the
 ;; canonical `/profile/:username` page) owns the shared profile-banner read
 ;; ONCE, and the favorites tab below declares `:parent :realworld.profile/show`
-;; to inherit it — EP-0037 R2's effective parent-to-leaf resource plan. Before
-;; R2 both tabs restated the byte-identical banner entry; now the banner has one
-;; clear declaration and the two tabs cannot drift its `:blocking?`. The authored
-;; list is this tab's OWN content, so it is gated with `:when` to the show leaf —
-;; a navigation to the favorites child inherits the banner but not this list.
+;; to inherit it — EP-0037 R2's effective parent-to-leaf resource plan. So the
+;; banner has one clear declaration and the two tabs cannot drift its
+;; `:blocking?`. The authored list is this tab's OWN content, so it is gated
+;; with `:when` to the show leaf — a navigation to the favorites child
+;; inherits the banner but not this list.
 (rf/reg-route :realworld.profile/show
   {:doc    "A user's profile banner plus the articles they authored — the default
             profile tab, and the layout PARENT that owns the shared banner read
@@ -273,10 +273,9 @@
 ;; while logged out through EVERY door — programmatic nav, an anchor click, a
 ;; URL-bar deep link, a reload, Back/Forward — with no per-door plumbing.
 ;;
-;; This app used to spell the same gate as a frame-wide interceptor over the
-;; navigation events, and the retirement is worth recording rather than quietly
-;; erasing (rf2-k85nd). An interceptor has to normalise every door ITSELF:
-;; `:rf.route/navigate` in three request forms (a route id, the `{:url …}` escape
+;; The tempting alternative spells the same gate as a frame-wide interceptor over
+;; the navigation events, and it is worth knowing why that fails. An interceptor
+;; has to normalise every door ITSELF: `:rf.route/navigate` in three request forms (a route id, the `{:url …}` escape
 ;; hatch, an in-place query/#fragment edit that names no route at all),
 ;; `:rf.route/url-requested`, and `:rf.route/handle-url-change` — some forty lines
 ;; of `match-url` and current-slice resolution whose only job is completeness, and
@@ -315,8 +314,8 @@
 ;; `:destination` arrives already resolved — a `:rf/route-destination` carrying
 ;; path params, query and #fragment, and a valid `:rf.route/navigate` request in
 ;; its own right — so the stash is the EXACT address the reader wanted and needs no
-;; `match-url` re-derivation. That is the whole forty lines the retired
-;; interceptor's `resolve-nav-target` existed to reproduce.
+;; `match-url` re-derivation. That is the whole forty lines an interceptor
+;; spelling would need to reproduce.
 ;;
 ;; THE ONE BRANCH. A refusal has two meanings, and only the handler can tell them
 ;; apart:
