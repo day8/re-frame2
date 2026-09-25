@@ -290,8 +290,9 @@ test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', ()
 // prose and assert on its text, so no spec page is an inert stand-in for "some
 // spec document" on that lane. What holds for spec prose is the CLJS tier —
 // Markdown compiles into nothing, so `cljs_node_test` stays false for spec
-// prose, with `spec/Spec-Schemas.md` the single measured exception (a JVM macro
-// extracts it into the `:node-test` build; it has its own case below).
+// prose — except the API-manifest surfaces, which route to the CLJS manifest
+// probe (their own cases below). `spec/Spec-Schemas.md` is NOT an exception;
+// it has its own case below.
 test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2-61ar)', () => {
   const result = classify('spec/006-ReactiveSubstrate.md');
   assert.equal(
@@ -6124,7 +6125,7 @@ test('all-required-passed aggregator needs beads-pr-boundary (rf2-3mh2f)', () =>
 test('check-beads-pr-boundary.sh is committed executable (rf2-3mh2f)', () => {
   // Same failure mode as install-clojure-cli.sh above: Windows git hides the
   // mode, the ubuntu runner invokes it and exits 126. It is invoked via
-  // `sh <path>` today, but the mode is the contract — keep it asserted.
+  // `sh <path>`, but the mode is the contract — keep it asserted.
   const mode = execFileSync(
     'git',
     ['ls-files', '-s', '--', 'scripts/check-beads-pr-boundary.sh'],
@@ -6137,14 +6138,12 @@ test('check-beads-pr-boundary.sh is committed executable (rf2-3mh2f)', () => {
   );
 });
 
-// ─── rf2-61ar — PROSE THAT A test.yml SUITE PINS ────────────────────────────
+// ─── PROSE THAT A test.yml SUITE PINS ────────────────────────────
 //
-// The hole: a docs/spec-only diff classified to NOTHING while a growing family
-// of suites inside test.yml jobs `slurp` repo prose and assert on its text. PR
-// #8068 (the machines-guide rewrite, 13 files, docs-only) skipped jvm-machines
-// — the lane pinning the pages it rewrote — and left five assertions across
-// four deftests red on `main` until an unrelated PR happened to arm
-// implementation_jvm.
+// A family of suites inside test.yml jobs `slurp` repo prose and assert on its
+// text. A docs/spec-only diff that classified to NOTHING would skip the lane
+// pinning the pages it rewrote and leave that lane's assertions red on `main`
+// until an unrelated PR happened to arm implementation_jvm.
 //
 // The cases below are the two directions the arm has to hold in, and they are
 // deliberately written as one-way claims rather than as a frozen census: a
@@ -6172,7 +6171,7 @@ const PROSE_PINS_ARMING_JVM = [
   ['spec/Security.md', 'spec_elision_registry_tense_conformance_test.clj', 'jvm-core'],
   ['spec/Spec-Schemas.md', 'six suites in five artefacts', 'jvm-core/-epoch/-machines/-ui'],
   ['spec/Tool-Pair.md', 'spec_elision_registry_tense_conformance_test.clj', 'jvm-core'],
-  // rf2-8btol / rf2-g9at9 — the roster reaches `skills/` for the first time,
+  // The roster reaches `skills/`,
   // and these two rows are the STRONGEST form of what it describes: the suites
   // do not merely assert on the page's text, they slurp it, extract the forms
   // out of its fences and `eval` them. The recipe IS the suite's input. Both
@@ -6181,7 +6180,7 @@ const PROSE_PINS_ARMING_JVM = [
   ['skills/re-frame2-improver/references/schemaless-events.md', 'improver_article_schema_test.clj', 'jvm-schemas'],
 ];
 
-// rf2-e30e — the same roster guard, reaching a roster whose rows are TRIPLES.
+// The same roster guard, reaching a roster whose rows are TRIPLES.
 // Only column 0 is a path; columns 1 and 2 are a suite filename and a job name,
 // and neither is resolvable against the repo root (`six suites in five
 // artefacts` and `jvm-core/-epoch/-machines/-ui` are prose). Projecting the
@@ -6203,8 +6202,8 @@ test('every measured prose pin arms the JVM tier that runs its suite (rf2-61ar)'
 });
 
 test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () => {
-  // The other direction, and the whole reason this bead did not simply arm the
-  // JVM tier on `docs/**`. A lane that fires on everything costs what a lane
+  // The other direction, and the whole reason the JVM tier is not simply armed
+  // on `docs/**`. A lane that fires on everything costs what a lane
   // that never fires costs, one tier over.
   for (const file of [
     'docs/index.md',
@@ -6212,16 +6211,15 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
     'docs/fresco/concepts.md',
     'docs/core/intro.md',
     'docs/api/re-frame.core.md', // 23 of the 25 docs/api pages carry no JVM pin
-    // The same narrowing one tree over (rf2-8arzr.6): `concepts.md` carries
+    // The same narrowing one tree over: `concepts.md` carries
     // the Node recipe whose build-id literals ssr_doc_example_node_build_id_
     // test.clj holds together, and the other nine pages in docs/ssr/ carry no
     // JVM pin at all. The arm is the PAGE, not the tree — this is the verdict
     // that says so.
     'docs/ssr/testing.md',
     // A docs/design/** exemplar, which is what the count beside it measures --
-    // so this one does NOT follow the guide to docs/core/fresco/. The chapter
-    // it used to name left the tree under rf2-0yp7w; REWRITE-NOTES.md is the
-    // file that stayed, and it is unpinned like the rest (rf2-2ein1).
+    // so this one does NOT follow the guide to docs/core/fresco/.
+    // REWRITE-NOTES.md is unpinned like the rest.
     'docs/design/fresco/draft-guide/REWRITE-NOTES.md', // 144 docs/design md files, one pinned
     'migration/from-re-frame-v1/README.md',
     'README.md',
@@ -6234,11 +6232,8 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
 });
 
 test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', () => {
-  // Markdown cannot change what React puts on a page — the line rf2-drpa3.70
-  // drew for `implementation/freehand/*.md`, held here for every prose arm.
-  // `spec/Spec-Schemas.md` is the ONE exception and only for cljs_node_test: a
-  // JVM macro extracts its schema forms into the `:node-test` build at
-  // COMPILE time, so its own case below states that separately.
+  // Markdown cannot change what React puts on a page — held here for every
+  // prose arm, `spec/Spec-Schemas.md` included (its own case below).
   const forbidden = ['cljs_browser', 'cljs_prod', 'bundle_isolation',
     'adapter_testbed_smokes', 'story_xray_browser', 'fresco_controlled', 'playground'];
   for (const [file] of PROSE_PINS_ARMING_JVM) {
@@ -6251,14 +6246,8 @@ test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', (
 });
 
 test('spec/Spec-Schemas.md arms the JVM suites and NO CLJS output (rf2-61ar / rf2-63t1i)', () => {
-  // It armed `cljs_node_test` until 2026-08-21, on ONE compile-time edge:
-  // implementation/core/test/re_frame/observation_schema_extract.clj was a JVM
-  // MACRO namespace parsing the ObservationOnChangeFailedTags def form out of
-  // this Markdown, and observation_port_cljs_test.cljc pulled it in through
-  // `:require-macros`. Both namespaces and the schema went with the internal
-  // observation port (rf2-63t1i), so nothing reads this file at
-  // macro-expansion time now — every remaining reader is a JVM suite that
-  // slurps it at run time.
+  // Nothing reads this file at macro-expansion time — every reader is a JVM
+  // suite that slurps it at run time — so it arms no CLJS output.
   const result = classify('spec/Spec-Schemas.md');
   assert.equal(result.implementation_jvm, 'true');
   assert.equal(result.cljs_node_test, 'false', 'no macro-expansion edge reads this file');
@@ -6267,19 +6256,11 @@ test('spec/Spec-Schemas.md arms the JVM suites and NO CLJS output (rf2-61ar / rf
 
 test('the docs/machines arm covers the whole TREE (rf2-61ar)', () => {
   // Wider than the two pages named in the roster above, and a judgement rather
-  // than a mechanism — the incident's own shape: the red came from a 13-file
-  // tree-wide rewrite, concepts.md and parallel-states.md are the terminology
-  // spine every other page restates, and unlike docs/api this tree has no
-  // other gate at all (docs.yml stages it into the site and executes not one
-  // line of the suites that read it).
-  //
-  // It was TWO trees until rf2-7v5vx. `docs/core/freehand/*.md` was the other,
-  // and it was the mechanical case rather than a judgement: the pin WAS the
-  // tree, because samples_coverage_jvm_test.clj `file-seq`d the directory and
-  // digest-pinned every fenced block on every page. rf2-0yp7w deleted the
-  // guide and that roster together, so the arm and these two rows went with
-  // them — see the `docs/core` entry in DECLARED_NO_SURFACE_OUTPUT below for
-  // where that tree's coverage lives now.
+  // than a mechanism: a docs/machines change is typically a tree-wide rewrite,
+  // concepts.md and parallel-states.md are the terminology spine every other
+  // page restates, and unlike docs/api this tree has no other gate at all
+  // (docs.yml stages it into the site and executes not one line of the suites
+  // that read it).
   for (const file of [
     'docs/machines/glossary.md',
     'docs/machines/history.md',
@@ -6297,16 +6278,16 @@ test('the spec/* catch-all does not shadow the narrower spec arms (rf2-61ar)', (
   // would swallow every narrower spec/ case if it were ever moved above them.
   // These are the verdicts that prove it has not been.
   assert.equal(classify('spec/API.md').implementation_jvm, 'false',
-    'spec/API.md keeps its cljs_node_test-only classification (rf2-4ka7c2.1)');
+    'spec/API.md keeps its cljs_node_test-only classification');
   assert.equal(classify('spec/API.md').cljs_node_test, 'true');
   assert.equal(classify('spec/api-manifest.edn').cljs_node_test, 'true');
   assert.equal(classify('spec/conformance/fixtures/dispatch.edn').cljs_browser, 'true',
-    'the shared conformance corpus keeps all four outputs (rf2-qmiiz)');
+    'the shared conformance corpus keeps all four outputs');
 });
 
 test('the prose arms reach lanes that are still gated on implementation_jvm (rf2-61ar)', () => {
   // Arming an output binds nothing unless the jobs it arms are still gated on
-  // it — the same third leg rf2-49upn's index case asserts. These are the
+  // it — the same third leg the node-lane pin above asserts. These are the
   // jobs the roster's suites actually run in.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   for (const job of ['jvm-machines', 'jvm-core']) {
@@ -6318,11 +6299,11 @@ test('the prose arms reach lanes that are still gated on implementation_jvm (rf2
   }
 });
 
-// ─── rf2-8btol / rf2-g9at9 — SKILL RECIPES A JVM SUITE EXTRACTS AND RUNS ────
+// ─── SKILL RECIPES A JVM SUITE EXTRACTS AND RUNS ────
 //
-// The rf2-61ar hole, one tree over. Two JVM suites landed within a day of each
-// other that do not merely read a page and assert on its text — each slurps a
-// skill document, pulls the forms out of its fences and `eval`s them:
+// The prose-pin hole, one tree over. Two JVM suites do not merely read a page
+// and assert on its text — each slurps a skill document, pulls the forms out
+// of its fences and `eval`s them:
 //
 //   implementation/ssr/test/re_frame/ssr_skill_form_action_test.clj
 //     -> skills/re-frame2/patterns/form-action.md, driven through the real
@@ -6332,14 +6313,13 @@ test('the prose arms reach lanes that are still gated on implementation_jvm (rf2
 //        canonical HTTP block through the real router and Malli.
 //                                          runs in jvm-schemas
 //
-// Both jobs gate on `implementation_jvm`. Both PRs scheduled their own suite
-// because the diff ADDED a test file, which arms that output — so the gap was
-// invisible on the PR that opened it and would have surfaced on the first
-// edit confined to a recipe. Measured before the arms, with paths (never
-// revisions — the classifier hands back every surface false at exit 0 when it
-// is given revisions, which is what an unaffected change looks like):
-// form-action.md armed 0 of 29 outputs, schemaless-events.md armed
-// `skills_structural` alone.
+// Both jobs gate on `implementation_jvm`. A PR that ADDS such a test file arms
+// that output through the test file itself, so the gap is invisible on the PR
+// that opens it and surfaces on the first edit confined to a recipe. Without
+// the arms, form-action.md arms none of the outputs and schemaless-events.md
+// `skills_structural` alone (measured with paths, never revisions — the
+// classifier hands back every surface false at exit 0 when it is given
+// revisions, which is what an unaffected change looks like).
 //
 // THE SCOPE LIMIT IS THE POINT. `implementation_jvm` is the 22-job JVM tier
 // and there is nothing narrower to reach these two lanes with, so the
@@ -6351,7 +6331,7 @@ test('the extracted FormAction recipe arms the SSR JVM lane (rf2-8btol)', () => 
   const recipe = 'skills/re-frame2/patterns/form-action.md';
   assert.ok(
     fs.existsSync(path.join(REPO_ROOT, recipe)),
-    `${recipe} must exist — a pin on a phantom path cannot fail (rf2-e30e)`,
+    `${recipe} must exist — a pin on a phantom path cannot fail`,
   );
   const armed = classify(recipe);
   assert.equal(armed.implementation_jvm, 'true', recipe);
@@ -6376,7 +6356,7 @@ test('the extracted FormAction recipe arms the SSR JVM lane (rf2-8btol)', () => 
   assert.equal(classify(sibling).implementation_jvm, 'false', sibling);
 
   // NEGATIVE CONTROL 2 — the OTHER `skills/re-frame2/` leaf with a JVM
-  // reader, armed by rf2-jbwraa and sitting directly above the new arm. Its
+  // reader, whose arm sits directly above this one. Its
   // two `true`s are pinned beside the `false` so the `false` is non-vacuous:
   // a new arm placed so that it shadows this one, or a widening that swallows
   // it, moves one of the three. The two leaves route to DIFFERENT lanes and
@@ -6396,13 +6376,13 @@ test('the extracted improver reference arms the schemas JVM lane (rf2-g9at9)', (
   const reference = 'skills/re-frame2-improver/references/schemaless-events.md';
   assert.ok(
     fs.existsSync(path.join(REPO_ROOT, reference)),
-    `${reference} must exist — a pin on a phantom path cannot fail (rf2-e30e)`,
+    `${reference} must exist — a pin on a phantom path cannot fail`,
   );
   const armed = classify(reference);
   assert.equal(armed.implementation_jvm, 'true', reference);
   // THE NESTING, ASSERTED. The arm is a nested `case` inside
-  // `skills/re-frame2-improver/*`, so the enclosing arm still runs and
-  // `skills_structural` survives. A top-level arm for this path placed ahead
+  // `skills/re-frame2-improver/*`, so the enclosing arm runs too and
+  // `skills_structural` stays. A top-level arm for this path placed ahead
   // of the improver arm would shadow it — a POSIX `case` takes the FIRST
   // match — and would take `skills_structural` away, turning a coverage fix
   // into a coverage loss. This pair is the verdict that catches that.
