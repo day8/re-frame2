@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The warm-allocation NON-CLAIM scan (rf2-hic-072).
+"""The warm-allocation NON-CLAIM scan.
 
 `specification.md` §6 registers one sentence about warm allocation and this
 gate is that sentence, executable:
@@ -10,24 +10,22 @@ gate is that sentence, executable:
 No fitted series clears it. That is not a gap awaiting a number — it is a
 measured result with three independent legs, recorded in the tree:
 
-  * `rf2-2rtt6.140` measured a FIXED per-write cost of F ~= 24.4 KB on this
-    rig (24,108 B on `reagent-subs`, 24,730 B on `uix-subs`) which does not
-    shrink as the page shrinks. Against the masking bound's 42,857 B per
-    write at the six-write averaging floor, F alone is 57% of the budget
-    before a single boundary is measured. At six writes there is no page of
-    one boundary or more that certifies the 1/3/7/20 ladder.
-  * `rf2-2rtt6.139` retired the sizing constant `ALLOC_B_PER_BOUNDARY_WRITE
-    = 1655`: it was read off a window the instrument itself REFUSED, so it
-    is a lower bound taken from an invalid measurement.
-  * `rf2-e9wr` found tau cannot be pinned, because the controls are not a
-    valid calibration population for the arms — the controls' work unit has
-    no first-write re-allocation and the arms' has one, in 336 of 336
-    measured windows.
+  * A FIXED per-write cost of F ~= 24.4 KB on this rig (24,108 B on
+    `reagent-subs`, 24,730 B on `uix-subs`) does not shrink as the page
+    shrinks. Against the masking bound's 42,857 B per write at the
+    six-write averaging floor, F alone is 57% of the budget before a single
+    boundary is measured. At six writes there is no page of one boundary or
+    more that certifies the 1/3/7/20 ladder.
+  * There is no sizing constant `ALLOC_B_PER_BOUNDARY_WRITE = 1655`: that
+    figure was read off a window the instrument itself REFUSED, so it is a
+    lower bound taken from an invalid measurement.
+  * tau cannot be pinned, because the controls are not a valid calibration
+    population for the arms — the controls' work unit has no first-write
+    re-allocation and the arms' has one, in 336 of 336 measured windows.
 
 So the obligation this gate enforces is NEGATIVE, and the failure mode it
-exists to catch is somebody reaching for one of those refused figures to
-fill a cell that wants a number. That is the exact shape `rf2-2rtt6.139`
-was filed to name.
+exists to catch is somebody reaching for one of those refused figures, the
+1655 above among them, to fill a cell that wants a number.
 
 
 ## What counts as a claim
@@ -71,12 +69,11 @@ empty, which is a stronger state and not the one being enforced.
 
 ## The claim unit, which is NOT the blank-line block
 
-Qualification attaches to the row that carries the figure, and the first
-cut of this gate got that wrong (rf2-b9707). It scoped qualification to
-the blank-line block — and in Markdown a whole table and a whole tight
-list are ONE such block, so an unqualified figure in one row went green
-because a DIFFERENT row happened to say `quality floor unmet`. That is a
-fail-open, and it fails open exactly where the figures are: a table is how
+Qualification attaches to the row that carries the figure. Scoping it to
+the blank-line block would fail open — in Markdown a whole table and a
+whole tight list are ONE such block, so an unqualified figure in one row
+would go green because a DIFFERENT row happened to say `quality floor
+unmet`. It would fail open exactly where the figures are: a table is how
 a publication surface presents numbers.
 
 So a block is subdivided into claim units, minimally, by three line
@@ -292,7 +289,7 @@ def scan(root: Path) -> tuple[list[str], list[str]]:
                 "    No fitted series clears the registered quality floor, so no allocation\n"
                 "    claim is publishable (specification.md section 6). State the refusal in\n"
                 "    the same paragraph, or take the figure out. Do NOT reach for a number\n"
-                "    from a window the instrument refused -- that is rf2-2rtt6.139's finding."
+                "    from a window the instrument refused -- such a figure is only a lower bound."
             )
 
     notes.append(
@@ -307,8 +304,8 @@ def scan(root: Path) -> tuple[list[str], list[str]]:
 #
 # One fixture per way this gate can fail: OPEN on a claim it should catch, or
 # CLOSED on prose it should pass.  The count is deliberately not written down
-# (rf2-93u6) — it already drifted once, and the cases name themselves as they
-# run, which is the copy that cannot.  Each is written into a
+# — a written count drifts, and the cases name themselves as they run, which
+# is the copy that cannot.  Each is written into a
 # throwaway tree with its own git repository, because the corpus is derived
 # from `git ls-files` and a fixture that skipped that would not exercise the
 # code path the real run takes.
@@ -322,12 +319,9 @@ def _make_tree(tmp: Path, *, budgets: str, baseline: str, design: str, publicati
     root = tmp / "tree"
     (root / "docs" / "design" / "fresco" / "product" / "lanes").mkdir(parents=True)
     (root / "docs" / "core").mkdir(parents=True)
-    # The two premise files are written at the addresses `PREMISES` names, so a
-    # re-point there without a re-point here reds every fixture with PREMISE
-    # GONE — which is what rf2-ps7ia's move of `budgets.md` out of
-    # `docs/design/fresco/product/` did (and rf2-6c12m.8's move back into it
-    # on 2026-08-30 would have done), and the shape this comment exists to
-    # make obvious the next time.
+    # The two premise files are written at the addresses `PREMISES` names
+    # rather than at hardcoded paths: a hardcoded copy here would go stale
+    # when a premise file moves, and red every fixture with PREMISE GONE.
     for rel, _, _ in PREMISES:
         path = root.joinpath(*rel.split("/"))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -360,7 +354,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 2. THE SEEDED VIOLATION the bead asks to be demonstrated red.
+    # 2. THE SEEDED VIOLATION, which must be red.
     cases.append(
         (
             "an unqualified figure on the publication surface is RED",
@@ -393,11 +387,11 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 3a. THE CROSS-SIBLING FAIL-OPEN (rf2-b9707). A whole Markdown table is
-    #     one blank-line block, so scoping qualification to the block let a
+    # 3a. THE CROSS-SIBLING FAIL-OPEN. A whole Markdown table is one
+    #     blank-line block, so scoping qualification to the block would let a
     #     DIFFERENT row's honest `quality floor unmet` certify this figure.
     #     Both halves of the rule are fixtured, in both shapes, because a
-    #     repair that simply stopped honouring qualification would pass the
+    #     change that simply stopped honouring qualification would pass the
     #     red pair and quietly delete case 3.
     cases.append(
         (
@@ -453,7 +447,7 @@ def _run_self_tests() -> int:
     )
 
     # 3d. ...and a list item's qualification may be on its WRAPPED line, which
-    #     is the case that stops the repair from becoming a per-line scan.
+    #     is the case that stops the claim unit from becoming a per-line scan.
     cases.append(
         (
             "a list item qualified on its own WRAPPED line is GREEN",
@@ -546,7 +540,7 @@ def main(argv: list[str]) -> int:
     print(
         "\nOK: no warm-allocation claim publishes while the quality floor is unmet.\n"
         "This is a verdict about the RECORD. It is not a statement that any allocation\n"
-        "figure is known -- none is, and rf2-2rtt6.139, rf2-2rtt6.140 and rf2-e9wr are why."
+        "figure is known -- none is, and this script's docstring gives the three reasons."
     )
     return 0
 
