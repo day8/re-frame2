@@ -113,7 +113,7 @@
         ;; `--rf-xray-font-size` so the whole `theme/tokens/type-scale`
         ;; rescales in lockstep (every entry is
         ;; `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`).
-        ;; Mapping: compact 12 / cosy 13 / comfy 14 — see
+        ;; Mapping: compact 12 / cosy 13, anything else 13 — see
         ;; `effects/density->font-size-px`. The persisted value the
         ;; settings atom carries also drives the `:rf.xray/density`
         ;; sub (Views row padding + App-db diff-row line-height); the

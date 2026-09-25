@@ -206,28 +206,25 @@
 
 (def density->font-size-px
   "Pure-data map from density keyword → font-size pixel value to write
-  into `--rf-xray-font-size`. The palette's density toggle flips only
-  `:compact` and `:cosy`; `:comfy` is catalogued so surfacing the
-  third tier needs no code change here.
+  into `--rf-xray-font-size`. It carries exactly the two density tiers
+  the `:rf.xray/density` sub recognises, so the effect and the sub
+  agree on every value.
 
   - `:compact` → 12px (one step tighter than the baseline)
   - `:cosy`    → 13px (the baseline; matches
                  `tokens/font-size-default`)
-  - `:comfy`   → 14px (one step looser; spec/007 §Typography catalogues
-                 it as the third tier on the ±1px density knob)
 
   JVM-portable pure data so the JVM test surface can assert the
   mapping without touching the browser."
   {:compact 12
-   :cosy    13
-   :comfy   14})
+   :cosy    13})
 
 (defn density->px
   "Resolve a density keyword to its px value via `density->font-size-px`.
   Falls back to the cosy default (13px) when the keyword is unknown,
   mirroring the `:rf.xray/density` sub's coercion of unknown values to
-  `:cosy`. A persisted `:comfy` is NOT unknown here: it resolves to
-  14px, while that sub reads it as `:cosy`."
+  `:cosy` — so a persisted `:comfy` renders at 13px, the size the sub's
+  `:cosy` reading promises."
   [density]
   (or (get density->font-size-px density)
       (get density->font-size-px :cosy)))
