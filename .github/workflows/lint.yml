@@ -138,7 +138,6 @@ on:
       # the spec/ entries the classifier already lights; the push filter
       # names it explicitly for the same reason API.md is named above.)
       - 'spec/Privacy.md'
-      - 'docs/core/api/**'
       - 'docs/story/api/**'
       # API reference: one doc per namespace under docs/api/; doc-api-check
       # scans them, so a PR touching one must run the api-manifest job.
