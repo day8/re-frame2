@@ -629,20 +629,18 @@ fi
 
 # ---------------------------------------------------------------------------
 # ONE LIVE RUN PER TREE — a run that outlives its invocation is REAPED, not
-# inherited (rf2-ketqy).
+# inherited.
 #
-# THE OBSERVED DEFECT, twice in one day.  A worker starts this spine in the
-# foreground, the agent harness hits its cap, and the tool call returns — but
-# the run does not stop.  Told the gate "timed out", the worker relaunches it
-# in the same tree, and two live spines then share that tree.  Two kinds of
-# damage follow, both seen on real runs:
+# THE DEFECT.  A worker starts this spine in the foreground, the agent harness
+# hits its cap, and the tool call returns — but the run does not stop.  Told
+# the gate "timed out", the worker relaunches it in the same tree, and two live
+# spines then share that tree.  Two kinds of damage follow:
 #
-#   1. TWO WRITERS, ONE FILE.  When both runs were observed, AGENTS.md had
-#      every worker redirect this script to a path fixed per tree, so the two
-#      interleaved into it and produced NUL-riddled output in which no line
-#      could be trusted.  AGENTS.md now names gate artefacts for the ATTEMPT as
-#      well as the worktree (`gate-fastpr-<worktree>-1.log`, bumped on each
-#      re-run), which sends the survivor's writes to a file nobody quotes.
+#   1. TWO WRITERS, ONE FILE.  Two runs redirected to one path interleave into
+#      it and produce NUL-riddled output in which no line can be trusted.
+#      AGENTS.md names gate artefacts for the ATTEMPT as well as the worktree
+#      (`gate-fastpr-<worktree>-1.log`, bumped on each re-run), which sends
+#      the survivor's writes to a file nobody quotes.
 #      That NARROWS this damage; it does not remove the need for the reap.  The
 #      rule binds a worker who remembers to bump, the survivor keeps burning a
 #      tree's CPU either way, and damage 2 below is untouched by any naming.
@@ -656,27 +654,25 @@ fi
 #
 # WHY THE REAP RUNS HERE, AT THE START OF THE NEXT RUN, AND NOT ONLY FROM A
 # SIGNAL TRAP.  The obvious remedy is to trap INT/TERM and reap on the way out.
-# One is installed below and it earns its place, but MEASURED — not assumed —
-# it cannot be the whole fix:
+# One is installed below and it earns its place, but it cannot be the whole
+# fix:
 #
 #   * The harness cap does not signal anything.  It BACKGROUNDS the call: the
-#     tool returns while the process tree keeps running.  A probe script with
-#     traps on INT/TERM/HUP/QUIT/EXIT recorded no trap firing at all and its
-#     child went on ticking; this spine, capped mid-run, advanced two more
-#     stages and grew its log by 7.4 KB after the tool call had returned.
+#     tool returns while the process tree keeps running, and no trap on
+#     INT/TERM/HUP/QUIT/EXIT fires — a capped spine goes on advancing stages
+#     and growing its log after the tool call has returned.
 #   * The harness's explicit stop path behaves the same way — it reports
 #     success and the tree keeps running.
 #   * Even when a signal IS delivered, bash defers a trapped signal until the
-#     current FOREGROUND child returns.  Measured: SIGTERM at t+3s to a script
-#     sitting in `bash -c 'sleep 25'` ran the handler at t+25s.  Every
-#     expensive step of this spine is exactly such a child, so a trap-only
-#     remedy would reap minutes after the damage window had opened.
+#     current FOREGROUND child returns: SIGTERM at t+3s to a script sitting in
+#     `bash -c 'sleep 25'` runs the handler at t+25s.  Every expensive step of
+#     this spine is exactly such a child, so a trap-only remedy would reap
+#     minutes after the damage window had opened.
 #
 # The one moment a reap can always run is the start of the NEXT run — which is
 # also the moment it matters, because that is the run whose log and bundle are
-# about to be corrupted.  Both workers who hit this recovered only because they
-# thought to hunt for the orphaned tree by hand; that hunt is what the block
-# below automates.
+# about to be corrupted.  Without it, recovery means hunting for the orphaned
+# tree by hand; the block below automates that hunt.
 #
 # NOT A LOCK.  A second run never waits and never refuses — it clears the dead
 # one and proceeds.  Refusing would be worse than the defect it fixes: the cap
@@ -686,17 +682,17 @@ fi
 spine_run_dir="$spine_root/.scratch"
 spine_pidfile="$spine_run_dir/test-fast-pr.run"
 
-# WINDOWS NEEDS A SECOND MECHANISM, and this too was measured rather than
-# assumed.  MSYS `ps` tracks what a shell here spawned, native binaries
-# included — `clojure.exe` and `node.exe` show up with a usable PPID — but
-# NOTHING BENEATH THEM DOES.  Measured on a live `bash -lc "... clojure -M ..."`
-# gate exactly like the ones below: the `java.exe` clojure spawns is absent
-# from `ps -ef` and from `ps`, and `ps -ef` reports the shell as having no
-# children at all.  java is the shadow-cljs compile, i.e. precisely the process
-# that unlinks out/node-test.js, so on Windows the POSIX walk cannot even name
-# the process that has to die.  Windows itself knows the link
-# (Win32_Process.ParentProcessId) and `taskkill /T` walks it: on the same tree
-# it terminated clojure, the java beneath it and java's own child, all three.
+# WINDOWS NEEDS A SECOND MECHANISM.  MSYS `ps` tracks what a shell here
+# spawned, native binaries included — `clojure.exe` and `node.exe` show up
+# with a usable PPID — but NOTHING BENEATH THEM DOES.  On a live
+# `bash -lc "... clojure -M ..."` gate exactly like the ones below, the
+# `java.exe` clojure spawns is absent from `ps -ef` and from `ps`, and `ps -ef`
+# reports the shell as having no children at all.  java is the shadow-cljs
+# compile, i.e. precisely the process that unlinks out/node-test.js, so on
+# Windows the POSIX walk cannot even name the process that has to die.
+# Windows itself knows the link (Win32_Process.ParentProcessId) and
+# `taskkill /T` walks it: on the same tree it terminates clojure, the java
+# beneath it and java's own child, all three.
 #
 # THE ENV VARS ARE LOAD-BEARING, not decoration.  Git Bash rewrites an argument
 # that looks like a POSIX path, so a bare `taskkill /F /T /PID n` arrives as
@@ -779,8 +775,8 @@ spine_kill_descendants() {
 # FIRST, the pid must still BE this gate.  Pids are recycled, and `ps -ef`
 # prints the command with its arguments on all three platforms, so the cheapest
 # sound check is to read it back.  If the listing does not name this script the
-# predecessor is not reaped at all — the run degrades to the old behaviour
-# rather than killing something it cannot identify.
+# predecessor is not reaped at all — the run proceeds without a reap rather
+# than killing something it cannot identify.
 spine_pid_is_this_gate() {
   local line
   line="$({ ps -ef 2>/dev/null || true; } |
@@ -854,8 +850,8 @@ spine_claim_run() {
 # not, and this is what collects that.  The handler clears the traps first, so
 # a second Ctrl-C is not queued behind anything.
 #
-# It deliberately does NOT kill by process group.  Measured here: every child
-# of this script shares the CALLER's process group, so `kill -- -$PGID` would
+# It deliberately does NOT kill by process group.  Every child of this script
+# shares the CALLER's process group, so `kill -- -$PGID` would
 # take the harness or terminal that invoked the gate down with it.
 spine_on_signal() {
   trap - INT TERM HUP QUIT EXIT
