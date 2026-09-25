@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.config-test
   "JVM tests for Xray's config — the editor preference + configure!
-  round-trip (rf2-evgf5)."
+  round-trip."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as config]))
 
@@ -47,14 +47,14 @@
     (config/configure! {:rf.xray/editor :idea})
     (is (= :idea (config/get-editor)))))
 
-;; ---- editor-configured? (rf2-4s08ov — open-in-editor DX hint) ----------
+;; ---- editor-configured? (open-in-editor DX hint) -----------------------
 ;;
 ;; The predicate the open-in-editor event-fx reads to decide whether to
 ;; navigate or surface the 'pick an editor in Settings' hint. True iff
 ;; the host explicitly set an editor OR a valid operator override exists.
 
 (deftest editor-configured-false-for-bare-default
-  (testing "rf2-4s08ov — a host that never set an editor (the bare
+  (testing "a host that never set an editor (the bare
             framework-default :vscode) is NOT configured"
     ;; Clear the explicit flag the fixture's `set-editor!` set, and the
     ;; override slot, to model the bare-preload host.
@@ -63,7 +63,7 @@
     (is (false? (config/editor-configured?)))))
 
 (deftest editor-configured-true-when-host-set
-  (testing "rf2-4s08ov — an explicit set-editor! (even :vscode) counts
+  (testing "an explicit set-editor! (even :vscode) counts
             as configured"
     (reset! config/editor-explicitly-set? false)
     (config/update-setting! :general :editor-override nil)
@@ -74,7 +74,7 @@
     (is (true? (config/editor-configured?)))))
 
 (deftest editor-configured-cleared-by-nil-reset
-  (testing "rf2-4s08ov — set-editor! nil clears the explicit flag so the
+  (testing "set-editor! nil clears the explicit flag so the
             hint re-arms"
     (config/set-editor! :cursor)
     (is (true? (config/editor-configured?)))
@@ -83,7 +83,7 @@
     (is (false? (config/editor-configured?)))))
 
 (deftest editor-configured-true-when-operator-override
-  (testing "rf2-4s08ov — a valid operator override counts as configured
+  (testing "a valid operator override counts as configured
             even with no host set"
     (reset! config/editor-explicitly-set? false)
     (config/update-setting! :general :editor-override :cursor)
@@ -96,7 +96,7 @@
     (config/update-setting! :general :editor-override nil)))
 
 (deftest editor-configured-false-for-malformed-override
-  (testing "rf2-4s08ov — a malformed override (rejected by
+  (testing "a malformed override (rejected by
             valid-editor-override?) does NOT count as configured — it
             degrades to the unconfigured state like get-editor does"
     (reset! config/editor-explicitly-set? false)
@@ -105,7 +105,7 @@
     (config/update-setting! :general :editor-override nil)))
 
 (deftest configure-editor-sets-configured-flag
-  (testing "rf2-4s08ov — configure! {:rf.xray/editor …} flips
+  (testing "configure! {:rf.xray/editor …} flips
             editor-configured? on (it routes through set-editor!)"
     (reset! config/editor-explicitly-set? false)
     (config/update-setting! :general :editor-override nil)
@@ -120,19 +120,19 @@
     (is (= :cursor (config/get-editor)))))
 
 (deftest configure-editor-nil-resets-configured-state
-  (testing "rf2-eilutf — configure! {:rf.xray/editor nil} RESETS the
+  (testing "configure! {:rf.xray/editor nil} RESETS the
             editor-configured state, exactly like set-editor! nil does.
-            Previously configure! gated on `some?` so an explicit nil was
-            silently ignored, leaving editor-configured? stuck true after
-            a host tried to reset via the bulk surface — non-equivalent
-            to the per-key setter. The bulk surface now gates on key
-            PRESENCE: an explicit nil resets, an absent key is untouched."
+            The bulk surface gates on key PRESENCE: an explicit nil
+            resets, an absent key is untouched. A `some?` gate would
+            silently ignore an explicit nil, leaving editor-configured?
+            stuck true after a host tried to reset via the bulk surface
+            — non-equivalent to the per-key setter."
     ;; Configure an editor first so there is state to reset.
     (config/configure! {:rf.xray/editor :cursor})
     (is (= :cursor (config/get-editor)))
     (is (true? (config/editor-configured?))
         "precondition: editor is configured before the nil reset")
-    ;; The bug: this was a no-op before the fix.
+    ;; A `some?` gate would make this a no-op.
     (config/configure! {:rf.xray/editor nil})
     (is (= :vscode (config/get-editor))
         "explicit nil resets the preference to the :vscode default")
@@ -141,7 +141,7 @@
         "explicit nil clears editor-explicitly-set? — the hint re-arms")))
 
 (deftest configure-absent-editor-key-leaves-configured-state
-  (testing "rf2-eilutf — a configure! call WITHOUT the :rf.xray/editor key
+  (testing "a configure! call WITHOUT the :rf.xray/editor key
             leaves both the preference AND the configured flag untouched
             (the key-presence gate must distinguish absent from nil)"
     (config/configure! {:rf.xray/editor :idea})
@@ -183,12 +183,10 @@
     (config/configure! {:rf.xray/editor :cursor})
     (is (false? (config/auto-open-enabled?)))))
 
-;; ---- :rf.xray/static-mode? flag — REMOVED (rf2-8l3uk) ------------------
+;; ---- Static mode ---------------------------------------------------------
 ;;
-;; The Static-mode feature gate was removed per rf2-8l3uk. Static mode is
-;; now unconditionally available; there is no per-host opt-in and no
-;; `:rf.xray/static-mode?` configure key to assert. Tests that asserted
-;; the gate's existence were removed wholesale.
+;; Static mode is unconditionally available; there is no per-host opt-in
+;; and no `:rf.xray/static-mode?` configure key to assert.
 
 (deftest editor-uri-uses-current-preference
   (testing "config/editor-uri reads from the live preference atom"
@@ -210,17 +208,17 @@
     (is (nil? (config/editor-uri {:line 10})))
     (is (nil? (config/editor-uri nil)))))
 
-;; ---- project-root (rf2-5m5n2) -------------------------------------------
+;; ---- project-root --------------------------------------------------------
 ;;
-;; Mirror of Story's rf2-zfy1e test matrix. Source-coords stamped at
+;; Mirror of Story's project-root test matrix. Source-coords stamped at
 ;; registration time are classpath-relative; editor schemes resolve
 ;; against the filesystem and reject relative paths. The host plumbs an
 ;; on-disk root via `configure! :project-root`; the Xray-side helpers
 ;; prepend it before the URI ships.
 
 (deftest default-project-root-is-nil
-  (testing "Xray's default project-root is nil (preserves v1 behaviour
-            for hosts that haven't plumbed the knob yet)"
+  (testing "Xray's default project-root is nil (a host that does not
+            plumb the knob gets coords' file strings verbatim)"
     (is (nil? (config/get-project-root)))))
 
 (deftest set-project-root-round-trips
@@ -234,7 +232,7 @@
 
 (deftest set-project-root-normalises-blank-string-to-nil
   (testing "blank strings normalise to nil so the helper behaves as if
-            unset (mirrors Story's rf2-zfy1e normalisation)"
+            unset (mirrors Story's normalisation)"
     (config/set-project-root! "")
     (is (nil? (config/get-project-root)))
     (config/set-project-root! "/abs/code")
@@ -271,21 +269,19 @@
                                :column 7})))))
 
 (deftest editor-uri-without-project-root-ships-file-verbatim
-  (testing "config/editor-uri preserves v1 behaviour when project-root
-            is unset — the file string ships verbatim"
+  (testing "with project-root unset, config/editor-uri ships the file
+            string verbatim"
     (is (nil? (config/get-project-root)))
     (is (= "vscode://file/src/app/views.cljs:1:1"
            (config/editor-uri {:file "src/app/views.cljs"
                                :line 1
                                :column 1})))))
 
-;; ---- filter seed + storage key (rf2-ak4ms) ------------------------------
+;; ---- filter seed ---------------------------------------------------------
 ;;
-;; Per spec/018-Event-Spine.md §7 'Empty defaults' + rf2-ak4ms 'first-
-;; session honesty beats first-session quietness': default filter set
-;; is empty; hosts may inject a seed via configure!. Per spec/018 §7
-;; Filter persistence: localStorage key is configurable so multiple
-;; Xray instances (Story testbeds) can isolate their pill state.
+;; Per spec/018-Event-Spine.md §7 'Empty defaults' ('first-session
+;; honesty beats first-session quietness'): default filter set
+;; is empty; hosts may inject a seed via configure!.
 
 (deftest default-filter-seed-is-nil
   (testing "default filter seed is nil per spec/018 §7 — first-session
@@ -310,16 +306,13 @@
   (is (= {:in [{:pattern :seeded}] :out []}
          (config/get-filter-seed))))
 
-;; (The four `filters-storage-key` deftests were REMOVED with the knob —
-;; rf2-y8doi.27. They pinned the default key, the nil-reset, and the
-;; `configure!` round-trip for a localStorage layer that no longer
-;; exists: Xray's IN/OUT pills are transient by policy (rf2-swclw), so
-;; the persistence layer the key named had a writer and no reader.
+;; There is no filters storage key: Xray's IN/OUT pills are transient by
+;; policy, so there is no localStorage layer for one to name.
 ;;
 ;; `configure-without-filters-leaves-seed-untouched` above is the
-;; surviving `contains?`-gating pin for this part of `configure!`.
+;; `contains?`-gating pin for this part of `configure!`.
 
-;; ---- panel-width (rf2-x8h9y resize handle) -----------------------------
+;; ---- panel-width (resize handle) ---------------------------------------
 
 (deftest default-panel-width-px-published
   (testing "config publishes a default panel width — the resize handle's
@@ -379,24 +372,24 @@
     (is (= 480 (config/get-setting :general :panel-width-px)))
     (config/reset-settings!)))
 
-;; ---- L2 event-list column widths (rf2-6ni62) -----------------------------
+;; ---- L2 event-list column widths -----------------------------------------
 ;;
 ;; The L2 event list's `source` / `timestamp` / `duration` columns are
-;; user-resizable via drag handles between cells. Defaults mirror the
-;; pre-resize fixed widths so a fresh install lays out identically; the
+;; user-resizable via drag handles between cells. Defaults are the
+;; columns' design widths, so a fresh install lays out at them; the
 ;; floors keep any column from collapsing below its lowercase header
 ;; label width. The helpers are CLJC-pure / JVM-testable — the drag-
 ;; handle dispatch path clamps to the floor BEFORE the persistence
 ;; write, so the persisted payload is always in-range.
 
 (deftest event-list-col-defaults-mirror-pre-resize-widths
-  (testing "rf2-6ni62 — defaults match the pre-resize fixed widths so a
-            fresh install lays out identically to the pre-feature shell"
+  (testing "defaults are the columns' design widths, so a fresh
+            install lays out at them"
     (is (= {:source 52 :timestamp 76 :duration 60}
            config/event-list-col-default-widths))))
 
 (deftest event-list-col-default-settings-include-widths-map
-  (testing "rf2-6ni62 — the default settings map carries `:general
+  (testing "the default settings map carries `:general
             :event-list-col-widths` so the persistence round-trip + the
             sub's read never see a nil"
     (is (= config/event-list-col-default-widths
@@ -404,7 +397,7 @@
                    [:general :event-list-col-widths])))))
 
 (deftest clamp-event-list-col-width-floors
-  (testing "rf2-6ni62 — clamp-event-list-col-width snaps a sub-floor
+  (testing "clamp-event-list-col-width snaps a sub-floor
             request to that column's floor"
     (is (= 40 (config/clamp-event-list-col-width :source 10)))
     (is (= 40 (config/clamp-event-list-col-width :source 40)))
@@ -415,13 +408,13 @@
     (is (= 48 (config/clamp-event-list-col-width :duration 48)))))
 
 (deftest clamp-event-list-col-width-passes-in-range
-  (testing "rf2-6ni62 — in-range values pass through verbatim"
+  (testing "in-range values pass through verbatim"
     (is (= 100 (config/clamp-event-list-col-width :source 100)))
     (is (= 200 (config/clamp-event-list-col-width :timestamp 200)))
     (is (= 150 (config/clamp-event-list-col-width :duration 150)))))
 
 (deftest clamp-event-list-col-width-unknown-col-returns-nil
-  (testing "rf2-6ni62 — unknown column ids (event-id is flex, never
+  (testing "unknown column ids (event-id is flex, never
             sized; future unsupported keys) yield nil so the caller's
             update path can no-op on them"
     (is (nil? (config/clamp-event-list-col-width :event-id 100)))
@@ -429,7 +422,7 @@
     (is (nil? (config/clamp-event-list-col-width nil 100)))))
 
 (deftest clamp-event-list-col-width-non-numeric-falls-back-to-default
-  (testing "rf2-6ni62 — malformed persisted payload (string, nil, NaN)
+  (testing "malformed persisted payload (string, nil, NaN)
             shouldn't leave the column at an unusable size — fall back
             to the column's default width"
     (is (= 52 (config/clamp-event-list-col-width :source nil)))
@@ -437,19 +430,19 @@
     (is (= 60 (config/clamp-event-list-col-width :duration nil)))))
 
 (deftest resolve-event-list-col-widths-from-nil
-  (testing "rf2-6ni62 — nil persisted payload resolves to the defaults"
+  (testing "nil persisted payload resolves to the defaults"
     (is (= config/event-list-col-default-widths
            (config/resolve-event-list-col-widths nil)))))
 
 (deftest resolve-event-list-col-widths-from-empty
-  (testing "rf2-6ni62 — empty / non-map payload resolves to the defaults"
+  (testing "empty / non-map payload resolves to the defaults"
     (is (= config/event-list-col-default-widths
            (config/resolve-event-list-col-widths {})))
     (is (= config/event-list-col-default-widths
            (config/resolve-event-list-col-widths "not-a-map")))))
 
 (deftest resolve-event-list-col-widths-merges-partial
-  (testing "rf2-6ni62 — a partial persisted payload merges over the
+  (testing "a partial persisted payload merges over the
             defaults; columns the user has not touched read their
             defaults"
     (is (= {:source 120 :timestamp 76 :duration 60}
@@ -458,9 +451,9 @@
            (config/resolve-event-list-col-widths {:timestamp 100})))))
 
 (deftest resolve-event-list-col-widths-clamps-each-column
-  (testing "rf2-6ni62 — a legacy / hand-edited payload with a sub-floor
+  (testing "a stale or hand-edited payload with a sub-floor
             value is clamped on read (defence-in-depth — the write path
-            clamps too, but a payload that pre-dates the clamp would
+            clamps too, but a payload written without the clamp would
             slip through without this read-side clamp)"
     (is (= {:source 40 :timestamp 76 :duration 60}
            (config/resolve-event-list-col-widths {:source 10}))
@@ -473,7 +466,7 @@
         "sub-floor duration snaps to 48")))
 
 (deftest resolve-event-list-col-widths-drops-unknown-keys
-  (testing "rf2-6ni62 — unknown keys in the persisted payload are
+  (testing "unknown keys in the persisted payload are
             silently dropped (forward-compat: a future column id would
             land in the persisted payload but is ignored by older Xrays;
             the resolved map only carries the known shape)"
@@ -484,14 +477,14 @@
       (is (not (contains? resolved :event-id))))))
 
 (deftest resolve-event-list-col-widths-handles-non-numeric-per-column
-  (testing "rf2-6ni62 — a per-column non-numeric value falls back to
+  (testing "a per-column non-numeric value falls back to
             that column's default; surrounding columns are unaffected"
     (is (= {:source 52 :timestamp 76 :duration 60}
            (config/resolve-event-list-col-widths
              {:source "wide" :timestamp nil :duration "tall"})))))
 
 (deftest update-setting-round-trips-event-list-col-widths
-  (testing "rf2-6ni62 — the standard settings round-trip drives the
+  (testing "the standard settings round-trip drives the
             event-list-col-widths slot. After the round-trip get-setting
             reads the new map."
     (config/reset-settings!)
@@ -502,16 +495,16 @@
     (config/reset-settings!)))
 
 (deftest event-list-col-keyboard-steps-published
-  (testing "rf2-6ni62 — fine + coarse keyboard step constants are
+  (testing "fine + coarse keyboard step constants are
             published for the divider's arrow-key handler"
     (is (= 10 config/event-list-col-keyboard-step-px))
     (is (= 3 config/event-list-col-keyboard-coarse-multiplier))))
 
 (deftest editor-uri-project-root-regression-rf2-5m5n2
-  (testing "regression: the relative source-coord case the editor's
-            OS handler used to reject ('Path does not exist') now
-            resolves to an absolute on-disk URI when :project-root is
-            plumbed (mirror of Story's rf2-zfy1e regression)"
+  (testing "regression: a relative source-coord — which the editor's
+            OS handler rejects ('Path does not exist') — resolves to an
+            absolute on-disk URI when :project-root is plumbed (mirror
+            of Story's project-root case)"
     (config/set-project-root!
       "C:/Users/me/code/my-app/tools/xray/testbeds")
     (is (= (str "vscode://file/"
@@ -522,17 +515,17 @@
               :line 115
               :column 3})))))
 
-;; ---- merge-known-sections deep-merge (rf2-8j3gyt) -----------------------
+;; ---- merge-known-sections deep-merge -------------------------------------
 ;;
 ;; `merge-known-sections` is private; JVM tests reach it via `#'`
 ;; var-quote — Clojure Vars are directly invokable, the same idiom the
 ;; CLJS persistence test uses for `#'config/storage-get`.
 
 (deftest merge-known-sections-deep-merges-nested-event-list-col-widths
-  (testing "rf2-8j3gyt — a partial nested override under `:general`
+  (testing "a partial nested override under `:general`
             (`:event-list-col-widths`) must merge PER-KEY, not replace
-            the whole nested sub-map — the prior shallow `merge`
-            dropped the untouched sibling widths on any partial
+            the whole nested sub-map — a shallow `merge` would
+            drop the untouched sibling widths on any partial
             nested `src`"
     (let [merged (#'config/merge-known-sections
                   {:general {:event-list-col-widths {:source 100}}})]
@@ -541,15 +534,14 @@
           "the untouched :timestamp / :duration siblings survive a
            partial nested override"))))
 
-;; ---- the layered merge, through the REAL producer (rf2-y8doi.17) --------
+;; ---- the layered merge, through the REAL producer ------------------------
 ;;
-;; This row used to compose `#'config/merge-known-sections` by hand, twice,
-;; and assert that the second call won. That pinned arithmetic rather than
-;; behaviour: it would have passed unchanged while `configure!` dropped the
-;; persisted layer on the floor, which is exactly the defect rf2-y8doi.17
-;; fixed. It now drives `configure!` — the shipped entry point — and reads
-;; the live settings atom, per rf2-y8doi.10's rule that a fixture comes from
-;; the producer rather than from hand.
+;; These rows drive `configure!` — the shipped entry point — and read the
+;; live settings atom, because a fixture comes from the producer rather
+;; than from hand. Composing `#'config/merge-known-sections` by hand,
+;; twice, and asserting that the second call won would pin arithmetic
+;; rather than behaviour: it would pass unchanged while `configure!`
+;; dropped the persisted layer on the floor.
 ;;
 ;; The JVM can only see TWO of the three layers. `load-settings-from-
 ;; storage!` and its reader are `#?(:cljs …)`-only — `(resolve
@@ -559,10 +551,10 @@
 ;; `settings/persistence_cljs_test.cljs`
 ;; (`preload-order-persisted-wins-over-later-configure`). What IS JVM-
 ;; reachable is the `defaults < configure!` half plus the deep-merge
-;; semantics, and those are what this row owns.
+;; semantics, and those are what these rows own.
 
 (deftest configure-settings-layers-the-seed-over-defaults
-  (testing "rf2-y8doi.17 — `configure! {:rf.xray/settings …}` lands the
+  (testing "`configure! {:rf.xray/settings …}` lands the
             host's seed OVER the compiled-in defaults, deeply, leaving
             every key the seed does not name at its default"
     (config/reset-settings!)
@@ -579,11 +571,11 @@
     (is (= {:source 100 :timestamp 76 :duration 60}
            (config/get-setting :general :event-list-col-widths))
         "the merge is DEEP — a partial nested override keeps its
-         siblings (rf2-8j3gyt), through the real entry point")
+         siblings, through the real entry point")
     (config/reset-settings!)))
 
 (deftest configure-settings-recomputes-rather-than-accumulating
-  (testing "rf2-y8doi.17 — a second `configure!` replaces the seed
+  (testing "a second `configure!` replaces the seed
             rather than layering on the first one's result, so the
             answer is a function of the CURRENT seed and nothing else.
             This is what lets `configure!` run at any point in the boot
@@ -599,15 +591,15 @@
          persisted, and the seed is replaced wholesale")
     (config/reset-settings!)))
 
-;; ---- :rf.xray/settings seeds `configured-settings-seed` (rf2-rr2yw3) ----
+;; ---- :rf.xray/settings seeds `configured-settings-seed` ----------------
 
 (deftest configure-settings-seeds-configured-settings-seed
-  (testing "rf2-rr2yw3 — `configure! {:rf.xray/settings ...}` captures
+  (testing "`configure! {:rf.xray/settings ...}` captures
             the raw map into `configured-settings-seed` rather than
             unconditionally resetting + persisting the live settings
             atom — the seed `load-settings-from-storage!` deep-merges
             the persisted payload OVER, so a host that calls
-            `configure!` on every boot can no longer clobber a user's
+            `configure!` on every boot cannot clobber a user's
             already-persisted Settings-popup mutations"
     (config/reset-settings!)
     (config/configure! {:rf.xray/settings {:theme :dark}})
