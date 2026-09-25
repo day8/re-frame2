@@ -126,7 +126,7 @@
 (def ^:private off-browser
   "no DOM on this runtime — the rows below mount two real roots, take real
   subscription caches off two real frames and fire real DOM events, and
-  :browser-test is where they are asked")
+  a browser is where they are asked")
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))

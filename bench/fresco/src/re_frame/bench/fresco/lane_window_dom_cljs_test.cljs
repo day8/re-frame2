@@ -51,7 +51,7 @@
 
 (def ^:private off-browser
   "no DOM on this runtime — the claim is a DOM read-back inside a measured
-  window, and :browser-test is where it is asked")
+  window, and a browser is where it is asked")
 
 ;; ---------------------------------------------------------------------------
 ;; A page with one cell in it
