@@ -106,7 +106,7 @@
                       :line-height   "20px"}}
    ;; Keyboard a11y. The route row's clickable body toggles
    ;; the inline expand surface, so it carries the L2 event-row recipe
-   ;; (shell.cljs:1068 `role=button` + `tab-index=0` + `aria-label` +
+   ;; (`shell.cljs`'s `event-row`: `role=button` + `tab-index=0` + `aria-label` +
    ;; Enter/Space activation). `aria-expanded` mirrors the open state so
    ;; assistive tech announces the toggle's disclosure semantics.
    [:div {:role         "button"
@@ -197,7 +197,7 @@
                                  :display        "flex"
                                  :flex-direction "column"
                                  :gap            "1px"}}]
-             ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader
+             ;; A KEYED FRAGMENT rather than `^{:key …}` reader
              ;; meta, which Reagent honours and Fresco's codec reads
              ;; nowhere. `route-row` takes `dispatch` and `row`
              ;; positionally ahead of its opts map, so there is no props
