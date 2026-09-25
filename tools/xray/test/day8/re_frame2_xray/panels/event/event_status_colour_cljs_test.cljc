@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.event.event-status-colour-cljs-test
-  "Pure-data tests for the canonical event-lifecycle status-colour map
-  (rf2-b76v4).
+  "Pure-data tests for the canonical event-lifecycle status-colour map.
 
   ## Why .cljc + _cljs_test naming
 
@@ -38,13 +37,13 @@
            event-status/statuses))))
 
 (deftest status-token-map-covers-every-status
-  (testing "rf2-b76v4 — every status has a token keyword. No
+  (testing "every status has a token keyword. No
             unmapped status leaks a nil into the palette."
     (is (= (set event-status/statuses)
            (set (keys event-status/status->token))))))
 
 (deftest status-token-map-mirrors-tanstack-anchors
-  (testing "rf2-b76v4 / rf2-ad7zx.13 — the per-status token assignments
+  (testing "the per-status token assignments
             mirror the TanStack devtool's semantic anchors. The LIVE
             head (`:in-flight`) IS the current-epoch accent → the single
             `:accent` (GitHub blue); `:paused-by-tool` takes the fixed
@@ -60,7 +59,7 @@
             a real hex for every status. No magenta-tinted gap, no
             missing key in `theme/tokens`. Drives off `dark-palette`
             directly (the hex source of truth) — `tokens` exposes
-            CSS-variable strings post rf2-on4cm."
+            CSS-variable strings."
     (doseq [status event-status/statuses]
       (let [token-kw (event-status/status->token status)
             hex      (get tokens/dark-palette token-kw)]
@@ -159,7 +158,7 @@
 (deftest event-status-colour-resolves-through-tokens
   (testing "every state-input → colour matches the indirection
             (state → status → token → tokens value). No inline hexes
-            in the resolver path. Post rf2-on4cm `tokens` exposes
+            in the resolver path. `tokens` exposes
             CSS-variable strings; both sides of the comparison go
             through the same map so the indirection is what's pinned."
     (doseq [[state expected-status]
@@ -248,14 +247,14 @@
       (is (= :settled-success (event-status/classify-status state))))))
 
 (deftest event-bundle-outcome-reads-the-producer-duration-key
-  (testing "rf2-3x7nj.22.5 — `:duration-ms` is read off the run-end trace's
+  (testing "`:duration-ms` is read off the run-end trace's
             `:rf.event/elapsed-ms`, the key the producer stamps"
     (is (= 8 (:duration-ms
                (event-status/event-bundle-outcome
                  {:event   [:poll/tick]
                   :handler {:operation :rf.event/run-end
                             :tags      {:rf.event/elapsed-ms 8}}})))))
-  (testing "the legacy `:duration-ms` stays a fallback"
+  (testing "a `:duration-ms` tag is a fallback"
     (is (= 3 (:duration-ms
                (event-status/event-bundle-outcome
                  {:event   [:poll/tick]
@@ -263,7 +262,7 @@
                             :tags      {:duration-ms 3}}}))))))
 
 (deftest event-bundle->state-frame-strict-focused-rf2-bz7flo
-  (testing "rf2-bz7flo — when a multi-frame caller renders two cascades
+  (testing "when a multi-frame caller renders two cascades
             sharing a dispatch-id in different frames, only the cascade
             in the FOCUSED frame is :focused?. A dispatch-id-only check
             would mark BOTH focused/paused/stale."
@@ -281,7 +280,7 @@
       (is (false? (:paused? foreign)))
       (is (false? (:stale? foreign)))))
 
-  (testing "rf2-bz7flo — degrades to a dispatch-id-only match when either
+  (testing "degrades to a dispatch-id-only match when either
             the cascade or the focus is frameless (single-frame focus /
             JVM rigs building the cascade by hand)"
     (let [focus {:dispatch-id 7 :mode :live}]
@@ -296,10 +295,10 @@
 ;; ---- visual smoke — per-state hex landing on the right palette anchor --
 
 (deftest visual-smoke-per-state-colour-mapping
-  (testing "Visual smoke for the bead's acceptance criterion — each
+  (testing "Visual smoke — each
             lifecycle state surfaces in its expected anchor colour
             across the palette. Failures here flag a palette drift
-            (token renamed) or a classifier regression. Post rf2-on4cm
+            (token renamed) or a classifier regression.
             `event-status-colour` returns CSS-variable strings (the
             class toggle on the shell root decides whether the dark or
             light hex resolves at paint time); we compare against the
