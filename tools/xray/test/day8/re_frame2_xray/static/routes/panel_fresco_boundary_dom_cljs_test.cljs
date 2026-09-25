@@ -1,15 +1,14 @@
 (ns day8.re-frame2-xray.static.routes.panel-fresco-boundary-dom-cljs-test
-  "The Static Routes tab re-authored in the re-frame-native view layer,
-  read off a real React commit (rf2-k97c.3).
+  "The Static Routes tab in the re-frame-native view layer, read off a
+  real React commit.
 
-  `static.routes.panel/Panel` is now an `rf.fresco/defview` reading
+  `static.routes.panel/Panel` is an `rf.fresco/defview` reading
   through Fresco's shipped collector rather than an `rf/reg-view`
   reading through whatever view build the installed substrate adapter
-  supplies. PR #9648 made that swap and shipped no DOM witness for it —
-  the only one of the five Static panels without one. This file closes
-  that asymmetry.
+  supplies. This file is the DOM witness for that boundary, as each of
+  the five Static panels has one.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
     1 FIRST DISPLAY               — W1
     2 UPDATES ON A REAL CHANGE    — W2 (with the deaf control that makes
@@ -26,24 +25,22 @@
   Unlike its four Static siblings this panel HAS criterion-3 affordances
   — the row toggle, the Simulate-navigation toggle and the jump chip —
   and they are reached through the Reagent island below, which is why
-  W5 is worth more here than a click row was on a pure-browse tab.
+  W5 is worth more here than a click row would be on a pure-browse tab.
 
-  ## THE FOUR-POINT STANDARD (rf2-0lcg)
+  ## THE FOUR-POINT STANDARD
 
-  The merged-PR audit of #9648 states the bar for this witness as four
-  points rather than one, and they map onto the rows above: render under
+  The bar for this witness is four points rather than one, and they map
+  onto the rows above: render under
   an EXPLICIT FRAME (W1), change real route / simulation state and see
   the mounted output UPDATE (W2), an interaction DISPATCH reaching that
   frame (W5), and UNMOUNT with boundary subscriptions returning to
-  BASELINE (W4). The last is the bead's own acceptance clause — `the
-  teardown check (no retained watches or listeners after unmount)
-  actually measured rather than assumed` — and W4 reads it off the
+  BASELINE (W4). The last — no retained watches or listeners after
+  unmount, measured rather than assumed — W4 reads off the
   collector's own tables through the Fresco test kit's runtime door
   rather than inferring it from a ref-count alone.
 
-  IT IS A VERIFICATION GAP BEING CLOSED, NOT AN ALLEGATION OF A LEAK.
-  The numbers come back at baseline; saying so with the measurement is
-  the deliverable.
+  IT IS A VERIFICATION, NOT AN ALLEGATION OF A LEAK. The numbers come
+  back at baseline, and the measurement is what says so.
 
   ## THE ISLAND IS THE WHOLE POINT, AND THE NODE LANE CANNOT SEE IT
 
@@ -52,13 +49,12 @@
   IN HICCUP HEAD POSITION (`[search-box/search-box …]`,
   `[route-row …]`, `[row-expand/render …]`, `[candidate-row …]`, …)
   which Fresco's codec grades `:invalid`. The boundary passes
-  `reagent.core/as-element`; the node lane passes `identity`.
+  `substrate/as-element`; the node lane passes `identity`.
 
   SO WRAPPING AND NOT WRAPPING ARE THE SAME VALUE UNDER
-  `npm run test:cljs`, BY CONSTRUCTION. The worker that migrated this
-  panel planted the naive migration — no `as-child` — and measured it:
-  the node lane exited 0 at IDENTICAL totals while the browser gate
-  failed with `expected Static sub-tab :routes real panel root
+  `npm run test:cljs`, BY CONSTRUCTION. A panel with no `as-child`
+  passes the node lane at IDENTICAL totals while the browser gate
+  fails with `expected Static sub-tab :routes real panel root
   rf-xray-static-routes mounted … (last=null)`, i.e. a tab that renders
   nothing at all. This file is the cheap standing witness for that seam;
   it runs under the `:browser-test` build, where `as-child` is real.
@@ -84,10 +80,10 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is the family Xray supports —
   because the claim being made is that the boundary is INDIFFERENT to
   it. It is also the adapter the island genuinely needs:
-  `reagent.core/as-element` renders its subtree under Reagent.
+  `substrate/as-element` renders its subtree under Reagent.
 
   `:ambient-frame nil` is load-bearing exactly as it is in the four
   sibling suites: the fixture's default ambient scope is still in effect
@@ -96,13 +92,13 @@
   tier W1's frame-targeting row is about and that row would pass while
   measuring nothing.
 
-  ## W3's ZERO IS HONEST HERE, AND THAT WAS MEASURED RATHER THAN ASSUMED
+  ## W3's ZERO IS HONEST HERE
 
-  `static/machines`' W3 had to pin its list empty, because ITS island
+  `static/machines`' W3 pins its list empty, because ITS island
   contains `machine-canvas/Chart`, an `rf/reg-view`, and a reg-view
   emits view trace wherever it renders. This island does not: the four
-  `static/routes/*.cljs` files and the shared search box register no
-  view at all (measured — zero `rf/reg-view` and zero `rf.fresco/
+  `static/routes/*.cljs` island files and the shared search box register
+  no view at all (zero `rf/reg-view` and zero `rf.fresco/
   defview` forms across them), so the whole rendered subtree is
   trace-silent and W3 can assert its zero over a FULLY PAINTED panel,
   island included. The one reg-view reachable from this subtree is
@@ -327,9 +323,9 @@
 
 (defn- ref-count-of
   "The sub-cache ref-count the frame holds for `query-v`, or 0 when the
-  entry is absent. The spike measured the rejected design's binding by
-  watching this number climb across renders and never fall on unmount,
-  so it is the number the migration is answerable on."
+  entry is absent. A four-call interop binding shows up here as this
+  number climbing across renders and never falling on unmount, so it is
+  the number the boundary is answerable on."
   [frame-id query-v]
   (or (:ref-count (get (cache-of frame-id) query-v)) 0))
 
@@ -339,11 +335,11 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-through-the-island-and-reads-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Static Routes panel commits real DOM
+  (testing "the Static Routes panel commits real DOM
             through the registry entry the Static shell mounts, its two
             Reagent islands really cross, and its `rf.fresco/sub` reads
             resolve against the frame the enclosing `frame-provider` named
-            rather than the ambient one. Epic criteria 1 and 4."
+            rather than the ambient one. Criteria 1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -406,9 +402,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panel re-renders itself and commits new
+  (testing "the mounted panel re-renders itself and commits new
             DOM when its read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control that
+            nothing it watches moved. Criterion 2, with the control that
             makes the update mean liveness rather than a commit that simply
             had not happened yet."
     (if-not (browser?)
@@ -509,9 +505,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated panel contributes
+  (testing "rendering the panel contributes
             NOTHING to the substrate's view-trace stream, even when it is
-            mounted INSIDE an application frame. Epic criterion 5, proven
+            mounted INSIDE an application frame. Criterion 5, proven
             structurally rather than by the `:rf/xray` frame gate: a Fresco
             boundary is not a substrate view render, so there is no event to
             gate. The control is an ordinary `reg-view` in the same root, the
@@ -616,18 +612,18 @@
        (zero? (reader-edges))))
 
 (deftest w4-unmount-returns-every-boundary-subscription-to-baseline
-  (testing "rf2-k97c.3 — unmounting the panel releases ALL FOUR of its
+  (testing "unmounting the panel releases ALL FOUR of its
             subscriptions completely — no sub-cache reference, no live
             reaction, no reader edge — and mounting it again returns to the
-            SAME numbers rather than higher ones. Epic criterion 6 and the
-            bead's own acceptance clause, `no retained watches or listeners
-            after unmount`, measured rather than assumed.
+            SAME numbers rather than higher ones. Criterion 6: no retained
+            watches or listeners after unmount, measured rather than
+            assumed.
 
             THREE INSTRUMENTS, NOT ONE, and they answer different questions.
-            The frame's sub-cache ref-count is the number the spike caught
-            the rejected design on: with a four-call interop binding the
-            `:rf/xray` count climbed across renders and never fell on
-            unmount. `cell-reaction` is the WATCH — a live collector cell
+            The frame's sub-cache ref-count is the number a four-call
+            interop binding fails on: under one, the `:rf/xray` count would
+            climb across renders and never fall on unmount.
+            `cell-reaction` is the WATCH — a live collector cell
             holds `add-watch` on its reaction for as long as it exists — and
             `cell-readers` is the LISTENER edge, one slot per boundary
             reading that cell. A release that dropped the reference and left
@@ -647,9 +643,9 @@
             that point reports a LEAK against a runtime behaving exactly as
             documented.
 
-            THIS IS A VERIFICATION GAP BEING CLOSED, NOT AN ALLEGATION. If
-            the numbers come back at baseline — and they do — that IS the
-            deliverable."
+            THIS IS A VERIFICATION, NOT AN ALLEGATION OF A LEAK: the
+            numbers come back at baseline, and that is the passing
+            answer."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -732,7 +728,7 @@
 ;;      the tree named, and the DOM follows two levels deeper
 ;; ===========================================================================
 ;;
-;; This is the row the four sibling Static suites could not carry — they are
+;; This is the row the four sibling Static suites cannot carry — they are
 ;; pure-browse catalogues. It is also the row that exercises the frame-bound
 ;; dispatcher `(:dispatch (rf/capture-frame))` the boundary threads INTO the
 ;; island: the handler that fires is a plain Reagent `:on-click` several fn
@@ -740,11 +736,11 @@
 ;; threading were lost the dispatch would land somewhere else — or nowhere.
 
 (deftest w5-a-click-inside-the-island-dispatches-into-the-named-frame
-  (testing "rf2-k97c.3 — clicking a catalogue row inside the migrated panel's
+  (testing "clicking a catalogue row inside the panel's
             Reagent island dispatches `:rf.xray.static.routes/toggle-row`, the
             inline expand surface commits, and the event lands in the frame the
             enclosing `frame-provider` NAMED rather than in the ambient one or
-            in a neighbouring application frame. Epic criterion 3."
+            in a neighbouring application frame. Criterion 3."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
