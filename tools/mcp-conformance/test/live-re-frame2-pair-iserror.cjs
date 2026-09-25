@@ -10,8 +10,8 @@
 // :rf.error/read-dom-bad-selector}` (a malformed CSS selector makes
 // `querySelectorAll` throw), the `:rf.error/ui-read-bad-selector`
 // equivalent, `:no-document`, `:no-element` — ships with
-// `isError:true`. This honours spec/003-Tool-Catalogue.md §381 ("every
-// `:ok? false` response is `isError:true`") AND keeps the failure
+// `isError:true`. This honours spec/003-Tool-Catalogue.md's rule "Every
+// `:ok? false` response is `isError: true`" AND keeps the failure
 // CACHE-INELIGIBLE (cache eligibility bypasses isError), so a transient
 // failure cannot be cached and mask a later success.
 //
@@ -34,9 +34,9 @@
 //   3. ASSERTS each response carries BOTH the structured failure reason
 //      (proving we reached the GENUINE runtime error path, not the
 //      degraded `:nrepl-port-not-found` envelope) AND `isError === true`.
-//      Revert the `map-result-or-blank` map arm back to a bare
-//      `wire/ok-text` and both arms go RED — the reason still rides, but
-//      `isError` is false.
+//      A `map-result-or-blank` map arm that answered with a bare
+//      `wire/ok-text` would turn both arms RED — the reason would ride,
+//      but `isError` would be false.
 //
 // This is the SDK-boundary counterpart to the unit
 // `bad-selector-error-forwarded` tests in
@@ -88,7 +88,7 @@ function assertReadFailureIsError(resp, name, expectedReason) {
         'throw on the malformed selector), but the envelope was: ' +
         text.slice(0, 400) + '. If this is `:nrepl-port-not-found`, the ' +
         'runtime is not attached and the gate is testing degraded mode, ' +
-        'not the read-family error path (rf2-87h71e).',
+        'not the read-family error path.',
     );
   }
   if (!/:ok\?\s+false\b/.test(text)) {
@@ -101,10 +101,10 @@ function assertReadFailureIsError(resp, name, expectedReason) {
     throw new Error(
       name + ' returned a `:ok? false` failure WITHOUT `isError:true` ' +
         '(isError = ' + JSON.stringify(resp.isError) + '). This violates the ' +
-        'universal spec/003-Tool-Catalogue.md §381 contract ("every `:ok? ' +
+        'universal spec/003-Tool-Catalogue.md contract ("every `:ok? ' +
         'false` is `isError:true`") and makes the transient failure ' +
         'cache-eligible (cache eligibility bypasses isError), masking a ' +
-        'later success. This is exactly the rf2-q7cavs gap — `map-result-' +
+        'later success. `map-result-' +
         'or-blank` must branch its map arm on `:ok?`. Envelope: ' +
         text.slice(0, 400),
     );
@@ -151,7 +151,7 @@ runWithWatchdog(
       ':rf.error/read-dom-bad-selector',
     );
     console.log(
-      'OK   read-dom (bad selector) -> :ok? false + isError:true (rf2-q7cavs)',
+      'OK   read-dom (bad selector) -> :ok? false + isError:true',
     );
 
     // 2. read-ui with the same malformed selector ⇒ {:ok? false :reason
@@ -168,7 +168,7 @@ runWithWatchdog(
       ':rf.error/ui-read-bad-selector',
     );
     console.log(
-      'OK   read-ui (bad selector) -> :ok? false + isError:true (rf2-q7cavs)',
+      'OK   read-ui (bad selector) -> :ok? false + isError:true',
     );
 
     console.log('\nRE-FRAME2-PAIR-MCP LIVE ISERROR-ON-OK-FALSE CONFORMANCE GREEN');
