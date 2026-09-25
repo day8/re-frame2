@@ -64,24 +64,24 @@
     | bare str        | `\"/login\"`     | :substring   |
     | empty / nil     |                  | :never       |
 
-  ## Why a bare keyword is exact-OR-namespace (rf2-y8doi.27)
+  ## Why a bare keyword is exact-OR-namespace
 
   A bare unqualified keyword is the one pill shape a user types for
   two different intents, and the dialog's own copy promises both:
   `:auth` reads as 'the `auth` namespace' to anyone who has seen a
   qualified event-id, and as 'this specific event-id' to anyone
-  filtering an unqualified one. Compiling it to `:exact` alone made
-  the dialog's `:auth` example match nothing at all — the L2 list
-  silently emptied, which is the failure an inspector may not have.
+  filtering an unqualified one. Compiling it to `:exact` alone would
+  make the dialog's `:auth` example match nothing at all — the L2 list
+  would silently empty, which is the failure an inspector may not have.
 
   So a bare keyword matches EITHER reading: `:auth` matches the
   event-id `:auth` and every event-id whose namespace is `\"auth\"`
   (`:auth/login`), and nothing else — `:authors/x` is a different
   namespace and does not match. Spec/018 §7's example pill
-  `[× :mouse-move]` still blocks `:mouse-move`; nothing dispatches
+  `[× :mouse-move]` blocks `:mouse-move`; nothing dispatches
   under a `mouse-move` namespace, so the union costs it nothing.
-  A qualified keyword (`:auth/login`) is unambiguous and stays
-  `:exact`; the glob form (`:auth/*`) stays the way to say
+  A qualified keyword (`:auth/login`) is unambiguous and is
+  `:exact`; the glob form (`:auth/*`) is the way to say
   'namespace, and only namespace'."
   [pattern]
   (cond
@@ -106,9 +106,9 @@
       ;; A colon-less glob is the same intent as the keyword glob —
       ;; the user dropped the `:` the event-id carries. Route it
       ;; through the keyword branch so `"auth/*"` and `:auth/*`
-      ;; compile identically; without this it fell to `:substring`
-      ;; and matched nothing, because no `(str event-id)` contains
-      ;; a literal `*`.
+      ;; compile identically; without this it would fall to
+      ;; `:substring` and match nothing, because no `(str event-id)`
+      ;; contains a literal `*`.
       (glob? pattern)
       (recur (keyword pattern))
 
