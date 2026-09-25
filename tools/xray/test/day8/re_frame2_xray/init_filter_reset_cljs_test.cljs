@@ -89,7 +89,7 @@
 
 (defn- with-local-storage-stub
   "Install an in-memory `js/window.localStorage` for the test's duration,
-  then run the runtime fixture (whose :init-fn clears the stub to a clean
+  then run the runtime fixture (whose :post-reset clears the stub to a clean
   slate), then tear the whole window stub down so sibling namespaces see
   the absent window they expect."
   [test-fn]
