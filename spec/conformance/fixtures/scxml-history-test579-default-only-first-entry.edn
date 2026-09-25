@@ -50,7 +50,7 @@
   ;; (2) RE-ENTRY (history recorded): the slot holds :s02 (a prior exit). The
   ;; restore uses the STORED config (:s02), NOT the default (:s01). The restore
   ;; ENTERS :s0 (it does not exit it), so it records nothing — the slot is left
-  ;; untouched (still :s02), per the exit-set rule (rf2-9eidiv).
+  ;; untouched (still :s02), per the exit-set rule.
   {:call         :machine-transition
    :definition
    {:initial :s0
