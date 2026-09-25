@@ -1,13 +1,13 @@
 (ns day8.re-frame2-xray.theme.a11y-dom-cljs-test
-  "Live-DOM tests for the modal focus contract `a11y/dialog-ref`
-  (rf2-tpn0u): focus capture on open, the Tab/Shift+Tab focus TRAP, and
+  "Live-DOM tests for the modal focus contract `a11y/dialog-ref`:
+  focus capture on open, the Tab/Shift+Tab focus TRAP, and
   focus RESTORE to the opener on close.
 
   These exercise behaviour Node can't fake — `document.activeElement`,
   real `addEventListener('keydown', …)` on a DOM node, and synthetic
   `KeyboardEvent` dispatch. The filename ends in `_dom_cljs_test.cljs`
   so it runs under the `:browser-test` build (real DOM via Chromium) per
-  `implementation/shadow-cljs.edn` (rf2-2hrj8). Under the `:node-test`
+  `implementation/shadow-cljs.edn`. Under the `:node-test`
   build the `cljs-test$` regex also matches this ns, but every test
   short-circuits via `(when (exists? js/document) …)` so the suite stays
   green on Node and runs fully under Chromium.
@@ -68,7 +68,7 @@
 ;; ---- focus capture on open -----------------------------------------------
 
 (deftest dialog-ref-focuses-first-focusable-on-open
-  (testing "rf2-tpn0u — mounting the dialog ref lands focus on the first
+  (testing "mounting the dialog ref lands focus on the first
             focusable descendant (WAI-ARIA APG dialog pattern)"
     (when (exists? js/document)
       (let [{:keys [dialog buttons cleanup]} (mk-dialog! 3)
@@ -80,7 +80,7 @@
           (finally (ref nil) (cleanup)))))))
 
 (deftest dialog-ref-falls-back-to-root-when-no-focusable
-  (testing "rf2-tpn0u — an empty-state dialog (no focusable child) lands
+  (testing "an empty-state dialog (no focusable child) lands
             focus on the tab-index=-1 root so Esc / arrow-keys still work"
     (when (exists? js/document)
       (let [{:keys [dialog cleanup]} (mk-dialog! 0)
@@ -92,7 +92,7 @@
           (finally (ref nil) (cleanup)))))))
 
 (deftest dialog-ref-respects-pre-focused-descendant
-  (testing "rf2-tpn0u — when a child already holds focus on mount (an
+  (testing "when a child already holds focus on mount (an
             :auto-focus input like the edit-popup pattern field), the ref
             leaves it there rather than stealing focus to the first
             focusable"
@@ -110,7 +110,7 @@
 ;; ---- focus trap ----------------------------------------------------------
 
 (deftest dialog-ref-traps-tab-off-last-to-first
-  (testing "rf2-tpn0u — Tab from the LAST focusable wraps to the FIRST
+  (testing "Tab from the LAST focusable wraps to the FIRST
             instead of leaking to the chrome beneath"
     (when (exists? js/document)
       (let [{:keys [dialog buttons cleanup]} (mk-dialog! 3)
@@ -124,7 +124,7 @@
           (finally (ref nil) (cleanup)))))))
 
 (deftest dialog-ref-traps-shift-tab-off-first-to-last
-  (testing "rf2-tpn0u — Shift+Tab from the FIRST focusable wraps to the
+  (testing "Shift+Tab from the FIRST focusable wraps to the
             LAST"
     (when (exists? js/document)
       (let [{:keys [dialog buttons cleanup]} (mk-dialog! 3)
@@ -138,7 +138,7 @@
           (finally (ref nil) (cleanup)))))))
 
 (deftest dialog-ref-empty-dialog-pins-tab-on-root
-  (testing "rf2-tpn0u — with no focusable child, Tab cannot escape: the
+  (testing "with no focusable child, Tab cannot escape: the
             trap pins focus back on the tab-index=-1 dialog root"
     (when (exists? js/document)
       (let [{:keys [dialog cleanup]} (mk-dialog! 0)
@@ -154,7 +154,7 @@
 ;; ---- focus restore on close ----------------------------------------------
 
 (deftest dialog-ref-restores-focus-to-opener-on-close
-  (testing "rf2-tpn0u — unmounting (ref nil) restores focus to the
+  (testing "unmounting (ref nil) restores focus to the
             element that had it before the dialog opened (the opener),
             not <body>"
     (when (exists? js/document)
@@ -173,7 +173,7 @@
           (finally (cleanup)))))))
 
 (deftest dialog-ref-skips-restore-when-opener-detached
-  (testing "rf2-tpn0u — if the opener was removed from the document while
+  (testing "if the opener was removed from the document while
             the dialog was open, close must not throw (and must not
             re-focus a detached node)"
     (when (exists? js/document)
@@ -188,7 +188,7 @@
           (finally (cleanup)))))))
 
 (deftest dialog-ref-teardown-removes-trap-listener
-  (testing "rf2-tpn0u — after close, the keydown trap listener is gone:
+  (testing "after close, the keydown trap listener is gone:
             a Tab on the (now-detached) former dialog node does not move
             focus via the trap"
     (when (exists? js/document)
