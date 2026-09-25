@@ -6,15 +6,16 @@
   bordered) per the authoritative reference events-ribbon.
   Clicking any pill opens the rich edit popup (see
   `filters/edit_popup.cljs`); clicking `×` on a pill removes it without
-  round-tripping through the popup. The `[ + ]` add-pill opens the popup
+  round-tripping through the popup. Either add button opens the popup
   empty + defaulted to IN.
 
-  ## Two-bar split
+  ## Two add buttons
 
-  The committed pills (`pills-view`) live on bar-2 (the events ribbon);
-  the add(+) affordance (`add-pill`) is mounted separately on bar-1 (the
-  chrome ribbon) beside the `Filters:` label, matching the reference
-  chrome-ribbon / events-ribbon split.
+  The committed pills (`pills-view`) live on bar-2 (the events ribbon).
+  The add affordance is not part of that cluster: the shell mounts
+  `chrome-add-filter-button` (`+ filter`) on bar-1 (the chrome ribbon)
+  and `events-add-filter-button` (`+`) on bar-2, ahead of the committed
+  pills.
 
   ## Pills hover tooltip
 
@@ -186,50 +187,13 @@
                        :opacity       0.7}}
       "×"]]))
 
-;; ---- add-pill affordance -------------------------------------------------
-
-(defn add-pill
-  "The `[ + ]` add-filter affordance — opens the edit popup empty +
-  defaulted to IN per spec/018 §7 'Trailing +'.
-
-  Mounted on the bar-1 chrome ribbon (beside the
-  `Filters:` label) per the authoritative reference chrome-ribbon, which
-  carries the add(+) on bar-1 while the committed pills live on bar-2
-  (the events ribbon). Public so the shell mounts it directly in the
-  chrome ribbon's left cluster.
-
-  `dispatch` is the frame-aware dispatcher captured by the
-  caller's Fresco boundary body."
-  [dispatch]
-  [:button {:data-testid "rf-xray-filter-add"
-            :on-click    #(dispatch
-                            [:rf.xray/open-edit-popup
-                             {:source :add :mode :in}])
-            ;; Accessible name doubles the visible label so screen-
-            ;; reader users hear 'Add filter pill' not the bare
-            ;; brackets. The `[ + ]` glyph (not `+` alone) avoids
-            ;; colliding with host apps that own a `+` button —
-            ;; Playwright `getByRole('button', {name: '+'})` lassoes
-            ;; both surfaces when names overlap.
-            :aria-label  "Add filter pill"
-            :title       "Add filter pill"
-            :style       {:background    "transparent"
-                          :border        (str "1px dashed "
-                                              (:text-tertiary tokens))
-                          :color         (:text-tertiary tokens)
-                          :cursor        "pointer"
-                          :padding       "2px 8px"
-                          :border-radius "4px"
-                          :font-family   sans-stack
-                          :font-size     (:caption type-scale)
-                          :white-space   "nowrap"}}
-   "[ + ]"])
+;; ---- add-filter buttons --------------------------------------------------
 
 (defn chrome-add-filter-button
   "The chrome-ribbon `+ filter` TEXT button (Figma-Make
-  surface). A single outlined text button on bar-1. Opens the SAME edit
-  popup as `add-pill` (`:rf.xray/open-edit-popup {:source :add :mode
-  :in}`).
+  surface). A single outlined text button on bar-1. Opens the edit
+  popup empty + defaulted to IN (`:rf.xray/open-edit-popup {:source :add
+  :mode :in}`).
 
   Outlined on the dark chrome band: a muted `chrome-ribbon-text-muted`
   border + ink so it reads as a secondary chrome affordance against the
@@ -259,7 +223,8 @@
 (defn events-add-filter-button
   "The events-ribbon add-filter `+` ICON button (Figma-Make
   surface). Sits after the `filters:` contextual label on bar-2, before
-  the committed pills. Opens the SAME edit popup as `add-pill`. A
+  the committed pills. Opens the SAME edit popup as
+  `chrome-add-filter-button`. A
   square bordered `+` icon-button on the light
   data canvas (the events ribbon stays on `bg-2`, not the dark chrome
   band).
@@ -310,12 +275,9 @@
   `filters/pills_cljs_test` drive it straight from the node lane with
   no render window around it.
 
-  The add(+) affordance is not part of this
-  cluster: per the authoritative reference the committed pills live on
-  bar-2 (the events ribbon) while the add(+) sits on bar-1 (the chrome
-  ribbon, beside the `Filters:` label). The shell mounts `add-pill`
-  directly in the chrome ribbon's left cluster and `pills-view` in the
-  events ribbon.
+  The add buttons are not part of this cluster. The shell mounts
+  `pills-view` in the events ribbon, after `events-add-filter-button`,
+  and `chrome-add-filter-button` in the chrome ribbon's left cluster.
 
   `dispatch` is the frame-aware dispatcher captured by the
   caller's Fresco boundary body, threaded to each `pill`."

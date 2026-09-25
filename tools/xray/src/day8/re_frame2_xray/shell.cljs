@@ -665,57 +665,11 @@
     (number? v) (str v "px")
     :else       nil))
 
-;; ---- Relative-time helper + the timestamp column --------------------------
+;; ---- The timestamp column -------------------------------------------------
 ;;
-;; `format-relative-time` labels how long before an anchor an event-bundle
-;; was dispatched ("5s", "2m", "1h", "3d"). The L2 `timestamp` column
-;; itself ([[relative-time-chip]]) renders the ABSOLUTE wall-clock time
-;; (`HH:MM:SS.mmm`) per the authoritative reference event-list — see its
-;; docstring.
-;;
-;; Bucketing keeps a relative label silent-by-default — an old row that
-;; reads "5m" does not jitter second-by-second because the same
-;; minute-bucket maps back to "5m" regardless of the exact second inside
-;; the bucket. Buckets:
-;;
-;;   diff <   1s            → "now"
-;;   diff < 60s              → "Ns"
-;;   diff < 60min            → "Nm"
-;;   diff < 24h              → "Nh"
-;;   diff ≥ 24h              → "Nd"
-;;
-;; Anchor: the "now" a relative label computes against is the
-;; dispatched-time of the MOST RECENT event-bundle in the spine, not a
-;; wall-clock tick. A per-second `setInterval` anchor would re-render
-;; and flicker the L2 list constantly — relative time is meaningful
-;; BETWEEN events, not between seconds. Each new event re-establishes
-;; "now"; between events the list stays frozen. Anchor flips arrive
-;; on the existing reactive path (a new event-bundle appears in
-;; `:rf.xray/event-bundles`) so no timer / no internal trace pollution.
-;;
-;; That anchor is the `:rf.xray/relative-time-now-ms` sub in
-;; `registry.cljs`. The L2 list does not read it: the `timestamp` column
-;; renders absolute time, which needs no anchor.
-
-(defn format-relative-time
-  "Pure helper. Given two epoch-ms values (current time + the event-bundle's
-  dispatched-time), returns the chip display string per the bucket
-  contract in the section comment above. Nil-safe on `then-ms` (returns
-  the empty string so the caller can decide whether to render anything).
-
-  Pure-data, JVM-runnable so callers can spec-test it without a CLJS
-  runtime."
-  [now-ms then-ms]
-  (if (or (nil? then-ms) (nil? now-ms))
-    ""
-    (let [diff-ms (max 0 (- now-ms then-ms))
-          s      (quot diff-ms 1000)]
-      (cond
-        (< diff-ms 1000)  "now"
-        (< s 60)          (str s "s")
-        (< s 3600)        (str (quot s 60) "m")
-        (< s 86400)       (str (quot s 3600) "h")
-        :else             (str (quot s 86400) "d")))))
+;; The L2 `timestamp` column ([[relative-time-chip]]) renders the ABSOLUTE
+;; wall-clock time (`HH:MM:SS.mmm`) per the authoritative reference
+;; event-list — see its docstring.
 
 (defn- pad2
   "Left-pad an integer to two digits with a leading zero. Pure-data;

@@ -871,34 +871,6 @@
                 :mode        :live
                 :previewing? false)}))
 
-    ;; ---- L2 relative-time anchor ----------------------------------
-    ;;
-    ;; Every L2 row carries a small right-aligned chip showing how long
-    ;; ago the event-bundle was dispatched ("5s" / "2m" / "1h" / "3d"). The
-    ;; anchor — the "now" each row's relative-time computes against —
-    ;; flips on EVENT ARRIVAL, not on a wall-clock tick.
-    ;;
-    ;; Relative time is meaningful BETWEEN events, not between seconds —
-    ;; so the anchor is the dispatched-time of the most recent event-bundle,
-    ;; which avoids the per-second flicker a wall-clock `setInterval`
-    ;; would produce for negligible semantic gain. When a new event
-    ;; arrives the anchor flips, older rows recompute (a row that was
-    ;; "3s" now reads "8s"); in between events the list is frozen.
-    ;;
-    ;; The sub composes off `:rf.xray/event-bundles` so it inherits the
-    ;; Xray-internal filter (event-bundle-internal ticks never become the
-    ;; anchor). It returns nil when the buffer is empty or no event-bundle
-    ;; carries a `:dispatched :time` — the view's render-time fallback
-    ;; (`(interop/now-ms)`) covers that edge.
-    (rf/reg-sub :rf.xray/relative-time-now-ms
-      {:inputs [[:rf.xray/event-bundles]]}
-      (fn [[event-bundles] _query]
-        (let [times (into []
-                          (keep #(get-in % [:dispatched :time]))
-                          event-bundles)]
-          (when (seq times)
-            (apply max times)))))
-
     ;; ---- 4-layer chrome events (spec/018) -------------------------
 
     ;; L3 tab bar — flip the active tab. The valid ids are whatever

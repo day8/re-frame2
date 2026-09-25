@@ -26,9 +26,8 @@
   rather than about a parallel fixture. Each fn below mirrors the
   boundary beside it, with `rf.fresco/sub` swapped for `rf/subscribe`
   (the node lane has no React render window and no collector extent) and
-  nothing else changed. Where the boundary applies a fallback
-  ([[event-list-tree]]'s `now-ms`), so does this;
-  where the DERIVATION lives in the shell's own
+  nothing else changed. Where the boundary applies a fallback, so does
+  this; where the DERIVATION lives in the shell's own
   `*-tree` fn (`nav-boundary-state`, the `no-filters?` gate, the L2
   visibility filter), this passes the raw values through and lets the
   shipped fn do it.
@@ -64,7 +63,6 @@
   Every fn here subscribes ambiently, so each call belongs inside
   `(rf/with-frame :rf/xray …)`."
   (:require [re-frame.core :as rf]
-            [re-frame.interop :as rf.interop]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.shell :as shell]
@@ -123,9 +121,7 @@
       :hidden-summary @(rf/subscribe [:rf.xray/hidden-by-filters])})))
 
 (defn event-list-tree
-  "The L2 event list's hiccup, read the way `shell/event-list` reads it —
-  including the `now-ms` fallback to `(rf.interop/now-ms)` the boundary
-  applies when the anchor sub answers nil.
+  "The L2 event list's hiccup, read the way `shell/event-list` reads it.
 
   The boundary also runs `inject-scrollbar-style!` before it reads. That
   is a `defonce`-guarded DOM side effect with no effect on the tree and
@@ -151,9 +147,7 @@
       ;; stored slot too rather than letting the composed frame answer
       ;; for it.
       :focus-slot      @(rf/subscribe [:rf.xray/focus-slot])
-      :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])
-      :now-ms          (or @(rf/subscribe [:rf.xray/relative-time-now-ms])
-                           (rf.interop/now-ms))})))
+      :show-ungrouped? @(rf/subscribe [:rf.xray/show-ungrouped?])})))
 
 (defn seam-handle-tree
   "The L2/L3 seam's hiccup, read the way

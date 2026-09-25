@@ -402,21 +402,11 @@ status stripe, the redaction marker, and the out-of-focus dimming. The
 dropped fields (full event vector + args, sequence number, frame, source
 coord, handler duration) surface in the row's hover `:title` tooltip + the
 L4 Epoch panel on click. The timestamp column shows the absolute wall-clock
-`HH:MM:SS.mmm` (rf2-3f2di A8), not the relative chip described below.
+`HH:MM:SS.mmm` (rf2-3f2di A8), described below.
 
-#### Relative-time chip (rf2-vbbq0 / rf2-0s2at)
+#### Timestamp column
 
-Each row carries a trailing right-aligned chip showing how long ago the cascade was dispatched. The chip's bucket strategy keeps old chips visually stable:
-
-| Diff               | Display |
-|---|---|
-| `< 1s`             | `now`   |
-| `< 60s`            | `Ns`    |
-| `< 60min`          | `Nm`    |
-| `< 24h`            | `Nh`    |
-| `≥ 24h`            | `Nd`    |
-
-**Anchor (rf2-0s2at):** the "now" each chip computes against is the **dispatched-time of the most recent cascade in `:rf.xray/event-bundles`** — flips on event arrival, not on a per-second tick. Between events the L2 list stays frozen (no re-render); when a new event lands the anchor advances and every older row's chip recomputes (a row that read `3s` may now read `8s`). This replaces the earlier (rf2-vbbq0 original) 1s `setInterval` design: relative time is meaningful between events, not between seconds, and the per-second tick caused constant L2 flicker watching live testbeds. No timer; the anchor sub composes off the existing `:rf.xray/event-bundles` reactive path. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
+Each row carries a right-aligned timestamp showing the local wall-clock time the cascade was dispatched, as `HH:MM:SS.mmm`, read from the cascade's `:dispatched :time`. An absolute time needs no "now" anchor, so a row's timestamp never changes once rendered. Its `:title` carries the locale time, the ISO walltime and the epoch-ms as the power-user reveal — hover it for the precise time without leaving L2. A cascade with no `:dispatched :time` renders no timestamp.
 
 #### Gutter glyphs / row badges / redaction marker — RETIRED (rf2-pjjwh)
 

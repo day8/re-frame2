@@ -34,10 +34,9 @@
 ;; -------------------------------------------------------------------------
 ;; (1) Empty filters — no committed pills in the cluster
 ;;
-;; The add(+) affordance lives on the chrome ribbon (bar-1), not in
-;; `pills-view`, which renders ONLY committed pills, on bar-2.
-;; `pills-view` on empty buckets renders an empty cluster; the
-;; add-pill is exercised standalone via `pills/add-pill`.
+;; The add buttons live outside `pills-view`, which renders ONLY
+;; committed pills, on bar-2. `pills-view` on empty buckets renders an
+;; empty cluster.
 ;; -------------------------------------------------------------------------
 
 (deftest empty-filters-render-empty-cluster
@@ -46,15 +45,9 @@
     (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-filters"))
         "cluster element always present")
     (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filter-add"))
-        "add-pill is NOT part of the committed-pills cluster (it lives on bar-1)")
+        "the chrome add button is NOT part of the committed-pills cluster (it lives on bar-1)")
     (is (empty? (rf.test-helpers/find-by-testid-prefix tree "rf-xray-filter-pill-"))
         "no pill rows when both buckets are empty")))
-
-(deftest add-pill-renders-standalone
-  (xray-setup!)
-  (let [tree (pills/add-pill rf/dispatch)]
-    (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-filter-add"))
-        "add-pill renders the `[ + ]` affordance standalone (bar-1 mount)")))
 
 ;; -------------------------------------------------------------------------
 ;; (2) IN + OUT pills render with correct testids
@@ -186,31 +179,7 @@
     (is (some #(= [:rf.xray/remove-filter :out 1] %) @dispatches))))
 
 ;; -------------------------------------------------------------------------
-;; (5) Add-pill click → dispatches open-edit-popup with :add source
-;; -------------------------------------------------------------------------
-
-(deftest add-pill-click-opens-empty-edit-popup
-  (xray-setup!)
-  (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      ;; The add-pill is a standalone bar-1 affordance.
-      (let [tree (pills/add-pill rf/dispatch)
-            add  (rf.test-helpers/find-by-testid tree "rf-xray-filter-add")
-            handler (:on-click (second add))]
-        (is (some? add))
-        (when handler (handler nil))))
-    (is (some (fn [ev]
-                (and (vector? ev)
-                     (= :rf.xray/open-edit-popup (first ev))
-                     (= :add (:source (second ev)))
-                     (= :in  (:mode (second ev)))))
-              @dispatches)
-        ":rf.xray/open-edit-popup fired with :add source + :in default")))
-
-;; -------------------------------------------------------------------------
-;; (6) Counts tooltip
+;; (5) Counts tooltip
 ;; -------------------------------------------------------------------------
 
 (deftest cluster-tooltip-shows-counts
@@ -227,7 +196,7 @@
         "singular 'pattern' for count = 1")))
 
 ;; -------------------------------------------------------------------------
-;; (7) The add buttons never call window.prompt
+;; (6) The add buttons never call window.prompt
 ;;
 ;; The buttons are taken from the SHELL's own tree — the chrome ribbon's
 ;; `+ filter` and the events ribbon's `[+]` — so the test clicks whatever

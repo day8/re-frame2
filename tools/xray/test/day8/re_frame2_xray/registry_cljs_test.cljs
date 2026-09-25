@@ -381,10 +381,6 @@
    :rf.xray/event-list-col-widths
    ;; L2/L3 seam-handle event-list height.
    :rf.xray/events-list-height-px
-   ;; L2 row relative-time chip anchor (sub
-   ;; composed off `:rf.xray/event-bundles` — dispatched-time of the most
-   ;; recent cascade; flips on event arrival, not on a per-second tick).
-   :rf.xray/relative-time-now-ms
    :rf.xray/selected-tab
    ;; Machine tab fit-on-entry nonce (bumped by
    ;; `:rf.xray/select-tab :machines` + `:rf.xray.static/select-tab
