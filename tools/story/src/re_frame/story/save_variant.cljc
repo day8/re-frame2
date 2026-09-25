@@ -104,8 +104,8 @@
 ;; wired. So each slice resolves to one of three honest statuses:
 ;;
 ;;   :projectable          — a live, controls-driven projection exists and
-;;                           lands in the generated reg-variant body. Today
-;;                           this is `:args` (the five-layer precedence chain
+;;                           lands in the generated reg-variant body. Only
+;;                           `:args` is (the five-layer precedence chain
 ;;                           per spec/002), which already FOLDS the
 ;;                           transient `:cell-overrides` in — so transient-
 ;;                           controls is captured-as-args, not a second slot.
@@ -126,14 +126,13 @@
 ;;   args               :cell-overrides + :active-modes   rf.story.args/resolve-args → :args
 ;;   transient-controls in-flight :cell-overrides          folds into :args (no 2nd slot)
 ;;   sub-overrides      — (View State group is TARGET)     reg-variant :sub-overrides
-;;   db-seed            — (fidelity rung not wired, blw1q) reg-variant :setup/:db
-;;   route              — (route sub not consumed, 7pgiz)  —
+;;   db-seed            — (fidelity rung not wired)        reg-variant :setup/:db
+;;   route              — (route sub not consumed)         —
 ;;   network            — (no live Network controls)       reg-variant :network
 ;;   fx-overrides       — (no live Effects controls)       reg-variant :fx-overrides
 ;;   viewport           shell :viewport (CHROME-WIDE)      — (chrome-wide, not a body slot)
 ;;
-;; Viewport is the one genuine PRODUCT FORK (flagged for the mayor in the
-;; PR): the live viewport is chrome-wide shell state, NOT a per-variant
+;; Viewport is the one genuine PRODUCT FORK: the live viewport is chrome-wide shell state, NOT a per-variant
 ;; body slot the way the reg-variant body's other slices are. spec/019 §3
 ;; / §5 do not settle whether a saved variant should pin the viewport at
 ;; all. The conservative honest default below: capture it as-declared from
@@ -192,7 +191,7 @@
   - `:label`  — the human label.
   - `:status` — `:projectable` | `:captured-as-declared` | `:not-wired`.
   - `:emit?`  — true iff the slice contributes a slot to the generated
-                reg-variant body (only `:args` today; `:extends` carries
+                reg-variant body (only `:args`; `:extends` carries
                 the `:captured-as-declared` slices implicitly).
   - `:value`  — the captured value (present for `:projectable` and
                 `:captured-as-declared`; absent/nil for `:not-wired`).
@@ -222,7 +221,7 @@
        (declared :sub-overrides (slice-labels :sub-overrides) sub-ovr
                  "No live View-State controls yet — the source's declared :sub-overrides carry forward via :extends, captured-as-declared (not a live projection).")
        (not-wired :sub-overrides (slice-labels :sub-overrides)
-                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable (rf2-7pgiz)."))
+                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable."))
 
      ;; db-seed: the schema-checked app-db seed fidelity rung is not wired.
      ;; The closest declared analogue on the source body is
@@ -230,12 +229,12 @@
      ;; the report is honest about what carries forward via :extends.
      (if (some? setup)
        (declared :db-seed (slice-labels :db-seed) setup
-                 "DB-seed fidelity rung not wired (rf2-blw1q) — the source's declared :setup events carry forward via :extends, captured-as-declared.")
+                 "DB-seed fidelity rung not wired — the source's declared :setup events carry forward via :extends, captured-as-declared.")
        (not-wired :db-seed (slice-labels :db-seed)
-                  "DB-seed fidelity rung not wired (rf2-blw1q) and no :setup declared — not yet projectable."))
+                  "DB-seed fidelity rung not wired and no :setup declared — not yet projectable."))
 
      (not-wired :route (slice-labels :route)
-                "Route sub-override is not consumed yet (rf2-7pgiz) — route state is not captured.")
+                "Route sub-override is not consumed yet — route state is not captured.")
 
      (if (some? network)
        (declared :network (slice-labels :network) network
@@ -349,8 +348,8 @@
     source-variant-id now-ms default-id-prefix))
 
 (def initial-dialog-state
-  "Alias for `rf.story.review-dialog/initial-state` — kept for call-site
-  ergonomics so the dialog ratom seeding form reads as
+  "Alias for `rf.story.review-dialog/initial-state`, for call-site
+  ergonomics, so the dialog ratom seeding form reads as
   `save-variant/initial-dialog-state`."
   rf.story.review-dialog/initial-state)
 
