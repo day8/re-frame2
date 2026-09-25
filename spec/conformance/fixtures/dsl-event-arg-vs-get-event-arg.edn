@@ -1,5 +1,5 @@
 ;; Conformance fixture: dsl/event-arg-vs-get-event-arg
-;; Per rf2-xb5o (resolves rf2-pz9f): the conformance handler-body DSL
+;; The conformance handler-body DSL
 ;; distinguishes:
 ;;
 ;;   [:event-arg n]                  — n-th event arg (verbatim)
@@ -11,14 +11,14 @@
 ;;
 ;; This fixture exercises both forms in event handlers and asserts the
 ;; observable result in app-db. The interesting case is when the runtime
-;; arg IS a map AND the 3rd element of [:event-arg ...] is a keyword:
-;; pre-rf2-xb5o, that triggered key-access; post-rf2-xb5o, the keyword
-;; is a default-for-nil that is NOT used (because the arg is non-nil).
+;; arg IS a map AND the 3rd element of [:event-arg ...] is a keyword: the
+;; keyword is a default-for-nil that is NOT used (because the arg is
+;; non-nil), never a key-access.
 
 {:fixture/id           :dsl/event-arg-vs-get-event-arg
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub}
- :fixture/doc          "Splits :event-arg (default-for-nil only) from :get-event-arg (key-access). Pre-rf2-xb5o, [:event-arg 1 :foo] with a map arg meant 'extract :foo'; post-rf2-xb5o, the map is returned verbatim and the keyword is unused."
+ :fixture/doc          "Splits :event-arg (default-for-nil only) from :get-event-arg (key-access). [:event-arg 1 :foo] with a map arg returns the map verbatim and the keyword is unused; it never means 'extract :foo'."
 
  :fixture/registry
  {:event {:dsl/init                {:doc "Seed."}
@@ -31,8 +31,8 @@
 
  :fixture/handlers
  {:event {:dsl/init                [[:set [] {}]]
-          ;; The arg is the map {:foo 42}. With key-access overload, this
-          ;; would write 42; without (post-rf2-xb5o), the whole map writes.
+          ;; The arg is the map {:foo 42}. A key-access overload would
+          ;; write 42; without one, the whole map writes.
           :dsl/store-event-arg     [[:set [:via-event-arg]     [:event-arg 1 :foo]]]
           ;; Explicit key-access: writes 42.
           :dsl/store-get-event-arg [[:set [:via-get-event-arg] [:get-event-arg 1 :foo]]]
