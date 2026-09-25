@@ -1,17 +1,15 @@
 (ns re-frame.epoch-late-bind-missing-cljs-test
-  "Per rf2-5lvk6 — CLJS-side missing-artefact pin for the documented
+  "CLJS-side missing-artefact pin for the documented
   `replace-frame-state!` raise contract.
 
-  Per the rf2-5b6x missing-artefact error contract (see
+  Per the missing-artefact error contract (see
   `re-frame.late-bind-missing-test` in the schemas artefact for the
   JVM-side sibling): each per-feature split surfaces a documented
   `:rf.error/<artefact>-artefact-missing` ex-info when a consumer
   calls a re-exported surface whose artefact is absent. For the
   epoch artefact, the load-bearing surface is `replace-frame-state!`
-  (Tool-Pair §Pair-tool writes, rf2-zq55 / rf2-t3lftq — API-shrink #3
-  consolidated the former `replace-app-db!` / `reset-app-db!` /
-  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
-  this ONE surface): unlike `restore-epoch!`, `register-epoch-listener!`,
+  (Tool-Pair §Pair-tool writes — the ONE pair-tool frame-state write
+  surface): unlike `restore-epoch!`, `register-epoch-listener!`,
   `epoch-history`, and `unregister-epoch-listener!` (which degrade
   silently — empty vector / `false` / no-op when the artefact is absent),
   `replace-frame-state!` MUST raise. The caller's invariant — 'undo works
@@ -26,8 +24,8 @@
   of the assertion, then restoring it in `finally`.
 
   Mirrors the test shape used in
-  `re-frame.adapter.uix-late-bind-publication-cljs-test` (per
-  rf2-rrwwy) — both files pin a late-bind contract for an artefact,
+  `re-frame.adapter.reagent-slim-late-bind-publication-cljs-test` —
+  both files pin a late-bind contract for an artefact,
   this one via the absent-hook path, that one via the present-hook
   enumeration.
 
@@ -72,7 +70,7 @@
                           (catch :default e e))]
           (is (some? thrown)
               "replace-frame-state! throws when the epoch artefact is absent")
-          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; The message is the human :reason + trailing
           ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
           ;; not exact keyword-equality.
           (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (ex-message thrown))

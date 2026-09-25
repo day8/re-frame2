@@ -35,8 +35,8 @@
 ;; The canonical runtime fixture snapshot/restores the registrar (so the
 ;; ns-load-time canned-stub fx registrations from `re-frame.http.test-support`
 ;; survive without a per-test `:reload`), resets frames / flows / schemas /
-;; adapter, and now clears BOTH the in-flight managed-request registry AND the
-;; per-frame HTTP interceptor chain on each post-dispose reset (rf2-q14tde) —
+;; adapter, and clears BOTH the in-flight managed-request registry AND the
+;; per-frame HTTP interceptor chain on each post-dispose reset —
 ;; the interceptor registry lives outside the registrar (internal to
 ;; `re-frame.http.middleware`), so a leaked `:before` / `:after` would
 ;; otherwise mutate every subsequent test's reply payload.
@@ -81,7 +81,7 @@
   `(rf/app-db-value :rf/default)`. Returns the final db on success;
   throws `ex-info` carrying `:rf.error/id`
   `:rf.error/poll-until-timeout` on timeout. Thin alias over
-  `test-support/poll-until` (rf2-fun38) — preserves the per-file
+  `test-support/poll-until` with the per-file
   `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
@@ -92,7 +92,7 @@
 ;; ---- 1. canned-success: round-trip unified :reply-to addressing -----------
 
 (deftest canned-success-reply-to-addressing
-  (testing "the canned-success stub dispatches the reply to the unified :reply-to target (appended envelope), rf2-et4c1s"
+  (testing "the canned-success stub dispatches the reply to the unified :reply-to target (appended envelope)"
     (rf/reg-event :article/load
       (fn [{:keys [db]} [_ msg reply]]
         (if reply
@@ -108,13 +108,13 @@
     (let [db (await-reply! #(some? (get-in % [:article :data])))]
       (is (= {:stubbed true} (get-in db [:article :data]))))))
 
-;; ---- 1b. rf2-et4c1s — omitting EVERY reply target fails loud ---------------
+;; ---- 1b. omitting EVERY reply target fails loud ---------------------------
 
 (deftest no-reply-target-fails-loud
-  (testing "rf2-et4c1s — a :rf.http/managed request that supplies NONE of
+  (testing "a :rf.http/managed request that supplies NONE of
             :reply-to / :on-success / :on-failure throws
-            :rf.error/http-no-reply-target at fx-call time (the co-located
-            default was retired pre-alpha)"
+            :rf.error/http-no-reply-target at fx-call time (there is no
+            co-located default)"
     (let [ex (try (rf.http.managed/managed-handler
                     {:frame :rf/default :event [:no-op]}
                     {:request {:method :get :url "/x"}})
@@ -134,14 +134,14 @@
                       (= :rf.error/http-no-reply-target (:rf.error/id (ex-data ex)))))
             (str "supplying " k " (even nil) satisfies reply addressing"))))))
 
-;; ---- 1b-bis. rf2-kuky.12 — mixed reply addressing is refused everywhere ----
+;; ---- 1b-bis. mixed reply addressing is refused everywhere ----------------
 
 ;; The route-map override target is private; the refusal must hold on THAT
 ;; path too, so reach it the way the reply-tail suite reaches its validator.
 (def ^:private stub-handler @#'rf.http.test-support/stub-handler)
 
 (deftest mixed-reply-addressing-refused-on-every-interpreting-path
-  (testing "rf2-kuky.12 — `:reply-to` beside `:on-success` / `:on-failure` is
+  (testing "`:reply-to` beside `:on-success` / `:on-failure` is
             refused with :rf.error/http-bad-reply-target on EVERY path that
             interprets a managed args map: the live fx, both canned stubs, and
             the route-map stub. A map the live fx rejects must not be quietly
@@ -168,7 +168,7 @@
       (check "the route-map stub"
              #(stub-handler {[:get "http://127.0.0.1:1/x"] {:value {:ok true}}}
                             ctx mixed)))
-    (testing "…while both unmixed styles still run on the canned path"
+    (testing "…while both unmixed styles run on the canned path"
       (doseq [ok [{:reply-to [:no-op]}
                   {:on-success [:no-op] :on-failure [:no-op]}]]
         (is (nil? (rf.http.test-support/canned-success-handler
@@ -176,10 +176,10 @@
                     (merge {:request {:method :get :url "/x"} :value {}} ok)))
             (str (pr-str (vec (keys ok))) " is accepted by the canned stub"))))))
 
-;; ---- 1c. rf2-et4c1s — all three spellings deliver the identical envelope ---
+;; ---- 1c. all three spellings deliver the identical envelope --------------
 
 (deftest three-spellings-deliver-identical-envelope
-  (testing "rf2-et4c1s — :reply-to, :on-success, and :on-failure all lower to
+  (testing ":reply-to, :on-success, and :on-failure all lower to
             the same internal reply descriptor: each delivers the identical
             canonical envelope (appended as the target's last arg)"
     (let [captured (atom {})]
@@ -239,7 +239,7 @@
                   :on-success nil}]]}))
       (rf/dispatch-sync [:ping]
                         {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-      ;; Timer-semantics sleep (rf2-fun38): asserting *absence* of a reply
+      ;; Timer-semantics sleep: asserting *absence* of a reply
       ;; re-dispatch (:on-success nil swallows it). No observable signal
       ;; to poll against — give the canned-success path a quiescence
       ;; window then assert @seen stayed at 1.
@@ -247,11 +247,11 @@
       ;; Only the initial dispatch fired :ping; no reply.
       (is (= 1 @seen)))))
 
-;; ---- 3b. :after-ms delay on the canned-stub fxs (rf2-j1mo4) ----------------
+;; ---- 3b. :after-ms delay on the canned-stub fxs ----------------------------
 ;;
-;; Mike-ruled (B): a delay is a PARAMETER of the existing canned fx, not a
-;; new `-later` fx id. Absent / 0 `:after-ms` = the immediate behaviour the
-;; tests above already pin; a positive `:after-ms` defers the reply via the
+;; A delay is a PARAMETER of the canned fx, not a separate
+;; `-later` fx id. Absent / 0 `:after-ms` = the immediate behaviour the
+;; tests above pin; a positive `:after-ms` defers the reply via the
 ;; framework-native `:dispatch-later` (observable in the tape, time-travel-
 ;; safe — NOT raw `set-timeout!`).
 
@@ -273,9 +273,8 @@
                     {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}))
 
 (deftest after-ms-absent-is-immediate
-  (testing "no :after-ms — the canned-success reply lands immediately, exactly
-            as the pre-rf2-j1mo4 behaviour (sync dispatch-sync drain delivers
-            the reply with no timer tick)"
+  (testing "no :after-ms — the canned-success reply lands immediately (the
+            dispatch-sync drain delivers the reply with no timer tick)"
     (canned-success-reply-event {:value {:n 1}})
     ;; Immediate path runs inside the dispatch-sync drain — the reply is
     ;; already present without polling a timer.
@@ -283,8 +282,8 @@
         "reply landed synchronously")))
 
 (deftest after-ms-zero-is-immediate
-  (testing ":after-ms 0 (and any non-positive value) is treated as immediate —
-            absent/0 must preserve current behaviour"
+  (testing ":after-ms 0 (and any non-positive value) is treated as immediate,
+            exactly like an absent :after-ms"
     (canned-success-reply-event {:value {:n 2} :after-ms 0})
     (is (= {:n 2} (get-in (rf/app-db-value :rf/default) [:j1mo4 :value]))
         "reply landed synchronously with :after-ms 0")))
@@ -343,23 +342,22 @@
       (is (= :rf.http/transport (get-in db [:j1mo4-error :error :kind]))
           "deferred failure reply landed after the :dispatch-later tick"))))
 
-;; ---- 3c. canned-stub path runs the :after interceptor chain (rf2-r5m22) ----
+;; ---- 3c. canned-stub path runs the :after interceptor chain ----------------
 ;;
 ;; The per-frame HTTP interceptor chain has two halves: :before (request-
 ;; side) and :after (response-side, Spec 014 §Middleware). The real
 ;; transport path fires both (managed-handler runs :before;
-;; http_transport/dispatch-reply! runs :after). Before rf2-r5m22 the
-;; canned-stub path ran ONLY :before, so a test using the
+;; http_transport/dispatch-reply! runs :after). A canned-stub path that ran
+;; ONLY :before would make a test using the
 ;; :rf.http/managed-canned-* fxs with an :after interceptor (response-time
 ;; telemetry, header-driven auth refresh — the exact use-cases the
-;; middleware contract sells) silently skipped that :after, diverging the
-;; stub path from production. These tests pin that the canned path now
+;; middleware contract sells) silently skip that :after, diverging the
+;; stub path from production. These tests pin that the canned path
 ;; threads run-after-chain! before dispatching, mirroring the real path.
 
 (deftest canned-success-runs-after-interceptor-chain
-  (testing "rf2-r5m22 — the canned-success stub path fires a registered
-            :after interceptor (was previously skipped — only :before ran
-            on the canned path) and its response transform reaches the
+  (testing "the canned-success stub path fires a registered
+            :after interceptor and its response transform reaches the
             :on-success reply, mirroring the real-transport path"
     (let [order (atom [])]
       (rf/reg-http-interceptor :r5m22/touch
@@ -378,7 +376,7 @@
                         {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
       (let [db (await-reply! #(some? (:reply %)))]
         (is (= [:before :after] @order)
-            "BOTH halves of the chain fired on the canned path (was [:before] only)")
+            "BOTH halves of the chain fired on the canned path")
         (is (= :ok (get-in db [:reply :status])))
         (is (= :after (get-in db [:reply :value :touched-by]))
             ":after's transform of the reply-payload reached the :on-success target")
@@ -386,7 +384,7 @@
             "the canned :value rode through the :after transform unscathed")))))
 
 (deftest canned-success-after-sees-the-before-ctx
-  (testing "rf2-r5m22 — the canned path's :after receives the SAME
+  (testing "the canned path's :after receives the SAME
             middleware-ctx the :before produced (request-correlation), just
             like the real-transport path. A :before that stashes a ctx key
             and an :after that reads it back proves the ctx threads through."
@@ -410,7 +408,7 @@
           ":after read the :before's stashed ctx key — same ctx threads through the canned path"))))
 
 (deftest canned-failure-runs-after-interceptor-chain
-  (testing "rf2-r5m22 — the canned-FAILURE stub path also fires the :after
+  (testing "the canned-FAILURE stub path also fires the :after
             chain (symmetric with the success path); an :after can inspect
             the failure shape and tag the reply, mirroring the real-path
             401-auth-refresh use-case."
@@ -485,7 +483,7 @@
 
 ;; ---- 5b. HTML 404 with :decode :json — status check precedes decode ------
 ;;
-;; Regression guard for rf2-lokk: a 4xx response whose body is HTML (or any
+;; A 4xx response whose body is HTML (or any
 ;; shape that would FAIL :json decode) MUST classify as :rf.http/http-4xx,
 ;; NOT :rf.http/decode-failure. Per Spec 014 §Failure categories, status
 ;; classification runs BEFORE decode — decode never fires on a non-2xx
@@ -550,9 +548,9 @@
               "decode runs on 2xx; a thrown decoder surfaces as :rf.http/decode-failure"))
         (finally (stop-server! srv))))))
 
-;; ---- 5b'. empty 2xx JSON body → success-nil (rf2-upexd.1, JVM full-stack) ---
+;; ---- 5b'. empty 2xx JSON body → success-nil (JVM full-stack) --------------
 ;;
-;; The cross-host parity contract (oyw04) for an empty/whitespace-only 2xx
+;; The cross-host parity contract for an empty/whitespace-only 2xx
 ;; JSON body is asserted host-symmetrically at the decode altitude in
 ;; `http_empty_body_parity_cljs_test.cljc` (runs on BOTH the JVM and CLJS
 ;; runners). This JVM full-stack test pins the SAME outcome end-to-end
@@ -562,7 +560,7 @@
 ;; `{:status :ok :value nil …}`, NOT a `:status :error` decode-failure.
 
 (deftest jvm-empty-200-json-body-replies-success-nil
-  (testing "rf2-upexd.1 — a 200 with an EMPTY body + application/json
+  (testing "a 200 with an EMPTY body + application/json
             Content-Type (the common empty-success-envelope from a
             PUT/DELETE/POST-with-no-content) replies :success with :value
             nil through the full JVM transport cascade, NOT a
@@ -587,23 +585,21 @@
               "the decoded value of an empty JSON body is nil"))
         (finally (stop-server! srv))))))
 
-;; ---- 5b''. non-retried terminal failure emits NO retry-attempt (rf2-upexd.3) -
+;; ---- 5b''. non-retried terminal failure emits NO retry-attempt -------------
 ;;
-;; `maybe-retry!`'s terminal (non-retry) branch previously emitted a
-;; `:rf.http/retry-attempt` info trace whenever `(> max-attempts 1)`, even
-;; when the just-failed kind was NEVER retry-eligible and no retry ever
-;; fired. The spec (§Retry × :on-failure semantics) ties retry-attempt to
+;; The spec (§Retry × :on-failure semantics) ties `:rf.http/retry-attempt` to
 ;; "each intermediate attempt" — a phantom retry-attempt for a request that
-;; was never retried pollutes the trace semantics pair tools / 10x panels
-;; read. The guard now also requires `(or (> attempt 1) (contains? on-set
-;; kind))`, so a non-retried, non-eligible terminal failure emits nothing.
+;; was never retried would pollute the trace semantics pair tools / 10x panels
+;; read. So `maybe-retry!`'s terminal (non-retry) branch emits it only when
+;; `(> max-attempts 1)` AND `(or (> attempt 1) (contains? on-set
+;; kind))`, and a non-retried, non-eligible terminal failure emits nothing.
 
 (deftest jvm-non-retried-decode-failure-emits-no-retry-attempt
-  (testing "rf2-upexd.3 — a NON-retry-eligible failure (a :rf.http/decode-
+  (testing "a NON-retry-eligible failure (a :rf.http/decode-
             failure under `:retry {:on #{:rf.http/http-5xx} :max-attempts
             3}`) on attempt 1 must emit ZERO :rf.http/retry-attempt traces:
-            no retry happened and the kind was never in :on. Pre-fix the
-            blanket `(> max-attempts 1)` guard fired a phantom retry-attempt."
+            no retry happened and the kind was never in :on. A blanket
+            `(> max-attempts 1)` guard would fire a phantom retry-attempt."
     (let [traces      (atom [])
           listener-id ::upexd3-no-phantom
           {:keys [port] :as srv}
@@ -643,23 +639,23 @@
           (stop-server! srv))))))
 
 (deftest jvm-retry-eligible-exhaustion-still-emits-retry-attempts
-  (testing "rf2-upexd.3 — counter-case: a RETRY-ELIGIBLE failure exhausting
-            its attempts STILL emits the retry-attempt traces (the tighten
-            is surgical — it removes only the phantom case). A 5xx under
+  (testing "counter-case: a RETRY-ELIGIBLE failure exhausting
+            its attempts DOES emit the retry-attempt traces (the guard
+            suppresses only the phantom case). A 5xx under
             `:retry {:on #{:rf.http/http-5xx} :max-attempts 3}` retries
             twice and exhausts on attempt 3; the trace stream must carry the
             per-attempt retry-attempt events (the final one with
             :next-backoff-ms nil).
 
-            rf2-fyt5i — the same exhaustion sequence proves the retry
+            The same exhaustion sequence proves the retry
             timeline reports its `:recovery` disposition HONESTLY: an
             intermediate attempt that SCHEDULES another (`:next-backoff-ms`
-            non-nil) carries `:recovery :retried`; the retained terminal
+            non-nil) carries `:recovery :retried`; the terminal
             exhaustion marker (`:next-backoff-ms nil`) schedules nothing and
             carries `:recovery :no-recovery`, never a phantom `:retried`.
             `:recovery` is hoisted top-level on the `:info` event by
-            `trace/build-event`; before the fix neither producer arm supplied
-            it, so consumers read nil."
+            `trace/build-event`; a producer arm that did not supply
+            it would leave consumers reading nil."
     (let [traces      (atom [])
           listener-id ::upexd3-eligible
           {:keys [port] :as srv}
@@ -684,9 +680,9 @@
           (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
           (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
                                      @traces)
-                ;; rf2-fyt5i — the `:next-backoff-ms nil` discriminator splits
+                ;; The `:next-backoff-ms nil` discriminator splits
                 ;; the timeline into the intermediate SCHEDULING arm and the
-                ;; retained terminal-exhaustion marker.
+                ;; terminal-exhaustion marker.
                 {intermediate false terminal true}
                 (group-by #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)]
             (is (seq retry-traces)
@@ -694,8 +690,8 @@
             ;; The terminal exhaustion trace carries :next-backoff-ms nil.
             (is (some #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)
                 "the final exhaustion retry-attempt carries :next-backoff-ms nil")
-            ;; rf2-fyt5i — honest recovery dispositions. `:recovery` is hoisted
-            ;; top-level on the `:info` event; both arms must now supply it.
+            ;; Honest recovery dispositions. `:recovery` is hoisted
+            ;; top-level on the `:info` event; both arms must supply it.
             (is (seq intermediate)
                 "the 5xx exhaustion retries twice, so intermediate scheduling
                  retry-attempt traces (`:next-backoff-ms` non-nil) must exist")
@@ -714,27 +710,27 @@
           (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
 
-;; ---- 5d. Content-Type lookup is case-insensitive (rf2-6hbo8) -------------
+;; ---- 5d. Content-Type lookup is case-insensitive -------------------------
 ;;
 ;; Per Spec 014 §Request envelope, HTTP header names are case-insensitive.
-;; The old `decode-response-body` only checked the two literal spellings
-;; "content-type" and "Content-Type"; any other casing (e.g.
-;; "CONTENT-TYPE", "Content-type") returned nil and `sniff-decoder` fell
+;; A lookup that checked only the two literal spellings
+;; "content-type" and "Content-Type" would return nil for any other casing
+;; (e.g. "CONTENT-TYPE", "Content-type"), and `sniff-decoder` would fall
 ;; through to :blob — JSON arriving as raw text.
 ;;
-;; The CLJS Fetch path normalises (lower-case in `fetch-headers->map`) so
-;; the bug only manifested when a hand-constructed headers map reached
-;; `decode-response-body`. The fix is two-layered: the JVM transport
+;; The CLJS Fetch path normalises (lower-case in `fetch-headers->map`), so
+;; only a hand-constructed headers map can reach
+;; `decode-response-body` with another casing. Two layers cover it: the JVM transport
 ;; (`jvm-headers->map`) lower-cases at the boundary so the JVM path matches
 ;; the Fetch path, AND `http-decode/content-type-of` performs a
-;; case-insensitive scan so any future code path that synthesises a
+;; case-insensitive scan so any code path that synthesises a
 ;; headers map (interceptors, middleware, tests) decodes correctly.
 ;;
 ;; These unit tests exercise the helper and `decode-response-body`
-;; directly with mixed-case headers — they fail deterministically against
-;; the pre-fix code regardless of transport. (A full JVM transport e2e
+;; directly with mixed-case headers, independent of
+;; transport. (A full JVM transport e2e
 ;; test would pass vacuously because `java.net.http.HttpHeaders.map()`
-;; already returns lower-case keys.)
+;; returns lower-case keys.)
 
 (deftest content-type-of-case-insensitive
   (testing "lowercase key"
@@ -743,7 +739,7 @@
   (testing "canonical Title-Case key"
     (is (= "application/json"
            (rf.http.decode/content-type-of {"Content-Type" "application/json"}))))
-  (testing "all-caps key (the original bug — CONTENT-TYPE)"
+  (testing "all-caps key (CONTENT-TYPE)"
     (is (= "application/json"
            (rf.http.decode/content-type-of {"CONTENT-TYPE" "application/json"}))))
   (testing "mixed casing"
@@ -764,11 +760,11 @@
 
 (deftest decode-response-body-resolves-content-type-case-insensitively
   (testing "JSON decode under :auto fires when Content-Type has non-canonical casing"
-    ;; This is the original bug: the response headers carry "CONTENT-TYPE"
-    ;; (or any non-canonical casing); the pre-fix code's two-spelling `get`
-    ;; returned nil; `sniff-decoder` fell through to :blob; the caller
-    ;; received the raw body string. Post-fix, the helper resolves the
-    ;; header regardless of casing and JSON decodes correctly.
+    ;; The response headers carry "CONTENT-TYPE"
+    ;; (or any non-canonical casing); the helper resolves the
+    ;; header regardless of casing, so JSON decodes rather than
+    ;; `sniff-decoder` falling through to :blob and handing the caller the
+    ;; raw body string.
     (doseq [ct-key ["CONTENT-TYPE" "Content-type" "content-type" "Content-Type" "cOnTeNt-TyPe"]]
       (testing (str "casing: " ct-key)
         (let [decoded (rf.http.decode/decode-response-body
@@ -779,14 +775,14 @@
               (str "non-canonical Content-Type casing " (pr-str ct-key)
                    " must sniff to :json, not :blob")))))))
 
-;; ---- 5e. binary decode reads the native body, not body-text (rf2-5zj6t) ---
+;; ---- 5e. binary decode reads the native body, not body-text --------------
 ;;
 ;; Spec 014 §Decoding lists `:blob` / `:array-buffer` / `:form-data` as
-;; distinct binary decode shapes. The CLJS transport used to always
-;; pre-read the Fetch response via `(.text resp)`, so the binary decode
-;; branches resolved to the body-TEXT string — a caller asking
-;; `:decode :blob` for an image got a lossy UTF-8 string. The fix routes
-;; the resolved decode mode into the transport, which now picks the
+;; distinct binary decode shapes. A CLJS transport that always
+;; pre-read the Fetch response via `(.text resp)` would resolve the binary decode
+;; branches to the body-TEXT string — a caller asking
+;; `:decode :blob` for an image would get a lossy UTF-8 string. So
+;; the resolved decode mode routes into the transport, which picks the
 ;; correct Fetch reader (`.blob()` / `.arrayBuffer()` / `.formData()`)
 ;; and rides the native body under `:body-binary`; `decode-response-body`
 ;; returns it verbatim for the binary branches.
@@ -794,9 +790,8 @@
 ;; `binary-read-kind` is the pure resolution helper the transport calls
 ;; BEFORE consuming the body (a Fetch Response body may be read once).
 ;; These JVM unit tests exercise it and the `decode-response-body`
-;; binary-return path directly with stand-in binary values — they fail
-;; deterministically against the pre-fix code (which returned the text
-;; string for every binary mode).
+;; binary-return path directly with stand-in binary values; returning the
+;; text string for a binary mode fails them.
 
 (deftest binary-read-kind-resolves-binary-decode-modes
   (testing "explicit binary modes resolve to themselves"
@@ -809,7 +804,7 @@
     (is (nil? (rf.http.decode/binary-read-kind (fn [_ _] :decoded) {})))
     (is (nil? (rf.http.decode/binary-read-kind [:map] {}))
         "a Malli schema is a text (JSON-parse) mode, not binary"))
-  (testing ":auto sniffs the Content-Type — binary type → :blob (rf2-5zj6t)"
+  (testing ":auto sniffs the Content-Type — binary type → :blob"
     (is (= :blob (rf.http.decode/binary-read-kind :auto {"content-type" "image/png"}))
         ":auto over a binary Content-Type reads as a Blob, not lossy text")
     (is (= :blob (rf.http.decode/binary-read-kind nil {"content-type" "application/octet-stream"}))
@@ -823,7 +818,7 @@
   (testing "binary decode modes return the pre-read :body-binary verbatim"
     ;; Stand-in for the native Blob / ArrayBuffer / FormData the CLJS
     ;; transport reads. The decode pipeline must return THIS value, not
-    ;; the body-text string (the pre-fix bug).
+    ;; the body-text string.
     (let [native (Object.)]
       (doseq [mode [:blob :array-buffer :form-data]]
         (testing (str "mode: " mode)
@@ -925,23 +920,23 @@
         (let [db (await-reply! #(some? (:reply %)) 5000)]
           (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/transport (get-in db [:reply :error :kind]))))
-        ;; rf2-s8kcj control — only an ABORT is `:info`. A genuine failure
-        ;; kind keeps the `:error` trace row, through the same shared
+        ;; Control — only an ABORT is `:info`. A genuine failure
+        ;; kind emits an `:error` trace row, through the same shared
         ;; failure tail the abort-wins-a-race reclassification uses.
         (is (= [:error]
                (mapv :op-type @rows))
-            "rf2-s8kcj — a :rf.http/transport failure still emits exactly one :error row")
+            "a :rf.http/transport failure emits exactly one :error row")
         (finally
           (rf.trace.tooling/unregister-listener! cb-id))))))
 
-;; ---- 8b. abort on unknown request-id is a silent no-op (rf2-kdwnq) -------
+;; ---- 8b. abort on unknown request-id is a silent no-op -------------------
 ;;
-;; Per http_handlers.cljc:113-125, `managed-abort-handler` resolves the
-;; abort-fn through the in-flight registry and fires it; a missing
-;; entry yields `nil` from `lookup-in-flight`, the `when-let` collapses,
-;; and the handler returns `nil` without dispatch / throw. The shape is
-;; correct (idempotent abort) but not asserted — a regression that
-;; throws here (e.g. someone changing `when-let` to `let`, or adding a
+;; `managed-abort-handler` routes through `registry/abort-in-flight-in-frame!`,
+;; which resolves the abort-fn through the in-flight registry and fires it; a
+;; missing entry yields `nil` from `lookup-in-flight`, nothing fires,
+;; and the handler returns `nil` without dispatch / throw. That is the
+;; idempotent abort contract — a regression that
+;; throws here (e.g. adding a
 ;; precondition) would only surface as flake in apps that race
 ;; abort-then-cleanup. Pin the no-op contract.
 
@@ -971,7 +966,7 @@
         ;; Idempotent — abort the same unknown id a second time.
         (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
             "second abort of the same unknown id is also a silent no-op")
-        ;; Timer-semantics sleep (rf2-fun38): assertion is the *absence*
+        ;; Timer-semantics sleep: assertion is the *absence*
         ;; of any reply — there is no observable signal to poll against
         ;; (we are proving nothing fires). The 50ms window is the
         ;; quiescence budget; if a stray reply was going to come, it
@@ -1010,8 +1005,7 @@
           (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
         (rf/dispatch-sync [:slow/load])
         ;; Poll until the request is actually registered as in-flight —
-        ;; aborting before the executor has stamped the handle is a no-op
-        ;; (rf2-fun38 — replaces fixed Thread/sleep 50).
+        ;; aborting before the executor has stamped the handle is a no-op.
         (rf.test-support/poll-until
           #(contains? (rf.http.managed/in-flight-snapshot) :slow)
           {:label ":slow registered as in-flight before abort"})
@@ -1022,21 +1016,21 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
-;; ---- 9a. rf2-on7sj — abort + slow server must dispatch EXACTLY ONE reply ----
+;; ---- 9a. abort + slow server must dispatch EXACTLY ONE reply --------------
 ;;
-;; Pre-fix: the JVM abort-fn closure called finalise-failure! with the
-;; synthesised :rf.http/aborted reply, but DID NOT `.cancel cf true` on
-;; the underlying CompletableFuture. When the server eventually
-;; responded (or the cf naturally completed), `.whenComplete` fired
-;; handle-response! → finalise-success! (or maybe-retry!), dispatching
+;; A JVM abort-fn closure that called finalise-failure! with the
+;; synthesised :rf.http/aborted reply but did NOT `.cancel cf true` on
+;; the underlying CompletableFuture would let `.whenComplete` fire
+;; handle-response! → finalise-success! (or maybe-retry!) when the server
+;; eventually responded (or the cf naturally completed), dispatching
 ;; a SECOND reply for the same request — observable on the consuming
 ;; event handler as a double-reply on slow-server aborts.
 ;;
-;; The existing `jvm-abort-by-request-id` test (above) doesn't notice:
+;; `jvm-abort-by-request-id` (above) cannot see that:
 ;; it asserts the abort reply lands, then ends without waiting for the
 ;; latch release that would fire the second reply.
 ;;
-;; This regression test:
+;; This test:
 ;;   1. Spins up a latched server that blocks until released.
 ;;   2. Dispatches the managed request.
 ;;   3. Aborts (synthesised reply fires immediately).
@@ -1045,7 +1039,7 @@
 ;;   6. Asserts the reply-counter is EXACTLY 1.
 
 (deftest jvm-abort-then-server-release-emits-exactly-one-reply-rf2-on7sj
-  (testing "rf2-on7sj — slow-server abort must produce exactly ONE reply
+  (testing "slow-server abort must produce exactly ONE reply
             even after the underlying server eventually responds. The
             abort-fn cancels the CompletableFuture and CAS-guards the
             reply path so the latent whenComplete callback's natural
@@ -1078,8 +1072,7 @@
 
         ;; Issue the request. Server blocks on the latch.
         (rf/dispatch-sync [:on7sj/load])
-        ;; Poll until the request is registered in-flight before aborting
-        ;; (rf2-fun38 — replaces fixed Thread/sleep 50).
+        ;; Poll until the request is registered in-flight before aborting.
         (rf.test-support/poll-until
           #(contains? (rf.http.managed/in-flight-snapshot) :on7sj/req)
           {:label ":on7sj/req registered as in-flight before abort"})
@@ -1093,13 +1086,13 @@
           (is (= 1 @reply-count)
               "exactly one reply must have fired immediately after abort"))
 
-        ;; Release the server. Pre-fix: the underlying CompletableFuture
-        ;; was never cancelled and would now drain → whenComplete fires
-        ;; → second reply dispatched (the load-bearing bug). Post-fix:
-        ;; the cf.cancel + :finalised? CAS guard ensures the second
-        ;; reply path no-ops.
+        ;; Release the server. An uncancelled CompletableFuture
+        ;; would now drain → whenComplete fires
+        ;; → second reply dispatched. The
+        ;; cf.cancel + :finalised? CAS guard makes the second
+        ;; reply path a no-op.
         (.countDown latch)
-        ;; Timer-semantics sleep (rf2-fun38): we are proving the *absence*
+        ;; Timer-semantics sleep: we are proving the *absence*
         ;; of a second reply — no observable signal to poll against.
         ;; 800ms is the quiescence budget; the JDK HttpClient executor
         ;; would surface any latent whenComplete callback well within
@@ -1107,8 +1100,8 @@
         (Thread/sleep 800)
 
         (is (= 1 @reply-count)
-            (str "rf2-on7sj — exactly ONE reply must fire across abort + server-release. "
-                 "Pre-fix this would dispatch TWO. Saw "
+            (str "exactly ONE reply must fire across abort + server-release. "
+                 "Saw "
                  @reply-count " replies: "
                  (pr-str (mapv :status @all-replies))))
         (is (= 1 (count @all-replies))
@@ -1149,7 +1142,7 @@
 ;; ---- 11. with-request-stubs helper ----------------------------------------
 
 (deftest with-request-stubs-helper
-  (testing "rf2-rzqan — with-request-stubs routes :method+:url to the
+  (testing "with-request-stubs routes :method+:url to the
             configured reply with NO per-call :fx-overrides (the documented
             wrapper contract: the helper installs the
             :rf.http/managed → :rf.http/managed-test-stub override for the
@@ -1164,17 +1157,16 @@
     (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
       (fn []
-        ;; NO manual :fx-overrides — this is the documented form. Pre-fix this
-        ;; dispatch ran the real :rf.http/managed transport.
+        ;; NO manual :fx-overrides — this is the documented form.
         (rf/dispatch-sync [:articles/list])
         (let [db (await-reply! #(some? (:result %)) 2000)]
           (is (= :ok (get-in db [:result :status])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
 
-;; ---- 11b. rf2-lddbk — stubs may supply optional response metadata ----------
+;; ---- 11b. stubs may supply optional response metadata ----------------------
 
 (deftest with-request-stubs-optional-response-meta
-  (testing "rf2-lddbk — a route entry may supply optional response metadata
+  (testing "a route entry may supply optional response metadata
             beside its success value ({:reply {:ok v :meta {...}}}); it rides
             the canned reply's :meta slot verbatim so header-dependent :after
             code is testable without a network. An entry WITHOUT :meta stays
@@ -1206,7 +1198,7 @@
               "absence stays minimal — the stub fabricates no lifecycle facts"))))))
 
 (deftest canned-success-optional-response-meta
-  (testing "rf2-lddbk — the canned-success stub honours an optional :meta on
+  (testing "the canned-success stub honours an optional :meta on
             its args-map (same shape the live transport threads); absent
             stays absent"
     (rf/reg-event :meta-canned/load
@@ -1233,14 +1225,14 @@
       (is (not (contains? (:result db) :meta))
           "no :meta supplied — none fabricated"))))
 
-;; ---- 11a. rf2-rzqan — bare wrapper INTERCEPTS, never reaching the real fx ---
+;; ---- 11a. bare wrapper INTERCEPTS, never reaching the real fx -------------
 ;;
-;; The load-bearing regression for rf2-rzqan: the documented
+;; The documented
 ;; `with-request-stubs` wrapper must route `:rf.http/managed`
 ;; through the route-map stub by ITSELF — the body must NOT need a manual
-;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`. Pre-fix
-;; the helper only registered the stub fx but did NOT install the override,
-;; so a plain `dispatch-sync` inside the body ran the REAL production
+;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`. A helper
+;; that only registered the stub fx without installing the override
+;; would let a plain `dispatch-sync` inside the body run the REAL production
 ;; transport (network IO / hang / nondeterminism / false-green).
 ;;
 ;; To prove the REAL fx is never reached we shadow `:rf.http/managed` with
@@ -1251,12 +1243,12 @@
 ;; reply lands.
 
 (deftest with-request-stubs-intercepts-without-manual-override-rf2-rzqan
-  (testing "rf2-rzqan — inside with-request-stubs, a plain dispatch-sync
+  (testing "inside with-request-stubs, a plain dispatch-sync
             (NO per-call :fx-overrides) is intercepted by the stub and the real
             :rf.http/managed fx slot is NEVER invoked"
     (let [real-fx-invoked? (atom false)]
       ;; Shadow the production fx slot with a sentinel. Reaching THIS proves
-      ;; the override was absent (the pre-fix bug). The stub path bypasses it.
+      ;; the override was absent. The stub path bypasses it.
       (rf.fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :rzqan/load
@@ -1278,12 +1270,11 @@
                 "the configured :ok value rode through the synthesised success reply")
             (is (false? @real-fx-invoked?)
                 "the real :rf.http/managed fx was NEVER invoked — the helper's
-                 installed override intercepted the dispatch (pre-fix: this fired
-                 the real transport)")))))))
+                 installed override intercepted the dispatch")))))))
 
 (deftest with-request-stubs-per-call-override-still-wins-rf2-rzqan
-  (testing "rf2-rzqan — a per-call :fx-overrides inside the wrapper still wins
-            over the helper-installed lexical default (precedence preserved:
+  (testing "a per-call :fx-overrides inside the wrapper wins
+            over the helper-installed lexical default (precedence:
             per-call > lexical > per-frame)"
     (let [chosen (atom nil)]
       ;; A deliberately-supplied per-call override target.
@@ -1304,27 +1295,27 @@
           (is (= :explicit @chosen)
               "the per-call :fx-overrides won over the helper's lexical default"))))))
 
-;; ---- 11a-azrcs. route-map stub keys off the POST-`:before` request --------
+;; ---- 11c. route-map stub keys off the POST-`:before` request --------------
 ;;
-;; rf2-azrcs (independent-review finding #2) — the route-map stub picked
-;; `:method`/`:url` from the ORIGINAL pre-middleware args, then delegated to
-;; the canned handler that ran the `:before` chain LATER. The real
+;; The real
 ;; `:rf.http/managed` handler runs `:before` FIRST, validates the FINAL url,
-;; then sends the post-middleware request. So a base-URL / url-rewriting
-;; `:before` made the stub key off the draft url:
+;; then sends the post-middleware request. A route-map stub that picked
+;; `:method`/`:url` from the ORIGINAL pre-middleware args, then delegated to
+;; a canned handler running the `:before` chain LATER, would make a
+;; base-URL / url-rewriting `:before` key the stub off the draft url:
 ;;   - false-fail when the route map is keyed to the FINAL url (what
 ;;     production sends) — the draft url misses it; and
 ;;   - false-green when keyed to the ORIGINAL url even though production
 ;;     issues a different one.
-;; The fix runs the `:before` chain ONCE in the stub, keys the match against
+;; So the stub runs the `:before` chain ONCE, keys the match against
 ;; the post-`:before` url, and emits via that same middleware-ctx (no
-;; double-`:before`). A url-erasing `:before` now throws the production
+;; double-`:before`). A url-erasing `:before` throws the production
 ;; `:rf.error/http-bad-request` instead of a synthetic stubbed reply.
 
 (deftest stub-matches-post-before-url-rewrite-rf2-azrcs
-  (testing "rf2-azrcs — a base-URL `:before` rewrites `/articles` → `/v2/articles`;
-            the stub keyed to the FINAL `/v2/articles` matches (pre-fix it
-            keyed off the draft `/articles` and fell through to the
+  (testing "a base-URL `:before` rewrites `/articles` → `/v2/articles`;
+            the stub keyed to the FINAL `/v2/articles` matches (keying
+            off the draft `/articles` would fall through to the
             no-stub-matched failure)"
     (rf/reg-http-interceptor :azrcs/base-url
       {:before (fn [ctx]
@@ -1349,8 +1340,8 @@
               "the configured :ok value for the FINAL url rode through"))))))
 
 (deftest stub-does-not-match-stale-original-url-rf2-azrcs
-  (testing "rf2-azrcs (complement) — a route map keyed to the ORIGINAL
-            (draft) url no longer false-greens: with a url-rewriting
+  (testing "complement — a route map keyed to the ORIGINAL
+            (draft) url does not false-green: with a url-rewriting
             `:before`, the post-`:before` url is what the stub matches, so
             the stale-key entry misses and the no-stub-matched failure fires"
     (rf/reg-http-interceptor :azrcs/base-url2
@@ -1365,7 +1356,7 @@
                  {:reply-to [:azrcs/list2 msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
     ;; Keyed to the ORIGINAL draft url — production would issue /v2/articles,
-    ;; so this stub must NOT match (pre-fix it false-matched).
+    ;; so this stub must NOT match.
     (rf.http.test-support/with-request-stubs
       {[:get "/articles"] {:reply {:ok [:should :not :match]}}}
       (fn []
@@ -1379,10 +1370,10 @@
               "the no-match failure reports the FINAL post-`:before` url"))))))
 
 (deftest stub-url-erasing-before-throws-bad-request-rf2-azrcs
-  (testing "rf2-azrcs (complement) — a `:before` that BLANKS the url makes
+  (testing "complement — a `:before` that BLANKS the url makes
             the stub throw the production `:rf.error/http-bad-request` and
-            dispatch NO synthetic reply (pre-fix the stub keyed off the
-            original valid url and returned a stubbed reply, masking the
+            dispatch NO synthetic reply (keying off the
+            original valid url would return a stubbed reply, masking the
             invalid request the real handler would reject)"
     (rf/reg-http-interceptor :azrcs/url-eraser
       {:before (fn [ctx] (assoc-in ctx [:request :url] nil))})
@@ -1409,21 +1400,22 @@
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
           (rf.late-bind/set-fn! :router/dispatch! original))))))
 
-;; ---- 11a-vn8qjv. scoped stubs compose under nesting -----------------------
+;; ---- 11d. scoped stubs compose under nesting -------------------------------
 ;;
-;; rf2-vn8qjv (issue 2) — `with-request-stubs` must be stack-safe
-;; for nested lexical scopes. Pre-fix every scope keyed off ONE global stub
-;; fx id (`:rf.http/managed-test-stub`): the inner scope's install replaced
-;; the outer handler and the inner's `finally` CLEARED it, so an outer-scope
-;; dispatch after the inner exit routed to a now-absent fx. The fix mints a
-;; UNIQUE fx id per scope and binds the override to that id, so the outer
-;; scope's fx + override survive a fully-nested inner scope.
+;; `with-request-stubs` must be stack-safe
+;; for nested lexical scopes. If every scope installed ONE shared stub
+;; fx, the inner scope's install would replace
+;; the outer handler and the inner's `finally` would CLEAR it, so an outer-scope
+;; dispatch after the inner exit would route to an absent fx. Each scope
+;; binds its route map onto the dynamic var `*scope-stubs*` instead, so an
+;; inner binding shadows the outer's only for its extent and the outer
+;; scope's routes survive a fully-nested inner scope.
 
 (deftest scoped-stubs-compose-under-nesting-rf2-vn8qjv
-  (testing "rf2-vn8qjv — an outer A stub wraps an inner B stub; after the
+  (testing "an outer A stub wraps an inner B stub; after the
             inner B scope exits, a later outer-scope request still routes to
-            the A stub (pre-fix the inner's teardown cleared the shared fx and
-            the outer dispatch hit a missing fx / wrong handler)"
+            the A stub (the inner's teardown must not leave the outer
+            dispatch on a missing fx / wrong handler)"
     ;; Distinct event + route per call site so each scope keys off its own url.
     (rf/reg-event :vn8qjv/load-a
       (fn [{:keys [db]} [_ msg reply]]
@@ -1455,23 +1447,22 @@
           (is (= {:from :outer-a} (get-in db [:result-a :value]))
               "outer A scope still routed to the A stub — not cleared by inner B teardown"))))))
 
-;; ---- 11a-bxc8kf. stubs work inside a PRE-CREATED SEALED frame --------------
+;; ---- 11e. stubs work inside a PRE-CREATED SEALED frame ---------------------
 ;;
-;; rf2-bxc8kf — the exact tutorial nesting creates a frame FIRST, then enters
+;; The exact tutorial nesting creates a frame FIRST, then enters
 ;; `with-request-stubs`:
 ;;   (with-new-frame [f (make-frame {})]
 ;;     (with-request-stubs … (fn [] (dispatch-sync …)))))
 ;; `make-frame {}` resolves + SEALS an image generation at construction, and a
 ;; no-id (direct) frame is deliberately EXCLUDED from `reg-*` auto-reprojection
 ;; (`frame/image-loaded-frame-ids` drops the reserved `:rf.frame/<gensym>` ids).
-;; Pre-fix, `with-request-stubs` MINTED a fresh `:rf.test/managed-http-
-;; stub-<n>` fx-id and registered it INSIDE the scope — AFTER the frame had
-;; sealed. So the bound `{:rf.http/managed <scope-id>}` override redirected to an
-;; fx-id the sealed generation could not resolve (`registrar/lookup` routes
-;; through the frame's generation): the redirect fell through and the REAL
-;; `:rf.http/managed` transport ran (a `/x` dispatch produced an immediate
-;; `:rf.http/transport` error). The fix registers ONE STABLE override target at
-;; ns-load, so it lands in the sealed generation of every frame created after
+;; An override target registered INSIDE the scope — AFTER the frame had
+;; sealed — would be an
+;; fx-id the sealed generation cannot resolve (`registrar/lookup` routes
+;; through the frame's generation): the redirect would fall through and the REAL
+;; `:rf.http/managed` transport would run (a `/x` dispatch producing an immediate
+;; `:rf.http/transport` error). So ONE STABLE override target is registered at
+;; ns-load, landing in the sealed generation of every frame created after
 ;; the require; the per-scope route map rides the dynamic var `*scope-stubs*`.
 ;;
 ;; These tests use a `with-new-frame` frame and read app-db off the frame VALUE
@@ -1489,12 +1480,12 @@
     {:timeout-ms 2000 :label "sealed-frame http-managed reply"}))
 
 (deftest stubs-intercept-inside-pre-created-sealed-frame-rf2-bxc8kf
-  (testing "rf2-bxc8kf — a plain dispatch-sync inside with-request-stubs,
+  (testing "a plain dispatch-sync inside with-request-stubs,
             in a PRE-CREATED sealed `with-new-frame` frame, routes through the
             configured stub and NEVER invokes the real :rf.http/managed transport"
     (let [real-fx-invoked? (atom false)]
       ;; Shadow the production fx slot with a sentinel — reaching it proves the
-      ;; override was absent (the pre-fix sealed-frame bug). Registered BEFORE
+      ;; override was absent. Registered BEFORE
       ;; make-frame so it is in the sealed generation either way.
       (rf.fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
@@ -1517,16 +1508,14 @@
           (is (= {:stubbed true} (get-in db [:result :value]))
               "the configured :ok value rode through the synthesised reply")
           (is (false? @real-fx-invoked?)
-              "the real :rf.http/managed fx was NEVER invoked in the sealed frame
-               (pre-fix: the minted per-scope stub was unresolvable in the sealed
-               generation, so this fired the real transport)"))))))
+              "the real :rf.http/managed fx was NEVER invoked in the sealed frame"))))))
 
 (deftest sealed-frame-nesting-isolation-rf2-bxc8kf
-  (testing "rf2-bxc8kf — nested scopes still isolate inside a sealed frame: the
+  (testing "nested scopes isolate inside a sealed frame: the
             inner B scope's route map shadows the outer A's for its extent, and
             the outer A route map is restored when the inner scope exits (the
-            dynamic-var replacement for the minted-per-scope fx-id preserves the
-            rf2-vn8qjv nesting contract in the sealed-frame case)"
+            `*scope-stubs*` dynamic var holds the nesting contract in the
+            sealed-frame case)"
     (rf/reg-event :bxc8kf/load-a
       (fn [{:keys [db]} [_ msg reply]]
         (if reply
@@ -1555,7 +1544,7 @@
                 "outer A scope route map restored after the inner B scope exit")))))))
 
 (deftest sealed-frame-per-call-override-still-wins-rf2-bxc8kf
-  (testing "rf2-bxc8kf — precedence (per-call > lexical > per-frame) is preserved
+  (testing "precedence (per-call > lexical > per-frame) holds
             in a sealed frame: a per-call :fx-overrides on the dispatch beats the
             wrapper-installed lexical default"
     (let [chosen (atom nil)]
@@ -1576,16 +1565,16 @@
                 "the per-call :fx-overrides won over the wrapper's lexical default
                  in the sealed frame")))))))
 
-;; ---- 11a-vn8qjv (lower-level). install/uninstall stack + no fx leak --------
+;; ---- 11d (lower-level). install/uninstall stack + no fx leak ---------------
 ;;
-;; rf2-vn8qjv (issue 2) — the lower-level install/uninstall surface keeps the
+;; The lower-level install/uninstall surface uses the
 ;; STABLE documented id (`:rf.http/managed-test-stub`, the `:fx-overrides`
 ;; target users hardcode), but install snapshots the prior handler and
 ;; uninstall restores it, so a nested install/uninstall pair leaves the outer
 ;; install intact; a balanced top-level pair leaks no fx.
 
 (deftest lower-level-install-uninstall-stack-discipline-rf2-vn8qjv
-  (testing "rf2-vn8qjv — nested install/uninstall on the stable id restores the
+  (testing "nested install/uninstall on the stable id restores the
             outer handler; balanced top-level pair leaks no test fx"
     (let [stub-id :rf.http/managed-test-stub]
       (is (nil? (rf.registrar/handler :fx stub-id))
@@ -1612,27 +1601,27 @@
         (is (nil? (rf.registrar/handler :fx stub-id))
             "extra uninstall is an idempotent no-op")))))
 
-;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
+;; ---- 11b. canned-stub fxs gated on explicit test-support require -----------
 ;;
-;; Per rf2-cdmle (follow-up to rf2-zk08x): the gate that decides whether
+;; The gate that decides whether
 ;; the canned-stub fxs (`:rf.http/managed-canned-success` /
-;; `:rf.http/managed-canned-failure`) register moved from
-;; `(when interop/debug-enabled? ...)` inside `re-frame.http.managed` to
-;; the require boundary itself. The fxs now register under
+;; `:rf.http/managed-canned-failure`) register is
+;; the require boundary itself: the fxs register under
 ;; `re-frame.http.test-support`; production code paths must not require
 ;; that namespace.
 ;;
-;; Why the change: `interop/debug-enabled?` is unconditionally true on the
-;; JVM, so the prior gate left the canned-stub fx ids registered as
+;; Why not `(when interop/debug-enabled? ...)`: `interop/debug-enabled?` is
+;; unconditionally true on the
+;; JVM, so that gate would leave the canned-stub fx ids registered as
 ;; production-default API on JVM/SSR builds — discoverable via
 ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
 ;; from any handler in production code. The require-boundary gate makes
 ;; the absence load-bearing on every host: JVM/SSR sees classpath
-;; absence; CLJS `:advanced` sees module-graph DCE (the existing
-;; `scripts/check-elision.cjs` sentinels still pin the bundle absence).
+;; absence; CLJS `:advanced` sees module-graph DCE (the
+;; `scripts/check-elision.cjs` sentinels pin the bundle absence).
 ;;
-;; This file's reset-runtime fixture re-requires
-;; `re-frame.http.test-support :reload` between tests, so the canned
+;; This file requires `re-frame.http.test-support`, and the reset-runtime
+;; fixture restores the registrar snapshot taken with it loaded, so the canned
 ;; stubs ARE registered for the bulk of the suite (the methodology
 ;; check below pins that). The standalone negative-assertion test that
 ;; exercises the absence path (test-support absent → canned stubs
@@ -1641,12 +1630,13 @@
 ;; pass the absence assertion.
 
 (deftest canned-stub-fxs-registered-when-test-support-required
-  (testing "rf2-cdmle methodology check — with re-frame.http.test-support
+  (testing "methodology check — with re-frame.http.test-support
             in the require closure (this ns requires it at the top), the
             two canonical canned-stub fxs MUST be registered. The
             absence test in re-frame.http-test-support-absent-test would
             be vacuous if this side did not actually register the stubs."
-    ;; The fixture has just reloaded http-test-support, so the canned
+    ;; The fixture restores a registrar snapshot taken with http-test-support
+    ;; loaded, so the canned
     ;; stubs are present. The production-eligible fxs are present too.
     (is (some? (rf.registrar/lookup :fx :rf.http/managed))
         ":rf.http/managed is dev+prod — always registered by re-frame.http.managed")
@@ -1657,16 +1647,18 @@
     (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure registered when re-frame.http.test-support is required")))
 
-;; ---- actor-in-flight-snapshot shape contract (rf2-kyl7) -------------------
+;; ---- actor-in-flight-snapshot shape contract -------------------------------
 ;;
-;; Per rf2-kyl7: `actor-in-flight-snapshot` and `in-flight-snapshot`
+;; `actor-in-flight-snapshot` and `in-flight-snapshot`
 ;; are read by assertions across http_actor_destroy_cancellation_test
-;; and http_managed_machine_test, but no test PINS THE SHAPE of the
-;; snapshot — which keys, which values. A wire-protocol regression
-;; (e.g. someone changing the value to a single handle instead of a
-;; vector of handles) would slip through every existing assertion.
+;; and http_managed_machine_test; this test PINS THE SHAPE of the
+;; snapshot — which keys, which values — so a wire-protocol regression
+;; (e.g. changing the value to a single handle instead of a
+;; vector of handles) cannot slip through those assertions.
 ;;
-;; Source: http_managed.cljc:177-189. Storage is:
+;; Source: `registry/in-flight-snapshot` and
+;; `registry/actor-in-flight-snapshot` (re-exported by
+;; `re-frame.http.managed`). The snapshot shapes are:
 ;;   `actor-in-flight` : actor-id → vector of handle maps
 ;;   `in-flight`       : request-id → single handle map
 ;; Each handle map carries `:abort-fn`, `:url`, plus the framework
@@ -1676,7 +1668,7 @@
   "Wait up to `timeout-ms` for `(pred)` to be truthy. Returns `:done`
   on success; throws `ex-info` carrying `:rf.error/id`
   `:rf.error/poll-until-timeout` on timeout. Thin alias over
-  `test-support/poll-until` (rf2-fun38)."
+  `test-support/poll-until`."
   [pred timeout-ms]
   (rf.test-support/poll-until pred {:timeout-ms timeout-ms
                                  :label "http-managed condition"})
@@ -1808,17 +1800,17 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
-;; ---- 14. supersede on same :request-id (rf2-lxd3) -------------------------
+;; ---- 14. supersede on same :request-id ------------------------------------
 ;;
-;; Per rf2-lxd3 decision A: when a fresh request supersedes a prior one
+;; When a fresh request supersedes a prior one
 ;; with the same `:request-id`, the prior request's `:on-failure` reply
 ;; is NOT dispatched (semantic = the new request replaces the old one,
-;; debounce-search mental model). The supersede event still emits to
+;; debounce-search mental model). The supersede event emits to
 ;; the trace bus (`:rf.http/aborted` with `:reason :request-id-superseded`);
 ;; consumers wanting abort telemetry subscribe via `register-listener!`.
 
 (deftest jvm-supersede-does-not-fire-on-failure
-  (testing "rf2-lxd3 — superseding a request with the same :request-id MUST NOT
+  (testing "superseding a request with the same :request-id MUST NOT
             fire the prior request's :on-failure. The :on-success is silenced
             (nil) on both requests so the test isolates failure-reply behaviour
             from the JVM transport's natural-completion path."
@@ -1865,19 +1857,19 @@
         (.countDown latch)
         ;; Wait for the second request's success reply.
         (await-condition! #(true? @b-success?) 5000)
-        ;; Timer-semantics sleep (rf2-fun38): the PRIOR request's
+        ;; Timer-semantics sleep: the PRIOR request's
         ;; :on-failure MUST NOT have fired — we are proving absence.
         ;; Extra 100ms quiescence rules out any delayed dispatch from
         ;; the abort or natural-completion path within window.
         (Thread/sleep 100)
         (is (false? @a-failed?)
-            "the superseded request's :on-failure must NOT fire (rf2-lxd3 fix)")
+            "the superseded request's :on-failure must NOT fire")
         (is (true? @b-success?)
             "the superseding request's :on-success DOES fire")
         (finally (stop-server! srv))))))
 
 (deftest jvm-supersede-still-emits-trace-event
-  (testing "rf2-lxd3 — supersede still emits :rf.http/aborted trace event with
+  (testing "supersede still emits :rf.http/aborted trace event with
             :reason :request-id-superseded so register-listener! consumers
             keep visibility"
     (let [latch    (CountDownLatch. 1)
@@ -1897,7 +1889,7 @@
                                       :rf.http/stale-suppressed (swap! stale conj ev)
                                       nil)))
         ;; This test asserts the supersede TRACE, not the reply; a benign
-        ;; no-op recorder satisfies the mandatory reply addressing (rf2-et4c1s).
+        ;; no-op recorder satisfies the mandatory reply addressing.
         (rf/reg-event :search/recorder (fn [_ _] {}))
         (rf/reg-event :search/run
           (fn [_ _]
@@ -1929,12 +1921,12 @@
               ":reason :request-id-superseded distinguishes supersede from :user / :actor-destroyed")
           (is (= :search (:request-id tags))
               ":request-id rides on the trace event")
-          ;; rf2-s8kcj — a supersession is the designed replacement, not a
+          ;; A supersession is the designed replacement, not a
           ;; failure: the row is `:info`, so it never paints the superseding
           ;; event as an error. It still says why (`:reason`) and still carries
           ;; its `:recovery`.
           (is (= :info (:op-type ev))
-              "rf2-s8kcj — the supersede :rf.http/aborted row is :info, never :error")
+              "the supersede :rf.http/aborted row is :info, never :error")
           (is (= :no-recovery (:recovery ev))
               ":recovery still rides on the :info row"))
         ;; Control: the canonical stale-suppression row that records the
@@ -1949,8 +1941,8 @@
           (stop-server! srv))))))
 
 (deftest jvm-non-superseded-abort-still-fires-reply
-  (testing "rf2-lxd3 regression guard — a non-supersede abort (manual
-            :rf.http/managed-abort) STILL fires :on-failure as before.
+  (testing "a non-supersede abort (manual
+            :rf.http/managed-abort) fires :on-failure.
             Only :reason :request-id-superseded suppresses the reply."
     (let [latch        (CountDownLatch. 1)
           reply-fired? (atom false)
@@ -1991,7 +1983,7 @@
         (await-condition! #(true? @reply-fired?) 2000)
 
         (is (true? @reply-fired?)
-            "non-supersede abort STILL dispatches :on-failure")
+            "non-supersede abort DOES dispatch :on-failure")
         ;; Per build-reply-event: explicit :on-failure [:slow/failed] appends
         ;; the reply payload as the last arg — the handler receives the
         ;; payload directly (NOT wrapped under :rf/reply).
@@ -2002,12 +1994,12 @@
               "failure kind is :rf.http/aborted")
           (is (not= :request-id-superseded (-> reply :error :reason))
               ":reason is NOT :request-id-superseded (this is the regression guard)"))
-        ;; rf2-s8kcj — the cancel button is a deliberate act, not a failure:
+        ;; The cancel button is a deliberate act, not a failure:
         ;; its `:rf.http/aborted` row is `:info` for `:reason :user` too, while
         ;; the reply above is still the live `:cancelled` delivery.
         (is (= [[:info :user]]
                (mapv (juxt :op-type (comp :reason :tags)) @aborted-rows))
-            "rf2-s8kcj — exactly one :rf.http/aborted row, at :info, for the :user abort")
+            "exactly one :rf.http/aborted row, at :info, for the :user abort")
 
         (.countDown latch)
         (finally
@@ -2015,8 +2007,7 @@
           (stop-server! srv))))))
 
 ;; ===========================================================================
-;; rf2-ohwgm — end-to-end coverage for the three untested spec contracts the
-;; http test-coverage audit (ai/findings/2026-05-21-testcov-http.md) flagged:
+;; End-to-end coverage for three spec contracts:
 ;;   G1  — Malli schema decode failure → :rf.http/decode-failure
 ;;          :schema-validation-failure? true (and too-many-keys e2e)
 ;;   G2  — :accept returning {:failure ..} → :rf.http/accept-failure reply
@@ -2031,10 +2022,10 @@
 ;; ---- G1: Malli schema decode — validation failure e2e ---------------------
 
 (deftest jvm-schema-validation-failure-classifies-as-decode-failure
-  (testing "rf2-ohwgm — a 200 JSON response that parses but FAILS a Malli
+  (testing "a 200 JSON response that parses but FAILS a Malli
             :decode schema classifies as :rf.http/decode-failure with
             :schema-validation-failure? true (Spec 014 §Classification
-            order step 3; http_transport.cljc:721-726)"
+            order step 3)"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -2061,7 +2052,7 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-schema-decode-success-coerces-value
-  (testing "rf2-ohwgm — a 200 JSON response that satisfies the Malli
+  (testing "a 200 JSON response that satisfies the Malli
             :decode schema returns the coerced value as the :success reply
             (string status coerced to keyword by the json-transformer)"
     (let [{:keys [port] :as srv}
@@ -2085,10 +2076,10 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-too-many-keys-cap-classifies-as-decode-failure
-  (testing "rf2-ohwgm — the :rf.http/max-decoded-keys cap threaded into the
+  (testing "the :rf.http/max-decoded-keys cap threaded into the
             schema-branch decode surfaces a :too-many-keys throw as
             :rf.http/decode-failure end-to-end (NOT masked behind a schema
-            rejection; rf2-wu1n5)"
+            rejection)"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -2113,7 +2104,7 @@
           ;; validation, so :schema-validation-failure? must be falsey.
           (is (not (true? (:schema-validation-failure? failure)))
               "too-many-keys is a malformed-json cap-throw, not a schema rejection")
-          ;; rf2-mdxd7 — Spec 014 §Keyword-interning cap (lines 145, 285,
+          ;; Spec 014 §Keyword-interning cap (lines 145, 285,
           ;; 289) mandates the overflow surface as :rf.http/decode-failure
           ;; with :reason :too-many-keys and the configured :limit. Both
           ;; must reach the dispatched failure map so a caller branching
@@ -2128,7 +2119,7 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-bare-json-syntax-error-carries-no-too-many-keys-reason
-  (testing "rf2-mdxd7 — a 200 response whose body is malformed JSON (a
+  (testing "a 200 response whose body is malformed JSON (a
             plain syntax error, NOT a cap overflow) still classifies as
             :rf.http/decode-failure but carries NEITHER :reason :too-many-keys
             NOR :limit — those slots are reserved for the DoS-cap shape, so
@@ -2161,10 +2152,10 @@
 ;; ---- G2: :accept returning {:failure ..} → :rf.http/accept-failure --------
 
 (deftest jvm-accept-failure-classifies-and-carries-detail-and-decoded
-  (testing "rf2-ohwgm — an :accept fn that returns {:failure ..} on a 2xx
+  (testing "an :accept fn that returns {:failure ..} on a 2xx
             response produces a :rf.http/accept-failure reply carrying the
             user :detail and the pre-accept :decoded value
-            (http_transport.cljc:523-530; Spec 014 §`:accept` +
+            (Spec 014 §`:accept` +
             §Classification order step 4)"
     (let [{:keys [port] :as srv}
           (start-server!
@@ -2202,9 +2193,9 @@
 ;; ---- G3: request-side encoding observed at the server ---------------------
 
 (deftest jvm-request-params-encoded-into-query-string
-  (testing "rf2-ohwgm — :params is encoded onto the request URL as a query
+  (testing ":params is encoded onto the request URL as a query
             string (keyword keys → name, values escaped) and arrives at
-            the server (http_encoding.cljc:50-67 via run-attempt!)"
+            the server (via run-attempt!)"
     (let [seen-query (atom nil)
           {:keys [port] :as srv}
           (start-server!
@@ -2234,9 +2225,9 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-request-content-type-encodes-body-and-sets-header
-  (testing "rf2-ohwgm — :request-content-type :json encodes the body and
+  (testing ":request-content-type :json encodes the body and
             sets the Content-Type header; the server observes both
-            (http_encoding.cljc:76-102 + the header-set in run-attempt!)"
+            (`encode-body` + the header-set in run-attempt!)"
     (let [seen-ct   (atom nil)
           seen-body (atom nil)
           {:keys [port] :as srv}
@@ -2265,10 +2256,10 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-explicit-content-type-header-wins-clash-guard
-  (testing "rf2-ohwgm — when the request already carries a Content-Type
+  (testing "when the request already carries a Content-Type
             header, run-attempt! does NOT overwrite it with the
-            encode-body content-type (the clash guard at
-            http_transport.cljc:755-757)"
+            encode-body content-type (the clash guard in
+            `prepare-body!`)"
     (let [seen-cts (atom nil)
           {:keys [port] :as srv}
           (start-server!
@@ -2300,15 +2291,15 @@
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; rf2-rznrz — finding 1: multi-valued REQUEST headers reach the wire as
+;; Multi-valued REQUEST headers reach the wire as
 ;; repeated header instances, not a single malformed `["a" "b"]` value.
 ;; ===========================================================================
 
 (deftest jvm-vector-request-header-sent-as-repeated-values
-  (testing "rf2-rznrz — a request header whose value is a vector of strings
+  (testing "a request header whose value is a vector of strings
             (the documented multi-valued shape) arrives at the server as N
             repeated header instances, NOT one line carrying the stringified
-            vector. The JVM transport now calls .header once per element."
+            vector. The JVM transport calls .header once per element."
     (let [seen-accept (atom nil)
           {:keys [port] :as srv}
           (start-server!
@@ -2336,11 +2327,11 @@
                '[\"alpha\" \"beta\" \"gamma\"]' stringified line")
           (is (not-any? #(clojure.string/includes? % "[")
                         vs)
-              "no element carries a serialised-vector bracket (the prior bug)"))
+              "no element carries a serialised-vector bracket"))
         (finally (stop-server! srv))))))
 
 (deftest jvm-scalar-request-header-still-single-value
-  (testing "rf2-rznrz — a scalar request header value is unchanged: one wire
+  (testing "a scalar request header value is one wire
             instance carrying the stringified scalar (the 99% path)"
     (let [seen (atom nil)
           {:keys [port] :as srv}
@@ -2364,19 +2355,19 @@
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; rf2-rznrz — finding 2: :accept phase isolation + shape validation.
+;; :accept phase isolation + shape validation.
 ;;   - an :accept THROW classifies as :rf.http/accept-failure (NOT
-;;     :rf.http/decode-failure — the prior fused try/catch misclassified it);
+;;     :rf.http/decode-failure — a try/catch fused with decode would misclassify it);
 ;;   - a MALFORMED :accept return (nil / map without :ok/:failure) classifies
-;;     as :rf.http/accept-failure and ALWAYS dispatches a reply (previously
-;;     it stranded the caller with no reply at all).
+;;     as :rf.http/accept-failure and ALWAYS dispatches a reply (never
+;;     stranding the caller with no reply at all).
 ;; ===========================================================================
 
 (deftest jvm-accept-throw-classifies-as-accept-failure-not-decode-failure
-  (testing "rf2-rznrz — an :accept fn that THROWS on a 2xx response
+  (testing "an :accept fn that THROWS on a 2xx response
             classifies as :rf.http/accept-failure (step-4 error), NOT
             :rf.http/decode-failure (step-3). The decode succeeded; the
-            accept phase is now isolated in its own try/catch."
+            accept phase is isolated in its own try/catch."
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -2404,11 +2395,11 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-accept-nil-return-classifies-as-accept-failure-and-replies
-  (testing "rf2-rznrz — an :accept fn returning nil (a malformed shape) is
+  (testing "an :accept fn returning nil (a malformed shape) is
             classified as :rf.http/accept-failure and ALWAYS dispatches a
-            reply. Previously this fell through finalise-success!'s cond with
-            no matching branch: the in-flight request was cleared and NO reply
-            was dispatched — the caller hung forever."
+            reply. Without a branch for it, finalise-success!'s cond would
+            clear the in-flight request and dispatch NO reply — the caller
+            would hang forever."
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -2427,7 +2418,7 @@
         (let [db      (await-reply! #(some? (:reply %)) 5000)
               failure (get-in db [:reply :error])]
           (is (= :error (get-in db [:reply :status]))
-              "a nil :accept return STILL dispatches a reply (no infinite hang)")
+              "a nil :accept return DOES dispatch a reply (no infinite hang)")
           (is (= :rf.http/accept-failure (:kind failure))
               "the malformed return classifies as :rf.http/accept-failure")
           (is (= {:ok true} (:decoded failure))
@@ -2435,9 +2426,9 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-accept-map-without-ok-or-failure-classifies-as-accept-failure
-  (testing "rf2-rznrz — an :accept fn returning a map that carries NEITHER
+  (testing "an :accept fn returning a map that carries NEITHER
             :ok NOR :failure is malformed and classifies as
-            :rf.http/accept-failure with a reply (was a silent hang)"
+            :rf.http/accept-failure with a reply (never a silent hang)"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -2461,7 +2452,7 @@
         (finally (stop-server! srv))))))
 
 (deftest jvm-accept-well-formed-ok-still-succeeds
-  (testing "rf2-rznrz — a well-formed {:ok v} accept return is unaffected:
+  (testing "a well-formed {:ok v} accept return succeeds:
             the success reply carries v (regression guard for the phase split)"
     (let [{:keys [port] :as srv}
           (start-server!
@@ -2480,25 +2471,25 @@
         (let [db (await-reply! #(some? (:reply %)) 5000)]
           (is (= :ok (get-in db [:reply :status])))
           (is (= 42 (get-in db [:reply :value]))
-              "a well-formed {:ok v} still projects the success value"))
+              "a well-formed {:ok v} projects the success value"))
         (finally (stop-server! srv))))))
 
-;; ---- rf2-xmp74u — stub/canned request-chain failure honours TOP-LEVEL
+;; ---- stub/canned request-chain failure honours TOP-LEVEL
 ;;      :sensitive? -------------------------------------------------------------
 ;;
 ;; Production `managed-handler` seeds the effective top-level `:sensitive?`
 ;; into the request middleware ctx (via `privacy/request-sensitive?`), so when
 ;; a `:before` throws, the `:rf.error/http-interceptor-failed` trace redacts
 ;; ALL query values + stamps `:sensitive?`. The canned/stub wrapper's
-;; `run-request-chain` built `ctx0` WITHOUT that top-level flag, so a request
+;; `run-request-chain` seeds the same flag into `ctx0`; without it, a request
 ;; that opted in via the TOP-LEVEL `:sensitive? true` form (not the nested
-;; `[:request :sensitive?]`) ran the stub `:before` chain non-sensitive and
-;; leaked non-denylisted query values through the failure trace — a stub-path
+;; `[:request :sensitive?]`) would run the stub `:before` chain non-sensitive and
+;; leak non-denylisted query values through the failure trace — a stub-path
 ;; secret leak + a test false-green relative to production.
 ;;
 ;; We key the proof on a NON-denylisted query param (`customer_email`): only
 ;; effective top-level sensitivity can scrub it. The chain's own `:sensitive-of`
-;; reducer (rf2-rznrz) still recomputes from a `:before`-MARKED request, so this
+;; reducer also recomputes from a `:before`-MARKED request, so this
 ;; seed is the pre-chain floor — exactly what production seeds.
 ;;
 ;; A `:before` throw inside `dispatch-sync`'s fx phase is swallowed into the
@@ -2507,10 +2498,10 @@
 ;; failure event.
 
 (deftest stub-request-chain-failure-honours-top-level-sensitive-rf2-xmp74u
-  (testing "rf2-xmp74u — a route-map stub with TOP-LEVEL :sensitive? true and a
+  (testing "a route-map stub with TOP-LEVEL :sensitive? true and a
             throwing :before emits :rf.error/http-interceptor-failed redacting
             the NON-denylisted query value AND stamping :sensitive? — matching
-            production, not the prior stub-path leak"
+            production"
     (let [traces      (atom [])
           listener-id (gensym "xmp74u-stub-sensitive-")
           recorded    (atom [])
@@ -2559,7 +2550,7 @@
           (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 (deftest stub-request-chain-failure-non-sensitive-leaves-query-value-rf2-xmp74u
-  (testing "rf2-xmp74u (complement) — WITHOUT :sensitive?, the same throwing
+  (testing "complement — WITHOUT :sensitive?, the same throwing
             :before leaves the NON-denylisted query value verbatim and does NOT
             stamp :sensitive? (the seed is gated on actual sensitivity, not a
             blanket scrub)"
@@ -2596,18 +2587,18 @@
           (rf.trace.tooling/unregister-listener! listener-id)
           (rf.late-bind/set-fn! :router/dispatch! original))))))
 
-;; ---- rf2-k47b3d — issuance-counter eviction bounds the map -----------------
+;; ---- issuance-counter eviction bounds the map -----------------------------
 
 (deftest issuance-counter-evicts-on-completion
-  (testing "rf2-k47b3d — a request-id's issuance counter is EVICTED when its
+  (testing "a request-id's issuance counter is EVICTED when its
   final attempt reaches a terminal completion, so an app minting an UNBOUNDED
   distinct-id space (e.g. `[:fetch-doc uuid]` over an unbounded id space) does
   NOT accumulate one permanent `issuance-counters` entry per id ever requested
-  on a long-running JVM (the leak the monotonic-forever design carried)."
+  on a long-running JVM (the leak a monotonic-forever counter would carry)."
     (rf.http.registry/reset-issuance-counters-for-test!)
     (is (zero? (rf.http.registry/issuance-counter-count)))
     ;; Adversarial: 500 DISTINCT single-issuance request-ids, each issued once
-    ;; then completed. Pre-fix the map would end holding 500 entries; the
+    ;; then completed. Without eviction the map would end holding 500 entries; the
     ;; conditional-atomic evict on completion keeps it at zero.
     (doseq [i (range 500)]
       (let [rid      [:fetch-doc i]
@@ -2622,9 +2613,9 @@
         "the map stays bounded across 500 distinct single-issuance request-ids")))
 
 (deftest issuance-counter-eviction-preserves-live-successor
-  (testing "rf2-k47b3d — the eviction is CONDITIONAL-ATOMIC (evict only when
+  (testing "the eviction is CONDITIONAL-ATOMIC (evict only when
   the counter still equals the completing attempt's issuance), preserving the
-  rf2-azcmd3 anti-collision invariant: a SUPERSEDED attempt's terminal eviction
+  anti-collision invariant: a SUPERSEDED attempt's terminal eviction
   MUST NOT drop the live successor's counter, because `next-issuance!` already
   bumped it past the superseded attempt's issuance BEFORE the supersede."
     (rf.http.registry/reset-issuance-counters-for-test!)
@@ -2650,9 +2641,9 @@
   (rf.http.registry/evict-issuance-on-completion! :frame/counters nil 1)
   (is (zero? (rf.http.registry/issuance-counter-count))
       "evicting a nil request-id is a no-op")
-  ;; rf2-o8ek — the counter is FRAME-SCOPED: a sibling frame reusing the same
+  ;; The counter is FRAME-SCOPED: a sibling frame reusing the same
   ;; raw id runs its own sequence and starts at 1, rather than inheriting the
-  ;; other frame's count (measured pre-fix: frame B's FIRST issuance read 2).
+  ;; other frame's count.
   (rf.http.registry/reset-issuance-counters-for-test!)
   (is (= 1 (rf.http.registry/next-issuance! :frame/a :shared)))
   (is (= 1 (rf.http.registry/next-issuance! :frame/b :shared))

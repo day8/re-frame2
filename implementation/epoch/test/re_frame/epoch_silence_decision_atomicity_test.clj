@@ -1,15 +1,15 @@
 (ns re-frame.epoch-silence-decision-atomicity-test
-  "rf2-uhouu — the delayed-silence receiver decision is ONE atomic observation.
+  "The delayed-silence receiver decision is ONE atomic observation.
 
-  ## The defect this closes
+  ## Why one operation
 
-  The receiver rule rf2-qg98y documented as *exact* was TWO separate public
+  A receiver rule built from TWO separate public
   reads, composed at the call site:
 
       (and (= (:observed-gen tags) (rf/epoch-listener-generation cb-id))
            (not (rf/epoch-listener-observing? cb-id (:frame tags))))
 
-  That composite is not linearizable. Each read is individually coherent, but
+  is not linearizable. Each read is individually coherent, but
   nothing holds the ledger still BETWEEN them, so a same-id replacement or an
   unregister-drop can land at the seam: clause 1 has already committed to a
   generation that is no longer current when clause 2 evaluates, and clause 2
@@ -25,21 +25,21 @@
   stamp-G-against-registry-H, answering *not observing* when the callback was
   observing before and is observing after.
 
-  ## The fix these tests pin
+  ## What these tests pin
 
   ONE operation — `rf/epoch-silence-current?` — takes the signal's tags and
   weighs BOTH facts inside a single `with-claim-locks` critical section, which
   excludes `put-listener!` (registry lock), `record-observation!` (silence-lock)
   and `drop-listener!` (both) for its duration. There is no seam left to place a
   mutation at, so the answer always names a real ledger state. The two low-level
-  queries are RETIRED rather than kept alongside it: exposing the halves is
+  queries are not published alongside it: exposing the halves is
   exposing the race.
 
   ## How these tests establish that deterministically
 
   A concurrency defect proved by racing threads is a defect proved sometimes.
   Each test below instead places the mutation AT the seam by construction — the
-  reads are performed explicitly, in the order the retired composite performed
+  reads are performed explicitly, in the order a two-read composite performs
   them, with the mutation executed between them on the same thread. That is the
   strongest possible barrier: the interleaving is not merely possible, it is
   the one that ran.
@@ -49,7 +49,7 @@
   composite with the mutation at the seam. A `torn` that equals neither is a
   linearizability violation.
 
-  TOOTH: revert `state/silence-current?` to two independent public reads and the
+  TOOTH: split `state/silence-current?` into two independent public reads and the
   seam-1 cases below fail — the composite they reconstruct IS what the receiver
   would then be running."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -68,8 +68,8 @@
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- gen
-  "The live generation token under `cb`. There is no longer a public query for
-  this — deliberately (rf2-uhouu): a consumer holding the generation ALONE can
+  "The live generation token under `cb`. There is deliberately no public query
+  for this: a consumer holding the generation ALONE can
   only recompose the torn decision. Artefact-internal tests read the registry
   snapshot directly."
   [cb]
@@ -103,20 +103,20 @@
   (observing-torn cb frame (fn [])))
 
 (defn- two-read-torn
-  "Reproduces the RETIRED two-query receiver composite, with `mutate!` executed
+  "Reproduces a two-query receiver composite, with `mutate!` executed
   at the seam between clause 1 (registration identity) and clause 2 (observation
-  continuum) — the exact shape a consumer following the old documented rule ran."
+  continuum) — the shape a consumer composing the two reads would run."
   [tags mutate!]
   (let [clause-1 (= (:observed-gen tags) (gen (:cb-id tags)))   ; read 1
         _        (mutate!)                                      ; ← THE SEAM
         clause-2 (not (observing-now (:cb-id tags) (:frame tags)))] ; read 2
     (and clause-1 clause-2)))
 
-;; ---- SEAM 1: between the two clauses of the retired composite ---------------
+;; ---- SEAM 1: between the two clauses of the two-read composite -------------
 
 (deftest a-replacement-at-the-clause-seam-cannot-accept-a-superseded-silence
   (testing "a same-id replacement landing between the registration read and the
-            observation read makes the retired composite ACCEPT a verdict no
+            observation read makes the two-read composite ACCEPT a verdict no
             single point in time held; the atomic decision rejects at both"
     (let [frame :uhouu/replace
           cb    ::uhouu-replace-cb
@@ -136,7 +136,7 @@
                silence no longer names the live callback")
           (is (not= g (gen cb)) "the replacement really did supersede G"))
 
-        (testing "the retired composite accepts anyway — the linearizability violation"
+        (testing "the two-read composite accepts anyway — the linearizability violation"
           (is (true? torn)
               "clause 1 committed to G, then the replacement made clause 2 report
                the FRESH registration as not-observing: an accept describing a
@@ -163,7 +163,7 @@
         (is (nil? (gen cb)) "the drop really did retire the registration")
         (is (false? after) "AFTER: no registration at all, so no live callback to be silent")
         (is (true? torn)
-            "the retired composite accepts a silence for a registration that no
+            "the two-read composite accepts a silence for a registration that no
              longer exists")
         (is (false? (rf/epoch-silence-current? tags))
             "the atomic decision rejects — an absent registration is never current")))))
@@ -171,7 +171,7 @@
 (deftest a-same-generation-rearm-at-the-clause-seam-is-consistent-but-only-by-read-order
   (testing "the third mutation kind at seam 1. A delivery mints no generation, so
             clause 1 is untouched by it and the composite happens to linearize at
-            the AFTER state. Recorded as a finding, not a violation — the case is
+            the AFTER state. Not a violation — the case is
             benign for THIS seam and the atomic decision agrees with it"
     (let [frame :uhouu/rearm
           cb    ::uhouu-rearm-cb
@@ -195,7 +195,7 @@
 ;; ---- SEAM 2: inside the observation-continuum predicate ---------------------
 
 (deftest a-replacement-plus-rearm-inside-the-observation-predicate-cannot-tear
-  (testing "the second seam the audit named: the observation predicate derefs the
+  (testing "the second seam: the observation predicate derefs the
             observation ledger and THEN the listener registry — two atoms under
             two different monitors. A replacement plus a re-arm of the fresh
             generation at that seam answers NOT-observing while both endpoints
@@ -219,7 +219,7 @@
 (deftest the-atomic-decision-holds-both-ledger-domains-still-together
   (testing "the compound worst case: registration identity read at the OUTER seam,
             observation continuum torn at the INNER one, by a single replacement
-            plus re-arm. The retired composite accepts a silence for a callback
+            plus re-arm. The two-read composite accepts a silence for a callback
             that is BOTH superseded and live — it agrees with no point in time on
             either fact. The atomic decision rejects, because both facts come
             from one snapshot"
@@ -247,7 +247,7 @@
         (is (true? (observing-now cb frame))
             "the live registration H really is observing the frame")
         (is (true? torn)
-            "the retired composite accepts a silence for a callback that is both
+            "the two-read composite accepts a silence for a callback that is both
              superseded AND live")
         (is (false? (rf/epoch-silence-current? tags))
             "the atomic decision rejects at every point in time")))))
@@ -307,20 +307,18 @@
         (finally
           (rf/unregister-listener! :epoch cb))))))
 
-;; ---- the retired surface stays retired -------------------------------------
+;; ---- the halves have no public surface -------------------------------------
 
 (deftest the-two-read-recipe-has-no-public-surface-to-reconstruct-it-from
   (testing "the halves are not published, so a consumer cannot rebuild the torn
             composite through the supported API. This is the surface half of the
-            fix — the atomic decision is only a fix if the race is unreachable"
+            contract — the atomic decision only helps if the race is unreachable"
     (is (some? (resolve 're-frame.core/epoch-silence-current?))
         "the ONE supported receiver decision is on the facade")
     (is (nil? (resolve 're-frame.core/epoch-listener-generation))
-        "the registration-identity half is retired from the facade (rf2-6ys5n
-         surface, superseded)")
+        "the registration-identity half is not on the facade")
     (is (nil? (resolve 're-frame.core/epoch-listener-observing?))
-        "the observation-continuum half is retired from the facade (rf2-qg98y
-         surface, superseded)")
+        "the observation-continuum half is not on the facade")
     (is (nil? (resolve 're-frame.epoch/epoch-listener-generation))
         "and from the artefact namespace")
     (is (nil? (resolve 're-frame.epoch/epoch-listener-observing?))

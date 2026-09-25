@@ -39,23 +39,23 @@
   `:ns-regexp \"cljs-test$\"`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
+            ;; The listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.listeners :as rf.epoch.listeners]
             [re-frame.epoch.state :as rf.epoch.state]
-            ;; rf2-gj2bo — the CLJS same-id-successor injection pin interposes
+            ;; The CLJS same-id-successor injection pin interposes
             ;; its churn on the real precondition check via with-redefs.
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
-            ;; rf2-vxgfnd.265 — the reentrant claim-before-delivery fixture reads
+            ;; The reentrant claim-before-delivery fixture reads
             ;; the successor incarnation's token to model its pre-first-epoch claim.
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            ;; rf2-vxgfnd.245 — the reentrant CLJS fail-before fixture wraps the
+            ;; The reentrant CLJS fail-before fixture wraps the
             ;; `:epoch/on-frame-destroyed` late-bind hook to install + settle a
             ;; same-id successor synchronously inside A's terminal publish.
             [re-frame.late-bind :as rf.late-bind]
-            ;; rf2-lo28u — schemas + the Malli adapter so a `:schema`-bearing
+            ;; Schemas + the Malli adapter so a `:schema`-bearing
             ;; reg-event's `:where :event` violation actually fires (without
             ;; the adapter the default validator soft-passes).
             [re-frame.schemas]
@@ -66,12 +66,12 @@
 ;; The `:node-test` build has no DOM and no Reagent reactive context —
 ;; the plain-atom adapter is the right substrate for epoch coverage
 ;; (matches the JVM test fixture in `re-frame.epoch-test`). Per
-;; `test-support/make-reset-runtime-fixture` (rf2-am9d): the registrar is
+;; `test-support/make-reset-runtime-fixture`: the registrar is
 ;; snapshot/restored around each test so framework / example
 ;; registrations survive cross-ns CLJS test runs.
 ;;
-;; rf2-yw1w1u — epoch state isolation (ring history, listeners, config)
-;; now flows through the fixture's reset-hook table
+;; Epoch state isolation (ring history, listeners, config)
+;; flows through the fixture's reset-hook table
 ;; (`:epoch/clear-history!`, `:epoch/clear-epoch-listeners!`,
 ;; `:epoch/reset-config!`), so the `:init-fn` only re-applies this
 ;; suite's non-default `:trace-events-keep 5` (NOT the shipped 50 =
@@ -111,30 +111,25 @@
         (is (vector? (:effects r))
             ":effects is a vector projection from the trace stream")))))
 
-;; ---- 1b. rf2-lo28u — event-args :where :event lands in epoch :trace-events --
+;; ---- 1b. event-args :where :event lands in epoch :trace-events ------------
 ;;
-;; FAITHFUL repro for the standard_epochs button-18 symptom. Mirrors the
-;; live wiring: an app-db schema registered for the frame (button 19's
-;; [:auth]) PLUS a plain reg-event handler carrying the inline `:schema`
-;; metadata button 18 uses verbatim. Dispatch the bad arg; the
+;; Mirrors the live wiring of the standard_epochs example: an app-db schema
+;; registered for the frame ([:auth]) PLUS a plain reg-event handler
+;; carrying an inline `:schema`. Dispatch the bad arg; the
 ;; `:rf.error/schema-validation-failure :where :event` violation MUST be
 ;; captured into the triggering epoch's `:trace-events` — exactly where
 ;; Xray's Issues / Schema-timeline lens reads it.
 ;;
-;; This is the surface the prior `schemas_cljs_test` (which only watched
-;; the GLOBAL trace-listener stream) could not see: the violation always
-;; reached the global stream, but `epoch.capture/capture-event!` DROPS any
-;; trace whose tags lack `:frame`, so the `:where :event` trace (which did
-;; not tag `:frame`) never landed in the per-frame epoch record — so the
-;; live Xray lens (reading `:trace-events`) showed nothing while the
-;; `:where :app-db` path (which DOES tag `:frame`) surfaced. Asserting on
-;; the epoch record reproduces Mike's RED.
-;;
-;; RED (pre-fix): epoch `:trace-events` has NO :where :event violation.
-;; The violation belongs to the triggering epoch.
+;; A test watching only the GLOBAL trace-listener stream cannot see this
+;; surface: `epoch.capture/capture-event!` DROPS any trace whose tags lack
+;; `:frame`, so a `:where :event` trace without a `:frame` tag would reach
+;; the global stream yet never land in the per-frame epoch record — the
+;; live Xray lens (reading `:trace-events`) would show nothing while the
+;; `:where :app-db` path (which DOES tag `:frame`) surfaced. So this asserts
+;; on the epoch record: the violation belongs to the triggering epoch.
 
 (deftest event-args-violation-captured-in-epoch-trace-events-cljs
-  (testing "rf2-lo28u — a plain reg-event :schema violation fires
+  (testing "a plain reg-event :schema violation fires
             :where :event AND lands in the triggering epoch's
             :trace-events (parity with :where :app-db)"
     (rf/reg-app-schema [:auth] [:map [:token :string]])
@@ -186,16 +181,16 @@
       (is (= {:n 1} (rf/app-db-value :rf/default))
           "app-db now matches the named epoch's :db-after"))))
 
-;; ---- 2b. rf2-3fc89f.4 — reentrant tool writes refuse mid-drain -------------
+;; ---- 2b. reentrant tool writes refuse mid-drain ---------------------------
 ;;
-;; The drain-serialization fix routes tool writes through the frame's
+;; Tool writes are serialized through the frame's
 ;; `:drain-lock` (`re-frame.frame/call-serialized-with-drain!`). A restore /
 ;; replace issued reentrantly from inside an event handler (i.e. from the
 ;; active drainer) must REFUSE with the documented during-drain op rather than
 ;; run — otherwise it would re-take the lock. CLJS cannot thread-preempt, so it
-;; never hits the cross-thread TOCTOU, but it MUST still take the same reentrant
+;; never hits the cross-thread TOCTOU, but it MUST take the same reentrant
 ;; mid-drain refusal WITHOUT deadlocking (the pre-lock `drain-in-flight?`
-;; precondition, unchanged by the fix, is what fires here on `:in-drain? true`).
+;; precondition is what fires here on `:in-drain? true`).
 
 (deftest reentrant-tool-writes-refuse-mid-drain-cljs
   (testing "restore-epoch! / replace-frame-state! called from inside a drain
@@ -232,7 +227,7 @@
       (is (= :done (:phase (rf/app-db-value :rf/default)))
           "the drain settled cleanly (no deadlock); app-db carries the handler's own commit"))))
 
-;; ---- 2c. rf2-gj2bo — injection fenced to the exact incarnation --------------
+;; ---- 2c. injection fenced to the exact incarnation ------------------------
 ;;
 ;; JVM coverage in `re-frame.epoch-test` carries the full matrix (pre-write
 ;; churn, post-write tail, both-partition, no-churn controls); this pins the
@@ -243,7 +238,7 @@
 ;; same-id successor B before the write; the token fence must then refuse.
 
 (deftest replace-frame-state-fenced-to-exact-incarnation-cljs
-  (testing "rf2-gj2bo — an injection validated against incarnation A, with a
+  (testing "an injection validated against incarnation A, with a
             same-id successor B seated + seeded BEFORE the write, is REJECTED:
             false return, canonical :rf.error/no-such-handler, B's frame-state
             and history byte-for-byte at their baselines, and no
@@ -311,12 +306,12 @@
           "the three most-recent records are kept; oldest two are evicted FIFO"))))
 
 (deftest lowering-depth-prunes-the-live-ring-cljs
-  ;; rf2-f8wu — the cross-target half of the JVM suite's
+  ;; The cross-target half of the JVM suite's
   ;; `lowering-depth-prunes-every-live-ring-immediately` /
   ;; `depth-zero-drops-retained-history-and-refuses-time-travel` pair. The
   ;; enforcement lives in `re-frame.epoch.state/merge-config!`, a `.cljc`
   ;; shared with the JVM, so this pins that the depth bound reaches the
-  ;; live ring under CLJS too — on BOTH axes, since a fix that closed the
+  ;; live ring under CLJS too — on BOTH axes, since a prune that closed the
   ;; query surface without the restore surface would look green on either
   ;; one alone.
   (testing "a depth reduction prunes the live ring at the configure!
@@ -394,7 +389,7 @@
   (testing "Under `:node-test` (`goog.DEBUG=true`) the
             `interop/debug-enabled?` gate is truthy and the epoch
             surface is live. The framework-level grep
-            (`scripts/check-elision.cjs`, rf2-11hn) pins the
+            (`scripts/check-elision.cjs`) pins the
             `:advanced` + `goog.DEBUG=false` DCE — every
             `:rf.epoch/*` sentinel must be ABSENT from the
             production bundle. This runtime assertion is the
@@ -415,7 +410,7 @@
     (is (pos? (count (rf/epoch-history :rf/default)))
         "with the gate ON, a dispatch lands a record in the ring")))
 
-;; ---- 6. Capture buffer — claim-based child marker retention (rf2-bhglx) ----
+;; ---- 6. Capture buffer — claim-based child marker retention ---------------
 ;;
 ;; The cross-target pin for the JVM `epoch-attribution-test/inv-6c…`. The harvest
 ;; seam lives in `re-frame.epoch.state` (.cljc), so it runs under CLJS too; this
@@ -423,12 +418,12 @@
 ;; `:event/dispatched` marker is RETAINED VERBATIM across every intervening
 ;; sibling settle until the child's own run-start claims it (ordinary :dispatch
 ;; fx children go to the FIFO tail, so siblings can settle ahead of the child).
-;; The earlier rf2-fxowr count-1 reclaim dropped a legitimate child marker on
-;; the first intervening sibling harvest; rf2-bhglx removes that, bounding memory
-;; via the terminal paths that clear the whole buffer instead.
+;; A count-1 reclaim would drop a legitimate child marker on the first
+;; intervening sibling harvest, so memory is bounded instead via the terminal
+;; paths that clear the whole buffer.
 
 (deftest child-marker-retained-across-sibling-settles-cljs
-  (testing "rf2-bhglx — a child marker survives intervening sibling settles and
+  (testing "a child marker survives intervening sibling settles and
             is claimed only at the child's own settle; a truly-stranded marker is
             bounded by the terminal buffer clear (drop-frame-buffer!)."
     (let [frame    :test/stranded-cljs
@@ -462,7 +457,7 @@
         (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h2)
             "C's marker is never folded into the sibling's epoch")
         (is (= [c-mark] (rf.epoch.state/buffer-for frame))
-            "rf2-bhglx — C's marker SURVIVES the intervening sibling settle"))
+            "C's marker SURVIVES the intervening sibling settle"))
       ;; C finally settles, claiming its own marker.
       (rf.epoch.state/buffer-event! frame c-rs)
       (rf.epoch.state/buffer-event! frame c-body)
@@ -476,20 +471,20 @@
       (rf.epoch.state/buffer-event! frame c-mark)
       (rf.epoch.state/drop-frame-buffer! frame)
       (is (empty? (rf.epoch.state/buffer-for frame))
-          "rf2-bhglx — drop-frame-buffer! (terminal path) clears a stranded marker"))))
+          "drop-frame-buffer! (terminal path) clears a stranded marker"))))
 
-;; ---- 7. Same-id listener replacement generation semantics (rf2-j538f7.5) ---
+;; ---- 7. Same-id listener replacement generation semantics -----------------
 ;;
 ;; CLJS cannot thread-preempt between swaps, so the two-thread erasure race the
 ;; JVM suite drives cannot manifest here. But the generation-scoped bookkeeping
-;; the fix installs lives in `re-frame.epoch.state` (.cljc) and runs under CLJS
+;; lives in `re-frame.epoch.state` (.cljc) and runs under CLJS
 ;; too; this pins the sequential-interleaving contract on the CLJS runtime: a
 ;; same-id replacement mints a fresh generation, a stale old-generation fan-out
 ;; is refused, the new generation's observation survives the re-registration,
 ;; and frame destroy silences only the live generation exactly once.
 
 (deftest same-id-replacement-generation-semantics-cljs
-  (testing "rf2-j538f7.5 — under CLJS' single-threaded runtime the listener
+  (testing "under CLJS' single-threaded runtime the listener
             registry is generation-scoped: a stale old-generation observation is
             refused, the new generation's observation survives a same-id
             re-registration, and frame destroy silences only the live generation
@@ -532,16 +527,16 @@
       (rf.trace.tooling/unregister-listener! ::rec)
       (rf/unregister-listener! :epoch ::probe))))
 
-;; ---- 8. rf2-vxgfnd.245 — honest delayed silencing after same-id rearm ------
+;; ---- 8. honest delayed silencing after same-id rearm -----------------------
 
 (deftest predecessor-silencing-suppressed-after-reentrant-successor-rearm-cljs
-  (testing "rf2-vxgfnd.245 (synchronous/reentrant CLJS, red before fix) — A's
+  (testing "(synchronous/reentrant CLJS) A's
             post-dissoc epoch hook re-entrantly installs a same-id successor B and
             settles it, claiming the id-keyed stores and re-arming the unchanged
             cb generation with B's record. A must NOT then republish its stale
             snapshot silencing for cb (cb is live on B); B silences cb on B's own
-            destroy exactly once. Before the fix A published its silencing
-            unconditionally, so cb was falsely silenced and B re-emitted an
+            destroy exactly once. Were A to publish its silencing
+            unconditionally, cb would be falsely silenced and B would re-emit an
             identical unqualified signal."
     (let [id         :rf2-245/frame
           cb         ::rf2-245-cljs-cb
@@ -572,7 +567,7 @@
               (rf/dispatch-sync [:rf2-245/b-settle] {:frame id}))
             (when original (apply original args))))
         (rf/destroy-frame! id)
-        ;; THE FIX: A's silencing fan for cb is suppressed — cb is live on B.
+        ;; A's silencing fan for cb is suppressed — cb is live on B.
         (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
             "no bare A silencing for cb after reentrant B claimed + re-armed it")
         ;; cb is live on B: another B settle reaches it.
@@ -589,16 +584,16 @@
           (rf/unregister-listener! :epoch cb)
           (rf/unregister-listener! :trace ::rf2-245-cljs-silencing))))))
 
-;; ---- 9. rf2-vxgfnd.265 — per-identity delayed silencing (claim / ABA) -------
+;; ---- 9. per-identity delayed silencing (claim / ABA) ----------------------
 
 (deftest predecessor-silences-after-reentrant-successor-claims-without-delivery-cljs
-  (testing "rf2-vxgfnd.265 (reentrant CLJS, red before fix) — A's post-dissoc
+  (testing "(reentrant CLJS) A's post-dissoc
             epoch hook re-entrantly installs a same-id successor B which CLAIMS
             the id-keyed stores (the pre-first-epoch render/backfill claim routes
             through `claim-frame-owner!`) but SETTLES nothing — cb never observes
-            B. When A resumes it must STILL emit its one owed silence for cb. Under
-            #5872's coarse gate A LOST the cleanup comparison to B's claim and
-            emitted nothing — a false negative."
+            B. When A resumes it must STILL emit its one owed silence for cb. A
+            coarse gate would let A lose the cleanup comparison to B's claim and
+            emit nothing — a false negative."
     (let [id         :rf2-265-claim/frame
           cb         ::rf2-265-claim-cb
           silencings (atom [])
@@ -623,7 +618,7 @@
               (rf.epoch.state/claim-frame-owner! id (rf.frame/frame-incarnation-token id)))
             (when original (apply original args))))
         (rf/destroy-frame! id)
-        ;; THE FIX: cb never observed B, so A owes and emits exactly one silence.
+        ;; cb never observed B, so A owes and emits exactly one silence.
         (is (= 1 (count (filter #(= cb (:cb-id (:tags %))) @silencings)))
             "A emits its one owed silence for cb — B claimed but never delivered")
         (finally
@@ -633,11 +628,11 @@
           (when (rf.frame/frame id) (rf/destroy-frame! id)))))))
 
 (deftest late-predecessor-does-not-re-emit-silence-a-retired-successor-fired-cljs
-  (testing "rf2-vxgfnd.265 (synchronous CLJS, red before fix) — a same-id
+  (testing "(synchronous CLJS) a same-id
             successor B re-arms cb and then RETIRES before paused predecessor A
             resumes (the A→B→nil ABA). B emits the one truthful silence and
-            releases the stores; late A now WINS the cleanup comparison but must
-            NOT re-emit the identical unqualified signal. #5872's coarse gate let
+            releases the stores; late A then WINS the cleanup comparison but must
+            NOT re-emit the identical unqualified signal; a coarse gate would let
             A re-fire it — a double signal. The monotonic terminal-silence mark
             surviving B's cleanup is what lets late A recognise B already fired."
     (let [id         :rf2-265-aba/frame
@@ -672,7 +667,7 @@
           (rf/unregister-listener! :epoch cb)
           (rf/unregister-listener! :trace ::rf2-265-aba-silencing))))))
 
-;; ---- 10. rf2-vxgfnd.285 — exact / linearizable / bounded lineage -----------
+;; ---- 10. exact / linearizable / bounded lineage ---------------------------
 
 (defn- vxgfnd285-total-marks
   "Count of `[frame cb]` terminal-silence marks currently retained."
@@ -680,7 +675,7 @@
   (reduce + 0 (map count (vals (rf.epoch.state/terminal-silence-marks-snapshot)))))
 
 (deftest vxgfnd285-trace-listener-rearming-later-identity-mid-fan-rechecked-cljs
-  (testing "rf2-vxgfnd.285 (reentrant CLJS, red before fix) — LINEARIZABLE. The
+  (testing "(reentrant CLJS) LINEARIZABLE. The
             owed identities fan in a deterministic cb-id order; a trace listener
             fired by the FIRST silence re-arms a LATER identity on a live
             successor B synchronously mid-fan. Because eligibility is re-read
@@ -721,7 +716,7 @@
           (rf/unregister-listener! :trace ::rf2-285-rearm-silencing))))))
 
 (deftest vxgfnd285-lineage-marks-bounded-across-unique-frames-cljs
-  (testing "rf2-vxgfnd.285 (synchronous CLJS, red before fix) — BOUNDED. One
+  (testing "(synchronous CLJS) BOUNDED. One
             persistent callback observes and destroys many UNIQUE frame ids at the
             epoch-state seam; each destroy's deferred window closes and reclaims
             that frame's marks, so lineage storage returns to a constant (empty)
@@ -745,8 +740,8 @@
           (rf/unregister-listener! :epoch cb))))))
 
 (deftest vxgfnd285-reset-listeners-clears-silence-lineage-cljs
-  (testing "rf2-vxgfnd.285 (CLJS) — BOUNDED. A full listener wipe clears the
-            terminal-silence lineage too — the old reset-listeners! left a
+  (testing "(CLJS) BOUNDED. A full listener wipe clears the
+            terminal-silence lineage too — otherwise reset-listeners! would leave a
             tombstone per destroyed frame behind."
     (let [id :rf2-285-reset/frame
           cb ::rf2-285-reset-cb]
@@ -760,10 +755,10 @@
       (is (zero? (vxgfnd285-total-marks))
           "reset-listeners! clears the terminal-silence lineage, not just the registry"))))
 
-;; ---- rf2-6ys5n / rf2-uhouu — the public receiver decision self-filters -----
+;; ---- the public receiver decision self-filters ----------------------------
 
 (deftest epoch-silence-current-public-self-filter-cljs
-  (testing "rf2-6ys5n + rf2-uhouu (CLJS peer of the JVM public-boundary suite) —
+  (testing "(CLJS peer of the JVM public-boundary suite)
             the silence self-filter is implementable through the SUPPORTED public
             API on the CLJS host too, as ONE call. Reaches for NO private state
             (no `listeners-snapshot`): only `re-frame.core` public vars."
@@ -801,11 +796,11 @@
       (rf/unregister-listener! :trace ::recorder6))))
 
 (deftest epoch-silence-current-supersedes-a-same-generation-rearm-cljs
-  (testing "rf2-qg98y (CLJS peer) — a silence whose `:observed-gen` still matches
+  (testing "(CLJS peer) a silence whose `:observed-gen` still matches
             can nonetheless be SUPERSEDED by a fresh delivery on the same
             registration, because a delivery mints no generation. Registration
             identity alone accepts it; the supported decision — which weighs
-            observation continuum in the SAME operation (rf2-uhouu) — rejects it.
+            observation continuum in the SAME operation — rejects it.
             Public API only, one call, no private state."
     (rf/register-listener! :epoch ::watcher7 (fn [_] nil))
     (rf/reg-event :seed7 (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -841,24 +836,24 @@
       (rf/unregister-listener! :trace ::recorder7)
       (rf/unregister-listener! :epoch ::watcher7))))
 
-;; ---- rf2-oh1y8 — nil-evidence cleanup across every owned store, CLJS host ---
+;; ---- nil-evidence cleanup across every owned store, CLJS host --------------
 ;;
 ;; The JVM peer `destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil`
 ;; (`re-frame.epoch-test`) directly seeds and asserts each of the FIVE exact-owner
 ;; stores `on-frame-destroyed!`'s cleanup-fn drops. `re-frame.epoch.state` is a
 ;; host-shared `.cljc`, but owner serialization differs by host (`locking` on JVM
-;; vs synchronous direct execution on CLJS), and rf2-hclxos called for BOTH hosts.
-;; These two synchronous CLJS fixtures close that gap:
+;; vs synchronous direct execution on CLJS), so BOTH hosts are pinned.
+;; These two synchronous CLJS fixtures are the CLJS half:
 ;;
-;;   1. the #5939 nil-evidence path drops all five stores AND fabricates nothing —
+;;   1. the nil-evidence path drops all five stores AND fabricates nothing —
 ;;      re-nesting cleanup under the evidence guard fails causally;
 ;;   2. a stale predecessor A resuming with nil evidence CANNOT erase a claimed
 ;;      same-id B's stores (the compare-owned no-op). The equivalent JVM invariant
 ;;      lives in `frame-destroy-incarnation-jvm-test`.
 
 (deftest destroy-cleans-exact-owner-stores-when-snapshot-evidence-is-nil-cljs
-  (testing "rf2-oh1y8 (synchronous CLJS) — a throwing :epoch/snapshot-frame-
-            destroyed hook yields nil terminal-evidence (#5939), but the destroyed
+  (testing "(synchronous CLJS) a throwing :epoch/snapshot-frame-
+            destroyed hook yields nil terminal-evidence, but the destroyed
             incarnation's FIVE id-keyed epoch stores are STILL dropped, and the
             nil bundle publishes/fabricates nothing. Each store is seeded and
             asserted directly, so re-nesting cleanup under the evidence guard — or
@@ -924,7 +919,7 @@
           (is (nil? (rf.frame/frame-incarnation-token id))
               "A is fully destroyed — no live incarnation owns the id")
 
-          ;; (2) #5939 NON-FABRICATION: the nil bundle publishes/opens nothing.
+          ;; (2) NON-FABRICATION: the nil bundle publishes/opens nothing.
           (is (empty? (filter #(= :halted-destroy (:outcome %)) @records))
               "no :halted-destroy record is fabricated from the nil bundle")
           (is (empty? (filter #(= :rf.epoch.cb/silenced-on-frame-destroy
@@ -941,7 +936,7 @@
             (rf/unregister-listener! :trace ::rf2-oh1y8-nil-evidence-trace)))))))
 
 (deftest stale-a-nil-evidence-cleanup-cannot-erase-claimed-same-id-b-cljs
-  (testing "rf2-oh1y8 (synchronous CLJS) — a stale predecessor A resuming with NIL
+  (testing "(synchronous CLJS) a stale predecessor A resuming with NIL
             terminal-evidence runs its exact-owner cleanup, but a same-id successor
             B already CLAIMED the id-keyed stores. A LOSES the compare-owned
             comparison, so its cleanup no-ops and cannot erase ANY of B's five
@@ -999,18 +994,17 @@
           (rf.epoch.listeners/on-frame-destroyed! id token-b nil)
           (rf/unregister-listener! :epoch cb))))))
 
-;; ---- rf2-4go8s — a NON-KEYWORD comparable listener id round-trips -----------
+;; ---- a NON-KEYWORD comparable listener id round-trips ---------------------
 
 (deftest non-keyword-comparable-cb-id-round-trips-through-silencing-cljs
-  (testing "rf2-4go8s (CLJS) — `register-epoch-listener!` accepts ANY comparable
+  (testing "(CLJS) `register-epoch-listener!` accepts ANY comparable
             value as the listener id, not only keyword|string. A NON-KEYWORD id
             (a vector) registers, mints a generation, and is emitted VERBATIM as
             the silencing signal's `:cb-id` — raw-ID preservation — and the
             supported receiver decision works identically on it. This is the
             end-to-end proof the emitted `:cb-id` domain is the same comparable-ID
             domain the public register/query API accepts (Spec-Schemas
-            EpochCbSilencedOnFrameDestroyTags :cb-id :any, widened from the stale
-            keyword|string narrowing)."
+            EpochCbSilencedOnFrameDestroyTags :cb-id :any)."
     (let [cb-id [:my-app/epoch-log 7]]         ; a vector — NOT a keyword|string
       (is (false? (rf/epoch-silence-current?
                     {:cb-id cb-id :frame :test/non-kw-cljs :observed-gen 1}))
@@ -1040,7 +1034,7 @@
             (is (= g-observed (:observed-gen tags))
                 "the silence names the generation that observed the frame")
             ;; GENERATION-QUALIFIED SELF-FILTER on the non-keyword id, through
-            ;; the ONE supported receiver decision (rf2-uhouu).
+            ;; the ONE supported receiver decision.
             (is (true? (rf/epoch-silence-current? tags))
                 "live signal names the current registration — APPLY")
             (rf/register-listener! :epoch cb-id (fn [_] nil))  ; supersede G→H

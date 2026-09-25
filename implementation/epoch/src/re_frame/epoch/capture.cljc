@@ -29,7 +29,7 @@
 ;;
 ;; Enumeration (not a `:rf.epoch/*` namespace-prefix filter) is the
 ;; deliberate choice: a future in-cascade `:rf.epoch/*` op (e.g. an
-;; in-drain cascade-rollback trace) must continue to surface in epoch
+;; in-drain cascade-rollback trace) must surface in epoch
 ;; records. The companion test `skip-ops-catalogue-pins-every-rf-epoch-op`
 ;; pins this catalogue against every `:rf.epoch/*` op the namespace
 ;; emits, so an addition that forgets to update one or the other will
@@ -59,10 +59,9 @@
     :rf.epoch/db-replaced
     :rf.epoch/replace-during-drain
     :rf.epoch/replace-schema-mismatch
-    ;; Depth-0 reject: the synthetic undo anchor cannot be stored.
-    ;; synthetic undo-anchor cannot land in the disabled ring, so
-    ;; replace-frame-state! rejects loudly with this op + a false return
-    ;; It fires out of cascade with a frame tag like its siblings.
+    ;; Depth-0 reject: the synthetic undo anchor cannot land in the disabled
+    ;; ring, so replace-frame-state! rejects loudly with this op + a false
+    ;; return. It fires out of cascade with a frame tag like its siblings.
     :rf.epoch/replace-history-disabled
     ;; Frame-destroy listener-silencing is emitted by the exact-owner cleanup
     ;; hook itself. It is terminal evidence, never input to a later epoch.
@@ -194,7 +193,7 @@
   back-filled into the
   cascade that caused it via the `:epoch/record-render!` hook. A render
   that fires WITH a cascade in flight (synchronous flush) belongs to
-  that cascade and is buffered as before.
+  that cascade and is buffered normally.
 
   The same timing applies to reactive sub-runs, to a `:sub-return` /
   `:sub-override` schema failure from the same recompute (which follows its
@@ -207,17 +206,17 @@
           event-tags (:tags event)
           ;; The canonical raw trace-event frame path, and the ONLY one
           ;; (Spec 009 §Frame identity on the raw event — there is no
-          ;; top-level `:frame` on a raw event, and the dual
-          ;; `(or (:frame event-tags) (:frame event))` read this replaces is
+          ;; top-level `:frame` on a raw event, and a dual
+          ;; `(or (:frame event-tags) (:frame event))` read is
           ;; named there as the thing not to write). `build-event`
           ;; supplies the tag from the ambient frame for emit sites that
-          ;; don't stamp it themselves (rf2-hbmeb), so this single read
-          ;; now resolves every frame-bound emit — including the whole
+          ;; don't stamp it themselves, so this single read
+          ;; resolves every frame-bound emit — including the whole
           ;; `:rf.resource/*` / `:rf.mutation/*` family, which spells its
-          ;; frame as the EVIDENCE key `:rf.frame/id` and so was
+          ;; frame as the EVIDENCE key `:rf.frame/id` and would otherwise be
           ;; frame-less here, and dropped, on every real cascade.
           frame-id (:frame event-tags)]
-      ;; rf2-fzbj.19 — dispatch identity for an armed commit observation.
+      ;; Dispatch identity for an armed commit observation.
       ;; `trace/deliver!` runs THIS stage before the public tooling fan-out, so
       ;; the first `:rf.event/dispatched` to arrive here for a frame is the one
       ;; the observation's armer started, strictly before any listener body for
@@ -229,7 +228,7 @@
       ;; below: this records identity, it buffers nothing. The lineage parent
       ;; rides along so a quiet caller's traced descendant — which reports
       ;; first when the caller's own emit is suppressed — is told apart from
-      ;; the caller rather than adopted (rf2-1mudg).
+      ;; the caller rather than adopted.
       (when (and frame-id (= :rf.event/dispatched operation))
         (rf.epoch.state/note-observed-dispatch!
           frame-id
@@ -540,8 +539,8 @@
   because only the post-render op carries the per-view cause + timing the
   Xray Views panel needs — `:triggered-by` (the sub-id that caused this
   view to re-render) and `:elapsed-ms` (the render duration). Both ops
-  fire once per render carrying the same `:rf.view/render-key`, so this is
-  a 1:1 re-source, not a count change, for cascades under the 100-render
+  fire once per render carrying the same `:rf.view/render-key`, so either
+  source yields the same row count for cascades under the 100-render
   `:rf.view/rendered` cap (a full-page storm beyond the cap truncates the
   `:renders` projection alongside the raw op, by design).
 
@@ -596,7 +595,7 @@
   transducer walks would cost 3·N): one traversal, multiple accumulators,
   and a single allocation budget.
 
-  Per-projection contracts preserved verbatim (no schema change):
+  Per-projection contracts:
 
     :sub-runs — Spec-Schemas §`:rf/epoch-record`. One entry per
       `:rf.sub/run` trace event. Cache-hit subs do

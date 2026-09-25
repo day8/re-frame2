@@ -69,7 +69,7 @@
 ;; ---- malli-decode: validation failure -------------------------------------
 
 (deftest malli-decode-throws-canonical-ex-info-on-validation-failure
-  (testing "rf2-ohwgm — when the coerced value still fails the schema,
+  (testing "when the coerced value still fails the schema,
             malli-decode throws an ex-info carrying the canonical
             discriminator `:rf.error/id :rf.error/http-schema-validation-failed`
             (Spec 009) so the transport classifies it as
@@ -92,17 +92,17 @@
           "the rejected (decoded) value rides the ex-data for diagnosis"))))
 
 (deftest malli-decode-map-schema-missing-required-key-throws
-  (testing "rf2-ohwgm — a map missing a required key fails validation"
+  (testing "a map missing a required key fails validation"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/http-schema-validation-failed"
           (malli-decode [:map [:id :int] [:name :string]]
                         {:id 1})))))
 
-;; ---- G1: decode-response-body — schema branch end-to-end ------------------
+;; ---- decode-response-body — schema branch end-to-end ----------------------
 
 (deftest decode-response-body-schema-success-parses-then-coerces
-  (testing "rf2-ohwgm — passing a Malli schema as :decode JSON-parses the
+  (testing "passing a Malli schema as :decode JSON-parses the
             body-text then runs the schema decode+coerce, returning the
             coerced Clojure value (Spec 014 §Decoding). The JSON parse
             yields a number for id (no coercion needed) and a string for
@@ -115,11 +115,11 @@
         "string :status \"active\" is coerced to keyword :active by the schema decode")))
 
 (deftest decode-response-body-schema-validation-failure-throws-canonical
-  (testing "rf2-ohwgm — a body that parses as JSON but fails schema
+  (testing "a body that parses as JSON but fails schema
             validation surfaces the canonical
             `:rf.error/http-schema-validation-failed` ex-info, which the
             transport maps to :rf.http/decode-failure
-            :schema-validation-failure? true (http_transport.cljc:721-726)"
+            :schema-validation-failure? true"
     (let [ex (is (thrown-with-msg?
                    clojure.lang.ExceptionInfo
                    #":rf.error/http-schema-validation-failed"
@@ -130,16 +130,15 @@
       (is (= :rf.error/http-schema-validation-failed
              (:rf.error/id (ex-data ex)))))))
 
-;; ---- G1: keyword-cap threaded e2e through the schema branch ----------------
+;; ---- keyword-cap threaded e2e through the schema branch --------------------
 ;;
-;; The audit (G1) calls out that the :rf.http/max-decoded-keys cap is
-;; tested at the JSON-reader layer (http_json_test.clj:33) but NOT threaded
-;; end-to-end through the decoder as a thrown :too-many-keys. The schema
-;; branch is the critical path: per rf2-wu1n5 it must RE-RAISE the
-;; cap-throw rather than swallow it behind a Malli rejection.
+;; The :rf.http/max-decoded-keys cap is tested at the JSON-reader layer
+;; (http_json_test.clj); these pin it end-to-end through the decoder as a
+;; thrown :too-many-keys. The schema branch is the critical path: it must
+;; RE-RAISE the cap-throw rather than swallow it behind a Malli rejection.
 
 (deftest decode-response-body-schema-branch-reraises-too-many-keys
-  (testing "rf2-ohwgm / rf2-wu1n5 — the schema branch threads
+  (testing "the schema branch threads
             :max-decoded-keys into json-parse and re-raises the
             `:rf.error/malformed-json :cause :too-many-keys` cap-throw
             rather than masking it behind a Malli rejection. This is the
@@ -164,17 +163,17 @@
       (is (= 2 (:limit d))
           "the per-call cap is threaded through to the reader"))))
 
-;; ---- rf2-5a5qwp: malformed JSON under a schema :decode must NEVER fall
+;; ---- malformed JSON under a schema :decode must NEVER fall
 ;; back to raw body-text ------------------------------------------------
 ;;
-;; Before this bead, the schema branch's `json-parse` catch fell back to
-;; the raw `body-text` for any throw NOT tagged `:rf.error/malformed-json`
-;; — but an ordinary JSON syntax error IS untagged (only the keyword-cap
-;; overflow is tagged), so malformed JSON was the common case hitting the
-;; fallback. That let malformed JSON spuriously VALIDATE under a
-;; string-like schema (the raw text just IS a string), and misclassify as
-;; a `:schema-validation-failure?` under a map schema instead of a plain
-;; decode failure. Per Spec 014 §Decoding, schema decode must JSON-parse
+;; An ordinary JSON syntax error is UNTAGGED (only the keyword-cap overflow
+;; carries `:rf.error/malformed-json`), so a schema-branch `json-parse`
+;; catch that fell back to the raw `body-text` for any untagged throw would
+;; send malformed JSON down that fallback as the common case. Malformed JSON
+;; would then spuriously VALIDATE under a string-like schema (the raw text
+;; just IS a string), and misclassify as a `:schema-validation-failure?`
+;; under a map schema instead of a plain decode failure. Per Spec 014
+;; §Decoding, schema decode must JSON-parse
 ;; first and classify a malformed 2xx payload as a decode failure — not a
 ;; degenerate "successful" decode, and not a schema-validation failure.
 
@@ -186,9 +185,9 @@
 ;; an invalid token and a misspelt literal.
 
 (deftest decode-response-body-schema-branch-malformed-json-throws-not-string-schema
-  (testing "rf2-5a5qwp — a :string schema would happily validate the raw
-            malformed body-text (it IS a string) if the old fallback
-            fired; it must instead propagate the raw JSON-parse exception
+  (testing "a :string schema would happily validate the raw
+            malformed body-text (it IS a string) under a raw-text
+            fallback; it must instead propagate the raw JSON-parse exception
             (a Cheshire/Jackson `JsonParseException`, not an ex-info) so
             the caller classifies the response as :rf.http/decode-failure,
             NOT a successful string decode"
@@ -207,7 +206,7 @@
            validation against"))))
 
 (deftest decode-response-body-schema-branch-malformed-json-throws-not-schema-validation-failure
-  (testing "rf2-5a5qwp — a :map schema over malformed JSON must surface as
+  (testing "a :map schema over malformed JSON must surface as
             a plain decode failure (an unparseable body), NOT get
             misclassified as :schema-validation-failure? true (which would
             wrongly imply a well-formed-but-wrong-shaped payload)"
@@ -224,7 +223,7 @@
            body never parsed to a value in the first place"))))
 
 (deftest decode-response-body-json-branch-also-reraises-too-many-keys
-  (testing "rf2-ohwgm — the plain :json branch likewise threads the cap
+  (testing "the plain :json branch likewise threads the cap
             (the cap-throw originates in the reader, so :json surfaces it
             directly without a re-raise wrapper)"
     (is (thrown-with-msg?
@@ -236,18 +235,18 @@
              :decode    :json
              :max-decoded-keys 2})))))
 
-;; ---- rf2-houkno: +json vendor media types (RFC 6839 suffix) ---------------
+;; ---- +json vendor media types (RFC 6839 suffix) ---------------------------
 ;;
 ;; The JSON gate (`json-content-type?` for schema eligibility + `sniff-decoder`
-;; for `:auto`) previously keyed on a bare `(str/includes? ct "application/json")`
-;; substring, so mainstream vendor JSON types — application/vnd.api+json
-;; (JSON:API), application/ld+json (JSON-LD), application/vnd.github+json —
-;; were wrongly rejected (schema path) or mis-sniffed to :blob (:auto path)
-;; even though the body is valid JSON. rf2-houkno accepts subtype "json" OR
-;; the "+json" structured-syntax suffix (RFC 6839 / IANA), parameter-stripped.
+;; for `:auto`) accepts subtype "json" OR the "+json" structured-syntax
+;; suffix (RFC 6839 / IANA), parameter-stripped. A bare
+;; `(str/includes? ct "application/json")` substring would wrongly reject
+;; (schema path) or mis-sniff to :blob (:auto path) mainstream vendor JSON
+;; types — application/vnd.api+json (JSON:API), application/ld+json
+;; (JSON-LD), application/vnd.github+json — even though the body is valid JSON.
 
 (deftest schema-decode-accepts-vendor-plus-json-media-types
-  (testing "rf2-houkno — a schema :decode over a body whose Content-Type
+  (testing "a schema :decode over a body whose Content-Type
             carries the RFC 6839 `+json` suffix (vnd.api+json, ld+json,
             vnd.github+json) decodes as JSON rather than being rejected
             as `:rf.error/http-schema-non-json-content-type`"
@@ -263,9 +262,9 @@
           (str "vendor +json media type should decode as JSON: " ct)))))
 
 (deftest schema-decode-still-rejects-genuine-non-json-content-type
-  (testing "rf2-houkno — the present-non-JSON reject guard is KEPT: a
+  (testing "the present-non-JSON reject guard holds: a
             schema :decode over an application/edn / text/plain response
-            still raises the clear MIME-mismatch error (not a misleading
+            raises the clear MIME-mismatch error (not a misleading
             Malli string-validation failure)"
     (doseq [ct ["application/edn" "text/plain" "application/xml"]]
       (is (thrown-with-msg?
@@ -278,7 +277,7 @@
           (str "genuine non-JSON media type must still reject: " ct)))))
 
 (deftest auto-sniff-resolves-plus-json-to-json
-  (testing "rf2-houkno — :auto sniffing of a `+json` suffix Content-Type
+  (testing ":auto sniffing of a `+json` suffix Content-Type
             resolves to :json (parses the body) rather than mis-sniffing
             to :blob"
     (doseq [ct ["application/vnd.api+json"
@@ -292,7 +291,7 @@
           (str "vendor +json media type should auto-sniff to :json: " ct)))))
 
 (deftest json-media-type-predicate-edge-cases
-  (testing "rf2-houkno — the JSON media-type predicate accepts json subtype
+  (testing "the JSON media-type predicate accepts json subtype
             + +json suffix (parameter-stripped) and rejects genuine non-JSON"
     (let [json-media-type? @#'rf.http.decode/json-media-type?]
       (is (true?  (json-media-type? "application/json")))
@@ -320,19 +319,16 @@
       (finally
         (rf.trace.tooling/unregister-listener! cb-id)))))
 
-;; ---- Malli-absent degradation warning (rf2-ee38b.7 / rf2-ynjts.9) ---------
+;; ---- Malli-absent degradation warning -------------------------------------
 ;;
-;; Coverage gap (rf2-ynjts.9 testing-review): the "no silent fallback"
-;; contract per Spec 014 §JSON decoder hardening was uncovered. When a real
-;; `:decode` schema rides the request but Malli is NOT on the classpath, the
-;; resolve delays fall to nil, schema validation is SKIPPED, and the parsed
-;; value flows to `:accept` UNCHECKED. Per rf2-ee38b.7 this must NOT be a
+;; The "no silent fallback" contract per Spec 014 §JSON decoder hardening:
+;; when a real `:decode` schema rides the request but Malli is NOT on the
+;; classpath, the resolve delays fall to nil, schema validation is SKIPPED,
+;; and the parsed value flows to `:accept` UNCHECKED. This must NOT be a
 ;; silent no-op: a one-shot `:rf.warning/http-malli-absent` trace fires so
-;; the degraded path is observable. Every other decode path was tested
-;; (coerce success, validation-failure throw, too-many-keys re-raise),
-;; but the Malli-ABSENT branch + its one-shot latch had
-;; zero assertion — a regression that re-silenced it (or fired it per
-;; response, flooding the trace surface) would slip through.
+;; the degraded path is observable. These tests pin the Malli-ABSENT
+;; branch + its one-shot latch, so a regression that silences it (or
+;; fires it per response, flooding the trace surface) fails.
 ;;
 ;; The Malli resolve vars are `defonce`d delays already realised WITH Malli
 ;; present on this test classpath (`malli-is-on-the-test-classpath` above
@@ -366,7 +362,7 @@
         (reset! malli-absent-warned? prior-latch)))))
 
 (deftest malli-decode-absent-returns-value-unvalidated
-  (testing "rf2-ynjts.9 — when Malli is absent (decode AND validate both
+  (testing "when Malli is absent (decode AND validate both
             resolve to nil), malli-decode returns the parsed value
             UNCHANGED and does NOT throw — even for a value that WOULD
             fail the schema were Malli present. The degradation is a
@@ -384,10 +380,10 @@
             "a map missing a required key also passes through (no validation runs)")))))
 
 (deftest malli-decode-absent-emits-degradation-warning-with-schema
-  (testing "rf2-ynjts.9 — the Malli-absent fall-through emits a
+  (testing "the Malli-absent fall-through emits a
             `:rf.warning/http-malli-absent` trace carrying the offending
             schema + a human :reason sentence, so the dropped validation
-            is observable rather than silent (rf2-ee38b.7)."
+            is observable rather than silent."
     (with-malli-absent
       (fn []
         (with-trace-capture
@@ -406,7 +402,7 @@
                     "a human-readable :reason sentence explains the skipped validation")))))))))
 
 (deftest malli-decode-absent-warning-is-one-shot-per-runtime
-  (testing "rf2-ynjts.9 — the degradation warning fires AT MOST ONCE per
+  (testing "the degradation warning fires AT MOST ONCE per
             runtime (the `malli-absent-warned?` compare-and-set! latch).
             A Malli-less app's degraded decode is steady-state; a
             per-response trace would flood the surface. Multiple decodes

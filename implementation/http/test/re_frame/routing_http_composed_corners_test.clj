@@ -1,17 +1,17 @@
 (ns re-frame.routing-http-composed-corners-test
-  "Per rf2-vpplo — compose routing nav-token suppression with managed
+  "Composes routing nav-token suppression with managed
   HTTP reply paths.
 
-  Pre-existing coverage exercises routing nav-token staleness
-  (routing_test.clj::routing-nav-token-staleness +
-  with-nav-token-fx-suppresses-stale-do-and-commits-fresh) and managed
-  HTTP success/failure/abort in isolation. What was NOT pinned is the
+  Routing nav-token staleness
+  (routing_nav_token_test.clj::routing-nav-token-staleness +
+  with-nav-token-fx-suppresses-stale-reply-to-and-commits-fresh) and managed
+  HTTP success/failure/abort are each covered in isolation. This file pins the
   CROSS-FEATURE composition: a managed HTTP reply that belongs to a
   superseded navigation, pending-navigation cleanup of in-flight
   requests, the cancel/continue branch under in-flight HTTP, and the
   composed in-flight-registry leak audit.
 
-  Acceptance per rf2-vpplo:
+  What it pins:
     - A stale route-load HTTP success is suppressed by nav-token and
       does NOT commit stale route data.
     - Retry/backoff does not resurrect a request after nav-token
@@ -20,10 +20,9 @@
       guard).
     - Pending-navigation cancel/continue is covered with an in-flight
       managed request and proves cleanup/no leaked retry timer.
-    - Abort-vs-decode-failure precedence — DEFERRED to rf2-abort-vs-decode
-      (decision-needed bead) since the canned-stub transport cannot
-      reliably reproduce the race and the spec does not pin the
-      precedence."
+    - Abort-vs-decode-failure precedence is pinned in
+      `re-frame.http-abort-precedence-test`, not here, since the
+      canned-stub transport cannot reliably reproduce the race."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -37,10 +36,10 @@
 
 ;; The canonical fixture fires the routing reset hooks in its post-dispose
 ;; phase: `:routing/reset-counters!` (deterministic reg-index) and
-;; `:routing/reset-nav-counters!` (rf2-oosjmh — host-side nav-token /
-;; pending-nav counters the `frames` reset no longer clears, keeping "nav-1" /
-;; "nav-2" stable across tests). It also clears trace listeners and, per
-;; rf2-q14tde, the per-frame HTTP interceptor chain.
+;; `:routing/reset-nav-counters!` (host-side nav-token /
+;; pending-nav counters the `frames` reset does not clear, keeping "nav-1" /
+;; "nav-2" stable across tests). It also clears trace listeners and
+;; the per-frame HTTP interceptor chain.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
@@ -179,28 +178,11 @@
                                :on-success [:editor/saved]}]]}))
     (rf/reg-event :editor/saved (fn [{:keys [db]} _] {:db (assoc db :saved? true)}))
 
-    ;; Trigger the save with the canned-success stub installed via
-    ;; with-request-stubs to drive a deterministic reply path.
-    ;; We do NOT want the reply to actually land (so we can observe the
-    ;; in-flight slot mid-pending), so we capture the dispatch and
-    ;; assert the snapshot BEFORE the reply runs by NOT installing the
-    ;; stub. With no stub, the real JVM transport fires against an
-    ;; unreachable URL and the request stays in-flight long enough.
-
-    ;; Simpler: simulate the in-flight slot directly by issuing the
-    ;; managed fx with a deliberately-broken URL via the test stub that
-    ;; would normally synthesise a reply, BUT have the test rely on
-    ;; the in-flight snapshot AT DISPATCH TIME. The reply DOES land
-    ;; synchronously through the canned stub — but that's fine because
-    ;; we're testing what cancel does to the EXTANT in-flight
-    ;; bookkeeping, not the timing relative to a real network.
-
     ;; To pin "cancel does not touch in-flight bookkeeping" we seed an
     ;; in-flight entry through the registry's test helper — that mirrors
     ;; what http-handlers/managed-handler does at issue time (preserving
     ;; both-index invariants) without requiring an unsettled real network
-    ;; or a brittle stub (rf2-hp772l — was a raw `swap!` of the in-flight
-    ;; atom).
+    ;; or a brittle stub.
     (rf.http.managed/seed-in-flight-for-test!
       {:request-id :editor.save/draft
        :url        "/api/editor/draft"

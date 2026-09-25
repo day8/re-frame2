@@ -58,7 +58,7 @@
 ;; `re-frame.privacy/redacted-sentinel` in core is the single source of truth.
 ;; Core is
 ;; on the http classpath, so this artefact refers to the canonical def
-;; rather than re-declaring the keyword literal. `http-url` remains the
+;; rather than re-declaring the keyword literal. `http-url` is the
 ;; http-side re-export anchor — it is the privacy leaf with no intra-privacy
 ;; dependencies, so `http-privacy` and `http-privacy-headers` can both refer
 ;; to it without creating a leaf-to-parent cycle.
@@ -112,9 +112,9 @@
 
   `frame-policy` is the app-declared query-param carrier policy resolved from
   the `:rf.http/managed` `reg-fx` registration's `:carriers {:query-params
-  ..}` block, or `nil` when no carrier is declared. (Param name
-  retained for the leaf API contract; the policy no longer comes from a
-  frame.) Two shapes are accepted:
+  ..}` block, or `nil` when no carrier is declared. (The param name is
+  part of the leaf API contract; the policy comes from the registration,
+  not from a frame.) Two shapes are accepted:
 
    - a **set** of lower-cased names — the include-only extension set
      (`:query-params [\"shop_token\"]`). The built-in defaults always apply;
@@ -129,8 +129,8 @@
   The `:except` path is an app-local DEV-TRACE subtraction only (all
   redaction is debug-gated trace surface, elided entirely in production);
   it lets an app stop redacting a harmless routing/pagination key/token in
-  its OWN local trace. The immutable header denylist and the on-by-default
-  query defaults are unchanged — `:except` is opt-in per name.
+  its OWN local trace. It never touches the immutable header denylist, and
+  the query defaults stay on by default — `:except` is opt-in per name.
 
   Uses `contains?` lookups on the source sets rather than building a fresh
   union per call."
@@ -153,7 +153,7 @@
                             (contains? excepted-names lowered-param-name))))))))))
 
 (defn- percent-decode-name
-  "rf2-065xo — percent-decode a query-param NAME for denylist comparison
+  "Percent-decode a query-param NAME for denylist comparison
   ONLY. Returns the decoded form, or `nil` when there is nothing to
   decode (no `%`) or when the escape sequence is malformed.
 
@@ -179,20 +179,20 @@
         nil))))
 
 (defn sensitive-query-param-name?
-  "rf2-065xo — denylist match against a query-param name comparing BOTH
+  "Denylist match against a query-param name comparing BOTH
   the RAW spelling AND the percent-DECODED spelling (case-insensitively
   via `sensitive-query-param?`).
 
-  Closes the gap where a percent-encoded denylisted name —
+  Compared raw only, a percent-encoded denylisted name —
   `api%5Fkey` (= `api_key`), `%61ccess_token` (= `access_token`), a
-  frame-declared `shop%5Ftoken` — read as a non-sensitive raw string and
-  leaked its value into trace events unless the whole request was marked
+  frame-declared `shop%5Ftoken` — would read as a non-sensitive string and
+  leak its value into trace events unless the whole request was marked
   sensitive. The redactor consults the decoded form so an encoded auth
   token is denied just like its plain spelling.
 
   `frame-policy` is the app-declared query-param carrier policy from the
   `:rf.http/managed` `:carriers` block (EP-0025) — an include-only set OR a
-  `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
+  `{:include #{..} :except #{..}}` map — or `nil` for
   defaults-only. Threaded verbatim to `sensitive-query-param?`.
 
   Decode is comparison-only and total: a malformed escape decodes to
@@ -204,7 +204,7 @@
          (when-let [decoded (percent-decode-name param-name)]
            (sensitive-query-param? decoded frame-policy))))))
 
-;; ---- URL query-string redaction (rf2-2p8wr) -------------------------------
+;; ---- URL query-string redaction -------------------------------------------
 
 (def ^:private redacted-url-token
   "Inline string form of the `:rf/redacted` sentinel suitable for splicing
@@ -214,7 +214,7 @@
   text to the keyword's `pr-str` — chosen so a human inspecting a trace
   event reads the same sentinel they see in any other redacted slot.
 
-  rf2-ee38b.7 — derived from the canonical `redacted-sentinel` keyword so
+  Derived from the canonical `redacted-sentinel` keyword so
   the two forms can never drift."
   (str redacted-sentinel))
 
@@ -248,7 +248,7 @@
   true; the pair unchanged otherwise. Tolerates malformed pairs (no
   `=`, empty value).
 
-  rf2-065xo — the denylist check is `sensitive-query-param-name?`, which
+  The denylist check is `sensitive-query-param-name?`, which
   compares both the RAW and percent-DECODED name, so an encoded
   denylisted name (`api%5Fkey`, `%61ccess_token`, frame-declared
   `shop%5Ftoken`) is redacted. The original raw `param-name` is preserved
@@ -257,7 +257,7 @@
 
   `frame-policy` is the app-declared query-param carrier policy from the
   `:rf.http/managed` `:carriers` block (EP-0025) — an include-only set OR a
-  `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
+  `{:include #{..} :except #{..}}` map — or `nil` for
   defaults-only."
   [pair force-all? query-param-policy]
   (let [equals-index (str/index-of pair "=")
@@ -286,7 +286,7 @@
   `frame-policy` is the app-declared query-param carrier policy from the
   `:rf.http/managed` `:carriers` block (EP-0025), or `nil` for defaults-only.
   Accepts an include-only set (UNIONed onto the immutable built-in denylist)
-  OR a `{:include #{..} :except #{..}}` map (rf2-4wqxq8) whose `:except` set
+  OR a `{:include #{..} :except #{..}}` map whose `:except` set
   SUBTRACTS from the built-in defaults for this app's own dev trace —
   effective policy `(defaults − except) ∪ include`. Applies to the
   always-on (`sensitive?` false) redaction; a `sensitive?`-true request
@@ -307,12 +307,11 @@
            [query fragment]          (split-query-on-fragment query-and-fragment)]
        (if (str/blank? query)
          [url-str false]
-         ;; rf2-dqchf — single pass: thread a volatile changed? flag
+         ;; Single pass: thread a volatile changed? flag
          ;; through the mapv so the redactor and the change-detection
-         ;; share one walk over the pairs. Previously the change
-         ;; detection ran a second `(map not= pairs redacted)` walk and
-         ;; allocated a lazy seq of N booleans for the `some true?` test
-         ;; despite the rf2-02vzz claim of fusion.
+         ;; share one walk over the pairs, rather than a second
+         ;; `(map not= pairs redacted)` walk allocating a lazy seq of N
+         ;; booleans for a `some true?` test.
           (let [force-all?     (true? sensitive?)
                 changed?       (volatile! false)
                 pairs          (str/split query #"&")
@@ -333,7 +332,7 @@
   the redacted URL string. Use when the caller does not need the
   any-redacted? flag (e.g. inside a generic tag-walker).
 
-  rf2-ee38b.7 — public for direct test assertion only; production reaches
+  Public for direct test assertion only; production reaches
   URL redaction via `re-frame.http.privacy`'s `prepare-emit-*` composers
   (which use `redact-url-query-string` directly for the flag). No
   production caller invokes this single-value wrapper."

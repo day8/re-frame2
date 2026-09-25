@@ -1,5 +1,5 @@
 (ns re-frame.http-backoff-cancellation-test
-  "The retry backoff window remains cancellable.
+  "The retry backoff window is cancellable.
 
   A sleeping request stays registered under a
   handle whose `:abort-fn` cancels the pending retry timer and clears the
@@ -27,7 +27,7 @@
    3b. supersede during backoff               → the stale-suppressed trace
        carries the SLEEPING retry attempt's work-id (issuance/attempt
        preserved), not a default `1 1`
-   4. GUARD: an uncancelled backoff still retries (no regression)"
+   4. GUARD: an uncancelled backoff retries normally"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -99,7 +99,7 @@
 
   Deliberately gates ONLY on the server hit count — NOT on registry
   presence — because registry presence during backoff is the very
-  invariant under test (the defect emptied the registry here). Gating
+  invariant under test. Gating
   on it would let a buggy build hang this helper instead of failing the
   downstream assertions."
   [^AtomicInteger hits]
@@ -114,7 +114,7 @@
   [^AtomicInteger hits]
   ;; Sleep past the full backoff window plus a margin — proving the
   ;; ABSENCE of a retry, which has no positive signal to poll on
-  ;; (rf2-fun38 timer-semantics sleep).
+  ;; (a timer-semantics sleep).
   (Thread/sleep (long (+ backoff-ms 600)))
   (is (= 1 (.get hits))
       "the retry MUST NOT fire after a cancel issued during the backoff window — exactly one hit ever reached the server"))
@@ -122,7 +122,7 @@
 ;; ---- (1) :rf.http/managed-abort during backoff ----------------------------
 
 (deftest abort-during-backoff-cancels-pending-retry
-  (testing "rf2-wj8vv — :rf.http/managed-abort issued during the retry backoff window cancels the pending retry and clears the registry"
+  (testing ":rf.http/managed-abort issued during the retry backoff window cancels the pending retry and clears the registry"
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
@@ -143,7 +143,7 @@
         ;; Attempt #1 fails 500 → request sleeps in the backoff window.
         (await-backoff-sleeping! hits)
         (is (contains? (rf.http.registry/in-flight-snapshot) :race)
-            "the sleeping request is visible in the in-flight registry during backoff (the defect made it invisible here)")
+            "the sleeping request is visible in the in-flight registry during backoff")
         ;; Abort squarely inside the 2000ms window.
         (rf/dispatch-sync [:do/abort])
         (await-condition! #(seq @replies))
@@ -163,7 +163,7 @@
 ;; ---- (2) abort-on-actor-destroy during backoff -----------------------------
 
 (deftest actor-destroy-during-backoff-cancels-pending-retry
-  (testing "rf2-wj8vv — destroying the issuing actor during the retry backoff window cancels the pending retry and clears the actor index"
+  (testing "destroying the issuing actor during the retry backoff window cancels the pending retry and clears the actor index"
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
@@ -194,7 +194,7 @@
         ;; registered under BOTH the request-id and actor-in-flight index.
         (await-backoff-sleeping! hits)
         (is (= 1 (count (rf.http.registry/actor-in-flight-snapshot)))
-            "the sleeping retry is indexed under its issuing actor during backoff (the defect emptied this slot)")
+            "the sleeping retry is indexed under its issuing actor during backoff")
         ;; Destroy the actor squarely inside the backoff window.
         (rf/dispatch-sync [:sup/race [:cancel]])
         (await-condition! #(seq @replies))
@@ -214,7 +214,7 @@
 ;; ---- (3) supersede (same request-id) during backoff ------------------------
 
 (deftest supersede-during-backoff-cancels-old-pending-retry
-  (testing "rf2-wj8vv — a fresh request with the same :request-id issued during the old request's backoff supersedes the sleeping retry (the old retry never fires)"
+  (testing "a fresh request with the same :request-id issued during the old request's backoff supersedes the sleeping retry (the old retry never fires)"
     (let [{:keys [^AtomicInteger hits] :as srv}     (start-counting-500-server!)
           ;; The superseding request targets a DIFFERENT, blocking endpoint
           ;; so it stays in-flight (and is the sole registry occupant) while
@@ -252,7 +252,7 @@
         (rf/dispatch-sync [:issue-new])
         ;; The superseding request fires its own attempt (against new-srv);
         ;; await its failure reply (the old request's reply is suppressed
-        ;; per rf2-lxd3 supersede semantics).
+        ;; per the supersede semantics).
         (await-condition! #(seq @replies))
         ;; The OLD server must NEVER receive a second hit — its sleeping
         ;; retry was cancelled by the supersede.
@@ -265,7 +265,7 @@
         ;; The suppressed-old reply never reaches the recorder; only the
         ;; new request's failure (a real :rf.http/http-5xx) does.
         (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
-            "the superseded request's reply is suppressed (rf2-lxd3); no :request-id-superseded reply is dispatched to the user")
+            "the superseded request's reply is suppressed; no :request-id-superseded reply is dispatched to the user")
         (finally
           (stop-server! srv)
           (stop-server! new-srv))))))
@@ -273,7 +273,7 @@
 ;; ---- (3b) supersede during backoff carries the sleeping attempt's work-id --
 
 (deftest supersede-during-backoff-stale-trace-carries-sleeping-attempt-work-id
-  (testing "rf2-hbus90 — superseding a request that is SLEEPING in its retry backoff window records a :rf.http/stale-suppressed trace whose carried work-id is the sleeping retry attempt's work-id (issuance/attempt preserved), distinct from the superseding attempt's"
+  (testing "superseding a request that is SLEEPING in its retry backoff window records a :rf.http/stale-suppressed trace whose carried work-id is the sleeping retry attempt's work-id (issuance/attempt preserved), distinct from the superseding attempt's"
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           ;; The superseding request targets a different blocking endpoint so
           ;; it stays in-flight while we inspect the emitted stale trace.
@@ -326,10 +326,10 @@
             (is (= :stale (:rf.reply/status tags)))
             (is (= :suppressed (:rf.reply/work-status tags)))
             (is (= :http (:rf.reply/work-kind tags)))
-            ;; THE BUG (rf2-hbus90): the carried work-id must be the SLEEPING
-            ;; retry attempt's work-id — issuance 1, attempt 2. The pre-fix
-            ;; backoff handle dropped :issuance / :attempt, so the carried id
-            ;; defaulted to [:rf.work/http :shared 1 1] (a phantom attempt #1).
+            ;; The carried work-id must be the SLEEPING
+            ;; retry attempt's work-id — issuance 1, attempt 2. A
+            ;; backoff handle that dropped :issuance / :attempt would default
+            ;; the carried id to [:rf.work/http :shared 1 1] (a phantom attempt #1).
             (is (= [:rf.work/http :shared 1 2] (:work/id (:rf.reply/carried tags)))
                 "carried work-id reflects the superseded SLEEPING retry attempt (attempt 2), not a default attempt 1")
             ;; current = the superseding attempt's work-id (issuance 2, attempt 1).
@@ -341,11 +341,11 @@
             ;; The canonical join key reads the carried (superseded) work-id.
             (is (= [:rf.work/http :shared 1 2] (:rf.reply/work-id tags)))))
         ;; The OLD server must NEVER receive a third hit — its sleeping retry
-        ;; was cancelled by the supersede (existing rf2-wj8vv behaviour kept).
+        ;; was cancelled by the supersede.
         (Thread/sleep (long (+ backoff-ms 600)))
         (is (= 2 (.get hits))
             "the OLD request's backoff retry MUST NOT fire after being superseded (exactly attempts #1 + #2 hit the server)")
-        ;; The superseded request's app reply is suppressed (rf2-lxd3).
+        ;; The superseded request's app reply is suppressed.
         (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
             "no :request-id-superseded reply is dispatched to the user")
         (finally
@@ -353,10 +353,10 @@
           (stop-server! srv)
           (stop-server! new-srv))))))
 
-;; ---- (4) GUARD: an uncancelled backoff still retries -----------------------
+;; ---- (4) GUARD: an uncancelled backoff retries -----------------------------
 
 (deftest uncancelled-backoff-still-retries
-  (testing "rf2-wj8vv guard — a normal (uncancelled) backoff still retries exactly as before; the cancellable-window change does not regress the happy path"
+  (testing "guard — a normal (uncancelled) backoff retries; the cancellable backoff window does not break the happy path"
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try

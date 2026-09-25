@@ -110,10 +110,9 @@
     element, in order.
 
   The name is stringified once; values are stringified per element so a
-  keyword / number value lands as its plain string form on the wire (the
-  prior CLJS path assigned a vector straight into a `HeadersInit`, and
-  the JVM path called `(str v)` on the whole vector — both produced a
-  single malformed wire value). An empty sequential value contributes no
+  keyword / number value lands as its plain string form on the wire
+  (assigning a vector straight into a `HeadersInit`, or calling `(str v)`
+  on the whole vector, would produce a single malformed wire value). An empty sequential value contributes no
   pair (the header is simply absent), mirroring `params->query`'s
   empty-sequential rule."
   [headers]
@@ -161,18 +160,15 @@
   user's `:accept` fn (or the default) against `decoded`. Returns
   `{:ok v}` or `{:failure m}`.
 
-  Per rf2-5ijhk + audit finding 3.3 the default-accept shape is
-  inlined here (the earlier `default-accept-fn` allocated a fresh
-  closure per response even when the user didn't supply `:accept`).
+  The default-accept shape is inlined here, so a response whose caller
+  supplied no `:accept` allocates no closure.
 
-  Per rf2-7iji6 the default is unconditionally `{:ok decoded}`. The only
+  The default is unconditionally `{:ok decoded}`. The only
   call site (`http-transport/handle-response!`) reaches `run-accept`
   exclusively inside the 2xx branch — status classification (4xx / 5xx /
   non-2xx-else) runs BEFORE decode per Spec 014 §Failure categories, so
-  the default never sees a non-2xx status. The earlier non-2xx arm was
-  dead on the live cascade and emitted an off-taxonomy `:kind
-  :http-status` (not a member of the closed `:rf.http/*` failure set);
-  it has been removed. `:accept` runs only against a successfully
+  the default never sees a non-2xx status and has no non-2xx arm.
+  `:accept` runs only against a successfully
   decoded 2xx body, so it needs no status."
   [accept-fn-or-nil decoded]
   (if accept-fn-or-nil
@@ -180,14 +176,14 @@
     {:ok decoded}))
 
 (defn valid-accept-return?
-  "rf2-rznrz — is `v` a recognised `:accept` return shape? Per Spec 014
+  "Is `v` a recognised `:accept` return shape? Per Spec 014
   §`:accept` the contract is `(decoded → {:ok v} | {:failure m})`: a map
   carrying EXACTLY one of `:ok` / `:failure`.
 
   Used by `http-transport/handle-response!` to validate the accept-phase
-  return AFTER the request has completed. A malformed return (nil, a
-  non-map, or a map carrying neither key) previously cleared the
-  in-flight request and dispatched NO reply — the caller hung forever.
+  return AFTER the request has completed. Unvalidated, a malformed return
+  (nil, a non-map, or a map carrying neither key) would clear the
+  in-flight request and dispatch NO reply — the caller would hang forever.
   Validating the shape lets the transport classify a malformed return as
   `:rf.http/accept-failure` and always emit a reply."
   [v]
@@ -215,9 +211,8 @@
    3. `[:rf.http/managed]` — synthetic fallback so the reply addressing
       machinery (`build-reply-event`) always has a non-nil event-id.
 
-  Extracted from the three verbatim copies in `http-managed`
-  (`normalise-args`, `managed-handler`) and `http-machine-wrapper`
-  (`origin-event-from`) per rf2-622e3."
+  The one resolver the live fx (`handlers/managed-handler`) and the canned
+  stubs (`re-frame.http.test-support`) share, so the order cannot drift."
   [frame-ctx args-map]
   (or (:event frame-ctx)
       (:rf.http/origin-event args-map)
@@ -230,9 +225,8 @@
 
   They are alternate ADDRESSING forms for one reply, never alternate contracts
   — every rule that binds one binds all three. One def rather than three
-  literals, so a rule cannot be written for a subset by accident: that is
-  exactly how rf2-uc7d shipped, with `re-frame.http.privacy` classifying the
-  two split keys and silently skipping the unified one."
+  literals, so a rule cannot be written for a subset by accident — a rule
+  over the two split keys alone would silently skip the unified one."
   [:reply-to :on-success :on-failure])
 
 (defn validate-reply-addressing!
@@ -241,8 +235,7 @@
   `:reply-to` beside `:on-success` or `:on-failure`.
 
   The test is key PRESENCE, not value: `{:reply-to [:a] :on-failure nil}` is
-  a mixture (and was the only pin the deleted per-branch override precedence
-  ever had). Values are irrelevant because there is nothing coherent for a
+  a mixture. Values are irrelevant because there is nothing coherent for a
   mixture to mean — `:reply-to` already addresses BOTH branches, so a branch
   key beside it is either a redundant restatement or a contradiction, and the
   reader cannot tell which was intended.
@@ -266,20 +259,18 @@
   `{:supplied? :value}` descriptor `build-reply-event` consumes, for
   `branch-key` (`:on-success` or `:on-failure`).
 
-  Per Spec 014 §Reply addressing, with the two styles now exclusive
-  (rf2-kuky.12):
+  Per Spec 014 §Reply addressing, with the two styles exclusive:
 
   - `:reply-to` present → that one target addresses BOTH branches.
   - else the branch's own key, when present.
   - else `{:supplied? false}` — this branch has no target, which after
     `validate-reply-addressing!` means only that the OPPOSITE sugar was
     supplied alone. Omitting every key fails loud upstream
-    (`:rf.error/http-no-reply-target`); the co-located default was retired
-    pre-alpha.
+    (`:rf.error/http-no-reply-target`); there is no co-located default.
 
-  One fn rather than a precedence rule restated at each interpreting site —
-  the live fx and both canned stubs previously carried their own copy, and
-  a copy is where a precedence rule drifts."
+  One fn rather than a precedence rule restated at each interpreting site
+  (the live fx and both canned stubs) — a copy is where a precedence rule
+  drifts."
   [args-map branch-key]
   (cond
     (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
@@ -292,22 +283,19 @@
   "Compose `build-reply-event` with a late-bind `:router/dispatch!` lookup
   and fire the dispatch. The single truth point for 'how does http
   dispatch its reply' — shared by `http-transport/dispatch-reply!` and
-  the canned-stub handlers in `http-test-support`. Per rf2-2utlm.
+  the canned-stub handlers in `http-test-support`.
 
   `args` is the same map `build-reply-event` consumes; `frame` (optional)
   is threaded as `{:frame <id>}` onto the dispatch options when present.
   No-op when the registered router is absent or `build-reply-event`
   returns nil (silenced reply).
 
-  Per rf2-t1lxr / rf2-1ve9h: reply dispatches self-tag with
+  Reply dispatches self-tag with
   `:source :http` so Xray's L2 timeline + tools can
-  discriminate HTTP-completion cascades from user-origin events.
-  Per rf2-1ve9h (Mike-approved 2026-05-28) the prior parallel
-  `:rf/dispatch-origin :http` was collapsed — `:source :http` is now
-  the single axis.
+  discriminate HTTP-completion cascades from user-origin events;
+  `:source` is the single origin axis.
 
-  EP-0010 / EP-0017 (rf2-n1rh0f / rf2-40dqi6 / rf2-r65m41 / rf2-alc1lf): the
-  reply is a CAUSAL TOKEN, and the host completion time (`:completed-at`, read
+  Per EP-0010 / EP-0017 the reply is a CAUSAL TOKEN, and the host completion time (`:completed-at`, read
   ONCE at finalisation in `reply-ctx`) is carried as the reply dispatch's
   `:rf.cofx` `:rf/time-ms`. The router PRESERVES a supplied `:rf.cofx` that
   already carries `:rf/time-ms` (it only fills a missing one), so a reply
@@ -328,17 +316,16 @@
   "Per Spec 014 §Reply addressing. Returns the event vector to dispatch for
   ONE branch (`:success` / `:failure`), or nil when the branch has no
   target. `reply-payload` is the CANONICAL reply envelope
-  (`{:status :ok/:error/:cancelled …}`, rf2-ibksxg). The three authoring
+  (`{:status :ok/:error/:cancelled …}`). The three authoring
   keys (`:reply-to` / `:on-success` / `:on-failure`) all normalise upstream
   (`handlers/normalise-args`) to the ONE `explicit-on` descriptor
   (`{:supplied? :value}`) this fn consumes — never a second dialect.
 
   - supplied event vector: append the canonical reply map as its last arg.
   - supplied `nil`: silenced (fire-and-forget).
-  - NOT supplied: nil — the branch has no target. The co-located default
-    (reply merged under `:rf/reply` back to the originating event) was
-    RETIRED pre-alpha (rf2-et4c1s); omitting EVERY reply target now fails
-    loud at fx-call time (`handlers/validate-reply-target!` →
+  - NOT supplied: nil — the branch has no target. There is no co-located
+    default (reply merged under `:rf/reply` back to the originating event);
+    omitting EVERY reply target fails loud at fx-call time (`handlers/validate-reply-target!` →
     `:rf.error/http-no-reply-target`), so a WHOLLY-unaddressed request never
     reaches here. A PARTIALLY-addressed one (only the opposite branch's
     sugar, no `:reply-to`) silences this branch — a silenced FAILURE
@@ -356,7 +343,7 @@
       (and supplied? (vector? value))
       (conj value reply-payload)
 
-      ;; rf2-smqkq — an explicitly supplied non-vector non-nil reply target
+      ;; An explicitly supplied non-vector non-nil reply target
       ;; (e.g. a bare keyword or a map) is malformed: Spec 014 §Reply
       ;; addressing types the reply target as "event vector or nil". Reject it
       ;; at the dispatch site rather than swallow the misuse.
@@ -366,20 +353,18 @@
         "`:reply-to` / `:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
         {:extra {:value value}})
 
-      ;; NOT supplied — the co-located default was retired (rf2-et4c1s); the
+      ;; NOT supplied — there is no co-located default; the
       ;; branch has no target, so no event is dispatched.
       :else nil)))
 
 ;; ---- backoff --------------------------------------------------------------
 
 (def default-backoff
-  "rf2-t5mzx (F5) — the single source of truth for the exponential-backoff
-  defaults. Previously `:base-ms 250`, `:factor 2`, `:max-ms 5000` were
-  spelled inline in `compute-backoff-ms`'s `:or` map AND restated in
-  Spec 014 §Retry and backoff prose + the §The shape sample; the two
-  copies could silently drift. Naming the def makes the defaults a
-  referenceable constant the spec can point at, and any future change
-  edits one place."
+  "The single source of truth for the exponential-backoff defaults,
+  read by `compute-backoff-ms`'s `:or` map. Naming the def makes the
+  defaults a referenceable constant Spec 014 §Retry and backoff can point
+  at, so a change edits one place rather than an inline literal that
+  could silently drift from the spec."
   {:base-ms 250 :factor 2 :max-ms 5000})
 
 (defn compute-backoff-ms
@@ -399,8 +384,8 @@
         capped   (min raw max-ms)
         ;; (- 1.0 (* 2.0 (rand))) is uniform in [-1.0, +1.0]; scaled by
         ;; 0.25 × capped this yields a true ±25% offset matching the
-        ;; spec's stated range. (The earlier impl used (- 0.5 (rand)) ×
-        ;; 0.25 × capped which is only ±12.5%.)
+        ;; spec's stated range. ((- 0.5 (rand)) × 0.25 × capped would be
+        ;; only ±12.5%.)
         jittered (if jitter
                    (let [offset (* capped 0.25 (- 1.0 (* 2.0 (rand))))]
                      (max 0 (+ capped offset)))

@@ -1,17 +1,18 @@
 (ns re-frame.http-anonymous-frame-ownership-test
-  "rf2-fzbj.11 / rf2-gwye.12 — a managed request with NO `:request-id` and no
+  "A managed request with NO `:request-id` and no
   owning actor is still owned by the frame that issued it.
 
   `:request-id` is optional (Spec 014 §Args), and the two frame-lifecycle
   boundaries — frame destroy and the epoch-restore HTTP quiesce — must cancel
-  every request the frame issued. Before the fix the registry found requests
-  only through its request-id and actor-id indexes, so an anonymous request was
-  invisible to both sweeps: its host future stayed live, its retry kept firing,
-  and its late reply committed into a SUCCESSOR frame created under the same id.
+  every request the frame issued. A registry that found requests only through
+  its request-id and actor-id indexes would leave an anonymous request
+  invisible to both sweeps: its host future would stay live, its retry would
+  keep firing, and its late reply would commit into a SUCCESSOR frame created
+  under the same id.
 
   Every assertion here is behavioural — host futures cancelled or not, replies
   delivered or not, committed app-db, fetch counts, stale-suppression traces —
-  so the file runs unchanged against the pre-fix registry and fails there. The
+  so the file fails against such a registry. The
   host transport is replaced ONLY at `jvm-fetch`; the managed effect, registry,
   router, `destroy-frame!` and reply dispatch are all real."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

@@ -1,27 +1,26 @@
 (ns re-frame.epoch-silencing-generation-emission-test
-  "rf2-9bhne6 / rf2-8b9twg — the delayed-silence generation stays AUTHORITATIVE
+  "The delayed-silence generation stays AUTHORITATIVE
   through the trace emission that publishes it, WITHOUT holding a ledger lock
   across the external fan-out.
 
-  ## Background
+  ## Why the emit does not run under the ledger locks
 
-  rf2-9bhne6 kept the winning `(cb-id, observed-gen)` authoritative by running the
-  external `:rf.epoch.cb/silenced-on-frame-destroy` emit INSIDE both ledger locks
-  (`claim-and-publish-delayed-silence!` under `with-claim-locks`). That closed the
-  reserve→emit window in which a same-id replacement G→H could make a fresh
-  generation current before an UNQUALIFIED `{:frame :cb-id}` signal fired — but it
-  ran arbitrary listener code (which may `dispatch-sync` and acquire a frame's
-  `:drain-lock`) under the ledger locks, an AB-BA deadlock against a draining
-  thread (rf2-8b9twg; the dedicated regression lives in
+  Running the external `:rf.epoch.cb/silenced-on-frame-destroy` emit INSIDE both
+  ledger locks would keep the winning `(cb-id, observed-gen)` authoritative by
+  closing the reserve→emit window in which a same-id replacement G→H could make
+  a fresh generation current before an UNQUALIFIED `{:frame :cb-id}` signal
+  fired — but it would run arbitrary listener code (which may `dispatch-sync`
+  and acquire a frame's `:drain-lock`) under the ledger locks, an AB-BA
+  deadlock against a draining thread (pinned in
   `re-frame.epoch-silencing-emit-deadlock-test`).
 
-  ## The rf2-8b9twg mechanism (what these tests now pin)
+  ## The mechanism these tests pin
 
   `claim-and-publish-delayed-silence!` reserves the mark under both ledger locks,
-  RELEASES them, then emits OUTSIDE them. Generation authority is preserved not by
+  RELEASES them, then emits OUTSIDE them. Generation authority is held not by
   the lock but by a DATA QUALIFIER: the emit carries `:observed-gen` (the reserved
-  generation G). A same-id replacement H landing in the reserve→emit window can no
-  longer be mistaken as the silence's subject — the signal is attributed to G, and
+  generation G). A same-id replacement H landing in the reserve→emit window
+  cannot be mistaken as the silence's subject — the signal is attributed to G, and
   a receiver whose CURRENT generation for `cb-id` != the carried `:observed-gen`
   SELF-FILTERS it. The forbidden ordering (H current, THEN a signal attributed to
   H) is impossible: no unqualified signal is ever emitted.
@@ -32,13 +31,12 @@
 
     * TEST A — the emit runs OUTSIDE the ledger locks: while a claim's `publish!`
       is parked, a concurrent `put-listener!` AND a concurrent `record-observation!`
-      re-arm complete IMMEDIATELY (they are NOT blocked). This is the direct
-      inverse of the old emit-under-lock behaviour and the unit-level proof that
-      the foreign-code-under-lock edge (the deadlock source) is gone.
+      re-arm complete IMMEDIATELY (they are NOT blocked). This is the unit-level
+      proof that no foreign code runs under a ledger lock (the deadlock source).
     * TEST B — the emitted signal is GENERATION-QUALIFIED: even when a same-id
       replacement H lands DURING the emit window (concurrently, unblocked), the
       wire signal carries `:observed-gen == G`, and the now-current generation is
-      H != G — so a receiver self-filters it. No G→H window is reopened."
+      H != G — so a receiver self-filters it. No G→H window opens."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             ;; Side-effect: publishes the `:epoch/*` late-bind hooks.
@@ -54,8 +52,8 @@
 
 (defn- cb-generation
   "The live generation token currently registered under `cb`. This is an
-  ARTEFACT-INTERNAL read: rf2-uhouu retired the public generation query, because
-  a consumer holding the generation alone can only recompose the torn two-read
+  ARTEFACT-INTERNAL read: there is no public generation query, because a
+  consumer holding the generation alone could only recompose the torn two-read
   receiver decision. A real consumer instead asks the ONE supported question,
   `re-frame.epoch/epoch-silence-current?` — exercised at the public boundary by
   `re-frame.epoch-silence-receiver-public-api-test`. The assertions below name
@@ -79,11 +77,10 @@
 (deftest emit-runs-outside-the-ledger-locks-so-a-concurrent-registrar-and-rearm-are-not-blocked
   ;; While a `claim-and-publish` is parked in `publish!` (the external emit), a
   ;; concurrent registry replacement AND a concurrent observation re-arm both
-  ;; COMPLETE IMMEDIATELY — because the ledger locks were RELEASED before the emit
-  ;; (rf2-8b9twg). This is the inverse of rf2-9bhne6's emit-under-lock behaviour,
-  ;; and the unit-level proof that the fan-out reaches no ledger lock (so it can
-  ;; never invert against a frame's :drain-lock). TOOTH: putting the emit back
-  ;; under the locks re-blocks both mutations and flips these assertions to RED.
+  ;; COMPLETE IMMEDIATELY — because the ledger locks are RELEASED before the emit.
+  ;; This is the unit-level proof that the fan-out reaches no ledger lock (so it
+  ;; can never invert against a frame's :drain-lock). TOOTH: moving the emit
+  ;; under the locks blocks both mutations and flips these assertions to RED.
   (let [frame      :bhne6/serialize
         cb         ::bhne6-serialize-cb        ; the parked claim's subject
         other      ::bhne6-serialize-other     ; observation re-arm subject (owed)
@@ -115,9 +112,9 @@
                               (rf.epoch.state/record-observation! other other-gen frame)
                               (.countDown obs-done))]
         (is (.await in-claim 5 TimeUnit/SECONDS) "the claim is parked inside publish!")
-        ;; The rf2-8b9twg guarantee: NO ledger lock is held during the emit, so
-        ;; both mutations proceed at once. (Under the pre-fix emit-under-lock code
-        ;; these awaits return false — the mutations block until `release`.)
+        ;; The guarantee: NO ledger lock is held during the emit, so both
+        ;; mutations proceed at once. (Were the emit under the locks, these
+        ;; awaits would return false — the mutations would block until `release`.)
         (is (.await put-done 2 TimeUnit/SECONDS)
             "put-listener! is NOT blocked — the emit holds no registry lock")
         (is (.await obs-done 2 TimeUnit/SECONDS)
@@ -135,13 +132,12 @@
 
 (deftest silence-signal-is-generation-qualified-and-self-filters-a-replacement-in-the-emit-window
   ;; A registrar replaces cb's generation (G→H) DURING the emit window — and,
-  ;; because the emit now runs outside the locks, it is NOT blocked, so H DOES
+  ;; because the emit runs outside the locks, it is NOT blocked, so H DOES
   ;; become current before the emit returns. Yet the wire signal carries
   ;; `:observed-gen == G` (the reserved generation, baked into the payload before
   ;; the fan-out), and the current generation is H != G — so a receiver's
   ;; `current-gen == observed-gen?` check drops it. The signal is attributed to G,
-  ;; never to H: no G→H window is reopened (rf2-8b9twg supersedes the
-  ;; emit-under-lock mechanism of rf2-9bhne6). TOOTH: dropping `:observed-gen` from
+  ;; never to H: no G→H window opens. TOOTH: dropping `:observed-gen` from
   ;; the payload (the unqualified signal) removes the discriminator entirely.
   (let [frame        :bhne6/thru-emit
         cb           ::bhne6-thru-emit-cb

@@ -35,7 +35,7 @@
      params are redacted **inline** in every `:rf.http/*` trace event
      that carries a `:url` slot, regardless of the request
      `:sensitive?` flag — as are the same names written as keys of a
-     structured `:params` map (rf2-3x7nj.16.1). Same rationale as the
+     structured `:params` map. Same rationale as the
      header denylist: the param name itself is the signal.
 
   3. **Per-call `:sensitive?`** — a per-call `:sensitive?` arg on the
@@ -43,9 +43,9 @@
      a generic POST handler issuing a sensitive POST to `/auth/login`).
      When the request is sensitive, **all** query params are redacted
      (broader rule than the denylist). NOTE: the originating event
-     handler's `:sensitive?` registration metadata is no longer
-     consulted — handler-level sensitivity has been removed in favour
-     of path-marked / per-call classification.
+     handler's `:sensitive?` registration metadata is not
+     consulted — sensitivity is path-marked / per-call classification,
+     not handler-level.
 
   The runtime stamps `:sensitive? true` on the emitted trace event's
   `:tags` so consumers consult one keyword to decide ship, drop, or redact.
@@ -288,7 +288,7 @@
     [redacted-payload (or top-level-url-redacted? nested-url-redacted?)]))
 
 (defn- redact-denylisted-params
-  "rf2-3x7nj.16.1 — the query-param denylist applied to a structured `:params`
+  "The query-param denylist applied to a structured `:params`
   map: every value whose key names a denylisted parameter becomes the sentinel.
   Returns `[params any-redacted?]`.
 
@@ -309,7 +309,7 @@
   "Like `redact-request-tags` but returns `[tags url-redacted?]` so
   callers (`prepare-emit-tags`) can decide whether to stamp
   `:sensitive?` without re-walking the URL. The flag also counts a
-  denylisted `:params` name (rf2-3x7nj.16.1) — a query parameter is the same
+  denylisted `:params` name — a query parameter is the same
   signal in either spelling.
 
   `carriers` is the registration-owned carrier extension map
@@ -383,7 +383,7 @@
                       (and sensitive? (contains? failure :detail))
                       (assoc :detail redacted-sentinel)
 
-                      ;; rf2-eusm1 — a string `:cause` is the free-text throw
+                      ;; A string `:cause` is the free-text throw
                       ;; message from the interceptor/transport path. It is
                       ;; author-controlled and can echo a secret the
                       ;; interceptor was handling (e.g. a token-validation
@@ -402,13 +402,13 @@
   a `:rf.http/*` trace event, redact response-side payload slots when
   `sensitive?` is true. Always redacts headers via the denylist; always
   redacts URL query-string values whose param name is in the query-
-  param denylist (rf2-2p8wr) — denylisted param names are the signal.
+  param denylist — denylisted param names are the signal.
 
-  rf2-ee38b.7 — public for direct test assertion; most production emit sites
+  Public for direct test assertion; most production emit sites
   reach redaction via `prepare-emit-failure` (which uses the `*-with-flag`
   form to drive its own `:sensitive?` stamping decision).
 
-  rf2-kiepc — ONE production caller invokes this non-flag wrapper:
+  ONE production caller invokes this non-flag wrapper:
   `http-transport/emit-reply-trace!`, redacting the failure map that a
   failure / cancelled reply seats at `:error`. It wants the redaction
   without the URL-hit flag — that row's `:sensitive?` is resolved from the
@@ -421,7 +421,7 @@
 
 (defn redact-response-meta
   "Redact the sensitive response-header carriers on a canonical reply's
-  `[:meta :headers]` before the reply rides a trace surface (rf2-lddbk).
+  `[:meta :headers]` before the reply rides a trace surface.
 
   A successful completion's reply carries the response wire facts under
   `:meta` (`{:status :status-text :headers}` — `re-frame.http.reply/
@@ -448,7 +448,7 @@
 
   Per Spec 009 §Privacy the canonical contract is that `:sensitive?`
   rides at the **top level** of the trace event. Both `re-frame.trace/emit!`
-  and `re-frame.trace/emit-error!` (per rf2-isdwf) consult a
+  and `re-frame.trace/emit-error!` consult a
   caller-supplied `:sensitive?` slot in tags and hoist it to top-level,
   dissoc'ing it from tags — so we stamp into tags here and let core do
   the hoist. Consumers always read `(:sensitive? ev)` at the top level,
@@ -457,7 +457,7 @@
   When `sensitive?` is false the slot is OMITTED (not stamped to false)
   per Spec 009 line 1176: \"Consumers treat absent as false.\"
 
-  rf2-ee38b.7 — public for direct test assertion + composer reuse;
+  Public for direct test assertion + composer reuse;
   production reaches it through the `prepare-emit-*` composers."
   [tags sensitive?]
   (cond-> tags
@@ -483,7 +483,7 @@
   (or (true? (:sensitive? args-map))
       (true? (get-in args-map [:request :sensitive?]))))
 
-;; ---- fx-args trace projection (rf2-32ffq1) ---------------------------------
+;; ---- fx-args trace projection ---------------------------------------------
 
 (defn project-managed-fx-args
   "Redact a `:rf.http/managed` fx ARGS MAP for the generic fx-arg-bearing
@@ -512,9 +512,9 @@
   §Reply addressing), never alternate PRIVACY contracts — Spec 014 §Unified
   one-handler form teaches carrying the originating message on the address
   (`:reply-to [:article/load msg]`), so the unified spelling is exactly as
-  payload-bearing as the split one. Before rf2-uc7d only the split keys were
-  redacted here, so re-spelling a continuation from `:on-success` to the
-  IDENTICAL `:reply-to` vector leaked fields its target had declared
+  payload-bearing as the split one. Redacting only the split keys would let
+  re-spelling a continuation from `:on-success` to the
+  IDENTICAL `:reply-to` vector leak fields its target had declared
   `:sensitive` into the generic HTTP fx traces.
 
   Total: a non-map `args` passes through untouched."

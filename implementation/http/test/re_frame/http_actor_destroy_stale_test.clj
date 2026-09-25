@@ -1,5 +1,5 @@
 (ns re-frame.http-actor-destroy-stale-test
-  "Per rf2-yrrpe2 + EP-0011 / Managed-Effects §Cancellation: an actor-destroy
+  "Per EP-0011 / Managed-Effects §Cancellation: an actor-destroy
   abort whose reply target is OBSOLETE — its event-id names the destroyed
   actor itself (the machine-shape wrapper's `[self-id [:rf.http/failed]]`
   default, or any request whose reply addresses its own actor) — does NOT
@@ -8,9 +8,9 @@
   outcome: the app target MUST NOT run, and a `:rf.http/stale-suppressed`
   reply-envelope trace records the carried correlation joined to `:work/id`.
 
-  The contrast (preserved rf2-wvkn behaviour): an actor-destroy abort whose
+  The contrast: an actor-destroy abort whose
   reply target is an ORDINARY event (still meaningful — a separate recorder
-  handler) keeps the live `:status :cancelled` / `:failure` delivery.
+  handler) receives the live `:status :cancelled` / `:failure` delivery.
 
   Spec references:
    - Managed-Effects §Cancellation (`:status :cancelled` when meaningful,
@@ -79,7 +79,7 @@
 ;; ----     → :status :stale / :suppressed, NO app delivery -------------------
 
 (deftest obsolete-actor-bound-target-suppresses-stale-on-destroy
-  (testing "rf2-yrrpe2 — an actor whose request's :on-failure addresses the actor itself: destroying it suppresses the app reply as :status :stale (no delivery), and emits a :rf.http/stale-suppressed reply-envelope trace"
+  (testing "an actor whose request's :on-failure addresses the actor itself: destroying it suppresses the app reply as :status :stale (no delivery), and emits a :rf.http/stale-suppressed reply-envelope trace"
     (let [latch  (CountDownLatch. 1)
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
           ;; Dispatch probe: a trace listener records EVERY dispatched event's
@@ -152,10 +152,10 @@
           (stop-server! srv))))))
 
 ;; ---- (2) meaningful (ordinary-event) target stays a live :cancelled --------
-;; ----     failure delivery — the preserved rf2-wvkn behaviour ---------------
+;; ----     failure delivery -------------------------------------------------
 
 (deftest meaningful-ordinary-target-still-delivers-failure-on-destroy
-  (testing "rf2-yrrpe2 — an actor whose request's :on-failure is an ORDINARY event (a separate recorder) keeps the live :failure delivery on destroy; NO stale suppression"
+  (testing "an actor whose request's :on-failure is an ORDINARY event (a separate recorder) receives the live :failure delivery on destroy; NO stale suppression"
     (let [latch  (CountDownLatch. 1)
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
           replies (atom [])
@@ -191,7 +191,7 @@
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
           (is (= :cancelled (:status reply))
-              "the meaningful target still receives a live :cancelled reply")
+              "the meaningful target receives a live :cancelled reply")
           (is (= :rf.http/aborted (get-in reply [:error :kind])))
           (is (= :actor-destroyed (get-in reply [:error :reason]))))
         (is (empty? (stale-traces @traces))
@@ -201,12 +201,12 @@
           (rf.trace.tooling/unregister-listener! ::yrrpe2-2)
           (stop-server! srv))))))
 
-;; ---- (3) rf2-4teurt — the abort-precedence RECLASSIFICATION path -----------
+;; ---- (3) the abort-precedence RECLASSIFICATION path -----------------------
 ;; ----     (JVM completion-wins-the-CAS race) must apply the SAME obsolete- --
 ;; ----     target stale suppression as the direct dispatch-aborted! path -----
 
 (deftest completion-wins-cas-obsolete-target-suppresses-stale-on-destroy
-  (testing "rf2-4teurt — the rf2-yrrpe2 obsolete-target suppression was enforced ONLY in dispatch-aborted! (the direct abort-fn path). The rf2-wez75 abort-precedence RECLASSIFICATION is a SECOND path to an :rf.http/aborted reply: when abort-on-actor-destroy flips :aborted? but LOSES the once-only :finalised? CAS to the completion (whenComplete) thread, finalise-success!/finalise-failure! sees the flipped cell, reclassifies to :actor-destroyed, and routes through emit-and-dispatch-failure!. Before the fix that tail's ONLY suppression gate was #{:request-id-superseded :epoch-restored}, so an :actor-destroyed reclassification with an obsolete (self-addressing) target delivered a LIVE :cancelled reply to the destroyed actor. The fix applies actor-destroy-target-obsolete? + emit-actor-destroy-stale-trace! inside emit-and-dispatch-failure! too."
+  (testing "the abort-precedence RECLASSIFICATION is a SECOND path to an :rf.http/aborted reply besides dispatch-aborted! (the direct abort-fn path): when abort-on-actor-destroy flips :aborted? but LOSES the once-only :finalised? CAS to the completion (whenComplete) thread, finalise-success!/finalise-failure! sees the flipped cell, reclassifies to :actor-destroyed, and routes through emit-and-dispatch-failure!. A suppression gate there of only #{:request-id-superseded :epoch-restored} would deliver a LIVE :cancelled reply to the destroyed actor for an obsolete (self-addressing) target, so emit-and-dispatch-failure! applies actor-destroy-target-obsolete? + emit-actor-destroy-stale-trace! too."
     (let [latch  (CountDownLatch. 1)
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
           dispatched (atom [])
@@ -268,8 +268,8 @@
             (is (= :suppressed (:rf.reply/work-status tags)))
             (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason tags))))
           ;; Quiescence: the obsolete self-addressed reply MUST NOT be
-          ;; dispatched. Before the fix, emit-and-dispatch-failure! delivered a
-          ;; live :cancelled reply to :worker/proc#1 here.
+          ;; dispatched. Without the suppression in emit-and-dispatch-failure!,
+          ;; a live :cancelled reply would reach :worker/proc#1 here.
           (Thread/sleep 150)
           (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
               "the abort-precedence reclassification MUST NOT deliver a live :cancelled reply to the destroyed actor's self-addressed target"))

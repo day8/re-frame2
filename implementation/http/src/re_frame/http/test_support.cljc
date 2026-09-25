@@ -8,7 +8,7 @@
 
   Requiring this namespace is the test-effect registration gate. Production
   and SSR code must not require it; the production effects and middleware
-  remain in `re-frame.http.managed`. A test using any stub surface requires
+  live in `re-frame.http.managed`. A test using any stub surface requires
   both namespaces:
 
   ```clojure
@@ -47,7 +47,7 @@
 ;; `http-managed/managed-handler`).
 
 (defn capture-and-run-request-chain
-  "rf2-v3f6 — `run-request-chain` plus the issue-time chain capture the
+  "`run-request-chain` plus the issue-time chain capture the
   canned reply tail needs. Returns `{:chain <captured vector>
   :middleware-ctx <post-`:before` ctx>}`.
 
@@ -57,8 +57,8 @@
   transport does, and an interceptor registered mid-request joins neither
   walk.
 
-  `run-request-chain` below returns just the ctx, preserving its existing
-  return contract for callers that only need the post-`:before` request
+  `run-request-chain` below returns just the ctx, for callers that only
+  need the post-`:before` request
   (e.g. the resources request-decoration test's transport stub)."
   [frame-ctx args-map]
   (rf.http.encoding/validate-reply-addressing! args-map)
@@ -96,10 +96,10 @@
   chain sees on the real-transport path (carried forward by
   `managed-handler` as the normalised ctx's `:middleware-ctx`).
 
-  rf2-v3f6 — a caller that will go on to run the `:after` chain wants
+  A caller that will go on to run the `:after` chain wants
   `capture-and-run-request-chain` instead, which returns that ctx PAIRED
   with the chain the request captured; the `:after` walk needs both. This
-  arity stays for callers that only need the post-`:before` request (the
+  fn serves callers that only need the post-`:before` request (the
   resources request-decoration test's transport stub). The route-map stub
   (`stub-handler`) reads the post-`:before` `:request` back off the ctx to
   key its match against the url the managed pipeline would actually issue,
@@ -108,12 +108,12 @@
   shared chain walk, which the lower-level canned handlers also call with a
   bare `:value` and no `:request`.
 
-  rf2-xmp74u — seeds the SAME effective top-level `:sensitive?` into `ctx0`
+  Seeds the SAME effective top-level `:sensitive?` into `ctx0`
   that `http-handlers/managed-handler` seeds on the real-transport path
   (via `privacy/request-sensitive?`, OR-reducing per-call `:sensitive?` and
   `[:request :sensitive?]`). Without it, a request that opted in via the
-  TOP-LEVEL `:sensitive? true` form ran the canned/stub `:before` chain with
-  no top-level flag, so a throwing `:before` emitted
+  TOP-LEVEL `:sensitive? true` form would run the canned/stub `:before` chain
+  with no top-level flag, so a throwing `:before` would emit
   `:rf.error/http-interceptor-failed` WITHOUT redacting non-denylisted query
   values — a stub-path leak + test false-green relative to production. The
   chain's own `:sensitive-of` reducer still recomputes the EFFECTIVE
@@ -121,10 +121,11 @@
   sensitive is honoured); seeding the floor here matches production's
   pre-chain reading.
 
-  rf2-kuky.12 — this is also where the canned paths refuse MIXED reply
-  addressing (`:reply-to` beside `:on-success` / `:on-failure`). All three
-  test-path entry points — `canned-success-handler`, `canned-failure-handler`
-  and the route-map `stub-handler` — call this fn first, so one call gives
+  This is also where the canned paths refuse MIXED reply
+  addressing (`:reply-to` beside `:on-success` / `:on-failure`): the check
+  runs in `capture-and-run-request-chain`, which all three test-path entry
+  points — `canned-success-handler`, `canned-failure-handler` and the
+  route-map `stub-handler` — call first, so one call gives
   the same `:rf.error/http-bad-reply-target` the live fx raises, and raises it
   BEFORE any `:before` interceptor's side effects fire. A map the live fx
   refuses must not be silently interpreted by a stub: that is how a test
@@ -133,20 +134,20 @@
   (:middleware-ctx (capture-and-run-request-chain frame-ctx args-map)))
 
 (defn- dispatch-canned-reply!
-  "rf2-r5m22 — the canned-stub reply tail, mirroring
+  "The canned-stub reply tail, mirroring
   `http-transport/dispatch-reply!`: thread the synthesised reply-payload
   through the per-frame `:after` interceptor chain (REVERSE registration
   order) BEFORE handing off to the late-bind reply router.
 
-  Before this, the canned path ran ONLY the `:before` half of the
-  interceptor chain (`run-request-chain`) and called the reply router
-  directly — so an `:after` carrying response-time telemetry, header-
-  driven auth refresh, or any of the response-side use-cases the
-  middleware contract sells (Spec 014 §Middleware) silently never fired
-  on the stub path. That broke `run-request-chain`'s own promise that
-  load-bearing interceptor side effects 'fire on the canned path the
-  same way they fire on the real-transport path' — stub-path response
-  handling diverged from production.
+  Running ONLY the `:before` half of the interceptor chain
+  (`run-request-chain`) and calling the reply router directly would mean an
+  `:after` carrying response-time telemetry, header-driven auth refresh, or
+  any of the response-side use-cases the middleware contract sells (Spec
+  014 §Middleware) silently never fires on the stub path — breaking
+  `run-request-chain`'s own promise that load-bearing interceptor side
+  effects 'fire on the canned path the same way they fire on the
+  real-transport path', and letting stub-path response handling diverge
+  from production.
 
   `middleware-ctx` is the post-`:before` ctx `run-request-chain`
   produced for THIS request — the exact same shape the real-transport
@@ -156,13 +157,13 @@
   (per `run-after-chain!`), matching the real path; the reply is then
   not dispatched.
 
-  rf2-k67u3 — the run-`:after`-then-dispatch tail is shared with the
+  The run-`:after`-then-dispatch tail is shared with the
   real-transport reply path (`http-transport/dispatch-reply!`) via
   `middleware/run-after-then-dispatch!`. The canned path always supplies
   a `:middleware-ctx` (produced by `capture-and-run-request-chain`), so the
   `:after` chain always runs here.
 
-  rf2-v3f6 — and it supplies that ctx's `:chain`, the issue-time capture
+  It also supplies that ctx's `:chain`, the issue-time capture
   taken before the `:before` walk, so the stub's `:after` walk resolves
   exactly as the real transport's does: from the request's own capture,
   never from the live registry."
@@ -176,7 +177,7 @@
      :reply-payload  reply-payload
      :kind           kind}))
 
-;; rf2-azrcs — the canned-success / canned-failure bodies split into a
+;; The canned-success / canned-failure bodies are a
 ;; pre-computed-ctx emit (`emit-canned-success!` / `emit-canned-failure!`)
 ;; plus a thin run-the-chain-then-emit wrapper. The route-map stub
 ;; (`stub-handler`) runs the `:before` chain ONCE itself (so it can key its
@@ -185,12 +186,12 @@
 ;; load-bearing interceptor side effects).
 (defn emit-canned-success!
   "Synthesise a success reply from a PRE-COMPUTED `captured` request
-  (rf2-azrcs) — the `{:chain … :middleware-ctx …}` map
+  — the `{:chain … :middleware-ctx …}` map
   `capture-and-run-request-chain` returns. Threads the reply through the
   `:after` chain via `dispatch-canned-reply!`. Does NOT run the `:before`
   chain — the caller already did.
 
-  rf2-v3f6 — the captured chain travels with the ctx it produced, so this
+  The captured chain travels with the ctx it produced, so this
   reply walks the chain the request was issued under."
   [frame-ctx args-map {:keys [chain middleware-ctx] :as _captured}]
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
@@ -201,7 +202,7 @@
                        {:where 'rf.http/emit-canned-success!})
         value        (get args-map :value {:stubbed true})
         origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
-        ;; rf2-ibksxg — the canned stub delivers a MINIMAL canonical reply
+        ;; The canned stub delivers a MINIMAL canonical reply
         ;; (`:status :ok` + `:value`), the shape a handler actually branches
         ;; on. A stub has no real request lifecycle, so the identity facts the
         ;; real transport carries (`:work/id` / `:attempt` / `:completed-at`)
@@ -209,7 +210,7 @@
         ;; handler reads. The real transport's full envelope is pinned by the
         ;; lowering conformance (`http-reply-lowering-test`).
         ;;
-        ;; rf2-lddbk — an optional `:meta` on the args-map rides the reply's
+        ;; An optional `:meta` on the args-map rides the reply's
         ;; `:meta` slot verbatim, so header-dependent `:after` middleware /
         ;; reply handlers are testable without a network (supply the same
         ;; `{:status <int> :status-text <string> :headers <normalized map>}`
@@ -220,10 +221,10 @@
                        (some? meta*) (assoc :meta meta*))]
     (dispatch-canned-reply!
       {:origin-event   origin-event
-       ;; rf2-et4c1s — the canned stub honours the SAME reply-addressing keys
-       ;; as the live fx, through the SAME lowering fn (rf2-kuky.12): the
+       ;; The canned stub honours the SAME reply-addressing keys
+       ;; as the live fx, through the SAME lowering fn: the
        ;; unified `:reply-to` when present (both branches), else this branch's
-       ;; `:on-success` sugar. The co-located default is retired, so an
+       ;; `:on-success` sugar. There is no co-located default, so an
        ;; unaddressed stub reply is silenced (build-reply-event nil).
        :explicit-on    (rf.http.encoding/reply-target args-map :on-success)
        :reply-payload  reply
@@ -234,8 +235,8 @@
     nil))
 
 (defn emit-canned-failure!
-  "Synthesise a failure reply from a PRE-COMPUTED `captured` request
-  (rf2-azrcs / rf2-v3f6). Symmetric with `emit-canned-success!`."
+  "Synthesise a failure reply from a PRE-COMPUTED `captured` request.
+  Symmetric with `emit-canned-success!`."
   [frame-ctx args-map {:keys [chain middleware-ctx] :as _captured}]
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
@@ -247,7 +248,7 @@
         tags         (or (:tags args-map) {})
         failure      (assoc tags :kind kind)
         origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
-        ;; rf2-ibksxg — deliver a MINIMAL canonical reply: the classified
+        ;; Deliver a MINIMAL canonical reply: the classified
         ;; `:rf.http/*` failure map rides verbatim under `:error`, and an
         ;; `:rf.http/aborted` kind maps to `:status :cancelled` (mirroring the
         ;; real transport's status taxonomy) while every other kind is
@@ -260,8 +261,8 @@
                        {:status :error :error failure})]
     (dispatch-canned-reply!
       {:origin-event   origin-event
-       ;; rf2-et4c1s — same reply-addressing keys as the live fx, through the
-       ;; same lowering fn (rf2-kuky.12).
+       ;; Same reply-addressing keys as the live fx, through the
+       ;; same lowering fn.
        :explicit-on    (rf.http.encoding/reply-target args-map :on-failure)
        :reply-payload  reply
        :kind           :failure
@@ -273,14 +274,12 @@
 (defn canned-success-handler
   "Stub fx — synthesises a success reply per Spec 014 §Testing.
 
-  Per rf2-yhfgf — walks the per-frame request-side (`:before`) interceptor
+  Walks the per-frame request-side (`:before`) interceptor
   chain before synthesising the reply, so `:before` interceptors with
   load-bearing side effects (auth headers, observability) fire on the
   canned path the same way they fire on the real-transport path.
-  Per rf2-azrcs — the chain walk (`run-request-chain`) also validates the
-  final post-`:before` url with the canonical `:rf.error/http-bad-request`.
 
-  Per rf2-r5m22 — also threads the reply through the response-side
+  Also threads the reply through the response-side
   (`:after`) chain (via `dispatch-canned-reply!`), mirroring
   `http-transport/dispatch-reply!` so the stub path is a faithful test
   seam for BOTH halves of the middleware chain."
@@ -291,26 +290,25 @@
 (defn canned-failure-handler
   "Stub fx — synthesises a failure reply per Spec 014 §Testing.
 
-  Per rf2-yhfgf — walks the per-frame request-side (`:before`) interceptor
+  Walks the per-frame request-side (`:before`) interceptor
   chain before synthesising the reply (symmetric with `canned-success-
   handler`). Real-transport failures still go through the chain too; the
   canned path honours the same pre-transport contract.
 
-  Per rf2-r5m22 — also threads the reply through the response-side
+  Also threads the reply through the response-side
   (`:after`) chain (via `dispatch-canned-reply!`), mirroring
   `http-transport/dispatch-reply!`."
   [frame-ctx args-map]
   (emit-canned-failure! frame-ctx args-map
                         (capture-and-run-request-chain frame-ctx args-map)))
 
-;; ---- optional `:after-ms` delay (rf2-j1mo4) ------------------------------
+;; ---- optional `:after-ms` delay -----------------------------------------
 ;;
-;; Per Mike's ruling (B, 2026-05-30): a delay is a PARAMETER of the same
+;; A delay is a PARAMETER of the same
 ;; effect, not a new effect — so rather than minting `-later` fx ids the
-;; existing canned-stub fxs take an optional `:after-ms` arg.
+;; canned-stub fxs take an optional `:after-ms` arg.
 ;;
-;;   - absent / 0 / non-positive → reply lands immediately (current
-;;     behaviour, unchanged);
+;;   - absent / 0 / non-positive → reply lands immediately;
 ;;   - positive N               → reply lands after an N-ms
 ;;     `:dispatch-later` tick.
 ;;
@@ -318,8 +316,8 @@
 ;; `interop/set-timeout!`), so the deferred reply is observable in the
 ;; tape and time-travel-safe — Tool-Pair time-travel and the documented
 ;; `:dispatch-later` nil-override seam apply automatically. This is the
-;; single framework-owned home for what the example demo stubs previously
-;; open-coded as a per-app three-hop chain (stub-fx → schedule-reply →
+;; single framework-owned home for a delayed canned reply, so an app never
+;; open-codes a per-app three-hop chain (stub-fx → schedule-reply →
 ;; `:dispatch-later` → deliver-reply → canned-success).
 ;;
 ;; The deliverer is one self-recursive framework event. First entry (with
@@ -334,7 +332,7 @@
 (def ^:private deliver-canned-reply-id :rf.http/deliver-canned-reply)
 
 (rf.events/reg-event deliver-canned-reply-id
-  {:doc "Framework-private (rf2-j1mo4). Delivers a canned HTTP reply, optionally
+  {:doc "Framework-private. Delivers a canned HTTP reply, optionally
          after an `:after-ms` delay. Dispatched by the `:rf.http/managed-canned-*`
          fxs when their args-map carries a positive `:after-ms`; self-recurses
          once through `:dispatch-later` to honour the delay, then re-fires the
@@ -354,9 +352,9 @@
 
 (defn- with-after-ms
   "Decorate a canned-stub fx handler body so a positive `:after-ms` on the
-  args-map defers the reply via the framework `:dispatch-later` timer
-  (rf2-j1mo4). Absent / 0 / non-positive `:after-ms` runs `body-fn`
-  immediately — byte-for-byte the pre-rf2-j1mo4 behaviour. `fx-id` is the
+  args-map defers the reply via the framework `:dispatch-later` timer.
+  Absent / 0 / non-positive `:after-ms` runs `body-fn`
+  immediately. `fx-id` is the
   canned fx's own id, threaded so the deferred re-fire targets the same fx.
 
   On the deferred path the re-fire runs inside a DIFFERENT event context
@@ -393,54 +391,51 @@
 ;; import\". These (fx/reg-fx ...) calls fire iff some namespace in the
 ;; require closure pulled `re-frame.http.test-support` in. Production app
 ;; code must not. The handler bodies (`canned-success-handler` /
-;; `canned-failure-handler`) live HERE alongside their registrations
-;; (rf2-w59es5 — the stub scaffolding consolidated into this test-support
-;; namespace). The `with-after-ms` decorator (rf2-j1mo4) adds the optional
+;; `canned-failure-handler`) live HERE alongside their registrations.
+;; The `with-after-ms` decorator adds the optional
 ;; `:after-ms` delay around those same bodies without changing their
 ;; contract.
 
 (rf.fx/reg-fx :rf.http/managed-canned-success
            {:doc "Spec 014 — synthesised success reply (test stub).
-                  Registration gated on explicit `re-frame.http.test-support`
-                  require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
+                  Registration gated on an explicit `re-frame.http.test-support`
+                  require. Optional `:after-ms`
                   defers the reply via `:dispatch-later`."}
            (with-after-ms :rf.http/managed-canned-success
                           canned-success-handler))
 
 (rf.fx/reg-fx :rf.http/managed-canned-failure
            {:doc "Spec 014 — synthesised failure reply (test stub).
-                  Registration gated on explicit `re-frame.http.test-support`
-                  require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
+                  Registration gated on an explicit `re-frame.http.test-support`
+                  require. Optional `:after-ms`
                   defers the reply via `:dispatch-later`."}
            (with-after-ms :rf.http/managed-canned-failure
                           canned-failure-handler))
 
 ;; ---- with-request-stubs ---------------------------------------------------
 ;;
-;; Per rf2-lwmgw the stub fns live HERE alongside the canned-stub fx
-;; registrations. The previous split (macros in `re-frame.http.managed`,
-;; gate-only namespace here) misleadingly named this ns for a role it did
-;; not own.
+;; The stub fns live HERE alongside the canned-stub fx
+;; registrations, so this namespace owns the whole test-stub role.
 
 (defn- stub-handler
   "Route-map-consulting `:rf.http/managed` override target.
 
-  rf2-azrcs — the stub now keys its route match against the request the
+  The stub keys its route match against the request the
   managed pipeline would ACTUALLY issue, not the pre-middleware draft. It
-  runs the per-frame `:before` chain ONCE (`run-request-chain` above, which
-  also validates the final url with the canonical
-  `:rf.error/http-bad-request`), reads the post-`:before` `:method`/`:url`
+  runs the per-frame `:before` chain ONCE (`capture-and-run-request-chain`
+  above), validates the final url with the canonical
+  `:rf.error/http-bad-request`, reads the post-`:before` `:method`/`:url`
   back off that ctx to key the route map, then emits the canned reply
   through the `:after` chain with that SAME ctx — without re-running
   `:before` (no double-firing of load-bearing interceptor side effects).
 
-  Consequences of the prior pre-`:before` matching this fixes:
-   - a base-URL / url-rewriting `:before` made the stub match the ORIGINAL
+  Matching the pre-`:before` draft instead would mean:
+   - a base-URL / url-rewriting `:before` makes the stub match the ORIGINAL
      url (false-green when keyed to the draft, false-fail when keyed to the
      final url the production transport sends); and
-   - a `:before` that blanked the url received a synthetic stubbed reply
+   - a `:before` that blanks the url receives a synthetic stubbed reply
      instead of the production `:rf.error/http-bad-request`, masking the
-     invalid request. `run-request-chain` now throws before any match."
+     invalid request. The final-url check throws before any match."
   [stubs frame-ctx args-map]
   ;; Run the `:before` chain ONCE up front (a `:before` throw propagates
   ;; exactly as the real `:rf.http/managed` handler's does — no reply is
@@ -448,9 +443,9 @@
   ;; canonical `:rf.error/http-bad-request` — the stub is the
   ;; `:rf.http/managed` override target, so it owes the same final-url
   ;; guard the real handler runs after its `:before` chain. A `:before`
-  ;; that blanks the url now throws here instead of receiving a synthetic
+  ;; that blanks the url throws here rather than receiving a synthetic
   ;; stubbed reply.
-  (let [;; rf2-v3f6 — one capture + one `:before` walk; the SAME captured
+  (let [;; One capture + one `:before` walk; the SAME captured
         ;; chain rides through to the emit fns' `:after` walk below.
         captured       (capture-and-run-request-chain frame-ctx args-map)
         middleware-ctx (:middleware-ctx captured)
@@ -464,7 +459,7 @@
         reply          (:reply entry)]
     (cond
       (and entry (contains? reply :ok))
-      ;; rf2-lddbk — a route entry may supply optional response metadata
+      ;; A route entry may supply optional response metadata
       ;; beside its success value (`{:reply {:ok v :meta {...}}}`); it rides
       ;; the canned reply's `:meta` slot verbatim. Absent stays absent.
       (emit-canned-success! frame-ctx
@@ -491,7 +486,7 @@
 
 (def ^:private stub-fx-id :rf.http/managed-test-stub)
 
-;; rf2-vn8qjv (issue 2) — stack/token discipline for the lower-level
+;; Stack/token discipline for the lower-level
 ;; install/uninstall surface. The single stub fx-id `:rf.http/managed-test-stub`
 ;; is the DOCUMENTED routing target — users hardcode it in
 ;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`, so the id
@@ -529,7 +524,7 @@
   `dispatch-sync` calls auto-route with no manual `:fx-overrides`. Unlike
   this fn, that wrapper performs NO registrar mutation.
 
-  rf2-vn8qjv — stack/token discipline: install snapshots any prior
+  Stack/token discipline: install snapshots any prior
   `:rf.http/managed-test-stub` handler before overwriting it, so a nested
   install/uninstall pair restores the outer install on exit. Always paired
   with `uninstall-managed-request-stubs!` (LIFO).
@@ -562,42 +557,42 @@
       (rf.registrar/unregister! :fx stub-fx-id)))
   nil)
 
-;; rf2-bxc8kf — the scoped wrapper's override target is registered at
+;; The scoped wrapper's override target is registered at
 ;; NAMESPACE-LOAD time (below), NOT minted per scope, so it is present in the
 ;; SEALED image generation of every frame created after this ns is required.
 ;;
-;; The prior design (rf2-vn8qjv) minted a fresh `:rf.test/managed-http-stub-<n>`
-;; fx-id per invocation and registered it INSIDE `with-request-stubs`.
-;; That registration happened AFTER a pre-created frame had already sealed its
-;; image generation: `make-frame {}` resolves + seals a generation at
-;; construction, and a no-id/direct frame is deliberately EXCLUDED from `reg-*`
-;; auto-reprojection (`re-frame.frame/image-loaded-frame-ids` drops the reserved
-;; `:rf.frame/<gensym>` ids). So the bound `{:rf.http/managed <scope-id>}`
-;; override redirected to an fx-id the sealed generation could NOT resolve
-;; (`registrar/lookup` routes through the frame's generation, not the global
-;; registrar): the redirect fell through (`:rf.error/override-fallthrough`) and
-;; the REAL `:rf.http/managed` transport ran. The exact tutorial nesting
+;; A fresh fx-id minted per invocation and registered INSIDE
+;; `with-request-stubs` would be registered AFTER a pre-created frame had
+;; already sealed its image generation: `make-frame {}` resolves + seals a
+;; generation at construction, and a no-id/direct frame is deliberately
+;; EXCLUDED from `reg-*` auto-reprojection (`re-frame.frame/image-loaded-frame-ids`
+;; drops the reserved `:rf.frame/<gensym>` ids). So the bound
+;; `{:rf.http/managed <scope-id>}` override would redirect to an fx-id the
+;; sealed generation could NOT resolve (`registrar/lookup` routes through the
+;; frame's generation, not the global registrar): the redirect would fall
+;; through (`:rf.error/override-fallthrough`) and the REAL `:rf.http/managed`
+;; transport would run. The exact tutorial nesting
 ;; `(with-new-frame [f (make-frame {})]
 ;;    (with-request-stubs … (fn [] (dispatch-sync …)))))`
-;; therefore escaped to the wire.
+;; would escape to the wire.
 ;;
-;; The fix keeps ONE stable override target registered at load time — the same
-;; explicit-test-support-require gate the canned-stub fxs already ride — so it
+;; So ONE stable override target is registered at load time — the same
+;; explicit-test-support-require gate the canned-stub fxs ride — and it
 ;; lands in the sealed generation of every frame created after this ns is
 ;; required. The per-scope route map is carried by the dynamic var
 ;; `*scope-stubs*` instead of by a per-scope fx-id: an inner scope's binding
 ;; SHADOWS the outer's for its dynamic extent and restores it on exit, so nested
-;; scopes compose EXACTLY as the minted-id design did — an inner-scope dispatch
+;; scopes compose — an inner-scope dispatch
 ;; keys off the inner route map; after the inner scope exits an outer-scope
 ;; dispatch keys off the outer route map again — WITHOUT a per-scope registrar
 ;; write the sealed generation cannot see. The lower-level install/uninstall
-;; surface above keeps its own separate stable `:rf.http/managed-test-stub` id
+;; surface above has its own separate stable `:rf.http/managed-test-stub` id
 ;; (the documented hardcodable `:fx-overrides` target).
 
 (def ^:private ^:dynamic *scope-stubs*
   "The route map (`{[method url] {:reply …}}`) the load-time scope-stub fx
   (`scope-stub-fx-id`) consults for the current `with-request-stubs`
-  dynamic extent, or `::no-scope` outside any scope (rf2-bxc8kf). Bound —
+  dynamic extent, or `::no-scope` outside any scope. Bound —
   SHADOWED for nesting — by `with-request-stubs`; read by the
   `scope-stub-fx-id` handler. The override that routes to `scope-stub-fx-id` is
   only ever bound ALONGSIDE this var, so `::no-scope` at fire time is a wiring
@@ -606,7 +601,7 @@
   ::no-scope)
 
 (def ^:private scope-stub-fx-id
-  "The STABLE `with-request-stubs` override target (rf2-bxc8kf).
+  "The STABLE `with-request-stubs` override target.
   Registered at ns-load (below), so it is resolvable through the SEALED image
   generation of a frame created before the scope was entered. Lives under the
   reserved test-runner-internal `:rf.test/*` fx-stub family (Conventions
@@ -615,14 +610,14 @@
   runtime."
   :rf.test/managed-http-scope-stub)
 
-;; Registered at LOAD time (rf2-bxc8kf) alongside the canned-stub fxs — the same
+;; Registered at LOAD time alongside the canned-stub fxs — the same
 ;; explicit-`re-frame.http.test-support`-require gate. The handler reads the
 ;; current scope's route map from `*scope-stubs*` and delegates to the shared
 ;; `stub-handler` (which runs the `:before` chain, keys the match off the
 ;; post-`:before` url, and emits through the `:after` chain).
 (rf.fx/reg-fx scope-stub-fx-id
            {:doc "with-request-stubs (scoped) synthesised stub — reads the
-                  current scope's route map from `*scope-stubs*` (rf2-bxc8kf).
+                  current scope's route map from `*scope-stubs*`.
                   Registered at load time so a pre-created SEALED frame can
                   resolve it as an `:fx-overrides` redirect target."}
            (fn [frame-ctx args-map]
@@ -646,8 +641,8 @@
   route map onto the dynamic var `*scope-stubs*` and binds the lexical-scope
   fx-override `{:rf.http/managed <scope-stub-fx-id>}`
   (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides` seam)
-  for the thunk's dynamic extent. `scope-stub-fx-id` is registered at ns-load
-  (rf2-bxc8kf), so it is resolvable through the SEALED image generation of a
+  for the thunk's dynamic extent. `scope-stub-fx-id` is registered at ns-load,
+  so it is resolvable through the SEALED image generation of a
   frame created BEFORE the scope was entered — the exact tutorial nesting
   `(with-new-frame [f (make-frame {})] (with-request-stubs … (fn [] …)))` routes
   through the stub instead of escaping to the real transport. Every
@@ -665,7 +660,7 @@
   per-scope registrar write, no order-dependence."
   [stubs thunk]
   ;; Both bindings unwind automatically on exit (normal OR exception) — no
-  ;; per-scope registration to tear down (rf2-bxc8kf). The `*scope-stubs*`
+  ;; per-scope registration to tear down. The `*scope-stubs*`
   ;; binding SHADOWS an enclosing scope's route map for nesting.
   (binding [*scope-stubs*             stubs
             rf.router/*fx-overrides*     (merge rf.router/*fx-overrides*

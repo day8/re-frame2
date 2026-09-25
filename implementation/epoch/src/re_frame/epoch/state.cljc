@@ -70,7 +70,7 @@
 ;; `replay-epoch!` target. Swapping the config before the prune makes that
 ;; escape self-repairing for a POSITIVE depth — the next append re-caps the
 ;; ring — but PERMANENT at depth 0, where `record!` never appends again. And
-;; "a later append repairs it" was never the promise: the promise is about the
+;; "a later append repairs it" is not the promise: the promise is about the
 ;; state at `configure!`'s RETURN. Symmetrically, an anchor published at the
 ;; seam between the prune and the reconciliation is judged against a snapshot
 ;; taken before its record existed, so a CORRECT anchor is discarded as
@@ -131,7 +131,7 @@
         (with-retention-lock
           (fn []
             (swap! config merge valid-options)
-            ;; Config first, then the rings — but the ordering is no longer
+            ;; Config first, then the rings — but the ordering is not
             ;; what carries the invariant. Both are inside the retention
             ;; lock, which is what makes the prune un-undoable: a `record!`
             ;; that read the previous depth cannot be mid-flight here, and
@@ -226,7 +226,7 @@
   plain `conj`); once the ring is full each append is O(depth) — a `depth`-wide
   copy of the retained window (depth defaults to 50, fired once per
   user-facing event, not per trace emit). The bounded copy is the
-  necessary cost of bounded heap; the prior O(1) `subvec` view was O(1)
+  necessary cost of bounded heap; a bare `subvec` view would be O(1)
   in time but O(session-length) in retained heap. The trace-events
   elision stays O(1) — at most one record's `:trace-events` slot is
   dissoc'd."
@@ -278,20 +278,18 @@
 ;; (Tool-Pair §Replay). The ring cannot answer that: a queued child settles
 ;; AFTER its parent, so at a depth the cascade overruns the child evicts the
 ;; parent's record and the oldest surviving record of that dispatch is the
-;; CHILD (rf2-e0g2). Nothing in the retained window distinguishes that case
+;; CHILD. Nothing in the retained window distinguishes that case
 ;; from the one where the parent survived — the counts are identical when the
 ;; cascade commits exactly `depth` records.
 ;;
-;; COMMIT ORDER ALONE IS NOT THAT IDENTITY (rf2-fzbj.19). The router emits
+;; COMMIT ORDER ALONE IS NOT THAT IDENTITY. The router emits
 ;; `:rf.event/dispatched` BEFORE it starts the dispatch's own drain, and a
 ;; public trace listener is expressly allowed to `dispatch-sync` from there
 ;; (see `trace/tooling`'s reentrancy note). That nested cascade runs to
 ;; completion — and COMMITS — inside the armed window, before the armed
-;; caller's own event has run at all, so a first-commit slot hands back
+;; caller's own event has run at all, so a first-commit slot would hand back
 ;; another operation's state, effects and trace under the replayed event's
-;; name. Measured witness: source epoch 6, the listener's nested event epoch
-;; 7, the actual replay epoch 8, and the result said `:event-id :review/add`
-;; with `:epoch-id 7`. Filtering by `:event-id` cannot repair it — the same
+;; name. Filtering by `:event-id` cannot repair it — the same
 ;; handler with different arguments produces the same keyword.
 ;;
 ;; So the slot correlates on DISPATCH IDENTITY, and takes it from the one
@@ -306,46 +304,43 @@
 ;; different id and is refused. `note-commit!` fills the slot only from the
 ;; record carrying THAT id.
 ;;
-;; THAT ORDERING IS PER THREAD, NOT PER FRAME (rf2-k0nr). It puts the armed
+;; THAT ORDERING IS PER THREAD, NOT PER FRAME. It puts the armed
 ;; caller's emit ahead of anything the caller's OWN thread does next, and says
 ;; nothing about another JVM thread. A same-frame dispatch there emits its
 ;; `:rf.event/dispatched` on ITS thread and before any drain lock — the router
 ;; emits ahead of `drain-block!`, and an async `dispatch!` emits at enqueue —
 ;; so no frame boundary keeps it out of the gap between the arming and the
-;; armed caller's `dispatch-sync!`, and a frame-wide first arrival adopted it.
-;; Measured: source epoch 1, the other thread's epoch 2, the replay's own
-;; epoch 3, and the result said `:epoch-id 2`. So the slot also records the
+;; armed caller's `dispatch-sync!`, and a frame-wide first arrival would adopt
+;; it. So the slot also records the
 ;; thread that armed it, and only that thread may supply the id. The armed
 ;; caller's `dispatch-sync!` emits synchronously on the calling thread, so the
 ;; first id that thread reports is its own. CLJS has one thread: there is no
-;; check to make and nothing changes.
+;; check to make.
 ;;
-;; The slot is still filled at COMMIT, so it names the armed caller's epoch
+;; The slot is filled at COMMIT, so it names the armed caller's epoch
 ;; whether or not the ring still holds it, and the caller asks the ring —
-;; separately — whether that epoch is retained. rf2-e0g2's queued-child
-;; counterexample stays fixed for the same reason it was before, and now for a
-;; second: the child is neither the first commit nor the armed dispatch-id.
+;; separately — whether that epoch is retained. The queued child above
+;; therefore never answers: it is neither the first commit nor the armed
+;; dispatch-id.
 ;;
-;; THERE IS NO FIRST-COMMIT FALLBACK (rf2-c74lr). One used to answer when no
-;; id had been captured, kept for the posture in which dispatch ids do not
+;; THERE IS NO FIRST-COMMIT FALLBACK. A fallback answering when no id has
+;; been captured would serve the posture in which dispatch ids do not
 ;; exist. That posture has no epochs either — capture is a trace stage, and
-;; the ring stays empty under the production gate — so the fallback only ever
-;; fired in dev, when the armed caller's OWN dispatch emitted nothing: a
+;; the ring stays empty under the production gate — so such a fallback could
+;; only fire in dev, when the armed caller's OWN dispatch emitted nothing: a
 ;; handler registered with `:rf.trace/no-emit?`, whose dispatch commits no
-;; epoch at all. Every commit it could adopt was therefore somebody else's —
+;; epoch at all. Every commit it could adopt would be somebody else's —
 ;; another thread's dispatch, or the quiet handler's own queued child — and
-;; replay reported it under the replayed event's name. Measured: source epoch
-;; 1, another thread's epoch 2, no replay epoch, and a result saying
-;; `:epoch-id 2`. No id means no evidence, and the slot answers nil.
+;; replay would report it under the replayed event's name. No id means no
+;; evidence, and the slot answers nil.
 ;;
-;; AND THE FIRST ID IS THE CALLER'S ONLY WHEN ITS LINEAGE SAYS SO (rf2-1mudg).
+;; AND THE FIRST ID IS THE CALLER'S ONLY WHEN ITS LINEAGE SAYS SO.
 ;; "First from the arming thread" presumes the caller's own dispatch reported
 ;; at all. A quiet handler's does not, and nor does anything enqueued inside
 ;; its handler scope — but a TRACED child it queued runs with tracing on
-;; again, so that child's own queued grandchild was the first
-;; `:rf.event/dispatched` the arming thread reported, was adopted, and its
-;; commit then correlated to it exactly. Measured: source epoch 1, no replay
-;; epoch, and a result saying `:epoch-id 3`, resolving to the grandchild.
+;; again, so that child's own queued grandchild can be the first
+;; `:rf.event/dispatched` the arming thread reports, and adopting it would
+;; correlate the grandchild's commit to the caller exactly.
 ;; Spec 009's run lineage tells the two apart: a dispatch's
 ;; `:rf.trace/parent-dispatch-id` is the dispatch whose handler scope enqueued
 ;; it, absent at top level. The caller's own dispatch is made from the scope
@@ -373,7 +368,7 @@
   capture sees for the frame FROM THAT THREAD, which is what makes the
   correlation above exact. The slot also records the dispatch-id of the
   handler scope it is armed in (nil at top level): the armed dispatch carries
-  that as its parent, and nothing its cascade enqueues does (rf2-1mudg)."
+  that as its parent, and nothing its cascade enqueues does."
   [frame-id]
   (let [token  #?(:clj (Object.) :cljs (js-obj))
         parent (some-> rf.trace/*handler-scope* :dispatch-id)]
@@ -395,7 +390,7 @@
 
 #?(:clj
    (defn- armed-on-this-thread?
-     "True when `slot` was armed by the calling thread (rf2-k0nr)."
+     "True when `slot` was armed by the calling thread."
      [slot]
      (identical? (Thread/currentThread) (:thread slot))))
 
@@ -406,12 +401,12 @@
   ahead of the public tooling fan-out, so the first id to arrive here FROM THE
   ARMING THREAD is the armed caller's own dispatch and not one a listener
   started from inside it. An id reported by any other thread is refused: on
-  the JVM another thread's same-frame dispatch can reach this first (rf2-k0nr).
+  the JVM another thread's same-frame dispatch can reach this first.
 
   That first id DECIDES, once: it is the caller's own only when its
   `parent-dispatch-id` is the scope the caller armed in. Otherwise the
   caller's own emit was suppressed and this is a descendant's, so the slot
-  closes with no id and no commit can fill it (rf2-1mudg).
+  closes with no id and no commit can fill it.
   A no-op when nothing is armed (the ordinary hot path: one map read, no
   write), and after the first id has landed."
   [frame-id dispatch-id parent-dispatch-id]
@@ -612,7 +607,7 @@
 (defn drop-render-key-mount-attribution!
   "Forget the mount-anchor + read-set for a SINGLE `render-key` in
   `frame-id` — the per-instance eviction tied to a view
-  instance's UNMOUNT. Without it `mount-attribution` accreted one
+  instance's UNMOUNT. Without it `mount-attribution` would accrete one
   permanent entry per ever-mounted instance (a fresh `instance-token`
   per mount → a fresh render-key), pruned ONLY on whole-frame destroy:
   unbounded per-frame heap growth over a long churning session (lists
@@ -671,8 +666,8 @@
        `:sub-id` but NO `:reader-render-key` (see `capture/sub-run-row`), so the
        structured match is `deps`-only: a value-changed row whose `:sub-id` is in
        the view's learned read-set. Without this, render attribution under
-       keep-0 saw NO value-change evidence and mis-recorded genuine re-renders
-       against the mount/default epoch.
+       keep-0 would see NO value-change evidence and mis-record genuine
+       re-renders against the mount/default epoch.
 
   `render-deps` may be nil when the view's read-set was never learned — then only the
   render-key (trace) match applies, and the structured fallback yields nothing.
@@ -710,11 +705,11 @@
   NEVER considered. In normal operation the anchor IS the ring-newest record,
   so the start index is `(dec n)` and the bound is a no-op. After a time-travel
   restore `perform-restore!` re-anchors last-settled to an OLDER epoch WITHOUT
-  truncating the ring (rf2-arzb9o), so the newer pre-restore epochs remain —
+  truncating the ring, so the newer pre-restore epochs remain —
   and they still carry value-changed sub-run evidence for a repainted view. An
   UNBOUNDED newest-first scan would return one of those STALE newer epochs,
   attributing a POST-restore repaint to a PRE-restore cascade and silently
-  defeating the restore re-anchor (the render-path sibling of the rf2-w4q9gt
+  defeating the restore re-anchor (the render-path sibling of the restore's
   back-fill re-anchor). Bounding the scan at the anchor index confines
   attribution to the restored timeline. When the anchor is nil or evicted the
   bound degrades to the ring-newest index (`(dec n)`) — there is no bound to
@@ -779,8 +774,8 @@
        inputs changed (`value-changed-epoch-for`, bounded at
        `default-epoch-id`) — a genuine reactive re-render rides its causing
        cascade. The anchor bound keeps a post-restore repaint on the restored
-       timeline rather than attributing it to a stale newer pre-restore epoch
-       (rf2-arzb9o).
+       timeline rather than attributing it to a stale newer pre-restore
+       epoch.
     2. Otherwise the view's MOUNT epoch (`mount-epoch-for`) — a mount
        render, or a mount-burst tail that re-deref'd unchanged subs, is
        anchored to where the instance first rendered rather than leaking
@@ -987,8 +982,8 @@
 ;; nil-id orphans are dropped because no event can ever claim them.
 
 (defn harvest-buffer-for-event!
-  "Atomically split the frame's buffer for one settling event.
-  buffer and split it by the settling event's `:dispatch-id`:
+  "Atomically split the frame's buffer for one settling event by the settling
+  event's `:dispatch-id`:
 
     * RETURN the events that belong to the settling event — those whose
       `:tags :dispatch-id` matches the buffer's first `:event/run-start` id.
@@ -1098,20 +1093,20 @@
 
 ;; ---- depth-change enforcement ---------------------------------------------
 ;;
-;; rf2-f8wu. Per Tool-Pair §Time-travel "Bounded history" the runtime keeps
+;; Per Tool-Pair §Time-travel "Bounded history" the runtime keeps
 ;; the last N epochs per frame and older epochs are discarded, and the
 ;; depth-0 bullet is explicit that disabling the ring makes `epoch-history`
 ;; return `[]`. Both are statements about the CURRENT depth, so a reduction
 ;; has to bite when it is accepted rather than on some later append.
 ;;
-;; Enforcing only at append time left the excess reachable by two different
-;; routes, and closing one without the other would still be a defect. It
-;; stayed QUERYABLE — `epoch-history` reads the ring vector directly — and
-;; it stayed RESTORABLE, because `restore-epoch!`
+;; Enforcing only at append time would leave the excess reachable by two
+;; different routes, and closing one without the other would still be a
+;; defect. It would stay QUERYABLE — `epoch-history` reads the ring vector
+;; directly — and RESTORABLE, because `restore-epoch!`
 ;; and `replay-epoch!` resolve their targets off that same vector, so an id
-;; the operator believed retired still rewound the frame to state the app had
-;; moved past. Depth 0 was permanent as well as sharp: `record!` skips
-;; `append-record` entirely at depth 0, so no later append ever arrived to
+;; the operator believes gone would still rewind the frame to state the app
+;; has moved past. At depth 0 that would be permanent as well: `record!` skips
+;; `append-record` entirely at depth 0, so no later append ever arrives to
 ;; repair the ring.
 
 (defn- cap-to-depth
@@ -1164,10 +1159,9 @@
   take that same lock across their own depth-read-then-write. So there is no
   in-flight writer holding the previous depth to land after this prune, and
   the retained-id set below cannot be stale with respect to a concurrently
-  committed record. An earlier revision left that gap open and called the
-  excess transient, which it is for a positive depth and is NOT at depth 0 —
-  `record!` appends nothing there, so no later append ever re-caps the ring
-  (rf2-f8wu post-merge audit). Returns nil."
+  committed record. Without the lock the excess would be transient for a
+  positive depth but NOT at depth 0 — `record!` appends nothing there, so no
+  later append would ever re-cap the ring. Returns nil."
   [depth]
   (let [pruned-histories (swap! histories
                                 (fn [histories-map]
@@ -1236,7 +1230,7 @@
 ;; Same-id replacement publishes a fresh generation (new token + callback) in a
 ;; SINGLE swap, so a concurrent fan-out that snapshots the new generation and
 ;; the registering thread can never tear the registration across two writes —
-;; the split-brain the two-swap predecessor suffered (rf2-j538f7.5). The token
+;; the split-brain a two-swap update would allow. The token
 ;; is drawn from a process-global monotonic counter so it is NEVER reused, not
 ;; even across a drop-then-re-register of the same id; that closes the ABA
 ;; window a per-id counter would leave (a recycled token could let a stale
@@ -1258,14 +1252,14 @@
 ;;   observed-frames-by-cb   cb-id → {frame-id → generation-token}
 ;;
 ;; Stamping the observation with its generation is what makes same-id
-;; replacement correct WITHOUT a cross-atom clear (the split-brain the two-swap
-;; predecessor suffered): a replacement simply mints a new token, so a stale
+;; replacement correct WITHOUT a cross-atom clear (the split-brain a two-swap
+;; update would allow): a replacement simply mints a new token, so a stale
 ;; OLD-generation observation is silently ignored by the token-scoped readers
 ;; (`record-observation!` refuses to re-arm it; `cbs-observing-frame` skips it)
 ;; and is overwritten the moment the NEW generation observes the same frame.
-;; The frame-id stays the map KEY, so `(contains? (get observed cb-id)
-;; frame-id)` still answers "did this cb ever observe the frame?" — the same
-;; question a bare set answered, now carrying the owning generation alongside.
+;; The frame-id is the map KEY, so `(contains? (get observed cb-id)
+;; frame-id)` answers "did this cb ever observe the frame?" — the same
+;; question a bare set would answer, with the owning generation alongside.
 ;; A same-keyed frame recreation re-arms because `drop-frame-observation!`
 ;; removes the frame on the prior destroy and the recreated frame's cascade
 ;; re-stamps it under the current generation.
@@ -1273,15 +1267,15 @@
   ;; cb-id → {frame-id → generation-token}
   (atom {}))
 
-;; ---- delayed predecessor-silencing lineage (rf2-vxgfnd.265 / .285) ---------
+;; ---- delayed predecessor-silencing lineage ---------------------------------
 ;;
 ;; A destroyed incarnation A's `:rf.epoch.cb/silenced-on-frame-destroy` fan can
 ;; be DEFERRED past a same-id successor B's whole lifecycle: A's post-dissoc
 ;; publish hook is held while B — constructable only after dissoc — claims,
-;; settles/re-arms, and even destroys. #5872 gated the WHOLE fan on one coarse
-;; `cleanup-frame-owner!` result, conflating three DISTINCT events — store claim,
-;; callback delivery/re-arm, and terminal silence. .265 decided each silence PER
-;; callback-generation identity; .285 makes that lineage additionally EXACT,
+;; settles/re-arms, and even destroys. Gating the WHOLE fan on one coarse
+;; `cleanup-frame-owner!` result would conflate three DISTINCT events — store
+;; claim, callback delivery/re-arm, and terminal silence — so each silence is
+;; decided PER callback-generation identity, and that lineage is EXACT,
 ;; LINEARIZABLE, and BOUNDED. Deciding PER identity needs two kinds of evidence:
 ;;
 ;;   * delivery/re-arm (live): a successor that re-armed a cb and is STILL LIVE
@@ -1303,7 +1297,7 @@
 ;; superseded earlier continuum, which the live-observation and generation checks
 ;; already resolve.
 ;;
-;; The three .285 properties and where each is enforced:
+;; The three properties and where each is enforced:
 ;;
 ;;   EXACT — the owed `{cb-id → generation}` map is derived from ONE consistent
 ;;     (listeners, observed) read (`snapshot-terminal-observers`) with the
@@ -1390,17 +1384,17 @@
 ;; `reset-listeners!`) acquires the registry lock first — `with-claim-locks`
 ;; encodes that order once.
 ;;
-;; Why TWO monitors and not one (rf2-9bhne6 deadlock follow-up): the single-lock
-;; predecessor put `put-listener!`'s `(swap! listeners …)` — and hence any atom
+;; Why TWO monitors and not one: a single lock would put
+;; `put-listener!`'s `(swap! listeners …)` — and hence any atom
 ;; WATCHER that swap fires — AND `record-observation!`'s re-arm on the SAME
-;; monitor. A listeners-atom watch that parked mid-`swap!` (a JVM deschedule, or
-;; a test barrier) then held that monitor while a concurrent `record-observation!`
-;; fan-out blocked on it forever — a hard deadlock CI reproduced. Splitting the
+;; monitor. A listeners-atom watch that parks mid-`swap!` (a JVM deschedule, or
+;; a test barrier) would then hold that monitor while a concurrent
+;; `record-observation!` fan-out blocks on it forever — a hard deadlock. Splitting the
 ;; domains keeps `put-listener!` on the registry lock ALONE, so a registration
 ;; paused inside its swap can never block a fan-out re-arm (which takes only
 ;; silence-lock).
 ;;
-;; The generation-authority guarantee (rf2-9bhne6, as CORRECTED by rf2-8b9twg):
+;; The generation-authority guarantee:
 ;; `eligible-and-reserve!` (under `claim-and-publish-delayed-silence!`) holds BOTH
 ;; locks across its eligibility recheck AND the mark RESERVATION — so a concurrent
 ;; `put-listener!` (registry lock) and a concurrent `record-observation!`
@@ -1420,8 +1414,8 @@
 ;;   * OBSERVATION-continuum mutations (a `record-observation!` re-arm by a
 ;;     same-id SUCCESSOR frame) mint NO generation — a delivery never
 ;;     re-registers — so `:observed-gen` still MATCHES while the callback is live
-;;     again. `:observed-gen` alone would accept a silence for a live callback
-;;     (rf2-qg98y). This kind is discriminated by the observation-continuum half
+;;     again. `:observed-gen` alone would accept a silence for a live
+;;     callback. This kind is discriminated by the observation-continuum half
 ;;     of the receiver decision (`live-observer?`).
 ;;
 ;; The receiver weighs BOTH kinds in ONE operation — `silence-current?`, exposed
@@ -1430,7 +1424,7 @@
 ;; `with-claim-locks` section. It is one operation and not two composable queries
 ;; because the composite of two independent reads is not linearizable: a
 ;; replacement or drop landing between them yields an accept for a generation
-;; that is already superseded (rf2-uhouu).
+;; that is already superseded.
 ;;
 ;; Ordinary fan-out never contends on either lock: the registry/observation atoms
 ;; keep their own lock-free swaps for the common path.
@@ -1454,7 +1448,7 @@
   `reset-listeners!`). The claim reads the `listeners` generation AND the
   observation/mark ledger and must exclude both `put-listener!` and
   `record-observation!` across its eligibility recheck and mark RESERVATION (NOT
-  the external emit, which the claim runs after releasing both locks — rf2-8b9twg);
+  the external emit, which the claim runs after releasing both locks);
   the wipes mutate both domains. Encoding the order here keeps every both-locks
   caller consistent so the registry→silence DAG can never invert."
   [f]
@@ -1467,8 +1461,8 @@
 ;; own frame-id), so the frame's marks are needed only while its count is positive.
 ;; When the last outstanding predecessor of a frame resolves, the frame's marks
 ;; are reclaimed — this is what bounds `terminal-silence-marks` under a persistent
-;; callback that observes and destroys unboundedly many unique frame ids
-;; (rf2-vxgfnd.285). Marks for OTHER frames are untouched, so a held predecessor
+;; callback that observes and destroys unboundedly many unique frame ids.
+;; Marks for OTHER frames are untouched, so a held predecessor
 ;; keeps only the marks it can still consume.
 (defonce ^:private outstanding-silence-lineages (atom {}))
 
@@ -1508,7 +1502,7 @@
   The monotonic `terminal-silence-seq` is deliberately NOT reset. Recycling it to
   0 could make a post-reset successor's mark compare at/below an outstanding
   predecessor's earlier baseline, letting that predecessor re-emit a silence the
-  successor already fired (rf2-vxgfnd.285). The seq is a plain process-monotonic
+  successor already fired. The seq is a plain process-monotonic
   comparison domain — its absolute value is never observed, only ordering — so
   letting it climb across resets is free and keeps the domain non-recycling."
   []
@@ -1520,9 +1514,9 @@
   "True when `cb-id`'s CURRENT generation observes `frame-id` right now — the
   observation stamp for the frame equals the cb's live generation token. Read
   fresh (both derefs here), so a successor re-arming a cb mid-fan is honoured the
-  instant it lands rather than against a stale pre-loop set (rf2-vxgfnd.285).
+  instant it lands rather than against a stale pre-loop set.
 
-  NOT SELF-COHERENT — every caller MUST hold both ledger locks (rf2-uhouu). The
+  NOT SELF-COHERENT — every caller MUST hold both ledger locks. The
   two derefs below are SEPARATE reads of two atoms guarded by DIFFERENT monitors:
   the observation ledger (silence-lock) and then the listener registry (registry
   lock). A same-id replacement plus a re-arm of the fresh generation landing
@@ -1548,7 +1542,7 @@
   still the one the silence was owed to, and nothing has re-armed it on that
   frame. Backs the public `re-frame.epoch/epoch-silence-current?`.
 
-  ONE LINEARIZATION POINT (rf2-uhouu). The decision needs two facts:
+  ONE LINEARIZATION POINT. The decision needs two facts:
 
     * REGISTRATION identity — `observed-gen` still names the live registration
       (a replacement or an `unregister-listener!` drop in the reserve→emit window
@@ -1556,26 +1550,24 @@
       the current callback).
     * OBSERVATION continuum — the callback is not observing the frame right now
       (a same-id SUCCESSOR frame re-arms by DELIVERY, which mints NO generation,
-      so `observed-gen` still matches while the callback is live again —
-      rf2-qg98y).
+      so `observed-gen` still matches while the callback is live again).
 
   Both are read INSIDE one `with-claim-locks` critical section, which excludes
   `put-listener!` (registry lock), `drop-listener!` / `reset-listeners!` (both)
   and `record-observation!` (silence-lock) for its duration. That is what makes
   the composite answer describe a state the ledger ACTUALLY HAD.
 
-  Reading the two facts through two SEPARATE public queries — the shape this
-  supersedes — is NOT linearizable: a replacement or drop landing between them is
+  Reading the two facts through two SEPARATE public queries is NOT
+  linearizable: a replacement or drop landing between them is
   read as generation-still-matches AND not-observing, accepting a silence for a
   registration that is already superseded, an answer no single point in time ever
-  had. That is why the two low-level queries were retired rather than kept
-  alongside this one: the composite belongs behind the seam, not at every call
-  site.
+  had. That is why there are no public low-level queries alongside this one:
+  the composite belongs behind the seam, not at every call site.
 
   Cheap and non-blocking by construction: two derefs, no allocation, no foreign
   code, no trace emission inside the locks — so a receiver calling this from
   inside a trace listener cannot reach a frame's `:drain-lock` while holding a
-  ledger lock (the AB-BA hazard rf2-8b9twg closed). The reverse direction is safe
+  ledger lock (the AB-BA hazard). The reverse direction is safe
   too: nothing that holds a ledger lock waits on a drain-lock, and the silence
   EMIT this decision responds to already released both locks before publishing.
 
@@ -1599,7 +1591,7 @@
   `(frame-id, cb-id)` against the FRESHEST listener /
   observation / mark state and, when eligible, RESERVE a fresh monotonic seq
   (writing the mark inside the caller's critical section) and return it; else
-  return nil, writing nothing. Kept separate from
+  return nil, writing nothing. Separate from
   `claim-and-publish-delayed-silence!` — its sole caller — so the eligibility
   DECISION reads in one place under the locks while the external emit that
   answers it runs outside them.
@@ -1616,8 +1608,8 @@
        release cannot be caught here, and `observed-gen` cannot express it (a
        delivery mints no generation), so the receiver re-reads the SAME predicate
        inside `silence-current?` — public as
-       `re-frame.epoch/epoch-silence-current?` (rf2-qg98y, made atomic by
-       rf2-uhouu). Note this caller and that one share the locks for the SAME
+       `re-frame.epoch/epoch-silence-current?`. Note this caller and that one
+       share the locks for the SAME
        reason: `live-observer?` is coherent only under them.
     3. no terminal-silence mark for `(frame, cb)` stands ABOVE `baseline` — a
        successor (or an overlapping same-id publisher) already claimed the one
@@ -1634,7 +1626,7 @@
 (defn claim-and-publish-delayed-silence!
   "Reserve the one delayed silence for `(frame-id, cb-id)` under BOTH ledger locks
   (`with-claim-locks`: listener-registry-lock → silence-lock), RELEASE the locks,
-  then run the external `publish!` OUTSIDE them (rf2-8b9twg).
+  then run the external `publish!` OUTSIDE them.
 
   `publish!` is a 0-arg thunk that performs the external
   `:rf.epoch.cb/silenced-on-frame-destroy` emit. It runs with NO ledger lock
@@ -1651,12 +1643,11 @@
   current generation for `cb-id` no longer equals the carried `observed-gen`
   discards it. So the forbidden ordering (H current, THEN a signal attributed to
   H) is impossible: the signal is attributed to G, and a receiver that sees G is
-  no longer current drops it. This SUPERSEDES the emit-under-lock mechanism of
-  rf2-9bhne6 — the generation stays authoritative through a data qualifier, not
-  through holding a lock across foreign code.
+  no longer current drops it. The generation stays authoritative through a data
+  qualifier, not through holding a lock across foreign code.
 
   OBSERVATION continuum (a `record-observation!` re-arm). `observed-gen` does NOT
-  cover this kind and must not be claimed to (rf2-qg98y). A delivery mints no
+  cover this kind and must not be claimed to. A delivery mints no
   generation, so a same-id SUCCESSOR frame that re-arms `cb-id` in this window
   leaves the carried `observed-gen` EQUAL to the live generation: the
   generation half alone would accept a silence for a callback that is receiving
@@ -1664,8 +1655,8 @@
   `live-observer?` for `(cb-id, frame)` — and the signal is discarded when the
   observation is live.
 
-  The two halves are ONE operation, not two queries a receiver composes
-  (rf2-uhouu). Composed, they are not linearizable: a replacement or a drop
+  The two halves are ONE operation, not two queries a receiver composes.
+  Composed, they are not linearizable: a replacement or a drop
   landing between the two reads is seen as generation-still-matches AND
   not-observing, accepting a silence for an already-superseded registration — a
   verdict no single point in time ever held. `silence-current?` takes both halves
@@ -1677,10 +1668,10 @@
   current iff both hold. A re-arm landing AFTER the receiver read is simply a
   later continuum, which the receiver observes as fresh record deliveries.
 
-  ## Why the emit MUST run OUTSIDE the ledger locks (rf2-8b9twg)
+  ## Why the emit MUST run OUTSIDE the ledger locks
 
   `publish!` fans an external `trace/emit!` to ARBITRARY trace listeners, and a
-  framework-blessed listener may `dispatch-sync` (the rf2-1zxlsm contract; Xray
+  framework-blessed listener may `dispatch-sync` (Xray
   dispatch-syncs from its collector). `dispatch-sync` enters `drain-block!` /
   `call-serialized-with-drain!`, which spin-CAS-acquires the target frame's
   `:drain-lock` (`re-frame.router`, `re-frame.frame`). Meanwhile a thread DRAINING
@@ -1690,13 +1681,13 @@
   held `:drain-lock`. Holding a ledger lock across the emit therefore inverts the
   ledger locks against `:drain-lock`: hold-silence-lock → want-drain-lock (this
   path) vs hold-drain-lock → want-silence-lock (the drainer) — an AB-BA HARD HANG.
-  rf2-9bhne6's deadlock-freedom argument reasoned ONLY about `frame-owner-lock`
-  and never considered `:drain-lock` / the router, so it missed this cycle.
+  A deadlock-freedom argument that reasons ONLY about `frame-owner-lock` misses
+  this cycle, because it runs through `:drain-lock` / the router.
   Emitting OUTSIDE both ledger locks removes the foreign-code-under-lock edge
   entirely: the fan-out may reach `:drain-lock` freely because no ledger lock is
   held.
 
-  ## What the reservation-under-lock still buys
+  ## What the reservation-under-lock buys
 
   `eligible-and-reserve!` runs under BOTH locks so its three eligibility reads
   (current generation == `observed-gen`, not-a-live-observer, mark-above-baseline)
@@ -1713,20 +1704,20 @@
   acquiring silence-lock ALONE keeps the global registry→silence order (no
   inversion) — and the throw propagates.
 
-  Lock-order safety: the cross-lock nesting to `frame-owner-lock` remains a strict
+  Lock-order safety: the cross-lock nesting to `frame-owner-lock` is a strict
   DAG (no path holds `frame-owner-lock` while acquiring either ledger lock — the
   destroy recipe releases it in `cleanup-frame-owner!` before this fan, and the
   settle path's `notify-listeners!`/`record-observation!` run after
-  `commit-frame-owner-record!` returns), AND — the rf2-8b9twg correction — NO path
-  now holds either ledger lock while the emit fans to a listener that can acquire
-  `:drain-lock`, so the ledger↔`:drain-lock` cycle is gone."
+  `commit-frame-owner-record!` returns), AND NO path
+  holds either ledger lock while the emit fans to a listener that can acquire
+  `:drain-lock`, so there is no ledger↔`:drain-lock` cycle."
   [frame-id cb-id observed-gen baseline publish!]
   (when-let [reserved (with-claim-locks
                         (fn []
                           (eligible-and-reserve! frame-id cb-id observed-gen baseline)))]
     ;; Locks RELEASED. Emit the generation-qualified signal OUTSIDE both ledger
     ;; locks so the foreign trace fan-out cannot reach a frame's :drain-lock while
-    ;; we hold a ledger lock — the ledger↔drain-lock AB-BA deadlock (rf2-8b9twg).
+    ;; we hold a ledger lock — the ledger↔drain-lock AB-BA deadlock.
     (try
       (publish!)
       true
@@ -1756,25 +1747,25 @@
   The observation ledger is deliberately NOT cleared here: observations are
   stamped with the generation that recorded them (see `observed-frames-by-cb`),
   so a stale OLD-generation observation is ignored by the token-scoped readers
-  and overwritten when the new generation re-observes the frame. This removes
-  the two-swap window in which a concurrent fan-out's fresh observation of the
-  new callback could be erased by a lagging second swap (rf2-j538f7.5), and its
+  and overwritten when the new generation re-observes the frame. So there is no
+  two-swap window in which a concurrent fan-out's fresh observation of the
+  new callback could be erased by a lagging second swap, nor its
   mirror in which a stale old callback could re-arm the new registration.
 
-  Participates in `listener-registry-lock` (rf2-9bhne6, as corrected by
-  rf2-8b9twg): installing a fresh generation is a `listeners`-atom mutation that
+  Participates in `listener-registry-lock`: installing a fresh generation is a
+  `listeners`-atom mutation that
   `claim-and-publish-delayed-silence!` reads (under the same registry lock) while
   RESERVING a delayed silence, so it is serialized against that reservation's
   eligibility recheck — a replacement cannot make a fresh generation current
   DURING the reservation; it blocks on the registry lock until the reservation
   completes. It does NOT block the silence's external EMIT: that emit runs OUTSIDE
-  the ledger locks (rf2-8b9twg), so a replacement MAY land between the reservation
+  the ledger locks, so a replacement MAY land between the reservation
   and the emit and make a fresh generation current. That is sound because the emit
   is generation-qualified (`:observed-gen`): a superseded late emit self-filters at
   the receiver rather than depending on a held lock. It holds ONLY the registry
   lock, NOT silence-lock, so a watcher parked inside the `(swap! listeners …)`
   below can never block a concurrent `record-observation!` fan-out re-arm (the
-  single-monitor deadlock, rf2-9bhne6 follow-up).
+  single-monitor deadlock).
 
   Returns the id."
   [id f]
@@ -1786,14 +1777,14 @@
 
 (defn drop-listener!
   "Remove the listener registered under `id` and any observation
-  bookkeeping it carried. Takes BOTH ledger locks (`with-claim-locks`,
-  rf2-9bhne6): it mutates the `listeners` registry (registry lock) AND the
+  bookkeeping it carried. Takes BOTH ledger locks (`with-claim-locks`):
+  it mutates the `listeners` registry (registry lock) AND the
   observation ledger + terminal-silence marks (silence-lock). Holding both means
   a drop is serialized against a delayed-silence claim's RESERVATION — it cannot
   retire a generation, or clear an observation the claim is deciding against,
   WHILE the claim's eligibility recheck+reserve runs under those locks. It does
-  NOT block the claim's external EMIT (that runs after the locks are released,
-  rf2-8b9twg): a drop MAY land between the reservation and the emit, and the
+  NOT block the claim's external EMIT (that runs after the locks are
+  released): a drop MAY land between the reservation and the emit, and the
   generation-qualified signal stays correct because a receiver self-filters an
   `:observed-gen` that no longer names a live registration."
   [id]
@@ -1807,10 +1798,10 @@
 (defn reset-listeners!
   "Drop every registered listener and clear all observation bookkeeping —
   registry, observation stamps, AND the terminal-silence lineage. Leaving the
-  silence marks behind stranded a tombstone per destroyed frame past a full
-  listener wipe (rf2-vxgfnd.285); with every listener gone no predecessor can owe
+  silence marks behind would strand a tombstone per destroyed frame past a full
+  listener wipe; with every listener gone no predecessor can owe
   a silence, so the whole ledger is cleared here too. Runs under BOTH ledger
-  locks (`with-claim-locks`, rf2-9bhne6) — it wipes the `listeners` registry
+  locks (`with-claim-locks`) — it wipes the `listeners` registry
   (registry lock) and the observation / mark ledger (silence-lock) — so a wipe
   cannot tear a concurrent silence claim's registry / observation / mark reads."
   []
@@ -1849,7 +1840,7 @@
       generation or, worse, arm the NEW generation for a frame it never
       consumed. The swap therefore lands ONLY when `token` still equals the
       live generation for `cb-id` (a dropped id has no entry, so no token
-      matches — this subsumes the rf2-7i872 unregister-liveness guard).
+      matches — which covers an unregistered id too).
 
     * A no-op re-observation of the same (cb, generation, frame) triple — the
       steady-state hot path — must not fire the atom watcher. The outer guard
@@ -1860,25 +1851,25 @@
   consistent listener snapshot on every CAS retry — a replace/drop landing
   mid-swap is honoured.
 
-  A genuine re-arm (the outer guard passed) runs under `silence-lock`
-  (rf2-9bhne6): it mutates the observation ledger AND prunes the terminal-silence
+  A genuine re-arm (the outer guard passed) runs under `silence-lock`:
+  it mutates the observation ledger AND prunes the terminal-silence
   mark, both of which `claim-and-publish-delayed-silence!` reads (under
   silence-lock, the inner of its two claim locks) while RESERVING a delayed
   silence. Participating in that lock makes the claim's eligibility reads coherent
   against a concurrent re-arm — a re-arm cannot land between the claim's
   individual reads (they run under the lock) and yield a stale-state grant. A
   re-arm MAY still land after the reservation, while the claim's external emit
-  runs lock-free (rf2-8b9twg). `:observed-gen` does NOT discriminate that case —
+  runs lock-free. `:observed-gen` does NOT discriminate that case —
   a re-arm mints no generation, so the emitted qualifier still matches the live
-  one (rf2-qg98y). What discriminates it is the OBSERVATION-CONTINUUM clause of
+  one. What discriminates it is the OBSERVATION-CONTINUUM clause of
   the receiver decision: this swap is exactly what makes `live-observer?` — the
   observation-continuum half `silence-current?` weighs (public:
   `re-frame.epoch/epoch-silence-current?`) — report the callback LIVE again, so a
   receiver deciding at receipt time discards the superseded silence.
   Crucially it takes ONLY silence-lock, NOT the registry lock
   `put-listener!` holds, so a re-arm is never blocked behind a registration
-  paused inside the `listeners` swap (the single-monitor deadlock this split
-  fixed, rf2-9bhne6 follow-up). The lock-free fast no-op above keeps the fan-out
+  paused inside the `listeners` swap (the single-monitor deadlock the two-monitor
+  split prevents). The lock-free fast no-op above keeps the fan-out
   hot path uncontended; only the rare genuine transition takes the lock (and
   re-checks its guards inside, so the pre-lock read cannot weaken the decision).
   The `(get @listeners cb-id)` generation reads here are lock-free w.r.t.
@@ -1909,7 +1900,7 @@
           ;; A fresh observation re-arms this cb for the reused id: a new
           ;; continuum begins and will owe its own silence, so a stale terminal-
           ;; silence mark for (frame, cb) is superseded. Pruning it keeps the
-          ;; lineage ledger bounded across incarnation churn (rf2-vxgfnd.265). It
+          ;; lineage ledger bounded across incarnation churn. It
           ;; is correctness-preserving either way — a paused predecessor's baseline
           ;; predates this delivery, so a still-present mark would compare below
           ;; the SUCCESSOR's baseline, never falsely gating it.
@@ -1941,10 +1932,10 @@
 
   `:observing` carries EACH observing cb's EXACT generation, taken from the
   OBSERVATION STAMP — never a second registry re-read. This is the exactness
-  guarantee (rf2-vxgfnd.285): the predecessor's old two-step shape validated a
-  generation G through `cbs-observing-frame` and then re-read the registry for
-  the generation, so a replacement landing between the two reads could record a
-  fresh generation H as having observed A. Deriving the generation from the same
+  guarantee: a two-step shape that validated a generation G through
+  `cbs-observing-frame` and then re-read the registry for the generation would
+  let a replacement landing between the two reads record a fresh generation H
+  as having observed A. Deriving the generation from the same
   stamp used to qualify the observer makes that attribution impossible — a cb
   already replaced by snapshot time simply fails the stamp/live-generation match
   and is omitted (its stale silence, if any, is the successor's to decide).
@@ -2053,15 +2044,15 @@
   the ring immediately evicted — and true at depth 0, where `record!` appends
   nothing at all. It is handed the WHOLE record rather than the epoch-id alone
   because the answer is correlated by the record's `:dispatch-id`, not by
-  commit order (rf2-fzbj.19).
+  commit order.
 
-  rf2-2wntx — ONLY AN `:ok` RECORD MOVES THE ANCHOR. `last-settled-epoch` names
+  ONLY AN `:ok` RECORD MOVES THE ANCHOR. `last-settled-epoch` names
   the last epoch that actually SETTLED, which is what restore rewinds to and
   what a post-settle observation back-fills onto; a `:halted-depth` /
   `:halted-destroy` record describes an event that never ran and never settled,
-  so it is not a candidate for either. Letting one take the anchor made
+  so it is not a candidate for either. Letting one take the anchor would make
   `restore-epoch!` refuse the newest epoch — `:rf.epoch/restore-non-ok-record`
-  — even though the state it named was the live state, and pointed
+  — even though the state it names is the live state, and would point
   `commit-halt-record!`'s own durable-snapshot lookup at a record carrying no
   write of its own. The halt record is still appended to the ring and still
   reported as this dispatch's commit observation: it stays fully visible to

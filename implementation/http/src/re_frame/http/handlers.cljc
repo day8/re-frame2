@@ -132,7 +132,7 @@
   (or (nil? v) (vector? v)))
 
 (defn- validate-reply-target!
-  "Per Spec 014 §Reply addressing (rf2-et4c1s) — every `:rf.http/managed`
+  "Per Spec 014 §Reply addressing — every `:rf.http/managed`
   request MUST address its reply. A reply is addressed by `:reply-to` (the
   unified target for BOTH success and failure — the app branches on the
   canonical envelope's `:status`), or by `:on-success` / `:on-failure` (the
@@ -142,29 +142,29 @@
   other args-map guards — `validate-retry!` → `:rf.error/http-bad-retry-on`;
   `validate-url!` → `:rf.error/http-bad-request`):
 
-  1. PRESENCE — the CO-LOCATED DEFAULT (the reply merged under `:rf/reply`
-     back to the originating event id when NO target was supplied) was
-     RETIRED pre-alpha: omitting EVERY reply target FAILS LOUD with
+  1. PRESENCE — there is no CO-LOCATED DEFAULT (the reply merged under
+     `:rf/reply` back to the originating event id when NO target was
+     supplied): omitting EVERY reply target FAILS LOUD with
      `:rf.error/http-no-reply-target` rather than silently routing the reply
      back to the dispatching event.
 
-  2. EXCLUSIVITY (rf2-kuky.12) — the unified `:reply-to` and the split
+  2. EXCLUSIVITY — the unified `:reply-to` and the split
      `:on-success` / `:on-failure` sugar are alternate STYLES, and a map
      carrying both is refused with `:rf.error/http-bad-reply-target`
      (`:reason :mixed-addressing`). The check is
      `encoding/validate-reply-addressing!`, shared with the canned stubs so
      one map is judged identically on every path that interprets it.
 
-  3. SHAPE (rf2-bvw9ut) — each SUPPLIED `:reply-to` / `:on-success` /
+  3. SHAPE — each SUPPLIED `:reply-to` / `:on-success` /
      `:on-failure` must be an event VECTOR or `nil`. Per Spec 014 §Request
      envelope this shape check is a DISPATCH-TIME guard (alongside
-     `:retry :on` and `:url`). Previously the vector-or-nil check lived ONLY
-     in `encoding/build-reply-event`, firing at COMPLETION time — so a typo'd
-     bare keyword (`:on-success :items/loaded`) issued the request and then
-     threw `:rf.error/http-bad-reply-target` async in the reply tail (feeding
-     the rf2-ln85eg reply-tail leak). Validating the shape here fails fast,
-     BEFORE the network call. `build-reply-event`'s guard stays as
-     belt-and-braces for any non-args-map descriptor path."
+     `:retry :on` and `:url`). With the vector-or-nil check ONLY in
+     `encoding/build-reply-event`, firing at COMPLETION time, a typo'd
+     bare keyword (`:on-success :items/loaded`) would issue the request and
+     then throw `:rf.error/http-bad-reply-target` async in the reply tail.
+     Validating the shape here fails fast, BEFORE the network call.
+     `build-reply-event`'s guard is belt-and-braces for any non-args-map
+     descriptor path."
   [args-map]
   (when-not (some #(contains? args-map %) rf.http.encoding/reply-address-keys)
     (throw (rf.error/thrown-ex-info
@@ -189,9 +189,9 @@
   vector) — `managed-handler` runs `encoding/resolve-origin-event`
   once before calling here and stashes the result back into
   `frame-ctx` as `:event`, so the resolution shape lives in exactly
-  one place per rf2-622e3.
+  one place.
 
-  Per Spec 014 §`:timeout-ms` security defaults (rf2-it1cd):
+  Per Spec 014 §`:timeout-ms` security defaults:
 
   - key absent      → 30000 ms (the security default)
   - any int         → that value
@@ -205,9 +205,9 @@
   truthiness check — `0` is truthy in Clojure). The three-way contract
   is thus preserved end-to-end without any reshaping here.
 
-  rf2-1eng8 — THROWS `:rf.error/schemas-artefact-missing` when `:decode` is a
+  THROWS `:rf.error/schemas-artefact-missing` when `:decode` is a
   schema declaring a per-slot `:sensitive?` / `:large?` mark and the shared
-  schema-walker hook is unbound. That check used to fire at RESPONSE time,
+  schema-walker hook is unbound. At RESPONSE time that check would fire
   after the request had already succeeded on the wire; forcing it here fails
   the dispatch instead, so the request is never issued. See the
   `decode-schema-marks` binding below."
@@ -224,25 +224,25 @@
         frame        (rf.frame/require-frame-stamp!
                        (:frame frame-ctx) :rf.http/managed
                        {:where 'rf.http/managed :event-id (first origin-event)})
-        ;; rf2-wvkn — when the originating event-id is a spawned actor's
+        ;; When the originating event-id is a spawned actor's
         ;; address, capture it so the in-flight registry can index by
         ;; actor-id alongside :request-id. The destroy cascade then has
-        ;; a key to walk on actor-destroy. Ownership is MACHINES-OWNED
-        ;; (rf2-ma0wvq): `resolve-owning-actor-id` asks the machines artefact via
+        ;; a key to walk on actor-destroy. Ownership is MACHINES-OWNED:
+        ;; `resolve-owning-actor-id` asks the machines artefact via
         ;; the `:machines/owning-actor-id` late-bind hook (per Spec 005
         ;; §Declarative :spawn) rather than reading the spawn registry
         ;; itself; ordinary event handlers' dispatches — and every request
         ;; when the machines artefact is absent — yield nil and are not
         ;; tracked.
         actor-id     (rf.http.registry/resolve-owning-actor-id frame origin-event)
-        ;; rf2-bma05 — compute the effective :sensitive? flag once and
+        ;; Compute the effective :sensitive? flag once and
         ;; thread it through the attempt-and-retry loop. Two sources
         ;; (OR-reduced): per-call args and per-request (handler-meta
-        ;; :sensitive? was removed per rf2-hjs2d). The flag rides every
+        ;; :sensitive? is not consulted). The flag rides every
         ;; :rf.http/* trace event emitted within the cascade so
         ;; consumers honour the privacy contract per Spec 009 §Privacy.
         sensitive?   (rf.http.privacy/request-sensitive? args-map)
-        ;; rf2-1eng8 — DISPATCH-TIME `:decode` marks check. When the request's
+        ;; DISPATCH-TIME `:decode` marks check. When the request's
         ;; `:decode` schema declares a per-slot `:sensitive?` / `:large?` mark
         ;; but the shared schema-walker hook is unbound (the schemas artefact is
         ;; not on the classpath / `re-frame.schemas` was never required), the
@@ -252,13 +252,11 @@
         ;;
         ;; Forcing it HERE makes it fail at the dispatch site, inside the fx
         ;; boundary, where it surfaces as `:rf.error/fx-handler-exception` and
-        ;; the request is never issued. Before this it fired at RESPONSE time,
-        ;; from `privacy-body/classify-decoded` inside the platform completion
-        ;; callback, where it was the reachable case for the unfenced-completion
-        ;; seam: the request had already succeeded on the wire, so the throw hung
-        ;; the caller on the JVM and re-sent a completed 2xx on CLJS. The
-        ;; completion fence in `http-transport` now contains that throw whatever
-        ;; raises it; this makes the artefact-missing case — which is a static
+        ;; the request is never issued. At RESPONSE time — from
+        ;; `privacy-body/classify-decoded` inside the platform completion
+        ;; callback — the request would already have succeeded on the wire.
+        ;; The completion fence in `http-transport` contains such a throw
+        ;; whatever raises it; this makes the artefact-missing case — which is a static
         ;; property of the request and the classpath, knowable before a single
         ;; byte goes out — impossible to reach that way at all.
         ;;
@@ -269,27 +267,27 @@
         ;; `validate-reply-target!` fire before the chain, so a `:before` that
         ;; SET `:decode` would be checked there against a decode the transport
         ;; never uses. The result is discarded, and the response-time call
-        ;; walks the schema again: the walk is unmemoised (rf2-3x7nj.19.4),
+        ;; walks the schema again: the walk is unmemoised,
         ;; and a second schema walk is cheap next to a network round trip.
         _            (rf.http.privacy-body/decode-schema-marks decode)
-        ;; rf2-wu1n5 — keyword-interning DoS guard. The reserved
+        ;; Keyword-interning DoS guard. The reserved
         ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
         ;; default cap on unique decoded object keys. Absent → reader
         ;; default (`re-frame.http.json/default-max-decoded-keys`, 10000). Per
         ;; Spec 014 §Decoding.
         max-keys     (:rf.http/max-decoded-keys args-map)
-        ;; Reply addressing (Spec 014 §Reply addressing; rf2-et4c1s). Three
+        ;; Reply addressing (Spec 014 §Reply addressing). Three
         ;; authoring keys lower to the ONE internal reply-target descriptor
         ;; (`{:supplied? :value}`) `build-reply-event` consumes — never a
         ;; second dialect. `:reply-to` is the UNIFIED spelling: a single
         ;; target for BOTH the success and the failure reply (the app branches
         ;; on the canonical envelope's `:status`), mirroring the resources /
         ;; mutation call-site `:reply-to`. `:on-success` / `:on-failure` are
-        ;; the split routing sugar, EXCLUSIVE with it (rf2-kuky.12 — a mixed
+        ;; the split routing sugar, EXCLUSIVE with it (a mixed
         ;; map is refused at `validate-reply-target!` above). The lowering
         ;; itself is `encoding/reply-target`, shared with the canned stubs.
-        ;; The co-located default (reply merged under `:rf/reply` back to the
-        ;; originating event when NO target was given) was retired pre-alpha —
+        ;; There is no co-located default (reply merged under `:rf/reply` back
+        ;; to the originating event when NO target was given) —
         ;; omitting every target fails loud, so a branch is
         ;; `{:supplied? false}` only under partial addressing (the opposite
         ;; sugar alone).
@@ -311,13 +309,13 @@
      :sensitive?        sensitive?}))
 
 (defn- emit-issued-trace!
-  "Emit the `:rf.http/issued` `:info` row for one fresh issuance (rf2-x8oz5;
-  Managed-Effects §Tracing — issuance/start with `:work/id`, frame and target
+  "Emit the `:rf.http/issued` `:info` row for one fresh issuance
+  (Managed-Effects §Tracing — issuance/start with `:work/id`, frame and target
   summary). Runs inside the issuing fx handler, so `trace/build-event` stamps
   the issuing run's dispatch-id and the row lands in the issuing bundle. Its
   `:rf.reply/work-id` is the ATTEMPT-1 work id; a completion row carries the
   work id of the attempt that completed, so after a retry the two differ in
-  the fourth (attempt) component (rf2-ojn0y). The join between issuance and
+  the fourth (attempt) component. The join between issuance and
   completion is therefore on the three-element issuance prefix
   `[:rf.work/http logical-id issuance]` within the frame, never on full
   work-id equality.
@@ -351,41 +349,40 @@
   the originating event vector used for default reply addressing per
   Spec 014 §Reply addressing.
 
-  Per Spec 014 §Middleware (rf2-6y3q): before normalising args, the
+  Per Spec 014 §Middleware: before normalising args, the
   per-frame interceptor chain is walked. Each `:before` transforms a
   ctx `{:request :args :frame :event}`; the runtime threads its return
   value through the rest of the chain. A throw inside any `:before`
   classifies as `:rf.error/http-interceptor-failed`; the request is
   not dispatched.
 
-  Per rf2-1jcpm — the `:sensitive?` flag is resolved BEFORE the
+  The `:sensitive?` flag is resolved BEFORE the
   middleware runs and BEFORE `check-cljs-only-keys!` fires, so every
   warning-/error-path trace that carries a request URL can redact
   through the privacy composer rather than leaking secrets. The
   same flag is then re-stamped onto the normalised ctx so the
   attempt loop in `http-transport` sees a single resolved value."
   [frame-ctx args-map]
-  ;; rf2-apwkm — closed-set `:retry :on` validation. Fires BEFORE the
+  ;; Closed-set `:retry :on` validation. Fires BEFORE the
   ;; middleware chain runs so misuse surfaces at the dispatch site
   ;; rather than being deferred to retry-attempt time inside the
   ;; transport loop (or silently dropped when the bad member never
   ;; fires). Per Spec 014 §Closed-set `:retry :on` validation.
   (validate-retry! args-map)
-  ;; rf2-et4c1s — every request MUST address its reply. Fires BEFORE the
+  ;; Every request MUST address its reply. Fires BEFORE the
   ;; middleware chain (like `validate-retry!`) so an unaddressed request
   ;; surfaces `:rf.error/http-no-reply-target` at the dispatch site rather
-  ;; than silently falling back to the retired co-located default. Per
+  ;; than silently falling back to a co-located default. Per
   ;; Spec 014 §Reply addressing.
   (validate-reply-target! args-map)
-  ;; rf2-q8vbna — `:abort-signal` and `:request-id` are NOT mutually
+  ;; `:abort-signal` and `:request-id` are NOT mutually
   ;; exclusive. Both attach cancellation sources to the one managed
   ;; request; the CLJS transport forwards an external `:abort-signal`
   ;; into the SAME framework-owned internal controller the `:request-id`
   ;; supersede/managed-abort path drives, and the once-only `:finalised?`
-  ;; CAS (rf2-on7sj) guarantees exactly ONE terminal reply regardless of
-  ;; which cancellation source finalises first. The removed
-  ;; `validate-abort-config!` guard rejected a fully-defined, working
-  ;; configuration on a false premise. Per Spec 014 §`:abort-signal`
+  ;; CAS guarantees exactly ONE terminal reply regardless of
+  ;; which cancellation source finalises first, so no guard rejects the
+  ;; combination. Per Spec 014 §`:abort-signal`
   ;; (external).
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame as `:frame`; a nil stamp is an invariant failure
@@ -394,16 +391,16 @@
                        (:frame frame-ctx) :rf.http/managed
                        {:where 'rf.http/managed
                         :event-id (first (:event frame-ctx))})
-        ;; rf2-622e3 — resolve once, thread the result through
+        ;; Resolve once, thread the result through
         ;; frame-ctx's :event slot so normalise-args reads it
         ;; directly instead of re-running the OR-chain.
         origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
         frame-ctx'   (assoc frame-ctx :event origin-event)
-        ;; rf2-1jcpm — resolve :sensitive? at handler entry so the
+        ;; Resolve :sensitive? at handler entry so the
         ;; middleware-failure trace path (URL leak via
         ;; `:rf.error/http-interceptor-failed`) can redact through the
         ;; privacy composer for a request that arrived already sensitive.
-        ;; rf2-rznrz — this PRE-chain reading is the floor; the EFFECTIVE
+        ;; This PRE-chain reading is the floor; the EFFECTIVE
         ;; sensitivity is recomputed below from the post-`:before` request
         ;; (a `:before` may MARK the request sensitive) before the
         ;; CLJS-only-key warning and `normalise-args` run. The chain
@@ -415,7 +412,7 @@
                       :frame      frame-id
                       :event      origin-event
                       :sensitive? sensitive?}
-        ;; rf2-v3f6 — CAPTURE THE CHAIN HERE, before the `:before` walk is
+        ;; CAPTURE THE CHAIN HERE, before the `:before` walk is
         ;; entered. This same vector drives the `:before` walk below, the
         ;; `:after` walk at response time and every retry attempt, so a
         ;; registration made mid-flight — including one made from INSIDE a
@@ -427,7 +424,7 @@
         ;; `:before` (Spec 014 §Chain order and frame scope).
         chain        (rf.http.middleware/capture-chain frame-id)
         ctx          (rf.http.middleware/run-interceptor-chain! frame-id chain ctx0)
-        ;; rf2-93bck — validate the required `:url` AFTER the `:before`
+        ;; Validate the required `:url` AFTER the `:before`
         ;; chain produces the final `:request` (a `:before` may legitimately
         ;; SET the url). Throws `:rf.error/http-bad-request` on a missing /
         ;; nil / blank url so the misuse surfaces here, at the dispatch
@@ -435,30 +432,30 @@
         ;; downstream. Mirrors `validate-retry!`'s dispatch-time guard.
         _            (validate-url! (:request ctx))
         args-map'    (assoc args-map :request (:request ctx))
-        ;; rf2-rznrz — recompute the EFFECTIVE :sensitive? from the
+        ;; Recompute the EFFECTIVE :sensitive? from the
         ;; POST-`:before` request, then run the CLJS-only-key check
-        ;; against that same post-chain request. Both were previously
-        ;; evaluated on the ORIGINAL args BEFORE the chain ran, so:
+        ;; against that same post-chain request. Evaluating both on the
+        ;; ORIGINAL args BEFORE the chain ran would mean:
         ;;   - a `:before` that MARKED the request sensitive (set
-        ;;     `[:request :sensitive?] true`) did not raise the flag the
-        ;;     CLJS-only warning / `normalise-args` saw — a downstream
+        ;;     `[:request :sensitive?] true`) would not raise the flag the
+        ;;     CLJS-only warning / `normalise-args` see — a downstream
         ;;     trace could leak a now-sensitive URL's query values; and
         ;;   - a `:before` that ADDED a JVM-degraded CLJS-only key
         ;;     (`:credentials` / `:mode` / `:cache` / …) into the request
-        ;;     escaped the degraded-key warning entirely (the request
-        ;;     proceeded on JVM silently dropping the key).
+        ;;     would escape the degraded-key warning entirely (the request
+        ;;     would proceed on JVM silently dropping the key).
         ;; Recomputing here closes both: the warning fires on the request
         ;; the transport will actually issue, redacted by the effective
         ;; sensitivity.
         sensitive?'  (rf.http.privacy/request-sensitive? args-map')
-        ;; rf2-hp772l — `check-cljs-only-keys!` is JVM per-row degradation
+        ;; `check-cljs-only-keys!` is JVM per-row degradation
         ;; tracing (a no-op on CLJS), owned by the JVM platform adapter.
         ;; No frame is threaded: HTTP carrier redaction is process-global
         ;; (resolved from the :rf.http/managed `:carriers` registration,
         ;; EP-0025), so the warning path never depends on the emitting
         ;; frame.
         _            (rf.http.transport-jvm/check-cljs-only-keys! args-map' sensitive?')
-        ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
+        ;; Carry the post-:before middleware-ctx forward so
         ;; the response-side `:after` chain sees the EXACT same ctx its
         ;; sibling `:before`s ended with. Per Spec 014 §Middleware: a
         ;; `:before` that records a wall-clock mark / parses request
@@ -466,7 +463,7 @@
         ;; in the `:after`, which is what makes request-correlated
         ;; response handling (response-time telemetry, header-driven
         ;; auth refresh, …) expressible in a single interceptor.
-        ;; rf2-v3f6 — the captured chain rides the INTERNAL normalised ctx
+        ;; The captured chain rides the INTERNAL normalised ctx
         ;; beside `:middleware-ctx`, never the middleware-ctx itself: that
         ;; map is the user-visible `ctx` every `:after` receives and Spec
         ;; 014's ctx table enumerates its keys, so a `:chain` slot there
@@ -475,7 +472,7 @@
                             :middleware-ctx    ctx
                             :interceptor-chain chain)
         request-id   (:request-id normalised0)
-        ;; rf2-azcmd3 — allocate this request's monotonic per-request-id
+        ;; Allocate this request's monotonic per-request-id
         ;; ISSUANCE number BEFORE superseding the prior in-flight request, so
         ;; the new attempt's `:work/id` `[:rf.work/http logical-id issuance
         ;; attempt]` is `=`-distinct from the superseded one's (both reset
@@ -483,34 +480,34 @@
         ;; attempt has one work id (EP-0007 / Managed-Effects §Work-id
         ;; correlation §184).
         ;;
-        ;; rf2-o8ek — the counter is keyed by (issuing frame, request-id): a
+        ;; The counter is keyed by (issuing frame, request-id): a
         ;; sibling frame reusing the same raw id runs its own sequence, so
         ;; this frame's first issuance is 1 whatever the sibling has done.
         ;;
-        ;; rf2-x8oz5 — an anonymous request (nil request-id) never supersedes,
+        ;; An anonymous request (nil request-id) never supersedes,
         ;; but its logical id is the originating event-id, so it is numbered
         ;; per (frame, event-id) instead: two anonymous requests of one event
         ;; in one frame carry distinct work ids.
         issuance     (rf.http.registry/next-issuance! frame-id request-id origin-event)
         normalised   (assoc normalised0 :issuance issuance)]
-    ;; rf2-x8oz5 — the issuance row, emitted BEFORE `supersede!` and
+    ;; The issuance row, emitted BEFORE `supersede!` and
     ;; `run-attempt!` so it precedes every row this issuance causes (the stale
     ;; suppression of a superseded predecessor, a synchronous body-prep
     ;; failure, the fx's own `:rf.fx/handled`).
     (when rf.interop/debug-enabled?
       (emit-issued-trace! normalised))
-    ;; rf2-azcmd3 — supersession emits the SUPERSEDED attempt's canonical
+    ;; Supersession emits the SUPERSEDED attempt's canonical
     ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope trace
     ;; (Managed-Effects §Stale suppression) carrying carried/current work-id
     ;; correlation, with NO app dispatch. `supersede!` returns the old handle
     ;; (carrying its identity facts); we hand it plus the NEW attempt's
     ;; work-id (the live `:work/id` now taking over the request-id) to the
-    ;; stale-trace emitter. The old handle's own abort path still fires
+    ;; stale-trace emitter. The old handle's own abort path also fires
     ;; (`:reason :request-id-superseded`) — that suppresses its app reply; this
-    ;; ADDS the canonical stale reply-envelope row the old `:rf.http/aborted`
-    ;; trace alone did not record.
+    ;; adds the canonical stale reply-envelope row the `:rf.http/aborted`
+    ;; trace alone does not record.
     ;;
-    ;; rf2-o8ek — supersession is scoped to the ISSUING FRAME. Reusable app
+    ;; Supersession is scoped to the ISSUING FRAME. Reusable app
     ;; code writes one ordinary stable id (`:request-id :articles/load`) and
     ;; two isolated frames running it must not suppress each other's live
     ;; request; the frame the runtime already holds supplies that isolation
@@ -529,13 +526,10 @@
 (defn managed-abort-handler
   "Public `:rf.http/managed-abort` fx. Args is the request-id (any value).
 
-  Per rf2-plngk the in-flight cleanup is owned by `finalise-failure!`
-  (the abort-fn closure calls into it). The earlier shape pre-cleared
-  the registry here AND inside `finalise-failure!`, doubling the
-  `swap!` traffic per abort. Now the single source of truth lives at
-  the failure-finalise site; this handler only fires the abort-fn.
+  The in-flight cleanup is owned by the abort-fn closure (it clears the
+  registry itself), so this handler only fires the abort-fn.
 
-  rf2-rak684 / rf2-o8ek — routes through `registry/abort-in-flight-in-frame!`,
+  Routes through `registry/abort-in-flight-in-frame!`,
   the FRAME-SCOPED sibling of the `registry/abort-in-flight!` seam the
   resources out-of-cascade teardown reaches through the
   `:http/abort-in-flight!` late-bind hook. Both fire identical abort semantics
@@ -543,8 +537,8 @@
   holds: resources carries a token that is already frame-qualified
   (`[:rf.req frame-id work-id]`, Spec 016), whereas this fx receives the
   caller's RAW `:request-id` — a frame-LOCAL name that reusable app code
-  reuses across frames by design. Aborting by that raw id process-globally let
-  a `[:rf.http/managed-abort :articles/load]` dispatched in one frame cancel a
+  reuses across frames by design. Aborting by that raw id process-globally would
+  let a `[:rf.http/managed-abort :articles/load]` dispatched in one frame cancel a
   sibling frame's live request; scoping to the issuing frame is what makes the
   effect obey the frame-isolation contract (Spec 014 §`:request-id`).
 

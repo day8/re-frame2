@@ -1,26 +1,25 @@
 (ns re-frame.http-test-support-test
-  "Smoke test for the `re-frame.http.test-support` leaf — required in
-  the same PR as the new namespace per the per-leaf smoke-test
-  convention (rf2-cdmle).
+  "Smoke test for the `re-frame.http.test-support` leaf, per the
+  per-leaf smoke-test convention.
 
-  Per rf2-lwmgw (audit-of-audits #15) the namespace is now the single
+  The namespace is the single
   home for every HTTP test surface:
 
    - load-time registration of the two canned-stub fxs:
       - `:rf.http/managed-canned-success`
       - `:rf.http/managed-canned-failure`
      Each wraps this namespace's own `canned-success-handler` /
-     `canned-failure-handler` (rf2-w59es5 — the canned-stub bodies live
+     `canned-failure-handler` (the canned-stub bodies live
      here in test-support, not the production machine-wrapper) in the
-     rf2-j1mo4 `:after-ms` delay decorator: absent / 0 `:after-ms`
+     `:after-ms` delay decorator: absent / 0 `:after-ms`
      delegates straight through (immediate reply); a positive `:after-ms`
      defers via the framework `:dispatch-later`.
    - the stub fns:
       - `with-request-stubs`
       - `install-managed-request-stubs!`
       - `uninstall-managed-request-stubs!`
-     None of the three is a `re-frame.core` re-export (rf2-ntwwyt,
-     rf2-kuky.13) and none publishes a late-bind hook — tests call them
+     None of the three is a `re-frame.core` re-export
+     and none publishes a late-bind hook — tests call them
      directly from this namespace.
 
   This smoke pins the load-time side effects: fx registrations land, the
@@ -52,7 +51,7 @@
         ":rf.http/managed-canned-failure registered")))
 
 (deftest canned-stub-fxs-delegate-to-canned-handlers
-  (testing "rf2-j1mo4 — the registered handlers wrap the canned-* handler
+  (testing "the registered handlers wrap the canned-* handler
             vars in the `with-after-ms` delay decorator. On the immediate
             path (no `:after-ms`) the wrapper delegates straight through to
             the canned handler body, so Spec 014 §Testing's args-map contract
@@ -60,7 +59,7 @@
             framework `:dispatch-later`.
 
             The handlers are deliberately NOT `identical?` to the canned-*
-            vars anymore — the delay is a parameter of the same effect,
+            vars — the delay is a parameter of the same effect,
             threaded by wrapping the reg-fx body. We pin the delegation by
             driving the immediate path through a stub late-bind router and
             asserting the canned body fired the reply walk (a dispatch
@@ -87,7 +86,7 @@
           (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 (deftest with-request-stubs-binds-scope-override-and-route-map
-  (testing "rf2-bxc8kf / rf2-kuky.13 — with-request-stubs binds BOTH the
+  (testing "with-request-stubs binds BOTH the
             :rf.http/managed → :rf.test/managed-http-scope-stub fx-override and
             the scope's route map for the thunk's dynamic extent, and nesting
             SHADOWS the route map and restores it on exit. The end-to-end

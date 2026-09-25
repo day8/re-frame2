@@ -1,5 +1,5 @@
 (ns re-frame.epoch-prod-gate-lane-pin-test
-  "rf2-bo8lq — the posture pin for the epoch production-gate JVM lane.
+  "The posture pin for the epoch production-gate JVM lane.
 
   ## What this exists to prevent
 
@@ -17,9 +17,8 @@
   ## Why a lost flag would INVERT this lane rather than weaken it
 
   This is the epoch-specific reason the pin matters more here than in the core,
-  routing, ssr or freehand lanes, and it is measured rather than argued. Probed
-  on 2026-08-15, 22 of this artefact's 26 test namespaces are RED under a real
-  load-time `-Dre-frame.debug=false`, for one reason: epoch's entire runtime is
+  routing or ssr lanes. Most of this artefact's test namespaces are RED under a
+  real load-time `-Dre-frame.debug=false`, for one reason: epoch's entire runtime is
   `interop/debug-enabled?`-gated, so under the production gate the artefact does
   nothing at all.
 
@@ -32,14 +31,13 @@
   mean something else while still reading green. The pin is the only thing
   standing between those two worlds.
 
-  That is not a hypothetical. rf2-9c2jf was a total `dispatch-sync` failure
-  under the documented production gate that stayed green for as long as it
-  existed.
+  A total `dispatch-sync` failure under the documented production gate would
+  stay green in such a lane for as long as it existed.
 
   ## What this lane adds that `with-redefs` could not
 
-  Stated precisely, because the loose version of this sentence has itself
-  caused confusion. `re-frame.epoch-jvm-prod-gate-test`'s twelve deftests rebind
+  Stated precisely, because a loose version of this sentence is easy to
+  misread. `re-frame.epoch-jvm-prod-gate-test`'s deftests rebind
   `interop/debug-enabled?` with `with-redefs`, and epoch reads the gate only as
   `(when interop/debug-enabled? …)` inside fn bodies — a runtime Var deref — so
   those rebinds DO reach epoch's own gated branches. That suite is a real
@@ -49,7 +47,7 @@
   LOADED, under the dev default, before any test body ran: top-level
   registrations, `defonce` initialisation, interceptor chains composed once at
   load. This lane is what executes that half, and the security claim it carries
-  is rf2-vnjfg / rf2-0la4f — that the epoch ring must NOT retain `:db-before` /
+  is that the epoch ring must NOT retain `:db-before` /
   `:db-after` / raw `:trace-events` in a production server's heap.
 
   ## Why it is `^:prod-gate`-tagged rather than conditional
@@ -68,7 +66,7 @@
             [re-frame.interop :as rf.interop]))
 
 (deftest ^:prod-gate the-property-really-reached-this-jvm
-  (testing "rf2-bo8lq — `-Dre-frame.debug=false` is on THIS JVM's command line.
+  (testing "`-Dre-frame.debug=false` is on THIS JVM's command line.
             Red here means the lane's `:jvm-opts` never arrived, so every other
             assertion in the lane was made in dev posture."
     (is (= "false" (System/getProperty "re-frame.debug"))
@@ -78,9 +76,8 @@
              " `bash scripts/test-epoch-prod-gate.sh`"))))
 
 (deftest ^:prod-gate the-framework-really-read-the-gate
-  (testing "rf2-bo8lq — the load-time gate resolved to OFF. Red here with the
+  (testing "the load-time gate resolved to OFF. Red here with the
             assertion above green means the property arrived but
-            `re-frame.interop` did not honour it, which is the load-order defect
-            class rf2-9c2jf belonged to."
+            `re-frame.interop` did not honour it: a load-order defect."
     (is (false? rf.interop/debug-enabled?)
         "re-frame.interop/debug-enabled? must be false under the production gate")))

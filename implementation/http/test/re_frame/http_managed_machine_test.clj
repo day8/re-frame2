@@ -1,7 +1,7 @@
 (ns re-frame.http-managed-machine-test
-  "Per rf2-ijm7 and Spec 014 §Machine-shape wrapper. Verifies that
+  "Per Spec 014 §Machine-shape wrapper. Verifies that
   `:rf.http/managed` is also registered as a child-invokable state
-  machine — so a parent machine ca `:spawn` it and observe success /
+  machine — so a parent machine can `:spawn` it and observe success /
   failure via ordinary `:succeeded` / `:failed` events back from the
   child.
 
@@ -13,8 +13,8 @@
    - The terminal entry-action dispatches `[<parent-id> [:succeeded
      value]]` (or `[:failed failure]`) back to the parent — addressing
      resolves via `:rf/parent-id` injected into the wrapper actor's
-     initial `:data` by spawn-fx (per rf2-ijm7).
-   - Cancellation composes with rf2-wvkn: when the parent destroys
+     initial `:data` by spawn-fx.
+   - Cancellation composes with the actor-destroy abort: when the parent destroys
      the wrapper child (parent state exit, parent's `:after` firing,
      etc.), the in-flight HTTP aborts and the abort cascade fires
      `:rf.http/aborted-on-actor-destroy`.
@@ -22,9 +22,10 @@
   Coverage:
    1. Parent :spawn + success → parent transitions via :succeeded.
    2. Parent :spawn + failure → parent transitions via :failed.
-   3. Parent destroys child mid-flight → request aborts (rf2-wvkn).
+   3. Parent destroys child mid-flight → request aborts.
    4. Composes with :after — wall-clock timeout cancels in-flight.
-   6. A spawn loop leaves no anonymous issuance counters (rf2-3x7nj.16.4).
+   5. The fx form coexists with the machine wrapper.
+   6. A spawn loop leaves no anonymous issuance counters.
 
   Tests run on JVM through the plain-atom substrate; the CLJS path
   uses the same wrapper registration via Fetch."
@@ -97,7 +98,7 @@
      :port   (.getPort (.getAddress server))}))
 
 (defn- await-condition!
-  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves the
+  "Thin alias over `test-support/poll-until` with the
   per-file arity (`pred`, optional `timeout-ms`)."
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
@@ -191,7 +192,7 @@
 ;; ---- (3) parent destroys child mid-flight → HTTP aborts ------------------
 
 (deftest invoke-cancellation-parent-destroys-mid-flight
-  (testing "parent state-exit destroys the wrapper actor, which aborts the in-flight HTTP per rf2-wvkn"
+  (testing "parent state-exit destroys the wrapper actor, which aborts the in-flight HTTP"
     (let [latch (CountDownLatch. 1)
           srv   (start-blocking-server! latch 200 "application/json" "{}")
           {:keys [port]} srv
@@ -293,16 +294,16 @@
                                        (:operation %))
                                    @traces)]
           (is (seq abort-traces)
-              "wall-clock timeout cancelled the wrapper child + fired the rf2-wvkn trace"))
+              "wall-clock timeout cancelled the wrapper child + fired the :rf.http/aborted-on-actor-destroy trace"))
         (.countDown latch)
         (finally
           (rf.trace.tooling/unregister-listener! ::ijm7-4)
           (stop-server! srv))))))
 
-;; ---- (5) sibling fx-form continues to work alongside the machine wrapper -
+;; ---- (5) sibling fx-form works alongside the machine wrapper ------------
 
 (deftest fx-form-coexists-with-machine-wrapper
-  (testing "the :fx form `:fx [[:rf.http/managed args]]` continues to work; fx and machine registrations under the same id coexist"
+  (testing "the :fx form `:fx [[:rf.http/managed args]]` works; fx and machine registrations under the same id coexist"
     (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
@@ -319,15 +320,15 @@
                                 :method :get}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:legacy/load {}])
-        ;; rf2-fun38: deterministic gate via canonical poll-until.
+        ;; Deterministic gate via canonical poll-until.
         (rf.test-support/poll-until
           #(some? (:result (rf/app-db-value :rf/default)))
           {:timeout-ms 5000 :label "fx-form reply landed on :rf/default"})
         (is (= {:ok true} (:result (rf/app-db-value :rf/default)))
-            "the fx-form `:rf.http/managed` continues to dispatch back the standard reply envelope")
+            "the fx-form `:rf.http/managed` dispatches back the standard reply envelope")
         (finally (stop-server! srv))))))
 
-;; ---- (6) rf2-3x7nj.16.4 — a spawn loop leaves no issuance counters -------
+;; ---- (6) a spawn loop leaves no issuance counters ------------------------
 
 (defn- live-wrapper-addresses []
   (->> (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -336,7 +337,7 @@
                      (.startsWith ^String (name %) "managed#")))))
 
 (deftest spawn-loop-leaves-no-anonymous-issuance-counters
-  (testing "rf2-3x7nj.16.4 — each spawn of the :rf.http/managed wrapper issues
+  (testing "each spawn of the :rf.http/managed wrapper issues
             one anonymous request under a fresh actor address, so the per-(frame,
             event-id) counter keyed by that address must go when the actor is
             destroyed; otherwise a long-lived frame keeps one entry per spawn"

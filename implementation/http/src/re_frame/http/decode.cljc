@@ -76,8 +76,8 @@
   carrying the `+json` structured-syntax suffix. This recognises mainstream
   vendor JSON media types — `application/vnd.api+json` (JSON:API),
   `application/ld+json` (JSON-LD), `application/vnd.github+json` — that a
-  bare `(str/includes? ct \"application/json\")` substring check wrongly
-  rejected (a real footgun against correct servers).
+  bare `(str/includes? ct \"application/json\")` substring check would
+  wrongly reject (a real footgun against correct servers).
 
   Examples that match: `application/json`, `application/json; charset=utf-8`,
   `application/vnd.api+json`, `application/ld+json`, `text/json`.
@@ -95,7 +95,7 @@
 
 (defn- sniff-decoder
   "Per Spec 014 §`:auto`: sniff the response Content-Type header.
-  rf2-houkno — JSON sniffing recognises RFC 6839 `+json` structured-syntax
+  JSON sniffing recognises RFC 6839 `+json` structured-syntax
   suffix media types (e.g. `application/vnd.api+json`) via `json-media-type?`,
   not just a bare `application/json` substring."
   [content-type]
@@ -106,21 +106,21 @@
       :else                                  :blob)))
 
 (defn- json-content-type?
-  "rf2-upexd.2 — does the response declare a JSON Content-Type? The
+  "Does the response declare a JSON Content-Type? The
   Malli-schema decode path is JSON-ONLY (Spec 014 §Decoding §Schema-
   driven): the only Malli transformer the decoder wires is the
   `json-transformer` (see `malli-transformer-fn`), so a schema rides a
   JSON body by construction. A `nil` content-type is treated as
   JSON-eligible — many JSON APIs omit the header, and rejecting them
-  would be a regression; only a Content-Type that is PRESENT and
+  would break every such API; only a Content-Type that is PRESENT and
   declares a NON-JSON MIME is rejected as a clear contract violation
   rather than silently JSON-parsing (and failing) a non-JSON body.
 
-  rf2-houkno — JSON eligibility now honours RFC 6839 `+json` structured-
+  JSON eligibility honours RFC 6839 `+json` structured-
   syntax suffix media types (e.g. `application/vnd.api+json`,
   `application/ld+json`) via `json-media-type?`, not just a bare
   `application/json` substring — those carry valid JSON bodies by
-  construction and were wrongly rejected as non-JSON before."
+  construction."
   [content-type]
   (or (nil? content-type)
       (json-media-type? content-type)))
@@ -128,7 +128,7 @@
 (def ^:private binary-decode-kinds
   "Decode modes whose result is a native binary/structured Fetch body
   rather than a string. These resolve the response via `.blob()` /
-  `.arrayBuffer()` / `.formData()` instead of `.text()` (rf2-5zj6t)."
+  `.arrayBuffer()` / `.formData()` instead of `.text()`."
   #{:blob :array-buffer :form-data})
 
 (defn binary-read-kind
@@ -140,7 +140,7 @@
   the CLJS transport can choose the right Fetch reader BEFORE the body
   is consumed (a Response body may only be read once). `:auto` over a
   non-text / non-JSON Content-Type sniffs to `:blob`, so an image
-  fetched without an explicit `:decode` still reads as binary (rf2-5zj6t)."
+  fetched without an explicit `:decode` still reads as binary."
   [decode headers]
   (let [resolved (cond
                    (fn? decode)        nil

@@ -66,7 +66,7 @@
 
   Looks up the late-bind hook `:schemas/validate-with-registered-fn` — the
   seam every Spec 010 validation site routes through, so restore obeys
-  `set-schema-fns!` exactly as the hot path does (rf2-3x7nj.17.3). It answers
+  `set-schema-fns!` exactly as the hot path does. It answers
   true under a `nil` validator (validation disabled), the substituted
   validator's verdict otherwise, and false when the validator throws (a
   malformed schema fails CLOSED)."
@@ -260,7 +260,7 @@
   no definition resolves — a cleared TYPE is a MISSING reference, caught
   upstream by `missing-references`, not a version drift. The definition is
   resolved BEFORE its version is read, so a registered definition carrying no
-  version is told apart from no definition at all (rf2-3x7nj.17.2). `:type` is
+  version is told apart from no definition at all. `:type` is
   the spawned actor's `:rf/machine-type` (keyword or inline map) when the
   snapshot carried one, nil for a singleton — surfaced so the drift trace can
   identify the actor's TYPE as well as its instance id."
@@ -279,7 +279,7 @@
   artefact's own (`version-compatible?`): exact equality, absent included — both
   absent matches, both present-and-equal matches, and any other shape is a
   mismatch, so a version stamp ADDED or REMOVED since the recording is drift
-  exactly as a changed one is (rf2-3x7nj.17.2). Returns the first mismatch as
+  exactly as a changed one is. Returns the first mismatch as
   `{:machine-id <id> :machine-type <type-or-nil> :recorded <int-or-nil>
   :current <int-or-nil>}`, nil when none is found.
 
@@ -363,7 +363,7 @@
                    `restore-epoch!` carries it to the write boundary so
                    `perform-restore!` refuses to install into a same-id
                    SUCCESSOR frame seated between this pass and the physical
-                   write (rf2-bjh6y).
+                   write.
     {:outcome :fail :op <kw> :tags <map>}
                  — first failing check; `:op` is the trace operation
                    the caller must emit, `:tags` are its tags. No
@@ -380,11 +380,11 @@
         ;; an independent bare-id re-resolve. A same-id successor B seated between
         ;; the record capture above and here can therefore never supply the
         ;; token: the ticket pairs THIS record's resolved epoch/history with THIS
-        ;; record's own incarnation, closing seam 1 (rf2-qfrh4 — the prior
+        ;; record's own incarnation (an
         ;; independent `frame-incarnation-token` re-resolve could pair A's
         ;; retained epoch/history with B's live token). Carried out on the `:ok`
         ;; result so the write boundary can reject a stale install after a
-        ;; destroy + same-id reconstruction (rf2-bjh6y). nil when the frame is
+        ;; destroy + same-id reconstruction. nil when the frame is
         ;; absent — the (1) frame-registered branch fails first in that case.
         incarnation-token (some-> frame-record :drain-lock)]
     (cond
@@ -403,8 +403,8 @@
       (let [history (rf.epoch.state/history-for frame-id)
             epoch-record (find-epoch-in history epoch-id)]
         (cond
-          ;; Exact-owner gate on the history/validation snapshot (rf2-qfrh4
-          ;; seam 1). `state/history-for` above (and every validator below)
+          ;; Exact-owner gate on the history/validation snapshot.
+          ;; `state/history-for` above (and every validator below)
           ;; resolves by BARE frame-id; a same-id successor seated DURING this
           ;; precondition sampling means the captured incarnation is no longer
           ;; live, so the history/validation snapshot may belong to — or would
@@ -454,9 +454,8 @@
                                           rf.frame/app-partition-key)
                 recorded-runtime-db  (get recorded-frame-state
                                           rf.frame/runtime-partition-key)]
-            ;; Bind each probe once so each substrate is walked once.
-            ;; failure path walks the recorded db / schema set / machine
-            ;; map exactly once per check.
+            ;; Bind each probe once so the failure path walks the recorded
+            ;; db / schema set / machine map exactly once per check.
             (if-let [failing-paths
                      (seq (failing-schema-paths frame-id recorded-app-db))]
               ;; (4) Schema mismatch?
@@ -489,7 +488,7 @@
                   ;; `:machine-type` identifies a spawned actor's
                   ;; TYPE (keyword or inline-definition map) alongside its
                   ;; instance `:machine-id`; nil/omitted for a singleton whose
-                  ;; key is its own type. Spawned-actor drift is now caught:
+                  ;; key is its own type. Spawned-actor drift is caught:
                   ;; the current version resolves via `:rf/machine-type`, not
                   ;; the unregistered instance-id key.
                   {:outcome :fail
@@ -507,7 +506,7 @@
 
 ;; ---- replay-epoch! preconditions + perform (Tool-Pair §Replay) -------------
 ;;
-;; The ONE-CALL replay gesture (rf2-ov144). The retained raw record is
+;; The ONE-CALL replay gesture. The retained raw record is
 ;; resolved in-process and its replay material — the argument-bearing
 ;; `:trigger-event`, the post-generation `:rf.cofx` token, the serializable
 ;; `:fx-overrides` / `:interceptor-overrides` — is folded into the strict
@@ -590,7 +589,7 @@
   in place of the value the original run consumed: a silent divergence that
   writes app-db and re-fires external effects with data the run never saw.
   Tool-Pair §Replay is faithful-or-fail-loud, so this is refused before
-  dispatch (rf2-xlr0).
+  dispatch.
 
   The test is the PRESENCE of a reserved substitution, not a lookup of what
   the registration currently declares. A declaration lookup would fail OPEN on
@@ -714,7 +713,7 @@
   carrying that id — and then checked against the ring, so an epoch the ring
   did not keep reports the documented nil.
 
-  Reading the ring alone cannot answer this (rf2-e0g2). Replay runs against
+  Reading the ring alone cannot answer this. Replay runs against
   CURRENT state and code (Tool-Pair §Replay), so it may legitimately enqueue
   work the recorded run did not; a queued child settles AFTER its parent, and
   at a depth the cascade overruns the child evicts the parent's record. The
@@ -723,7 +722,7 @@
   response names under `:event-id` — wrong causal evidence handed to a tool
   that trusts the chain.
 
-  Nor can COMMIT ORDER answer it (rf2-fzbj.19). The router emits
+  Nor can COMMIT ORDER answer it. The router emits
   `:rf.event/dispatched` before it starts this dispatch's drain, and a public
   trace listener may `dispatch-sync` from there; that nested cascade commits
   INSIDE this window and before the replayed event has run, so the first
@@ -769,10 +768,10 @@
 ;; synthetic success, and NEVER a write into a same-id successor. Both write
 ;; paths (`perform-restore!` here, `perform-replace!` in `epoch.cljc`)
 ;; therefore gate on `frame/event-continuation-live?` with the EXACT
-;; incarnation token their preconditions resolved (rf2-bjh6y, rf2-gj2bo) and
+;; incarnation token their preconditions resolved and
 ;; install through core's exact-incarnation `frame/replace-frame-state!`
-;; 3-arity, whose nil return closes the post-liveness half of the window
-;; (rf2-s93722): a destroyed-or-reseated incarnation surfaces the canonical
+;; 3-arity, whose nil return closes the post-liveness half of the window:
+;; a destroyed-or-reseated incarnation surfaces the canonical
 ;; failure BEFORE any success telemetry, synthetic epoch, or listener fanout.
 
 ;; ---- drain serialization for tool writes ----------------------------------
@@ -785,12 +784,12 @@
 ;; before the write can interleave between a handler's `db` read and its
 ;; commit. The tool write then splices into the middle of an event transition —
 ;; a non-linearizable result — while still returning `true` and emitting
-;; success telemetry (rf2-3fc89f.4). For a partial `replace-frame-state!` the
+;; success telemetry. For a partial `replace-frame-state!` the
 ;; same window also lets the recorded synthetic `:frame-state-before` /
 ;; `:frame-state-after` (computed from a pre-interleave read) diverge from the
 ;; value the write actually installed.
 ;;
-;; The fix routes the WHOLE state-sensitive operation — not just the final
+;; Tool writes route the WHOLE state-sensitive operation — not just the final
 ;; container call — through the core single-drainer `:drain-lock` via
 ;; `frame/call-serialized-with-drain!` (Spec 002 §Single drainer per frame; the
 ;; SAME primitive the flows lifecycle ops use). Under that lock no event
@@ -885,14 +884,14 @@
   The EXACT incarnation `owner-token` (the captured record's `:drain-lock`) is
   threaded through `:owner-token` so the reconcile fences its non-deferred host-
   table clearing (stale/GC timer + work-ledger host handles) to the exact
-  incarnation the restore resolved against (rf2-qfrh4 seam 2). The reconcile
+  incarnation the restore resolved against. The reconcile
   runs BEFORE the atomic write and addresses the frame by BARE id; without the
   token, a callback that churns A to B mid-reconcile would let the bare-id clear
   touch same-id successor B. Passing the token lets the reconcile skip the clear
   once the exact incarnation is lost, so no B host handle is released — B's
   transients belong to B and, if A was destroyed to seat B, `destroy-frame!`
   already released A's. nil owner-token (the 2-/3-arity pure-unit path) has no
-  incarnation to fence and clears unconditionally, as before."
+  incarnation to fence and clears unconditionally."
   ([frame-id frame-state] (reconcile-runtime-db-on-restore frame-id frame-state nil nil))
   ([frame-id frame-state restore-time-ms]
    (reconcile-runtime-db-on-restore frame-id frame-state restore-time-ms nil))
@@ -965,7 +964,7 @@
   a no-op, and a throwing hook is swallowed so one bad subsystem cleanup cannot
   block the rest. Returns nil.
 
-  The chain is itself a callback FAN-OUT (rf2-sdeae), so the caller's single
+  The chain is itself a callback FAN-OUT, so the caller's single
   pre-chain liveness check does not fence it: EVERY hook addresses the frame by
   BARE id, and each one is app-observable — a machines cancellation trace fired
   by the first hook can destroy incarnation A and seat a same-id successor B,
@@ -973,11 +972,11 @@
   The 2-arity therefore carries the restore's EXACT `incarnation-token` INTO the
   loop and revalidates ownership at every hook boundary, STOPPING the chain the
   moment the incarnation is lost rather than retargeting the remaining A-only
-  cleanup onto B. That revalidation covers the THROWING path too (rf2-vy2hj):
+  cleanup onto B. That revalidation covers the THROWING path too:
   the swallow-and-warn catch is itself a post-callback tail, so it announces
   only while the captured incarnation is still owned. nil token (the 1-arity)
-  has no incarnation to fence and fires the whole chain — and every warning —
-  as before."
+  has no incarnation to fence and fires the whole chain — and every
+  warning."
   ([frame-id] (quiesce-orphaned-async-host-work! frame-id nil))
   ([frame-id incarnation-token]
    (let [still-owned? (fn []
@@ -988,7 +987,7 @@
         (when-let [quiesce-hook (rf.late-bind/get-fn hook-key)]
           (try (quiesce-hook frame-id)
                (catch #?(:clj Throwable :cljs :default) quiesce-error
-                ;; rf2-vy2hj: the SETTLED path needs the same fence as the
+                ;; The SETTLED path needs the same fence as the
                 ;; loop's `:while`. A hook is the very callback boundary this
                 ;; chain polices, so hook 1 may destroy A, seat a same-id
                 ;; successor B, and only THEN throw — unwinding into a catch
@@ -1025,7 +1024,7 @@
   intents (a resource-free restore). Returns nil.
 
   The commit walks a LIST of intents and each one emits to the frame's trace
-  listeners, so it is a callback FAN-OUT (rf2-sdeae) that a single pre-call
+  listeners, so it is a callback FAN-OUT that a single pre-call
   liveness check cannot fence. `frame-id` and the restore's EXACT
   `incarnation-token` are carried in under the SAME `:owner-token` opt the
   pre-write reconcile already takes, so the commit revalidates exact ownership
@@ -1050,13 +1049,13 @@
   lands.
 
   The WHOLE restore is one EXACT-incarnation transaction, keyed on
-  `incarnation-token`, not the bare id (rf2-bjh6y + rf2-qfrh4). A same-id
+  `incarnation-token`, not the bare id. A same-id
   SUCCESSOR frame reseated at ANY seam must not receive the resolved epoch's
-  state, touch host tables, or be anchored. Four fences, all on the token:
+  state, touch host tables, or be anchored. Five fences, all on the token:
 
     - an early `event-continuation-live?` gate refuses BEFORE running the
       subsystem reconcile, so nothing is reconciled against a stale incarnation;
-    - the reconcile carries `incarnation-token` (seam 2) so its non-deferred
+    - the reconcile carries `incarnation-token` so its non-deferred
       pre-write host-table clear is fenced — a callback that churns A to B
       mid-reconcile cannot make the bare-id clear release B's host handles;
     - the physical install goes through the EXACT-INCARNATION
@@ -1065,11 +1064,11 @@
       same-id successor;
     - each post-write bare-id tail op (last-settled anchor, deferred subsystem
       trace commit, host-work quiesce) re-checks `event-continuation-live?`
-      (seam 3) — the `:rf.epoch/restored` emit and the commit/quiesce fan-outs
+      — the `:rf.epoch/restored` emit and the commit/quiesce fan-outs
       are callback boundaries that can churn A to B, so a lost incarnation STOPS
       the remaining A-only tail work rather than RETARGETING it onto B;
-    - the two tail ops that are themselves FAN-OUTS carry the token INSIDE
-      (rf2-sdeae). A check taken before a loop does not fence the loop: the
+    - the two tail ops that are themselves FAN-OUTS carry the token INSIDE.
+      A check taken before a loop does not fence the loop: the
       quiesce CHAIN walks several late-bound subsystem hooks and the deferred
       trace commit walks several intents, every element addressing the frame by
       bare id and every element app-observable. So `incarnation-token` is
@@ -1089,7 +1088,7 @@
   The whole gate → reconcile → write → bookkeeping runs under the
   frame's `:drain-lock` (`serialize-tool-write!`), so no event transition can
   interleave between the reconcile's read and the physical install — the
-  restore holds one serial position relative to any drain (rf2-3fc89f.4). A
+  restore holds one serial position relative to any drain. A
   restore invoked reentrantly from the active drainer refuses with
   `:rf.epoch/restore-during-drain` rather than deadlocking or splicing."
   [frame-id incarnation-token epoch]
@@ -1104,7 +1103,7 @@
         ;; is being torn down) between validation and this write. Refuse BEFORE
         ;; the reconcile so no subsystem state is reconciled against a stale
         ;; incarnation, and route to the SAME canonical no-such-handler failure a
-        ;; destroyed-frame write race uses (rf2-bjh6y). The successor stays
+        ;; destroyed-frame write race uses. The successor stays
         ;; byte-for-byte untouched; no success telemetry fires.
         (do (emit-precondition-failure! :rf.error/no-such-handler
                                         {:kind :frame :frame frame-id})
@@ -1125,7 +1124,7 @@
               ;; Thread the EXACT incarnation token too, so the reconcile's
               ;; pre-write host-table clear is fenced to this incarnation — a
               ;; callback that churns A to B mid-reconcile cannot make the bare-id
-              ;; clear release B's host handles (rf2-qfrh4 seam 2).
+              ;; clear release B's host handles.
               reconciled-frame-state
               (reconcile-runtime-db-on-restore frame-id recorded-frame-state
                                                (:committed-at epoch)
@@ -1157,7 +1156,7 @@
                 ;; frame by BARE id (`set-last-settled-epoch!`, the resources
                 ;; trace commit, the machines/http host-work quiesce chain), so
                 ;; each is fenced to the EXACT incarnation the restore installed
-                ;; (rf2-qfrh4 seam 3). Re-check liveness before each — the trace
+                ;; Re-check liveness before each — the trace
                 ;; commit and the quiesce chain themselves fan out to
                 ;; listeners/hooks that may churn — so once A is lost the
                 ;; remaining A-only tail work is STOPPED rather than RETARGETED
@@ -1238,8 +1237,8 @@
   these checks resolved against, derived from the SAME captured record (not
   a bare-id re-resolve), which `replace-frame-state!` carries to the write
   boundary so the physical write and the synthetic bookkeeping can never
-  retarget onto a same-id SUCCESSOR seated after validation (rf2-gj2bo,
-  mirroring `check-restore-preconditions!`). Otherwise
+  retarget onto a same-id SUCCESSOR seated after validation (mirroring
+  `check-restore-preconditions!`). Otherwise
   `{:outcome :fail :op <kw> :tags <map>}` matching
   the precondition-failure shape of `check-restore-preconditions!`. Pure
   data — no trace events emitted from here; emission is the caller's job.
@@ -1292,7 +1291,7 @@
           ;; The EXACT incarnation identity token (the record's `:drain-lock`,
           ;; per `frame-incarnation-token`) DERIVED FROM THE SAME captured
           ;; record — NOT an independent bare-id re-resolve — mirroring
-          ;; `check-restore-preconditions!` (rf2-gj2bo). Returned on the `:ok`
+          ;; `check-restore-preconditions!`. Returned on the `:ok`
           ;; result so the write boundary can reject a stale injection after a
           ;; destroy + same-id reconstruction. nil when the frame is absent —
           ;; the (1) frame-registered branch fails first in that case.
@@ -1329,8 +1328,8 @@
                 (into (failing-runtime-paths
                         frame-id (get frame-state rf.frame/runtime-partition-key))))]
           (cond
-            ;; Exact-owner gate on the validation snapshot (rf2-gj2bo,
-            ;; mirroring `check-restore-preconditions!`'s history gate). The
+            ;; Exact-owner gate on the validation snapshot (mirroring
+            ;; `check-restore-preconditions!`'s history gate). The
             ;; schema/runtime validators above resolve the frame by BARE id;
             ;; a same-id successor seated DURING this precondition sampling
             ;; means the captured incarnation is no longer live, so those
@@ -1369,7 +1368,7 @@
   An MCP or AI tool selects the
   `:rf.egress/off-box-tool` boundary instead via `project-egress`'s
   `:rf.egress/profile` opt — that profile keeps the same redact/elide
-  defaults and the same no-digest floor (rf2-3x7nj.32.6), so a large
+  defaults and the same no-digest floor, so a large
   owner-local slot egresses as a marker whose `:path` / `:bytes` / `:type` /
   `:handle` are the structural indicators a tool needs to reason about shape
   without seeing content; a `:digest` needs the explicit
@@ -1382,7 +1381,7 @@
   *\"which boundary is this?\"* (hosted observability vs. MCP/AI tool wire)
   rather than assembling boolean combinations. The default is
   `:rf.egress/off-box-observability` (hosted monitoring), so the bare
-  1-arity / no-profile call is unchanged.
+  1-arity / no-profile call walks that profile.
 
   An UNKNOWN profile is rejected loudly here against the shared CLOSED
   `re-frame.projection/profiles` enum, so a typo never falls through to a
@@ -1405,16 +1404,16 @@
   is absent because it is a BARE-VALUE offset — a record is projected
   slot-by-slot, so an offset applied to each slot walk would be wrong.
 
-  Read as a SELECTION, never as a floor (rf2-kuky.92): `select-keys` keeps
+  Read as a SELECTION, never as a floor: `select-keys` keeps
   only the keys PRESENT on the opts it is handed, and it is handed opts the
   record boundary has already floor-resolved (`resolve-shared-size-axes`), so
   the three shared axes arrive carrying the profile's own answer. Re-resolving
   them downstream is therefore idempotent — `project-egress` merges the same
-  floor under the same values. The previous form spelled two of them
-  `(boolean …)`, which forced them PRESENT AND FALSE on every call and so
-  overrode the floor — invisible under the five fail-closed profiles, whose
-  floor is false anyway, but it silently defeated `:rf.egress/local-raw`, the
-  one profile whose floor opts sensitive and large back IN."
+  floor under the same values. Spelling any of them `(boolean …)` here would
+  force it PRESENT AND FALSE on every call and so override the floor —
+  invisible under the five fail-closed profiles, whose floor is false anyway,
+  but silently defeating `:rf.egress/local-raw`, the one profile whose floor
+  opts sensitive and large back IN."
   [:rf.egress/include-sensitive?
    :rf.egress/include-large?
    :rf.egress/include-digests?
@@ -1433,19 +1432,18 @@
   `re-frame.projection/resolve-elision-opts`). That composition happens ONCE,
   at the record boundary (`resolve-shared-size-axes`); what reaches here is
   its answer, and re-resolving it downstream is idempotent. ONE spelling for
-  the two shared axes: these were read here in the bare form, so the
-  `:rf.egress/*` spelling every other door takes was silently dropped
-  (rf2-kuky.6).
+  the two shared axes: reading them here in a bare form would silently drop
+  the `:rf.egress/*` spelling every other door takes.
 
   The frame is threaded rather than re-read from the record, so an
-  explicit `:frame` override resolved at the door reaches the walk
-  (rf2-kuky.92). Stamping it is what makes the frame's declared sensitive /
+  explicit `:frame` override resolved at the door reaches the walk.
+  Stamping it is what makes the frame's declared sensitive /
   large paths — keyed by absolute app-db path — match the projected value.
 
   The epoch-only axes (`:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` /
-  `:rf.egress/include-event-args?`) are NEVER forwarded: the walker map is CLOSED
-  (rf2-kuky.6), so an epoch-only key reaching it throws
-  `:rf.error/bad-egress-opts` on a path that used to work. They are read
+  `:rf.egress/include-event-args?`) are NEVER forwarded: the walker map is
+  CLOSED, so an epoch-only key reaching it would throw
+  `:rf.error/bad-egress-opts`. They are read
   by the epoch-side helpers that own them and nowhere else."
   [frame-id opts]
   (assoc (select-keys opts walker-overlay-keys)
@@ -1474,8 +1472,8 @@
   `:rf.egress/profile` included, since `egress-opts` still needs it — rides
   through untouched.
 
-  WHY IT IS NEEDED HERE RATHER THAN LEFT TO THE WALKER (rf2-kuky.92, the
-  merged-PR audit of #9522). `project-egress` resolves the profile into the
+  WHY IT IS NEEDED HERE RATHER THAN LEFT TO THE WALKER. `project-egress`
+  resolves the profile into the
   elision-opts it hands its OWN arms, but its `:rf/epoch-record` arm forwards
   the caller's ORIGINAL opts — correctly, because the epoch-only axes must
   survive the trip and the walker's map is closed against them. So an epoch
@@ -1491,8 +1489,8 @@
   `nil`, which is indistinguishable from an explicit `false`. Under the five
   fail-closed profiles that is the right answer by accident; under
   `:rf.egress/local-raw` — the ONE profile whose floor opts sensitive and
-  large back IN — it silently defeated the floor, so the same 25,000-character
-  value survived in `:db-after` and became a size marker in the two
+  large back IN — it would silently defeat the floor, so the same large
+  value would survive in `:db-after` yet become a size marker in the two
   subscription slots. Resolving once, here, is what makes the two populations
   answer the same question the same way.
 
@@ -1649,7 +1647,7 @@
 
    - `:rf.http/replied`        — the SUCCESS reply's decoded body at `[:value]`,
      and a FAILURE reply's body nested under its failure map at `[:error :body]`
-     / `[:error :body-text]` / `[:error :decoded]` (rf2-kiepc — a failure lowers
+     / `[:error :body-text]` / `[:error :decoded]` (a failure lowers
      through the SAME reply envelope, so this one operation row carries both
      shapes; the emit site stamps the disposition for whichever is present);
    - `:rf.http/accept-failure` — the pre-`:accept` decoded body at `[:decoded]`;
@@ -1672,13 +1670,13 @@
   the gate elides record ASSEMBLY, not record PROJECTION). Its contract is
   FAIL-CLOSED on a stamped unschematized HTTP body, so the slots it consults
   must be present whether or not the gate was ever true. Gating the whole
-  table (rf2-92uvq) left it `nil` in a cold gate-false process, so
-  `omit-off-box-http-bodies` found no slot path and passed every stamped body
-  through raw — a mandatory-off-box-safe breach. These five operation keywords
+  table would leave it `nil` in a cold gate-false process, so
+  `omit-off-box-http-bodies` would find no slot path and pass every stamped
+  body through raw — a mandatory-off-box-safe breach. These five operation keywords
   already ride the production bundle as `:kind`/`:operation` data values, so
   binding them here at namespace load leaks nothing new.
 
-  ONLY the DEV-ONLY `:rf.http/retry-attempt` row stays behind the gate. That
+  ONLY the DEV-ONLY `:rf.http/retry-attempt` row sits behind the gate. That
   op is a dev-only trace op (Spec 014 §Retry and backoff — its only emit sites
   are `(when interop/debug-enabled? (trace/emit! :info :rf.http/retry-attempt …))`),
   so its keyword literal must NOT float into the `:advanced` production bundle
@@ -1761,8 +1759,8 @@
   value is the event vector `[<id> <arg> …]`, retain the head event-id
   keyword and redact every arg to `:rf/redacted` — the SAME shape the
   `:trigger-event` record slot egresses (see `elide-trigger-event-slot`).
-  This closes the sibling leak whereby a secret carried in the dispatched
-  event vector survives off-box inside `:trace-events` (the marks
+  Without it a secret carried in the dispatched
+  event vector would survive off-box inside `:trace-events` (the marks
   chokepoint cannot prove an UNMARKED arg safe, and the on-box ring keeps
   the raw event).
 
@@ -1802,8 +1800,8 @@
   `:resources/project-scope-resolved-egress` hook the resources artefact
   publishes: it UNCONDITIONALLY FAILS CLOSED (redacts `:input-values` /
   `:scope`, stamps `:sensitive? true`) for every db-reading resolver — there
-  is no declassify hatch (EP-0025 retired the `:rf.egress/output-sensitivity`
-  propagation model) — preserving the structural `:resource-id` / `:inputs`
+  is no declassify hatch and no `:rf.egress/output-sensitivity` propagation
+  model (EP-0025) — preserving the structural `:resource-id` / `:inputs`
   (declared NAMES) / `:kind` / `:resolved-nil?`.
 
   The redaction is the off-box default; the trusted-local `:rf.egress/include-sensitive?`
@@ -1895,7 +1893,7 @@
 (defn- omit-off-box-fx-args-resource-keys
   "Redact the owner-local scoped keys the resource family plants in the FX-ARGS
   trace tags — the SLOT-reached companion to `omit-off-box-resource-trace-keys`
-  directly above (rf2-1kiuj).
+  directly above.
 
   That arm routes on `resource-family-op?`, the row's OPERATION NAMESPACE. But a
   resource `ensure` lowers into EFFECTS, and those effects address the work BY its
@@ -1906,11 +1904,11 @@
   rows are `rf.fx` / `rf.error`, so the namespace routing skips them, and a
   resolver-owned key's embedded scope + params are not app-db-rooted, so the
   generic `project-egress` walk cannot classify them either. Between the two blind
-  spots a naturally-captured `ensure` record egressed a `:sensitive?` owner's
-  resolved scope + canonical params RAW at eighteen paths — while the SAME
-  payload's structured `:effects[*].args` slot, three rows below, read
-  `:rf/redacted` (`elide-effect-row`). One value, two carriers, one rule applied:
-  the rf2-irwsq shape.
+  spots a naturally-captured `ensure` record would egress a `:sensitive?` owner's
+  resolved scope + canonical params RAW — while the SAME
+  payload's structured `:effects[*].args` slot reads
+  `:rf/redacted` (`elide-effect-row`): one value, two carriers, so one rule
+  applies to both.
 
   The projector is the resource family's, consulted through the late-bound
   `:resources/project-fx-args-egress` hook; it walks the two slots by SHAPE and
@@ -1958,15 +1956,15 @@
 
   A head is kept ONLY when it is a STRUCTURAL fx-id, i.e. a keyword — the
   same predicate `re-frame.fx/fx-entry-ok?` applies before it will walk an
-  entry at all, so this is core's existing notion of an fx-id rather than a
+  entry at all, so this is core's own notion of an fx-id rather than a
   second one. Every other entry redacts WHOLE, because it has no head to
   keep and nothing about it can be proven safe:
 
     - a non-sequential entry (the forgot-the-inner-vector typo); and
     - a sequential entry whose head is a MAP, VECTOR or STRING — there the
-      first element is not an id at all but PAYLOAD, and keeping it shipped
-      an `[{:password …} {:arg 1}]` entry's secret verbatim through this
-      carrier (rf2-75yrq).
+      first element is not an id at all but PAYLOAD, and keeping it would
+      ship an `[{:password …} {:arg 1}]` entry's secret verbatim through this
+      carrier.
 
   Both reach this slot for the same reason: the tag is stamped from the RAW
   `(:fx effects)` on the terminal `do-fx` marker, and `fx-entry-ok?`'s
@@ -1983,7 +1981,7 @@
 
 (def ^:private fx-args-alias-slots
   "The value-bearing slots a `:where :fx-args` schema-validation row stamps
-  with the SAME fx args `:rf.fx/args` carries (rf2-536ax).
+  with the SAME fx args `:rf.fx/args` carries.
 
   This is `re-frame.schemas.validate/redact-tags`' own canonical slot set,
   minus `:rf.fx/args` (closed by the first arm of `omit-off-box-fx-args`, and
@@ -2013,12 +2011,12 @@
 (defn- omit-off-box-fx-args
   "Enforce the fx-args fail-closed rule on the TRACE-EVENT TAG CARRIERS of
   the same payload the structured `:effects` row already fails closed on
-  (rf2-79fvm) — the tag-carrier twin of `elide-effect-row`, and the direct
+  — the tag-carrier twin of `elide-effect-row`, and the direct
   sibling of `omit-off-box-event-args` directly above.
 
-  `:rf.egress/include-fx-args? false` protected only the structured row. The
-  identical fx-handler argument payload rides the trace events three rows
-  up, under two slots:
+  The structured row is not the only carrier of the fx-handler argument
+  payload: the identical payload rides the trace events, under these
+  slots:
 
     - `:rf.fx/args`   — the argument payload VERBATIM and alone, stamped by
                         `re-frame.fx/handle-one-fx` on `:rf.fx/handled`, on
@@ -2038,16 +2036,16 @@
                         interpolates it. An entry the effect pipeline itself
                         REFUSED still reaches the trace, because
                         `fx-entry-ok?`'s rejection drops it from the WALK, not
-                        from the trace (rf2-fbzwx).
+                        from the trace.
     - the `:where`    — `:value` / `:received` / `:explain` /
       `:fx-args`        `:explain-humanized`, the aliases under which
       aliases          `validate-fx!` re-stamps the very args `:rf.fx/args`
-                        already carries on that one row (rf2-536ax).
+                        already carries on that one row.
 
-  So an `[:http {:body {:password …}}]` or a `[:dispatch [:login \"pw\"]]`
-  reached an MCP wire through these tags while the same bytes read
-  `:rf/redacted` on the `:effects` row below — one value, two carriers, one
-  rule now applied to both (the rf2-irwsq shape).
+  So without this seam an `[:http {:body {:password …}}]` or a `[:dispatch [:login \"pw\"]]`
+  would reach an MCP wire through these tags while the same bytes read
+  `:rf/redacted` on the `:effects` row — one value, two carriers, so one
+  rule applies to both.
 
   The emit-time classification chokepoint (`classification/project-fx-tags`
   / `project-event-fx-tags`) already projects both slots, but it is
@@ -2093,7 +2091,7 @@
                                (mapv redact-fx-entry effect-vector)
                                :rf/redacted)))
 
-                ;; rf2-fbzwx — the ERROR-TRACE carrier of the same bytes. The
+                ;; The ERROR-TRACE carrier of the same bytes. The
                 ;; `:value` slot holds the REJECTED effect payload itself, so
                 ;; it takes `redact-fx-entry` — the SAME function the
                 ;; `:rf.event/fx` arm above applies, not a second notion of
@@ -2121,7 +2119,7 @@
                      (contains? (:tags trace-event) :reason))
                 (assoc-in [:tags :reason] :rf/redacted)
 
-                ;; rf2-536ax — the `:where :fx-args` schema-validation row
+                ;; The `:where :fx-args` schema-validation row
                 ;; stamps the SAME fx args under several aliases beside
                 ;; `:rf.fx/args` (which the first arm above already closed).
                 ;; `re-frame.schemas.validate/redact-tags` scrubs exactly this
@@ -2134,7 +2132,7 @@
           trace-events)))
 
 (defn- elide-whole-output-large-slots
-  "The ONE whole-output `:large?` egress rule (rf2-irwsq).
+  "The ONE whole-output `:large?` egress rule.
 
   A `:large?`-stamped sub's computed value reaches off-box egress through TWO
   slots of the same record, and BOTH are projected by this function so they
@@ -2172,8 +2170,8 @@
 
   Per-PATH `:large` / `:sensitive` sub marks are NOT handled here — those are
   substituted INTO the value at the marks emit site (`redact-with-paths`), so
-  they already ride both slots pre-marked. EP-0025 dropped the whole-output
-  `:sensitive?` overload, so there is no sensitive analogue of this rule: the
+  they already ride both slots pre-marked. There is no whole-output
+  `:sensitive?` overload (EP-0025), so there is no sensitive analogue of this rule: the
   axis here is TOKEN BUDGET (a bulky derived value burning an off-box
   consumer's context window), not privacy. Because the per-path sensitive
   substitution already happened at emit, the marker's `:bytes` is measured over
@@ -2202,18 +2200,17 @@
           (dissoc :large?)))))
 
 (defn- elide-large-sub-trace-values
-  "Project the `:rf.sub/run` trace tags' value slots for off-box egress
-  (rf2-irwsq).
+  "Project the `:rf.sub/run` trace tags' value slots for off-box egress.
 
   The trace-tag TWIN of `elide-sub-run-row`: the same whole-output `:large?`
   sub value rides `[:trace-events <i> :tags :rf.sub/value]` (plus
   `:rf.sub/prev-value` on a reactive recompute) as well as the structured
-  `:sub-runs` row, and before this step egress elided only the row — so the
-  raw payload still reached every off-box consumer that reads `:trace-events`
+  `:sub-runs` row, so eliding only the row would let the
+  raw payload reach every off-box consumer that reads `:trace-events`
   (Xray-MCP `watch-epochs`, Pair-MCP `trace-window` / `watch-epochs` /
   `snapshot`, hosted log shippers). Under the shipped `:trace-events-keep 50`
-  every record in the ring keeps its trace-events, so the payload rode on
-  EVERY record for that cascade.
+  every record in the ring keeps its trace-events, so the payload would ride
+  on EVERY record for that cascade.
 
   Delegates to the shared `elide-whole-output-large-slots` rule — the same
   code path the row uses — so the two egress projections cannot drift.
@@ -2268,10 +2265,9 @@
         ;; …and the SAME keys where they ride the FX-ARGS carriers
         ;; (`:rf.fx/args` / `:rf.event/fx`) of rows the family does NOT own —
         ;; reached by SLOT, since the arm above is reached by op namespace and a
-        ;; lowered `ensure` addresses its work by scoped key inside the effects
-        ;; (rf2-1kiuj).
+        ;; lowered `ensure` addresses its work by scoped key inside the effects.
         (omit-off-box-fx-args-resource-keys frame-id opts)
-        ;; …then fail closed on the fx-args carriers THEMSELVES (rf2-79fvm).
+        ;; …then fail closed on the fx-args carriers THEMSELVES.
         ;; The step above speaks for the resource family's scoped keys inside
         ;; these slots; this one speaks for the slots' whole payload, which is
         ;; the same `:args` the structured `:effects` row below already
@@ -2283,7 +2279,7 @@
         (omit-off-box-fx-args opts)
         ;; Honour the whole-output `:large?` stamp on the `:rf.sub/run` tags —
         ;; the trace-tag twin of the `:sub-runs` row elision, sharing one rule
-        ;; with it (rf2-irwsq). Runs BEFORE the bulk walk so the marker is
+        ;; with it. Runs BEFORE the bulk walk so the marker is
         ;; computed over the same emit-projected value the row's marker is
         ;; built from, keeping the two markers' `:bytes` / `:type` in agreement;
         ;; `project-egress` has no sub-specific arm, so ordering is otherwise
@@ -2306,7 +2302,7 @@
   is projected by the SHARED `elide-whole-output-large-slots` rule — the
   same code path the `:rf.sub/run` trace tag's value slots go through
   (`elide-large-sub-trace-values`), so the two egress projections of the
-  same value cannot drift (rf2-irwsq). See that rule for the marker
+  same value cannot drift. See that rule for the marker
   substitution, the spent-flag strip, idempotence, and the
   `:rf.egress/include-large?` opt-in.
 
@@ -2426,8 +2422,7 @@
 (defn- project-record-slots
   "Project every present payload slot of `record` under `frame-id` and the
   egress `opts`. THE projection engine — both doors reach the record's slot
-  knowledge through here and nowhere else, so the two cannot drift
-  (rf2-kuky.92).
+  knowledge through here and nowhere else, so the two cannot drift.
 
   `frame-id` is threaded rather than read from the record, which is what
   lets `project-record` honour an explicit `:frame` override the door
@@ -2437,7 +2432,7 @@
   pass through untouched; the raw ring is never mutated.
 
   THE SHARED SIZE AXES ARE RESOLVED HERE, ONCE, before any slot is projected
-  (`resolve-shared-size-axes`, rf2-kuky.92). Every slot below therefore reads
+  (`resolve-shared-size-axes`). Every slot below therefore reads
   the SAME answer to \"does the named profile opt sensitive / large back in?\",
   whether it reaches that answer through the tree-walker (which re-resolves
   the same floor, idempotently) or reads it off this map by key presence. The
@@ -2479,8 +2474,8 @@
 
 (defn project-record
   "The PER-KIND projector `re-frame.projection/project-egress` dispatches a
-  `:kind :rf/epoch-record` record to, late-bound as `:epoch/project-record`
-  (rf2-kuky.92). It is the door's epoch ARM, not a second door: it is
+  `:kind :rf/epoch-record` record to, late-bound as `:epoch/project-record`.
+  It is the door's epoch ARM, not a second door: it is
   reached only through `project-egress`, which has already graded `opts`
   against its OWN closed vocabulary and resolved the frame.
 
@@ -2495,11 +2490,11 @@
      the key is present and from the record only when it is not; the
      record's own slot never wins back over an explicit override.
 
-  2. THE EPOCH-ONLY AXES RIDE THE DOOR'S OWN VOCABULARY (rf2-bv1p).
+  2. THE EPOCH-ONLY AXES RIDE THE DOOR'S OWN VOCABULARY.
      `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` / `:rf.egress/include-event-args?`
      are members of `project-egress-opt-keys`, so a trusted-local caller
-     reaches them HERE and nowhere else — the standalone
-     `projected-record` door that used to own them is retired. Omitted,
+     reaches them HERE and nowhere else — there is no standalone second
+     door. Omitted,
      they stay FAIL-CLOSED: effect args redacted, the runtime-db
      partition redacted, trigger/trace event args reduced to their event
      ids. That is what keeps

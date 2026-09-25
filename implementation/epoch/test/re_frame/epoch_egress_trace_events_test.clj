@@ -1,9 +1,8 @@
 (ns re-frame.epoch-egress-trace-events-test
-  "Coverage for the `:trace-events` re-root in off-box egress projection
-  (rf2-ynjts.7 testing-review gap-fill).
+  "Coverage for the `:trace-events` re-root in off-box egress projection.
 
-  Per rf2-ta0y7 (`re-frame.epoch.tool-pair/reroot-trace-event-db-slots` +
-  `elide-trace-events-slot`): the `:rf.event/db-pending` (t1) and
+  Per `re-frame.epoch.tool-pair/reroot-trace-event-db-slots` +
+  `elide-trace-events-slot`: the `:rf.event/db-pending` (t1) and
   `:rf.event/db-pending-post-flow` (t2) trace events each carry the FULL
   pending app-db value under `:tags :rf.event/db`. The bulk
   `elide-wire-value` walk over `:trace-events` treats that nested db as
@@ -13,18 +12,18 @@
   walk at the frame's app-db (`{:path []}`) so the sensitive / large
   declarations match natively.
 
-  THE GAP this file closes: `epoch_privacy_test.clj` and
+  WHY THIS FILE EXISTS: `epoch_privacy_test.clj` and
   `epoch_mcp_egress_conformance_test.clj` cover redaction of `:db-before`,
   `:db-after`, and `:trigger-event`, but NEVER exercise the `:trace-events`
   re-root for the t1/t2 trace events' nested `:rf.event/db` tag. Deleting
   `reroot-trace-event-db-slots` (collapsing `elide-trace-events-slot` to
-  the bare bulk walk) would pass the entire prior suite green while failing
+  the bare bulk walk) would pass those suites green while failing
   to redact a sensitive leaf nested inside a t1/t2 trace's `:rf.event/db`
   tag — the bulk walk roots that nested db at
   `[<i> :tags :rf.event/db ...]`, so `[:auth :password]` never matches.
 
-  DEFENCE-IN-DEPTH note (verified against `re-frame.classification/project-db-tags`,
-  rf2-6773q): when the frame HAS elision declarations, the t1/t2
+  DEFENCE-IN-DEPTH note (`re-frame.classification/project-db-tags`): when
+  the frame HAS elision declarations, the t1/t2
   `:rf.event/db` tag is ALSO redacted at EMIT time, so the on-ring trace
   already carries `:rf/redacted` for frame-declared paths. The egress
   re-root is therefore the redaction site for records whose tag was NOT
@@ -57,11 +56,11 @@
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
-;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; Canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, fires the epoch
 ;; reset-hook table (history / listeners / config-to-default), and the
 ;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; (NOT the shipped 50 = :depth) through the
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var.
 (use-fixtures :each
@@ -118,7 +117,7 @@
   (testing "the live router's t1/t2 :rf.event/db-pending trace carries the
             FULL pending db under :rf.event/db — and for a frame WITH
             elision declarations, that nested tag is redacted at EMIT time
-            (re-frame.classification/project-db-tags, rf2-6773q), so the on-ring
+            (re-frame.classification/project-db-tags), so the on-ring
             trace already shows :rf/redacted at [:auth :password]. The
             egress re-root then keeps it redacted (idempotent) and covers
             the not-emit-redacted shapes (pinned by the unit tests)"
@@ -148,7 +147,7 @@
            slot (it has a separate, listener-facing fan-out path)"))))
 
 (deftest projection-keeps-db-pending-trace-leaf-redacted-end-to-end
-  (testing "rf2-ta0y7 — project-egress over a live record (whose t1/t2
+  (testing "project-egress over a live record (whose t1/t2
             :rf.event/db tag was emit-redacted) keeps the nested sensitive
             leaf :rf/redacted and leaks nothing. The re-root re-walks the
             tag at the app-db root; an already-:rf/redacted scalar passes
@@ -176,7 +175,7 @@
            :db-after, not nested inside any :trace-events :rf.event/db tag"))))
 
 (deftest whole-ring-projection-redacts-sensitive-leaf-inside-db-pending-trace
-  (testing "rf2-ta0y7 — the bulk-egress composition (mapv project-egress
+  (testing "the bulk-egress composition (mapv project-egress
             over epoch-history) applies the same per-event re-root: no
             projected record in the ring leaks the sensitive leaf nested
             inside a t1/t2 trace's :rf.event/db tag"
@@ -195,7 +194,7 @@
            including nested inside any :rf.event/db trace tag"))))
 
 (deftest off-box-projection-of-a-path-focused-event-omits-its-after-delta-secret
-  (testing "rf2-3x7nj.4.2 — a [:rf.interceptor/path …] handler that never reads
+  (testing "a [:rf.interceptor/path …] handler that never reads
             :auth still stamps the WHOLE db into :rf.event/after-deltas on
             :rf.event/run-end (the path interceptor's :after restores and widens
             it). The off-box-tool projection of that epoch record — what the
@@ -218,7 +217,7 @@
           "the off-box-tool projection carries the secret nowhere"))))
 
 (deftest off-box-projection-of-an-auth-focused-event-omits-its-slice-secret
-  (testing "rf2-fc84b — a handler focused AT the classified subtree
+  (testing "a handler focused AT the classified subtree
             ([:rf.interceptor/path [:auth]] writing :password) puts FOCUSED
             SLICES into :rf.event/after-deltas: the :before values the handler
             saw and returned sit at [:auth], where a root-anchored walk cannot
@@ -248,7 +247,7 @@
 ;; ===========================================================================
 
 (deftest unit-projection-reroots-db-pending-tag-and-redacts
-  (testing "rf2-ta0y7 — direct unit: a synthetic record whose :trace-events
+  (testing "direct unit: a synthetic record whose :trace-events
             holds a t1/t2 event with the RAW sensitive leaf nested at
             [:tags :rf.event/db :auth :password] (the not-emit-redacted
             shape) is redacted by project-egress's re-root. This is the
@@ -321,7 +320,7 @@
            this non-app-db-rooted path"))))
 
 (deftest unit-projection-reroots-large-leaf-inside-db-pending-trace
-  (testing "rf2-ta0y7 — the re-root also surfaces a :large?-declared leaf
+  (testing "the re-root also surfaces a :large?-declared leaf
             nested inside a t1 trace's :rf.event/db tag: the projection
             substitutes an elision marker, not the raw bytes"
     (rf/make-frame {:id :test/eg})
@@ -358,7 +357,7 @@
 ;; ===========================================================================
 
 (deftest reroot-passes-through-non-db-pending-events-untouched
-  (testing "rf2-ta0y7 — a t1/t2 event LACKING the :rf.event/db tag, and a
+  (testing "a t1/t2 event LACKING the :rf.event/db tag, and a
             non-map :trace-events entry, pass through the re-root untouched
             (no throw, no fabrication)"
     (rf/make-frame {:id :test/eg})
@@ -387,7 +386,7 @@
           "the non-map :trace-events entry passes through untouched"))))
 
 (deftest reroot-handles-scalar-sentinel-trace-events
-  (testing "rf2-ta0y7 — when the whole :trace-events slot is already the
+  (testing "when the whole :trace-events slot is already the
             scalar :rf/redacted sentinel, the re-root returns it untouched
             (no descent into a non-vector)"
     (let [record    {:kind          :rf/epoch-record
@@ -409,7 +408,7 @@
           "scalar-sentinel :trace-events passes through the re-root chain"))))
 
 (deftest projection-trace-events-reroot-is-idempotent
-  (testing "rf2-ta0y7 — re-projecting an already-projected record leaves the
+  (testing "re-projecting an already-projected record leaves the
             nested t1 :rf.event/db sensitive leaf as the :rf/redacted
             sentinel (the re-root's own target); forwarder pipelines that
             double-project do not corrupt or re-leak the nested slot"
@@ -428,7 +427,7 @@
           "no secret re-leaks across the second pass"))))
 
 ;; ===========================================================================
-;; 4. Off-box HTTP response-body fail-closed (rf2-t55hxg.6, EP-0015
+;; 4. Off-box HTTP response-body fail-closed (EP-0015
 ;;    disposition 5). An UNSCHEMATIZED HTTP response body is whole-sensitive
 ;;    off-box and MUST be omitted; the HTTP emit site stamps the disposition
 ;;    forward under :tags :rf.http/off-box-body (:omit | :classify), and
@@ -475,7 +474,7 @@
    :effects       []})
 
 (deftest off-box-omits-unschematized-replied-body
-  (testing "rf2-t55hxg.6 — an UNSCHEMATIZED :rf.http/replied body (stamped
+  (testing "an UNSCHEMATIZED :rf.http/replied body (stamped
             :rf.http/off-box-body :omit) is OMITTED off-box: the :value tag
             is replaced with :rf/redacted, leaking nothing"
     (rf/make-frame {:id :test/http})
@@ -489,7 +488,7 @@
           "the raw body token appears nowhere in the projected record"))))
 
 (deftest off-box-omits-unschematized-accept-failure-body
-  (testing "rf2-t55hxg.6 — an UNSCHEMATIZED :rf.http/accept-failure body rides
+  (testing "an UNSCHEMATIZED :rf.http/accept-failure body rides
             at :decoded; stamped :omit, it is omitted off-box"
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/accept-failure :decoded
@@ -500,7 +499,7 @@
           "the unschematized :decoded body slot is omitted off-box"))))
 
 (deftest off-box-keeps-classified-schema-body
-  (testing "rf2-t55hxg.6 — a SCHEMATIZED body (stamped :classify) rides off-box
+  (testing "a SCHEMATIZED body (stamped :classify) rides off-box
             as the classified projection emitted on-box (its sensitive slots
             already :rf/redacted, non-sensitive structure intact); the off-box
             projector does NOT omit it"
@@ -517,7 +516,7 @@
            already redacted on-box, non-sensitive structure preserved)"))))
 
 (deftest off-box-include-sensitive-lifts-omission
-  (testing "rf2-t55hxg.6 — a trusted-local :rf.egress/include-sensitive? opt-in lifts
+  (testing "a trusted-local :rf.egress/include-sensitive? opt-in lifts
             the off-box omission (the local-raw boundary): the unschematized
             body rides for the trusted operator who opted sensitive back in"
     (rf/make-frame {:id :test/http})
@@ -529,21 +528,19 @@
           "with :rf.egress/include-sensitive? true the body is NOT omitted (lifted)"))))
 
 (deftest local-raw-profile-lifts-omission-without-an-explicit-key
-  (testing "rf2-kuky.92 — the docstring above, and every other `omit-off-box-*`
-            seam's, names `the local-raw boundary` as what lifts the omission.
-            Until this test, NOTHING asserted that: every arm reached the lift
-            through the EXPLICIT `:rf.egress/include-sensitive? true` key, and
-            the PROFILE that resolves to it was never exercised on this seam.
+  (testing "the docstring above, and every other `omit-off-box-*`
+            seam's, names `the local-raw boundary` as what lifts the omission,
+            so the PROFILE that resolves to it must lift it too, not only the
+            EXPLICIT `:rf.egress/include-sensitive? true` key.
 
-            It did not work. These seams read the axis off the epoch opts by
-            key presence, and `project-egress` forwards the caller's ORIGINAL
-            opts to its `:rf/epoch-record` arm — so under
-            `{:rf.egress/profile :rf.egress/local-raw}` and nothing else the
-            floor never arrived and the body stayed omitted, contradicting the
-            docstring. The shared axes are now resolved once at the record
-            boundary (`tool-pair/resolve-shared-size-axes`), which is the SAME
-            repair the whole-output `:large?` slots needed — one defect, two
-            axes.
+            These seams read the axis off the epoch opts by key presence, and
+            `project-egress` forwards the caller's ORIGINAL opts to its
+            `:rf/epoch-record` arm — so without resolving the shared axes
+            first, `{:rf.egress/profile :rf.egress/local-raw}` alone would
+            never deliver the floor and the body would stay omitted,
+            contradicting the docstring. The shared axes are resolved once at
+            the record boundary (`tool-pair/resolve-shared-size-axes`), for
+            the whole-output `:large?` slots and this seam alike.
 
             The `:rf.egress/include-large?` sibling of this claim is pinned as a
             three-surface matrix in
@@ -560,7 +557,7 @@
       (is (= body (value {:rf.egress/profile :rf.egress/local-raw}))
           "the local-raw PROFILE lifts the omission with NO explicit
            :rf.egress/include-sensitive? key from the caller — the profile is the
-           floor, exactly as it already was for the app-db tree walk")
+           floor, exactly as it is for the app-db tree walk")
       (is (= :rf/redacted (value {:rf.egress/profile          :rf.egress/local-raw
                                   :rf.egress/include-sensitive? false}))
           "and an EXPLICIT false still overlays that floor and WINS")
@@ -568,7 +565,7 @@
           "the source record is untouched by any of the projections above"))))
 
 (deftest on-box-raw-body-preserved-on-ring
-  (testing "rf2-t55hxg.6 — the ON-BOX ring record is NOT projected: the raw
+  (testing "the ON-BOX ring record is NOT projected: the raw
             unschematized body rides verbatim on the ring (the local operator
             sees their own process). The omission is the OFF-BOX boundary, not
             an on-ring mutation"
@@ -581,7 +578,7 @@
            — project-egress is the boundary, the ring stays raw"))))
 
 (deftest off-box-passes-through-http-events-without-stamp
-  (testing "rf2-t55hxg.6 — an :rf.http/replied event with NO :rf.http/off-box-body
+  (testing "an :rf.http/replied event with NO :rf.http/off-box-body
             stamp (a body slot but no disposition) passes through the omission
             pass untouched (the omission gates strictly on the :omit stamp)"
     (rf/make-frame {:id :test/http})
@@ -593,7 +590,7 @@
           "no stamp ⇒ no omission (the projector only omits an explicit :omit)"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-t55hxg.10 — the RAW error-response body axis. The same disposition-5
+;; The RAW error-response body axis. The same disposition-5
 ;; fail-closed rule, but for the failure-category trace events that carry the
 ;; RAW (unschematized-by-construction) error body: `:rf.http/http-4xx` /
 ;; `:rf.http/http-5xx` at `:body`, `:rf.http/decode-failure` at `:body-text`,
@@ -605,7 +602,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-omits-raw-http-5xx-body
-  (testing "rf2-t55hxg.10 — a raw :rf.http/http-5xx body (stamped :omit) is
+  (testing "a raw :rf.http/http-5xx body (stamped :omit) is
             OMITTED off-box: the :body tag is replaced with :rf/redacted"
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-5xx :body
@@ -618,7 +615,7 @@
           "the raw error-body token appears nowhere in the projected record"))))
 
 (deftest off-box-omits-raw-http-4xx-body
-  (testing "rf2-t55hxg.10 — a raw :rf.http/http-4xx body is omitted off-box"
+  (testing "a raw :rf.http/http-4xx body is omitted off-box"
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-4xx :body
                                   (str "forbidden " http-body-secret) :omit)
@@ -628,7 +625,7 @@
       (is (not (contains-http-secret? projected))))))
 
 (deftest off-box-omits-raw-decode-failure-body-text
-  (testing "rf2-t55hxg.10 — a raw :rf.http/decode-failure body-text is omitted
+  (testing "a raw :rf.http/decode-failure body-text is omitted
             off-box (the decode is what failed, so the body is unschematized)"
     (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/decode-failure :body-text
@@ -640,7 +637,7 @@
       (is (not (contains-http-secret? projected))))))
 
 (deftest off-box-omits-nested-retry-attempt-failure-body
-  (testing "rf2-t55hxg.10 — a :rf.http/retry-attempt nests the intermediate
+  (testing "a :rf.http/retry-attempt nests the intermediate
             failure's raw body at [:failure :body]; stamped :omit it is omitted
             off-box (a retry-eligible 4xx/5xx echoing a token)"
     (rf/make-frame {:id :test/http})
@@ -675,7 +672,7 @@
           "no token re-leaks via the nested retry-attempt failure body"))))
 
 (deftest off-box-include-sensitive-lifts-raw-error-body-omission
-  (testing "rf2-t55hxg.10 — a trusted-local :rf.egress/include-sensitive? opt-in lifts
+  (testing "a trusted-local :rf.egress/include-sensitive? opt-in lifts
             the off-box omission of a raw error body (the local-raw boundary)"
     (rf/make-frame {:id :test/http})
     (let [body      (str "raw error " http-body-secret)
@@ -686,7 +683,7 @@
           "with :rf.egress/include-sensitive? true the raw error body is NOT omitted"))))
 
 (deftest on-box-raw-error-body-preserved-on-ring
-  (testing "rf2-t55hxg.10 — the ON-BOX ring record is NOT projected: the raw
+  (testing "the ON-BOX ring record is NOT projected: the raw
             error body rides verbatim on the ring (the local operator sees
             their own process). The omission is the OFF-BOX boundary."
     (rf/make-frame {:id :test/http})
@@ -698,7 +695,7 @@
            ran) — project-egress is the boundary, the ring stays raw"))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-92uvq — COLD gate-false seam. `project-egress` is a PURE off-box
+;; COLD gate-false seam. `project-egress` is a PURE off-box
 ;; projection transform callable even when `interop/debug-enabled?` is false
 ;; (a JVM SSR process booted with RE_FRAME_DEBUG=false, or an already-held /
 ;; synthetic record — the gate elides record ASSEMBLY, not PROJECTION). Its
@@ -706,28 +703,28 @@
 ;; false FROM namespace/process start, so the five production-real HTTP
 ;; operation rows of the body-slot table must be bound regardless of the gate.
 ;;
-;; The existing disabled-gate tests miss this seam: they load the ns gate-TRUE
-;; (which populates the table) and only then flip the gate, so the table is
-;; already full. This test reproduces a genuine cold process-start by
+;; A disabled-gate test misses this seam if it loads the ns gate-TRUE
+;; (which populates the table) and only then flips the gate, because the table
+;; is already full. This test reproduces a genuine cold process-start by
 ;; RE-LOADING tool-pair with the gate redefed false — recomputing the
 ;; body-slot table under the false gate exactly as a prod JVM boot would — and
 ;; confirms public project-egress still omits every production-real stamped
-;; HTTP body. Red-before: the wholly-gated table folded to nil, so
-;; `omit-off-box-http-bodies` found no slot path and passed the raw body
-;; through. After: the five production rows are unconditional, so it fails
+;; HTTP body. A wholly-gated table would fold to nil, so
+;; `omit-off-box-http-bodies` would find no slot path and pass the raw body
+;; through; the five production rows are unconditional, so it fails
 ;; closed. The `finally` restores the normal gate-true table for the rest of
 ;; the suite.
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-http-fail-closed-survives-cold-gate-false
-  (testing "rf2-92uvq — with interop/debug-enabled? false FROM namespace load
+  (testing "with interop/debug-enabled? false FROM namespace load
             (a production-start JVM), the pure projector still omits each
             production-real unschematized HTTP body off-box"
     (rf/make-frame {:id :test/http})
     (try
       ;; Recompute the tool-pair defs (incl. the HTTP body-slot table) with
-      ;; the debug gate false — a cold process-start reproduction. Existing
-      ;; tests never reach this: their table loaded gate-true. project-egress
+      ;; the debug gate false — a cold process-start reproduction, which a
+      ;; table loaded gate-true never reaches. project-egress
       ;; is a pure transform (it never consults the gate), so it runs after.
       (with-redefs [rf.interop/debug-enabled? false]
         (require 're-frame.epoch.tool-pair :reload))

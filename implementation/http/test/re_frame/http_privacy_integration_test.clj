@@ -1,5 +1,5 @@
 (ns re-frame.http-privacy-integration-test
-  "Integration tests for Spec 014 §Privacy (rf2-bma05) — end-to-end
+  "Integration tests for Spec 014 §Privacy — end-to-end
   HTTP-cascade trace emission honouring the `:sensitive?` contract.
 
   Exercises the real :rf.http/managed dispatch path against an in-process
@@ -12,14 +12,14 @@
   — the same load-bearing require the sibling `re-frame.http-privacy-body-test`
   carries. Without it `privacy-body/decode-schema-marks` finds the hook
   unbound, returns no marks, and every `:decode`-schema-classified assertion
-  below reads its secret back VERBATIM (rf2-zvbm9)."
+  below reads its secret back VERBATIM."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.http.managed :as rf.http.managed]
             ;; load-bearing: binds the shared schema walker hooks the
-            ;; `:decode`-schema redaction/elision path late-binds (rf2-zvbm9).
+            ;; `:decode`-schema redaction/elision path late-binds.
             [re-frame.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -29,9 +29,10 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-;; rf2-ppkh3v — app-specific carriers are FRAME policy now (EP-0015 §3); the
-;; process-global clear-* fixtures are gone. Frame-extension cases make-frame
-;; their carriers and the canonical fixture's registrar snapshot/restore resets
+;; App-specific carriers ride the `:rf.http/managed` reg-fx registration
+;; (EP-0025), so there are no process-global clear-* fixtures: the carrier
+;; cases re-register `:rf.http/managed` with their `:carriers` and the
+;; canonical fixture's registrar snapshot/restore resets
 ;; them between tests (it also clears trace listeners, so no explicit
 ;; clear-listeners! is needed).
 (use-fixtures :each
@@ -58,7 +59,7 @@
       (.write os bytes))))
 
 (defn- wait-for!
-  "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves
+  "Thin alias over `test-support/poll-until` with
   the per-file arity (`pred`, `timeout-ms`)."
   [pred timeout-ms]
   (rf.test-support/poll-until pred {:timeout-ms timeout-ms
@@ -75,15 +76,11 @@
               v))
           headers-map)))
 
-;; ---- 1. Sensitive handler stamps :sensitive? on the failure trace event ---
-
-;; ---- 1. (removed) handler-meta :sensitive? annotation no longer exists ----
+;; ---- 1. there is no handler-meta :sensitive? annotation -------------------
 ;;
-;; The original `sensitive-handler-stamps-trace-event-on-5xx` test pinned the
-;; behaviour where handler registration metadata `:sensitive? true` propagated
-;; to HTTP trace events. That annotation has been removed in favour of
-;; path-marked classification + per-call `:sensitive?` on the args map (the
-;; latter is covered by the test below).
+;; Handler registration metadata does not carry sensitivity to HTTP trace
+;; events: sensitivity comes from path-marked classification + per-call
+;; `:sensitive?` on the args map (the latter is covered by the test below).
 
 ;; ---- 2. Per-call :sensitive? on the request --------------------------------
 
@@ -235,7 +232,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 6. URL query-string denylist applies on failure trace events (rf2-2p8wr) -----
+;; ---- 6. URL query-string denylist applies on failure trace events -----------
 
 (deftest sensitive-query-param-redacted-in-failure-url
   (testing "a denylisted query-string param (api_key) has its value redacted
@@ -276,12 +273,12 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 7. Per-call sensitive request scrubs ALL URL query params (rf2-2p8wr) -
+;; ---- 7. Per-call sensitive request scrubs ALL URL query params -------------
 
 (deftest sensitive-request-redacts-all-url-query-params
   (testing "when the request is per-call :sensitive?, ALL query-string
             params (denylisted or not) are scrubbed in the failure trace
-            event's URL — the broader rule (rf2-2p8wr)"
+            event's URL — the broader rule"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 500 "text/plain" "boom")))
@@ -292,7 +289,7 @@
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :auth/login
-          {:doc "Login op (handler-meta :sensitive? annotation removed)."}
+          {:doc "Login op (sensitivity is per-call, not handler-meta)."}
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -360,7 +357,7 @@
 ;; ---- 9. Response-body classification via the :decode schema (EP-0015 §8) ---
 
 (deftest response-body-decode-schema-sensitive-slot-redacted-in-replied-trace
-  (testing "rf2-ppkh3v — a 2xx response body's :decode-schema-marked sensitive
+  (testing "a 2xx response body's :decode-schema-marked sensitive
             slot is redacted in the :rf.http/replied trace value EVEN when the
             request is NOT declared per-call :sensitive? (the login/token case)"
     (let [srv (start-server!
@@ -401,7 +398,7 @@
           (stop-server! srv))))))
 
 (deftest response-body-whole-body-sensitive-decode-schema-redacts-all
-  (testing "rf2-ppkh3v — a root-level :sensitive? :decode schema (opaque-token
+  (testing "a root-level :sensitive? :decode schema (opaque-token
             response) redacts the WHOLE body in the replied trace"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
@@ -432,7 +429,7 @@
           (stop-server! srv))))))
 
 (deftest response-body-large-slot-elided-in-replied-trace
-  (testing "rf2-jhyccs — a 2xx response body's :decode-schema-marked :large?
+  (testing "a 2xx response body's :decode-schema-marked :large?
             slot is elided to the :rf.size/large-elided marker in the
             :rf.http/replied trace value (the per-slot large axis, wired
             alongside :sensitive?)"
@@ -470,10 +467,10 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 10. Off-box disposition stamp on the replied trace (rf2-t55hxg.6) -----
+;; ---- 10. Off-box disposition stamp on the replied trace -------------------
 
 (deftest replied-trace-stamps-off-box-omit-for-unschematized-body
-  (testing "rf2-t55hxg.6 — an UNSCHEMATIZED (:auto) :decode stamps
+  (testing "an UNSCHEMATIZED (:auto) :decode stamps
             :rf.http/off-box-body :omit on the :rf.http/replied trace so the
             off-box projector omits the body (the on-box :value still rides
             raw for the local operator — fail-closed is the OFF-BOX rule)"
@@ -510,7 +507,7 @@
           (stop-server! srv))))))
 
 (deftest replied-trace-stamps-off-box-classify-for-schema-body
-  (testing "rf2-t55hxg.6 — a SCHEMA :decode stamps :rf.http/off-box-body
+  (testing "a SCHEMA :decode stamps :rf.http/off-box-body
             :classify (the body rides the per-slot classified projection
             off-box)"
     (let [srv (start-server!
@@ -544,21 +541,21 @@
         (finally
           (stop-server! srv))))))
 
-;; rf2-y1pgdl — the end-to-end emit→projector path for an OPAQUE keyword
+;; The end-to-end emit→projector path for an OPAQUE keyword
 ;; registry-ref / compiled-schema `:decode` is locked at the unit altitude in
 ;; `http_privacy_body_test` (`off-box-disposition-omits-opaque-registry-ref`): the emit site stamps
 ;; exactly `off-box-body-disposition` and the projector keys on that stamp, so
 ;; the disposition fn IS the path. An integration test here would need a
 ;; SUCCESSFULLY-DECODING opaque ref (a registered Malli registry-ref schema
 ;; resolvable by `malli.core/decode`), which is heavyweight and orthogonal to
-;; the fail-closed stamp the fix changes. The schema-VECTOR `:classify` and
+;; the fail-closed stamp under test. The schema-VECTOR `:classify` and
 ;; unschematized `:omit` end-to-end stamps are covered above.
 
-;; ---- 11. Off-box disposition stamp on RAW error-response bodies (rf2-t55hxg.10) ----
+;; ---- 11. Off-box disposition stamp on RAW error-response bodies -----------
 ;;
-;; EP-0015 disposition 5 fail-OPEN gap closed: a raw 4xx/5xx response body
-;; (`:body`) and a decode-failure raw text (`:body-text`) egress raw off-box
-;; and were previously redacted ONLY when the call carried a per-call
+;; EP-0015 disposition 5: a raw 4xx/5xx response body
+;; (`:body`) and a decode-failure raw text (`:body-text`) would egress raw
+;; off-box if they were redacted ONLY when the call carried a per-call
 ;; `:sensitive?` flag. A raw error body is UNSCHEMATIZED by construction
 ;; (status classification runs BEFORE decode), so the emit site UNCONDITIONALLY
 ;; stamps `:rf.http/off-box-body :omit` (irrespective of the per-call flag) so
@@ -566,10 +563,10 @@
 ;; for the local operator (the omission is the off-box boundary).
 
 (deftest http-5xx-stamps-off-box-omit-on-raw-body-non-sensitive
-  (testing "rf2-t55hxg.10 — a NON-per-call-sensitive 5xx whose raw response
+  (testing "a NON-per-call-sensitive 5xx whose raw response
             body echoes a token stamps :rf.http/off-box-body :omit on the
             :rf.http/http-5xx trace so the off-box projector omits :body
-            (closing the fail-OPEN that left it raw off-box). The on-box :body
+            (fail-closed, never raw off-box). The on-box :body
             still rides raw — the local operator sees their own process."
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
@@ -582,7 +579,7 @@
       (try
         (rf.trace.tooling/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
-        ;; NO per-call :sensitive? flag — the disposition-5 fix must fire anyway.
+        ;; NO per-call :sensitive? flag — the disposition-5 stamp must fire anyway.
         (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -604,12 +601,12 @@
           (is (and (nil? (:sensitive? ev))
                    (nil? (get-in ev [:tags :sensitive?])))
               "no per-call :sensitive? was set — the :omit stamp is unconditional,
-               not contingent on the per-call flag (the closed gap)"))
+               not contingent on the per-call flag"))
         (finally
           (stop-server! srv))))))
 
 (deftest http-4xx-stamps-off-box-omit-on-raw-body
-  (testing "rf2-t55hxg.10 — a 4xx raw body is likewise stamped :omit off-box"
+  (testing "a 4xx raw body is likewise stamped :omit off-box"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 403 "text/plain" "forbidden: secret-ctx")))
@@ -639,7 +636,7 @@
           (stop-server! srv))))))
 
 (deftest decode-failure-stamps-off-box-omit-on-raw-body-text
-  (testing "rf2-t55hxg.10 — a :rf.http/decode-failure (a 200 whose body fails
+  (testing "a :rf.http/decode-failure (a 200 whose body fails
             the :decode) carries the raw text at :body-text; it is UNSCHEMATIZED
             by construction (the decode is what failed) so it is stamped :omit
             off-box, irrespective of the per-call flag"
@@ -676,22 +673,22 @@
           (stop-server! srv))))))
 
 ;; ---- 12. :accept {:failure ...} emits the accept-failure category trace ----
-;;   + applies decoded-body privacy / off-box disposition (rf2-ltaihw)
+;;   + applies decoded-body privacy / off-box disposition
 ;;
 ;; A successful 2xx decode whose `:accept` projects the decoded value to
-;; `{:failure user-map}` is an `:rf.http/accept-failure` domain failure. The
-;; bug: `finalise-success!`'s accept-`{:failure}` branch dispatched through
-;; `dispatch-failure!` directly, which emits ONLY the canonical
-;; `:rf.http/replied` envelope and bypasses `emit-and-dispatch-failure!` — so
-;; the `:rf.http/accept-failure` failure-category trace (via `emit-error!`) was
-;; NEVER emitted, and the decoded body in the trace payload missed the
-;; schema-classification + `:rf.http/off-box-body` disposition that the
-;; throw / malformed-return accept-failure branches already apply. This is the
-;; structural parity with those branches (they route through
-;; `finalise-failure!` → `emit-and-dispatch-failure!`).
+;; `{:failure user-map}` is an `:rf.http/accept-failure` domain failure.
+;; `finalise-success!`'s accept-`{:failure}` branch routes through
+;; `emit-and-dispatch-failure!` — the shared tail the throw / malformed-return
+;; accept-failure branches reach via `finalise-failure!`. Dispatching through
+;; `dispatch-failure!` directly would emit ONLY the canonical
+;; `:rf.http/replied` envelope — the `:rf.http/accept-failure`
+;; failure-category trace (via `emit-error!`) would never be emitted, and the
+;; decoded body in the trace payload would miss the
+;; schema-classification + `:rf.http/off-box-body` disposition those
+;; branches apply.
 
 (deftest accept-failure-emits-category-trace-with-schema-classified-decoded
-  (testing "rf2-ltaihw — an :accept returning {:failure ...} on a 2xx decode
+  (testing "an :accept returning {:failure ...} on a 2xx decode
             emits the :rf.http/accept-failure failure-category trace, the
             decoded body's schema-sensitive slot is redacted on-box, and the
             off-box disposition is stamped :classify for the schema body"
@@ -729,11 +726,9 @@
                    (fn [] (some #(= :rf.http/accept-failure (:operation %)) @captured))
                    3000)
               ev (first (filter #(= :rf.http/accept-failure (:operation %)) @captured))]
-          ;; The failure-category trace MUST be emitted (the bypassed path).
+          ;; The failure-category trace MUST be emitted.
           (is (some? ev)
-              "the :rf.http/accept-failure failure-category trace is emitted
-               (was bypassed: finalise-success! routed through dispatch-failure!
-               which only emits :rf.http/replied)")
+              "the :rf.http/accept-failure failure-category trace is emitted")
           ;; The off-box disposition is stamped forward for the decoded slot.
           (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))
               "schema decoded body stamped :classify for the off-box projector")
@@ -748,7 +743,7 @@
           (stop-server! srv))))))
 
 (deftest accept-failure-unschematized-decoded-stamps-off-box-omit
-  (testing "rf2-ltaihw — an :accept {:failure ...} whose decoded body is
+  (testing "an :accept {:failure ...} whose decoded body is
             UNSCHEMATIZED (:auto / :json decode) stamps :rf.http/off-box-body
             :omit (fail-closed), matching the throw / malformed accept-failure
             branches; the on-box :decoded still rides raw for the local operator"
@@ -786,7 +781,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- rf2-lddbk — successful-response :meta headers at the trace boundary ---
+;; ---- successful-response :meta headers at the trace boundary --------------
 ;;
 ;; A successful completion's canonical reply carries the response wire facts
 ;; under `:meta` (`{:status :status-text :headers}`). The reply DELIVERED to
@@ -799,7 +794,7 @@
 ;; through the shared `trace-reply` → `trace-summary` translation.
 
 (defn- await-reply-and-replied-trace!
-  "Drive the polling shared by the rf2-lddbk trace tests: wait until the
+  "Drive the polling shared by the replied-trace tests below: wait until the
   default frame's app-db carries `:reply` AND a `:rf.http/replied` trace row
   landed in `captured`. Returns `[db replied-event]`."
   [captured]
@@ -814,7 +809,7 @@
     [db ev]))
 
 (deftest replied-trace-redacts-denylisted-headers-in-the-failure-error-slot
-  (testing "rf2-kiepc — a FAILED request's :rf.http/replied row seats the
+  (testing "a FAILED request's :rf.http/replied row seats the
             classified failure map VERBATIM at :error, so its denylisted
             response headers (set-cookie / www-authenticate) must be redacted
             THERE on the trace, not only on the :rf.http/http-4xx category row.
@@ -856,9 +851,9 @@
                 "the raw error body reaches APP code verbatim"))
 
           (testing "the trace surface redacts the denylisted names in the :error slot"
-            ;; THE PIN (rf2-kiepc). Against the unfixed tree this read the raw
-            ;; cookie: `emit-reply-trace!` ran only `redact-response-meta`,
-            ;; which touches `[:meta :headers]` and never the failure map.
+            ;; THE PIN. An `emit-reply-trace!` that ran only
+            ;; `redact-response-meta`, which touches `[:meta :headers]` and
+            ;; never the failure map, would read the raw cookie here.
             (is (= :rf/redacted (get-in ev [:tags :error :headers "set-cookie"]))
                 "set-cookie is redacted on the :rf.http/replied failure row")
             (is (= :rf/redacted (get-in ev [:tags :error :headers "www-authenticate"]))
@@ -881,7 +876,7 @@
           (stop-server! srv))))))
 
 (deftest replied-trace-redacts-builtin-sensitive-response-meta-headers
-  (testing "rf2-lddbk — built-in Set-Cookie is redacted at [:tags :meta
+  (testing "built-in Set-Cookie is redacted at [:tags :meta
             :headers] on the :rf.http/replied trace while an ordinary
             response header rides useful on-box; the DELIVERED reply keeps
             both raw"
@@ -925,7 +920,7 @@
           (stop-server! srv))))))
 
 (deftest replied-trace-redacts-app-declared-carrier-in-response-meta
-  (testing "rf2-lddbk — an app-declared :carriers {:headers [..]} name is
+  (testing "an app-declared :carriers {:headers [..]} name is
             redacted at [:tags :meta :headers] on the :rf.http/replied trace
             (union onto the immutable defaults), while the delivered reply
             keeps it raw"
@@ -962,7 +957,7 @@
           (stop-server! srv))))))
 
 (deftest sensitive-request-force-redacts-response-meta-wholesale
-  (testing "rf2-lddbk — per-call :sensitive? redacts the WHOLE :meta wire
+  (testing "per-call :sensitive? redacts the WHOLE :meta wire
             slot on the :rf.http/replied trace (the shared force-redact-wire
             translation — :meta is a core wire-bearing slot like :value)"
     (let [srv (start-server!

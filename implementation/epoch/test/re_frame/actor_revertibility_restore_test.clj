@@ -36,8 +36,8 @@
                 (rf.epoch/clear-epoch-listeners!))}))
 
 (defn- snapshot [machine-id]
-  ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
-  ;; partition state at [:rf.runtime/machines :snapshots <id>].
+  ;; Machine snapshots are runtime-db partition state at
+  ;; [:rf.runtime/machines :snapshots <id>] (EP-0001).
   (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
           [:rf.runtime/machines :snapshots machine-id]))
 
@@ -67,17 +67,16 @@
 
 ;; ---- rewind PAST A SPAWN — no orphaned handler ----------------------------
 
-;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1). These end-to-end
-;; restore-epoch! repros revert actor LIVENESS, which is a spawned actor's
-;; snapshot presence in the runtime-db partition (rf2-vzld77 moved snapshots
-;; there). bead 7 made the epoch capture the whole frame-state
-;; (`:frame-state-before/-after`) and `restore-epoch!` reinstall BOTH partitions
+;; These end-to-end
+;; restore-epoch! tests revert actor LIVENESS, which is a spawned actor's
+;; snapshot presence in the runtime-db partition (EP-0001). The epoch captures
+;; the whole frame-state
+;; (`:frame-state-before/-after`) and `restore-epoch!` reinstalls BOTH partitions
 ;; via `replace-frame-state!`, so reverting/restoring runtime-db state works
 ;; end-to-end.
 (deftest restore-past-spawn-leaves-no-orphan
-  (testing "rf2-a2sn1 — restore-epoch! to BEFORE a spawn reverts the
-            actor's liveness; no orphaned handler survives (the
-            {:handler-survived-restore? true} leak is closed)"
+  (testing "restore-epoch! to BEFORE a spawn reverts the
+            actor's liveness; no orphaned handler survives"
     (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (counter-child))
     (rf/reg-machine :rev/parent (parent))
@@ -98,7 +97,7 @@
             "rewind-past-spawn: the actor's snapshot is gone")
         ;; Restore preserves the original child id.
         (is (nil? (rf.registrar/lookup :event :rev/child#1))
-            "{:handler-survived-restore? false} — NO orphaned handler
+            "NO orphaned handler
              survives the revert")
         ;; Dispatch to the gone actor → clean no-such-handler.
         (let [errs (record-trace!)]
@@ -107,11 +106,10 @@
           (is (some #(= :rf.error/no-such-handler (:operation %)) @errs)
               "dispatch to the gone actor is a clean :rf.error/no-such-handler"))))))
 
-;; ---- rewind PAST A DESTROY — liveness comes back (the key fix) ------------
+;; ---- rewind PAST A DESTROY — liveness comes back --------------------------
 
-;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): see note above.
 (deftest restore-past-destroy-rematerialises-liveness
-  (testing "rf2-a2sn1 (the key fix) — restore-epoch! to when an actor was
+  (testing "restore-epoch! to when an actor was
             ALIVE re-materialises its liveness: a dispatch to it RESOLVES
             via the lazy resolver and drives a transition (NOT
             :rf.error/no-such-handler)"
@@ -128,8 +126,6 @@
       ;; Destroy the actor.
       (rf/dispatch-sync [:rev/parent [:drop]] {:frame :test/main})
       (is (nil? (snapshot :rev/child#1)) "actor destroyed")
-      ;; Confirm the BUG's other symptom is gone too: a dispatch to the
-      ;; destroyed actor is a clean no-such-handler (no stale state).
       ;; Rewind to when the actor was alive (the snapshot recorded at the
       ;; spawn epoch carries :n 0).
       (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
@@ -139,7 +135,7 @@
              :rf.epoch/restore-missing-handler")
         (is (some? (snapshot :rev/child#1))
             "rewind-past-destroy: the actor's snapshot is restored")
-        ;; THE FIX: dispatch resolves via the lazy resolver and transitions.
+        ;; Dispatch resolves via the lazy resolver and transitions.
         (rf/dispatch-sync [:rev/child#1 [:bump]] {:frame :test/main})
         (is (= 1 (:n (:data (snapshot :rev/child#1))))
             "rewind-past-destroy: dispatch RESOLVED and drove a transition
@@ -148,12 +144,11 @@
 
 ;; ---- a missing TYPE is still a genuine missing-handler --------------------
 
-;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): see note above.
 (deftest restore-with-missing-type-still-fails-missing-handler
-  (testing "rf2-a2sn1 — a spawned-actor snapshot whose TYPE was
+  (testing "a spawned-actor snapshot whose TYPE was
             unregistered is NOT restorable: restore-epoch! fires
             :rf.epoch/restore-missing-handler (the singleton-style
-            missing-reference contract still holds)"
+            missing-reference contract holds)"
     (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (counter-child))
     (rf/reg-machine :rev/parent (parent))
@@ -174,15 +169,16 @@
           (is (some #(= :rev/child#1 (:id %)) (:missing (:tags ev)))
               "the unresolvable spawned actor surfaces in :missing"))))))
 
-;; ---- rf2-rlt3sv — SPAWNED-actor snapshot VERSION drift --------------------
+;; ---- SPAWNED-actor snapshot VERSION drift ---------------------------------
 ;;
-;; The epoch restore version-drift probe (`machine-version-mismatch`) compared
-;; the snapshot KEY against the machine registrar for every snapshot. For a
-;; SPAWNED actor the key is an instance id (`:rev/child#1`) with NO per-instance
-;; registration — the actor's TYPE rides the snapshot under `:rf/machine-type`.
-;; So a hot-reloaded spawned-actor TYPE's `:rf/snapshot-version` bump was NEVER
-;; observed: an older, incompatible snapshot was accepted by `restore-epoch!`
-;; reporting success. The fix resolves the current definition the same way
+;; For a
+;; SPAWNED actor the snapshot key is an instance id (`:rev/child#1`) with NO
+;; per-instance registration — the actor's TYPE rides the snapshot under
+;; `:rf/machine-type`. A version-drift probe (`machine-version-mismatch`) that
+;; compared the snapshot KEY against the machine registrar would therefore never
+;; observe a hot-reloaded spawned-actor TYPE's `:rf/snapshot-version` bump, and
+;; `restore-epoch!` would accept an older, incompatible snapshot reporting
+;; success. The probe resolves the current definition the same way
 ;; dispatch does — singleton by key, spawned actor by `:rf/machine-type` —
 ;; so the drift fires `:rf.epoch/restore-version-mismatch` (false, frame-state
 ;; unchanged, documented trace with both the instance id and the TYPE).
@@ -207,7 +203,7 @@
                                                  (map? child-type)     (assoc :definition child-type))]]})}}}}})
 
 (deftest restore-spawned-actor-version-match-succeeds
-  (testing "rf2-rlt3sv — a registered-TYPE spawned actor whose TYPE version is
+  (testing "a registered-TYPE spawned actor whose TYPE version is
             UNCHANGED restores cleanly (no false version-mismatch)"
     (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (versioned-child 1))
@@ -222,7 +218,7 @@
         (is (some? (snapshot :rev/child#1)) "actor snapshot restored")))))
 
 (deftest restore-spawned-actor-version-mismatch-registered-type-fails
-  (testing "rf2-rlt3sv — a registered-TYPE spawned actor whose TYPE was
+  (testing "a registered-TYPE spawned actor whose TYPE was
             hot-reloaded forward fires :rf.epoch/restore-version-mismatch,
             returns false, leaves frame-state unchanged, and surfaces BOTH the
             instance id and the TYPE in the trace"
@@ -250,7 +246,7 @@
           (is (= 2 (:version-current  (:tags ev)))))))))
 
 (deftest restore-spawned-actor-inline-definition-version-match-succeeds
-  (testing "rf2-rlt3sv — an inline-:definition spawned actor whose snapshot
+  (testing "an inline-:definition spawned actor whose snapshot
             carries the spec map verbatim restores cleanly when its recorded
             version equals the carried definition's version (the snapshot IS
             the source of truth — no drift possible against itself)"
@@ -269,7 +265,7 @@
         (is (some? (snapshot :rev/child#1)))))))
 
 (deftest restore-spawned-actor-inline-definition-version-mismatch-fails
-  (testing "rf2-rlt3sv — an inline-:definition spawned actor whose CARRIED
+  (testing "an inline-:definition spawned actor whose CARRIED
             definition declares a higher version than the recorded snapshot's
             fires :rf.epoch/restore-version-mismatch (the inline map IS the
             current definition resolved via :rf/machine-type)"
@@ -309,7 +305,7 @@
           (is (= 2 (:version-current  (:tags ev)))))))))
 
 (deftest restore-spawned-actor-missing-type-not-version-mismatch
-  (testing "rf2-rlt3sv — a spawned actor whose registered TYPE was CLEARED is a
+  (testing "a spawned actor whose registered TYPE was CLEARED is a
             MISSING reference (caught upstream by missing-references), NOT a
             version mismatch — the version probe never resolves a definition,
             so it does not fire :rf.epoch/restore-version-mismatch"

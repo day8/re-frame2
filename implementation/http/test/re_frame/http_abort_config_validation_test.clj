@@ -1,25 +1,24 @@
 (ns re-frame.http-abort-config-validation-test
   "Spec 014 §`:abort-signal` (external) — `:abort-signal` and `:request-id`
-  are NOT mutually exclusive (rf2-q8vbna). A request may carry BOTH; each
+  are NOT mutually exclusive. A request may carry BOTH; each
   attaches a cancellation source to the ONE managed request.
 
-  The earlier `validate-abort-config!` guard rejected the combination at
-  the dispatch site with a thrown `:rf.error/http-bad-abort-config`,
-  rationalised as an undefined-by-spec simultaneous-abort race. That race
-  is not real: the CLJS transport forwards an external `:abort-signal`
-  into the SAME framework-owned internal controller the `:request-id`
-  supersede/managed-abort path drives (the single signal Fetch accepts is
-  always the internal one), and the once-only `:finalised?` CAS
-  (rf2-on7sj) guarantees EXACTLY ONE terminal outcome regardless of which
+  There is no dispatch-site guard rejecting the combination (such as a
+  thrown `:rf.error/http-bad-abort-config`) as an undefined simultaneous-
+  abort race, because that race is not real: the CLJS transport forwards an
+  external `:abort-signal` into the SAME framework-owned internal controller
+  the `:request-id` supersede/managed-abort path drives (the single signal
+  Fetch accepts is always the internal one), and the once-only `:finalised?`
+  CAS guarantees EXACTLY ONE terminal outcome regardless of which
   cancellation source acts first. Abort wins by classification, not race
-  ordering (Spec 014 §Abort precedence). The guard rejected a
-  fully-defined, working configuration on a false premise, and is removed.
+  ordering (Spec 014 §Abort precedence). Such a guard would reject a
+  fully-defined, working configuration.
 
-  These tests pin the post-removal contract:
+  These tests pin that contract:
 
    1. both-supplied does NOT throw (no `:rf.error/http-bad-abort-config`
       ex-info, no throw at all) — the dual-source config is legal.
-   2. the once-only CAS still yields AT MOST ONE terminal outcome with
+   2. the once-only CAS yields AT MOST ONE terminal outcome with
       both keys present, exercising BOTH finalise orders:
         a. user-abort-first (the path an external `:abort-signal` funnels
            into) => exactly one `:rf.http/aborted` `:reason :user` reply;
@@ -32,7 +31,7 @@
   with a `:rf.http/cljs-only-key-ignored-on-jvm` degradation trace), so
   these JVM tests drive cancellation through the portable `:request-id`
   path while ALSO supplying `:abort-signal` — the exact dual-source shape
-  the removed guard rejected — and assert it is accepted and
+  such a guard would reject — and assert it is accepted and
   single-outcome."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -62,7 +61,8 @@
        (catch clojure.lang.ExceptionInfo e e)))
 
 (defn- bad-abort-config-throw?
-  "True when the call threw the (removed) `:rf.error/http-bad-abort-config`."
+  "True when the call threw `:rf.error/http-bad-abort-config`, which no
+  dispatch site raises."
   [ex]
   (and (some? ex)
        (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
@@ -112,9 +112,9 @@
 ;; ---- (1) both-supplied is LEGAL — must NOT throw ---------------------------
 
 (deftest both-abort-signal-and-request-id-accepted
-  (testing "rf2-q8vbna — supplying BOTH a non-nil :abort-signal AND a
+  (testing "supplying BOTH a non-nil :abort-signal AND a
             non-nil :request-id is a legal configuration and MUST NOT throw
-            :rf.error/http-bad-abort-config (the removed guard)"
+            :rf.error/http-bad-abort-config"
     (let [ex (call-managed! {:request      base-request
                              :request-id   :article/load
                              :abort-signal signal-stub
@@ -125,7 +125,7 @@
           "the call dispatches without throwing at all"))))
 
 (deftest both-with-vector-request-id-accepted
-  (testing "rf2-q8vbna — accepted regardless of the :request-id value shape
+  (testing "accepted regardless of the :request-id value shape
             (a compound vector id here)"
     (let [ex (call-managed! {:request      base-request
                              :request-id   [:articles :load "hello"]
@@ -144,7 +144,7 @@
 ;; deliver EXACTLY ONE :rf.http/aborted :reason :user reply.
 
 (deftest dual-source-user-abort-first-yields-single-user-reply
-  (testing "rf2-q8vbna — with BOTH keys present, a user abort on the
+  (testing "with BOTH keys present, a user abort on the
             :request-id finalises as exactly one :rf.http/aborted :reason
             :user reply (the :finalised? CAS pins single-dispatch)"
     (let [release (CountDownLatch. 1)
@@ -158,7 +158,7 @@
             {:fx [[:rf.http/managed
                    {:request      {:url (str "http://127.0.0.1:" (:port srv) "/")}
                     :request-id   :dual
-                    :abort-signal signal-stub      ; BOTH keys — was rejected
+                    :abort-signal signal-stub      ; BOTH keys
                     :decode       :json
                     :on-failure   [:reply/recorder]
                     :on-success   [:reply/recorder]}]]}))
@@ -199,7 +199,7 @@
 ;; lands for the superseded work — the once-only CAS holds across both keys.
 
 (deftest dual-source-supersede-first-suppresses-and-traces
-  (testing "rf2-q8vbna — with BOTH keys present on the prior request, a
+  (testing "with BOTH keys present on the prior request, a
             same-:request-id supersede suppresses the prior reply (no app
             target) + emits a :rf.http/stale-suppressed trace; the
             superseding request yields exactly one outcome"

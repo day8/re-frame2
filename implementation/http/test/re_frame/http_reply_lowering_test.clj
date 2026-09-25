@@ -1,5 +1,5 @@
 (ns re-frame.http-reply-lowering-test
-  "Conformance for the EP-0011 managed-HTTP lowering (rf2-zqefg3.2): Spec 014
+  "Conformance for the EP-0011 managed-HTTP lowering: Spec 014
   `:rf.http/managed` lowered onto the uniform reply envelope
   (`spec/Managed-Effects.md` §The uniform reply envelope). Pins the
   EP-0011 §Validation groups for the HTTP slice:
@@ -15,7 +15,7 @@
     2. CANONICAL delivery — the unified `:reply-to` and the `:on-success` /
        `:on-failure` split sugar all deliver the ONE canonical reply
        envelope verbatim (`{:status :ok :value v …}` / `{:status :error
-       :error f …}`, rf2-ibksxg) — there is no `{:kind :success/:failure}`
+       :error f …}`) — there is no `{:kind :success/:failure}`
        public reshape.
     3. SUPERSESSION — a same-`:request-id` supersede suppresses the prior
        request's app reply target (the supersede semantic is trace-only).
@@ -25,7 +25,7 @@
   server); groups 1 + 3 are pinned at the pure / transport altitude.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
-  envelope; EP-0011; rf2-ibksxg (one canonical async-reply envelope)."
+  envelope; EP-0011 (one canonical async-reply envelope)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -45,7 +45,7 @@
 ;; The canonical fixture snapshot/restores the registrar, so the framework's
 ;; built-in `:rf/time-ms` reg-cofx (registered at `re-frame.cofx` ns-load) and
 ;; the `re-frame.http.test-support` canned-stub fx ids survive between tests
-;; without a per-test `:reload` — the EP-0017 reply-time tests (rf2-5vdfrm)
+;; without a per-test `:reload` — the EP-0017 reply-time tests
 ;; need `:rf/time-ms` present for a reply handler declaring
 ;; `:rf.cofx/requires [:rf/time-ms]`.
 (use-fixtures :each
@@ -82,7 +82,7 @@
   "Start the test server with every exchange HELD until `release` is counted
   down, then answering `200 {\"v\":1}`. The supersession tests below use it.
 
-  This is what makes a supersede DETERMINISTIC (rf2-o9e15).
+  This is what makes a supersede DETERMINISTIC.
   `registry/supersede!` supersedes only a request that is still IN FLIGHT: it
   reads the in-flight registry, and a request clears its own slot the moment
   it finalises. A test that issues #1 and then #2 therefore supersedes
@@ -121,13 +121,13 @@
 (deftest work-id-head
   (testing "HTTP work-id head is [:rf.work/http logical-id issuance attempt]"
     (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id base-ctx)))
-    (testing "logical-id falls back to the origin event-id, tagged anonymous, when :request-id is absent (rf2-5g0bt)"
+    (testing "logical-id falls back to the origin event-id, tagged anonymous, when :request-id is absent"
       (is (= [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
              (rf.http.reply/work-id (dissoc base-ctx :request-id)))))
     (testing "the attempt slot discriminates transport retries within one issuance"
       (is (= [:rf.work/http :article/by-id 1 3]
              (rf.http.reply/work-id (assoc base-ctx :attempt 3)))))
-    (testing "the issuance slot discriminates re-issuances across supersessions (rf2-azcmd3)"
+    (testing "the issuance slot discriminates re-issuances across supersessions"
       ;; A superseded attempt (issuance 1) and its superseder (issuance 2) both
       ;; reset their retry :attempt to 1, but the issuance keeps their work
       ;; ids =-distinct — the EP-0011 one-attempt-one-work-id rule.
@@ -152,7 +152,7 @@
         (is (not (contains? r :request-id)))))))
 
 (deftest success-reply-response-meta-is-optional-and-canonical
-  (testing "rf2-lddbk — the 3-arity threads the successful response's wire
+  (testing "the 3-arity threads the successful response's wire
             facts onto the envelope's :meta family-extension slot; the reply
             stays schema-valid and :value stays the accepted payload"
     (let [meta* {:status      200
@@ -170,7 +170,7 @@
       (is (= meta* (:meta r)) "the response wire facts ride verbatim under :meta")
       (is (= ["a=1; Path=/" "b=2; Path=/"] (get-in r [:meta :headers "set-cookie"]))
           "a multi-valued header keeps the ONE normalized vector shape")))
-  (testing "rf2-lddbk — absent metadata is OMITTED, never fabricated (the
+  (testing "absent metadata is OMITTED, never fabricated (the
             2-arity and a nil 3rd arg both leave :meta off the reply)"
     (is (not (contains? (rf.http.reply/success-reply base-ctx {:v 1}) :meta)))
     (is (not (contains? (rf.http.reply/success-reply base-ctx {:v 1} nil) :meta)))))
@@ -212,8 +212,8 @@
 
 ;; ===========================================================================
 ;; Group 1b — the SHARED-TARGET lowering path + the reply-mapping functor law
-;; for HTTP (rf2-9u1tvq). HTTP's reply addressing — append the CANONICAL reply
-;; envelope as the final arg of the reply target's event (rf2-ibksxg: no
+;; for HTTP. HTTP's reply addressing — append the CANONICAL reply
+;; envelope as the final arg of the reply target's event (no
 ;; compat reshape) — IS the shared `re-frame.reply/complete` `:delivery
 ;; :append`. These pin that HTTP rides the shared target functions (`complete`
 ;; / `map-completed-event`) rather than a family-private append, and that the
@@ -236,7 +236,7 @@
           (is (= :rf.http/http-5xx (get-in (rf.reply/complete [:svc/failed] fr) [1 :error :kind]))))))))
 
 (deftest http-target-satisfies-functor-law
-  (testing "rf2-9u1tvq — the EP-0011 reply-mapping functor law holds over HTTP's reply target: complete(map-completed-event(f,t),reply) == f(complete(t,reply)); identity + composition"
+  (testing "the EP-0011 reply-mapping functor law holds over HTTP's reply target: complete(map-completed-event(f,t),reply) == f(complete(t,reply)); identity + composition"
     (let [payload (rf.http.reply/success-reply base-ctx {:title "Welcome"})
           target  [:article/load {:id 42}]
           ;; relocate the completed reply into a wrapper event (the Cmd.map role)
@@ -259,16 +259,16 @@
           (is (= :ok (:status reply))))))))
 
 ;; ===========================================================================
-;; Group 2a — the compat reshape is GONE (rf2-ibksxg).
+;; Group 2a — there is no compat reshape.
 ;; ===========================================================================
 
 (deftest no-public-payload-reshape
-  (testing "rf2-ibksxg — the {:kind :success/:failure} reshape (reply->public-payload / :rf.http/compat-reply) is DELETED; the canonical reply IS the public payload"
+  (testing "there is no {:kind :success/:failure} reshape (no reply->public-payload / :rf.http/compat-reply); the canonical reply IS the public payload"
     (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload)))))
 
 ;; ===========================================================================
 ;; Group 2b — the CANONICAL envelope is delivered END-TO-END through the real
-;; transport (rf2-ibksxg — one dialect, no reshape).
+;; transport (one dialect, no reshape).
 ;; ===========================================================================
 
 (deftest real-transport-reply-to-delivers-canonical-envelope
@@ -293,7 +293,7 @@
           (is (= "hello" (get-in db [:reply :value :title])))
           (is (= :completed (get-in db [:reply :rf.reply/work-status])))
           (is (= :http (get-in db [:reply :rf.reply/work-kind])))
-          ;; the retired {:kind :success} dialect is GONE
+          ;; there is no {:kind :success} dialect
           (is (not (contains? (:reply db) :kind))))
         (finally (stop-server! srv))))))
 
@@ -316,11 +316,11 @@
           ;; the classified :rf.http/* failure map rides VERBATIM under :error
           (is (= :rf.http/http-5xx (get-in db [:got :error :kind])))
           (is (= 503 (get-in db [:got :error :status])))
-          (is (not (contains? (:got db) :kind)) "no retired :kind dialect"))
+          (is (not (contains? (:got db) :kind)) "no :kind dialect"))
         (finally (stop-server! srv))))))
 
 (deftest real-transport-success-reply-carries-response-meta
-  (testing "rf2-lddbk — a successful live request delivers the ACTUAL response
+  (testing "a successful live request delivers the ACTUAL response
             status, status text, and normalized headers at [:meta …] on the
             canonical reply the app target receives; :value stays the payload"
     (let [srv (start-server!
@@ -328,8 +328,8 @@
                   (let [hs (.getResponseHeaders ex)]
                     (.set hs "X-Request-Cost" "3")
                     ;; TWO Set-Cookie lines — the multi-valued case MUST ride
-                    ;; the one normalized vector-of-verbatim-lines shape
-                    ;; (rf2-0xvm1/rf2-wmdmou), never a second representation.
+                    ;; the one normalized vector-of-verbatim-lines shape,
+                    ;; never a second representation.
                     (.add hs "Set-Cookie" "session=abc; Path=/")
                     (.add hs "Set-Cookie" "csrf=xyz; Path=/"))
                   (write-response! ex 200 "application/json" "{\"title\":\"hello\"}")))]
@@ -362,7 +362,7 @@
         (finally (stop-server! srv))))))
 
 (deftest real-transport-failure-reply-carries-no-response-meta
-  (testing "rf2-lddbk — the scope is SUCCESSFUL responses: a failure reply's
+  (testing "the scope is SUCCESSFUL responses: a failure reply's
             wire facts already ride the :error map (status/status-text/
             headers), so no :meta is added on the failure path"
     (let [srv (start-server!
@@ -380,14 +380,14 @@
           (is (not (contains? (:reply db) :meta))
               "failure replies carry no :meta — their wire facts live on :error")
           (is (= 503 (get-in db [:reply :error :status]))
-              "the failure map still carries the wire status as before"))
+              "the failure map carries the wire status"))
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; Group 2c — rf2-1u9dja: the public failure `:error` map is SELF-IDENTIFYING.
+;; Group 2c — the public failure `:error` map is SELF-IDENTIFYING.
 ;; Every failure category carries :request {:method :url}, :request-id,
 ;; :attempt/:max-attempts, and :work/id — WHICH request failed, not only what
-;; kind of failure it was (debugging-dx finding 3). Exercised end-to-end
+;; kind of failure it was. Exercised end-to-end
 ;; through the real transport for the categories a test server can trigger.
 ;; ===========================================================================
 
@@ -528,7 +528,7 @@
 ;; Group 3 — supersession suppresses the prior request's app target.
 ;; ===========================================================================
 
-;; WHY THESE TESTS CARRY NO TIMED WAIT (rf2-o9e15, and its PR #8889 audit).
+;; WHY THESE TESTS CARRY NO TIMED WAIT.
 ;;
 ;; Both server responses are byte-identical, so "one reply, :status :ok" is
 ;; satisfied just as well by a broken path that delivers the SUPERSEDED
@@ -556,15 +556,15 @@
 ;;       reasons`) — no app dispatch, and the won CAS makes #1's later
 ;;       transport completion bail at `already-replied?`. There is therefore no
 ;;       later moment at which a second reply could originate; a timed window
-;;       was allowing for one that cannot exist.
+;;       would be allowing for one that cannot exist.
 ;;
 ;;   (3) A QUEUE BARRIER, NOT A SLEEP. `dispatch-sync` seeds at the FRONT of
 ;;       the frame's FIFO queue and then runs the drain loop to fixed point
 ;;       (router.cljc `drain-block!`), so every envelope enqueued before it has
 ;;       been PROCESSED by the time it returns. Dispatching `:search/quiesce`
 ;;       after the surviving reply lands therefore observes any wrongly
-;;       dispatched #1 reply, where the previous `Thread/sleep 200` only
-;;       established that none had arrived within 200 ms.
+;;       dispatched #1 reply, where a `Thread/sleep 200` would only
+;;       establish that none had arrived within 200 ms.
 
 (deftest supersede-suppresses-prior-app-reply
   (testing "a same-:request-id supersede suppresses the FIRST request's :on-failure app target"
@@ -582,7 +582,7 @@
           (fn [{:keys [db]} [_ payload]]
             (swap! replies conj payload)
             ;; The delivered reply IS the completion signal — count it down
-            ;; here rather than sampling a clock for it (rf2-o9e15).
+            ;; here rather than sampling a clock for it.
             (.countDown replied)
             {:db db}))
         (rf/reg-event :search/quiesce (fn [{:keys [db]} _] {:db db}))
@@ -630,7 +630,7 @@
           (stop-server! srv))))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace
-  (testing "rf2-azcmd3 — superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
+  (testing "superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
     (rf.http.registry/reset-issuance-counters-for-test!)
     (let [release (java.util.concurrent.CountDownLatch. 1)
           replied (java.util.concurrent.CountDownLatch. 1)
@@ -659,28 +659,24 @@
         ;; issued — see `start-held-server!`.
         (rf/dispatch-sync [:search/go])
         (rf/dispatch-sync [:search/go])
-        ;; NO WAIT HERE, and that is the point (rf2-o9e15). The supersede is
+        ;; NO WAIT HERE, and that is the point. The supersede is
         ;; SYNCHRONOUS with the dispatch above: `managed-handler` calls
         ;; `registry/supersede!` and then `emit-superseded-stale-trace!`
         ;; inline, in the fx phase, before `dispatch-sync` returns. The row
         ;; below has therefore already landed and can simply be ASSERTED.
         ;;
-        ;; This replaces a `poll-until` that waited up to 30 s for it, and the
-        ;; distinction matters because that wait could not be repaired by
-        ;; lengthening it. The bound had already been raised once, 5 s → 30 s,
-        ;; on the theory that "the async supersede landed AFTER the window"
-        ;; (it redded unrelated PRs, e.g. #6817); 30 s then timed out too, at
-        ;; :elapsed-ms 30022 on PR #8873, a routing-only diff that cannot
-        ;; reach this code path. The theory was wrong. The trace was never
-        ;; LATE — on the losing interleaving it is never emitted at all:
+        ;; A `poll-until` for the row would add nothing, and no bound on one
+        ;; could repair the failure it would be guarding against. The trace is
+        ;; never LATE — on the losing interleaving it is never emitted at all:
         ;; `registry/supersede!` returns nil when nothing is in flight under
         ;; the request-id, and request #1, unheld, could finish its whole
         ;; loopback round trip in the gap between the two `dispatch-sync`
-        ;; calls. Both requests then delivered replies and no supersede ever
-        ;; happened, so the poll sat out its full backstop waiting for a row
-        ;; that could not arrive. No timeout is large enough for an event that
-        ;; is never emitted, which is why holding the server — establishing
-        ;; the precondition rather than timing the machine — is the repair.
+        ;; calls. Both requests would then deliver replies and no supersede
+        ;; would happen, so a poll would sit out its full backstop waiting for
+        ;; a row that cannot arrive. No timeout is large enough for an event
+        ;; that is never emitted, which is why holding the server —
+        ;; establishing the precondition rather than timing the machine — is
+        ;; what makes this deterministic.
         (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
           (is (= 1 (count stale)) "exactly one stale-suppression row for the superseded attempt")
           (let [tags (:tags (first stale))]
@@ -736,7 +732,7 @@
           (stop-server! srv))))))
 
 ;; ===========================================================================
-;; Group 4 — actor-destroy obsolete-target stale suppression (rf2-yrrpe2,
+;; Group 4 — actor-destroy obsolete-target stale suppression (the
 ;; pure altitude). Managed-Effects §Cancellation: an actor-destroy abort whose
 ;; reply target addresses the destroyed actor itself is OBSOLETE and lowers to
 ;; `:status :stale` / `:rf.reply/work-status :suppressed` (no app delivery); a target
@@ -744,7 +740,7 @@
 ;; ===========================================================================
 
 (deftest actor-destroy-target-obsolete-predicate
-  (testing "rf2-yrrpe2 — a reply target naming the destroyed actor itself is obsolete; an ordinary target is meaningful"
+  (testing "a reply target naming the destroyed actor itself is obsolete; an ordinary target is meaningful"
     (is (true?  (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1))
         "target == actor-id (machine-shape wrapper's [self-id ...]) → obsolete")
     (is (false? (rf.http.reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1))
@@ -755,7 +751,7 @@
         "no resolvable target → not classified obsolete")))
 
 (deftest actor-destroy-suppress-is-canonical-stale
-  (testing "rf2-yrrpe2 — an obsolete actor-bound completion lowers to the shared :status :stale / :rf.reply/work-status :suppressed outcome, no app delivery"
+  (testing "an obsolete actor-bound completion lowers to the shared :status :stale / :rf.reply/work-status :suppressed outcome, no app delivery"
     (let [ctx {:request-id   [:worker/proc#1 :slow]
                :origin-event [:worker/proc#1 [:rf.http/failed]]
                :issuance     1
@@ -777,7 +773,7 @@
             "no live successor — the actor that owned the target is gone")))))
 
 ;; ===========================================================================
-;; Group 5 — EP-0017 HTTP-reply :rf.cofx time delivery (rf2-5vdfrm). The HTTP
+;; Group 5 — EP-0017 HTTP-reply :rf.cofx time delivery. The HTTP
 ;; completion time (read ONCE at finalisation in `reply-ctx`) rides the reply
 ;; dispatch's flat `:rf.cofx` `:rf/time-ms`. A reply handler DECLARING
 ;; `{:rf.cofx/requires [:rf/time-ms]}` receives EXACTLY that HTTP completion
@@ -787,13 +783,13 @@
 ;; provided-cofx-delivery conformance.
 ;;
 ;; The test fails if `dispatch-reply-via-late-bind!` stops supplying flat
-;; `:rf.cofx`, regresses to the retired `:rf.world/inputs`, or relies on an
+;; `:rf.cofx`, nests it under `:rf.world/inputs`, or relies on an
 ;; implicit fresh-clock read (the declared handler would then see a value
 ;; != the HTTP `:completed-at`, or the undeclared handler would see one).
 ;; ===========================================================================
 
 (deftest http-reply-declared-handler-receives-completion-time-flat
-  (testing "rf2-5vdfrm — a reply handler declaring {:rf.cofx/requires [:rf/time-ms]} receives the HTTP completion timestamp (== the :rf.http/replied trace :completed-at) flat under :rf/time-ms; the reply dispatch carries it on a flat :rf.cofx supplied BY HTTP (not the router's enqueue fill)"
+  (testing "a reply handler declaring {:rf.cofx/requires [:rf/time-ms]} receives the HTTP completion timestamp (== the :rf.http/replied trace :completed-at) flat under :rf/time-ms; the reply dispatch carries it on a flat :rf.cofx supplied BY HTTP (not the router's enqueue fill)"
     (let [srv    (start-server!
                    (fn [^HttpExchange ex]
                      (write-response! ex 200 "application/json" "{\"v\":1}")))
@@ -801,9 +797,8 @@
           traces (atom [])
           ;; Capture the :rf.cofx OPT the http reply path passes to
           ;; `:router/dispatch!`. This directly pins that HTTP SUPPLIES a flat
-          ;; `:rf.cofx` `:rf/time-ms` on the reply dispatch (the bead's literal
-          ;; failure condition: "fails if dispatch-reply-via-late-bind! stops
-          ;; supplying flat :rf.cofx"), rather than relying on the router's
+          ;; `:rf.cofx` `:rf/time-ms` on the reply dispatch, rather than
+          ;; relying on the router's
           ;; missing-cofx enqueue fill — whose value coincides with
           ;; :completed-at to the millisecond and so cannot discriminate.
           reply-dispatch-opts (atom nil)
@@ -855,14 +850,14 @@
           (testing "the flat :rf.cofx record carries the same fact (the EP-0017 envelope field)"
             (is (= trace-completed-at (get (:rf.cofx c) :rf/time-ms)))
             (is (not (contains? c :rf.world/inputs))
-                "the retired :rf.world/inputs nested envelope is GONE (flat rename)")))
+                "there is no nested :rf.world/inputs envelope — the record is the flat :rf.cofx")))
         (finally
           (rf.late-bind/set-fn! :router/dispatch! real-dispatch!)
           (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv))))))
 
 (deftest http-reply-undeclared-handler-does-not-see-implicit-time
-  (testing "rf2-5vdfrm — an UNDECLARED reply handler does NOT receive :rf/time-ms flat (no implicit time delivery); the fact rides :rf.cofx but is not handed flat without a declaration"
+  (testing "an UNDECLARED reply handler does NOT receive :rf/time-ms flat (no implicit time delivery); the fact rides :rf.cofx but is not handed flat without a declaration"
     (let [srv    (start-server!
                    (fn [^HttpExchange ex]
                      (write-response! ex 200 "application/json" "{\"v\":1}")))
@@ -887,5 +882,5 @@
           (is (map? (:rf.cofx c))
               "the flat :rf.cofx record is still reachable for generic code (EP-0017 §5)")
           (is (not (contains? c :rf.world/inputs))
-              "the retired :rf.world/inputs nested envelope is GONE"))
+              "there is no nested :rf.world/inputs envelope"))
         (finally (stop-server! srv))))))

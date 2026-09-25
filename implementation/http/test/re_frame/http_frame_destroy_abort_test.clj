@@ -1,18 +1,17 @@
 (ns re-frame.http-frame-destroy-abort-test
-  "rf2-j538f7.8 — abort frame-owned PLAIN managed HTTP during frame destruction.
+  "Frame destruction aborts frame-owned PLAIN managed HTTP.
 
   Frame destruction is the hard ownership boundary for SSR per-request frames,
   Story/test variants, hot reload, and multi-frame apps. Every live fetch/future
-  and sleeping-backoff handle is frame-stamped, and HTTP already exposes a frame-
-  filtered abort walker — but core's `destroy-frame!` cleanup recipe never wired
-  plain managed HTTP into that walker (actor teardown reaps only actor-owned
-  work; resource teardown reaps only ledger-backed work). An ordinary event-
-  handler `:rf.http/managed` request (no actor id — the exposed path) therefore
-  survived frame destruction until network completion / timeout / retry
-  exhaustion, its late reply routing into an already-destroyed frame.
+  and sleeping-backoff handle is frame-stamped. Actor teardown reaps only
+  actor-owned work and resource teardown reaps only ledger-backed work, so an
+  ordinary event-handler `:rf.http/managed` request (no actor id) needs a
+  frame-destroy sweep of its own: without one it would survive frame
+  destruction until network completion / timeout / retry exhaustion, its late
+  reply routing into an already-destroyed frame.
 
-  The fix publishes `:http/on-frame-destroyed!` (registry/abort-in-flight-on-
-  frame-destroyed!) and calls it from `frame/destroy-frame!` AFTER machine +
+  HTTP publishes `:http/on-frame-destroyed!` (registry/abort-in-flight-on-
+  frame-destroyed!), which `frame/destroy-frame!` calls AFTER machine +
   resource teardown. It reuses the same frame-filtered, identity-deduped,
   sibling-preserving walk as the epoch-restore quiesce, but fires each abort-fn
   with the reply-suppressing `:reason :frame-destroyed` and stamps the stale-
@@ -21,9 +20,8 @@
   Strategy: the registry-level tests pin the walker's frame-scoping / reason /
   idempotence against seeded handles; the end-to-end test issues a genuinely
   in-flight blocking request from a named frame, calls the REAL `destroy-frame!`
-  (the actual failing path the bead names — before the wiring the registry slot
-  survives destroy), and proves the slot clears promptly and the late completion
-  delivers nothing."
+  (without the wiring the registry slot would survive destroy), and proves the
+  slot clears promptly and the late completion delivers nothing."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -70,19 +68,19 @@
                                   :label "http-frame-destroy condition"})
    true))
 
-;; ---- hook publication (crit 5) --------------------------------------------
+;; ---- hook publication -----------------------------------------------------
 
 (deftest hook-published
-  (testing "rf2-j538f7.8 — the :http/on-frame-destroyed! hook is published and
+  (testing "the :http/on-frame-destroyed! hook is published and
             resolves to the frame-destroy abort walker"
     (is (some? (rf.late-bind/get-fn :http/on-frame-destroyed!)))
     (is (= rf.http.registry/abort-in-flight-on-frame-destroyed!
            (rf.late-bind/get-fn :http/on-frame-destroyed!)))))
 
-;; ---- registry-level: frame-scoped abort + reason (crit 1) -----------------
+;; ---- registry-level: frame-scoped abort + reason --------------------------
 
 (deftest frame-destroy-aborts-only-the-frames-requests
-  (testing "rf2-j538f7.8 — abort-in-flight-on-frame-destroyed! fires each of the
+  (testing "abort-in-flight-on-frame-destroyed! fires each of the
             destroyed frame's handles exactly once with :reason :frame-destroyed
             and leaves a SIBLING frame's request byte-for-byte live"
     (rf.http.managed/clear-all-in-flight!)
@@ -115,15 +113,15 @@
       (rf.http.managed/clear-all-in-flight!))))
 
 (deftest frame-destroy-noop-on-frame-with-no-requests
-  (testing "rf2-j538f7.8 — a frame with no in-flight managed HTTP is a clean no-op"
+  (testing "a frame with no in-flight managed HTTP is a clean no-op"
     (rf.http.managed/clear-all-in-flight!)
     (is (nil? (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/none)))
     (is (nil? (rf.http.registry/abort-in-flight-on-frame-destroyed! nil)))))
 
-;; ---- ordering / idempotence: no duplicate abort on a cleared handle (crit 4)
+;; ---- ordering / idempotence: no duplicate abort on a cleared handle ------
 
 (deftest frame-destroy-sweep-noop-on-already-cleared-handle
-  (testing "rf2-j538f7.8 — when an earlier teardown (actor-destroy / resource
+  (testing "when an earlier teardown (actor-destroy / resource
             teardown) already cleared a frame's HTTP slot, the later generic
             frame-destroy sweep produces NO duplicate abort or stale trace"
     (rf.http.managed/clear-all-in-flight!)
@@ -151,10 +149,10 @@
           (rf.http.managed/clear-all-in-flight!))))))
 
 ;; ---- end-to-end: destroy-frame! aborts a genuinely in-flight request -------
-;; (crit 2 — the adversarial regression: FAILS before the destroy-frame! wiring)
+;; (it FAILS if destroy-frame! does not call the HTTP frame-destroy sweep)
 
 (deftest destroy-frame-aborts-and-suppresses-in-flight-managed-http
-  (testing "rf2-j538f7.8 — a plain managed request in flight when its owning
+  (testing "a plain managed request in flight when its owning
             frame is destroyed is aborted (registry slot clears promptly, before
             the network releases — proving cancellation, not natural completion)
             and its late completion is SUPPRESSED: NO :on-success / :on-failure
@@ -170,8 +168,8 @@
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; an ordinary event handler (no spawned actor) issues a plain managed
-        ;; request from :frame/req — the exact non-actor managed-HTTP shape the
-        ;; bead names as the exposed path.
+        ;; request from :frame/req — the non-actor managed-HTTP shape that
+        ;; neither actor nor resource teardown reaches.
         (rf/reg-event :load
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -188,7 +186,7 @@
         (is (= :frame/req (:frame (rf.http.registry/lookup-in-flight :destroy/req)))
             "precondition: the in-flight handle carries its originating frame")
         ;; Destroy the owning frame via the REAL recipe — this is the wiring
-        ;; under test (before the fix, destroy-frame! left the slot in flight).
+        ;; under test.
         (rf/destroy-frame! :frame/req)
         ;; The abort cascade clears the registry slot — and it clears while the
         ;; server is STILL BLOCKED, so the clear is the abort, not a natural
@@ -198,7 +196,7 @@
             "the in-flight slot cleared promptly on frame destroy")
         ;; Release the server so any late completion would arrive.
         (.countDown latch)
-        ;; Timer-semantics window (rf2-fun38): prove the ABSENCE of any reply
+        ;; Timer-semantics window: prove the ABSENCE of any reply
         ;; delivery — there is no positive signal to poll for a non-event.
         (Thread/sleep 150)
         (is (empty? @replies)

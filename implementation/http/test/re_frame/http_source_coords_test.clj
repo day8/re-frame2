@@ -1,8 +1,8 @@
 (ns re-frame.http-source-coords-test
-  "Pin test for rf2-may3f: `:rf/http-interceptor-meta` source-coords
+  "Pin test: `:rf/http-interceptor-meta` source-coords
   must actually flow into the stored interceptor slot.
 
-  rf2-gsl5v (PR #1165) promoted `rf/reg-http-interceptor` to a
+  `rf/reg-http-interceptor` is a
   `defreg-macro` form so source-coords (`:ns` / `:line` / `:column` /
   `:file`) auto-capture at the call site per Spec 001 §Source-coordinate
   capture, and `Spec-Schemas.md` documents `:rf/http-interceptor-meta`
@@ -25,12 +25,12 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
-;; EP-0002 (rf2-5q7um6): reg-http-interceptor is context-required frame-local —
+;; EP-0002: reg-http-interceptor is context-required frame-local —
 ;; an ambient call under no scope raises :rf.error/no-frame-context. The
 ;; canonical fixture's default `:ambient-frame :rf/default` pins :rf/default as
 ;; the established scope so the frameless registrations land there; the :rf/api
-;; case passes {:frame :rf/api} explicitly. The post-dispose reset now clears
-;; the per-frame HTTP interceptor chain too (rf2-q14tde).
+;; case passes {:frame :rf/api} explicitly. The post-dispose reset clears
+;; the per-frame HTTP interceptor chain too.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
@@ -42,7 +42,7 @@
        first))
 
 (deftest reg-http-interceptor-stamps-auto-captured-source-coords-rf2-may3f
-  (testing "rf2-may3f — `rf/reg-http-interceptor` stamps :ns / :line /
+  (testing "`rf/reg-http-interceptor` stamps :ns / :line /
             :column / :file from the call site into the stored slot per
             Spec 001 §Source-coordinate capture + the
             :rf/http-interceptor-meta schema."
@@ -60,7 +60,7 @@
           ":file is a string (the source filename)"))))
 
 (deftest reg-http-interceptor-preserves-user-metadata-rf2-may3f
-  (testing "rf2-may3f — user-supplied :doc / :tags / :sensitive? flow
+  (testing "user-supplied :doc / :tags / :sensitive? flow
             into the stored slot alongside the auto-captured source
             coords. None of the registration-metadata keys are dropped
             by the merge."
@@ -74,12 +74,12 @@
       (is (= "auth header attacher" (:doc slot)))
       (is (= #{:auth :security} (:tags slot)))
       (is (true? (:sensitive? slot)))
-      ;; Auto-captured coords still present.
+      ;; Auto-captured coords are present too.
       (is (some? (:ns slot)))
       (is (pos-int? (:line slot))))))
 
 (deftest reg-http-interceptor-user-coord-keys-override-rf2-may3f
-  (testing "rf2-may3f — explicit user-supplied :ns / :line / :column /
+  (testing "explicit user-supplied :ns / :line / :column /
             :file override the auto-captured values per the source-
             coords contract (Spec 001). The merge order is
             auto-capture-then-user-keys, so user keys win."
@@ -101,9 +101,9 @@
           "explicit :file wins"))))
 
 (deftest reg-http-interceptor-frame-key-not-leaked-into-slot-rf2-may3f
-  (testing "rf2-may3f — the :frame slot is consumed (stamped on the slot
+  (testing "the :frame slot is consumed (stamped on the slot
             for in-chain lookup) and dissoc'd from the user-meta merge so
-            it doesn't appear twice; per rf2-uheqq (shape iii) `:id` is
+            it doesn't appear twice; `:id` is
             positional and `:before` / `:after` live inside the
             interceptor-map alongside :frame and the
             :rf/registration-metadata keys."

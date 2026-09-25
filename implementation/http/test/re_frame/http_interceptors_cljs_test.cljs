@@ -1,6 +1,6 @@
 (ns re-frame.http-interceptors-cljs-test
   "CLJS-side smoke for Spec 014 §Middleware — per-frame request
-  interceptor chain (rf2-6y3q).
+  interceptor chain.
 
   The JVM test (re-frame.http-interceptors-test) covers the full
   end-to-end shape: real transport, real headers landing on the wire,
@@ -14,7 +14,7 @@
     have independent slots).
   - The late-bind hooks publish under their documented keys.
 
-  The CLJS Fetch transport itself is covered by the existing CLJS
+  The CLJS Fetch transport itself is covered by the CLJS
   test suite for `:rf.http/managed`; this smoke is scoped to the
   interceptor surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -24,13 +24,13 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.middleware :as rf.http.middleware]))
 
-;; EP-0002 (rf2-nn0jqa): the no-`:frame` `reg-http-interceptor` /
+;; EP-0002: the no-`:frame` `reg-http-interceptor` /
 ;; `clear-http-interceptor` calls below resolve the frame through the
-;; carried-invariant scope chain (rf2-5q7um6), so the fixture registers
+;; carried-invariant scope chain, so the fixture registers
 ;; `:rf/default` and pins it as the established scope for each test body —
-;; the wrapping fn form replaces the prior `:before`/`:after` map so the
+;; the fixture is a wrapping fn rather than a `:before`/`:after` map so the
 ;; body can run inside `*current-frame*` :rf/default. Tests that name a
-;; frame explicitly (the per-frame-scope case) still override it.
+;; frame explicitly (the per-frame-scope case) override it.
 (use-fixtures :each
   (fn [t]
     (rf.http.managed/clear-all-http-interceptors!)
@@ -51,17 +51,17 @@
     (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (zero? (count chain))))))
 
-;; ---- 1a. rf2-vl5xsp — single-arity clear FAILS CLOSED under no scope ------
+;; ---- 1a. single-arity clear FAILS CLOSED under no scope -------------------
 ;;
-;; The fixture pins an ambient `*current-frame* :rf/default`, which MASKS the
-;; old facade floor (the single-arity used to recurse `[:rf/default id]`,
+;; The fixture pins an ambient `*current-frame* :rf/default`, which would MASK
+;; a facade floor (a single-arity that recursed `[:rf/default id]`,
 ;; synthesising the default before delegating). Clear the ambient scope
 ;; (`*current-frame* nil`) and assert the single-arity facade raises the
 ;; always-on `:rf.error/no-frame-context` — proving the public surface fails
-;; closed and the :rf/default floor is gone.
+;; closed with no :rf/default floor.
 
 (deftest clear-http-interceptor-single-arity-fails-closed-under-no-scope
-  (testing "rf2-vl5xsp — no-opts `(rf/clear :http-interceptor id)` under NO
+  (testing "no-opts `(rf/clear :http-interceptor id)` under NO
             ambient frame raises :rf.error/no-frame-context; it does NOT
             synthesise a :rf/default target."
     (binding [rf.frame/*current-frame* nil]
@@ -74,16 +74,16 @@
                (:rf.error/id (ex-data thrown)))
             "the throw is the always-on :rf.error/no-frame-context — no :rf/default floor")))))
 
-;; ---- 1b. rf2-9ynwvx — reg within with-frame installs; bare reg fails closed
+;; ---- 1b. reg within with-frame installs; bare reg fails closed
 ;;
-;; The RealWorld example apps (examples/real-apps/realworld_{http,resources})
-;; registered the bearer-auth interceptor with a BARE top-level
-;; `(reg-http-interceptor id {:before …})` in their boot `run` — no ambient
-;; frame scope, no `:frame` — which raises the always-on
+;; A BARE top-level `(reg-http-interceptor id {:before …})` in an app's boot
+;; `run` — no ambient frame scope, no `:frame` — raises the always-on
 ;; `:rf.error/no-frame-context` (EP-0002 context-required frame-local) and
-;; installs NOTHING, silently dropping the Authorization header from every
-;; authenticated request. The fix scopes the reg to the app frame with
-;; `with-frame`. This pins both halves of that contract on the registration
+;; installs NOTHING, so a bearer-auth interceptor registered that way would
+;; silently drop the Authorization header from every authenticated request.
+;; The RealWorld example apps (examples/real-apps/realworld_{http,resources})
+;; scope the reg to the app frame with `with-frame`. This pins both halves of
+;; that contract on the registration
 ;; surface (the fixture's ambient `*current-frame* :rf/default` masks the
 ;; bare-call raise, so we strip it): (a) a bare reg under no scope fails
 ;; closed and installs nothing; (b) `(with-frame f (reg-http-interceptor …))`
@@ -91,11 +91,11 @@
 ;; registers before the frame-root ensures the frame.
 
 (deftest reg-http-interceptor-bare-fails-closed-with-frame-installs-rf2-9ynwvx
-  (testing "rf2-9ynwvx — a bare reg under no ambient scope raises
+  (testing "a bare reg under no ambient scope raises
             :rf.error/no-frame-context and installs nothing; a
-            (with-frame f …) reg installs on f's chain (the RealWorld fix)"
+            (with-frame f …) reg installs on f's chain (the RealWorld pattern)"
     (binding [rf.frame/*current-frame* nil]
-      ;; (a) reproduce the example bug: bare reg with no scope fails closed.
+      ;; (a) a bare reg with no scope fails closed.
       (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth
                           {:before (fn [c] c)})
                         nil
@@ -105,13 +105,13 @@
             "the throw is the always-on :rf.error/no-frame-context — nothing installed")
         (is (empty? (rf.http.managed/interceptors-snapshot :realworld/app))
             "no slot landed on the app-frame chain"))
-      ;; (b) the fix: with-frame supplies the frame context, so the reg lands
+      ;; (b) with-frame supplies the frame context, so the reg lands
       ;; on :realworld/app's chain even though it was never `make-frame`d.
       (rf/with-frame :realworld/app
         (rf/reg-http-interceptor :realworld/bearer-auth {:before (fn [c] c)}))
       (is (= [:realworld/bearer-auth]
              (mapv :id (rf.http.managed/interceptors-snapshot :realworld/app)))
-          "with-frame scoped the reg onto the app frame's chain (the example fix)"))))
+          "with-frame scoped the reg onto the app frame's chain (the example's pattern)"))))
 
 ;; ---- 2. registration order is preserved -----------------------------------
 
@@ -148,19 +148,19 @@
     (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default))))
     (is (= [:on-other] (mapv :id (rf.http.managed/interceptors-snapshot :other))))))
 
-;; ---- 4a. rf2-f28bno / rf2-s32bf — the public {:frame} opts form ------------
+;; ---- 4a. the public {:frame} opts form ------------------------------------
 ;;
 ;; `clear-http-interceptor`'s public 2-arity is EXACTLY the trailing
 ;; `{:frame …}` opts map (mirroring `reg-http-interceptor`'s `:frame`).
 ;; Two-scalar frame-first is not a public shape; artefact-internal cleanup
-;; routes through the `clear-http-interceptor*` seam. This closes the silent
-;; mis-clear the old `(or (:frame opts) ambient-frame)` resolution carried.
+;; routes through the `clear-http-interceptor*` seam. An
+;; `(or (:frame opts) ambient-frame)` resolution would silently mis-clear.
 
 (deftest clear-http-interceptor-frame-arg-spelling-rf2-f28bno
-  (testing "rf2-f28bno — `(clear-http-interceptor id {:frame f})` targets frame
+  (testing "`(clear-http-interceptor id {:frame f})` targets frame
             `f` from an ambient `:rf/default` scope; the internal
-            `clear-http-interceptor*` seam (frame-first) still clears; and the
-            old misbind guess now binds the frame correctly instead of no-op'ing."
+            `clear-http-interceptor*` seam (frame-first) clears too; and the
+            natural `{:frame f}` guess binds the frame rather than no-op'ing."
     ;; The ambient scope is :rf/default (fixture). Register on the OTHER frame.
     (rf/reg-http-interceptor :fa/on-other {:frame :fa/other :before (fn [c] c)})
     (rf/reg-http-interceptor :fa/on-default {:before (fn [c] c)})
@@ -168,29 +168,29 @@
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
     ;; (1) PUBLIC opts form clears the NAMED frame from the :rf/default scope —
     ;; this is exactly the natural guess `(clear id {:frame f})` from the reg
-    ;; shape that used to SILENTLY NO-OP under the old frame-first arity. It now
-    ;; binds :fa/other correctly.
+    ;; shape, which a frame-first arity would SILENTLY NO-OP. It binds
+    ;; :fa/other.
     (rf/clear :http-interceptor :fa/on-other {:frame :fa/other})
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
-        "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
+        "opts {:frame :fa/other} cleared the named frame's slot")
     (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "the :rf/default chain is untouched by the explicit-frame clear")
-    ;; (2) INTERNAL frame-first seam still clears a named frame's slot.
+    ;; (2) INTERNAL frame-first seam clears a named frame's slot.
     (rf/reg-http-interceptor :fa/again {:frame :fa/other :before (fn [c] c)})
     (is (= [:fa/again] (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
     (rf.http.middleware/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
     (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "internal frame-first seam (clear-http-interceptor*) cleared the slot")))
 
-;; ---- 4b. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED -----------
+;; ---- 4b. the public opts form is EXACT + FAIL-CLOSED ----------------------
 
 (deftest clear-http-interceptor-opts-form-fail-closed-rf2-s32bf
-  (testing "rf2-s32bf — the opts map must be EXACTLY {:frame target}; malformed
-            opts, a non-map second arg, and the old two-scalar frame-first
+  (testing "the opts map must be EXACTLY {:frame target}; malformed
+            opts, a non-map second arg, and a two-scalar frame-first
             shape fail closed with :rf.error/registrar-clear-bad-request —
             `clear`'s own validator, which runs BEFORE any frame is resolved
-            (rf2-kuky.80) — and leave the ambient interceptor untouched; the
-            exact {:frame target} form still clears. The grammar is identical
+            — and leave the ambient interceptor untouched; the
+            exact {:frame target} form clears. The grammar is identical
             on both runtimes; the JVM twin additionally pins the
             artefact-level door's own :rf.error/http-bad-interceptor."
     (letfn [(threw-bad? [thunk]
@@ -215,7 +215,7 @@
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient 42))
           "non-map scalar second arg fails closed")
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
-          "old two-scalar frame-first is not a public shape — fails closed")
+          "two-scalar frame-first is not a public shape — fails closed")
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
@@ -226,7 +226,7 @@
 ;; ---- 5. invalid shape raises ----------------------------------------------
 
 (deftest invalid-shape-raises
-  (testing "rf2-uheqq — non-keyword id, non-map interceptor-map, non-fn
+  (testing "non-keyword id, non-map interceptor-map, non-fn
             :before / :after, or missing both fns raises
             :rf.error/http-bad-interceptor"
     (let [thrown (try (rf/reg-http-interceptor "string-id" {:before (fn [c] c)})
@@ -256,10 +256,10 @@
       (is (some? thrown))
       (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))))
 
-;; ---- 7. rf2-uheqq — `:after` slot stored alongside `:before` --------------
+;; ---- 7. `:after` slot stored alongside `:before` --------------------------
 
 (deftest after-slot-is-stored
-  (testing "rf2-uheqq — an interceptor registered with :after stamps the
+  (testing "an interceptor registered with :after stamps the
             slot under :after on the stored interceptor map"
     (let [after-fn (fn [_ctx resp] resp)]
       (rf/reg-http-interceptor :uheqq/with-after {:after after-fn})

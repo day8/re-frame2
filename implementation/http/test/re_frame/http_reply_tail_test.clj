@@ -1,21 +1,21 @@
 (ns re-frame.http-reply-tail-test
-  "JVM coverage for the coupled reply-tail correctness fixes:
+  "JVM coverage for two coupled reply-tail contracts:
 
-  - rf2-bvw9ut — the reply-target SHAPE (vector-or-nil) is validated at
+  - the reply-target SHAPE (vector-or-nil) is validated at
     DISPATCH time (`re-frame.http.handlers/validate-reply-target!`), BEFORE
     the request is issued, per Spec 014 §Request envelope. A bare-keyword
     `:on-success` fails fast at the fx-call site rather than issuing the
     request and throwing async in the reply tail.
 
-  - rf2-ln85eg — a REPLY-TAIL exception (a throwing `:after` interceptor, or
+  - a REPLY-TAIL exception (a throwing `:after` interceptor, or
     a malformed reply target the dispatch-time guard did not catch) thrown
     AFTER the transport already succeeded must NOT be reclassified as a
-    transport rejection. On the JVM the pre-fix throw escaped the unobserved
-    `whenComplete` future and vanished silently (the caller hung). Post-fix
-    the transport FENCES the reply tail and surfaces the failure once as
-    `:rf.error/http-reply-tail-failed` — observably, and without retry.
+    transport rejection. The transport FENCES the reply tail and surfaces the
+    failure once as `:rf.error/http-reply-tail-failed` — observably, and
+    without retry. Unfenced on the JVM, the throw would escape the unobserved
+    `whenComplete` future and vanish silently (the caller would hang).
 
-  The JVM half is load-bearing for the silent-swallow defect (the
+  The JVM half is load-bearing for the silent-swallow failure mode (the
   `CompletableFuture.whenComplete` future is JVM-specific); the CLJS
   retry-storm half lives in `re-frame.http-reply-tail-cljs-test`.
 
@@ -75,13 +75,13 @@
   (filter #(= op (:operation %)) @captured))
 
 ;; ===========================================================================
-;; rf2-bvw9ut — dispatch-time reply-target SHAPE validation
+;; dispatch-time reply-target SHAPE validation
 ;; ===========================================================================
 
 (def ^:private validate-reply-target! @#'rf.http.handlers/validate-reply-target!)
 
 (deftest bvw9ut-shape-validated-at-dispatch-time-unit
-  (testing "rf2-bvw9ut — validate-reply-target! rejects a non-vector non-nil
+  (testing "validate-reply-target! rejects a non-vector non-nil
             reply target with :rf.error/http-bad-reply-target, and accepts an
             event vector or an explicit nil (fire-and-forget)"
     ;; A bare keyword is malformed for each of the three reply-target keys.
@@ -106,16 +106,15 @@
         "an explicit nil (fire-and-forget) passes")
     (is (nil? (validate-reply-target! {:reply-to nil}))
         "an explicit nil :reply-to — the ONE fire-and-forget spelling — passes")
-    ;; rf2-kuky.12 — this assertion previously read "passes", and it was the
-    ;; only pin the per-branch override precedence ever had. The two styles are
-    ;; now EXCLUSIVE; see mixed-reply-addressing-refused-at-dispatch below.
+    ;; The two styles are EXCLUSIVE; see
+    ;; mixed-reply-addressing-refused-at-dispatch below.
     (is (= :rf.error/http-bad-reply-target
            (:rf.error/id (ex-data (try (validate-reply-target! {:reply-to [:load] :on-failure nil})
                                        (catch clojure.lang.ExceptionInfo e e)))))
-        "a :reply-to beside an explicit-nil :on-failure is now a REFUSED mixture")))
+        "a :reply-to beside an explicit-nil :on-failure is a REFUSED mixture")))
 
 (deftest mixed-reply-addressing-refused-at-dispatch
-  (testing "rf2-kuky.12 — `:reply-to` and the `:on-success` / `:on-failure`
+  (testing "`:reply-to` and the `:on-success` / `:on-failure`
             split sugar are EXCLUSIVE. Refusal is on key PRESENCE, so an
             explicit `nil` branch is a mixture too; the ex-data names the keys
             and the reason so a caller can see WHICH pair collided"
@@ -129,14 +128,14 @@
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) (str (pr-str (vec (sort-by str (keys mixed)))) " must throw"))
         (is (= :rf.error/http-bad-reply-target (:rf.error/id (ex-data e)))
-            "→ :rf.error/http-bad-reply-target (reused; no new catalogue id)")
+            "→ :rf.error/http-bad-reply-target (the bad-shape catalogue id)")
         (is (= :mixed-addressing (:reason (ex-data e)))
             ":reason distinguishes a mixture from the bad-SHAPE use of the same id")
         (is (= :reply-to (first (:keys (ex-data e))))
             ":keys leads with :reply-to, then the colliding branch key(s)")
         (is (= (set (keys mixed)) (set (:keys (ex-data e))))
             ":keys names every colliding key, not just the first")))
-    (testing "the two unmixed styles, and each branch alone, still pass"
+    (testing "the two unmixed styles, and each branch alone, pass"
       (doseq [ok [{:reply-to [:a]}
                   {:reply-to nil}
                   {:on-success [:a]}
@@ -147,7 +146,7 @@
             (str (pr-str ok) " is a legal reply addressing"))))))
 
 (deftest bvw9ut-bare-keyword-on-success-rejected-before-network
-  (testing "rf2-bvw9ut — dispatching :rf.http/managed with a bare-keyword
+  (testing "dispatching :rf.http/managed with a bare-keyword
             :on-success is REJECTED at dispatch time: the server is never hit
             (the request is not issued), and the throw is the dispatch-time
             :rf.error/http-bad-reply-target — not an async reply-tail throw"
@@ -188,11 +187,11 @@
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
-;; rf2-ln85eg — reply-tail throw is observed, not swallowed; not retried
+;; reply-tail throw is observed, not swallowed; not retried
 ;; ===========================================================================
 
 (deftest ln85eg-after-throw-over-2xx-observed-not-swallowed
-  (testing "rf2-ln85eg (JVM) — a throwing :after interceptor over a 2xx is
+  (testing "(JVM) a throwing :after interceptor over a 2xx is
             surfaced observably as :rf.error/http-reply-tail-failed (not
             swallowed into the unobserved whenComplete future), the request is
             hit EXACTLY ONCE (no retry / re-send even under a
@@ -213,14 +212,14 @@
                 {:fx [[:rf.http/managed
                        {:request    {:url (str "http://127.0.0.1:" port "/x")}
                         :decode     :json
-                        ;; a retryable transport policy — the pre-fix leak
-                        ;; misclassified the reply-tail throw as
-                        ;; :rf.http/transport and would retry under this.
+                        ;; a retryable transport policy — a reply-tail throw
+                        ;; misclassified as :rf.http/transport would retry
+                        ;; under this.
                         :retry      {:on #{:rf.http/transport} :max-attempts 3}
                         :on-success [:ln85eg/reply]
                         :on-failure [:ln85eg/reply]}]]}))
             (rf/dispatch-sync [:ln85eg/load])
-            ;; The observable post-fix signal: the reply-tail failure surfaces
+            ;; The observable signal: the reply-tail failure surfaces
             ;; (rather than vanishing into the whenComplete future). Poll for it
             ;; — a regression that reclassified/retried would never emit it.
             (rf.test-support/poll-until

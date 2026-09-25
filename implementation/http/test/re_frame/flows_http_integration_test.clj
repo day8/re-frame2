@@ -1,25 +1,27 @@
 (ns re-frame.flows-http-integration-test
-  "Integration coverage for the http × flows × cancellation composition
-  (rf2-qm8m3, second of the two gaps the rf2-hm4gi flows delta audit
-  flagged as not pinned end-to-end after rf2-vug0k's four-test cluster).
+  "Integration coverage for the http × flows × cancellation composition.
 
-  The four sibling deftests in
+  The sibling deftests in
   `re-frame.flows-integration-test` (under the ssr artefact's test dir)
   pin machine-macrostep × flows, schema-rollback × flows, flow-throw ×
   flows, SSR × flows, child-dispatch × flows, and routing × flows. This
-  file pins the LAST composition the audit listed: http × flows ×
+  file pins http × flows ×
   cancellation.
 
   This namespace lives in the http artefact's test tree (not the ssr
-  bundle) because http/deps.edn already pulls flows + schemas + routing
+  bundle) because http/deps.edn pulls flows + schemas + routing
   + ssr in as test-only deps, but the ssr artefact does NOT depend on
   http — adding http to ssr/deps.edn just for this one cross-cut would
   alter the canonical ssr test classpath unnecessarily. The http
-  artefact already carries the full closure (flows × http) plus the
+  artefact carries the full closure (flows × http) plus the
   managed-HTTP cancellation surface, so the test sits naturally here.
 
   ## The atomicity contract this file pins
-  (`bd remember event-pipeline-atomicity`, Mike CONFIRMED 2026-05-24)
+
+  ANY throw BEFORE the :db install (cofx, handler, interceptor :after,
+  flow) means the install does not happen: app-db is unchanged, NO
+  `:rf.event/db-changed` emits and NO :fx runs. The install is the
+  atomic commit boundary; :fx is the only post-commit stage.
 
   An event handler that drives managed-HTTP cancellation typically
   returns:
@@ -46,9 +48,9 @@
   - (flow-throw atomicity) A flow throw on a cancellation event aborts
     the WHOLE event PRE-install: the dissoc does NOT land (the in-flight
     slot stays populated), `:rf.http/managed-abort` does NOT fire (fx is
-    the post-install stage that the flow-throw path skips wholesale per
-    rule a), and NO `:rf.event/db-changed` emits. This is critical: a
-    regression that let the cancel-fx fire even on a flow-throw abort
+    the post-install stage that the flow-throw path skips wholesale),
+    and NO `:rf.event/db-changed` emits. This is critical: letting
+    the cancel-fx fire even on a flow-throw abort
     would issue a network abort against a request whose app-db state
     says it's still pending — split-brain across the substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -59,7 +61,7 @@
             [re-frame.flows]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
-            ;; rf2-cdmle — required only to keep the test-support
+            ;; Required only to keep the test-support
             ;; canned-stub fx ids registered (mirrors http-managed-test's
             ;; require closure). This file does NOT use the stubs; the
             ;; abort path is exercised by writing directly into the
@@ -82,7 +84,7 @@
   ;; schemas / adapter / http in-flight + interceptor-chain reset, ambient
   ;; `:rf/default` scope) composed with this suite's trace recorder: register
   ;; the ::flows-http-recorder listener around the body and tear it down on
-  ;; exit (rf2-q14tde).
+  ;; exit.
   (reset-runtime-fixture
     (fn []
       (let [captured (atom [])]
@@ -117,10 +119,10 @@
   `abort-fn` is the recording closure the test uses to observe whether
   `:rf.http/managed-abort` fired.
 
-  rf2-o8ek — the seed carries `:frame`, exactly as production does: both
+  The seed carries `:frame`, exactly as production does: both
   `record-in-flight!` sites in `http-transport` stamp `:frame (:frame ctx)`,
-  and that ctx value came from `require-frame-stamp!`, so a real in-flight
-  handle can never lack one. The frame is now part of the registry key, and
+  and that ctx value comes from `require-frame-stamp!`, so a real in-flight
+  handle can never lack one. The frame is part of the registry key, and
   this test's cancel dispatches from the default frame, so the seed must name
   it — otherwise the handle is registered in a scope no dispatch can reach."
   [request-id abort-fn]
@@ -236,7 +238,7 @@
       ;; :fx walked after install — :rf.http/managed-abort looked up the
       ;; registered abort-fn and fired it with `:user`. (The real
       ;; abort-fn closure also calls finalise-failure! to clear the
-      ;; side-channel in-flight registry per rf2-plngk; we use a recording
+      ;; side-channel in-flight registry; we use a recording
       ;; stub here so the assertion targets only the fx-firing contract,
       ;; not the closure's downstream effects.)
       (is (= [:user] @abort-calls)
@@ -247,7 +249,7 @@
 ;; 2. http × flows × cancellation — atomicity under flow-throw.
 ;;
 ;; A flow throw on the cancellation event aborts the WHOLE event
-;; PRE-install (atomicity contract rule a): the handler's dissoc does
+;; PRE-install (the atomicity contract): the handler's dissoc does
 ;; NOT land AND the :rf.http/managed-abort fx does NOT fire. This split-
 ;; brain prevention is the load-bearing claim of the contract for the
 ;; cancellation surface: without it, a regression could land the
@@ -259,8 +261,8 @@
   (testing "a flow throw on a cancellation event aborts the WHOLE event
             PRE-install — the dissoc does NOT land (app-db's in-flight
             slot stays populated), the :rf.http/managed-abort fx does
-            NOT fire (post-install stage skipped per atomicity contract
-            rule a), and NO :rf.event/db-changed emits"
+            NOT fire (post-install stage skipped per the atomicity
+            contract), and NO :rf.event/db-changed emits"
     (let [abort-calls (atom [])]
       ;; Prime the side-channel registry — if the abort-fn were
       ;; reached we'd see :user appended to @abort-calls.
@@ -311,7 +313,7 @@
         (is (empty? @abort-calls)
             ":rf.http/managed-abort did NOT fire — fx walks AFTER install,
              and a flow throw aborts the event BEFORE install (atomicity
-             contract rule a; split-brain prevention: no transport abort
+             contract; split-brain prevention: no transport abort
              on a request whose app-db state still says it's pending)")
         (is (contains? (rf.http.managed/in-flight-snapshot) :load-articles)
             "the side-channel in-flight registry STILL holds the request

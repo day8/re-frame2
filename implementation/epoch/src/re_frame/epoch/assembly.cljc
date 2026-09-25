@@ -36,7 +36,7 @@
 ;;                                            drain — a deliberate lifecycle
 ;;                                            stop, not an error)
 ;;     :halted-handler-exception → :error    (schema-reserved cause; the
-;;                                            reference runtime currently
+;;                                            reference runtime
 ;;                                            does NOT emit this — the
 ;;                                            interceptor error-capture seam
 ;;                                            settles such cascades :ok with
@@ -103,7 +103,7 @@
        (try
          (schema-digest-fn {:frame frame-id})
          (catch #?(:clj Throwable :cljs :default) _
-           ;; Optional diagnostic enrichment retains nil-on-failure. The
+           ;; Optional diagnostic enrichment degrades to nil on failure. The
            ;; caller's post-callback exact check decides whether even that nil
            ;; result remains usable.
            nil))))))
@@ -252,7 +252,7 @@
    ;; The canonical snapshot is the whole frame state: both partitions.
    ;; `restore-epoch!` rewinds to `:frame-state-after`, reviving machines /
    ;; routes / elision / SSR runtime-db state, not just app-db. The
-   ;; `:db-before` / `:db-after` slots are kept as the OPTIONAL app-db
+   ;; `:db-before` / `:db-after` slots are the OPTIONAL app-db
    ;; PROJECTION (`(:rf.db/app frame-state-…)`) so pair tools can render
    ;; app-db diffs cheaply without re-projecting (Spec-Schemas
    ;; §`:rf/epoch-record`). The two `db-*` projections are also what the
@@ -298,14 +298,14 @@
          sensitive? (sensitive-rollup frame-id db-before db-after events)
          ;; Count frame-declared sensitive
          ;; paths whose value differs between :db-before / :db-after.
-         ;; Closes Xray's "both sides redacted ⇒ empty diff but something
-         ;; changed" gap by surfacing the suppressed signal directly on the
-         ;; record. Computed from the RAW values, before the off-box
+         ;; Surfaces the suppressed signal directly on the record, so Xray
+         ;; can show that something changed when both sides redact to an
+         ;; empty diff. Computed from the RAW values, before the off-box
          ;; projection substitutes the sentinel (parallel to the
          ;; :rf.epoch/sensitive? rollup above).
          redacted-modified-path-count (redacted-modified-paths-count
                                         frame-id db-before db-after)]
-     (cond-> {;; The record's own DISCRIMINATOR (rf2-kuky.92). `rf/project-egress`
+     (cond-> {;; The record's own DISCRIMINATOR. `rf/project-egress`
               ;; dispatches RECORD KINDS on this slot, so the epoch arm resolves
               ;; its per-kind projector through the late-bound
               ;; `:epoch/project-record` hook rather than the door bare-walking
@@ -313,7 +313,7 @@
               ;; `:db-*` slots RAW — a frame's `[:auth :token]` declaration never
               ;; matches `[:db-after :auth :token]`). Fixed value, pinned by
               ;; Spec-Schemas §`:rf/epoch-record`. It is a STAMP, not storage:
-              ;; the raw ring keeps exactly what it kept before, plus this slot.
+              ;; it adds nothing to the raw ring beyond this one slot.
               :kind               :rf/epoch-record
               :epoch-id           (rf.epoch.state/next-epoch-id)
               :frame              frame-id

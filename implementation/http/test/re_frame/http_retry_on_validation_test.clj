@@ -1,5 +1,5 @@
 (ns re-frame.http-retry-on-validation-test
-  "Spec 014 §Closed-set `:retry :on` validation (rf2-apwkm) — JVM tests.
+  "Spec 014 §Closed-set `:retry :on` validation — JVM tests.
 
   The `:rf.http/managed` fx body validates `:retry :on` at fx-call
   time. The closed retryable set is
@@ -30,7 +30,7 @@
 ;; ---- closed-set assertion --------------------------------------------------
 
 (deftest retryable-categories-is-the-closed-set
-  (testing "rf2-apwkm — handlers/retryable-categories pins the closed set
+  (testing "handlers/retryable-categories pins the closed set
     documented in Spec 014 §Closed-set `:retry :on` validation"
     (is (= #{:rf.http/transport
              :rf.http/cors
@@ -63,7 +63,7 @@
               (string?                     (:reason data))))))
 
 (defn- bad-retry-shape-throw?
-  "rf2-4zldh — a non-set `:on` throws `:rf.error/http-bad-retry-on` with
+  "A non-set `:on` throws `:rf.error/http-bad-retry-on` with
   `:bad-shape` (the offending value) rather than `:bad-members`. The
   ex-data must carry the canonical error id, the offending value, and a
   string `:reason`."
@@ -80,16 +80,15 @@
 ;; ---- rejection: non-retryable :rf.http/* categories -----------------------
 
 (deftest aborted-rejected
-  (testing "rf2-apwkm — `:rf.http/aborted` in `:retry :on` throws
-    :rf.error/http-bad-retry-on. Previously the runtime silently
-    rejected this only at retry-attempt time; the schema tighten
-    catches it at the dispatch site."
+  (testing "`:rf.http/aborted` in `:retry :on` throws
+    :rf.error/http-bad-retry-on. The dispatch site catches it, rather
+    than leaving the retry-attempt path to reject it silently."
     (is (bad-retry-on-throw?
           (call-managed! {:on #{:rf.http/aborted} :max-attempts 3})
           #{:rf.http/aborted}))))
 
 (deftest decode-failure-rejected
-  (testing "rf2-apwkm — `:rf.http/decode-failure` in `:retry :on` throws
+  (testing "`:rf.http/decode-failure` in `:retry :on` throws
     :rf.error/http-bad-retry-on. The next attempt would deterministically
     reproduce the same schema/parser failure — retrying buys nothing."
     (is (bad-retry-on-throw?
@@ -97,7 +96,7 @@
           #{:rf.http/decode-failure}))))
 
 (deftest accept-failure-rejected
-  (testing "rf2-apwkm — `:rf.http/accept-failure` in `:retry :on` throws
+  (testing "`:rf.http/accept-failure` in `:retry :on` throws
     :rf.error/http-bad-retry-on. Domain-level retry of an `:accept`
     projection belongs to a state machine, not the transport-retry slot."
     (is (bad-retry-on-throw?
@@ -105,14 +104,14 @@
           #{:rf.http/accept-failure}))))
 
 (deftest non-rf-http-keyword-rejected
-  (testing "rf2-apwkm — any keyword outside the `:rf.http/*` namespace
+  (testing "any keyword outside the `:rf.http/*` namespace
     is rejected; the set is closed."
     (is (bad-retry-on-throw?
           (call-managed! {:on #{:rf.error/something} :max-attempts 3})
           #{:rf.error/something}))))
 
 (deftest mixed-good-and-bad-reports-only-bad
-  (testing "rf2-apwkm — when `:on` contains a mix, `:bad-members`
+  (testing "when `:on` contains a mix, `:bad-members`
     surfaces only the offending members; the good ones are not
     flagged."
     (let [ex (call-managed!
@@ -124,40 +123,40 @@
       (is (bad-retry-on-throw? ex
             #{:rf.http/aborted :rf.http/decode-failure})))))
 
-;; ---- rejection: non-set `:on` shapes (rf2-4zldh) --------------------------
+;; ---- rejection: non-set `:on` shapes --------------------------------------
 
 (deftest keyword-on-rejected
-  (testing "rf2-4zldh — a bare keyword `:on` throws
-    :rf.error/http-bad-retry-on with :bad-shape. Previously this threw a
+  (testing "a bare keyword `:on` throws
+    :rf.error/http-bad-retry-on with :bad-shape, not a
     raw IllegalArgumentException (\"Don't know how to create ISeq from:
-    clojure.lang.Keyword\") from the `(remove …)` ISeq coercion."
+    clojure.lang.Keyword\") from a `(remove …)` ISeq coercion."
     (let [ex (call-managed! {:on :rf.http/transport :max-attempts 3})]
       (is (bad-retry-shape-throw? ex :rf.http/transport))
       (is (not (instance? IllegalArgumentException ex))
           "must be the canonical :rf.error/http-bad-retry-on, not a raw IllegalArgumentException"))))
 
 (deftest vector-on-rejected
-  (testing "rf2-4zldh — a vector `:on` (even with retryable members)
-    throws :rf.error/http-bad-retry-on. Previously a vector reached
-    run-attempt! unchanged, where `(contains? on-set kind)` tests INDEX
-    membership not category membership — silently disabling retry."
+  (testing "a vector `:on` (even with retryable members)
+    throws :rf.error/http-bad-retry-on. A vector reaching run-attempt!
+    would make `(contains? on-set kind)` test INDEX membership, not
+    category membership — silently disabling retry."
     (let [bad [:rf.http/transport]
           ex  (call-managed! {:on bad :max-attempts 3})]
       (is (bad-retry-shape-throw? ex bad)))))
 
 (deftest list-on-rejected
-  (testing "rf2-4zldh — a list `:on` is rejected; only a set is valid."
+  (testing "a list `:on` is rejected; only a set is valid."
     (let [bad (list :rf.http/transport :rf.http/http-5xx)
           ex  (call-managed! {:on bad :max-attempts 3})]
       (is (bad-retry-shape-throw? ex bad)))))
 
 (deftest string-on-rejected
-  (testing "rf2-4zldh — a string `:on` is rejected; only a set is valid."
+  (testing "a string `:on` is rejected; only a set is valid."
     (let [ex (call-managed! {:on "rf.http/transport" :max-attempts 3})]
       (is (bad-retry-shape-throw? ex "rf.http/transport")))))
 
 (deftest map-on-rejected
-  (testing "rf2-4zldh — a map `:on` is rejected; only a set is valid."
+  (testing "a map `:on` is rejected; only a set is valid."
     (let [bad {:rf.http/transport true}
           ex  (call-managed! {:on bad :max-attempts 3})]
       (is (bad-retry-shape-throw? ex bad)))))
@@ -165,7 +164,7 @@
 ;; ---- pass-through: closed-set members and absences ------------------------
 
 (deftest all-closed-set-members-pass-through
-  (testing "rf2-apwkm — every member of the closed retryable set passes
+  (testing "every member of the closed retryable set passes
     validation. The `run-attempt!` that follows attempts the network
     request synchronously on JVM; we don't care about the eventual
     failure here, only that the validator did NOT throw."
@@ -176,7 +175,7 @@
             (str "single-member set #{" k "} must pass closed-set validation"))))))
 
 (deftest full-closed-set-passes-through
-  (testing "rf2-apwkm — the entire closed set as `:on` passes."
+  (testing "the entire closed set as `:on` passes."
     (let [ex (call-managed!
                {:on  rf.http.handlers/retryable-categories
                 :max-attempts 1})]
@@ -184,7 +183,7 @@
                     (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest absent-retry-passes-through
-  (testing "rf2-apwkm — no `:retry` key at all: the validator is a
+  (testing "no `:retry` key at all: the validator is a
     no-op. Most calls don't configure retry."
     (let [args {:request {:method :get :url "http://localhost/x"}}
           ex   (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]} args)
@@ -194,7 +193,7 @@
                     (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest empty-on-set-passes-through
-  (testing "rf2-apwkm — `:retry {:on #{} ...}`: the validator is a
+  (testing "`:retry {:on #{} ...}`: the validator is a
     no-op. The transport loop's `(contains? on-set kind)` gate is
     false for every kind — this disables retry, same as omitting
     `:retry` entirely. No bad members to report."
@@ -203,7 +202,7 @@
                     (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest retry-without-on-passes-through
-  (testing "rf2-apwkm — `:retry {:max-attempts 3}` with no `:on` key:
+  (testing "`:retry {:max-attempts 3}` with no `:on` key:
     the validator is a no-op. Equivalent to no retry per the
     transport loop's `(or on #{})` defaulting."
     (let [ex (call-managed! {:max-attempts 3})]
@@ -211,7 +210,7 @@
                     (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest explicit-nil-on-passes-through
-  (testing "rf2-4zldh — `:retry {:on nil :max-attempts 3}`: an explicit
+  (testing "`:retry {:on nil :max-attempts 3}`: an explicit
     nil `:on` is an intentional no-retry shape, not a malformed value.
     It passes the shape check (the `(some? on)` guard) the same as an
     absent `:on`. Only present, non-nil, non-set values are rejected."

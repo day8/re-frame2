@@ -1,13 +1,13 @@
 (ns re-frame.epoch-egress-redaction-cljs-test
-  "rf2-p4515 — the epoch **egress-redaction** contract, proved on the host its
+  "The epoch **egress-redaction** contract, proved on the host its
   consumers actually run on.
 
   ## Why this file exists
 
   The epoch privacy / egress tier is a DATA-LEAK guard: it is the thing that
-  stops a `:sensitive`-classified value leaving the process. Before this suite
-  that guard was proved by 136 deftests across six `.clj` files — **JVM-only**.
-  Every real consumer of the projection is ClojureScript:
+  stops a `:sensitive`-classified value leaving the process. The JVM tier
+  proves that guard across several `.clj` files, but every real consumer of
+  the projection is ClojureScript:
 
     - `re-frame2-pair-mcp`'s `watch-epochs` / `trace-window` / `snapshot` tools
       emit CLJS forms that call `re-frame.core/project-egress` **inside the
@@ -15,9 +15,9 @@
     - Xray's Epoch panel renders the same projected record in the browser;
     - the browser Tool-Pair time-travel path reads the same projected shape.
 
-  So the assertions lived on the one host where no consumer runs. That
-  asymmetry — not the raw coverage number — is the defect, and this area has
-  already produced one documented false green on exactly this surface (see
+  A JVM-only proof would pin the contract on the one host where no consumer
+  runs. That asymmetry — not the raw coverage number — is the risk, and this
+  surface has a documented false green of exactly that shape (see
   `.github/scripts/report-changed-surfaces.sh`: \"a PR that broke the epoch
   egress/redaction contract merged GREEN at PR time … surfacing only in the
   nightly cron\").
@@ -32,16 +32,16 @@
     2. the **facade** path (`re-frame.core/project-egress`), which is what
        the consumers call — the JVM tier drives the artefact-internal
        `re-frame.core/project-egress` almost exclusively, so the
-       `late-bind` seam the browser crosses was untested on this host;
+       `late-bind` seam the browser crosses is otherwise untested on this host;
     3. the forwarder / bulk-egress shapes the consumers run
        (`register-listener! :epoch` + the whole-ring composition
        `(mapv project-egress (epoch-history …))`), including the
        whole-structure \"no secret bytes anywhere\" scan and double-projection
        idempotence;
     4. axis orthogonality — `:rf.egress/include-sensitive?` must not lift the fx-args,
-       runtime-db partition, or large axes (the rf2-m9duxl / rf2-5w06uu
-       Xray + Pair-MCP bypass leaks, both CLJS-side bugs);
-    5. `:trigger-event` event-args fail-closed (rf2-nm611o);
+       runtime-db partition, or large axes (the Xray + Pair-MCP bypass
+       shapes, both CLJS-side);
+    5. `:trigger-event` event-args fail-closed;
     6. the `:trace-events` slot — the t1/t2 pending-db tag re-root (a leak the
        whole rest of the tier would pass green on) and the off-box
        `:rf.http/off-box-body :omit` fail-closed. Both are read by Xray's
@@ -51,7 +51,7 @@
        later, unrelated cascades, and the `:rf.epoch/sensitive?` rollup badge
        survives projection.
 
-  NOT mirrored, and why (the full list, with reasons, is in the PR body): the
+  NOT mirrored, and why: the
   resource / mutation trace family's egress projector is OWNED by the
   resources artefact behind a late-bound hook and belongs to that artefact's
   test tree; `configure!` argument validation is registry plumbing with no
@@ -79,7 +79,7 @@
             [re-frame.elision :as rf.elision]
             [re-frame.epoch :as rf.epoch]
             [re-frame.frame :as rf.frame]
-            ;; rf2-kuky.92 §8 — the one-door arms bind the
+            ;; The one-door arms (§8 below) bind the
             ;; `:epoch/project-record` hook (guard G1) and ask the core's own
             ;; door whether it dispatches the kind (guard G2).
             [re-frame.late-bind :as rf.late-bind]
@@ -89,8 +89,8 @@
 
 ;; ---- fixtures --------------------------------------------------------------
 ;;
-;; Same canonical capture/restore fixture the JVM privacy suites use
-;; (rf2-yw1w1u): registrar snapshot/restore around each test plus the epoch
+;; Same canonical capture/restore fixture the JVM privacy suites use:
+;; registrar snapshot/restore around each test plus the epoch
 ;; reset-hook table (history / listeners / config-to-default). The `:init-fn`
 ;; re-applies this suite's non-default `:trace-events-keep 5` through the
 ;; PUBLIC `configure!` boundary — no reach into the private `state/config`.
@@ -151,8 +151,8 @@
 (defn- contains-secret?
   "True when `secret` appears ANYWHERE in a nested EDN value — the recursive
   scan an off-box forwarder's wire payload is subject to. `clojure.string`
-  is host-neutral, so no reader conditional is needed (the JVM originals used
-  `.contains`, which is JVM interop and would not compile under CLJS)."
+  is host-neutral, so no reader conditional is needed (`.contains` is JVM
+  interop and would not compile under CLJS)."
   [x]
   (cond
     (string? x) (str/includes? x secret)
@@ -285,18 +285,18 @@
            equality checks above are not comparing nil to nil"))))
 
 (deftest large-sub-output-elides-in-both-egress-slots
-  (testing "rf2-at60h + rf2-irwsq — a whole-output `:large?` subscription's
+  (testing "a whole-output `:large?` subscription's
             computed value reaches off-box egress through TWO slots of the same
             record: the structured `:sub-runs` row's `:value` / `:prev-value`
             AND the `:rf.sub/run` trace tag's `:rf.sub/value` /
             `:rf.sub/prev-value`. The raw on-box record keeps the exact value in
             both (Xray diff and `restore-epoch!` need it) but egress MUST
             substitute the marker in both; shipping either raw is the leak.
-            rf2-at60h fixed the row, rf2-irwsq the tag — they now share ONE
+            The row and the tag share ONE
             rule (`tool-pair/elide-whole-output-large-slots`) so they cannot
             drift. These are DISTINCT slots from `:db-after` — and
-            `epoch_cljs_test.cljs` exercises no subscriptions at all, so the
-            CLJS lane had no `:sub-runs` egress coverage of any kind."
+            `epoch_cljs_test.cljs` exercises no subscriptions at all, so this
+            is the CLJS lane's `:sub-runs` egress coverage."
     (fresh-frame!)
     (rf/reg-event :egress/seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-sub :egress/big {:large? true} (fn [_ _] (big-string payload-size)))
@@ -327,19 +327,16 @@
       (is (= benign (:value small-row))
           "NEGATIVE CONTROL — an UNMARKED sub's value rides through RAW, so
            the elision above is driven by the registration marker")
-      ;; rf2-irwsq — THE TRACE-TAG TWIN. The whole-output `:large?` value also
+      ;; THE TRACE-TAG TWIN. The whole-output `:large?` value also
       ;; rides the `:rf.sub/run` trace tag at
-      ;; `[:trace-events <i> :tags :rf.sub/value]`. Writing the record-wide scan
-      ;; below is how this suite FOUND that leak: egress elided only the
-      ;; structured `:sub-runs` row, so the raw payload still reached every
+      ;; `[:trace-events <i> :tags :rf.sub/value]`. Eliding only the
+      ;; structured `:sub-runs` row would let the raw payload reach every
       ;; off-box consumer that reads `:trace-events` (Xray-MCP `watch-epochs`,
       ;; Pair-MCP `trace-window` / `snapshot`, hosted log shippers) — and under
-      ;; the shipped `:trace-events-keep 50` it rode EVERY record for the
-      ;; cascade. This block was a labelled CHARACTERISATION assertion pinning
-      ;; that raw tag; the fix flipped it to the elided shape. Privacy was never
-      ;; affected (per-path `:sensitive` sub marks are substituted at the EMIT
-      ;; site, so they are already redacted in both slots) — this is the
-      ;; TOKEN-BUDGET axis only.
+      ;; the shipped `:trace-events-keep 50` it would ride EVERY record for the
+      ;; cascade. Privacy is not at stake here (per-path `:sensitive` sub marks
+      ;; are substituted at the EMIT site, so they are redacted in both slots)
+      ;; — this is the TOKEN-BUDGET axis only.
       (let [tags-of (fn [rec]
                       (->> (:trace-events rec)
                            (filter #(= :rf.sub/run (:operation %)))
@@ -355,7 +352,7 @@
             "fixture: the emit chokepoint stamped the whole-output `:large?`
              flag on the raw tag — the marker the egress rule honours")
         (is (rf.elision/marker? (:rf.sub/value proj-tags))
-            "rf2-irwsq — the projected `:rf.sub/run` tag's `:rf.sub/value` is a
+            "the projected `:rf.sub/run` tag's `:rf.sub/value` is a
              `:rf.size/large-elided` MARKER, not the raw payload. A marker and
              not a drop: a tool must be able to tell a value existed and was
              withheld, which a silent drop makes indistinguishable from a sub
@@ -367,16 +364,16 @@
                (get-in (:rf.sub/value proj-tags) [:rf.size/large-elided :bytes]))
             "the row's and the tag's markers agree on `:bytes` — the structural
              evidence that ONE rule produced both (they cannot drift)"))
-      ;; The cross-cutting claim the MCP wire boundary depends on, now assertable
-      ;; for the whole-output `:large?` SUB shape: NO raw large leaf anywhere in
-      ;; the projected record. This is the scan that was withheld pre-fix.
+      ;; The cross-cutting claim the MCP wire boundary depends on, for the
+      ;; whole-output `:large?` SUB shape: NO raw large leaf anywhere in
+      ;; the projected record.
       (is (pos? (count-leaves-at-least payload-size raw))
           "fixture control: the RAW record does carry raw large leaves, so the
            scan below is not vacuously green")
       (is (zero? (count-leaves-at-least payload-size proj))
-          "rf2-irwsq — no raw large bytes ANYWHERE in the projected record:
+          "no raw large bytes ANYWHERE in the projected record:
            neither the `:sub-runs` row nor its `:rf.sub/run` trace-tag twin")
-      ;; NEGATIVE CONTROL on the new tag path: the trusted-local opt-in lifts it,
+      ;; NEGATIVE CONTROL on the tag path: the trusted-local opt-in lifts it,
       ;; proving the elision is driven by the classification rather than by some
       ;; unrelated truncation on the way out.
       (let [lifted (rf/project-egress raw {:rf.egress/include-large? true})]
@@ -391,16 +388,10 @@
 
 (deftest nil-and-non-map-input-projects-fail-closed-without-throwing
   (testing "a forwarder mapping over a ring that contains a nil hole must
-            not throw mid-egress on either host. That is the property this
-            has always been about, and it still holds.
+            not throw mid-egress on either host.
 
-            rf2-bv1p CHANGED THE ANSWER, in the fail-closed direction. The
-            retired `projected-record` short-circuited non-map input to
-            `nil`. `project-egress` has no such short-circuit: a kindless
-            input is a VALUE and is WALKED, and with no resolvable frame
-            and no sensitive opt-out the walker redacts it wholesale. So a
-            nil hole egresses as `:rf/redacted` rather than as `nil` —
-            still no throw. WHAT it returns is then the ordinary
+            `project-egress` does not short-circuit non-map input: a kindless
+            input is a VALUE and is WALKED. WHAT it returns is the ordinary
             kindless-value answer, which depends on the frame in scope: a
             resolvable frame walks the value against its own classification
             (a bare scalar declares nothing, so it passes through), while an
@@ -535,7 +526,7 @@
             the same record twice. Both substitutions must be irreversible
             across passes: `:rf/redacted` is a non-matchable scalar, and the
             wire-elision walker is marker-aware for `:rf.size/large-elided`
-            (rf2-fq8ep) so `:bytes` / `:digest` do not drift."
+            so `:bytes` / `:digest` do not drift."
     (fresh-frame!)
     (reg-login!)
     (rf/reg-event :egress/upload
@@ -570,13 +561,13 @@
           "and still carries the raw replay material a restore needs"))))
 
 ;; ============================================================================
-;;  4. Axis orthogonality — the CLJS-side bypass leaks (rf2-m9duxl, rf2-5w06uu)
+;;  4. Axis orthogonality — the CLJS-side bypass shapes
 ;; ============================================================================
 
 (deftest include-sensitive-keeps-fx-args-redacted
-  (testing "rf2-m9duxl was a CLJS bug: the Pair-MCP epoch tools treated an
-            operator's `:include-sensitive true` as a FULL raw-epoch bypass,
-            shipping raw fx args off-box. `{:rf.egress/include-sensitive? true}` lifts
+  (testing "a Pair-MCP epoch tool treating an operator's
+            `:include-sensitive true` as a FULL raw-epoch bypass would ship
+            raw fx args off-box. `{:rf.egress/include-sensitive? true}` lifts
             the APP-DB sensitive axis ONLY; `:effects[*].args` is a different
             keyspace governed by `:rf.egress/include-fx-args?`."
     (fresh-frame!)
@@ -603,8 +594,8 @@
           "and the bare off-box default redacts the fx args too"))))
 
 (deftest include-sensitive-keeps-runtime-db-partition-redacted
-  (testing "rf2-5w06uu was the Xray-side twin: opting in to sensitive APP-DB
-            values used to walk the RAW record, lifting the orthogonal
+  (testing "the Xray-side twin: opting in to sensitive APP-DB
+            values must not walk the RAW record, which would lift the orthogonal
             `:rf.db/runtime` partition (machine snapshots, route slice, SSR
             metadata) off-box as a side effect. The partition stays
             `:rf/redacted` unless `:rf.egress/include-runtime-db? true` is passed."
@@ -663,7 +654,7 @@
              assertions above are not vacuous")))))
 
 ;; ============================================================================
-;;  5. `:trigger-event` event-args fail-closed (rf2-nm611o)
+;;  5. `:trigger-event` event-args fail-closed
 ;; ============================================================================
 
 (deftest trigger-event-positional-secret-fails-closed
@@ -752,7 +743,7 @@
             re-roots the walk at the frame's app-db. Delete the re-root and
             the raw secret survives inside the projected trace while every
             `:db-after` assertion stays green; that is precisely the
-            false-green shape this whole PR is about."
+            false-green shape this suite exists to catch."
     (fresh-frame!)
     (let [tags {:rf.event/db {:auth {:password secret} :audit {:note benign}}}
           rec  (synthetic-record
@@ -897,20 +888,15 @@
 
 ;; ============================================================================
 ;;  8. ONE DOOR — `:kind :rf/epoch-record` behind `rf/project-egress`
-;;     (rf2-kuky.92, stage 3a)
 ;;
-;; Before the stamp there were TWO record doors dispatching on DIFFERENT
-;; discriminators: `rf/project-egress` on `:kind`, and `rf/project-egress`
-;; on an epoch record's SLOT SET. Handing an epoch record to the public door
-;; was therefore UNSAFE and nothing but the reader's knowledge prevented it —
-;; the door saw a kindless map, walked it whole from `:path []`, and a frame's
+;; Without the `:kind` stamp the public door would see an epoch record as a
+;; kindless map, walk it whole from `:path []`, and a frame's
 ;; `[:auth :password]` declaration could not match
-;; `[:db-after :auth :password]`, so the app-db slots shipped RAW.
+;; `[:db-after :auth :password]`, so the app-db slots would ship RAW.
 ;;
-;; These arms pin the epoch artefact's half of the repair. The door's own
+;; These arms pin the epoch artefact's half of the contract. The door's own
 ;; half — kind recognition, frame resolution, guard G1's throw — is pinned in
-;; `re-frame.projection-cljs-test`. `rf/project-egress` still works and is
-;; unchanged; it retires under rf2-bv1p.
+;; `re-frame.projection-cljs-test`.
 ;; ============================================================================
 
 (defn- with-epoch-project-record-hook
@@ -938,13 +924,13 @@
 (deftest assembled-record-carries-the-kind-stamp
   (testing "every assembled record carries the FIXED `:kind :rf/epoch-record`
             discriminator (Spec-Schemas §`:rf/epoch-record`). It is a STAMP,
-            not a storage change — the raw ring record still carries the
+            not a projection — the raw ring record carries the
             unredacted value the replay path reads."
     (let [raw (login-record!)]
       (is (= :rf/epoch-record (:kind raw))
           "the raw ring record is stamped")
       (is (= secret (get-in raw [:db-after :auth :password]))
-          "CONTROL — storage is otherwise unchanged: the raw record still
+          "CONTROL — the raw record
            carries the unredacted value, so the stamp cannot have been
            mistaken for a projection")
       (is (= :rf/epoch-record (:kind (rf/project-egress raw)))
@@ -954,7 +940,7 @@
 (deftest project-egress-on-a-stamped-record-matches-the-epoch-door
   (testing "the public door and the epoch door produce the SAME projection
             for the same policy — one engine, reached two ways, so the pair
-            cannot drift while they coexist"
+            cannot drift"
     (let [raw  (login-record!)
           opts {:rf.egress/profile :rf.egress/off-box-tool}]
       (is (= (rf/project-egress raw opts)
@@ -1046,15 +1032,9 @@
            `:rf.egress/include-fx-args?`"))))
 
 (deftest an-epoch-only-axis-is-door-vocabulary-and-never-reaches-the-walker
-  (testing "rf2-bv1p — the three epoch-only axes moved ONTO the door when
-            `projected-record`, the standalone door that used to own them,
-            retired. A retirement must not take a capability with it, so the
-            door ACCEPTS them (rf2-kuky.9 option A's target opts map names
-            all six axes on the one door).
-
-            This DELIBERATELY REVERSES what rf2-kuky.92 pinned here. While
-            both doors coexisted the axes stayed on the old one and the
-            door refused them; with the old one gone, refusing them would
+  (testing "the three epoch-only axes are door vocabulary: the
+            door ACCEPTS them (its opts map names
+            all six axes on the one door), because refusing them would
             strand three live engine branches behind no reachable caller."
     (let [raw   (login-record!)
           tight (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})
@@ -1081,11 +1061,10 @@
       (is (not= :rf/redacted (get-in wide [:frame-state-after :rf.db/runtime]))
           "and the difference is exactly the partition the axis names")))
 
-  (testing "rf2-bv1p — and the SAFETY property the refusal used to provide
-            is kept by a different mechanism: the epoch-only keys are
+  (testing "and the epoch-only keys are
             STRIPPED before `resolve-elision-opts`, so one can never reach
-            the equally-closed WALKER map and throw from the wrong layer on
-            a path that used to work. The kindless VALUE path is where that
+            the equally-closed WALKER map and throw from the wrong layer.
+            The kindless VALUE path is where that
             would bite, because it walks."
     (is (nil? (try (rf/project-egress
                      {:some "tree"}
@@ -1105,20 +1084,20 @@
                                 :cljs ExceptionInfo) e e))
           data   (ex-data thrown)]
       (is (some? thrown)
-          "CONTROL — the vocabulary is still CLOSED; it widened by exactly
-           three named keys, it did not become permissive")
+          "CONTROL — the vocabulary is CLOSED: exactly three named
+           epoch-only keys, not a permissive map")
       (is (= :rf.error/bad-egress-opts (:rf.error/id data)))
       (is (= 'rf/project-egress (:where data))
-          ":where still names the DOOR")
+          ":where names the DOOR")
       (is (contains? (set (:unknown-keys data)) :totally-made-up)
           "and the offending key is named"))))
 
 (deftest local-raw-profile-floor-is-honoured-not-overridden-to-false
   (testing "the profile is the FLOOR and only the keys the caller ACTUALLY
-            supplied overlay it. The previous form forced the two shared axes
-            present-and-false on every call, which was invisible under the
+            supplied overlay it. Forcing the two shared axes
+            present-and-false on every call would be invisible under the
             five fail-closed profiles — whose floor is false anyway — and
-            silently defeated `:rf.egress/local-raw`, the ONE profile whose
+            would silently defeat `:rf.egress/local-raw`, the ONE profile whose
             floor opts sensitive and large back IN."
     (let [raw (login-record!)]
       (is (= :rf/redacted
@@ -1197,21 +1176,20 @@
   (every? rf.elision/marker? (vals surfaces)))
 
 (deftest local-raw-large-axis-reaches-every-whole-output-slot
-  (testing "rf2-kuky.92 (merged-PR audit of #9522) — the RESOLVED profile, not
+  (testing "the RESOLVED profile, not
             the caller's raw opts map, is what every epoch-side reader of a
             SHARED `:rf.egress/*` axis must see.
 
-            `project-egress` resolves the named profile into `elision-opts`,
-            but its `:rf/epoch-record` arm forwards the ORIGINAL opts, and the
-            whole-output helpers read `:rf.egress/include-large?` off them by key
-            presence. So under `:rf.egress/local-raw` — the ONE profile whose
-            floor opts large back IN — the tree-walker path honoured the floor
-            while the two whole-output subscription slots did not, and the same
-            25,000-character value survived in `:db-after` and became a size
-            marker in the `:sub-runs` row and its `:rf.sub/run` trace twin.
+            Were the `:rf/epoch-record` arm to forward the ORIGINAL opts, with
+            the whole-output helpers reading `:rf.egress/include-large?` off
+            them by key presence, then under `:rf.egress/local-raw` — the ONE
+            profile whose floor opts large back IN — the tree-walker path would
+            honour the floor while the two whole-output subscription slots did
+            not, and the same 25,000-character value would survive in
+            `:db-after` and become a size marker in the `:sub-runs` row and its
+            `:rf.sub/run` trace twin.
 
-            The old and new doors produced EQUAL outputs in all six cases, so
-            door-vs-door comparison could not see this; only a matrix over the
+            A door-vs-door comparison cannot see this; only a matrix over the
             three surfaces can. Asserted as a MATRIX rather than per slot: the
             claim is that the three agree, which is what a policy resolved once
             at the record boundary buys."
@@ -1229,15 +1207,15 @@
       (is (all-raw? (projected {:rf.egress/profile :rf.egress/local-raw}))
           "OMITTED OVERRIDE — `local-raw`'s own floor opts large back in for
            ALL THREE surfaces with no explicit key from the caller. This is the
-           arm the #9522 audit measured failing on two of the three.")
+           arm a split resolution fails on two of the three.")
       (is (all-raw? (projected {:rf.egress/profile      :rf.egress/local-raw
                                 :rf.egress/include-large? true}))
           "EXPLICIT TRUE — agreeing with the floor changes nothing")
       (is (all-elided? (projected {:rf.egress/profile      :rf.egress/local-raw
                                    :rf.egress/include-large? false}))
           "EXPLICIT FALSE stays authoritative — an explicit key still overlays
-           the floor and WINS, on all three surfaces. This is the arm a fix
-           that merely forced the floor present-and-true would break.")
+           the floor and WINS, on all three surfaces. This is the arm that
+           forcing the floor present-and-true would break.")
       (is (all-elided? (projected {:rf.egress/profile :rf.egress/off-box-tool}))
           "OFF-BOX CONTROL — a fail-closed profile still elides all three, so
            the assertions above cannot pass by the elision having stopped
@@ -1267,8 +1245,7 @@
 (deftest guard-g1-absent-projector-yields-no-payload-at-all
   (testing "GUARD G1: with the projector absent, the door throws BEFORE
             returning anything — so there is no payload for a forwarder to
-            ship, redacted or otherwise. `rf/project-egress` is unaffected;
-            it hangs off its own hook."
+            ship, redacted or otherwise."
     (let [raw (login-record!)]
       (with-epoch-project-record-hook nil
         (fn []
@@ -1287,10 +1264,9 @@
              (get-in (rf/project-egress raw) [:db-after :auth :password]))
           "CONTROL — OUTSIDE the flipped-hook scope the SAME call projects
            normally, so the throw above is the absent projector and not a
-           broken fixture or an unprojectable record. rf2-bv1p retired the
-           second door this control used to compare against; the before /
-           after comparison on the one door is the replacement, and it is
-           the stronger control because it exercises the very call that
+           broken fixture or an unprojectable record. The before /
+           after comparison on the one door is the
+           strong control because it exercises the very call that
            threw."))))
 
 (deftest guard-g2-refuses-a-core-whose-door-does-not-dispatch-the-kind

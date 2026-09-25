@@ -1,16 +1,16 @@
 (ns re-frame.epoch-silencing-emit-deadlock-test
-  "rf2-8b9twg — the delayed-silence emit MUST fan out with NO ledger lock held.
+  "The delayed-silence emit MUST fan out with NO ledger lock held.
 
-  ## The deadlock (introduced by rf2-9bhne6, closed here)
+  ## The deadlock an emit under the ledger locks would cause
 
-  rf2-9bhne6 moved the external `:rf.epoch.cb/silenced-on-frame-destroy` emit
-  INSIDE both ledger locks (`claim-and-publish-delayed-silence!` ran `publish!`
-  under `with-claim-locks` = registry-lock + silence-lock) so the winning
-  generation stayed authoritative THROUGH the emission. But `publish!` is an
+  Emitting the external `:rf.epoch.cb/silenced-on-frame-destroy` signal INSIDE
+  both ledger locks (`claim-and-publish-delayed-silence!` running `publish!`
+  under `with-claim-locks` = registry-lock + silence-lock) would keep the winning
+  generation authoritative THROUGH the emission. But `publish!` is an
   external `trace/emit!` that fans to ARBITRARY trace listeners, and a
   framework-blessed listener may `dispatch-sync` (Xray dispatch-syncs from its
   collector). `dispatch-sync` enters `drain-block!`, which spin-CAS-acquires the
-  target frame's `:drain-lock`. So the emit path is:
+  target frame's `:drain-lock`. So the emit path would be:
 
       Order A:  hold silence-lock (+registry-lock)  ->  want :drain-lock
 
@@ -25,8 +25,8 @@
 
   A + B is an AB-BA hard hang: T1 (cold destroy of frame G) holds silence-lock and
   spins on frame F's :drain-lock; T2 (holding F's :drain-lock) blocks on
-  silence-lock. Neither makes progress. rf2-9bhne6's deadlock-freedom argument
-  only analysed `frame-owner-lock` and never `:drain-lock`, so it missed this.
+  silence-lock. Neither makes progress. A deadlock-freedom argument that
+  analyses only `frame-owner-lock` and never `:drain-lock` misses this.
 
   Note the target frame's `:drain-lock` must be held by a path that does NOT set
   `:in-sync-drain?` — a cold `call-serialized-with-drain!` section (this test) or
@@ -35,13 +35,13 @@
   `:in-sync-drain?` guard) and never reaches `drain-block!`, so a sync-drained
   frame cannot be the deadlock target.
 
-  ## The fix (rf2-8b9twg)
+  ## The protocol
 
   `claim-and-publish-delayed-silence!` reserves the mark under both ledger locks,
   RELEASES them, then emits OUTSIDE them; generation authority is preserved by
   QUALIFYING the emit with `observed-gen` (self-filtering at the receiver) rather
   than by holding a lock across the foreign fan-out. With no ledger lock held
-  during the emit, Order A's `silence-lock -> :drain-lock` edge is gone, so the
+  during the emit, there is no Order A `silence-lock -> :drain-lock` edge, so the
   cycle cannot form.
 
   ## This test
@@ -53,13 +53,13 @@
       dispatch-sync reaches `drain-block!`); inside it takes `silence-lock` via a
       genuine `record-observation!` re-arm — Order B.
     * T1 runs `claim-and-publish-delayed-silence!` for a deferred-silence frame;
-      its `publish!` `dispatch-sync`s into F — Order A,
-      (pre-fix) hold-silence-lock -> want-drain-lock.
+      its `publish!` `dispatch-sync`s into F — Order A, which with the emit
+      under the locks is hold-silence-lock -> want-drain-lock.
 
-  Pre-fix (emit under the locks) this HANGS: both futures time out. The bounded
+  With the emit under the locks this HANGS: both futures time out. The bounded
   `deref` surfaces `::timeout` and the `(not= ::timeout ...)` assertions go RED
-  (verified: reverting `claim-and-publish` to the emit-under-lock shape wedges
-  both threads). Post-fix the emit runs outside the locks, so T2 takes
+  (an emit-under-lock `claim-and-publish` wedges both threads). With the emit
+  outside the locks, T2 takes
   silence-lock freely, finishes its cold section, frees F's `:drain-lock`, and
   T1's dispatch-sync then drains and returns — both futures COMPLETE (GREEN).
 
@@ -95,7 +95,8 @@
   (:generation (get (rf.epoch.state/listeners-snapshot) cb)))
 
 (deftest claim-and-publish-emit-into-a-dispatch-syncing-listener-does-not-deadlock-a-drain-lock-holder
-  ;; The regression: pre-fix HANGS (bounded-timeout -> RED), post-fix COMPLETES.
+  ;; An emit under the ledger locks HANGS (bounded-timeout -> RED); an emit
+  ;; outside them COMPLETES.
   (let [drainee        :edl/drainee    ; live frame whose :drain-lock T2 holds
         destroyed      :edl/destroyed  ; deferred-silence frame (epoch-state seam)
         cb             ::edl-owed-cb    ; owed-silence subject (T1's claim)
@@ -103,7 +104,7 @@
         token          (Object.)
         t2-holds-drain (CountDownLatch. 1) ; T2 is inside its cold section, holding :drain-lock
         t2-go          (CountDownLatch. 1) ; release T2 to take silence-lock
-        t1-in-publish  (CountDownLatch. 1) ; T1 reached publish! (pre-fix: ledger locks held)
+        t1-in-publish  (CountDownLatch. 1) ; T1 reached publish!
         await-s        (fn [^CountDownLatch l] (.await l (long 5) TimeUnit/SECONDS))]
     (rf/make-frame {:id drainee :doc "drainee: holds :drain-lock, wants silence-lock"})
     (rf/register-listener! :epoch other (fn [_] nil))
@@ -134,11 +135,12 @@
                 t1       (future (rf.epoch.state/claim-and-publish-delayed-silence!
                                    destroyed cb g 0 publish!))]
             (is (await-s t1-in-publish)
-                "T1 reached the emit (pre-fix: still holding both ledger locks)")
-            ;; Release T2 to acquire silence-lock. Pre-fix T1 holds it -> T2 blocks
-            ;; while holding :drain-lock, and T1's dispatch-sync spins on
-            ;; :drain-lock -> AB-BA hard hang. Post-fix T1 holds no ledger lock ->
-            ;; T2 proceeds, frees :drain-lock, T1's dispatch-sync then completes.
+                "T1 reached the emit")
+            ;; Release T2 to acquire silence-lock. Were the emit under the locks,
+            ;; T1 would hold it -> T2 would block while holding :drain-lock, and
+            ;; T1's dispatch-sync would spin on :drain-lock -> AB-BA hard hang.
+            ;; T1 holds no ledger lock -> T2 proceeds, frees :drain-lock, T1's
+            ;; dispatch-sync then completes.
             (.countDown t2-go)
             (let [t1-res (deref t1 8000 ::timeout)
                   t2-res (deref t2 8000 ::timeout)]

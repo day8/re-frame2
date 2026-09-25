@@ -28,7 +28,7 @@
 ;; ---- header validation surfaces a trace ----------------------------------
 
 (deftest invalid-header-value-emits-warning-not-silent-drop
-  (testing "rf2-9lun0 — a stray \\r in a header value fires
+  (testing "a stray \\r in a header value fires
   `:rf.warning/http-header-invalid` rather than silently dropping
   the header. Security-relevant middleware (auth-header attachment)
   depends on the signal."
@@ -60,7 +60,7 @@
                   "trace MUST NOT carry the rejected value — values can be secrets"))))))))
 
 (deftest invalid-header-name-emits-warning
-  (testing "rf2-9lun0 — an empty header name also fires the warning"
+  (testing "an empty header name also fires the warning"
     (with-trace-capture
       (fn [captured]
         (let [_req (jvm-build-request
@@ -74,7 +74,7 @@
               "expected :rf.warning/http-header-invalid for empty header name"))))))
 
 (deftest valid-headers-do-not-emit-warning
-  (testing "rf2-9lun0 — a valid header does NOT emit the warning"
+  (testing "a valid header does NOT emit the warning"
     (with-trace-capture
       (fn [captured]
         (let [_req (jvm-build-request
@@ -89,7 +89,7 @@
               (str "no warning expected for valid headers; saw: "
                    (mapv :tags warns))))))))
 
-;; ---- rf2-it1cd — JVM request honours per-request timeout-ms --------------
+;; ---- JVM request honours per-request timeout-ms --------------------------
 
 (defn- request-timeout-ms ^Long [^HttpRequest req]
   (let [^Optional o (.timeout req)]
@@ -97,7 +97,7 @@
       (.toMillis ^Duration (.get o)))))
 
 (deftest jvm-build-request-honours-timeout-ms
-  (testing "rf2-it1cd — `:timeout-ms` is stamped onto the HttpRequest"
+  (testing "`:timeout-ms` is stamped onto the HttpRequest"
     (let [req (jvm-build-request
                 {:method     :get
                  :url        "https://example.invalid/"
@@ -106,7 +106,7 @@
           "JDK HttpRequest carries the per-request read timeout"))))
 
 (deftest jvm-build-request-without-timeout-ms-omits-jdk-timeout
-  (testing "rf2-it1cd — when `:timeout-ms` is nil (opt-out), the
+  (testing "when `:timeout-ms` is nil (opt-out), the
   HttpRequest does NOT carry a per-request timeout. The handler's
   `:or {timeout-ms 30000}` is the load-bearing default; this test
   asserts the opt-out semantic at the transport boundary so callers
@@ -119,13 +119,13 @@
           "nil timeout-ms produces an HttpRequest with no per-request timeout"))))
 
 (deftest jvm-build-request-zero-timeout-ms-omits-jdk-timeout
-  (testing "rf2-ee38b.7 — `:timeout-ms 0` is the SECOND opt-out per Spec
+  (testing "`:timeout-ms 0` is the SECOND opt-out per Spec
   014 §`:timeout-ms` security defaults (semantically identical to nil:
-  no per-attempt timeout). Pre-fix this was broken: `0` is truthy in
-  Clojure, so `(when timeout-ms …)` armed `(Duration/ofMillis 0)`, which
-  throws `IllegalArgumentException` on the JDK and surfaced the opt-out
+  no per-attempt timeout). `0` is truthy in
+  Clojure, so a bare `(when timeout-ms …)` would arm `(Duration/ofMillis 0)`, which
+  throws `IllegalArgumentException` on the JDK and would surface the opt-out
   as a spurious `:rf.http/transport` failure. The `(pos? timeout-ms)`
-  guard now collapses `0` to no-timeout. This builds the request to
+  guard collapses `0` to no-timeout. This builds the request to
   prove it neither throws nor stamps a per-request deadline."
     (let [req (jvm-build-request
                 {:method     :get
@@ -134,18 +134,18 @@
       (is (nil? (request-timeout-ms req))
           "zero timeout-ms produces an HttpRequest with no per-request timeout (and does not throw)"))))
 
-;; ---- rf2-it1cd — normalise-args applies the 30000 default ---------------
+;; ---- normalise-args applies the 30000 default ---------------------------
 
 (def ^:private normalise-args @#'re-frame.http.handlers/normalise-args)
 
 (deftest normalise-args-defaults-timeout-ms-to-30000
-  (testing "rf2-it1cd — when the args map omits `:timeout-ms`, the
+  (testing "when the args map omits `:timeout-ms`, the
   normalised ctx carries the 30000 security default. Defending the
   contract end-to-end: a partner-API caller who forgets to set a
   read timeout still has the JDK HttpClient enforce a 30s wall-clock
   bound."
     (let [ctx (normalise-args {:request {:url "/x"}}
-                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; EP-0002: normalise-args reads
                               ;; the carried frame stamp off the fx-ctx; this
                               ;; direct-call unit test supplies it explicitly.
                               {:event [:some/event] :frame :rf/default})]
@@ -153,23 +153,23 @@
           "absent :timeout-ms must default to 30000"))))
 
 (deftest normalise-args-honours-explicit-timeout-ms
-  (testing "rf2-it1cd — an explicit `:timeout-ms 5000` overrides the default"
+  (testing "an explicit `:timeout-ms 5000` overrides the default"
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms 5000}
-                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; EP-0002: normalise-args reads
                               ;; the carried frame stamp off the fx-ctx; this
                               ;; direct-call unit test supplies it explicitly.
                               {:event [:some/event] :frame :rf/default})]
       (is (= 5000 (:timeout-ms ctx))))))
 
 (deftest normalise-args-passes-explicit-nil-timeout-ms-through
-  (testing "rf2-it1cd — `:timeout-ms nil` is an explicit opt-out and
+  (testing "`:timeout-ms nil` is an explicit opt-out and
   threads through normalisation unchanged (the JVM transport then
   omits the JDK timeout). The opt-out is deliberate and intentional —
   documented in Spec 014 §`:timeout-ms` security defaults."
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms nil}
-                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; EP-0002: normalise-args reads
                               ;; the carried frame stamp off the fx-ctx; this
                               ;; direct-call unit test supplies it explicitly.
                               {:event [:some/event] :frame :rf/default})]
@@ -177,7 +177,7 @@
           "nil opt-out threads through unchanged"))))
 
 (deftest normalise-args-passes-explicit-zero-timeout-ms-through
-  (testing "rf2-it1cd — `:timeout-ms 0` is also an explicit opt-out and
+  (testing "`:timeout-ms 0` is also an explicit opt-out and
   threads through normalisation unchanged. The transport then collapses
   it to no-timeout via a `(pos? timeout-ms)` guard — NOT a bare
   truthiness check, since `0` is truthy in Clojure. (The transport-level
@@ -185,21 +185,21 @@
   below.)"
     (let [ctx (normalise-args {:request    {:url "/x"}
                                :timeout-ms 0}
-                              ;; EP-0002 (rf2-nn0jqa): normalise-args reads
+                              ;; EP-0002: normalise-args reads
                               ;; the carried frame stamp off the fx-ctx; this
                               ;; direct-call unit test supplies it explicitly.
                               {:event [:some/event] :frame :rf/default})]
       (is (zero? (:timeout-ms ctx))
           "zero opt-out threads through unchanged"))))
 
-;; ---- rf2-1jcpm — security audit round-2 regression coverage --------------
+;; ---- header-validation warning redacts its URL ----------------------------
 
 (deftest invalid-header-warning-redacts-denylisted-query-params
-  (testing "rf2-1jcpm — when the request URL carries a denylisted query
+  (testing "when the request URL carries a denylisted query
   param (`?api_key=…`), the JVM header-validation warning trace MUST
-  scrub the value and stamp `:sensitive?` on the event. The previous
-  shape leaked the secret because the trace bypassed
-  `re-frame.http.privacy/prepare-emit-tags`."
+  scrub the value and stamp `:sensitive?` on the event. A trace that
+  bypasses `re-frame.http.privacy/prepare-emit-tags` would leak the
+  secret."
     (with-trace-capture
       (fn [captured]
         (let [_req (jvm-build-request
@@ -220,7 +220,7 @@
                 a secret (Spec 009 §Privacy)")))))))
 
 (deftest invalid-header-warning-redacts-on-sensitive-request
-  (testing "rf2-1jcpm — when the request is declared per-call :sensitive?,
+  (testing "when the request is declared per-call :sensitive?,
   ALL query-param values in the warning trace URL are scrubbed (broader
   rule than the denylist)."
     (with-trace-capture
@@ -240,14 +240,14 @@
                 "sensitive request scrubs EVERY param value")
             (is (true? (:sensitive? w)))))))))
 
-;; ---- rf2-1jcpm — CLJS-only-key warning redaction (JVM) -------------------
+;; ---- CLJS-only-key warning redaction (JVM) -------------------------------
 
 (def ^:private check-cljs-only-keys! re-frame.http.transport-jvm/check-cljs-only-keys!)
 
 (deftest cljs-only-key-warning-redacts-denylisted-query-params
-  (testing "rf2-1jcpm — the JVM warning for an ignored CLJS-only key
+  (testing "the JVM warning for an ignored CLJS-only key
   (`:rf.http/cljs-only-key-ignored-on-jvm`) MUST redact denylisted
-  query params in `:url`. Previously the raw URL rode the warning."
+  query params in `:url`."
     (with-trace-capture
       (fn [captured]
         (check-cljs-only-keys!
@@ -266,7 +266,7 @@
                 ":sensitive? stamped (denylist hit alone is a signal)")))))))
 
 (deftest cljs-only-key-warning-redacts-on-sensitive-request
-  (testing "rf2-1jcpm — sensitive flag also scrubs every param value"
+  (testing "sensitive flag also scrubs every param value"
     (with-trace-capture
       (fn [captured]
         (check-cljs-only-keys!
@@ -282,7 +282,7 @@
                    (:url tags)))
             (is (true? (:sensitive? w)))))))))
 
-;; ---- rf2-ee38b.7 — JVM honours the spec's `:redirect` envelope key -------
+;; ---- JVM honours the spec's `:redirect` envelope key ---------------------
 
 (def ^:private redirect->policy
   @#'re-frame.http.transport-jvm/redirect->policy)
@@ -291,10 +291,10 @@
   re-frame.http.transport-jvm/jvm-http-client-for)
 
 (deftest jvm-redirect-policy-maps-spec-values
-  (testing "rf2-ee38b.7 — `:redirect` maps onto the JDK redirect policy.
-  Spec 014 §Request envelope defaults `:redirect` to `:follow`; the JVM
-  transport previously dropped the key entirely (JDK default NEVER), so a
-  request relying on the spec default did NOT follow redirects on JVM/SSR.
+  (testing "`:redirect` maps onto the JDK redirect policy.
+  Spec 014 §Request envelope defaults `:redirect` to `:follow`; dropping
+  the key would leave the JDK default NEVER, so a request relying on the
+  spec default would NOT follow redirects on JVM/SSR.
   `:follow` → NORMAL, `:error`/`:manual` → NEVER, and the default (nil /
   unknown) → NORMAL to honour the spec default."
     (is (= HttpClient$Redirect/NORMAL (redirect->policy :follow))
@@ -309,7 +309,7 @@
         "unknown value → NORMAL (the spec default :follow)")))
 
 (deftest jvm-http-client-honours-follow-by-default
-  (testing "rf2-ee38b.7 — the per-policy memoised client carries the right
+  (testing "the per-policy memoised client carries the right
   `followRedirects` setting. The spec default (`:follow`/nil) yields a
   client set to NORMAL (NOT the JDK's bare-builder default NEVER)."
     (let [^HttpClient default-client (jvm-http-client-for nil)
@@ -324,13 +324,12 @@
       (is (identical? follow-client (jvm-http-client-for :follow))
           "clients are memoised per policy — connection pool is preserved"))))
 
-;; ---- rf2-ee38b.7 — JVM timeout failure carries :limit-ms -----------------
+;; ---- JVM timeout failure carries :limit-ms -------------------------------
 
 (deftest jvm-timeout-failure-carries-limit-ms
-  (testing "rf2-ee38b.7 — a JVM `:rf.http/timeout` failure now carries the
+  (testing "a JVM `:rf.http/timeout` failure carries the
   configured `:limit-ms` (Spec 014 §Failure categories types
-  `:rf.http/timeout` with `:elapsed-ms` / `:limit-ms`). The CLJS path
-  always populated both; the JVM path emitted nil for both. `:elapsed-ms`
+  `:rf.http/timeout` with `:elapsed-ms` / `:limit-ms`). `:elapsed-ms`
   legitimately stays nil on JVM (the JDK exposes no elapsed value)."
     (let [classify re-frame.http.transport-jvm/classify-jvm-error
           t   (java.net.http.HttpTimeoutException. "request timed out")
@@ -339,29 +338,29 @@
       (is (= 5000 (:limit-ms out)) ":limit-ms is threaded from the configured timeout-ms")
       (is (nil? (:elapsed-ms out)) ":elapsed-ms stays nil on JVM"))))
 
-;; ---- rf2-q3ts4 — classify-jvm-error no longer string-matches "abort"/"timed out" ----
+;; ---- classify-jvm-error matches exception types, never message text ----
 
-;; Reach the private fn via #' so the public surface stays unchanged.
+;; `classify-jvm-error` is a public seam of the JVM adapter; alias it here.
 (def ^:private classify-jvm-error
   re-frame.http.transport-jvm/classify-jvm-error)
 
 (deftest classify-jvm-error-uses-instance-checks-only
-  (testing "rf2-q3ts4 — HttpTimeoutException → :rf.http/timeout (instance match)"
+  (testing "HttpTimeoutException → :rf.http/timeout (instance match)"
     (let [t (java.net.http.HttpTimeoutException. "request timed out after 30s")
           out (classify-jvm-error t nil nil)]
       (is (= :rf.http/timeout (:kind out)))
       (is (string? (:message out)))))
 
-  (testing "rf2-q3ts4 — CancellationException → :rf.http/aborted (instance match)"
+  (testing "CancellationException → :rf.http/aborted (instance match)"
     (let [t (java.util.concurrent.CancellationException. "cancelled")
           out (classify-jvm-error t nil nil)]
       (is (= :rf.http/aborted (:kind out)))
       (is (= :user (:reason out)))))
 
-  (testing "rf2-q3ts4 — a downstream service's error whose message contains
-            \"timed out\" or \"abort\" must NOT misclassify. Pre-fix the
+  (testing "a downstream service's error whose message contains
+            \"timed out\" or \"abort\" must NOT misclassify. A
             substring fallback would route these to :rf.http/timeout /
-            :rf.http/aborted; post-fix they correctly stay at
+            :rf.http/aborted; they correctly stay at
             :rf.http/transport (the catch-all for unknown JDK failures)."
     (let [timed-out-substring-trap
           (java.io.IOException. "upstream service reported: gateway timed out at edge")
@@ -376,23 +375,21 @@
       (is (= "java.io.IOException" (:cause out-1)))
       (is (= "java.lang.RuntimeException" (:cause out-2)))))
 
-  (testing "rf2-q3ts4 — wrapped causes still resolve through (.getCause t)"
+  (testing "wrapped causes still resolve through (.getCause t)"
     (let [inner (java.net.http.HttpTimeoutException. "inner timeout")
           outer (java.util.concurrent.CompletionException. inner)
           out (classify-jvm-error outer nil nil)]
       (is (= :rf.http/timeout (:kind out))
           "the JDK HttpClient wraps in CompletionException; classify- still resolves the underlying HttpTimeoutException via (.getCause t)"))))
 
-;; ---- rf2-sixs3 — shared emit-and-dispatch-failure! tail -------------------
+;; ---- shared emit-and-dispatch-failure! tail -------------------------------
 ;;
-;; The abort-precedence machinery previously duplicated the rf2-bma05
-;; redact → trace/emit-error! → supersede-suppressed dispatch block across
-;; BOTH finalise-failure! and finalise-success!'s sample-(2) abort path.
-;; rf2-sixs3 extracts that tail into the private `emit-and-dispatch-failure!`
-;; so the redaction shape + supersede-suppression guard live in ONE place.
-;; These unit tests pin the helper's two-fold contract directly so a future
-;; drift (a privacy slot added to one site but not the other can no longer
-;; happen — there is only one site) is caught.
+;; finalise-failure! and finalise-success!'s sample-(2) abort path share ONE
+;; redact → trace/emit-error! → supersede-suppressed dispatch tail, the
+;; private `emit-and-dispatch-failure!`, so the redaction shape +
+;; supersede-suppression guard live in ONE place (a privacy slot cannot be
+;; added to one site but not the other — there is only one site). These
+;; unit tests pin the helper's two-fold contract directly.
 
 (def ^:private emit-and-dispatch-failure!
   @#'re-frame.http.transport/emit-and-dispatch-failure!)
@@ -408,7 +405,7 @@
          (finally (rf.late-bind/set-fn! :router/dispatch! original)))))
 
 (deftest emit-and-dispatch-failure-emits-and-dispatches-non-supersede
-  (testing "rf2-sixs3 — for a NON-supersede failure the helper both emits
+  (testing "for a NON-supersede failure the helper both emits
             the redacted :rf.http/* trace AND dispatches the reply (the
             shared tail finalise-failure! and finalise-success! sample-(2)
             both route through)"
@@ -427,7 +424,7 @@
                 (is (some? ev) "the helper emitted a :rf.http/aborted trace")
                 (is (= "https://api.example.invalid/v1?api_key=:rf/redacted&page=2"
                        (:url (:tags ev)))
-                    "the rf2-bma05 redaction shape ran — denylisted query param scrubbed")
+                    "the redaction shape ran — denylisted query param scrubbed")
                 (is (= :rid (:request-id (:tags ev)))
                     ":request-id stamped on the emitted trace"))
               ;; (b) the reply dispatched (non-supersede → not suppressed).
@@ -437,9 +434,9 @@
                   "the dispatched reply is the canonical :status :cancelled (abort) envelope"))))))))
 
 (deftest emit-and-dispatch-failure-suppresses-supersede-dispatch
-  (testing "rf2-sixs3 — for a supersede (:rf.http/aborted with
+  (testing "for a supersede (:rf.http/aborted with
             :reason :request-id-superseded) the helper STILL emits the
-            trace but SUPPRESSES the reply dispatch (rf2-lxd3 — the new
+            trace but SUPPRESSES the reply dispatch (the new
             request replaces the old; the prior :on-failure must not fire)"
     (with-router-capture
       (fn [dispatched]

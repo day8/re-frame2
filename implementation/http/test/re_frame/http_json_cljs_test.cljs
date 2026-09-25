@@ -1,6 +1,5 @@
 (ns re-frame.http-json-cljs-test
-  "CLJS-side unit coverage for `re-frame.http.json` (rf2-mih7n;
-  follow-on from rf2-q1z1u F3).
+  "CLJS-side unit coverage for `re-frame.http.json`.
 
   Background. The JVM `http_json_test.clj` covers the Cheshire branch
   exhaustively (keyword cap, malformed-input throw shape, non-string
@@ -11,16 +10,15 @@
   - `js/JSON.parse('')` throws SyntaxError — does NOT return nil like
     Cheshire does. Empty input is malformed under V8/SpiderMonkey/
     JavaScriptCore. The `:rf.http/managed` decode site catches. NOTE:
-    `\"\"` IS a string, so the `(string? s)` guard added per rf2-x1uhu
-    does NOT short-circuit it — the empty-string throw is preserved.
+    `\"\"` IS a string, so the `(string? s)` guard
+    does NOT short-circuit it — the empty-string throw stands.
   - `js/JSON.parse('{not-json')` throws SyntaxError.
-  - non-string input (nil, keyword, number, map, vector) returns nil per
-    rf2-x1uhu: the CLJS branch now opens with the same `(when (string? s)
+  - non-string input (nil, keyword, number, map, vector) returns nil:
+    the CLJS branch opens with the same `(when (string? s)
     ...)` guard as the JVM Cheshire branch, so a non-string short-circuits
-    to nil on both hosts. Earlier the CLJS path called `js/JSON.parse`
-    directly — nil coerced to `\"null\"` → nil, but a keyword/number/map
-    THREW where the JVM returned nil. That host asymmetry is the bug
-    rf2-x1uhu closed.
+    to nil on both hosts. Calling `js/JSON.parse` directly would coerce
+    nil to `\"null\"` → nil, but a keyword/number/map would THROW where
+    the JVM returns nil.
 
   These per-platform differences matter for the `:rf.http/managed`
   cascade: the CLJS decode site MUST classify the SyntaxError throws
@@ -32,7 +30,7 @@
             [re-frame.http.json :as rf.http.json]))
 
 (deftest cljs-json-parse-malformed-throws
-  (testing "rf2-mih7n — malformed JSON inputs throw under
+  (testing "malformed JSON inputs throw under
             `js/JSON.parse` on CLJS. The managed-HTTP decode site
             catches and classifies as `:rf.http/decode-failure`."
     (doseq [s ["{not-json"           ; unclosed object, bareword key
@@ -48,13 +46,13 @@
                  " — got " (pr-str thrown)))))))
 
 (deftest cljs-json-parse-empty-string-throws
-  (testing "rf2-mih7n — the empty string is malformed JSON under
+  (testing "the empty string is malformed JSON under
             `js/JSON.parse` (DIFFERENT from the JVM Cheshire branch
             which returns nil for end-of-stream). Pinning this
             divergence prevents a refactor that 'normalises' the
             CLJS branch by adding an empty-string short-circuit —
             doing so would mask a transport-layer programmer error
-            that the current decode-failure path surfaces."
+            that the decode-failure path surfaces."
     (let [thrown (try (rf.http.json/json-parse "") ::no-throw
                       (catch :default e e))]
       (is (not= ::no-throw thrown)
@@ -62,28 +60,26 @@
                (pr-str thrown))))))
 
 (deftest cljs-json-parse-non-string-input-returns-nil
-  (testing "rf2-x1uhu — non-string inputs return nil (not a throw) on
-            CLJS, mirroring the JVM Cheshire branch. The CLJS branch now
+  (testing "non-string inputs return nil (not a throw) on
+            CLJS, mirroring the JVM Cheshire branch. The CLJS branch
             opens with the SAME `(when (string? s) ...)` guard as JVM, so
             both hosts produce nil for nil / keyword / number / map /
-            vector input. Earlier the CLJS path called `js/JSON.parse`
-            directly: nil coerced to nil, but a keyword/number/map/vector
-            THREW where the JVM returned nil — the host asymmetry this
-            bead closed."
+            vector input, where calling `js/JSON.parse` directly would
+            THROW on a keyword/number/map/vector."
     (is (nil? (rf.http.json/json-parse nil))
         "nil input → nil (string? guard short-circuits, cross-host)")
     (is (nil? (rf.http.json/json-parse :keyword))
-        "keyword input → nil (was a throw before rf2-x1uhu)")
+        "keyword input → nil")
     (is (nil? (rf.http.json/json-parse 42))
-        "number input → nil (was a throw before rf2-x1uhu)")
+        "number input → nil")
     (is (nil? (rf.http.json/json-parse {:already :clojure}))
         "map input → nil — caller passed an already-parsed value by
-         mistake (was a throw before rf2-x1uhu)")
+         mistake")
     (is (nil? (rf.http.json/json-parse [1 2 3]))
-        "vector input → nil (was a throw before rf2-x1uhu)")))
+        "vector input → nil")))
 
 (deftest cljs-json-stringify-happy-path
-  (testing "rf2-mih7n — sanity-check `json-stringify` on CLJS uses
+  (testing "sanity-check `json-stringify` on CLJS uses
             `js/JSON.stringify` and produces standard JSON output
             (no edn-isms, no host-specific encoding quirks)."
     (is (= "{\"a\":1,\"b\":\"hello\"}"
@@ -92,7 +88,7 @@
     (is (= "true" (rf.http.json/json-stringify true)))
     (is (= "null" (rf.http.json/json-stringify nil)))))
 
-;; rf2-3x7nj.16.2 — the same body writes the same JSON on both hosts. The JVM
+;; The same body writes the same JSON on both hosts. The JVM
 ;; twin of this test (`json-stringify-matches-across-hosts` in
 ;; http_json_test.clj) pins the identical expectations against Cheshire.
 ;; Parsed JSON is compared, because key order is not part of the contract.
@@ -102,7 +98,7 @@
   (js->clj (js/JSON.parse (rf.http.json/json-stringify v))))
 
 (deftest cljs-json-stringify-matches-across-hosts
-  (testing "rf2-3x7nj.16.2 — keywords keep their namespace, keys and values
+  (testing "keywords keep their namespace, keys and values
             alike, and a UUID goes out as its canonical string wherever it sits"
     (is (= {"order/id" 1 "customer/id" 7} (wire {:order/id 1 :customer/id 7}))
         "two qualified keys sharing a local name stay two members")

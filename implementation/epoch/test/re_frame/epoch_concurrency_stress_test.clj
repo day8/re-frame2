@@ -6,7 +6,7 @@
   listener registry, and the per-frame ring buffer) are reached
   concurrently and must hold the same invariants.
 
-  Three scenarios:
+  Scenarios 1–3 (Scenarios 4–7 are described beside their deftests):
 
   ### Scenario 1 — N concurrent settle! calls from N independent frames
 
@@ -101,7 +101,7 @@
             ;; `state` is used in test BODIES for the private back-fill
             ;; path (`state/back-fill-sub-run!`) + the private listeners
             ;; var (`@#'state/listeners`) the concurrency invariants
-            ;; exercise directly — NOT for fixture config reset (that now
+            ;; exercise directly — NOT for fixture config reset (that
             ;; flows through `configure!`).
             [re-frame.epoch.state :as rf.epoch.state]
             ;; `tool-pair` is `with-redefs`'d in Scenario 6 to open the
@@ -110,7 +110,7 @@
             [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
-            ;; rf2-v6z0: machines is a separate artefact whose late-bind
+            ;; Machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when loaded. Pulled in
             ;; for symmetry across the suite so the captured ns-load
             ;; baseline includes the machines registrations.
@@ -119,11 +119,11 @@
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
-;; rf2-yw1w1u — canonical capture/restore fixture. Snapshots the
+;; Canonical capture/restore fixture. Snapshots the
 ;; registrar at ns-load + restores around each test, fires the epoch
 ;; reset-hook table (history / listeners / config-to-default), and the
 ;; `:init-fn` re-applies the suite's non-default `:trace-events-keep 5`
-;; (NOT the shipped 50 = :depth; Mike pair-debug 2026-05-27) through the
+;; (NOT the shipped 50 = :depth) through the
 ;; public `configure!` boundary — no test ns reaches into the private
 ;; `state/config` var for fixture reset.
 (use-fixtures :each
@@ -133,16 +133,16 @@
 
 ;; ---- stress dials ---------------------------------------------------------
 
-;; Per-thread iteration count. Matches rf2-1gpx8 / rf2-35rgj / rf2-ynk7
-;; standard 5000 so CI stays under ~90s wall-clock for the whole file.
+;; Per-thread iteration count: the repo's standard stress count of 5000,
+;; which keeps CI under ~90s wall-clock for the whole file.
 ;; Operators dial up via the env override; CI dials down by lowering it
 ;; (e.g. `RF2_RD7A7_STRESS_ITERS=500` for a smoke-test pass).
 (def ^:private stress-iters
   (or (some-> (System/getenv "RF2_RD7A7_STRESS_ITERS") Long/parseLong)
       5000))
 
-;; Eight parallel threads — matches rf2-ynk7's `concurrent-dispatch-stress`
-;; (`n-submitters 8`) and rf2-1gpx8's `n-threads`. Higher contention than
+;; Eight parallel threads — the thread count the repo's other stress
+;; suites use. Higher contention than
 ;; the typical 4-core CI box; the per-frame partitioning in scenario 1
 ;; means we're not over-saturating any one drain-lock, we're driving N
 ;; independent settle/record cycles in parallel and asserting the
@@ -176,7 +176,7 @@
     ;; Bump the ring depth above iters so the cap doesn't evict early
     ;; records mid-run — the count / ordering invariants below pin the
     ;; no-cap case. The depth-cap behaviour itself is covered by the
-    ;; existing `ring-depth-evicts-oldest` deterministic pin (rf2-shjf).
+    ;; `ring-depth-evicts-oldest` deterministic pin.
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
     (let [per-thread
           (vec
@@ -411,8 +411,7 @@
                 "ordering stable, all records land")
     ;; depth set generously above iters so the cap doesn't kick in;
     ;; the test pins the no-cap case so the count assertion is exact.
-    ;; A separate test under the existing depth-evicts pin (rf2-shjf)
-    ;; covers the cap behaviour.
+    ;; The `ring-depth-evicts-oldest` pin covers the cap behaviour.
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
     (rf/make-frame {:id :rd7a7.race/main :doc "ring-buffer race frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
@@ -508,7 +507,7 @@
       ;; Diagnostic-only — surface the ratio of ok/fail/read so a
       ;; future regression that flips one direction (e.g. always
       ;; refuses) is visible at test-output read time. Not asserted
-      ;; — the bead's invariants are 1/2/3 above; restore success
+      ;; — this scenario's invariants are 1/2/3 above; restore success
       ;; rate is a function of producer/consumer interleaving and
       ;; varies run-to-run.
       (is (true? true)
@@ -520,10 +519,10 @@
 ;;
 ;; RAW back-fill under CAS contention. `back-fill-event!` mutates the single
 ;; global `histories` atom under `swap!`. Per EP-0015 §15 + open-issue 6
-;; (RULED, hardened) the back-fill stores the RAW delta — the ring is causal
+;; the back-fill stores the RAW delta — the ring is causal
 ;; replay material, so it stays raw; every redaction runs projection-side
-;; only. The swap update fn (the pure splice inside `back-fill-event!`,
-;; rf2-c0rv4v) is therefore PURE — it invokes no injected fn, so a JVM CAS
+;; only. The swap update fn (the pure splice inside `back-fill-event!`)
+;; is therefore PURE — it invokes no injected fn, so a JVM CAS
 ;; retry re-runs only the pure splice. With no per-back-fill projection
 ;; invocation there is no double-invoke hazard inside the swap.
 ;;
@@ -619,7 +618,7 @@
                        "value set 0.." (dec stress-iters)
                        " verbatim — none lost, none redacted at storage.")))))))))
 
-;; ---- Scenario 5 (rf2-qh13yf) ----------------------------------------------
+;; ---- Scenario 5 -----------------------------------------------------------
 ;;
 ;; BACK-FILL vs INTERLEAVED EVICTION at ring cap. `back-fill-event!` fires at
 ;; React commit / deref / teardown time, OUTSIDE any drain, so a cascade
@@ -652,7 +651,7 @@
   (testing (str "back-fill vs " stress-iters
                 " interleaved cap-evicting settles — every accepted back-fill "
                 "lands on the epoch matching its embedded target-id, never a "
-                "stale-index neighbour (rf2-qh13yf)")
+                "stale-index neighbour")
     ;; Small cap so the recorder's settles continuously evict + shift indices.
     (let [cap 8]
       (rf/configure! {:epoch-history {:depth cap :trace-events-keep 50}})
@@ -717,7 +716,7 @@
         ;; --- Invariant 1 (snapshot consistency): every back-filled row on a
         ;;     surviving record embeds THAT record's own epoch-id. A row whose
         ;;     embedded target-id differs from the record it sits on is a
-        ;;     stale-index wrong-record splice (the bug).
+        ;;     stale-index wrong-record splice.
         (let [final-hist (rf/epoch-history :qh13yf.race/main)
               mis-spliced
               (for [record final-hist
@@ -739,7 +738,7 @@
                  "actually exercised; some attempts return nil when the "
                  "target evicted before the splice)."))))))
 
-;; ---- Scenario 6 (rf2-3fc89f.4) --------------------------------------------
+;; ---- Scenario 6 -----------------------------------------------------------
 ;;
 ;; RESTORE-vs-EVENT-DRAIN LINEARIZABILITY under the validate-then-write TOCTOU.
 ;; Scenario 3 above races restores against dispatches but accepts an arbitrary
@@ -752,11 +751,11 @@
 ;; the precondition check: the restore validates its preconditions with NO
 ;; drain in flight (so validation passes), THEN a concurrent `dispatch-sync`
 ;; starts a drain whose handler reads db and blocks mid-transition (holding the
-;; frame's `:drain-lock`), THEN the restore is released to attempt its write. On
-;; the pre-fix code the restore's write splices into the blocked transition and
-;; is overwritten by the handler's commit, so the frame ends at `{:n 3}` even
+;; frame's `:drain-lock`), THEN the restore is released to attempt its write. An
+;; unserialized restore write would splice into the blocked transition and be
+;; overwritten by the handler's commit, so the frame would end at `{:n 3}` even
 ;; though the restore returned `true` — a result no serial schedule can
-;; produce. With the fix the restore blocks on `:drain-lock` and serializes
+;; produce. The restore blocks on `:drain-lock` and serializes
 ;; AFTER the drain, so the outcome is the linearizable `{:n 1}`.
 ;;
 ;; The invariant, asserted every iteration: the racing event read the
@@ -832,10 +831,10 @@
                 (let [drain-fut (future (rf/dispatch-sync [:blocked-inc] {:frame frame-id}))]
                   (is (= {:n 2} (deref handler-read join-timeout-ms ::timeout))
                       "the racing event read the pre-restore db {:n 2}")
-                  ;; 3. Release the restore to attempt its write (blocks on the
-                  ;;    lock under the fix; splices under the bug).
+                  ;; 3. Release the restore to attempt its write (it blocks on
+                  ;;    the drain lock; an unserialized write would splice).
                   (.countDown release-precond)
-                  ;; A short bias toward the bug's interleave (regression aid).
+                  ;; A short bias toward the splicing interleave (regression aid).
                   (Thread/sleep 2)
                   ;; 4. Let the blocked handler commit {:n 3} and settle.
                   (.countDown release-handler)
@@ -853,13 +852,13 @@
                              " ({:n 3} = the restore's write spliced into and "
                              "erased by the blocked transition — non-linearizable)"))))))))))))
 
-;; ---- Scenario 7 (rf2-j538f7.5) --------------------------------------------
+;; ---- Scenario 7 -----------------------------------------------------------
 ;;
 ;; SAME-ID LISTENER REPLACEMENT vs FAN-OUT / DESTROY. Scenario 2 churns
 ;; register/unregister of PER-THREAD ids and asserts only final listener-map
 ;; emptiness + callback counts. It never churns the SAME id against fan-out and
 ;; frame-destroy, so it cannot see the generation-scoped observation/silencing
-;; invariant rf2-j538f7.5 fixed: a same-id replacement must INSTALL the new
+;; invariant this scenario pins: a same-id replacement must INSTALL the new
 ;; generation's observation (never erase it via a stale second swap) and must
 ;; never emit a torn double silence for one destroy.
 ;;
@@ -871,12 +870,12 @@
 ;; Invariants:
 ;;   1. No exception escapes any thread.
 ;;   2. Each frame destroy emits AT MOST ONE silencing trace for the churned id
-;;      — a torn generation could double-count (or, per the pre-fix bug, drop it
+;;      — a torn generation could double-count (or drop it
 ;;      to zero even for a live generation).
 ;;   3. Deterministic tail (churn stopped): a fresh same-id registration's
 ;;      fan-out observation SURVIVES, is stamped with the LIVE generation, and
-;;      its destroy silences EXACTLY once — the core false-negative the bug
-;;      produced under the two-swap replacement.
+;;      its destroy silences EXACTLY once — the core false-negative a two-swap
+;;      replacement would produce.
 ;;
 ;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
 
@@ -887,8 +886,8 @@
 (deftest same-id-replacement-vs-fanout-destroy-stress
   (testing (str "same-id listener replacement churn vs " gen-churn-iters
                 " settle/destroy cycles — no torn double-silence, the live "
-                "generation's observation survives and silences exactly once "
-                "(rf2-j538f7.5)")
+                "generation's observation survives and silences "
+                "exactly once")
     (rf/make-frame {:id :j538.gen/main :doc "same-id replacement stress frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
     (let [cb-id       ::churned
@@ -956,7 +955,7 @@
           (let [before @silence-cnt]
             (rf/destroy-frame! :j538.gen/main)
             (is (= 1 (- @silence-cnt before))
-                "the fresh generation's destroy silences EXACTLY once — the
-                 same-id-replacement erasure is fixed")))
+                "the fresh generation's destroy silences EXACTLY once — a
+                 same-id replacement does not erase the observation")))
         (rf/unregister-listener! :epoch cb-id)
         (rf/unregister-listener! :trace ::silence-rec)))))

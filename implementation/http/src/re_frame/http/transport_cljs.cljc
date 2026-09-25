@@ -15,8 +15,8 @@
 
   Everything here is `#?(:cljs …)` — on the JVM this namespace loads as
   effectively empty (the shared lifecycle only calls these fns under its
-  `:cljs` reader branch). Keeping the conditionals local to the adapter is
-  this boundary keeps CLJS interop out of the shared loop."
+  `:cljs` reader branch). Keeping the conditionals local to the adapter
+  keeps CLJS interop out of the shared loop."
   (:require [clojure.string         :as str]
             [re-frame.error         :as rf.error]
             [re-frame.http.decode   :as rf.http.decode]
@@ -39,9 +39,9 @@
      COMMA-FOLDED into a single string — and for `Set-Cookie` specifically
      the Fetch spec keeps it OUT of the combined view (`forEach` yields
      only the LAST `Set-Cookie` line; the earlier lines are dropped). That
-     diverged from the JVM, where `jvm-headers->map` rides every wire line
-     of a multi-valued header as a vector element — so a two-cookie
-     response decoded to a 2-element `[\"session=…\" \"csrf=…\"]` vector on
+     diverges from the JVM, where `jvm-headers->map` rides every wire line
+     of a multi-valued header as a vector element — so through `forEach`
+     alone a two-cookie response would decode to a 2-element `[\"session=…\" \"csrf=…\"]` vector on
      the JVM but a single (last-cookie-only) string on CLJS, silently
      LOSING the first `Set-Cookie` and comma-folding any other repeated
      header. Comma-folding `Set-Cookie` is invalid because cookie attribute
@@ -80,7 +80,7 @@
      `cljs-fetch` owns ONLY the internal `AbortController`
      (`internal-controller`), whose `signal` is the single one Fetch
      accepts. The caller's external `:abort-signal` is NOT wired here.
-     Per rf2-3fc89f.9, external cancellation is REQUEST-lifecycle-owned:
+     External cancellation is REQUEST-lifecycle-owned:
      the shared lifecycle (`re-frame.http.transport`) binds the external
      signal to the CURRENT phase handle's canonical `:abort-fn` (which
      aborts THIS internal controller when it fires), so abort precedence,
@@ -124,7 +124,7 @@
                           ;; `privacy/prepare-emit-tags` so a denylisted query
                           ;; param is scrubbed and `:sensitive?` is stamped),
                           ;; omit the bad pair, and continue with the valid
-                          ;; headers. A stray bad header no longer sinks an
+                          ;; headers. A stray bad header does not sink an
                           ;; otherwise-valid request; the trace is the alarm.
                           ;; Spec 014 §Body encoding + §Request envelope require
                           ;; request-prep failures to stay on the managed path,
@@ -153,7 +153,7 @@
                         (when internal-controller
                           (aset init "signal" (.-signal internal-controller))))
            timeout-handle (atom nil)
-           ;; rf2-6ecc6 — a real measured elapsed for the synthetic
+           ;; A real measured elapsed for the synthetic
            ;; timeout, so CLJS `:elapsed-ms` carries the same SEMANTICS as
            ;; the JVM's (a measured wall-clock delta `>= :limit-ms`), not a
            ;; synthetic constant always `== :limit-ms`. `performance.now()`
@@ -166,18 +166,17 @@
                         (.now js/performance)
                         (js/Date.now)))
            started-ms (now-ms)
-           ;; rf2-4zldh — the per-attempt timeout must bound the WHOLE
+           ;; The per-attempt timeout must bound the WHOLE
            ;; attempt, headers AND body read. A slow-loris upstream can
            ;; send headers promptly and then stall the body
            ;; (`.text()` / `.blob()` / `.arrayBuffer()` / `.formData()`)
            ;; indefinitely (Spec 014 §`:timeout-ms` security defaults
-           ;; :323). The earlier shape cleared the timer the instant the
-           ;; Response (headers) resolved and only THEN began the body
-           ;; read, leaving the body-reader promise pending forever and
-           ;; the in-flight handle live. The fix: race the timer against
-           ;; the FULL fetch→body-read chain and clear the timer only
+           ;; :323). Clearing the timer the instant the Response
+           ;; (headers) resolved would leave the body-reader promise
+           ;; pending forever and the in-flight handle live. So the timer
+           ;; races the FULL fetch→body-read chain and is cleared only
            ;; when that chain SETTLES (`.finally`), not when headers
-           ;; arrive. The timeout still aborts `internal-controller`
+           ;; arrive. The timeout aborts `internal-controller`
            ;; (which also rejects an in-progress body reader) and rejects
            ;; with the canonical `:rf.error/http-timeout` ex-info — the
            ;; same shape `classify-cljs-error` maps to `:rf.http/timeout`
@@ -192,7 +191,7 @@
                             :status      (.-status resp)
                             :status-text (.-statusText resp)
                             :headers     headers}
-                   ;; rf2-5zj6t — a Fetch Response body may be
+                   ;; A Fetch Response body may be
                    ;; consumed only once, so the body-reader is
                    ;; chosen up front from the resolved `:decode`
                    ;; mode (mirroring `decode-response-body`).
@@ -257,20 +256,19 @@
                                                    {;; co-stamp the registry-hook signal the
                                                     ;; downstream classifier branches on
                                                     :rf.http/timeout? true
-                                                    ;; rf2-6ecc6 — a MEASURED wall-clock delta
+                                                    ;; A MEASURED wall-clock delta
                                                     ;; (whole ms, monotonic where available),
                                                     ;; not the synthetic `timeout-ms` constant.
                                                     ;; The setTimeout fires at ~`timeout-ms`, so
                                                     ;; this is `>= :limit-ms` by the scheduling
                                                     ;; margin — the SAME semantics the JVM path
-                                                    ;; reports via `System/nanoTime`, closing the
-                                                    ;; prior cross-host `:elapsed-ms` divergence.
+                                                    ;; reports via `System/nanoTime`.
                                                     :elapsed-ms       (js/Math.round (- (now-ms) started-ms))
                                                     :limit-ms         timeout-ms}})))
                                       timeout-ms)))))
            promise
            (-> (js/Promise.race #js [attempt-promise timeout-promise])
-               ;; rf2-4zldh — clear the timer only once the WHOLE attempt
+               ;; Clear the timer only once the WHOLE attempt
                ;; (headers + body read) settles, success or failure.
                ;; `.finally` runs on both branches and on the timeout
                ;; rejection itself, so the timer is always disarmed
@@ -283,7 +281,7 @@
                            nil)))]
        promise)))
 
-;; ---- external AbortSignal → request-lifecycle binding (rf2-3fc89f.9) -------
+;; ---- external AbortSignal → request-lifecycle binding ----------------------
 ;;
 ;; An external `:abort-signal` is a REQUEST-lifecycle cancellation source, not
 ;; an attempt-local one. It must route to whichever canonical in-flight handle
@@ -361,20 +359,20 @@
      non-browser CLJS targets (Node / shadow-cljs node tests) the global
      is absent and we return `false`.
 
-     rf2-azrcs — resolution semantics:
+     Resolution semantics:
 
      - The URL is parsed WITH `loc-origin` as the base (`js/URL. url base`),
        so relative (`/x`, `?q`, `#f`), protocol-relative (`//host/x`), and
        absolute (`https://host/x`) URLs all resolve through one path. A
        protocol-relative URL inherits the page SCHEME but carries its own
        HOST, so `//other.invalid/x` is genuinely cross-origin while
-       `//app.example/x` (same host) is same-origin — the prior
-       single-slash short-circuit misclassified BOTH as same-origin.
+       `//app.example/x` (same host) is same-origin — a
+       single-slash short-circuit would misclassify BOTH as same-origin.
      - The `data:`/`blob:`/`file:` scheme exclusion is matched
        CASE-INSENSITIVELY (URL schemes are case-insensitive per RFC 3986
-       §3.1). The prior lowercase-only prefix check let `DATA:`/`FILE:`
+       §3.1). A lowercase-only prefix check would let `DATA:`/`FILE:`
        fall through to the parse, where their parsed origin is the literal
-       string `\"null\"` (≠ page origin) and so false-classified as CORS."
+       string `\"null\"` (≠ page origin) and so false-classify as CORS."
      [^String url]
      (try
        (let [loc-origin (some-> js/globalThis
@@ -406,7 +404,7 @@
    (defn classify-cljs-error
      "Map a Fetch rejection / promise-error to a `:rf.http/*` failure shape.
 
-     Per rf2-r40km (Spec 014 §Failure categories closed-set row
+     Per Spec 014 §Failure categories (closed-set row
      `:rf.http/cors`): the Fetch API gives no formal signal for a CORS
      rejection — every CORS failure surfaces as a `TypeError` with a
      vendor-specific message (`Failed to fetch`, `Load failed`,
@@ -424,8 +422,8 @@
      (let [data     (when (.-data err) (ex-data err))
            ;; `.-name` on a JS Error is the most stable signal we get
            ;; for the rejection class. Fetch CORS rejections are always
-           ;; `TypeError`s; AbortErrors and rf2-bma05 ex-infos take
-           ;; their own branches above.
+           ;; `TypeError`s; AbortErrors and the framework's timeout /
+           ;; aborted ex-infos take their own branches first, below.
            err-name (some-> err .-name)]
        (cond
          (:rf.http/timeout? data)
@@ -439,7 +437,7 @@
           :request-id (:request-id data)
           :reason     (or (:reason data) :user)}
 
-         ;; rf2-r40km — TypeError + cross-origin URL = CORS rejection.
+         ;; TypeError + cross-origin URL = CORS rejection.
          ;; Both signals required: the type narrows the universe to
          ;; Fetch-style transport rejections (network drops surface as
          ;; TypeErrors too), the cross-origin check separates CORS-
@@ -452,12 +450,12 @@
           :url     url}
 
          :else
-         ;; rf2-6pcz0d — `:cause` is the rejection CLASS NAME string, not the
-         ;; raw js/Error. A raw Error is not EDN-serializable, so it broke
+         ;; `:cause` is the rejection CLASS NAME string, not the
+         ;; raw js/Error. A raw Error is not EDN-serializable, so it would break
          ;; off-box capture / Tool-Pair / Xray serialization of both the reply
          ;; (reply.cljc's EDN-serializable contract) and the `:rf.http/transport`
-         ;; trace, AND slipped past the privacy `:cause` redactor's `(string?
-         ;; …)` guard (privacy.cljc:364). `(.-name err)` matches BOTH sibling
+         ;; trace, AND slip past the privacy `:cause` redactor's `(string?
+         ;; …)` guard (`privacy/redact-failure-with-flag`). `(.-name err)` matches BOTH sibling
          ;; paths: the JVM `classify-jvm-error` (`:cause cls`, transport_jvm.cljc)
          ;; and the CLJS `prepare-body!` (`:cause (some-> (.-name err))`,
          ;; transport.cljc). `:message` still carries the human message.

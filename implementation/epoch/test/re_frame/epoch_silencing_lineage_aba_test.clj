@@ -1,15 +1,14 @@
 (ns re-frame.epoch-silencing-lineage-aba-test
-  "rf2-vxgfnd.265 — delayed predecessor-silencing decided PER callback-generation
-  identity across the three events #5872 conflated under one coarse
-  `cleanup-frame-owner!` result: store CLAIM, callback DELIVERY/re-arm, and
-  terminal SILENCE.
+  "Delayed predecessor-silencing is decided PER callback-generation identity
+  across three events that one coarse `cleanup-frame-owner!` result would
+  conflate: store CLAIM, callback DELIVERY/re-arm, and terminal SILENCE.
 
-  #5872 gated a destroyed predecessor A's whole `:rf.epoch.cb/silenced-on-frame-
-  destroy` fan on A still winning its compare-owned cleanup — equating losing the
-  frame-store owner comparison with a same-id successor having re-armed the
-  listeners. Those are distinct events, so the coarse gate produces three failure
-  modes this suite pins (each red before the fix; reverting to cleanup-result-wide
-  gating re-reddens them):
+  Gating a destroyed predecessor A's whole `:rf.epoch.cb/silenced-on-frame-
+  destroy` fan on A still winning its compare-owned cleanup would equate losing
+  the frame-store owner comparison with a same-id successor having re-armed the
+  listeners. Those are distinct events, so such a coarse gate produces three
+  failure modes this suite pins (cleanup-result-wide gating reddens each of
+  them):
 
     1. claim-before-delivery — B claims the id-keyed stores (a pre-first-epoch
        render/backfill) but delivers no epoch. A LOSES the comparison yet still
@@ -26,8 +25,8 @@
        per-identity decision is required.
 
   These JVM fixtures pause A with a `:epoch/on-frame-destroyed` late-bind wrapper
-  (matching the merged .151/.245 fixtures) or compose the successor lineage at the
-  epoch-state seam directly; the synchronous/reentrant CLJS peers live in
+  or compose the successor lineage at the epoch-state seam directly; the
+  synchronous/reentrant CLJS peers live in
   `re-frame.epoch-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -110,7 +109,7 @@
         (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
             "A's terminal recipe completes")
         (executor-barrier!)
-        ;; THE FIX: A still owes and emits exactly one silence for cb.
+        ;; A still owes and emits exactly one silence for cb.
         (is (= 1 (silences-for silencings cb))
             "A emits its one owed silence for cb — B claimed but never delivered"))
       (finally

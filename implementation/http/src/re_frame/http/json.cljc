@@ -56,15 +56,15 @@
 
 #?(:cljs
    (defn- qualify-for-json
-     "rf2-3x7nj.16.2 — pre-walk a Clojure value so `clj->js` writes what
+     "Pre-walk a Clojure value so `clj->js` writes what
      Cheshire writes: every keyword, key or value, becomes its colon-less
      qualified name, and every UUID, key or value, its canonical string.
 
      A bare `clj->js` drops keyword namespaces (its default `:keyword-fn` is
      `name`, applied to keys and values alike), so `{:order/id 1 :customer/id
-     7}` collapsed onto one `\"id\"` member and lost a value. It also passes a
-     UUID through untouched, and `JSON.stringify` then enumerated the deftype's
-     fields. Only keyword and UUID keys are rewritten; any other key keeps
+     7}` would collapse onto one `\"id\"` member and lose a value. It also
+     passes a UUID through untouched, and `JSON.stringify` would then
+     enumerate the deftype's fields. Only keyword and UUID keys are rewritten; any other key keeps
      `clj->js`'s own treatment. A value that already satisfies `IEncodeJS` is
      left to its own encoding."
      [x]
@@ -88,7 +88,7 @@
   "Clojure value → JSON string. JVM uses Cheshire (`generate-string`);
   CLJS uses `js/JSON.stringify`.
 
-  The two hosts write the same bytes for the same value (rf2-3x7nj.16.2): a
+  The two hosts write the same bytes for the same value: a
   keyword, key or value, goes out as its colon-less qualified name
   (`:user/id` → `\"user/id\"`, `:id` → `\"id\"`), and a UUID, key or value, as
   its canonical string. The JVM gets this from Cheshire; CLJS pre-walks the
@@ -120,7 +120,7 @@
   uses Cheshire's `parse-string`; CLJS uses `js/JSON.parse` +
   `js->clj :keywordize-keys true`.
 
-  `opts` (optional) — currently a single key:
+  `opts` (optional) — a single key:
    - `:max-decoded-keys` — cap on unique object keys.
      Default: `default-max-decoded-keys`. Overflow throws
      `:rf.error/id :rf.error/malformed-json` with `:cause :too-many-keys`.
@@ -143,14 +143,14 @@
                                (keyword k))]
                   (cheshire/parse-string s key-fn)))
         :cljs (when (string? s)
-                ;; rf2-x1uhu — mirror the JVM Cheshire branch's
+                ;; Mirror the JVM Cheshire branch's
                 ;; `(when (string? s) ...)` guard so both hosts return nil
                 ;; (rather than CLJS throwing inside `js/JSON.parse`) on a
                 ;; non-string input. `re-frame.http.json` is documented as a
                 ;; shared/promotable helper; the two readers must behave
                 ;; identically.
                 (let [parsed (js/JSON.parse s)
-                    ;; rf2-wu1n5 — CLJS path: walk the parsed JS object
+                    ;; CLJS path: walk the parsed JS object
                     ;; tree counting unique object-keys BEFORE
                     ;; `js->clj :keywordize-keys true` interns them.
                     ;; The browser JS engine GCs unreferenced symbols

@@ -1,19 +1,17 @@
 (ns re-frame.nine-states-overlap-cljs-test
-  "rf2-5bmi — the DETERMINISTIC overlap witness for the Nine States example's
-  newest-intent-wins guarantee (rf2-t9va landed the shared stable
-  `:request-id`; this proves it does the work claimed for it).
+  "The DETERMINISTIC overlap witness for the Nine States example's
+  newest-intent-wins guarantee: the example's loads share one stable
+  `:request-id`, and this proves it does the work claimed for it.
 
   ## Why it lives here and not beside the example
 
-  The example tree is TEST-FREE by a locked project rule (rf2-8cevm) — no
+  The example tree is TEST-FREE by a locked project rule — no
   `*.spec.cjs`, and no test namespace of any kind, may live under `examples/`.
   So the fixtures that exercise an example live in the framework test tree, and
   `implementation/http/test/` is the right shelf for THIS one: its subject is
   the managed-HTTP in-flight registry and its same-`:request-id` supersession
-  boundary, which is this artefact's own contract. The sibling
-  `re-frame.http-managed-demo-frame-isolation-cljs-test` is the standing
-  precedent — an example-behaviour regression parked here for exactly that
-  reason. Both resolve their example namespace because the consolidated
+  boundary, which is this artefact's own contract. It resolves its example
+  namespace because the consolidated
   `:node-test` CLJS build carries `http/test` and the `../examples/*` roots on
   one classpath, so `nine-states.core` registers its events / subs / machine at
   ns-load and this suite drives the SHIPPED events rather than a copy of them.
@@ -23,8 +21,8 @@
   The running app routes `:rf.http/managed` through an `:fx-overrides` demo
   stub, and an override REPLACES the effect outright: the framework's in-flight
   registry — and with it supersession — never runs, and the canned replies
-  settle synchronously one at a time. So no gate executed the superseding path
-  for this example at all. These tests therefore create their frames with NO
+  settle synchronously one at a time. So the running app never executes the
+  superseding path for this example. These tests therefore create their frames with NO
   `:fx-overrides`, so the REAL `:rf.http/managed` effect runs, and control only
   the TRANSPORT.
 
@@ -36,7 +34,7 @@
   An attempt therefore sits open, mid-finalisation, until this file settles it
   by hand — so the interleaving is PLACED, not raced. `poll-until` waits only
   for a state this file then acts on, and never for a deadline to decide an
-  assertion. That harness is the one `re-frame.http-cljs-test` already uses for
+  assertion. That harness is the one `re-frame.http-cljs-test` uses for
   its supersede-race coverage (`with-controlled-body-fetch`); this is the
   multi-attempt form of it.
 
@@ -285,7 +283,7 @@
                   (is (nil? (recorded-error frame))
                       "a newer SUCCESS leaves no :error behind")))))
           (.catch (fn [e]
-                    (is false (str "rf2-5bmi — unexpected in row " label ": " e))
+                    (is false (str "unexpected in row " label ": " e))
                     nil))
           (.finally (fn [] (restore)))))))
 
@@ -330,7 +328,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest overlapping-loads-are-newest-intent-wins
-  (testing "rf2-5bmi / rf2-t9va — both shipped load events fill ONE data-load
+  (testing "both shipped load events fill ONE data-load
   slot under one stable :request-id, so issuing either while the other is still
   in flight supersedes it. The superseded attempt's completion — success or
   failure — reaches no app target and cannot move the :ui/nine-states machine;
@@ -342,18 +340,18 @@
       (rf/init! rf.adapter.reagent/adapter)
       (rf.frame/ensure-default-frame!)
       (-> (run-rows! overlap-rows)
-          (.catch (fn [e] (is false (str "rf2-5bmi — unexpected: " e)) nil))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_] (done)))))))
 
 (deftest overlap-cross-kind-row-in-isolation
-  (testing "rf2-5bmi — the same cross-kind row run ALONE. A table-driven suite
+  (testing "the same cross-kind row run ALONE. A table-driven suite
   can pass only because an earlier row left the board in a helpful state, so one
   row is pinned in isolation too; it must reach the identical verdict."
     (async done
       (rf/init! rf.adapter.reagent/adapter)
       (rf.frame/ensure-default-frame!)
       (-> (run-overlap-row! (second overlap-rows))
-          (.catch (fn [e] (is false (str "rf2-5bmi — unexpected: " e)) nil))
+          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -361,8 +359,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reset-then-reload-cannot-be-overwritten-by-the-pre-reset-attempt
-  (testing "rf2-5bmi — `:reset` abandons the view but NOT the request: it drops
-  :data to :nothing and leaves the in-flight attempt live. The existing
+  (testing "`:reset` abandons the view but NOT the request: it drops
+  :data to :nothing and leaves the in-flight attempt live. The
   reset-to-:nothing coverage settles a completion while still AT :nothing, where
   it is trivially ignored. The dangerous window is the RELOAD, which puts the
   region back at :loading — a state that accepts :fetch-succeeded. What closes
@@ -413,7 +411,7 @@
                 (is (= :one (data-state frame)) "the RELOAD's result is the one that lands")
                 (is (= 1 (count (items frame))) "exactly the reload's single item")
                 (is (= :one (render-model frame)) ":ui/render follows the reload")))
-            (.catch (fn [e] (is false (str "rf2-5bmi — unexpected: " e)) nil))
+            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
             (.then (fn [_] (restore) (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -421,7 +419,7 @@
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :nine-states.overlap-test/load-under-a-different-id
-  {:doc "NEGATIVE CONTROL (rf2-5bmi). Byte-for-byte the shipped
+  {:doc "NEGATIVE CONTROL. Byte-for-byte the shipped
          `:nine-states.demo/load` request, except for the one field under test:
          a DIFFERENT `:request-id`. Test-local; the example is untouched. If
          the shared id were incidental rather than load-bearing, this event
@@ -439,7 +437,7 @@
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
 (deftest a-different-request-id-lets-the-stale-reply-through
-  (testing "rf2-5bmi NEGATIVE CONTROL — run the identical overlap with the newer
+  (testing "NEGATIVE CONTROL — run the identical overlap with the newer
   request issued under a DIFFERENT :request-id and the witness inverts: nothing
   supersedes the older attempt, so its late completion DOES reach
   :nine-states.demo/loaded and DOES clobber the machine with the stale result.
@@ -480,5 +478,5 @@
                        thing the shared id prevents")
                   (is (= 25 (count (items frame)))
                       "and wrote its stale :items"))))
-            (.catch (fn [e] (is false (str "rf2-5bmi — unexpected: " e)) nil))
+            (.catch (fn [e] (is false (str "unexpected: " e)) nil))
             (.then (fn [_] (restore) (done))))))))
