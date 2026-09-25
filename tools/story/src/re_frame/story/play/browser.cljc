@@ -9,22 +9,22 @@
   checks are NOT a separate testing system; they are runner-tiered
   assertions on the same Story variant or inline plan.* This ns is the
   executor for those richer assertions — it produces the ONE assertion
-  record (`re-frame.story.result` shape, the `.19` boundary) every other
-  assertion produces, so a visual/a11y finding rides the EXISTING
+  record (`re-frame.story.result` shape) every other
+  assertion produces, so a visual/a11y finding rides the same
   assertion-record accumulator, NOT a parallel result vocabulary. It adds
-  no new run-result slot; a finding is an assertion record like any other.
+  no run-result slot; a finding is an assertion record like any other.
 
-  ## Reuse the existing hooks (§C4 item 2 — prefer reuse, minimal)
+  ## Reuse, not a second differ or axe loader
 
-  Two seams already exist in the tree; this ns REUSES them rather than
-  adding a differ / a second axe loader:
+  This ns REUSES two seams rather than carrying its own differ or a second
+  axe loader:
 
   - VISUAL — `re-frame.story.identity` `snapshot-identity` /
     `content-hash` is the canonical visual-regression KEY (stable across
-    hosts; the MCP `snapshot-identity` tool already surfaces it). The
+    hosts; the MCP `snapshot-identity` tool surfaces it). The
     `:rf.assert/visual-snapshot` finding records that key as the snapshot
     IDENTITY. A real-browser pixel diff requires `:pixels` (a screenshot +
-    differ that lands with the browser runner); the headless/JVM contract
+    differ, which only a browser runner can supply); the headless/JVM contract
     here is the fail-closed `:cannot-run` refusal.
   - A11Y (axe-style) — `re-frame.story.ui.a11y` runs axe-core in-browser
     and stores violations in `violations-by-frame` (the same atom the MCP
@@ -60,7 +60,7 @@
   itself: when the browser environment is unavailable (`browser-available?`
   false — JVM, node-runtime, or a CLJS REPL with no `js/window`) the
   visual / axe-a11y evaluators return a `:cannot-run` record rather than
-  fabricating a pass. This is the testable contract the bead pins: a
+  fabricating a pass. This is the testable contract: a
   headless run returns `:cannot-run` for browser-tier assertions.
 
   ## Pure / JVM-testable
@@ -121,7 +121,7 @@
   "Install the axe-violations reader `reader-fn` (`frame-id` → violations
   vector). The CLJS a11y panel (`re-frame.story.ui.a11y`) calls this at
   load time with a fn that reads its `violations-by-frame` atom — the
-  one-way seam that lets this below-the-UI executor reuse the existing axe
+  one-way seam that lets this below-the-UI executor reuse the panel's axe
   hook WITHOUT a compile-time dependency on the CLJS-only UI ns. Idempotent
   (last writer wins)."
   [reader-fn]
@@ -172,15 +172,14 @@
   - `:snapshot-identity` — the reused visual-regression key
     (`re-frame.story.identity/snapshot-identity`, the
     `{:variant-id :content-hash …}` record). This is the snapshot IDENTITY
-    the finding records (reuse, not a new differ — §C4 item 2).
+    the finding records (reuse, not a second differ).
   - `:baseline` — an optional baseline snapshot record to diff against; when
     present the finding `:passed?` iff the content-hash matches.
 
   In a headless / JVM / node environment (`browser-available?` false) this
   returns `:cannot-run` — the testable contract: a headless run returns
-  `:cannot-run` for browser-tier assertions. A real pixel diff lands with
-  the `:pixels` browser runner; under that runner the content-hash identity
-  is the regression key and `:baseline` mismatch is the failure."
+  `:cannot-run` for browser-tier assertions. In a browser the content-hash
+  identity is the regression key and a `:baseline` mismatch is the failure."
   [payload {:keys [snapshot-identity baseline] :as _ctx}]
   (if-not (browser-available?)
     (cannot-run-finding rf.story.assertions/id-visual-snapshot payload
@@ -214,7 +213,7 @@
   document order (the SOURCE LINK a11y findings MUST carry,
   tools/story/spec/021 §4 + §5). Each axe node carries `:target` — a vector
   of CSS selectors pointing at the offending element(s); `re-frame.story.ui.
-  a11y/record-violation-overlay!` already queries against exactly these to
+  a11y/record-violation-overlay!` queries against exactly these to
   decorate the DOM. The finding recovers these selectors so the result UI
   can link to the source element.
 
@@ -257,7 +256,7 @@
 
   - `:violations` — the axe-core violations vector to evaluate; when
     absent, the live panel atom is read via `live-a11y-violations` for
-    `:frame-id` (reuse of the existing axe hook — §C4 item 2).
+    `:frame-id` (reuse of the panel's axe hook).
   - `:frame-id` — the variant frame whose live violations to read.
 
   In a headless / JVM / node environment (`browser-available?` false) this
