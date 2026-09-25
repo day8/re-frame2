@@ -94,7 +94,7 @@
 
 (def ^:private off-browser
   "no DOM on this runtime — every claim below is a real mount, a real DOM
-  event and a real frame, and :browser-test is where they are asked")
+  event and a real frame, and a browser is where they are asked")
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))

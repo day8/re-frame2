@@ -118,7 +118,7 @@
 
 (def ^:private off-browser
   "no DOM on this runtime — every claim below is a real mount, a real
-  scroll and a real run of frames, and :browser-test is where they are
+  scroll and a real run of frames, and a browser is where they are
   asked")
 
 (defn- browser? []

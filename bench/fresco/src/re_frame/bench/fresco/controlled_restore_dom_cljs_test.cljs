@@ -315,7 +315,7 @@
 
 (def ^:private off-browser
   "no DOM on this runtime — the claim is a caret in a real text field,
-  and :browser-test is where it is asked")
+  and a browser is where it is asked")
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))

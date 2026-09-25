@@ -23,7 +23,7 @@
 
 (def ^:private off-browser
   "no DOM on this runtime — the claim is a DOM read taken at release, and
-  :browser-test is where it is asked")
+  a browser is where it is asked")
 
 (defn- populated-mount
   "A mount whose container holds a page, with the arm's unmount under the
