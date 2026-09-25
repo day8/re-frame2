@@ -108,16 +108,17 @@
   ONE REAGENT ISLAND, reached through an `as-child` seam —
   `identity` for a hiccup caller and the node lane,
   `substrate/as-element` for a boundary: [[detail-panel]]'s
-  `[(:panel tab)]`, because `panel-registry/reg-l4-tab!`'s `:pre`
-  requires `:panel` to be CALLABLE. All five Static panels are
-  boundaries, so every one of them registers an
+  `[(:panel tab)]`, a hiccup head that Reagent calls as its own render
+  fn rather than mounting as a React component. All five Static panels
+  are boundaries, so every one of them registers an
   `as-component` BRIDGE — a plain fn answering `[:> Component {}]` —
   rather than the view itself. A bridge is a plain fn, which Fresco
   grades `:invalid` as a head down the same arm a `reg-view` goes, so
-  the island stands while the registry takes only a callable.
+  the island stands, and `panel-registry/reg-l4-tab!`'s `:pre` (which
+  checks only `(fn? panel)`) accepts it.
 
-  THE SEAM IS NOT SCAFFOLDING AWAITING A DELETION. The `:pre` named
-  above is what holds it.
+  The seam is the standing shape, not scaffolding: the island head is
+  what holds it.
 
   THE L1 RIBBON HAS NO ISLAND. `frame-switcher/frame-switcher-view` and
   `mode-pill/mode-pill` are Fresco boundaries, and [[ribbon]] heads
@@ -487,10 +488,12 @@
   A separate fn from [[detail-panel]] because a boundary's body may only
   run inside a React render window.
 
-  THE MOUNT IS AN ISLAND, and deliberately. `reg-l4-tab!`'s `:pre`
-  requires `:panel` to be CALLABLE, so ALL FIVE Static panels register
-  an `as-component` BRIDGE — a plain fn answering `[:> Component {}]` —
-  rather than the boundary itself. A plain fn grades `:invalid` as a
+  THE MOUNT IS AN ISLAND, and deliberately. `[(:panel tab)]` is a
+  Reagent hiccup head, which a React component cannot fill, so ALL FIVE
+  Static panels register an `as-component` BRIDGE — a plain fn answering
+  `[:> Component {}]` — rather than the boundary itself
+  (`reg-l4-tab!`'s `:pre` checks only `(fn? panel)`, which either would
+  pass). A plain fn grades `:invalid` as a
   Fresco head, so the island stands. `as-child` is `identity` for a
   hiccup caller and the node lane, which leaves `[(:panel tab)]` a plain
   hiccup vector, and `substrate/as-element` for the boundary, which
@@ -498,10 +501,10 @@
   component ABI, and the crossing every Static panel's own bridge
   comment describes.
 
-  THE SEAM IS NOT SCAFFOLDING AWAITING A DELETION: the `[:>]` bridges
-  are permanent, so this seam is too. Taking a boundary directly would
-  mean widening that `:pre`, a registry change with both shells' panels
-  behind it."
+  The `[:>]` bridges are the standing shape, so this seam is too.
+  Taking a boundary directly would mean heading it in Fresco rather than
+  mounting the registry's `:panel` as a Reagent island, a change with
+  both shells' panels behind it."
   [selected tab as-child]
   [:div {:data-testid (str "rf-xray-static-detail-panel-" (name selected))
            ;; Static L4 closes the tab/tabpanel loop.
@@ -612,5 +615,5 @@
 ;; the public `defn` a Reagent caller heads, answering the element
 ;; `ShellView` lowers to.
 ;;
-;; The `*-bridge` / `*-component` pairs elsewhere are permanent, so do
-;; not read this block as promising their deletion.
+;; The `*-bridge` / `*-component` pairs elsewhere are the standing shape,
+;; each serving its own parent.
