@@ -1,28 +1,26 @@
 #!/usr/bin/env node
 // SERVE THE THREE BENCHMARK ARMS, so `jsfb_ours_run.cjs` can be run without
-// the upstream clone (rf2-emvod).
+// the upstream clone. From bench/fresco/:
 //
-//   node fresco/test/re_frame/bench/fresco/jsfb_build.cjs --dest out/jsfb-dest
-//   node fresco/test/re_frame/bench/fresco/jsfb_serve.cjs --root out/jsfb-dest &
-//   JSFB_ONLY=run1k node fresco/test/re_frame/bench/fresco/jsfb_ours_run.cjs
+//   node src/re_frame/bench/fresco/jsfb_build.cjs --dest out/jsfb-dest
+//   node src/re_frame/bench/fresco/jsfb_serve.cjs --root out/jsfb-dest &
+//   JSFB_ONLY=run1k node src/re_frame/bench/fresco/jsfb_ours_run.cjs
 //
 // ## WHY THIS EXISTS, AND WHAT IT DELIBERATELY DOES NOT DO
 //
 // `jsfb_ours_run.cjs` is OUR instrument pointed at the benchmark's app. It
 // needs nothing from `krausest/js-framework-benchmark` except the URL layout
 // `/frameworks/keyed/<arm>/`, because the arms are ours and are built by
-// `jsfb_build.cjs`. Until now the only documented way to reach that layout
-// was to clone the benchmark, `npm install` its server and run it — three
+// `jsfb_build.cjs`. Without this server the only way to reach that layout
+// is to clone the benchmark, `npm install` its server and run it — three
 // network-dependent steps to serve six static files, and a reproduction
 // nobody can perform offline.
 //
 // It does NOT replace the benchmark's server for THEIR driver. Their
 // `benchmarkRunner` reads `/ls`, applies its own throttling and writes its
 // own results; running it still requires the clone, and the cross-check page
-// says so. What this restores cheaply is the half of that page which is our
-// instrument on their app — which is exactly the half that has now had to be
-// re-measured twice, once for `rf2-yd52q`'s correction and once for this
-// bead's reconciliation.
+// says so. What this serves cheaply is the half of that page which is our
+// instrument on their app — the half that gets re-measured.
 //
 // The server is deliberately dumb: static files, no directory listing, no
 // caching headers, and a path check that refuses anything resolving outside
@@ -93,7 +91,7 @@ server.listen(PORT, () => {
   console.error(`[jsfb-serve] ${ROOT} on http://localhost:${PORT}/ — arms: ${arms.join(', ') || '(none)'}`);
   // THE STYLESHEET IS THE BENCHMARK'S AND IS NOT OURS TO VENDOR. Every arm's
   // `index.html` links `/css/currentStyle.css`, which lives in the upstream
-  // clone; nothing from that repository is committed here, by ruling. Served
+  // clone; nothing from that repository is committed here. Served
   // from a bare `--dest` the link 404s and the table renders UNSTYLED — which
   // changes style recalculation and layout, and therefore changes both the
   // absolute milliseconds and the arm-to-arm ratio.
