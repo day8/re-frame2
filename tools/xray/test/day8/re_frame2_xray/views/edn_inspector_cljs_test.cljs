@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.views.edn-inspector-cljs-test
-  "Unit tests for the first-class edn-inspector widget (rf2-oqa60
-  phase 1).
+  "Unit tests for the first-class edn-inspector widget.
 
   ## What's under test
 
@@ -21,8 +20,8 @@
   7. **Sentinels** (`:rf/redacted`, `:rf.size/large-elided`, combined)
      render their first-class chip chrome.
 
-  Pure-data unit tests; no DOM mount. Default for new Xray/Story
-  tests per the Xray/Story-as-CLJS-unit-test ruling."
+  Pure-data unit tests; no DOM mount, which is the default shape for
+  Xray/Story tests."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -38,12 +37,12 @@
 ;; end-to-end without leaking state between cases.
 ;;
 ;; `:init-fn` calls the widget's own `install!` on the just-reset
-;; registrar. Before rf2-y8doi.16 the `:rf.xray.edn-inspector/*` subs and
-;; events registered at ns-LOAD, so requiring `ei` was enough to put them
-;; in this suite's baseline. They now register from `install!` — reached
-;; in production from `registry/register-xray-handlers!` — so that a
+;; registrar. The `:rf.xray.edn-inspector/*` subs and events register
+;; from `install!` — reached in production from
+;; `registry/register-xray-handlers!` — rather than at ns-LOAD, so that a
 ;; release bundle merely carrying the preload's bytes cannot mutate the
-;; host's process-global registrar. This suite installs the widget alone
+;; host's process-global registrar; requiring `ei` registers nothing.
+;; This suite installs the widget alone
 ;; rather than pulling the whole orchestrator in for three event ids.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -70,7 +69,7 @@
 
   `find-attr` below takes the first of these, which is the right instrument
   for \"is it rendered at all\" and the wrong one for \"how many answer this
-  name\" — the distinction rf2-o7p7 turns on."
+  name\" — the distinction the container-testid rows below turn on."
   [tree k v]
   (->> (walk-hiccup tree)
        (filter (fn [n]
@@ -120,17 +119,17 @@
   (is (= :map     (ei/collection-kind {})))
   (is (= :vector  (ei/collection-kind []))))
 
-;; rf2-y8doi.24 — defrecords classify as `:record`, not `:map`.
+;; defrecords classify as `:record`, not `:map`.
 ;;
-;; `record?*` read `(.-cljs$lang$type v)` off the INSTANCE. `defrecord`
+;; `record?*` delegates to `cljs.core/record?`. Reading
+;; `(.-cljs$lang$type v)` off the INSTANCE would not work: `defrecord`
 ;; sets that static field on the CONSTRUCTOR function, and a property
-;; set on a constructor is not on its prototype, so no instance ever
-;; carried it — the predicate answered false for every record in
-;; existence. `collection-kind` fell through to `(map? v) :map`, and
-;; the whole `:record` render path below it (`delim`, `record-tag`'s
+;; set on a constructor is not on its prototype, so no instance
+;; carries it — the predicate would answer false for every record in
+;; existence, `collection-kind` would fall through to `(map? v) :map`,
+;; and the whole `:record` render path below it (`delim`, `record-tag`'s
 ;; `#tag` prefix, `children-of`, `child-count`, the `:record` arms of
-;; `children-of-pair` / `diff-pair-count`) was dead code that had
-;; never once executed.
+;; `children-of-pair` / `diff-pair-count`) would be dead code.
 
 (defrecord R [a])
 
@@ -149,14 +148,13 @@
          second-guess it")))
 
 (deftest records-render-with-their-tag
-  ;; The user-visible payoff: `#…R{:a 1}` rather than `{:a 1}`. Every
-  ;; defrecord in app-db was losing its tag.
+  ;; The user-visible payoff: `#…R{:a 1}` rather than `{:a 1}`.
   ;;
-  ;; rf2-3x7nj.25.3 — this asserted only that the text contained a `#`,
-  ;; and the broken tag WAS `"#"`: `(.-name (type v))` is `""` for every
-  ;; CLJS type, so each record opened `#{`, a SET's bracket, and passed.
-  ;; The expected opening now comes from the PRODUCER — `pr-str`'s own
-  ;; `#<ns>.R{` — so the tag's text is what is pinned.
+  ;; The expected opening comes from the PRODUCER — `pr-str`'s own
+  ;; `#<ns>.R{` — so the tag's text is what is pinned. Asserting only
+  ;; that the text contains a `#` would pass a broken `"#"` tag:
+  ;; `(.-name (type v))` is `""` for every CLJS type, so a tag built
+  ;; from it opens `#{`, a SET's bracket.
   (let [r      (->R 1)
         pr     (pr-str r)
         opening (subs pr 0 (inc (str/index-of pr "{")))
@@ -194,7 +192,7 @@
   (testing "redacted bare keyword"
     (is (= :sentinel-redacted (ei/collection-kind :rf/redacted))))
   (testing "large wrapper — spec/015 §Wire elision shape"
-    ;; rf2-ndb13 — body keys per the framework's emission site
+    ;; Body keys per the framework's emission site
     ;; (implementation/core/src/re_frame/elision.cljc): `:path :bytes
     ;; :type :reason :hint :handle`.
     (is (= :sentinel-large
@@ -210,10 +208,9 @@
            (ei/collection-kind {:rf/redacted {:bytes 200}})))))
 
 (deftest large-sentinel-detects-spec-current-shape
-  ;; rf2-ndb13 — regression for stale-key bug. The predicate previously
-  ;; matched `:rf/large` (a key the framework no longer emits) and fell
-  ;; through generic map rendering for real markers. Lock in the
-  ;; spec-current key + pin the legacy key as a non-match.
+  ;; A predicate matching `:rf/large` (a key the framework does not
+  ;; emit) would send real markers through generic map rendering. Lock
+  ;; in the spec-current key + pin `:rf/large` as a non-match.
   (testing "spec-current `:rf.size/large-elided` wrapper is detected"
     (is (true? (ei/large-sentinel?
                  {:rf.size/large-elided {:path   [:p]
@@ -222,7 +219,7 @@
                                          :reason :schema
                                          :hint   nil
                                          :handle [:rf.elision/at [:p]]}}))))
-  (testing "legacy `:rf/large` shape is NOT detected (pre-alpha: no shim)"
+  (testing "`:rf/large` shape is NOT detected (pre-alpha: no shim)"
     (is (false? (ei/large-sentinel? {:rf/large {:bytes 1024 :head "abc"}}))))
   (testing "ordinary one-key map is NOT detected"
     (is (false? (ei/large-sentinel? {:not-a-sentinel {:bytes 1}}))))
@@ -233,9 +230,9 @@
 ;; ---- scalar rendering ----------------------------------------------------
 
 (deftest scalar-keyword-uses-syntax-keyword
-  ;; rf2-79ojx — keywords paint via `:syntax-keyword` (magenta), NOT
-  ;; `:accent` (chrome blue). The previous mapping put 3 of 5 scalar
-  ;; types in the same blue family.
+  ;; Keywords paint via `:syntax-keyword` (magenta), NOT `:accent`
+  ;; (chrome blue), so the scalar types do not crowd into one blue
+  ;; family.
   (let [h (ei/render-scalar :foo)]
     (is (= :span (first h)))
     (is (= (:syntax-keyword tokens) (-> h second :style :color)))
@@ -260,15 +257,15 @@
         "boolean and number must use DIFFERENT theme tokens")))
 
 (deftest scalar-nil-uses-syntax-nil
-  ;; rf2-79ojx — nil paints via its own dedicated `:syntax-nil` token
+  ;; nil paints via its own dedicated `:syntax-nil` token
   ;; (deliberately muted grey, "absence" reads as faded).
   (let [h (ei/render-scalar nil)]
     (is (= (:syntax-nil tokens) (-> h second :style :color)))
     (is (= "nil" (collect-text h)))))
 
 (deftest scalar-symbol-uses-syntax-symbol
-  ;; rf2-79ojx — symbols paint via `:syntax-symbol` (blue), distinct
-  ;; from the magenta now used for keywords.
+  ;; Symbols paint via `:syntax-symbol` (blue), distinct
+  ;; from the magenta used for keywords.
   (let [h (ei/render-scalar 'sym)]
     (is (= (:syntax-symbol tokens) (-> h second :style :color)))))
 
@@ -277,14 +274,14 @@
     (is (re-find #"^#fn" (collect-text h)))
     (is (= "italic" (-> h second :style :font-style)))))
 
-;; ---- rf2-79ojx — scalar hue-family contract ------------------------------
+;; ---- scalar hue-family contract ------------------------------------------
 ;;
 ;; The five scalar types (keyword / string / number / boolean / nil) MUST
 ;; span at least four hue families. CLJS programmers' eyes are trained on
 ;; editor syntax-highlight palettes (One Dark / Calva / Cursive default),
-;; where keywords + strings + numbers paint in clearly distinct hues. The
-;; pre-rf2-79ojx mapping put 3 of 5 in the blue family with only luminance
-;; varying — the inspector looked monochrome.
+;; where keywords + strings + numbers paint in clearly distinct hues. Three
+;; of five in the blue family with only luminance varying would make the
+;; inspector look monochrome.
 ;;
 ;; "Hue family" here is the dominant RGB channel of the hex (whichever of
 ;; R/G/B has the largest value, with a tie tolerance for grey). The
@@ -318,7 +315,7 @@
       :else                                           :grey)))
 
 (deftest scalar-hue-families-span-at-least-four-dark
-  ;; rf2-79ojx acceptance #2 — five scalar tokens span ≥4 hue families
+  ;; Five scalar tokens span ≥4 hue families
   ;; in the dark palette. Renames are token-keyword level; this asserts
   ;; the actual hex values.
   (let [families (set (map #(dominant-channel (get dark-palette %))
@@ -342,9 +339,8 @@
         "no monochrome blue palette")))
 
 (deftest no-two-scalar-tokens-share-the-same-blue-family
-  ;; The specific regression: pre-rf2-79ojx had keyword(:accent) +
-  ;; number(:syntax-number) + string(:syntax-string) all in the blue
-  ;; family. Guard against re-introducing the collision.
+  ;; The specific collision: keyword, number and string all in the blue
+  ;; family. Guard against introducing it.
   (let [scalar-keys [:syntax-keyword :syntax-string :syntax-number
                      :syntax-boolean :syntax-nil]
         dark-blues  (filter #(= :blue (dominant-channel (get dark-palette %)))
@@ -378,7 +374,7 @@
     (is (= (:magenta tokens) (-> h second :style :color)))))
 
 (deftest large-sentinel-chrome
-  ;; rf2-ndb13 — marker shape is the framework-emitted spec/015 body:
+  ;; Marker shape is the framework-emitted spec/015 body:
   ;; `:path :bytes :type :reason :hint :handle`.
   (let [h (ei/render-scalar
             {:rf.size/large-elided {:path   [:blob]
@@ -394,7 +390,7 @@
     (is (= (:yellow tokens) (-> h second :style :color)))))
 
 (deftest large-sentinel-chrome-renders-when-marker-keys-missing
-  ;; rf2-ndb13 — defensive: the chip must render gracefully even if the
+  ;; Defensive: the chip must render gracefully even if the
   ;; emission side ever omits optional body slots. `:bytes` may be
   ;; absent (no "· N bytes" segment); `:type` and `:hint` are optional
   ;; (title degrades to the base sentence).
@@ -406,11 +402,10 @@
       (is (re-find #"large" (collect-text h))))))
 
 (deftest large-sentinel-not-rendered-as-plain-map
-  ;; rf2-ndb13 — the original symptom: real framework-emitted markers
-  ;; fell through to ordinary map rendering, exposing `:path :bytes
-  ;; :type :reason :hint :handle` as plain map keys. With the predicate
-  ;; pointed at the spec-current key, `collection-kind` MUST classify
-  ;; the marker as `:sentinel-large`, NOT `:map`.
+  ;; A real framework-emitted marker must not fall through to ordinary
+  ;; map rendering, exposing `:path :bytes :type :reason :hint :handle`
+  ;; as plain map keys: `collection-kind` MUST classify the marker as
+  ;; `:sentinel-large`, NOT `:map`.
   (let [marker {:rf.size/large-elided {:path   [:blob]
                                        :bytes  5000
                                        :type   :string
@@ -450,7 +445,7 @@
           "overflow output must signal incompleteness with `…`"))))
 
 (deftest inline-preview-vector
-  ;; rf2-7hqwe — a sequential collection is SPACE-separated (`[1 2 3]`),
+  ;; A sequential collection is SPACE-separated (`[1 2 3]`),
   ;; matching canonical EDN print spacing; commas are reserved for map
   ;; entries.
   (is (= "[1 2 3]"
@@ -518,7 +513,7 @@
 ;; render the body.
 
 (deftest toggle-event-flips-expansion-state
-  ;; rf2-y59tb — the toggle reducer now inverts from the
+  ;; The toggle reducer inverts from the
   ;; current rendered-expanded? state (passed in the dispatch
   ;; payload) when no override is stored, then inverts the stored
   ;; override on subsequent clicks. This is the load-bearing
@@ -544,10 +539,10 @@
 
     ;; Case B — default-expanded (e.g. top-level path). Visible
     ;; state is expanded → dispatch carries `true` → first click
-    ;; stores `:expanded? false` (collapses). This is the
-    ;; regression the bug fixed; before the fix the reducer would
-    ;; emit `{:expanded? true}` — same as the rendered state —
-    ;; producing a silent no-op on the first click.
+    ;; stores `:expanded? false` (collapses). A reducer that
+    ;; emitted a hard-coded `{:expanded? true}` here — the same as
+    ;; the rendered state — would make the first click a silent
+    ;; no-op.
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
     (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
     (let [snapshot @(rf/subscribe [ei/expansion-slot])
@@ -672,8 +667,8 @@
     (is (not (re-find #"▾" text-collapsed)))))
 
 (deftest render-node-includes-data-testid
-  ;; The trailing separator is not a typo and is the pin for rf2-o7p7 (see
-  ;; the block below): a node's testid always carries its path component,
+  ;; The trailing separator is not a typo and is the pin for the
+  ;; container-testid block below: a node's testid always carries its path component,
   ;; and the root's path is empty, so the string ends at the separator. It
   ;; is what keeps the root node's name off the container's.
   (let [h  (ei/render-node {:value {:a 1}
@@ -687,24 +682,23 @@
                           "rf-xray-edn-inspector-app-db-m-42-")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-o7p7 — THE CONTAINER TESTID NAMES EXACTLY ONE NODE.
+;; THE CONTAINER TESTID NAMES EXACTLY ONE NODE.
 ;;
 ;; Two names, for two different things. The widget's outer container is
 ;; `[panel-id mount-id]`; a node inside its rendered tree is `[panel-id
-;; mount-id path]`. They used to compose the SAME STRING, because the path
-;; suffix was appended only for a NON-EMPTY path — so the root render-node
-;; at `[]` answered the container's name as well as its own, and one mount
-;; put one testid on two nodes.
+;; mount-id path]`. The path suffix is appended for EVERY path, the empty
+;; one included. Appended only for a NON-EMPTY path, it would let the root
+;; render-node at `[]` answer the container's name as well as its own, and
+;; one mount would put one testid on two nodes.
 ;;
-;; It failed in the direction that reassures. `querySelector` always returns
-;; something, so a helper resolving "the container" got a node and carried
-;; on; WHICH of the two it got was document order. They are not
+;; That fails in the direction that reassures. `querySelector` always
+;; returns something, so a helper resolving "the container" gets a node and
+;; carries on; WHICH of the two it gets is document order. They are not
 ;; interchangeable — the container carries the widget chrome, the
 ;; measurement `:ref` and `data-rf-mount-id`, the render-node carries the
 ;; rendered tree — so a row asserting on geometry through that selector
 ;; could pass while measuring the wrong element. A COUNT is the first
-;; instrument that has to care, and W5's first draft duly read 4 panels for
-;; 2 (rf2-d2aj).
+;; instrument that has to care.
 ;;
 ;; The row is written so that a node coming back is not enough to pass it.
 ;; It counts, and it asks every answering node for an attribute only the
@@ -713,7 +707,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest container-testid-names-exactly-one-node
-  (testing "rf2-o7p7 — the widget's container testid is answered by ONE node,
+  (testing "the widget's container testid is answered by ONE node,
             and that node is the container."
     (let [outer (ei/edn-inspector {:a 1 :b 2} {:panel-id :p})
           tree  (outer {:a 1 :b 2} {:panel-id :p})
@@ -724,9 +718,9 @@
            two assertions below are vacuous against a nil name")
       (is (= 1 (count hits))
           (str "the container testid names exactly one node. TWO is the "
-               "defect: the root render-node at path [] composed the same "
-               "string, so every count keyed on this selector read double "
-               "and every querySelector took whichever came first. Got "
+               "defect: the root render-node at path [] composes the same "
+               "string, so every count keyed on this selector reads double "
+               "and every querySelector takes whichever comes first. Got "
                (count hits) " for " (pr-str cid)))
       (is (every? #(some? (:data-rf-mount-id (second %))) hits)
           (str "and the selector resolves to the CONTAINER — every node "
@@ -739,10 +733,10 @@
                              hits)))))))
 
 (deftest container-testid-collision-negative-control
-  (testing "rf2-o7p7 — THE DEFECT WRITTEN OUT. Under the pre-fix rule the
-            path suffix was appended only for a non-empty path, so a node at
-            `[]` composed the container's name exactly — and only at `[]`,
-            which is why it survived as long as it did."
+  (testing "THE DEFECT WRITTEN OUT. A rule appending the path suffix only
+            for a non-empty path gives a node at `[]` the container's name
+            exactly — and only at `[]`, which is what makes it easy to
+            miss."
     (let [pre-fix        (fn [panel-id mount-id path]
                            (str "rf-xray-edn-inspector-"
                                 (name panel-id) "-" mount-id
@@ -750,11 +744,11 @@
                                   (str "-" (str/join "/" (map pr-str path))))))
           container-name (str "rf-xray-edn-inspector-" (name :p) "-" "m")]
       (is (= container-name (pre-fix :p "m" []))
-          "CONTROL BITES: the old rule gave the root render-node and the
+          "CONTROL BITES: that rule gives the root render-node and the
            container one name between them")
       (is (not= container-name (pre-fix :p "m" [:a]))
-          "and every non-empty path was already distinct under it, so the
-           collision was the root's alone")
+          "and every non-empty path is distinct under it, so the
+           collision is the root's alone")
       (let [shipped (:data-testid
                        (second (ei/render-node {:value {:a 1}
                                                 :panel-id :p
@@ -767,14 +761,12 @@
             (str "the shipped composer gives the root node a name of its "
                  "own. Got " (pr-str shipped)))))))
 
-;; ---- rf2-tzvk9 — triangle hit-box ≥24×24 ---------------------------------
+;; ---- triangle hit-box ≥24×24 ---------------------------------------------
 ;;
-;; The expand/collapse triangles (▾ / ▸) measured ~6.6×16.8px in the live
-;; widget — far below Fitts's-Law-friendly mouse-target sizing. Mike's
-;; live measurement on http://localhost:8031/counter App-DB panel.
-;; The fix uses a shared `triangle-style` with padding + font-size +
-;; min-width/min-height so every triangle on every code path gets the
-;; same ≥24×24 hit-box.
+;; Sized by the glyph alone, the expand/collapse triangles (▾ / ▸) would
+;; sit far below Fitts's-Law-friendly mouse-target sizing. A shared
+;; `triangle-style` with padding + font-size + min-width/min-height gives
+;; every triangle on every code path the same ≥24×24 hit-box.
 
 (defn- parse-px
   "Parse `'24px'` → 24. Returns nil for non-px strings."
@@ -783,7 +775,7 @@
     (js/parseFloat s)))
 
 (deftest triangle-style-pins-min-target-to-24px-in-both-axes
-  (testing "rf2-tzvk9 — the shared triangle-style declares ≥24px min-
+  (testing "the shared triangle-style declares ≥24px min-
             width AND min-height so the computed hit-box meets the
             comfortable-mouse-target threshold"
     (is (>= (parse-px (:min-width  ei/triangle-style)) 24)
@@ -806,10 +798,9 @@
       "the public contract pin: 24px in both axes"))
 
 (deftest triangle-style-font-size-is-22px
-  (testing "rf2-4aiaq — triangle glyph font-size is 22px (operator-
-            preferred 22-24px band per Mike's live A/B 2026-05-26).
-            14px was hit-box-adequate but read as hairline against
-            the inspector chrome."
+  (testing "triangle glyph font-size is 22px, inside the preferred
+            22-24px band: 14px is hit-box-adequate but reads as
+            hairline against the inspector chrome."
     (is (= "22px" (:font-size ei/triangle-style))
         "triangle glyph renders at 22px so the eye registers it as the
          primary expand/collapse affordance, not a hairline accent")))
@@ -855,9 +846,9 @@
                              :path [] :depth 0
                              :expansion-map {}
                              :opts {:default-expanded-depth 5 :max-depth 1}})
-        ;; rf2-3x7nj.25.4 — `[:a]`, the node AT the cap. This addressed
-        ;; the root's `…-m--toggle`, which sits at depth 0 and is not
-        ;; capped, so the test never reached the branch it is named for.
+        ;; `[:a]`, the node AT the cap. The root's `…-m--toggle` sits at
+        ;; depth 0 and is not capped, so addressing it would never reach
+        ;; the branch this test is named for.
         tog (find-attr h :data-testid
                        "rf-xray-edn-inspector-test-m-:a-toggle")]
     (is (some? tog) "depth-capped renders still carry a toggle span")
@@ -869,10 +860,11 @@
 
 (deftest depth-capped-toggle-expands-one-level-rf2-3x7nj-25-4
   ;; The capped `▸ {…}` is a real control — `role=button`, focusable, an
-  ;; `on-click` — and its click dispatched a toggle the reducer stored as
-  ;; `{:expanded? true}`. But `depth-capped?` read `depth` and `max-depth`
-  ;; alone, and both `expanded?` and `children` required it false, so the
-  ;; stored override could never take effect: nothing on screen changed.
+  ;; `on-click` — and its click dispatches a toggle the reducer stores as
+  ;; `{:expanded? true}`. A `depth-capped?` reading `depth` and
+  ;; `max-depth` alone, with both `expanded?` and `children` requiring it
+  ;; false, would leave that stored override no way to take effect:
+  ;; nothing on screen would change.
   ;;
   ;; The override is PRODUCED here, not hand-written: the capped toggle's
   ;; own click is captured and run through the real reducer.
@@ -903,7 +895,7 @@
       (is (= {:expanded? true}
              (get expansion-map (ei/expansion-key :test "m" [:a])))
           "the reducer stores the open override")
-      (testing "and that override now EXPANDS the capped node"
+      (testing "and that override EXPANDS the capped node"
         (is (true? (-> (find-attr h :data-testid a-toggle) second :aria-expanded))
             "`[:a]` renders open")
         (is (str/includes? (collect-text h) ":b")
@@ -915,29 +907,28 @@
             "and nothing below it is painted")))
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
-;; ---- rf2-1bra5 — map body layout: column-align + inline scalars ---------
+;; ---- map body layout: column-align + inline scalars ----------------------
 ;;
-;; Two related bugs in the live App-DB panel:
+;; Two layout properties of a map body:
 ;;
-;;   Bug 1 — some scalar rows wrapped (`:show-parity?` + newline + `true`)
-;;     while sibling scalar rows on the same map rendered inline. The
-;;     wrapped rows measured 28.79px; the inline rows 17.79px. The
-;;     render-path divergence was the `gutter-row` wrapping diff'd
-;;     leaves in a BLOCK div (`display: flex`) inside a `flex-wrap:
-;;     wrap` per-row container — the wide div wrapped below the key.
+;;   Inline scalars — every scalar row renders its value on the key's
+;;     line. A `gutter-row` wrapping diff'd leaves in a BLOCK div
+;;     (`display: flex`) inside a `flex-wrap: wrap` per-row container
+;;     would wrap the wide div below the key (`:show-parity?` + newline
+;;     + `true`) while sibling scalar rows on the same map render inline.
 ;;
-;;   Bug 2 — values don't column-align across rows of the same map. Each
-;;     row was its own `display: flex` so the value followed whatever
-;;     gap landed after the key — different keys produced different
+;;   Column-aligned values — values share one x-coordinate across rows
+;;     of the same map. A per-row `display: flex` would put each value
+;;     after whatever gap landed after its key — different keys, different
 ;;     value x-coordinates, a ragged value-column left edge.
 ;;
-;; Fix: CSS Grid (`max-content 1fr`) for the body container, with key +
-;; value emitted as direct grid children. The `gutter-row` wrapper
-;; switches from block-level `flex` to `inline-flex` so a diff'd leaf
+;; So the body container is a CSS Grid (`max-content 1fr`), with key +
+;; value emitted as direct grid children, and the `gutter-row` wrapper is
+;; `inline-flex` rather than block-level `flex`, so a diff'd leaf
 ;; composes inline with its preceding key.
 
 (deftest map-body-uses-css-grid-layout
-  (testing "rf2-1bra5 — labelled-kind bodies use grid with
+  (testing "labelled-kind bodies use grid with
             max-content+1fr columns so values column-align across rows"
     ;; Map MUST be too big to inline-fit (cnt > 3) so the body
     ;; container renders.
@@ -963,7 +954,7 @@
             "key + value baselines align per row")))))
 
 (deftest map-body-row-emits-key-and-value-as-direct-grid-children
-  (testing "rf2-1bra5 — each row contributes two direct grid children
+  (testing "each row contributes two direct grid children
             (key cell + value cell) so the grid resolves columns
             across rows. NOT wrapped in a per-row flex container."
     (let [;; >3 keys so inline-fit gate fails and the body emits.
@@ -983,7 +974,7 @@
       (is (= 4 (count value-cells)) "four map rows → four value cells"))))
 
 (deftest sequential-body-still-uses-block-layout
-  (testing "rf2-1bra5 — sequentials (vectors / lists / sets / seqs)
+  (testing "sequentials (vectors / lists / sets / seqs)
             keep block layout. Grid only applies to labelled-key kinds
             (map / record / map-entry); sequentials have no key column."
     ;; >3 items so inline-fit gate fails and the body emits.
@@ -1004,10 +995,10 @@
             "vector body is the block-layout variant")))))
 
 (deftest gutter-row-is-inline-flex-not-block
-  (testing "rf2-1bra5 root-cause fix — gutter-row wraps diff'd leaves
-            in inline-flex SPAN (not block-level DIV with display: flex).
-            Pre-fix the block wrapper inside the per-row flex container
-            forced the value below the key (wrap → two-line rows)."
+  (testing "gutter-row wraps diff'd leaves in an inline-flex SPAN (not
+            a block-level DIV with display: flex). A block wrapper inside
+            a per-row flex container would force the value below the key
+            (wrap → two-line rows)."
     (let [;; Force a :same diff row — both sides equal scalars.
           h (ei/render-node {:value 1
                              :before 1
@@ -1026,7 +1017,7 @@
            a preceding key"))))
 
 (deftest scalar-leaves-render-as-inline-spans-in-non-diff-mode
-  (testing "rf2-1bra5 Bug 1 — plain scalars (numbers, booleans, etc.)
+  (testing "plain scalars (numbers, booleans, etc.)
             render as inline spans, never as a block element that
             would push the value below its key."
     (doseq [v [42 true false "hello" :foo 'sym nil]]
@@ -1038,7 +1029,7 @@
             (str "scalar " (pr-str v) " renders as a [:span] inline"))))))
 
 (deftest map-with-mixed-scalar-and-container-values-grid-layout
-  (testing "rf2-1bra5 — mixed-kind map (some scalars, some nested
+  (testing "mixed-kind map (some scalars, some nested
             containers) renders the body as ONE grid where every key
             sits in column 1 and every value (scalar OR nested) sits in
             column 2. The nested container's own expanded body is its
@@ -1063,10 +1054,9 @@
           "3 rows × (key + value) = 6 direct grid cells"))))
 
 (deftest map-body-row-gap-is-zero-for-density
-  (testing "rf2-1bra5 — row-gap stays 0 so the inspector keeps the
-            workstation-dense layout it ships today. The fix is the
-            column-alignment + inline-composition; vertical density is
-            unchanged."
+  (testing "row-gap is 0 so the inspector keeps a
+            workstation-dense layout: column alignment and inline
+            composition leave vertical density alone."
     (let [v {:a 1 :b 2 :c 3 :d 4}
           k0 (ei/expansion-key :p "m" [])
           h  (ei/render-node {:value v
@@ -1080,15 +1070,14 @@
 ;; ---- toggle handler shape ------------------------------------------------
 
 (deftest toggle-handler-dispatches-canonical-event
-  ;; rf2-y59tb — the dispatch payload threads the rendered-
+  ;; The dispatch payload threads the rendered-
   ;; expanded? state as a fifth slot so the reducer can invert
   ;; from the user's visible state on the first click.
   (testing "default-collapsed path: dispatched event carries rendered? false"
     (let [captured (atom nil)
           ;; render-node accepts an explicit dispatch-fn so tests
           ;; can intercept the toggle dispatch without redef'ing
-          ;; the global rf/dispatch (which is what the prior shape
-          ;; did before the reg-view fix). The :dispatch-fn slot is
+          ;; the global rf/dispatch. The :dispatch-fn slot is
           ;; the same closure the reg-view'd outer body threads to
           ;; carry frame context.
           ;;
@@ -1140,15 +1129,15 @@
              @captured)
           "default-expanded render → payload carries rendered? true"))))
 
-;; ---- rf2-pvsxs — opt-in `:site-id` for cross-mount persistence ----------
+;; ---- opt-in `:site-id` for cross-mount persistence -----------------------
 ;;
 ;; By default, two `[edn-inspector value]` mounts in the same panel get
-;; independent expansion state via the auto-mount-id (rf2-sndui D4=a).
+;; independent expansion state via the auto-mount-id.
 ;; The cost — only visible in the panel-leave-and-return workflow —
 ;; is that the same logical site loses state on every unmount, because
 ;; the second mount allocates a new auto-mount-id.
 ;;
-;; Opt-in `:site-id` fixes this without breaking the isolation default:
+;; Opt-in `:site-id` avoids that cost without breaking the isolation default:
 ;; consumers that want their expansion state to SURVIVE a remount pass
 ;; a stable identifier (e.g. `[:app-db-frame frame-id]`) as the
 ;; `:site-id`. The expansion-key's second component reads `:site-id`
@@ -1195,9 +1184,8 @@
         ":data-rf-site-id attribute carries the literal site-id")))
 
 (deftest edn-inspector-without-site-id-keeps-per-call-site-isolation
-  ;; The acceptance contract: when `:site-id` is omitted, behaviour is
-  ;; UNCHANGED — auto-mount-id keeps two side-by-side mounts independent.
-  ;; This guards the rf2-sndui D4=a default.
+  ;; When `:site-id` is omitted, auto-mount-id keeps two side-by-side
+  ;; mounts independent. This guards the isolation default.
   (let [outer1 (ei/edn-inspector {:a 1} {:panel-id :p})
         outer2 (ei/edn-inspector {:a 1} {:panel-id :p})
         inner1 (outer1 {:a 1} {:panel-id :p})
@@ -1212,7 +1200,7 @@
         "no :site-id supplied → no data-rf-site-id attribute")))
 
 (deftest cross-mount-persistence-survives-unmount-and-remount
-  ;; The canonical rf2-pvsxs scenario: mount widget → expand a path →
+  ;; The canonical `:site-id` scenario: mount widget → expand a path →
   ;; unmount → remount with the SAME :site-id → the path is STILL
   ;; expanded. Simulate via:
   ;;   1. dispatch a toggle that opens [:nested :deep] for site-id Σ
@@ -1319,11 +1307,10 @@
     (is (some? title) "title attribute carries full value")))
 
 ;; =========================================================================
-;; Diff mode (rf2-q3dzw phase 5 · D5=a per rf2-sndui)
+;; Diff mode
 ;; =========================================================================
 ;;
-;; The diff path subsumes the legacy `edn-inspector.render` engine —
-;; passing `:before` switches the widget into diff mode where each
+;; Passing `:before` switches the widget into diff mode where each
 ;; node renders with a left-gutter glyph + colour and `:modified`
 ;; leaves carry a `← was <prior>` annotation. Ancestor chain
 ;; force-opens over any changed descendant.
