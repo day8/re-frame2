@@ -4,19 +4,22 @@
 # THREE marker blocks. The first two are one per direction of the
 # mayor/worker boundary; the third asks a different question of the same file.
 #
-#   rf2-ydl2p — refuses commits in the MAYOR checkout that touch
-#               worker-tracked surfaces (source, spec, docs, scripts).
-#   rf2-ia8o7 — refuses commits in a WORKER worktree that touch the beads
-#               DATABASE (the stale-worker-snapshot failure mode).
-#   rf2-or8te — refuses a commit, from ANY worktree, that would empty the
-#               beads tracker or lose more than a tenth of it.
+#   mayor commit boundary  — refuses commits in the MAYOR checkout that touch
+#                            worker-tracked surfaces (source, spec, docs,
+#                            scripts).
+#   worker beads boundary  — refuses commits in a WORKER worktree that touch
+#                            the beads DATABASE (the stale-worker-snapshot
+#                            failure mode).
+#   beads truncation floor — refuses a commit, from ANY worktree, that would
+#                            empty the beads tracker or lose more than a tenth
+#                            of it.
 #
 # The first two say: source flows mayor -> worker, tracker state flows
 # worker -> mayor, and neither crosses back. The third says: and when the
 # tracker does flow, it arrives whole.
 #
-# Refuses commits in the MAYOR checkout that touch worker-tracked surfaces
-# (rf2-ydl2p). Mayor commits are allowed only for `.beads/issues.jsonl` and
+# Refuses commits in the MAYOR checkout that touch worker-tracked surfaces.
+# Mayor commits are allowed only for `.beads/issues.jsonl` and
 # the optional root `MEMORY.md`; any source/spec/test/doc/script change
 # must originate from a worker worktree under the worktree parent
 # directory (a sibling of the mayor checkout, e.g. `../re-frame2-worktrees/`).
@@ -31,10 +34,10 @@
 # Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
 # Source of truth: scripts/git-hooks/pre-commit.
 #
-# Discovery context: rf2-oswhk (#2136) near-mishap, 2026-05-25 — a worker
-# tool call landed a commit on the mayor checkout's local main because of
-# a PowerShell cwd leak. This commit-time guard complements the edit-time
-# guard at scripts/assert-worker-worktree.ps1.
+# This commit-time guard complements the edit-time guard at
+# scripts/assert-worker-worktree.ps1: a worker tool call whose working
+# directory leaks into the mayor checkout (a PowerShell cwd leak, for one)
+# would otherwise land its commit on the mayor checkout's local main.
 #
 # Cross-platform: runs under Git Bash on Windows, macOS, Linux. POSIX sh.
 
@@ -117,9 +120,9 @@
 {
   # The two blocks above police WHO commits what. This one polices WHAT is
   # in the beads tracker when it IS committed, and it is the only one that
-  # runs in the PRIMARY worktree — which is where it had to be, because both
-  # times an empty export reached main the commit was a plain `git add` from
-  # the mayor checkout, where the block above correctly no-ops.
+  # runs in the PRIMARY worktree — which is where it has to be, because a
+  # plain `git add` from the mayor checkout never goes through the checkpoint
+  # helper, and the block above correctly no-ops there.
   #
   # No marker file and no worktree derivation: a truncated tracker is wrong
   # from anywhere. In a worker the block above has already refused the commit
