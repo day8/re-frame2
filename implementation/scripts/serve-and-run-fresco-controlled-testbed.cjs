@@ -2,8 +2,7 @@
 'use strict';
 
 /*
- * THE FRESCO CONTROLLED-INPUT GATE — invariant I15 in three real engines
- * (rf2-hic-016).
+ * THE FRESCO CONTROLLED-INPUT GATE — invariant I15 in three real engines.
  *
  *   node implementation/scripts/serve-and-run-fresco-controlled-testbed.cjs
  *   npm run test:fresco-controlled          (from implementation/)
@@ -16,22 +15,19 @@
  *
  * That runner is ONE engine over N specs; this surface is ONE spec over N
  * engines, and the engines are the contract rather than a detail of how it
- * is run. Widening the shared runner would have put three browser launches
+ * is run. Widening the shared runner would put three browser launches
  * behind every adapter smoke to serve one caller. The reagent-slim and
- * tenant-switcher testbeds set the precedent for a surface that carries its
- * own orchestrator.
+ * tenant-switcher testbeds likewise carry their own orchestrators.
  *
  * ## The three engines, and why each is mandatory
  *
- * Chromium is where every controlled-input claim in this repo was
- * previously witnessed, and
+ * Every other controlled-input witness in this repo runs in Chromium, and
  * `bench/fresco/ime_run.cjs` states its own scope as Chromium-only because
- * `Input.imeSetComposition` is a CDP method. Nothing had ever driven
- * Fresco's element-path converge outside Chromium, and the mechanism is
- * made of exactly the things engines differ on: caret and selection
+ * `Input.imeSetComposition` is a CDP method. Fresco's element-path converge
+ * is made of exactly the things engines differ on: caret and selection
  * restoration, composition event carriage, and the order in which a
- * discrete event's work is flushed. Firefox is the third because it is the
- * one major engine the repo had never launched at all.
+ * discrete event's work is flushed. Firefox completes the three major
+ * engines.
  *
  * ## Two verdicts, kept apart
  *
@@ -46,9 +42,9 @@
  * Both verdicts rest on the suite having actually run, so the coverage
  * floor is STRUCTURAL rather than a total: `REQUIRED_SECTIONS` pins the
  * witnesses by name and `REQUIRED_RECORDS` pins the keys each measured row
- * carries. A count alone was fail-open in both directions — a whole section
- * could be deleted and still clear it, and three engines recording nothing
- * agree perfectly. Neither passes now.
+ * carries. A count alone would be fail-open in both directions — a whole
+ * section could be deleted and still clear it, and three engines recording
+ * nothing agree perfectly. Neither passes.
  *
  * The comparator, the section floor and the record schema all carry
  * mutation teeth that run before any browser launches: a gate whose own
@@ -63,9 +59,8 @@
  * actually driven in three engines and which are driven in one. Every
  * section of `spec.cjs` runs unmodified in each engine — that is the
  * runner's whole shape — so the interesting rows are the ones that are NOT
- * in this spec at all, and they were found by reading the other witnesses
- * rather than by trusting the name. Measured 2026-08-10 against
- * `main@02d10e7b70`, before this bead's second pass changed anything:
+ * in this spec at all, and they are found by reading the other witnesses
+ * rather than by trusting the name:
  *
  * | behaviour | Cr | Ff | Wk | witness |
  * |---|---|---|---|---|
@@ -75,94 +70,84 @@
  * | caret preserved (the browser's own trusted keystrokes) | ✓ | ✓ | ✓ | `spec.cjs` `caret-under-real-typing` |
  * | composition — the event SEQUENCE, on a refusing field | ✓ | ✓ | ✓ | `spec.cjs` `composition-safety` |
  * | composition — release on `compositionend` / blur / non-composing change / unmount | ✓ | ✓ | ✓ | `spec.cjs` `composition-release-edges` |
- * | composition — `beforeinput` carried, and not what drives the converge | — | — | — | **nothing.** GAP 4 below; now `spec.cjs` `beforeinput-does-not-drive-the-converge` |
- * | composition — an ACCEPTING model takes every composing update | ✓ | — | — | `front/revision_dom_cljs_test:575`, Chromium lane. GAP 2; now `spec.cjs` `an-accepting-model-during-a-composition` |
- * | composition — a revision arriving MID-exchange defers to its close | ✓ | — | — | `front/revision_dom_cljs_test:512`, Chromium lane. GAP 1; now `spec.cjs` `a-revision-arriving-mid-composition` |
+ * | composition — `beforeinput` carried, and not what drives the converge | ✓ | ✓ | ✓ | `spec.cjs` `beforeinput-does-not-drive-the-converge` (4 below) |
+ * | composition — an ACCEPTING model takes every composing update | ✓ | ✓ | ✓ | `spec.cjs` `an-accepting-model-during-a-composition` (2 below) |
+ * | composition — a revision arriving MID-exchange defers to its close | ✓ | ✓ | ✓ | `spec.cjs` `a-revision-arriving-mid-composition` (1 below) |
  * | composition — the browser's real composition RANGE and candidate window | ✓ | — | — | `bench/fresco/ime_run.cjs` (CDP, so Chromium by construction) |
  * | composition — the ABORT signature (a value write killing an exchange with no `compositionend`) | ✓ | — | — | `bench/fresco/ime_run.cjs`; unreachable from page script in any engine |
  * | selection — a RANGE across an out-of-band write | ✓ | ✓ | ✓ | `spec.cjs` `selection-across-an-out-of-band-write` |
- * | selection — DIRECTION across an out-of-band write | ~ | ~ | ~ | same section, RECORDED — but vacuously. GAP 3; the premise is now asserted |
+ * | selection — DIRECTION across an out-of-band write | ✓ | ✓ | ✓ | same section: the premise is asserted and the outcome RECORDED (3 below) |
  * | revision reset at rest, preserving element identity | ✓ | ✓ | ✓ | `spec.cjs` `revision-reset-preserves-identity` |
  * | blur / unmount edges | ✓ | ✓ | ✓ | `spec.cjs` `composition-release-edges` |
  * | form reset | ✓ | ✓ | ✓ | `spec.cjs` `form-reset-and-fill-proxy` (RECORDED) |
  * | autofill, natively | — | — | — | no cross-engine drive exists; the proxy is recorded in all three and named as one |
  * | owned `:value` / `::h/checked` win by presence | ✓ | ✓ | ✓ | `spec.cjs` `same-turn-convergence`, `owned-checked-pair` |
  *
- * The headline holds: of the behaviours the bead enumerates, everything
- * this spec contains really is driven in three engines, because the runner
- * cannot run a section in fewer. The two real-IME rows are Chromium-only by
- * RULING rather than by omission — the operator amended this bead's
- * acceptance on 2026-08-10 so that the synthetic sequence IS the recurring
- * three-engine witness, with native conduct on Firefox and WebKit verified
- * once by hand against `docs/design/fresco/native-ime-manual-witness.md`.
+ * Everything this spec contains is driven in three engines, because the
+ * runner cannot run a section in fewer. The two real-IME rows are
+ * Chromium-only by design rather than by omission: the synthetic sequence
+ * IS the recurring three-engine witness, with native conduct on Firefox and
+ * WebKit verified by hand against
+ * `docs/design/fresco/native-ime-manual-witness.md`.
  *
- * ### The four gaps that table found
+ * ### Four behaviours that one engine, or none, would not witness
  *
- * Three behaviours the bead names were driven in ONE engine by another
- * suite, and a fourth was carried but never asserted. Each is a witness
- * whose stated scope exceeded the cases it drove, which is worth naming
- * because it is the failure this gate exists to make impossible:
+ * Each of these is a witness whose stated scope could exceed the cases it
+ * drives, which is worth naming because it is the failure this gate exists
+ * to make impossible:
  *
  * 1. **A revision arriving mid-composition.** `controlled.cljs` documents
- *    the deferral at length and `front/revision_dom_cljs_test`'s
+ *    the deferral at length and `revision_dom_cljs_test`'s
  *    `a-revision-arriving-mid-composition-defers-to-the-close` asserts it —
  *    on the `:browser-test` lane, which launches Chromium and only Chromium
- *    (`scripts/run-browser-tests.cjs:31`). A deferral is a claim about the
- *    order a browser flushes a discrete event's work, so one engine is
- *    exactly the wrong number.
- * 2. **An accepting model during a composition.** Same file, same lane, and
- *    the sharper of the two: the shadow holds the DRAFT, but the author's
+ *    (`scripts/run-browser-tests.cjs` requires `chromium` alone). A
+ *    deferral is a claim about the order a browser flushes a discrete
+ *    event's work, so one engine is exactly the wrong number.
+ * 2. **An accepting model during a composition.** The sharper of the two:
+ *    the shadow holds the DRAFT, but the author's
  *    handler still runs on every composing `input`
  *    (`controlled.cljs` `shadowed-props`, which calls `inner` before it
  *    branches on `composing-input?`), so an accepting model moves
  *    throughout the exchange. `controlled.cljs` states it as the deferral's
- *    honest limit; one engine had measured it. It is also the fact the
+ *    honest limit. It is also the fact the
  *    manual-witness checklist's "app-db clean until commit" contradicts.
- * 3. **Selection direction.** The section set `(1, 3, 'backward')`,
- *    asserted the WIDTH, and recorded the post-write `direction`. Had an
- *    engine never honoured `'backward'` at all, the recorded row would
- *    still have agreed with the others perfectly — three engines agreeing
+ * 3. **Selection direction.** The section sets `(1, 3, 'backward')`,
+ *    asserts the WIDTH, and records the post-write `direction`. Were an
+ *    engine never to honour `'backward'` at all, the recorded row would
+ *    still agree with the others perfectly — three engines agreeing
  *    about a selection that was never directional. Recording an outcome
- *    whose premise is unread is the cross-engine comparator's blind spot.
+ *    whose premise is unread is the cross-engine comparator's blind spot,
+ *    so the premise is asserted rather than assumed.
  * 4. **`beforeinput`.** The `spec.cjs` header states composition is driven
  *    as the sequence `compositionstart` / `beforeinput` / `input` /
- *    `compositionend`, and the page helper has always carried a
- *    `{ beforeinput: false }` knob no caller used. Carrying an event is not
- *    witnessing it: nothing distinguished a run with `beforeinput` from a
- *    run without, in any engine.
+ *    `compositionend`, and the page helper carries a
+ *    `{ beforeinput: false }` knob. Carrying an event is not witnessing it,
+ *    so `beforeinput-does-not-drive-the-converge` distinguishes a run with
+ *    `beforeinput` from a run without, in every engine.
  *
- * All four are filled: `REQUIRED_SECTIONS` gained
- * `beforeinput-does-not-drive-the-converge`,
- * `an-accepting-model-during-a-composition` and
- * `a-revision-arriving-mid-composition`, and the direction row's premise is
- * asserted rather than assumed. The table keeps its as-measured columns
- * because the point of it is what the gate looked like BEFORE, and because
- * the two Chromium-only real-IME rows do not move.
+ * ### Two witnesses that must be able to red
  *
- * ### The third pass: two witnesses that ran but could not red
- *
- * The #7815 audit then asked the sharper version of the same question of
- * the rows the second pass had just added — not "did this run?" but "what
+ * The sharper version of the same question — not "did this run?" but "what
  * single narrowing of the implementation would let it pass while the law
- * is broken?" — and two of them had no answer:
+ * is broken?":
  *
- * 1. **The mid-composition revision** drove the ACCEPTING `revision`
- *    field. Its composing `:tb/edit` has already moved that field's model
+ * 1. **The mid-composition revision** drives the REFUSING
+ *    `revision-strict` field as well as the ACCEPTING `revision` one. On the
+ *    accepting field the composing `:tb/edit` has already moved the model
  *    to `keepあ` before the bump, so a reset that deferred and a reset
- *    that reasserted immediately had the SAME string to write: React finds
+ *    that reasserted immediately have the SAME string to write: React finds
  *    nothing differing, and the row reads `keepあ` under either conduct.
- *    The repair is a model policy rather than machinery — the testbed
- *    gained `revision-strict`, the same `::h/revision` on a field that
+ *    `revision-strict` carries the same `::h/revision` on a field that
  *    REFUSES the kana, so mid-exchange the reset's target is `42` while
- *    the draft is `42あ`. The row now reds on exactly the mutation
- *    `controlled.cljs` names as the alternative it rejected: an immediate
+ *    the draft is `42あ`, and the row reds on exactly the mutation
+ *    `controlled.cljs` names as the alternative it rejects: an immediate
  *    `element.value` write. The accepting field keeps its rows for the
  *    other half — the deferral's honest limit, that the reset can be lost.
- * 2. **`armed-edges-are-wired` clicked one of the two arms.** A dead
- *    `arm-unmount`, or an arm firing an event nobody registered, stayed
- *    green while the section's name and the PR both claimed the pair.
+ * 2. **`armed-edges-are-wired` clicks both arms.** Clicking one would leave
+ *    a dead `arm-unmount`, or an arm firing an event nobody registered,
+ *    green while the section's name claimed the pair.
  *    Waiting the five seconds out per arm per engine is not the answer;
- *    resolving the event at ARM time is. `:tb/arm` now looks its event up
+ *    resolving the event at ARM time is. `:tb/arm` looks its event up
  *    when it is armed, carries it in the `:dispatch-later` payload and
  *    puts it in the on-screen readout, so both arms are witnessed in the
  *    turn they are clicked — and the operator's readout says what is
@@ -184,14 +169,14 @@
  * | owned slots win by presence, not truthiness | partly — `value: ""` and `checked: false` are both proven live | no |
  * | a forwarded attribute cannot replace an owned one | NO — see below |
  *
- * ### Why only some rows isolate this runtime, and how that was established
+ * ### Why only some rows isolate this runtime, and how that is established
  *
- * Measured, not assumed. Three deliberate regressions were driven through
+ * Measured, not assumed. Three deliberate regressions driven through
  * the whole matrix — the converge deferred a task (the UIx-port conduct),
  * the caret restored to the end of the string (plain React's conduct), and
  * `converge-to!` handed the pre-flush record (the stale-value trap the
- * namespace docstring names) — and ALL THREE were caught by the CARET rows
- * and by nothing else. The value rows stayed green under every one of them.
+ * namespace docstring names) — are ALL THREE caught by the CARET rows
+ * and by nothing else. The value rows stay green under every one of them.
  *
  * The reason is React's own end-of-event restore. `updateInput` assigns
  * `element.value` whenever the DOM disagrees with the committed value, in
@@ -217,21 +202,20 @@
  * - **Autofill.** No cross-engine drive exists (Chromium's needs CDP and a
  *   profile). The spec records the two shapes it CAN drive — a fill that
  *   dispatches an input event, and one that dispatches nothing — and names
- *   them a proxy. The conformance matrix is hic-040's.
+ *   them a proxy. The conformance matrix below extends that record.
  * - **Owned-vs-forwarded attribute merge.** There is no public merge
- *   surface on the door today, so a testbed asserting it would be
+ *   surface on the door, so a testbed asserting it would be
  *   measuring its own helper. The presence-not-truthiness HALF is proven
  *   (a `value: ""` field is controlled and converges; a `checked: false`
  *   box tracks its model); the forwarding half is not, and is not claimed.
  *
  * ### The sabotage, run rather than reasoned about
  *
- * rf2-hic-016's acceptance names one: disabling the composition guard must
- * turn the WebKit IME witness red. It was run on 2026-08-10, and again on
- * 2026-08-11 against the third pass, by replacing `composing-input?`'s body
+ * Disabling the composition guard must turn the WebKit IME witness red.
+ * Replacing `composing-input?`'s body
  * with `false` — the whole carve-out off, both halves, since the shadow is
  * held from the same reading — and driving
- * `FRESCO_TESTBED_ENGINES=webkit`. It exits 1 on the first composing
+ * `FRESCO_TESTBED_ENGINES=webkit` exits 1 on the first composing
  * update:
  *
  *     FAIL Fresco controlled input (I15) — three engines (webkit):
@@ -239,62 +223,56 @@
  *       expected "123あ", got "123"
  *
  * which is the carve-out's whole point stated as a failure: the refusing
- * model's value written over a live draft. The guard was then restored
- * byte-identically (`git checkout --`, working tree clean) and WebKit
- * returned to 91 checks (the count of that day; the armed-edges repair of
- * 2026-08-11 took it to 95). A gate nobody has seen fail is not a gate.
+ * model's value written over a live draft. A gate nobody has seen fail is
+ * not a gate.
  *
  * ### And the same sabotage, used to measure ONE row against another
  *
  * A gate that has been seen to fail somewhere is still not evidence that
- * each of its rows can fail. The #7815 audit's claim about the
- * mid-composition revision was checkable rather than arguable, so it was
- * checked: with the guard disabled — the law broken in exactly the way
- * this section names — the two halves were run separately on WebKit, with
- * `SECTIONS` cut to `revision-reset-preserves-identity` and this section
- * so that nothing else could red first.
+ * each of its rows can fail. With the guard disabled — the law broken in
+ * exactly the way the mid-composition revision section names — the two
+ * halves of that section run separately on WebKit, with
+ * `SECTIONS` cut to `revision-reset-preserves-identity` and that section
+ * so that nothing else can red first:
  *
  * | half | field | result under the broken guard |
  * |---|---|---|
- * | as shipped in #7815 | `revision`, accepting | **6 of 6 green.** The only complaints were the coverage floor's, about the sections the cut had removed. |
- * | the repair | `revision-strict`, refusing | **red**, `[webkit] the field held the composing draft: expected "42あ", got "42"` |
+ * | accepting | `revision` | **6 of 6 green.** The only complaints are the coverage floor's, about the sections the cut removed. |
+ * | refusing | `revision-strict` | **red**, `[webkit] the field held the composing draft: expected "42あ", got "42"` |
  *
- * So the audit was right, and it is now a measurement rather than a
- * reading: the accepting field's model had already taken the draft, so the
- * broken and the correct conduct wrote the same string and every row
- * agreed with both. The refusing field is the same section with something
+ * The accepting field's model has already taken the draft, so the
+ * broken and the correct conduct write the same string and every row
+ * agrees with both. The refusing field is the same section with something
  * to disagree about.
  *
- * ### What the three engines actually said
+ * ### What the three engines say about I15
  *
- * Nothing diverged, on the second pass or the third. Every RECORDED row is
- * byte-identical in Chromium, Firefox and WebKit, so `NARROWINGS` is empty
- * and no per-control refusal policy is owed to the hic-005 table from this
- * bead. Three conducts worth carrying forward, all three-engine unanimous:
+ * Every I15 RECORDED row is byte-identical in Chromium, Firefox and WebKit,
+ * so none needs a narrowing. Three conducts worth carrying forward, all
+ * three-engine unanimous:
  *
  *   1. An out-of-band model write lands on the NEXT TASK, not the same
  *      one. A keystroke is inside its turn only because `converge!` buys
  *      that with a `flushSync`; a button buys none, and a concurrent root
  *      flushes its sync lane in a microtask.
  *   2. A RANGE selection does not survive an out-of-band write: it
- *      collapses to a caret at the end of the new value. That is
- *      rf2-n3dxw's stated limit, now measured in three engines rather
- *      than one, and it is React's restore doing it rather than this
- *      runtime.
+ *      collapses to a caret at the end of the new value. That is a stated
+ *      limit, measured in all three engines, and it is React's restore
+ *      doing it rather than this runtime.
  *   3. `form.reset()` is VISUALLY INERT on a converged field, because
  *      `defaultValue` — the record `controlled/last-rendered` reads — is
  *      already the model. The one ordinary browser action that touches
  *      the converge's own bookkeeping agrees with it in all three
  *      engines, which is a direct check on that dependency.
  *
- * ## THE CONFORMANCE MATRIX (rf2-hic-040), added 2026-08-14
+ * ## THE CONFORMANCE MATRIX
  *
  * Everything above is invariant I15, which is a law about TEXT: one
- * control shape in seven model policies. rf2-hic-040 asks the other
- * question — does every control type `specification.md` §4.2 names have a
- * support-or-refusal policy that holds in three engines, with none of them
- * silently unsupported — and adds twelve sections, one per row of
- * `docs/design/fresco/product/dispositions.md` §2.3 that it owns.
+ * control shape in seven model policies. The conformance matrix asks the
+ * other question — does every control type `specification.md` §4.2 names
+ * have a support-or-refusal policy that holds in three engines, with none
+ * of them silently unsupported — in twelve sections, one per row of
+ * `docs/design/fresco/product/dispositions.md` §2.3 that it witnesses.
  *
  * That table is the deliverable; this gate is what keeps it true. Its
  * Witness column cites these sections by name, and `REQUIRED_SECTIONS`
@@ -312,36 +290,30 @@
  *   1. `custom-element-attributes` — a kebab KEYWORD is camelCased by
  *      `impl.slot/prop-name` before React passes it through, so the dashed
  *      attribute the author wrote never reaches a custom element.
- *      `rf2-n71ma`.
  *
- * It was not repaired here: a source-located refusal mints an error id, an
- * error id owes a `spec/009-Instrumentation.md` row, and that file is hot
- * zone this bead was fenced out of.
+ * Repairing it means a source-located refusal, which mints an error id,
+ * which owes a `spec/009-Instrumentation.md` row.
  *
- * ### There were THREE, and the two that left are why the rule is written
+ * ### Two rows assert a REPAIRED finding, which is why the rule is written
  * that way
  *
- * Both were repaired by beads that could reach `spec/009`, and in each case
- * the row had been asserted against the runtime as it then behaved, so the
- * repair RED this gate in all three engines rather than passing quietly.
- * Neither row was weakened; each was turned around onto its fix. That is
- * the standing rule doing exactly what it exists to do — twice.
+ * A row asserted against the runtime as it behaves reds in all three
+ * engines when that behaviour is repaired, rather than passing quietly, so
+ * a repair turns the row around onto its fix instead of weakening it:
  *
- *   • `reserved-marker-reads-the-whole-multiple-selection` (was
- *     `…-under-reads-a-multiple-select`) — `::h/value` lowered to
- *     `(.-value target)`, which on a `<select multiple>` is the FIRST
- *     selected option, every other choice discarded inside the turn.
- *     CORRECTED by `rf2-42vlw`: `impl.intent/target-value` reads
+ *   • `reserved-marker-reads-the-whole-multiple-selection` —
+ *     `impl.intent/target-value` reads
  *     `selectedOptions` on a control carrying both `.multiple` and
  *     `.selectedOptions`, so the marker delivers the SELECTION as a list.
+ *     A bare `(.-value target)` is, on a `<select multiple>`, the FIRST
+ *     selected option, every other choice discarded inside the turn.
  *   • `file-input-is-uncontrollable` — React's controlled write is
  *     `element.value = …`, which throws `InvalidStateError` on a file input
  *     in all three engines, and React 19.2 carries no controlled-file-input
  *     warning. The prop half is left to the engine: `InvalidStateError` is
- *     the report (rf2-6c12m.11 retired the `-file-input-value-prop` refusal
- *     that once stood in front of it). The marker half is REFUSED:
+ *     the report. The marker half is REFUSED:
  *     `:rf.error/fresco-file-input-value-marker` from
- *     `impl.intent/target-value` (`rf2-lhsvs`), with its `spec/009` row. The
+ *     `impl.intent/target-value`, with its `spec/009` row. The
  *     asymmetry with the multi-select above is deliberate and the spec row
  *     states it: `::h/value` already means *the control's current value* and
  *     a multi-select's current value IS its selection, whereas a file input
@@ -358,14 +330,12 @@
  *
  * ### The sabotages, run rather than reasoned about
  *
- * Three, each a RUNTIME behaviour mutation reddening a different row, each
- * run alone on Chromium with the exit captured on the same command line,
- * each restored and the restore verified by `git hash-object` against the
- * committed object:
+ * Three, each a RUNTIME behaviour mutation reddening a different row when
+ * run alone on Chromium:
  *
  * | mutation | reddened |
  * |---|---|
- * | `impl.intent/target-value` — reverted to a bare `(.-value target)`, so `::h/value` under-reads a multiple select again (the state `rf2-42vlw` repaired) | `reserved-marker-reads-the-whole-multiple-selection`: *so the handler received the whole SELECTION, as a list: expected `["a","c"]`, got `"a"`* |
+ * | `impl.intent/target-value` — reduced to a bare `(.-value target)`, so `::h/value` under-reads a multiple select | `reserved-marker-reads-the-whole-multiple-selection`: *so the handler received the whole SELECTION, as a list: expected `["a","c"]`, got `"a"`* |
  * | `impl.slot/dont-camel-case` — gains `"my"`, so `:my-other-attr` passes through dashed | `custom-element-attributes`: *FINDING: a kebab KEYWORD does NOT … expected undefined, got "from-keyword"* |
  * | `impl.codec/convert-prop-value` — a CLJS collection reaches React unconverted | `select-multiple-supported`: *both options survive the echo, inside the turn: expected "a,c", got ""* |
  *
@@ -375,10 +345,10 @@
  * current behaviour is most likely to get wrong. Both reds name the mutated
  * reading rather than a downstream symptom.
  *
- * ### What the three engines said this time
+ * ### What the three engines say about the matrix
  *
- * One divergence, and it is the first since this gate was built:
- * `NARROWINGS` now has an entry. WebKit answers `selectionStart` on
+ * One divergence, and `NARROWINGS` carries it. WebKit answers
+ * `selectionStart` on
  * `<input type="date">` where Chromium and Firefox answer null. It is
  * LATENT — a date field is never `convergeable?` in any engine — and the
  * control's conformance is asserted rather than recorded and is identical
@@ -428,14 +398,13 @@ const ENGINES = ONLY
 // ---------------------------------------------------------------------------
 // The coverage floor — STRUCTURAL, not a total.
 //
-// A bare count cannot see a deleted section, and this gate learned that the
-// hard way: with a floor of 50 against a full engine's 55 checks, either of
-// the two three-row sections could be deleted WHOLE and the run still
-// banked 52 and exited 0. A floor that survives the deletion of what it
-// guards is decoration.
+// A bare count cannot see a deleted section: with a floor of 50 against a
+// full engine's 55 checks, either of two three-row sections could be
+// deleted WHOLE and the run still bank 52 and exit 0. A floor that survives
+// the deletion of what it guards is decoration.
 //
-// So the pin is the section NAMES, each with the number of checks it banks
-// today. The names make a deleted section a red gate that says which one is
+// So the pin is the section NAMES, each with the number of checks it banks.
+// The names make a deleted section a red gate that says which one is
 // gone; the counts make a row quietly dropped from a surviving section red
 // too. Adding rows is free — these are minimums — but adding a SECTION is
 // not: the set must match exactly, so a witness added tomorrow is required
@@ -444,12 +413,12 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 190, which is what each engine reports — 97 from rf2-hic-016's
-// I15 witnesses and 93 from rf2-hic-040's conformance matrix.
+// Sum: 190, which is what each engine reports — 97 from the I15 witnesses
+// and 93 from the conformance matrix.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
-  // rf2-hic-016 — invariant I15, the controlled-TEXT law
+  // Invariant I15, the controlled-TEXT law
   'same-turn-convergence': 8,
   'beforeinput-does-not-drive-the-converge': 7,
   'caret-across-the-echo': 9,
@@ -462,8 +431,8 @@ const REQUIRED_SECTIONS = {
   'a-revision-arriving-mid-composition': 15,
   'owned-checked-pair': 6,
   'form-reset-and-fill-proxy': 3,
-  // rf2-hic-040 — the control/DOM conformance matrix. One section per row
-  // of `dispositions.md` section 2.3 that this bead owns, so a policy cell
+  // The control/DOM conformance matrix. One section per row of
+  // `dispositions.md` section 2.3 that this gate witnesses, so a policy cell
   // in that table has a section name to cite and a deleted witness reds by
   // the name the table quotes.
   'radio-group-echoes-committed': 9,
@@ -482,7 +451,7 @@ const REQUIRED_SECTIONS = {
 };
 
 // The RECORDED rows, with the keys each must carry. Without this the
-// comparator was fail-open in the worst way available to it: three engines
+// comparator would be fail-open in the worst way available to it: three engines
 // all recording `{}` agree perfectly, so every measured conduct could
 // vanish at once and `divergenceReport` would raise nothing. Agreement is
 // only evidence when there is something to agree about.
@@ -504,7 +473,7 @@ const REQUIRED_RECORDS = {
     'form-reset-clears-the-eventless-draft',
     'value-after-reset',
   ],
-  // rf2-hic-040. Every one of these is conduct that belongs to the ENGINE
+  // The conformance matrix. Every one of these is conduct that belongs to the ENGINE
   // or to React rather than to this runtime, which is why it is measured
   // rather than required — and every one is measured in all three engines,
   // so a divergence no narrowing names is still a red gate.
@@ -537,16 +506,14 @@ const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 // ---------------------------------------------------------------------------
 
 const NARROWINGS = [
-  // Populated only by a divergence this gate actually measured. An empty
-  // list was the honest starting state; the entry below is the first thing
-  // three engines have disagreed about since this gate was built.
+  // Populated only by a divergence this gate actually measured.
   {
     row: 'selection-api-on-types-without-a-caret',
     engines: ['webkit'],
     why:
       'WebKit answers `selectionStart` on `<input type="date">` — 10, which is '
       + 'the length of `yyyy-mm-dd` — where Chromium and Firefox both answer '
-      + 'null. Measured 2026-08-14 (rf2-hic-040) on the builds pinned by '
+      + 'null. Measured on the builds pinned by '
       + 'Playwright 1.59.1: chromium 147.0.7727.15, firefox 148.0.2, webkit 26.4. '
       + '`number` and `range` answer null in all three, so it is the date type '
       + 'alone. THE DIVERGENCE IS LATENT, and that is why it is a narrowing '
@@ -592,7 +559,7 @@ function divergenceReport(perEngine, narrowings = NARROWINGS) {
         `RECORDED row "${row}" diverges across engines and no NARROWINGS ` +
         `entry names it — ${groups}. Either the runtime should agree here ` +
         `(fix it) or the divergence is real (add a narrowing with its ` +
-        `engines and reason, and carry it to the hic-005 table).`);
+        `engines and reason, and carry it to the dispositions table).`);
       continue;
     }
     const seen = engines.filter((e) => JSON.stringify(perEngine[e][row]) !== JSON.stringify(perEngine[engines[0]][row]));
@@ -608,8 +575,8 @@ function divergenceReport(perEngine, narrowings = NARROWINGS) {
 
 /**
  * Did this engine run the whole suite? Returns a list of problems — empty
- * when every pinned section ran and banked at least the rows it banks
- * today. A spec that reports no sections at all fails every entry, which is
+ * when every pinned section ran and banked at least its pinned number of
+ * rows. A spec that reports no sections at all fails every entry, which is
  * the fail-closed direction.
  */
 function coverageReport(result, required = REQUIRED_SECTIONS) {
@@ -729,7 +696,7 @@ function runMutationTeeth() {
       === Object.keys(REQUIRED_SECTIONS).length
     && coverageReport({ checks: 95, sections: fullSections() }).length === 0);
 
-  // The hole this gate was reopened for: 55 checks with a floor of 50 meant
+  // The hole a bare count leaves: 55 checks with a floor of 50 means
   // either three-row section could be deleted whole and still exit 0.
   bite('deleting a whole section reds, and the message names it', () => {
     const sections = fullSections();
@@ -745,7 +712,7 @@ function runMutationTeeth() {
     return coverageReport({ checks: 90, sections }).length === 1;
   });
 
-  // The second hole: unanimous emptiness is not agreement.
+  // The other hole: unanimous emptiness is not agreement.
   bite('an engine that recorded nothing reds', () =>
     recordSchemaReport({}).length === Object.keys(REQUIRED_RECORDS).length
     && divergenceReport({ chromium: {}, firefox: {}, webkit: {} }, []).length === 0);
