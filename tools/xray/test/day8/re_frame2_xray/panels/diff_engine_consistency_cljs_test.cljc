@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.diff-engine-consistency-cljs-test
-  "rf2-xuyac engine-consistency regression guard.
+  "Engine-consistency guard for Xray's `:diff` lenses.
 
   ## What this asserts
 
@@ -9,27 +9,24 @@
   (`day8.re-frame2-xray.diff.engine/project`'s `:flat-rows`) and emit
   the universal 4-tuple shape `[path before after op]`.
 
-  Prior to rf2-xuyac the App-DB + HANDLER `:db` lenses routed through
-  the home-grown `app-db-diff-helpers/diff-paths` walker (a
-  structural-sharing key-walker, not Editscript). The two engines
-  disagreed on R6 vector-shift, R7 type-change, and R8 redaction —
+  A lens on a second engine — a structural-sharing key-walker such as
+  `app-db-diff-helpers/diff-paths`, say, rather than Editscript — would
+  disagree on R6 vector-shift, R7 type-change, and R8 redaction, so
   flipping between the `:diff` and `:full+diff` (mode-3) lenses of
-  the same `(before, after)` payload produced different chrome.
+  the same `(before, after)` payload would produce different chrome.
 
-  This test pins the post-migration invariant: for any `(before,
+  This test pins the invariant: for any `(before,
   after)` pair, the App-DB sub's diff output, the HANDLER `:db`
   projection's `:db-diff`, and the Machine Inspector's
   `snapshot-flat-diff-rows` all derive from the same engine + same
   shape → byte-equal vectors (up to row-shape canonicalisation).
 
   Pure data → data; .cljc so the JVM target picks it up too. No
-  re-frame runtime — both call sites are reached directly via their
-  internal helper (`db-diff-paths` is a private fn re-exposed via a
-  thin wrapper; the App-DB sub is reproduced inline as the same
-  `(diff-engine/project ...)` → `:flat-rows` → 4-tuple conversion).
+  re-frame runtime — every row calls `engine/project` directly and
+  applies the same `:flat-rows` → 4-tuple conversion the lenses use.
 
-  Per the rf2-xuyac bead's acceptance criterion: 'same input → same
-  flat-rows → same chrome → identical R-rule application'."
+  The contract: 'same input → same flat-rows → same chrome → identical
+  R-rule application'."
   (:require [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.diff.engine :as engine]))
 
@@ -43,7 +40,7 @@
         flat-rows))
 
 (defn- universal-diff
-  "The canonical diff every Xray `:diff` lens produces post-rf2-xuyac.
+  "The canonical diff every Xray `:diff` lens produces.
   Used as the oracle each per-surface helper must match."
   [before after]
   (flat-rows->triples (:flat-rows (engine/project before after))))
@@ -58,12 +55,12 @@
       (is (= [[[:counter] 5 6 :modified]] oracle)
           "engine produces the universal `[path before after op]` shape"))))
 
-;; ---- R6 vector shift (the rf2-xuyac correctness bug) --------------------
+;; ---- R6 vector shift ----------------------------------------------------
 
 (deftest engine-consistency-r6-vector-shift
-  (testing "rf2-xuyac — R6 vector-shift handling. The home-grown walker
-            classified vector mutations as a leaf `:modified` at the
-            parent path (vectors bottom out — see the retired
+  (testing "R6 vector-shift handling. A structural-sharing key-walker
+            classifies vector mutations as a leaf `:modified` at the
+            parent path (vectors bottom out — see the
             `app-db-diff-helpers/diff-paths` rule). The Editscript
             engine surfaces per-element ops; the universal 4-tuple
             shape passes those through. Same engine → engine-stable
@@ -74,20 +71,20 @@
           paths (set (map first oracle))]
       ;; The Editscript engine emits a `:+` at [items 1] with value
       ;; `:NEW`; expand-leaf-paths surfaces that at `[:items 1]`.
-      ;; The home-grown walker would have classified `:items` as a
+      ;; A key-walker would classify `:items` as a
       ;; single leaf `:modified` — different chrome.
       (is (contains? paths [:items 1])
-          "engine surfaces the per-element added path (R6); walker
-           would have rolled this up to a single :items :modified
+          "engine surfaces the per-element added path (R6); a key-walker
+           would roll this up to a single :items :modified
            row"))))
 
 ;; ---- R7 type-change container -------------------------------------------
 
 (deftest engine-consistency-r7-type-change
-  (testing "rf2-xuyac — R7 type-change classification. Engine
+  (testing "R7 type-change classification. Engine
             reclassifies a kind-flip (map → scalar) as `:modified` at
             the parent path with `:rf.xray.diff/type-change? true`.
-            The home-grown walker emitted `:modified` too but lost the
+            A key-walker emits `:modified` too but without the
             type-change tag; same row count, different chrome."
     (let [before {:slot {:nested :value}}
           after  {:slot :scalar}
@@ -100,11 +97,11 @@
 ;; ---- R8 redaction sentinel ----------------------------------------------
 
 (deftest engine-consistency-r8-redaction-one-sided
-  (testing "rf2-xuyac — R8 one-sided redaction. Engine tags
+  (testing "R8 one-sided redaction. Engine tags
             `:rf.xray.diff/redaction-side` so the renderer can carry
             the curated `← was redacted` / `← now redacted` suffix
-            without leaking the sentinel text. The home-grown walker
-            emitted a plain `:modified` row with no redaction
+            without leaking the sentinel text. A key-walker
+            emits a plain `:modified` row with no redaction
             context — different chrome at the same path."
     (let [before {:auth {:token "secret-value"}}
           after  {:auth {:token :rf/redacted}}
@@ -119,7 +116,7 @@
 ;; ---- mode-3 (full+diff) ↔ :diff lens consistency ------------------------
 
 (deftest engine-consistency-full-with-diff-and-diff-share-engine
-  (testing "rf2-xuyac — the operator's mental model: flipping between
+  (testing "the operator's mental model: flipping between
             `:full+diff` (mode-3) and `:diff` lenses of the same
             `(before, after)` payload MUST produce engine-stable rows.
 
@@ -130,10 +127,9 @@
             mode is a strict subset of the change-bearing paths in
             mode-3 (non-`:same` `:path-ops` keys).
 
-            Pre-rf2-xuyac this invariant was violated for App-DB +
-            HANDLER `:db`: mode-3 read the Editscript engine while
-            `:diff` read the home-grown walker. R6 / R7 / R8 cases
-            classified differently → different chrome."
+            With mode-3 on the Editscript engine and `:diff` on a
+            key-walker, R6 / R7 / R8 cases would classify
+            differently → different chrome."
     (let [before {:counter 5
                   :items [:a :b :c]
                   :auth  {:token "secret"}
@@ -172,15 +168,15 @@
       (is (= [] (universal-diff db db))
           "identical map → empty diff"))))
 
-;; ---- rf2-bufw2 empty-collection leaves in changed subtrees --------------
+;; ---- empty-collection leaves in changed subtrees ------------------------
 ;;
 ;; Inside a wholly-`:added` (or wholly-`:removed`) subtree, an empty-
-;; collection leaf (`[]`, `{}`, `#{}`, `'()`) used to fall through
-;; `op-at` to `:same` — `expand-leaf-paths` recursed into a container
-;; with zero descendant slots and emitted NOTHING, so no `:path-ops`
-;; entry existed. The leaf was the only path in the subtree that lied
-;; to the operator (a green-`:added` cascade with muted `:same` empty
-;; slots). The fix classifies an empty container as a terminal leaf in
+;; collection leaf (`[]`, `{}`, `#{}`, `'()`) is a terminal leaf. Were
+;; `expand-leaf-paths` to recurse into a container with zero descendant
+;; slots it would emit NOTHING, no `:path-ops` entry would exist, and the
+;; leaf would fall through `op-at` to `:same` — the only path in the
+;; subtree lying to the operator (a green-`:added` cascade with muted
+;; `:same` empty slots). So an empty container is a terminal leaf in
 ;; BOTH walkers — `expand-leaf-paths` (so the slot carries an explicit
 ;; op) and `mark-wholly-changed`'s `collect-leaves` (so the uniformity
 ;; check sees the slot and a `:same` empty sibling doesn't get falsely
@@ -195,12 +191,12 @@
    :list '()})
 
 (defn- build-projection
-  "Thin alias for `engine/project` matching the bead's vocabulary."
+  "Thin alias for `engine/project`, named for what these rows build."
   [before after]
   (engine/project before after))
 
 (deftest empty-collection-leaf-added-direct
-  (testing "rf2-bufw2 — a wholly-added empty-collection leaf at depth 2
+  (testing "a wholly-added empty-collection leaf at depth 2
             classifies `:added`, not `:same`, for every collection kind."
     (doseq [[kind empty-coll] empty-collections]
       (let [proj (build-projection {} {:a {:b empty-coll}})]
@@ -211,15 +207,15 @@
             (str "container of a lone added empty " (name kind) " is wholly-:added"))))))
 
 (deftest empty-collection-leaf-added-deeply-nested
-  (testing "rf2-bufw2 — the inheritance holds ≥3 levels deep inside the
-            added subtree (the live epoch-2 witness sat 6 levels deep)."
+  (testing "the inheritance holds ≥3 levels deep inside the
+            added subtree (the live epoch-2 witness below sits 6 levels deep)."
     (doseq [[kind empty-coll] empty-collections]
       (let [proj (build-projection {} {:root {:x {:y {:z empty-coll}}}})]
         (is (= :added (engine/op-at proj [:root :x :y :z]))
             (str "deeply-nested empty " (name kind) " leaf is :added"))))))
 
 (deftest empty-collection-leaf-removed-direct
-  (testing "rf2-bufw2 — symmetric: a wholly-removed empty-collection
+  (testing "symmetric: a wholly-removed empty-collection
             leaf (before-side empty, after-side absent) classifies
             `:removed`, not `:same`, for every collection kind."
     (doseq [[kind empty-coll] empty-collections]
@@ -228,14 +224,14 @@
             (str "empty " (name kind) " leaf inside a removed subtree is :removed"))))))
 
 (deftest empty-collection-leaf-removed-deeply-nested
-  (testing "rf2-bufw2 — symmetric removed inheritance ≥3 levels deep."
+  (testing "symmetric removed inheritance ≥3 levels deep."
     (doseq [[kind empty-coll] empty-collections]
       (let [proj (build-projection {:root {:x {:y {:z empty-coll}}}} {})]
         (is (= :removed (engine/op-at proj [:root :x :y :z]))
             (str "deeply-nested empty " (name kind) " leaf is :removed"))))))
 
 (deftest empty-collection-leaf-epoch2-witness
-  (testing "rf2-bufw2 — the live step-deck epoch-2 :rf.db/runtime allocation:
+  (testing "the live step-deck epoch-2 :rf.db/runtime allocation:
             `:messages []` and `:rf/spawn-counter {}` paint :added (green)
             alongside every other leaf under the wholly-added subtree —
             no :same paint anywhere in the cascade."
@@ -258,7 +254,7 @@
           "the whole :rf.db/runtime subtree is wholly-:added"))))
 
 (deftest empty-collection-leaf-same-container-does-not-inherit
-  (testing "rf2-bufw2 — the mid-tree boundary: an UNCHANGED empty-
+  (testing "the mid-tree boundary: an UNCHANGED empty-
             collection leaf does NOT inherit a changed classification.
             Only genuine absent↔empty transitions classify; an empty
             collection that is identical on both sides stays `:same`,
