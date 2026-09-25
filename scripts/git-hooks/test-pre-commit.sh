@@ -529,7 +529,7 @@ for ctx in commit ci; do
   printf '.beads/issues.jsonl\n' | run_beads_lib "$ctx" 2>"$BERR" >/dev/null || true
   if grep -q 'skip-worktree' "$BERR"; then
     skipwt_clean=0
-    fail "remedy ($ctx) recommends skip-worktree — measured harmful, see the lib header"
+    fail "remedy ($ctx) recommends skip-worktree — harmful, see the lib header"
   fi
 done
 [ "$skipwt_clean" = "1" ] && pass "remedy never recommends skip-worktree (both contexts)"
@@ -638,7 +638,7 @@ rm -f /tmp/rf2-pc-smoke.err
 # it fails under a two-endpoint implementation.
 # ----------------------------------------------------------------------------
 
-printf '\n[5] CI arm on diverged history (rf2-5z20y)\n'
+printf '\n[5] CI arm on diverged history\n'
 
 PR_GUARD="$REPO_ROOT/scripts/check-beads-pr-boundary.sh"
 CIBOX=$(mktemp -d "${TMPDIR:-/tmp}/rf2-beads-ci-XXXXXX")
@@ -1364,7 +1364,7 @@ case "$out" in
     if [ "$(printf '%s\n' "$committed" | grep -c '"_type":"memory"')" = "2" ]; then
       pass "(8a) and both memory rows survive: the export runs --include-memories"
     else
-      fail "(8a) the commit DROPPED memory rows: the export is running bare (rf2-fifk0)"
+      fail "(8a) the commit DROPPED memory rows: the export is running bare"
       printf '%s\n' "$committed" >&2
     fi ;;
   *) fail "(8a) checkpoint failed ($out)"; cat "$CERR" >&2 ;;
@@ -1811,7 +1811,7 @@ case "$out" in
       fail "(8m) the memory-loss warning became a refusal: nothing was committed"
       cat "$CERR" >&2
     elif ! grep -q 'MEMORY RECONCILIATION FAILED' "$CERR"; then
-      fail "(8m) a 2-of-10 memory deletion was checkpointed in SILENCE — the rf2-cve7 hole is open"
+      fail "(8m) a 2-of-10 memory deletion was checkpointed in SILENCE — the memory-reconciliation hole is open"
       cat "$CERR" >&2
     elif ! grep -q 'mem-key-03' "$CERR" || ! grep -q 'mem-key-07' "$CERR"; then
       fail "(8m) warned, but did not NAME the lost keys; a count sends the operator diffing by hand"
@@ -2075,7 +2075,7 @@ fi
 race_b_recovered=$(mem_value_at "${race_b:-HEAD}" mem-key-03)
 race_head_recovered=$(mem_value_at HEAD mem-key-03)
 if [ -z "$race_b_recovered" ] && [ -z "$race_head_recovered" ]; then
-  pass "(8m) while the racing commit — the oid the two-reads shape printed — recovers nothing"
+  pass "(8m) while the racing commit — the oid a two-reads shape would print — recovers nothing"
 else
   fail "(8m) the controls recovered '$race_b_recovered' / '$race_head_recovered'; the fixture no longer models the defect"
 fi
@@ -2393,7 +2393,7 @@ rm -f "$rc_t" "$TERR"
 # and the one the harness writes the marker and the session URL into.
 # ----------------------------------------------------------------------------
 
-printf '\n[10] AI-attribution guard: the message surface (rf2-2e8f)\n'
+printf '\n[10] AI-attribution guard: the message surface\n'
 
 ATTR_LIB="$REPO_ROOT/scripts/git-hooks/lib/check-commit-attribution.sh"
 ATTR_HOOK="$REPO_ROOT/scripts/git-hooks/commit-msg"
