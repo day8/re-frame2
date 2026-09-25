@@ -39,7 +39,7 @@
   | `{:kind :dom/click  :selector s :t ms}`     | `[:click s]`                 |
   | `{:kind :dom/type   :selector s :text t :t ms}` | `[:type s t]`            |
   | `{:kind :dom/submit :selector s :t ms}`     | `[:click s]` (best-effort)   |
-  | `{:kind :event/timer-child :t ms :ms d}`    | `[:wait Δt]` only, whatever the threshold, up to `ms` from where the replay has reached and never shorter than `d` (rf2-tbik1, rf2-mcjdg) |
+  | `{:kind :event/timer-child :t ms :ms d}`    | `[:wait Δt]` only, whatever the threshold, up to `ms` from where the replay has reached and never shorter than `d` |
   | time gap between entries > `wait-threshold-ms` | `[:wait Δt]` inserted before the next step |
   | `(app-db snapshot at end)` (if provided)    | trailing `[:assert-db path expected]` steps (top-N changed paths) |
 
@@ -55,16 +55,17 @@
 
   Callers that pass a bare `events` vector (the `:events` slot) are
   tolerated — the translator coerces each bare event vector into an
-  `:event/dispatch` entry with `:t 0`, so the JVM tests that exercise
-  `recording->script-body` with a bare vector run unchanged.
+  `:event/dispatch` entry with `:t 0`, so a bare vector — the shape the
+  JVM tests hand `recording->script-body` — translates like any
+  recording.
 
   ## Auto-assert
 
   When called with `:auto-assert? true` + an app-db snapshot, the
   translator appends trailing `[:assert-db path expected]` steps
   derived from the top-N changed paths between the seed db (when
-  available) and the final snapshot. v1 limits the auto-assert block
-  to the spec-controlled max (default 5) so the generated script
+  available) and the final snapshot. The auto-assert block is capped
+  at `:max-auto-assertions` (default 5) so the generated script
   stays readable; the user trims further by hand. When no seed is
   available the translator emits assertions for the top-N keys of
   the final db.
@@ -189,9 +190,8 @@
 
   The `:dom/submit` entry is best-effort mapped to a `:click`
   step against the form selector — the runner doesn't model form
-  submission directly, and a `:click` on the form (or the form's
-  submit button when reachable from a later selector hardening
-  pass) is the closest available step. See module doc."
+  submission directly, and a `:click` on the form is the closest
+  available step. See module doc."
   [entry]
   (case (and (map? entry) (:kind entry))
     :event/dispatch
@@ -280,7 +280,7 @@
 
   An `:event/timer-child` marker emits only a wait, whatever the
   threshold, and that wait runs to the marker's `:t` from the time the
-  REPLAY has reached rather than from the previous entry (rf2-mcjdg). It
+  REPLAY has reached rather than from the previous entry. It
   is never shorter than the marker's `:ms`, the delay the timer was
   scheduled with, rounded up.
 
@@ -307,14 +307,14 @@
              step   (entry->step entry)
              this-t (:t entry)]
          (cond
-           ;; A fired `:dispatch-later` child (rf2-tbik1): no step, because
+           ;; A fired `:dispatch-later` child: no step, because
            ;; replaying its root re-arms the timer, but ALWAYS its wait,
            ;; whatever the threshold, so the next step (an auto-assert,
            ;; typically) runs after the re-armed timer has fired. The wait
            ;; runs from `covered-t`, not `last-t`: the root that re-arms the
            ;; timer can sit before gaps that folded out, and the replay has
            ;; waited none of them, so an intervening short-gap step would
-           ;; otherwise shorten the wait by its gap (rf2-mcjdg). Catching up
+           ;; otherwise shorten the wait by its gap. Catching up
            ;; to the child's `:t` covers a timer armed by any earlier step.
            ;; The marker's `:ms` bounds the wait from below: the measured `:t`
            ;; can land a millisecond short of the delay, and the step just
@@ -363,8 +363,8 @@
 ;;
 ;; The diff is a shallow path enumeration — every keyword key of the
 ;; final db that differs from the seed produces a `[:assert-db [k]
-;; v]` step. Deep diffing is deferred to a later iteration; the v1
-;; cap is the safety valve, not the diff sophistication.
+;; v]` step. There is no deep diffing; the cap is the safety valve,
+;; not the diff sophistication.
 ;; ---------------------------------------------------------------------------
 
 (defn- map-like?
@@ -392,7 +392,7 @@
 (defn- story-bookkeeping-path?
   "True iff `path`'s top-level key is Story's own run bookkeeping
   (`:rf.story/lifecycle`, `:rf.story/assertions`, any `:rf.story.*/…`) —
-  never app behaviour, so never an auto-assertion (rf2-3x7nj.29.2)."
+  never app behaviour, so never an auto-assertion."
   [[k]]
   (let [ns-str (when (keyword? k) (namespace k))]
     (boolean (and ns-str
@@ -604,11 +604,11 @@
   paste-and-run test grades the snippet the dialog actually emits. Pure
   data → data.
 
-  The script keeps the translator's `:auto-run? true` default, so the
+  The script carries the translator's `:auto-run? true` default, so the
   pasted variant runs as-is: a click step the runner cannot drive refuses
-  `:cannot-run`, and a dispatch runs. Forcing it off registered a script
-  nothing ran, and the variant read `:pass` having tested nothing
-  (rf2-0ae7o.11)."
+  `:cannot-run`, and a dispatch runs. Forcing it off would register a
+  script nothing runs, and the variant would read `:pass` having tested
+  nothing."
   [recording {:keys [variant-id extends]}]
   (let [spec (recording->script-body recording)]
     {:spec    spec
