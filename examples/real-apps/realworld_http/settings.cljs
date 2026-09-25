@@ -39,9 +39,9 @@
             [realworld-shared.schema :as schema]
             [realworld-http.schema :as app-schema]
             [realworld-http.http :as rh]
-            ;; `store-session-db` — the shared, nested-dispatch-avoiding
-            ;; session write both auth.cljs's classified reply events and
-            ;; :settings/submit-success (below) call directly. See its doc.
+            ;; `store-session-db` — the shared session write both auth.cljs's
+            ;; classified reply events and :settings/submit-success (below)
+            ;; fold into their own `:db`. See the comment above it.
             [realworld-http.auth :as auth])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -123,7 +123,7 @@
 ;; the arithmetic can establish that a reply's contents cannot. It is also what
 ;; keeps this bounded: without it an ordinary uncontended save made later in the
 ;; same app lifetime would be measured against a ghost, be ambiguous, and be
-;; discarded — for ever, and worse with each attempt (rf2-bq1fy).
+;; discarded — for ever, and worse with each attempt.
 
 (def ^:private saves-in-flight-key
   "The app-db key holding the on-the-wire ledger. Named once."
@@ -247,16 +247,16 @@
     ;; they were issued for, and discard a save the server had already
     ;; performed.
     ;;
-    ;; THIS COMMENT USED TO CLAIM THAT CARRYING IT "CANNOT CUT THE OTHER WAY" —
-    ;; that because `owns-session?` compares against the LIVE session, a stale
-    ;; record could only ever produce a refusal and never authorise a write.
-    ;; THAT WAS FALSE, and it is worth spelling out so nobody re-derives it.
-    ;; The promise held only for as long as the record still described the
-    ;; stale request. It does not survive `:begin-submit`, which OVERWRITES the
-    ;; record with whoever submits NEXT: park alice's PUT, sign bob in, let bob
-    ;; save, and a lone `owns-session?` was comparing BOB to BOB — so alice's
-    ;; reply passed the test and restored alice's User and token over bob's
-    ;; session. A record that a later submit can overwrite cannot by itself
+    ;; CARRYING IT CAN CUT THE OTHER WAY, and it is worth spelling out so
+    ;; nobody re-derives the opposite. Because `owns-session?` compares against
+    ;; the LIVE session, it is tempting to conclude a stale record could only
+    ;; ever produce a refusal and never authorise a write. That holds only for
+    ;; as long as the record still describes the stale request. It does not
+    ;; survive `:begin-submit`, which OVERWRITES the record with whoever submits
+    ;; NEXT: park alice's PUT, sign bob in, let bob save, and a lone
+    ;; `owns-session?` would compare BOB to BOB — so alice's reply would pass
+    ;; the test and restore alice's User and token over bob's session. A record
+    ;; that a later submit can overwrite cannot by itself
     ;; answer "was this reply issued for the save we are waiting on?", which is
     ;; why the two handlers below ask that question FIRST — the failure branch
     ;; of the issuance it was handed, the success branch of the app-db ledger
@@ -412,8 +412,8 @@
             :reset         {:target :neutral :action :reset-data}}}}})
 
 ;; The OPTS map (the SECOND arg here, distinct from the SPEC's own :sensitive
-;; above) is the machine's EVENT-rooted classification (rf2-ghgbqi, agb5jk
-;; item 2) — it redacts the ROUTED sub-event echoed into the machine trace's
+;; above) is the machine's EVENT-rooted classification — it redacts the
+;; ROUTED sub-event echoed into the machine trace's
 ;; :event / [:input :event] slots, which the SPEC's :data-rooted :sensitive
 ;; above does NOT reach (that one only protects the durable snapshot). Rooted
 ;; at the routed sub-event vector itself: `[1 :password]` catches
@@ -532,15 +532,14 @@
 ;; worse, on an app somebody ELSE has since signed into and saved from.
 ;;
 ;; That second case is why there are two questions rather than one. Asking only
-;; "is the recorded owner still signed in?" was not enough, because the record
+;; "is the recorded owner still signed in?" is not enough, because the record
 ;; is overwritten by whoever submits next (`:begin-submit`). Park alice's PUT,
 ;; log out, sign bob in, let bob save, and the recorded owner is BOB — so
-;; alice's late reply was compared bob-against-bob, passed, and wrote alice's
-;; User and token into bob's session, then navigated to alice's profile.
+;; alice's late reply would be compared bob-against-bob, pass, and write
+;; alice's User and token into bob's session, then navigate to alice's profile.
 ;;
-;;   1. IS THIS REPLY THE SAVE WE ARE WAITING ON? Two things have to hold, and
-;;      the first is the one the merged fix was missing: the reply must
-;;      IDENTIFY a save at all — exactly one unanswered save claiming the
+;;   1. IS THIS REPLY THE SAVE WE ARE WAITING ON? Two things have to hold: the
+;;      reply must IDENTIFY a save at all — exactly one unanswered save claiming the
 ;;      account it reports — and that save must be the one the form awaits. A
 ;;      record a later submit can overwrite cannot identify an earlier reply,
 ;;      and neither can a username the user typed; the ledger is what supplies
@@ -579,13 +578,12 @@
 ;;     So the success reply has to identify itself from what it already
 ;;     contains, and what it contains is the account the server saved.
 ;;
-;; WHAT THE REPLY'S OWN CONTENTS CAN AND CANNOT ESTABLISH — this is where an
-;; earlier version of this file got it wrong, and the correction is the reason
-;; the ledger above exists.
+;; WHAT THE REPLY'S OWN CONTENTS CAN AND CANNOT ESTABLISH — and why the ledger
+;; above exists.
 ;;
-;; That earlier version compared the saved account's username against
-;; `(:username awaited)` and argued that a departed account could never answer
-;; for the current save, because a username is the profile key and two accounts
+;; Comparing the saved account's username against `(:username awaited)` alone
+;; is tempting, on the argument that a departed account could never answer for
+;; the current save, because a username is the profile key and two accounts
 ;; cannot share one. Both halves of that are true and the conclusion does not
 ;; follow. `(:username awaited)` is the username the form REQUESTED — a string
 ;; the user typed into a text box. It is unsaved, unauthenticated, and not an
@@ -593,9 +591,9 @@
 ;; ordinary behaviour: it is what you do by accident, and the server answers it
 ;; with an occupied-username rejection. Park alice's PUT, sign bob in, let bob
 ;; try to rename himself to `alice`, and alice's earlier SUCCESS reply names
-;; `alice`, matches what bob's form requested, and was accepted — restoring
-;; alice's User and token over bob's session and navigating to alice's profile,
-;; before bob's rejection had even arrived.
+;; `alice` and matches what bob's form requested — so that comparison alone
+;; would accept it, restoring alice's User and token over bob's session and
+;; navigating to alice's profile, before bob's rejection had even arrived.
 ;;
 ;; The general fact underneath: RealWorld's User payload is
 ;; `{:email :token :username :bio :image}`, and BOTH of its candidate keys are
@@ -609,9 +607,8 @@
 ;; unanswered saves claiming A — which is what the ledger counts. When the count
 ;; is one, that save IS the issuer and the reply is identified; when it is two
 ;; or more, the reply is genuinely ambiguous and NOTHING may be concluded from
-;; it. That is the second of the bead's two sanctioned shapes — suppressing a
-;; superseded request rather than correlating a reply — done with app state,
-;; which is the only place it CAN be done here: the framework's own
+;; it. That is suppressing a superseded request rather than correlating a
+;; reply, done with app state, which is the only place it CAN be done here: the framework's own
 ;; request-id supersession lives in the live `:rf.http/managed` handler, and
 ;; this app's default run mode replaces that handler with the canned demo stub
 ;; (http.cljs), so a transport-level contract would be inert in the shipped
@@ -626,14 +623,13 @@
 ;; a PUT still parked). Closing THOSE would need a per-submission identity on
 ;; the reply, which is the positional slot the JWT has already claimed.
 ;;
-;; WHAT THAT LIMIT IS NOT is permanent, and the difference is the whole of
-;; rf2-bq1fy. The loss is confined to the saves that genuinely overlapped: the
-;; `answered` count above drops every entry the moment the wire empties, so an
-;; ordinary save made afterwards is identified and lands normally — same app
-;; lifetime, no reload, nothing to clear by hand. An earlier version of this
-;; file left the ambiguous entry standing for ever, which turned a lost update
-;; into an account that could never save again, each further attempt adding one
-;; more ghost to measure the next reply against.
+;; WHAT THAT LIMIT IS NOT is permanent. The loss is confined to the saves that
+;; genuinely overlapped: the `answered` count above drops every entry the moment
+;; the wire empties, so an ordinary save made afterwards is identified and lands
+;; normally — same app lifetime, no reload, nothing to clear by hand. Leaving
+;; the ambiguous entry standing for ever would turn a lost update into an
+;; account that could never save again, each further attempt adding one more
+;; ghost to measure the next reply against.
 ;;
 ;; Both questions above are about the SAVE and the SESSION. The navigation to
 ;; the profile is a different outcome with a different owner: a NAVIGATION is
@@ -704,8 +700,9 @@
         :else
         (let [user (:user value)]
           ;; `store-session-db` is called DIRECTLY (not via a nested
-          ;; `[:dispatch [:auth/store-session user]]`) for the same reason
-          ;; auth.cljs's own reply events do — see that fn's doc. The
+          ;; `[:dispatch [:auth/store-session user]]`), so the session lands in
+          ;; this reply's own `:db` commit, as in auth.cljs's own reply events —
+          ;; see the comment above that fn. The
           ;; machine-routed :submit-succeeded sub-event never needs the token at
           ;; all (:store-user's `draft-from-user` never reads it), so it is
           ;; `dissoc`'d before crossing into the machine — the token is never
