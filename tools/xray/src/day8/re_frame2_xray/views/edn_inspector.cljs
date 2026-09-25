@@ -32,37 +32,35 @@
       [mini value]              ;; one-line inline (no expansion)
       [mini value max-len]      ;; with width cap
 
-  ## TWO HEADS, ONE RENDERER (rf2-k97c.3)
+  ## TWO HEADS, ONE RENDERER
 
-  The four heads above are the REAGENT surface and are unchanged. Beside
-  them sits a Fresco boundary over the same renderer:
+  The four heads above are the REAGENT surface. Beside them sits a
+  Fresco boundary over the same renderer:
 
       [edn-inspector-view {:mount-id \"app-db-top\" :value v :opts {…}}]
 
   `render-inspector` is the body both reach; `edn-inspector` reads its
   three app-db slots with `@(subscribe …)` and `edn-inspector-view` reads
   the same three with `rf.fresco/sub`, so the only difference between the
-  two is WHO OBSERVES the reads. That is the whole subject of rf2-k97c:
-  a `reg-view`'s reads are tracked by whichever reaction machinery the
-  installed substrate adapter supplies, and a boundary's are tracked by
-  Fresco's own shipped collector.
+  two is WHO OBSERVES the reads: a `reg-view`'s reads are tracked by
+  whichever reaction machinery the installed substrate adapter supplies,
+  and a boundary's are tracked by Fresco's own shipped collector.
 
-  A panel migrating to Fresco writes `edn-inspector-view` and passes a
-  stable `:mount-id`; a panel still on `reg-view` writes `edn-inspector`
-  and changes nothing. BOTH HEADS ARE LIVE AND SUPPORTED: the shell's root
-  has since been flipped and neither went. The facade carries one call per
+  A Fresco panel writes `edn-inspector-view` and passes a stable
+  `:mount-id`; a `reg-view` panel writes `edn-inspector`. BOTH HEADS ARE
+  LIVE AND SUPPORTED. The facade carries one call per
   head (`views/edn_widget.cljs`) — `edn/inspect` emits `edn-inspector`,
   `edn/inspect-view` emits `edn-inspector-view` — and panels head the
   boundary directly as well (Epoch, Trace, App-DB diff). The Reagent head
-  keeps its own callers: `edn-inspector-diff` here, `reagent-inspector` in
+  has its own callers: `edn-inspector-diff` here, `reagent-inspector` in
   `views/edn_inspector_popup.cljs`, and `edn/inspect` from the Static
-  Routes row-expand. This head's end is its own call sites going, not the
-  root's — see THE TWO HEADS, below.
+  Routes row-expand. It serves those call sites whatever the shell's
+  root is — see THE TWO HEADS, below.
 
   **`mini`, `edn-inspector-diff` and every helper in here are PLAIN
   FUNCTIONS.** Under Reagent a plain fn is a legal hiccup head, so
   `[mini v 40]` works; under Fresco it is a loud error by design. A
-  migrating panel CALLS them — `(mini v 40)` — which is correct on both
+  Fresco panel CALLS them — `(mini v 40)` — which is correct on both
   substrates. Only `edn-inspector-view` is a head in a Fresco body.
 
   ## Per-mount state
@@ -74,12 +72,13 @@
   `mount-state-count` reads the store, so teardown is assertable rather
   than assumed.
 
-  THE LIFECYCLE KEY IS NOT THE MOUNT-ID (rf2-d2aj). `mount-id` is a
+  THE LIFECYCLE KEY IS NOT THE MOUNT-ID. `mount-id` is a
   LOGICAL name — the surface, deliberately stable, keying the width slot
   and the testids — while the lifecycle key names ONE LIVE MOUNT of it and
   is the mount-id qualified by the frame the mount renders under. Two
   panels under two `frame-provider`s legitimately render the same stable
-  mount-id; keyed on that alone they shared one entry and one observer.
+  mount-id; keyed on that alone they would share one entry and one
+  observer.
 
   `opts` keys:
 
@@ -243,9 +242,10 @@
 
   Substrate-agnostic — downstream adapters (Reagent, UIx) all
   see the same hiccup. The mount-id capture uses Reagent form-2
-  semantics in `edn-inspector` itself (rf2 substrate is currently
-  Reagent in tools); the rest of the renderer is pure data
-  transformations + `rf/subscribe` reads.
+  semantics in `edn-inspector` itself, and the Fresco head
+  `edn-inspector-view` takes it from the caller; the rest of the
+  renderer is pure data transformations over the slot values each head
+  reads.
 
   ## CSS token classes
 
@@ -280,14 +280,14 @@
   magenta, string green, number orange, boolean gold, nil grey."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; rf2-y8doi.60 — `debug-enabled?` gates the `reg-view` below,
+            ;; `debug-enabled?` gates the `reg-view` below,
             ;; so a release bundle that mis-ships the preload registers
             ;; nothing of Xray's in the host's registrar.
             [re-frame.interop :as rf.interop]
-            ;; rf2-k97c.3 — the re-frame-native view layer. `edn-inspector-view`
+            ;; The re-frame-native view layer. `edn-inspector-view`
             ;; below is a Fresco boundary reading through Fresco's own
-            ;; collector; `edn-inspector` stays the Reagent head its
-            ;; still-`reg-view` call sites mount.
+            ;; collector; `edn-inspector` is the Reagent head its
+            ;; `reg-view` call sites mount.
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
@@ -356,8 +356,8 @@
 ;;
 ;; When no measurement is yet present (first render before the ref fires,
 ;; or a programmatic test render that doesn't mount), the widget falls
-;; back to the strict inline-fit gate — the heuristic improvement
-;; is additive and graceful.
+;; back to the strict inline-fit gate, so a missing measurement degrades
+;; gracefully rather than failing.
 
 (def widths-slot
   "App-db slot holding the per-mount measured container widths in CSS
@@ -473,7 +473,7 @@
   width slot and the zoom slot. Called from
   `registry/register-xray-handlers!`, which is the ONLY caller.
 
-  Why a fn and not eleven top-level forms (rf2-y8doi.16): the preload's
+  Why a fn and not eleven top-level forms: the preload's
   foundation block is wrapped in `(when rf.interop/debug-enabled? …)` so
   Closure folds it away under `:advanced` + `goog.DEBUG=false` — the
   promise `tools/xray/spec/API.md` §Installation API,
@@ -482,9 +482,9 @@
   make. A `:require`d namespace's top-level forms sit OUTSIDE that block:
   they run at ns-load unconditionally, and a registrar write is a side
   effect no dead-code eliminator may remove. Left at the top level these
-  registrations therefore mutated the HOST's process-global registrar in
+  registrations would mutate the HOST's process-global registrar in
   any bundle that merely carried the preload's bytes — live production
-  registrar mutation, which is what made those four promises false.
+  registrar mutation, which would make those four promises false.
 
   `registry_cljs_test.cljs` pins the property both ways: nothing in the
   `rf.xray.edn-inspector` namespace is registered before this runs, and
@@ -506,12 +506,12 @@
 (defn- zoom-walk
   "Walk `path` into `value`, or `::no-resolve` when any step misses.
 
-  rf2-3x7nj.25.2 — a list or seq element is keyed by its INTEGER INDEX
+  A list or seq element is keyed by its INTEGER INDEX
   (`children-of`), but `get` answers not-found on a `List`, `IndexedSeq`
   or `LazySeq`, which implement no `ILookup`. So a step into a sequential
   that is not associative takes `nth` (a non-negative integer only, so a
   stale path cannot walk an endless seq); every other step takes `get`,
-  as `get-in` did."
+  as `get-in` does."
   [value path]
   (try
     (reduce (fn [cur k]
@@ -526,7 +526,7 @@
 
 (defn- zoom-resolves?
   "Does the stored zoom `path` still name a node of `value`? A zoom is
-  ACTIVE only when it does (rf2-3x7nj.25.2): an unresolvable path renders
+  ACTIVE only when it does: an unresolvable path renders
   exactly as un-zoomed, rather than painting the zoom's breadcrumbs over
   the whole root."
   [value path]
@@ -590,13 +590,14 @@
   predicate on this host. The `*` suffix avoids shadowing the core
   name for callers that `:refer` it, matching `map-entry?*` above.
 
-  It read `(.-cljs$lang$type v)` off the INSTANCE until rf2-y8doi.24.
+  Reading `(.-cljs$lang$type v)` off the INSTANCE would not work:
   `defrecord` sets that static field on the CONSTRUCTOR function, and
   a property set on a constructor is not on its prototype, so no
-  instance ever carries it: the predicate answered false for every
-  record, `collection-kind` classified them `:map`, and the whole
+  instance ever carries it. The predicate would answer false for every
+  record, `collection-kind` would classify them `:map`, and the whole
   `:record` render path below — `delim`, `record-tag`'s `#tag` prefix,
-  `children-of`, `child-count`, `children-of-pair` — was unreachable."
+  `children-of`, `child-count`, `children-of-pair` — would be
+  unreachable."
   [v]
   (record? v))
 
@@ -658,10 +659,10 @@
 
 (def unrealised-sentinel
   "Marker for a slot whose value is UNKNOWN rather than ABSENT — the
-  third state `::missing` cannot express. It began as a `:before`-only
-  marker and is now emitted on EITHER side (rf2-g61nr, below).
+  third state `::missing` cannot express. It is emitted on EITHER side
+  (below).
 
-  It arises on one shape (rf2-zk4he). `bounded-vec` dispatches on
+  It arises on one shape. `bounded-vec` dispatches on
   `counted?`, so a diff whose BEFORE side could be endless stops at
   `count-bound` while a `counted?` AFTER side is realised whole. The
   two ceilings are then independent, and `sequential-diff-children`
@@ -670,14 +671,14 @@
   the walk declined to realise that far.
 
   BOTH sequential walkers emit it, on that same shape and for that same
-  reason (rf2-idydb). They tell the two cases apart differently, because
+  reason. They tell the two cases apart differently, because
   they know different things: `sequential-diff-children` has the
   projection and asks whether the row is `:added`, while
   `children-of-pair` has none and asks whether the before side stopped
   AT the ceiling. Neither realises an extra element to find out.
 
-  A THIRD site emits it, and it PROPAGATES rather than originates
-  (rf2-t450s): when one of those surviving elements is a CONTAINER, the
+  A THIRD site emits it, and it PROPAGATES rather than originates:
+  when one of those surviving elements is a CONTAINER, the
   renderer descends into it with this marker as the whole before side,
   and `children-of-pair`'s `unpaired-prior` hands the same marker to
   every child. The unknown is inherited, because the reason for it is —
@@ -688,7 +689,7 @@
   from one is no evidence that anything changed.
 
   A FOURTH site emits it on the OTHER SIDE, and it is the same
-  confusion pointing the other way (rf2-g61nr): the ceilings are
+  confusion pointing the other way: the ceilings are
   independent in BOTH directions, so a `counted?` before side realised
   whole against a capped AFTER side leaves a tail whose after values
   nobody looked at. `children-of-pair`'s two-sided sequential arm marks
@@ -705,9 +706,9 @@
   no after-side mirror.
 
   A FIFTH site emits it on the after side too, and is the one case where
-  the projection CANNOT be the authority (rf2-f8nm7):
+  the projection CANNOT be the authority:
   `sequential-diff-children` reaches surviving BEFORE-indices past a
-  capped after ceiling, which it used to drop outright. Those rows have
+  capped after ceiling. Those rows have
   no after-path to classify against — `op-at` would answer its no-entry
   `:same`, which the renderer reads as a certification — so they are
   keyed by `unreached-key-tag` and `leaf-diff-op` answers `:modified`
@@ -837,8 +838,8 @@
   - **Left-edge stripe** (2px saturated per-op accent) — reinforces
     the row signal at the column-1 anchor without competing with text
     colour.
-  - **Per-token text colour** — preserved as the `:syntax-*` palette
-    output; the diff path no longer overrides it.
+  - **Per-token text colour** — the `:syntax-*` palette output; the
+    diff path never overrides it.
 
   When the op is `:same` the wrapper is invisible (transparent stripe,
   no wash, blank glyph) so non-diff renders share the same hiccup
@@ -880,8 +881,8 @@
 
   When `chrome-opts` is omitted the chrome falls back to the per-op
   defaults (added=green, modified=amber, removed=red, same=invisible).
-  All four optional keys default to nil, so call sites that pass no
-  chrome-opts reach the same hiccup shape unchanged."
+  All four optional keys default to nil, so omitting `chrome-opts`
+  renders exactly the per-op defaults."
   ([op body] (gutter-row op body nil))
   ([op body {:keys [suppress-glyph? suppress-stripe? suppress-wash? wash-op]}]
    (let [active?       (and (not (#{:same :same-shifted} op))
@@ -914,7 +915,7 @@
       [:span {:style gutter-body-style} body]])))
 
 ;; =========================================================================
-;; bounded printing + counting (rf2-y8doi.24)
+;; bounded printing + counting
 ;; =========================================================================
 ;;
 ;; The inspector renders whatever is in app-db, and app-db may hold an
@@ -955,32 +956,27 @@
 (def ^:private count-bound
   "Element ceiling for every 'how many children' question about a
   collection that could be ENDLESS. It is not a ceiling on rendering:
-  since rf2-jh12f both the counters (`bounded-count*`) and the walkers
+  both the counters (`bounded-count*`) and the walkers
   (`bounded-vec`) dispatch on `counted?` and realise a finite
   collection whole, so for ONE collection a header count and a walker's
   row count agree — exactly, or at this ceiling, but on the same
   number.
 
-  NARROWED under rf2-zk4he, because the unqualified form of that claim
-  (\"on every shape\") was false where it mattered. A DIFF has TWO
+  That holds for one collection, not on every shape. A DIFF has TWO
   collections, and the `counted?` dispatch gives them INDEPENDENT
   ceilings: a lazy before-value stops here while a vector after-value
-  is realised whole. `sequential-diff-children` now shows every
+  is realised whole. `sequential-diff-children` shows every
   accessible after row rather than dropping the surplus silently, so
   over the bound the body can EXCEED `diff-pair-count`'s `max` by the
   removals struck inside it — which no count that refuses to realise
   the tail can know. Over the bound the header is therefore a FLOOR
   rather than a promise; under it, and for any single collection, the
-  two still agree exactly. A body that fell SHORT of the header is the
-  direction that loses data, and that is what this ceiling now
-  refuses.
+  two agree exactly. A body that fell SHORT of the header is the
+  direction that loses data, and that is what this ceiling refuses.
 
-  rf2-f8nm7 — that last sentence was ASPIRATIONAL when it was written:
-  the walker kept it in the direction above and broke it in the mirror,
-  where a `counted?` BEFORE side is realised whole against a capped
-  AFTER one and the surplus BEFORE rows were dropped (measured, 1001
-  under 1050). Both directions now emit, so it is a statement about the
-  code rather than about one case of it. Note the asymmetry it leaves:
+  It refuses it in the mirror too, where a `counted?` BEFORE side is
+  realised whole against a capped AFTER one: the walker emits the
+  surplus BEFORE rows rather than dropping them. Note the asymmetry:
   the body may EXCEED the header, never fall short, so over the bound
   the `max` is a FLOOR on BOTH sides."
   1001)
@@ -1038,7 +1034,7 @@
 
 (defn- tail-unrealised?
   "`v` is a sequence the walker CUT at `count-bound` with elements still
-  behind it (rf2-3x7nj.25.1). `bounded-count*` cannot say so — it answers
+  behind it. `bounded-count*` cannot say so — it answers
   `count-bound` for a sequence of exactly that length and for an endless
   one alike — so this looks at the ONE element past the ceiling. That is
   the element `cljs.core/bounded-count` already realises to learn whether
@@ -1056,14 +1052,13 @@
 
 (defn- bounded-projection-pair
   "Return `[before after]` bounded so `engine/project` cannot be handed a
-  pair it would compare for ever (rf2-bmed1).
+  pair it would compare for ever.
 
   `engine/project` short-circuits `identical?` inputs and NOTHING else;
   any other pair goes to Editscript over the whole of both sides, with
   structural equality inside it. Two DISTINCT endless sequences carrying
   the same prefix therefore compare for ever — and this stage runs
-  BEFORE the walker, so the bound rf2-brmyq added never gets to protect
-  it.
+  BEFORE the walker, so the walker's bound never gets to protect it.
 
   Four decisions, each load-bearing:
 
@@ -1073,10 +1068,10 @@
      Bounding it anyway would be worse than useless: `leaf-diff-op`
      deliberately leaves `::unrealised` OUT of its structural override
      so a surviving-but-unrealised row takes its op from the projection,
-     which saw the FULL inputs (rf2-zk4he). Hand THAT projection a short
+     which saw the FULL inputs. Hand THAT projection a short
      before-side and the surplus after-rows come back `:+`, painting
-     survivors green as newly added — the precise lie `::unrealised` was
-     added to refuse.
+     survivors green as newly added — the precise lie `::unrealised`
+     exists to refuse.
 
   2. `take`, NOT `vec`. `engine/container-kind` reads `(list? v)` as
      `:list` and any other `sequential?` as `:seq`, and R7 calls a kind
@@ -1106,8 +1101,8 @@
   collapsed child, but the projection walks the whole pair regardless,
   so a root-only bound would leave the identical hang one level down.
   Wherever nothing was bounded this returns the ORIGINAL objects rather
-  than copies, so every ordinary finite diff is the computation it
-  already was.
+  than copies, so every ordinary finite diff is the same computation it
+  would be without the bound.
 
   DELIBERATELY NOT DESCENDED, so the next reader knows it is a decision:
   the bounded prefixes themselves. Pairing two lazy seqs element-wise
@@ -1148,15 +1143,14 @@
     [before after]))
 
 (defn- differs-within-bound?
-  "`not=` for a (before, after) pair that could be ENDLESS (rf2-bmed1).
+  "`not=` for a (before, after) pair that could be ENDLESS.
 
   Structural equality on two DISTINCT endless sequences carrying the
   same prefix never returns, so a bare `not=` on a displayed pair is the
   same hang as the unbounded projection — reached through the renderer
   instead of through Editscript. `classify-container-op` runs exactly
-  that test, and rf2-brmyq's tests could not see it: they drive
-  `render-node` with `:projection nil`, and their two sides differ in
-  LENGTH, so the comparison stops as soon as the short side runs out.
+  that test. A pair whose two sides differ in LENGTH hides the hang,
+  because the comparison stops as soon as the short side runs out.
 
   Compares the BOUNDED pair, so this answers the only question the
   renderer can act on: do the two sides differ WITHIN what is rendered?
@@ -1185,12 +1179,11 @@
   "Inline `← was <prior>` chip rendered to the right of a
   diff'd leaf. Pure hiccup.
 
-  rf2-zk4he — a prior of `::unrealised` is UNKNOWN rather than absent:
+  A prior of `::unrealised` is UNKNOWN rather than absent:
   the before side was capped at `count-bound`, so this element's prior
   value was never realised. `safe-pr-str` would leak
-  `:day8…edn-inspector/unrealised` into the output — rf2-8pfkk's defect
-  reached through a new door — and substituting a value would invent
-  one. The chip says so plainly instead. Callers reach this only when
+  `:day8…edn-inspector/unrealised` into the output, and substituting a
+  value would invent one. The chip says so plainly instead. Callers reach this only when
   the projection could not supply the prior either; where it can, they
   pass the projection's own value and this branch never fires."
   [before]
@@ -1205,7 +1198,7 @@
 (defn- unrealised-value-token
   "The VALUE-cell token for a slot whose AFTER value was never realised
   — the mirror of `change-annotation`'s unknown-prior chip, needed for
-  the same reason and reached from the opposite side (rf2-g61nr).
+  the same reason and reached from the opposite side.
 
   `bounded-vec` caps a not-`counted?` AFTER side at `count-bound` while
   realising a `counted?` BEFORE side whole, so `children-of-pair`'s
@@ -1214,9 +1207,8 @@
   STRUCTURAL sentinel, `leaf-diff-op` reads it AHEAD of the projection,
   and a RETAINED element is presented as a confirmed deletion — so that
   arm emits `::unrealised` instead. Handing THAT to `render-scalar`
-  would `pr-str` `:day8…edn-inspector/unrealised` into the output, which
-  is rf2-8pfkk's leak arriving through a new door. This says so plainly,
-  and invents no value.
+  would `pr-str` `:day8…edn-inspector/unrealised` into the output. This
+  says so plainly, and invents no value.
 
   Reached only where the projection could not answer either. Where it
   can, the op comes off the projection — computed over the FULL inputs —
@@ -1431,11 +1423,11 @@
   "Render the `#my.ns.MyRec` prefix for a defrecord instance — the same
   opening `pr-str` prints (`#my.ns.MyRec{…}`).
 
-  rf2-3x7nj.25.3 — this read `(.-name (type v))`, which is `\"\"` for
-  every CLJS type: the compiler assigns the constructor, an anonymous
-  function, to a namespace PROPERTY, where JavaScript infers no name. The
-  tag was a bare `#`, so every record opened `#{` — a set's bracket.
-  `cljs$lang$ctorStr` is no better: `deftype` sets it, `defrecord` does
+  `(.-name (type v))` would not do: it is `\"\"` for every CLJS type,
+  because the compiler assigns the constructor, an anonymous function,
+  to a namespace PROPERTY, where JavaScript infers no name. The tag
+  would be a bare `#`, so every record would open `#{` — a set's
+  bracket. `cljs$lang$ctorStr` is no better: `deftype` sets it, `defrecord` does
   not. `defrecord` does set `cljs$lang$ctorPrWriter`, which writes the
   qualified `my.ns/MyRec` as a compile-time literal, so `pr-str` of the
   TYPE carries it (`:advanced`-safe), and `/` → `.` is `pr-str`'s own
@@ -1488,14 +1480,14 @@
     :sentinel-large           "large"
     (:map :vector :list :seq :set :map-entry :record)
     (let [{:keys [open close]} (delim (collection-kind v))
-          ;; rf2-3x7nj.25.3 — a record previews as the record it is.
+          ;; A record previews as the record it is.
           open (if (= :record (collection-kind v)) (str (record-tag v) open) open)
           n (bounded-count* v)
           noun (case (collection-kind v)
                  :map " keys"
                  :record " keys"
                  " items")]
-      ;; rf2-3x7nj.25.1 — `1001+`, never a bare `1001`, for a cut sequence.
+      ;; `1001+`, never a bare `1001`, for a cut sequence.
       (str open "…" n (when (tail-unrealised? v) "+") noun close))
     (safe-pr-str v))))
 
@@ -1513,7 +1505,7 @@
   [v max-elements max-chars]
   (let [kind (collection-kind v)
         {:keys [open close]} (delim kind)
-        ;; rf2-3x7nj.25.3 — a collapsed record keeps its `#ns.Rec` tag, so
+        ;; A collapsed record keeps its `#ns.Rec` tag, so
         ;; it does not preview as a plain map.
         open        (if (= kind :record) (str (record-tag v) open) open)
         fallback-n  (cond
@@ -1524,7 +1516,7 @@
                         :map     " keys"
                         :set     " items"
                         " items")
-        ;; rf2-3x7nj.25.1 — `(…1001+ items)` for a sequence cut at the bound.
+        ;; `(…1001+ items)` for a sequence cut at the bound.
         fallback    (str open "…" fallback-n (when (tail-unrealised? v) "+")
                          fallback-noun close)
         ;; Take up to max-elements + 1 to detect "more remaining".
@@ -1536,11 +1528,11 @@
                          (catch :default _ []))
         head        (take max-elements head-seq)
         more?       (> (count head-seq) max-elements)
-        ;; rf2-7hqwe — inter-element separator follows canonical EDN
+        ;; Inter-element separator follows canonical EDN
         ;; spacing: `, ` between map/record entries, a single space
-        ;; between sequential (vector / list / set / seq) elements. Was
-        ;; a hardcoded `, ` for ALL kinds, which previewed `[a, b, c]`
-        ;; rather than `[a b c]`.
+        ;; between sequential (vector / list / set / seq) elements. A
+        ;; `, ` for ALL kinds would preview `[a, b, c]` rather than
+        ;; `[a b c]`.
         sep         (inline-separator kind)
         item-str    (fn [el]
                       (cond
@@ -1578,21 +1570,20 @@
   Returns `nil` for non-collections. `child-key` is the path segment
   to use; for sets it's the value itself.
 
-  rf2-jh12f — every sequential kind is realised through `bounded-vec`,
+  Every sequential kind is realised through `bounded-vec`,
   which splits on `counted?` exactly as `bounded-count*` does. So this
   walk and `child-count` answer with the SAME number on every shape: a
   `counted?` collection is rendered WHOLE however long it is, and only
   something that could be endless stops at `count-bound`.
 
-  rf2-y8doi.24 capped `:list` / `:seq` UNCONDITIONALLY. That stopped a
-  `(range)` in app-db from emitting rows for ever until the tab died of
-  heap exhaustion — and the mismatch was the tell: the header said 1001
-  children while the body agreed to render infinitely many. But the
-  same cap truncated a 1200-element `PersistentList`, which IS
-  `counted?`, to 1001 rows under a header still promising 1200, with
-  the 199 dropped rows unmarked and unreachable.
+  Without a cap, a `(range)` in app-db would emit rows for ever until
+  the tab died of heap exhaustion. Capping `:list` / `:seq`
+  UNCONDITIONALLY would stop that, but would also truncate a
+  1200-element `PersistentList`, which IS `counted?`, to 1001 rows under
+  a header still promising 1200, with the 199 dropped rows unmarked and
+  unreachable.
 
-  The KIND is not the question and never was: a `cons` over a lazy seq
+  The KIND is not the question: a `cons` over a lazy seq
   is a `:list` and is NOT `counted?`, while `(range 5)` is a `:seq` and
   IS. `:map`, `:record` and `:set` are `counted?` by construction, so
   they need no dispatch and get none."
@@ -1666,10 +1657,10 @@
   supplied no counterpart for: `::missing` normally, `::unrealised` when
   the whole before SIDE was itself an unknown prior.
 
-  rf2-t450s — `children-of-pair` is reached RECURSIVELY, and the
+  `children-of-pair` is reached RECURSIVELY, and the
   `before` it is handed can be the `::unrealised` sentinel rather than a
   collection. `sequential-diff-children` puts that marker on a survivor
-  past the before bound (rf2-zk4he), and when that survivor is itself a
+  past the before bound, and when that survivor is itself a
   CONTAINER the renderer descends into it carrying the marker down as
   the whole before side. Every arm below then asks
   `(when (map? before) before)` / `(when (sequential? before) before)`
@@ -1699,13 +1690,13 @@
 
   Slots that don't exist in their side carry `::missing` (the same
   `missing-sentinel` `diff-op` consumes), so the recursive renderer
-  routes through `render-leaf-with-diff`'s `:added` / `:removed` paths
-  unchanged.
+  routes them through `render-leaf-with-diff`'s `:added` / `:removed`
+  paths.
 
   TWO EXCEPTIONS, and both are the difference between not existing and
   not being looked at.
 
-  1. rf2-idydb / rf2-g61nr — where one side was capped at `count-bound`
+  1. Where one side was capped at `count-bound`
      while the other was realised whole, the slots past that ceiling
      carry `::unrealised` instead, on WHICHEVER side was capped. Those
      values are UNKNOWN, not absent, and `::missing` would say the
@@ -1714,7 +1705,7 @@
      (capped BEFORE), or strikes a retained one through as a confirmed
      deletion (capped AFTER). `bounded-vec` dispatches on `counted?`,
      so the two ceilings are independent in both directions.
-  2. rf2-t450s — where the whole BEFORE argument is itself that
+  2. Where the whole BEFORE argument is itself that
      `::unrealised` marker, which is how this walk is reached when the
      renderer descends into a surviving CONTAINER past that same
      ceiling. Every child's prior is then unknown for its parent's
@@ -1725,8 +1716,8 @@
 
   Per collection kind:
   - **Map / record** — AFTER's keys in their natural order, then
-    BEFORE-only keys appended at the end. Appended-at-end was picked
-    over interleaved-at-original-position because CLJS hash-maps don't
+    BEFORE-only keys appended at the end. Appended-at-end beats
+    interleaved-at-original-position because CLJS hash-maps don't
     carry stable order across boundaries anyway (array-map vs hash-
     map crossover, `dissoc` rehashing); appended-at-end is simple,
     predictable, and reads as 'the post-image, then a deletions
@@ -1770,7 +1761,7 @@
         ;; Only AFTER is a map (BEFORE missing / unknown / different
         ;; kind). All-added ONLY where the prior is genuinely absent —
         ;; `unpaired-prior` keeps an `::unrealised` before side unknown
-        ;; rather than converting it to absence here (rf2-t450s).
+        ;; rather than converting it to absence here.
         a
         (for [[k v] a]
           [k v (unpaired-prior before)])
@@ -1782,31 +1773,31 @@
         :else nil))
 
     (:vector :list :seq)
-    ;; rf2-jh12f — `bounded-vec`, the same `counted?` split
+    ;; `bounded-vec`, the same `counted?` split
     ;; `diff-pair-count` reports through, so the header count and the
     ;; row count agree on EVERY shape rather than only on the endless
-    ;; ones. rf2-y8doi.24 bounded this arm UNCONDITIONALLY: that kept a
-    ;; bare `vec` of an infinite lazy seq from never returning — this
-    ;; walker runs on both sides of every diff'd sequential — but it
-    ;; also truncated a `counted?` 1200-element vector to 1001 rows
-    ;; while `diff-pair-count` above went on reporting 1200. Reached by
-    ;; two routes, and both now bound identically: directly, and via
-    ;; `sequential-diff-children`'s no-projection fallback.
+    ;; ones. A bare `vec` of an infinite lazy seq would never return —
+    ;; this walker runs on both sides of every diff'd sequential — while
+    ;; bounding this arm UNCONDITIONALLY would truncate a `counted?`
+    ;; 1200-element vector to 1001 rows under a `diff-pair-count` of
+    ;; 1200. Reached by two routes, and both bound identically:
+    ;; directly, and via `sequential-diff-children`'s no-projection
+    ;; fallback.
     (let [a-vec (when (sequential? after)  (bounded-vec after))
           b-vec (when (sequential? before) (bounded-vec before))]
       (cond
         (and a-vec b-vec)
-        ;; rf2-idydb — past the before side's last realised slot, the prior
+        ;; Past the before side's last realised slot, the prior
         ;; is ABSENT only when the walk actually reached the end of that
         ;; side. `bounded-vec` realises a `counted?` collection whole, and
         ;; stops a not-`counted?` one at `count-bound`, so the two sides get
-        ;; INDEPENDENT ceilings (rf2-jh12f) and a capped before side leaves a
+        ;; INDEPENDENT ceilings and a capped before side leaves a
         ;; tail whose priors were never looked at. `::missing` there is the
         ;; STRUCTURAL sentinel — `leaf-diff-op` reads it ahead of the
         ;; projection and paints the row `:added` — so a survivor would be
         ;; reported as a new element. `::unrealised` is not structural, so
-        ;; the op falls through to the projection, which saw the full inputs
-        ;; (rf2-zk4he). Exactly the discrimination `sequential-diff-children`
+        ;; the op falls through to the projection, which saw the full
+        ;; inputs. Exactly the discrimination `sequential-diff-children`
         ;; makes with the projection's help; this walk has no projection, so
         ;; it reads the ceiling instead.
         ;;
@@ -1817,13 +1808,13 @@
         ;; reported unknown, which is the safe direction — telling it from a
         ;; capped one costs the one extra element the bound exists to refuse.
         ;;
-        ;; rf2-g61nr — and SYMMETRICALLY for the AFTER side, which is the
+        ;; And SYMMETRICALLY for the AFTER side, which is the
         ;; same confusion pointing the other way and does MORE damage. The
         ;; ceilings are independent in both directions, so a `counted?`
         ;; before side realised whole against a capped after side leaves a
         ;; tail whose AFTER values nobody looked at. `::missing` there is
         ;; read by `leaf-diff-op` as `(= value ::missing) → :removed`, ahead
-        ;; of the projection, so a RETAINED element was presented as a
+        ;; of the projection, so a RETAINED element would be presented as a
         ;; confirmed deletion — strike-through, `−` glyph, red wash. A false
         ;; addition overstates what arrived; a false deletion tells the
         ;; operator that data they still have is gone.
@@ -1848,7 +1839,7 @@
              (if (< i a-count) (nth a-vec i) past-after)
              (if (< i b-count) (nth b-vec i) past-before)]))
         a-vec
-        ;; rf2-t450s — `unpaired-prior`, not a bare `::missing`: this
+        ;; `unpaired-prior`, not a bare `::missing`: this
         ;; branch is also how a nested VECTOR in the recovered tail is
         ;; walked, and there the whole before side is `::unrealised`.
         (map-indexed (fn [i x] [i x (unpaired-prior before)]) a-vec)
@@ -1897,7 +1888,7 @@
 (def ^:private unreached-key-tag
   "Path-segment tag wrapping the before-index of a SURVIVING element the
   AFTER bound could not reach, so the row gets a React `:key` + testid
-  of its own (rf2-f8nm7).
+  of its own.
 
   The sibling of `removed-key-tag`, needed for the same reason from the
   other direction: both address a row by its BEFORE index, where every
@@ -1938,8 +1929,8 @@
   mid-vector removal it strikes a SURVIVING-SHIFTED element (the one that
   slid up into the vacated slot) and never surfaces the genuinely-removed
   member. Contiguous TAIL removals happen to line up under index
-  alignment, so only mid / scattered removals mis-render — this walk
-  fixes all of them uniformly.
+  alignment, so only mid / scattered removals would mis-render — this
+  walk handles all of them uniformly.
 
   Reconstruction (pure, projection-driven):
 
@@ -1955,8 +1946,8 @@
   - Surviving elements the before bound could not reach — possible only
     when `bounded-vec` capped the before side while realising a
     `counted?` after side whole — come from the AFTER vector with an
-    `::unrealised` before slot: their prior value is UNKNOWN, not absent
-    (rf2-zk4he), so the projection classifies them and the `← was`
+    `::unrealised` before slot: their prior value is UNKNOWN, not
+    absent, so the projection classifies them and the `← was`
     chip says so rather than inventing one.
   - Removed elements come from `:vector-removals` — each carries its true
     `:before-index` + `:before-value`. They render struck-through with
@@ -1973,81 +1964,70 @@
 
   Both sides are realised through `bounded-vec`, so an endless or
   guarded sequence yields a FINITE row set, and a `counted?` sequence of
-  any length is still rendered whole (rf2-brmyq).
+  any length is rendered whole.
 
   That row set is the number `diff-pair-count` printed in the header
-  whenever neither side was capped. NARROWED under rf2-zk4he, which
-  found the unqualified claim false: when the before side IS capped
+  whenever neither side was capped. When the before side IS capped
   while a `counted?` after side is not, the two ceilings differ, and
   this walk emits every accessible after row — so the body may EXCEED
   the header by the removals struck inside the bound. Those surplus
   survivors carry `::unrealised` in their before slot, which is neither
-  `::missing` nor a prior value; they used to be emitted by no arm of
-  the walk at all, and vanished with nothing on screen saying so.
+  `::missing` nor a prior value; emitted by no arm of the walk, they
+  would vanish with nothing on screen saying so.
 
-  rf2-f8nm7 — that paragraph went on to say \"It never falls SHORT of
-  it\", and the sentence was FALSE. It was written while only ONE of the
-  two independent ceilings had been thought about, and stated as an
-  unqualified universal in a paragraph scoped to that one direction.
-  Swap the representations — a `counted?` BEFORE side against a lazy
-  AFTER one — and `zipmap` truncates to the AFTER side instead, so
-  before-indices past the after ceiling paired with nothing, the
-  survivor arm's `when-let` yielded nothing for them, and the recovery
-  run below walks `after-idxs` ONLY, so no arm pointed the other way.
-  Measured: a body of 1001 under a header of 1050, the exact data-loss
-  direction `count-bound`'s own docstring says this ceiling refuses.
-  Those before-side survivors are now emitted IN before-order, carrying
+  The body never falls SHORT of the header, in either direction. Swap
+  the representations — a `counted?` BEFORE side against a lazy AFTER
+  one — and `zipmap` truncates to the AFTER side instead, so
+  before-indices past the after ceiling pair with nothing, and the
+  recovery run below walks `after-idxs` ONLY. Dropping those rows would
+  put a body of 1001 under a header of 1050, the exact data-loss
+  direction `count-bound`'s own docstring says this ceiling refuses. So
+  those before-side survivors are emitted IN before-order, carrying
   `::unrealised` in their AFTER slot — never `::missing`, which
-  `leaf-diff-op` reads as a confirmed deletion (rf2-g61nr) — under a
-  synthetic `unreached-key-tag` segment, because they have no
-  after-index to be addressed by. The claim holds again, and now in both
-  directions.
+  `leaf-diff-op` reads as a confirmed deletion — under a synthetic
+  `unreached-key-tag` segment, because they have no after-index to be
+  addressed by.
 
   Public so tests can probe the reconstruction without re-deriving it."
   [before after kind parent-path projection]
-  ;; rf2-brmyq — `bounded-vec`, never a bare `vec`. This `let` runs
-  ;; BEFORE the `cond`, so a bare `vec` realised BOTH sides in full on
-  ;; the live diff render path (`render-container`'s `:vector :list
+  ;; `bounded-vec`, never a bare `vec`. This `let` runs
+  ;; BEFORE the `cond`, so a bare `vec` would realise BOTH sides in full
+  ;; on the live diff render path (`render-container`'s `:vector :list
   ;; :seq` arm) — including on the way to the `children-of-pair`
-  ;; fallback, whose own bound was therefore never reached. An endless
-  ;; seq never returned; a guarded one threw. (That fallback now bounds
-  ;; through `bounded-vec` too — rf2-jh12f — so the two routes answer
+  ;; fallback, whose own bound would therefore never be reached. An
+  ;; endless seq would never return; a guarded one would throw. (That
+  ;; fallback bounds through `bounded-vec` too, so the two routes answer
   ;; alike for a `counted?` sequence as well as for an endless one.)
   ;;
-  ;; WHAT KEEPS rf2-vu42n's RECONSTRUCTION EXACT is that `bi->ai` pairs
+  ;; WHAT KEEPS THE RECONSTRUCTION EXACT is that `bi->ai` pairs
   ;; the k-th survivor on each side. `survivor-ais` and `survivor-bis`
   ;; stay ascending and truncating a tail drops a SUFFIX of each, so for
   ;; every k present on BOTH sides the k-th survivor is still the k-th
-  ;; and the zip lands exactly where it did unbounded. Sliding that zip
-  ;; strikes the wrong element, which is the very defect rf2-vu42n
-  ;; fixed, so nothing below is allowed to slide it.
+  ;; and the zip lands exactly where it would unbounded. Sliding that
+  ;; zip strikes the wrong element, so nothing below is allowed to
+  ;; slide it.
   ;;
-  ;; rf2-zk4he — this comment used to say the two sides met "the SAME
-  ;; ceiling", and that was TRUE while `bounded-vec` was an
-  ;; unconditional `(take count-bound …)`. rf2-jh12f's `counted?` split
-  ;; made the ceilings INDEPENDENT — a lazy before-value stops at
-  ;; `count-bound` while a `counted?` after-value is realised whole —
-  ;; and the comment went on reading as a proof that the condition it
-  ;; warns about is impossible. It is not impossible; it is ordinary,
-  ;; since `map`, `filter`, `concat`, `for` and `rest` all return
-  ;; something that is not `counted?`.
+  ;; The two sides do NOT meet the same ceiling: the `counted?` split
+  ;; makes the ceilings INDEPENDENT — a lazy before-value stops at
+  ;; `count-bound` while a `counted?` after-value is realised whole.
+  ;; That is ordinary, since `map`, `filter`, `concat`, `for` and `rest`
+  ;; all return something that is not `counted?`.
   ;;
-  ;; The repair is APPEND-ONLY, precisely so the warning above still
+  ;; The surplus handling is APPEND-ONLY, precisely so the warning above
   ;; holds. `zipmap` truncates to the shorter side, so the pairs it does
   ;; make are the unbounded ones; the surplus after-side survivors it
   ;; could not reach are emitted afterwards, in after-order, carrying
   ;; `::unrealised`. The zip is never widened, re-based or re-ordered.
   ;;
-  ;; rf2-f8nm7 — WHICH side is the shorter one is not fixed, and the
-  ;; paragraph above reads as though it were. When the AFTER side is the
-  ;; capped one the truncation drops before-indices instead, and those
-  ;; were emitted by no arm at all: the recovery run below is keyed on
-  ;; `after-idxs`, so it can only ever point one way. They are now
-  ;; emitted from the before-order walk itself, which is where they
-  ;; belong positionally. That is EMIT-ONLY for the same reason this
-  ;; repair is append-only — the zip is still never widened, re-based or
-  ;; re-ordered, and rf2-vu42n's alignment is untouched. Nothing here
-  ;; realises an extra element of either side to decide it.
+  ;; WHICH side is the shorter one is not fixed. When the AFTER side is
+  ;; the capped one the truncation drops before-indices instead, and the
+  ;; recovery run below is keyed on `after-idxs`, so it can only ever
+  ;; point one way. Those before-indices are emitted from the
+  ;; before-order walk itself, which is where they belong positionally.
+  ;; That is EMIT-ONLY for the same reason the after-side handling is
+  ;; append-only — the zip is never widened, re-based or re-ordered, and
+  ;; the survivor alignment is untouched. Nothing here realises an extra
+  ;; element of either side to decide it.
   (let [a-vec (when (sequential? after)  (bounded-vec after))
         b-vec (when (sequential? before) (bounded-vec before))]
     (cond
@@ -2078,7 +2058,7 @@
             ;; A survivor's `before` slot carries its PRIOR value (`nth
             ;; b-vec bi`) — never `::missing`, which `render-leaf-with-diff`
             ;; would read as a structural `:added`.
-            ;; rf2-f8nm7 — the AFTER-side counterpart of
+            ;; The AFTER-side counterpart of
             ;; `children-of-pair`'s `past-after`, gated on exactly the
             ;; same two facts and for the same reason. Past the after
             ;; side's last realised slot the current value is UNKNOWN
@@ -2101,14 +2081,14 @@
                     [[[removed-key-tag bi] ::missing before-value]])
                   (if-let [ai (bi->ai bi)]
                     [[ai (nth a-vec ai) (nth b-vec bi)]]
-                    ;; rf2-f8nm7 — a SURVIVING before-index the after
+                    ;; A SURVIVING before-index the after
                     ;; bound could not reach. Its prior is known and
                     ;; accessible; its current value is not, and it has
                     ;; no after-index to be keyed by, so it takes a
                     ;; synthetic segment rather than an integer another
-                    ;; row already owns. Dropping it instead put the
-                    ;; body SHORT of the header and threw away a value
-                    ;; this walk can still account for.
+                    ;; row already owns. Dropping it instead would put
+                    ;; the body SHORT of the header and throw away a
+                    ;; value this walk can account for.
                     [[[unreached-key-tag bi] past-after (nth b-vec bi)]])))
               (range (count b-vec)))
             ;; The after-side rows the before-order walk could not reach,
@@ -2117,8 +2097,8 @@
             ;;
             ;; - purely ADDED elements carry `::missing`, which forces
             ;;   the `:added` render path — correct, they had no prior.
-            ;; - SURVIVORS past the before bound carry `::unrealised`
-            ;;   (rf2-zk4he). They appear only when `bounded-vec` capped
+            ;; - SURVIVORS past the before bound carry `::unrealised`.
+            ;;   They appear only when `bounded-vec` capped
             ;;   a not-`counted?` before side while realising a
             ;;   `counted?` after side whole, so `bi->ai`'s `zipmap` ran
             ;;   out of before-indices to pair them with. Their prior
@@ -2128,16 +2108,15 @@
             ;;   `::unrealised` is not structural, so the op comes off
             ;;   the projection, which saw the FULL inputs.
             ;;
-            ;; Before this, those survivors were emitted by no arm at
-            ;; all: `added-rows` does not recover them (they are not
-            ;; added), so they left the walk silently while
-            ;; `diff-pair-count` went on counting them in the header.
+            ;; A walk over the purely-added elements alone would not
+            ;; recover those survivors (they are not added), so they
+            ;; would leave the walk silently while `diff-pair-count` went
+            ;; on counting them in the header.
             ;;
-            ;; When neither side was capped — every shape before the
-            ;; `counted?` split, and every all-`counted?` diff since —
+            ;; When neither side was capped — every all-`counted?` diff —
             ;; `paired-ais` covers every survivor and this is exactly the
-            ;; `added-rows` it replaces, element for element and in the
-            ;; same order.
+            ;; purely-added elements, element for element and in
+            ;; after-order.
             paired-ais (into #{} (vals bi->ai))
             added-ai?  (into #{} added-ais)
             tail-rows
@@ -2167,18 +2146,14 @@
         b (count b)
         :else 0))
     (:vector :list :seq)
-    ;; rf2-jh12f — `bounded-count*`, matching `children-of-pair`'s
+    ;; `bounded-count*`, matching `children-of-pair`'s
     ;; `bounded-vec`, so the header count and the row count agree: both
     ;; are EXACT for a `counted?` side, and both stop at `count-bound`
     ;; for a side that could be endless. A bare `count` of an infinite
-    ;; lazy seq never returns, which is why that ceiling stays.
+    ;; lazy seq never returns, which is why that ceiling exists.
     ;;
-    ;; rf2-y8doi.24 wrote this comment when the walker read
-    ;; `(take count-bound …)` unconditionally, and the claim was false
-    ;; in exactly one direction: `bounded-count*` reported a 1200-element
-    ;; vector's FULL count while the walker truncated to 1001. The two
-    ;; sides now share one dispatch, so the agreement is structural
-    ;; rather than a coincidence of two ceilings that happened to match.
+    ;; The two sides share one dispatch, so the agreement is structural
+    ;; rather than a coincidence of two ceilings that happen to match.
     (let [a (when (sequential? after)  after)
           b (when (sequential? before) before)]
       (cond
@@ -2262,21 +2237,21 @@
   "Pixel headroom reserved against the measured `available-width` before
   the inline gate fires. Covers the closing bracket, key-column gutter
   for nested rows, optional scrollbar reserve. 16px is the pre-alpha
-  pick — tuned by eye against running panels (rf2-kbdk8). Public for the
+  pick — tuned by eye against running panels. Public for the
   same reason as `mono-char-width-px`."
   16)
 
 (def default-ceiling-depth
-  "Replacement default for the `:default-expanded-depth` opt under the
-  width-aware heuristic (rf2-kbdk8). The opt is now a CEILING beyond
+  "Default for the `:default-expanded-depth` opt under the
+  width-aware heuristic. The opt is a CEILING beyond
   which the widget never auto-expands even if the inline form overflows
-  — it shows a collapsed `▸ {…N keys}` summary instead. The old default
-  of 2 functioned as a TRIGGER (expand the first two levels regardless
-  of fit); the new default 8 lets the width heuristic do its job at
-  shallow depths while still protecting against pathological deep
+  — it shows a collapsed `▸ {…N keys}` summary instead. A default as
+  low as 2 would act as a TRIGGER (expand the first two levels
+  regardless of fit); 8 lets the width heuristic do its job at
+  shallow depths while protecting against pathological deep
   auto-expansion in rare cases.
 
-  Public so tests can assert the new default without re-deriving it."
+  Public so tests can assert the default without re-deriving it."
   8)
 
 (def inline-estimate-char-cap
@@ -2299,7 +2274,7 @@
 
   Scalars are measured by their own `pr-str` (exact) — except a
   STRING whose raw length already carries the total past `cap`, which
-  is charged an unprinted lower bound instead (rf2-re7dn; see the
+  is charged an unprinted lower bound instead (see the
   branch below). Containers are charged 2 for the delimiters and 1
   per element gap. That undercounts
   a map's `\", \"` separator by one per entry and omits a record's
@@ -2309,19 +2284,18 @@
   [value total cap]
   (when (<= @total cap)
     (if-not (coll? value)
-      ;; rf2-re7dn — DON'T PRINT A SCALAR TO DISCOVER IT CANNOT FIT.
+      ;; DON'T PRINT A SCALAR TO DISCOVER IT CANNOT FIT.
       ;; A string's `count` is O(1) on this host, and `pr-str` can only
       ;; ever make it LONGER — two quotes, plus a character per escape
       ;; — so `(+ @total (count s) 2)` is a lower bound on where the
       ;; running total lands. When that bound alone already passes
       ;; `cap`, printing cannot change the outcome, so the walk charges
       ;; the bound and skips the print. Without this a 500,000-
-      ;; character `:body` was serialised in full on EVERY render to
+      ;; character `:body` would be serialised in full on EVERY render to
       ;; establish that it could not fit a 100px column.
       ;;
-      ;; Under budget nothing changes: the print still happens, so
-      ;; escapes are still counted and no existing estimate moves.
-      ;; `estimated-inline-px` asks only whether `@total` passed `cap`,
+      ;; Under budget the print happens, so escapes are counted and the
+      ;; estimate is exact. `estimated-inline-px` asks only whether `@total` passed `cap`,
       ;; and both paths agree on that — the ANSWER is identical either
       ;; way, only the work differs.
       (let [n (when (string? value) (count value))]
@@ -2349,32 +2323,29 @@
   function. Returns 0 when the measurement throws (cyclic value,
   broken pr-method).
 
-  ## rf2-y8doi.24 — decide with a bounded walk, then measure exactly
+  ## Decide with a bounded walk, then measure exactly
 
-  This was `(* mono-char-width-px (count (pr-str value)))`, and it
-  runs on EVERY render to answer a yes/no question (does the inline
-  form fit the column?). Two costs: it serialised the whole subtree —
-  the entire app-db, per render, to decide a boolean — and on an
-  infinite lazy seq it never returned at all, freezing the tab with no
-  error anywhere.
+  The estimate runs on EVERY render to answer a yes/no question (does
+  the inline form fit the column?). A bare
+  `(* mono-char-width-px (count (pr-str value)))` would have two costs:
+  it would serialise the whole subtree — the entire app-db, per render,
+  to decide a boolean — and on an infinite lazy seq it would never
+  return at all, freezing the tab with no error anywhere.
 
   So `estimate-chars!` walks first and bails the moment the running
   count passes the budget. Under budget, the value is provably small
-  and `pr-str` is both safe and cheap, so the answer stays EXACTLY
-  `char-count × mono-char-width-px` as before — no existing estimate
-  moves. Over budget, the result SATURATES to `cap × mono-char-width-
-  px`, which is deliberately far wider than any column: the saturated
-  answer can only ever read as 'does not fit', never as 'fits'. An
-  estimate that capped LOW would be the dangerous direction — it would
-  render a huge value inline and overflow the column.
+  and `pr-str` is both safe and cheap, so the answer is EXACTLY
+  `char-count × mono-char-width-px`. Over budget, the result
+  SATURATES: the saturated answer can only ever read as 'does not
+  fit', never as 'fits'. An estimate that capped LOW would be the
+  dangerous direction — it would render a huge value inline and
+  overflow the column.
 
-  Over budget the answer is `##Inf`, not a large finite number. That
-  is a deliberate correction to the first cut of this fix, which
-  saturated at `inline-estimate-char-cap × mono-char-width-px` and
-  called it \"far wider than any column\" — it is not, it is 28,672px,
-  and `would-fit-inline?` duly reported a `(range)` as FITTING a
-  100,000px column. A finite ceiling has to out-run every argument a
-  caller might pass, and none does. `##Inf` is also the honest reading
+  Over budget the answer is `##Inf`, not a large finite number. A
+  finite saturation at `inline-estimate-char-cap × mono-char-width-px`
+  is only 28,672px, so `would-fit-inline?` would report a `(range)` as
+  FITTING a 100,000px column. A finite ceiling has to out-run every
+  argument a caller might pass, and none does. `##Inf` is also the honest reading
   of what the walk established: it stopped measuring, so the width is
   unbounded as far as anything here knows.
 
@@ -2408,7 +2379,7 @@
   "True when the estimated inline width of `value` fits the
   `available-width-px` with the safety margin. When `available-width-
   px` is `nil` / non-positive (no measurement yet), returns `false` so
-  the widget falls back to the legacy strict inline-fit gate.
+  the widget falls back to the strict inline-fit gate.
 
   Pure function — no DOM, no rf reads. Public so tests can drive the
   decision deterministically."
@@ -2416,7 +2387,7 @@
   (boolean
     (and (number? available-width-px)
          (pos? available-width-px)
-         ;; rf2-y8doi.24 — hand the column width down as the walk's
+         ;; Hand the column width down as the walk's
          ;; budget, so a value far too wide to fit stops being measured
          ;; the moment it passes the column rather than being
          ;; serialised in full to say so.
@@ -2434,12 +2405,12 @@
   regardless of depth — operator never has to drill to find the
   change (spec/021 §10.4).
 
-  rf2-kbdk8: `default-expanded-depth` is the EXPAND CEILING — never
+  `default-expanded-depth` is the EXPAND CEILING — never
   auto-expand past depth N (show a collapsed summary instead). When no
-  available-width is yet measured the legacy depth-driven path runs as
+  available-width is yet measured the depth-driven path runs as
   the fallback so unit tests + first-paint behaviour stay deterministic.
 
-  rf2-fqcdd — DIFF posture: when a pre-image is present (`:diff?`) the
+  DIFF posture: when a pre-image is present (`:diff?`) the
   depth/width heuristics are SUPPRESSED for unchanged subtrees.
   Only two reasons to auto-expand a container:
 
@@ -2456,7 +2427,7 @@
     has-changed-descendant?
     true
 
-    ;; rf2-fqcdd — DIFF: collapse unchanged subtrees regardless of
+    ;; DIFF: collapse unchanged subtrees regardless of
     ;; depth/width. Root (depth 0) still expands so the operator sees
     ;; the top-level keys; everything below collapses unless an
     ;; ancestor of a change.
@@ -2474,9 +2445,9 @@
       (<= depth (dec default-expanded-depth))      true
       :else                                        false)
 
-    ;; Legacy depth-driven fallback for the no-measurement path. Kept
-    ;; deterministic so unit tests that drive `render-node` without a
-    ;; mount measurement reproduce the historical behaviour.
+    ;; Depth-driven fallback for the no-measurement path. Deterministic
+    ;; so unit tests that drive `render-node` without a mount
+    ;; measurement get a stable answer.
     (<= depth (dec default-expanded-depth))
     true
 
@@ -2491,55 +2462,51 @@
 
   The path separator is UNCONDITIONAL, so the root node at `[]` reads
   `…-<mount-id>-` with a trailing separator and an empty path after it.
-  That is deliberate and is the whole of rf2-o7p7.
+  That is deliberate.
 
   A node's name is `[panel-id mount-id path]`; the widget's outer container
   has a name of its own, `[panel-id mount-id]`, composed at the render site
   as `container-id`. Two names for two different things. Appending the
-  separator only `(when (seq path))` collapsed them: the root node at `[]`
-  composed the container's string exactly, so ONE MOUNT PUT ONE TESTID ON
-  TWO NODES — the container carrying the widget chrome, the measurement
-  `:ref` and `data-rf-mount-id`, and the render-node carrying the rendered
-  tree.
+  separator only `(when (seq path))` would collapse them: the root node at
+  `[]` would compose the container's string exactly, so ONE MOUNT WOULD PUT
+  ONE TESTID ON TWO NODES — the container carrying the widget chrome, the
+  measurement `:ref` and `data-rf-mount-id`, and the render-node carrying
+  the rendered tree.
 
-  It failed in the direction that reassures, which is why it went unseen for
-  as long as it existed: `querySelector` always returned something, so a
-  helper resolving \"the container\" got a node and carried on, and which of
-  the two it got was document order. A count is the first instrument that
-  has to care, and the first one written duly read 4 panels for 2 (rf2-d2aj,
-  PR #9597's W5).
+  That collision fails in the direction that reassures: `querySelector`
+  always returns something, so a helper resolving \"the container\" gets a
+  node and carries on, and which of the two it gets is document order.
+  Only a count has to care, and it would read 4 panels for 2.
 
   The separator, rather than a word like `-root`, is what makes the node
   namespace TOTAL: every path composes a suffix, no path composes the empty
   one, and no path can collide with the container. A word could — `pr-str`
   of the SYMBOL `root` is the bare string `root`, so a value keyed by it
   would put a node at `…-<mount-id>-root` beside the root's own, which is
-  the very defect this repairs, reintroduced one level along.
+  the same collision one level along.
 
-  This MOVES the root node's testid (and the `-toggle` / `-body` derived
-  from it) and leaves the container's ALONE — the direction that matters,
-  because the container's is the public handle every existing DOM-level
-  consumer reaches for. Under the reverse repair those consumers would keep
-  resolving, silently, to the render-node."
+  The separator lands on the root node's testid (and the `-toggle` /
+  `-body` derived from it) and never on the container's — the direction
+  that matters, because the container's is the public handle every
+  DOM-level consumer reaches for. Suffixing the container instead would
+  leave those consumers resolving, silently, to the render-node."
   [panel-id mount-id path]
   (str "rf-xray-edn-inspector-"
        (name (or panel-id :anon))
        "-" mount-id
        "-" (str/join "/" (map pr-str path))))
 
-;; rf2-tzvk9 — triangle expand/collapse glyph carries an explicit
-;; ≥24×24 click target. The padding inside the existing key-column
+;; The triangle expand/collapse glyph carries an explicit
+;; ≥24×24 click target. The padding inside the key-column
 ;; gutter grows the hit-box without shifting the surrounding layout.
 ;; Public via the value so tests can assert the computed-width
 ;; contract without re-deriving the magic numbers.
 ;;
-;; rf2-4aiaq — glyph size bumped 14px → 22px. The 14px glyph cleared
-;; the 24px hit-box but read as a hairline against the inspector
-;; chrome; Mike's live A/B (pair-debug 2026-05-26) found 22-24px
-;; "much more clickable, feels right" vs. 14-18px which still felt
-;; understated. 22px keeps the glyph visually balanced against the
-;; surrounding 12px scalar rows (~1.83× scale) without dominating
-;; the row.
+;; Glyph size is 22px. A 14px glyph clears the 24px hit-box but reads
+;; as a hairline against the inspector chrome; 22-24px reads as
+;; clickable where 14-18px reads as understated. 22px keeps the glyph
+;; visually balanced against the surrounding 12px scalar rows (~1.83×
+;; scale) without dominating the row.
 ;;
 ;; Why these numbers — `inline-flex` + the padding/font-size below
 ;; resolves to approximately 38×30px in Chromium at the shell's
@@ -2556,8 +2523,8 @@
 ;; mouse-target threshold.
 
 (def triangle-min-target-px
-  "Minimum click-target width/height the triangle must register
-  (rf2-tzvk9). The CLJS-unit-test surface asserts the padding +
+  "Minimum click-target width/height the triangle must register.
+  The CLJS-unit-test surface asserts the padding +
   font-size combination resolves to at least this many CSS pixels
   along both axes.
 
@@ -2567,7 +2534,7 @@
 
 (def triangle-style
   "Inline-style map applied to every expand/collapse triangle (`▸`
-  / `▾`) the edn-inspector widget renders (rf2-tzvk9). One source of
+  / `▾`) the edn-inspector widget renders. One source of
   truth so every triangle gets the SAME hit-box — three call sites
   (depth-capped, expanded ▾, collapsed ▸) and one diff-mode variant
   share this.
@@ -2582,16 +2549,14 @@
     `▸` slightly narrower than `▾`).
   - No `padding` — the `min-width`/`min-height` 24px + inline-flex
     centring deliver the ≥24×24 hit-box without padding overhead.
-    Mike's live call (pair-debug 2026-05-26): the prior 4px 8px
-    padding read as wasted space around the glyph; the min-* sizing
-    alone keeps the click target large while the visual footprint
-    matches the glyph itself.
-  - `font-size 22px` (rf2-4aiaq) overrides the widget's inherited
+    Padding such as 4px 8px reads as wasted space around the glyph;
+    the min-* sizing alone keeps the click target large while the
+    visual footprint matches the glyph itself.
+  - `font-size 22px` overrides the widget's inherited
     12px so the glyph reads as the primary expand/collapse affordance
-    — Mike's live A/B (pair-debug 2026-05-26) found the prior 14px
-    glyph read as hairline against the inspector chrome; 22px lands
-    in the operator-preferred 22-24px band where the triangle 'feels
-    clickable'.
+    — a 14px glyph reads as a hairline against the inspector chrome;
+    22px lands in the operator-preferred 22-24px band where the
+    triangle 'feels clickable'.
   - `line-height 1` collapses inline leading so the height comes
     purely from font + min-height, not from inherited 1.4 leading.
 
