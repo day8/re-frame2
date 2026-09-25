@@ -99,13 +99,13 @@
   global + story args, no modes or overrides), so an `[:arg k]` in `:setup`
   / `:script` that the story or the globals supply substitutes as it does
   for a run, instead of throwing `:rf.error/story-missing-arg` before the
-  schema is resolved (rf2-yfwfa).
+  schema is resolved.
 
   The schema is the component's `:rf/props`, not a function of the args, so
   an args-validation veto (`:rf.error/story-view-args-invalid`) does not
   erase it: the schema that validation used rides on the error and is
-  returned (rf2-3x7nj.28.3), so args that genuinely miss a required prop on
-  every layer still show the schema they violate."
+  returned, so args that genuinely miss a required prop on every layer
+  show the schema they violate."
   [variant-id]
   (try
     (-> (rf.story.cell-plan/cell-plan variant-id) :world :view-args-schema)
