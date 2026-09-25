@@ -2612,7 +2612,7 @@
              error trace + the orphan are dropped"))
       (rf.epoch.state/drop-frame-buffer! frame))))
 
-;; ---- recording is gated on debug-enabled? ---------------------------------
+;; ---- configure! round-trips :epoch-history :depth -------------------------
 
 (deftest configure-roundtrip
   (testing "(rf/configure! {:epoch-history {:depth N}}) updates the depth"
