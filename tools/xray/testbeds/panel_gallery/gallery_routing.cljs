@@ -1,7 +1,9 @@
 (ns panel-gallery.gallery-routing
   "Story coverage for the **Routes tab** of the Xray 4-layer chrome.
 
-  The Routes tab body is the `routing/Panel` view. The panel reads:
+  The Routes tab body is the `routing/Panel` view: CURRENT ROUTE,
+  NAVIGATION THIS EPOCH and the registered ROUTE TABLE. The panel reads
+  the `:rf.xray/routing-tab-data` composite over:
 
     - `:rf.xray/registered-routes`     — default `(rf/registrations
                                           :route)`; test override slot
@@ -13,15 +15,14 @@
     - `:rf.xray/event-bundles`              — drives FROM/TO detection.
     - `:rf.xray/focus`                 — the spine's focused
                                           dispatch-id.
-    - `:rf.xray.routing/query`         — substring filter input.
-    - `:rf.xray.routing/sim-url`       — Simulate-URL input.
 
   Each variant seeds the override slots via the test-only events
   (`:rf.xray/set-registered-routes-override-for-test`,
-  `:rf.xray/set-current-route-slice-override-for-test`) and the
-  trace-buffer via `:rf.xray/sync-trace-buffer` +
-  `:rf.xray/focus-event` (for the FROM/TO variant). Search +
-  Simulate-URL variants set the UI-state events directly."
+  `:rf.xray/set-current-route-slice-override-for-test`, installed by
+  `panel-gallery.core/register-handlers!`) and the trace-buffer via
+  `:rf.xray/sync-trace-buffer` + `:rf.xray/focus-event`. Route search and
+  Simulate-URL live on the Static Routes lens, not this panel, so no
+  variant here exercises them."
   (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-routing :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -39,18 +40,16 @@
 
   (rf.story/reg-tag :feature/xray-routing
     {:axis :feature
-     :doc  "Xray Routes tab — flat catalogue of registered routes with
-            substring search + Simulate-URL plus HERE/FROM/TO markers
-            driven by the focused event-bundle per spec/016 §Routes tab +
-            spec/018 §5.6."})
+     :doc  "Xray Routes tab — the current route, the focused
+            event-bundle's navigation, and the registered route table
+            with the current row and FROM/TO markers per spec/016
+            §Routes tab + spec/018 §5.6."})
 
   (rf.story/reg-story :story.xray.routing
     {:doc        "Visual gallery of the Xray Routes tab under varying
-                 registrar shapes + nav event-bundles + UI inputs. Each
-                 variant seeds the registered-routes + current-slice
-                 override slots via test-only events; search +
-                 Simulate-URL variants set the UI-state events
-                 directly."
+                 registrar shapes + nav event-bundles. Each variant
+                 seeds the registered-routes + current-slice override
+                 slots via test-only events."
      :component  :panel-gallery.routing/Panel
      :tags       #{:dev :feature/xray-routing}
      :substrates #{:reagent}})
@@ -58,21 +57,20 @@
   ;; ----- 1. no routes registered (silent) ----------------------------
   (rf.story/reg-variant :story.xray.routing/no-routes
     {:doc        "Host app has no routes registered. Panel renders
-                 the silent empty-state — terse one-liner, no list,
-                 no search, no Simulate-URL. Honours silent-by-
-                 default."
+                 the silent empty-state — a terse caption and no
+                 sections. Honours silent-by-default."
      :setup     [[:rf.xray/set-registered-routes-override-for-test {}]
                   [:rf.xray/set-current-route-slice-override-for-test nil]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
-  ;; ----- 2. current route only (◆ HERE) ------------------------------
+  ;; ----- 2. current route only (◀ current) ---------------------------
   (rf.story/reg-variant :story.xray.routing/current-route-only
     {:doc        "Routes registered + a current slice; focused
-                 event-bundle did NOT navigate. The current row carries
-                 the ◆ HERE marker — orientation only. Metadata
-                 badges (M / L / T / P) decorate routes carrying
-                 :on-match / :can-leave / :tags / :parent."
+                 event-bundle did NOT navigate. CURRENT ROUTE shows the
+                 cart route, NAVIGATION THIS EPOCH reads its quiet
+                 caption, and the route table highlights the current
+                 row with the `◀ current` marker."
      :setup     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/cart-routes]
                   [:rf.xray/set-current-route-slice-override-for-test
@@ -83,12 +81,13 @@
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  ;; ----- 3. FROM → TO transition (◆ FROM / ◆ TO) ---------------------
+  ;; ----- 3. FROM → TO transition (◇ FROM / ◉ TO) ---------------------
   (rf.story/reg-variant :story.xray.routing/from-to-transition
     {:doc        "Focused event-bundle carried a nav-token allocation —
-                 the panel renders ◆ FROM on the prior route and
-                 ◆ TO on the destination. Params/query for the
-                 destination surface below the catalogue."
+                 NAVIGATION THIS EPOCH reads cart ──► confirm, and the
+                 route table paints ◇ FROM on the prior route and ◉ TO
+                 on the destination. CURRENT ROUTE carries the
+                 destination's params, query and fragment."
      :setup     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/cart-routes]
                   ;; Live slice is the post-nav value (confirm). FROM is
@@ -102,45 +101,11 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 4. search filter narrows the catalogue ----------------------
-  (rf.story/reg-variant :story.xray.routing/search-filter
-    {:doc        "Larger registrar with the substring search input
-                 populated — only routes whose route-id / path / doc
-                 contains `api` render. Demonstrates the substring
-                 filter contract per `routing-helpers/filter-rows`."
-     :setup     [[:rf.xray/set-registered-routes-override-for-test
-                   fixtures/docs-routes]
-                  [:rf.xray/set-current-route-slice-override-for-test
-                   fixtures/docs-api-detail-slice]
-                  [:rf.xray.routing/set-query "api"]
-                  [:rf.xray/sync-trace-buffer
-                   (fixtures/no-nav-buffer 1 [:docs/refresh])]
-                  [:rf.xray/focus-event 1 nil]]
-     :tags       #{:dev :state/medium}
-     :substrates #{:reagent}})
-
-  ;; ----- 5. Simulate-URL surfaces ranked candidates ------------------
-  (rf.story/reg-variant :story.xray.routing/simulate-url-winner
-    {:doc        "Paste a URL into Try URL; the panel ranks every
-                 matching route by its 6-rule :rf.route/rank tuple
-                 and highlights the winner. The load-bearing
-                 interactive surface that exposes the structural
-                 match contract per spec/012 §Route ranking algorithm."
-     :setup     [[:rf.xray/set-registered-routes-override-for-test
-                   fixtures/docs-routes]
-                  [:rf.xray.routing/set-sim-url "/blog/post"]
-                  [:rf.xray/sync-trace-buffer
-                   (fixtures/no-nav-buffer 1 [:noop])]
-                  [:rf.xray/focus-event 1 nil]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
-
   ;; ----- variants-grid workspace ------------------------------------
   (rf.story/reg-workspace :Workspace.xray.routing/all
-    {:doc      "All five Routes tab variants in one auto-grid.
+    {:doc      "All three Routes tab variants in one auto-grid.
                 Scroll to see the panel's response across no-routes /
-                current-route-only / from-to-transition /
-                search-filter / simulate-url-winner."
+                current-route-only / from-to-transition."
      :layout   :variants-grid
      :for      :story.xray.routing
      :columns  2

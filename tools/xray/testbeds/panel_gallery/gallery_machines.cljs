@@ -3,8 +3,15 @@
   (spec/018-Event-Spine).
 
   The Machines tab body is the `machine-inspector/Panel` view
-  (spec/003-Machine-Inspector).
-  The panel reads:
+  (spec/003-Machine-Inspector), an event-driven lens: when the focused
+  event targeted a machine it renders that transition — the shared
+  event-handler mini-pipeline and the topology chart — and otherwise the
+  one-line placeholder, or the empty state when no machine is
+  registered. It carries no machine picker and no Sim; the Sim lives on
+  the Static Machines lens.
+
+  The panel reads the `:rf.xray/machine-inspector-data` composite and the
+  focused epoch. The composite is over:
 
     - `:rf.xray/registered-machines`  — defaults to the `:rf/machine?` filter
                                          over the generic registrar read;
@@ -16,28 +23,13 @@
     - `:rf.xray/machine-definitions`  — defaults to
                                          the `:rf/machine` registrar projection; test
                                          override slot exists.
-    - `:rf.xray/trace-buffer`         — drives transition-history.
-    - `:rf.xray/selected-machine-id`  — picker focus.
 
-  Each variant seeds the override slots via the test-only events
+  The variant seeds the override slots via the test-only events
   (`:rf.xray/set-registered-machines-override-for-test`,
   `:rf.xray/set-machine-snapshots-override-for-test`,
-  `:rf.xray/set-machine-definitions-override-for-test`) and the
-  trace-buffer via `:rf.xray/sync-trace-buffer`.
-
-  ## UC1 Sim sub-mode
-
-  When a Mode-A panel has Sim active, the chart tints amber + a side-
-  rail surfaces an event picker + Step / Reset buttons. The Sim
-  state slot is `:rf.xray.static.machines/sim-by-machine {<id>
-  <sim-state>}` — the
-  `:rf.xray.static.machines/sim-start` event seeds it. The 'sim
-  mid-step' variant fires sim-start then sim-step to land mid-
-  execution. The 'sim pending-input' variant fires sim-start then
-  seeds the controlled-input slots (`:pending-event` / `:pending-
-  data`) via `:rf.xray.static.machines/sim-set-pending-event` +
-  `-pending-data` so the side rail's compose box is populated mid-
-  type but not yet stepped."
+  `:rf.xray/set-machine-definitions-override-for-test`, installed by
+  `panel-gallery.core/register-handlers!`) and the trace-buffer via
+  `:rf.xray/sync-trace-buffer`."
   (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures-machines :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -55,17 +47,16 @@
 
   (rf.story/reg-tag :feature/xray-machines
     {:axis :feature
-     :doc  "Xray Machines tab — Mode A (definition) / Mode B
-            (instance) chart + transition-history ribbon + UC1 Sim
-            sub-mode per spec/003 + spec/018 §5.5."})
+     :doc  "Xray Machines tab — the focused event's machine
+            transition (event-handler mini-pipeline + topology chart)
+            per spec/003 + spec/018 §5.5."})
 
   (rf.story/reg-story :story.xray.machines
-    {:doc        "Visual gallery of the Xray Machines tab under
-                 varying registry shapes. Each variant seeds the
-                 registered-machine + snapshot + definition override
-                 slots via the test-only events; the panel projection
-                 reads the overrides without booting a host that
-                 registers machines."
+    {:doc        "Visual gallery of the Xray Machines tab. Each variant
+                 seeds the registered-machine + snapshot + definition
+                 override slots via the test-only events; the panel
+                 projection reads the overrides without booting a host
+                 that registers machines."
      :component  :panel-gallery.machines/Panel
      :tags       #{:dev :feature/xray-machines}
      :substrates #{:reagent}})
@@ -81,146 +72,10 @@
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
 
-  ;; ----- 2. single machine, Mode A (definition view) ----------------
-  (rf.story/reg-variant :story.xray.machines/single-mode-a
-    {:doc        "Single :loader machine registered with a populated
-                 definition but NO live snapshot. The panel surfaces
-                 the picker with the definition chart (Mode A) — the
-                 chart renders the static state graph."
-     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
-                  [:rf.xray/set-machine-snapshots-override-for-test {}]
-                  [:rf.xray/set-machine-definitions-override-for-test
-                   {:loader fixtures/loader-definition}]
-                  [:rf.xray/sync-trace-buffer (fixtures/no-transitions-buffer)]
-                  [:rf.xray/select-machine-id :loader]]
-     :tags       #{:dev :state/small}
-     :substrates #{:reagent}})
-
-  ;; ----- 3. single machine, Mode B (instance) -----------------------
-  (rf.story/reg-variant :story.xray.machines/single-mode-b
-    {:doc        "Single :loader machine registered WITH a live
-                 snapshot (`:loaded` state, populated data). The
-                 panel renders the chart in Mode B — current state
-                 highlight overlays the static graph; the picker
-                 surfaces the current state."
-     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
-                  [:rf.xray/set-machine-snapshots-override-for-test
-                   {:loader (fixtures/snapshot :loaded
-                              {:result :data :attempts 1 :error nil})}]
-                  [:rf.xray/set-machine-definitions-override-for-test
-                   {:loader fixtures/loader-definition}]
-                  [:rf.xray/sync-trace-buffer (fixtures/loader-transition-buffer)]
-                  [:rf.xray/select-machine-id :loader]]
-     :tags       #{:dev :state/small}
-     :substrates #{:reagent}})
-
-  ;; ----- 4. multiple machines ---------------------------------------
-  (rf.story/reg-variant :story.xray.machines/multi-machine
-    {:doc        "Three machines registered (`:loader`, `:auth`,
-                 `:checkout`) each with a populated snapshot +
-                 definition. The picker offers all three; the
-                 default selection is the alphabetically-first row
-                 (`:auth`)."
-     :setup     [[:rf.xray/set-registered-machines-override-for-test
-                   (fixtures/registered-machines-multi)]
-                  [:rf.xray/set-machine-snapshots-override-for-test
-                   (fixtures/machine-snapshots-multi)]
-                  [:rf.xray/set-machine-definitions-override-for-test
-                   (fixtures/machine-definitions-multi)]
-                  [:rf.xray/sync-trace-buffer (fixtures/no-transitions-buffer)]]
-     :tags       #{:dev :state/medium}
-     :substrates #{:reagent}})
-
-  ;; ----- 5. many transitions -----------------------------------------
-  (rf.story/reg-variant :story.xray.machines/many-transitions
-    {:doc        "Single :loader machine with eighteen transitions
-                 (mixed outer + microstep) in the trace buffer. Pins
-                 the transition-history ribbon at scroll depth +
-                 exercises microstep rendering."
-     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
-                  [:rf.xray/set-machine-snapshots-override-for-test
-                   {:loader (fixtures/snapshot :loaded {:result :ok})}]
-                  [:rf.xray/set-machine-definitions-override-for-test
-                   {:loader fixtures/loader-definition}]
-                  [:rf.xray/sync-trace-buffer (fixtures/many-transitions-buffer)]
-                  [:rf.xray/select-machine-id :loader]]
-     :tags       #{:dev :state/medium}
-     :substrates #{:reagent}})
-
-  ;; ----- 6. UC1 Sim mid-step ----------------------------------------
-  ;;
-  ;; Seed the machine + definition, then sim-start (clones the
-  ;; definition into Xray's app-db), then sim-step with the
-  ;; `:start` event so the cloned snapshot advances :idle → :loading
-  ;; mid-execution. The variant renders the side rail + amber tint.
-  (rf.story/reg-variant :story.xray.machines/uc1-sim-mid-step
-    {:doc        "Single :loader machine + UC1 Sim active mid-step:
-                 sim-start clones the definition, sim-step fires
-                 `[:start]` advancing the cloned snapshot :idle →
-                 :loading. The side rail renders an event picker +
-                 Step / Reset buttons + the audit trail; the chart
-                 tints amber."
-     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
-                  [:rf.xray/set-machine-snapshots-override-for-test
-                   {:loader (fixtures/snapshot :idle
-                              {:result nil :attempts 0 :error nil})}]
-                  [:rf.xray/set-machine-definitions-override-for-test
-                   {:loader fixtures/loader-definition}]
-                  [:rf.xray/sync-trace-buffer (fixtures/no-transitions-buffer)]
-                  [:rf.xray/select-machine-id :loader]
-                  [:rf.xray.static.machines/sim-start {:machine-id :loader
-                                        :definition fixtures/loader-definition}]
-                  [:rf.xray.static.machines/sim-step  {:machine-id :loader
-                                        :event [:start]}]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
-
-  ;; ----- 7. UC1 Sim pending-input ------------------------------------
-  ;;
-  ;; Same UC1 Sim sub-mode as variant 6, but instead of stepping the
-  ;; cloned snapshot we seed the controlled-input slots
-  ;; (`:pending-event` + `:pending-data`) via the sim API
-  ;; (`:rf.xray.static.machines/sim-set-pending-event` +
-  ;; `:rf.xray.static.machines/sim-set-pending-data`). The snapshot stays at
-  ;; `:idle`; the side-rail event-input shows `[:start]` already
-  ;; typed and the payload input shows a sample EDN map, so the
-  ;; Step button is primed but not yet pressed.
-  ;;
-  ;; Seeding goes through the sim API rather than writing app-db
-  ;; directly. Deterministic because the variant `:setup` vector is
-  ;; dispatched in order at boot, the same order the
-  ;; `uc1-sim-mid-step` variant relies on.
-  (rf.story/reg-variant :story.xray.machines/uc1-sim-pending-input
-    {:doc        "Single :loader machine + UC1 Sim active with the
-                 side-rail controlled inputs populated mid-compose:
-                 `:pending-event` is `[:start]` and `:pending-data` is
-                 a sample EDN map. The snapshot stays at `:idle` — the
-                 user has typed but not yet pressed Step. Renders the
-                 side rail + amber tint with the inputs primed."
-     :setup     [[:rf.xray/set-registered-machines-override-for-test [:loader]]
-                  [:rf.xray/set-machine-snapshots-override-for-test
-                   {:loader (fixtures/snapshot :idle
-                              {:result nil :attempts 0 :error nil})}]
-                  [:rf.xray/set-machine-definitions-override-for-test
-                   {:loader fixtures/loader-definition}]
-                  [:rf.xray/sync-trace-buffer (fixtures/no-transitions-buffer)]
-                  [:rf.xray/select-machine-id :loader]
-                  [:rf.xray.static.machines/sim-start {:machine-id :loader
-                                        :definition fixtures/loader-definition}]
-                  [:rf.xray.static.machines/sim-set-pending-event
-                   {:machine-id :loader :text "[:start]"}]
-                  [:rf.xray.static.machines/sim-set-pending-data
-                   {:machine-id :loader :text "{:result :data}"}]]
-     :tags       #{:dev :state/special}
-     :substrates #{:reagent}})
-
   ;; ----- workspace ---------------------------------------------------
   (rf.story/reg-workspace :Workspace.xray.machines/all
-    {:doc      "All seven Machines tab variants in one auto-grid.
-                Scroll to see the panel's response across no-machines
-                / single Mode A / single Mode B / multi-machine /
-                many-transitions / UC1 Sim mid-step / UC1 Sim
-                pending-input."
+    {:doc      "The Machines tab variants in one auto-grid — the
+                no-machines empty state."
      :layout   :variants-grid
      :for      :story.xray.machines
      :columns  2

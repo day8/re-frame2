@@ -18,16 +18,19 @@
   ## The L4 tabs
 
   Per spec/018-Event-Spine.md §5 the chrome surfaces one tab per
-  registered Dynamic lens. This gallery wraps six of them, whose bodies
-  are the per-panel Panel views (Resources · Graph · Frames ·
-  Fresco ship but are deliberately not galleried here):
+  registered Dynamic lens. This gallery wraps six of them, each mounted
+  through the callable its panel exposes for a Reagent parent (Resources
+  · Graph · Frames · Fresco ship but are deliberately not galleried
+  here):
 
-    - **Epoch**           → `epoch-panel/Panel`
-    - **App-db**          → `app-db-diff/Panel`
-    - **Reactive**        → `reactive-panel/Panel`
-    - **Trace**           → `trace/Panel`
-    - **Machines**        → `machine-inspector/Panel`
-    - **Routing**         → `routing/Panel`
+    - **Epoch**           → `epoch-panel/Panel-bridge`
+    - **App-db**          → `app-db-diff/Panel-bridge`
+    - **Reactive**        → `reactive-panel/Panel-bridge`
+    - **Trace**           → `trace/Panel-bridge`
+    - **Machines**        → `machine-inspector/Panel-bridge`
+    - **Routing**         → `routing/Panel` (this panel's public callable
+                            IS its bridge; the boundary behind it is
+                            private)
 
   (There is no Issues tab: issues surface inline in the Epoch
   panel + the L2 event-row pink-wash + the always-on issues ribbon
@@ -42,17 +45,15 @@
   workspace are fully isolated and each variant's `:setup` seed THAT
   frame directly.
 
-  ## Facade-mount discipline
+  ## Bridge-mount discipline
 
-  Each gallery wrapper mounts the panel through its `reg-view`-
-  registered Panel facade. Because facades are `reg-view`-registered,
-  their `render-fn` is wrapped with `:contextType frame-context` by
-  `re-frame.views/reg-view*`. The Reagent component-vector form
-  `[epoch-panel/Panel]` is therefore safe here — React resolves the
-  wrapped class's `:contextType`, the facade body reads
-  `current-frame-id` correctly, and inside the facade body the per-
-  panel discipline (function-call for plain-fn leaves, vector for
-  reg-view leaves) takes over."
+  Every panel root is an `rf.fresco/defview` boundary — a React function
+  component — and `defview`'s contract forbids mounting one as a Reagent
+  hiccup head. Each gallery cell is a Reagent tree, so it mounts the
+  panel through its bridge: a plain fn answering `[:> …]` over
+  `rf.fresco/as-component`, which takes the frame from React context. The
+  variant `frame-provider` has already written that context, so each
+  cell reads its own variant frame."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-panel]
@@ -105,15 +106,16 @@
    [app-db-diff/Panel-bridge]])
 
 (defn- epoch-tab-panel
-  "Embedded mount of the Epoch panel — `panels.epoch.view/Panel` via the
-  orchestrator's re-export. The panel renders the focused
+  "Embedded mount of the Epoch panel — `panels.epoch.view/Panel`, through
+  the orchestrator's re-export of its bridge. The panel renders the focused
   epoch as a numbered vertical cascade per spec/021 §9.1; its composite
   sub `:rf.xray/epoch-pipeline` reads `:rf.xray/focus` +
   `:rf.xray/epoch-history` from the variant frame."
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-epoch-card"}
-   [epoch-panel/Panel]])
+   ;; `Panel-bridge`; see the Reactive cell below for why.
+   [epoch-panel/Panel-bridge]])
 
 (defn- reactive-tab-panel
   "Embedded mount of the Reactive tab body — the reactive panel
@@ -148,7 +150,8 @@
   [_args]
   [:div {:style       card-style
          :data-testid "panel-gallery-machines-card"}
-   [machine-inspector/Panel]])
+   ;; `Panel-bridge`; see the Reactive cell below for why.
+   [machine-inspector/Panel-bridge]])
 
 (defn- routing-tab-panel
   "Embedded mount of the Routing tab body — the routing panel
