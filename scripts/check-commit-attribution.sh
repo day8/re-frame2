@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # scripts/check-commit-attribution.sh
 #
-# CI arm of the AI-ATTRIBUTION guard (rf2-2e8f). Fails a pull request whose OWN
+# CI arm of the AI-ATTRIBUTION guard. Fails a pull request whose OWN
 # COMMITS carry AI attribution in their messages, or whose BODY carries it —
 # the `Co-Authored-By:` / `Claude-Session:` / generated-with / bare session-URL
 # shapes CLAUDE.md > Git Conventions forbids. See
@@ -15,18 +15,18 @@
 #   Never all of history, and never a two-endpoint comparison.
 #
 #   All of history is not an option, and not for a stylistic reason: three
-#   commits carrying these trailers are ALREADY ancestors of main
-#   (04230d0d33, e1b07cf184, e71c404c9b). Whether to rewrite them is an
-#   operator call — rewriting published trunk history is a force-push across
-#   every live worktree — and it has not been made. A gate that grades all of
-#   history therefore reds every pull request in the repository, for ever,
-#   over commits nobody in that PR wrote. The branch delta grades exactly the
-#   commits its author can still fix, and the three sit BEHIND every merge
-#   base, so the trunk stays green with no allow-list, no baseline file and
-#   nothing to trim later.
+#   commits carrying these trailers are ancestors of main
+#   (04230d0d33, e1b07cf184, e71c404c9b), and trunk history is not rewritten —
+#   rewriting published trunk history is a force-push across every live
+#   worktree. A gate that grades all of history would therefore red every
+#   pull request in the repository, for ever, over commits nobody in that PR
+#   wrote. The branch delta grades exactly the commits its author can still
+#   fix, and the three sit BEHIND every merge base, so the trunk stays green
+#   with no allow-list, no baseline file and nothing to trim.
 #
 #   Pass the BASE BRANCH, not a precomputed branch point — the merge base is
-#   this script's job. The reasoning is the sibling guard's (rf2-5z20y): a
+#   this script's job. The reasoning is the sibling guard's
+#   (scripts/check-beads-pr-boundary.sh): a
 #   two-endpoint `git log BASE..HEAD` is not the same set once BASE moves, and
 #   in this repository BASE moves constantly.
 #
@@ -45,14 +45,14 @@
 #   cheap: there it would fail closed on every PR, and "fixing" that by
 #   letting it pass on a missing range would install exactly the vacuous
 #   checker it is meant to replace. `beads-pr-boundary` is the job whose
-#   checkout, event policy and branch-point semantics this script already
-#   matches line for line.
+#   checkout, event policy and branch-point semantics this script matches
+#   line for line.
 #
 # ENFORCEMENT SHAPE
 #
 #   pull_request  -> enforced. Every PR, no path filter, no branch filter.
 #   anything else -> passes with an explanatory line. A push to main carries
-#                    commits that are already history; refusing one there
+#                    commits that are history; refusing one there
 #                    blocks the trunk over a rewrite decision that is the
 #                    operator's, not this gate's.
 #
@@ -95,9 +95,8 @@ fi
 # lines rather than commits.
 #
 # WHY IT NEEDS AN ARM AT ALL. CLAUDE.md forbids the trailers in "commits or
-# PRs", and a git hook cannot see a body; nothing graded one until now. The two
-# shapes the harness writes there are the generated-with marker and a BARE
-# session URL — the exact pair edited out of #9255 and #9256 by hand.
+# PRs", and a git hook cannot see a body. The two shapes the harness writes
+# there are the generated-with marker and a BARE session URL.
 #
 # THE BODY IS DATA, NEVER TEXT. The workflow puts it in an `env:` value and
 # pipes that value in. `${{ github.event.pull_request.body }}` is expanded by
