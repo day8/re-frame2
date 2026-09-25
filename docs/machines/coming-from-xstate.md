@@ -251,7 +251,10 @@ one event:
 runtime-db subtrees you saved, so the route slice and anything else the frame
 booted with stay as they are. As with XState's `snapshot` option, entry actions
 are not re-run and spawned children come back with their state. Each restored
-machine's live `:after` timer is armed again for its full delay.
+machine's live `:after` timer is armed again for its full delay, and its
+`:sensitive` / `:large` declarations are re-derived from its machine definition,
+so you save no classification alongside the snapshots and a restored secret
+redacts exactly as the live one did.
 
 The app owns the rest:
 
