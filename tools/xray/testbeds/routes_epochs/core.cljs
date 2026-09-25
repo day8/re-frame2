@@ -79,8 +79,7 @@
 
   ## Test surface, not tutorial
 
-  Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs as
-  anti-patterns, no teaching layers. The guard / not-found / redirect
+  No deliberate bugs as anti-patterns, no teaching layers. The guard / not-found / redirect
   steps exercise the REAL routing surface — each is a feature being
   driven, not a buggy demo. `:watch` notes are guidance, not lessons.
 
@@ -466,7 +465,7 @@
   ;; Seed app-db and pull the current URL into the route slice (what a
   ;; popstate / initial-load handler does). The host frame is the one
   ;; Xray reads. The `:url-bound? true` make-frame above already installed
-  ;; the browser History listener automatically (rf2-g8pbwg), so step #9's
+  ;; the browser History listener automatically, so step #9's
   ;; back/forward emulation has somewhere to land. Boot dispatches run
   ;; under the host frame scope (the carried invariant).
   (rf/with-frame host-frame
