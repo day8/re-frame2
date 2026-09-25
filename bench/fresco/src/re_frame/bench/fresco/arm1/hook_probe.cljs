@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.hook-probe
-  "COUNTING HOOKS AT REACT'S OWN DISPATCHER (rf2-2rtt6.9).
+  "COUNTING HOOKS AT REACT'S OWN DISPATCHER.
 
   HD-020(b) makes the ≤2-hook budget a hard line, and a budget a runtime
   reports about itself is not a witness. This counts the calls React
