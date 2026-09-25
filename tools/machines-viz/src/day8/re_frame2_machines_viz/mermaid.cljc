@@ -249,6 +249,25 @@
                  (str " / " (label-value (:action candidate))))]
     (str "    " (sanitise-label descriptor) guard action)))
 
+(defn- spawn-internal-lines
+  "Note-body lines for the INTERNAL candidates of `node`'s `:spawn` child: an
+  action-only `:on-error` (`✗ error` — the child failed; run the action, stay
+  put) and its success twin, an action-only transition-shaped `:on-done`
+  (`✓ done`). Each is gated on presence, as `:always` is in
+  `internal-candidate-lines`. A fn `:on-done` is the `:data` fold and has no
+  note."
+  [node]
+  (concat
+    (when-let [oe (get-in node [:spawn :on-error])]
+      (->> (transition-candidates oe)
+           (filter internal-candidate?)
+           (map #(internal-note-line "✗ error" %))))
+    (let [od (get-in node [:spawn :on-done])]
+      (when (and (some? od) (not (fn? od)))
+        (->> (transition-candidates od)
+             (filter internal-candidate?)
+             (map #(internal-note-line "✓ done" %)))))))
+
 (defn- internal-candidate-lines
   "Note-body lines for every INTERNAL candidate declared on
   one state's `:on` / `:after` / `:always` / `:spawn :on-error` /
@@ -279,20 +298,7 @@
       (->> (transition-candidates (:always state-node))
            (filter internal-candidate?)
            (map #(internal-note-line "always" %))))
-    ;; An action-only `:spawn` `:on-error` (the child failed;
-    ;; run the action, stay put). Gated on presence for the same reason as
-    ;; `:always` above.
-    (when-let [oe (get-in state-node [:spawn :on-error])]
-      (->> (transition-candidates oe)
-           (filter internal-candidate?)
-           (map #(internal-note-line "✗ error" %))))
-    ;; Its success twin, an action-only transition-shaped `:spawn :on-done`.
-    ;; A fn `:on-done` is the `:data` fold and has no note.
-    (let [od (get-in state-node [:spawn :on-done])]
-      (when (and (some? od) (not (fn? od)))
-        (->> (transition-candidates od)
-             (filter internal-candidate?)
-             (map #(internal-note-line "✓ done" %)))))))
+    (spawn-internal-lines state-node)))
 
 (defn- collect-internal-transition-notes
   "Emit a `note right of <state>` for every state with one or
@@ -480,6 +486,35 @@
                 spec))
             after-map)))
 
+(defn- collect-root-spawn-edges
+  "The TARGET-BEARING completion edges of the machine root's own `:spawn`
+  child — a child that lives as long as the machine: its `:on-error`
+  (`✗ error`) and a transition-shaped `:on-done` (`✓ done`), labelled as a
+  spawning state's are (`collect-edges`). They leave the `root fallback` node,
+  the machine root the root's own `:on` leaves from, and resolve at the root,
+  where a keyword names a top-level state. `explode` splits a candidate per
+  target: a parallel root's targets are region-qualified
+  (`root-region-qualified-candidates`), as its `:on`'s are. An action-only
+  candidate has no arrow; `spawn-internal-lines` notes it. A fn `:on-done` is
+  the `:data` fold and draws nothing."
+  [definition explode]
+  (let [source-path [root-fallback-segment]
+        edges       (fn [label spec]
+                      (->> (transition-candidates spec)
+                           (mapcat explode)
+                           (keep (fn [candidate]
+                                   (when-let [target-path (resolve-target-path []
+                                                                               source-path
+                                                                               (:target candidate))]
+                                     {:from  source-path
+                                      :to    target-path
+                                      :label (edge-label label candidate)})))))
+        oe          (get-in definition [:spawn :on-error])
+        od          (get-in definition [:spawn :on-done])]
+    (concat
+      (when oe (edges "✗ error" oe))
+      (when (and (some? od) (not (fn? od))) (edges "✓ done" od)))))
+
 (defn- root-fallback-internal-notes
   "An ACTION-ONLY (target-less) parallel-ROOT `:on` /
   `:after` candidate runs its action and moves NO region (Spec 005 §Root
@@ -488,9 +523,11 @@
   `collect-internal-transition-notes` surface an action-only `:on-done` /
   internal transition — render it as a `note right of <parallel root>` so the
   affordance is not silently dropped (the chart self-anchors it
-  `:internal?`; SCXML emits a target-less `<transition>`). Returns a flat seq
+  `:internal?`; SCXML emits a target-less `<transition>`). `spawn-lines` are
+  the root `:spawn` child's action-only completions (`spawn-internal-lines`),
+  which the chart self-anchors on the same machine root. Returns a flat seq
   of note lines (empty when there is nothing internal to surface)."
-  [on-map after-map]
+  [on-map after-map spawn-lines]
   (let [on-lines
         (mapcat (fn [[event-id spec]]
                   (->> (transition-candidates spec)
@@ -503,7 +540,7 @@
                        (filter internal-candidate?)
                        (map #(internal-note-line (str "after(" (label-value delay) ")") %))))
                 after-map)
-        lines (concat on-lines after-lines)]
+        lines (concat on-lines after-lines spawn-lines)]
     (when (seq lines)
       (concat [(str "  note right of " (sanitise-id parallel-root-path))]
               lines
@@ -677,17 +714,16 @@
 
 (defn- render-root-fallback-alias
   "Declare the `root fallback` alias state — the source node every root /
-  region top-level fallback edge hangs off. Also declared when a
-  parallel-root `:after` (the timer-driven fallback) is present, so its
-  `after(<delay>)` edge sources from the SAME labelled node, not an
-  auto-created bare one. `after-map` is optional (region-level fallbacks pass
-  only an `:on`)."
-  ([root-path on-map depth] (render-root-fallback-alias root-path on-map nil depth))
-  ([root-path on-map after-map depth]
-   (when (or (seq on-map) (seq after-map))
-     [(render-state-alias (conj (vec root-path) root-fallback-segment)
-                          "root fallback"
-                          depth)])))
+  region top-level fallback edge hangs off, and the machine root the root
+  `:spawn` child's completion edges leave. Declared only when `anchored?`,
+  i.e. when a fallback `:on`, a parallel-root `:after` (the timer-driven
+  fallback), or a root `:spawn` completion hangs off it, so each sources from
+  the SAME labelled node, not an auto-created bare one."
+  [root-path anchored? depth]
+  (when anchored?
+    [(render-state-alias (conj (vec root-path) root-fallback-segment)
+                         "root fallback"
+                         depth)]))
 
 (defn- flat-root-fallback-internal-notes
   "An ACTION-ONLY (target-less) machine-level (top-level) `:on`
@@ -698,13 +734,16 @@
   the per-state `collect-internal-transition-notes` do — surface it as a
   `note right of <root fallback>` so the inherited fallback ACTION is not
   silently dropped (the chart self-anchors it `:internal?` on the machine-root
-  chip). Returns a flat seq of note lines (empty when nothing is internal)."
-  [on-map]
-  (let [lines (mapcat (fn [[event-id spec]]
-                        (->> (transition-candidates spec)
-                             (filter internal-candidate?)
-                             (map #(internal-note-line (label-value event-id) %))))
-                      on-map)]
+  chip). `spawn-lines` are the root `:spawn` child's action-only completions
+  (`spawn-internal-lines`), which the chart self-anchors on the same chip.
+  Returns a flat seq of note lines (empty when nothing is internal)."
+  [on-map spawn-lines]
+  (let [lines (concat (mapcat (fn [[event-id spec]]
+                                (->> (transition-candidates spec)
+                                     (filter internal-candidate?)
+                                     (map #(internal-note-line (label-value event-id) %))))
+                              on-map)
+                      spawn-lines)]
     (when (seq lines)
       (concat [(str "  note right of "
                     (sanitise-id [root-fallback-segment]))]
@@ -747,11 +786,17 @@
     regions))
 
 (defn- render-flat-or-compound-body
-  [{:keys [initial states on]} header-comment?]
+  [{:keys [initial states on] :as definition} header-comment?]
   (let [root-path      []
         fallback-edges (collect-root-fallback-edges root-path on)
+        ;; The root `:spawn` child's completion edges leave the `root
+        ;; fallback` node, the machine root, as a spawning state's leave its
+        ;; own box; an action-only one is noted there.
+        spawn-edges    (collect-root-spawn-edges definition vector)
+        spawn-lines    (spawn-internal-lines definition)
         edges          (concat (collect-state-map-edges root-path states)
-                               fallback-edges)
+                               fallback-edges
+                               spawn-edges)
         edge-lines     (map render-edge edges)
         final-lines    (render-final-edges root-path states)
         ;; EP-0011 — mark error-final terminals (`:final? true :error? true`)
@@ -773,13 +818,15 @@
         ;; A targetless machine-level (top-level) `:on` fallback
         ;; is likewise action-only; surface it as a note on the `root fallback`
         ;; alias (the chart self-anchors it on the machine-root chip).
-        root-fallback-notes (flat-root-fallback-internal-notes on)]
+        root-fallback-notes (flat-root-fallback-internal-notes on spawn-lines)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
                ["stateDiagram-v2"
                 (str "  [*] --> " (sanitise-id [initial]))]
-               (render-root-fallback-alias root-path on 1)
+               (render-root-fallback-alias root-path
+                                           (or (seq on) (seq spawn-edges) (seq spawn-lines))
+                                           1)
                compound-lines
                edge-lines
                final-lines
@@ -800,7 +847,7 @@
      [(str "    state \"" (sanitise-state-label region-id) "\" as "
            (sanitise-id region-path) " {")
       (region-initial-line region-path initial 3)]
-     (render-root-fallback-alias region-path on 3)
+     (render-root-fallback-alias region-path (seq on) 3)
      ;; Every region state declared inside its region.
      (render-state-declarations region-path states 3)
      ["    }"])))
@@ -888,8 +935,11 @@
           regions))
 
 (defn- render-parallel-body
-  [{:keys [regions on after on-done]} header-comment?]
-  (let [edges       (concat
+  [{:keys [regions on after on-done] :as definition} header-comment?]
+  (let [;; The root `:spawn` child's completion edges, region-qualified as
+        ;; the root `:on`'s are.
+        spawn-edges (collect-root-spawn-edges definition root-region-qualified-candidates)
+        edges       (concat
                      (mapcat (fn [[region-id {:keys [states on]}]]
                                (let [region-path (vector region-id)]
                                  (concat
@@ -907,6 +957,7 @@
                      ;; timer-driven ancestor fallback) renders as a root-
                      ;; fallback edge labelled `after(<delay>)`.
                      (collect-root-fallback-after-edges [] after)
+                     spawn-edges
                      ;; A REGION's OWN top-level `:on-done`
                      ;; (target-bearing form): a `✓ done` edge from the
                      ;; region's container to a state inside the region
@@ -946,8 +997,10 @@
         ;; `:after` candidate (runs an action, moves no region) has no arrow
         ;; to draw; surface it as a note on the parallel root so it is not
         ;; silently dropped (the edge collectors keep only target-bearing
-        ;; candidates).
-        root-internal-notes (root-fallback-internal-notes on after)
+        ;; candidates). The root `:spawn` child's action-only completions
+        ;; join it.
+        root-internal-notes (root-fallback-internal-notes on after
+                                                          (spawn-internal-lines definition))
         ;; An ACTION-ONLY REGION-level top-level `:on` fallback
         ;; (`:on {:abort {:action :log}}` on a region) is likewise target-less;
         ;; surface it as a note on that region's `root fallback` alias. No
@@ -960,7 +1013,7 @@
                (when header-comment? [header-comment])
                ["stateDiagram-v2"
                 (str "  [*] --> " (sanitise-id parallel-root-path))]
-               (render-root-fallback-alias [] on after 1)
+               (render-root-fallback-alias [] (or (seq on) (seq after) (seq spawn-edges)) 1)
                ;; The synthetic root reads as what it is,
                ;; like the `root fallback` alias, not as its escaped id.
                [(str "  state \"parallel root\" as " (sanitise-id parallel-root-path) " {")]
