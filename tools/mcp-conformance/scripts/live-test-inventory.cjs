@@ -40,7 +40,7 @@ const LIVE_TESTS = [
   },
   {
     // The one live case that EVALUATES a generated form and reads the
-    // resulting app-db back (rf2-olqo). Boots its own server with
+    // resulting app-db back. Boots its own server with
     // --allow-writes and restores the fixture boot db at teardown; ordered
     // LAST so an injection cannot reach a sibling even if teardown is skipped
     // by an earlier throw.
