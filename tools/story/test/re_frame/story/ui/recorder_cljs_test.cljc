@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.recorder-cljs-test
   "Tests for the Test Codegen recorder UI surface — specifically the
-  save-as-variant dialog's snapshot-at-open contract (rf2-8x9nb).
+  save-as-variant dialog's snapshot-at-open contract.
 
   Splits into two tiers:
 
@@ -14,7 +14,7 @@
     Reagent / DOM) — the dialog renders a snippet built from the
     snapshot stored on `@ui-dialog`, NOT from `@rf.story.recorder/state`. A
     fresh `start-recording!` after the dialog opens does NOT mutate
-    the rendered snippet — that's the rf2-8x9nb regression."
+    the rendered snippet."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.recorder :as rf.story.recorder]
@@ -95,26 +95,25 @@
          (is (str/includes? flat ":story.x/source")
              "the recorded variant-id appears via :extends")))))
 
-;; ---- CLJS-only: rf2-nkjkj — DOM interactions reach the PRIMARY snippet ---
+;; ---- CLJS-only: DOM interactions reach the PRIMARY snippet -------------
 ;;
-;; Before rf2-nkjkj the primary save-dialog rendered via
+;; The primary save-dialog renders through the rich
+;; `recording->script-body` translation off `:entries`. Rendering via
 ;; `gen-play-snippet` over the bare `:events` stream, which holds
-;; dispatched events ONLY — every recorded click / type / submit
-;; (captured into `:entries` by `recorder.dom-capture`) was SILENTLY
-;; DROPPED from the snippet, and the displayed count counted `:events`
-;; (so a recording of three canvas clicks showed "0 captured events").
-;; The fix routes the primary dialog through the rich
-;; `recording->script-body` translation off `:entries`. These tests
+;; dispatched events ONLY, would SILENTLY DROP every recorded click /
+;; type / submit (captured into `:entries` by `recorder.dom-capture`)
+;; from the snippet, and a count of `:events` would show a recording of
+;; three canvas clicks as "0 captured events". These tests
 ;; drive the FULL capture pipeline (record-event! + record-dom-event!),
 ;; snapshot it through the real `open-dialog!`, and assert the rendered
 ;; primary snippet carries the `[:click ...]` / `[:type ...]` steps.
 
 #?(:cljs
    (deftest save-dialog-primary-snippet-includes-dom-interactions
-     (testing "rf2-nkjkj: a recording with DOM clicks/types codegens
-              :click / :type steps in the PRIMARY save dialog snippet —
-              RED before the fix (gen-play-snippet over :events dropped
-              them), GREEN after (recording->script-body over :entries)"
+     (testing "a recording with DOM clicks/types codegens :click / :type
+              steps in the PRIMARY save dialog snippet —
+              recording->script-body over :entries carries them, where
+              gen-play-snippet over :events would drop them"
        ;; Drive the actual capture pipeline so the test exercises the
        ;; real two-stream model, not a hand-built snapshot.
        (rf.story.recorder/clear!)
@@ -140,9 +139,9 @@
            (is (str/includes? flat ":dispatch [:counter/inc]")
                "the dispatched event still appears as a :dispatch step")
            (is (str/includes? flat "[:click \\\"#submit\\\"]")
-               "the recorded DOM click codegens a :click step (was DROPPED)")
+               "the recorded DOM click codegens a :click step")
            (is (str/includes? flat "[:type \\\"#email\\\" \\\"a@b.co\\\"]")
-               "the recorded DOM type codegens a :type step (was DROPPED)")
+               "the recorded DOM type codegens a :type step")
            (is (str/includes? flat ":story.login/form")
                "the recorded variant-id rides into :extends")
            ;; The displayed count must reflect the RICH entries, not the
@@ -151,11 +150,11 @@
            (is (str/includes? flat "3 recorded steps")
                "the hint count reflects the rich :entries, not :events")
            (is (not (str/includes? flat "1 captured event"))
-               "the misleading :events-based count is gone"))))))
+               "no :events-based count appears"))))))
 
 #?(:cljs
    (deftest save-dialog-opens-and-renders-dom-only-recording
-     (testing "rf2-nkjkj: a recording of canvas interactions ONLY (no
+     (testing "a recording of canvas interactions ONLY (no
               dispatched events) still produces a non-empty primary
               snippet — :events is empty but :entries carries the clicks"
        (rf.story.recorder/clear!)
@@ -174,11 +173,11 @@
            (is (str/includes? flat "2 recorded steps")
                "the count reflects the two DOM interactions"))))))
 
-;; ---- CLJS-only: rf2-8x9nb regression ------------------------------------
+;; ---- CLJS-only: the dialog snapshots at open -----------------------------
 
 #?(:cljs
    (deftest save-dialog-survives-fresh-start-recording
-     (testing "rf2-8x9nb: starting a new recording while the dialog is open
+     (testing "starting a new recording while the dialog is open
               does NOT mutate the dialog's snippet — the snapshot is taken
               at open time, not read live off the recorder atom"
        ;; Step 1: simulate stop-of-recording-A → open dialog with A's events.
@@ -213,7 +212,7 @@
 
 #?(:cljs
    (deftest save-dialog-survives-record-event-into-fresh-recording
-     (testing "rf2-8x9nb: events captured into a fresh recording after the
+     (testing "events captured into a fresh recording after the
               dialog opened do NOT appear in the open dialog's snippet"
        (let [a-events [[:counter/inc]]]
          (reset! rf.story.ui.recorder/ui-dialog
@@ -233,7 +232,7 @@
 
 #?(:cljs
    (deftest save-dialog-export-hands-off-the-recording-seed
-     (testing "rf2-3x7nj.29.2: 'export as :script' opens the export dialog
+     (testing "'export as :script' opens the export dialog
                with the app-db the recording started from, so its auto-assert
                diffs against it"
        (reset! rf.story.recorder/state
@@ -256,7 +255,7 @@
        (reset! rf.story.ui.recorder-export-dialog/ui-dialog
                rf.story.ui.recorder-export-dialog/initial-state))))
 
-;; ---- CLJS-only: assertion picker ARIA + arrow-key nav (rf2-p1ai7 + 07m13)
+;; ---- CLJS-only: assertion picker ARIA + arrow-key nav
 
 #?(:cljs
    (defn- open-picker-for-test! []
@@ -268,7 +267,7 @@
 
 #?(:cljs
    (deftest assertion-picker-stamps-modal-aria
-     (testing "rf2-p1ai7: the assertion picker carries role=dialog +
+     (testing "the assertion picker carries role=dialog +
               aria-modal + aria-labelledby on its panel"
        (open-picker-for-test!)
        (let [flat (str (rf.story.ui.recorder/assertion-picker))]
@@ -281,7 +280,7 @@
 
 #?(:cljs
    (deftest assertion-picker-vocabulary-is-a-menu
-     (testing "rf2-07m13: phase-1 vocabulary list renders role=menu with
+     (testing "phase-1 vocabulary list renders role=menu with
               menuitem rows + a roving tabindex (only the active row
               has tabindex=0)."
        (open-picker-for-test!)
@@ -300,7 +299,7 @@
 
 #?(:cljs
    (deftest assertion-picker-active-index-moves
-     (testing "rf2-07m13: set-active-index! clamps + wraps the cursor
+     (testing "set-active-index! clamps + wraps the cursor
               across the vocabulary length."
        (open-picker-for-test!)
        (let [n (count rf.story.recorder/assertion-vocabulary)]
