@@ -28,8 +28,6 @@
 ;; The pure machine substrate (`:always`, plain transitions, `:spawn` of
 ;; synchronous co-effects) runs normally on the server — only `:after`
 ;; carves out.
-;;
-;; Per rf2-ud2tn — substrate-edge cluster (Cross-Spec #4).
 
 {:fixture/id           :cross-spec/machines-under-ssr
  :fixture/spec-version "1.0"
