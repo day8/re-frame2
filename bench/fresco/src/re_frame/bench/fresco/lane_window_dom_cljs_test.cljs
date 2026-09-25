@@ -1,11 +1,11 @@
 (ns re-frame.bench.fresco.lane-window-dom-cljs-test
   "`rf.bench.fresco.lane/verified-write!`'s two window shapes, and the claim that neither
-  one serves both scheduler families (rf2-pq7d8).
+  one serves both scheduler families.
 
   This is a CORRECTNESS test of the instrument, not a benchmark: nothing
   here reads a clock for a published figure and no assertion depends on
   how long anything took. What it pins is the ORDER of operations inside
-  a measured window, which is what the recorded fault turned on.
+  a measured window, which is what the fault below turns on.
 
   ## Why fake substrates rather than Reagent and reagent-slim
 
@@ -30,22 +30,22 @@
 
   Using the real substrates would need a bundle carrying both engines and
   would prove the same two-line property more slowly and less legibly.
-  The real-substrate evidence is not re-derived here because it already
-  exists: rf2-z3vlz's standalone rig, written up in
+  The real-substrate evidence is not re-derived here because the
+  standalone `z3vlz` rig holds it, written up in
   `docs/design/fresco/studio/slim-non-reactive-arm-diagnosis.md`.
 
-  ## What would have caught the recorded fault
+  ## The test that catches the fault
 
-  [[microtask-arm-is-unverified-under-the-yielding-window]] is that test.
-  It goes red on the window `rf.bench.fresco.lane/verified-write!` had before rf2-pq7d8,
-  and for the right reason: `N unverified of N` against a DOM that never
-  changed. The row that fault produced read `0.16–0.50x` the floor — a
-  precise wrong number, and the sixteenth of its kind on these surfaces.
+  [[microtask-arm-is-unverified-under-the-yielding-window]] goes red on
+  the yielding window applied to a microtask-scheduled arm, and for the
+  right reason: `N unverified of N` against a DOM that never changed. A
+  row taken that way reads `0.16–0.50x` the floor — a precise wrong
+  number.
 
   Runtime: these are DOM claims. The file carries the `-dom-cljs-test`
-  suffix so `:browser-test` runs it for real, and every test degrades to
-  a stated skip under `:node-test`, which is the posture the other `*-dom`
-  suites keep."
+  suffix, the mark of a suite that needs a real DOM, and every test
+  degrades to a stated skip where there is none, which is the posture
+  the other `*-dom` suites keep."
   (:require [cljs.test :refer-macros [async deftest is testing]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
@@ -160,13 +160,13 @@
                        ;; looked plausible.
                        (is (= "new" @(:parked arm))
                            "the commit must be sitting parked outside the window")))
-              ;; Reports and RELEASES; it never finishes (rf2-fyba). `done` runs
+              ;; Reports and RELEASES; it never finishes. `done` runs
               ;; the whole remainder of the run synchronously, so a `.catch`
               ;; downstream of it would claim a later namespace's throw as this
-              ;; row's and fire `done` a second time. The container detach both
-              ;; arms duplicated rides the single trailing step instead — written
-              ;; once, still run once per path, and every DOM read is upstream
-              ;; of it. Every chain in this file has the same shape.
+              ;; row's and fire `done` a second time. The container detach
+              ;; rides the single trailing step — written once, run once per
+              ;; path, and every DOM read is upstream of it. Every chain in
+              ;; this file has the same shape.
               (.catch (fn [e] (is false (str e)) nil))
               (.then (fn [_] (.remove c) (done)))))))))
 
@@ -234,17 +234,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest an-arm-that-declares-no-scheduler-keeps-the-yielding-window
-  (testing "an arm with no :scheduler key is measured through exactly the
-           window it was measured through before rf2-pq7d8 — which is what
-           makes this change additive and leaves every published P0 row
-           standing"
+  (testing "an arm with no :scheduler key is measured through the
+           yielding window — the window every published P0 row was taken
+           through, so those rows stand"
     (async done
       (if-not (rf.bench.fresco.lane/browser?)
         (do (is true off-browser) (done))
         (let [c    (cell-container!)
               seen (atom [])
               ;; The write queues a microtask that records the fact. If the
-              ;; window still yields ONE microtask before draining, that
+              ;; window yields ONE microtask before draining, that
               ;; microtask has run by the time `force!` is called.
               arm  {:id     :no-declaration
                     :write! (fn [_i v]
@@ -269,7 +268,7 @@
               (.then (fn [_] (.remove c) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; The batched window — k operations, ONE clock (rf2-zb3qg)
+;; The batched window — k operations, ONE clock
 ;; ---------------------------------------------------------------------------
 
 (defn- recording-arm
@@ -298,7 +297,7 @@
   (testing "k ops under one clock keep the fixed yield PER OPERATION — the
            window holds k harness turns, never 2k and never one for the
            whole batch, which is what makes a batched figure comparable
-           with the unbatched one it supersedes"
+           with an unbatched one"
     (async done
       (if-not (rf.bench.fresco.lane/browser?)
         (do (is true off-browser) (done))
@@ -324,7 +323,7 @@
               (.then (fn [_] (.remove c) (done)))))))))
 
 (deftest a-batch-of-one-is-the-unbatched-window-exactly
-  (testing "k = 1 is the pre-batch window, turn for turn — this is what lets
+  (testing "k = 1 is the unbatched window, turn for turn — this is what lets
            the BROAD row pass a batch of one and not move, while the narrow
            row batches"
     (async done
