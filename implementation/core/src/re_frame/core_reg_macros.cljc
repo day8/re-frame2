@@ -342,9 +342,10 @@
 ;; at compile time. The walk produces ONE cohesive map per
 ;; guard / action — `:guards {<id> {:fn .. :source-coords
 ;; .. :source-code ..}}` — and CO-LOCATES a reference-site
-;; `:source-coords` onto each MAP node inside the `:states` tree (state-node
-;; / transition map) at its spec path, rather than building a flat
-;; side-index parallel to `:states`. The
+;; `:source-coords` onto the spec root (at `[]`), each region body (at
+;; `[:regions <region>]`) and each MAP node inside a `:states` tree
+;; (state-node / transition map) at its spec path, rather than building a
+;; flat side-index parallel to `:states`. The
 ;; walker drops to the unchanged spec for non-literal forms (a runtime
 ;; symbol) and tools fall back to the top-level handler-meta call-site
 ;; coords.
@@ -410,12 +411,13 @@
                                        [slot (rf.source-coords/walk-element-source
                                                spec-form slot ns-sym file)]))
                                 machine-element-slots)
-             ;; Reference-site (states-tree) coords, keyed by each MAP node's
-             ;; spec-path. Built syntax-quote-safe (`:ns` quoted) so the
-             ;; splice doesn't namespace-resolve the consumer's ns at compile
-             ;; time (ClassNotFoundException). These are
-             ;; co-located ONTO each state-node / transition map at runtime
-             ;; rather than assoc'd into a flat side-index.
+             ;; Reference-site coords, keyed by each MAP node's spec-path —
+             ;; the root at `[]`, each region body at `[:regions <region>]`
+             ;; and each `:states`-tree node. Built syntax-quote-safe (`:ns`
+             ;; quoted) so the splice doesn't namespace-resolve the
+             ;; consumer's ns at compile time (ClassNotFoundException). These
+             ;; are co-located ONTO each of those map nodes at runtime rather
+             ;; than assoc'd into a flat side-index.
              state-coords (into {}
                                 (map (fn [[path coords]]
                                        [path
@@ -424,10 +426,11 @@
                                           (:line coords)   (assoc :line (:line coords))
                                           (:column coords) (assoc :column (:column coords)))]))
                                 (rf.source-coords/walk-machine-spec spec-form ns-sym file))
-             ;; Inline-fn source-code index: per enclosing
-             ;; `:states`-tree map-node spec-path, the `{<slot>
-             ;; <source-string>}` map for each inline `:entry`/`:exit`/
-             ;; `:guard`/`:action` fn LITERAL. Plain strings — syntax-quote-
+             ;; Inline-fn source-code index: per enclosing map-node
+             ;; spec-path — a `:states`-tree node, or the root (`[]`) or a
+             ;; region body (`[:regions <region>]`) for its own `:entry`/
+             ;; `:exit` — the `{<slot> <source-string>}` map for each inline
+             ;; `:entry`/`:exit`/`:guard`/`:action` fn LITERAL. Plain strings — syntax-quote-
              ;; safe with no further quoting (unlike the coord maps' `:ns`
              ;; symbol). Co-located alongside the reference-site coords so an
              ;; inline action's CODE renders (without it, the action would
