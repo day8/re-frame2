@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""rf2-vvixub thrown-error HUMAN-MESSAGE contract — corpus-driven CI gate.
+"""Thrown-error HUMAN-MESSAGE contract — corpus-driven CI gate.
 
 Spec 009 §The thrown-error shape rules the framework thrown-error message
-contract (rf2-vvixub):
+contract:
 
   1. `(ex-message e)` is a human-actionable one-line sentence (the public
      concept + the expected fix + key context). It is NOT the bare
@@ -18,17 +18,16 @@ keyword-only message is impossible to emit. The per-feature artefacts route
 their throws through them (directly, or via thin helpers like
 `flows.registry/flow-error`, `routing.registry/route-error`).
 
-WHY THIS GATE EXISTS (the rf2-6bb3pg finding)
+WHY THIS GATE EXISTS
 
-The original conformance test
+The conformance test
 (`implementation/core/test/re_frame/thrown_error_message_conformance_cljs_test.cljc`)
 is a CURATED allow-list: it `:require`s a handful of namespaces and exercises
-those sites directly. A NEW (or never-converted) `(ex-info ":rf.error/…" …)`
-site is invisible to it. rf2-6bb3pg found 50+ such sites still shipping the
-bare keyword as `ex-message` — the exact regression rf2-vvixub abolished —
-that CI could not see. This gate replaces the allow-list with a CORPUS SWEEP
-that fails on ANY framework `(ex-info …)` whose MESSAGE position is a bare
-`:rf.*` discriminator keyword, so the rollout cannot silently regress.
+those sites directly. A NEW `(ex-info ":rf.error/…" …)` site is invisible to
+it, and would ship the bare keyword as `ex-message` with CI unable to see it.
+This gate is a CORPUS SWEEP that fails on ANY framework `(ex-info …)` whose
+MESSAGE position is a bare `:rf.*` discriminator keyword, so the contract
+cannot silently regress.
 
 It mirrors the source-scanning drift guards already in this tree
 (`check_retired_spellings.py` / `check_ambient_durable_reads.py` /
@@ -52,16 +51,16 @@ derives it. A NON-conformant site passes a bare error keyword:
   (d) `(str (:rf.error/id <map>))`:             (ex-info (str (:rf.error/id payload)) …)
 
 All four render `ex-message` as exactly the stringified discriminator
-keyword — the OLD shape. Forms (c)/(d) are the per-surface helper clones
-(`registration-error`, `validation-error`, `raise-removed-reg-event!`, the
-frame.cljc payload throws) that centralised the regression rather than
-fixing it; they still ship the bare keyword and are equally caught.
+keyword. Forms (c)/(d) are the per-surface helper-clone shapes (a
+`registration-error` / `validation-error`-style helper, a payload throw) that
+would centralise the bare keyword rather than avoid it; they are equally
+caught.
 
 We detect on the `ex-info` FIRST ARGUMENT only, so a `:rf.error/foo` keyword
 appearing as a `:reason` value, an ex-data slot, a trace-emit arg, or inside
 a docstring/comment never fires — those are sanctioned.
 
-THE WIDENED RULE (the builder-BYPASS — rf2-krrv87)
+THE WIDER RULE (the builder-BYPASS)
 
 The four patterns above catch a message that is LITERALLY the discriminator
 keyword. But a site can ALSO bypass the canonical builder while putting
@@ -75,7 +74,7 @@ one would re-introduce exactly the drift those builders abolish.
   (e) builder bypass:   (throw (ex-info (str "raw " x) {… :rf.error/id …}))
                         (throw (ex-info "plain prose"  {… :rf.error/id …}))
 
-The widened rule (`builder-bypass-message`) fires on ANY raw `(ex-info <msg>
+The wider rule (`builder-bypass-message`) fires on ANY raw `(ex-info <msg>
 <data>)` where `<data>` carries `:rf.error/id` AND `<msg>` is NOT conformant.
 A CONFORMANT message (does not fire) is one of:
 
@@ -87,7 +86,7 @@ A CONFORMANT message (does not fire) is one of:
     bundle-isolated reagent-slim shape (it cannot `:require re-frame.error`,
     so it hand-rolls the human sentence + token inline); or
   - a bare LOCAL SYMBOL whose binding in the innermost enclosing `let` is
-    itself conformant by the two rules above (rf2-u3otj) — the token lives on
+    itself conformant by the two rules above — the token lives on
     the bound form, one hop from the `ex-info` — AND ONLY when that `let` is
     provably the binding in scope at the call. A binder in between (an `fn`
     parameter, an `fn` SELF-REFERENCE NAME, a `catch` name, a destructured
@@ -113,24 +112,21 @@ client shown the text), and not one whose only reader is the developer who
 ran the tool. `DEFAULT_SCAN_DIRS` below carries the decidable part of that
 rule plus the stated ground for every excluded tree — including the
 `tools/` paths the rule DOES reach, which a text scan cannot identify. The
-default also excludes `test/` trees (a test that asserts the old shape is gone, or
+default also excludes `test/` trees (a test that asserts the bare shape is absent, or
 constructs a `(ex-info ":rf.error/…")` to exercise a predicate, legitimately
 names it). The one framework artefact that CANNOT `:require` `re-frame.error`
 (the bundle-isolated `reagent-slim` adapter) hand-rolls a human sentence
 inline — so it too must clear the gate, and it is under `implementation/`.
 
-THE WHERE-SYM RULE (rf2-z5lv) — the door the message names must EXIST
+THE WHERE-SYM RULE — the door the message names must EXIST
 
 The rules above grade the MESSAGE. This one grades the other half of the same
 promise. `thrown-ex-info` / `throw-error!` take a `where-sym` as their SECOND
 positional argument and land it in `:where`, and its whole job — in
 `re-frame.error`'s own words — is that "a grep-for-symbol lands on the call
 site". A where-sym that names nothing reachable sends the author who reads the
-message to a door that is not there.
-
-Three beads paid for that one site at a time (rf2-z67m fixed seven, rf2-0v23 an
-eighth, and a sweep measured twenty-one more), which is what makes it a gate's
-job rather than a fix's.
+message to a door that is not there. Dead doors accrue one site at a time,
+which is what makes it a gate's job rather than a fix's.
 
   * THE RULE IS RESOLVABILITY, NOT A SPELLING. `re-frame.core`'s own
     `not-queryable-kinds` map writes `re-frame.flows/flows` fully qualified
@@ -139,24 +135,24 @@ job rather than a fix's.
     fully-qualified symbol still fails when the var is private, which is the
     live `'re-frame.router/build-envelope` (a `defn-`) shape.
   * THE ORACLE IS THE PUBLIC VAR SET, NOT `spec/api-manifest.edn`, which rows
-    DOCUMENTED publics only — measured on trunk, `re-frame.core` has 71 rows
-    against 82 JVM publics, and the `^:no-doc` façade stubs `reset-frame!` /
+    DOCUMENTED publics only — `re-frame.core` has fewer rows than JVM
+    publics, and the `^:no-doc` façade stubs `reset-frame!` /
     `reload-images!` carry none. The manifest is used instead as the
     INDEPENDENT CONTROL on the derived oracle (`oracle_problems`) — in ONE
     direction: a subset test catches the parser going blind, never the parser
     inventing a public. The exact-set assertion in the self-test owns that
-    half, and it is what `(comment (defn ghost …))` got past.
+    half, and it is what catches `(comment (defn ghost …))`.
   * IT READS ONLY THE FORMS THAT ARE ACTUALLY EVALUATED. `(comment …)` interns
-    nothing, `#_` discards, and a quoted form is data; each once contributed a
-    fictitious public, so a where-sym naming a var that exists only inside one
-    resolved as a live door. `(do (defn …))` is the wrapper that really is
-    transparent and still counts.
+    nothing, `#_` discards, and a quoted form is data; reading any of them
+    would contribute a fictitious public, so a where-sym naming a var that
+    exists only inside one would resolve as a live door. `(do (defn …))` is
+    the wrapper that really is transparent and counts.
   * IT ASSERTS ABOUT BOTH RUNTIMES. The public set is read from source across
     both reader-conditional arms, because `rf/frame-provider` and
     `rf/frame-root` are `#?(:cljs (def …))` façade exports that a JVM-only
     oracle reports as dead doors.
   * IT DOES NOT RED THE TREE. `scripts/where-sym-baseline.edn` records what
-    trunk already carries; an unlisted symbol has a floor of zero, so a NEW
+    trunk carries; an unlisted symbol has a floor of zero, so a NEW
     dead door fails, and a recorded floor ratchets DOWN only.
 
 Both halves of the where-sym rule are defined over the ROSTERED scan surface,
@@ -189,7 +185,7 @@ from typing import Iterable, NamedTuple
 
 # THE SCOPE IS A REACHABILITY RULE, AND THE ROSTER BELOW IS ITS DECIDABLE PART.
 #
-#   THE RULE (rf2-eo2y5, amended 2026-07-26): the Spec 009 thrown-error shape
+#   THE RULE: the Spec 009 thrown-error shape
 #   governs framework source, PLUS any `tools/` path whose thrown message is
 #   RELAYED OFF-BOX. A message is in scope when someone other than the
 #   developer at the keyboard reads it — a consumer application catching the
@@ -206,18 +202,17 @@ from typing import Iterable, NamedTuple
 # comment carries the rest. A comment that names the rule beats a roster that
 # silently means something narrower.
 #
-# It used to be a bare `DEFAULT_SCAN_DIR = "implementation"` with no note,
-# which reads as unexamined — and an unexamined scope is how a gate silently
-# covers less than its reader assumes, then gets "helpfully" widened by the
-# next reader who cannot tell a decision from an omission. Enumerate the
-# candidate trees with:
+# A bare roster with no note reads as unexamined — and an unexamined scope is
+# how a gate silently covers less than its reader assumes, then gets
+# "helpfully" widened by the next reader who cannot tell a decision from an
+# omission. Enumerate the candidate trees with:
 #
 #   git ls-files | grep -E '\.clj[cs]?$' | sed -E 's#/.*##' | sort -u
 #
 # WHY THE ROSTER IS ONE TREE, when the sibling ratchet rosters them all. The
 # two gates share a template but not a subject. `check_retired_spellings.py`
 # rosters every Clojure tree because a retired SPELLING is drift wherever it
-# appears — most of all in the trees a reader copies from (rf2-kqxe6.25). A
+# appears — most of all in the trees a reader copies from. A
 # thrown-error SHAPE is a contract only where something downstream reads it.
 # `implementation/` is where that is true of every file.
 #
@@ -226,17 +221,15 @@ from typing import Iterable, NamedTuple
 #   * `tools/` — dev tooling: the reader of a tool's ex-info is the developer
 #     who ran the tool. `tools/` also ships on its own tag prefixes
 #     (`story-v…`, `xray-v…`, `machines-viz-v…`, `template-v…`), not on the
-#     framework's `v…` tag. Ruled out of scope by rf2-eo2y5, and the 38-site
-#     conversion sweep that widening would demand is refused.
+#     framework's `v…` tag.
 #     THIS EXCLUSION IS NOT A CLAIM THE TREE IS CLEAN, and it is NOT
 #     unconditional. Point `--scan-dir tools` at it and the gate reports
-#     findings; the ruling declined to convert them rather than finding
-#     nothing to convert. AND THE RULE ABOVE REACHES INTO IT: `tools/story-mcp`
-#     relays `(ex-message e)` straight into an MCP tool result, so the
-#     `tools/story` throws behind that relay are read by a consumer AI and
-#     ARE governed. rf2-jquiy owns the traced sites. Converting them is the
-#     fix; widening this roster is not — it would drag in the sites the
-#     ruling refused along with the ones it claimed.
+#     findings; they are out of scope rather than absent. AND THE RULE ABOVE
+#     REACHES INTO IT: `tools/story-mcp` relays `(ex-message e)` straight into
+#     an MCP tool result, so the `tools/story` throws behind that relay are
+#     read by a consumer AI and ARE governed. Converting those sites is the
+#     fix; widening this roster is not — it would drag in every tool-local
+#     site along with the relayed ones.
 #   * `examples/`, `skills/`, `testbeds/`, `migration/`, `docs/tools/` —
 #     consumer-SHAPED code: sample apps, teaching material, the docs
 #     playground. An error thrown by an example app is the example's own,
@@ -271,7 +264,7 @@ _EXCLUDE_DIR_NAMES = frozenset({
 
 # `test` / `tests` dirs are excluded by default (see module docstring): a test
 # may legitimately construct a bare-keyword ex-info to exercise a predicate, or
-# assert the old shape is gone. `--include-tests` lifts the exclusion (the
+# assert the bare shape is absent. `--include-tests` lifts the exclusion (the
 # self-test fixtures rely on this — their files live under fixture dirs).
 _TEST_DIR_NAMES = frozenset({"test", "tests"})
 
@@ -304,13 +297,12 @@ _STR_LITERAL_KW_RE = re.compile(
 )
 
 # (c) (str <error-keyword-named var>) as the message. The var name is the
-#     load-bearing signal it holds a discriminator keyword: the per-surface
-#     helper clones bind the keyword as `error-kw` / `error-id` /
+#     load-bearing signal it holds a discriminator keyword: a per-surface
+#     helper clone binds the keyword as `error-kw` / `error-id` /
 #     `error-keyword`. Scoped to those exact names so a `(str some-human-var)`
 #     never fires.
 #     The accepted spellings are a NAMED roster so the self-test can hold each
-#     to owning a fixture (rf2-n6ijg) — three of the five had none, and the
-#     alternation is built from it, so the pattern is unchanged.
+#     to owning a fixture, and the alternation is built from it.
 _STR_ERR_VAR_NAMES: tuple[str, ...] = (
     "error-kw", "error-id", "error-keyword", "err-kw", "err-id",
 )
@@ -319,7 +311,7 @@ _STR_ERR_VAR_RE = re.compile(
 )
 
 # (d) (str (:rf.error/id <map>)) as the message — pull the discriminator off a
-#     payload map and stringify it. The frame.cljc payload throws use this.
+#     payload map and stringify it — the shape a payload throw would use.
 _STR_ID_OF_MAP_RE = re.compile(
     r"\(\s*ex-info\s+\(\s*str\s+\(\s*:rf\.error/id\s+[\w.*+!?<>=/-]+\s*\)\s*\)"
 )
@@ -334,7 +326,7 @@ _PATTERNS = (
 
 # --------------------------------------------------------------------------
 # (e) The builder-BYPASS shape — a `(throw (ex-info <msg> {… :rf.error/id …}))`
-#     whose MESSAGE bypasses the canonical builder (rf2-krrv87 gate widen).
+#     whose MESSAGE bypasses the canonical builder.
 # --------------------------------------------------------------------------
 #
 # The four bare-keyword patterns above catch a message that is LITERALLY the
@@ -397,12 +389,12 @@ _INLINE_TOKEN_MSG_RE = re.compile(r"\[:rf\.[a-z][\w.-]*/[\w.*+!?<>=-]+\]")
 # (across quotes/whitespace) a `:rf.<ns>/…` keyword then a `]`.
 #
 # Both token regexes need the `:rf.<ns>/<id>` keyword and the human text to be
-# LITERAL in the form they are handed. Two conformant shapes are not (rf2-jquiy
-# documented them; rf2-u3otj resolves the first):
+# LITERAL in the form they are handed. Two conformant shapes are not (the
+# first is resolved):
 #
 #   (a) a let-BOUND message —  (let [msg (str "… [:rf.error/x]")] (ex-info msg …))
-#       `re-frame.story/configure!` (tools/story/src/re_frame/story.cljc:877,
-#       :914) does exactly this, under a comment citing Spec 009. RESOLVED —
+#       `re-frame.story/configure!` (tools/story/src/re_frame/story.cljc) does
+#       exactly this, under a comment citing Spec 009. RESOLVED —
 #       `_resolve_let_binding` below hands the BOUND form to these same
 #       regexes, so the token is found one hop from the call.
 #   (b) a COMPUTED discriminator — (ex-info (str reason " [" error-kw "]") …)
@@ -433,17 +425,17 @@ def _message_is_conformant(form: str) -> bool:
 #
 # `,` is WHITESPACE to the Clojure reader, so `(throw-error! :id 'ns/sym "r")`,
 # `(,throw-error! :id 'ns/sym "r")` and `(throw-error! :id 'ns/sym, "r")` are
-# the same three arguments — proved by JVM execution of all three spellings
-# capturing IDENTICAL builder arguments (audit #9501). Python's `str.isspace()`
-# and `\s` say otherwise, and the gap fails in the expensive direction: a comma
-# anywhere the reader ignores it made a real where-sym VANISH and the gate exit
-# 0 having observed only the sites it could still see.
+# the same three arguments — a JVM executing all three spellings captures
+# IDENTICAL builder arguments. Python's `str.isspace()` and `\s` say
+# otherwise, and the gap fails in the expensive direction: a comma anywhere the
+# reader ignores it would make a real where-sym VANISH and the gate exit 0
+# having observed only the sites it could still see.
 #
-# Nothing announces that. The population floor cannot catch it either —
-# `:min-where-syms` was 173 against 193 observed, so twenty calls could go
+# Nothing announces that. The population floor cannot catch it either — it
+# sits below the observed population by design, so a handful of calls could go
 # quiet before it noticed a thing. That is why the fixtures pin the SYMBOL AND
-# LINE of each comma spelling rather than a total (the lesson PR #9496 landed
-# on the sibling gate in this directory, which this one had not inherited).
+# LINE of each comma spelling rather than a total, as the sibling gate in this
+# directory does.
 #
 # One notion, used everywhere a form boundary is found: the `[\s,]` class for
 # the patterns, `_is_clj_ws` / `_clj_strip` for the hand-written scanners.
@@ -508,11 +500,11 @@ def _split_first_arg(body: str) -> tuple[str, str]:
             # body" is the contract for most callers, but the `:where`-slot
             # reader hands us the TAIL of an enclosing map, so the argument can
             # end at that map's `}` rather than at whitespace. Running past it
-            # into depth -1 made the LAST entry of an ex-data map unreadable:
-            # `{… :where 'ns/sym}` yielded `'ns/sym}`, which matches no symbol
-            # pattern, so a real where-sym vanished and the gate exited 0.
-            # Found by the control for the comma defect, and it is NOT the same
-            # bug — `{… :where 'ns/sym}` and `{… :where, 'ns/sym}` both vanished
+            # into depth -1 would make the LAST entry of an ex-data map
+            # unreadable: `{… :where 'ns/sym}` would yield `'ns/sym}`, which
+            # matches no symbol pattern, so a real where-sym would vanish and
+            # the gate exit 0. It is independent of the comma rule —
+            # `{… :where 'ns/sym}` and `{… :where, 'ns/sym}` would both vanish
             # while both non-final spellings resolved.
             if depth == 0:
                 break
@@ -579,7 +571,7 @@ def _extract_ex_info_form(text: str, open_paren_idx: int) -> str | None:
 _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 
 # --------------------------------------------------------------------------
-# Local-binding resolution (rf2-u3otj) — the message one hop from the call
+# Local-binding resolution — the message one hop from the call
 # --------------------------------------------------------------------------
 #
 # A conformant message is sometimes bound before it is thrown:
@@ -588,12 +580,12 @@ _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 #     (throw (ex-info msg {:rf.error/id :rf.error/x …})))
 #
 # The runtime message DOES carry the token, but the first `ex-info` argument is
-# the bare symbol `msg`, so both token regexes saw nothing and the site was
-# reported as a builder bypass. That false red is not free: it costs a round
-# trip under the standing rule that a failing gate on a touched surface is
-# never a flake, and the tempting "fix" is to DE-conformise working code to
-# satisfy a blind scan. The trees where it currently bites sit outside
-# `DEFAULT_SCAN_DIRS`, but the same shape under `implementation/` reds CI.
+# the bare symbol `msg`, so both token regexes see nothing and, unresolved, the
+# site would be reported as a builder bypass. That false red is not free: it
+# costs a round trip under the standing rule that a failing gate on a touched
+# surface is never a flake, and the tempting "fix" is to DE-conformise working
+# code to satisfy a blind scan. The trees that write this shape sit outside
+# `DEFAULT_SCAN_DIRS`, but the same shape under `implementation/` would red CI.
 #
 # So: when the message is a bare local symbol, resolve it through the innermost
 # enclosing `let` and re-test the BOUND FORM with `_message_is_conformant` —
@@ -618,8 +610,8 @@ _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 # not see the binding — resolving either could green a site the reader cannot
 # verify, which is the direction this gate must never move.
 #
-# …AND THE RESOLUTION MUST PROVE THE BINDING IS THE ONE IN SCOPE (rf2-u3otj,
-# the #7045 audit). Finding an enclosing `let` that binds the name is not the
+# …AND THE RESOLUTION MUST PROVE THE BINDING IS THE ONE IN SCOPE. Finding an
+# enclosing `let` that binds the name is not the
 # same as finding the binding the reader would see at the call. Any binder
 # BETWEEN the two shadows it:
 #
@@ -643,21 +635,21 @@ _EX_INFO_OPEN_RE = re.compile(r"\(\s*ex-info\b")
 # A whitelist is what makes the analysis SOUND: an unknown binder can only cost
 # a false red, never buy a false green.
 #
-# …AND A VECTOR BINDER DOES NOT ALWAYS BIND IN ITS VECTOR (rf2-u3otj, the #7064
-# audit). `fn` carries an optional SELF-REFERENCE NAME before the parameters:
+# …AND A VECTOR BINDER DOES NOT ALWAYS BIND IN ITS VECTOR. `fn` carries an
+# optional SELF-REFERENCE NAME before the parameters:
 #
 #   (let [msg "outer conformant [:rf.error/outer]"]
 #     (fn msg [x]                             ; ← the fn's own name shadows it
 #       (throw (ex-info msg {:rf.error/id :rf.error/inner-bypass …}))))
 #
-# Checking only the parameter vector proved a transparency that is not there —
-# `[x]` never mentions `msg`, so the crossing looked clean and the outer binding
-# greened a genuine bypass. The proof therefore reads the WHOLE run from the
-# head to the binding vector: the head binds nothing, and anything else standing
+# Checking only the parameter vector would prove a transparency that is not
+# there — `[x]` never mentions `msg`, so the crossing would look clean and the
+# outer binding would green a genuine bypass. The proof therefore reads the
+# WHOLE run from the head to the binding vector: the head binds nothing, and anything else standing
 # there must not mention the symbol. That covers the `fn` name without naming
 # `fn`, and keeps the fail-closed posture for whatever else turns up in that
-# position. (The MULTI-ARITY spelling `(fn msg ([x] …))` was already caught, by
-# the other arm — the arity list is an unrecognised head — but it is a distinct
+# position. (The MULTI-ARITY spelling `(fn msg ([x] …))` is caught by the other
+# arm — the arity list is an unrecognised head — but it is a distinct
 # reading of the same source shape, so both are fixtures.)
 _LET_OPEN_RE = re.compile(r"\(\s*let\b")
 
@@ -680,7 +672,7 @@ _TRANSPARENT_HEADS = frozenset({
 # which is the safe direction. The text BEFORE the vector is read the same way,
 # because `fn` binds there too: `(fn msg [x] …)` binds `msg` to the function
 # itself, and a proof that reads only the parameter vector greens a genuine
-# shadow (rf2-u3otj, the #7064 audit).
+# shadow.
 _VECTOR_BINDER_HEADS = frozenset({
     "let", "loop", "fn", "if-let", "when-let", "if-some", "when-some",
     "when-first", "doseq", "for", "dotimes", "with-open", "with-local-vars",
@@ -824,9 +816,9 @@ def _crossing_is_transparent(masked: str, open_idx: int, offset: int, sym: str) 
         # …and neither does anything BETWEEN the head and that vector. `fn`
         # takes an optional SELF-REFERENCE NAME there — `(fn msg [x] …)` binds
         # `msg` to the function itself, shadowing an outer `msg` exactly as a
-        # parameter would. Reading only the parameter vector greened it
-        # (rf2-u3otj, the #7064 audit). `before[0]` is the head, which binds
-        # nothing; everything after it must be clean.
+        # parameter would, and reading only the parameter vector would green
+        # it. `before[0]` is the head, which binds nothing; everything after it
+        # must be clean.
         return not any(_mentions_symbol(f, sym) for f in before[1:])
     return False
 
@@ -855,8 +847,7 @@ def _resolve_let_binding(masked: str, offset: int, sym: str) -> str | None:
 
     A NON-`let` binder in between (an `fn` parameter, an `fn` self-reference
     name, a `catch` name, a destructured inner `let`, …) makes the resolution
-    unsound, so it returns None and the caller keeps the finding (rf2-u3otj /
-    the #7045 and #7064 audits)."""
+    unsound, so it returns None and the caller keeps the finding."""
     bound: str | None = None
     bound_at: int | None = None
     for m in _LET_OPEN_RE.finditer(masked, 0, offset):
@@ -924,7 +915,7 @@ def _scan_builder_bypass(path: Path, masked: str, raw_lines: list[str]) -> list[
         if _message_is_conformant(first_arg):
             continue
         # …or a bare local symbol whose `let` binding is conformant — the token
-        # lives one hop away (rf2-u3otj). Same predicates on the bound form, so
+        # lives one hop away. Same predicates on the bound form, so
         # a let-bound message WITHOUT a token still fires.
         if _BARE_LOCAL_SYM_RE.match(first_arg):
             bound = _resolve_let_binding(masked, m.start(), first_arg)
@@ -951,13 +942,12 @@ class Finding(NamedTuple):
     snippet: str
     # The WHERE-SYM findings below carry the offending symbol here. The bare
     # keyword / builder-bypass kinds have no such datum and leave it empty.
-    # A default keeps every existing construction site a 4-tuple.
+    # A default lets those other construction sites stay 4-tuples.
     detail: str = ""
 
 
 # --------------------------------------------------------------------------
-# THE WHERE-SYM RULE (rf2-z5lv) — the door the message sends the author to
-# must EXIST
+# THE WHERE-SYM RULE — the door the message sends the author to must EXIST
 # --------------------------------------------------------------------------
 #
 # `thrown-ex-info` / `throw-error!` take a `where-sym` as their SECOND
@@ -965,11 +955,8 @@ class Finding(NamedTuple):
 # in `re-frame.error`'s own words, is that "a grep-for-symbol lands on the call
 # site" — so an author reads the thrown message, types the symbol, and expects
 # to find something. When the symbol names nothing that resolves, the message
-# sends them to a door that is not there.
-#
-# Three beads have now paid for that one site at a time: rf2-z67m fixed seven,
-# rf2-0v23 an eighth, and a sweep for rf2-z5lv measured twenty-one more. This
-# section is what stops the twenty-second being written.
+# sends them to a door that is not there. Such doors accrue one site at a
+# time; this section is what stops the next one being written.
 #
 # THE RULE IS RESOLVABILITY, NOT A SPELLING. `re-frame.core`'s own
 # `not-queryable-kinds` map writes `re-frame.flows/flows` fully qualified
@@ -981,8 +968,8 @@ class Finding(NamedTuple):
 #
 # THE ORACLE IS THE PUBLIC VAR SET, NOT `spec/api-manifest.edn`. The manifest
 # rows DOCUMENTED publics, so a `^:no-doc` façade export resolves perfectly and
-# carries no row: measured on trunk, `re-frame.core` has 71 manifest rows
-# against 82 JVM `ns-publics` (84 counting the two `#?(:cljs …)` arms), and
+# carries no row: `re-frame.core` has fewer manifest rows than JVM
+# `ns-publics` (and two more publics in its `#?(:cljs …)` arms), and
 # `reset-frame!` / `reload-images!` — live `^:no-doc` façade stubs — carry zero
 # rows apiece. A manifest-only oracle therefore reports non-resolving sites that
 # resolve. The manifest is used here for something it IS authoritative about:
@@ -993,7 +980,7 @@ class Finding(NamedTuple):
 #
 # WHICH RUNTIME. The public set is read from SOURCE, across BOTH reader-
 # conditional arms, so a name public under `:clj` OR `:cljs` resolves. That is a
-# deliberate union and it is measured, not assumed: `rf/frame-provider` and
+# deliberate union, and a needed one: `rf/frame-provider` and
 # `rf/frame-root` are `#?(:cljs (def …))` façade exports, absent from the JVM's
 # `ns-publics` and present in every CLJS build, and a JVM-only oracle would
 # report both as dead doors. The union is also the only direction that cannot
@@ -1006,15 +993,15 @@ class Finding(NamedTuple):
 # The forms that take a where-sym. A ROSTER, because there is no textual
 # property that separates "an argument that is a where-sym" from "an argument
 # that is a quoted symbol"; the self-test holds every entry to owning a fixture,
-# the way `_STR_ERR_VAR_NAMES` and `_VECTOR_BINDER_HEADS` already are. A missing
+# the way `_STR_ERR_VAR_NAMES` and `_VECTOR_BINDER_HEADS` are. A missing
 # entry costs a MISSED site, so `:min-where-syms` in the baseline is what keeps
 # that from being silent.
 #
 # The where-sym is taken as THE QUOTED-SYMBOL ARGUMENT rather than by index,
 # which is why one roster serves forms whose where-sym sits in different
 # positions (`throw-error!` second, `throw-inline-interceptor-removed!` first).
-# Measured over the whole scan surface: 267 rostered calls, 180 with exactly one
-# quoted-symbol argument and 87 with none — never two. A nested quoted symbol
+# Over the scan surface a rostered call carries exactly one quoted-symbol
+# argument or none — never two. A nested quoted symbol
 # (inside an `:extra` map, say) is invisible to this, because only a TOP-LEVEL
 # argument that is EXACTLY a quoted symbol is read.
 _WHERE_SYM_FORMS: tuple[str, ...] = (
@@ -1026,12 +1013,11 @@ _WHERE_SYM_FORMS: tuple[str, ...] = (
 # `\b` IS THE WRONG GUARD HERE AND FAILS SILENTLY. Every builder but one ends
 # in `!`, and `!` is not a word character — so `throw-error!\b` requires a word
 # character immediately after the `!`, which never occurs, and the pattern
-# matches NOTHING while looking exactly like a pattern that works. Measured on a
-# two-call sample: the `\b` form read 0, this one read 2. A trailing negative
-# lookahead over the symbol-constituent class is the correct guard.
+# matches NOTHING while looking exactly like a pattern that works. A trailing
+# negative lookahead over the symbol-constituent class is the correct guard.
 _SYM_TAIL = r"(?![\w*+!?<>=-])"
 # `[\s,]*`, NOT `\s*`: a comma is reader whitespace, so `(,throw-error! …)`
-# is the same call. `\s*` there made a real where-sym vanish — see the
+# is the same call. `\s*` there would make a real where-sym vanish — see the
 # READER WHITESPACE section above. `_extract_call_body` and the self-test's
 # `_crosses_call_head` build the same head pattern and carry the same class;
 # all three must agree, or a site is matched here and dropped there.
@@ -1044,16 +1030,16 @@ _WHERE_CALL_RE = re.compile(
 # A Clojure symbol, and the quoted symbol that is a where-sym. The `/` is a
 # SEPARATE alternation rather than a member of the character class: putting it
 # in the class would let `a/b/c` through, and leaving it out of the pattern
-# altogether — which is the mistake that made a first pass of this scan report
-# two where-syms where there are 193 — matches only the unqualified ones.
+# altogether matches only the unqualified ones — a handful out of the whole
+# population, a silent collapse.
 _CLJ_SYM = r"[A-Za-z0-9_.*+!?<>=&$%|-]+"
 _QUOTED_SYM_RE = re.compile(r"^'(" + _CLJ_SYM + r"(?:/" + _CLJ_SYM + r")?)$")
 
 # `:where <form>` inside an ex-data map. The canonical builders write this slot
 # themselves, so it is only READ here for the raw `(ex-info … {… :rf.error/id …
 # :where '<sym> …})` sites that build their payload by hand. Those are invisible
-# to the builder scan above and are not a corner: six of the façade-family
-# findings on trunk are `:where`-slot sites in `re-frame.conformance`.
+# to the builder scan above and are not a corner: `re-frame.conformance` writes
+# `:where`-slot sites.
 _WHERE_KEY_RE = re.compile(r":where" + _SYM_TAIL)
 
 # THE CANONICAL ALIAS DIALECT, from `spec/Conventions.md` §Require-alias dialect
@@ -1122,30 +1108,27 @@ def _is_framework_family(qualifier: str, namespace: str) -> bool:
 # stops being?". Two things do, and they fail in opposite directions:
 #
 #   * the parse going BLIND fails CLOSED and loudly: publics vanish, so
-#     where-syms that used to resolve stop resolving and the gate reds naming
+#     where-syms that should resolve stop resolving and the gate reds naming
 #     each one. There is no silent-zero direction here. `oracle_problems` below
 #     is the guard for it: `spec/api-manifest.edn` is generated from live
 #     `ns-publics` by a different tool on a different runtime, so every rowed
 #     var MUST appear in the derived set. It is a strict subset (the manifest
-#     drops `^:no-doc`), which is exactly what makes it usable as a floor.
-#     Measured on trunk: 472 rows across 48 namespaces, all present. That
-#     control has already earned its place — it caught this parser missing
-#     `(import-fn …)` re-exports in `re-frame.ssr.ring` and `(rf/reg-view Panel
-#     …)` component vars across eleven Xray namespaces, both of which would
-#     otherwise have produced confident, well-formed FALSE findings.
+#     drops `^:no-doc`), which is exactly what makes it usable as a floor. It
+#     is what catches a parser that misses a definition shape — `(import-fn …)`
+#     re-exports in `re-frame.ssr.ring`, `(rf/reg-view Panel …)` component
+#     vars across the Xray namespaces — either of which would otherwise
+#     produce confident, well-formed FALSE findings.
 #   * the parse going TOO GENEROUS is the dangerous direction, AND NOTHING
-#     ABOVE GUARDS IT. This comment used to claim the manifest did, and that
-#     claim is what audit #9501 refuted: a SUBSET test detects public names
-#     MISSING from the derived set and is structurally blind to EXTRA
-#     fictitious ones. It is the wrong-direction instrument, and saying so
-#     matters more than the defect it missed, because a stated guard is a
-#     reason not to look for a real one.
+#     ABOVE GUARDS IT: a SUBSET test detects public names MISSING from the
+#     derived set and is structurally blind to EXTRA fictitious ones. It is
+#     the wrong-direction instrument, and saying so matters, because a stated
+#     guard is a reason not to look for a real one.
 #     What guards this direction is the exact-set assertion in
 #     `_run_where_sym_self_tests`, over an oracle fixture that defines names
 #     inside a `comment`, a `#_` discard, a quote and a syntax-quote and
-#     nowhere else. `comment` shipped in `_TRANSPARENT_DEF_WRAPPERS` beside
-#     `do` and the walk descended through the reader prefixes, so all four
-#     were read as live publics — every one a dead door the gate blessed.
+#     nowhere else. A walk that treated `comment` as a wrapper like `do`, or
+#     descended through the reader prefixes, would read all four as live
+#     publics — every one a dead door the gate blessed.
 #
 # THE RULE, NOT A ROSTER: a top-level form whose head — after any namespace
 # qualifier — begins `def` defines its first non-metadata symbol argument.
@@ -1155,7 +1138,7 @@ def _is_framework_family(qualifier: str, namespace: str) -> bool:
 # `defmacro`, `defmulti`, `defrecord`, `defprotocol` and — the reason it is a
 # rule and not a list — this tree's own var-defining macros
 # (`defreg-macro reg-sub`, `defreg-event-macro reg-event`, `defwrapper`), which
-# a list would have missed and which supply 27 of the façade's 84 publics.
+# a list would miss and which supply a large share of the façade's publics.
 # `_EXTRA_DEF_HEADS` carries the two var-defining macros that do NOT begin
 # `def`; the manifest control above is what says when a third one appears.
 _EXTRA_DEF_HEADS = frozenset({"reg-view", "import-fn"})
@@ -1169,23 +1152,22 @@ _PRIVATE_META_RE = re.compile(r"\^\s*(?::private\b|\{[^{}]*:private\s+true)")
 # ships its two CLJS-only exports, so a scan that does not descend here reports
 # them as dead doors — the exact false red this section exists to avoid.
 _PLATFORM_KEYWORD_RE = re.compile(r"^:(clj|cljs|cljr|default)$")
-# `comment` SHIPPED HERE BESIDE `do` AND IT IS NOT A TRANSPARENT WRAPPER
-# (audit #9501). `(comment …)` evaluates to nil and interns nothing, so a
-# `(comment (defn ghost …))` contributed `ghost` to the public set and a
-# where-sym naming a var that exists only inside a comment resolved as a live
-# door. `do` is the real one — it evaluates its body, so the `def` inside
-# really does intern — and removing `comment` must not cost it, which is what
-# the fixture's `(do (defn do-defined-public …))` control pins.
+# `comment` IS NOT A TRANSPARENT WRAPPER and does not belong here beside `do`.
+# `(comment …)` evaluates to nil and interns nothing, so treating it as one
+# would contribute `ghost` from a `(comment (defn ghost …))` to the public set,
+# and a where-sym naming a var that exists only inside a comment would resolve
+# as a live door. `do` is the real one — it evaluates its body, so the `def`
+# inside really does intern — and keeping `comment` out must not cost it, which
+# is what the fixture's `(do (defn do-defined-public …))` control pins.
 _TRANSPARENT_DEF_WRAPPERS = frozenset({"do"})
 _NS_FORM_RE = re.compile(
     r"\(\s*ns\s+(?:\^\{[^{}]*\}\s+|\^[\w:.-]+\s+)*(" + _CLJ_SYM + r")"
 )
 
 
-# THE PREFIX AND ITS FORM ARE ONE UNIT. A first repair (PR #9511) decided
-# inertness by looking back ONE character from the `(`, and audit #9511
-# reproduced three shapes it cannot see, each of which interns nothing and each
-# of which turned a dead door green:
+# THE PREFIX AND ITS FORM ARE ONE UNIT. Deciding inertness by looking back ONE
+# character from the `(` cannot see three shapes, each of which interns nothing
+# and each of which would turn a dead door green:
 #
 #   * `#_#?(:clj (defn ghost …))` — the character before the `(` is `?`, so the
 #     discard is never reached and the conditional's arms are walked as live;
@@ -1194,8 +1176,8 @@ _NS_FORM_RE = re.compile(
 #     cannot reach in principle: the second discard's target sits AFTER a form
 #     the walker has already stepped past, so there is no prefix behind it.
 #
-# Reader-conditionals are the reason this matters more than the shapes it
-# replaces: `#?` is ordinary `.cljc` and this tree is full of it.
+# Reader-conditionals are the reason this matters: `#?` is ordinary `.cljc`
+# and this tree is full of it.
 #
 # AND THE MANIFEST CONTROL CANNOT REACH ANY OF IT. `oracle_problems` is a
 # SUBSET test, so it detects public names the parser has STOPPED seeing, never
@@ -1203,7 +1185,7 @@ _NS_FORM_RE = re.compile(
 # exact-set assertion in `_run_where_sym_self_tests`, over an oracle fixture
 # that defines each of these names behind its prefix and nowhere else.
 #
-# The fix is to read forward the way the READER does. `#_` does not decorate
+# So the walk reads forward the way the READER does. `#_` does not decorate
 # the next balanced list — it consumes the next DATUM, whatever that datum is
 # spelled as, and a discard met while reading that datum is itself consumed
 # first, which is exactly why `#_#_ a b` neutralises BOTH. `_datum_end` is that
@@ -1234,7 +1216,7 @@ def _at_datum_start(text: str, i: int) -> bool:
     """Is `i` the START of a datum rather than a character inside a token?
 
     `'` is BOTH the quote prefix and a legal symbol constituent (`foo'`), and
-    `\\'` is the character literal — the reader trap that once swallowed half a
+    `\\'` is the character literal — a reader trap that can swallow half a
     file. Either read as a prefix would swallow the form after it, so a quote
     counts only where a datum could actually begin.
     """
@@ -1302,8 +1284,8 @@ def _top_level_forms(
     ones the READER neutralises — see the prefix note above.
 
     DELIBERATELY NOT A FULL READER. Anything that is not a top-level `(`, a
-    discard run or a quote is stepped over one character at a time, exactly as
-    before, because this walker also serves `do` bodies and reader-conditional
+    discard run or a quote is stepped over one character at a time, because
+    this walker also serves `do` bodies and reader-conditional
     ARMS (`_public_names_defined_by`), where the leading `:clj` / `:cljs`
     keyword has to be walked past rather than parsed.
 
@@ -1338,16 +1320,13 @@ def _top_level_forms(
             # `at_reader_top_level=False`, so `(do #?@(:clj [(defn foo …)]))`
             # is descended and contributes `foo`.
             #
-            # THE FIRST VERSION OF THIS BRANCH CONSUMED IT UNCONDITIONALLY
-            # (rf2-z5lv, audit #9515) and the comment claimed the collection
-            # path was "unchanged — the arms are reached through the enclosing
-            # form". It is not: `_public_names_defined_by` re-enters THIS
-            # function for a `do` body, so a legal splice was discarded as
-            # though it were an illegal file-top-level one and a real public
-            # var went missing from the oracle. That is a FALSE RED — a
-            # where-sym naming a var that genuinely exists reds a correct PR —
-            # and it is the opposite direction from every other case this
-            # walker guards, which is why the fixtures did not see it.
+            # CONSUMING IT UNCONDITIONALLY WOULD BE WRONG: `_public_names_defined_by`
+            # re-enters THIS function for a `do` body, so a legal splice would
+            # be discarded as though it were an illegal file-top-level one and
+            # a real public var would go missing from the oracle. That is a
+            # FALSE RED — a where-sym naming a var that genuinely exists reds a
+            # correct PR — and it is the opposite direction from every other
+            # case this walker guards, which is why it needs its own fixtures.
             i = _datum_end(masked, i)
             continue
         if c == "(":
@@ -1371,8 +1350,8 @@ def _public_names_defined_by(form: str) -> list[str]:
     raw_head = m.group(1)
     head = raw_head.rsplit("/", 1)[-1]
     # The form's closing paren must come off, or a single-argument form's
-    # only argument is returned WITH it and matches no symbol pattern. That
-    # is not hypothetical: it is what hid every `(import-fn …)` re-export.
+    # only argument is returned WITH it and matches no symbol pattern — which
+    # would hide every `(import-fn …)` re-export.
     body = form[m.end():-1]
     # BOTH RECURSIONS BELOW ARE INSIDE A COLLECTION, so both switch the walker
     # out of reader-top-level mode: a reader-conditional's `(:clj … :cljs …)`
@@ -1421,10 +1400,10 @@ class PublicVarIndex:
     """`namespace -> public var names`, resolved lazily by the standard
     `re-frame.core -> re_frame/core.clj[cs]` munge.
 
-    LAZY BY MUNGED PATH, not an eager index of the tree. Eagerly reading all
-    2820 tracked Clojure sources to learn their `ns` forms took 21s; resolving
-    only the dozen-odd namespaces the where-syms actually name takes 0.03s to
-    prepare and reads one file per namespace. The whole point of a gate hosted
+    LAZY BY MUNGED PATH, not an eager index of the tree. Eagerly reading every
+    tracked Clojure source to learn its `ns` form costs tens of seconds;
+    resolving only the dozen-odd namespaces the where-syms actually name is
+    near-instant and reads one file per namespace. The whole point of a gate hosted
     in the always-on PR spine is that it costs nothing to run.
     """
 
@@ -1534,11 +1513,11 @@ def oracle_problems(index: PublicVarIndex, rows: dict[str, set[str]]) -> list[st
     the failure that would otherwise arrive as confident FALSE findings, so it
     is an rc=2 'this instrument is not usable', never a finding.
 
-    IT GUARDS ONE DIRECTION ONLY, and the header comment above used to say
-    otherwise. Being a SUBSET test, it detects public names MISSING from the
-    derived set; an EXTRA fictitious one — a name the parser invents, which is
-    how a where-sym pointing at a var that exists only inside a `(comment …)`
-    came to resolve — adds no row and contradicts nothing here. Nothing in this
+    IT GUARDS ONE DIRECTION ONLY. Being a SUBSET test, it detects public names
+    MISSING from the derived set; an EXTRA fictitious one — a name the parser
+    invents, which is how a where-sym pointing at a var that exists only inside
+    a `(comment …)` would come to resolve — adds no row and contradicts nothing
+    here. Nothing in this
     function can see that. `_run_where_sym_self_tests`' exact-set assertion is
     what does.
     """
@@ -1579,10 +1558,10 @@ def _mask_reader_noise(text: str) -> str:
         visible reports the DOCUMENTATION of this contract as violations of it;
       * `\\"` outside a string is the character `"`, not a delimiter. Missing
         that does not fail locally: it desynchronises from the reader and
-        swallows THE REST OF THE FILE. Measured on
-        `re-frame.ssr.html-helpers`, which writes `(= c \\")` at :310 — read as
-        a quote, every `throw-error!` after it vanished, and the file's two
-        real where-syms reported as zero. It fails in the REASSURING direction,
+        swallows THE REST OF THE FILE. `re-frame.ssr.html-helpers` writes
+        `(= c \\")`; read as a quote, every `throw-error!` after it would
+        vanish, and the file's real where-syms would report as zero. It fails
+        in the REASSURING direction,
         because a scan that has gone blind reports FEWER findings, which reads
         as progress.
 
@@ -1692,7 +1671,7 @@ def _scan_where_syms(path: Path, text: str, raw_lines: list[str]) -> list[WhereS
     """
     # This rule masks the RAW text itself rather than reusing the shared
     # comment mask — see `_mask_reader_noise` for the two reasons, both of
-    # which produced measured wrong answers on live source.
+    # which would give wrong answers on live source.
     masked = _mask_reader_noise(text)
 
     def snippet(line_no: int) -> str:
@@ -1753,14 +1732,13 @@ def _grade_where_sym(
     the finding kind it earned, if any (`None` when it passed or was skipped).
 
     ONE classifier, consulted by BOTH `where_sym_findings` and `--verbose`, and
-    that is the whole point of its existing. They used to answer "is this
-    checked?" separately — the grader by resolving the symbol, the summary by
-    looking for a `/` — and the summary was wrong about 30 of 193 sites in both
-    directions at once (rf2-uewm, audit of PR #9550): it called the 23
+    that is the whole point of its existing. Answering "is this checked?"
+    separately — the grader by resolving the symbol, a summary by looking for a
+    `/` — would be wrong in both directions at once: it would call the
     full-namespace locations "unqualified and therefore uncheckable" when they
-    are checked, and counted 7 third-party names among the "qualified" when they
-    are skipped. A summary that RE-DERIVES the answer can drift from the grader
-    again; one that reports the grader's own verdict cannot.
+    are checked, and count third-party names among the "qualified" when they
+    are skipped. A summary that RE-DERIVES the answer can drift from the
+    grader; one that reports the grader's own verdict cannot.
     """
     if symbol in _SANCTIONED_EVENT_ID_WHERE_SYMS:
         # FORM 2 — a reserved public event id. Not a var; see the set.
@@ -1768,9 +1746,9 @@ def _grade_where_sym(
     if "/" not in symbol:
         if "." not in symbol:
             # An UNQUALIFIED where-sym names no namespace to check it
-            # against, and inventing one would be guessing. Two exist on
-            # trunk (`'defwrapper`, `'defreg-macro`); both name a macro a
-            # reader can still grep for. Counted, never a finding — and
+            # against, and inventing one would be guessing. The ones on trunk
+            # (`'defwrapper`, `'defreg-macro`) name a macro a reader can
+            # grep for. Counted, never a finding — and
             # reported as SKIPPED, because that is what it is.
             return ("bare", None)
         # FORM 3 — a REAL NAMESPACE SPELLED IN FULL (`'re-frame.ssr.emit`).
@@ -1828,21 +1806,20 @@ _WHERE_SYM_KINDS = ("where-sym-unresolvable", "where-sym-unknown-namespace")
 # The where-sym BASELINE — a per-symbol floor, not a zero gate
 # --------------------------------------------------------------------------
 #
-# Eighty-two where-syms on trunk name nothing that resolves. A check that
-# failed them all on the day it landed would red every open PR, so this is a
-# RATCHET on the shape `scripts/require-alias-baseline.edn` already established
+# Some where-syms on trunk name nothing that resolves. A check that failed them
+# all at once would red every open PR, so this is a
+# RATCHET on the shape `scripts/require-alias-baseline.edn` establishes
 # here: `:sites` records what each offending symbol is allowed to carry, a
 # symbol absent from the file has a floor of ZERO (so a NEW dead door reds
 # immediately, which is the whole point), and a recorded floor may only fall.
 #
 # Recording a symbol is NOT a ruling that it should be fixed, and disposing of
-# one is another item's work — the sweep that measured them says outright that
-# every site needs reading before acting. What the file guarantees is only that
-# the number cannot grow.
+# one is separate work — every site needs reading before acting. What the file
+# guarantees is only that the number cannot grow.
 #
 # THE TWO KEYS RATCHET IN OPPOSITE DIRECTIONS, and reading it as one rule gets
-# half the file exactly wrong — the trap `check_require_alias_dialect.py` paid
-# for twice and wrote down:
+# half the file exactly wrong — the trap `check_require_alias_dialect.py`
+# documents for its own two keys:
 #
 #   * a `:sites` floor is an ALLOWANCE, checked `found > floor -> fail`. Raising
 #     it loosens the gate. It may only FALL.
@@ -1987,7 +1964,7 @@ def plan_where_sym_baseline(
 def render_where_sym_baseline(baseline: WhereSymBaseline) -> str:
     width = max((len(s) for s in baseline.sites), default=0) + 4
     lines = [
-        ";; Thrown-error where-sym baseline (rf2-z5lv) — regenerate with",
+        ";; Thrown-error where-sym baseline — regenerate with",
         ";;     python scripts/check_thrown_error_messages.py "
         "--write-where-sym-baseline",
         ";;",
@@ -2061,18 +2038,17 @@ def grade_where_syms(
 
 
 # --------------------------------------------------------------------------
-# What `--verbose` SAYS it did (rf2-uewm)
+# What `--verbose` SAYS it did
 # --------------------------------------------------------------------------
 #
 # Both strings below are the gate's account of its own coverage, and a wrong
 # one is worse than none: it is read by whoever is deciding whether a where-sym
 # shape is enforced, and it reads as authoritative because it comes from the
-# instrument itself. The audit of PR #9550 caught both lying — the summary
-# inferred "checkable" from the presence of a `/`, which had been true before
-# form 3 was accepted and was false the moment it was, and the success line
-# still promised a "reachable var" after two NON-var forms had been ruled
-# acceptable. Neither was a fault in the validation; both were the OUTPUT
-# describing an older gate.
+# instrument itself. A summary that inferred "checkable" from the presence of a
+# `/` would misreport form 3, and a success line promising a "reachable var"
+# would misdescribe a contract that accepts two NON-var forms. Neither would be
+# a fault in the validation; both would be the OUTPUT describing a different
+# gate from the one that ran.
 #
 # So the summary is rendered from `_grade_where_sym` — the same classifier that
 # produces the findings — rather than from a second guess at the same question.
@@ -2201,20 +2177,19 @@ def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
 
     A FILE root yields just that file — the shape the fixture self-tests use
     (`scan(<one .cljc fixture>)`). It is deliberately NOT reachable from the
-    CLI: `main` requires every `--scan-dir` to be a directory (rf2-un9fk), so
-    a file passed there is rejected with rc=2 rather than quietly scanning
-    one file — or, before that fix, zero.
+    CLI: `main` requires every `--scan-dir` to be a directory, so a file
+    passed there is rejected with rc=2 rather than quietly scanning one file.
 
-    PRUNED, not filtered-after (rf2-76c76; method proven by rf2-e1xx0 in
+    PRUNED, not filtered-after (the same method as
     `check_retired_image_keys.py`). `_EXCLUDE_DIR_NAMES` is dropped from
     `os.walk`'s dirnames IN PLACE, so a built checkout never descends into
-    `implementation/.shadow-cljs` (34.8k entries), `out` (9.7k) or
-    `node_modules` (3.4k). `rglob("*")` enumerated all 51.6k entries under
-    `implementation/` — the whole scan root — and discarded them one at a
-    time: 3.2s of this gate's 3.4s wall clock on a built tree.
+    `implementation/.shadow-cljs`, `out` or `node_modules`, which hold tens of
+    thousands of entries. `rglob("*")` would enumerate every entry under
+    `implementation/` — the whole scan root — and discard them one at a time,
+    most of this gate's wall clock on a built tree.
 
-    The surviving sequence is IDENTICAL, set and order: pruning drops only
-    what the `_EXCLUDE_DIR_NAMES` test below already dropped, and the
+    The surviving sequence is the same, set and order, as a filter-after walk:
+    pruning drops only what the `_EXCLUDE_DIR_NAMES` test below drops, and the
     collected matches go through ONE GLOBAL `sorted()`, reproducing
     `sorted(rglob("*"))`'s whole-subtree ordering rather than os.walk's
     directory-grouped order."""
@@ -2230,8 +2205,8 @@ def _iter_source_files(scan_root: Path, include_tests: bool) -> Iterable[Path]:
             if os.path.splitext(name)[1] in _SOURCE_SUFFIXES:
                 matches.append(Path(dirpath) / name)
     for path in sorted(matches):
-        # Kept as the belt to the pruning's braces, and now on string ops:
-        # `Path.relative_to` was pure pathlib object churn for a prefix strip.
+        # The belt to the pruning's braces, on string ops: `Path.relative_to`
+        # would be pure pathlib object churn for a prefix strip.
         parts = set(path.as_posix()[scan_prefix_len:].split("/"))
         if parts & _EXCLUDE_DIR_NAMES:
             continue
@@ -2275,7 +2250,7 @@ def _scan_text(
         for m in pat.finditer(masked):
             line_no = _line_of_offset(masked, m.start())
             findings.append(Finding(path, line_no, kind, raw_snippet(line_no)))
-    # The widened builder-BYPASS rule (rf2-krrv87): a raw `(ex-info …)` whose
+    # The wider builder-BYPASS rule: a raw `(ex-info …)` whose
     # ex-data carries `:rf.error/id` but whose message skips the builder/token.
     bypass = _scan_builder_bypass(path, masked, raw_lines)
     # A bare-keyword site (one of the four strict patterns) is ALSO a builder
@@ -2301,8 +2276,8 @@ def scan(
     """Every message-shape finding under `scan_root`.
 
     `where_syms`, when supplied, also collects every quoted where-sym observed.
-    It is an out-parameter rather than a second return value so the ~30 existing
-    fixture cases keep calling `scan(path)` and reading a plain list."""
+    It is an out-parameter rather than a second return value so the fixture
+    cases can call `scan(path)` and read a plain list."""
     findings: list[Finding] = []
     for path in _iter_source_files(scan_root, include_tests):
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -2316,10 +2291,10 @@ def scan(
 
 _FIX_HINT = (
     "These sites bypass the canonical thrown-error builder (Spec 009 §The "
-    "thrown-error shape) — either a BARE `:rf.error/…` keyword message (the OLD "
-    "shape rf2-vvixub abolished) or a `builder-bypass-message`: a raw "
+    "thrown-error shape) — either a BARE `:rf.error/…` keyword message (the "
+    "keyword-only shape) or a `builder-bypass-message`: a raw "
     "`(ex-info …)` whose ex-data carries `:rf.error/id` but whose message skips "
-    "the builder + the `[:rf.<ns>/<id>]` token (rf2-krrv87). Route each through "
+    "the builder + the `[:rf.<ns>/<id>]` token. Route each through "
     "the canonical builder so the message LEADS with a human sentence and "
     "TRAILS with the `[:rf.<ns>/<id>]` token:\n"
     "  * an artefact that can `:require re-frame.error`:\n"
@@ -2389,7 +2364,7 @@ def _report_where_syms(
     over = {v.split(":")[0] for v in verdict.violations}
     sys.stderr.write(
         f"\n{len(verdict.violations)} thrown-error where-sym(s) name nothing "
-        "reachable, above the recorded floor (rf2-z5lv / Spec 009 §The "
+        "reachable, above the recorded floor (Spec 009 §The "
         "thrown-error shape):\n\n"
     )
     for line in verdict.violations:
@@ -2447,7 +2422,7 @@ def _write_where_sym_baseline(
 def _report(findings: list[Finding], repo_root: Path) -> None:
     sys.stderr.write(
         f"\n{len(findings)} bare-keyword thrown-error message(s) found in "
-        "framework source (rf2-vvixub / Spec 009 §The thrown-error shape):\n\n"
+        "framework source (Spec 009 §The thrown-error shape):\n\n"
     )
     for f in findings:
         try:
@@ -2467,11 +2442,11 @@ def _report(findings: list[Finding], repo_root: Path) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "rf2-vvixub / rf2-krrv87: fail on a framework `(ex-info …)` whose "
+            "Fail on a framework `(ex-info …)` whose "
             "message is a bare `:rf.*` discriminator keyword (the retired "
             "keyword-only shape) OR a builder bypass — a raw ex-info carrying "
             "`:rf.error/id` whose message skips the builder + the "
-            "`[:rf.<ns>/<id>]` token. rf2-z5lv: also fail on a thrown error "
+            "`[:rf.<ns>/<id>]` token. Also fail on a thrown error "
             "whose WHERE-SYM names no place a reader can land on — a public "
             "var, a reserved event id, or a full namespace — above the floor "
             "recorded in " + WHERE_SYM_BASELINE_REL + "."
@@ -2490,7 +2465,7 @@ def main(argv: list[str]) -> int:
         help=(
             "Directory (relative to repo-root) to scan. Repeatable. Must be a "
             "DIRECTORY — a missing path or an existing file exits 2 rather "
-            "than scanning nothing and reporting success (rf2-un9fk). "
+            "than scanning nothing and reporting success. "
             "Defaults to the rostered framework-source tree(s): "
             f"{', '.join(DEFAULT_SCAN_DIRS)}."
         ),
@@ -2550,10 +2525,10 @@ def main(argv: list[str]) -> int:
     # roster exists to close. Same posture as the sibling ratchet and the
     # test-lane bijection gate's phantom-path rule.
     #
-    # `is_dir`, NOT `exists` (rf2-un9fk). An EXISTING REGULAR FILE passed the
-    # old `exists()` test, and `_iter_source_files`'s `rglob` over a file
-    # yields nothing — so `--scan-dir README.md` scanned ZERO files and
-    # reported success. That is the same false green the missing-path check
+    # `is_dir`, NOT `exists`. An EXISTING REGULAR FILE passes an `exists()`
+    # test, and a directory walk over a non-source file yields nothing — so
+    # `--scan-dir README.md` would scan ZERO files and report success. That is
+    # the same false green the missing-path check
     # exists to prevent, one step further in: a gate that CANNOT RUN must
     # exit non-zero, never green over the work it did not do. Both invalid
     # shapes take the same rc=2 posture; the diagnostic names which it was so
@@ -2591,7 +2566,7 @@ def main(argv: list[str]) -> int:
             scan(root, include_tests=args.include_tests, where_syms=observed)
         )
 
-    # ---- the where-sym rule (rf2-z5lv) ------------------------------------
+    # ---- the where-sym rule -----------------------------------------------
     #
     # Its oracle is the PUBLIC VAR SET of the namespace a where-sym names, so
     # it needs the whole tree rather than the scan surface: a where-sym written
@@ -2704,10 +2679,10 @@ _SELF_TEST_FIXTURE_ROOT = (
 )
 
 
-# A planted site NAMES ITSELF in its ex-data. Every fixture already wrote a
-# distinct `:rf.error/id` on its `ex-info` line, which is the line a finding is
-# reported at — so the witness name was sitting there unread while two fixtures
-# aggregated seventeen sites under two counts (rf2-n6ijg).
+# A planted site NAMES ITSELF in its ex-data. Every fixture writes a distinct
+# `:rf.error/id` on its `ex-info` line, which is the line a finding is reported
+# at — so the witness name is there to read, rather than a multi-site fixture
+# aggregating its sites under one count.
 _WITNESS_ID_RE = re.compile(r":rf\.error/id\s+(:[\w.*+!?<>=/-]+)")
 
 
@@ -2733,21 +2708,22 @@ _TRANSPARENT_HEAD_FIXTURE = "negative/transparent_heads_crossed.cljc"
 def _run_self_tests(verbose: bool = False) -> int:
     """Scan each fixture and assert the EXACT set of sites that fired.
 
-    Counts were already exact. The hole was that a count cannot NAME a witness
-    (rf2-n6ijg): `bypass_let_bound_shadowed.cljc` plants eleven distinct binder-
-    family sites and `bypass_let_bound_no_token.cljc` six, and the whole proof
-    was the pair `(file, 11)` and `(file, 6)`. A dead site red anonymously —
-    "expected 11, got 10", with no way to say which — and any edit that made a
-    neighbouring site fire twice restored the count and greened it.
+    An exact count is not enough, because a count cannot NAME a witness:
+    `bypass_let_bound_shadowed.cljc` plants eleven distinct binder-family sites
+    and `bypass_let_bound_no_token.cljc` six, and a proof of `(file, 11)` and
+    `(file, 6)` would red a dead site anonymously — "expected 11, got 10", with
+    no way to say which — and any edit that made a neighbouring site fire twice
+    would restore the count and green it.
 
-    Each site is now asserted by NAME, read from the `:rf.error/id` it already
-    carried. Plus the two structural assertions:
+    So each site is asserted by NAME, read from the `:rf.error/id` it carries.
+    Plus the two structural assertions:
 
       * every `_VECTOR_BINDER_HEADS` and `_TRANSPARENT_HEADS` entry is crossed
         by the negative fixture that owns its roster. This is the direction that
         proves those rosters — a SHADOWING fixture cannot, because an
         unrecognised head fails closed and refuses for the same reason a
-        recognised-but-shadowing one does, so deleting a head changed nothing.
+        recognised-but-shadowing one does, so deleting a head would change
+        nothing there.
       * every `_STR_ERR_VAR_NAMES` spelling appears in a positive fixture.
     """
     _NO_TOKEN = "positive/bypass_let_bound_no_token.cljc"
@@ -2765,7 +2741,7 @@ def _run_self_tests(verbose: bool = False) -> int:
          frozenset({"str-error-keyword-var|<positive/str_error_kw_var.cljc>"})),
         ("positive/str_error_id_var.cljc",
          frozenset({"str-error-keyword-var|<positive/str_error_id_var.cljc>"})),
-        # The three `_STR_ERR_VAR_NAMES` spellings that had no fixture.
+        # The other three `_STR_ERR_VAR_NAMES` spellings.
         ("positive/str_remaining_err_var_names.cljc", frozenset({
             "str-error-keyword-var|:rf.error/str-error-keyword-var",
             "str-error-keyword-var|:rf.error/str-err-kw-var",
@@ -2773,12 +2749,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         })),
         ("positive/str_id_of_payload.cljc",
          frozenset({"str-id-of-payload|<positive/str_id_of_payload.cljc>"})),
-        # --- positives for the WIDENED builder-bypass rule (rf2-krrv87) ---
+        # --- positives for the wider builder-bypass rule ---
         ("positive/bypass_str_concat_no_token.cljc",
          frozenset({"builder-bypass-message|<positive/bypass_str_concat_no_token.cljc>"})),
         ("positive/bypass_plain_string_no_token.cljc",
          frozenset({"builder-bypass-message|<positive/bypass_plain_string_no_token.cljc>"})),
-        # --- positives for the let-binding resolution (rf2-u3otj): resolving a
+        # --- positives for the let-binding resolution: resolving a
         #     local must not become a way to PASS. A bound form with no token,
         #     an unresolvable parameter, the computed discriminator, a sibling
         #     (non-enclosing) scope, an inner binding that shadows a
@@ -2793,10 +2769,9 @@ def _run_self_tests(verbose: bool = False) -> int:
             BYPASS + ":rf.error/shadowed-away",
             BYPASS + ":rf.error/destructured",
         })),
-        # --- positives for the SCOPE PROOF (rf2-u3otj / the #7045 and #7064
-        #     audits): a binder between the conformant outer `let` and the
-        #     `ex-info` shadows the name, and every binder family must still
-        #     fire — the #7045 nested-`fn`-parameter witness first, the #7064
+        # --- positives for the SCOPE PROOF: a binder between the conformant
+        #     outer `let` and the `ex-info` shadows the name, and every binder
+        #     family must fire — the nested-`fn`-parameter witness first, the
         #     `fn` SELF-REFERENCE NAME (single- and multi-arity) last.
         ("positive/bypass_let_bound_shadowed.cljc", frozenset({
             BYPASS + ":rf.error/fn-param-shadow",
@@ -2820,12 +2795,12 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/keyword_in_comment.cljc",         frozenset()),
         ("negative/keyword_in_docstring.cljc",       frozenset()),
         ("negative/inline_human_token_slim.cljc",    frozenset()),
-        # --- negatives for the WIDENED builder-bypass rule (rf2-krrv87) ---
+        # --- negatives for the wider builder-bypass rule ---
         ("negative/bypass_inline_token_str_concat.cljc", frozenset()),
         ("negative/bypass_human_message_with_id.cljc",   frozenset()),
         ("negative/bypass_marker_exempt.cljc",           frozenset()),
         ("negative/bypass_no_error_id.cljc",             frozenset()),
-        # --- negative for the let-binding resolution (rf2-u3otj): a conformant
+        # --- negative for the let-binding resolution: a conformant
         #     message bound one hop from the `ex-info` must stay GREEN.
         ("negative/bypass_let_bound_token.cljc",         frozenset()),
         # --- negative for the SCOPE PROOF: crossing ordinary control flow (the
@@ -2834,7 +2809,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         #     something else, a reader conditional) introduces nothing, so the
         #     resolution still holds.
         ("negative/bypass_let_bound_guarded.cljc",       frozenset()),
-        # --- negatives that OWN a roster: one crossing per entry (rf2-n6ijg) ---
+        # --- negatives that OWN a roster: one crossing per entry ---
         (_BINDER_HEAD_FIXTURE,      frozenset()),
         (_TRANSPARENT_HEAD_FIXTURE, frozenset()),
     ]
@@ -2852,8 +2827,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         findings = scan(path, include_tests=True)
         # The KIND is half the witness. A site names WHERE the gate looked; the
         # kind names WHICH RULE answered, and the two are independent: deleting
-        # three names from `_STR_ERR_VAR_NAMES` left every site in
-        # `str_remaining_err_var_names.cljc` still firing — as
+        # three names from `_STR_ERR_VAR_NAMES` would leave every site in
+        # `str_remaining_err_var_names.cljc` firing — as
         # `builder-bypass-message` instead, since a bare `(str err-kw)` message
         # carries no token either. Same lines, same count, same site names, a
         # detector dead. Only the kind tells them apart.
@@ -2910,11 +2885,9 @@ def _crosses_head(text: str, head: str) -> bool:
 def _run_roster_self_tests(verbose: bool = False) -> int:
     """Hold every roster entry to owning a case. Returns the failure count.
 
-    This is the assertion the fixtures could not make for themselves. Ten of the
-    sixteen `_VECTOR_BINDER_HEADS`, thirteen of the nineteen `_TRANSPARENT_HEADS`
-    and three of the five `_STR_ERR_VAR_NAMES` had no case at all, so each could
-    be deleted from its roster — or arrive misspelled — with the whole self-test
-    still green (rf2-n6ijg).
+    This is the assertion the fixtures cannot make for themselves. An entry
+    with no case at all could be deleted from its roster — or arrive
+    misspelled — with the whole self-test still green.
     """
     failures = 0
     rosters: tuple[tuple[str, tuple[str, ...], tuple[str, ...], str], ...] = (
@@ -2964,16 +2937,15 @@ def _run_roster_self_tests(verbose: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------
-# WHERE-SYM self-tests (rf2-z5lv)
+# WHERE-SYM self-tests
 # --------------------------------------------------------------------------
 #
 # EVERY CASE PINS LINE NUMBERS, NOT COUNTS. A count cannot separate "found the
-# right sites" from "traded a real hit for a false positive", and the sibling
-# gate in this directory shipped for a week matching only one of five
-# reader-equivalent call spellings with its own self-test green throughout —
-# because every fixture it had used that one spelling (audit #9491, repaired by
-# #9496 with exactly this change). The fixtures here therefore vary the call
-# head five ways, and the assertions read `(line, kind, symbol)`.
+# right sites" from "traded a real hit for a false positive", and a gate that
+# matches only one of five reader-equivalent call spellings keeps its own
+# self-test green if every fixture uses that one spelling. The fixtures here
+# therefore vary the call head five ways, and the assertions read
+# `(line, kind, symbol)`.
 
 _WHERE_SYM_FIXTURE_ROOT = _SELF_TEST_FIXTURE_ROOT / "wheresym"
 _WHERE_SYM_POSITIVE = "positive_where_syms.cljc"
@@ -3014,36 +2986,36 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
 
     # ---- the ORACLE itself: which definition shapes are public --------------
     #
-    # Asserted as an EXACT set. Each entry is a shape that has been got wrong:
-    # `^:no-doc` is the manifest-oracle refutation, the two platform arms are
-    # the runtime question, and `Panel` / `imported-fn` are the two
-    # var-defining macros that do not begin `def` — both of which this parser
-    # missed until the manifest control caught them. `do-defined-public` is the
-    # valid exit-0 control for the audit-#9501 repair: dropping `comment` from
-    # `_TRANSPARENT_DEF_WRAPPERS` must not cost the wrapper that really is
-    # transparent.
+    # Asserted as an EXACT set. Each entry is a shape that is easy to get
+    # wrong: `^:no-doc` is why the manifest cannot be the oracle, the two
+    # platform arms are the runtime question, and `Panel` / `imported-fn` are
+    # the two var-defining macros that do not begin `def` — shapes a parser
+    # misses unless the manifest control catches them. `do-defined-public` is
+    # the valid exit-0 control for keeping `comment` out of
+    # `_TRANSPARENT_DEF_WRAPPERS`: that must not cost the wrapper that really
+    # is transparent.
     #
     # THE ABSENCES ARE HALF THE ASSERTION, and this is the only place that can
     # make them: three privacy spellings, a `defmethod`, the four inactive
     # forms (`comment`, `#_`, `'`, `` ` ``), the discard nested in the live
-    # `do`, and — audit #9511's residual — the six names behind a COMPOSED
-    # reader prefix (`#_#?`, `'#?`, `` `#? ``, `#_#?@` and both halves of a
-    # stacked `#_#_`). The manifest control cannot stand in for it —
-    # `oracle_problems` is a SUBSET test, so it catches public names the parser
-    # has stopped seeing and is blind to fictitious ones it has started
-    # inventing, which is exactly the direction `comment` failed in.
+    # `do`, and the six names behind a COMPOSED reader prefix (`#_#?`, `'#?`,
+    # `` `#? ``, `#_#?@` and both halves of a stacked `#_#_`). The manifest
+    # control cannot stand in for it — `oracle_problems` is a SUBSET test, so
+    # it catches public names the parser has stopped seeing and is blind to
+    # fictitious ones it has started inventing, which is exactly the direction
+    # a `comment` wrapper would fail in.
     #
-    # `conditional-defined-public` is the twin that keeps the repair honest in
-    # the other direction: the oracle fixture writes it as a LIVE `#?(…)` with
-    # a body identical to the discarded one, so an inert-set widened until it
-    # swallows reader-conditionals costs this name and the exact set says so.
+    # `conditional-defined-public` is the twin that keeps the prefix rule
+    # honest in the other direction: the oracle fixture writes it as a LIVE
+    # `#?(…)` with a body identical to the discarded one, so an inert-set
+    # widened until it swallows reader-conditionals costs this name and the
+    # exact set says so.
     #
-    # The three `splice-…-public` names are audit #9515's residual and they
-    # are the only entries here that guard the FALSE-RED direction: each is
-    # defined by a LIVE `#?@` inside a collection, which the composed-prefix
-    # repair consumed as though it were an illegal top-level splice. A name
-    # MISSING from this set is the failure they pin, where every other entry
-    # pins a fictitious one being present.
+    # The three `splice-…-public` names are the only entries here that guard
+    # the FALSE-RED direction: each is defined by a LIVE `#?@` inside a
+    # collection, which a walker consuming every `#?@` would treat as an
+    # illegal top-level splice. A name MISSING from this set is the failure
+    # they pin, where every other entry pins a fictitious one being present.
     expected_publics = {
         "known-var", "known-public", "known-macro", "known-multi",
         "no-doc-public", "cljs-only-public", "clj-only-public",
@@ -3085,7 +3057,7 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
     # over source text instead. The inside-a-collection half is asserted BOTH
     # ways: here, and by the three `splice-…-public` names above.
     #
-    # THESE ARE ADVERSARIAL AGAINST THE REPAIR ITSELF, which is what the file
+    # THESE ARE ADVERSARIAL AGAINST THE POSITIONAL RULE ITSELF, which the file
     # fixtures cannot be. Delete the `at_reader_top_level` flag and descend
     # into every `#?@`, and every fixture file still passes — the live twins
     # resolve, and the discarded twin stays inert because `#_` neutralises it
@@ -3147,7 +3119,7 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             (121, "where-sym-unresolvable", "rf.fixture/foreign-multi"),
             # (3) a var that exists only inside an INACTIVE form. Each name is
             # defined in the oracle fixture and NOWHERE ELSE, so a generous
-            # oracle greens exactly these five (audit #9501).
+            # oracle greens exactly these five.
             (139, "where-sym-unresolvable", "rf.fixture/ghost-in-comment"),
             (145, "where-sym-unresolvable", "rf.fixture/ghost-discarded"),
             (151, "where-sym-unresolvable", "rf.fixture/ghost-quoted"),
@@ -3161,23 +3133,22 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             (188, "where-sym-unresolvable", "rf.fixture/ghost-comma-two"),
             (194, "where-sym-unresolvable", "rf.fixture/ghost-comma-three"),
             (200, "where-sym-unresolvable", "rf.fixture/ghost-comma-four"),
-            # (5) the `:where` slot as the map's LAST entry — not a comma bug,
-            # found by the control for one.
+            # (5) the `:where` slot as the map's LAST entry — a separate trap
+            # from the comma rule, beside it because the two look alike.
             (217, "where-sym-unresolvable", "rf.fixture/ghost-slot-last"),
-            # (6) COMMAS AS THE SOLE SEPARATOR. These two exist because a
-            # sabotage plant reverting `_is_clj_ws` came back GREEN over every
-            # case in (4): each of those writes a comma beside whitespace, and
-            # `_clj_strip` alone recovers that, so the splitter's own notion of
-            # reader whitespace went untested. The fixtures had the pattern's
-            # blind spot, which is the failure this gate's audit was about.
+            # (6) COMMAS AS THE SOLE SEPARATOR. Every case in (4) writes a
+            # comma beside whitespace, and `_clj_strip` alone recovers that, so
+            # with only those a sabotage plant reverting `_is_clj_ws` would stay
+            # GREEN and the splitter's own notion of reader whitespace would go
+            # untested — fixtures sharing the pattern's blind spot.
             (233, "where-sym-unresolvable", "rf.fixture/ghost-comma-five"),
             (236, "where-sym-unresolvable", "rf.fixture/ghost-comma-six"),
-            # (7) COMPOSED READER PREFIXES — audit #9511's residual. The first
-            # repair read the ONE character before the `(`, which is `?` for
-            # both `#_#?(…)` and `'#?(…)`; the stacked `#_#_ a b` it could not
-            # reach at all, because nothing stands behind the second form but
-            # the one the first discard consumed. Each name is defined in the
-            # oracle fixture behind its prefix and NOWHERE ELSE, and stripping
+            # (7) COMPOSED READER PREFIXES. A one-character look-back before
+            # the `(` sees `?` for both `#_#?(…)` and `'#?(…)`, and cannot reach
+            # the stacked `#_#_ a b` at all, because nothing stands behind the
+            # second form but the one the first discard consumed. Each name is
+            # defined in the oracle fixture behind its prefix and NOWHERE
+            # ELSE, and stripping
             # that prefix makes the form define its var for real — so the
             # prefix is the only thing under test here.
             (254, "where-sym-unresolvable",
@@ -3190,20 +3161,19 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
              "rf.fixture/ghost-discarded-splice"),
             (279, "where-sym-unresolvable", "rf.fixture/ghost-stacked-first"),
             (285, "where-sym-unresolvable", "rf.fixture/ghost-stacked-second"),
-            # (8) a DISCARDED `do` around a live-looking splice — audit
-            # #9515. Its three LIVE twins resolve in the negative fixture and
-            # are pinned OBSERVED there; this is the half that must FIRE, and
-            # the pair is what separates "the splice repair is positional"
-            # from "the walker descends into every `#?@` it meets".
+            # (8) a DISCARDED `do` around a live-looking splice. Its three
+            # LIVE twins resolve in the negative fixture and are pinned
+            # OBSERVED there; this is the half that must FIRE, and the pair is
+            # what separates "the splice rule is positional" from "the walker
+            # descends into every `#?@` it meets".
             (299, "where-sym-unresolvable", "rf.fixture/ghost-splice-discarded"),
-            # (9) FORM 3 — rf2-uewm. Every one of these three was GREEN before
-            # the widening, and not because it resolved: `where_sym_findings`
-            # skipped every slash-free symbol BEFORE consulting the namespace
-            # index, so `'rf.ssr.emit` and `'rf.ssr.does-not-exist` were
-            # treated identically. The dotted spelling did not make the
-            # convention self-enforcing, it made it UNCHECKABLE.
+            # (9) FORM 3. A grader that skipped every slash-free symbol BEFORE
+            # consulting the namespace index would green all three without
+            # resolving them, treating `'rf.ssr.emit` and
+            # `'rf.ssr.does-not-exist` identically — the dotted spelling would
+            # make the convention UNCHECKABLE rather than self-enforcing.
             #
-            # The first is the load-bearing one and the reason the ruled
+            # The first is the load-bearing one and the reason the contract's
             # spelling is the FULL namespace: `rf.fixture` is the require-alias
             # of a namespace that really exists as `re-frame.fixture`, and its
             # resolving twin is pinned OBSERVED in the negative fixture.
@@ -3249,33 +3219,32 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
             "— zero findings over zero observations is what a dead scan looks like."
         )
 
-    # THE COUNT ABOVE IS NOT THE ASSERTION FOR THE READER-EQUIVALENT SITES, and
-    # this is the whole lesson of audit #9501. A resolving site is GREEN when it
-    # is seen and green again when it has VANISHED, so the pair (fires in the
-    # positive fixture, resolves here) proves nothing unless this half is pinned
-    # as OBSERVED. Pinned by LINE, not by count: a count cannot separate "found
-    # the right ones" from "traded a real hit for a false positive", which is
-    # why `:min-where-syms` at 173 against 193 observed could not have caught a
-    # single lost call.
+    # THE COUNT ABOVE IS NOT THE ASSERTION FOR THE READER-EQUIVALENT SITES. A
+    # resolving site is GREEN when it is seen and green again when it has
+    # VANISHED, so the pair (fires in the positive fixture, resolves here)
+    # proves nothing unless this half is pinned as OBSERVED. Pinned by LINE,
+    # not by count: a count cannot separate "found the right ones" from "traded
+    # a real hit for a false positive", which is why `:min-where-syms`, sitting
+    # below the observed population, cannot catch a single lost call.
     required_observations = (
         (133, "builder", "rf.fixture/do-defined-public"),
         (146, "builder", "rf.fixture/known-public"),
         (152, "builder", "rf.fixture/known-public"),
         (158, "where-slot", "rf.fixture/known-public"),
         (164, "where-slot", "rf.fixture/known-public"),
-        # commas as the SOLE separator — the spelling a green sabotage plant
-        # proved the pair above could not reach.
+        # commas as the SOLE separator — the spelling the pair above cannot
+        # reach.
         (175, "builder", "rf.fixture/known-public"),
         (178, "where-slot", "rf.fixture/known-public"),
         # a LIVE reader-conditional, body-for-body the twin of the oracle
         # fixture's discarded one. Green here alone would also be what a
         # detector blind to the whole site looks like, so it is pinned SEEN.
         (190, "builder", "rf.fixture/conditional-defined-public"),
-        # THE THREE LIVE SPLICING TWINS — audit #9515, and the direction is
-        # reversed here. Everywhere else in this tuple an OBSERVED pin guards
-        # a site going UNSEEN; these three guard the gate REPORTING them,
-        # because each names a var a live `#?@` really does intern and the
-        # composed-prefix repair had stopped seeing. Green here alone would
+        # THE THREE LIVE SPLICING TWINS, and the direction is reversed here.
+        # Everywhere else in this tuple an OBSERVED pin guards a site going
+        # UNSEEN; these three guard the gate REPORTING them, because each names
+        # a var a live `#?@` really does intern, which a walker consuming every
+        # `#?@` would stop seeing. Green here alone would
         # equally be what a detector blind to the whole site looks like, so
         # they are pinned SEEN, and their discarded twin fires in the
         # positive fixture. The third resolves ONLY because the oracle is
@@ -3283,15 +3252,14 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
         (210, "builder", "rf.fixture/splice-in-do-public"),
         (216, "builder", "rf.fixture/splice-in-conditional-do-public"),
         (222, "builder", "rf.fixture/splice-cljs-only-public"),
-        # FORM 3 AND FORM 2 — rf2-uewm, and the direction is the reversed one
-        # again. These four are green for two DIFFERENT reasons, and neither
-        # reason is visible in a findings assertion: the first names a real
-        # namespace, the middle two are sanctioned event ids that are not vars
-        # at all, and the last is a third-party namespace the oracle has no
-        # opinion about. Every one of them was ALSO green before the widening,
-        # when slash-free symbols were skipped outright — so without an
-        # OBSERVED pin this whole block would re-pass under the very defect it
-        # was written to close.
+        # FORM 3 AND FORM 2, and the direction is the reversed one again.
+        # These four are green for DIFFERENT reasons, and no reason is visible
+        # in a findings assertion: the first names a real namespace, the
+        # middle two are sanctioned event ids that are not vars at all, and
+        # the last is a third-party namespace the oracle has no opinion about.
+        # Every one of them would ALSO be green if slash-free symbols were
+        # skipped outright — so without an OBSERVED pin this whole block would
+        # pass under the very defect it exists to catch.
         (243, "builder", "re-frame.fixture"),
         (249, "builder", "rf.resource/invalidate-tags"),
         (255, "builder", "rf.mutation/execute"),
@@ -3389,14 +3357,14 @@ def _run_where_sym_self_tests(verbose: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------
-# THE SUMMARY'S OWN HONESTY (rf2-uewm, audit of PR #9550)
+# THE SUMMARY'S OWN HONESTY
 # --------------------------------------------------------------------------
 #
 # These pin what `--verbose` SAYS about its coverage, which is a different
-# assertion from the findings pinned above and was the half nothing covered.
-# The gate validated the three ruled forms correctly and then described two of
-# them as unchecked — a green run reporting less coverage than it had, which no
-# findings test can see, because the findings were right.
+# assertion from the findings pinned above. A gate can validate the three
+# accepted forms correctly and still describe two of them as unchecked — a
+# green run reporting less coverage than it has, which no findings test can
+# see, because the findings are right.
 #
 # THE PIN IS THE CHECKED/SKIPPED SPLIT, NOT THE PROSE. Wording may be improved;
 # what may not drift is a shape the grader GRADES being reported as let past.
@@ -3414,8 +3382,9 @@ def _run_where_sym_summary_self_tests(verbose: bool = False) -> int:
 
     # One representative per disposition, each graded by the real classifier.
     # `re-frame.fixture` is FORM 3 against the fixture oracle: a slash-free
-    # dotted symbol naming a namespace that exists. Before this repair it was
-    # counted "unqualified and therefore uncheckable" while being checked.
+    # dotted symbol naming a namespace that exists. A summary that looked for
+    # a `/` would count it "unqualified and therefore uncheckable" while it is
+    # checked.
     cases = (
         ("public-var", "rf.fixture/known-public"),
         ("event-id", "rf.resource/invalidate-tags"),
@@ -3449,7 +3418,7 @@ def _run_where_sym_summary_self_tests(verbose: bool = False) -> int:
             )
 
     # EVERY observed site lands in one half or the other. Without this a new
-    # disposition could be graded and reported nowhere, which is the original
+    # disposition could be graded and reported nowhere, which is the same
     # defect wearing a different shape.
     sites = [
         WhereSym(Path("<probe>"), n, symbol, "where-slot", "")
@@ -3475,21 +3444,21 @@ def _run_where_sym_summary_self_tests(verbose: bool = False) -> int:
     if missing:
         fail(f"disposition(s) with no `--verbose` label: {missing}")
 
-    # THE SUCCESS SENTENCE. It promised a "reachable var" for a contract that
-    # accepts two non-var forms, so it is pinned against the ruling's own three
-    # spellings rather than against its exact prose.
+    # THE SUCCESS SENTENCE. A "reachable var" promise would misdescribe a
+    # contract that accepts two non-var forms, so it is pinned against the
+    # contract's own three spellings rather than against its exact prose.
     for phrase in ("public var", "reserved event id", "full namespace"):
         if phrase not in _WHERE_SYM_SUCCESS:
             fail(f"the success line does not name the accepted form {phrase!r}")
     if "reachable var" in _WHERE_SYM_SUCCESS:
         fail(
-            "the success line still promises a 'reachable var'; the ruled "
+            "the success line promises a 'reachable var'; the "
             "contract is public var | reserved event id | full namespace"
         )
     if verbose and not failures:
         sys.stderr.write(
             "where-sym summary self-test PASS: the success line names all "
-            "three ruled forms\n"
+            "three accepted forms\n"
         )
     return failures
 
@@ -3498,10 +3467,9 @@ def _run_where_sym_baseline_self_tests(verbose: bool = False) -> int:
     """The RATCHET, whose two keys move in opposite directions.
 
     Exercised directly rather than through the CLI so both directions can be
-    asserted without writing a file. The sibling ratchet's `--write-baseline`
-    shipped rewriting every floor to the current count, so the repair command
-    its own header advertised silently BLESSED regressions; these cases are
-    what stop that being rediscovered here.
+    asserted without writing a file. A `--write-baseline` that rewrote every
+    floor to the current count would make the repair command the header
+    advertises silently BLESS regressions; these cases are what stop that.
     """
     failures = 0
 
@@ -3624,15 +3592,15 @@ def _run_where_sym_baseline_self_tests(verbose: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------
-# CLI-level self-tests (rf2-un9fk) — the scan-ROOT validation, which the
+# CLI-level self-tests — the scan-ROOT validation, which the
 # fixture cases above cannot reach (they call `scan()` directly, bypassing
 # argument handling entirely).
 # --------------------------------------------------------------------------
 #
 # The fixture cases prove the DETECTOR. These prove the gate RUNS OVER WHAT IT
-# SAYS IT DOES. A root that resolves to an existing regular file used to pass
-# validation, scan zero files, and print the success verdict — a gate reporting
-# green for work it never did. `main()` is exercised end-to-end (parse → validate
+# SAYS IT DOES. A root that resolves to an existing regular file, if it passed
+# validation, would scan zero files and print the success verdict — a gate
+# reporting green for work it never did. `main()` is exercised end-to-end (parse → validate
 # → scan → verdict) so the exit code IS the assertion, matching how CI reads
 # this script.
 
@@ -3651,7 +3619,7 @@ def _run_cli_self_tests(verbose: bool = False) -> int:
          ["--scan-dir", _CLI_NEGATIVE_FIXTURE_DIR], 0),
         ("missing path is rejected",
          ["--scan-dir", "no/such/tree"], 2),
-        ("existing FILE is rejected (rf2-un9fk)",
+        ("existing FILE is rejected",
          ["--scan-dir", "README.md"], 2),
         ("mixed valid dir + file fails the WHOLE invocation",
          ["--scan-dir", _CLI_NEGATIVE_FIXTURE_DIR, "--scan-dir", "README.md"], 2),
