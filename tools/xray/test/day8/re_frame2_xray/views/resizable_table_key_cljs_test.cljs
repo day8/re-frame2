@@ -1,19 +1,19 @@
 (ns day8.re-frame2-xray.views.resizable-table-key-cljs-test
-  "rf2-fcy5 — the shared resizable-table's React keys must ride the
+  "The shared resizable-table's React keys must ride the
   ATTRIBUTE MAP, not Clojure metadata.
 
-  ## What is being pinned, and why it is not the rf2-hxfy defect
+  ## What is being pinned
 
-  rf2-hxfy fixed `^{:key …}` sitting on a CALL form, where the reader
-  meta attaches to the source list and the returned value carries none
-  of it — those keys reached React on NO substrate. These seven sites
-  are the OTHER half of the class: `with-meta` on a vector LITERAL,
-  which Reagent DOES honour (`reagent.impl.template` reads meta first,
-  the props map second). So they work today, and moving them is a no-op
-  today.
+  `^{:key …}` sitting on a CALL form attaches the reader meta to the
+  source list and the returned value carries none of it — such keys
+  reach React on NO substrate. The widget's keyed sites are the OTHER
+  half of the class: `with-meta` on a vector LITERAL, which Reagent DOES
+  honour (`reagent.impl.template` reads meta first, the props map
+  second). Under Reagent alone, a meta key and an attrs-map key
+  therefore behave the same.
 
-  They stop working, silently, the moment this shared widget renders
-  under a Fresco boundary. `re-frame.fresco.impl.codec`'s component-ABI
+  A meta key stops working, silently, the moment this shared widget
+  renders under a Fresco boundary. `re-frame.fresco.impl.codec`'s component-ABI
   table (HD-016) takes a literal `:key` from the ATTRIBUTE MAP for every
   head kind it accepts — native tag, `defview` boundary, host, fragment
   — and the words `meta` / `with-meta` do not occur anywhere in that
@@ -26,16 +26,16 @@
 
   Every key row below reads BOTH doors:
 
-    - `reagent-key` — `(.-key (r/as-element node))`, today's substrate.
-      This is the rf2-hxfy instrument, and against THIS defect it is
-      HOLLOW BY ITSELF: Reagent honours meta AND props, so it returns
-      the same key before and after the change. It is kept because it
-      is the half that pins the change as a NO-OP today.
+    - `reagent-key` — `(.-key (r/as-element node))`, the Reagent
+      substrate. Against THIS defect it is HOLLOW BY ITSELF: Reagent
+      honours meta AND props, so it returns the same key wherever the
+      key rides. It is the half that pins Reagent rendering as
+      indifferent to the placement.
 
     - `fresco-key` — `(.-key (rf.fresco.impl.codec/as-element node))`,
       the codec's own hiccup→element door, which reads what a Fresco
       boundary would actually commit. This is the half that goes RED
-      on a revert to `with-meta`, and so the half that makes these rows
+      on a `with-meta` key, and so the half that makes these rows
       a gate rather than a description.
 
   Asserting on `(:key (meta node))` would be hollow in both directions
@@ -43,17 +43,15 @@
   attrs-map key that works perfectly. `meta-is-not-where-the-key-lives`
   states that as an executable claim instead of a comment.
 
-  ## The gutter IS graded by the codec now (rf2-fcy5 slice 1b)
+  ## The gutter IS graded by the codec
 
-  It was not, at slice 1: `[header-gutter {…}]` was a plain `defn` in
-  head position, which the codec grades `:invalid` and refuses outright,
-  so its key could only be read at the Reagent door and out of the props
-  map. Slice 1b retired the Form-2 hover Ratom that made it a component
-  at all — the hover paint is a CSS rule keyed on the gutter's own
-  `data-testid` — so `header-gutter` is now a pure fn CALLED like
-  `body-spacer`, there is no head to refuse, and the gutter's key rides
-  the emitted div's attrs map like every other woven node. It is graded
-  at BOTH doors below.
+  `header-gutter` holds no Form-2 hover Ratom — the hover paint is a CSS
+  rule keyed on the gutter's own `data-testid` — so it is a pure fn
+  CALLED like `body-spacer`, there is no head to refuse, and the
+  gutter's key rides the emitted div's attrs map like every other woven
+  node. It is graded at BOTH doors below. As a component,
+  `[header-gutter {…}]` would be a plain `defn` in head position, which
+  the codec grades `:invalid` and refuses outright.
 
   ## The helper's three cases
 
@@ -70,8 +68,8 @@
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            ;; rf2-fcy5 slice 1b — the gutter's hover paint is a global CSS
-            ;; rule now, so its selector is part of this widget's contract
+            ;; The gutter's hover paint is a global CSS
+            ;; rule, so its selector is part of this widget's contract
             ;; and is pinned here beside the markup it selects on.
             [day8.re-frame2-xray.theme.global-styles :as gs]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
@@ -177,16 +175,16 @@
 ;; ---- (1) header cells reach BOTH renderers with keys ---------------------
 
 (deftest header-cells-reach-both-renderers-with-keys
-  (testing "rf2-fcy5 — the three header cells carry their key where BOTH
+  (testing "the three header cells carry their key where BOTH
             substrates look. The Fresco reading is the one that goes red
-            on a revert to `with-meta`; the Reagent reading pins the
-            change as a no-op today."
+            on a `with-meta` key; the Reagent reading pins Reagent as
+            indifferent to where the key rides."
     (xray-setup!)
     (let [woven (header-woven (render (three-column-opts {})))
           cells (vec (take-nth 2 woven))]
       (is (= 5 (count woven)) "3 header cells interleaved with 2 gutters")
       (is (= ["h-a" "h-b" "h-c"] (mapv reagent-key cells))
-          "REAGENT — unchanged by this fix, and that is the point")
+          "REAGENT — indifferent to where the key rides, and that is the point")
       (is (= ["h-a" "h-b" "h-c"] (mapv fresco-key cells))
           "FRESCO — reads nil for every one of these under `with-meta`")
       (is (= 3 (count (distinct (mapv fresco-key cells))))
@@ -195,12 +193,11 @@
 ;; ---- (2) gutters: a CALLED pure fn, graded at BOTH doors ----------------
 
 (deftest header-gutters-reach-both-renderers-with-keys
-  (testing "rf2-fcy5 slice 1b — the gutter is no longer a head. Retiring
-            its Form-2 hover Ratom made `header-gutter` a pure fn, so
-            `weave-header` CALLS it and what lands in the woven seq is the
-            gutter's own `[:div …]`, keyed in its attrs map and gradeable
-            at the Fresco door like every other node. At slice 1 this row
-            could only read the Reagent door and the props map."
+  (testing "the gutter is not a head. Holding no Form-2 hover Ratom,
+            `header-gutter` is a pure fn, so `weave-header` CALLS it and
+            what lands in the woven seq is the gutter's own `[:div …]`,
+            keyed in its attrs map and gradeable at the Fresco door like
+            every other node."
     (xray-setup!)
     (let [woven   (header-woven (render (three-column-opts {})))
           gutters (vec (take-nth 2 (rest woven)))]
@@ -220,14 +217,14 @@
       (is (every? #(and (not (contains? (nth % 1) :on-pointer-enter))
                         (not (contains? (nth % 1) :on-pointer-leave)))
                   gutters)
-          "THE RETIREMENT ROW — the hover handlers the Ratom needed are
-           gone; the paint is CSS now"))))
+          "NO HOVER HANDLERS — a hover Ratom would need them; the paint
+           is CSS"))))
 
 ;; ---- (2b) the hover paint is stateless, and the CSS is its other half ---
 
 (deftest gutter-carries-no-hover-state
-  (testing "rf2-fcy5 slice 1b — the gutter renders ONE style regardless of
-            pointer state, because there is no state left to render from.
+  (testing "the gutter renders ONE style regardless of
+            pointer state, because there is no state to render from.
             Two independent renders of the same table produce byte-equal
             gutter nodes bar their handler identities; the style map is
             the transparent base, never an accent fill."
@@ -244,8 +241,8 @@
           "the always-visible affordance signal stays inline"))))
 
 (deftest global-styles-paints-the-gutter-hover
-  (testing "rf2-fcy5 slice 1b — the OTHER half of the retirement. The
-            hover affordance is now a global CSS rule keyed on the
+  (testing "the OTHER half of the stateless gutter. The
+            hover affordance is a global CSS rule keyed on the
             gutter's `data-testid` prefix, so this row pins the selector,
             the accent token, and the `!important` WITHOUT which the
             gutter's inline `background: transparent` would win and the
@@ -262,14 +259,14 @@
           "accent token + !important — the inline `background: transparent`
            beats a stylesheet rule without it")
       (is (str/includes? css "[data-testid^=\"rf-xray-event-list-col-divider-\"]:hover")
-          "the sibling rule this one was modelled on is still there — a
+          "the sibling rule this one mirrors is present — a
            control, so a broken read of `motion-css` cannot pass this
            test vacuously"))))
 
 ;; ---- (3) body cells + spacers reach BOTH renderers with keys ------------
 
 (deftest body-cells-and-spacers-reach-both-renderers-with-keys
-  (testing "rf2-fcy5 — every woven body node (3 cells + 2 spacers) on
+  (testing "every woven body node (3 cells + 2 spacers) on
             every row carries its key in the attrs map."
     (xray-setup!)
     (let [rows (body-rows (render (three-column-opts {})))]
@@ -287,7 +284,7 @@
 ;; ---- (4) row wrappers reach BOTH renderers with the consumer's key ------
 
 (deftest row-wrappers-reach-both-renderers-with-keys
-  (testing "rf2-fcy5 — the row weaver's own key (the consumer's
+  (testing "the row weaver's own key (the consumer's
             `:row-key`) reaches both doors, on the default path AND on
             the `:row-extras` path, which builds a different wrapper."
     (xray-setup!)
@@ -333,7 +330,7 @@
            :row-cells shape-cells}))
 
 (deftest consumer-cell-shapes-reach-react-with-keys
-  (testing "rf2-fcy5 — `:row-cells` is the CONSUMER's fn, so a woven cell
+  (testing "`:row-cells` is the CONSUMER's fn, so a woven cell
             may or may not carry an attrs map. Every VECTOR shape reaches
             both renderers with its key; the non-vector is returned
             untouched, because it has no attrs map to reach and wrapping
@@ -351,7 +348,7 @@
           "a non-vector cell is returned untouched"))))
 
 (deftest consumer-cell-children-survive-the-key-injection
-  (testing "rf2-fcy5 — the guard against `(assoc-in cell [1 :key] k)`. On
+  (testing "the guard against `(assoc-in cell [1 :key] k)`. On
             `[:span \"txt\"]` that expression REPLACES the string child
             with a map and the text vanishes with nothing thrown. These
             rows pin that each shape's own children survive."
@@ -364,18 +361,18 @@
           "a vector with no attrs map gains one")
       (is (= [:span {:key "c-string"} "txt"] (nth cells 2))
           "THE REGRESSION ROW — the string child survives; assoc-in would
-           have deleted it")
+           delete it")
       (is (= [:div {:key "c-nested"} [:span "nested"]] (nth cells 3))
           "a nested-vector child survives and is not mistaken for attrs"))))
 
 ;; ---- (6) the hollow-gate claim, stated executably -----------------------
 
 (deftest meta-is-not-where-the-key-lives
-  (testing "rf2-fcy5 — the reason no row above asserts on `(meta …)`.
-            After this change the key rides the attrs map, so `(meta
+  (testing "the reason no row above asserts on `(meta …)`.
+            The key rides the attrs map, so `(meta
             node)` carries NO key while both renderers receive one. A
             metadata assertion would therefore FAIL on correct code —
-            and, before the change, PASSED on keys Fresco reads nowhere.
+            and PASS on a meta key Fresco reads nowhere.
             Hollow in both directions."
     (xray-setup!)
     (let [cell (first (header-woven (render (three-column-opts {}))))]
