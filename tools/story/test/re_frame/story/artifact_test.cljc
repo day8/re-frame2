@@ -1,6 +1,6 @@
 (ns re-frame.story.artifact-test
   "Tests for the `:rf.test/run-artifact` schema + `replay-run-artifact`
-  (rf2-5x1wt.7, spec/017-Testing-Story.md §Run artifact and replay).
+  (spec/017-Testing-Story.md §Run artifact and replay).
 
   Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
   build:
@@ -12,7 +12,7 @@
   - HEADLESS replay (against a live frame): `replay-run-artifact` replays
     the dispatch program into a FRESH frame, reapplies fx
     decisions/overrides, captures a NEW epoch tape, and returns the
-    shared run-result shape (the §A3 acceptance bullets)."
+    shared run-result shape."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core   :as rf]
             [re-frame.epoch  :as rf.epoch]
@@ -217,13 +217,13 @@
   (testing "a richer adapter's :dispatch! is INVOKED (not bypassed) when
             fx-decisions are present — the fx reapplication WRAPS the supplied
             :dispatch! and routes the overrides through it, rather than
-            short-circuiting to dispatch-sync! directly (rf2-y5396).
+            short-circuiting to dispatch-sync! directly.
 
-            Pre-fix: replay-flush-hooks called dispatch-sync! directly on the
-            fx-decisions branch and never touched `inner`, so a richer
-            (:dom / :cljs-reactive) adapter's enqueue + flush path was
-            silently skipped — this probe would record no call. Post-fix: the
-            probe :dispatch! runs AND the fx-overrides still apply."
+            Calling dispatch-sync! directly on the fx-decisions branch would
+            never touch `inner`, so a richer (:dom / :cljs-reactive)
+            adapter's enqueue + flush path would be silently skipped — this
+            probe would record no call. The probe :dispatch! runs AND the
+            fx-overrides still apply."
     (let [dispatch-calls (atom [])
           dispatch-opts  (atom [])
           fx-hits        (atom [])]
@@ -240,7 +240,7 @@
             ;; RECORDS it was invoked, then delegates to the real headless
             ;; drain so the replay still settles. `:provides :headless` so the
             ;; settled-boundary does not refuse the bare [:dispatch …] step.
-            ;; The optional 3-arity carries the EP-0017 dispatch opts (rf2-srgvzp)
+            ;; The optional 3-arity carries the EP-0017 dispatch opts
             ;; — the same shape the boundary's 6-arity threads — so we can also
             ;; confirm the replay's strict mint policy rides the adapter path.
             probe-hooks {:provides  :headless
@@ -279,12 +279,13 @@
       (is (not= (:frame r1) (:frame r2)) "distinct fresh frames"))))
 
 (deftest replay-result-is-canonicalizable
-  (testing "the replay result feeds cleanly through the .3 canonicalize /
+  (testing "the replay result feeds cleanly through the canonicalize /
             run-hash path — the result is stable + canonicalizable so the
-            determinism gate (.8) + semantic diff (.9) build on it. (Cross-
-            run run-hash EQUALITY is .8's concern: it owns stripping the
-            per-frame epoch ids from the tape; this bead pins only that the
-            result canonicalizes deterministically and run-hash is stable.)"
+            determinism gate + semantic diff build on it. (Cross-run
+            run-hash EQUALITY is the determinism gate's concern: it owns
+            stripping the per-frame epoch ids from the tape; this test pins
+            only that the result canonicalizes deterministically and
+            run-hash is stable.)"
     (rf/reg-event :rep/seed (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
     (let [a   (rf.story.artifact/replay-run-artifact
                 (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:rep/seed]]]}))
@@ -294,12 +295,12 @@
       (is (= h (rf.story.fingerprint/run-hash a)) "run-hash is idempotent on one result")
       (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize a))
           "canonicalize is deterministic on the result"))
-    (testing "canonicalize strips the volatile top-level slots .3 enumerates"
+    (testing "canonicalize strips the volatile top-level slots"
       (let [res {:status :pass :app-db {:n 1}
                  :elapsed-ms 42 :runner :headless :variant/id :x :plan-hash "ab"}
             c   (rf.story.fingerprint/canonicalize res)
             ;; canonical-form renders a map as `[:rf/map [k v k v …]]` — the
-            ;; rf2-lvrqa structural type-tag — so the flattened entries live
+            ;; structural type-tag — so the flattened entries live
             ;; under the tag's payload vector `(second c)`.
             [tag entries] c
             ks  (set (take-nth 2 entries))]
@@ -323,20 +324,20 @@
           "the caller-supplied frame is NOT destroyed"))))
 
 ;; ===========================================================================
-;; rf2-moftbs — exact-incarnation teardown of the replay-allocated frame
+;; Exact-incarnation teardown of the replay-allocated frame
 ;; ===========================================================================
 
 (deftest replay-teardown-is-incarnation-exact
   (testing "replay-run-artifact tears down the frame VALUE it created (carrying
             the exact incarnation token), NOT the bare frame-id keyword — so a
             same-id successor seated before teardown is left alive rather than
-            reaped while the run still reads :pass (rf2-moftbs)"
+            reaped while the run still reads :pass"
     (rf/reg-event :rep/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
     (let [real-destroy    rf/destroy-frame!
           teardown-target (atom ::none)]
       ;; Spy on the facade destroy the replay's `finally` calls. A clean replay
       ;; issues exactly ONE facade `rf/destroy-frame!` — the own-frame teardown —
-      ;; and (post-fix) it hands over the frame VALUE, not the bare gensym id.
+      ;; and it hands over the frame VALUE, not the bare gensym id.
       (with-redefs [rf/destroy-frame!
                     (fn [target & more]
                       (when (and (= ::none @teardown-target)
@@ -358,7 +359,7 @@
 
 ;; ===========================================================================
 ;; EP-0017: recordable-coeffect envelopes survive run-artifact replay,
-;; replayed under STRICT mint policy by default (rf2-srgvzp)
+;; replayed under STRICT mint policy by default
 ;; ===========================================================================
 
 (deftest replay-delivers-recorded-cofx-verbatim
@@ -411,8 +412,7 @@
 (deftest replay-strict-bare-step-no-cofx-still-replays
   (testing "a bare [:dispatch evec] step with NO recorded envelope still
             replays under strict — the handler declares no recordable fact,
-            so strict mint policy is inert (zero ceremony, byte-identical to
-            the pre-EP-0017 path)"
+            so strict mint policy is inert (zero ceremony)"
     (rf/reg-event :rep/plain (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [a   (rf.story.artifact/make-run-artifact
                 {:event-program [[:dispatch [:rep/plain]] [:dispatch [:rep/plain]]]})
@@ -421,14 +421,14 @@
       (is (= 2 (:n (:app-db res))) "the bare dispatch program replayed unchanged"))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.31.1 — replay runs EVERY step, not only the dispatches
+;; Replay runs EVERY step, not only the dispatches
 ;; ===========================================================================
 ;;
-;; Replay used to run only the `[:dispatch …]` steps, so an `[:assert …]`
-;; checkpoint never evaluated and a `[:click …]` the headless runner cannot
-;; prove never refused: both read `:pass`, and so did every property and fault
-;; sweep judged by replay. The non-dispatch steps now run through the play
-;; runner's step executor, the one a live run uses.
+;; The non-dispatch steps run through the play runner's step executor, the
+;; one a live run uses. Running only the `[:dispatch …]` steps would leave an
+;; `[:assert …]` checkpoint unevaluated and a `[:click …]` the headless runner
+;; cannot prove unrefused: both would read `:pass`, and so would every
+;; property and fault sweep judged by replay.
 
 (defn- replay-program [program]
   (rf.story.artifact/replay-run-artifact
@@ -466,17 +466,16 @@
       (is (= [:rf.error/story-play-step-failed] (mapv :assertion (:assertions res)))))))
 
 ;; ===========================================================================
-;; rf2-0viz4 — tape-evaluated checkpoints get their verdict on replay
+;; Tape-evaluated checkpoints get their verdict on replay
 ;; ===========================================================================
 ;;
 ;; A `[:assert [:rf.assert/schema-error …]]` or causal checkpoint has no
 ;; handler: the step executor skips it and the result boundary owns its
-;; verdict. Replay used to skip it and never play that boundary role, so a
-;; missing expected violation and an unprovable causal claim both read
-;; `:pass` with no record, while a MATCHING expected violation stayed
-;; unconsumed and tripped the tape floor. `replay-result` now runs the
-;; program's tape-evaluated checkpoints through the result boundary's own
-;; matchers.
+;; verdict. `replay-result` runs the program's tape-evaluated checkpoints
+;; through the result boundary's own matchers. Skipping that boundary role
+;; would let a missing expected violation and an unprovable causal claim both
+;; read `:pass` with no record, while a MATCHING expected violation would stay
+;; unconsumed and trip the tape floor.
 
 (def ^:private schema-checkpoint
   [:assert [:rf.assert/schema-error {:where :event :event :rep/typed}]])
@@ -530,24 +529,23 @@
             "precondition: the headless replay carried no reactive evidence")))))
 
 ;; ===========================================================================
-;; :network route stubs survive replay (rf2-tymyh)
+;; :network route stubs survive replay
 ;; ===========================================================================
 ;;
 ;; The `:network` world slot (spec/017 §The network surface) lowers to a
 ;; `:fx-decisions` redirect (`{:rf.http/managed :rf.http/managed-test-stub}`)
-;; PLUS the per-route reply map at `[:world :network]`. Before rf2-tymyh the
-;; run artifact captured ONLY the redirect (via `:fx-decisions`), so a
-;; replayed `:network` variant reapplied the redirect to a stub fx that was
-;; never registered with the routes — every request fail-closed on "no stub
-;; matched" (http_test_support.cljc `stub-handler`'s :else branch), silently
-;; diverging from the original run. The fix threads `[:world :network]` into
-;; the artifact's `:network` slot (`rf.story.determinism/->artifact`) and re-installs
+;; PLUS the per-route reply map at `[:world :network]`. The artifact carries
+;; `[:world :network]` in its `:network` slot (`rf.story.determinism/->artifact`) and re-installs
 ;; those route stubs around the replay (`rf.story.artifact/with-network-stubs!`), so a
 ;; replayed request matches its route and synthesises the recorded reply.
+;; Capturing ONLY the redirect (via `:fx-decisions`) would reapply it to a
+;; stub fx never registered with the routes — every request would fail closed
+;; on "no stub matched" (http_test_support.cljc `stub-handler`'s :else
+;; branch), silently diverging from the original run.
 ;;
-;; FAIL-PRE / PASS-POST: drop the `:network` capture or the re-install and
-;; `:got` becomes the synthesised "no stub matched" transport failure instead
-;; of the recorded `:ok` / `:failure` reply.
+;; Drop the `:network` capture or the re-install and `:got` becomes the
+;; synthesised "no stub matched" transport failure instead of the recorded
+;; `:ok` / `:failure` reply.
 
 (defn- register-network-event!
   "Register a test event that issues a managed-HTTP request to `route`
@@ -583,13 +581,13 @@
     (let [routes {[:get "/api/cart"] {:reply {:ok {:items []}}}}
           art    (network-artifact routes [[:dispatch [:net/get-cart]]])]
       (is (= routes (:network art))
-          "the per-route reply map is carried on the artifact (rf2-tymyh)")
+          "the per-route reply map is carried on the artifact")
       (is (= {:rf.http/managed :rf.http/managed-test-stub} (:fx-decisions art))
-          "the managed-stub redirect rides :fx-decisions as before"))))
+          "the managed-stub redirect rides :fx-decisions"))))
 
 (deftest replay-reinstalls-network-success-route
   (testing "a replayed :network variant has its SUCCESS request matched by the
-            re-installed route stub — not fail-closed (rf2-tymyh)"
+            re-installed route stub — not fail-closed"
     (register-network-event! :net/get-cart [:get "/api/cart"])
     (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
           art    (network-artifact routes [[:dispatch [:net/get-cart]]])
@@ -598,14 +596,14 @@
       (is (= :pass (:status res)))
       (is (= :ok (:status got))
           "the re-installed route stub matched — NOT the 'no stub matched'
-           transport failure that fail-closes pre-fix")
+           transport failure that fails closed without the re-install")
       (is (= {:items [{:sku "A"}]} (:value got))
           "the synthesised reply carries the recorded route payload"))))
 
 (deftest replay-reinstalls-network-failure-route
   (testing "a replayed :network variant has its FAILURE request matched by the
             re-installed route stub — the recorded failure :kind, not a
-            'no stub matched' fail-closed transport failure (rf2-tymyh)"
+            'no stub matched' fail-closed transport failure"
     (register-network-event! :net/checkout [:post "/api/checkout"])
     (let [routes {[:post "/api/checkout"]
                   {:reply {:failure {:kind :rf.http/http-4xx :status 409}}}}
@@ -616,14 +614,15 @@
           "the re-installed route stub synthesised the recorded failure")
       (is (= :rf.http/http-4xx (get-in got [:error :kind]))
           "the recorded failure :kind survived — NOT :rf.http/transport
-           ('no stub matched'), which is what fail-closes pre-fix")
+           ('no stub matched'), which is what fails closed without the
+           re-install")
       (is (= 409 (get-in got [:error :status]))
           "the recorded failure tags survived the round-trip"))))
 
 (deftest replay-without-network-leaves-stub-surface-untouched
   (testing "an artifact WITHOUT :network installs no stubs — with-network-stubs!
             runs the thunk unchanged so a plain replay never touches the
-            test-support surface (rf2-tymyh)"
+            test-support surface"
     (rf/reg-event :net/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
     (let [art (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:net/noop]]]})
           res (rf.story.artifact/replay-run-artifact art)]
@@ -632,17 +631,17 @@
       (is (nil? (:network art)) "no :network slot on a non-HTTP artifact"))))
 
 ;; ===========================================================================
-;; EXACT narrative attribution from runner-recorded settle boundaries (rf2-rkd14)
+;; EXACT narrative attribution from runner-recorded settle boundaries
 ;; ===========================================================================
 ;;
 ;; The narrative supports EXACT (`:rf.story/script-idx` stamps) and EVEN (an
-;; arbitrary forward partition) beat→step attribution. Before rf2-rkd14 the
-;; stamp was WRITTEN nowhere, so `explicit-beats?` was always false and every
-;; run fell to EVEN — which mis-attributes re-dispatch fan-out. `replay-into-
-;; frame!` now records each dispatch step's settle boundary (the epoch-history
+;; arbitrary forward partition) beat→step attribution. `replay-into-frame!`
+;; records each dispatch step's settle boundary (the epoch-history
 ;; length at the start of its settle) on the outcomes metadata, and
 ;; `replay-result` feeds it through `project-evidence` as `:attribution`, so
-;; the narrative is attributed EXACTLY.
+;; the narrative is attributed EXACTLY. Without the stamp `explicit-beats?`
+;; would be false and every run would fall to EVEN — which mis-attributes
+;; re-dispatch fan-out.
 ;;
 ;; THE DISCRIMINATING CASE. Two dispatch steps where the SECOND re-dispatches:
 ;;
@@ -653,9 +652,9 @@
 ;; Tape = [e0 e1 e2]; 2 dispatch steps. EVEN partitions 3 across 2 as [2 1]
 ;; (remainder front-loaded), so it WRONGLY groups {e0 e1} under step 0 and
 ;; {e2} under step 1 — e1 belongs to step 1. EXACT groups {e0} under step 0
-;; and {e1 e2} under step 1. This is the RED-before / GREEN-after pin: the
-;; commented assertion below is what the EVEN partition produced (RED for the
-;; correct grouping); the live assertions prove EXACT now fires.
+;; and {e1 e2} under step 1. The commented assertion below is what the EVEN
+;; partition produces (RED for the correct grouping); the live assertions
+;; prove EXACT fires.
 
 (defn- beats-by-step
   "Group the flattened narrative beats of run-`result` by their owning
@@ -670,7 +669,7 @@
 (deftest replay-narrative-exact-attribution-of-redispatch-fanout
   (testing "a step that re-dispatches has its fan-out attributed to THAT
             step's span — EXACT (`:rf.story/script-idx`), not the EVEN
-            forward partition that mis-groups it (rf2-rkd14)"
+            forward partition that mis-groups it"
     ;; :rkd/a — a plain leaf dispatch (1 epoch).
     (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     ;; :rkd/c — re-dispatches :rkd/d, so step 1 settles to 2 epochs.
@@ -692,7 +691,7 @@
           "step 0's span holds ONLY its own leaf epoch")
       (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch [:rkd/c]]))
           "step 1's span holds its dispatch AND its re-dispatch fan-out — EXACT")
-      ;; RED-before pin: the EVEN forward partition [2 1] would have grouped
+      ;; The EVEN forward partition [2 1] would group
       ;; {:rkd/a :rkd/c} under step 0 and {:rkd/d} under step 1, i.e.
       ;;   (is (= [[:rkd/a] [:rkd/c]] (get by [:dispatch [:rkd/a]])))  ; EVEN
       ;; which mis-attributes :rkd/c's epoch to step 0. EXACT corrects it.
@@ -703,7 +702,7 @@
   (testing "the :rf.story/script-idx stamp is a :rf.story/* accumulator key
             the determinism projection strips — so the EXACT-attributed run
             and a stamp-free baseline canonicalize + run-hash IDENTICALLY
-            (rf2-rkd14 determinism guard: :narrative is not in
+            (determinism guard: :narrative is not in
             run-hash-input-keys AND the :epoch-tape slot stays raw)"
     (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
