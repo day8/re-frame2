@@ -1,9 +1,7 @@
 (ns day8.re-frame2-xray.panels.event.icons
   "Inline SVG glyphs — small lucide-style icons per the Figma authority
-  (`tools/xray/design-reference/xray_devtools_reference.cljs`). Surviving
-  utility re-exported from `panels.epoch.icons` (the Epoch panel
-  superseded the original Event panel under rf2-5gl5r; the glyph set
-  travelled with the rename).
+  (`tools/xray/design-reference/xray_devtools_reference.cljs`),
+  re-exported from `panels.epoch.icons`.
 
   Shared, single-source-of-truth helper so every click-to-source
   affordance renders the SAME glyph at the SAME size with the SAME
@@ -13,8 +11,8 @@
   unicode `↗` arrow.
 
   Pure data → hiccup (a static svg vector); no substrate dependency.
-  `.cljc` so the rendered tree is JVM-portable (the event-detail panel
-  tests render the tree from `clojure -M:test`).")
+  `.cljc` so the rendered tree is JVM-portable (panel tests render the
+  tree from `clojure -M:test`).")
 
 (def ^:private external-link-svg
   "The lucide `external-link` icon as a hiccup-shaped svg vector. 13px
@@ -42,7 +40,7 @@
   editor / open in new tab' verb on click-to-source affordances.
   Inherits its colour from the enclosing link via `currentColor` so
   the glyph reads as part of the link, not as separate chrome. Always
-  returns the same static hiccup vector — the fn-form is preserved so
-  call sites read as a component."
+  returns the same static hiccup vector — the fn-form lets call sites
+  read as a component."
   []
   external-link-svg)
