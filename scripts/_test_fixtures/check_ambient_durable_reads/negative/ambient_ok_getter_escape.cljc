@@ -1,10 +1,10 @@
 (ns fixtures.ambient-ok-getter-escape
   "NEGATIVE fixture: the conscious-allowlist escape applied to a CALL-WRAPPED
-  browser read (rf2-vcjpx). `ambient_ok_escape.cljc` proves the escape works
+  browser read. `ambient_ok_escape.cljc` proves the escape works
   over an `(interop/now-ms)` clock read; this proves the same opt-out is
-  available over the getter spellings the widened roster now matches — a
+  available over the getter spellings the roster matches — a
   deliberate diagnostic storage read in a durable-write namespace stays
-  possible with a reviewed annotation, rather than the widening leaving an
+  possible with a reviewed annotation, rather than the roster leaving an
   author no way out but to delete the read.
 
   Without the marker each `assoc` below is a finding. Must stay GREEN

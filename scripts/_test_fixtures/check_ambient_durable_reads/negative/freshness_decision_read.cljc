@@ -1,5 +1,5 @@
 (ns fixtures.freshness-decision-read
-  "NEGATIVE fixture: a freshness DECISION read (rf2-95b0lc). The reducer reads
+  "NEGATIVE fixture: a freshness DECISION read. The reducer reads
   the live clock to DECIDE whether an entry is stale — it COMPARES the clock to
   a stored `:stale-at`, it does not WRITE the clock into a durable field. The
   ambient read is a `(now-ms)` argument to `entry-stale?`, not the value of a

@@ -2,8 +2,8 @@
   "POSITIVE fixture: every key in `_DURABLE_TIMESTAMP_KEYS`, one per line, each
   taking an ambient clock read as its value. Eighteen findings, and the
   self-test asserts the eighteen KEYS by name — a count alone cannot tell a
-  live key roster from one with a typo in it, which is how twelve of these went
-  unexercised (rf2-g1xpb).
+  live key roster from one with a typo in it, which leaves a mistyped key
+  unexercised.
 
   The read form is held constant at `(interop/now-ms)` so the only thing that
   varies down the file is the durable key. The read-form roster is proven the

@@ -11,7 +11,7 @@
   (let [buf (js/Uint8Array. 16)]
     (js/crypto.getRandomValues buf)
     ;; The random-uuid below would normally FLAG into a durable :id, but the
-    ;; getRandomValues call within the +/-3-line window marks this as
+    ;; getRandomValues call within the +/-6-line window marks this as
     ;; sanctioned effect-side crypto.
     {:id    (random-uuid)
      :token (.from js/Array buf)}))

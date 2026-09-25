@@ -1,6 +1,6 @@
 (ns fixtures.threaded-host-fact
   "NEGATIVE fixture: the CORRECT pattern for a BROWSER host fact, and the
-  counterpart to the call-wrapped positives (rf2-vcjpx). The saved session and
+  counterpart to the call-wrapped positives. The saved session and
   the viewport match are boundary facts, so they arrive on the token's flat
   `:rf.cofx` map as recordable coeffects and are threaded into the durable
   fields — the restore installer never reads storage, location or the media
@@ -8,7 +8,7 @@
 
   This fixture is green on its OWN merits, not via an allowlist wrapper: it
   names no `trace/emit!`, no `getRandomValues` and no `#_:rf.world/ambient-ok`
-  escape. The suppliers below DO spell the ambient reads the widened roster now
+  escape. The suppliers below DO spell the ambient reads the roster
   matches, which is the point — they sit in an ambient cofx supplier where they
   belong, not in a durable key's value position, so the gate's shape does not
   match them. Must stay GREEN (0 findings)."

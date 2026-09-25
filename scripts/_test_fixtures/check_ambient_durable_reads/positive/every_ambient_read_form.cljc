@@ -2,7 +2,7 @@
   "POSITIVE fixture: every EXERCISABLE entry in `_AMBIENT_READ_FORMS`, one per
   line, each written into the same durable `:instance-id` key so the only thing
   that varies down the file is the read form itself. Twenty-one findings, and
-  the self-test asserts the read forms BY NAME (rf2-g1xpb).
+  the self-test asserts the read forms BY NAME.
 
   Two of the twenty-three roster entries are absent, and deliberately — see
   `_UNEXERCISABLE_READ_FORMS`: `js/crypto.getRandomValues` and
@@ -11,12 +11,12 @@
   that pair to being uncoverable rather than merely uncovered.
 
   The browser host facts appear TWICE, because the roster spells them twice
-  (rf2-vcjpx). First as BARE symbol values: the gate matches a read sitting
+  First as BARE symbol values: the gate matches a read sitting
   immediately in a durable key's value position, so `js/localStorage` fires
   there. Idiomatic those lines are not; the roster entry they witness is
   exactly that spelling. Then again CALL-WRAPPED — `(.getItem js/localStorage
   …)`, `(.-href js/location)`, `(js/matchMedia …)` — which is how the fact is
-  actually read, and which fired NOTHING before the roster carried it. Each
+  actually read, and which a bare-symbol-only roster would miss. Each
   call-wrapped line witnesses a PAIR: its own entry and the bare entry whose
   text it contains."
   (:require [re-frame.interop :as interop]))
