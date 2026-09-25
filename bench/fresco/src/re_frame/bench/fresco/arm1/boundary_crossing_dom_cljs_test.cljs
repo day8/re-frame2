@@ -1,22 +1,22 @@
 (ns re-frame.bench.fresco.arm1.boundary-crossing-dom-cljs-test
-  "A READ DEFERRED ACROSS A BOUNDARY CROSSING, IN A REAL BROWSER
-  (rf2-2rtt6.45).
+  "A READ DEFERRED ACROSS A BOUNDARY CROSSING, IN A REAL BROWSER.
 
   `boundary-crossing-cljs-test` settles who the read belongs to, at the
   seam, without React. This file asserts the only thing that finally
   matters about it: **that a later write moves the page.**
 
-  The distinction is the whole point of the bead. The defect's first
-  paint is perfect — the values a lazy seq produces are right once it is
+  The distinction is the whole point. The hazard's first paint is
+  perfect — the values a lazy seq produces are right once it is
   realised, whichever boundary realised them — so any witness that stops
-  at the mount passes on the broken runtime as happily as on the fixed
-  one. What separated them was what happened next. The read landed on the
-  child; a write to a row therefore notified the CHILD; the child
-  re-rendered with the same props object and the same already-realised
-  `LazySeq`, so `sub` was never called again; its read set collapsed to
-  empty, React re-subscribed, and the row edges were dropped with no
-  boundary left holding one. The cell painted its original text and no
-  later write to any row would ever move it again.
+  at the mount would pass on a runtime with the hazard as happily as on
+  one without it. What separates them is what happens next. With the
+  read landing on the child, a write to a row would notify the CHILD; the
+  child would re-render with the same props object and the same
+  already-realised `LazySeq`, so `sub` would never be called again; its
+  read set would collapse to empty, React would re-subscribe, and the row
+  edges would be dropped with no boundary left holding one. The cell
+  would paint its original text and no later write to any row would ever
+  move it again.
 
   So both halves are asserted here, and only the second one can fail on a
   correct implementation's behalf:
@@ -103,8 +103,8 @@
         (try
           (is (= todo-count (cell-count handle)))
           (is (= "todo 2" (cell-text handle 2))
-              "the first paint is right — which is exactly what the broken
-               runtime also gives you, and why this row proves nothing alone")
+              "the first paint is right — which a runtime with the hazard
+               would also give you, and why this row proves nothing alone")
           (let [edges-at-mount (:edges (rf.bench.fresco.arm1.runtime/stats))]
             (retitle! 2 "crossed")
             (is (= "crossed" (cell-text handle 2))
@@ -114,9 +114,9 @@
             (is (= "todo 1" (cell-text handle 1))
                 "while its neighbour is untouched")
             (is (= edges-at-mount (:edges (rf.bench.fresco.arm1.runtime/stats)))
-                "and the edges survived the re-render — the failure mode was
-                 that the wrong reader re-rendered ONCE, read nothing the
-                 second time, and left the row with no edge at all"))
+                "and the edges survived the re-render — the failure mode would
+                 be the wrong reader re-rendering ONCE, reading nothing the
+                 second time, and leaving the row with no edge at all"))
           (testing "and it is not a one-shot correction: the value keeps moving"
             (retitle! 2 "crossed again")
             (is (= "crossed again" (cell-text handle 2))))
@@ -128,8 +128,8 @@
 
 (defview nested-child
   "Receives `(:children props)` as the realized vector the ABI promises,
-  and splices it. Each element is still a seq — the one-level flatten is
-  unchanged — so this body is the one that walks the inner seqs."
+  and splices it. Each element is a seq — the flatten is one level — so
+  this body is the one that walks the inner seqs."
   [{:keys [children]}]
   (into [:ul.nested] children))
 
