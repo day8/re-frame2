@@ -14,8 +14,7 @@
   The CANONICAL dedup behaviour (`empty-payload?`, `dedup-value` wrap /
   passthrough / marker shape, round-trip exactness, the no-substitutions
   skip) is asserted ONCE, cross-host, in `re-frame.mcp-base.dedup-test`
-  (rf2-ywkiss) — this consumer now requires `re-frame.mcp-base.dedup`
-  DIRECTLY, so re-asserting the same behaviour here would just duplicate
+  — this consumer requires `re-frame.mcp-base.dedup` DIRECTLY, so re-asserting the same behaviour here would just duplicate
   that suite. What stays here is the coverage the base suite CANNOT own:
 
     - the per-frame snapshot integration
@@ -25,7 +24,7 @@
       epoch-window fixture.
 
   Live end-to-end coverage runs against a real shadow-cljs build via the
-  existing stdio-roundtrip harness."
+  stdio-roundtrip harness."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
