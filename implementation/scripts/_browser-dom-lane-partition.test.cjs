@@ -3,22 +3,13 @@
 'use strict';
 
 /*
- * rf2-mf4uy, rf2-0yp7w.6 — every `*_dom_cljs_test` namespace must be selected
- * by the repo's one browser DOM lane, and that lane must have an executor CI
- * is held to running.
+ * Every `*_dom_cljs_test` namespace must be selected by the repo's one browser
+ * DOM lane, and that lane must have an executor CI is held to running.
  *
- * `:browser-test` is the PR-blocking correctness gate, and today it is the
- * ONLY browser DOM lane. It was one of two. `:browser-test-freehand-bench`
- * was the Freehand B-spine's evidence lane, and until rf2-mf4uy both ran the
- * seven `re-frame.freehand.bench.*` DOM suites, which were 71% of the
- * correctness gate's wall clock (one of them, `b10-two-clock`, was 49% on its
- * own) because they burn wall clock on purpose. rf2-mf4uy split them out: the
- * gate excluded them by negative lookahead and the bench build kept them. Then
- * the bench lane and all seven suites retired with the Freehand corpus
- * (rf2-0yp7w), the lookahead went with them, and `:browser-test` now selects
- * every DOM suite outright with a plain `.*-dom-cljs-test$`. So there is no
- * partition left to hold — see the note above the assertions for what survived
- * it.
+ * `:browser-test` is the PR-blocking correctness gate and the ONLY browser DOM
+ * lane: it selects every DOM suite outright with a plain `.*-dom-cljs-test$`.
+ * So there is no partition to hold — see the note above the assertions for
+ * what is asserted instead.
  *
  * WHAT THIS GATE IS FOR. An `:ns-regexp` and the namespaces it is meant to
  * select can drift apart later without anything going red: a new suffix, a
@@ -30,9 +21,7 @@
  * A suite that silently stops running is worse than a slow lane, so the
  * relationship is asserted rather than commented.
  *
- * DERIVED, NEVER RESTATED (the rf2-k41ph posture, which
- * `scripts/check_freehand_conformance_index.py` also held until it retired
- * with the Freehand corpus): the pattern is read out of
+ * DERIVED, NEVER RESTATED: the pattern is read out of
  * `shadow-cljs.edn`, and the namespaces out of the `(ns ...)` forms of the
  * files themselves. A copy of either would be a second authority with nothing
  * holding it in step with the first.
@@ -135,12 +124,8 @@ function domTestNamespaces() {
 
 // ---- deriving the executors ------------------------------------------------
 //
-// rf2-j8os. A lane's SELECTOR is not a proof that the lane EXECUTES, and when
-// this was written the second of the two lanes was held by nothing:
-// `:browser-test-freehand-bench` was the sole browser home of seven
-// `re-frame.freehand.bench.*` DOM suites. That lane has since retired with the
-// Freehand corpus (rf2-0yp7w), but the argument holds for the lane that
-// remains, and the chain that ends in a lane running is three links long:
+// A lane's SELECTOR is not a proof that the lane EXECUTES, and the chain that
+// ends in a lane running is three links long:
 //
 //   the build id  ->  the npm script that compiles it  ->  a workflow `run:`
 //
@@ -153,32 +138,30 @@ function domTestNamespaces() {
 //
 // WHY DELEGATE RATHER THAN RE-DERIVE. Reading workflow `run:` values here
 // would put a second authority on "what counts as executable text" beside the
-// Python one, and that checker's own history is the argument against it: its
-// first cut matched raw YAML, so a `run:` line deleted while its explanatory
-// paragraph stayed put left the gate reading as scheduled (rf2-6ckzl). Two
+// Python one, and that rule is easy to get wrong: matching raw YAML would let
+// a `run:` line deleted while its explanatory paragraph stayed put leave the
+// gate reading as scheduled. Two
 // implementations of that rule can disagree, and the one that disagrees
 // downward is a false green. So the link is delegated, not copied — and the
 // delegation is HELD rather than asserted in prose, because a claim about the
 // world in a comment is exactly what this file exists to stop trusting: the
 // executor must carry a prefix that checker asks about, and must not carry a
 // `DISPOSITIONS` entry excusing it from the question. Both are read out of the
-// Python source rather than restated here, for the rf2-k41ph reason a copy is
-// a second authority with nothing holding it in step.
+// Python source rather than restated here, because a copy is a second
+// authority with nothing holding it in step.
 //
 // WHAT THIS DOES NOT CLOSE. Someone may still add a `DISPOSITIONS` entry for a
 // lane's executor — and this arm will red and make them argue it, which is the
 // whole difference between a decision and an accident. What it does close is
-// the silent path: delete `freehand-bench.yml` and the four `package.json`
-// scripts it is the sole home of (rf2-vyqq), and before this arm every gate in
-// the repo stayed green while seven mounted DOM suites ran nowhere.
+// the silent path: without this arm, deleting a lane's workflow and the
+// `package.json` scripts it is the sole home of leaves every gate in the repo
+// green while the lane's mounted DOM suites run nowhere.
 
 // `shadow-cljs <verb> <build-id> ...` is the only way a build id is executed.
-// Whole tokens, never a substring test: `browser-test` was a prefix of the
-// retired `browser-test-freehand-bench`, so `includes()` would have reported
-// the correctness lane's script as the bench lane's executor too — the same
-// prefix trap `check_gate_scheduling.py`'s `_PROBE_TAIL` was added for. The
-// next build id to sit under an existing one brings that trap back, so the
-// whole-token read stays.
+// Whole tokens, never a substring test: with `includes()`, a build id that is
+// a prefix of another (`browser-test` of a `browser-test-bench`) would report
+// the shorter lane's script as the longer lane's executor too — the same
+// prefix trap `check_gate_scheduling.py`'s `_PROBE_TAIL` guards against.
 function buildIdsInvokedBy(body) {
   const ids = new Set();
   for (const m of body.matchAll(/shadow-cljs\s+(?:compile|release|watch)\s+([^&|;<>]*)/g)) {
@@ -218,12 +201,10 @@ function dispositionKeys() {
 
 // ---- the gate --------------------------------------------------------------
 
-// rf2-0yp7w.6 — the two-lane PARTITION retired with the Freehand bench tree:
-// `:browser-test-freehand-bench` was the only other DOM lane, and with it gone
-// `:browser-test` selects every `*_dom_cljs_test` namespace outright, so a
-// partition has nothing left to be true about. What survives is the claim that
-// mattered independently — the lane that exists must have an executor CI is
-// held to running — and it is asserted over the one remaining lane below.
+// `:browser-test` is the only DOM lane and selects every `*_dom_cljs_test`
+// namespace outright, so there is no partition to assert. What is asserted is
+// that every DOM suite is selected, and that the lane has an executor CI is
+// held to running.
 
 test('every *_dom_cljs_test namespace is selected by the one browser DOM lane (rf2-mf4uy, rf2-0yp7w.6)', () => {
   const text = fs.readFileSync(SHADOW_CLJS, 'utf8');
