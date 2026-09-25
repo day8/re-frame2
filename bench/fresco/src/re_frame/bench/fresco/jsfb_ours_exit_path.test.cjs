@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 'use strict';
-// THE JSFB PRODUCER'S EXIT PATH — five refusals that nothing could reach.
-// rf2-2ze1h, filed by rf2-iuudn's worker, and the same defect
-// `clock_exit_path.test.cjs` pins for the clock driver and
-// `jsfb_compare_exit_path.test.cjs` for the comparator.
+// THE JSFB PRODUCER'S EXIT PATH — five refusals, each reachable without a
+// browser. The same shape `clock_exit_path.test.cjs` pins for the clock
+// driver and `jsfb_compare_exit_path.test.cjs` for the comparator.
 //
-//     node fresco/test/re_frame/bench/fresco/jsfb_ours_exit_path.test.cjs
+//     node src/re_frame/bench/fresco/jsfb_ours_exit_path.test.cjs   (from bench/fresco/)
 //
-// THE DEFECT THIS PINS. `jsfb_ours_run.cjs` decides an exit code that is quoted
+// WHAT THIS PINS. `jsfb_ours_run.cjs` decides an exit code that is quoted
 // as a quality gate, over five independent gates:
 //
 //   * DOM PARITY — two arms that build different DOM are not one experiment;
@@ -16,21 +15,21 @@
 //   * UNVERIFIED WRITES — a sample whose page did not read back;
 //   * THE PAGE-ERROR FUNNEL — per-arm handlers gathered into one array;
 //   * THE RECORDING SITE — a published duration that is not strictly positive
-//     is not a measurement (rf2-iuudn).
+//     is not a measurement.
 //
-// Until this file existed NONE of them could be reached: the driver required
-// `playwright` at module scope and called `main()` unguarded, so the only way
-// to ask what it refuses was to launch a headless Chromium and hope the run
-// produced the shape in question. Five gates in that condition are five gates
-// nobody has ever seen go red, which is the state this whole lane treats as a
-// defect rather than a gap.
+// A driver that requires `playwright` at module scope and calls `main()`
+// unguarded makes NONE of them reachable: the only way to ask what it refuses
+// is to launch a headless Chromium and hope the run produces the shape in
+// question. Five gates in that condition are five gates nobody has seen go
+// red, which is the state this whole lane treats as a defect rather than a
+// gap.
 //
 // WHY IT IS PINNED HERE RATHER THAN END TO END. The evidence the driver decides
 // over is produced by a headless run of a 636 KB `:advanced` bundle across
-// three arms and six rounds, which no unit test can take — and the bead is
-// explicit that the benchmark must NOT be run for this, because the rig has to
-// stay stable across the series being compared. So the repair put each gate in
-// a pure function over its own evidence, and this file drives them directly.
+// three arms and six rounds, which no unit test can take — and the benchmark
+// is not run for this, because the rig has to stay stable across the series
+// being compared. So each gate is a pure function over its own evidence, and
+// this file drives them directly.
 // The two things a pure call cannot observe — that requiring the driver neither
 // launches a browser nor exits, and that `main` carries `verdict`'s code rather
 // than re-deriving it — are taken from a spawned process and from the source.
@@ -40,7 +39,7 @@
 // negative case that depended on one would pass on the box that took it and
 // fail everywhere else.
 //
-// Wired into implementation/package.json via `test:script-helpers`.
+// Run by `npm run check` in bench/fresco/.
 
 const assert = require('node:assert');
 const cp = require('node:child_process');
@@ -281,9 +280,8 @@ test('unverified writes are summed across rows, not read off one', () => {
 // --- GATE 4: THE PAGE-ERROR FUNNEL ------------------------------------------
 
 test('an error on ONE arm of ONE row reaches the refusal — the three hops, followed', () => {
-  // `pageerror_exit_path.test.cjs` stops at the sink because following it here
-  // needed real dataflow: per-arm array -> per-row accumulator -> one aggregate
-  // -> the exit. This walks it with a fixture instead.
+  // Following the funnel needs real dataflow: per-arm array -> per-row
+  // accumulator -> one aggregate -> the exit. This walks it with a fixture.
   const rows = ALL_ROWS.slice(0, 2);
   const acc = accOf(
     Object.fromEntries(rows.map((r) => [r.id, { all: 10 }])),
@@ -308,7 +306,7 @@ test('a page error refuses even when every number in the report is sound', () =>
   assert.strictEqual(verdict(sound({ pageErrors: ['console: boom'] })).code, 1);
 });
 
-// --- GATE 5: THE RECORDING SITE (rf2-iuudn) ---------------------------------
+// --- GATE 5: THE RECORDING SITE ---------------------------------------------
 
 test('PUBLISHED is exactly the two clocks the report publishes', () => {
   assert.deepStrictEqual(PUBLISHED, ['taskNet', 'task']);
@@ -340,7 +338,7 @@ test('a counter that went BACKWARDS across the delta is refused', () => {
 });
 
 test('THE WRONG-SIDE-BLAMED FAILURE: a task of 0 under a NEGATIVE devtools is still refused', () => {
-  // rf2-110be's finding, which is why `task` is asked as well as `taskNet`:
+  // This is why `task` is asked as well as `taskNet`:
   // `taskNet` is derived, and a derived number is sound-looking long before its
   // inputs are. Here the published `taskNet` is a perfectly ordinary 5 ms.
   const d = deltaOf(metrics({ DevToolsCommandDuration: 0.01 }), metrics({ DevToolsCommandDuration: 0.005 }));
@@ -392,16 +390,16 @@ test('a verdict handed nothing at all refuses — absent evidence is not a clear
   assert.strictEqual(verdict({}).code, 1);
 });
 
-// --- THE DEFECT ITSELF: requiring the driver must not RUN it -----------------
+// --- THE PRECONDITION: requiring the driver must not RUN it ------------------
 
 const node = (args, env = {}) =>
   cp.spawnSync(process.execPath, args, { encoding: 'utf8', env: { ...process.env, ...env }, timeout: 120000 });
 
 test('THE DEFECT: requiring the driver neither opens a browser nor exits', () => {
-  // Everything above depends on this. Before rf2-2ze1h the driver required
-  // Playwright at module scope and called `main()` unguarded, so `require` was
-  // a benchmark run — and on a box with no `implementation/node_modules` it was
-  // not even that, it was a module that would not load.
+  // Everything above depends on this. A driver that required Playwright at
+  // module scope and called `main()` unguarded would make `require` a
+  // benchmark run — and on a box with no `implementation/node_modules` not
+  // even that, but a module that would not load.
   const r = node(['-e', `require(${JSON.stringify(RUN)}); console.log('required');`]);
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /^required\s*$/, 'a driver that reported anything on require is a driver that ran');
@@ -409,8 +407,8 @@ test('THE DEFECT: requiring the driver neither opens a browser nor exits', () =>
 });
 
 test('requiring it with a JSFB_ONLY that names no row does not kill the requiring process', () => {
-  // The refusal below used to sit at module scope, so `require`-ing this driver
-  // with a stray environment variable set took the test runner down with it.
+  // At module scope the refusal below would take the test runner down with it
+  // whenever this driver is `require`d with a stray environment variable set.
   const r = node(['-e', `require(${JSON.stringify(RUN)}); console.log('required');`], { JSFB_ONLY: 'no-such-row' });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /^required\s*$/);
@@ -440,9 +438,9 @@ test('THE PROCESS EXIT: a JSFB_ONLY naming no row exits 1 from the shell', () =>
   });
 
   test('Playwright is required INSIDE `main`, never at module scope', () => {
-    // A module-scope import is what made the driver unloadable without a
-    // browser toolchain, and it is the half of the defect a `require.main`
-    // guard on its own does not repair.
+    // A module-scope import makes the driver unloadable without a browser
+    // toolchain, and it is the half a `require.main` guard on its own does
+    // not cover.
     const at = SRC.indexOf("require(path.join(__dirname, '../../../../../..', 'implementation', 'node_modules', 'playwright'))");
     assert.ok(at > 0, 'the driver must still drive a browser');
     assert.ok(at > SRC.indexOf('async function main()'), 'the import must sit inside `main`');
@@ -465,20 +463,19 @@ test('THE PROCESS EXIT: a JSFB_ONLY naming no row exits 1 from the shell', () =>
   });
 
   test('the old inline decisions are gone from `main`', () => {
-    // The lines that were the defect: five gates decided in an `if` inside the
-    // async run, and the control adjudicated in a mutable local beside its own
-    // `console.log`s. Both were unreachable without a browser. The disjunction
-    // still exists — in `verdict`, which is the point — so this asks about
-    // `main`, where a surviving copy would be the second seat.
-    assert.ok(!/totalUnverified|totalNonPositive/.test(MAIN), 'the inline exit must not survive in `main`');
+    // The shapes this refuses: five gates decided in an `if` inside the async
+    // run, and the control adjudicated in a mutable local beside its own
+    // `console.log`s — both unreachable without a browser. The disjunction
+    // lives in `verdict`, which is the point, so this asks about `main`,
+    // where a copy would be the second seat.
+    assert.ok(!/totalUnverified|totalNonPositive/.test(MAIN), 'no inline exit may sit in `main`');
     assert.ok(!/let controlPass = true;/.test(SRC), 'the control must be decided in one seat');
-    // All five terms, in their original order: what moved is where the
-    // disjunction lives, not what it says.
+    // All five terms, verbatim: `verdict` holds the whole disjunction.
     assert.ok(
       SRC.includes(
         'if (!parity.identical || totalUnverified > 0 || pageErrors.length > 0 || !control.pass || totalNonPositive > 0) {'
       ),
-      'the five terms must survive verbatim, in `verdict`'
+      'the five terms must appear verbatim, in `verdict`'
     );
   });
 
