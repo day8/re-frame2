@@ -1,24 +1,23 @@
 (ns day8.re-frame2-xray.test-helpers.sub-reactivity
-  "Sub-reactivity test helper for Xray panels (rf2-dhoc9).
+  "Sub-reactivity test helper for Xray panels.
 
   ## Why this exists
 
-  Every Xray bug Mike caught live this session — rf2-70tkv App-db panel
-  frozen, rf2-2f8jv Machines empty, rf2-dodq2 Views Group-By stuck,
-  rf2-hwuki machine transitions silently dropped — is a sub-chain
-  reactivity bug. They show up in Playwright after a serve+navigate
-  cycle (minutes per repro). The same bugs are testable in millis via
-  CLJS unit tests: spin up the `:rf/xray` frame, install Xray, drive
-  a synthetic cascade through the test seams, read the panel's primary
-  sub, mutate focus, re-read, assert reactivity.
+  A panel frozen on a stale value, an empty list, a control that does
+  not re-render, machine transitions silently dropped — each is a
+  sub-chain reactivity bug. Such bugs show up in Playwright after a
+  serve+navigate cycle (minutes per repro). The same bugs are testable
+  in millis via CLJS unit tests: spin up the `:rf/xray` frame, install
+  Xray, drive a synthetic cascade through the test seams, read the
+  panel's primary sub, mutate focus, re-read, assert reactivity.
 
   This ns is the canonical entry point for that pattern. The
-  `setup-xray-frame!` and `seed-cascades!` shapes mirror what the
-  rf2-70tkv worker wrote inline in `spine_cljs_test.cljs`; we lift them
-  so per-panel reactivity tests stay 50-LoC files instead of recopying
-  the fixture rig.
+  `setup-xray-frame!` and `seed-cascades!` shapes mirror the inline
+  fixtures in `spine_cljs_test.cljs`; they live here so per-panel
+  reactivity tests stay 50-LoC files instead of recopying the fixture
+  rig.
 
-  ## Existing test seams this composes on top of
+  ## Test seams this composes on top of
 
   - `:rf.xray/sync-trace-buffer` — wholesale overwrite of the
     `:trace-buffer` slot (registry.cljs). The `seed-cascades!` helper
@@ -65,7 +64,7 @@
   ## What the helper does NOT do
 
   - It does NOT touch source. Any failing test points at a production
-    bug — file a follow-on bead per the rf2-dhoc9 acceptance contract.
+    bug.
   - It does NOT mount the React tree. The point of this layer is to
     exercise the sub-chain reactivity at the data layer; view rendering
     is the next tier up (browser Playwright or hiccup-walk tests)."
@@ -79,7 +78,7 @@
 
 (def fixture
   "`use-fixtures :each` value for sub-reactivity tests. The canonical
-  `make-xray-runtime-fixture` (Xray test-support, rf2-vj80u8) composes
+  `make-xray-runtime-fixture` (Xray test-support) composes
   core `make-reset-runtime-fixture` (plain-atom adapter) with the `:all`
   reset tier — Xray's install + registry + mount idempotency sentinels
   plus the trace-collector rings — so each test starts from a fresh
@@ -100,8 +99,8 @@
   `:rf.xray/target-frame-db` (App-db diff) find a real frame rather
   than nil.
 
-  EP-0002 (rf2-bd4div) — the inspected target no longer defaults to
-  `:rf/default`; these reactivity fixtures use the ordinary `:rf/default`
+  The inspected target does not default to `:rf/default`; these
+  reactivity fixtures use the ordinary `:rf/default`
   frame as the host under inspection, so the helper SELECTS it explicitly
   as the observed target. This pins `:target-frame :rf/default` up front,
   so a later `focus-cascade!` on `:rf/default` re-keys onto the SAME frame
@@ -110,7 +109,7 @@
   `reseed-epoch-history-for-frame` same-target no-op contract)."
   []
   (registry/register-xray-handlers!)
-  ;; rf2-e8330v (xxo3zz F3) — production registration installs no
+  ;; Production registration installs no
   ;; `-for-test` ids; opt the test surface into the per-panel override +
   ;; seeding seam (`set-epoch-history-for-test`, the `*-override` events,
   ;; etc.) the reactivity helpers drive.
@@ -129,8 +128,8 @@
   event; the cascade record's shape below is what `seed-cascades!`
   re-projects into when it builds the trace buffer.
 
-  Mirrors `cascade` in `spine_cljs_test.cljs` — lifted here so per-panel
-  tests don't reach into a sibling test ns."
+  Mirrors `cascade` in `spine_cljs_test.cljs`; it lives here so
+  per-panel tests don't reach into a sibling test ns."
   [dispatch-id frame-id]
   {:dispatch-id dispatch-id
    :frame       frame-id
@@ -223,8 +222,8 @@
 
   Optional opts map:
     `:frame`       — the host frame the transition fired in. Defaults
-                      to `:rf/default`. Maps to the rf2-hwuki contract
-                      (epoch capture filters by frame tag).
+                      to `:rf/default`. Epoch capture filters by
+                      frame tag.
     `:dispatch-id` — the dispatch id the transition belongs to."
   ([id machine-id from-state to-state event-v]
    (machine-transition-event id machine-id from-state to-state event-v {}))
@@ -271,7 +270,7 @@
 (defn follow-head!
   "Drive the canonical `:rf.xray/follow-head` event — flips focus
   back to LIVE+head-tracking. Pairs with `focus-cascade!` for the
-  rf2-70tkv repro shape (pin → follow-head → arrival → auto-track)."
+  pin → follow-head → arrival → auto-track shape."
   []
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/follow-head])))
