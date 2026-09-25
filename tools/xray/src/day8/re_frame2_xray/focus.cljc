@@ -16,12 +16,9 @@
   | `:epoch-id`    | `:rf.xray/focus-epoch <epoch-id>`  | `spine.cljs` |
   | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | `spine.cljs` |
 
-  `:path` was a focus field until 2026-09-17 (rf2-y8doi.29), mapping to
-  `:rf.xray/focus-slice-path`. Nothing ever rendered the slot that event
-  wrote, so it was retired with the rest of the unreachable App-DB
-  path-click machinery; zoom into a node is the path interaction. A
-  command still carrying `:path` is IGNORED like any other unknown key —
-  `focus!` stays permissive.
+  There is no `:path` field: zoom into a node is the path interaction. A
+  command carrying `:path` is IGNORED like any other unknown key —
+  `focus!` is permissive.
 
   This namespace only composes those events. It adds no app-db slots,
   spine model, or panel state.
@@ -83,7 +80,7 @@
   behind any pin queued beside it, so `set-frame` would land last and clear
   the pin. `focus!` therefore queues the frame step alone and the rest
   behind the one sequencing event this namespace registers,
-  `:rf.xray/focus-after-frame` (rf2-2qtgt). `:applied` still reports the
+  `:rf.xray/focus-after-frame`. `:applied` still reports the
   canonical events above, in their order."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
@@ -220,7 +217,7 @@
     (some? panel)       (conj [:rf.xray/select-tab (normalize-panel panel)])))
 
 ;; ---------------------------------------------------------------------------
-;; The one sequencing event (rf2-2qtgt)
+;; The one sequencing event
 ;; ---------------------------------------------------------------------------
 
 #?(:cljs
@@ -284,7 +281,7 @@
              (doseq [event-vec dispatches]
                (rf/dispatch-sync event-vec))
 
-             ;; rf2-2qtgt — the ASYNC path, which is how a host sends it.
+             ;; The ASYNC path, which is how a host sends it.
              ;; `:rf.xray/select-frame` reaches `:rf.xray/set-frame` through
              ;; a `:dispatch` fx, appended to the BACK of the queue. Queued
              ;; beside it, the pin would land first and `set-frame` would
