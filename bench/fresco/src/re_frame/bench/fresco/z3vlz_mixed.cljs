@@ -1,16 +1,16 @@
 (ns re-frame.bench.fresco.z3vlz-mixed
-  "RUNG 4 — THE BEAD'S OWN BUNDLE. All three adapters compiled together —
+  "RUNG 4 — HD-008'S OWN BUNDLE. All three adapters compiled together —
   stock `reagent`, `reagent2` (reagent-slim) and `uix` — exactly as
   HD-008's `:advanced` bench bundle does, with reagent-slim installed.
 
   This rung exists to prove the probe REPRODUCES the reported symptom
   before any conclusion is drawn from the rungs below it. A single-substrate
-  bundle that re-renders is only evidence about the bead if the mixed
+  bundle that re-renders is only evidence about the symptom if the mixed
   bundle, in the same probe, does not: otherwise the difference could be
   the probe rather than the bundle.
 
   `?install=reagent` runs the identical probe with stock Reagent installed
-  — the bead's positive control, in the bead's own bundle."
+  — the positive control, in the symptom's own bundle."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]
             [re-frame.bench.fresco.z3vlz-reagent-substrate :as rf.bench.fresco.z3vlz-reagent-substrate]
