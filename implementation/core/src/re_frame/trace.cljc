@@ -15,8 +15,10 @@
   `unregister-listener!` / `clear-listeners!` / `trace-buffer` /
   `clear-trace-buffer!` / `configure-trace-buffer!`) and
   the buffer + listener state live in the sibling
-  `re-frame.trace.tooling`, which is loaded only when a test fixture,
-  tool, or dev preload requires it.
+  `re-frame.trace.tooling`. This ns `:require`s that sibling statically
+  on both hosts, so it loads wherever `re-frame.trace` does; its buffer
+  machinery stays out of a production CLJS bundle by dead-code
+  elimination (below), not by being left unloaded.
 
   This ns publishes NO listener/buffer surface of its own and re-exports
   none of the six tooling names: applications call the

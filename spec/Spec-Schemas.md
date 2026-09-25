@@ -84,6 +84,10 @@ The hydration payload is the canonical example: v1 ships with a small required s
 
 ### `:rf/event` (the event vector)
 
+> **Layer:** Runtime
+> **Owner:** [002-Frames §Routing](002-Frames.md#routing-the-dispatch-envelope)
+> **Status:** v1-required
+
 ```clojure
 (def Event
   [:and vector?

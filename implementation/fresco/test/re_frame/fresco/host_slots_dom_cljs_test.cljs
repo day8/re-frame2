@@ -45,7 +45,7 @@
   reaches React and is refused there; the `[:>]` escape carries no
   declaration at all; and past the native fence a hiccup vector is
   refused outright. [[a-render-prop-returns-markup-through-as-element]]
-  and [[the-escape-crosses-one-element-per-site]] are those.
+  and [[the-escape-has-no-slots-and-cannot-be-given-any]] are those.
 
   ## The compound library
 
@@ -57,22 +57,21 @@
   teaches for it — `{:slots #{:fallback}}` — either mints and renders or
   it does not.
 
-  ## The declaration's OTHER roster is refused here too
+  ## The declaration's OTHER roster
 
-  A `defhost` carries TWO rosters, and `host-entry`'s reserved-name skip
-  sits above both of them — so the silent declaration the slot rows
-  below refuse had a second door standing open. `{:callbacks
-  {:constructor :event}}` minted, read correct, and could never once be
-  applied, which is the same trap one roster over. The callback rows
-  refuse it on the
-  id that roster already had, because it is the same fault with the same
-  recovery: *this is not an ordinary prop*.
+  A `defhost` carries TWO rosters, and
+  [[a-callbacks-override-mints-beside-a-slot-roster]] pins `:callbacks`
+  beside `:slots`: an override mints next to a slot roster, its contract
+  is `:event` or `:render`, and a third contract is refused at mint. A
+  position declared in BOTH rosters is refused with the slot rows,
+  because nothing decides which the author meant.
 
-  [[a-callback-at-a-near-reserved-name-still-mints]] is the control that
-  says the guard is EXACT rather than merely eager. Widen either refusal
-  to a substring test over the same three names and that row goes red
-  while every refusal row stays green — a guard can be wrong by being
-  too eager, and nothing else here would notice.
+  `host-entry`'s reserved-name skip sits above both rosters, so a
+  declaration at `__proto__`, `prototype` or `constructor` mints and
+  never reaches the props object, whichever roster names it.
+  [[the-declaration-names-its-reactnode-positions]] pins the near side
+  of that line: a prop that merely READS like one of the three
+  (`:constructor-label`, `:prototypes`) mints like any other.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM. The declaration rows and the conversion rows need no DOM
