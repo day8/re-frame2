@@ -40,14 +40,12 @@
     navigator. Equivalent strategy to `:tabs`, scoped to the implicit
     `:variants-grid` enumeration. Use when a `:component` view
     internally hardcodes a frame-provider (the
-    `gallery_chrome.cljs` / rf2-sszlr pattern): under `:isolated`
+    `gallery_chrome.cljs` pattern): under `:isolated`
     parallel-rendered cells share their interior state because the
     last-seeded cell's app-db clobbers the rest, but a serialised
     renderer re-seeds each cell on visit.
 
-  Belt-and-braces to `:tabs`. The Xray modal-positioning fix
-  (rf2-om6fa) covered the most visible failure mode (full-viewport
-  modal stack); `:isolation :shared` addresses the remaining interior
+  Belt-and-braces to `:tabs`: `:isolation :shared` addresses interior
   state-bleed without forcing the author to convert the workspace to
   `:tabs` (which loses the devcards `:variants-grid` semantic of
   enumerating from the registry).
@@ -56,7 +54,7 @@
 
   Tab selection is held in a per-mount `r/atom` (local to the tabs
   component) — the workspace root already remounts on workspace swap
-  (workspace-id-keyed `<section>`, per rf2-kgn0c) so the local atom's
+  (workspace-id-keyed `<section>`) so the local atom's
   lifetime matches one workspace selection and no shell-state slot is
   required.
 
@@ -83,8 +81,7 @@
                        ;; The merged `rf/frame-provider {:frame …}` shape
                        ;; routes through Reagent's `:r>` interop head, which
                        ;; avoids `:>`'s `(name kw)` prop conversion dropping
-                       ;; the namespace off the variant frame keyword
-                       ;; (rf2-c5jz path under the rf2-zme7 fix). Variant
+                       ;; the namespace off the variant frame keyword. Variant
                        ;; cells need this because variant frames have
                        ;; namespaced ids of the form `:story.x/y`, and a
                        ;; namespace-dropping provider would scope the
@@ -115,7 +112,7 @@
   Cell ordering matches the workspace's declared `:variants` (for `:grid`
   / `:tabs`) or `:content` (for `:prose`). For `:variants-grid` the
   cells enumerate the registry's variants for the workspace's anchor
-  story. The anchor is read in precedence order (rf2-ugmrg):
+  story. The anchor is read in precedence order:
 
     1. `:for`   — the auto-enumerate anchor story-id
                   (spec/001-Authoring.md §`:variants-grid`);
@@ -160,7 +157,7 @@
     ;; unknown — degrade to empty
     []))
 
-;; ---- pure: variants-grid cap-and-page (rf2-ba86n.18 / G1–G3) ------------
+;; ---- pure: variants-grid cap-and-page (G1–G3) ---------------------------
 ;;
 ;; A `:variants-grid` / `:grid` enumerates one cell per variant of the
 ;; anchor story. At matrix / design-system scale that can be hundreds of
@@ -205,7 +202,7 @@
      :warn?          (rf.story.budgets/matrix-warn? [total])
      :over-hard-cap? over?}))
 
-;; ---- pure: :columns grid template (rf2-ugmrg) ---------------------------
+;; ---- pure: :columns grid template ---------------------------------------
 ;;
 ;; The workspace body's optional `:columns` integer pins the grid's column
 ;; count. Absent, the grid uses the responsive `auto-fit` default (fit as
@@ -223,7 +220,7 @@
   its body's `:columns` slot (or nil).
 
   - `:columns N` (a positive int) → `repeat(N, minmax(280px, 1fr))` —
-    a fixed N-column track template (rf2-ugmrg).
+    a fixed N-column track template.
   - absent / nil / non-positive → `repeat(auto-fit, minmax(280px, 1fr))`
     — the responsive default (fit as many columns as fit at 280px min).
 
@@ -246,7 +243,7 @@
                       :color (:info rf.story.theme.colors/tokens)
                       :font-family mono-stack
                       :margin-bottom "12px"}
-      ;; rf2-ugmrg — `:grid-template-columns` is set per-render from the
+      ;; `:grid-template-columns` is set per-render from the
       ;; workspace body's `:columns` slot via `grid-template-columns`
       ;; (responsive `auto-fit` default; fixed `repeat(N, …)` when
       ;; `:columns` is present). The static base carries only the display
@@ -276,7 +273,7 @@
                       :font-style "italic"
                       :padding "24px"
                       :text-align "center"}
-      ;; rf2-ba86n.18 / G1 — the "+N more" cap-and-page expander a grid
+      ;; G1 — the "+N more" cap-and-page expander a grid
       ;; renders when its cell count exceeds the visible cap. Mirrors the
       ;; sidebar's `:variant-more` affordance language (spec/018 §10).
       :grid-more     {:padding "8px 0 2px"
@@ -289,7 +286,7 @@
                       :cursor "pointer"
                       :user-select "none"
                       :text-align "left"}
-      ;; rf2-ba86n.18 / G2 — the soft matrix-size advisory shown above a
+      ;; G2 — the soft matrix-size advisory shown above a
       ;; dense grid (≥ 144 cells). Advisory only; the grid still renders its
       ;; capped page below. The G3 hard-cap note reuses this style.
       :grid-warn     {:padding "6px 8px"
@@ -306,8 +303,8 @@
 #?(:cljs
    (defn- run-variant-with-shell-opts!
      "Drive `run-variant` for `variant-id` with the current shell
-     state's modes / cell overrides / substrate. Mirrors
-     `rf.story.ui.canvas/run-with-shell-opts!`; reproduced here so the workspace
+     state's modes / cell overrides / substrate — the run inputs
+     `rf.story.ui.canvas/run-key` carries — so the workspace
      mounts each cell's frame independently of which variant the canvas
      happens to have last rendered."
      [variant-id]
@@ -326,12 +323,12 @@
      share affordance, errors render inline.
 
      'Single substrate' describes the render's SHAPE, not an assumption
-     about which one: since rf2-r4coe the cell resolves the substrate
+     about which one: the cell resolves the substrate
      through `rf.story.ui.canvas/variant-substrate-set` and reduces it with
      `rf.story.ui.multi-substrate/single-render-substrate`, rather than painting
      Reagent whatever the variant declared. A workspace never grids a
      single variant across substrates the way the canvas can — that is
-     what stays smaller here.
+     what is smaller here.
 
      Per /spec/007-Stories.md §Relationship with frames + tools/story
      feature-set §4.2: each variant cell wraps the rendered view in a
@@ -341,13 +338,10 @@
      dispatch (resolved via React context at render time) target the
      per-variant frame the runtime allocated. Without the
      wrap, subscriptions run under no carried frame and fail with
-     `:rf.error/no-frame-context` (EP-0002). Before EP-0002, this same
-     gap fell through to `:rf/default`, which is why the four counter
-     cards previously rendered identically (or empty when `:rf/default`
-     carried no `:count`)."
+     `:rf.error/no-frame-context` (EP-0002)."
      [variant-id]
      (let [shell          @rf.story.ui.state/shell-state-atom
-           ;; rf2-eyrpr — thread the per-run opts into the plan compile
+           ;; Thread the per-run opts into the plan compile
            ;; (mirrors `rf.story.ui.canvas/canvas-inner`) so it substitutes
            ;; `[:arg]` keys that resolve only through a mode / cell layer
            ;; instead of throwing.
@@ -358,9 +352,9 @@
            ;; ONE compiled plan per cell render, as on the canvas, and every
            ;; scenario read comes off it — the subject, the decorator stack,
            ;; the effective args, the view-state overrides. The raw variant
-           ;; body missed an `:extends`-inherited `:component` (rf2-3x7nj.28.2),
-           ;; and the cell applied no `:sub-overrides` at all, so a pinned
-           ;; design state painted from the real app-db (rf2-3x7nj.28.6).
+           ;; body would miss an `:extends`-inherited `:component`, and a
+           ;; cell applying no `:sub-overrides` would paint a pinned design
+           ;; state from the real app-db.
            plan           (rf.story.plan/variant-plan
                             variant-id
                             {:run-args (rf.story.args/run-arg-layers variant-id run-opts)})
@@ -371,12 +365,10 @@
            sub-ovr        (rf.story.render/resolve-render-sub-overrides plan eff-args)
            assertions     (rf.story.runtime/read-assertions variant-id)
            errors         (:errors decorator-pack)]
-       ;; Per rf2-9la06: stamp `data-test-variant` on each cell so
-       ;; Playwright specs can disambiguate workspace cells from each
-       ;; other and from the canvas's variant when both are mounted.
-       ;; (Per rf2-hscut the sidebar variant/workspace clicks now clear
-       ;; each other's slot, but the `data-test-variant` stamp remains
-       ;; useful for snapshot/test scoping while a workspace is active.)
+       ;; Stamp `data-test-variant` on each cell so Playwright specs can
+       ;; disambiguate workspace cells from each other and scope
+       ;; snapshots/tests while a workspace is active (the sidebar
+       ;; variant/workspace clicks clear each other's slot).
        [:div {:style (:cell styles)
               :data-test-variant (pr-str variant-id)}
         [:div {:style (:cell-title styles)}
@@ -398,31 +390,26 @@
           ;; substrate a single-tree render can paint under
           ;; (`rf.story.ui.multi-substrate/single-render-substrate`).
           ;;
-          ;; rf2-r4coe: this branch used to call `(rf/view view-id)` itself and
-          ;; embed the result as a Reagent hiccup vector — the identical bypass
-          ;; rf2-3afns removed from the canvas single-pane path, down to the
-          ;; missing-view diagnostic string. The bead that filed it read the
-          ;; cell as having NO substrate axis, so that giving it one would be
-          ;; new behaviour needing a ruling. At source it already had one, and
-          ;; used it everywhere except here: `run-variant-with-shell-opts!`
-          ;; threads `:substrate (:substrate shell)` into every run, and
-          ;; `rf.story.ui.canvas/run-key` — which `variant-cell` keys its re-runs on —
-          ;; carries `:substrate` precisely so the cell re-renders when the
-          ;; user flips it. Painting Reagent regardless made that re-run a lie.
-          ;; So this is a bypass removal, not a feature: the cell now honours
-          ;; the substrate it was already reacting to.
+          ;; The cell honours the substrate it reacts to:
+          ;; `run-variant-with-shell-opts!` threads `:substrate (:substrate
+          ;; shell)` into every run, and `rf.story.ui.canvas/run-key` — which
+          ;; `variant-cell` keys its re-runs on — carries `:substrate` precisely
+          ;; so the cell re-renders when the user flips it. Calling
+          ;; `(rf/view view-id)` here and embedding the result as a Reagent
+          ;; hiccup vector would paint Reagent regardless, making that re-run
+          ;; a lie.
           ;;
-          ;; `render-view` also owns the two misses this branch hand-rolled: an
-          ;; unregistered VIEW degrades to the same italic diagnostic (via
-          ;; `reagent-render`), and an unregistered SUBSTRATE now degrades
-          ;; LOUDLY to `substrate :<id> is not registered` instead of silently
-          ;; painting Reagent — the user-visible half, exactly as on the canvas.
+          ;; `render-view` also owns the two misses: an unregistered VIEW
+          ;; degrades to an italic diagnostic (via `reagent-render`), and an
+          ;; unregistered SUBSTRATE degrades LOUDLY to `substrate :<id> is not
+          ;; registered` instead of silently painting Reagent, exactly as on
+          ;; the canvas.
           ;;
           ;; Decoration stays HERE, exactly once. `render-decorated-view`
           ;; bundles render + decorate but resolves decorator refs WITHOUT the
           ;; mode / cell-override `run-opts` threaded into `resolve-decorators`
           ;; above, so the cell consumes the render half and keeps its own
-          ;; `safe-decorated-view` wrap — the same trap rf2-3afns navigated.
+          ;; `safe-decorated-view` wrap — the same choice the canvas makes.
           (let [substrate (rf.story.ui.multi-substrate/single-render-substrate
                             (rf.story.ui.canvas/variant-substrate-set plan (:substrate shell))
                             :reagent)]
@@ -442,11 +429,11 @@
             ;; the React-context round trip (a plain `[:> Provider …]`
             ;; mount calls `(name kw)` on prop values and drops the
             ;; namespace before React sees it).
-            ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
+            ;; Stamp `data-rf-story-variant-root` on
             ;; the immediate wrapper around the decorated view (same
             ;; reason as canvas.cljs) so the a11y panel can scope
             ;; axe-core to ONLY the variant's rendered tree. It is also
-            ;; the subject boundary for inherited text styles (rf2-w72ij):
+            ;; the subject boundary for inherited text styles:
             ;; the `:cell` colour and font stay on the cell title above.
             ;; The view renders inside the variant's view-state override
             ;; scope, exactly as on the canvas (a no-op wrapper when the
@@ -489,11 +476,11 @@
      `:hot-reload-tick`, `:active-modes`, `:cell-overrides`, or
      `:substrate`.
 
-     Per rf2-zme7: the pre-allocation must happen before any subscribe
+     The pre-allocation must happen before any subscribe
      deref. A `:component-did-mount` hook fires AFTER React's first
-     commit — by which point the view body has already called
+     commit — by which point the view body would already have called
      `(subscribe [:count])` against a non-existent frame and
-     `(deref nil)` has thrown `IDeref.-deref defined for type null`,
+     `(deref nil)` would have thrown `IDeref.-deref defined for type null`,
      blanking the shell. `r/with-let` runs its bindings exactly once
      per mount, before the body — that's the right hook for the
      synchronous pre-allocation. `run-variant` allocates the frame and
@@ -507,19 +494,19 @@
      to hang off (one selection drives N variants), so the cell itself
      owns the pre-allocation.
 
-     Per rf2-c56hr (sibling to rf2-kgn0c, rf2-z4fza): the per-cell
+     The per-cell
      `last-run-key` atom tracks the most-recent `(rf.story.ui.canvas/run-key shell
-     variant-id)` value seen by THIS cell. The prior implementation
-     keyed only on `:hot-reload-tick`, so editing a control through
+     variant-id)` value seen by THIS cell. Keying only on
+     `:hot-reload-tick` would mean editing a control through
      the controls panel — which writes through to `:cell-overrides`
-     — never re-seeded the cell's frame and the cell kept rendering
+     — never re-seeds the cell's frame, leaving the cell rendering
      against its original `:setup`-seeded app-db. Mirroring the
      canvas's full run-key (`canvas.cljs` `run-key` + `run-if-needed!`)
      also covers chrome-level `:active-modes` toggles and substrate
-     flips. Keying on the full tuple still skips re-runs on ordinary
+     flips. Keying on the full tuple skips re-runs on ordinary
      intra-cell renders (an inc click bumps app-db but leaves the run-
      key intact), so the variant's `:setup` is NOT clobbered on user
-     interaction — same property the tick-only path preserved."
+     interaction."
      [variant-id]
      (r/with-let [last-run-key (atom nil)]
        (let [shell @rf.story.ui.state/shell-state-atom
@@ -543,19 +530,16 @@
      cells (prose, custom) fall back to a positional key prefixed by
      their type so they don't collide with variant keys.
 
-     Per rf2-kgn0c — position-only keys (`(str \"v-\" i)`) caused
-     React's reconciler to reuse the prior workspace's `variant-cell`
-     components when the user clicked from one `:variants-grid`
+     Position-only keys (`(str \"v-\" i)`) would let
+     React's reconciler reuse the prior workspace's `variant-cell`
+     components when the user clicks from one `:variants-grid`
      workspace to another (same layout, same cell positions, same
      component type → reconciler diffs props in place rather than
-     unmounting). The cell's `r/with-let` initialiser ran only once
-     with the OLD variant id, so the NEW variant's frame was never
+     unmounting). The cell's `r/with-let` initialiser would run only once
+     with the OLD variant id, so the NEW variant's frame would never be
      allocated by `run-variant-with-shell-opts!`. Subscribes against
-     the un-allocated frame returned `nil`, and `@nil` threw
-     `No protocol method IDeref.-deref defined for type null` —
-     surfacing as the ~22 pageerrors on the second workspace's
-     `app-db-diff` / `subscriptions` variants observed in PR #1254's
-     Phase 1b smoke run.
+     the un-allocated frame return `nil`, and `@nil` throws
+     `No protocol method IDeref.-deref defined for type null`.
 
      Variant-id-keyed cells force React to unmount the stale cells and
      mount fresh ones whenever the variant set differs across the
@@ -568,14 +552,13 @@
        :custom  (str "c-" i)
        (str "?-" i))))
 
-;; ---- :tabs renderer (rf2-ktnl8) -----------------------------------------
+;; ---- :tabs renderer ------------------------------------------------------
 ;;
-;; Per the docstring: `:tabs` MUST render one variant at a time. The prior
-;; implementation fell through to the `:else` `:grid` branch, rendering
-;; every variant cell simultaneously — which collapses to identical state
-;; across cells whenever the rendered view internally hardcodes a frame-
-;; provider (e.g. rf2-sszlr's `gallery_chrome.cljs`). Serialised rendering
-;; restores per-variant state isolation.
+;; Per the docstring: `:tabs` MUST render one variant at a time. Rendering
+;; every variant cell simultaneously, as the `:else` `:grid` branch does,
+;; collapses to identical state across cells whenever the rendered view
+;; internally hardcodes a frame-provider (e.g. `gallery_chrome.cljs`).
+;; Serialised rendering keeps per-variant state isolated.
 
 #?(:cljs
    (def ^:private tabs-styles
@@ -611,9 +594,9 @@
      mount `r/atom`; the workspace root remounts on workspace swap so
      the local atom's lifetime matches one workspace selection.
 
-     Per rf2-ktnl8: load-bearing for views that internally hardcode a
+     Load-bearing for views that internally hardcode a
      frame-provider — simultaneous renders share their interior state,
-     and only one-at-a-time mounting restores per-variant isolation.
+     and only one-at-a-time mounting gives per-variant isolation.
 
      `cells` is the resolved cell vector from `resolve-layout`. Only
      `:variant` cells are honoured for tabs (other cell types degrade
@@ -664,11 +647,11 @@
                 "custom render: " (pr-str (:render active-cell))]
                nil))]]))))
 
-;; ---- :variants-grid :isolation :shared renderer (rf2-gqid4) ------------
+;; ---- :variants-grid :isolation :shared renderer --------------------------
 ;;
 ;; When a `:variants-grid` workspace body declares `:isolation :shared`,
 ;; cells mount ONE at a time with a prev/next navigator. Same serialised-
-;; mount strategy as `:tabs` (rf2-ktnl8), but presented as a navigator
+;; mount strategy as `:tabs`, but presented as a navigator
 ;; (◀ N/total ▶) rather than a tab strip so the devcards "all states"
 ;; reading remains the dominant UX — the navigator is the
 ;; state-isolation lever, not a tab vocabulary.
@@ -767,7 +750,7 @@
                 "custom render: " (pr-str (:render active-cell))]
                nil))]]))))
 
-;; ---- capped grid renderer (rf2-ba86n.18 / G1–G3) ------------------------
+;; ---- capped grid renderer (G1–G3) ---------------------------------------
 ;;
 ;; The `:grid` / `:variants-grid` (isolated) layouts enumerate one cell per
 ;; variant. At matrix / design-system scale that is a flood risk
@@ -810,7 +793,7 @@
      they read as page chrome, not cells. Per spec/018 §10 the grid fails by
      summarizing + offering expansion, never by flooding the canvas.
 
-     `columns` (rf2-ugmrg) is the workspace body's `:columns` slot (or
+     `columns` is the workspace body's `:columns` slot (or
      nil). When a positive int it pins a fixed `repeat(N, …)` grid track
      template; otherwise the grid uses the responsive `auto-fit` default.
      See `grid-template-columns`."
@@ -860,12 +843,12 @@
      diffing cells in place. Belt-and-braces alongside the variant-id-
      keyed cell strategy below — if a future refactor narrows the cell
      keys, the workspace-level remount still guarantees frame setup
-     re-fires on swap. Per rf2-kgn0c."
+     re-fires on swap."
      [workspace-id]
      (let [body (rf.story.registrar/handler-meta :workspace workspace-id)]
        (cond
          (nil? body)
-         ;; Per rf2-xc65: workspace wrap is a scrollable container —
+         ;; The workspace wrap is a scrollable container —
          ;; `tab-index "0"` + aria-label make it focusable and named so
          ;; axe-core's scrollable-region-focusable rule passes. The
          ;; `<section>` lives inside the shell's <main> landmark.
@@ -890,17 +873,16 @@
               [:div {:style (:empty styles)}
                "no cells resolved — check the workspace body"]
 
-              ;; rf2-ktnl8: `:tabs` renders ONE variant at a time via a
-              ;; serialised tabs renderer. Previously fell through to the
-              ;; `:else` (grid) branch and rendered every variant cell
-              ;; simultaneously, which collapsed per-variant interior
-              ;; state to whichever cell was seeded last whenever a view
-              ;; hardcoded a frame-provider (see rf2-sszlr's
-              ;; `gallery_chrome.cljs`).
+              ;; `:tabs` renders ONE variant at a time via a
+              ;; serialised tabs renderer. Rendering every variant cell
+              ;; simultaneously, as the `:else` (grid) branch does, would
+              ;; collapse per-variant interior state to whichever cell was
+              ;; seeded last whenever a view hardcodes a frame-provider
+              ;; (see `gallery_chrome.cljs`).
               (= :tabs (:layout body))
               [tabs-renderer cells]
 
-              ;; rf2-gqid4: `:variants-grid` + `:isolation :shared`
+              ;; `:variants-grid` + `:isolation :shared`
               ;; mounts cells one-at-a-time via a prev/next navigator.
               ;; Same serialised-mount strategy as `:tabs`, applied to
               ;; the implicit `:variants-grid` enumeration. Belt-and-
@@ -922,15 +904,15 @@
                    ^{:key (cell-key i cell)}
                    [variant-cell (:variant-id cell)]))]
 
-              ;; rf2-ba86n.18 / G1–G3: `:grid` and isolated
+              ;; G1–G3: `:grid` and isolated
               ;; `:variants-grid` enumerate one cell per variant — a flood
               ;; risk at matrix scale. The capped renderer bounds visible
               ;; cells (G1), warns past the matrix thresholds (G2/G3), and
               ;; offers a `+N more` expander rather than freezing the canvas
-              ;; (spec/018 §10). Cells stay variant-id-keyed inside it, so
-              ;; the rf2-kgn0c frame-allocation invariant is preserved.
-              ;; rf2-ugmrg — the body's `:columns` slot pins a fixed grid
-              ;; track template; absent it keeps the responsive `auto-fit`
-              ;; default. Threaded into the capped-grid renderer.
+              ;; (spec/018 §10). Cells are variant-id-keyed inside it, so
+              ;; a workspace swap re-allocates each cell's frame (see
+              ;; `cell-key`). The body's `:columns` slot pins a fixed grid
+              ;; track template; absent, the grid uses the responsive
+              ;; `auto-fit` default. Threaded into the capped-grid renderer.
               :else
               [capped-grid-renderer cells (:columns body)])])))))
