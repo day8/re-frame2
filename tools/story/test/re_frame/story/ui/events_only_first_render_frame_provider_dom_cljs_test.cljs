@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.events-only-first-render-frame-provider-dom-cljs-test
-  "DOM-mount regression for rf2-4iu7tu: an EVENTS-ONLY variant's first
-  render must not reach `frame-provider` before its frame is allocated.
+  "DOM-mount regression: an EVENTS-ONLY variant's first render must not
+  reach `frame-provider` before its frame is allocated.
 
   ## The race
 
@@ -14,22 +14,22 @@
   `run-if-needed!`) fires AFTER React commits this very render, so a
   variant selected BEFORE the canvas ever mounts (a deep link, a
   persisted selection, or — as here — a bare pre-seeded
-  `:selected-variant`) never got a pre-allocated frame: the
-  `selection-watcher` pre-allocation (rf2-zme7) only fires on a
+  `:selected-variant`) gets no pre-allocated frame: the
+  `selection-watcher` pre-allocation only fires on a
   `:selected-variant` CHANGE, and there is none to observe when the
   selection predates the watcher's own installation.
 
-  This was surfaced by the rf2-j8hklm viewport-toggle DOM test (#5265),
-  which had to omit `:component` from its probe variant specifically to
-  dodge this crash (see `viewport_toggle_app_db_dom_cljs_test.cljs`'s
-  comment) — orthogonal to what THAT test verifies. This test drives the
+  The viewport-toggle DOM test omits `:component` from its probe variant
+  to stay clear of this race (see
+  `viewport_toggle_app_db_dom_cljs_test.cljs`'s comment), which is
+  orthogonal to what THAT test verifies. This test drives the
   race head-on: a `:component` IS registered, so the first commit must
   reach (and survive) `frame-provider`.
 
   ## Why this needs a REAL DOM mount
 
-  The bug is a React render-vs-commit-vs-componentDidMount ORDERING
-  defect — no pure-hiccup inspection can observe whether `frame-provider`
+  The race is a React render-vs-commit-vs-componentDidMount ORDERING
+  hazard — no pure-hiccup inspection can observe whether `frame-provider`
   runs before or after `component-did-mount` allocates the frame; only a
   real `react-dom` commit proves it. Ns ends in `-dom-cljs-test` so
   shadow-cljs's `:browser-test` build discovers it and mounts real DOM via
@@ -86,11 +86,11 @@
 ;; ---- the regression ---------------------------------------------------
 
 (deftest events-only-variant-first-render-does-not-fail-loud-on-absent-frame
-  (testing "rf2-4iu7tu: an events-only variant selected BEFORE the canvas
+  (testing "an events-only variant selected BEFORE the canvas
             ever mounts reaches `canvas-inner`'s FIRST render with NO
-            frame allocated yet. Pre-fix that render fell through to
-            `frame-provider` on the absent frame and threw
-            `:rf.error/frame-provider-frame-absent`; post-fix
+            frame allocated yet. Falling through to `frame-provider` on
+            the absent frame would throw
+            `:rf.error/frame-provider-frame-absent`, so
             `canvas-inner` ensures the frame during THIS render (mirroring
             `re-frame.views.owned-frame/ensure-frame-fc`'s render-phase
             ensure), so the mount succeeds and the variant's view actually
@@ -101,8 +101,8 @@
         (rf/reg-event :eofr/seed
           (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
         (rf/reg-sub :eofr/n (fn [db _] (:n db)))
-        ;; Deliberately WITH a :component — the #5265 test omitted this to
-        ;; route AROUND the exact race this test drives straight at.
+        ;; Deliberately WITH a :component — the viewport-toggle test omits
+        ;; it to route AROUND the exact race this test drives straight at.
         (rf/reg-view* :views/eofr-probe
           (fn [_]
             [:div {:data-test "eofr-probe"}
@@ -113,7 +113,8 @@
         ;; Pre-select BEFORE mount — no selection-watcher pre-allocation
         ;; edge ever fires (the watcher doesn't exist yet; there's no
         ;; :selected-variant CHANGE for it to observe even once installed).
-        ;; This is the exact condition #5265's comment names: "the SAME
+        ;; This is the exact condition the viewport-toggle test's comment
+        ;; names: "the SAME
         ;; synchronous render pass that first builds the vdom" reaches
         ;; frame-provider before component-did-mount ever runs.
         (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
