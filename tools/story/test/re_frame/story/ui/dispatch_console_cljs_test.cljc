@@ -1,17 +1,17 @@
 (ns re-frame.story.ui.dispatch-console-cljs-test
-  "Tests for the Dispatch Console panel (rf2-q9kv5).
+  "Tests for the Dispatch Console panel.
 
   Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
-  and the CLJS node-test build. Mirrors the actions panel's
-  coverage-layer split:
+  and the CLJS node-test build, in two coverage layers:
 
   - **Pure data** (JVM + CLJS): `parse-payload`, `build-event-vector`,
     `clamp-history`, `prepend-history-entry`, `format-history-entry`,
     `format-timestamp`, `autocomplete-event-ids`,
     `registered-event-ids` (1-arity).
-  - **CLJS-only side-effects**: localStorage round-trip via
-    `save-history!` / `load-history!`, `dispatch-event!` against a
-    live re-frame frame, input state mutations, replay-from-history."
+  - **CLJS-only side-effects**: `dispatch-event!` against a live
+    re-frame frame, input state mutations, replay-from-history. The
+    localStorage round-trip via `save-history!` / `load-history!` lives
+    in `re-frame.story.ui.dispatch-console-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.ui.dispatch-console :as rf.story.ui.dispatch-console]
             [re-frame.story.ui.dispatch-console-events :as rf.story.ui.dispatch-console-events]
@@ -20,12 +20,11 @@
                        [re-frame.registrar :as rf.registrar]
                        [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]])))
 
-;; The `browser?` predicate that stood here is gone with the rows it
-;; gated (rf2-r51p). "Skip silently when this is false" was the whole
-;; defect: nothing else ever ran them, so the silence was permanent
-;; rather than a routing decision. The dom sibling keeps an equivalent
-;; predicate, but there it routes between two lanes that BOTH load the
-;; file, and its false branch asserts a visible skip.
+;; There is no `browser?` predicate here. This namespace ends
+;; `-cljs-test`, so the browser lane never loads it, and a row that
+;; skipped silently when the predicate is false would run nowhere. The
+;; dom sibling has one, because there it routes between two lanes that
+;; BOTH load the file, and its false branch asserts a visible skip.
 
 ;; ---- fixtures (CLJS) -----------------------------------------------------
 
@@ -73,7 +72,7 @@
          (is (= {:a 1 :b "two"} v))))))
 
 (deftest parse-payload-edn-with-a-string-before-a-keyword
-  (testing "rf2-3x7nj.29.5: in EDN a string VALUE followed by a keyword reads
+  (testing "in EDN a string VALUE followed by a keyword reads
             as the JSON heuristic's quoted-token-then-colon. These are the
             ordinary shape of a form payload, and they parse as EDN in both
             runtimes"
@@ -86,7 +85,7 @@
 
 #?(:cljs
    (deftest parse-payload-compact-json-stays-json-cljs
-     (testing "rf2-3x7nj.29.5: a compact JSON object whose values are numbers,
+     (testing "a compact JSON object whose values are numbers,
                booleans or null is ALSO readable EDN (`{\"id\" :7}`), so JSON
                is still tried first when the heuristic matches"
        (is (= [:ok {:id 7 :ok true :none nil}]
@@ -279,11 +278,11 @@
 ;; ---- pure: build-history-entry carries cofx ------------------------------
 
 (deftest build-history-entry-records-cofx
-  (testing "a supplied cofx is recorded; absent cofx keeps the legacy shape"
+  (testing "a supplied cofx is recorded; an absent cofx leaves no :cofx key"
     (is (= {:event-id :e :payload nil :kind :dispatch :time 7
             :cofx {:rf/time-ms 1700000000000}}
            (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7 {:rf/time-ms 1700000000000})))
-    ;; nil / empty cofx ⇒ no :cofx key (byte-identical to pre-EP-0017 rows)
+    ;; nil / empty cofx ⇒ no :cofx key, so cofx-free rows stay terse
     (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
            (rf.story.ui.dispatch-console/build-history-entry :e nil :dispatch 7 nil)))
     (is (= {:event-id :e :payload nil :kind :dispatch :time 7}
@@ -317,11 +316,10 @@
 
 ;; The localStorage round-trip rows (`save-history!` → `load-history!`
 ;; across a dropped ratom, and `current-history`'s first-access hydrate)
-;; MOVED to `re-frame.story.ui.dispatch-console-dom-cljs-test` under
-;; rf2-r51p. They were guarded by `(when (browser?) ...)` here, and this
-;; namespace ends `-cljs-test`, so `:browser-test` never loaded them while
-;; `:node-test` — which has no `window.localStorage` — skipped the body:
-;; they executed in neither lane.
+;; live in `re-frame.story.ui.dispatch-console-dom-cljs-test`. This
+;; namespace ends `-cljs-test`, so `:browser-test` never loads it, and
+;; `:node-test` has no `window.localStorage`: a row guarded by
+;; `(when (browser?) ...)` here would execute in neither lane.
 
 #?(:cljs
    (deftest cljs-clear-history-drops-storage
@@ -331,11 +329,9 @@
          (rf.story.ui.dispatch-console/append-history! vid entry)
          (is (= 1 (count (rf.story.ui.dispatch-console/current-history vid))))
          (rf.story.ui.dispatch-console/clear-history! vid)
-         ;; The RATOM half of this claim runs here. The storage half was
-         ;; dead (guarded, in a namespace the browser lane never loads),
-         ;; so rf2-r51p SPLIT the row rather than moving it whole — moving
-         ;; it would have taken the live assertions below off the node
-         ;; lane. See `clear-history-drops-storage` in
+         ;; The RATOM half of this claim runs here, on the node lane. The
+         ;; storage half needs a browser, so it is
+         ;; `clear-history-drops-storage` in
          ;; `re-frame.story.ui.dispatch-console-dom-cljs-test`.
          (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))))))
 
@@ -417,7 +413,7 @@
          (is (contains? ids :ac.test/two))))))
 
 ;; ===========================================================================
-;; EP-0017 — a handler requiring a PROVIDED recordable cofx (rf2-wpy6eu).
+;; EP-0017 — a handler requiring a PROVIDED recordable cofx.
 ;; The console must: (1) show the requirement, (2) dispatch can supply it,
 ;; (3) omission fails visibly, (4) history replay reuses the recorded value
 ;; under the strict mint policy.
