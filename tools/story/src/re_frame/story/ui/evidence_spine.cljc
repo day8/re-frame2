@@ -64,8 +64,8 @@
 
   A row/beat that lacks focus coordinates (no `:epoch-id` / `:dispatch-id`)
   STILL opens useful Xray context — it focuses the panel without an epoch
-  pin and says WHY the precise focus is unavailable. This mirrors ba86n.9's
-  Explain panel 'not available' graceful empty states: the affordance is
+  pin and says WHY the precise focus is unavailable. This mirrors the
+  Explain panel's 'not available' graceful empty states: the affordance is
   never an unclickable dead end, and it never lies about precision it
   doesn't have.
 
@@ -145,7 +145,7 @@
   not its `cond->` tail), so `contains?` would read true for every projected
   beat — including a read-only dispatch that changed nothing. A beat counts
   as carrying direct db-evidence only when the two values DIFFER; absent keys
-  (older beats) read as nil = nil → no transition."
+  read as nil = nil → no transition."
   [beat]
   {:direct?     (boolean
                   (or (not= (:db-before beat) (:db-after beat))
@@ -241,7 +241,7 @@
 ;; ===========================================================================
 ;;
 ;; A focus command is the §D3 shape `day8.re-frame2-xray.focus` consumes:
-;; `{:panel … :epoch-id … :dispatch-id … :path … :source {…}}`. The spine
+;; `{:panel … :epoch-id … :dispatch-id … :source {…}}`. The spine
 ;; builds it from a beat's causal spine (`:epoch-id` / `:dispatch-id`) plus
 ;; an explicit panel selector and an OPAQUE `:source` provenance map (which
 ;; variant / span / beat triggered it). Story owns the command construction;
@@ -302,12 +302,8 @@
   unknown-tab stub. The returned command is data; the CLJS `focus!` fires
   it.
 
-  rf2-y8doi.29 — this used to carry a 4th `path` arg building a `:path`
-  key. Xray retired `:path` as a focus field (nothing rendered the slot it
-  wrote), and only this ns's own test ever passed the 4-arity: the live
-  caller `focus-beat!` always used the 3-arity, so `:path` was nil in
-  production. The arity is collapsed rather than left building a key Xray
-  ignores."
+  There is no `path` argument: `:path` is not an Xray focus field, and
+  Xray ignores it like any unknown key."
   [panel coords source]
   (let [pan (if (contains? focus-panels panel) panel default-focus-panel)]
     (cond-> {:panel pan :source source}
@@ -483,17 +479,16 @@
      [variant-id idx]
      (swap! selection-atom assoc variant-id idx)))
 
-;; ---- the focus-affordance boundary (rf2-n440v) ---------------------------
+;; ---- the focus-affordance boundary ---------------------------------------
 ;;
 ;; Story's evidence narrative is a PUBLISHABLE artefact; the Xray focus
 ;; links attached to it are not. Under `static-mode?` the bundle is a
 ;; shadow-cljs `release`, where Xray cannot render at all — nothing
 ;; registers its `:rf.xray/*` instruction set (`:devtools/preloads` is a
-;; `watch`/`compile` slot, ignored by `release`) and rf2-y8doi.60 gates
-;; Xray's four top-level `rf/reg-view` forms on `debug-enabled?`, which
-;; leaves those symbols UNDEFINED because `reg-view` carries its `def`
-;; INSIDE the gate. rf2-cljo6 ruled that loss ACCEPTED: a published Story
-;; export ships no inspector, by intent.
+;; `watch`/`compile` slot, ignored by `release`) and Xray gates its four
+;; top-level `rf/reg-view` forms on `debug-enabled?`, which leaves those
+;; symbols UNDEFINED because `reg-view` carries its `def` INSIDE the gate.
+;; A published Story export ships no inspector, by intent.
 ;;
 ;; So a focus affordance in a static export is a button pointing at a
 ;; surface that is not there, and `focus!` would drive `:rf.xray/*`
@@ -533,7 +528,7 @@
      id, see `re-frame.story.frames`).
 
      No-op when Story is disabled, and no-op in a published static export
-     (rf2-n440v — `focus-available?`), where there is no mounted Xray to
+     (`focus-available?`), where there is no mounted Xray to
      receive the command. Returns the focus result map (or nil) so a
      caller can introspect what fired."
      [variant-id beat panel]
@@ -734,7 +729,7 @@
      without an epoch pin) and a note says WHY the precise focus is
      unavailable (spec/020 §3 — graceful no-coords path).
 
-     Renders NOTHING when `focus-available?` is false (rf2-n440v): in a
+     Renders NOTHING when `focus-available?` is false: in a
      published static export there is no Xray to open, so the whole row —
      links and no-coords note alike — is omitted rather than offered and
      then swallowed. The beat's narrative is untouched."
@@ -815,8 +810,7 @@
 
 ;; ---- the result→spine entry point ----------------------------------------
 ;;
-;; Test mode renders a graceful 'evidence pending' row; the
-;; spine is its target. The spine reads the same result slot Test mode wrote
+;; Test mode's evidence row opens the spine. The spine reads the same result slot Test mode wrote
 ;; (`rf.story.ui.test-mode.state/results-atom`), so it shows the SAME run's narrative — Story
 ;; never re-runs the variant for the spine.
 
