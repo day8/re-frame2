@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.open-in-editor-cljs-test
-  "CLJS smoke tests for Xray's 'Open in editor' surface (rf2-evgf5,
-  rf2-g5q8d).
+  "CLJS smoke tests for Xray's 'Open in editor' surface.
 
   The URI math + the scheme denylist live in
   `re-frame.source-coords.editor-uri` and are matrix-tested at the
@@ -13,11 +12,11 @@
   - The chip carries `data-testid=\"xray-open-in-editor\"` so the
     e2e suite can target it.
   - `open-chip` hides ONLY when a `{:custom ...}` template resolves to a
-    forbidden script scheme (`javascript:`/`data:`/`vbscript:`); per
-    rf2-ox357n the positive allowlist was removed, so http:/https: and
-    unknown custom schemes now render.
-  - rf2-g5q8d — the `:rf.xray/open-in-editor` reg-event handler produces a
-    `:rf.xray.fx/open-in-editor` fx with a URI resolved through the rf2-vwcsq
+    forbidden script scheme (`javascript:`/`data:`/`vbscript:`); there
+    is no positive allowlist, so http:/https: and unknown custom schemes
+    render.
+  - The `:rf.xray/open-in-editor` reg-event handler produces a
+    `:rf.xray.fx/open-in-editor` fx with a URI resolved through the
     scheme denylist; runs on the `:rf/xray` frame without contaminating
     the host."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -29,15 +28,15 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; ---- Option B endpoint seam (rf2-wn3bh) ---------------------------------
+;; ---- dev-server endpoint seam -------------------------------------------
 ;;
-;; `open-coord!` (the new click launcher) PREFERS the dev-server endpoint
+;; `open-coord!` (the click launcher) PREFERS the dev-server endpoint
 ;; and FALLS BACK to the `editor://` URI navigation. To keep the URI /
 ;; navigator assertions below deterministic (no real `fetch` round-trip),
 ;; the per-test fixture swaps the endpoint launcher for a synchronous stub
 ;; that always invokes the fallback — exercising exactly the URI path these
 ;; tests pin. The endpoint-preference path itself is covered separately in
-;; the rf2-wn3bh block at the bottom of this file.
+;; the endpoint block at the bottom of this file.
 
 (defn- always-fall-back!
   "Stub endpoint launcher: ignore the URL, invoke the fallback synchronously.
@@ -46,7 +45,7 @@
   (fallback!))
 
 (defn reset-editor! []
-  ;; rf2-4s08ov — reset the operator-override slot too so a sibling
+  ;; Reset the operator-override slot too so a sibling
   ;; test's `[:general :editor-override]` write does not leak into the
   ;; chip-render tests' `get-editor` reads. `reset-settings!` clears the
   ;; whole settings map (incl. the override slot); `set-editor! :vscode`
@@ -56,16 +55,16 @@
   (config/set-project-root! nil))
 
 ;; Combined per-test fixture: resets the re-frame runtime (so each
-;; rf2-g5q8d test below sees a clean registrar + frame table) AND the
-;; editor preference (so the chip-render tests above see :vscode). The
+;; event-fx test below sees a clean registrar + frame table) AND the
+;; editor preference (so the chip-render tests see :vscode). The
 ;; chip-render tests don't drive the runtime, so they pay only the
-;; cheap snapshot/restore cost; the rf2-g5q8d tests below need the
+;; cheap snapshot/restore cost; the event-fx tests below need the
 ;; clean runtime so registrations don't bleed between tests.
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already covers the trace-collector rings) into one
-  ;; owner; `:post-reset` re-arms the editor default (settings reset + editor
-  ;; re-arm) and — rf2-wn3bh — pins the endpoint launcher to the synchronous
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + `:all` tier,
+  ;; which covers the trace-collector rings); `:post-reset` re-arms the
+  ;; editor default (settings reset + editor re-arm) and pins the
+  ;; endpoint launcher to the synchronous
   ;; always-fall-back stub so the URI / navigator assertions exercise the
   ;; deterministic fallback path (no real fetch). The endpoint-preference
   ;; path is covered in its own block at the bottom of this file.
@@ -114,17 +113,17 @@
     (is (nil? (open-in-editor/open-chip {:line 1})))
     (is (nil? (open-in-editor/open-chip {:file ""})))))
 
-;; ---- rf2-vwcsq / rf2-ox357n — Xray-side scheme-denylist behaviour -----
+;; ---- Xray-side scheme-denylist behaviour -------------------------------
 ;;
 ;; The matrix tests for `forbidden-scheme?` itself live in the shared
 ;; editor-uri test ns. These cases cover the Xray chip's wiring: the chip
 ;; hides ONLY when a `{:custom ...}` template resolves to one of the three
 ;; forbidden script schemes; everything else — http:/https: and unknown
-;; custom schemes — renders (rf2-ox357n removed the positive allowlist).
+;; custom schemes — renders (there is no positive allowlist).
 
 (deftest open-chip-hides-when-custom-template-resolves-to-forbidden-scheme
   (testing "open-chip returns nil ONLY for the three forbidden script
-            schemes (rf2-vwcsq). editor-uri/editor-uri gates these at
+            schemes. editor-uri/editor-uri gates these at
             build time → the chip is nil."
     (config/configure! {:rf.xray/editor {:custom "javascript:alert(1)"}})
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))
@@ -136,9 +135,9 @@
     (is (nil? (open-in-editor/open-chip {:file "src/x.cljs"})))))
 
 (deftest open-chip-renders-for-non-forbidden-custom-scheme
-  (testing "rf2-ox357n — open-chip renders for ANY non-forbidden scheme:
-            catalogued long-tail, http:/https: (no longer gated), AND
-            unknown custom schemes the old allowlist would have hidden"
+  (testing "open-chip renders for ANY non-forbidden scheme:
+            catalogued long-tail, http:/https:, AND unknown custom
+            schemes"
     (config/configure! {:rf.xray/editor {:custom "subl://open?path={path}&line={line}"}})
     (let [hiccup (open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
       (is (vector? hiccup))
@@ -147,9 +146,8 @@
     (config/configure! {:rf.xray/editor {:custom "emacsclient://{path}"}})
     (is (some? (open-in-editor/open-chip {:file "src/x.cljs"})))
 
-    ;; http:/https: now PASS — rf2-ox357n removed the allowlist that
-    ;; rejected them (the residual footgun the spec accepts; script
-    ;; schemes stay blocked).
+    ;; http:/https: PASS — there is no allowlist (the residual footgun
+    ;; the spec accepts; script schemes are blocked).
     (config/configure! {:rf.xray/editor {:custom "http://localhost:3000/{path}"}})
     (is (= "http://localhost:3000/src/x.cljs"
            (:href (second (open-in-editor/open-chip {:file "src/x.cljs"})))))
@@ -159,20 +157,18 @@
     (is (= "lapce://open?file=src/x.cljs&line=8"
            (:href (second (open-in-editor/open-chip {:file "src/x.cljs" :line 8})))))))
 
-;; ---- project-root prefix (rf2-5m5n2) ------------------------------------
+;; ---- project-root prefix ------------------------------------------------
 ;;
-;; The bead: clicking the Open chip on a Xray panel launched an OS-side
-;; editor with a classpath-relative path
-;; ("panel_gallery/event_detail_stories.cljs:115:3") that the editor's
-;; filesystem resolver could not find. The Xray config now exposes
-;; `:rf.xray/project-root` — set once at boot via `xray-config/configure!` — and
-;; `resolve-uri` (which both the chip and the `:rf.xray.fx/open-in-editor` fx share)
-;; prepends it before the URI ships. Mirror of Story's rf2-zfy1e matrix.
+;; An OS-side editor's filesystem resolver cannot find a classpath-relative
+;; path ("panel_gallery/event_detail_stories.cljs:115:3"). The Xray config
+;; exposes `:rf.xray/project-root` — set once at boot via
+;; `xray-config/configure!` — and `resolve-uri` (which both the chip and the
+;; `:rf.xray.fx/open-in-editor` fx share) prepends it before the URI ships.
+;; Mirror of Story's project-root matrix.
 
 (deftest open-chip-default-no-project-root
   (testing "with no project-root configured, the chip ships the file slot
-            verbatim — preserves v1 behaviour for hosts that haven't
-            plumbed the knob yet"
+            verbatim, for hosts that do not plumb the knob"
     (is (nil? (config/get-project-root)))
     (let [hiccup (open-in-editor/open-chip
                    {:file "src/app/views.cljs" :line 1 :column 1})]
@@ -188,7 +184,7 @@
              (:href (second hiccup)))))))
 
 (deftest open-chip-project-root-regression-rf2-5m5n2
-  (testing "regression: the panel-gallery testbed's failure case now
+  (testing "the panel-gallery testbed's classpath-relative coord
             resolves to an absolute on-disk URI when the host has
             plumbed :rf.xray/project-root through xray-config/configure!"
     (config/set-project-root!
@@ -234,7 +230,7 @@
 
 (deftest open-chip-configure-passes-project-root-through
   (testing "configure! routes :rf.xray/project-root through set-project-root!
-            on the CLJS side (mirror of Story's rf2-zfy1e config matrix)"
+            on the CLJS side (mirror of Story's config matrix)"
     (config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
     (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
     (let [hiccup (open-in-editor/open-chip
@@ -242,31 +238,26 @@
       (is (= "vscode://file/C:/Users/me/code/my-app/src/x.cljs:1:1"
              (:href (second hiccup)))))))
 
-;; ---- URI invariance to host page URL (rf2-2c5xb) ------------------------
+;; ---- URI invariance to host page URL ------------------------------------
 ;;
-;; The panel-gallery testbed surfaced a defect: source-coord chips on
-;; handlers registered inside the gallery served from `http://localhost:8765`
-;; were producing URIs that did not resolve to the right files on disk.
-;; Pre-rf2-2c5xb the testbed never called `xray-config/configure!`, so the
-;; chip shipped a classpath-relative `:file` slot
-;; (`panel_gallery/foo.cljs`) the OS handler rejected. The fix is the
-;; established rf2-5m5n2 path: configure `:rf.xray/project-root` at boot.
+;; A host that does not call `xray-config/configure!` ships a
+;; classpath-relative `:file` slot (`panel_gallery/foo.cljs`) the OS
+;; handler rejects, whatever URL the page is served from; the remedy is
+;; configuring `:rf.xray/project-root` at boot.
 ;;
 ;; The tests below pin the load-bearing invariant: URI construction is a
 ;; pure function of `(editor, source-coord, project-root)`. It does NOT
 ;; read `window.location` — so the URI a chip renders is identical no
 ;; matter which host URL the gallery / example app is served from. The
-;; second test exercises the panel-gallery's exact failure case (the
-;; `panel_gallery/<file>.cljs` shape) against the testbed's known on-disk
+;; second test exercises the panel-gallery's coord shape
+;; (`panel_gallery/<file>.cljs`) against the testbed's known on-disk
 ;; root.
 
 (deftest resolve-uri-invariant-to-host-url
-  (testing "rf2-2c5xb — `resolve-uri` is a pure function of (editor,
+  (testing "`resolve-uri` is a pure function of (editor,
             source-coord, project-root); the URI it returns is identical
-            regardless of any ambient host state. The panel-gallery
-            defect was rooted in the testbed never calling
-            `xray-config/configure!`, NOT in the URI builder somehow
-            reading `window.location`. This test pins the contract: the
+            regardless of any ambient host state — the URI builder does
+            not read `window.location`. This test pins the contract: the
             same `(editor, coord, project-root)` triple always yields
             the same URI."
     (config/set-project-root! "C:/Users/me/code/my-app")
@@ -294,8 +285,8 @@
            bound to the configured root, not the location"))))
 
 (deftest resolve-uri-panel-gallery-regression-rf2-2c5xb
-  (testing "rf2-2c5xb — regression: the panel-gallery's exact failure
-            case (a classpath-relative coord captured at registration of
+  (testing "the panel-gallery's case (a classpath-relative coord
+            captured at registration of
             a panel-gallery handler) resolves to an absolute on-disk URI
             against the testbed's configured project-root. Pins that the
             chip works at `http://localhost:8765` independently of the
@@ -311,31 +302,25 @@
               :line 42
               :column 1})))))
 
-;; ---- rf2-g5q8d — :rf.xray/open-in-editor + :rf.xray.fx/open-in-editor ------------
+;; ---- :rf.xray/open-in-editor + :rf.xray.fx/open-in-editor ---------------
 ;;
 ;; Xray panels dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`
 ;; when their source-coord affordance is clicked. The only dispatch sites
 ;; are the shared `panels.shared.coord-chip` and `panels.shared.coord-link`,
-;; so their requirers ARE the roster (Trace, Epoch and Reactive today). The
-;; rf2-3vucz audit's four-panel list (trace, issues-ribbon, mcp-server,
-;; hydration-debugger) predates the rf2-qy0nu 8-dead-panel sweep and the
-;; rf2-gbz39 Issues-tab removal, which took three of the four. Pre-rf2-g5q8d
-;; the handler was a stub db-only reg-event that recorded the coord into
-;; app-db and never opened anything — load-bearing UX silently broken.
+;; so their requirers ARE the roster (Trace, Epoch and Reactive).
 ;;
-;; The block below pins the contract of the rewired event-fx + fx pair:
+;; The block below pins the contract of the event-fx + fx pair:
 ;;
 ;;   1. Dispatching the event produces a `:rf.xray.fx/open-in-editor` fx whose
-;;      `:uri` resolves through `resolve-uri` (= rf2-vwcsq denylist).
-;;   2. Both dispatch shapes are accepted: the bare-coord form (the
-;;      deleted hydration-debugger panel's shape — nothing dispatches it
-;;      bare today, but the handler's bare branch stays live as the
-;;      unwrapped tail of the wrapper path) and the `{:source-coord ...}`
-;;      wrapper form (the shape every live call site emits).
+;;      `:uri` resolves through `resolve-uri` (= the scheme denylist).
+;;   2. Both dispatch shapes are accepted: the bare-coord form (no call
+;;      site dispatches it bare, but the handler's bare branch is live as
+;;      the unwrapped tail of the wrapper path) and the `{:source-coord ...}`
+;;      wrapper form (the shape every call site emits).
 ;;   3. A coord whose resolved URI is rejected by the denylist (custom
 ;;      `javascript:` / `data:` / `vbscript:` template) yields a fx whose
-;;      `:uri` is nil — the side-effect fx is a no-op for nil. Per
-;;      rf2-ox357n http:/https:/unknown schemes now RESOLVE (no allowlist).
+;;      `:uri` is nil — the side-effect fx is a no-op for nil.
+;;      http:/https:/unknown schemes RESOLVE (there is no allowlist).
 ;;   4. The handler runs on Xray's `:rf/xray` frame (per the panels'
 ;;      `{:frame :rf/xray}` dispatch opts); Xray's app-db is NOT
 ;;      written (the click is pure navigation).
@@ -343,22 +328,21 @@
 (defonce ^:private captured-editor-fx (atom []))
 
 (defn- setup!
-  "Per-test bootstrap shared by every rf2-g5q8d test: register Xray's
+  "Per-test bootstrap shared by every event-fx test: register Xray's
   handlers, allocate the `:rf/xray` frame, and replace the
   `:rf.xray.fx/open-in-editor` reg-fx with a capture stub so assertions can
   inspect the fx args without touching `window.location`. Mirrors the
   fx-replacement pattern in `time_travel_cljs_test.cljs`.
 
-  Per rf2-wn3bh the event-fx now emits the structured `:source-coord`
-  (so the fx can prefer the dev-server endpoint). The capture stub
-  resolves the coord through the SAME `resolve-uri` helper the chip
-  uses and records the resolved URI under `:uri` so the existing
-  URI-equivalence assertions keep their meaning — the resolution is
-  exactly what the URI-fallback path would build."
+  The event-fx emits the structured `:source-coord` (so the fx can
+  prefer the dev-server endpoint). The capture stub resolves the coord
+  through the SAME `resolve-uri` helper the chip uses and records the
+  resolved URI under `:uri` for the URI-equivalence assertions — the
+  resolution is exactly what the URI-fallback path would build."
   []
   (reset! captured-editor-fx [])
   (registry/register-xray-handlers!)
-  ;; rf2-h1vqa4: capture via the frame's `:fx-overrides` (fn-value form) —
+  ;; Capture via the frame's `:fx-overrides` (fn-value form) —
   ;; the DESIGNED per-frame fx-replacement seam — instead of re-registering
   ;; `:rf.xray.fx/open-in-editor` from this test ns, which would sit beside Xray's own
   ;; registration as a cross-namespace duplicate and fail the `:rf/xray`
@@ -369,7 +353,7 @@
      {:rf.xray.fx/open-in-editor
       (fn [_ctx args]
         ;; Record the raw fx args AND the URI the coord resolves to, so
-        ;; tests can assert either the new `:source-coord` shape or the
+        ;; tests can assert either the `:source-coord` shape or the
         ;; equivalent resolved `:uri`.
         (swap! captured-editor-fx conj
                (assoc args
@@ -377,7 +361,7 @@
                              (open-in-editor/resolve-uri coord)))))}}))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
-  (testing "rf2-g5q8d — dispatching `:rf.xray/open-in-editor` with
+  (testing "dispatching `:rf.xray/open-in-editor` with
             a bare coord (the structured map the `{:source-coord ...}`
             wrapper also unwraps to) produces a
             `:rf.xray.fx/open-in-editor` fx whose :uri is the resolved URI"
@@ -393,7 +377,7 @@
           "the resolved vscode:// URI rides on the fx args"))))
 
 (deftest open-in-editor-event-accepts-wrapped-shape
-  (testing "rf2-g5q8d — dispatching with `{:source-coord coord}` (the
+  (testing "dispatching with `{:source-coord coord}` (the
             shape the shared `coord-chip` / `coord-link` dispatch sites
             emit) produces the same fx as the bare-coord form"
     (setup!)
@@ -405,14 +389,10 @@
           "the wrapper shape unwraps + resolves the same way"))))
 
 (deftest open-in-editor-event-parses-display-string-coord
-  (testing "rf2-g5q8d — the Trace panel projects the structured coord
-            to a `\"file:line\"` display string at projection time
-            (the other two trace-style panels of the rf2-3vucz audit,
-            issues-ribbon and mcp-server, are gone); the handler
-            parses the display string back to the structured form so
-            the URI build works end-to-end. This is the
-            single-failure path that landed the load-bearing UX in
-            the rf2-3vucz audit."
+  (testing "the Trace panel projects the structured coord
+            to a `\"file:line\"` display string at projection time;
+            the handler parses the display string back to the
+            structured form so the URI build works end-to-end."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
@@ -423,9 +403,9 @@
            falls through to the editor-uri builder's default of 1"))))
 
 (deftest open-in-editor-event-parses-bare-display-string
-  (testing "rf2-g5q8d — defensive shape: bare display string with no
-            wrapper map (no panel does this today; handler accepts it
-            for future callers that don't wrap)"
+  (testing "defensive shape: bare display string with no
+            wrapper map (no panel does this; the handler accepts it
+            for callers that don't wrap)"
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor "src/x.cljs:7"])
@@ -433,7 +413,7 @@
              (:uri (first @captured-editor-fx)))))))
 
 (deftest open-in-editor-event-display-string-without-line
-  (testing "rf2-g5q8d — display string with no trailing line number
+  (testing "display string with no trailing line number
             (degenerate: the projection helpers always include line,
             but the parser falls through gracefully to `{:file <s>}`)"
     (setup!)
@@ -445,7 +425,7 @@
           "`:line` defaults to 1 via editor-uri"))))
 
 (deftest open-in-editor-event-honours-editor-preference
-  (testing "rf2-g5q8d — the fx's URI reflects `config/get-editor`
+  (testing "the fx's URI reflects `config/get-editor`
             (the same source of truth the chip render uses)"
     (setup!)
     (config/set-editor! :cursor)
@@ -456,9 +436,9 @@
              (:uri (first @captured-editor-fx)))))))
 
 (deftest open-in-editor-event-rejects-javascript-scheme
-  (testing "rf2-g5q8d / rf2-vwcsq — a custom template that resolves to
+  (testing "a custom template that resolves to
             `javascript:` is rejected at the handler seam. The
-            editor-uri-side denylist (rf2-vwcsq) returns nil; the fx
+            editor-uri-side denylist returns nil; the fx
             receives nil and is a no-op."
     (setup!)
     (config/configure! {:rf.xray/editor {:custom "javascript:alert(1)"}})
@@ -471,7 +451,7 @@
           "the resolved URI is nil — `open!` will refuse to navigate"))))
 
 (deftest open-in-editor-event-rejects-data-scheme
-  (testing "rf2-g5q8d / rf2-vwcsq — a custom template resolving to
+  (testing "a custom template resolving to
             `data:` is denylist-rejected (returns nil)"
     (setup!)
     (config/configure! {:rf.xray/editor {:custom "data:text/html,<script>x</script>"}})
@@ -482,9 +462,9 @@
           "data: is on the forbidden-scheme denylist"))))
 
 (deftest open-in-editor-event-resolves-http-scheme-rf2-ox357n
-  (testing "rf2-ox357n — a custom template resolving to `http:` now
-            RESOLVES (the positive allowlist that rejected it was
-            removed; only the three script schemes are gated)"
+  (testing "a custom template resolving to `http:`
+            RESOLVES (there is no positive allowlist; only the three
+            script schemes are gated)"
     (setup!)
     (config/configure! {:rf.xray/editor {:custom "http://localhost:3000/{path}"}})
     (rf/with-frame :rf/xray
@@ -495,7 +475,7 @@
           "http: passes through — no allowlist over-gating"))))
 
 (deftest open-in-editor-event-runs-on-xray-frame-without-host-contamination
-  (testing "rf2-g5q8d — the handler doesn't write to Xray's app-db
+  (testing "the handler doesn't write to Xray's app-db
             (no `:db` in the returned effect map). The click is pure
             navigation; no host-frame escape, no Xray-frame state
             pollution."
@@ -507,11 +487,10 @@
         (let [post-db (rf.frame/frame-app-db-value :rf/xray)]
           (is (= pre-db post-db)
               "Xray's app-db is untouched by the click — no
-               `:last-open-in-editor-coord` etc. (the prior stub
-               db-only handler's behaviour, removed by rf2-g5q8d)"))))))
+               `:last-open-in-editor-coord` or other recorded coord"))))))
 
 (deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
-  (testing "rf2-wn3bh — `:rf.xray.fx/open-in-editor` is invoked with the structured
+  (testing "`:rf.xray.fx/open-in-editor` is invoked with the structured
             `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
             the fx can prefer the dev-server endpoint and fall back to the
             `editor://` URI. The resolution is deferred to the fx /
@@ -528,7 +507,7 @@
            resolves the relative :file at runtime on the server"))))
 
 (deftest open-in-editor-event-resolves-through-shared-resolve-uri-helper
-  (testing "rf2-g5q8d — the event-fx's URI matches what `open-chip`
+  (testing "the event-fx's URI matches what `open-chip`
             renders for the same coord (one source of truth for URI
             resolution + denylist gating across the data path and
             the side-effect path)"
@@ -541,7 +520,7 @@
           "chip's :href ≡ fx's :uri"))))
 
 (deftest open-in-editor-event-applies-project-root-prefix
-  (testing "rf2-5m5n2 — the event-fx's URI reflects the configured
+  (testing "the event-fx's URI reflects the configured
             project-root (same source of truth as `open-chip`'s
             `:href`), so the shared `coord-chip` / `coord-link`
             dispatch path resolves relative source-coords to absolute
@@ -555,10 +534,10 @@
              (:uri (first @captured-editor-fx)))
           "fx's :uri ≡ chip's :href once :project-root is configured"))))
 
-;; ---- rf2-4s08ov — open-in-editor DX hint when no editor configured ------
+;; ---- open-in-editor DX hint when no editor configured -------------------
 ;;
-;; The rf2-ffijtp finding: a host that wired only the bare preload never
-;; set `:rf.xray/editor`, so the chip targets the framework default
+;; A host that wires only the bare preload never
+;; sets `:rf.xray/editor`, so the chip targets the framework default
 ;; `:vscode`. The URI resolves and `Location.assign` fires, but if VS
 ;; Code is not the developer's editor the OS has no `vscode:` handler and
 ;; the click is a SILENT no-op. Instead of that silent navigation, the
@@ -569,13 +548,13 @@
 ;;      (`config/editor-configured?` false), the open-in-editor event
 ;;      routes to `:rf.xray/editor-hint-show` (NOT `:rf.xray.fx/open-in-editor`).
 ;;   2. Once the host explicitly sets an editor (even `:vscode`), or an
-;;      operator override is present, the click resolves + navigates as
-;;      before — the hint never fires.
+;;      operator override is present, the click resolves + navigates —
+;;      the hint never fires.
 
 (defn- setup-unconfigured!
   "Like `setup!` but clears the editor-explicitly-set? flag + any
   operator override so `config/editor-configured?` is false — the bare
-  host scenario rf2-4s08ov targets."
+  host scenario."
   []
   (setup!)
   ;; `reset-editor!` (via the fixture) called `set-editor! :vscode`,
@@ -585,7 +564,7 @@
   (config/update-setting! :general :editor-override nil))
 
 (deftest open-in-editor-event-hints-when-no-editor-configured
-  (testing "rf2-4s08ov — with NO editor effectively configured, the
+  (testing "with NO editor effectively configured, the
             event does NOT fire `:rf.xray.fx/open-in-editor` (the silent vscode:
             navigation) — it routes to the editor-hint instead"
     (setup-unconfigured!)
@@ -602,7 +581,7 @@
   (config/update-setting! :general :editor-override nil))
 
 (deftest editor-hint-show-and-dismiss-flip-the-sub
-  (testing "rf2-4s08ov — the `:rf.xray/editor-hint-show` /
+  (testing "the `:rf.xray/editor-hint-show` /
             `-dismiss` events flip the `:rf.xray/editor-hint-open?`
             sub (the toast's mount gate)"
     (setup!)
@@ -617,9 +596,9 @@
           "dismissed after editor-hint-dismiss"))))
 
 (deftest open-in-editor-event-navigates-when-host-set-editor
-  (testing "rf2-4s08ov — once the host explicitly sets an editor (even
+  (testing "once the host explicitly sets an editor (even
             the framework-default :vscode), the click resolves + fires
-            `:rf.xray.fx/open-in-editor` as before; the hint never fires"
+            `:rf.xray.fx/open-in-editor`; the hint never fires"
     (setup-unconfigured!)
     (config/set-editor! :vscode)
     (is (true? (config/editor-configured?))
@@ -633,7 +612,7 @@
              (:uri (first @captured-editor-fx)))))))
 
 (deftest open-in-editor-event-navigates-when-operator-override-set
-  (testing "rf2-4s08ov — an operator override (no host set) also counts
+  (testing "an operator override (no host set) also counts
             as configured: the click navigates, no hint"
     (setup-unconfigured!)
     (config/update-setting! :general :editor-override :cursor)
@@ -649,16 +628,16 @@
     ;; project-root but NOT the settings override slot).
     (config/update-setting! :general :editor-override nil)))
 
-;; ---- click-time navigation (rf2-muvs8) ----------------------------------
+;; ---- click-time navigation ----------------------------------------------
 ;;
-;; Mirror of Story's click-time tests. The bead: `(set! (.-location js/window)
-;; uri)` was silently no-op'd by some Chromium builds on Windows for
-;; custom URI schemes; the fix switched to `Location.assign`, routed it
+;; Mirror of Story's click-time tests. Navigation uses `Location.assign` —
+;; some Chromium builds on Windows silently no-op
+;; `(set! (.-location js/window) uri)` for custom URI schemes — routed
 ;; through an atom-held navigator seam (`set-navigator!`) so tests can
 ;; capture calls without mutating `js/window.location` (which is non-
 ;; configurable in modern browsers and throws under `defineProperty`),
-;; and added a `console.log` of the URI for live diagnosis. These tests
-;; pin the new click-time contract.
+;; with a `console.log` of the URI for live diagnosis. These tests pin
+;; the click-time contract.
 
 (defn- with-stub-navigator
   "Swap the navigator seam for `stub-fn` for the duration of `body-fn`.
@@ -679,7 +658,7 @@
     [nav calls]))
 
 (deftest click-handler-calls-navigator-with-uri
-  (testing "rf2-muvs8 — clicking the chip invokes the navigator seam
+  (testing "clicking the chip invokes the navigator seam
             with the same URI carried in the :href"
     (let [hiccup       (open-in-editor/open-chip
                          {:file "src/x.cljs" :line 42 :column 7})
@@ -697,7 +676,7 @@
           "the navigation URI is identical to the rendered href"))))
 
 (deftest click-handler-prevents-default
-  (testing "rf2-muvs8 — the click handler preventDefaults so the
+  (testing "the click handler preventDefaults so the
             browser doesn't double-navigate"
     (let [hiccup       (open-in-editor/open-chip
                          {:file "src/x.cljs" :line 1})
@@ -711,7 +690,7 @@
           "the click handler must call e.preventDefault()"))))
 
 (deftest open-bang-calls-navigator
-  (testing "rf2-muvs8 — `open!` (the public seam shared by the chip and
+  (testing "`open!` (the public seam shared by the chip and
             the `:rf.xray.fx/open-in-editor` reg-fx) invokes the navigator with
             an allowed URI"
     (let [[nav calls] (capturing-navigator)]
@@ -720,7 +699,7 @@
       (is (= ["vscode://file/src/x.cljs:1:1"] @calls)))))
 
 (deftest open-bang-no-op-for-nil-uri
-  (testing "rf2-muvs8 — `open!` is a no-op for nil URI (the absent-coord
+  (testing "`open!` is a no-op for nil URI (the absent-coord
             case + the rejected-by-denylist case both flow nil)"
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
@@ -729,7 +708,7 @@
           "no navigation attempted for nil URI"))))
 
 (deftest open-bang-denylist-gates-pre-resolved-uri
-  (testing "rf2-muvs8 / rf2-ox357n — `open!` re-applies the scheme
+  (testing "`open!` re-applies the scheme
             denylist at the pre-resolved {:uri ...} handoff (the
             :rf.xray.fx/open-in-editor reg-fx path that bypasses editor-uri's
             build-time gating). Forbidden schemes never reach the
@@ -750,14 +729,13 @@
           (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
               "an unknown custom non-dangerous scheme navigates"))))))
 
-;; ---- rf2-r4q6y3 — direct chip click routes through the hint decision ----
+;; ---- direct chip click routes through the hint decision -----------------
 ;;
-;; Pre-rf2-r4q6y3 the in-DOM `open-chip` `:on-click` called `open!`
-;; directly, bypassing the rf2-4s08ov configured/hint decision the
-;; panel-side `:rf.xray/open-in-editor` event-fx already applied. An
-;; unconfigured host therefore silently navigated to the implicit
-;; `vscode:` URI from the chip — the exact silent no-op rf2-4s08ov set
-;; out to replace. `chip-click!` now applies the same decision:
+;; The in-DOM `open-chip` `:on-click` goes through `chip-click!`, which
+;; applies the same configured/hint decision as the panel-side
+;; `:rf.xray/open-in-editor` event-fx — calling `open!` directly would let
+;; an unconfigured host silently navigate to the implicit `vscode:` URI
+;; from the chip. `chip-click!` decides:
 ;;
 ;;   1. Configured editor                 → navigate (`open!`).
 ;;   2. Unconfigured + `:rf/xray` present → show the hint toast.
@@ -770,11 +748,10 @@
   (config/update-setting! :general :editor-override nil))
 
 (deftest chip-click-navigates-when-editor-configured
-  (testing "rf2-r4q6y3 / rf2-wn3bh — with an editor configured, a direct
+  (testing "with an editor configured, a direct
             chip click opens via `open-coord!`; with the endpoint launcher
             stubbed to fall back (the fixture default), it navigates via
-            the navigator seam exactly as the URI path always did. The
-            hint never enters the path."
+            the navigator seam. The hint never enters the path."
     (setup!)
     (config/set-editor! :cursor)          ; explicit set = configured
     (is (true? (config/editor-configured?)))
@@ -785,9 +762,9 @@
           "configured editor → endpoint preferred, URI fallback navigates"))))
 
 (deftest chip-click-does-not-navigate-when-unconfigured-with-frame
-  (testing "rf2-r4q6y3 — with NO editor configured and a live :rf/xray
-            shell frame, a direct chip click does NOT silently navigate
-            (the bug); it routes to the hint instead"
+  (testing "with NO editor configured and a live :rf/xray
+            shell frame, a direct chip click does NOT silently navigate;
+            it routes to the hint instead"
     (setup!)
     (unconfigure-editor!)
     (is (false? (config/editor-configured?)))
@@ -800,9 +777,9 @@
     (config/update-setting! :general :editor-override nil)))
 
 (deftest chip-click-shows-hint-when-unconfigured-with-frame
-  (testing "rf2-r4q6y3 — the unconfigured + frame chip click dispatches
+  (testing "the unconfigured + frame chip click dispatches
             `:rf.xray/editor-hint-show` on :rf/xray (consistent with the
-            panel-side event-fx + #3486). Captured synchronously via a
+            panel-side event-fx). Captured synchronously via a
             `rf/dispatch` spy so the assertion is deterministic without
             an async router drain."
     (setup!)
@@ -810,7 +787,7 @@
     ;; `chip-click!` calls the `rf/dispatch` MACRO directly (hardcoded, no
     ;; injectable dispatch-fn seam), and the macro's expansion calls the
     ;; `^:no-doc` `re-frame.core/dispatch-impl` seam fully-qualified
-    ;; (rf2-m90brg) — so the spy goes on `rf/dispatch-impl`; redefing
+    ;; — so the spy goes on `rf/dispatch-impl`; redefing
     ;; `re-frame.router/dispatch!` directly would fail (a plain `defn`, not a
     ;; redefinable `def`-alias — the CLJS compiler's static arity-dispatch
     ;; optimisation bypasses `with-redefs`), and redefing `re-frame.core/
@@ -828,7 +805,7 @@
     (config/update-setting! :general :editor-override nil)))
 
 (deftest chip-click-standalone-fallback-navigates-without-frame
-  (testing "rf2-r4q6y3 — with NO editor configured AND no :rf/xray frame
+  (testing "with NO editor configured AND no :rf/xray frame
             (the standalone / static-host fallback — nowhere for a hint
             toast to mount), the chip falls back to direct navigation.
             This is the documented standalone contract."
@@ -844,19 +821,19 @@
       (is (= ["vscode://file/src/x.cljs:1:1"] @calls)
           "unconfigured + no frame → standalone best-effort navigation"))))
 
-;; ---- rf2-wn3bh — Option B: dev-server endpoint preferred over URI -------
+;; ---- dev-server endpoint preferred over URI -----------------------------
 ;;
 ;; `open-coord!` prefers the dev-server endpoint and falls back to the
 ;; `editor://` URI navigation. The URI-fallback path is exercised
 ;; throughout the file above (via the `always-fall-back!` launcher stub in
 ;; the fixture). This block pins the ENDPOINT-PREFERENCE half of the
-;; additive contract: when the launcher reports success (a dev server
+;; contract: when the launcher reports success (a dev server
 ;; answered), the URI fallback does NOT fire — and the endpoint URL the
 ;; client builds carries the structured coord + editor hint the server
 ;; resolves at runtime.
 
 (deftest endpoint-url-carries-coord-and-editor-hint
-  (testing "rf2-wn3bh — `build-url` projects (coord, editor) to the
+  (testing "`build-url` projects (coord, editor) to the
             endpoint query: file (encoded), line, column, editor keyword"
     (is (= (str rf.source-coords.open-endpoint/endpoint-path
                 "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
@@ -872,7 +849,7 @@
         "{:custom …} editor ships no hint (server auto-detects)")))
 
 (deftest open-coord-prefers-endpoint-when-it-succeeds
-  (testing "rf2-wn3bh — when the endpoint launcher reports success (a dev
+  (testing "when the endpoint launcher reports success (a dev
             server answered), the URI fallback does NOT fire"
     (let [fallback-calls (atom 0)
           ;; Stub launcher: 'endpoint succeeded' → never call fallback.
@@ -886,9 +863,9 @@
           (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
 (deftest open-coord-falls-back-to-uri-when-no-endpoint
-  (testing "rf2-wn3bh — when the endpoint launcher invokes the fallback
+  (testing "when the endpoint launcher invokes the fallback
             (no dev server), the `editor://` URI navigates via the
-            navigator seam — the additive contract: B never removes the
+            navigator seam — endpoint preference never removes the
             URI path"
     (setup!)                              ; configured :vscode
     (let [prev (rf.source-coords.open-endpoint/set-launcher! always-fall-back!)
@@ -897,6 +874,6 @@
         (with-stub-navigator nav
           #(open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
         (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
-            "no dev server → URI fallback navigates exactly as before")
+            "no dev server → URI fallback navigates")
         (finally
           (rf.source-coords.open-endpoint/set-launcher! prev))))))
