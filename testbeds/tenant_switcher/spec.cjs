@@ -1,5 +1,5 @@
 /*
- * tenant-switcher testbed — browser smoke (rf2-5e22yc, EP-0013/resources
+ * tenant-switcher testbed — browser smoke (EP-0013/resources
  * Part-2 leak-boundary scenario 5).
  *
  * The LIVE demonstration of the scoped-cache leak boundary as a multi-SCOPE
