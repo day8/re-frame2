@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.overflow-indicator-cljs-test
-  "Tests for the shared overflow-indicator hiccup (rf2-1k5r1).
+  "Tests for the shared overflow-indicator hiccup.
 
   The overflow indicator is the contract surface the user sees when
   the 200-row panel-cap drops rows. Tests pin: nil-when-not-over-cap,
