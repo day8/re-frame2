@@ -4428,7 +4428,7 @@
         p))))
 
 ;; =========================================================================
-;; popup affordance — opt-in "open in popup" control (rf2-l4625)
+;; popup affordance — opt-in "open in popup" control
 ;; =========================================================================
 ;;
 ;; When a `[edn-inspector value opts]` call site passes
@@ -4444,11 +4444,9 @@
 ;; inline widget is genuinely cramped (machine snapshots, sub values,
 ;; trace payloads). Default off keeps simple call sites quiet.
 ;;
-;; App-DB does NOT use the affordance (rf2-7sdja — Mike's call after
-;; live testing 2026-05-26): the App-DB panel has plenty of horizontal
-;; room; the side panel is wide enough for the whole tree without a
-;; pop-out. Earlier framing of App-DB as "the canonical cramped in the
-;; side panel case" was wrong.
+;; App-DB does NOT use the affordance: the App-DB panel has plenty of
+;; horizontal room; the side panel is wide enough for the whole tree
+;; without a pop-out.
 ;;
 ;; The affordance dispatches the OPEN event id literally — no `require`
 ;; on the popup ns from here, which would form a cycle (the popup ns
@@ -4474,7 +4472,7 @@
    :opacity       0.6})
 
 ;; =========================================================================
-;; zoom trigger + breadcrumb (rf2-h71e0; gesture reworked rf2-zl4rs)
+;; zoom trigger + breadcrumb
 ;; =========================================================================
 ;;
 ;; Two surfaces:
@@ -4486,9 +4484,9 @@
 ;;    ABSOLUTE path from the original root (the renderer's per-node
 ;;    `:path` is RELATIVE to the current zoom root, so the caller composes
 ;;    `zoom-path-prefix` + `path` before passing it in). There is no
-;;    separate `⊙` glyph button (rf2-zl4rs): the container itself is the
+;;    separate glyph button: the container itself is the
 ;;    target, with `tab-index 0` + an `aria-label` carrying the keyboard +
-;;    screen-reader affordance the button used to provide.
+;;    screen-reader affordance.
 ;;
 ;; 2. `zoom-breadcrumbs` — segmented nav at the top of the inspector
 ;;    when the zoom path is non-empty. First segment is the `:header`
@@ -4515,20 +4513,20 @@
      same as the double-click; other keys pass through untouched so the
      surrounding spine bindings (j/k/l/G) and Esc-zoom-out keep working.
    - `:tab-index 0` + `:aria-label` — the node is keyboard-focusable and
-     announces itself as a zoom target, preserving the a11y the removed
-     `⊙` button provided. We deliberately do NOT set `role \"button\"`:
+     announces itself as a zoom target. We deliberately do NOT set
+     `role \"button\"`:
      the container already nests its own `role=\"button\"` expand
      triangle, and a button-inside-button role is an ARIA nesting
      violation. A focusable labelled region is the correct shape for a
      composite node whose double-click / Enter zooms in.
    - `:data-rf-zoom-target \"1\"` — DOM hook for tooling / tests.
 
-  ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-kcaiz pin)
+  ## Capture-the-frame
 
   Both gestures dispatch through the lexically-captured `dispatch-fn` —
   the frame-bound `dispatch` the surrounding `reg-view` body injects
   (the macro expands it over a `capture-frame` capturing the render
-  frame). The frame api bound the instance frame synchronously during
+  frame). The frame api binds the instance frame synchronously during
   render, so the dispatch lands on the SURROUNDING instance frame even
   though the gesture fires later (after
   React's synthetic-event timing has popped the dynamic frame context).
@@ -4545,7 +4543,7 @@
   (let [dispatch-fn (or dispatch-fn rf/dispatch)
         path        (vec absolute-path)
         zoom!       (fn []
-                      ;; rf2-r0o63 — dispatch through the captured
+                      ;; Dispatch through the captured
                       ;; frame-aware dispatcher so the zoom-slot write
                       ;; lands on the SURROUNDING instance frame. N shells
                       ;; stay isolated; no `:rf/xray` literal.
@@ -4555,14 +4553,13 @@
     {:data-rf-zoom-target "1"
      :tab-index           0
      :aria-label          (str "Zoom into " (pr-str path))
-     ;; rf2-y8doi.24 — was "Double-click or press Enter to zoom into
-     ;; this node". `tools/xray/spec/Conventions.md` §Tooltip
+     ;; `tools/xray/spec/Conventions.md` §Tooltip
      ;; discipline: tooltips carry SHORTCUTS, not descriptions, and its
      ;; own good example is the bare `"Re-run (R)"` keybinding form.
      ;; The gesture is genuinely non-obvious and has no iconographic
-     ;; alternative (the `⊙` button was removed), so §The rule keeps a
-     ;; tooltip here — it is the narration that goes, not the hint.
-     ;; The `aria-label` above already carries the semantics for AT.
+     ;; alternative (there is no zoom button), so §The rule keeps a
+     ;; tooltip here — a shortcut hint, not a narration.
+     ;; The `aria-label` above carries the semantics for AT.
      :title               "Zoom in (Enter)"
      :on-double-click     (fn [^js e]
                             (when e
@@ -4701,25 +4698,26 @@
   stable id keyed to the data-display's own mount-id; `value` + `opts`
   are the popup's payload.
 
-  ## Capture-the-frame (rf2-r0o63 — supersedes the rf2-7sdja pin)
+  ## Capture-the-frame
 
   The popup OPEN event dispatches through the lexically-captured
   `dispatch-fn` — the frame-bound `dispatch` the surrounding `reg-view`
   body injects (the macro expands it over a `capture-frame` capturing the
-  render frame). The frame api bound the instance frame synchronously
+  render frame). The frame api binds the instance frame synchronously
   during render, so the popup-open write lands on the SURROUNDING
   instance frame even though the click fires after React's
   synthetic-event timing has popped the dynamic frame context.
 
   The popup stack-view (`edn-inspector-popup-stack` in `shell.cljs`) is
-  mounted inside the shell's `[rf/frame-provider {:frame frame-id}]`, so
+  mounted inside the shell's `[rf.fresco/frame-provider {:frame
+  frame-id}]`, so
   it subscribes against the SAME instance frame the affordance
   dispatches into — the write and the read meet on the instance frame,
-  not a global `:rf/xray` literal. This supersedes the rf2-7sdja fix,
-  which pinned the popup dispatch to a bare `:rf/xray` literal: that
-  worked for the single-instance shell but entrenched the singleton
-  (two shells would share one global popup-stack and clobber each
-  other). Capturing the dispatcher keeps N instances isolated.
+  not a global `:rf/xray` literal. Pinning the popup dispatch to a bare
+  `:rf/xray` literal would work for a single-instance shell but
+  entrench the singleton (two shells would share one global
+  popup-stack and clobber each other). Capturing the dispatcher keeps N
+  instances isolated.
 
   `dispatch-fn` falls back to `rf/dispatch` when absent (pure-render
   tests that drive the button without a `reg-view` ancestor; some tests
@@ -4740,7 +4738,7 @@
                                 (when e
                                   (.preventDefault e)
                                   (.stopPropagation e))
-                                ;; rf2-r0o63 — dispatch through the
+                                ;; Dispatch through the
                                 ;; captured frame-aware dispatcher so
                                 ;; the popup-open write lands on the
                                 ;; SURROUNDING instance frame (captured
@@ -4759,15 +4757,15 @@
      :style                   popup-affordance-button-style}
     ;; ↗ (north-east arrow) reads as "open in new pane / navigate
     ;; outward" which matches the popup's window-manager semantics
-    ;; better than ⊕ (which read as "expand" / "add"). Same aria-label
-    ;; / title — the glyph swap is visual only.
+    ;; better than ⊕ (which reads as "expand" / "add"). The aria-label
+    ;; / title carry the meaning; the glyph is visual only.
     "↗"]))
 
 (defn render-inspector
   "THE RENDERER — pure, and the single body both heads share.
 
-  Answers the widget's hiccup for one mount. Everything ambient in the
-  old form-2 component is now a NAMED ARGUMENT: the subscription values,
+  Answers the widget's hiccup for one mount. Everything a form-2
+  component would hold ambiently is a NAMED ARGUMENT: the subscription values,
   the frame-aware dispatcher, the per-mount id and the `:ref` callback all
   arrive in the map rather than being read or allocated in here. That is
   what lets one body serve two substrates — `edn-inspector`, the Reagent
@@ -4778,15 +4776,14 @@
   Keys:
 
   - `:value` / `:opts`   — the public positional API, as a map. `opts` is
-                           destructured here exactly as it always was, so
-                           every documented key keeps its meaning and its
-                           default.
+                           destructured here, so every documented key has
+                           its documented meaning and default.
   - `:mount-id`          — the caller's LOGICAL name for the surface. Keys
                            the width slot, the popup id and the container
                            testid, and is the expansion key's second
                            component when no `:site-id` is supplied.
   - `:lifecycle-key`     — the identity of THIS LIVE MOUNT, which keys the
-                           per-mount store (rf2-d2aj). Optional; defaults
+                           per-mount store. Optional; defaults
                            to `:mount-id`, which is right only for a caller
                            whose id is unique per live mount. The head
                            passes the same key it built `:container-ref`
@@ -4815,23 +4812,23 @@
                     max-depth popup-affordance? card? header zoomable?
                     added?]
              :or   {panel-id :rf.xray.edn-inspector/anon
-                    ;; rf2-kbdk8 — default raised from 2 → 8. Under the
+                    ;; Under the
                     ;; width-aware heuristic this opt is a CEILING (never
                     ;; auto-expand past depth N), not a TRIGGER. The
-                    ;; legacy depth-driven path keeps the same number as
-                    ;; the maximum auto-open depth so deep tests still
+                    ;; depth-driven fallback uses the same number as
+                    ;; the maximum auto-open depth so deep tests
                     ;; reach their leaves before the measurement arrives.
                     default-expanded-depth default-ceiling-depth
                     max-inline-width 60
                     max-depth 16
                     popup-affordance? false
                     card? false
-                    ;; rf2-h71e0 — `:zoomable?` is OPT-IN. When false
-                    ;; (default) the widget renders exactly as before:
-                    ;; no zoom affordance, no breadcrumb, full tree
-                    ;; rendered from the original root.
+                    ;; `:zoomable?` is OPT-IN. When false
+                    ;; (default) the widget renders
+                    ;; no zoom affordance, no breadcrumb, and the full
+                    ;; tree from the original root.
                     zoomable? false}} opts
-            ;; rf2-kp7bw — `:added?` is the FIRST-RUN signal: a value
+            ;; `:added?` is the FIRST-RUN signal: a value
             ;; that just came into existence (a sub's first cache entry,
             ;; an app-db key that just appeared). Without an explicit
             ;; `:before`, `:added? true` synthesises the diff's prior
@@ -4840,9 +4837,9 @@
             ;; → green wash + `+` chrome over every descendant). This is
             ;; the container-shaped parity for the scalar first-run
             ;; `:added` chrome the SUBSCRIPTIONS leaf branch paints at
-            ;; the row level (rf2-fyd8u handled scalars only; containers
-            ;; mounted plain on a first run because `before` was nil and
-            ;; the inspector never entered diff mode). An explicit
+            ;; the row level (without it a container would mount plain
+            ;; on a first run, because `before` is nil and the inspector
+            ;; never enters diff mode). An explicit
             ;; `:before` always wins (an actual prior value is a real
             ;; diff, not a first run); empty containers still read
             ;; `:added` (the engine reports root `:added` for
@@ -4851,22 +4848,22 @@
                             (:before opts)
                             (when added? engine/missing-sentinel))
             diff?         (or (contains? opts :before) (boolean added?))
-            ;; rf2-okq7p — `:header` opts the widget into the 3-shade
+            ;; `:header` opts the widget into the 3-shade
             ;; card chrome (outer SECTION + grey-on-grey HEADER ribbon
             ;; + body), modelled on the Machine panel's `focused-event-
-            ;; section`. `nil` (default) renders inline as before;
+            ;; section`. `nil` (default) renders inline;
             ;; string or hiccup wraps the render in the chrome with
             ;; the supplied content as the header ribbon. Composable —
             ;; the consumer panel decides whether each top-level
             ;; inspector mount earns a label. See §10.0.10.
             chromed?      (some? header)
-            ;; rf2-pvsxs — `site-id` (when supplied) opt-out of the
+            ;; `site-id` (when supplied) opts out of the
             ;; per-call-site mount-id isolation. The expansion-key's
             ;; second slot reads `site-id` instead of the auto-mount-
             ;; id, so a panel that leaves AND returns to the same
             ;; surface (e.g. App-DB tab switching) finds its prior
-            ;; overrides under a stable key. When omitted, behaviour
-            ;; is unchanged — auto-mount-id keeps per-call-site
+            ;; overrides under a stable key. When omitted, the
+            ;; auto-mount-id keeps per-call-site
             ;; isolation for naive callers (two `[edn-inspector]`
             ;; mounts side-by-side toggle independently).
             ;;
@@ -4875,38 +4872,34 @@
             ;; event-bundle epoch + slot role; throw-away surfaces (popup
             ;; previews, table-cell minis) omit it.
             effective-id  (or site-id mount-id)
-            ;; `subscribe` is the lexical frame-aware closure
-            ;; injected by `reg-view` — reads the expansion-slot
-            ;; from the surrounding frame's app-db (e.g. `:rf/xray`).
-            ;; `expansion-map`, `zoom-map` and `widths` are ARGUMENTS.
-            ;; rf2-h71e0 — zoom slot read alongside expansion. Nil/empty
+            ;; `expansion-map`, `zoom-map` and `widths` are ARGUMENTS:
+            ;; each head reads them from the surrounding frame's app-db
+            ;; (e.g. `:rf/xray`) in its own substrate's spelling.
+            ;; The zoom slot is nil/empty
             ;; for unzoomed mounts; non-empty vec for mounts with an
             ;; active zoom. The slot is per-frame (same `:rf/xray`
             ;; pattern as `expansion-slot`); the per-mount key is
             ;; `[panel-id effective-id]` (effective-id is `site-id` if
             ;; supplied, else the auto-mount-id).
             ;;
-            ;; rf2-zl4rs — zoom now applies in the SINGLE full+diff
-            ;; renderer (rf2-e28r3). When a zoom is active the inspector
+            ;; Zoom applies in the SINGLE full+diff
+            ;; renderer. When a zoom is active the inspector
             ;; re-roots `value` along the path ALWAYS, and re-roots
             ;; `before` the same way ONLY when a pre-image is present
-            ;; (diff mode). The projection is recomputed over the
+            ;; (diff mode). The projection is computed over the
             ;; re-rooted pair below, so the diff rail / chip / inline
             ;; annotations paint relative to the zoomed subtree exactly
             ;; as they do at the root. A stale path (mutated out from
             ;; under the zoom) falls back to the full value via
-            ;; `resolve-zoom-into`. (The earlier rf2-h71e0 design
-            ;; suppressed zoom whenever a `before` was present; that
-            ;; conflict is resolved by re-rooting both halves together.)
-            ;; Each head reads them in its own substrate's spelling.
+            ;; `resolve-zoom-into`.
             zoom-path     (resolve-zoom-path zoom-map panel-id
                                              (or site-id mount-id))
-            ;; rf2-3x7nj.25.2 — and only while the path still RESOLVES.
-            ;; An unresolvable one (a stale path, once also any list / seq
-            ;; element) used to keep the breadcrumbs, `data-rf-zoomed` and
-            ;; the zoom prefix over a body that was the whole root, so each
-            ;; further zoom composed a meaningless path. It now renders
-            ;; exactly as un-zoomed; the stored path is left as it is.
+            ;; And only while the path RESOLVES. Keeping the
+            ;; breadcrumbs, `data-rf-zoomed` and the zoom prefix for an
+            ;; unresolvable (stale) path would put them over a body that
+            ;; is the whole root, so each further zoom would compose a
+            ;; meaningless path. An unresolvable path renders exactly as
+            ;; un-zoomed; the stored path is left as it is.
             zoom-active?  (and zoomable? (seq zoom-path)
                                (zoom-resolves? value zoom-path))
             displayed-value
@@ -4914,12 +4907,12 @@
               (resolve-zoom-into value zoom-map panel-id
                                  (or site-id mount-id))
               value)
-            ;; rf2-pmux4 — the before side walks the same path, but a
+            ;; The before side walks the same path, but a
             ;; path that does not resolve there is a node ADDED this
             ;; epoch, so it re-roots to the missing sentinel (the same
             ;; before the `:added?` path synthesises) and the subtree
             ;; reads as added. `resolve-zoom-into`'s whole-value fallback
-            ;; diffed it against the whole before-root instead. A zoom is
+            ;; would diff it against the whole before-root instead. A zoom is
             ;; never active on a path that does not resolve in `value`,
             ;; so the removed-this-epoch mirror never reaches here.
             displayed-before
@@ -4935,7 +4928,7 @@
             ;; dispatch with the ABSOLUTE path (zoom path + per-node
             ;; relative path).
             zoom-path-prefix (if zoom-active? zoom-path [])
-            ;; rf2-kbdk8 — read the measured container width keyed by
+            ;; Read the measured container width keyed by
             ;; THIS mount's id. Nil on the first render (the ref hasn't
             ;; fired yet); subsequent renders see the width and the
             ;; width-aware heuristic kicks in. ResizeObserver keeps the
@@ -4949,27 +4942,27 @@
             ;; existing popup rather than spawning a duplicate
             ;; (matches `edn-inspector-popup/push-entry` semantics).
             popup-mount-id (str "ddp-" mount-id)
-            ;; rf2-okq7p — when `:header` is supplied we move the
-            ;; measurement + popup-positioning context out to the
+            ;; When `:header` is supplied the
+            ;; measurement + popup-positioning context sits on the
             ;; outer `<section>` so the body div stays a content
             ;; sleeve. The mount-id testid + ref still anchor at the
             ;; root of whichever shape renders (section in chromed
             ;; mode; div otherwise).
-            ;; rf2-n2jig — compute the Editscript-backed projection
+            ;; Compute the Editscript-backed projection
             ;; once at the top so every recursive render-node descends
             ;; with the same `{path → op}` table. Outside diff mode the
             ;; projection is nil and the renderer's path-keyed lookups
             ;; return `:same` for everything. Pure data — same value
             ;; key composability as `expansion-map`.
             ;;
-            ;; rf2-4p1vl — the projection is computed via `project-for`,
-            ;; the per-mount memo in the module-level store (rf2-k97c.3
-            ;; moved it out of the form-2 closure so both heads share
-            ;; one cache and one release path). Byte-identical `(displayed-before, displayed-
-            ;; value)` pairs across renders short-circuit to the cached
+            ;; The projection is computed via `project-for`,
+            ;; the per-mount memo in the module-level store, so both
+            ;; heads share one cache and one release path. `identical?`
+            ;; `(displayed-before, displayed-value)` pairs across renders
+            ;; short-circuit to the cached
             ;; result; only changed inputs trigger a fresh Editscript
             ;; walk. Mirrors the sub-cache layer that fronts the
-            ;; `:diff` lens (rf2-yqjrd / engine/project in
+            ;; `:diff` lens (engine/project in
             ;; epoch/projection.cljc) — identical (before, after)
             ;; inputs reuse the cached Editscript result rather than
             ;; recomputing the A* edit-script on every render.
@@ -4993,7 +4986,7 @@
                                     :max-inline-width max-inline-width
                                     :max-depth max-depth
                                     :available-width-px available-width-px}})
-            ;; rf2-h71e0 — breadcrumb row above the body, only when a
+            ;; Breadcrumb row above the body, only when a
             ;; zoom is active. Home label uses the consumer's `:header`
             ;; if supplied (mirrors §10.0.10's "header is the natural
             ;; identity label"); otherwise falls back to the generic
@@ -5006,10 +4999,10 @@
                                :home-label    (or header "root")
                                :dispatch-fn   dispatch-fn
                                :testid-prefix (str container-id "-breadcrumbs")}))
-            ;; rf2-h71e0 — Esc handler for "zoom up one level". Active
+            ;; Esc handler for "zoom up one level". Active
             ;; only when the widget is zoomable AND currently zoomed.
             ;; Coordinates with the popup widget's Esc-closes-top
-            ;; behaviour (rf2-7sdja): the popup's keydown handler lives
+            ;; behaviour: the popup's keydown handler lives
             ;; on its own backdrop + dialog and `stopPropagation`s, so
             ;; when a popup is open Esc closes the popup; subsequent
             ;; Esc presses (no popup open) reach this handler and zoom
@@ -5025,7 +5018,7 @@
                     [:rf.xray.edn-inspector/zoom-up
                      panel-id effective-id]))))]
         (if chromed?
-          ;; ── rf2-okq7p — three-shade card chrome (section + header
+          ;; ── three-shade card chrome (section + header
           ;; ribbon + body). Modelled on the Machine panel's
           ;; `focused-event-section`: outer `<section>` paints the
           ;; surface band (`:bg-2`, light: #ffffff), the `<header>`
@@ -5038,11 +5031,10 @@
           ;; Handler: event + before + after + fx + coeffects) can
           ;; label each mount without visual blending.
           ;;
-          ;; The mount-id testid + ref + measurement plumbing migrate
-          ;; out to the section so DOM-level consumers (tests, panel-
-          ;; gallery selectors) keep their existing selectors working
-          ;; against `data-testid container-id` regardless of which
-          ;; shape rendered.
+          ;; The mount-id testid + ref + measurement plumbing sit
+          ;; on the section so DOM-level consumers (tests, panel-
+          ;; gallery selectors) find `data-testid container-id`
+          ;; regardless of which shape rendered.
           [:section {:data-testid     container-id
                      :data-rf-mount-id mount-id
                      :data-rf-site-id  (when site-id (pr-str site-id))
@@ -5069,8 +5061,8 @@
                              :overflow         "hidden"
                              :margin-bottom    "8px"
                              ;; Positioning context for the absolute-
-                             ;; positioned affordance button — moved
-                             ;; here so the affordance still sits at
+                             ;; positioned affordance button, so the
+                             ;; affordance sits at
                              ;; the section's top-right corner.
                              :position    (when popup-affordance? "relative")}}
            (when popup-affordance?
@@ -5086,13 +5078,13 @@
                   :data-rf-body-role "card-body"
                   :style {:padding       "12px"
                           :background    (:bg-1 tokens)}}
-            ;; rf2-h71e0 — breadcrumb row above the rendered tree.
-            ;; Returns nil when no zoom is active, so the chromed body
-            ;; layout stays unchanged for unzoomed mounts.
+            ;; Breadcrumb row above the rendered tree.
+            ;; Nil when no zoom is active, so unzoomed mounts render
+            ;; no breadcrumb row.
             breadcrumbs
             body-content]]
           ;; ── default (no `:header`): flat single-div render, with
-          ;; optional rf2-63ie5 `:card?` chrome on the outer container.
+          ;; optional `:card?` chrome on the outer container.
           [:div {:data-testid     container-id
                  :data-rf-mount-id mount-id
                  :data-rf-site-id  (when site-id (pr-str site-id))
@@ -5104,7 +5096,7 @@
                  :data-rf-zoom-path (when zoom-active? (pr-str zoom-path))
                  :data-rf-available-width-px (when available-width-px
                                                (str available-width-px))
-                 ;; rf2-kbdk8 — `:ref` callback drives the measurement.
+                 ;; `:ref` callback drives the measurement.
                  ;; Memoised per mount by `container-ref-for`, so React
                  ;; sees ONE identity for the life of the mount and calls
                  ;; it on mount + unmount only — the observer's lifecycle
@@ -5123,7 +5115,7 @@
                                  ;; off — no descendant uses absolute
                                  ;; positioning otherwise.
                                  :position    (when popup-affordance? "relative")}
-                          ;; rf2-63ie5 — inspector-card chrome on
+                          ;; Inspector-card chrome on
                           ;; top-level mounts. Theme-aware via tokens
                           ;; so both light + dark resolve at paint
                           ;; time. The opt-in (`:card? true`) keeps
@@ -5140,38 +5132,33 @@
                                        :margin-bottom    "8px"))}
            (when popup-affordance?
              (popup-affordance-button dispatch-fn popup-mount-id value opts))
-           ;; rf2-h71e0 — breadcrumb row leads the body when a zoom is
-           ;; active. nil when not zoomed so the un-zoomed render is
-           ;; unchanged.
+           ;; Breadcrumb row leads the body when a zoom is
+           ;; active; nil when not zoomed.
            breadcrumbs
            body-content])))
 
 ;; =========================================================================
-;; THE TWO HEADS (rf2-k97c.3)
+;; THE TWO HEADS
 ;; =========================================================================
 ;;
 ;; One renderer, two heads, because the tree has two kinds of parent in it
-;; at once, and still does now that the shell itself is a Fresco tree.
+;; at once, even though the shell itself is a Fresco tree.
 ;;
-;; `edn-inspector` is the REAGENT head and its public hiccup shape is
-;; unchanged: every `[ei/edn-inspector value opts]` call site in the tree
-;; keeps working, keeps its testids, and keeps the per-call-site expansion
-;; isolation the form-2 closure used to deliver. THE SHELL'S ROOT HAS SINCE
-;; BEEN FLIPPED and this head stayed: no commit deletes every `*-bridge` —
-;; rf2-lect (option 2) rules those permanent — so this head's end is its
-;; own call sites going, not theirs.
+;; `edn-inspector` is the REAGENT head: every `[ei/edn-inspector value
+;; opts]` call site in the tree gets its testids and the per-call-site
+;; expansion isolation the form-2 closure delivers. It serves those call
+;; sites whatever the shell's root is.
 ;;
 ;; `edn-inspector-view` is the FRESCO BOUNDARY: a real React function
 ;; component whose reads go through Fresco's own collector rather than
 ;; through whichever reaction machinery the installed substrate adapter
-;; happens to supply. It is the head a MIGRATED panel writes, and it is the
-;; reason this increment unblocks the panels rather than merely preparing
-;; for them — a panel that shows a value cannot become a Fresco tree until
-;; this widget has a Fresco head, because a plain function in head position
+;; happens to supply. It is the head a Fresco panel writes — a panel that
+;; shows a value cannot be a Fresco tree without a Fresco head for this
+;; widget, because a plain function in head position
 ;; is a loud error there by design.
 ;;
-;; WHY NOT ONE HEAD PLUS AN `as-component` BRIDGE, which is the shape the
-;; first migrated panel used: because THE VALUE CANNOT CROSS. Fresco's own
+;; WHY NOT ONE HEAD PLUS AN `as-component` BRIDGE: because THE VALUE CANNOT
+;; CROSS. Fresco's own
 ;; `as-component` contract says the outward decode is shallow and that
 ;; "names round-trip across a crossing; values do not" — a Reagent parent's
 ;; `[:>]` runs `convert-prop-value` first, which turns a CLJS map into a
@@ -5203,7 +5190,7 @@
     Form-2 component: the outer body allocates a stable `mount-id` and
     captures the frame-aware dispatcher once; the inner fn reads the
     three slots and hands everything to `render-inspector`, which owns
-    the rendering. Per D4=a (rf2-sndui) the public API does NOT take a
+    the rendering. Per D4=a the public API does NOT take a
     `:render-id` — mount-id is generated internally, so two simultaneous
     mounts get independent expansion state.
 
@@ -5212,26 +5199,24 @@
     expansion state. The form-2 closure delivers that — the outer body
     runs once per mount.
 
-    ## rf2-y59tb — `reg-view`-registered so dispatch / subscribe inherit
+    ## `reg-view`-registered so dispatch / subscribe inherit
     the surrounding frame
 
-    Before this fix `edn-inspector` was a plain `defn`. Plain Reagent fns
-    do not consult the `frame-provider` React context, so when the
-    widget mounted under `:rf/xray` (App-DB panel) toggle dispatches and
-    expansion-slot subscribes routed to `:rf/default` instead — the
-    click landed in the wrong frame's app-db and the rendering sub
-    never saw it. Same root cause as `ribbon-theme-toggle` (rf2-uu3lp).
+    Plain Reagent fns do not consult the `frame-provider` React context,
+    so as a plain `defn` mounted under `:rf/xray` (App-DB panel) the
+    widget's toggle dispatches and expansion-slot subscribes would route
+    to `:rf/default` instead — the click would land in the wrong frame's
+    app-db and the rendering sub would never see it.
 
-    ## rf2-k97c.3 — the three closure atoms moved out
+    ## No closure atoms
 
-    The ResizeObserver, the width debounce and the projection cache used
-    to live in this closure. They now live in the module-level per-mount
-    store, keyed by this mount's id and released when React calls the
-    `:ref` with nil. Nothing about this head's behaviour moved with them —
-    the store is keyed per mount exactly as the closure was scoped per
-    mount — but the lifetime is now EXPLICIT, which is what let the
-    Fresco head, whose body has no closure to hold them, share the same
-    renderer."
+    The ResizeObserver, the width debounce and the projection cache live
+    in the module-level per-mount store rather than in this closure,
+    keyed by this mount's id and released when React calls the `:ref`
+    with nil. The store is keyed per mount exactly as the closure is
+    scoped per mount, but the lifetime is EXPLICIT, which is what lets
+    the Fresco head, whose body has no closure to hold them, share the
+    same renderer."
     [_value & _opts]
     (let [mount-id    (gen-mount-id)
           ;; Capture the frame-aware dispatcher lexically. The closure
@@ -5249,7 +5234,7 @@
             {:value         value
              :opts          opts
              :mount-id      mount-id
-             ;; rf2-d2aj — this head's id IS its lifecycle key: the form-2
+             ;; This head's id IS its lifecycle key: the form-2
              ;; outer body mints a fresh UUID per mount, so it is already
              ;; unique across every concurrently live mount on the page and
              ;; has nothing to qualify. The Fresco head, whose id is a
@@ -5275,7 +5260,7 @@
   it, re-wires it as the body's branches change and notifies on
   invalidation. A `reg-view` body's `@(rf/subscribe …)` is tracked only
   by the INSTALLED adapter's reaction machinery, which is the coupling
-  this epic exists to sever.
+  a Fresco boundary avoids.
 
   ## `:mount-id` IS REQUIRED, and that is the honest shape
 
@@ -5294,10 +5279,10 @@
   a panel leave-and-return).
 
   `:mount-id` is a string and keys the width slot, the popup id and the
-  container testid. `:site-id`, in `opts`, keeps its own separate meaning
-  — the expansion key's second component — and is unchanged.
+  container testid. `:site-id`, in `opts`, has its own separate meaning
+  — the expansion key's second component.
 
-  ## A LOGICAL NAME IS NOT A LIVE-MOUNT IDENTITY (rf2-d2aj)
+  ## A LOGICAL NAME IS NOT A LIVE-MOUNT IDENTITY
 
   Because the id is the caller's and the caller wants it stable, two
   panels on one page routinely present the SAME one — a gallery rendering
@@ -5311,8 +5296,8 @@
   The frame is the right qualifier and not an arbitrary one: everything in
   that store is frame-relative already. The dispatcher it captures is bound
   to one frame and the width it writes lands in that frame's app-db, so a
-  module-global store keyed by a frame-relative name was under-specified
-  by exactly one component.
+  module-global store keyed by a frame-relative name would be
+  under-specified by exactly one component.
 
   What this does NOT reach is two panels in ONE frame presenting one
   mount-id. A React function component has no per-instance storage a
@@ -5355,7 +5340,7 @@
         ;; ONE capture, read twice. `:frame` is the id this boundary
         ;; renders under and `:dispatch` is bound to it, so the lifecycle
         ;; key and the dispatcher that writes under it can never name
-        ;; different frames (rf2-d2aj).
+        ;; different frames.
         frame-api   (rf/capture-frame)
         dispatch-fn (:dispatch frame-api)
         lkey        (lifecycle-key (:frame frame-api) mount-id)]
@@ -5405,8 +5390,9 @@
   used in chip rows, table cells, hover tooltips where a full tree
   would crowd the layout.
 
-  Per D2=a (rf2-sndui) the 2-arg overload keeps a `max-len` cap and
-  sentinels route through here too (no separate `inspect-inline`).
+  Per D2=a the 2-arg overload takes a `max-len` cap, and
+  sentinels route through here too (there is no separate
+  `inspect-inline`).
 
   Returns hiccup `[:span ...]` so callers embed inline."
   ([value] (mini value 80))
