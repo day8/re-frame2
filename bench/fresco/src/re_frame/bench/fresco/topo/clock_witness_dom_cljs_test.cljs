@@ -1,7 +1,7 @@
 (ns re-frame.bench.fresco.topo.clock-witness-dom-cljs-test
   "**THE CLOCK DRIVER'S OWN DETERMINISTIC HALF** — the arithmetic
   [[re-frame.bench.fresco.topo.clock-app]] gates its cells on, and the
-  witness in which its read-back refuses (rf2-w01c).
+  witness in which its read-back refuses.
 
   ## Why this file needs no quiet box, and the clock run does
 
@@ -10,8 +10,8 @@
   fence: a counter *\"reads the same on a loaded box\"*. Everything
   asserted here is an exact integer, a string read out of the DOM, or
   pure arithmetic over the model's seed, so contention cannot move any of
-  it. This is an ordinary blocking gate that runs in CI on every PR and is
-  repeatable by anyone. Whether the instrument can SEE the differences
+  it. This is an ordinary assertion suite, repeatable by anyone on any
+  box. Whether the instrument can SEE the differences
   counted here is a timing question and belongs to the quiet-box run.
 
   ## What it establishes
@@ -41,9 +41,8 @@
      frame reads `0 unverified`, so the refusal above is a discrimination
      rather than a probe that always fails.
 
-  Runtime: `-dom-cljs-test`. Claims 1 and 2 hold under `:node-test` too —
-  they touch no DOM — and every DOM claim degrades to a stated skip
-  there."
+  Runtime: a browser, for a real React DOM. Claims 1 and 2 touch no DOM
+  and hold without one; every DOM claim degrades to a stated skip there."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -69,7 +68,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-windowed-arm-is-unaddressed-and-says-why
-  (testing "rf2-4t36 ruled the windowed arm's clock cells unresolvable at the
+  (testing "the windowed arm's clock cells are unresolvable at the
            tournament's committed window. A driver that measured it anyway and
            labelled the number would publish a figure a reader can quote, so it
            is absent from the roster and its reason travels in the file"
