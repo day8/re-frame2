@@ -18,7 +18,7 @@
   Pure data → data plus the registrar; no React, no DOM. Discovered by
   the `:node-test` build's `cljs-test$` regex."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.fresco.impl.codec :as codec]
+            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.registrar :as rf.registrar]
             [re-frame.story :as rf.story]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -102,6 +102,6 @@
     (let [heads (hiccup-heads (cell {}))]
       (is (some fn? heads)
           (str label ": CONTROL — the cell heads a component"))
-      (is (not-any? codec/boundary-head? heads)
+      (is (not-any? rf.fresco.impl.codec/boundary-head? heads)
           (str label ": a Fresco boundary heads a Reagent vector — mount "
                "the panel through its bridge instead")))))
