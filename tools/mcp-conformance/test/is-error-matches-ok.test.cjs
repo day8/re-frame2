@@ -1,31 +1,30 @@
-// Unit tests for `_runner.cjs`'s `assertIsErrorMatchesOk` (rf2-6i2yi4
-// finding 1).
+// Unit tests for `_runner.cjs`'s `assertIsErrorMatchesOk`.
 //
-// ## The bug this pins
+// ## The contract this pins
 //
 // `assertIsErrorMatchesOk` is the universal isError <-> `:ok?`
 // cross-check (spec/003-Tool-Catalogue.md §381) run against every
-// `tools/call` response in `end-to-end-re-frame2-pair.cjs`. It used to
-// read `resp.structuredContent` directly. A dedup-eligible tool ships
-// its structured payload wrapped in `{:rf.mcp/dedup-table {...}}` — the
-// raw field then has NO top-level `:ok?` slot at all (it is one layer
-// down, inside the cache), so the pre-fix check's
-// `!Object.prototype.hasOwnProperty.call(sc, 'ok?')` guard treated the
-// envelope as "not `:ok?`-shaped" and silently no-op'd — exactly the
+// `tools/call` response in `end-to-end-re-frame2-pair.cjs`. A
+// dedup-eligible tool ships its structured payload wrapped in
+// `{:rf.mcp/dedup-table {...}}` — the raw field then has NO top-level
+// `:ok?` slot at all (it is one layer down, inside the cache), so a check
+// reading `resp.structuredContent` directly would hit its
+// `!Object.prototype.hasOwnProperty.call(sc, 'ok?')` guard, treat the
+// envelope as "not `:ok?`-shaped" and silently no-op — on exactly the
 // dedup-wrapped envelope the check exists to grade. A real MCP client
-// always expands the dedup table before reading semantic slots, so this
-// was a genuine blind spot: a dedup-eligible tool's `:ok? false` result
-// with `isError` decoupled would pass unobserved.
+// always expands the dedup table before reading semantic slots, so that
+// would be a genuine blind spot: a dedup-eligible tool's `:ok? false`
+// result with `isError` decoupled would pass unobserved.
 //
-// FIX: route `resp` through the shared `structured()` dedup-decoder
-// before reading `:ok?`.
+// The check therefore routes `resp` through the shared `structured()`
+// dedup-decoder before reading `:ok?`.
 //
 // ## What this proves
 //
 // Test 1 is the RED-then-GREEN proof: it first shows the RAW wire field
-// has no top-level `:ok?` (sanity — this is what the pre-fix code read),
-// then shows `assertIsErrorMatchesOk` still catches the violation because
-// it decodes first. Reverting to reading `resp.structuredContent`
+// has no top-level `:ok?` (sanity — this is what a non-decoding check
+// would read), then shows `assertIsErrorMatchesOk` still catches the
+// violation because it decodes first. Reading `resp.structuredContent`
 // directly would make this test's `assert.throws` fail (silently
 // pass/no-op instead).
 
@@ -46,7 +45,7 @@ test('assertIsErrorMatchesOk: RED-then-GREEN — a dedup-wrapped :ok? false + is
     isError: false,
     structuredContent: dedupWrapped({ 'ok?': false, reason: 'boom' }),
   };
-  // Sanity: the RAW wire field (what the pre-fix code read directly)
+  // Sanity: the RAW wire field (what a non-decoding check would read)
   // carries NO top-level `:ok?` slot at all — it's one layer down,
   // inside the dedup cache.
   assert.equal(
@@ -94,8 +93,8 @@ test('assertIsErrorMatchesOk: a non-dedup (plain) envelope still cross-checks as
 });
 
 test('assertIsErrorMatchesOk: a dedup wrapper with siblings is rejected, not graded on its sanitised inner value (rf2-gwye.38)', () => {
-  // The review reproduction: the sibling `ok? false` used to be erased by
-  // expansion, leaving the inner `ok? true` to pass beside isError:false.
+  // Expansion alone would erase the sibling `ok? false`, leaving the inner
+  // `ok? true` to pass beside isError:false.
   const resp = {
     isError: false,
     structuredContent: Object.assign(dedupWrapped({ 'ok?': true, value: 42 }), {
