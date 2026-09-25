@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# preflight-reagent-slim-package.sh (rf2-olo8rc)
+# preflight-reagent-slim-package.sh
 #
 # # Why this exists
 #
@@ -31,25 +31,25 @@
 #   4. the DIRECT dependency set is EXACTLY {org.clojure/clojure,
 #      day8/re-frame2} — every expected member present, and nothing else.
 #      Required-member presence catches the empty/absent <dependencies>
-#      hole (see rf2-do3m2 below); the no-extras half subsumes the two
-#      forbidden-dependency checks this script used to spell out by hand
-#      (day8/re-frame2-reagent — a slim consumer must not pull the bridge
-#      adapter; and stock reagent/reagent — the slim rewrite REPLACES
-#      stock Reagent rather than depending on it), and additionally
-#      catches the next unintended dep nobody thought to hardcode.
-#      ── DIRECT-dep level ONLY: transitive reagent reaching a consumer
-#      via day8/re-frame2 (core) stays until core drops it, so a
-#      full-transitive-absence assertion would be a FALSE invariant today.
+#      hole (see "Why assertion 3+4 are set-shaped" below); the no-extras
+#      half covers the two forbidden dependencies (day8/re-frame2-reagent —
+#      a slim consumer must not pull the bridge adapter; and stock
+#      reagent/reagent — the slim rewrite REPLACES stock Reagent rather
+#      than depending on it), and also catches any other unintended dep
+#      nobody thought to hardcode.
+#      ── DIRECT-dep level ONLY: the assertion reads this pom's own
+#      <dependencies>, not the transitive closure; each artefact the slim
+#      pom names owns its own dependency set.
 #      Versions are asserted NON-EMPTY, never equal to a literal: the
 #      org.clojure/clojure version floats with whatever Clojure CLI
 #      install-clojure-cli.sh lands on the runner.
 #
-# # Why assertion 3+4 are set-shaped, not presence-shaped (rf2-do3m2)
+# # Why assertion 3+4 are set-shaped, not presence-shaped
 #
-# Assertions 3 and 4 originally fired only on the PRESENCE of a forbidden
-# dependency — two `grep -q "<artifactId>…"` absence checks. An empty
-# `<dependencies/>`, an absent `<dependencies>` block, and a dependency
-# with an empty `<version/>` therefore ALL printed PASSED.
+# Checks that fire only on the PRESENCE of a forbidden dependency — two
+# `grep -q "<artifactId>…"` absence checks — would print PASSED for an
+# empty `<dependencies/>`, an absent `<dependencies>` block, and a
+# dependency with an empty `<version/>`.
 #
 # That is not a hypothetical shape. `clein pom` SKIPS `:local/root`
 # coordinates outright ("Skipping coordinate: {:local/root …}"), so the
@@ -65,30 +65,29 @@
 # below. That is the intended workflow — the published dependency set of
 # an irreversibly-released artefact should change only on purpose.
 #
-# # Fallback scope note (rf2-olo8rc)
+# # Scope: no consumer-compile assertion
 #
 # A consumer-compile assertion (a temp shadow-cljs project resolving
 # [re-frame.adapter.reagent] + [reagent2.core] with
-# day8/re-frame2-reagent ABSENT) was scoped. The temp-project npm/shadow
-# wiring is gnarly on the runner, so per the ruling's fallback this
-# script asserts jar-content + pom-dep + ns-grep instead — which still
-# catches every failure mode the previous input-grep-only step missed
-# (a transform that left the slim ns in place, mv'd the wrong file, or a
-# deps drift that re-introduced a direct bridge / stock-reagent dep).
+# day8/re-frame2-reagent ABSENT) would need temp-project npm/shadow wiring
+# on the runner, so this script asserts jar-content + pom-dep + ns-grep
+# instead — which catches every failure mode an input-grep-only step
+# misses (a transform that left the slim ns in place, mv'd the wrong file,
+# or a deps drift that re-introduced a direct bridge / stock-reagent dep).
 #
 # # Runner / portability
 #
 # Linux-runner-only by design (the sole caller is release.yml deploy-leaf
 # on ubuntu-latest). POSIX sh; the external tools are clojure (already set
 # up by the deploy-leaf job), `jar` (ships with the JDK the job installs)
-# and `python3`, used to parse the pom. python3 is not a new runner
+# and `python3`, used to parse the pom. python3 is no extra runner
 # requirement: the deploy-leaf job's `:local/root → :mvn/version` rewrite
-# step already shells out to it a few steps earlier, and it is present on
+# step shells out to it a few steps earlier, and it is present on
 # ubuntu-latest out of the box. It is used deliberately in preference to a
 # line-oriented sh/grep parse — this is the last gate before an
 # irreversible publish, and a text parser that mis-reads a reformatted pom
 # would produce exactly the class of false PASS this script exists to
-# prevent. No .ps1 sibling — confirmed Linux-only.
+# prevent. No .ps1 sibling — Linux-only.
 #
 # # Usage
 #
@@ -151,8 +150,8 @@ fi
 
 # ── 3 + 4: the pom's DIRECT dependency SET ──────────────────────────
 # Bind to the expected membership, not to the absence of two known-bad
-# names — see the "Why assertion 3+4 are set-shaped" note in the header
-# (rf2-do3m2). Parsed with ElementTree rather than grepped so a
+# names — see the "Why assertion 3+4 are set-shaped" note in the header.
+# Parsed with ElementTree rather than grepped so a
 # reformatted or namespaced pom cannot yield a false PASS.
 if ! python3 - "$POM" <<'PYTHON'
 import sys
@@ -176,7 +175,7 @@ EXPECTED = {
     ("day8", "re-frame2"),
 }
 
-# Extra context for the shapes with a specific history. A bare "unexpected
+# Extra context for the two known-bad shapes. A bare "unexpected
 # dependency" would be true but unhelpful for these two.
 EXTRA_HINT = {
     ("day8", "re-frame2-reagent"):
@@ -184,8 +183,8 @@ EXTRA_HINT = {
         " consumer would end up pulling BOTH adapters.",
     ("reagent", "reagent"):
         " The slim rewrite REPLACES stock Reagent; it does not depend on it."
-        " (DIRECT-dep level only — transitive reagent via day8/re-frame2 is"
-        " expected until core drops it.)",
+        " (DIRECT-dep level only — this check reads the slim pom's own"
+        " <dependencies>, not the transitive closure.)",
 }
 
 MISSING_HINT = {
