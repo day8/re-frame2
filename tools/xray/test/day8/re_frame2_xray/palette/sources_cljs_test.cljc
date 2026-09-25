@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.palette.sources-cljs-test
-  "Tests for the palette source aggregator (rf2-wm7z4).
+  "Tests for the palette source aggregator.
 
   Pure-data CLJC. Covers:
 
@@ -15,7 +15,7 @@
 ;; ---- fixture inputs -----------------------------------------------------
 
 (def sample-panels
-  ;; rf2-qy0nu / rf2-nrbs9 / rf2-gbz39 — in production `palette-panels`
+  ;; In production `palette-panels`
   ;; maps whatever the L4 tab registry holds for `:dynamic`, so it has no
   ;; fixed size; these three rows are a DELIBERATE minimal fixture for the
   ;; shape tests below, not a mirror of the shipped inventory. We use
@@ -53,7 +53,7 @@
     (is (every? #(string? (:icon %)) items))
     (is (every? #(vector? (:action %)) items))
     (is (every? #(false? (:popout? %)) items)
-        "panels are not popoutable in Phase 1")
+        "panels are not popoutable")
     (is (= [:palette/select-panel :event]
            (-> items first :action)))))
 
@@ -66,7 +66,7 @@
         "recent events should pop out into event-detail when Ctrl+Enter")))
 
 (deftest recent-event-action-carries-dispatch-and-frame-rf2-gwye-8
-  (testing "rf2-gwye.8 — the action names the DISPATCH and its FRAME, so two
+  (testing "the action names the DISPATCH and its FRAME, so two
             runs of the same event vector (or the same dispatch id in two
             frames) are distinct selections rather than one event value"
     (let [row   (fn [id dispatch-id frame]
@@ -108,7 +108,7 @@
     (is (not (contains? ids :rf/xray))
         "switching focus to :rf/xray is not a meaningful palette op")))
 
-;; rf2-anbabs — the palette frame source must honour the SAME exclusion
+;; The palette frame source must honour the SAME exclusion
 ;; the ribbon picker applies: the FULL internal-frames set, not just
 ;; :rf/xray (spec/018 §8 I1).
 
@@ -123,12 +123,8 @@
 
 (deftest build-index-frame-source-honours-internal-frames
   ;; End-to-end through build-index: a registered tool frame is hidden
-  ;; from the palette's frame source (the I1 leak rf2-anbabs fixed).
-  ;;
-  ;; rf2-y8doi.27 removed the `:show-tool-frames?` half of this test
-  ;; along with the setting: the re-include branch was reachable only
-  ;; from a test, because the Settings UI that wrote the slot went on
-  ;; 2026-05-27 and production always passed `false`.
+  ;; from the palette's frame source (spec/018 §8 I1). The exclusion is
+  ;; unconditional — there is no setting that re-includes tool frames.
   (let [frames    [:rf/default :app/main :rf/re-frame2-pair]
         frame-ids (fn [index] (->> index
                                    (filter #(= :frame (:source %)))
@@ -162,11 +158,11 @@
     (is (contains? ids :open-popout))
     (is (contains? ids :close-palette))))
 
-;; ---- rf2-ybjkx — mode-aware command surface ----------------------------
+;; ---- mode-aware command surface ----------------------------------------
 
 (deftest command-items-include-rf2-ybjkx-verbs
-  ;; rf2-ybjkx — new commands per the bead's scope: theme toggle,
-  ;; reduced-motion cycle, snapshot, jump-to-settings, toggle-mode.
+  ;; The mode-aware command verbs: theme toggle, reduced-motion cycle,
+  ;; snapshot, jump-to-settings, toggle-mode.
   (let [items (sources/command-items)
         ids   (set (map :id items))]
     (is (contains? ids :toggle-theme))
@@ -176,23 +172,23 @@
     (is (contains? ids :toggle-mode))))
 
 (deftest command-items-carry-no-clear-epoch-history-verb
-  (testing "rf2-y8doi.27 — the `:clear-epoch-history` verb is GONE. It
-            cleared Xray's `:epoch-history` MIRROR, which the next
-            recorded epoch re-seeded wholesale, so it lasted one event.
-            The control is the sibling verb that DID survive: if this
-            assertion ever passed because `command-items` returned
+  (testing "there is no `:clear-epoch-history` verb: Xray's
+            `:epoch-history` is a MIRROR the next recorded epoch
+            re-seeds wholesale, so a clear would last one event.
+            The control is the sibling `:clear-trace-buffer` verb: if
+            this assertion passed because `command-items` returned
             nothing, `:clear-trace-buffer` would be absent too."
     (let [ids (set (map :id (sources/command-items)))]
       (is (not (contains? ids :clear-epoch-history))
           "the index carries no :clear-epoch-history verb")
       (is (contains? ids :clear-trace-buffer)
-          "control — the real buffer scrub is still indexed, so the
-           absence above is a removal and not an empty index"))))
+          "control — the real buffer scrub is indexed, so the
+           absence above is real and not an empty index"))))
 
 (deftest command-items-carry-modes-set
   (let [items (sources/command-items)]
     (is (every? #(set? (:modes %)) items)
-        "every command carries a `:modes` set per rf2-ybjkx")
+        "every command carries a `:modes` set")
     (let [toggle (first (filter #(= :toggle-mode (:id %)) items))]
       (is (= #{:dynamic :static} (:modes toggle))
           "toggle-mode surfaces in BOTH modes (chord parity)"))
@@ -297,7 +293,7 @@
   (is (false? (sources/popoutable? {}))
       "default: items are not popoutable unless they say so"))
 
-;; ---- rf2-ybjkx — build-index mode-awareness ----------------------------
+;; ---- build-index mode-awareness ----------------------------------------
 
 (deftest build-index-runtime-mode-filters-static-tabs
   (let [index (sources/build-index
@@ -310,7 +306,7 @@
                                                (= :static (first (:id %))))
                                          index)))]
     (is (empty? static-ids)
-        "Dynamic mode hides Static-only items per rf2-ybjkx")))
+        "Dynamic mode hides Static-only items")))
 
 (deftest build-index-static-mode-hides-runtime-only-items
   (let [index   (sources/build-index
@@ -335,8 +331,7 @@
         "Static tab jump surfaces in Static mode")))
 
 (deftest build-index-nil-mode-preserves-pre-bead-behaviour
-  ;; Backward-compat: a nil :mode keeps every item — the pre-bead
-  ;; contract before mode filtering shipped.
+  ;; A nil :mode keeps every item — no mode filtering applies.
   (let [index   (sources/build-index
                   {:panels       sample-panels
                    :trace-buffer sample-trace-buffer
@@ -348,7 +343,7 @@
     (is (contains? sources :recent-event))
     (is (contains? sources :frame))))
 
-;; ---- rf2-ybjkx — recents boost -----------------------------------------
+;; ---- recents boost -----------------------------------------------------
 
 (deftest build-index-recents-boost-bumps-recent-commands
   (let [index-baseline (sources/build-index
@@ -376,7 +371,7 @@
         "position 1 beats position 2")))
 
 (deftest rank-empty-query-surfaces-recents-first
-  ;; The bead's "top-3 recent surfaced first" contract: with an empty
+  ;; The "top-3 recent surfaced first" contract: with an empty
   ;; query the recent commands should appear at the top of the
   ;; results.
   (let [index   (sources/build-index
