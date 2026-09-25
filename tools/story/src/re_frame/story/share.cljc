@@ -64,7 +64,7 @@
   `build-params` emits a SUBSET of it, `parse-params` reads ALL of it,
   and `apply-story-params` CLEARS all of it before appending.
 
-  All of it, not merely the subset a given call emits (rf2-b7je1 audit).
+  All of it, not merely the subset a given call emits.
   `build-params` deliberately omits empty / nil / default slots so the
   URL stays minimal, so a builder that cleared only the emitted keys
   would leave a stale `modes=` / `overrides=` / `substrate=` standing on
@@ -97,7 +97,7 @@
   escape). Nil rather than a throw or a passthrough because the only
   caller is an ownership TEST: an undecodable fragment is by definition
   not one of Story's plain-ASCII keys, so it must fall through and be
-  preserved verbatim (rf2-b7je1 audit) — never dropped, and never
+  preserved verbatim — never dropped, and never
   allowed to abort the merge.
 
   `+` is a space in a query component, so both hosts must treat it as
@@ -125,8 +125,8 @@
   "Parse the keyword token emitted by `kw->str`.
 
   Accepts both the wire form (`\"story.counter/loaded\"`) and the
-  printed keyword form (`\":story.counter/loaded\"`) so old manually-
-  copied URLs remain usable. Returns nil for blank / malformed input."
+  printed keyword form (`\":story.counter/loaded\"`) so a manually-
+  copied printed keyword works too. Returns nil for blank / malformed input."
   [s]
   (when (string? s)
     (let [trimmed (str/trim s)
@@ -187,7 +187,7 @@
 
 (def ^:private mode-tab-tokens
   "Canonical mode-tab tokens emitted on the wire. Mirrors
-  `re-frame.story.ui.state/mode-tabs` — kept here as a literal set
+  `re-frame.story.ui.state/mode-tabs` — held here as a literal set
   rather than required to avoid a CLJS→CLJC dependency (the canonical
   tabs are stable; if a new tab ships the set is updated here)."
   #{:dev :docs :test})
@@ -406,7 +406,7 @@
   the first `=` (or the whole fragment when it carries none), run
   through `url-decode`. Returns nil for a key half that does not decode.
 
-  Decoded, not raw (rf2-b7je1 audit): the consumer of this query is
+  Decoded, not raw: the consumer of this query is
   `URLSearchParams`, which compares key NAMES after percent-decoding, so
   `%76ariant=` IS `variant=` to the browser. Matching raw text instead
   leaves such a spelling standing, the generated `variant=` is appended
@@ -429,12 +429,12 @@
   `variant-share-url` below, and `re-frame.story.ui.url-state/
   url-from-state`, which the state-watcher pushes on every URL-relevant
   shell change. They call this one function rather than each keeping
-  their own notion of who owns what (rf2-gee8n — `url-from-state` used
-  to compose from `{:pathname :hash}` alone and discard
-  `location.search` wholesale, so the first state change after mount
-  erased the very params this fn takes care to preserve).
+  their own notion of who owns what (were `url-from-state` to compose
+  from `{:pathname :hash}` alone and discard `location.search`
+  wholesale, the first state change after mount would erase the very
+  params this fn takes care to preserve).
 
-  Key-aware (rf2-b7je1): every existing occurrence of a key in
+  Key-aware: every existing occurrence of a key in
   `story-query-keys` is removed before the generated params are
   appended, so the result carries exactly one value for each key Story
   owns and NO value for the ones this call chose to omit. The browser
@@ -451,7 +451,7 @@
   requests no modes at all.
 
   Ownership is decided on the DECODED key name, because that is the
-  comparison `URLSearchParams` makes (rf2-b7je1 audit). A base-url
+  comparison `URLSearchParams` makes. A base-url
   spelling a Story key with escapes — `%76ariant=`, which is a perfectly
   valid way to write `variant=` — is the same key to the browser, so
   matching raw text would preserve it, append the generated `variant=`
@@ -471,7 +471,7 @@
         query           (str/join "&" (concat kept params))
         ;; No `?` for an empty query — clearing the last Story key off a
         ;; base that carried nothing else must not leave a dangling `?`
-        ;; (rf2-gee8n: a bare `?` differs from `location.search`'s empty
+        ;; (a bare `?` differs from `location.search`'s empty
         ;; string, so the state-watcher would push a cosmetic history
         ;; entry it can never match again). No `?` either for the bare
         ;; `variant-share-url` 1-arity, whose empty base-url asks for a
@@ -625,7 +625,7 @@
   params (`from=`, `embed=`, …) and the hash route survive untouched.
   That boundary is `apply-story-params`, shared with the address-bar
   writer `re-frame.story.ui.url-state/url-from-state` so the two writers
-  of this URL cannot drift apart (rf2-gee8n).
+  of this URL cannot drift apart.
   Pure data → data; JVM + CLJS-portable."
   ([variant-id]                (variant-share-url variant-id "" nil))
   ([variant-id opts]           (variant-share-url variant-id "" opts))
