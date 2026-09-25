@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// THE SEAM AGAINST LOAD — the load half (rf2-cvvb7).
+// THE SEAM AGAINST LOAD — the load half.
 //
 //   node .../seam_ladder.cjs --load 12 --label heavy-A --json out/heavy-A.json
 //   node .../seam_ladder.cjs --spin 30000          (the load generator alone)
@@ -13,8 +13,8 @@
 //
 // ## THE LOAD IS BOUNDED BY CONSTRUCTION, AND THAT IS NOT A COURTESY
 //
-// A benchmark box is shared. A 32-way load generator run on this one for a
-// legitimate reason timed out unrelated work across the machine, so every
+// A benchmark box is shared, and a 32-way load generator times out unrelated
+// work across the machine, so every
 // spinner here carries its own deadline (`--spin <ms>`) and exits on it
 // whether or not the parent is alive to kill it. The parent kills them in a
 // `finally`, and the deadline is what covers the case where the parent
