@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-format-cljs-test
-  "Per-leaf smoke test for `app-db-diff-format` (rf2-nb8if).
+  "Per-leaf smoke test for `app-db-diff-format`.
 
   The format leaf carries the pure display-only formatters used in
   production — `format-edn` and `display-value` — plus the
@@ -15,14 +15,14 @@
     (is (map? (:rf.size/large-elided (:k v)))
         "large strings collapse to the elision marker")))
 
-;; ---- rf2-4spyl — display-value identity preservation -----------------------
+;; ---- display-value identity preservation ----------------------------------
 ;;
-;; The audit's H2 finding: `display-value` rebuilt the whole tree on every
-;; call, even when nothing needed eliding. That defeated downstream
+;; `display-value` must not rebuild the whole tree on every call when
+;; nothing needs eliding: that would defeat downstream
 ;; `(identical? before after)` short-circuits — notably `engine/project`
 ;; which only short-circuits when the same JS reference is passed.
 ;;
-;; The fix has two surfaces under test here:
+;; Two surfaces under test here:
 ;;
 ;; 1. Fast path — inputs with no large strings pass through unchanged
 ;;    (same identity). Verified across map / vector / set / nested.
@@ -31,7 +31,7 @@
 ;;    return the same JS reference.
 
 (deftest display-value-preserves-identity-when-no-elision-needed
-  ;; The audit's load-bearing property: when nothing in the tree needs
+  ;; The load-bearing property: when nothing in the tree needs
   ;; eliding, `display-value` must return the input AS-IS so that
   ;; identity-stable inputs stay identity-stable through the call.
   (let [m {:a 1 :b "short string" :c [1 2 3] :d #{:x :y}}]
