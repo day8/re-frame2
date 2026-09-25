@@ -273,8 +273,9 @@
              :renewed?   true}})
 
 (defn opts-zoomable
-  "`:zoomable? true` — each container gains a `⊙` zoom-affordance
-  button next to the expand triangle."
+  "`:zoomable? true` — each non-root container becomes a zoom target:
+  double-click it (or press Enter while it is focused) to re-root the
+  inspector onto it. There is no separate glyph button."
   []
   {:value (opts-base-value)
    :opts  {:zoomable? true}})
@@ -332,7 +333,7 @@
 (defn opts-combined
   "Composed opts (`:header` + `:popup-affordance?` + `:zoomable?`)
   — all three affordances coexist (header ribbon up top, popup
-  arrow at top-right, zoom triangle on every container)."
+  arrow at top-right, the zoom gesture on every container)."
   []
   {:value (opts-base-value)
    :opts  {:header            "All affordances at once"
