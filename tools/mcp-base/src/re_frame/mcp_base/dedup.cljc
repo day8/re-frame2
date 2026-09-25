@@ -169,7 +169,7 @@
 ;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 ;; THE SOFTWARE.
 ;;
-;; DIFFERENCES FROM UPSTREAM (the wire shape is unchanged by all of them):
+;; DIFFERENCES FROM UPSTREAM (only item 5 changes the wire shape):
 ;;
 ;;   1. Upstream's compression-id counter is a NAMESPACE-GLOBAL atom that
 ;;      every `create-cache-internal` call `reset!`s to 1. That is a real
