@@ -872,8 +872,11 @@
 ;; THE BRIDGE IS NOT AN ALIAS. `Panel` is a Fresco boundary — a React
 ;; function component — and Xray's shell reaches the active tab across its L4
 ;; `as-child` seam as the hiccup head
-;; `[(:panel tab)]`, with `panel-registry/reg-l4-tab!`'s `:pre` requiring
-;; `:panel` to be CALLABLE. A React component is neither.
+;; `[(:panel tab)]` inside a Reagent island. `panel-registry/reg-l4-tab!`'s
+;; `:pre` checks only `(fn? panel)`, which a React function component
+;; passes; the hiccup head is what a React component cannot fill, because
+;; Reagent calls a fn head as its own render fn rather than mounting it as
+;; a React component.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
 ;; it answers a real React component for a boundary, which a React parent
@@ -1420,12 +1423,12 @@
      :modes #{:dynamic}
      :order 4
      ;; `Panel-bridge`, not `Panel`. `Panel` is a React
-     ;; component (a Fresco boundary); `reg-l4-tab!`'s `:pre` requires
-     ;; `:panel` to be CALLABLE and `shell/detail-panel` mounts it as a
-     ;; Reagent hiccup head `[(:panel tab)]`, neither of which a React
-     ;; component satisfies. The bridge is the one line between them and
-     ;; is permanent: the shell is a Fresco tree and both requirements
-     ;; hold there.
+     ;; component (a Fresco boundary); `reg-l4-tab!`'s `:pre` checks only
+     ;; `(fn? panel)`, which it passes, but `shell/detail-panel` mounts
+     ;; `:panel` as a Reagent hiccup head `[(:panel tab)]`, which a React
+     ;; component cannot fill. The bridge is the one line between them and
+     ;; is permanent: the shell is a Fresco tree and its L4 mount is a
+     ;; Reagent island there.
      :panel Panel-bridge}))
 
 ;; ---- test-only override seam ----------------------------------------------
