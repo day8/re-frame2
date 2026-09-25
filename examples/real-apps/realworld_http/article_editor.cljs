@@ -517,7 +517,8 @@
          under. On the page that issued it, blank the editor and head home.
          Once the reader has navigated away it is refused: the slice and the
          machine now belong to whatever they did next — a new draft, say, which
-         this used to wipe before taking them home (WRITE OWNERSHIP above)."}
+         an ungated success would wipe before taking them home (WRITE
+         OWNERSHIP above)."}
   (fn [{:keys [db] rt :rf.db/runtime} [_ nav-token _reply]]
     (when (rh/same-navigation? rt nav-token)
       {:db (assoc db :editor (editor-slice))
