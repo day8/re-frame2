@@ -37,7 +37,7 @@
   before validating the body's `:tags`.
 
   The explicit call `(re-frame.story/install-canonical-vocabulary!)`
-  is still supported for hosts that prefer a literal boot step and
+  is supported for hosts that prefer a literal boot step and
   for test fixtures that want to assert a known starting state. The
   call is idempotent — whether it fires on the auto-install path or
   from an explicit call, the side-table lands in the same shape.
@@ -86,7 +86,8 @@
             [re-frame.story.fingerprint :as rf.story.fingerprint]
             ;; The run-evidence projection from the epoch tape.
             ;; Re-exported as `project-evidence` below so every downstream
-            ;; run-result slot derives from ONE tape (NewTestStory §A0c).
+            ;; run-result slot derives from ONE tape (spec/017 §Run-result
+            ;; evidence projection).
             [re-frame.story.play.evidence :as rf.story.play.evidence]
             ;; The `:rf.test/run-artifact` schema + replay.
             ;; Re-exported as `make-run-artifact` / `run-artifact?` /
@@ -97,12 +98,12 @@
             [re-frame.story.determinism :as rf.story.determinism]
             ;; The semantic diff over canonical run artifacts.
             ;; Re-exported as `diff-run-artifacts` below (spec/017 §Semantic
-            ;; diff). Builds read-only on `.7` replay + `.3`/`.8` canonicalize.
+            ;; diff). Builds read-only on replay + canonicalize.
             [re-frame.story.diff        :as rf.story.diff]
             ;; Golden slices.
             ;; Re-exported as `capture-golden` / `golden-match?` /
             ;; `compare-golden` below (spec/017 §Golden slices). Builds
-            ;; read-only on `.3`/`.8` canonicalize + `.7` replay + `.9` diff.
+            ;; read-only on canonicalize + replay + diff.
             [re-frame.story.golden      :as rf.story.golden]
             ;; The run-artifact → variant promotion bridge.
             ;; Re-exported as `materialize-variant-plan` (pure) +
@@ -113,7 +114,7 @@
             ;; seed-bearing run artifacts (+ shrink) and a fault-lattice
             ;; sweep. Re-exported as `check-property!` / `sweep-faults!`
             ;; below (spec/017 §Generated runs and artifacts). Builds
-            ;; read-only on `.7` replay + the `:seed` / `:shrink-path`
+            ;; read-only on replay + the `:seed` / `:shrink-path`
             ;; artifact slots; a generated failure feeds the promotion
             ;; bridge unchanged (artifacts first, curated promotion only).
             [re-frame.story.generate    :as rf.story.generate]
@@ -262,8 +263,8 @@
 
      `:setup` / `:script` / `:plays` are the only setup and play slots;
      the body is stored under exactly those keys, so `variant->edn`
-     hands back what was authored. The retired `:events` / `:play-script`
-     spellings are rejected by the closed schema like any unknown key.
+     hands back what was authored. `:events` / `:play-script` are not
+     slots; the closed schema rejects them like any unknown key.
 
      The body must be 100% EDN-round-trippable. Decorator closures live at
      the decorator's *registration site* (see `reg-decorator`), not here.
@@ -412,9 +413,9 @@
       :for       #{<context-id>}}   ;; optional
      ```
 
-     Per `005-SOTA-Features.md` §Xray epoch panel embed (stub + contract)
-     the re-frame-10x epoch panel ships as a registered
-     story panel via this macro."
+     Xray's epoch panel is NOT a story panel: it mounts through the RHS
+     per-panel mount catalogue (`005-SOTA-Features.md` §Xray epoch panel
+     embed (per-panel mount))."
      [id metadata]
      (rf.story.macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
@@ -654,7 +655,7 @@
   Per tools/story/spec/001-Authoring.md §Boot — auto-install of the
   canonical vocabulary, this fires automatically on the first
   `reg-*` call; authors don't have to call it explicitly. The explicit
-  call remains supported for hosts that prefer a literal boot step
+  call is supported for hosts that prefer a literal boot step
   and for test fixtures that want to assert a known starting state.
   Idempotent — whether the chain runs via auto-install or from this
   explicit entry, the side-table lands in the same shape.
@@ -682,21 +683,20 @@
 ;; variant declares its sensitive / large app-db paths at registration via
 ;; the `:sensitive` / `:large` slots on the variant body. Each slot is a MAP
 ;; with the app-db paths under `:app-db` (a vector of `:rf/path`s)
-;; (spec/Conventions.md §Privacy). EP-0025 retired the framework's
-;; `re-frame.core/make-frame` `:sensitive` / `:large` frame keys (they now fail
-;; loud); the variant body declares the same `{:app-db [[:auth :token]]}`
+;; (spec/Conventions.md §Privacy). The framework's `re-frame.core/make-frame`
+;; rejects `:sensitive` / `:large` frame keys loudly; the variant body
+;; declares the same `{:app-db [[:auth :token]]}`
 ;; durable form the four commit-plane classification effects carry. The Story
 ;; runtime lowers the `:app-db` paths into the variant
 ;; frame's elision registry through the commit-plane `:sensitive` / `:large`
 ;; classification effects at frame creation (an init classify step,
 ;; `:source :effect`), so the redaction is live from creation onward.
-;; (EP-0025 removed the durable `:sensitive` / `:large {:app-db …}` *frame
-;; annotation* — a frame is not app-db's definition site — so the runtime no
-;; longer threads the declaration onto the `make-frame` config; it rides the
-;; commit-plane effect instead. The variant `:sensitive` block carries only
-;; `:app-db` paths — EP-0025 retired the frame `:sensitive {:http}` carrier
-;; block, which moved onto the `:rf.http/managed` `reg-fx` registration's
-;; `:carriers` block, the transient-payload case.)
+;; (There is no durable `:sensitive` / `:large {:app-db …}` *frame
+;; annotation* — a frame is not app-db's definition site — so the runtime
+;; does not thread the declaration onto the `make-frame` config; it rides the
+;; commit-plane effect. The variant `:sensitive` block carries only
+;; `:app-db` paths — transient-payload carriers are declared on the
+;; `:rf.http/managed` `reg-fx` registration's `:carriers` block.)
 ;;
 ;;     (story/reg-variant :story.auth/login-form
 ;;       {:component login-form
@@ -805,7 +805,7 @@
   registration + opt-in into one call). Earliest-entry-in-the-vector is
   the outermost wrap layer; the resolved per-variant stack is
   `(concat globals story variant)`. Passing `nil` or `[]` clears the
-  global stack. The args-precedence-chain analog already exists at
+  global stack. The args-precedence-chain analog is
   Layer 1; this is the decorators analog — both are project-wide
   defaults the host application sets once at boot.
 
@@ -837,7 +837,7 @@
 
   `{:rf.story/egress-profile <kw>}` — Story's on-box dev-UI egress
   profile per EP-0015 (frame-owned egress policy). One of
-  the six ruled `:rf.egress/*` profiles; in practice the two on-box
+  the six `:rf.egress/*` profiles; in practice the two on-box
   members: `:rf.egress/local-redacted` (default — suppress sensitive
   display, FAIL-CLOSED) or `:rf.egress/local-raw` (the trusted-local
   opt-in — show path-marked-sensitive values verbatim on your own
@@ -1202,8 +1202,8 @@
 ;; ---- determinism gate ---------------------------------------------------
 ;;
 ;; Per spec/017 §Determinism gate — replay the plan/artifact into N FRESH
-;; frames and compare the canonical run-slices. Builds on `.7` replay and
-;; `.3` canonicalize. Re-exported as the testing-substrate `assert-
+;; frames and compare the canonical run-slices. Builds on replay and
+;; canonicalize. Re-exported as the testing-substrate `assert-
 ;; deterministic` (spec/008 owns the substrate surface; the tool lives
 ;; below Story and runs without the UI).
 
@@ -1265,8 +1265,8 @@
 ;; + `:shrink-path`) ready to feed the promotion bridge. Artifacts first;
 ;; curated promotion only. Generator-agnostic (a caller `gen-fn` of the seed)
 ;; over a pure seedable PRNG; the fault-lattice sweep replays one base program
-;; across `:fx-decisions` fault cells using the existing fx-override world
-;; input — no new fault-injection contract.
+;; across `:fx-decisions` fault cells using the fx-override world
+;; input — there is no separate fault-injection contract.
 
 (defn check-property!
   "Per spec/017 §Generated runs and artifacts — run a property over `:num-tests`
@@ -1284,8 +1284,8 @@
   "Per spec/017 §Fault lattice sweep — replay `base-program` across a
   `fault-lattice` of `:fx-decisions` cells (each cell a fault — an fx override
   that fails / delays / mis-replies) and collect one seed-bearing
-  `:rf.test/run-artifact` per cell. Derived from the existing fx-override
-  world input + run-artifact surface; no new fault-injection contract. `opts`
+  `:rf.test/run-artifact` per cell. Derived from the fx-override
+  world input + run-artifact surface; there is no separate fault-injection contract. `opts`
   MAY carry `:seed` / `:hooks` / `:frame-config`. Returns `{:cells [{:cell
   :status :artifact :result} …] :failing [cell-id …]}`."
   [base-program fault-lattice opts]
@@ -1296,7 +1296,7 @@
 ;; Per spec/017 §Semantic diff — a readable diff between two runs, with the
 ;; per-run noise (frame ids, timestamps, dispatch / epoch / trace ids)
 ;; stripped by `canonicalize` FIRST so the diff shows SEMANTIC differences.
-;; Builds read-only on `.7` replay + `.3`/`.8` canonicalize; re-exported as
+;; Builds read-only on replay + canonicalize; re-exported as
 ;; the testing-substrate `diff-run-artifacts` (the tool lives below Story and
 ;; runs without the UI; spec/008 owns the substrate surface).
 
@@ -1320,10 +1320,9 @@
 ;; Per spec/017 §Golden slices — a curated canonicalized run regression
 ;; artifact: freeze a run's behavioural slice via `canonicalize` (the slice
 ;; `run-hash` hashes), then assert a later run still canonicalizes `=` to it.
-;; The deferred P1.5 surface, unblocked now that `.3`/`.8`'s `canonicalize`
-;; is proven by the determinism gate + semantic diff. Builds read-only on
-;; `canonicalize` (the strip path) + `.7` replay (the artifact path) + `.9`
-;; diff (the readable mismatch report — delegated, not reinvented).
+;; Builds read-only on `canonicalize` (the strip path) + replay (the artifact
+;; path) + the semantic diff (the readable mismatch report — delegated, not
+;; reinvented).
 
 (defn capture-golden
   "Per spec/017 §Golden slices — freeze a curated `:rf.test/golden` slice
@@ -1400,7 +1399,7 @@
   (`:status`) — the SAME authority as `result-passed?` — so a
   floor-escalated `:fail` (an unconsumed schema violation / failing epoch
   outcome) or a run-level `:cannot-run` returns FALSE even when every
-  assertion is `:passed? true` (no floor-blind false GREEN, rf2-x76af2.16).
+  assertion is `:passed? true` (no floor-blind false GREEN).
   A zero-assertion `:pass` run stays green (the §Story-as-test duality).
 
   Given a bare ASSERTIONS VECTOR (e.g. `read-assertions`), it is the
@@ -1466,17 +1465,12 @@
   [parts]
   (rf.story.result/run-result parts))
 
-;; `match-schema-expectations` LEFT THE FACADE (rf2-i6kh, facade sweep).
-;; Its canonical home is `re-frame.story.result/match-schema-expectations`,
-;; which is the only door spec/017 §Schema rule has ever named, and the door
-;; every caller in this repository already uses. The facade delegator was
-;; carried "for tooling / MCP that wants to inspect the consumption pairing
-;; directly" — an intent that never materialised: story-mcp consumes the five
-;; rf2-jy92cr leaf operations (`known-assertion-ids` / `assertion-record` /
-;; `assertion-records` / `aggregate-verdict` / `valid-variant-id?`), and this
-;; was not among them. Per spec/Conventions.md §Removing or demoting a facade
-;; export, fate (a): genuinely used internally → it becomes internal and
-;; leaves the facade. Require `re-frame.story.result` to reach it.
+;; `match-schema-expectations` is NOT on the facade. Its canonical home is
+;; `re-frame.story.result/match-schema-expectations`, the door spec/017
+;; §Schema rule names; it is internal, and story-mcp consumes only the five
+;; leaf operations (`known-assertion-ids` / `assertion-record` /
+;; `assertion-records` / `aggregate-verdict` / `valid-variant-id?`). Require
+;; `re-frame.story.result` to reach it.
 
 (defn result-status
   "Per spec/017 §Run result — the unified verdict of a run-result:
@@ -1621,7 +1615,7 @@
   variant) the ambient + per-run arg layers — global-args, the parent story's
   `:args`, and any `:active-modes` / `:cell-overrides` in `opts` — are folded
   in through `rf.story.args/run-arg-layers`, so `:args` / `:effective-args`
-  match `effective-args` and the run result (rf2-noxox); a caller-supplied
+  match `effective-args` and the run result; a caller-supplied
   `:run-args` wins. A map `target` (an inline plan) runs with no ambient
   layers and is explained the same way. The bare compile stays explicit:
   `(:explain (variant-plan target opts))` carries the variant-chain arg layer
@@ -1727,11 +1721,10 @@
            p        (run target run-opts)]
        ;; Both branches pass `(:variant/id result)`, matching
        ;; the already-resolved sync branch above. `emit-reports!` ignores
-       ;; its first arg TODAY, so this is behaviour-preserving; it removes
-       ;; the latent trap of three call sites supplying three different
-       ;; shapes (a `:variant/id` value vs. the RAW `target` keyword/map)
-       ;; for the same parameter, should a future change make the arg load-
-       ;; bearing (e.g. stamping the variant id onto each report's message).
+       ;; its first arg, and all three call sites supply the same shape (a
+       ;; `:variant/id` value, never the RAW `target` keyword/map), so the
+       ;; arg can become load-bearing (e.g. stamping the variant id onto
+       ;; each report's message) without the call sites disagreeing.
        #?(:clj
           (let [result (rf.story.async/deref-blocking p (get opts :timeout-ms 30000))]
             (emit-reports! (:variant/id result) (rf.story.result/result->reports result))
