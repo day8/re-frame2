@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.machine-inspector-helpers-cljs-test
-  "Pure-data tests for Xray's Machine Inspector panel helpers
-  (Phase 5+, rf2-r9f9u).
+  "Pure-data tests for Xray's Machine Inspector panel helpers.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -14,7 +13,7 @@
 
   ## What's under test
 
-    1. **transition-event?**     — recognises the v1 transition
+    1. **transition-event?**     — recognises the transition
                                    operations (outer + microstep).
     2. **machine-id-of**         — pulls the machine-id off the trace
                                    event's `:tags`.
@@ -27,7 +26,7 @@
                                    `tools/machines-viz/spec/API.md`.
     6. **project-transitions**   — filters the trace buffer to the
                                    selected machine; newest first.
-    7. **cap-transitions**       — applies the v1 200-entry cap.
+    7. **cap-transitions**       — applies the 200-entry cap.
     8. **project-data**          — the top-level composite shape.
     9. **format-* helpers**      — display formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -267,7 +266,7 @@
   (let [rows [{:id 1} {:id 2} {:id 3} {:id 4} {:id 5}]]
     (is (= 2 (count (h/cap-transitions rows 2))))
     (is (= [{:id 1} {:id 2}] (h/cap-transitions rows 2))
-        "takes from the head — newest first preserved by project-transitions")))
+        "takes from the head, so project-transitions' newest-first order holds")))
 
 ;; ---- (8) project-data --------------------------------------------------
 
@@ -343,7 +342,7 @@
   (is (= "" (h/format-event nil)))
   (is (= "[:auth/submit]" (h/format-event [:auth/submit]))))
 
-;; ---- (10) focused-event lens (rf2-a9cke) --------------------------------
+;; ---- (10) focused-event lens --------------------------------------------
 
 (defn- t-event
   "Build a `:rf.machine/transition` trace event with the
@@ -420,7 +419,7 @@
     (is (= (get definitions :auth/login)
            (-> records first :definition)))))
 
-;; ---- a SPAWNED actor's definition (rf2-3x7nj.23.2) ----------------------
+;; ---- a SPAWNED actor's definition ---------------------------------------
 
 (def ^:private spawn-parent-id :xray-spawned-def/parent)
 (def ^:private spawn-child-type :xray-spawned-def/child)
@@ -447,7 +446,7 @@
         ids))
 
 (deftest project-focused-event-attaches-definition-for-a-spawned-actor
-  (testing "rf2-3x7nj.23.2 — a SPAWNED actor transitions under its
+  (testing "a SPAWNED actor transitions under its
             `<type>#<n>` instance address, which no key of the registered-id
             definitions map names. The record resolves the definition
             through the TYPE its snapshot carries at `:rf/machine-type`, so
@@ -526,7 +525,7 @@
         (is (= :ok          (-> rec :actions first :outcome)))))))
 
 (deftest project-focused-event-attaches-history-restore-and-record
-  ;; rf2-mle6e.5 — a transition that resolved a `:type :history` pseudo-state
+  ;; A transition that resolved a `:type :history` pseudo-state
   ;; carries `:history-restored`; one whose macrostep exited a history-bearing
   ;; compound carries `:history-recorded` (spec/009 §History trace events). The
   ;; lens surfaces them so the Machine Inspector renders WHY a re-entry landed
@@ -561,12 +560,11 @@
       (is (nil? (:history-recorded rec))))))
 
 (deftest project-focused-event-surfaces-before-and-after-snapshots
-  ;; rf2-lxvn6 (phase 4 of rf2-oqa60) — the per-transition record
-  ;; carries the full `:before` / `:after` snapshot maps so the panel's
-  ;; snapshot drill-in surface (spec/021 §10 widget contract) can
-  ;; render them via the first-class edn-inspector widget. The two
-  ;; slots are nil when the trace tags lack the commit-or-finalize
-  ;; snapshot pair (legacy fixtures).
+  ;; The per-transition record carries the full `:before` / `:after`
+  ;; snapshot maps so the panel's snapshot drill-in surface (spec/021
+  ;; §10 widget contract) can render them via the first-class
+  ;; edn-inspector widget. The two slots are nil when the trace tags
+  ;; lack the commit-or-finalize snapshot pair.
   (testing "the record exposes :before and :after snapshot maps when
             the trace tags carry them"
     (let [events [(t-event 1 :auth/login :idle :authing [:auth/submit])]
@@ -575,8 +573,8 @@
           ":before snapshot threaded through")
       (is (= {:state :authing :data {}} (:after rec))
           ":after snapshot threaded through")))
-  (testing "the record's :before / :after slots are nil for legacy
-            traces that only carry the `:from`/`:to` tag slots"
+  (testing "the record's :before / :after slots are nil for traces
+            that carry only the `:from`/`:to` tag slots"
     (let [events [{:id 1 :time 1 :operation :rf.machine/transition
                    :tags {:machine-id :auth/login
                           :from       :idle
@@ -584,21 +582,20 @@
                           :event      [:auth/submit]}}]
           rec    (-> (h/project-focused-event-transitions events) first)]
       (is (nil? (:before rec))
-          ":before is nil on legacy traces — drill-in suppresses the block")
+          ":before is nil on a :from/:to-only trace — drill-in suppresses the block")
       (is (nil? (:after rec))
-          ":after is nil on legacy traces")
-      ;; The from/to-state fallback still resolves so the lens renders.
+          ":after is nil on a :from/:to-only trace")
+      ;; The from/to-state fallback resolves, so the lens renders.
       (is (= :idle (:from-state rec)))
       (is (= :authing (:to-state rec))))))
 
 (deftest project-focused-event-coerces-fn-refs-to-renderable-ids
-  ;; rf2-ujra6 — per spec/Spec-Schemas `:guard-id` / `:action-id` carry
+  ;; Per spec/Spec-Schemas `:guard-id` / `:action-id` carry
   ;; the user-declared ref as-is, which is "keyword OR inline fn". The
   ;; deep-machine testbed (`testbeds/deep_machine/core.cljs`) declares
   ;; state-node `:entry` slots as raw fns; when those fire the
   ;; `:rf.machine/action-ran` trace carries the fn itself in
-  ;; `:action-id`. Before #1601 these traces lacked `:frame` and were
-  ;; dropped by epoch-capture; post-#1601 they flow into
+  ;; `:action-id`. These traces carry `:frame`, so they flow into
   ;; `:trace-events` and through this projection. The view renders
   ;; `:action-id` via `(name ...)` to build a `data-testid` suffix —
   ;; which throws `Doesn't support name: function ...` on fn values.
@@ -637,16 +634,16 @@
           records (h/project-focused-event-transitions events)]
       (is (= :issue-token (-> records first :actions first :action-id))))))
 
-;; ---- (10b) machine BIRTH (`:rf.machine/started`) — rf2-eldze ------------
+;; ---- (10b) machine BIRTH (`:rf.machine/started`) ------------------------
 ;;
 ;; A pure machine start emits `:rf.machine/started` (the birth signal) but
-;; NO `:rf.machine/transition` (machines · lifecycle_fx · registration.cljc
-;; — rf2-gl588 / rf2-coozg). Before rf2-eldze the focused-event lens only
-;; projected transitions, so a focused start epoch produced zero records
-;; and the Machine tab rendered the "does not target a state machine"
-;; empty state. These tests pin that a start IS surfaced as a first-class
-;; record (no from-state; to-state = the resulting initial state), and
-;; that ordinary transitions are unaffected.
+;; NO `:rf.machine/transition` (machines · lifecycle_fx · registration.cljc).
+;; A focused-event lens projecting only transitions would produce zero
+;; records for a focused start epoch, and the Machine tab would render the
+;; "does not target a state machine" empty state. These tests pin that a
+;; start IS surfaced as a first-class record (no from-state; to-state = the
+;; resulting initial state), and that ordinary transitions project
+;; independently of it.
 
 (defn- started-event
   "Build a `:rf.machine/started` (machine BIRTH) trace event with the
@@ -673,7 +670,7 @@
   (testing "a focused machine-start epoch yields ONE record with no
             from-state and the resulting initial state as to-state — so
             the Machine tab renders the topology (initial highlighted)
-            rather than the empty state (rf2-eldze)"
+            rather than the empty state"
     (let [events  [(started-event 1 :door/main :closed {:open? false} :explicit)]
           records (h/project-focused-event-transitions events)
           rec     (first records)]
@@ -708,15 +705,15 @@
 
 (deftest project-focused-event-start-and-transition-interleave
   (testing "a cascade carrying BOTH a birth and a later transition yields
-            both records in cascade order; the transition is unaffected by
-            the start fold (no regression)"
+            both records in cascade order; the start fold does not alter
+            the transition record"
     (let [events  [(started-event 1 :door/main :closed)
                    (t-event 2 :door/main :closed :open [:door/push])]
           records (h/project-focused-event-transitions events)]
       (is (= 2 (count records)))
       (is (= [true false] (mapv (comp boolean :start?) records))
           "the first is the birth, the second an ordinary transition")
-      ;; The ordinary transition still resolves from/to exactly as before.
+      ;; The ordinary transition resolves from/to exactly as it does alone.
       (is (= [nil :closed]  (mapv :from-state records)))
       (is (= [:closed :open] (mapv :to-state records))))))
 
@@ -729,7 +726,7 @@
       (is (= :idle (:from-state rec)))
       (is (= :authing (:to-state rec))))))
 
-;; ---- (10c) guard-blocked / NO-OP (`:rf.machine.event/unhandled-no-op`) — rf2-skmc7 ----
+;; ---- (10c) guard-blocked / NO-OP (`:rf.machine.event/unhandled-no-op`) ----
 ;;
 ;; A machine event that matched no transition — an UNHANDLED user event OR a
 ;; transition whose GUARD failed — emits `:rf.machine.event/unhandled-no-op`
@@ -737,10 +734,11 @@
 ;; its current state. The event DID target a registered machine, so the
 ;; Machine tab MUST render the topology with the CURRENT state highlighted —
 ;; NOT the 'does not target a state machine' empty state (spec/003 §Empty
-;; state: "Unhandled-event no-op is NOT this empty state"). This is the SAME
-;; gap rf2-eldze fixed for the START case, for a different no-transition cause.
+;; state: "Unhandled-event no-op is NOT this empty state"). It is the same
+;; no-transition shape as the START case above, from a different cause.
 ;; These tests pin that a no-op IS surfaced as a first-class record and that
-;; transitions / starts / genuinely-non-machine events are unaffected.
+;; transitions / starts / genuinely-non-machine events project independently
+;; of it.
 
 (defn- no-op-event
   "Build a `:rf.machine.event/unhandled-no-op` (guard-blocked / unhandled)
@@ -768,8 +766,8 @@
             `:may-close?`-fail close) yields ONE record with from-state ==
             to-state == the CURRENT state and `:no-op? true` — so the
             Machine tab renders the topology (current state highlighted)
-            rather than the 'does not target a state machine' empty state
-            (rf2-skmc7)"
+            rather than the 'does not target a state machine' empty
+            state"
     (let [events  [(no-op-event 1 :door/main :open [:door/close])]
           records (h/project-focused-event-transitions events)
           rec     (first records)]
@@ -841,16 +839,16 @@
 
 (deftest project-focused-event-genuinely-non-machine-still-empty
   (testing "an event that targets NO machine at all (no transition / start /
-            no-op trace) STILL yields the empty vector — the 'does not target
-            a state machine' placeholder is reserved for that case (rf2-skmc7
-            does NOT widen the gate to non-machine events)"
+            no-op trace) yields the empty vector — the 'does not target
+            a state machine' placeholder is reserved for that case (the no-op
+            fold does NOT widen the gate to non-machine events)"
     (let [events [{:id 1 :operation :rf.event/dispatched
                    :tags {:rf.event/v [:foo]}}
                   {:id 2 :operation :rf.sub/run
                    :tags {:rf.sub/id ::bar}}]]
       (is (= [] (h/project-focused-event-transitions events))
-          "no machine trace of any kind → still empty (still 'does not
-           target a state machine')"))))
+          "no machine trace of any kind → empty ('does not target a
+           state machine')"))))
 
 (deftest project-focused-event-transition-still-not-flagged-no-op
   (testing "an ordinary transition record carries no :no-op? flag — the
@@ -861,7 +859,7 @@
       (is (= :idle (:from-state rec)))
       (is (= :authing (:to-state rec))))))
 
-;; ---- (11) focused-epoch-record (rf2-a9cke) ------------------------------
+;; ---- (11) focused-epoch-record -------------------------------------------
 
 (deftest focused-epoch-record-empty-history
   (is (nil? (h/focused-epoch-record nil  {:epoch-id 7})))
@@ -882,7 +880,7 @@
       (is (= 7 (:epoch-id (h/focused-epoch-record history {:epoch-id nil})))))))
 
 (deftest focused-epoch-record-nil-when-evicted
-  (testing "rf2-uo0rc.1 — a PINNED focus :epoch-id no longer in the buffer
+  (testing "a PINNED focus :epoch-id absent from the buffer
             (evicted from the per-frame ring) resolves to nil, NOT a
             silent head-fallback. Per spec/021 §10.7 every panel renders
             the evicted placeholder; the Machine Inspector must not show
@@ -896,20 +894,20 @@
           "evicted pinned epoch must be nil (not the head record)"))))
 
 (deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
-  (testing "rf2-c4abp / rf2-y8doi.19 — the operator pinned an event bundle
+  (testing "the operator pinned an event bundle
             that settled NO epoch. Focus then carries a `:dispatch-id` with
             a nil `:epoch-id`, which is SHAPE-IDENTICAL to the cold-start
-            UNSET focus the rf2-h0120 head-fallback exists to serve — so
-            reading `:epoch-id` alone cannot tell the two apart, and this
-            helper answered the HEAD for both. That put a DIFFERENT event's
-            machine state under the operator's selection, with nothing on
-            screen saying so: the same class of state-reconstruction lie
-            rf2-uo0rc.1 fixed for the evicted case just above.
+            UNSET focus the head-fallback exists to serve — so reading
+            `:epoch-id` alone cannot tell the two apart, and a helper that
+            did would answer the HEAD for both. That would put a DIFFERENT
+            event's machine state under the operator's selection, with
+            nothing on screen saying so: the same class of
+            state-reconstruction lie the evicted case just above guards
+            against.
 
             The pinned `:dispatch-id` is the discriminator. The Epoch panel
-            got it in rf2-y8doi.19; this is that discriminator reaching the
-            Machine Inspector, through the SAME shared resolver rather than
-            a parallel selection policy."
+            reads it too; the Machine Inspector reaches it through the SAME
+            shared resolver rather than a parallel selection policy."
     (let [history [{:epoch-id 5  :dispatch-id 5  :trace-events []}
                    {:epoch-id 11 :dispatch-id 11 :trace-events [:x]}]]
       (is (nil? (h/focused-epoch-record history {:dispatch-id 999 :epoch-id nil}))
@@ -922,38 +920,38 @@
                "(spine/epoch-id-for-event-bundle) and must not head-fall-back")))))
 
 (deftest focused-epoch-record-rejects-only-the-pinned-no-epoch-shape
-  (testing "rf2-c4abp POSITIVE CONTROL — the discriminator must reject ONLY
-            the pinned-no-epoch shape. An UNSET focus still head-falls-back,
-            an ordinary pinned epoch still resolves to its own record, and
-            the evicted case is unchanged. Without this row the fix could
-            pass by breaking normal selection outright."
+  (testing "POSITIVE CONTROL — the discriminator must reject ONLY
+            the pinned-no-epoch shape. An UNSET focus head-falls-back,
+            an ordinary pinned epoch resolves to its own record, and
+            the evicted case resolves to nil. Without this row the
+            discriminator could pass by breaking normal selection outright."
     (let [history [{:epoch-id 5  :dispatch-id 5  :trace-events []}
                    {:epoch-id 11 :dispatch-id 11 :trace-events [:x]}]]
       (is (= 11 (:epoch-id (h/focused-epoch-record history nil)))
-          "nil focus still resolves the head (rf2-h0120)")
+          "nil focus resolves the head")
       (is (= 11 (:epoch-id (h/focused-epoch-record history {})))
-          "an empty focus map still resolves the head")
+          "an empty focus map resolves the head")
       (is (= 11 (:epoch-id (h/focused-epoch-record history {:epoch-id    nil
                                                             :dispatch-id nil})))
-          "an explicitly nil :dispatch-id is still an UNSET focus")
+          "an explicitly nil :dispatch-id is an UNSET focus")
       (is (= 5 (:epoch-id (h/focused-epoch-record history {:epoch-id    5
                                                            :dispatch-id 5})))
-          "an ordinary selected epoch still resolves to its own record")
+          "an ordinary selected epoch resolves to its own record")
       (is (nil? (h/focused-epoch-record history {:epoch-id 99 :dispatch-id 99}))
-          "an evicted pinned epoch is unchanged — still nil (rf2-uo0rc.1)"))))
+          "an evicted pinned epoch resolves to nil"))))
 
-;; ---- focused-event-section-key (rf2-un3gfo) -----------------------------
+;; ---- focused-event-section-key -------------------------------------------
 ;;
 ;; The per-machine focused-event section's React `:key` must be
 ;; STRUCTURAL (target-frame + machine-id) so ordinary Prev/Next epoch
 ;; navigation within the SAME machine preserves the section + nested
 ;; MachineChart instance (keeping the chart's parse/layout caches warm,
 ;; so ELK does NOT re-run and the topology does not flicker). A genuinely
-;; different machine — or a frame switch — must still produce a distinct
+;; different machine — or a frame switch — must produce a distinct
 ;; key so the new topology gets a clean instance + its own ELK layout.
 
 (deftest section-key-is-stable-across-prev-next-for-same-machine
-  (testing "rf2-un3gfo — Prev/Next walks records for the SAME machine
+  (testing "Prev/Next walks records for the SAME machine
             whose epoch id + from/to-state change every navigation. The
             structural key must NOT change across those records — only the
             machine-id (and inspected frame) are load-bearing, so React
@@ -974,9 +972,9 @@
           "the section key is identical across Prev/Next records of the
            same machine — no remount, so the chart instance + its
            parse/layout caches survive and ELK does not re-run")
-      ;; Pin that the per-epoch fields are NOT in the key — a regression
-      ;; that folded epoch id / from-state / to-state back into the key
-      ;; would reintroduce the per-nav remount + ELK relayout flicker.
+      ;; Pin that the per-epoch fields are NOT in the key — folding epoch
+      ;; id / from-state / to-state into the key would cause a per-nav
+      ;; remount + ELK relayout flicker.
       (is (not (str/includes? k1 "1"))
           "the record/epoch id is NOT in the key")
       (is (not (str/includes? k1 "idle"))
@@ -985,11 +983,11 @@
           "to-state is NOT in the key"))))
 
 (deftest section-key-changes-for-a-different-machine-topology
-  (testing "rf2-un3gfo — switching to a genuinely different machine
+  (testing "switching to a genuinely different machine
             (different topology) MUST change the key so React mounts a
             fresh section + chart, and the new topology gets its own ELK
-            layout. This is the half of the contract that must NOT
-            regress in pursuit of stability."
+            layout. This is the half of the contract that stability must
+            NOT cost."
     (let [frame :rf/default
           auth  (h/focused-event-section-key
                   frame {:machine-id :auth/login :id 1
@@ -1002,7 +1000,7 @@
            its own ELK layout)"))))
 
 (deftest section-key-changes-across-inspected-frames
-  (testing "rf2-un3gfo — the L1 frame picker re-seeds the panel against a
+  (testing "the L1 frame picker re-seeds the panel against a
             DIFFERENT runtime, where the same machine-id may name a
             different machine instance. Including the target-frame in the
             key gives that frame switch a clean section instance."
@@ -1018,8 +1016,8 @@
           "same frame + same machine is one stable key"))))
 
 (deftest section-key-tolerates-nil-target-frame
-  (testing "rf2-un3gfo — a single-frame / pre-seed render may have a nil
-            target-frame. The key must still build (not throw) and remain
+  (testing "a single-frame / pre-seed render may have a nil
+            target-frame. The key must build (not throw) and remain
             stable across Prev/Next."
     (let [k1 (h/focused-event-section-key
                nil {:machine-id :auth/login :id 1
@@ -1028,31 +1026,28 @@
                nil {:machine-id :auth/login :id 2
                     :from-state :authing :to-state :done})]
       (is (string? k1) "key builds with a nil target-frame")
-      (is (= k1 k2) "still stable across Prev/Next when frame is nil"))))
+      (is (= k1 k2) "stable across Prev/Next when frame is nil"))))
 
-;; ---- (12) pick-focused-transition — the selection rule (rf2-mj4jp) ------
+;; ---- (12) pick-focused-transition — the selection rule ------------------
 ;;
 ;; The Dynamic panel binds to EXACTLY ONE machine per focused event
-;; (spec/003 §Dynamic mode — single-instance, event-driven, rf2-8og3k).
-;; Which one was `(first records)` — trace order, full stop — and that is
-;; the defect rf2-mj4jp closes: rf2-y8doi.23 had already made
-;; `:rf.xray/select-machine-id` pin the newest epoch touching the
-;; requested machine, but when that epoch's cascade touched A and THEN B,
-;; a Static JUMP to B pinned the right epoch and the panel drew A.
+;; (spec/003 §Dynamic mode — single-instance, event-driven).
+;; `:rf.xray/select-machine-id` pins the newest epoch touching the
+;; requested machine; when that epoch's cascade touches A and THEN B, a
+;; rule of `(first records)` — trace order, full stop — would let a
+;; Static JUMP to B pin the right epoch while the panel drew A.
 ;;
-;; These rows pin TWO properties, and both are load-bearing. Pinning only
-;; the first would have passed against the bug in a recognisable way: a
-;; rule that simply answered "the selected machine, always" satisfies
-;; every A-and-B row below while destroying the no-selection posture the
-;; panel opens in — so the second property is what stops the fix from
-;; being worse than the defect.
+;; These rows pin TWO properties, and both are load-bearing. A rule that
+;; simply answered "the selected machine, always" satisfies every A-and-B
+;; row below while destroying the no-selection posture the panel opens
+;; in — so the second property is what keeps the selection rule from
+;; costing ordinary following.
 ;;
 ;;   1. WHICH RECORD IS SELECTED — an explicit selection that the
 ;;      cascade touched outranks trace order, wherever in the cascade it
 ;;      sits.
-;;   2. ORDINARY FOLLOWING IS UNCHANGED — no selection, a stale
-;;      selection, and the 1-arity all still answer first-in-trace-order,
-;;      byte for byte what they answered before.
+;;   2. ORDINARY FOLLOWING — no selection, a stale selection, and the
+;;      1-arity all answer first-in-trace-order.
 ;;
 ;; Every row drives the REAL projection (`project-focused-event-
 ;; transitions`) rather than hand-built maps, so the records carry the
@@ -1071,10 +1066,10 @@
 ;; ---- property 1: which record is selected ----
 
 (deftest pick-focused-transition-selection-outranks-trace-order-rf2-mj4jp
-  (testing "rf2-mj4jp — with A, B and C in ONE cascade, an explicit
-            selection of B wins over A's earlier trace position. This is
-            the defect exactly: the JUMP pinned the right epoch, wrote
-            the slot, and the display drew A anyway."
+  (testing "with A, B and C in ONE cascade, an explicit
+            selection of B wins over A's earlier trace position. Without
+            it, the JUMP would pin the right epoch and write the slot, and
+            the display would draw A anyway."
     (let [records (cascade-records)]
       (is (= 3 (count records))
           "fixture really is a multi-machine cascade, not one record")
@@ -1090,7 +1085,7 @@
            off-by-one that happens to land on the second record"))))
 
 (deftest pick-focused-transition-returns-the-whole-selected-record-rf2-mj4jp
-  (testing "rf2-mj4jp — the caller needs the RECORD, not just the id:
+  (testing "the caller needs the RECORD, not just the id:
             `machine_after_rings` reads `:frame-id` off it to keep two
             frames' instances apart, and the chart reads the transition
             endpoints. Answering the right machine with another machine's
@@ -1104,8 +1099,8 @@
           "every field comes off the SELECTED machine's own record"))))
 
 (deftest pick-focused-transition-selection-takes-first-of-its-own-rf2-mj4jp
-  (testing "rf2-mj4jp — a machine may transition more than once in one
-            cascade. The selection names a MACHINE, so trace order still
+  (testing "a machine may transition more than once in one
+            cascade. The selection names a MACHINE, so trace order
             decides WHICH of that machine's records binds: the first."
     (let [records (h/project-focused-event-transitions
                     [(t-event 1 :auth/login    :idle    :authing [:go])
@@ -1116,30 +1111,30 @@
       (is (= :idle (:from-state record))
           "the FIRST :checkout/flow record in trace order, not the last"))))
 
-;; ---- property 2: ordinary following is unchanged ----
+;; ---- property 2: ordinary following is trace order ----
 
 (deftest pick-focused-transition-no-selection-is-trace-order-rf2-mj4jp
-  (testing "rf2-mj4jp — the panel's OPENING posture has no selection at
-            all, and it must be bit-for-bit what it was: first in trace
-            order. `:rf.xray/selected-machine-id` is nil until something
-            writes it, so this is the ordinary case, not the edge one."
+  (testing "the panel's OPENING posture has no selection at
+            all, and it answers first in trace order.
+            `:rf.xray/selected-machine-id` is nil until something writes
+            it, so this is the ordinary case, not the edge one."
     (let [records (cascade-records)]
       (is (= :auth/login (:machine-id (h/pick-focused-transition records)))
-          "1-arity — the pre-rf2-mj4jp spelling, unchanged")
+          "1-arity — the no-selection spelling")
       (is (= :auth/login
              (:machine-id (h/pick-focused-transition records nil)))
           "explicit nil selection reads the same as no selection")
       (is (= (h/pick-focused-transition records)
              (h/pick-focused-transition records nil))
-          "the two spellings are the SAME answer, so no caller left on
-           the 1-arity can drift from one passing the slot"))))
+          "the two spellings are the SAME answer, so no caller on the
+           1-arity can drift from one passing the slot"))))
 
 (deftest pick-focused-transition-stale-selection-falls-back-rf2-mj4jp
-  (testing "rf2-mj4jp — a selection is sticky, so the operator walks
+  (testing "a selection is sticky, so the operator walks
             Prev/Next into epochs their selected machine never touched.
             The selection must NOT blank the panel or bind to nothing
             there: it falls back to trace order, which is what ordinary
-            spine following has always done."
+            spine following does."
     (let [records (cascade-records)]
       (is (= :auth/login
              (:machine-id (h/pick-focused-transition records :door/main)))
@@ -1149,24 +1144,24 @@
           "identical to the no-selection answer — following is intact"))))
 
 (deftest pick-focused-transition-nil-when-nothing-transitioned-rf2-mj4jp
-  (testing "rf2-8og3k — an empty cascade binds to NO machine and the
+  (testing "an empty cascade binds to NO machine and the
             panel renders its placeholder. A selection must not conjure a
             record out of an empty projection."
     (is (nil? (h/pick-focused-transition [])))
     (is (nil? (h/pick-focused-transition [] :checkout/flow)))
     (is (nil? (h/pick-focused-transition nil :checkout/flow)))))
 
-;; ---- the raw slot the view must be given (rf2-mj4jp / rf2-y8doi.23) ----
+;; ---- the raw slot the view must be given ----
 
 (deftest project-data-echoes-the-raw-selection-slot-rf2-mj4jp
-  (testing "rf2-mj4jp — the Dynamic panel feeds the selection rule from
+  (testing "the Dynamic panel feeds the selection rule from
             `project-data`'s RAW `:selected-machine-id`, never its
             `:selected-id`. The two differ precisely when no selection
-            has been made: `:selected-id` still names a machine, because
+            has been made: `:selected-id` names a machine anyway, because
             `pick-selected` falls back to the ALPHABETICALLY first row.
             Feeding that to the rule would bind the panel to a machine
-            the operator never chose — which is the wrong-machine half of
-            rf2-y8doi.23, re-entered through the front door."
+            the operator never chose — the wrong-machine binding the
+            selection rule exists to prevent."
     (let [none (h/project-data [:checkout/flow :auth/login] {} [] nil
                                :rf/default)
           some (h/project-data [:checkout/flow :auth/login] {} []
