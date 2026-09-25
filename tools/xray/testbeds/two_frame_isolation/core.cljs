@@ -33,10 +33,11 @@
   gate's Routing-panel deck); the multi-frame isolation gate assertion lives
   on the framework `testbeds/multi_frame` surface.
 
-  `standard-epochs.core` registers every event / sub / view / cofx / fx /
-  flow / schema ONCE globally at namespace load (requiring it below is
-  what installs them); its `root` step-ladder view is the shared app code
-  path both frames render. We do NOT call `standard-epochs.core/run` —
+  `standard-epochs.core` registers every event / sub / view / cofx / fx
+  ONCE globally at namespace load (requiring it below is what installs
+  them), and exposes its frame-local flow + app-schema through
+  `register-frame-local-features!`; its `root` step-ladder view is the
+  shared app code path both frames render. We do NOT call `standard-epochs.core/run` —
   that would mount the deck once into `#app` on the default frame. We
   reuse only its registrations + its `root` Var, and supply our own
   two-frame harness + mount here.
@@ -84,8 +85,8 @@
 
   ## Test surface, not tutorial
 
-  No deliberate bugs, no teaching layers, no anti-pattern demos
-  (feedback_testbeds_are_test_surfaces). The exception / slow-fx / schema
+  No deliberate bugs, no teaching layers, no anti-pattern demos. The
+  exception / slow-fx / schema
   buttons in the standard-epochs ladder are FEATURES being exercised —
   they light up Xray's Issues surface legitimately, per frame.
 
@@ -96,8 +97,9 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Requiring `standard-epochs.core` installs every handler /
-            ;; sub / view / cofx / fx / flow / schema ONCE globally and
-            ;; gives us its `root` step-ladder view + its `steps` vector. We
+            ;; sub / view / cofx / fx ONCE globally and gives us its
+            ;; frame-local-feature registrar, its `root` step-ladder view +
+            ;; its `steps` vector. We
             ;; mount that view twice below (with a distinct per-frame
             ;; host-frame + prefix + run-step event); we do NOT call its
             ;; `run` (which would mount it once into `#app` on the default
@@ -150,7 +152,7 @@
 ;; rung (step 5) would bump `:base` but NEVER recompute `:derived` (no flow in
 ;; this frame), and the APP-SCHEMA rung (step 19) would write an int into
 ;; `[:auth :token]` and it would STICK (no schema → no validation → no
-;; rollback): both rungs INERT in these frames (rf2-4279q4).
+;; rollback): both rungs INERT in these frames.
 ;;
 ;; We reuse `standard-epochs.core`'s OWN `register-frame-local-features!`
 ;; (same flow body + `se/AuthSlice` schema) so the two frames exercise the
@@ -253,7 +255,7 @@
   ;; Register the frame-local FLOW + APP-SCHEMA into BOTH frames so the
   ;; step-5 (flow) and step-19 (app-schema) rungs fire here instead of
   ;; being inert (each is frame-local; the standalone deck installs them in
-  ;; :rf/default — rf2-4279q4). Reuse standard-epochs' OWN registrar so the
+  ;; :rf/default). Reuse standard-epochs' OWN registrar so the
   ;; features match exactly. reg-flow / reg-app-schema require a LIVE frame,
   ;; so this runs AFTER make-frame. Top-level, never inside a handler cascade.
   (se/register-frame-local-features! frame-above)
@@ -261,8 +263,8 @@
   ;; Re-seed each frame AFTER its flow is registered so the
   ;; `:standard-epochs/derived` flow computes its initial value (:derived =
   ;; 2 × :base) on this drain's flows pass — mirroring the standalone deck,
-  ;; where the flow is registered (ns-load, in :rf/default) BEFORE `run`'s
-  ;; seed dispatch. The `:initial-events` seed above ran while the frame had
+  ;; whose `run` registers the flow (in :rf/default) BEFORE its seed
+  ;; dispatch. The `:initial-events` seed above ran while the frame had
   ;; no flow yet, so `:derived` would otherwise stay absent until the first
   ;; step-5 press. The re-seed leaves each frame at the deterministic
   ;; baseline (`:base 1`, `:derived 2`, `[:auth :token]` "seed-token") the
