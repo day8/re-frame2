@@ -135,7 +135,7 @@
   Cmd+Shift+M on macOS or Ctrl+Shift+M everywhere else.
 
   Cmd-Shift-M is the chord — a paired letter that doesn't collide
-  with the existing Ctrl+Shift+C (toggle shell), Cmd/Ctrl+K (palette),
+  with Ctrl+Shift+C (toggle shell), Cmd/Ctrl+K (palette),
   or the bare-letter spine bindings (Space / l / j / k / Shift+G /
   `,` / s — see `spine-key-id`).
 
@@ -390,7 +390,7 @@
 
 ;; Both entries call THROUGH the var rather than capturing the fn object at
 ;; def time. Capturing would freeze whatever `mount/visible?` was bound to
-;; when this ns loaded — breaking `with-redefs` in the existing tests, and
+;; when this ns loaded — breaking `with-redefs` in the tests, and
 ;; leaving a stale fn behind after a shadow-cljs `:after-load` recompiles
 ;; mount. Same reasoning as the `attached-fn` stash, in the other direction.
 (def ^:private opener-surface
@@ -629,7 +629,7 @@
   installed for the window's lifetime and answers to the flag as it
   stands at the moment the key is pressed. Nothing is swallowed while the
   flag is false — no `preventDefault`, no `stopPropagation`, no dispatch
-  — so what a host observes is unchanged.
+  — so a host observes the key exactly as if no listener were installed.
 
   An install-time read would not be load-bearing in THIS document anyway.
   The slot exists so that an embed host's own global bindings survive
