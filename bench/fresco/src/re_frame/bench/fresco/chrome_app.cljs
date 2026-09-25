@@ -1,10 +1,10 @@
 (ns re-frame.bench.fresco.chrome-app
-  "THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — the page half
-  (rf2-2rtt6.52's landing bar).
+  "THE PAGE-CHROME ROW, AND WHAT THE BAIL-OUT COSTS — the page half of
+  the bail-out's landing bar.
 
-  HD-028 makes a value-equality bail-out the boundary default. The ruling
-  made it conditional on a measurement rather than on the repair being
-  obviously right: the default lands only if it removes the 300-row
+  HD-028 makes a value-equality bail-out the boundary default,
+  conditional on a measurement rather than on the bail-out being
+  obviously right: the default holds only if it removes the 300-row
   cascade **without a material rf.bench.fresco.arm1.mount/bulk regression and without pushing
   retained heap meaningfully farther past the bar** — because the
   comparator takes React's full `MemoComponent` path and adds an outer
@@ -15,17 +15,16 @@
   ## Two arms, one page, one difference
 
   Both arms render the **same** page — the shape roster's own feed, whose
-  witness found the defect — over the same model, the same card markup and
-  the same bodies. The only difference is how the head was minted:
+  witness shows the cascade — over the same model, the same card markup
+  and the same bodies. The only difference is how the head was minted:
 
       :memo    `runtime/mint-view!`  — marked AND given the codec's
                                        stable memo wrapper (HD-028)
       :plain   [[plain-view]]        — marked only, which is `mint-view!`
-                                       exactly as it stood before the
-                                       repair
+                                       without the wrapper
 
-  So `:plain` is not a reconstruction of the old runtime from memory; it
-  is the one line that changed, restored. Everything downstream —
+  So `:plain` is not a reconstruction from memory; it is the mint minus
+  the one line that adds the wrapper. Everything downstream —
   `runtime/shell`, both hooks, the index, the codec's element emission —
   is shared, which is what makes the difference between the arms
   attributable to the wrapper and to nothing else.
@@ -77,9 +76,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- plain-view
-  "`mint-view!` as it stood before rf2-2rtt6.52: a marked function
-  component and no wrapper. Reproduced here rather than described, so the
-  `:plain` arm is the old runtime and not an impression of it."
+  "`mint-view!` without the memo wrapper: a marked function component and
+  nothing else. Reproduced here rather than described, so the `:plain` arm
+  is the unwrapped mint and not an impression of it."
   [view-name body-fn]
   (let [component (fn fresco-boundary [js-props] (rf.bench.fresco.arm1.runtime/shell body-fn js-props))]
     (unchecked-set component "displayName" view-name)
@@ -150,7 +149,7 @@
   {:memo  {:id :memo  :page memo-page  :frame ::memo
            :why "mint-view! — marked and given the codec's stable memo wrapper (HD-028)"}
    :plain {:id :plain :page plain-page :frame ::plain
-           :why "marked only — mint-view! exactly as it stood before the repair"}})
+           :why "marked only — mint-view! without the wrapper"}})
 
 (defn- arm-of [id] (get arms (keyword id)))
 
@@ -216,12 +215,12 @@
     :chrome (if (odd? op-n) [:conduit/show-your-feed] [:conduit/show-global-feed])
     :bulk   [:conduit/refresh-feed]
     :narrow [:conduit/favorite (:slug (rf.bench.fresco.shapes.model/article (mod (* 7 op-n) cards-n)))]
-    ;; STRICTLY INCREASING, and above any seeded value. `(inc (mod op-n
-    ;; 5))` cycled, and the frame is reseeded every round — so the write
-    ;; periodically set the page number the page already had, app-db did
-    ;; not move, nothing re-rendered, and the op silently measured
-    ;; NOTHING. The instrument's own between-rounds guard caught it as
-    ;; `{:cards 0 :pages 0}`, which is what that guard is for.
+    ;; STRICTLY INCREASING, and above any seeded value. A cycling number
+    ;; such as `(inc (mod op-n 5))`, with the frame reseeded every round,
+    ;; would periodically set the page number the page already has: app-db
+    ;; would not move, nothing would re-render, and the op would silently
+    ;; measure NOTHING. The instrument's own between-rounds guard reads
+    ;; that as `{:cards 0 :pages 0}`, which is what that guard is for.
     :props  [:conduit/go-to-page (+ 1000 op-n)]
     nil))
 
@@ -265,9 +264,10 @@
   "Drop the arm's runtime state AND both frames.
 
   `reset-runtime!` alone leaves the frames standing, and a frame holds its
-  subscription cache — so an arm released and re-mounted accumulated, the
-  next arm's heap baseline was read on a page still holding the previous
-  arm's reactive graph, and the two arms' baselines came out 1.9 MB apart.
+  subscription cache — so an arm released and re-mounted would accumulate,
+  the next arm's heap baseline would be read on a page still holding the
+  previous arm's reactive graph, and the two arms' baselines sit 1.9 MB
+  apart that way.
   A per-boundary figure differenced against a drifting baseline is not a
   measurement, so the frames go too."
   []
