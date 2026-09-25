@@ -151,7 +151,8 @@
     definition
     (let [root' (desugar-node-timeouts (dissoc definition :states :regions))
           def'  (cond-> (dissoc definition :timeout :on-timeout)
-                  (contains? root' :after) (assoc :after (:after root')))]
+                  (contains? root' :after) (assoc :after (:after root'))
+                  (contains? root' :spawn) (assoc :spawn (:spawn root')))]
       (cond-> def'
         (:states def')        (update :states walk-states-timeouts)
         (map? (:regions def')) (update :regions
@@ -574,7 +575,8 @@
 ;;     non-empty `:states` (and non-empty region `:states`) — it needs an
 ;;     initial-marker to project — whereas the engine resolves a missing / late
 ;;     `:initial` lazily at runtime;
-;;   - the parallel-root region-qualified `:on` / `:after` / `:on-done` target
+;;   - the parallel-root region-qualified `:on` / `:after` / `:on-done` /
+;;     `:spawn :on-error` / `:spawn :on-done` target
 ;;     grammar + full `:spawn-all` shape (bounded complexity — a VALID
 ;;     spawn-all still projects; a malformed one is simply not rejected here).
 
@@ -602,8 +604,9 @@
 (def ^:private root-unread-keys
   "State-node keys no runtime path reads on ANY machine root — mirror of the
   engine's `validation/root-unread-keys`. The root is entered once at birth,
-  never re-entered, and never a final state."
-  #{:spawn :spawn-all :always :choice :final? :output-key :error? :deep? :default-target})
+  never re-entered, and never a final state; its one `:spawn` is the child
+  that lives as long as the machine."
+  #{:spawn-all :always :choice :final? :output-key :error? :deep? :default-target})
 
 (def ^:private flat-root-unread-keys
   "State-node keys no runtime path reads on a flat / compound machine root, in
@@ -1075,16 +1078,21 @@
 
 (defn- root-on-target-defect
   "The non-parallel root's OWN `:on` (the ancestor-fallback slot, decl-path
-  `[]`) target resolution — mirror of the engine's root `:on` branch in
+  `[]`) and its `:spawn :on-error` / transition-shaped `:spawn :on-done`
+  target resolution — mirror of the engine's root branch in
   `validate-transition-targets!`. Assumes `:on` is a MAP: its shape is
   guarded upstream in `flat-defect` by `transition-slot-shape-defect`, so a
   malformed non-map root `:on` is rejected cleanly BEFORE this iterates it."
   [scope d]
-  (some (fn [[_ v]]
-          (some (fn [{:keys [present? target]}]
-                  (when present? (target-defect scope [] :on target)))
-                (candidate-targets v)))
-        (:on d)))
+  (let [check (fn [slot v]
+                (some (fn [{:keys [present? target]}]
+                        (when present? (target-defect scope [] slot target)))
+                      (candidate-targets v)))
+        od    (get-in d [:spawn :on-done])]
+    (or (some (fn [[_ v]] (check :on v)) (:on d))
+        (when-let [oe (get-in d [:spawn :on-error])] (check :spawn/on-error oe))
+        ;; A fn `:spawn :on-done` is the `:data` fold and carries no target.
+        (when (and (some? od) (not (fn? od))) (check :spawn/on-done od)))))
 
 (defn- flat-defect [d]
   (cond
@@ -1097,6 +1105,7 @@
       (or (node-keys-defect [] d true)
           (root-slot-defect d)
           (tags-defect [] d)
+          (spawn-defect [] d)
           ;; The flat ROOT's own `:on` / `:after` fallback slot
           ;; is validated for shape with the SAME rule as a state node's,
           ;; BEFORE `root-on-target-defect` iterates it. A malformed root
@@ -1105,6 +1114,8 @@
           ;; exception out of `valid-definition?` / the emit paths.
           (transition-slot-shape-defect [] d)
           (transition-keys-defect [] d)
+          (spawn-timeout-ms-defect [] d)
+          (spawn-completion-defect [] d)
           (some (fn [[path node]] (node-defect scope path node)) (walk-scope-nodes scope))
           (history-scope-defect scope)
           (root-on-target-defect scope d)))))
@@ -1147,10 +1158,13 @@
       (or (node-keys-defect [] d true)
           (root-slot-defect d)
           (tags-defect [] d)
+          (spawn-defect [] d)
           ;; The parallel ROOT's own `:on` / `:after` ancestor
           ;; fallback slot gets the same shape guard as every other scope.
           (transition-slot-shape-defect [] d)
           (transition-keys-defect [] d)
+          (spawn-timeout-ms-defect [] d)
+          (spawn-completion-defect [] d)
           (some (fn [[region-name body]] (region-defect region-name body)) regions)))))
 
 (defn definition-defect
