@@ -11,8 +11,7 @@
  * least RF2_MIN_TESTS tests actually executed (default 1). The tally alone
  * is not enough — `Ran 0 tests containing 0 assertions. / 0 failures, 0
  * errors.` is what a lane whose `:ns-regexp` selected nothing prints, and
- * shadow-cljs's find-test-namespaces returns `[]` on no match silently
- * (rf2-qqzmf).
+ * shadow-cljs's find-test-namespaces returns `[]` on no match silently.
  *
  * Done-signal strategy: shadow.test.browser's default reporter writes the
  * cljs.test :summary report via `console.log` (default cljs.test prints
@@ -40,11 +39,10 @@ const {
   summaryPartsFromText,
   testingNamespaces,
 } = require('./lib/browser-test-report.cjs');
-// `sleep` is the shared poll primitive — verbatim the same
-// `setTimeout`-backed Promise this runner used to define inline
-// (rf2-j552l2 dedup; exported from lib/local-browser-harness.cjs).
+// `sleep` is the shared poll primitive — a `setTimeout`-backed Promise
+// exported from lib/local-browser-harness.cjs.
 const { sleep } = require('./lib/local-browser-harness.cjs');
-// rf2-u0cy4: the env-var name and flag name are shared with
+// The env-var name and flag name are shared with
 // serve-and-run-browser-tests.cjs (which sets the var) via one module, so
 // the two sides cannot drift into different literals.
 const {
@@ -57,117 +55,96 @@ const URL = process.env.BROWSER_TEST_URL || 'http://localhost:8021';
 //
 // This is a BUDGET, not a correctness bound: the suite either prints a
 // summary or it does not, and the number only decides how long we let it
-// try. It was 120s, chosen when the `:browser-test` bundle was a fast DOM
-// suite. It is now the long pole of a growing control-witness corpus —
-// mounted rows driven through real-time settles with 2-4s poll budgets, so
-// each witness costs ~35-40s of mostly WALL-CLOCK (not CPU) for ~5-12
-// tests. Measured on the same bundle: 843 tests / 58s on the pre-witness
-// main, 855 tests / 99s once the splitter witness landed. Three more
-// witnesses were queued behind that, i.e. ~+120s, which exceeds 120s on
-// arithmetic alone — and CI is slower than a dev box on the compute half,
-// so a lane that passes locally at ~95s times out there (rf2-15047).
+// try. The long pole of the `:browser-test` bundle is its control-witness
+// corpus — mounted rows driven through real-time settles with 2-4s poll
+// budgets, so each witness costs ~35-40s of mostly WALL-CLOCK (not CPU) for
+// ~5-12 tests — and CI is slower than a dev box on the compute half, so a
+// budget sized to a local green run times out there.
 //
-// 360s restores roughly the headroom the lane had before the witnesses
-// (~3.6x the current green run) and leaves room for a few more of them
-// before this recurs. It is deliberately NOT larger: a genuine hang still
-// fails inside 6 minutes, well under the job's own `timeout-minutes: 45`,
-// and it fails through THIS runner — which dumps the console trail and the
-// namespaces reached — rather than as an opaque runner kill.
+// 360s is deliberately NOT larger: a genuine hang still fails inside 6
+// minutes, well under the job's own `timeout-minutes: 45`, and it fails
+// through THIS runner — which dumps the console trail and the namespaces
+// reached — rather than as an opaque runner kill.
 //
-// rf2-15047 CALIBRATION, 2026-07-28 — MEASURED, AND 360s STANDS.
-//
-// rf2-mf4uy moved the benches to their own build, and the arithmetic above
-// changed underneath this constant, so it was re-measured rather than left
-// to drift. Two consecutive local runs of the built `:browser-test` bundle:
+// MEASURED: two consecutive local runs of the built `:browser-test` bundle:
 // 841 tests / 5459 assertions / 0 failures, 25.9s and 25.2s wall for
 // serve+launch+navigate+suite+teardown, of which the summary wait proper —
 // the only thing TIMEOUT_MS bounds — is ~22.5s. (The 41.5s shadow-cljs
-// compile is NOT on this clock; it happens before the runner starts.) That
-// confirms rf2-mf4uy's 73s -> 22.5s: one namespace really had been half the
-// lane.
+// compile is NOT on this clock; it happens before the runner starts.)
 //
 // So 360s is ~16x the local green run and ~9.5x at the measured ~1.7x CI
-// factor, against the ~3.6x rule that produced it. By that rule alone the
-// number wants to be ~140-180s. It is NOT being lowered, for two reasons.
+// factor. A ~3.6x headroom rule alone would put it at ~140-180s. It stays at
+// 360s for two reasons.
 //
 // FIRST, the growth this budget exists to absorb is WALL-CLOCK, not compute.
 // Each control witness costs ~35-40s of mounted rows driven through
 // real-time settles with 2-4s poll budgets — `setTimeout`, which neither a
-// faster runner nor another bundle split can shrink. The 22.5s figure is the
-// result of a one-off structural change, not a trend; the witness corpus
-// that motivated this bead is still landing steadily. Three more puts the
-// lane near ~135s, where a 180s budget has ~1.3x headroom and needs raising
-// again within weeks.
+// faster runner nor another bundle split can shrink. Three more witnesses
+// put the lane near ~135s, where a 180s budget has ~1.3x headroom.
 //
 // SECOND, the two failure modes are asymmetric. Over-large costs only a
 // slower failure on a genuine hang — still 6 minutes, still far inside
 // `timeout-minutes: 45`, and still through THIS runner with the console
-// trail and the rf2-76lhy per-namespace duration profile. Under-sized costs
-// a FALSE RED on a loaded runner, which is precisely the failure rf2-15047
-// was filed to stop, and it costs a full lane re-run plus an investigation
-// that starts by suspecting the code.
+// trail and the per-namespace duration profile. Under-sized costs a FALSE
+// RED on a loaded runner, and it costs a full lane re-run plus an
+// investigation that starts by suspecting the code.
 //
 // Revisit when the lane's own green run passes ~100s, not before.
 //
-// Per-lane needs differ; $BROWSER_TEST_TIMEOUT_MS remains the override.
-// check-ui-mounted-prod-elision.cjs still pins 120000 for its negative-
-// control mutant run — left alone deliberately: that run is EXPECTED to
-// fail, so it wants a short leash, not this budget.
+// Per-lane needs differ; $BROWSER_TEST_TIMEOUT_MS is the override.
 const DEFAULT_TIMEOUT_MS = 360000;
 const BROWSER_TEST_TIMEOUT_ENV_VAR = 'BROWSER_TEST_TIMEOUT_MS';
 const TIMEOUT_MS = parseInt(
   process.env[BROWSER_TEST_TIMEOUT_ENV_VAR] || String(DEFAULT_TIMEOUT_MS), 10);
 const POLL_MS = 200;
 
-// rf2-dczpv — the lane's second PHASE, now sharing the lane's one budget.
+// The lane's second PHASE, sharing the lane's one budget.
 //
-// WHAT IT USED TO BE. `page.goto(URL, { waitUntil: 'load' })` with no explicit
-// timeout took Playwright's default 30s. That WAS a second budget on this lane,
-// entirely separate from TIMEOUT_MS above and unreachable from it, and it fired
-// for real: a local run of the `:browser-test` bundle died with `page.goto:
-// Timeout 30000ms exceeded` after 21 namespaces had already run and printed,
-// and two immediately-following runs of the identical bundle passed. Worse than
-// the flake was the READING — in a CI log that line is nearly indistinguishable
-// from this runner's own summary timeout, so the fix reached for was a bigger
-// BROWSER_TEST_TIMEOUT_MS, which back then could not touch it.
+// WHY THE NAVIGATION CARRIES AN EXPLICIT TIMEOUT. `page.goto(URL)` with no
+// explicit timeout takes Playwright's default 30s — a second budget on this
+// lane, entirely separate from TIMEOUT_MS above and unreachable from it, and
+// it fires for real: a local run of the `:browser-test` bundle can die with
+// `page.goto: Timeout 30000ms exceeded` after 21 namespaces have already run
+// and printed, while two immediately-following runs of the identical bundle
+// pass. Worse than the flake is the READING — in a CI log that line is nearly
+// indistinguishable from this runner's own summary timeout, so the reader
+// reaches for a bigger BROWSER_TEST_TIMEOUT_MS, which could not touch it.
 //
-// WHAT IT IS NOW, and this is the part the first cut of this comment got wrong
-// (audit of PR #7193). `NAV_TIMEOUT_MS = TIMEOUT_MS`, so the lane is ONE
+// WHAT IT IS. `NAV_TIMEOUT_MS = TIMEOUT_MS`, so the lane is ONE
 // configured value applied to TWO sequential phases: $BROWSER_TEST_TIMEOUT_MS
 // bounds the navigation AND the summary wait that follows it. Raising it moves
 // BOTH ceilings. Saying otherwise sends the reader away from the only knob the
-// failed phase has — which is the same navigate-by-the-wrong-budget mistake
-// this bead was filed to stop, wearing the opposite hat.
+// failed phase has — the same navigate-by-the-wrong-budget mistake, wearing
+// the opposite hat.
 //
 // The two phases stay distinguishable by what the failure line SAYS, not by
 // carrying different numbers. One number is the point: a lane with two knobs is
 // a lane where one of them is stale.
 //
-// WHY 'load' WAS ALWAYS WRONG HERE, not merely tight. `shadow.test.browser`
+// WHY 'load' IS WRONG HERE, not merely tight. `shadow.test.browser`
 // starts running the suite during page load, so the `load` event cannot fire
 // until the whole suite yields to the event loop. Waiting for it means waiting
 // for the tests to finish — which is the job of the poll loop below, against
-// the budget that is documented for it. A slow first namespace (before
-// rf2-mf4uy moved them out, `bench.b10-two-clock-dom-cljs-test` began its ~36s
-// synchronous burn at +8s, directly under the 30s ceiling) is enough to lose
-// the navigation on a loaded box.
+// the budget that is documented for it. A slow first namespace (a ~36s
+// synchronous burn starting at +8s sits directly under the 30s ceiling) is
+// enough to lose the navigation on a loaded box.
 //
 // `'commit'` resolves as soon as the response is received and the document
 // starts loading, which no page script can delay: everything this runner needs
 // afterwards (the console tap, `page.evaluate`, the DOM scrape) auto-waits on
 // the execution context by itself. The explicit timeout is the same budget as
-// the summary wait, so the lane now has ONE number, and a genuine
+// the summary wait, so the lane has ONE number, and a genuine
 // server-not-listening failure still fails — at the navigation, naming itself.
 const NAV_WAIT_UNTIL = 'commit';
 const NAV_TIMEOUT_MS = TIMEOUT_MS;
 const VERBOSE_TESTS = isVerboseTests();
 
-// rf2-76lhy: stamp diagnostics at CAPTURE time, not at flush time.
+// Stamp diagnostics at CAPTURE time, not at flush time.
 //
 // The buffer is flushed in a single burst, so every line lands on the log
 // within the same millisecond and the surrounding log's own timestamps say
-// nothing about when the line was produced — verified on a real CI timeout,
-// where all 66 buffered `Testing <ns>` lines carried the same flush stamp.
+// nothing about when the line was produced — on a real CI timeout, every
+// buffered `Testing <ns>` line carries the same flush stamp.
 // Without a capture-time offset, "namespace 66 was still running when the
 // clock expired" is indistinguishable from "namespace 66 never returned".
 // With one, the trail a timeout already dumps IS a per-namespace duration
@@ -177,9 +154,9 @@ const RUN_STARTED_AT = process.hrtime.bigint();
 const capturedAt = () =>
   `[+${(Number(process.hrtime.bigint() - RUN_STARTED_AT) / 1e9).toFixed(2)}s]`;
 
-// rf2-u0cy4: the one console line that is a DEFECT, not noise.
+// The one console line that is a DEFECT, not noise.
 //
-// Console output is diagnostic-only here by deliberate design (rf2-mwx08) —
+// Console output is diagnostic-only here by deliberate design —
 // only `pageerror` is fatal. That policy has one hole. When a cljs.test async
 // row calls `done` twice, `run-block` finds its continuation already realized
 // and degrades the second call to a `println`:
@@ -187,25 +164,24 @@ const capturedAt = () =>
 //     (if (realized? d) (println "WARNING: Async test called done more than one time.") @d)
 //
 // So the defect cannot reach the failure tally — it is structurally incapable
-// of failing an assertion. It shipped to main exactly once already (PR #7162
-// swapped in a teardown helper that calls `done`, leaving five pre-existing
-// trailing `(done)` calls, so every async row in that suite double-fired); the
-// lane was green and a human reading the diff caught it (rf2-0ke4x, #7164).
+// of failing an assertion: a teardown helper that calls `done` beside a
+// test's own trailing `(done)` double-fires every async row in its suite, and
+// the lane stays green.
 //
 // Promoting the literal is general across the whole mounted tier rather than a
 // textual lint over one suite's source, which is why it belongs here.
 const FATAL_CONSOLE_RE = /Async test called done more than one time/;
 
-// rf2-u0cy4 (merged-PR audit of #7190): the matcher above is a COPY of a
+// The matcher above is a COPY of a
 // literal that lives in ClojureScript, not in this repo. Nothing in this
 // tree changes when cljs.test rewords it — so on a dependency bump the
 // regex would quietly stop matching, `fatalConsole` would stay empty, and
 // the gate would report green while guarding nothing. The committed policy
-// test could not catch that either: it asserts this file still contains
-// the regex, which a reworded upstream leaves perfectly true.
+// test cannot catch that either: it asserts this file contains the regex,
+// which a reworded upstream leaves perfectly true.
 //
-// Close it by comparing the matcher against the INSTALLED emission rather
-// than against our own copy of it. `cljs.test/run-block` is where the
+// So compare the matcher against the INSTALLED emission rather than against
+// our own copy of it. `cljs.test/run-block` is where the
 // warning is printed:
 //
 //     (if (realized? d) (println "WARNING: Async test called done more
@@ -219,7 +195,7 @@ const FATAL_CONSOLE_RE = /Async test called done more than one time/;
 //
 // Deliberately fail-CLOSED: an unreachable `run_block` is reported, never
 // skipped. A drift check that goes quiet when it cannot look is worth
-// nothing, and this whole bead exists because a fail-open gate shipped.
+// nothing.
 // Namespaces are reachable either directly on the global object or under
 // shadow-cljs's `$CLJS` holder depending on the target; check both rather
 // than assume one, so this reports genuine drift and not a build-shape
@@ -281,7 +257,7 @@ async function duplicateDoneMatcherDrift(page) {
   return null;
 }
 
-// The test-count floor (rf2-qqzmf). ONE name across every whole-suite lane:
+// The test-count floor. ONE name across every whole-suite lane:
 // the JVM runner (re-frame.test-quiet.runner) and the CLJS node runner
 // (re-frame.test-quiet.shadow-node) read the same variable. Because it is
 // one name, scope it to the lane you are running — a value calibrated for
@@ -355,10 +331,10 @@ async function serviceEvidenceGcRequest(page, diagnostics) {
 }
 
 // ---------------------------------------------------------------------------
-// rf2-il7b — TRUSTED KEYBOARD INPUT: the one thing a page cannot do to itself
+// TRUSTED KEYBOARD INPUT: the one thing a page cannot do to itself
 // ---------------------------------------------------------------------------
 //
-// WHAT WAS MISSING, precisely. `:on-key-down` is a React handler, and React
+// WHAT A PAGE CANNOT DO, precisely. `:on-key-down` is a React handler, and React
 // delivers a synthetic keydown to it exactly as it delivers a trusted one —
 // which is why `combobox-keyboard-dom-cljs-test` drives arrows and Enter for
 // real from inside the page. What a page cannot synthesise is the ENGINE'S
@@ -367,8 +343,8 @@ async function serviceEvidenceGcRequest(page, diagnostics) {
 // focus nowhere, because `isTrusted` is false and default actions are the
 // half of an event the page is not allowed to forge. Same for Escape against
 // a modal `<dialog>`: the listener fires, `cancel` does not, and the dialog
-// stays open. Measured in this repo's own Chromium, both arms, and the two
-// suites below now carry the measurement rather than a sentence about it.
+// stays open. Measured in this repo's own Chromium, both arms; the suites
+// that use this bridge carry the measurement rather than a sentence about it.
 //
 // SAME SHAPE AS THE GC BRIDGE ABOVE, deliberately. The page publishes a
 // request on a well-known key and awaits an acknowledgement; the runner reads
@@ -385,9 +361,8 @@ async function serviceEvidenceGcRequest(page, diagnostics) {
 const TRUSTED_INPUT_REQUEST = '__RF2_TOOL_TRUSTED_INPUT_REQUEST__';
 // Published before any page script, so a suite can tell "no bridge here" from
 // "the bridge is slow". A row that cannot press a real key must SAY so rather
-// than pass quietly — the three suites this bead exists for spent their whole
-// lives stating that gap honestly, and an unwitnessed green would be a worse
-// outcome than the gap was.
+// than pass quietly — an unwitnessed green is a worse outcome than an honestly
+// stated gap.
 const TRUSTED_INPUT_BRIDGE = '__RF2_TOOL_TRUSTED_INPUT_BRIDGE__';
 
 // The in-page half of the read: report the published value's SHAPE, because
@@ -447,13 +422,13 @@ async function serviceTrustedInputRequest(page, diagnostics, state) {
   return request;
 }
 
-// rf2-mwx08: capture the `ran` + `failErr` lines as an ATOMIC pair from
-// a single source. summaryPartsFromText now only ever yields a non-null
+// Capture the `ran` + `failErr` lines as an ATOMIC pair from
+// a single source. summaryPartsFromText only ever yields a non-null
 // `failErr` together with the `Ran ...` line it directly follows, so the
 // failure verdict can never be assembled from a `ran` line in one source
 // and a noise-shaped `failures, errors` line in another. We lock the
 // summary the moment ONE source produces a complete pair. The `ran`-only
-// half is still remembered (best-effort, for a meaningful timeout
+// half is remembered (best-effort, for a meaningful timeout
 // message) but never combined cross-source into a green verdict.
 function rememberSummary(summary, hit, sourceName) {
   if (hit.ran && hit.failErr) {
@@ -509,7 +484,7 @@ async function main() {
     await page.addInitScript((key) => {
       globalThis[key] = true;
     }, EVIDENCE_GC_CANONICAL);
-    // rf2-il7b: declare the trusted-input bridge before any page script, so a
+    // Declare the trusted-input bridge before any page script, so a
     // suite that needs a real key press can tell this runner from one that
     // would leave it waiting forever.
     await page.addInitScript((key) => {
@@ -519,24 +494,24 @@ async function main() {
     // Capture every console line so we can scan for the cljs.test summary.
     // Flush the buffer only on failure or RF2_VERBOSE_TESTS=1.
     const consoleLines = [];
-    // rf2-mwx08: track uncaught browser/runtime exceptions SEPARATELY from
+    // Track uncaught browser/runtime exceptions SEPARATELY from
     // console noise. A green cljs.test summary must NOT exit 0 if Chromium
     // observed an uncaught `pageerror` (a real runtime regression the
     // suite happened not to assert on). Console output stays diagnostic-
-    // only; only `pageerror` is fatal. Mirrors the rf2-wf5al fix.
+    // only; only `pageerror` is fatal.
     const pageErrors = [];
-    // rf2-u0cy4: tracked separately from `consoleLines` for the same reason
+    // Tracked separately from `consoleLines` for the same reason
     // `pageErrors` is — a fatal signal must not be recoverable only by
     // re-scanning diagnostics that a green run never flushes.
     const fatalConsole = [];
-    // rf2-u0j8: the subset of `pageErrors` that is TERMINAL for the lane —
+    // The subset of `pageErrors` that is TERMINAL for the lane —
     // cljs.test's refusal of an `async` row under a positional fixture, which
     // unwinds every remaining namespace and the closing summary with it.
     // Dedicated array for the same reason as the two above, and consulted in
     // the poll loop rather than after it: there is no summary coming, so
     // waiting for one only converts a diagnosable failure into a timeout.
     const fixtureAborts = [];
-    // rf2-il7b: the trusted-input bridge's own ledger. `faults` is the second
+    // The trusted-input bridge's own ledger. `faults` is the second
     // TERMINAL class this loop knows — a published request the runner cannot
     // acknowledge leaves the row that published it awaiting an answer that
     // will never come, so waiting for a summary only converts a diagnosable
@@ -552,7 +527,7 @@ async function main() {
     });
     page.on('pageerror', (err) => {
       pageErrors.push(err.stack || err.message);
-      // rf2-u0j8: the cljs.test abort is thrown as a bare STRING, so the
+      // The cljs.test abort is thrown as a bare STRING, so the
       // sentence lands in `err.message` and `err.stack` may not carry it.
       // Classify on both.
       if (findFixtureAbort([err.message, err.stack])) {
@@ -571,12 +546,11 @@ async function main() {
     try {
       await page.goto(URL, { waitUntil: NAV_WAIT_UNTIL, timeout: NAV_TIMEOUT_MS });
     } catch (err) {
-      // rf2-dczpv: say WHICH PHASE fired, and tell the truth about the knob.
+      // Say WHICH PHASE fired, and tell the truth about the knob.
       // A `page.goto: Timeout …ms exceeded` line and a `Timed out … waiting
       // for cljs.test summary` line are near-indistinguishable in a CI log, so
-      // the phase has to name itself. But the two phases share one number, and
-      // the first cut of this message denied that — see the NAV_TIMEOUT_MS
-      // comment above.
+      // the phase has to name itself. But the two phases share one number —
+      // see the NAV_TIMEOUT_MS comment above.
       console.error(
         `NAVIGATION FAILED — the page.goto ceiling fired (waitUntil: ` +
           `'${NAV_WAIT_UNTIL}', timeout: ${NAV_TIMEOUT_MS}ms). The suite was ` +
@@ -587,7 +561,7 @@ async function main() {
           `this navigation AND the summary wait that follows it, so a larger ` +
           `value moves both ceilings. It cannot cure a page that never ` +
           `answered, though: a server that is not listening, or a bundle that ` +
-          `was never built, fails HERE at any size (rf2-dczpv).`,
+          `was never built, fails HERE at any size.`,
       );
       throw err;
     }
@@ -606,10 +580,10 @@ async function main() {
     };
 
     while (Date.now() - start < TIMEOUT_MS) {
-      // rf2-u0j8: stop waiting for a summary that cannot arrive. This is the
+      // Stop waiting for a summary that cannot arrive. This is the
       // ONLY page error that short-circuits the loop — an ordinary uncaught
       // exception mid-suite is not terminal (the run usually finishes and the
-      // rf2-mwx08 arm below fails it on the summary), and breaking on those
+      // pageerror arm below fails it on the summary), and breaking on those
       // would truncate a run that was about to report and mislabel it.
       if (fixtureAborts.length > 0) break;
 
@@ -618,7 +592,7 @@ async function main() {
       // this acknowledgement arrives.
       await serviceEvidenceGcRequest(page, diagnostics);
 
-      // rf2-il7b: likewise serve a pending TRUSTED key press before looking
+      // Likewise serve a pending TRUSTED key press before looking
       // for the summary — the row that asked for it is suspended until the
       // acknowledgement lands, so a loop that looked first and pressed later
       // would be waiting on a run that is waiting on it.
@@ -652,7 +626,7 @@ async function main() {
     }
 
     if (!summary.ran || !summary.failErr) {
-      // rf2-u0j8: a missing summary has THREE causes and they are not read
+      // A missing summary has THREE causes and they are not read
       // the same way. Say which one this is, and — when the page threw — say
       // where the lane stopped, because "no summary" alone sends the reader
       // hunting a hang or a timeout budget.
@@ -668,7 +642,7 @@ async function main() {
       if (fixtureAborts.length > 0) {
         console.error(
           `THE BROWSER RUN ABORTED — it did not time out, and it did not ` +
-            `fail an assertion (rf2-u0j8).\n` +
+            `fail an assertion.\n` +
             `  cljs.test refused an \`async\` row in a namespace whose fixtures ` +
             `are POSITIONAL. \`(use-fixtures :once (fn [f] … (f)))\` selects the ` +
             `\`:sync\` execution strategy, and the \`:sync\` strategy throws the ` +
@@ -682,7 +656,7 @@ async function main() {
         );
         for (const line of fixtureAborts) console.error(`  ${line}`);
       } else if (trustedInput.faults.length > 0) {
-        // rf2-il7b, and the same shape as the arm above for the same reason:
+        // The same shape as the arm above, for the same reason:
         // this run did not time out, it stopped. A row published a request on
         // the trusted-input bridge that this runner cannot acknowledge, so the
         // row is suspended forever and every namespace after it — plus the
@@ -691,7 +665,7 @@ async function main() {
         console.error(
           `THE BROWSER RUN STALLED ON THE TRUSTED-INPUT BRIDGE — it did not ` +
             `time out waiting for tests, it stopped waiting for a key press ` +
-            `that could never be answered (rf2-il7b).\n` +
+            `that could never be answered.\n` +
             `  A cljs.test row published a request on \`${TRUSTED_INPUT_REQUEST}\` ` +
             `and suspended itself until the runner acknowledges it. The request ` +
             `cannot be acknowledged, so the row will never resume.\n` +
@@ -709,7 +683,7 @@ async function main() {
         // is ever reworded upstream — it is matcher-free.
         console.error(
           `THE BROWSER RUN ABORTED — no cljs.test summary, and the page emitted ` +
-            `${pageErrors.length} uncaught error(s) (rf2-u0j8). The suite STOPPED; ` +
+            `${pageErrors.length} uncaught error(s). The suite STOPPED; ` +
             `no summary was still on its way, so the wait above expired against a ` +
             `run that had already ended. Read the error(s) below as the cause, not ` +
             `the wait.\n` +
@@ -724,7 +698,7 @@ async function main() {
       return 1;
     }
 
-    // rf2-u0cy4: verify the duplicate-`done` matcher still corresponds to the
+    // Verify the duplicate-`done` matcher still corresponds to the
     // ClojureScript this run actually loaded. Checked here — after the suite
     // has demonstrably executed, before any verdict returns — so a red tally
     // cannot mask a guard that has stopped guarding. Exit 2 (configuration),
@@ -746,11 +720,11 @@ async function main() {
           `\`:advanced\` build renames \`cljs.test.run_block\` and the matcher ` +
           `cannot be compared against the installed ClojureScript. The ` +
           `duplicate-\`done\` guard itself is still active here. The drift check ` +
-          `is carried by the default \`test:browser\` lane (rf2-u0cy4).`,
+          `is carried by the default \`test:browser\` lane.`,
       );
     } else if (matcherDrift) {
       console.error(
-        `The duplicate-\`done\` guard (rf2-u0cy4) can no longer be trusted: ${matcherDrift}`,
+        `The duplicate-\`done\` guard can no longer be trusted: ${matcherDrift}`,
       );
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);
@@ -771,26 +745,26 @@ async function main() {
       return 1;
     }
 
-    // rf2-mwx08: even a green cljs.test summary fails the run if Chromium
+    // Even a green cljs.test summary fails the run if Chromium
     // observed an uncaught `pageerror`. The suite may simply not assert on
     // the regression that threw; a passing summary is necessary but not
     // sufficient for a green verdict.
     if (pageErrors.length > 0) {
       console.error(
         `cljs.test summary was green, but the browser emitted ` +
-          `${pageErrors.length} uncaught pageerror(s) — failing the run (rf2-mwx08).`,
+          `${pageErrors.length} uncaught pageerror(s) — failing the run.`,
       );
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);
       return 1;
     }
 
-    // rf2-u0cy4: likewise for a double-fired cljs.test `done`. cljs.test
+    // Likewise for a double-fired cljs.test `done`. cljs.test
     // degrades it to a console warning, so the tally above can never see it.
     if (fatalConsole.length > 0) {
       console.error(
         `cljs.test summary was green, but ${fatalConsole.length} async ` +
-          `row(s) called \`done\` more than once — failing the run (rf2-u0cy4). ` +
+          `row(s) called \`done\` more than once — failing the run. ` +
           `A duplicate \`done\` means the row's continuation was already ` +
           `realized: usually a teardown fixture that calls \`done\` alongside ` +
           `a trailing \`(done)\` the test still makes itself. cljs.test cannot ` +
@@ -802,11 +776,11 @@ async function main() {
       return 1;
     }
 
-    // rf2-qqzmf: the verdict above is derived from the FAILURE tally alone,
+    // The verdict above is derived from the FAILURE tally alone,
     // which `Ran 0 tests containing 0 assertions. / 0 failures, 0 errors.`
-    // satisfies. A lane whose `:ns-regexp` selected nothing therefore looked
+    // satisfies, so a lane whose `:ns-regexp` selected nothing would look
     // identical to a green suite. The `Ran N` count this runner has already
-    // parsed is the missing half of the verdict.
+    // parsed is the other half of the verdict.
     const ranCounts = parseRanCounts(summary.ran);
     if (!ranCounts) {
       console.error('Could not parse the "Ran N tests" count; failing the run.');
@@ -818,7 +792,7 @@ async function main() {
       console.error(
         `cljs.test summary was green, but the lane ran ${ranCounts.tests} ` +
           `test(s) — below the floor of ${minTests} (${MIN_TESTS_ENV_VAR}) — ` +
-          `failing the run (rf2-qqzmf). A browser lane that discovered no ` +
+          `failing the run. A browser lane that discovered no ` +
           `tests is a configuration error: a renamed test namespace, a ` +
           `one-character :ns-regexp suffix drift, or a dropped :source-paths ` +
           `entry empties the build silently.`,
@@ -830,7 +804,7 @@ async function main() {
 
     diagnostics.add(
       `[browser:input] trusted-input bridge served ${trustedInput.served} ` +
-        `request(s), ${trustedInput.presses} key press(es) (rf2-il7b)`,
+        `request(s), ${trustedInput.presses} key press(es)`,
     );
     console.log(formatCompactSummary({
       ran: summary.ran,
