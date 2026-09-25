@@ -39,9 +39,9 @@
 ;;   :alarming             on :door/insert-coin   (UNHANDLED → benign no-op)
 ;;   :alarming → :locked   on :door/reset
 ;;   ROOT :on  → :locked   on :door/audit          (RESOLUTION — root-:on
-;;                                                  fallthrough, gap 6)
+;;                                                  fallthrough)
 ;;
-;; gap 6 — TRANSITION RESOLUTION: `:alarming` declares no `:door/audit`
+;; TRANSITION RESOLUTION: `:alarming` declares no `:door/audit`
 ;; entry, so the event falls through to the ROOT-level `:on` (deepest-wins:
 ;; a state-level entry would override a root entry, but absent one the root
 ;; handles it). Driving `:door/audit` from `:alarming` exercises that the
@@ -53,7 +53,7 @@
              :held-open?   false}
 
    ;; ROOT-level :on — the fallthrough target for any state that does not
-   ;; declare :door/audit locally (gap 6 — transition resolution). A plain
+   ;; declare :door/audit locally (transition resolution). A plain
    ;; transition: the structured cascade attributes :alarming ──► :locked to
    ;; this root clause.
    :on {:door/audit :locked}
@@ -94,7 +94,7 @@
 
     :alarming
     ;; No :door/insert-coin entry → UNHANDLED no-op (#7). No :door/audit
-    ;; entry → falls through to the ROOT :on (#8, gap 6). :door/reset cycles
+    ;; entry → falls through to the ROOT :on (#8). :door/reset cycles
     ;; back to :locked.
     {:tags #{:door/alarming}
      :on   {:door/reset :locked}}}})
@@ -112,7 +112,7 @@
 ;; member swap each tick — the snapshot diff must render that as a member-
 ;; level :added / :removed (the joining + leaving vehicle tag), NOT a whole-
 ;; key set replacement. A single-member swap is the case
-;; the member-level set-diff renders today; keeping the constant members
+;; the member-level set-diff renders; keeping the constant members
 ;; off the churn proves the diff isolates exactly the member that moved.
 
 (defmachine traffic-machine
@@ -142,10 +142,10 @@
                   :on   {:traffic/tick :walk}}}}}})
 
 ;; ============================================================================
-;; MACHINE 3 — :quiz/scorer  (MICROSTEP: :always eventless settle — gap 1)
+;; MACHINE 3 — :quiz/scorer  (MICROSTEP: :always eventless settle)
 ;; ============================================================================
 ;;
-;; THE biggest gap: a state with a guarded `:always` chain that settles over
+;; A state with a guarded `:always` chain that settles over
 ;; N>0 microsteps once the guard becomes true. `:asking` answers bump
 ;; `:score`; once `:score >= 3` the guarded `:always` fires WITHOUT a further
 ;; user event → an eventless microstep transitions `:asking` ──► `:passed`.
@@ -177,7 +177,7 @@
 ;; MACHINE 4 — :brew/machine  (TIMER: :after delayed transition + cancel)
 ;; ============================================================================
 ;;
-;; gap 2 — a `:after` timer that auto-fires AND a path that CANCELS a pending
+;; A `:after` timer that auto-fires AND a path that CANCELS a pending
 ;; timer (exit before it fires). `:brewing` declares `:after {5000 :ready}`:
 ;; entering schedules the timer; the synthetic
 ;; `[:rf.machine.timer/after-elapsed 5000 1 [:brewing]]` event fires it
@@ -206,7 +206,7 @@
 ;; MACHINE 5a — :session/login  (LIFECYCLE child: reaches :final? + reports)
 ;; ============================================================================
 ;;
-;; The spawned child actor (gaps 3/4/5). `:running` ──► `:done` on
+;; The spawned child actor. `:running` ──► `:done` on
 ;; `:succeed`; `:done` is `:final?` with `:output-key :token`, so entering it
 ;; fires the parent's `:on-done` (reporting the token) and AUTO-DESTROYS the
 ;; child synchronously (exit-cascade-on-destroy + the `:rf.machine/destroyed`
@@ -227,8 +227,8 @@
 ;; MACHINE 5b — :session/flow  (LIFECYCLE parent: SPAWN child → :on-done)
 ;; ============================================================================
 ;;
-;; gap 4 — `:idle` ──► `:authenticating` SPAWNS the `:session/login` child.
-;; gap 3/5 — when the child reaches `:final?`, its `:on-done` reports the
+;; `:idle` ──► `:authenticating` SPAWNS the `:session/login` child.
+;; When the child reaches `:final?`, its `:on-done` reports the
 ;; token back to the parent (`:data :session-token`) and the child auto-
 ;; destroys. The instance spine spans parent + child.
 
@@ -250,12 +250,12 @@
 ;; MACHINE 6 — :fuse/box  (THROW-ON-BOOT: initial `:entry` action THROWS)
 ;; ============================================================================
 ;;
-;; A machine-action exception ON BOOT, modelled on F‴. The initial state
+;; A machine-action exception ON BOOT. The initial state
 ;; `:armed` declares an `:entry` action `:blow-fuse` that THROWS, so the
 ;; initial-entry cascade itself raises a REAL
 ;; `:rf.error/machine-action-exception`. This fires on ANY boot — an eager
 ;; `[:fuse/box [:rf.machine/start]]` kick OR the first real event lazily
-;; booting the machine — because under F‴ `maybe-boot` is the single birth
+;; booting the machine — because `maybe-boot` is the single birth
 ;; site that runs the cascade in both paths. The start marker is a PURE
 ;; init-kick (init then STOP — it never reaches the transition step); the
 ;; throw lives on a real `:entry` action, demonstrating "exception on boot".
