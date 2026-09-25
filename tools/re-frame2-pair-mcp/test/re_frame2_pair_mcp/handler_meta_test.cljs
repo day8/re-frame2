@@ -20,7 +20,7 @@
        kinds; `machine-describe` for `:machine`).
     4. Error envelopes — missing / invalid kind / id arguments surface
        structured `:reason` slots an agent can read.
-    5. THE RUNTIME DOOR (rf2-kuky.29) — every symbol an emitted form
+    5. THE RUNTIME DOOR — every symbol an emitted form
        names is a public top-level `defn` in the preload's own source,
        and no emitted form names a framework var at all.
 
@@ -30,15 +30,15 @@
   STRING interpolated into CLJS source and shipped over nREPL. There is
   no `:require`, no classpath edge, and therefore no compiler error and
   no static check in this build that can see it. Points (1)–(4) are the
-  emitter tested against itself: they stay green while the form names a
-  var that does not exist anywhere, which is exactly what happened — the
-  `:machine` branches named a `machines` and a `machine-meta` var on the
-  FACADE, where the machine query surface has never lived (it is
-  `re-frame.machines`, per spec/API.md's front-porch boundary), and both
-  `:machine` reads returned an eval error against every running app
-  while this suite passed. Point (5) is the both-sides witness that
-  closes it, in the shape `fresco_wire_test.cljs` established for the
-  same class of string coupling."
+  emitter tested against itself: they would stay green while the form
+  named a var that does not exist anywhere — say a `:machine` branch
+  naming a `machines` or `machine-meta` var on the FACADE, where the
+  machine query surface does not live (it is `re-frame.machines`, per
+  spec/API.md's front-porch boundary) — and every `:machine` read would
+  then return an eval error against every running app while this suite
+  passed. Point (5) is the both-sides witness that closes that gap, in
+  the shape `fresco_wire_test.cljs` uses for the same class of string
+  coupling."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [clojure.string :as str]
             [applied-science.js-interop :as j]
@@ -217,20 +217,20 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The two RESERVED-BUT-EMPTY registrar slots — `flow` and `frame` (rf2-zhef).
+;; The two RESERVED-BUT-EMPTY registrar slots — `flow` and `frame`.
 ;;
 ;; `re-frame.registrar/kinds` reserves both, but nothing is ever written to
 ;; either: flows live in `re-frame.flows` (`flows-snapshot` / `flow-meta`)
-;; and frames in `rf/frame-ids` / `rf/frame-meta`. The framework made querying
-;; them LOUD in rf2-kuky.30 — `(rf/registrations {:source :store :kind :flow})`
+;; and frames in `rf/frame-ids` / `rf/frame-meta`. The framework makes
+;; querying them LOUD — `(rf/registrations {:source :store :kind :flow})`
 ;; throws `:rf.error/registrar-kind-not-queryable` — and the preload's
-;; `registrar-list` / `registrar-describe` do not catch, so while the tool kept
-;; both on its enum a caller's `list-handlers {kind "flow"}` propagated a
-;; framework throw instead of the tool's own structured envelope.
+;; `registrar-list` / `registrar-describe` do not catch, so a tool offering
+;; both on its enum would answer `list-handlers {kind "flow"}` with a
+;; framework throw instead of its own structured envelope.
 ;;
-;; The narrowing is the fix: both leave `registrar-kinds`, `parse-kind` returns
-;; nil for them, and the EXISTING `:invalid-kind` + kinds-hint envelope answers.
-;; No second refusal path exists to maintain.
+;; So neither is in `registrar-kinds`: `parse-kind` returns nil for them,
+;; and the ordinary `:invalid-kind` + kinds-hint envelope answers. No
+;; second refusal path exists to maintain.
 ;; ---------------------------------------------------------------------------
 
 (deftest handler-meta-refuses-reserved-empty-kinds
@@ -249,7 +249,7 @@
                                (is (= k (:kind edn))
                                    "the raw kind rides back on the envelope")
                                (is (not (str/includes? (str (:hint edn)) k))
-                                   (str "the kinds hint no longer advertises " k)))))))))
+                                   (str "the kinds hint does not advertise " k)))))))))
           (.then (fn [_] (done)))))))
 
 (deftest list-handlers-refuses-reserved-empty-kinds
@@ -285,7 +285,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest tool-name-uses-kebab-case
-  (testing "the two new tool descriptors use kebab-case names"
+  (testing "the two tool descriptors use kebab-case names"
     (is (= "handler-meta" (:name (find-descriptor "handler-meta")))
         "name uses kebab-case, not handler_meta / handlerMeta")
     (is (= "list-handlers" (:name (find-descriptor "list-handlers")))
@@ -369,12 +369,12 @@
                                (is (= 1140207590 (:handler-fn-hash edn))
                                    "handler-fn-hash is the wire-friendly substitute for :handler-fn")
                                (is (not (contains? edn :value))
-                                   "the bug shape stuffed the map under :value as a string — must not recur")))))))
+                                   "the map must never be stuffed under :value as a string")))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
 (deftest handler-meta-unserializable-surfaces-structured
-  (testing "rf2-qobqy: a runtime meta map that can't round-trip as EDN now rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
+  (testing "a runtime meta map that can't round-trip as EDN rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
     ;; The typed result codec means the RUNTIME classifies an
     ;; unserializable meta map (a `#object` Function slot, a `#js {…}`)
     ;; into a tagged `:rf.mcp/result :unserializable` envelope with a
@@ -426,14 +426,13 @@
             (fn []
               (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":anything"}))
                   (.then (fn [result]
-                           ;; rf2-acckgr regression: this tool-built
-                           ;; :unexpected-shape map lacked the codec's
-                           ;; ::codec-error meta, so it silently rode
+                           ;; Without the codec's ::codec-error meta this
+                           ;; tool-built :unexpected-shape map would ride
                            ;; back as ok-text (isError: false) despite
                            ;; carrying :ok? false — masking the defect
                            ;; as a success. Sibling test
                            ;; `handler-meta-unserializable-surfaces-structured`
-                           ;; already asserts this; it was missing here.
+                           ;; asserts the same on the unserializable path.
                            (is (is-error? result)
                                "an :unexpected-shape defect MUST be isError: true")
                            (let [edn (extract-edn result)]
@@ -470,7 +469,7 @@
         (.then (fn [_] (body-fn))))))
 
 (deftest handler-meta-default-form-is-byte-identical
-  (testing "no :frame ⇒ the eval form routes through the runtime registrar-describe (unchanged)"
+  (testing "no :frame ⇒ the eval form routes through the runtime registrar-describe"
     (async done
       (let [form (atom nil)
             canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
@@ -480,14 +479,14 @@
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
                                (is (str/includes? @form "registrar-describe")
-                                   "default path still uses the runtime registrar-describe fn")
+                                   "default path uses the runtime registrar-describe fn")
                                (is (not (contains? edn :frame))
                                    "default response carries NO :frame key (byte-identical)")))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
 (deftest list-handlers-default-form-is-byte-identical
-  (testing "list-handlers with no :frame ⇒ runtime registrar-list (unchanged), no :frame key"
+  (testing "list-handlers with no :frame ⇒ runtime registrar-list, no :frame key"
     (async done
       (let [form (atom nil)]
         (-> (with-form-capture! form [:a :b]
@@ -791,12 +790,12 @@
             (str tool-name " does not require :frame (default registrar is the common case)"))))))
 
 ;; ---------------------------------------------------------------------------
-;; The :machine kind — POSITIVE coverage for both tools (rf2-kuky.29).
+;; The :machine kind — POSITIVE coverage for both tools.
 ;;
-;; Every test above the machine kind was NEGATIVE ("this other kind is not
-;; mis-routed through the machine branch"), which is why the machine branch
-;; could name two vars that do not exist for as long as it did: nothing ever
-;; asserted what it DOES emit. These pin the door it routes through, the id it
+;; Every test above the machine kind is NEGATIVE ("this other kind is not
+;; mis-routed through the machine branch"), so on their own they could not
+;; catch a machine branch naming vars that do not exist: nothing there
+;; asserts what it DOES emit. These pin the door it routes through, the id it
 ;; threads, and the miss envelope it hands back.
 ;; ---------------------------------------------------------------------------
 
@@ -871,12 +870,12 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE RUNTIME DOOR — the both-sides witness (rf2-kuky.29).
+;; THE RUNTIME DOOR — the both-sides witness.
 ;;
 ;; See the ns docstring for why this reads another artefact's source. In one
 ;; line: the coupling is a string, so nothing in this build can see it, and a
 ;; suite that only reads the emitter back to itself stays green over a var that
-;; exists nowhere. `fresco_wire_test.cljs` established the shape for the same
+;; exists nowhere. `fresco_wire_test.cljs` uses the same shape for the same
 ;; class of coupling; this is its registry-introspection twin.
 ;;
 ;; The symbols are extracted from ACTUAL EMITTED FORMS rather than from a
@@ -997,11 +996,9 @@
         (.then (fn [_] (done))))))
 
 (deftest no-emitted-form-names-a-framework-var
-  ;; The other half of the contract, and the one rf2-kuky.29 broke: the preload
-  ;; is the SINGLE place a framework symbol is spelled. A form that reaches
-  ;; past it compiles, passes every emitter test, and fails only in someone
-  ;; else's process — which is exactly what two hand-built `:machine` strings
-  ;; did for the whole life of that kind.
+  ;; The other half of the contract: the preload is the SINGLE place a
+  ;; framework symbol is spelled. A form that reaches past it compiles,
+  ;; passes every emitter test, and fails only in someone else's process.
   (async done
     (-> (capture-emitted-forms)
         (.then (fn [forms]
