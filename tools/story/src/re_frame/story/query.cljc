@@ -2,7 +2,7 @@
   "Public registry query API — the read-side surface over Story's
   registrar side-table.
 
-  Per the rf2-l8eso Phase-2 facade thinning: the public symbols are
+  The public symbols are
   re-exported from `re-frame.story`; users normally call them as
   `re-frame.story/registrations` etc. Story-internal consumers and
   read-only tools (e.g. story-mcp introspection) may require this
@@ -24,7 +24,7 @@
 
   Mirror of the spec/001 §Public registrar query API for Story's
   side-table. The Story registry is logically a peer of the framework
-  registrar — see `001-Authoring.md` §Registration macros + bd rf2-7ho2 for the design rationale."
+  registrar — see `001-Authoring.md` §Registration macros for the design rationale."
   [kind]
   (rf.story.registrar/registrations kind))
 
@@ -61,8 +61,8 @@
   with zero registered variants land in the result with an empty set.
 
   HOT PATH: agents tend to spam `list-stories` (story-mcp's most-called
-  introspection tool); the single-pass index replaces the O(S × V)
-  walk of calling `variants-of` per story (rf2-d3iso)."
+  introspection tool); the single-pass index avoids the O(S × V)
+  walk of calling `variants-of` per story."
   []
   (rf.story.registrar/variants-by-story))
 
@@ -90,7 +90,7 @@
   "Per spec/001 §reg-tag — return the set of registered tag ids whose
   body's `:axis` equals `axis-kw` (e.g. `:status` / `:role` / `:team` /
   `:feature`). The sidebar tag-filter UI uses this to group registered
-  tags into collapsible facet rows (rf2-v05qb SB9 parity). Returns the
+  tags into collapsible facet rows. Returns the
   empty set if no tag carries that axis."
   [axis-kw]
   (rf.story.registrar/tags-by-axis axis-kw))
@@ -117,8 +117,8 @@
 
 (def canonical-axes
   "Re-export of the canonical facet axes documented in spec/001
-  §reg-tag — `:status`, `:role`, `:team`, `:feature` (rf2-7ncf9 SB9
-  facet taxonomy) + `:state` (rf2-k1k87 operator-facing magnitude).
+  §reg-tag — `:status`, `:role`, `:team`, `:feature` + `:state` (an
+  operator-facing magnitude).
   Stable across hosts."
   rf.story.schemas/canonical-axes)
 
@@ -131,20 +131,20 @@
   rf.story.schemas/canonical-role-values)
 
 (def canonical-state-values
-  "Re-export of the canonical `:state` axis vocabulary (rf2-k1k87) —
+  "Re-export of the canonical `:state` axis vocabulary —
   `#{:empty :small :medium :large :special}`."
   rf.story.schemas/canonical-state-values)
 
 (def canonical-state-tags
   "Re-export of the canonical `:state/*` faceted tags registered at
-  Story load (rf2-k1k87)."
+  Story load."
   rf.story.schemas/canonical-state-tags)
 
 (defn tag->axis-index
   "Per spec/001 §reg-tag — return a `{tag-id → axis-kw}` map across
   every registered tag, in one O(T) pass. Tags without `:axis` map to
   `:re-frame.story.registrar/no-axis`. The sidebar's facet-grouped
-  filter row + the `:tag-filter` AND-across-axes predicate (rf2-7ncf9)
+  filter row + the `:tag-filter` AND-across-axes predicate
   consume this."
   []
   (rf.story.registrar/tag->axis-index))
