@@ -3379,7 +3379,7 @@
                           (children-of-pair before value kind)
                           :else
                           (children-of value)))
-        ;; rf2-zl4rs — zoom-in is a node-local gesture (double-click /
+        ;; Zoom-in is a node-local gesture (double-click /
         ;; Enter) on every non-empty container at a NON-ROOT relative
         ;; path. The root (`[]`) skips the gesture because zooming into
         ;; the current zoom root is a no-op; empty containers have no
@@ -3403,7 +3403,7 @@
                           :line-height 1.4}}
                  zoom-attrs)
      ;; ---- header row ---------------------------------------------------
-     ;; rf2-8pfkk — a removed-container ghost paints the removed chrome
+     ;; A removed-container ghost paints the removed chrome
      ;; (red wash + 2px red stripe + `−` gutter glyph + strike-through)
      ;; at the HEADER level so the collapsed `:shapes {…} (N keys)` line
      ;; reads as a single struck-through deletion, while the triangle
@@ -3425,9 +3425,9 @@
                               :color (:diff-gutter tokens)
                               :text-decoration "none")}
          "−"])
-      ;; rf2-nk7w0 — the five-variant header `cond` (empty / depth-capped
-      ;; / inline-fit / expanded / collapsed-summary) extracted to
-      ;; `render-container-header`. Output byte-identical.
+      ;; The five-variant header `cond` (empty / depth-capped
+      ;; / inline-fit / expanded / collapsed-summary) lives in
+      ;; `render-container-header`.
       (render-container-header
         {:empty?          empty?
          :depth-capped?   depth-capped?
@@ -3453,22 +3453,22 @@
      ;; `← was <prior>` annotation; the parent's `:children`
      ;; row supplies the ancestor-open + ◴ glyph context.
      ;;
-     ;; rf2-1bra5 — map / record bodies use CSS Grid (max-content 1fr) so
-     ;; values column-align across rows. Pre-fix each row was its own
-     ;; flex container with key + value sized independently → ragged
+     ;; Map / record bodies use CSS Grid (max-content 1fr) so
+     ;; values column-align across rows. A per-row flex container would
+     ;; size key + value independently → ragged
      ;; value column. With grid every row's key sits in column 1 (sized
      ;; to the widest key in THIS map; nested maps compute their own
      ;; column-1 width independently) and every row's value sits at the
      ;; single column-2 left edge.
      ;;
-     ;; Sequentials (vectors / lists / sets / seqs) keep the per-row
+     ;; Sequentials (vectors / lists / sets / seqs) use the per-row
      ;; block flow — values are emitted bare (no key column), so a
      ;; grid template wouldn't add anything.
      (when (seq children)
        (let [labelled?    (#{:map :record :map-entry} kind)
-             ;; rf2-zuh1e — `children` is already the diff-aware triple
+             ;; `children` is already the diff-aware triple
              ;; `[k after-value before-value]` when `diff?` is true (from
-             ;; `children-of-pair`); plain browse hands back the legacy
+             ;; `children-of-pair`); plain browse hands back a
              ;; `[k v]` pair which we lift into a uniform triple with
              ;; `::missing` on the `before` slot so the downstream
              ;; `render-node` call site reads one shape.
@@ -3481,7 +3481,7 @@
            ;; --- CSS Grid body for labelled-key kinds ---
            ;; Each row contributes key (col 1) + value (col 2) as direct
            ;; grid children. `column-gap` provides the key-to-value
-           ;; spacing (8px = old per-row :gap "6px" rounded to a 4-step).
+           ;; spacing (8px, on the 4px step scale).
            ;; `row-gap 0` keeps rows tight against the canvas density.
            ;;
            ;; `align-items: baseline` aligns the key and value text
@@ -3490,15 +3490,14 @@
            ;; key. Falls back gracefully when a value is a multi-line
            ;; container — the value cell grows down, the key stays
            ;; baseline-aligned to the value's first line.
-           ;; rf2-726ol — `margin-left 16px` puts the 1px guide line at
-           ;; the triangle's visual center (the 22px glyph renders the
-           ;; triangle box ~24-26px wide via `triangle-style`'s
-           ;; min-width; centre lands at ~12-16px from the row's left
-           ;; edge). The closing brace below sits at the same
-           ;; `padding-left 16px` — line + first-key column + closing-
-           ;; brace column all converge on one vertical column, so the
+           ;; `body-grid-style`'s `margin-left 11px` puts the 1px guide
+           ;; line at the triangle's visual center (the 22px glyph renders
+           ;; the triangle box ~24-26px wide via `triangle-style`'s
+           ;; min-width; centre lands at ~12-13px from the row's left
+           ;; edge). The closing brace below sits at `padding-left 10px`,
+           ;; on the same vertical column as the line, so the
            ;; tree reads as `▾ { │ keys │ }` recursively at every depth.
-           ;; R4 rail (rf2-n2jig): when this container is change-
+           ;; R4 rail: when this container is change-
            ;; bearing, promote the body's left border to a 2px coloured
            ;; rail in the dominant-op hue. `has-change?` already implies
            ;; a pre-image is present (it's `(and diff? …)`); when there's
@@ -3511,8 +3510,8 @@
                           :style (cond-> body-grid-style
                                    rail-stripe
                                    (assoc :border-left (str "2px solid " rail-stripe)))})]
-                 ;; rf2-nk7w0 — per-row key/value cell construction
-                 ;; extracted to `render-grid-child-row`.
+                 ;; Per-row key/value cell construction
+                 ;; lives in `render-grid-child-row`.
                  (mapcat
                    (fn [[k cv cb]]
                      (render-grid-child-row
@@ -3530,10 +3529,10 @@
            ;; — each entry sits below the previous; nested containers
            ;; recurse with their own grid/block decision.
            ;;
-           ;; rf2-726ol — same `margin-left 16px` as the grid body so
+           ;; Same `margin-left 11px` as the grid body so
            ;; the vertical guide line sits at the triangle's visual
-           ;; centre. Closing bracket below shares the same `16px`
-           ;; padding-left.
+           ;; centre. The closing bracket below sits on the same
+           ;; column.
            (into [:div (let [rail-stripe (when has-change?
                                            (op-stripe-colour op))]
                          {:data-testid (str (testid-for panel-id mount-id path) "-body")
@@ -3542,7 +3541,7 @@
                           :style (cond-> body-block-style
                                    rail-stripe
                                    (assoc :border-left (str "2px solid " rail-stripe)))})]
-                 ;; rf2-nk7w0 — per-child render extracted to
+                 ;; Per-child render lives in
                  ;; `render-block-child`.
                  (map
                    (fn [[k cv cb]]
@@ -3557,7 +3556,7 @@
                         :opts opts}))
                    child-pairs)))))
 
-     ;; ---- unrealised tail (rf2-3x7nj.25.1) -------------------------------
+     ;; ---- unrealised tail -------------------------------------------------
      ;; A sequence the walker cut at `count-bound` says so before its close
      ;; bracket, rather than closing after row 1000 as if that were the
      ;; end. Outside the body div, so the body's rows are still exactly the
@@ -3568,9 +3567,9 @@
         (str "… (not realised past " count-bound ")")])
 
      ;; ---- close bracket (only when expanded + body present) -------------
-     ;; rf2-726ol — closing bracket sits at `padding-left 16px` so it
+     ;; The closing bracket sits at `padding-left 10px` so it
      ;; column-aligns with the vertical guide line above (the body div's
-     ;; 16px margin + 1px border puts the line at x=16). The bracket
+     ;; 11px margin puts the 1px line at x=11). The bracket
      ;; pair `▾ { … }` reads as a coherent vertical column at every
      ;; nesting depth.
      ;;
@@ -3615,9 +3614,9 @@
                         :flex-wrap "wrap"}}
           header]
          (when (and expanded? (some? body))
-           ;; rf2-726ol — protocol-node body shares the same alignment
+           ;; The protocol-node body shares the same alignment
            ;; rule as built-in container bodies: line at the triangle's
-           ;; visual centre (~16px from row left), body content with a
+           ;; visual centre (~11px from row left), body content with a
            ;; 6px breath beyond the line.
            [:div {:data-testid (str (testid-for panel-id mount-id path) "-body")
                   :style body-block-style}
@@ -3627,12 +3626,12 @@
   "The diff op for one scalar leaf — `:added` / `:removed` /
   `:modified` / `:same` / `:same-shifted` / `:children`.
 
-  Extracted from `render-leaf-with-diff` under rf2-y8doi.24 so the
+  Split out of `render-leaf-with-diff` so the
   protocol seam in `render-node` can ask the SAME question the
   renderer will answer with, rather than re-deriving it and drifting.
   Pure.
 
-  rf2-8pfkk — the STRUCTURAL sentinel is authoritative for one-sided
+  The STRUCTURAL sentinel is authoritative for one-sided
   slots, OVERRIDING the projection. A slot whose `value` is
   `::missing` does not exist in the after-tree — that is the
   definition of a removal, full stop; symmetric for `before`
@@ -3641,22 +3640,22 @@
   `:children`/`:removed` op on the surviving PARENT path and leaves
   the removed child slot classified `:children` (it has its own
   `:container-ops` entry for the ghost subtree). Without this override
-  the leaf fell through `case op`'s default branch and rendered
+  the leaf would fall through `case op`'s default branch and render
   `(render-scalar ::missing)` — leaking the internal sentinel keyword
   (`:day8…edn-inspector/missing`) into the output.
   `removed-ancestor?` carries the same force down a removed container
-  ghost so every descendant reads `:removed` (the symmetric of
-  rf2-bufw2's `:added` inheritance).
+  ghost so every descendant reads `:removed` (the mirror of a wholly
+  added subtree's `:added` inheritance).
 
-  rf2-zk4he — `::unrealised` is deliberately NOT in that override, and
-  adding it would be the defect rather than the tidy-up it looks like.
+  `::unrealised` is deliberately NOT in that override, and
+  adding it would be a defect rather than the tidy-up it looks like.
   It marks a slot that is UNKNOWN, not absent: the element survives,
   the projection saw both full trees and knows its real op, and the
   only thing missing is a value this walk declined to realise. Falling
   through to `projection` is therefore the correct answer, and treating
   it structurally would paint a surviving element green.
 
-  rf2-g61nr — that marker now reaches the `value` side as well, where
+  That marker reaches the `value` side as well, where
   the structural override would read `:removed` and present a RETAINED
   element as a confirmed deletion. This `cond` needs no clause for it:
   it is excluded from both structural tests already, so the op comes
@@ -3664,7 +3663,7 @@
   honest 'something here is not settled' beside
   `unrealised-value-token`'s explicit statement, never a deletion.
 
-  rf2-f8nm7 — ONE row kind cannot let the projection answer, and it is
+  ONE row kind cannot let the projection answer, and it is
   the only clause below that is not about a sentinel. A survivor past
   the AFTER ceiling has no after-path at all; `sequential-diff-children`
   addresses it by `unreached-key-tag` precisely because there is no
@@ -3675,7 +3674,7 @@
   slot falls back to the BEFORE value. The row would then show the
   PRIOR, in muted unchanged chrome, as the settled current value: a
   fourth confident falsehood beside the false addition, the false
-  deletion and the silent drop this family already refuses. `:modified`
+  deletion and the silent drop this family refuses. `:modified`
   is the honest answer for exactly the reason the paragraph above gives,
   and it paints `value`, which `paint` turns into the explicit unknown.
   This clause sits BELOW the `::missing` tests deliberately: when the
@@ -3697,13 +3696,13 @@
   stripe + glyph at the row level while the inner `render-scalar`
   paints per-token syntax colour at the token level.
 
-  rf2-awqts — per-token text colour is PRESERVED across all diff ops.
-  Pre-fix `:added` overrode to `:green` text, `:removed` to `:red`,
-  `:modified` to `:yellow` — those clashed with the Calva-aligned
+  Per-token text colour is PRESERVED across all diff ops.
+  Overriding it per op (`:added` green, `:removed` red, `:modified`
+  yellow) would clash with the Calva-aligned
   `:syntax-*` palette (numbers orange ≡ modified yellow, booleans
-  gold ≡ modified yellow). Now the row chrome (wash + stripe + glyph)
+  gold ≡ modified yellow). The row chrome (wash + stripe + glyph)
   carries the diff signal; the scalar's `:syntax-*` colour reads
-  type semantics unchanged.
+  type semantics.
 
   Op-specific text decorations (e.g. `:removed` strike-through, the
   `← was <prior>` chip on `:modified`) survive because they
@@ -3720,19 +3719,18 @@
   - `:same-shifted` — render `value` (no dimming) + `(was N)` muted
                       suffix per R6 vector shift-detection.
 
-  ## rf2-n2jig — projection-aware
+  ## Projection-aware
 
   When `:projection` is supplied (the diff render path), the
   `op` for this leaf is read off `engine/op-at projection path`.
-  Otherwise the call falls back to the legacy (before, after) pair-
-  based op classification via `engine/op-at` over a 1-shot projection
-  computed at the leaf level — same answer, more allocation.
+  Otherwise `leaf-diff-op` falls back to comparing the (before,
+  after) pair directly — `:same` when equal, `:modified` otherwise.
 
   R5-tinted: when the leaf sits inside a wholly-changed ancestor, the
   glyph + stripe are suppressed (only the wash + parent's marking
   carry the signal). Implemented via `gutter-row` chrome-opts.
 
-  ## rf2-zpeyv — slot-anchored rendering
+  ## Slot-anchored rendering
 
   When `:slot-anchored?` is true, the leaf's own wash is SUPPRESSED.
   The caller (the map-row grid renderer) has painted the per-op wash
@@ -3742,15 +3740,15 @@
   value half reads darker than the key half. Only the gutter glyph
   and per-token text colour remain on the leaf side.
 
-  ## rf2-y8doi.24 — `:scalar-fn`
+  ## `:scalar-fn`
 
   The token renderer for the PRESENT value, defaulting to
   `render-scalar`. `render-node` passes a variant that consults
   `IXrayEdnInspector` first, so a value with a consumer formatter (a
   uuid, a `js/Date`) keeps its custom header while still wearing the
-  diff row chrome. It used to have to choose: the protocol seam sat
-  ahead of the diff `cond` and won outright, so every modified uuid
-  and inst leaf rendered with NO `~` glyph and NO `← was` chip."
+  diff row chrome. A protocol seam ahead of the diff `cond` would win
+  outright, so every modified uuid and inst leaf would render with NO
+  `~` glyph and NO `← was` chip."
   [{:keys [value before diff? projection path slot-anchored? removed-ancestor?
            scalar-fn]
     :or   {scalar-fn render-scalar}}]
@@ -3759,7 +3757,7 @@
     (let [op (leaf-diff-op {:value value :before before
                             :projection projection :path path
                             :removed-ancestor? removed-ancestor?})
-          ;; rf2-8pfkk — the value actually painted is always the
+          ;; The value actually painted is always the
           ;; PRESENT side of the (before, value) pair. `::missing` is an
           ;; internal absence marker, not a value, so it must never be
           ;; handed to `render-scalar` (which would `pr-str` the sentinel
@@ -3769,8 +3767,8 @@
           ;; impossible (a slot exists in at least one side), so it falls
           ;; back to `nil` rather than ever surfacing the sentinel.
           ;;
-          ;; rf2-g61nr — `::unrealised` is not a value either, and since
-          ;; this bead it can arrive on the VALUE side as well as the
+          ;; `::unrealised` is not a value either, and it can
+          ;; arrive on the VALUE side as well as the
           ;; before side: `children-of-pair` marks a row past a capped
           ;; AFTER ceiling with it rather than claiming a deletion. So
           ;; the present side skips BOTH sentinels. When the projection
@@ -3788,7 +3786,7 @@
                           :else                             nil)
           ;; The only route a sentinel may take to the screen: an
           ;; explicit statement that nobody looked. `render-scalar`
-          ;; would print the internal keyword instead (rf2-8pfkk).
+          ;; would print the internal keyword instead.
           paint         (fn [v]
                           (if (= v ::unrealised)
                             (unrealised-value-token)
@@ -3799,7 +3797,7 @@
           inside-wholly? (and wholly-anc (not= wholly-anc (vec (or path []))))
           ;; R5: suppress glyph + stripe on descendants of a wholly-
           ;; changed root, but RETAIN the wash for partial-visibility.
-          ;; R2-revised (rf2-zpeyv): `:slot-anchored?` from the map-row
+          ;; R2: `:slot-anchored?` from the map-row
           ;; caller adds wash suppression on top of the R5 rule — the
           ;; outer key+value cells paint the whole-row wash.
           chrome-opts (cond-> nil
@@ -3829,7 +3827,7 @@
         ;; The struck-through value is the PRESENT side: the BEFORE side
         ;; for an ordinary removal (`value` is `::missing`), or the VALUE
         ;; side when this leaf is a descendant of a removed container
-        ;; ghost (rf2-8pfkk — the ghost is threaded as `value` with
+        ;; ghost (the ghost is threaded as `value` with
         ;; `before` `::missing` so the union walk visits every removed
         ;; descendant). `present-value` is sentinel-free by construction.
         (gutter-row :removed
@@ -3870,15 +3868,15 @@
                            ;; fall back to a type-summary when it
                            ;; would overflow.
                            ;;
-                           ;; rf2-qhoj — CALLED, never placed in head
+                           ;; CALLED, never placed in head
                            ;; position. `mini` is a plain function (this
                            ;; ns's docstring says so), and under Fresco a
                            ;; plain fn head is a loud error by design
                            ;; (HD-016, `:rf.error/fresco-bad-head`). This
                            ;; branch is on `edn-inspector-view`'s render
                            ;; path, so wrapping this call in a hiccup
-                           ;; vector throws out of the boundary with no
-                           ;; error boundary above it, and React unmounts
+                           ;; vector would throw out of the boundary with no
+                           ;; error boundary above it, and React would unmount
                            ;; the whole Xray root.
                            ;;
                            ;; The offending form is deliberately NOT
@@ -3919,7 +3917,7 @@
         ;; Default — paint as :same so unknown ops degrade gracefully.
         ;; `present-value` keeps the internal `::missing` sentinel out of
         ;; the output even if an unexpected op ever reaches here, and
-        ;; `paint` does the same for `::unrealised` (rf2-g61nr).
+        ;; `paint` does the same for `::unrealised`.
         (gutter-row :same
                     [:span {:data-rf-diff-op (name op)}
                      (paint present-value)]
@@ -3933,7 +3931,7 @@
   Consults `IXrayEdnInspector` at the head — if `value` satisfies the
   protocol AND the consumer's `-xray-render-header` returns non-nil
   hiccup, the protocol path wins. Otherwise falls through to the
-  built-in container / scalar dispatch (phase 7 / rf2-0qrcr).
+  built-in container / scalar dispatch.
 
   Diff mode: when `:diff?` is true the renderer paints gutter rows +
   `← was <prior>` annotations; when `:before` is
@@ -3941,14 +3939,14 @@
   `::missing`, as `:removed`.
 
   `:dispatch-fn` (optional) is the frame-aware dispatcher captured by
-  the surrounding `reg-view` body (rf2-y59tb) so toggle clicks land on
+  the surrounding `reg-view` body so toggle clicks land on
   the same frame the widget is mounted under. Tests / programmatic
   callers that drive render-node without a mount can omit it — the
   container-renderer falls back to the global `rf/dispatch`.
 
   Public so unit tests can drive the renderer without mounting.
 
-  ## rf2-zpeyv — slot-anchored threading
+  ## Slot-anchored threading
 
   `:slot-anchored?` is set by the map-row grid renderer when a CHILD
   slot's op is `:added` / `:removed`. It threads to
@@ -3959,7 +3957,7 @@
   no leaf-wash itself, so the flag only matters when the value bottoms
   out at a scalar leaf.
 
-  ## rf2-8pfkk — removed-container ghosts + `:removed-ancestor?`
+  ## Removed-container ghosts + `:removed-ancestor?`
 
   A removed slot whose prior value is a CONTAINER renders as a single
   collapsed struck-through ghost node (`:shapes {…} (N keys)`), reusing
@@ -3968,45 +3966,44 @@
   existing union walk visits every removed descendant. `:removed-
   ancestor?` is threaded down that ghost subtree so every descendant
   reads `:removed` regardless of what the projection says about the
-  per-child path (the symmetric of rf2-bufw2's `:added` inheritance).
-  Without the ghost path a deleted subtree either `pr-str`'d in full
-  (unbounded verbosity) or leaked the `::missing` sentinel through the
-  leaf renderer's projection-trusting op resolution."
+  per-child path (the mirror of a wholly added subtree's `:added`
+  inheritance). Without the ghost path a deleted subtree would either
+  `pr-str` in full (unbounded verbosity) or leak the `::missing`
+  sentinel through the leaf renderer's projection-trusting op
+  resolution."
   [{:keys [value before diff? projection panel-id mount-id path depth expansion-map
            dispatch-fn zoomable? zoom-path-prefix opts slot-anchored? removed-ancestor?]
     :or   {depth 0 path [] zoom-path-prefix []}}]
-  (let [;; rf2-y8doi.24 — the protocol seam and diff mode used to be
-        ;; mutually exclusive, and the protocol won. It sat ahead of
-        ;; the `cond` below as a bare `or`, so ANY value with an
-        ;; `IXrayEdnInspector` formatter short-circuited the diff
-        ;; render entirely — and the widget ships default formatters
+  (let [;; The protocol seam yields whenever the leaf is actually part
+        ;; of a change, and the diff renderer takes the consumer's
+        ;; header as its `:scalar-fn` — so the custom rendering survives
+        ;; INSIDE the diff chrome rather than instead of it. A seam that
+        ;; won outright ahead of the `cond` below would short-circuit
+        ;; the diff render for ANY value with an `IXrayEdnInspector`
+        ;; formatter — and the widget ships default formatters
         ;; for uuid and `js/Date` (see
         ;; `views.edn-inspector-default-formatters`), which is every
         ;; `:session-id` and every `:updated-at` in a typical app-db.
-        ;; A changed one rendered its pretty custom header with no `~`
-        ;; glyph, no wash, no stripe and no `← was` chip: invisible in
-        ;; the one mode whose whole job is showing what changed.
+        ;; A changed one would render its pretty custom header with no
+        ;; `~` glyph, no wash, no stripe and no `← was` chip: invisible
+        ;; in the one mode whose whole job is showing what changed.
         ;;
-        ;; The seam now yields whenever the leaf is actually part of a
-        ;; change, and the diff renderer takes the consumer's header as
-        ;; its `:scalar-fn` — so the custom rendering survives INSIDE
-        ;; the diff chrome rather than instead of it. An unchanged leaf
-        ;; (`:same`) keeps the plain protocol node, which is both
-        ;; cheaper and what the operator already knows.
+        ;; An unchanged leaf (`:same`) gets the plain protocol node,
+        ;; which is both cheaper and what the operator already knows.
         proto-node-opts  {:value value
                           :panel-id panel-id
                           :mount-id mount-id
                           :path path
                           :depth depth
                           :expansion-map expansion-map
-                          ;; rf2-et4l0 — this context is handed to the
+                          ;; This context is handed to the
                           ;; consumer WHOLESALE, so a protocol body that
                           ;; recurses `render-node` (021 §10.0.6's worked
                           ;; example) carries it into the nested
                           ;; container's toggle. Without the mount's
-                          ;; captured dispatcher here that toggle took
-                          ;; `render-container`'s global `rf/dispatch`
-                          ;; fallback and wrote the expansion event off
+                          ;; captured dispatcher here that toggle would
+                          ;; take `render-container`'s global `rf/dispatch`
+                          ;; fallback and write the expansion event off
                           ;; the frame the widget reads it on.
                           :dispatch-fn dispatch-fn
                           :opts opts}
@@ -4028,13 +4025,13 @@
                                               :projection projection :path path
                                               :removed-ancestor? removed-ancestor?}))))]
    (or
-    ;; Protocol seam (rf2-0qrcr) — light-touch satisfies? gate; nil
+    ;; Protocol seam — light-touch satisfies? gate; nil
     ;; result falls through to built-ins. Bound to the same testid
     ;; contract as the built-in renderer so panel chrome doesn't shift.
     (when protocol-wins?
       (render-protocol-node proto-node-opts))
     (cond
-      ;; rf2-8pfkk — inside a removed container ghost. The `before` side
+      ;; Inside a removed container ghost. The `before` side
       ;; was collapsed to `::missing` when we re-rooted the ghost as
       ;; `value` (so `children-of-pair` enumerates the deleted subtree),
       ;; but every node here is REMOVED, not added. `removed-ancestor?`
@@ -4068,7 +4065,7 @@
       ;; IN PLACE (the universal diff idiom). The `value` side is
       ;; `::missing`; `before` carries the slot being removed.
       ;;
-      ;; rf2-8pfkk — a removed CONTAINER renders as a recursive ghost
+      ;; A removed CONTAINER renders as a recursive ghost
       ;; (one collapsed struck-through node, expandable to walk the
       ;; deleted subtree) via `render-container`, NOT a flat
       ;; `render-scalar` pr-str. The ghost is threaded as `value` with
@@ -4162,8 +4159,7 @@
   (str (random-uuid)))
 
 ;; =========================================================================
-;; per-mount runtime state — ONE store, keyed by LIFECYCLE KEY (rf2-k97c.3,
-;; re-keyed rf2-d2aj)
+;; per-mount runtime state — ONE store, keyed by LIFECYCLE KEY
 ;; =========================================================================
 ;;
 ;; TWO IDENTITIES, AND KEEPING THEM APART IS THE WHOLE OF THIS SECTION.
@@ -4182,22 +4178,21 @@
 ;; width it writes lands in THAT frame's app-db. A global store keyed by a
 ;; frame-relative name is the entrenched singleton this widget refuses
 ;; everywhere else (see `zoom-trigger-attrs` on why the zoom write must not
-;; name `:rf/xray` literally), and rf2-d2aj is what it costs: two panels in
-;; two frames sharing one stable mount-id got ONE entry and ONE observer
-;; between them, the second panel never measured, and detaching the second
-;; released the FIRST — disconnecting its observer and clearing its frame's
-;; width. Qualifying the key by the frame makes the store's key exactly as
-;; specific as the state under it.
+;; name `:rf/xray` literally), and here is what it would cost: two panels in
+;; two frames sharing one stable mount-id would get ONE entry and ONE
+;; observer between them, the second panel would never measure, and
+;; detaching the second would release the FIRST — disconnecting its
+;; observer and clearing its frame's width. Qualifying the key by the frame
+;; makes the store's key exactly as specific as the state under it.
 ;;
-;; Nothing else moves. `:site-id` still keys expansion and zoom, `mount-id`
-;; still keys the width slot and every testid, and the two heads' public
-;; shapes are untouched — the collision was in this store's key alone.
+;; Only this store is keyed that way. `:site-id` keys expansion and zoom,
+;; and `mount-id` keys the width slot and every testid.
 ;;
 ;; The widget carries three pieces of per-mount MUTABLE state: the
 ;; ResizeObserver instance, the last width it dispatched (a debounce), and
-;; the Editscript projection cache. Until rf2-k97c.3 all three lived in the
-;; form-2 outer body's closure, which is exactly as long-lived as the mount
-;; and needed no explicit teardown beyond disconnecting the observer.
+;; the Editscript projection cache. A form-2 outer body's closure would be
+;; exactly as long-lived as the mount and need no explicit teardown beyond
+;; disconnecting the observer — but only the Reagent head has one.
 ;;
 ;; A FRESCO BOUNDARY IS A REAL REACT FUNCTION COMPONENT AND HAS NO FORM-2.
 ;; Its body runs on every render, so a closure allocated there is allocated
@@ -4207,13 +4202,13 @@
 ;; detach and re-attach it every time, tearing the observer down and
 ;; standing it back up on a loop.
 ;;
-;; So the state moves OUT of the closure and into this module-level store,
+;; So the state lives OUTSIDE any closure, in this module-level store,
 ;; keyed by the lifecycle key. That makes the lifetime EXPLICIT rather than
 ;; implicit, which is the whole point: the entry is minted on first sight
 ;; of a lifecycle key and RELEASED when React calls the ref with `nil`. One
-;; store serves both heads, so the Reagent head loses its closure atoms
-;; too and the two heads share one lifecycle rather than each having their
-;; own.
+;; store serves both heads, so the Reagent head holds no closure atoms
+;; either and the two heads share one lifecycle rather than each having
+;; their own.
 ;;
 ;; The obvious hazard of a module-level store is a leak — an entry whose
 ;; mount is long gone. `release-mount!` is what answers it, and
@@ -4225,7 +4220,7 @@
 
 (defn lifecycle-key
   "Compose the per-mount store's key — the `mount-id` qualified by the id of
-  the frame the mount renders under (rf2-d2aj).
+  the frame the mount renders under.
 
   PURE, and public because a test that asserts on the store has to be able
   to name an entry the way the widget named it.
@@ -4258,7 +4253,7 @@
   projection cache going TOGETHER, which a count cannot express and which
   `nil` here does.
 
-  The argument is a LIFECYCLE KEY, not a mount-id (rf2-d2aj) — compose one
+  The argument is a LIFECYCLE KEY, not a mount-id — compose one
   with [[lifecycle-key]], or pass a bare id for a mount whose id is its own
   lifecycle key."
   [lifecycle-key]
@@ -4309,7 +4304,7 @@
 (defn container-ref-for
   "The `:ref` callback for one live mount, MEMOISED on its LIFECYCLE KEY.
 
-  Two arities, and the difference between them is the whole of rf2-d2aj:
+  Two arities, and the difference between them is the point:
 
     [mount-id dispatch-fn]                 the id IS its own lifecycle key
     [lifecycle-key mount-id dispatch-fn]   they are separate
@@ -4325,13 +4320,13 @@
   Returning the SAME function for the same mount is the contract, not an
   optimisation: React re-runs a callback ref whenever its identity changes,
   so a fresh closure per render would detach and re-attach on every pass —
-  disconnecting the ResizeObserver and standing up a new one each time. The
-  Reagent head got that for free from its form-2 closure; a Fresco body,
-  which re-runs whole, gets it from here.
+  disconnecting the ResizeObserver and standing up a new one each time. A
+  form-2 closure could hold that identity for the Reagent head; a Fresco
+  body, which re-runs whole, cannot, so both heads get it from here.
 
   `dispatch-fn` is captured on the FIRST call for a mount and not
   refreshed. A mount's frame does not change under it — that is what makes
-  the capture safe, and with the frame now IN the key it is safe by
+  the capture safe, and with the frame IN the key it is safe by
   construction rather than by convention — and re-reading a fresh
   `capture-frame` bundle on every render would write to this atom on every
   render for no gain.
@@ -4339,7 +4334,7 @@
   The returned callback is also SELF-HEALING, which the memo above makes
   necessary: a caller holds it across a nil call that released the mount,
   so re-attaching it has to put the dispatcher and the memo back rather
-  than assume the entry survived (rf2-9go2).
+  than assume the entry survived.
 
   The callback returns `nil` explicitly. React 19 treats a non-nil return
   from a callback ref as a CLEANUP FUNCTION and warns about any other
@@ -4367,9 +4362,9 @@
                     ;; closure — BEFORE measuring, because
                     ;; `measure-and-dispatch!` reads the dispatcher out of
                     ;; the store: after it, the first width following a
-                    ;; re-attachment is silently swallowed while measurement
-                    ;; and observer state come back looking healthy
-                    ;; (rf2-9go2). On a live entry both updates are no-ops.
+                    ;; re-attachment would be silently swallowed while
+                    ;; measurement and observer state came back looking
+                    ;; healthy. On a live entry both updates are no-ops.
                     (swap! mount-state update lifecycle-key
                            (fn [e]
                              (-> (or e {})
@@ -4400,23 +4395,23 @@
 
 (defn- project-for
   "The Editscript projection of `(before, after)` for this mount, memoised
-  per mount on `identical?` of both inputs (rf2-4p1vl).
+  per mount on `identical?` of both inputs.
 
   The renderer runs on EVERY render of a mount — an expansion toggle, a
   width arriving, a parent re-render — while `engine/project` walks the
   whole pair each call. Identity stability of the inputs is what makes the
   cache bite, and it is gated by `f/display-value` preserving structural
-  sharing (rf2-4spyl).
+  sharing.
 
   The cache lives in the per-mount store rather than in a closure so it is
   released by `release-mount!` with everything else, and so both heads
   share one implementation. Keyed by the LIFECYCLE KEY for the same reason
-  the rest of the entry is (rf2-d2aj): two live mounts of one logical
+  the rest of the entry is: two live mounts of one logical
   surface hold two different values and must not share a memo.
 
-  rf2-bmed1 — a cache MISS goes through `bounded-projection-pair` first,
-  because this is the stage that made an endless input fatal: the walker
-  is bounded (rf2-brmyq) but never gets to run, since `engine/project`
+  A cache MISS goes through `bounded-projection-pair` first,
+  because this is the stage where an endless input would be fatal: the
+  walker is bounded but would never get to run, since `engine/project`
   compares the whole pair before the first row is walked. The CACHE is
   keyed on the ORIGINAL references, not the bounded ones, so the
   `identical?` hit still fires for the caller's own values."
