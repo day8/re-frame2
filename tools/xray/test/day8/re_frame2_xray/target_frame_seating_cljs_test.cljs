@@ -1,49 +1,48 @@
 (ns day8.re-frame2-xray.target-frame-seating-cljs-test
-  "rf2-avi7 — Xray's own frame is seated when the host RUNTIME comes up, not
+  "Xray's own frame is seated when the host RUNTIME comes up, not
   when Xray's UI opens, so a host can drive Xray by dispatch without ever
   opening the shell.
 
-  ## The gap this closes
+  ## Why it matters
 
-  Xray registers its whole `:rf.xray/*` instruction set at preload, but the
-  `:rf/xray` frame those handlers write to used to be created by `open!` — a
-  React commit. Between the two, Xray was ADDRESSABLE BUT NOT WRITABLE: every
-  dispatch into `:rf/xray` recovered-but-emitted `:rf.error/frame-destroyed`
-  (Spec 002 §Run-to-completion, the rf2-2hvga recover-but-emit ruling), the
-  host's intent was silently dropped, and — because `error-emit/error-source-
-  coord` resolves a `frame-destroyed` coord out of the `[:event id]` registry —
-  the diagnostic named the HANDLER's registration site rather than the caller.
+  Xray registers its whole `:rf.xray/*` instruction set at preload. Were the
+  `:rf/xray` frame those handlers write to created only by `open!` — a React
+  commit — Xray would be ADDRESSABLE BUT NOT WRITABLE in between: every
+  dispatch into `:rf/xray` would recover-but-emit `:rf.error/frame-destroyed`
+  (Spec 002 §Run-to-completion), the host's intent would be silently
+  dropped, and — because `error-emit/error-source-coord` resolves a
+  `frame-destroyed` coord out of the `[:event id]` registry — the diagnostic
+  would name the HANDLER's registration site rather than the caller.
 
   A host that sets `:rf.xray/auto-open? false` — a supported, documented
-  config — never left that window at all until it opened a panel of its own,
+  config — would never leave that window until it opened a panel of its own,
   so `core/set-target-frame!`, `core/focus!` and any direct `:rf.xray/*`
-  dispatch were dead on arrival for its whole session. That is the general
-  case; the field report was a Story feature-load run emitting one such record
-  per page load.
+  dispatch would be dead on arrival for its whole session. A Story
+  feature-load run is such a host.
 
   ## The deftests
 
   1. `control-…` proves the emission is REAL on an unseated frame, and pins
-     the exact record shape the field report carried. Without it, (2)'s empty
-     capture would be vacuous — an `:errors` listener that never fires reads
-     identically to one with nothing to report.
-  2. `host-dispatch-…` is the REGRESSION: with auto-open OFF and the shell
-     never mounted, the dispatch lands and the slot reads back.
-  3. `reading-a-destroyed-…` pins the REFUTATION. The original diagnosis put
-     the fault in `epoch.cljs`'s `(rf/epoch-history target)` read against a
-     destroyed TARGET frame. That read cannot emit: it resolves through the
-     `:epoch/epoch-history` late-bind hook to a plain ring-buffer map lookup
-     that consults no frame registry. Keeping the case here stops the fix
-     drifting back into the handler.
-  4. `the-facade-seats-…` is rf2-88f1's regression. rf2-avi7's seat runs from
-     `boot-on-runtime-ready!`'s BOUNDED 50ms POLL, so it closes the window for
-     a host that dispatches later — not for one whose boot calls `rf/init!`
-     and re-orients the target on the same turn, which lands INSIDE the poll
-     window and got `frame-destroyed` anyway (measured twice per Story page).
-     `core/set-target-frame!` now seats before it dispatches, so the facade is
+     the exact record shape. Without it, (2)'s empty capture would be
+     vacuous — an `:errors` listener that never fires reads identically to
+     one with nothing to report.
+  2. `host-dispatch-…`: with auto-open OFF and the shell never mounted, the
+     dispatch lands and the slot reads back. Beside it,
+     `boot-after-a-registrar-wipe-…` pins that a boot tick landing after a
+     registrar wipe seats nothing rather than throwing.
+  3. `reading-a-destroyed-…` pins that the epoch read is NOT an emitter. The
+     `(rf/epoch-history target)` read against a destroyed TARGET frame
+     cannot emit: it resolves through the `:epoch/epoch-history` late-bind
+     hook to a plain ring-buffer map lookup that consults no frame registry.
+     Keeping the case here keeps a guard off that read.
+  4. `the-facade-seats-…`: the runtime-ready seat runs from
+     `boot-on-runtime-ready!`'s BOUNDED 50ms POLL, so it covers a host that
+     dispatches later — not one whose boot calls `rf/init!` and re-orients
+     the target on the same turn, which lands INSIDE the poll window.
+     `core/set-target-frame!` seats before it dispatches, so the facade is
      correct at boot instant for every host rather than for the punctual ones.
-     Deftest (1) is its control and stays green: the raw hand-rolled dispatch
-     still emits, which is why hosts must take the facade.
+     Deftest (1) is its control: the raw hand-rolled dispatch still emits,
+     which is why hosts must take the facade.
   5. `the-facade-seat-does-not-burn-…` pins WHICH seat the facade takes —
      `mount/ensure-seated!`, not `mount/ensure-xray-frame!`. The latter also
      runs the run-once first-mount hook fan-out, whose whole job is to harvest
@@ -58,6 +57,9 @@
   7. `first-open-discovery-selects-…` is (6)'s control — same ring, same
      entry point, no explicit target — proving the preservation in (5)/(6) is
      a deference to the host and not a disabled discovery policy.
+  8. `manual-init-…` — three deftests pinning the same seat-then-apply
+     contract, and the same deference at first open, for the manual
+     `core/init!` route.
 
   Node-test (`npm run test:cljs`) — no DOM needed, because the whole point is
   that nothing mounts."
@@ -122,7 +124,7 @@
 (defn- focus-frame
   "The `[:focus :frame]` axis, read through the spine's raw `:rf.xray/focus-
   slot` sub. `:rf.xray/set-target-frame` writes this in lockstep with
-  `:target-frame` (rf2-ulpp8), so a survival claim about one is only half a
+  `:target-frame`, so a survival claim about one is only half a
   claim: the axes encode the same gesture and both have to hold."
   []
   (:frame (xray-read [:rf.xray/focus-slot])))
@@ -167,8 +169,8 @@
   (testing "With `:rf/xray` unseated, a host dispatch of
             `:rf.xray/set-target-frame` recovers-but-emits
             `:rf.error/frame-destroyed` attributed to `:rf/xray` — the exact
-            record the field report carried, and the machinery deftest (2)
-            relies on being live."
+            record an unseated host dispatch produces, and the machinery
+            deftest (2) relies on being live."
     (registry/register-xray-handlers!)
     (is (nil? (rf.frame/frame :rf/xray))
         "precondition: nothing has seated Xray's frame")
@@ -187,7 +189,7 @@
 ;; ---- (2) the regression — a host drives Xray without opening it ----------
 
 (deftest host-dispatch-lands-without-ever-opening-xray
-  (testing "rf2-avi7 — `boot-on-runtime-ready!` seats `:rf/xray` as soon as a
+  (testing "`boot-on-runtime-ready!` seats `:rf/xray` as soon as a
             substrate adapter exists, even with `:rf.xray/auto-open? false`,
             so a host that never opens the shell can still tell Xray which
             frame to observe."
@@ -205,19 +207,19 @@
     (is (= :app/main (core/target-frame))
         "and the host's intent is readable through the public facade")))
 
-;; ---- rf2-atecy — a boot that outlives a registrar wipe seats nothing ------
+;; ---- a boot that outlives a registrar wipe seats nothing ----------------
 ;;
 ;; The preload arms `boot-on-runtime-ready!` when it LOADS, so in a node-test
 ;; bundle its tick lands in whichever test is running — including one whose
-;; fixture has just run `rf.registrar/clear-all!`. Seating there builds Xray's
-;; image over a pool with no Xray registration in it and core's zero-match
-;; guard throws from the timer, which crashed a `--test=` selection of the
-;; tools/story namespaces before it could print a verdict. The first tick runs
+;; fixture has just run `rf.registrar/clear-all!`. Seating there would build
+;; Xray's image over a pool with no Xray registration in it, and core's
+;; zero-match guard would throw from the timer — crashing a `--test=`
+;; selection before it could print a verdict. The first tick runs
 ;; synchronously when an adapter is already installed, so this pins the same
 ;; branch without a timer.
 
 (deftest boot-after-a-registrar-wipe-seats-nothing-and-does-not-throw
-  (testing "rf2-atecy — with Xray's instruction set cleared from the
+  (testing "with Xray's instruction set cleared from the
             registrar, the runtime-ready boot ends without seating rather
             than throwing `:rf.error/image-zero-match`"
     (registry/register-xray-handlers!)
@@ -236,7 +238,7 @@
 ;; ---- (3) refutation pin — the epoch read is not the emitter --------------
 
 (deftest reading-a-destroyed-target-frames-epoch-history-is-silent
-  (testing "rf2-avi7 — targeting a DESTROYED host frame emits nothing.
+  (testing "targeting a DESTROYED host frame emits nothing.
             `:rf.xray/set-target-frame`'s `(rf/epoch-history target)` is a ring
             lookup keyed by frame-id (`re-frame.epoch.state/history-for`); it
             consults no frame registry and cannot raise `frame-destroyed`. An
@@ -257,10 +259,10 @@
     (is (= [] (rf/with-frame :rf/xray (rf/subscribe-once [:rf.xray/epoch-history])))
         "and its history reads as the empty ring")))
 
-;; ---- (4) rf2-88f1 — the facade is correct at BOOT INSTANT ----------------
+;; ---- (4) the facade is correct at BOOT INSTANT ---------------------------
 
 (deftest the-facade-seats-xrays-frame-before-it-dispatches
-  (testing "rf2-88f1 — `core/set-target-frame!` seats `:rf/xray` itself, so a
+  (testing "`core/set-target-frame!` seats `:rf/xray` itself, so a
             host that re-orients the target on the same turn as `rf/init!`
             (inside `boot-on-runtime-ready!`'s 50ms poll window, before its
             seat has run) still lands its intent instead of collecting
@@ -285,7 +287,7 @@
         "the host's intent is readable back through the public facade")))
 
 (deftest the-facade-seat-does-not-burn-the-first-mount-seed
-  (testing "rf2-88f1 — the facade takes `mount/ensure-seated!`, NOT
+  (testing "the facade takes `mount/ensure-seated!`, NOT
             `mount/ensure-xray-frame!`. The difference is the first-mount hook
             fan-out, which harvests the trace + epoch rings the user produced
             BEFORE opening Xray and is run-once per frame-id: firing it from a
@@ -295,9 +297,9 @@
             its hooks to run.
 
             Deferring the fan-out is only half a contract, and the other half
-            is asserted below: because the hooks now run AFTER the host has
+            is asserted below: because the hooks run AFTER the host has
             targeted a frame, first-open discovery meets an explicit target
-            that was not there before rf2-88f1. It must defer to it. On a cold
+            already in place. It must defer to it. On a cold
             ring `spine/focusable-head-frame-id` finds no candidate and the
             discovery seed is `defaults/default-target-frame` = nil, which
             `:rf.xray/set-target-frame` writes as a RESET — dissoc'ing
@@ -332,7 +334,7 @@
 ;; ---- (6) the same contract against a COMPETING discovery candidate -------
 
 (deftest first-open-discovery-yields-to-an-explicit-target
-  (testing "rf2-88f1 — the empty-ring case above resets the target to nil; a
+  (testing "the empty-ring case above would reset the target to nil; a
             ring that DOES carry a focusable bundle reaches the same loss by
             the other road, replacing the host's target with whichever frame
             happens to head the pre-open trace. Deftest (7) is this deftest
@@ -358,7 +360,7 @@
 ;; ---- (7) the control — discovery still runs when nothing was chosen ------
 
 (deftest first-open-discovery-selects-when-no-explicit-target
-  (testing "rf2-88f1 control — same ring and same entry point as deftest (6),
+  (testing "control — same ring and same entry point as deftest (6),
             with no pre-open `set-target-frame!`. The mount-time discovery
             policy (EP-0002's operator-present tier) still resolves the head
             focusable bundle's frame, so the preservation above is a deference
@@ -374,34 +376,33 @@
           "precondition: nothing has chosen a target")
       (mount/ensure-xray-frame!)
       (is (= :other/frame (core/target-frame))
-          "discovery selects the head focusable bundle's frame, as it did
-           before rf2-88f1")
+          "discovery selects the head focusable bundle's frame")
       (is (= :other/frame (focus-frame))
           "aligning the focus axis with it"))))
 
-;; ---- (8) rf2-bitb — the MANUAL init route seats before it applies -------
+;; ---- (8) the MANUAL init route seats before it applies -----------------
 ;;
-;; rf2-88f1 (deftests 4-6) fixed the standalone setter. `core/init!` — the
+;; Deftests (4)-(7) cover the standalone setter. `core/init!` — the
 ;; documented alternative to wiring the preload into `:devtools/preloads` —
-;; is a SEPARATE supported call site that carries the same `:target-frame`
-;; intent and was never routed through the same seam: it installed handlers,
-;; collectors, exports and keys, then dispatched `:rf.xray/set-target-frame`
-;; into `:rf/xray` raw. None of those installs seats that frame, and the
+;; is a SEPARATE supported call site carrying the same `:target-frame`
+;; intent, so it takes the same seam: it seats `:rf/xray` before it
+;; dispatches `:rf.xray/set-target-frame` into it. None of its other
+;; installs (handlers, collectors, exports, keys) seats that frame, and the
 ;; manual facade deliberately does not load the preload or start its
 ;; readiness poll (`spec/API.md` §Public CLJS API), so this route has no
-;; eventual seat to fall back on. The dispatch was rejected at the router
-;; with `:rf.error/frame-destroyed` and the boot target was lost — an open!
-;; afterwards cannot rescue a choice that never landed.
+;; eventual seat to fall back on. An unseated dispatch would be rejected at
+;; the router with `:rf.error/frame-destroyed` and the boot target lost —
+;; an open! afterwards cannot rescue a choice that never landed.
 ;;
-;; The existing `core-cljs-test` init! deftests miss it structurally: both
-;; call `setup-xray-frame!` before `init!`, and the `:target-frame` one also
-;; redefines `rf/dispatch-impl` to capture the vector, so neither reaches
-;; the real fresh-frame dispatch boundary. This deftest does the opposite of
-;; each — no pre-created `:rf/xray`, no replaced dispatch — and therefore
-;; stands exactly where deftest (1)'s control stands.
+;; The `core-cljs-test` init! deftests cannot see this: the one that passes
+;; `:target-frame` calls `setup-xray-frame!` before `init!` and redefines
+;; `rf/dispatch-impl` to capture the vector, so it never reaches the real
+;; fresh-frame dispatch boundary. The deftests below do the
+;; opposite of each — no pre-created `:rf/xray`, no replaced dispatch — and
+;; therefore stand exactly where deftest (1)'s control stands.
 
 (deftest manual-init-seats-xrays-frame-before-applying-its-target
-  (testing "rf2-bitb — on a fresh runtime with an adapter and a host frame
+  (testing "on a fresh runtime with an adapter and a host frame
             but no `:rf/xray` and no preload, the documented manual startup
             `(init! {:target-frame :app/main})` seats Xray's own frame,
             emits no `:rf.error/frame-destroyed`, and lands the target once
@@ -410,7 +411,7 @@
     (rf/make-frame {:id :app/main})
     (is (nil? (rf.frame/frame :rf/xray))
         "precondition: nothing has seated Xray's frame — the same start
-         state as the control in deftest (1), and NOT what the existing
+         state as the control in deftest (1), and NOT what the
          core-cljs-test init! deftests set up")
     (with-redefs [rf/epoch-history stub-epoch-history]
       (let [seen (capture-errors!)]
@@ -420,7 +421,7 @@
         (flush-xray-queue!)
         (is (empty? (frame-destroyed-records seen))
             "and nothing recovered-but-emitted — a supported manual host
-             integration no longer errors on first startup"))
+             integration does not error on first startup"))
       (is (= :app/main (core/target-frame))
           "the host's boot target landed")
       (is (= :app/main (focus-frame))
@@ -429,7 +430,7 @@
           "and `:epoch-history` reads the target's ring"))))
 
 (deftest manual-init-target-survives-first-open-against-a-competing-candidate
-  (testing "rf2-bitb — the seat is only half the contract. Because the
+  (testing "the seat is only half the contract. Because the
             first-mount hook fan-out is still deferred to first OPEN, the
             explicit target `init!` recorded must outrank whatever the
             pre-open ring offers discovery — the same deference deftests
@@ -458,7 +459,7 @@
           "and the epoch history stays keyed on the surviving target"))))
 
 (deftest manual-init-without-a-target-leaves-the-existing-controls-intact
-  (testing "rf2-bitb control — the seat must not become an eager boot
+  (testing "control — the seat must not become an eager boot
             protocol. `init!` with no `:target-frame` leaves the target
             UNSELECTED (never absence-repaired to `:rf/default`), does not
             open the shell, and stays idempotent."
