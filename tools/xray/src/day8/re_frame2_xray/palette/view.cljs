@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.palette.view
   "View for the Xray command palette.
 
-  Per `tools/xray/spec/007-UX-IA.md` §Command palette:
-  - 560px centred modal
+  A 560px centred modal, per `tools/xray/spec/007-UX-IA.md` §Command
+  palette, with:
   - 40px rows at every density
   - 16px type icon · label · right-aligned hint (epoch / coord / shortcut)
   - Arrows navigate · Enter invokes · Ctrl+Enter pops out
