@@ -1,8 +1,8 @@
 (ns re-frame.story.ui.docs-evidence-test
   "JVM-portable regression net for the docs-mode status / fidelity / view-arg
-  schema / evidence-excerpt pure projections (rf2-ba86n.14, spec/022 §1 + §2).
+  schema / evidence-excerpt pure projections (spec/022 §1 + §2).
 
-  These helpers load-bear the bead's two hardest contracts:
+  These helpers load-bear docs mode's two hardest contracts:
 
   - **Docs and Test agree** — `status-summary` reuses `test-pure/run-status`
     over the SAME unified run-result Test mode reads, so the docs status pill
