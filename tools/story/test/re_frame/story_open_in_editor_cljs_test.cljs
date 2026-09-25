@@ -1,5 +1,5 @@
 (ns re-frame.story-open-in-editor-cljs-test
-  "CLJS tests for the Story-side 'Open in editor' chip (rf2-evgf5).
+  "CLJS tests for the Story-side 'Open in editor' chip.
 
   The pure URI logic lives in `re-frame.source-coords.editor-uri` and is
   matrix-tested on the JVM. This file covers the Story-specific glue:
@@ -10,12 +10,12 @@
     URI when the coord carries `:file`.
   - The chip carries the `data-test` hook for the e2e suite.
   - `open-chip-for-variant` reads `:source` off the variant body.
-  - rf2-r2un8 — `:rf.story/open-in-editor` reg-event + `:rf.story.fx/open-in-editor`
+  - `:rf.story/open-in-editor` reg-event + `:rf.story.fx/open-in-editor`
     reg-fx produce a resolved URI through the same denylist seam the
-    chip uses (Xray-parity port).
-  - rf2-ox357n — the positive allowlist was removed; only the
-    `javascript:` / `data:` / `vbscript:` denylist gates the chip now.
-  - rf2-3xq1v — a REAL Story registration, macro-stamped by this very
+    chip uses (parity with Xray).
+  - Only the `javascript:` / `data:` / `vbscript:` denylist gates the
+    chip; there is no positive allowlist.
+  - A REAL Story registration, macro-stamped by this very
     compile, survives a 422 endpoint decline with a URI the editor can
     actually resolve. See the block at the foot of this file."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -30,14 +30,14 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:require-macros [re-frame.core :refer [with-frame]]))
 
-;; ---- Option B endpoint seam (rf2-wn3bh) ---------------------------------
+;; ---- Option B endpoint seam ----------------------------------------------
 ;;
 ;; `open-coord!` (the click launcher) PREFERS the dev-server endpoint and
 ;; FALLS BACK to the `editor://` URI navigation. To keep the URI / navigator
 ;; assertions below deterministic (no real `fetch`), the fixture swaps the
 ;; endpoint launcher for a synchronous stub that always invokes the fallback
 ;; — exercising exactly the URI path these tests pin. The endpoint-preference
-;; path is covered in its own rf2-wn3bh block at the bottom of this file.
+;; path is covered in its own block at the bottom of this file.
 
 (defn- always-fall-back!
   "Stub endpoint launcher: ignore the URL, invoke the fallback synchronously.
@@ -50,7 +50,7 @@
 (defn reset-editor! []
   (rf.story.config/set-editor! :vscode)
   (rf.story.config/set-project-root! nil)
-  ;; rf2-wn3bh — pin the endpoint launcher to the synchronous fallback stub
+  ;; Pin the endpoint launcher to the synchronous fallback stub
   ;; so the URI / navigator assertions below exercise the deterministic
   ;; fallback path.
   (rf.source-coords.open-endpoint/set-launcher! always-fall-back!))
@@ -58,7 +58,7 @@
 (use-fixtures :each {:before reset-editor!
                      :after  reset-editor!})
 
-;; ---- navigator seam helpers (rf2-muvs8) ----------------------------------
+;; ---- navigator seam helpers ----------------------------------------------
 ;;
 ;; The click-time navigation seam (`set-navigator!`) is swappable so tests
 ;; capture navigation without mutating `js/window.location`. These two
@@ -140,7 +140,7 @@
     (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant {:setup []})))
     (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant nil)))))
 
-;; ---- open-source-coord! (rf2-h0jc0) --------------------------------------
+;; ---- open-source-coord! --------------------------------------------------
 ;;
 ;; The element-inspector uses this helper to resolve a source-coord →
 ;; URI through Story config and hand it to `open!`. One launcher across
@@ -192,7 +192,7 @@
           (rf.story.ui.open-in-editor/set-navigator! prev))))))
 
 (deftest open!-denylist-gates-pre-resolved-uri
-  (testing "rf2-ox357n — `open!` re-applies the scheme denylist at the
+  (testing "`open!` re-applies the scheme denylist at the
             pre-resolved {:uri ...} handoff (the :rf.story.fx/open-in-editor reg-fx
             path that bypasses editor-uri's build-time gating). Forbidden
             schemes never reach the navigator; non-dangerous schemes
@@ -221,19 +221,19 @@
       (is (= "Open in editor — src/app.cljs:99"
              (:title props))))))
 
-;; ---- rf2-vwcsq / rf2-ox357n — Story-side scheme-denylist behaviour ----
+;; ---- Story-side scheme-denylist behaviour --------------------------------
 ;;
 ;; The matrix tests for `forbidden-scheme?` itself live in the shared
 ;; editor-uri test ns. These cases cover the Story chip's wiring: the chip
 ;; hides ONLY when a `{:custom ...}` template resolves to one of the three
 ;; forbidden script schemes (javascript:/data:/vbscript:); everything else
 ;; — including http:/https: and unknown custom schemes — renders a chip
-;; (rf2-ox357n removed the positive allowlist; the spec mandates a
-;; rejection list, not an allowlist). Parity with Xray's surface.
+;; (the spec mandates a rejection list, not an allowlist). Parity with
+;; Xray's surface.
 
 (deftest open-chip-hides-when-custom-template-resolves-to-forbidden-scheme
   (testing "open-chip returns nil ONLY for the three forbidden script
-            schemes (rf2-vwcsq). rf.source-coords.editor-uri/editor-uri gates these at
+            schemes. rf.source-coords.editor-uri/editor-uri gates these at
             build time → the chip is nil."
     (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
     (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))
@@ -245,9 +245,9 @@
     (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))))
 
 (deftest open-chip-renders-for-non-forbidden-custom-scheme
-  (testing "rf2-ox357n — open-chip renders for ANY non-forbidden scheme:
-            catalogued long-tail, http:/https: (no longer gated), AND
-            unknown custom schemes the old allowlist would have hidden"
+  (testing "open-chip renders for ANY non-forbidden scheme: catalogued
+            long-tail, http:/https:, AND unknown custom schemes an
+            allowlist would hide"
     (rf.story.config/set-editor! {:custom "subl://open?path={path}&line={line}"})
     (let [hiccup (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
       (is (vector? hiccup))
@@ -256,8 +256,8 @@
     (rf.story.config/set-editor! {:custom "emacsclient://{path}"})
     (is (some? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))
 
-    ;; http:/https: now PASS — rf2-ox357n removed the allowlist that
-    ;; rejected them. The residual risk (an http template navigates the
+    ;; http:/https: PASS — there is no allowlist to reject them. The
+    ;; residual risk (an http template navigates the
     ;; tab on a trusted localhost dev surface) is the documented footgun
     ;; the spec accepts; script schemes stay blocked.
     (rf.story.config/set-editor! {:custom "http://localhost:3000/{path}"})
@@ -275,18 +275,17 @@
     (is (nil? (rf.story.ui.open-in-editor/open-chip-for-variant
                 {:source {:file "src/x.cljs" :line 1}})))))
 
-;; ---- project-root prefix (rf2-zfy1e) -------------------------------------
+;; ---- project-root prefix -------------------------------------------------
 ;;
-;; The bead: clicking the Open chip launched an OS-side editor with a
-;; classpath-relative path ("\panel_gallery\event_detail_stories.cljs:115:3")
-;; that the editor's filesystem resolver could not find. The Story config
-;; now exposes `:rf.story/project-root` — set once at boot via `rf.story/configure!` —
-;; and the chip prepends it before the URI ships.
+;; An OS-side editor handed a classpath-relative path
+;; ("\panel_gallery\event_detail_stories.cljs:115:3") cannot find it on
+;; disk. The Story config exposes `:rf.story/project-root` — set once at
+;; boot via `rf.story/configure!` — and the chip prepends it before the
+;; URI ships.
 
 (deftest open-chip-default-no-project-root
   (testing "with no project-root configured, the chip ships the file slot
-            verbatim — preserves v1 behaviour for hosts that haven't
-            plumbed the knob yet"
+            verbatim, for hosts that do not configure the knob"
     (is (nil? (rf.story.config/get-project-root)))
     (let [hiccup (rf.story.ui.open-in-editor/open-chip
                    {:file "src/app/views.cljs" :line 1 :column 1})]
@@ -302,9 +301,9 @@
              (:href (second hiccup)))))))
 
 (deftest open-chip-project-root-regression-rf2-zfy1e
-  (testing "regression: the panel-gallery testbed's failure case now
-            resolves to an absolute on-disk URI when the host has
-            plumbed :rf.story/project-root through Story's configure!"
+  (testing "a panel-gallery-shaped relative coord resolves to an
+            absolute on-disk URI when the host plumbs
+            :rf.story/project-root through Story's configure!"
     (rf.story.config/set-project-root!
       "C:/Users/me/code/my-app/tools/xray/testbeds")
     (let [hiccup (rf.story.ui.open-in-editor/open-chip
@@ -317,22 +316,14 @@
              (:href (second hiccup)))))))
 
 (deftest open-chip-project-root-regression-rf2-ymnfx
-  (testing "regression: panel-gallery testbed used to call
-            xray-config/configure! ONLY — Story's project-root atom
-            stayed nil, so the Story variant-toolbar 'Open' button
-            shipped a relative `:file` slot (`panel_gallery/foo.cljs`)
-            that the OS-side editor handler rejected. The fix wires
-            `rf.story/configure!` alongside the existing xray-config
-            call in panel-gallery's `run` so Story's atom carries the
-            same on-disk root Xray uses.
-
-            This test pins the variant-toolbar Open behaviour under
-            the panel-gallery's source-coord shape end-to-end: with
-            no project-root configured, the URI is relative (the
-            pre-fix bug); with `:rf.story/project-root` plumbed in
-            via `rf.story/configure!`, the URI is absolute."
-    ;; Pre-fix bug shape: no project-root → relative URI (which the OS
-    ;; editor handler rejects).
+  (testing "the variant-toolbar Open behaviour under the panel-gallery's
+            relative source-coord shape (`panel_gallery/foo.cljs`): with
+            no project-root configured, the URI is relative and the
+            OS-side editor handler rejects it; with
+            `:rf.story/project-root` plumbed in via
+            `rf.story/configure!`, the URI is absolute."
+    ;; No project-root → relative URI (which the OS editor handler
+    ;; rejects).
     (rf.story.config/set-project-root! nil)
     (let [hiccup-pre (rf.story.ui.open-in-editor/open-chip
                        {:file "panel_gallery/gallery_app_db.cljs"
@@ -340,9 +331,9 @@
                         :column 7})]
       (is (= "vscode://file/panel_gallery/gallery_app_db.cljs:42:7"
              (:href (second hiccup-pre)))
-          "without :rf.story/project-root the URI is relative (pre-fix
-           panel-gallery shape)"))
-    ;; Post-fix shape: `rf.story/configure!` seeds the atom; URI is absolute.
+          "without :rf.story/project-root the URI is relative (the
+           unresolvable panel-gallery shape)"))
+    ;; `rf.story/configure!` seeds the atom; URI is absolute.
     (rf.story.config/set-project-root!
       "C:/Users/me/code/my-app/tools/xray/testbeds")
     (let [hiccup-post (rf.story.ui.open-in-editor/open-chip
@@ -380,23 +371,22 @@
       (is (= "idea://open?file=/abs/code/src/x.cljs&line=1&column=1"
              (:href (second hiccup)))))))
 
-;; ---- click-time navigation (rf2-muvs8) ----------------------------------
+;; ---- click-time navigation -----------------------------------------------
 ;;
-;; The bead: Mike clicked the chip on Windows + Chrome and VSCode never
-;; opened, despite the chip rendering with a well-formed `vscode://...`
-;; href. Root cause hypothesis: `(set! (.-location js/window) uri)`
-;; (the CLJS form for `window.location = uri`) was being silently no-
-;; op'd by the browser for custom URI schemes in some Chromium builds,
-;; while the explicit `Location.assign(uri)` from the same click
-;; handler reliably fires OS handoff.
+;; The chip navigates with `Location.assign(uri)` rather than
+;; `(set! (.-location js/window) uri)` (the CLJS form for
+;; `window.location = uri`): some Chromium builds silently no-op the
+;; property assignment for custom URI schemes, while the explicit
+;; `Location.assign(uri)` from the same click handler reliably fires the
+;; OS handoff.
 ;;
-;; The fix replaced the `set!` form with `Location.assign`, routed the
-;; navigation through a swappable atom-held seam (`set-navigator!`)
-;; so tests can capture calls without mutating `js/window.location`
-;; (which is non-configurable in modern browsers and throws under
-;; `defineProperty`), and added a `console.log` of the URI so silent
-;; OS-handler failures (relative paths, unregistered protocol
-;; handlers) are diagnosable from devtools without a debugger break.
+;; Navigation routes through a swappable atom-held seam
+;; (`set-navigator!`) so tests can capture calls without mutating
+;; `js/window.location` (which is non-configurable in modern browsers and
+;; throws under `defineProperty`), and `open!` logs the URI with
+;; `console.log` so silent OS-handler failures (relative paths,
+;; unregistered protocol handlers) are diagnosable from devtools without
+;; a debugger break.
 ;;
 ;; These tests pin the click-time contract: clicking the chip invokes
 ;; the navigator with the same URI carried in the :href. The
@@ -405,7 +395,7 @@
 ;; first used earlier, by `open!-denylist-gates-pre-resolved-uri`).
 
 (deftest click-handler-calls-navigator-with-uri
-  (testing "rf2-muvs8 — clicking the chip invokes the navigator seam
+  (testing "clicking the chip invokes the navigator seam
             with the same URI carried in the :href"
     (let [hiccup       (rf.story.ui.open-in-editor/open-chip
                          {:file "src/x.cljs" :line 42 :column 7})
@@ -423,7 +413,7 @@
           "the navigation URI is identical to the rendered href"))))
 
 (deftest click-handler-prevents-default
-  (testing "rf2-muvs8 — the click handler preventDefaults so the
+  (testing "the click handler preventDefaults so the
             browser doesn't double-navigate (once via the <a href>
             native click, once via the JS Location.assign call)"
     (let [hiccup       (rf.story.ui.open-in-editor/open-chip
@@ -438,7 +428,7 @@
           "the click handler must call e.preventDefault()"))))
 
 (deftest click-handler-hides-chip-for-forbidden-scheme
-  (testing "rf2-muvs8 / rf2-vwcsq — the chip's render-time gate hides
+  (testing "the chip's render-time gate hides
             the chip entirely for the forbidden script schemes, so the
             click never wires up at all. Pins that the user can never
             click a javascript:/data:/vbscript: URI to navigation."
@@ -446,20 +436,20 @@
     (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"}))
         "render-time gate hides chip for forbidden scheme")))
 
-;; ---- Windows-path URI shape regression (rf2-muvs8) ----------------------
+;; ---- Windows-path URI shapes ---------------------------------------------
 ;;
-;; The bead repro path: panel-gallery testbed on Windows 11. Without
-;; `:project-root` configured, the chip would build `vscode://file/
-;; panel_gallery/event_detail_stories.cljs:115:3` (a relative path) and
-;; VSCode would silently fail to open. With `:project-root` set to the
-;; on-disk root, the URI becomes absolute and VSCode resolves it.
+;; For a classpath-relative coord with no `:project-root` configured, the
+;; chip builds `vscode://file/panel_gallery/event_detail_stories.cljs:115:3`
+;; (a relative path) and VSCode silently fails to open it. With
+;; `:project-root` set to the on-disk root, the URI is absolute and VSCode
+;; resolves it.
 ;;
 ;; The matrix below pins URI shapes for the common Windows + Mac/Linux
 ;; path combinations — guarding against a future refactor regressing
 ;; the project-root prefix semantics.
 
 (deftest windows-path-uri-shape
-  (testing "rf2-muvs8 — Windows project-root + relative source-coord
+  (testing "Windows project-root + relative source-coord
             produces a URI VSCode's OS handler can resolve"
     (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
     (let [hiccup (rf.story.ui.open-in-editor/open-chip
@@ -474,7 +464,7 @@
            per VSCode's documented format"))))
 
 (deftest posix-path-uri-shape
-  (testing "rf2-muvs8 — POSIX project-root + relative source-coord
+  (testing "POSIX project-root + relative source-coord
             produces a URI VSCode/Cursor's OS handler can resolve"
     (rf.story.config/set-project-root! "/home/me/code/myapp")
     (let [hiccup (rf.story.ui.open-in-editor/open-chip
@@ -485,7 +475,7 @@
            starts with `/`"))))
 
 (deftest windows-backslash-path-uri-shape
-  (testing "rf2-muvs8 — Windows project-root with trailing backslash
+  (testing "Windows project-root with trailing backslash
             still produces a valid URI (trailing separators stripped)"
     (rf.story.config/set-project-root! "C:\\Users\\me\\code\\myapp\\")
     (let [hiccup (rf.story.ui.open-in-editor/open-chip
@@ -495,14 +485,13 @@
           "trailing separator stripped; backslashes inside the root
            preserved (VSCode accepts both on Windows)"))))
 
-;; ---- resolve-uri (rf2-r2un8) --------------------------------------------
+;; ---- resolve-uri ---------------------------------------------------------
 ;;
 ;; `resolve-uri` is the extracted URI-building helper the chip path, the
 ;; `open-source-coord!` imperative path, and the dispatch-based event
 ;; all share. Pinning its contract here means the chip's `:href`, the
 ;; inspector launcher, and the fx-emitted `:uri` always agree on the
-;; URI shape — one source of truth. Mirrors Xray's resolve-uri (port
-;; per rf2-r2un8).
+;; URI shape — one source of truth. Mirrors Xray's resolve-uri.
 
 (deftest resolve-uri-returns-vscode-default
   (testing "resolve-uri builds a vscode://file URI by default"
@@ -532,13 +521,13 @@
 
 (deftest resolve-uri-nil-for-forbidden-custom-scheme
   (testing "resolve-uri returns nil ONLY when a {:custom ...} template
-            resolves to a forbidden script scheme (rf2-vwcsq). Per
-            rf2-ox357n http:/https:/unknown schemes now resolve through."
+            resolves to a forbidden script scheme. http:/https:/unknown
+            schemes resolve through — there is no positive allowlist."
     (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
     (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
     (rf.story.config/set-editor! {:custom "data:text/html,xxx"})
     (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
-    ;; http: + unknown schemes now resolve (no positive allowlist).
+    ;; http: + unknown schemes resolve (no positive allowlist).
     (rf.story.config/set-editor! {:custom "http://localhost:3000/{path}"})
     (is (= "http://localhost:3000/src/x.cljs"
            (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
@@ -546,16 +535,16 @@
     (is (= "lapce://open?file=src/x.cljs"
            (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))))
 
-;; ---- :rf.story/open-in-editor + :rf.story.fx/open-in-editor (rf2-r2un8) ------------
+;; ---- :rf.story/open-in-editor + :rf.story.fx/open-in-editor --------------
 ;;
 ;; The dispatch-based path Story exposes alongside the imperative chip.
 ;; Hosts that don't render the chip directly (agents replaying via MCP,
 ;; custom panels) can dispatch `[:rf.story/open-in-editor coord]` and
 ;; let the registered fx fire the URI through the same denylist gate.
 ;; Mirrors Xray's `:rf.xray/open-in-editor` + `:rf.story.fx/open-in-editor`
-;; pairing (port per rf2-r2un8).
+;; pairing.
 ;;
-;; ## The capture seam is PER-FRAME, never a registry write (rf2-oslyz)
+;; ## The capture seam is PER-FRAME, never a registry write
 ;;
 ;; These tests need the fx ARGS, not the navigation, so the effect is
 ;; captured. The capture must NOT be a second `rf/reg-fx` of
@@ -564,9 +553,9 @@
 ;; test-namespace registration leaves `[:fx :rf.story.fx/open-in-editor]`
 ;; claimed by BOTH `re-frame.story.ui.open-in-editor` and this ns. The next
 ;; `rf/make-frame` anywhere in the process then fails default-image assembly
-;; with `:rf.error/image-duplicate-id` — which is exactly how this file used
-;; to break `re-frame.story.open-in-editor-ownership-cljs-test` whenever the
-;; selector ran the two namespaces in that order.
+;; with `:rf.error/image-duplicate-id` — which would break
+;; `re-frame.story.open-in-editor-ownership-cljs-test` whenever the selector
+;; ran the two namespaces in that order.
 ;;
 ;; The capture is therefore the per-frame `:fx-overrides` FUNCTION-VALUE seam
 ;; (Spec 002 §Per-frame and per-call overrides): scoped to the one frame these
@@ -576,7 +565,7 @@
 ;;
 ;; A fn-value override runs WITHOUT a registry lookup of the id it shadows, so
 ;; on its own it would happily capture an effect production never registered —
-;; the vacuous green this bead is about. `assert-production-registration!`
+;; a vacuous green. `assert-production-registration!`
 ;; below is the positive control that forbids that, and
 ;; `production-fx-navigates-without-any-override` drives the REAL registered
 ;; effect end-to-end with no override at all.
@@ -606,7 +595,7 @@
   registered from PRODUCTION only. Fails if `install!` stopped registering the
   effect (which would make every capture below a fn-value override standing in
   for nothing), and fails if any test namespace re-registers the id (the
-  provenance collision that used to break image assembly)."
+  provenance collision that breaks image assembly)."
   []
   (is (= #{production-fx-ns}
          (set (keys (rf.source-store/descriptors-for
@@ -620,7 +609,7 @@
   function-value that records the fx args instead of touching
   `window.location`.
 
-  Per rf2-wn3bh the event emits the structured `:source-coord` (so the fx can
+  The event emits the structured `:source-coord` (so the fx can
   prefer the dev-server endpoint). The capture resolves the coord through the
   SAME `resolve-uri` helper the chip uses and records the resolved URI under
   `:uri`, so the URI-equivalence assertions keep their meaning."
@@ -629,7 +618,7 @@
   (ensure-adapter!)
   (rf.story.ui.open-in-editor/install!)
   (assert-production-registration!)
-  ;; EP-0002 (rf2-bd4div): `:rf.story/open-in-editor` dispatches under a
+  ;; EP-0002: `:rf.story/open-in-editor` dispatches under a
   ;; carried frame stamp, so the `with-frame`-scoped dispatches below need a
   ;; live frame to land on. Re-`make-frame`-ing the same id is idempotent
   ;; replacement, so this is safe once per test.
@@ -645,7 +634,7 @@
                              (rf.story.ui.open-in-editor/resolve-uri coord)))))}}))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
-  (testing "rf2-r2un8 — dispatching `:rf.story/open-in-editor` with a
+  (testing "dispatching `:rf.story/open-in-editor` with a
             bare coord produces a `:rf.story.fx/open-in-editor` fx whose :uri is the
             resolved URI"
     (install-with-capture!)
@@ -659,7 +648,7 @@
         "the resolved vscode:// URI rides on the fx args")))
 
 (deftest open-in-editor-event-accepts-wrapped-shape
-  (testing "rf2-r2un8 — dispatching with `{:source-coord coord}` (the
+  (testing "dispatching with `{:source-coord coord}` (the
             wrapper shape some panels use) produces the same fx as the
             bare-coord form"
     (install-with-capture!)
@@ -670,7 +659,7 @@
            (:uri (first @captured-editor-fx))))))
 
 (deftest open-in-editor-event-parses-display-string-coord
-  (testing "rf2-r2un8 — the dispatch handler parses `\"file:line\"`
+  (testing "the dispatch handler parses `\"file:line\"`
             display strings back to the structured form so panels that
             flatten coords at projection time can dispatch them as
             strings without losing line info"
@@ -682,7 +671,7 @@
            (:uri (first @captured-editor-fx))))))
 
 (deftest open-in-editor-event-parses-bare-display-string
-  (testing "rf2-r2un8 — bare display string (no wrapper) defensively
+  (testing "bare display string (no wrapper) defensively
             handled by the parser"
     (install-with-capture!)
     (with-frame capture-frame
@@ -691,7 +680,7 @@
            (:uri (first @captured-editor-fx))))))
 
 (deftest open-in-editor-event-honours-editor-preference
-  (testing "rf2-r2un8 — the fx's URI reflects `rf.story.config/get-editor`
+  (testing "the fx's URI reflects `rf.story.config/get-editor`
             (the same source of truth the chip render uses)"
     (install-with-capture!)
     (rf.story.config/set-editor! :cursor)
@@ -702,7 +691,7 @@
            (:uri (first @captured-editor-fx))))))
 
 (deftest open-in-editor-event-rejects-forbidden-scheme
-  (testing "rf2-r2un8 / rf2-vwcsq — a custom template that resolves to a
+  (testing "a custom template that resolves to a
             forbidden script scheme produces a fx with nil :uri (which
             `open!` is a no-op for); the handler doesn't short-circuit"
     (install-with-capture!)
@@ -716,7 +705,7 @@
         "the resolved URI is nil — `open!` will refuse to navigate")))
 
 (deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
-  (testing "rf2-wn3bh — `:rf.story/open-in-editor` emits the structured
+  (testing "`:rf.story/open-in-editor` emits the structured
             `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
             `:rf.story.fx/open-in-editor` can prefer the dev-server endpoint and fall
             back to the `editor://` URI"
@@ -730,7 +719,7 @@
          resolves the relative :file at runtime on the server")))
 
 (deftest production-fx-navigates-without-any-override
-  (testing "rf2-oslyz — the tests above capture through a per-frame
+  (testing "the tests above capture through a per-frame
             `:fx-overrides` fn-value, and a fn-value override runs without
             any registry lookup of the id it shadows. So this one drives the
             REAL registered `:rf.story.fx/open-in-editor` on a frame carrying
@@ -755,16 +744,16 @@
            chain is live end-to-end, with nothing stubbed but the OS
            handoff itself"))))
 
-;; ---- rf2-wn3bh — Option B: dev-server endpoint preferred over URI -------
+;; ---- Option B: dev-server endpoint preferred over URI --------------------
 ;;
 ;; The URI-fallback path is exercised throughout this file (via the
 ;; `always-fall-back!` launcher stub in the fixture). This block pins the
 ;; ENDPOINT-PREFERENCE half: when the launcher succeeds (a dev server
 ;; answered) the URI fallback does NOT fire; when it falls back (no dev
-;; server) the URI navigates — B is additive, never removing the URI path.
+;; server) the URI navigates — the endpoint never removes the URI path.
 
 (deftest endpoint-url-carries-coord-and-editor-hint
-  (testing "rf2-wn3bh — `build-url` projects (coord, editor) to the
+  (testing "`build-url` projects (coord, editor) to the
             endpoint query"
     (is (= (str rf.source-coords.open-endpoint/endpoint-path
                 "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
@@ -775,7 +764,7 @@
         "no :file → no endpoint URL")))
 
 (deftest open-coord-prefers-endpoint-when-it-succeeds
-  (testing "rf2-wn3bh — when the endpoint launcher reports success, the URI
+  (testing "when the endpoint launcher reports success, the URI
             fallback does NOT fire"
     (let [[nav calls] (capturing-navigator)
           prev        (rf.source-coords.open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
@@ -788,7 +777,7 @@
           (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
 (deftest open-coord-falls-back-to-uri-when-no-endpoint
-  (testing "rf2-wn3bh — when the launcher invokes the fallback (no dev
+  (testing "when the launcher invokes the fallback (no dev
             server), the `editor://` URI navigates via the navigator seam"
     (rf.story.config/set-editor! :vscode)
     (let [[nav calls] (capturing-navigator)
@@ -797,33 +786,33 @@
         (with-stub-navigator nav
           #(rf.story.ui.open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
         (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
-            "no dev server → URI fallback navigates exactly as before")
+            "no dev server → the URI fallback navigates")
         (finally
           (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
-;; ---- rf2-3xq1v — a real Story coordinate through a 422 decline -----------
+;; ---- a real Story coordinate through a 422 decline -----------------------
 ;;
 ;; Every URI assertion above is written against a HAND-TYPED coord
 ;; (`{:file "src/x.cljs" ...}`), which is the right shape for pinning the
 ;; URI grammar and the wrong shape for pinning what Story's macro pipeline
-;; actually stamps. The rf2-3xq1v defect lived exactly in that gap: the
-;; grammar was fine, the coordinate feeding it was classpath-relative.
+;; actually stamps. A defect can live exactly in that gap: the grammar
+;; fine, the coordinate feeding it classpath-relative.
 ;;
-;; `re-frame.story.macros/coords-form` now delegates to
+;; `re-frame.story.macros/coords-form` delegates to
 ;; `re-frame.source-coords/coords-form`, which absolutises `:file` through
 ;; the context class-loader ON THE JVM, AT MACROEXPANSION. So the
 ;; registration below is the assertion's own fixture in the strictest
 ;; sense: THIS compile stamped it, from THIS file, and what the compile
 ;; baked into the bundle is what the block reads back.
 ;;
-;; The scenario is the audit's: the endpoint is PREFERRED and declines
-;; with 422 (what `re-frame.testbed.open-in-editor-server` answers when
-;; `launch-editor` cannot carry a coordinate to the configured editor), no
+;; The scenario: the endpoint is PREFERRED and declines with 422 (what
+;; `re-frame.testbed.open-in-editor-server` answers when `launch-editor`
+;; cannot carry a coordinate to the configured editor), no
 ;; `:rf.story/project-root` is configured (the state every repository dev
-;; testbed is in since the browser-side checkout-root pipeline was
-;; retired), and the client falls back to the `windsurf://` URI. Before
-;; the fix that URI was `windsurf://file/counter_with_stories/stories.cljs
-;; :196:3` — relative, unresolvable, a chip that silently misses.
+;; testbed is in), and the client falls back to the `windsurf://` URI. A
+;; classpath-relative coordinate would make that URI
+;; `windsurf://file/counter_with_stories/stories.cljs:196:3` — relative,
+;; unresolvable, a chip that silently misses.
 ;;
 ;; The real client seam runs: `fetch-launcher!` unmodified over a stubbed
 ;; `globalThis.fetch`, Story's own `open-coord!` (so `resolve-uri` and the
@@ -845,11 +834,11 @@
       (str/replace #":\d+:\d+$" "")))
 
 (deftest endpoint-422-falls-back-to-an-absolute-uri-for-a-real-story-coord
-  (testing "rf2-3xq1v — a real `rf.story/reg-story` coordinate, stamped by this
+  (testing "a real `rf.story/reg-story` coordinate, stamped by this
             compile, reaches the editor through the 422 fallback as an
             ABSOLUTE path"
     (rf.story/reg-story :story.source-coords.cljs-pin
-      {:doc "rf2-3xq1v fixture — this form's own coordinate is the subject."})
+      {:doc "Fixture — this form's own coordinate is the subject."})
     (let [coord (:source (rf.story/handler-meta :story :story.source-coords.cljs-pin))]
       (is (some? coord) "the registration carries a :source coord at all")
       (is (some? (:file coord)) "and that coord carries a :file")
@@ -889,7 +878,7 @@
           (rf.story.ui.open-in-editor/open-coord! coord)
           ;; Bind the launcher's promise to a LOCAL before threading. A
           ;; multi-step form in the `->` head (an `or`, say) is lowered by the
-          ;; compiler to an awaited async IIFE — the rf2-i3dvj shape — and the
+          ;; compiler to an awaited async IIFE, and the
           ;; await unwraps the promise to the `nil` `fetch-launcher!`'s own
           ;; `.then` returns, leaving `.then` to be called on null.
           (let [p @pending]
@@ -907,13 +896,13 @@
                            (let [uri  (first @calls)
                                  path (strip-uri-position uri)]
                              (is (str/starts-with? uri "windsurf://file/")
-                                 "the fallback is the historic editor:// URI path")
+                                 "the fallback is the editor:// URI path")
                              (is (rf.source-coords.editor-uri/absolute-path? path)
                                  (str "the URI the editor receives must name an "
                                       "ABSOLUTE path — got " (pr-str path)))
                              (is (not (str/starts-with? path "re_frame/"))
-                                 "the pre-fix shape — a bare classpath-relative
-                                  path in the URI — is what no editor could open"))
+                                 "a bare classpath-relative path in the URI is
+                                  what no editor can open"))
                            (is (identical? real-fetch (.-fetch js/globalThis))
                                "the fetch stub was not left installed")
                            (done)))
@@ -923,12 +912,12 @@
                             (done)))))))))))
 
 (deftest project-root-knob-is-inert-over-an-absolutised-story-coord
-  (testing "rf2-3xq1v — the public `:rf.story/project-root` option is KEPT for
-            external / static / non-shadow hosts, and stays inert over a
+  (testing "the public `:rf.story/project-root` option serves
+            external / static / non-shadow hosts, and is inert over a
             coordinate the macro already absolutised: `compose-path` passes an
             absolute `:file` through rather than double-prefixing it"
     (rf.story/reg-story :story.source-coords.cljs-root-pin
-      {:doc "rf2-3xq1v fixture — same coordinate, two project-root settings."})
+      {:doc "Fixture — same coordinate, two project-root settings."})
     (let [coord (:source (rf.story/handler-meta :story :story.source-coords.cljs-root-pin))]
       (rf.story.config/set-editor! :windsurf)
       (rf.story.config/set-project-root! nil)
