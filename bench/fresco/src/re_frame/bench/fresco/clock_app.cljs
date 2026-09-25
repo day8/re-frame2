@@ -516,8 +516,8 @@
   A mount row's operation IS the mount, so it has no standing page to
   write a changed set into and no changed-set axis to be linear in. Its
   check standard is `ctl-2x / floor`, whose empirical centre differs by row
-  class (1.72x on bulk, 1.80x on the mount) and whose mount class rf2-8a746
-  deliberately left UNCALIBRATED for rf2-t2flm's concurrent ruling.
+  class (1.72x on bulk, 1.80x on the mount), so `clock_check_standard.json`
+  calibrates each class on its own row-runs.
 
   The arms come out in ascending dirty count, so a reader of the
   marginal-cost table reads it in the order the cells rise."
