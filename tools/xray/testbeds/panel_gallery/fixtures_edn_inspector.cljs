@@ -145,8 +145,8 @@
   {:value [:apple "pear" 42 nil true {:id 7 :name "Ada"}]})
 
 (defn list-of-events
-  "List of event vectors — the canonical shape Xray's Event tab
-  feeds the widget."
+  "List of event vectors — the shape Xray's event surfaces feed the
+  widget."
   []
   {:value (list [:counter/inc]
                 [:user/sign-in {:email "ada@example.com"}]
@@ -209,8 +209,8 @@
 ;; diff fixtures — :before + :after pairs
 ;; =========================================================================
 ;;
-;; Each diff fixture surfaces a different `children-of-pair` op
-;; (rf2-zuh1e): added, modified, removed, same. Diff mode renders
+;; Each diff fixture surfaces a different `children-of-pair` op:
+;; added, modified, removed, same. Diff mode renders
 ;; gutter glyphs (`+`/`-`/`~`/`◴`) + `← was <prior>`
 ;; annotations on modified leaves.
 
@@ -274,21 +274,21 @@
 
 (defn opts-zoomable
   "`:zoomable? true` — each container gains a `⊙` zoom-affordance
-  button next to the expand triangle (rf2-h71e0)."
+  button next to the expand triangle."
   []
   {:value (opts-base-value)
    :opts  {:zoomable? true}})
 
 (defn opts-popup-affordance
   "`:popup-affordance? true` — a `↗` icon button sits at the
-  widget's top-right corner (rf2-l4625)."
+  widget's top-right corner."
   []
   {:value (opts-base-value)
    :opts  {:popup-affordance? true}})
 
 (defn opts-card
   "`:card? true` — the outer container picks up the inspector-card
-  chrome (rf2-63ie5): `:bg-1` background, `1px` border, `8px`
+  chrome: `:bg-1` background, `1px` border, `8px`
   radius."
   []
   {:value (opts-base-value)
@@ -296,15 +296,14 @@
 
 (defn opts-header
   "`:header \"Shopping cart snapshot\"` — opt-in three-shade card
-  chrome with a labelled ribbon (rf2-okq7p)."
+  chrome with a labelled ribbon."
   []
   {:value (opts-base-value)
    :opts  {:header "Shopping cart snapshot"}})
 
 (defn opts-header-hiccup
   "`:header` as composed hiccup — the widget treats the value as
-  opaque hiccup so consumers can mix label + chip + affordance
-  (rf2-okq7p)."
+  opaque hiccup so consumers can mix label + chip + affordance."
   []
   {:value (opts-base-value)
    :opts  {:header [:span
@@ -317,15 +316,14 @@
                      ":rf/cart"]]}})
 
 (defn opts-site-id
-  "`:site-id :gallery.demo` — stable site-id survives a remount
-  (rf2-pvsxs)."
+  "`:site-id :gallery.demo` — stable site-id survives a remount."
   []
   {:value (opts-base-value)
    :opts  {:site-id :panel-gallery.edn-inspector/site-demo}})
 
 (defn opts-shallow-depth
-  "`:default-expanded-depth 1` — legacy depth-driven behaviour
-  (rf2-kbdk8). The widget collapses everything past depth 1, so
+  "`:default-expanded-depth 1` — a shallow expand ceiling. The
+  widget collapses everything past depth 1, so
   deeper nodes render as `▸ {…N keys}` summaries."
   []
   {:value (opts-base-value)
@@ -342,10 +340,10 @@
            :zoomable?         true}})
 
 ;; =========================================================================
-;; grammar-edge diff fixtures (rf2-yaajg)
+;; grammar-edge diff fixtures
 ;; =========================================================================
 ;;
-;; Six additional before/after pairs that pin grammar edges the
+;; Six before/after pairs that pin grammar edges the
 ;; canonical added/removed/modified/full/nested coverage doesn't
 ;; reach: set-diff ops, boolean primitive toggle, vector-of-maps
 ;; per-element changes, nil-vs-missing key distinction, near-equal
@@ -429,11 +427,11 @@
             :status  :ok}})
 
 ;; =========================================================================
-;; additional grammar-edge diff fixtures (rf2-r7xf7)
+;; more grammar-edge diff fixtures
 ;; =========================================================================
 ;;
 ;; Three further before/after pairs that pin grammar edges the
-;; rf2-yaajg six don't reach: pure-add set diff (no remove signal
+;; six above don't reach: pure-add set diff (no remove signal
 ;; clouding the `+` glyph), long-string truncation under diff
 ;; annotation, and symbol-value mutation (distinct from keyword
 ;; mutation, which the canonical maps already cover). Each fixture
