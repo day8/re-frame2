@@ -271,7 +271,7 @@
 
 (deftest preflight-rejection-is-error-shaped-and-bypasses-cache
   ;; A runtime/preflight/transport rejection routes through
-  ;; probe/err->result, which now emits an :isError result (NOT a
+  ;; probe/err->result, which emits an :isError result (NOT a
   ;; success-shaped ok-text). Two guarantees:
   ;;   (a) the result carries :isError true (the known-tool-failure
   ;;       contract: API §Result shape / 001 §JSON-RPC error codes), and
