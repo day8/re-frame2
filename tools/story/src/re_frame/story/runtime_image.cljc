@@ -15,15 +15,12 @@
   the frame's cascade (event-handler lookup, cofx, fx) resolves through the
   frame's OWN generation (EP-0023 §Frame-derived live registration resolution).
 
-  Before EP-0026 an image-less variant frame carried NO generation and resolved
-  against the global registrar (absence-is-default), so it transparently saw the
-  Story runtime registrations co-loaded into the process. Under EP-0026 that
-  whole-store fallback is the DEFAULT image, which (a) collides when several
-  apps co-load same-`[kind id]` registrations into one test process, and (b)
-  scopes the frame to a single SELECTED projection that must EXPLICITLY include
-  the Story machinery — otherwise the frame's dispatches resolve no
-  `:rf.assert/*` handler / no lifecycle machine and the play-runner reports
-  `:cannot-run`.
+  The whole-store DEFAULT image (a) collides when several apps co-load
+  same-`[kind id]` registrations into one test process, and (b) a variant that
+  selects an application image scopes the frame to a single SELECTED
+  projection that must EXPLICITLY include the Story machinery — otherwise the
+  frame's dispatches resolve no `:rf.assert/*` handler / no lifecycle machine
+  and the play-runner reports `:cannot-run`.
 
   The runtime image is the library's contract: Story authors NEVER hand-write it.
   `allocate!` composes it LAST into every variant frame's `:images` vector
