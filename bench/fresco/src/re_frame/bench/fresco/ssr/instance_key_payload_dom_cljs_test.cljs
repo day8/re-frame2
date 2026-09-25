@@ -1,10 +1,10 @@
 (ns re-frame.bench.fresco.ssr.instance-key-payload-dom-cljs-test
-  "THE INSTANCE-KEY PAYLOAD OBLIGATION, WITNESSED BOTH WAYS (rf2-2rtt6.99).
+  "THE INSTANCE-KEY PAYLOAD OBLIGATION, WITNESSED BOTH WAYS.
 
   `h/reg-state` puts a widget's own state at `[:ui ::concern ikey]`
   (`front/state.cljc`), which is APP-SPACE data — so whether it reaches
   the client is decided by the hydration payload policy and by nothing
-  else. The 2026-08-04 ruling states the obligation that follows:
+  else. HD-009 states the obligation that follows:
 
   > an allowlist MUST name `:ui` whenever server-side events write
   > render-affecting instance state; strip it only if the server never
@@ -13,7 +13,7 @@
   This file is that sentence turned into two measurements taken on the
   same page, and the second one is the reason the file exists.
 
-  ## Why prose was not enough, stated precisely
+  ## Why prose is not enough, stated precisely
 
   The payload policy is fail-closed and stays fail-closed: an ABSENT
   `:payload` throws `:rf.error/ssr-missing-payload-policy` at the
@@ -27,7 +27,7 @@
 
   What catches the author who does not is React. The divergence between
   the server's open panel and the client's shut one is a hydration
-  mismatch, and since rf2-2rtt6.97 the arm's hydrate door surfaces one as
+  mismatch, and the arm's hydrate door surfaces one as
   Spec 011's `:rf.ssr/hydration-mismatch`. **That is the enforcement**,
   and [[omitting-ui-from-the-allowlist-fires-the-structured-mismatch]]
   asserts it POSITIVELY — the row is red-by-design and the error is the
@@ -62,35 +62,33 @@
   channels are watched as well (`hydration-support/open-console-capture!`)
   because a row asserting \"nothing complained\" that watched neither
   would be green over a live failure — and in the red row they carry the
-  second half of rf2-2rtt6.97's finding: the door COMPOSES over React's
-  default, so the uncaught report is still there beside the diagnostic
-  and `rf2-mwx08` is not softened.
+  other half of the door's contract: it COMPOSES over React's default, so
+  the uncaught report is still there beside the diagnostic and the
+  runner's rule that an uncaught `pageerror` is fatal is not softened.
 
   ## And the capture window is the honest one
 
   Opened before `hydrate-root!` and closed after `adopted!` resolves.
   `hydrateRoot` is called plain, so it returns BEFORE the tree is
   adopted; a capture that closed at the call's return would be shut
-  across the only part that can complain (measured by rf2-2rtt6.87: 1
-  complaint across the adoption, 0 at the return).
+  across the only part that can complain (measured: 1 complaint across
+  the adoption, 0 at the return).
 
   ## `:rf/render-hash` is not load-bearing anywhere in this file
 
-  It cannot be, and as of rf2-2rtt6.91 it is not even present: an
-  adoption-tier root carries no hash at either end (Spec 011
-  §Hydration-mismatch detection), so the entry emits none. It never could
-  have carried a claim anyway — the hash it used to ship was over an
-  unresolved `[<minted head> {props}]` root, and `canonical-edn` renders
-  every fn identically, so these rows took the same value as the dogfood
-  screen, a different page entirely.
+  It cannot be, and it is not even present: an adoption-tier root
+  carries no hash at either end (Spec 011 §Hydration-mismatch
+  detection), so the entry emits none. It could not carry a claim anyway
+  — a hash of the unresolved `[<minted head> {props}]` root, with
+  `canonical-edn` rendering every fn identically, takes the same value on
+  these rows as on the dogfood screen, a different page entirely.
   [[the-instance-key-rows-cannot-lean-on-the-render-hash]] keeps that
   measurement on THESE rows so the exclusion stays a reading rather than a
   promise. Every determinism claim below is over the DOCUMENT BYTES.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM. The payload-shape and determinism rows need no DOM and run
-  under `:node-test` too; every DOM claim degrades to a stated skip
-  there."
+  Runtime: a browser, for a real React DOM. The payload-shape and
+  determinism rows need no DOM; without one, every DOM claim degrades to
+  a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hydration-support
@@ -103,7 +101,7 @@
             [re-frame.bench.fresco.ssr.fixtures :as rf.bench.fresco.ssr.fixtures]
             [re-frame.bench.fresco.ssr.instance-key :as rf.bench.fresco.ssr.instance-key]
             [re-frame.core :as rf]
-            ;; rf2-2rtt6.91 — the entry emits no hash, so the exclusion row
+            ;; The entry emits no hash, so the exclusion row
             ;; takes the measurement it excludes directly.
             [re-frame.ssr.hash :as rf.ssr.hash]
             [re-frame.test-support :as rf.test-support]
@@ -274,7 +272,7 @@
                {:green-keys (vec (sort-by str (keys gdb)))
                 :red-keys   (vec (sort-by str (keys rdb)))
                 ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`, which answers UTF-16
-                ;; code units (rf2-2rtt6.121). These two are a claim about
+                ;; code units. These two are a claim about
                 ;; the WIRE — the testing block above says so in as many
                 ;; words — and the wire carries bytes.
                 :green-edn-bytes (rf.bench.fresco.lane/utf8-bytes (:payload-edn green))
@@ -311,9 +309,9 @@
               "and so is the roster entry it was taken from"))))))
 
 (deftest the-instance-key-rows-cannot-lean-on-the-render-hash
-  (testing "**the exclusion, measured.** rf2-2rtt6.91 removed
-           `:rf/render-hash` from this tier's wire — an adoption-tier root
-           carries none — and the first assertion holds the entry to that.
+  (testing "**the exclusion, measured.** This tier's wire carries no
+           `:rf/render-hash` — an adoption-tier root carries none — and
+           the first assertion holds the entry to that.
            The second keeps the reason live: the hash this root WOULD have
            taken is over an unresolved hiccup whose head is a function, and
            `canonical-edn` renders every function identically, so these
@@ -395,7 +393,7 @@
                               :panels     (panel-count container)
                               :open-after? (some? (open-panel-in container))})
                     (finally (rf.bench.fresco.arm1.mount/release! handle)))))
-              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; Reports and RELEASES; it never finishes. `done` runs
               ;; the whole remainder of the run synchronously, so a `.catch`
               ;; downstream of it would claim a later namespace's throw as this
               ;; row's and fire `done` a second time. The release stays in the
@@ -419,7 +417,8 @@
 
            **This row MANUFACTURES the fault and is the assertion about
            it**, which is the one case `open-console-capture!`'s
-           `:swallow-uncaught?` exists for. `rf2-mwx08` is not softened:
+           `:swallow-uncaught?` exists for. The runner's rule that an
+           uncaught `pageerror` is fatal is not softened:
            the error is not unasserted here, it is the subject, and the
            row goes on to assert that the door reported it as well as
            emitting it"
@@ -466,8 +465,8 @@
                     (is (seq warnings)
                         (str "and the complaint ALSO reached a console
                               channel — the door composes over React's
-                              default rather than replacing it
-                              (rf2-2rtt6.97), so composing a diagnostic in
+                              default rather than replacing it, so
+                              composing a diagnostic in
                               did not make the mismatch quieter than React
                               left it: " (pr-str warnings)))
 
