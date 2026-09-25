@@ -1,41 +1,33 @@
 (ns re-frame.story-help-dom-cljs-test
-  "Browser-lane half of the first-time-user help overlay's persistence
-  (rf2-381i), promoted out of `re-frame.story-help-cljs-test` under
-  rf2-r51p.
+  "Browser-lane half of the first-time-user help overlay's persistence:
+  the `seen?` / `mark-seen!` round-trip, and the seen flag `close!`
+  writes.
 
-  ## What was wrong, and it was the file's LOCATION rather than its guard
+  ## Why these rows live here and not in `re-frame.story-help-cljs-test`
 
-  The `seen?` / `mark-seen!` round-trip sat inside `(when (browser?) ...)`
-  in a namespace ending `-cljs-test`. `:node-test` selected it and the
-  guard was false — this repo ships no jsdom, no happy-dom and no DOM
-  shim in any dependency list, so `window.localStorage` is absent under
-  Node — while `:browser-test` (`:ns-regexp \".*-dom-cljs-test$\"`) never
-  loaded the file at all. Those assertions executed in NEITHER lane.
+  They need `window.localStorage`. This repo ships no jsdom, no
+  happy-dom and no DOM shim in any dependency list, so
+  `window.localStorage` is absent under Node, and `:browser-test`
+  (`:ns-regexp \".*-dom-cljs-test$\"`) loads only namespaces ending
+  `-dom-cljs-test`. In a namespace ending `-cljs-test` a
+  `(when (browser?) ...)` row would execute in NEITHER lane — a
+  permanent silence rather than a routing decision.
 
-  The sibling's docstring said the guard was there because \"on node-test
-  there's no `js/window`, so we guard those assertions on the runtime
-  detection\". That much was true; what it did not say is that no other
-  lane ever picked them up, so the guard was a permanent silence rather
-  than a routing decision.
-
-  ## THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES
+  ## Each row keeps its guard, because this file runs on BOTH lanes
 
   `:node-test`'s `cljs-test$` is a bare SUFFIX match that
-  `-dom-cljs-test` satisfies, so moving a row here ADDS the browser lane
-  and removes nothing. Each row answers the node lane with a VISIBLE
-  marker assertion rather than a silent `when`.
+  `-dom-cljs-test` satisfies, so this file runs on the browser lane AND
+  the node lane. Each row answers the node lane with a VISIBLE marker
+  assertion rather than a silent `when`.
 
-  ## What deliberately did NOT move
+  ## What stays in the sibling
 
-  `open-then-close-toggles-atom` MIXED a live claim with a dead one: its
-  two `open?` ratom assertions genuinely run on node, and only the
-  trailing `seen?` assertion was guarded. Moving the row whole would have
-  taken LIVE assertions OFF the node lane — this bug in reverse — so it
-  was SPLIT: the ratom half stays in the sibling, and the persistence
-  half is `close!-marks-the-overlay-seen` below.
+  `open-then-close-toggles-atom` makes the two `open?` ratom assertions,
+  which run on node; the persistence half of that claim is
+  `close!-marks-the-overlay-seen` below.
 
-  `seen-defaults-to-false` also stays: it asserts the NO-storage
-  degradation path, so the node lane is exactly where it belongs."
+  `seen-defaults-to-false` asserts the NO-storage degradation path, so
+  the node lane is exactly where it belongs."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story.ui.help :as rf.story.ui.help]))
 
@@ -71,7 +63,7 @@
 (deftest close!-marks-the-overlay-seen
   (testing "closing the overlay persists the seen flag, so a returning
             user is not shown it again. The ratom half of this claim
-            stays on the node lane in the sibling namespace."
+            is asserted on the node lane in the sibling namespace."
     (if-not (browser?)
       (is true skip-msg)
       (do
