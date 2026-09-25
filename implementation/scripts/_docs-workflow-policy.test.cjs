@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
- * Workflow-policy guard for `.github/workflows/docs.yml` (rf2-k8l1m).
+ * Workflow-policy guard for `.github/workflows/docs.yml`.
  *
  * docs.yml carries TWO concurrency concerns on one workflow: the main-push
  * Pages DEPLOY path, and an unfiltered pull_request build-only regression
- * check. They shared a single `pages` group, so a routine PR docs check could
+ * check. A single shared `pages` group would let a routine PR docs check
  * cancel a queued main-push deployment before any job started (GitHub keeps
  * one running + one pending run per group and drops the older pending one even
  * with cancel-in-progress: false). This guard pins the event-scoped split, and
@@ -50,7 +50,7 @@ test('concurrency group is event-scoped, not a bare shared `pages` (rf2-k8l1m)',
     group[1],
     'pages',
     'a bare `group: pages` puts unfiltered PR docs checks in the Pages deploy ' +
-      'group, where they cancel queued main-push deployments (rf2-k8l1m)',
+      'group, where they cancel queued main-push deployments',
   );
   assert.match(
     group[1],
