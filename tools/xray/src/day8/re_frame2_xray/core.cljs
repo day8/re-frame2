@@ -43,7 +43,7 @@
   namespaces by design — see the per-namespace documentation for the
   rationale on each.
 
-  Xray publishes no agent/tool runtime seam at all (rf2-7htk7):
+  Xray publishes no agent/tool runtime seam at all:
   programmer/AI access to a running app is `re-frame2-pair.runtime`
   plus `tools/re-frame2-pair-mcp/`, which read the framework's own
   instrumentation and do not arrive through Xray."
@@ -115,7 +115,7 @@
   "Seat `:rf/xray`, then dispatch `:rf.xray/set-target-frame` into it.
 
   The seat is what makes the dispatch land. `:rf/xray` is normally seated
-  by the preload's readiness loop (rf2-avi7), but that loop polls on a
+  by the preload's readiness loop, but that loop polls on a
   50ms tick, and both callers below reach here INSIDE that window on a
   host whose boot re-orients the target on the same turn as `rf/init!` —
   and `init!` is the MANUAL install, which deliberately loads no preload
@@ -124,25 +124,25 @@
   router with `:rf.error/frame-destroyed`, the host's boot target is
   dropped, and a later `open!` cannot rescue a choice that never landed.
 
-  `mount/ensure-seated!` and NOT `mount/ensure-xray-frame!` (rf2-88f1):
+  `mount/ensure-seated!` and NOT `mount/ensure-xray-frame!`:
   the latter also runs the run-once first-mount hook fan-out, whose job
   is to harvest the trace and epoch rings the user filled BEFORE opening
   Xray. Firing it from here would spend that one run on an empty
   boot-time ring. Seating is idempotent and is a no-op until a substrate
-  adapter exists — but adapter presence is NOT the only precondition
-  (rf2-1t0d5). A FRESH seat assembles Xray's own image, which fails loud
+  adapter exists — but adapter presence is NOT the only precondition.
+  A FRESH seat assembles Xray's own image, which fails loud
   with `:rf.error/image-zero-match` when Xray's `:rf.xray/*` instruction
   set is not registered; that is deliberate for an EXPLICIT seat
-  (rf2-atecy) — see `mount/ensure-seated!` §Adapter presence is NOT the
+  — see `mount/ensure-seated!` §Adapter presence is NOT the
   only precondition. So the seat costs an INSTALLED host nothing, and
   the two callers below differ in who guarantees the install: `init!`
   registers the instruction set before it reaches here, while
   `set-target-frame!` assumes an Xray the preload — or an earlier
   `init!` — already installed.
 
-  Factored out under rf2-bitb: `set-target-frame!` was correct and
-  `init!` — the other supported way a host states its boot target — was
-  not, because it hand-rolled the dispatch instead of taking this seam."
+  Both callers take this seam rather than hand-rolling the dispatch, so
+  the two supported ways a host states its boot target land it the same
+  way."
   [frame-id]
   (mount/ensure-seated!)
   (rf/with-frame :rf/xray
@@ -155,7 +155,7 @@
   "Mount Xray manually — the alternative to wiring the
   `day8.re-frame2-xray.preload` namespace into shadow-cljs's
   `:devtools/preloads`. Safe to call repeatedly, but a second call is
-  NOT a no-op — the two halves differ (rf2-gpg26):
+  NOT a no-op — the two halves differ:
 
   - INSTALLATION is deduplicated. `registry/register-xray-handlers!`,
     both `install/register-*-collector!` fns and `keybinding/attach!`
@@ -193,10 +193,10 @@
   does NOT default the target to `:rf/default` (Spec 002 §Frame target
   resolution).
 
-  Loads the user's PERSISTED Settings first and applies them (rf2-y8doi.17
-  — the preload has always done this; `init!` never did, so a host that
-  installed manually saw compiled-in defaults on every boot no matter what
-  the user had saved in the Settings popup). Then wires the foundation
+  Loads the user's PERSISTED Settings first and applies them, exactly as
+  the preload does, so a host that installs manually boots with what the
+  user saved in the Settings popup rather than compiled-in defaults. Then
+  wires the foundation
   side-effects — the registry handlers, the trace and epoch collectors, the
   browser-API exports, and the keybinding listener — then threads each
   supplied opt through to its backing surface. The opts are applied LAST and
@@ -231,10 +231,9 @@
   and the keybinding listener unconditionally. Requiring this namespace
   at all runs load-time registrations (`mount.cljs`'s seven top-level
   `register-first-mount-hook!` forms, `keybinding.cljs`), so wrapping
-  the CALL in `(when ^boolean goog.DEBUG …)` is not enough. The four
-  top-level `reg-view` forms that used to sit in this list are gated
-  under `rf2-y8doi.60`; the writes that remain are to Xray's own
-  private atoms, not the host's registrar.
+  the CALL in `(when ^boolean goog.DEBUG …)` is not enough. Those
+  load-time writes go to Xray's own private atoms, not the host's
+  registrar.
 
   Exclusion is the host's job, and it is build placement: prefer the
   preload (`:devtools/preloads` is dev build config, so a release build
@@ -250,8 +249,7 @@
    ;; Settings persistence — load BEFORE the registry install, exactly as
    ;; `preload.cljs`'s boot block does and for the same reason: the first
    ;; sub read from the popup's events must land on the persisted values,
-   ;; not on the defaults. rf2-y8doi.17 — this call was simply absent, so
-   ;; `init!` hosts never saw their own saved Settings at all.
+   ;; not on the defaults.
    (config/load-settings-from-storage!)
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
@@ -268,9 +266,9 @@
    ;; Select the explicit inspected target frame in
    ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker
    ;; / mount discovery policy chooses); never a `:rf/default` fallback.
-   ;; Routed through the seated seam (rf2-bitb) — none of the installs
-   ;; above seats `:rf/xray`, and this facade starts no readiness poll, so
-   ;; a raw dispatch here had no frame to land in.
+   ;; Routed through the seated seam — none of the installs above seats
+   ;; `:rf/xray`, and this facade starts no readiness poll, so a raw
+   ;; dispatch here would have no frame to land in.
    (when target-frame
      (seat-and-set-target-frame! target-frame))
    (when theme
@@ -300,8 +298,7 @@
   policy, epoch-ingest adoption), never a synthesised one. Those call
   sites are illustration, not a closed list; `defaults/default-target-
   frame` carries the rule in full, with the tier precedence and the spec
-  cite (this docstring's earlier three-source enumeration was false —
-  rf2-y3keu). It is NOT defaulted to `:rf/default`: `:rf/default` is an
+  cite. It is NOT defaulted to `:rf/default`: `:rf/default` is an
   ordinary id, never an absence-repair fallback (Spec 002 §Frame target
   resolution). A `nil` return means 'no host frame selected yet' — the
   picker prompts a choice.
@@ -327,15 +324,15 @@
   inspected target is never absence-repaired to the ordinary
   `:rf/default` id (Spec 002 §Frame target resolution).
 
-  ## Correct at boot instant (rf2-88f1)
+  ## Correct at boot instant
 
   Seats `:rf/xray` before dispatching, through the shared
   `seat-and-set-target-frame!` seam above — see its docstring for why the
   seat is load-bearing, and why it is `ensure-seated!` rather than
-  `ensure-xray-frame!`. `init!` takes the same seam (rf2-bitb), so the
+  `ensure-xray-frame!`. `init!` takes the same seam, so the
   two supported ways a host states its boot target land it the same way.
 
-  ## What that equivalence is, and what it is not (rf2-1t0d5)
+  ## What that equivalence is, and what it is not
 
   It is an equivalence of SEAM, not of preconditions. `init!` INSTALLS
   Xray — it registers the `:rf.xray/*` instruction set and only then
@@ -343,7 +340,7 @@
   by the preload or by an earlier `init!`. Called on a live host before
   either, the seat assembles Xray's image over a pool carrying no Xray
   registration and fails loud with `:rf.error/image-zero-match`. That
-  is deliberate for an EXPLICIT seat (rf2-atecy); only the preload's
+  is deliberate for an EXPLICIT seat; only the preload's
   background readiness tick declines instead — see
   `mount/ensure-seated!` §Adapter presence is NOT the only precondition.
 
