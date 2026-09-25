@@ -2,22 +2,21 @@
 """Verify the repo-invariant job's per-failure "reproduce with" command matches
 each checker step's real invocation.
 
-Provenance: rf2-m6kdb. The aggregated invariant job
-(`.github/workflows/test.yml`, job id `verify-skill-mcp-drift`, displayed as
-"Repo invariant checks (...)") runs ~37 `python scripts/check_*.py` checkers,
-each with `continue-on-error: true` and an `id`; a final step reads
-`toJSON(steps)` and prints every failure with a local "reproduce with" command.
-The first cut derived that command from the step id alone:
+The aggregated invariant job (`.github/workflows/test.yml`, job id
+`verify-skill-mcp-drift`, displayed as "Repo invariant checks (...)") runs its
+`python scripts/check_*.py` checkers each with `continue-on-error: true` and an
+`id`; a final step reads `toJSON(steps)` and prints every failure with a local
+"reproduce with" command. Deriving that command from the step id alone:
 
     script="scripts/${id%_selftest}.py"
     ... reproduce with: python $script
 
-For the 17 ids ending `_selftest` this stripped the suffix from the FILENAME but
-OMITTED the required `--self-test` flag, so the printed command ran the LIVE scan
-instead of the self-test. A developer copying it would see the live scan pass
-while the self-test stayed red, and wrongly conclude the failure was spurious.
+would strip the `_selftest` suffix from the FILENAME but OMIT the required
+`--self-test` flag, so the printed command would run the LIVE scan instead of
+the self-test. A developer copying it would see the live scan pass while the
+self-test stayed red, and wrongly conclude the failure was spurious.
 
-The durable fix has two halves, both in `.github/workflows/test.yml`:
+Two halves keep the command right, both in `.github/workflows/test.yml`:
 
   1. DERIVE FROM THE REAL `run:`. The aggregator calls this script's `--emit`
      mode, which reads the checked-out workflow and prints the step's exact
@@ -44,7 +43,7 @@ The durable fix has two halves, both in `.github/workflows/test.yml`:
        * the referenced `scripts/<name>.py` exists on disk;
        * `id` (minus any `_selftest` suffix) equals the script stem;
        * an id ends in `_selftest` IFF its real `run:` carries `--self-test`
-         (the mode convention -- this is exactly the rf2-m6kdb mismatch);
+         (the mode convention -- exactly the mismatch described above);
        * the aggregator's FALLBACK id->command reconstruction selects the same
          live-vs-self-test mode as the real `run:` (so even the fallback, used
          only if `--emit` cannot parse a step, is mode-correct).
@@ -92,7 +91,7 @@ _SCRIPT_RE = re.compile(r"\bscripts/([A-Za-z0-9_]+)\.py\b")
 # The run shape that identifies a checker step INDEPENDENTLY of its id: an inline
 # `python scripts/check_<name>.py ...` invocation. This is the "explicit
 # boundary" that lets the guard see a checker even when it FORGOT its id -- the
-# exact hole the id-only filter left open (rf2-m6kdb audit reopen, PR #6815).
+# exact hole an id-only filter would leave open.
 _CHECKER_RUN_RE = re.compile(r"^python scripts/check_[A-Za-z0-9_]+\.py(?:\s|$)")
 
 
@@ -188,7 +187,6 @@ def discover_checker_steps(steps: list[dict]) -> list[dict]:
     return [s for s in steps if is_checker_step(s)]
 
 
-# Back-compat alias: earlier callers spoke of "checker steps" as the parse unit.
 def parse_checker_steps(text: str) -> tuple[bool, list[dict]]:
     """(found, checker_steps) -- parse the job, then keep only the checkers."""
     found, steps = parse_job_steps(text)
@@ -251,7 +249,7 @@ def audit_steps(steps: list[dict], exists=None) -> list[str]:
 
         # (1) A unique `check_*` id. A checker with no id (or a non-check id)
         # never appears in toJSON(steps), so a continue-on-error failure there is
-        # invisible to the aggregator and the job goes green (rf2-m6kdb).
+        # invisible to the aggregator and the job goes green.
         has_valid_id = bool(sid) and sid.startswith(CHECKER_ID_PREFIX)
         if not has_valid_id:
             problems.append(
@@ -263,7 +261,7 @@ def audit_steps(steps: list[dict], exists=None) -> list[str]:
 
         # (2) `continue-on-error: true`. A checker missing it restores bash
         # short-circuiting, so a failure there stops the job and the later
-        # invariant checkers never run (rf2-m6kdb).
+        # invariant checkers never run.
         if not s.get("continue_on_error"):
             problems.append(
                 f"{label}: checker step is missing `continue-on-error: true`; "
@@ -322,7 +320,7 @@ def audit_steps(steps: list[dict], exists=None) -> list[str]:
                 f"{'ends' if id_is_selftest else 'does not end'} in `_selftest` "
                 f"but `run:` {'has' if run_is_selftest else 'lacks'} "
                 f"`--self-test`. The reproduce command would run the wrong "
-                f"live-vs-self-test mode (the rf2-m6kdb defect)."
+                f"live-vs-self-test mode."
             )
 
         synth = fallback_command(sid)
@@ -422,7 +420,7 @@ def run_self_tests(verbose: bool) -> int:
         audit_job([step("check_foo", "python scripts/check_foo.py")], exists_ok) == [],
     )
 
-    # THE rf2-m6kdb DEFECT: a `_selftest` id whose run drops `--self-test`.
+    # THE DEFECT this guard exists for: a `_selftest` id whose run drops `--self-test`.
     check(
         "selftest id missing --self-test FIRES",
         len(audit_job([step("check_foo_selftest", "python scripts/check_foo.py --verbose")], exists_ok)) >= 1,
@@ -458,9 +456,9 @@ def run_self_tests(verbose: bool) -> int:
         len(audit_job([step("check_foo", "bash -c true")], exists_ok)) >= 1,
     )
 
-    # --- rf2-m6kdb EXHAUSTIVENESS (audit reopen, PR #6815) ---------------------
+    # --- EXHAUSTIVENESS --------------------------------------------------------
     # The guard must catch a checker discovered INDEPENDENTLY of its id. These
-    # are the two exact negative fixtures the bead names.
+    # are the two negative fixtures that prove it.
     #
     # (A) A python checker with `continue-on-error: true` but NO id. An id-only
     # filter never sees it, so a failure there is absent from toJSON(steps) and
