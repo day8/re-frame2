@@ -1,18 +1,19 @@
 (ns re-frame.story.stepper-compiled-plan-test
-  "rf2-499z — the step-debugger and the scrubber read the COMPILED plan,
-  the program the auto-run path executes, not the raw `:script` slot.
+  "The step-debugger and the scrubber read the COMPILED plan, the program
+  the auto-run path executes, not the raw `:script` slot.
 
-  Execution walks the compiled plan's `[:world :scripts]`; the stepper
-  (`play/variant-play-steps`) and the scrubber (`play/variant-play-events`)
-  used to walk the registered body's `:script` as authored. Anything the
-  compiler rewrites therefore stepped differently from how it ran: an
-  `[:arg key]` placeholder reached the dispatched event verbatim, a
-  `:compose`d fragment's script was missing, and a `:plays` variant (no
-  `:script` slot at all) showed no steps.
+  Execution walks the compiled plan's `[:world :scripts]`, and so do the
+  stepper (`play/variant-play-steps`) and the scrubber
+  (`play/variant-play-events`). A reader walking the registered body's
+  `:script` as authored would step anything the compiler rewrites
+  differently from how it ran: an `[:arg key]` placeholder would reach the
+  dispatched event verbatim, a `:compose`d fragment's script would be
+  missing, and a `:plays` variant (no `:script` slot at all) would show no
+  steps.
 
   Every witness below is a variant whose raw `:script` and compiled plan
   DIFFER, and each first asserts that divergence through `raw-steps` /
-  `raw-events` — the pre-fix readers reproduced verbatim — so a witness
+  `raw-events` — raw-slot readers kept here as the contrast — so a witness
   that stopped diverging fails its precondition instead of passing
   vacuously. The comparison target is BEHAVIOURAL: what `run-variant`
   actually did (its final app-db, its epoch tape), never a re-derivation
@@ -71,16 +72,15 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- raw-steps
-  "The PRE-FIX stepper reader, reproduced verbatim: the registered body's
-  raw `:script` slot, parsed and folded. The 'before' half of every
-  witness."
+  "A raw-slot stepper reader: the registered body's raw `:script` slot,
+  parsed and folded. The contrast half of every witness."
   [vid]
   (let [body (rf.story.registrar/handler-meta :variant vid)]
     (rf.story.assertions/fold-script
       (vec (:script (rf.story.play.runner/parse-spec (:script body)))))))
 
 (defn- raw-events
-  "The PRE-FIX scrubber reader: the dispatch events of the raw slot."
+  "A raw-slot scrubber reader: the dispatch events of the raw slot."
   [vid]
   (into []
         (keep (fn [s] (when (and (vector? s)
@@ -132,8 +132,8 @@
              never reached the handler")))))
 
 (deftest plays-variant-steps-its-auto-run-plays
-  (testing "a `:plays` variant has no `:script` slot, so the raw reader saw
-            no steps at all; the stepper now walks every AUTO-RUNNABLE play
+  (testing "a `:plays` variant has no `:script` slot, so the raw reader sees
+            no steps at all; the stepper walks every AUTO-RUNNABLE play
             in order, and not a play that does not auto-run"
     (let [vid :story.stepper-plan/plays]
       (rf.story/reg-variant vid
@@ -146,7 +146,7 @@
                  {:name   "manual"
                   :script [[:dispatch-sync [:ps/log :manual]]]}]})
       (is (= [] (raw-steps vid))
-          "PRECONDITION — the raw reader saw nothing: 'no steps'")
+          "PRECONDITION — the raw reader sees nothing: 'no steps'")
       (let [ran     (auto-run vid)
             stepped (step-through! vid)]
         (is (= [:first :second-a :second-b] (get-in ran [:app-db :log]))
@@ -158,7 +158,7 @@
 
 (deftest composed-fragment-script-is-stepped-first
   (testing "a `:compose`d fragment's script runs BEFORE the variant's own;
-            the raw reader missed it, the stepper now walks it"
+            the raw reader misses it, the stepper walks it"
     (let [vid :story.stepper-plan/composed]
       (rf.story/reg-fragment :fragment.stepper-plan/opener
         {:script [[:dispatch-sync [:ps/log :fragment]]]})
@@ -166,7 +166,7 @@
         {:compose [:fragment.stepper-plan/opener]
          :script  [[:dispatch-sync [:ps/log :own]]]})
       (is (= [[:dispatch-sync [:ps/log :own]]] (raw-steps vid))
-          "PRECONDITION — the raw reader saw only the variant's own step")
+          "PRECONDITION — the raw reader sees only the variant's own step")
       (let [ran     (auto-run vid)
             stepped (step-through! vid)]
         (is (= [:fragment :own] (get-in ran [:app-db :log]))
@@ -180,8 +180,8 @@
 
 (deftest scrubber-events-align-with-the-run-tape
   (testing "the scrubber aligns its play events against the run's OWN epoch
-            tape by trigger-event identity; the raw placeholder matched no
-            tape record, so the scrubber had no epochs to offer"
+            tape by trigger-event identity; the raw placeholder matches no
+            tape record, so a raw-slot scrubber would have no epochs to offer"
     (let [vid :story.stepper-plan/scrub]
       (rf.story/reg-variant vid
         {:args   {:value 7}
@@ -192,8 +192,8 @@
                    tape (rf.story.play/variant-play-events vid))]
         (is (seq tape) "PRECONDITION — the run recorded an epoch tape")
         (is (= [] (rf.story.ui.test-mode.pure/epoch-id-slice tape (raw-events vid)))
-            "PRECONDITION — the raw events matched no record: the scrubber
-             was empty for this variant")
+            "PRECONDITION — the raw events match no record: a raw-slot
+             scrubber would be empty for this variant")
         (is (= [[:ps/set-value 7] [:ps/inc]] (rf.story.play/variant-play-events vid))
             "the scrubber's events are the substituted ones")
         (is (= [[:ps/set-value 7] [:ps/inc]]
@@ -205,8 +205,8 @@
 
 (deftest plain-script-control-both-readers-agree
   (testing "CONTROL — a plain `:script` with no `[:arg]`, `:compose` or
-            `:plays`: raw and compiled coincide, so the new readers agree
-            with the old ones (bare-vector coercion and `:assert-db`
+            `:plays`: raw and compiled coincide, so the compiled readers
+            agree with the raw ones (bare-vector coercion and `:assert-db`
             folding included)"
     (let [vid :story.stepper-plan/plain]
       (rf.story/reg-variant vid
@@ -265,8 +265,7 @@
           "the stepper walked the primary play, substituted"))))
 
 (deftest unregistered-variant-has-no-steps
-  (testing "an unregistered id keeps the pre-fix contract — no steps and
-            no throw — so `begin-stepper!` on a bare frame seeds an empty
-            cursor"
+  (testing "an unregistered id has no steps and does not throw, so
+            `begin-stepper!` on a bare frame seeds an empty cursor"
     (is (= [] (rf.story.play/variant-play-steps :story.stepper-plan/never)))
     (is (= [] (rf.story.play/variant-play-events :story.stepper-plan/never)))))
