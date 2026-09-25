@@ -24,10 +24,10 @@
                        {:local/root "../../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}
-                       ;; Canonical diff and overflow builders — and,
-                       ;; since rf2-2ii52, the canonical structural-dedup
-                       ;; encoder too (`re-frame.mcp-base.dedup`, vendored
-                       ;; from day8/de-dupe).
+                       ;; Canonical diff and overflow builders, and the
+                       ;; canonical structural-dedup encoder
+                       ;; (`re-frame.mcp-base.dedup`, vendored from
+                       ;; day8/de-dupe).
                        day8/re-frame2-mcp-base
                        {:local/root "../../mcp-base"}
                        ;; Story's cursor-stale builder.
