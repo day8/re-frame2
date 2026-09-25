@@ -656,11 +656,13 @@
        live — e.g. seeding test data into the just-installed adapter's
        app-db.
     9. Runs the test.
-   10. Restores the registrar to the captured snapshot.
-   11. Resets `rf.frame/frames` back to `{}` for symmetry, and (when their
-       artefacts are loaded) the flows registry (via the
-       `:flows/reset-flows!` late-bind hook) and the schemas per-frame
-       registry (via the `:schemas/clear-by-frame!` late-bind hook).
+   10. Restores the registrar to the captured snapshot, and the source
+       store to its ns-load baseline.
+   11. Restores the schemas per-frame registry to the snapshot taken before
+       the reset (via the `:schemas/restore-by-frame!` late-bind hook, when
+       the schemas artefact is loaded), then resets `rf.frame/frames` back
+       to `{}` for symmetry, and the flows registry (via the
+       `:flows/reset-flows!` late-bind hook, when flows is loaded).
 
   Steps 10–11 run in a `finally` block so they fire even on test
   exceptions. The source-store restore they carry is also what takes the
