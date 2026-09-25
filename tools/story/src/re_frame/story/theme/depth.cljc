@@ -50,16 +50,17 @@
             #?(:cljs [re-frame.story.config :as rf.story.config])))
 
 (def shadows
-  "Box-shadow tokens. Four slots:
+  "Box-shadow tokens. Five slots:
 
   - `:elev-1` — subtle 1px lift, used on raised chrome (toolbar,
     sidebar widget foot).
   - `:elev-2` — standard 4px lift, used on lifted panels (controls,
     dispatch console, canvas frame).
   - `:elev-overlay` — dramatic 16px lift, used on floating dialogs
-    (help, recorder, share popover).
+    (help, recorder).
   - `:canvas-edge` — Story's signature: a 1px amber inset on the
     canvas frame so the workshop region carries the brand accent.
+  - `:focus-glow` — a 3px translucent amber ring.
 
   All shadows use rgba so they sit on top of any backdrop the surface
   is rendered against."
@@ -104,7 +105,7 @@
   `z-index: 0` inside the root's isolated stacking context, with every
   other direct child of the root lifted to `z-index: 1`.
 
-  A sibling layer, never a `::before` pseudo on the root (rf2-w72ij).
+  A sibling layer, never a `::before` pseudo on the root.
   axe-core leaves a text node's contrast ungraded (`pseudoContent`)
   when ANY ancestor carries an absolutely positioned pseudo with a
   background, however opaque the surfaces between them, and the root
