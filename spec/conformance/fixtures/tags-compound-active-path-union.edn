@@ -9,8 +9,7 @@
 ;; A sibling-leaf transition swaps the leaf's contribution but keeps
 ;; the parent's contribution; the union picks up both.
 ;;
-;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and
-;; rf2-ee0d (Nine States Stage 1).
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags).
 
 {:fixture/id           :machine/tags-compound-active-path-union
  :fixture/spec-version "1.0"
