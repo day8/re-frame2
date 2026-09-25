@@ -1,8 +1,9 @@
 // live-re-frame2-pair-replace-app-db.cjs
 //
-// LIVE conformance for `replace-app-db`'s print-is-not-quotation repair
-// (rf2-olqo; the sibling of rf2-j2wz, which fixed the same class for
-// `dispatch` / `dispatch-dry-run`).
+// LIVE conformance for `replace-app-db`'s print-is-not-quotation contract:
+// the caller's `db` argument arrives as data, never as evaluated source
+// (`dispatch` / `dispatch-dry-run` keep the same contract through the same
+// `rt-quote` emission path).
 //
 // ## What this test guards
 //
@@ -22,16 +23,16 @@
 // ## Why this file exists at all — what the unit tests cannot witness
 //
 // `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/replace_app_db_test.cljs`
-// pins the repair by STUBBING `nrepl/cljs-eval-value`, capturing the emitted
+// pins the emission by STUBBING `nrepl/cljs-eval-value`, capturing the emitted
 // string, and reading it back with `cljs.reader/read-string`. That proves the
 // emitted SYNTAX is `(quote ...)`. It cannot prove what evaluation yields,
 // because nothing in that suite evaluates: a test that stubs the thing under
-// test cannot fail when that thing is wrong. The audit of PR #9380 reopened
-// rf2-olqo for exactly this gap — the only live `replace-app-db` call in the
-// hermetic suite was the writes-DISABLED refusal probe in
-// `live-re-frame2-pair-turn-observation.cjs`, which never reaches the emitter.
+// test cannot fail when that thing is wrong. The only other live
+// `replace-app-db` call in the hermetic suite is the writes-DISABLED refusal
+// probe in `live-re-frame2-pair-turn-observation.cjs`, which never reaches the
+// emitter.
 //
-// This file closes it: a real server booted WITH `--allow-writes`, a real
+// This file covers that gap: a real server booted WITH `--allow-writes`, a real
 // nREPL, a real browser runtime, and the injected values read BACK out of the
 // committed app-db through `get-path`.
 //
@@ -42,8 +43,8 @@
 //   3. `replace-app-db {db frame}` — the TWO-arity (frame-targeted) call path,
 //      with the frame id read live off the runtime and a payload whose values
 //      differ from the one-arity arm's, so only this call's own commit can
-//      satisfy its read-back. Both arities emit through `rt-quote`; both are
-//      covered because the repair had to touch both.
+//      satisfy its read-back. Both arities emit through `rt-quote`, from
+//      separate branches of the emitter, so both are covered.
 //   4. Teardown: the fixture's boot db is restored so inner tests ordered
 //      after this one in `scripts/live-test-inventory.cjs` see the state they
 //      expect. (The hermetic orchestrator runs every inner test sequentially
@@ -71,10 +72,9 @@
 // a VECTOR. So the injected list arrives as `[inc 41]`, not as `(inc 41)`,
 // and that has nothing to do with quotation — it is the egress wire's own
 // normalisation, identical for a value that was stored as a vector all along.
-// The first revision of this file asserted the list DELIMITER and went red on
-// CI against a runtime that was behaving correctly; `assertQuotedDatumSurvived`
-// below now asserts the elements, which is the property that actually
-// separates `rt-quote` from `pr-str`.
+// An assertion on the list DELIMITER would go red against a runtime that is
+// behaving correctly; `assertQuotedDatumSurvived` below asserts the elements,
+// which is the property that actually separates `rt-quote` from `pr-str`.
 //
 // ## Gating
 //
@@ -108,9 +108,9 @@ const PAYLOAD_DB =
 
 // The frame-targeted arm's payload: the same two slots with values the
 // one-arity arm cannot have left behind. Nothing resets app-db between the
-// arms, so an identical payload let a two-arity call that committed nothing
-// (or committed to another frame) read back the one-arity values and pass
-// (rf2-3x7nj.36.2).
+// arms, so an identical payload would let a two-arity call that committed
+// nothing (or committed to another frame) read back the one-arity values and
+// pass.
 const FRAME_PAYLOAD_DB =
   '{:count 5 ' + EXPR_KEY + ' (inc 99) ' + SYM_KEY + ' js/document}';
 
@@ -169,7 +169,7 @@ function assertQuotedDatumSurvived(text, where, n = 41) {
       where + ': the injected list MUST read back with its elements intact — ' +
         '`[inc ' + n + ']` (get-path\'s elision walk normalises a quoted list ' +
         'to a vector) or `(inc ' + n + ')`. A `:value ' + (n + 1) + '` here ' +
-        'is the print-is-not-quotation regression rf2-olqo fixed — the ' +
+        'is the print-is-not-quotation regression — the ' +
         'runtime evaluated the caller\'s DATA. Any other value means this ' +
         'call did not commit its own payload to the frame get-path reads. ' +
         'Got: ' + text.slice(0, 400),
@@ -213,7 +213,7 @@ if (!process.env.SHADOW_CLJS_NREPL_PORT) {
       '      This variant requires a live shadow-cljs nREPL + browser\n' +
       '      runtime: without one `replace-app-db` returns the degraded\n' +
       '      :nrepl-port-not-found envelope, no form is ever EVALUATED, and\n' +
-      '      the data-versus-evaluation repair (rf2-olqo) has nothing to\n' +
+      '      the data-versus-evaluation contract has nothing to\n' +
       '      witness. The hermetic orchestrator boots the fixture runtime\n' +
       '      and wires the env so this gate fires on CI.',
   );
@@ -228,7 +228,7 @@ runWithWatchdog(
       // --allow-writes: `replace-app-db` is default-OFF gated, and the gate
       // fires BEFORE the db argument is read. Without the flag this whole
       // file would only ever re-prove the refusal the turn-observation gate
-      // already pins.
+      // pins.
       args: [SERVER, '--allow-writes'],
       cwd: os.tmpdir(),
       env: { ...process.env },
