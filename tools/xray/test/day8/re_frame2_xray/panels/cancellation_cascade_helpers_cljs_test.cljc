@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-helpers-cljs-test
   "Pure-data tests for Xray's Cancellation-cascade visualiser
-  helpers (rf2-59e7k).
+  helpers.
 
   ## Why the `.cljc` + `_cljs_test` naming
 
@@ -16,8 +16,8 @@
        no aborts, nested destroys, mixed cancel-causes, correlation-id
        pairing) plus the empty-state branches.
     3. cascade-summary / should-collapse?
-    5. frame scoping (rf2-y8doi.15) - the extraction is restricted to the
-       focused host frame, so a peer frame's aborts no longer fold in.
+    5. frame scoping - the extraction is restricted to the
+       focused host frame, so a peer frame's aborts do not fold in.
     4. Formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -63,7 +63,7 @@
                        :rf.trace/dispatch-id dispatch-id}
                 spawned-id (assoc :spawned-id spawned-id)
                 parent-id  (assoc :parent-id parent-id)
-                ;; rf2-y8doi.15 - the canonical raw-event frame tag. Opt-in:
+                ;; The canonical raw-event frame tag. Opt-in:
                 ;; a fixture that names no frame carries none, exactly as an
                 ;; unattributable (frameless) emit does.
                 frame      (assoc :frame frame))})
@@ -105,14 +105,14 @@
                  frame       (assoc :frame frame))})
 
 (defn- http-aborted-ev
-  "A producer-shaped `:rf.http/aborted` row (rf2-3x7nj.23.4).
+  "A producer-shaped `:rf.http/aborted` row.
 
   Derived from the producer, not by hand: `re-frame.http.transport`'s
   `dispatch-aborted!` builds the failure `{:kind :rf.http/aborted :reason
   <reason> :actor-id …}` through `self-identify` (`:request-id` and the
   other identity slots), adds `:url`, and emits it with
-  `(rf.trace/emit! :info :rf.http/aborted …)` — every abort reason is `:info`
-  (rf2-s8kcj). `build-event` then stamps `:op-type :info` (no merged
+  `(rf.trace/emit! :info :rf.http/aborted …)` — every abort reason is `:info`.
+  `build-event` then stamps `:op-type :info` (no merged
   `:category`, which only the `:error` branch adds), hoists `:recovery`, and
   stamps the in-scope `:rf.trace/dispatch-id` + `:frame` into `:tags`. On an actor
   destroy the registry's `abort-on-actor-destroy` emits
@@ -203,7 +203,7 @@
   (is (false? (h/abort-event? (destroy-ev {:machine-id :x})))))
 
 (deftest cancellation-anchor?-true-for-each-emitted-family
-  ;; rf2-3uixf4 — the channels are DISJOINT (Spec 009 §op-type
+  ;; The channels are DISJOINT (Spec 009 §op-type
   ;; vocabulary), so each cancellation reason is asserted against the
   ;; ONE channel that actually carries it, never a cross-product.
   (testing "fx-substrate channel — the non-frame-exit teardowns"
@@ -224,9 +224,9 @@
                                :reason :rf.machine/join-reaped}))))))
 
 (deftest cancellation-anchor?-rejects-impossible-channel-reason-tuples
-  ;; rf2-3uixf4 — the regression this bead fixes. Validating channel
-  ;; membership and reason membership INDEPENDENTLY accepted these
-  ;; cross-products; the runtime cannot emit any of them.
+  ;; Validating channel membership and reason membership INDEPENDENTLY
+  ;; would accept these cross-products; the runtime cannot emit any of
+  ;; them.
   (testing "lifecycle + :explicit — :explicit is fx-substrate only"
     (is (false? (h/cancellation-anchor?
                   (impossible-destroy-ev :rf.machine.lifecycle/destroyed
@@ -276,14 +276,14 @@
 (deftest cancel-cause-defaults-by-operation
   (is (= :actor-destroyed (h/cancel-cause (http-abort-ev {}))))
   (is (= :actor-destroyed (h/cancel-cause (ws-abort-ev {}))))
-  ;; Per rf2-82a0u — `:rf.machine.timer/cancelled` carries `:reason`
+  ;; `:rf.machine.timer/cancelled` carries `:reason`
   ;; on every emit; the helper lifts that off `:tags :reason` before
   ;; falling through to the per-op default. The fixture event uses
   ;; the canonical `:on-resolution` reason for the
   ;; subscription-restart case.
   (is (= :on-resolution   (h/cancel-cause (timer-cancel-ev {}))))
-  ;; A timer-cancel-ev WITHOUT a `:reason` tag (legacy/stripped trace
-  ;; replay) still falls through to the per-op default.
+  ;; A timer-cancel-ev WITHOUT a `:reason` tag (a stripped trace
+  ;; replay) falls through to the per-op default.
   (is (= :join-resolved
          (h/cancel-cause (update (timer-cancel-ev {})
                                  :tags dissoc :reason))))
@@ -317,7 +317,7 @@
 ;; ---- (2) extract-cascade: one actor-destroy abort, traced twice ---------
 
 (deftest extract-counts-an-actor-destroy-abort-once
-  (testing "rf2-3x7nj.23.4 — destroying an actor with ONE in-flight request
+  (testing "destroying an actor with ONE in-flight request
             emits the registry's :rf.http/aborted-on-actor-destroy AND the
             transport's :rf.http/aborted :reason :actor-destroyed echo for
             that same request, in the same drain. The cascade reports ONE
@@ -371,14 +371,13 @@
                                   (http-aborted-ev {:request-id :req-2 :actor-id actor
                                                     :dispatch-id 3 :id 66})))))))))))
 
-;; ---- (2) extract-cascade: dispatch-id projection (rf2-kducz) ----------
+;; ---- (2) extract-cascade: dispatch-id projection -----------------------
 
 (deftest extract-projects-canonical-dispatch-id-onto-rows
   (testing "row projection lifts :rf.trace/dispatch-id (the canonical
-            substrate tag) into the row's :dispatch-id slot — guards
-            against the rf2-kducz regression where rows read the bare
-            `:dispatch-id` tag (always nil) and grouping silently
-            degraded to the wall-clock heuristic"
+            substrate tag) into the row's :dispatch-id slot — rows
+            reading the bare `:dispatch-id` tag (always nil) would
+            silently degrade grouping to the wall-clock heuristic"
     (let [buf [(dispatched-ev [:auth/logout]
                               {:dispatch-id 42 :time 1000 :id 1})
                (destroy-ev {:machine-id :user-session
@@ -594,17 +593,17 @@
     (is (true?  (h/should-collapse? big)))
     (is (true?  (h/should-collapse? tiny 2)))))
 
-;; ---- (5) frame scoping (rf2-y8doi.15) ----------------------------------
+;; ---- (5) frame scoping -------------------------------------------------
 ;;
 ;; Xray's trace buffer is EVERY host frame's ring merged, and a
 ;; `:rf.trace/dispatch-id` is unique only WITHIN a frame (Spec 002 §Frame
-;; isolation). Both correlation paths — the dispatch-id match and the 100 ms
-;; wall-clock window — could therefore reach into a foreign frame.
+;; isolation). Unscoped, both correlation paths — the dispatch-id match and
+;; the 100 ms wall-clock window — can reach into a foreign frame.
 ;;
-;; Every assertion below runs BOTH ways on the SAME buffer: unscoped (the
-;; behaviour before the gate, which is what a caller naming no frame still
-;; gets) and scoped. A test that only asserted the scoped count would pass
-;; against a projection that had simply stopped gathering aborts.
+;; Every assertion below runs BOTH ways on the SAME buffer: unscoped (what
+;; a caller naming no frame gets) and scoped. A test that only asserted the
+;; scoped count would pass against a projection that had simply stopped
+;; gathering aborts.
 
 (deftest in-frame?-escapes
   (testing "a nil frame scopes nothing — every event is in scope"
@@ -618,8 +617,8 @@
     (is (false? (h/in-frame? :frame/a {:tags {:frame :frame/b}})))))
 
 (deftest extract-cascade-does-not-fold-a-peer-frames-abort
-  ;; The bug: frame A tears an actor down; 15 ms later frame B aborts an
-  ;; in-flight request of its own. Frame A's cascade claimed B's abort,
+  ;; Frame A tears an actor down; 15 ms later frame B aborts an in-flight
+  ;; request of its own. Unscoped, frame A's cascade claims B's abort,
   ;; because the wall-clock fallback folds in ANY actor-destroy-shaped abort
   ;; inside the window.
   (let [buf [(destroy-ev {:machine-id :user-session :dispatch-id 1
@@ -630,7 +629,7 @@
     (testing "UNSCOPED, frame B's abort folds into frame A's cascade"
       (let [c (h/extract-cascade buf {:kind :machine-id :id :user-session})]
         (is (= 1 (count (:effect-aborts c)))
-            "the pre-gate behaviour, kept for a caller that names no frame")
+            "the unscoped behaviour, for a caller that names no frame")
         (is (nil? (:empty-kind c)))))
     (testing "SCOPED to frame A, the cascade truthfully has no aborts"
       (let [c (h/extract-cascade buf {:kind :machine-id :id :user-session
