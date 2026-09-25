@@ -1,5 +1,5 @@
 (ns story.test-helpers.runtime-shadow
-  "Runtime-image-last shadow fixture (rf2-14gqim, EP-0026 §Layered Resolution).
+  "Runtime-image-last shadow fixture (EP-0026 §Layered Resolution).
 
   This app-image fixture deliberately registers a handler under the SAME
   `[kind id]` as a Story RUNTIME registration — the `:rf.assert/path-equals`
