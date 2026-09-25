@@ -1,5 +1,5 @@
 (ns re-frame.story-runtime-cljs-test
-  "CLJS smoke tests for re-frame2-story Stage 3 (rf2-von3).
+  "CLJS smoke tests for the re-frame2-story runtime.
 
   The bulk of runtime coverage lives in the JVM test ns
   (`re-frame.story-runtime-test`) — args precedence, decorator
@@ -42,19 +42,19 @@
   ;; seated, so a re-boot of plain-atom is a no-op (the test build may have
   ;; seated it already via another suite's boot). The catch covers the case a
   ;; sibling suite seated a DIFFERENT adapter, which raises
-  ;; `:rf.error/adapter-already-installed` rather than being ignored
-  ;; (rf2-kuky.1); this ns's assertions do not depend on which of the two
+  ;; `:rf.error/adapter-already-installed` rather than being ignored;
+  ;; this ns's assertions do not depend on which of the two
   ;; plain-atom-shaped substrates is live.
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped sub
   ;; (`:rf/machine`) after the registrar clear. The JVM equivalent
   ;; uses `(require 're-frame.machines :reload)` which is unavailable
-  ;; in CLJS — we manually re-invoke the side-effecting part. EP-0001
-  ;; (rf2-vzld77 / rf2-ixb0bq): machine snapshots are durable RUNTIME-DB
-  ;; state at [:rf.runtime/machines :snapshots <id>], so the framework sub
+  ;; in CLJS — we manually re-invoke the side-effecting part. Machine
+  ;; snapshots are durable RUNTIME-DB state (EP-0001) at
+  ;; [:rf.runtime/machines :snapshots <id>], so the framework sub
   ;; is a runtime-db sub (db-position arg is the runtime-db value) — mirror
-  ;; `re-frame.machines` exactly, NOT the retired app-db `:rf/runtime` path.
+  ;; `re-frame.machines` exactly.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -88,21 +88,20 @@
                 (rf.story/destroy-variant! :story.cljs.run/v)
                 (done))))))))
 
-;; ---- rf2-043cm — events-only fast-path on CLJS --------------------------
+;; ---- events-only fast-path on CLJS --------------------------------------
 ;;
 ;; The JVM-side `re-frame.story-runtime-test` covers the lifecycle
 ;; transitions exhaustively. This CLJS smoke pins the cross-host
-;; contract: dispatching the new `:mount-ready` event drives the
+;; contract: dispatching the `:mount-ready` event drives the
 ;; lifecycle from `:pre-mount` directly to `:ready` on CLJS too, so
-;; the canvas's loading skeleton (rf2-0s4p1) reads `:ready` post-
+;; the canvas's loading skeleton reads `:ready` post-
 ;; allocate and never engages for events-only variants like
 ;; counter_with_stories' `:story.counter/events-only-loaded` (the
-;; canonical events-only loader-body shape preserved from the retired
-;; xray-rhs-smoke testbed per rf2-9jfo1.2).
+;; canonical events-only loader-body shape).
 
 (deftest cljs-events-only-fast-path-to-ready
-  (testing "rf2-043cm — events-only variant lands :ready directly on
-            CLJS too. Drives the regression's repro shape: a variant
+  (testing "an events-only variant lands :ready directly on
+            CLJS too: a variant
             body declaring only `:setup`, with no `:loaders` / no
             `:frame-setup` decorators / no `:loaders-complete-when`."
     (rf/reg-event :test.eo/seed
@@ -124,14 +123,13 @@
                 (done))))))))
 
 (deftest cljs-events-only-classifier
-  (testing "rf2-043cm — `rf.story.loaders/events-only-variant?` classifies the
+  (testing "`rf.story.loaders/events-only-variant?` classifies the
             canonical events-only loader-body shape on CLJS"
     (is (true?  (rf.story.loaders/events-only-variant? {:setup [[:counter/initialise 5]]}
                                               {:hiccup [] :frame-setup []
                                                :fx-override [] :errors []}))
         "the counter_with_stories `:story.counter/events-only-loaded`
-         body shape (preserved from the retired xray-rhs-smoke
-         testbed per rf2-9jfo1.2) → events-only")
+         body shape → events-only")
     (is (false? (rf.story.loaders/events-only-variant? {:loaders [[:l]]} {}))
         ":loaders disqualifies")
     (is (false? (rf.story.loaders/events-only-variant? {:loaders-complete-when :p?} {}))
@@ -139,25 +137,26 @@
     (is (false? (rf.story.loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
         ":frame-setup decorators disqualify")))
 
-;; ---- rf2-9x5fm — the run-variant promise resolves even when the play -----
+;; ---- the run-variant promise resolves even when the play -----------------
 ;;      runner aborts mid-:wait (frame torn down during the async yield) ----
 ;;
-;; The defect: `runner-events/run-loop!` had two silent-abort branches that
-;; returned WITHOUT invoking done-cb — the `(nil? state)` branch (frame torn
-;; down mid-run) and the token-mismatch branch (a concurrent run! took over).
-;; When either fired during an async `:wait` yield (CLJS `js/setTimeout`), the
-;; play-promise never resolved → `run-phase-4!`'s continuation never fired →
-;; `finalise-run!`'s `then` never fired → the outer `run-variant` promise hung
-;; FOREVER (it chains only `then`, never `catch` / a timeout).
+;; `runner-events/run-loop!` aborts a run that has lost its slot — the frame
+;; torn down mid-run (nil state), or a concurrent run! taking the slot over
+;; (token mismatch). Were that abort to return WITHOUT invoking done-cb
+;; during an async `:wait` yield (CLJS `js/setTimeout`), the play-promise
+;; would never resolve → `run-phase-4!`'s continuation would never fire →
+;; `finalise-run!`'s `then` would never fire → the outer `run-variant`
+;; promise would hang FOREVER (it chains only `then`, never `catch` / a
+;; timeout).
 ;;
-;; This is the end-to-end regression guard for the ACTUAL failing path: a
-;; variant whose play has a `:wait` step, with the frame destroyed during the
-;; wait yield. Before the fix this test would NEVER call `done` and the
-;; cljs.test async runner would time out (a red hang). With the fix the
-;; aborted run still settles, so `run-variant` resolves and `done` fires.
+;; This is the end-to-end guard for that path: a variant whose play has a
+;; `:wait` step, with the frame destroyed during the wait yield. A stranded
+;; continuation would NEVER call `done` and the cljs.test async runner would
+;; time out (a red hang); the aborted run settles, so `run-variant` resolves
+;; and `done` fires.
 
 (deftest cljs-run-variant-resolves-when-frame-torn-down-mid-wait
-  (testing "rf2-9x5fm — tearing the variant frame down DURING a play's
+  (testing "tearing the variant frame down DURING a play's
             `:wait` yield must still resolve the run-variant promise; the
             aborted run loop settles its continuation instead of hanging"
     (rf/reg-event :test.hang/touch
@@ -176,19 +175,19 @@
         ;; Destroy the frame mid-:wait (after run-phase-4! has scheduled the
         ;; wait's setTimeout, before it resumes). This wipes the run-state
         ;; slot (`clear-state!` via the :drop-run-state teardown hook), so the
-        ;; resuming loop hits the `(nil? state)` abort branch.
+        ;; resuming loop finds a nil state and takes the stale-run abort.
         (js/setTimeout #(rf.story/destroy-variant! :story.cljs.hang/torn-down) 15)
         (-> p
             (rf.story.async/then
               (fn [r]
                 (is (map? r)
                     "the run-variant promise RESOLVED — the torn-down-mid-wait
-                     run settled instead of hanging forever (rf2-9x5fm)")
+                     run settled instead of hanging forever")
                 (done))))))))
 
 (deftest cljs-run-variant-resolves-when-concurrent-run-takes-over-mid-wait
-  (testing "rf2-9x5fm — a concurrent `run!` that takes over the run-state slot
-            (token swap, rf2-ftow6) DURING a play's `:wait` yield must still
+  (testing "a concurrent `run!` that takes over the run-state slot
+            (token swap) DURING a play's `:wait` yield must still
             resolve the original run-variant promise; the stale loop settles
             its own continuation rather than stranding the chain"
     (rf/reg-event :test.hang2/touch
@@ -207,7 +206,7 @@
                 (is (map? r)
                     "the original run-variant promise RESOLVED even though a
                      concurrent run! swapped the run-state token mid-:wait —
-                     the stale loop's continuation settled (rf2-9x5fm)")
+                     the stale loop's continuation settled")
                 (rf.story/destroy-variant! :story.cljs.hang/token-swap)
                 (done))))
         ;; Mid-:wait, fire a concurrent runner-events/run! for the SAME
