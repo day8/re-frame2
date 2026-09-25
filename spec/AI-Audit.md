@@ -200,12 +200,12 @@ _As-of 2026-07-04._
 | P2 Named things | ✓ | `:rf/hydrate`, `:rf.fx/skipped-on-platform`, `:rf.ssr/hydration-mismatch`. |
 | P3 Data before magic | ✓ | `:platforms` metadata, render-tree as data, hydration payload as data. |
 | P4 Public query surfaces | ✓ | Inherits from 002/009. |
-| P5 Schemas | ◐ | Hydration payload shape (the EDN/JSON crossing the wire) isn't formally schema'd. Should be. |
+| P5 Schemas | ✓ | Hydration payload shape (the EDN/JSON crossing the wire) is schema'd at [Spec-Schemas §`:rf/hydration-payload`](Spec-Schemas.md#rfhydration-payload), with the post-v1 extension as a separate refining schema. |
 | P6 Deterministic execution | ✓ | Server-side run-to-completion drain. |
 | P7 Machine-readable errors | ✓ | Hydration mismatch is a structured trace event. |
 | P8 Low hidden context | ✓ | `:platforms` makes server/client gate explicit at the fx registration. |
 
-**Gaps:** schema for the hydration payload format.
+**Gaps:** none outstanding.
 
 ### Spec 013 — Flows
 
@@ -308,7 +308,7 @@ _As-of 2026-07-04._
 | 008-Testing | ✓ | Three test levels, fixture lifecycle, framework adapters all specced. |
 | 009-Instrumentation | ✓ | Trace event shape stable; error event shape formally enumerated in [§Error event catalogue](009-Instrumentation.md#error-event-catalogue) (G-A RESOLVED). |
 | 010-Schemas | ✓ | Self-referential — schemas are specced via examples in re-frame2's own conventions. |
-| 011-SSR | ◐ | Hydration payload schema missing (existing gap). |
+| 011-SSR | ✓ | Hydration payload schema registered at [Spec-Schemas §`:rf/hydration-payload`](Spec-Schemas.md#rfhydration-payload). |
 | 012-Routing | ✓ | URL ↔ params grammar, route metadata shape, fx ids all specced. |
 | Spec-Schemas | ◐ | Most shapes covered; declarative-`:spawn` schema additions remain to be written. The trace-event, error-event (G-A RESOLVED), and hydration payload schemas are registered; the remaining gap is the residual declarative-`:spawn` additions. |
 | conformance/README | ✓ | Cross-references the goal; capability-tagging convention added to fixture metadata. |
@@ -388,16 +388,16 @@ The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation)
 
 _As-of 2026-07-04._
 
-**Current state.** The shape catalogue carries **52 schema sections** (`###` headings), of which **50 are schema-bearing** (the other two are prose sub-headings). The per-section Owner / Status projection metadata that makes the projection auditable — required per [Spec-Schemas §Traceability metadata](Spec-Schemas.md#traceability-metadata) — is present on **all 50 schema-bearing sections**. Of those, **9 also carry the optional Conformance pointer** (present when a fixture / per-artefact test asserts the schema directly; the SA-3 header spec marks Conformance "when fixture/test exists", not universally required).
+**Current state.** The shape catalogue carries **55 `###` sections**, of which **52 are schema-bearing** (the other three — §Traceability metadata, §v1 vs post-v1 contracts and §Per-kind registration-metadata schemas — are prose sub-headings). The per-section Owner / Status projection metadata that makes the projection auditable — required per [Spec-Schemas §Traceability metadata](Spec-Schemas.md#traceability-metadata) — is present on **51 of the 52 schema-bearing sections**; the exception is `:rf/event` (the event vector), which carries its schema without the metadata headers. Of those 51, **8 also carry the optional Conformance pointer** (present when a fixture / per-artefact test asserts the schema directly; the SA-3 header spec marks Conformance "when fixture/test exists", not universally required).
 
 **Audit cadence.** This report is regenerated per AI-Audit run. Per-section completeness gates on SA-3:
 
 | Section count | SA-3 status |
 |---|---|
-| 50 / 50 | Owner + Status present (the required projection metadata) |
-| 9 / 50 | Conformance pointer also present (optional — where a fixture/test asserts the schema directly) |
+| 51 / 52 | Owner + Status present (the required projection metadata; `:rf/event` lacks it) |
+| 8 / 52 | Conformance pointer also present (optional — where a fixture/test asserts the schema directly) |
 
-Every schema-bearing section names its canonical owning spec and its API-status tier, so a reader maps any schema row to its owner and status without consulting the source docs. The residual work is additive Conformance pointers as fixture coverage grows.
+Every schema-bearing section except `:rf/event` names its canonical owning spec and its API-status tier, so a reader maps any other schema row to its owner and status without consulting the source docs. The residual work is `:rf/event`'s Owner / Status headers, and additive Conformance pointers as fixture coverage grows.
 
 **SA-3 violation rule.** A spec example or wire payload that does NOT map to either a schema entry or an explicit host-type exemption is an SA-3 violation. The fix is to add the missing entry to Spec-Schemas.md (not to add an exemption). Per-cycle the audit names any newly-surfaced violations under this section. **No violations are open as of the watermark** — the 013/014/015/016 shapes referenced by their Per-Spec tables (`:rf/flow-meta`, `:rf/http-managed-meta`, `:rf/reply-map`, `:rf/scoped-resource-key` / `:rf/resource-entry` / `:rf/resource-work-record` / `:rf/scope-policy` / `:rf/infinite-resource-args`, `:rf/elision-marker` / `:rf/project-egress-opts`) all carry catalogue entries.
 
