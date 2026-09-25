@@ -6,8 +6,8 @@
 
   The exemption is DERIVED, never listed: an alias bound to 2+ distinct
   namespaces within one file. A path allowlist would go stale on the first
-  rename, and would have carried a wrong entry from the day it was written —
-  rf2-j5or's notes recorded 'core one' and the core sweep measured ZERO.
+  rename, and a hand-kept entry is only as right as the census that
+  wrote it.
 
   The self-test collapses the two arms onto ONE namespace and requires this
   same file to FIRE, which is what proves the exemption is the two-namespace

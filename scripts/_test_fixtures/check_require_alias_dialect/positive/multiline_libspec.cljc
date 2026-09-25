@@ -1,9 +1,9 @@
 (ns fixtures.multiline-libspec
   "POSITIVE fixture for TRAP 4 — a libspec vector that OPENS on one line and
-  CLOSES on the next. `parallel.cljc` carried exactly this shape, and a regex
-  anchored on the closing bracket skipped the libspec and 116 use sites with
-  it while reporting a clean run. Core carries 39 such libspecs, all already
-  canonical, so a line-oriented census would have read clean there too.
+  CLOSES on the next. A regex anchored on the closing bracket skips such a
+  libspec and every use site with it while reporting a clean run, and
+  where every such libspec is already canonical a line-oriented census
+  reads clean too.
 
   The balanced-bracket scan must still find the bare `result` alias
   (1 finding)."
