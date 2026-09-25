@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 /*
- * Login cross-view-layer bundle-isolation verifier (bead rf2-ppbvav; the
- * Helix login arm left with the Helix adapter at S7/W13, rf2-d6epb; the
- * Fresco arm arrived with rf2-fmns2).
+ * Login cross-view-layer bundle-isolation verifier.
  *
  * The three login examples — Reagent (`login.core`), UIx
  * (`uix.login.core`) and Fresco (`fresco.login.core`) — share ONE
@@ -29,14 +27,14 @@
  * `login.model` — drags Reagent into all three bundles, so the UIx and
  * Fresco ABSENT checks fail. That is the substrate-free proof.
  *
- * Strategy mirrors scripts/check-bundle-isolation.cjs (rf2-51x5) and
- * scripts/check-uix-reagent-free.cjs (rf2-jicu2): grep, not parse. Closure
+ * Strategy mirrors scripts/check-bundle-isolation.cjs and
+ * scripts/check-uix-reagent-free.cjs: grep, not parse. Closure
  * `:advanced` renames symbols / namespaces but NOT string literals. Each
  * sentinel is a literal a substrate emits from its own body:
  *
  *   Reagent — `cljsRatom` / `cljsIsDirty`: interop property names stock Reagent
  *     sets via `set!` on React components (reagent.ratom / reagent.impl.batching).
- *     Same sentinels the counter-side rf2-jicu2 gate uses.
+ *     Same sentinels the counter-side check-uix-reagent-free.cjs gate uses.
  *   UIx — `rf-uix-sub-` …: the per-substrate gensym
  *     prefixes the shared React spine (`re-frame.substrate.spine`) is
  *     parameterised on (re-frame.adapter.uix). They reach the bundle as
@@ -45,7 +43,7 @@
  *   Fresco — TWO TIERS, because the artefact ships a view runtime and an
  *     adapter and a bundle can carry either without the other.
  *     `frescoBoundary` / `rf.error/fresco-empty-vector` are the SAME two
- *     literals scripts/check-bundle-isolation.cjs already carries for the
+ *     literals scripts/check-bundle-isolation.cjs carries for the
  *     `fresco` artefact, and the choice matters more here than the others'.
  *     Most Fresco strings would make a FALSE-GREEN sentinel: the package's
  *     complaint machinery folds away under `:advanced` with `goog.DEBUG`
@@ -63,8 +61,8 @@
  *     also carries `rf-hic-sub-` / `rf-hic-use-sub-`, the gensym prefixes
  *     `re-frame.fresco.substrate` parameterises the shared spine on —
  *     the exact analogue of the UIx pair. Without them a leak of the
- *     adapter ALONE into the Reagent / UIx login bundles answered ABSENT on
- *     every Fresco sentinel and the gate passed (rf2-fmns2 audit of #8954).
+ *     adapter ALONE into the Reagent / UIx login bundles would answer ABSENT
+ *     on every Fresco sentinel and the gate would pass.
  *
  * Each view layer's set is checked PRESENT in its own bundle (methodology
  * sanity — proves the grep has signal + the model and views actually compiled
@@ -76,7 +74,7 @@
  * Fresco: for the codec tier, re-read check_production_erasure.cjs's own
  * positive controls, which is where those two came from; for the adapter tier,
  * re-read `re-frame.fresco.substrate`'s `make-react-spine` call — and keep
- * ONE marker from EACH tier, or the gap this set closed reopens).
+ * ONE marker from EACH tier, or a leak of one tier alone goes unseen).
  *
  * Exit 0 on PASS, 1 on FAIL.
  */
@@ -94,8 +92,8 @@ const report = createGateReporter();
 
 const REAGENT_SENTINELS = [
   // reagent.ratom — set as a JS property on React components; survives
-  // :advanced (interop string, not a CLJS field). Same sentinel the counter
-  // rf2-jicu2 gate uses.
+  // :advanced (interop string, not a CLJS field). Same sentinel the counter-side
+  // check-uix-reagent-free.cjs gate uses.
   { source: 'reagent.ratom cljsRatom field (set on React component)',
     sentinel: 'cljsRatom' },
   // reagent.impl.batching — RenderQueue.run-queue interop property.
@@ -131,9 +129,9 @@ const FRESCO_SENTINELS = [
   // `adapter.context` / `frame` / `substrate.spine` / `views.frame-boundary`;
   // it never names the codec or the public `re-frame.fresco` door. So a
   // codec-only sentinel set answers ABSENT for a bundle carrying the whole
-  // Fresco ADAPTER, and the two ABSENT arms below would have passed while a
+  // Fresco ADAPTER, and the two ABSENT arms below would pass while a
   // foreign adapter sat in the Reagent and UIx login bundles. The own-bundle
-  // PRESENT arm could not reveal it either: `fresco.login.core` requires the
+  // PRESENT arm cannot reveal it either: `fresco.login.core` requires the
   // public door as well, so its bundle carries both tiers regardless.
   //
   // These two close that half, and they are the DIRECT ANALOGUE of the UIx
@@ -143,7 +141,7 @@ const FRESCO_SENTINELS = [
   // `use-sub` watch-key keyword namespace from `gensym-prefix-use-sub`
   // by `subs` at adapter-construction time, so both reach the `:advanced`
   // bundle as string literals on paths no `goog.DEBUG` guards. The sibling
-  // gate fresco/scripts/check_bundle_isolation.cjs already leans on exactly
+  // gate fresco/scripts/check_bundle_isolation.cjs leans on exactly
   // this for the UIx twin: `rf-uix-sub-` is one of its POSITIVE CONTROLS,
   // proved PRESENT in an `:advanced` release bundle.
   //
@@ -188,7 +186,7 @@ const BUNDLES = [
 
 // ----- helpers ---------------------------------------------------------------
 //
-// Bundle reading + the missing/empty non-vacuous-floor guard (rf2-utvst) are
+// Bundle reading + the missing/empty non-vacuous-floor guard are
 // shared via scripts/lib/read-release-bundle.cjs + scripts/lib/sentinel-scan.cjs
 // (classifyOrFail); the per-sentinel present/absent scan loop is the shared
 // assertSentinelSet.
@@ -217,7 +215,7 @@ function checkBundle(spec) {
     },
     onEmpty: (d) => {
       report.flushDetails();
-      // Non-vacuous floor (rf2-utvst): a present-but-empty dir satisfies every
+      // Non-vacuous floor: a present-but-empty dir satisfies every
       // ABSENT check and would false-GREEN.
       console.error(`[login-bundle-isolation] ${spec.name}: bundle present but empty (zero top-level JS) — ${d}`);
       console.error('                    The release emitted no inspectable bundle; the');
@@ -260,7 +258,7 @@ function checkBundle(spec) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Login cross-view-layer bundle isolation (rf2-ppbvav) ===');
+  report.detail('=== Login cross-view-layer bundle isolation ===');
   report.detail('One substrate-free login.model, three builds; each login bundle');
   report.detail('must carry ONLY its own view runtime.');
   report.detail('');
@@ -288,7 +286,7 @@ function main() {
       console.error(`${r.name}: a FOREIGN view runtime leaked into the bundle.`);
       console.error('  The shared substrate-free login.model (examples/core/login/model.cljc)');
       console.error('  appears to have pulled in a view library / adapter — the isolation');
-      console.error('  claim (rf2-ppbvav) is broken. Likely cause: a `:require` on');
+      console.error('  claim is broken. Likely cause: a `:require` on');
       console.error('  `reagent.*` / `uix.*` / `re-frame.fresco.*` or `re-frame.adapter.*`');
       console.error('  slipped into login.model (which every login build imports) or into');
       console.error('  another substrate-agnostic ns it pulls. Keep login.model');
@@ -315,7 +313,7 @@ function main() {
   process.exit(1);
 }
 
-// Checker-owned target contract (rf2-kfn9q): the exact implementation-relative
+// Checker-owned target contract: the exact implementation-relative
 // runtimes this gate actually isolates. The dedicated-gate binding in
 // check-bundle-isolation.cjs requires a runtime's descriptor to name a checker
 // whose COVERS_RUNTIMES includes it, so an unrelated existing checker can NOT be
