@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.core-cljs-test
   "Tests for `day8.re-frame2-xray.core` — the canonical user-facing
-  facade promised by `spec/API.md` (rf2-13bx9).
+  facade promised by `spec/API.md`.
 
   ## Three contract surfaces under test
 
@@ -13,14 +13,13 @@
   2. **Frame wiring.** `set-target-frame!` dispatches into the
      `:rf/xray` frame; the dispatch updates `:rf.xray/target-frame`
      in Xray's app-db, so the companion sub re-fires and
-     `target-frame` reads back the new value. (The legacy panel
-     picker — `active-panel` / `set-active-panel!` — was deleted with
-     rf2-qy0nu; the 4-layer shell switches via `:rf.xray/selected-
-     tab` and the API is gone.)
+     `target-frame` reads back the new value. (There is no panel
+     picker API — no `active-panel` / `set-active-panel!`; the 4-layer
+     shell switches via `:rf.xray/selected-tab`.)
 
   3. **`load-theme!` is a safe no-op without a DOM.** It injects a
      host-supplied CSS override into `<head>` when a DOM is present
-     (rf2-ee38b.2 wired it through `global-styles/set-host-theme-css!`);
+     (through `global-styles/set-host-theme-css!`);
      under node-test there is no `js/document`, so it must return nil
      without throwing for any input (CSS string / empty / nil)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -38,10 +37,10 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the `:runtime` reset tier —
-  ;; sentinels + trace-collector rings + the persisted Settings atom. rf2-2thl2
-  ;; — the settings reset matters because init! writes through to that atom,
+  ;; `make-xray-runtime-fixture` is the one owner of per-test setup:
+  ;; plain-atom adapter + the `:runtime` reset tier —
+  ;; sentinels + trace-collector rings + the persisted Settings atom.
+  ;; The settings reset matters because init! writes through to that atom,
   ;; so per-test mutations must not leak into the next test's read.
   (xray-test-support/make-xray-runtime-fixture {:tier :runtime}))
 
@@ -80,7 +79,7 @@
 ;; surface.
 
 (deftest target-frame-default-is-unselected
-  (testing "EP-0002 (rf2-bd4div) — target-frame defaults to nil = UNSELECTED
+  (testing "per EP-0002, target-frame defaults to nil = UNSELECTED
             (per defaults/default-target-frame), NOT :rf/default. The
             inspected target is never absence-repaired to the ordinary
             :rf/default id; it starts unselected and the picker / discovery
@@ -101,13 +100,12 @@
           "subsequent flips also land")
       (rf/dispatch-sync [:rf.xray/set-target-frame nil])
       (is (nil? (core/target-frame))
-          "EP-0002 (rf2-bd4div) — nil resets to UNSELECTED (not through :rf/default)"))))
+          "nil resets to UNSELECTED (not through :rf/default)"))))
 
 (deftest set-target-frame!-dispatches-set-target-frame
   (testing "set-target-frame! dispatches :rf.xray/set-target-frame into :rf/xray"
     ;; The `rf/dispatch` macro's expansion calls the `^:no-doc`
-    ;; `re-frame.core/dispatch-impl` seam directly (rf2-m90brg retired the
-    ;; `re-frame.core/dispatch*` facade twin), so with-redefs THAT seam —
+    ;; `re-frame.core/dispatch-impl` seam directly, so with-redefs THAT seam —
     ;; redef'ing `re-frame.router/dispatch!` directly would fail (a plain
     ;; `defn`'s static arity-dispatch bypasses `with-redefs`), and redef'ing
     ;; `re-frame.core/dispatch` (the CLJS value-alias) would have no effect
@@ -121,11 +119,11 @@
 ;; ---- (3) load-theme! — DOM-bearing impl, no-op without a DOM ------------
 
 (deftest load-theme-is-safe-without-document
-  (testing "rf2-ee38b.2 — load-theme! is wired through
+  (testing "load-theme! is wired through
             global-styles/set-host-theme-css!. Under node-test there is
             no js/document, so it returns nil without throwing for any
-            input and emits NO warning trace (the old not-yet-implemented
-            stub is gone). DOM-bearing CSS injection is exercised by the
+            input and emits NO not-yet-implemented warning trace.
+            DOM-bearing CSS injection is exercised by the
             browser target."
     (preload/register-trace-collector!)
     (let [result (core/load-theme! ".foo { color: red; }")
@@ -135,7 +133,7 @@
                          events)]
       (is (nil? result) "load-theme! returns nil")
       (is (empty? stale)
-          "no not-yet-implemented warning — the stub is gone")
+          "no not-yet-implemented warning")
       (is (nil? (core/load-theme! ""))  "empty string is a safe no-op")
       (is (nil? (core/load-theme! nil)) "nil is a safe no-op"))))
 
@@ -146,10 +144,8 @@
             but is NOT a no-op"
     ;; First call wires registry + trace-cb + epoch-cb + browser-API
     ;; exports + keybinding. There is no view-evidence acquire step and
-    ;; none is missing (rf2-l86mm): the Views panel's reads over the
-    ;; Freehand tool door retired with that substrate, and the Fresco
-    ;; tab's door is a pure reader with no registry to claim, so startup
-    ;; has nothing to acquire for either.
+    ;; none is missing: the Fresco tab's door is a pure reader with no
+    ;; registry to claim, so startup has nothing to acquire.
     ;; The keybinding listener requires js/window which the node-test
     ;; host does not expose; the attach call no-ops on that host (the
     ;; (when (exists? js/window) ...) guard inside keybinding/attach!).
@@ -159,7 +155,7 @@
     (core/init!)
     (is (some? (rf.registrar/handler :sub :rf.xray/target-frame))
         "registry/register-xray-handlers! ran")
-    ;; Second call (rf2-gpg26): INSTALLATION is deduplicated — each
+    ;; Second call: INSTALLATION is deduplicated — each
     ;; install sits behind a `defonce` sentinel atom flipped by
     ;; `compare-and-set!` — but OPTION APPLICATION re-runs, so a repeat
     ;; call is SAFE rather than a no-op. No opts are supplied here, so
@@ -169,9 +165,9 @@
     (is true "second init! did not throw")))
 
 (deftest init!-with-target-frame-dispatches-set-target-frame
-  (testing "EP-0002 (rf2-bd4div) — init! threads :target-frame through to
-            :rf.xray/set-target-frame (the legacy :default-frame opt is
-            retired in favour of the distinct :target-frame vocabulary)"
+  (testing "init! threads :target-frame through to
+            :rf.xray/set-target-frame (EP-0002; there is no
+            :default-frame opt)"
     ;; The dispatch is async (queues into :rf/xray's router); we capture
     ;; the call to verify the facade routes through the registered event.
     ;; The dispatch-sync-driven landing is covered by
@@ -184,7 +180,7 @@
           "init! dispatched :rf.xray/set-target-frame with :target-frame"))))
 
 (deftest init!-wires-theme-density-and-buffer-depths
-  (testing "rf2-2thl2 — init! threads :theme / :density / :buffer-depths
+  (testing "init! threads :theme / :density / :buffer-depths
             through to the persisted Settings shape so a host's boot-time
             opts land in the same slots the Settings popup writes."
     (setup-xray-frame!)
@@ -200,7 +196,7 @@
         ":buffer-depths :epoch landed under :general :epoch-history")))
 
 (deftest init!-tolerates-unknown-opts-keys
-  (testing "rf2-2thl2 — init! silently ignores keys it doesn't recognise
+  (testing "init! silently ignores keys it doesn't recognise
             (forward-compat: a host passing a key a future Xray release
             adds MUST NOT break the current Xray boot)."
     (setup-xray-frame!)
@@ -210,7 +206,7 @@
     (is true "init! did not throw on unknown keys")))
 
 (deftest init!-buffer-depths-with-nil-epoch-is-noop
-  (testing "rf2-2thl2 — init! ignores :buffer-depths shapes without a
+  (testing "init! ignores :buffer-depths shapes without a
             usable :epoch (nil, non-numeric, non-positive)."
     (setup-xray-frame!)
     (let [start (config/get-setting :general :epoch-history)]
