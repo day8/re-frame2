@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-cljs-test
   "CLJS-side wiring + view tests for Xray's Cancellation-cascade
-  visualiser (rf2-59e7k).
+  visualiser.
 
   ## What's under test (in addition to the pure-data tests in
   `cancellation_cascade_helpers_cljs_test.cljc`)
@@ -31,7 +31,7 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            ;; rf2-vw80 — the key assertions read the element the codec
+            ;; The key assertions read the element the codec
             ;; BUILDS, so the codec itself is the instrument.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cc]))
@@ -39,10 +39,8 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time.
+  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
+  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers (mirror other view tests) ---------------------------
@@ -72,16 +70,16 @@
                          (.startsWith prefix))))
           (hiccup-seq tree)))
 
-;; ---- the two views, as trees (rf2-k97c.3) --------------------------------
+;; ---- the two views, as trees ----------------------------------------------
 ;;
-;; `cc/SidePanel` and `cc/Popover` are now `rf.fresco/as-component`
+;; `cc/SidePanel` and `cc/Popover` are `rf.fresco/as-component`
 ;; bridges and answer an interop vector, not a tree to walk. The markup
 ;; is `cc/render-cascade` / `cc/popover-tree`, pure fns of the values the
 ;; boundary reads.
 ;;
 ;; The two helpers below reproduce each boundary's gate and reads
 ;; EXACTLY — same gate, same order, same query vectors — so every row in
-;; this file asserts on the same hiccup it did before, and a boundary
+;; this file asserts on the hiccup the boundary renders, and a boundary
 ;; that stopped reading one of these subs would diverge from its own
 ;; test helper rather than silently agreeing with it.
 ;;
@@ -93,8 +91,8 @@
 ;; for real.
 
 (defn- side-panel-tree
-  "What calling the SidePanel var directly returned before the
-  migration: nil while dormant, the cascade block otherwise."
+  "The SidePanel boundary's markup: nil while dormant, the cascade
+  block otherwise."
   []
   (let [cascade @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-machine])]
     (when-not (= :no-trigger (:empty-kind cascade))
@@ -102,8 +100,8 @@
         cascade nil @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])))))
 
 (defn- popover-tree
-  "What calling the Popover var directly returned before the migration:
-  nil while closed, the dialog otherwise."
+  "The Popover boundary's markup: nil while closed, the dialog
+  otherwise."
   []
   (when @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])
     (cc/popover-tree
@@ -206,7 +204,7 @@
                        tree "rf-xray-cancellation-cascade-abort-row-")]
           (is (= 2 (count aborts))
               "two abort rows rendered, one per fixture event"))
-        ;; rf2-wuwu3 — each row's `:style` is one of the 6 precomputed
+        ;; Each row's `:style` is one of the 6 precomputed
         ;; row-style × cursor variants (no per-render `merge`). The
         ;; `:cursor` slot is baked into the row style at ns load, so
         ;; the rendered row's :style map carries `:cursor` directly.
@@ -256,17 +254,17 @@
       (seed-trace! cancel-cascade-buffer)
       ;; No throw is enough — the event handler delegates via :fx so
       ;; the side-effecting half routes through the spine shim, which
-      ;; we've already covered in the spine tests.
+      ;; the spine tests cover.
       (rf/dispatch-sync [:rf.xray/focus-trace-entry
                          {:dispatch-id 7 :frame :rf/default :trace-id 1}])
       (is (true? true)))))
 
 (deftest focus-trace-entry-lands-on-a-live-tab
-  ;; rf2-cduftx F1 — the row-jump used to `[:rf.xray/select-tab :event]`,
-  ;; but `:event` is a RETIRED tab id (the event-detail panel folded into
-  ;; Epoch). Selecting it landed the shell's `rf-xray-tab-unknown` stub
-  ;; instead of the cascade detail. This locks the row-jump's tab onto a
-  ;; LIVE Dynamic L4 tab — and never onto an unregistered id.
+  ;; There is no `:event` tab id (the event detail lives in Epoch), and
+  ;; selecting an unregistered id would land the shell's
+  ;; `rf-xray-tab-unknown` stub instead of the cascade detail. This locks
+  ;; the row-jump's tab onto a LIVE Dynamic L4 tab — and never onto an
+  ;; unregistered id.
   (testing "a row jump (with a dispatch-id) selects a LIVE Dynamic L4 tab"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
@@ -280,8 +278,8 @@
                  " which is NOT a live Dynamic L4 tab "
                  (pr-str live-tabs) " — it would render the unknown-tab stub"))
         (is (not= :event selected)
-            "the retired `:event` tab id must never be selected again")
-        ;; Lock the specific live replacement: Epoch is the cascade-
+            "`:event` is not a live tab id, so it is never selected")
+        ;; Lock the specific live target: Epoch is the cascade-
         ;; pipeline master surface the `:rf.xray/select-dispatch-id` pin
         ;; drives. If the row-jump target moves, this assertion is the
         ;; deliberate update point.
@@ -363,7 +361,7 @@
         (is (not (contains? db :cancellation-cascade-popover-open?))
             "no leak into the host's :rf/default frame")))))
 
-;; ---- (7) Modal positioning (rf2-om6fa) -------------------------------
+;; ---- (7) Modal positioning ---------------------------------------------
 
 (deftest popover-backdrop-defaults-to-fixed-positioning
   (testing "with no :rf.xray/modal-positioning slot set, the
@@ -400,18 +398,18 @@
         (is (= "absolute"
                (:data-rf-xray-modal-positioning (second backdrop))))))))
 
-;; ---- (8) dialog Esc keydown (rf2-op8c7) --------------------------------
+;; ---- (8) dialog Esc keydown ---------------------------------------------
 ;;
 ;; The popover DIALOG's `:on-key-down` MUST be the BUILT handler
 ;; `(handle-popover-keydown dispatch)`, not the bare 1-arity builder.
-;; With the bug, React called the builder with the keydown event and
-;; discarded the handler fn it RETURNED, so a dialog-focused Esc was a
-;; no-op — and the `a11y/dialog-ref` focus trap kept that Esc from ever
-;; reaching the backdrop's correctly-built handler.
+;; With the bare builder, React would call it with the keydown event and
+;; discard the handler fn it RETURNED, so a dialog-focused Esc would be a
+;; no-op — and the `a11y/dialog-ref` focus trap would keep that Esc from
+;; ever reaching the backdrop's correctly-built handler.
 ;;
 ;; Idiom mirrors `edn_inspector_popup_cljs_test`: pull the rendered
-;; dialog node's `:on-key-down` (exercising the actual wiring at the
-;; bug site), redef `rf/dispatch` to capture the dispatched event, fire
+;; dialog node's `:on-key-down` (exercising the actual wiring), redef
+;; `rf/dispatch-impl` to capture the dispatched event, fire
 ;; a fake Escape keydown through it, and assert the close event was
 ;; dispatched. With the BUILT handler the close event is captured; with
 ;; the bare builder the call returns an inner fn and dispatches NOTHING
@@ -428,7 +426,7 @@
 (deftest popover-dialog-esc-keydown-dispatches-close
   (testing "an Escape keydown on the popover DIALOG invokes the BUILT
             keydown handler and dispatches :cancellation-cascade-close
-            — guards against the bare-builder no-op (rf2-op8c7)"
+            — guards against the bare-builder no-op"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
@@ -459,31 +457,25 @@
             "Enter on the dialog dispatched nothing")))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-vw80 — the row keys must reach REACT, not merely the hiccup's metadata.
+;; The row keys must reach REACT, not merely the hiccup's metadata.
 ;;
-;; This REPLACES `cascade-body-rows-carry-key-meta`, which asserted that each
-;; row vector carried `:key` in its Clojure METADATA. That assertion was green
-;; against code whose keys reached React as no key at all, so it proved the
-;; thing the code did rather than the thing the code is for. It was not
-;; patched: a mended hollow control is a second thing that looks like a
-;; control and is not, and the next reader trusts it harder for having a
-;; history of being fixed.
+;; An assertion that each row vector carries `:key` in its Clojure METADATA
+;; would be green against code whose keys reach React as no key at all, so it
+;; would prove the thing the code does rather than the thing the code is for.
 ;;
-;; The hollowness has a mechanism worth keeping. Reagent honours `:key` meta
-;; first and the props map second (`react-key-from-meta-or-props`), so
-;; `with-meta` worked for as long as the cascade rendered through the
-;; substrate adapter. The Fresco codec reads `:key` off the ATTRIBUTE MAP and
-;; reads Clojure metadata NOWHERE, so once these views became `defview`
-;; boundaries both row families reached React unkeyed — silently, with the
-;; metadata still sitting on the vector and the old assertion still green.
+;; The mechanism: Reagent honours `:key` meta first and the props map second
+;; (`react-key-from-meta-or-props`), so `with-meta` works for a view rendered
+;; through the substrate adapter. The Fresco codec reads `:key` off the
+;; ATTRIBUTE MAP and reads Clojure metadata NOWHERE, so under a `defview`
+;; boundary a meta-only key reaches React as no key at all — silently, with
+;; the metadata sitting on the vector.
 ;;
 ;; So the rows below assert the EMITTED key: each row vector goes through the
 ;; real codec and the element's own `.-key` is read. `:key` in the attribute
-;; map satisfies BOTH heads, which is why the fix moves the same key
-;; expressions rather than renaming or recomputing them.
+;; map satisfies BOTH heads.
 ;;
 ;; Note: `expand-fn-component` above strips element meta (via `mapv`), so
-;; these rows re-walk the raw rendered tree without fn expansion. That is now
+;; these rows re-walk the raw rendered tree without fn expansion. That is
 ;; belt-and-braces rather than load-bearing — the key rides in the attribute
 ;; map, which no walker here disturbs — but the raw walk is also the only one
 ;; that leaves each container's child SEQ intact at index 2.
@@ -540,26 +532,26 @@
        :aborts    (raw-find-by-testid tree "rf-xray-cancellation-cascade-aborts")})))
 
 (deftest cascade-body-rows-emit-react-keys
-  (testing "rf2-vw80 — every teardown and abort row reaches React WITH its
+  (testing "every teardown and abort row reaches React WITH its
             key, read off the element the Fresco codec actually builds"
     (let [{:keys [teardowns aborts]} (cascade-row-containers cancel-cascade-buffer)]
       (is (some? teardowns) "teardown container rendered for the fixture")
       (is (some? aborts) "abort container rendered for the fixture")
       (let [t-keys (emitted-row-keys teardowns)
             a-keys (emitted-row-keys aborts)]
-        ;; Counts first: a container whose rows had gone would make every
-        ;; key assertion below vacuously true. The old test's teardown half
-        ;; was guarded by a bare `when` and would have skipped in silence.
+        ;; Counts first: a container with no rows would make every
+        ;; key assertion below vacuously true.
         (is (= 1 (count t-keys)) "one teardown row from the fixture")
         (is (= 2 (count a-keys)) "two abort rows from the fixture")
-        ;; The defect: under the Fresco codec every one of these was nil.
+        ;; A meta-only key would leave every one of these nil under the
+        ;; Fresco codec.
         (is (every? some? t-keys)
             (str "every teardown row carries an emitted React key — got "
                  (pr-str t-keys)))
         (is (every? some? a-keys)
             (str "every abort row carries an emitted React key — got "
                  (pr-str a-keys)))
-        ;; The existing naming ruling, pinned against the fixture's own
+        ;; The key naming, pinned against the fixture's own
         ;; trace-event ids rather than re-derived from the view's expression
         ;; (which would assert only that the code equals itself).
         (is (= ["teardown-2"] t-keys)
@@ -570,7 +562,7 @@
             "abort keys are distinct, so React can tell the rows apart")))))
 
 (deftest cascade-row-keys-survive-removing-an-earlier-row
-  (testing "rf2-vw80 — a key earns its keep by preserving identity across a
+  (testing "a key earns its keep by preserving identity across a
             list edit. Dropping the FIRST abort must leave the second one's
             key untouched; an index-derived key would renumber it and React
             would reuse the wrong DOM node for it."
