@@ -158,7 +158,9 @@
   classification (the common fail-open case) or `actor-id` is nil. Runs at
   spawn / singleton first-boot, the instance-birth point — so a
   `:spawn`-generated `<type>#n` is classified the moment its snapshot
-  lands, with no per-instance author code.
+  lands, with no per-instance author code — and again for every actor an
+  installer brings back (`re-frame.machines.hydrate`), whose snapshot lands
+  without a birth.
 
   Writes through `re-frame.elision/swap-elision-slot!` — the SAME registry
   write surface the four commit-plane effects and the marks API share — so
