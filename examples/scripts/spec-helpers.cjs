@@ -1,7 +1,7 @@
 /*
  * Shared assertion helpers for the repo's hand-rolled Playwright specs.
  *
- * `examples/` is test-free, so there are no example specs anymore; the
+ * `examples/` is test-free, so there are no example specs; the
  * consumers are the per-adapter testbed smokes
  * (`implementation/adapters/{reagent,uix}/testbed/spec.cjs`, and
  * reagent-slim's `testbed/smoke.cjs`) plus the Story browser scenarios
@@ -10,9 +10,9 @@
  * testbed spec (`testbeds/tenant_switcher/spec.cjs`), the navigation-ceiling
  * self-test (`implementation/scripts/_navigation-ceiling-policy.test.cjs`),
  * and — for the navigation helpers only — the sibling play-scripts runner
- * (`serve-and-run-story-play-scripts.cjs`). They keep requiring this module
+ * (`serve-and-run-story-play-scripts.cjs`). They require this module
  * across-tree because the helpers are substrate- and surface-agnostic; the
- * file stays here as their single shared home.
+ * file lives here as their single shared home.
  *
  * Re-derive that list from `require`s rather than from name mentions: a bare
  * `git grep -l spec-helpers.cjs` also matches comments (two files in the tree
@@ -165,7 +165,7 @@ async function waitForStableValue(readFn, options = {}) {
 }
 
 /*
- * Navigation whose ceiling is EXPLICIT and NAMES ITSELF (rf2-taj9b).
+ * Navigation whose ceiling is EXPLICIT and NAMES ITSELF.
  *
  * `page.goto(url)` / `page.reload()` apply Playwright's 30s default whenever
  * no `timeout:` is passed. That default is a SECOND budget: invisible in the
@@ -173,15 +173,14 @@ async function waitForStableValue(readFn, options = {}) {
  * costs money — indistinguishable in a CI log from the budget the runner does
  * own. `page.goto: Timeout 30000ms exceeded` reads like the spec timeout, so
  * the fix reached for is a bigger spec timeout, which cannot move it.
- * Demonstrated (rf2-bhjzn, re-run for rf2-taj9b): against a page whose `load`
- * is held 35s, a bare `page.goto` dies at 30013ms while a 90000ms lane budget
- * sits unused.
+ * Against a page whose `load` is held 35s, a bare `page.goto` dies at 30s
+ * while a 90000ms lane budget sits unused.
  *
  * So `timeoutMs` is REQUIRED here, not defaulted. A default would be one more
  * anonymous ceiling — the exact defect — merely relocated into this file.
  * Callers name their own budget, tied to whatever bounds them.
  *
- * `waitUntil` defaults to `'load'` because that is what every current caller
+ * `waitUntil` defaults to `'load'` because that is what every caller
  * wants: each one follows its navigation with short locator budgets that
  * assume a loaded document. A caller whose page runs work DURING load (a
  * shadow-cljs suite, a bench fixture) should pass `'commit'` instead and let
@@ -193,7 +192,7 @@ function assertNavTimeout(timeoutMs, api) {
       `${api}: timeoutMs is REQUIRED and must be a positive number (got ` +
         `${JSON.stringify(timeoutMs)}). Omitting it hands the navigation ` +
         "Playwright's 30s default — a budget no runner can reach and whose " +
-        'failure line reads like the runner\'s own timeout (rf2-taj9b).',
+        'failure line reads like the runner\'s own timeout.',
     );
   }
 }
@@ -203,7 +202,7 @@ function navigationCeilingError(api, waitUntil, timeoutMs, err) {
     `NAVIGATION FAILED — this is the ${api} ceiling (waitUntil: ` +
       `'${waitUntil}', timeout: ${timeoutMs}ms), NOT any assertion budget ` +
       'that follows it. No assertion ran, so nothing about the page under ' +
-      `test has been observed (rf2-taj9b). Underlying: ${err.message}`,
+      `test has been observed. Underlying: ${err.message}`,
   );
 }
 
