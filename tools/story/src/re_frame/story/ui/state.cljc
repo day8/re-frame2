@@ -55,7 +55,9 @@
   - `:active-modes`      — vector of mode ids active for the rendered variant.
   - `:cell-overrides`    — {variant-id → {arg-key → value}} — runtime
                            overrides emitted by the controls panel.
-  - `:substrate`         — `:reagent` at v1; v2 may add UIx.
+  - `:substrate`         — the render substrate; `:reagent` by default
+                           (others, e.g. `:uix`, plug in via
+                           `re-frame.story.ui.multi-substrate`).
   - `:hot-reload-tick`   — integer that increments when the shell detects
                            a registrar mutation; variant components watch
                            this slot to know they must re-mount.
@@ -167,11 +169,11 @@
    ;; `mount-<panel>!` fires and the panel's expensive diff compute (app-db
    ;; structural diff, epoch timeline) is deferred. Defaults false
    ;; (expanded) so the out-of-the-box RHS paints the panel; collapsing
-   ;; releases the Xray React root via the existing microtask path.
+   ;; releases the Xray React root via the embed's microtask path.
    ;; The chip-row's disclosure toggle flips this slot.
    :xray-embed-collapsed? false})
 
-;; ---- pure transitions (extracted to state.transitions) ------------------
+;; ---- pure transitions (live in state.transitions) -----------------------
 
 (def select-variant            rf.story.ui.state.transitions/select-variant)
 (def select-workspace          rf.story.ui.state.transitions/select-workspace)
@@ -218,7 +220,7 @@
 (def active-mode-tab           rf.story.ui.state.transitions/active-mode-tab)
 (def set-active-mode-tab       rf.story.ui.state.transitions/set-active-mode-tab)
 
-;; ---- pure derivations (extracted to state.filters) ----------------------
+;; ---- pure derivations (live in state.filters) ---------------------------
 
 (def group-tags-by-axis           rf.story.ui.state.filters/group-tags-by-axis)
 (def axis-display-order           rf.story.ui.state.filters/axis-display-order)
@@ -232,7 +234,7 @@
 ;; `re-frame.story.predicates`; sidebar / filters call
 ;; `pred/parent-story-id` directly.
 
-;; ---- registry snapshot (extracted to state.snapshot) --------------------
+;; ---- registry snapshot (lives in state.snapshot) ------------------------
 
 (def registry-snapshot
   "Re-export of `re-frame.story.ui.state.snapshot/registry-snapshot`."
@@ -273,12 +275,12 @@
   (when rf.story.config/enabled?
     (apply swap! shell-state-atom f args)))
 
-;; ---- test-runs + watch-mode (extracted to state.tests) ------------------
+;; ---- test-runs + watch-mode (live in state.tests) -----------------------
 ;;
 ;; The cross-variant test-run aggregation surface and the watch-mode
-;; helpers live in `re-frame.story.ui.state.tests`, split out to honor the
-;; leaf-size ceiling. Re-exported here so consumer requires of
-;; `re-frame.story.ui.state` keep working unchanged.
+;; helpers live in `re-frame.story.ui.state.tests`, a separate ns to honor
+;; the leaf-size ceiling. Re-exported here so consumers need only
+;; require `re-frame.story.ui.state`.
 
 (def test-run-statuses           rf.story.ui.state.tests/test-run-statuses)
 (def mark-test-running           rf.story.ui.state.tests/mark-test-running)
