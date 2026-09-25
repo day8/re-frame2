@@ -60,7 +60,7 @@
   `(replay-run-artifact artifact opts)` replays the artifact's dispatch
   program into a FRESH frame, reapplying the fx decisions, RE-INSTALLING
   the `:network` route stubs (when present), captures a NEW epoch tape, and
-  projects it through the merged `.4` evidence boundary
+  projects it through the evidence boundary
   (`re-frame.story.play.evidence/project-evidence`). The returned
   run-result is the SHARED run-result shape (spec/017 §Run result) — the
   same shape the runner returns and the same one `canonicalize` /
@@ -73,13 +73,13 @@
   `program-events`, `replay-result`) from the impure HEADLESS replay path
   (`replay-into-frame!`). Construction + result projection are pure
   data → data and run under `clojure -M:test` with no runtime. The
-  headless replay path uses the `.2` settled-boundary so each
+  headless replay path uses the settled-boundary so each
   `[:dispatch …]` settles deterministically to a fixed point with no async
   yield — `clojure -M:test` exercises a live frame synchronously. Richer
   runners (DOM/browser) supply their own flush-hooks; this ns defaults to
   the headless hooks and never reaches for `dispatch-sync` directly."
   (:require [re-frame.core                        :as rf]
-            ;; rf2-kuky.18: the one Story-owned `:observability :errors` sink
+            ;; The one Story-owned `:observability :errors` sink
             ;; id, shared with `frames` and `ui.shell`. `config` is the leaf
             ;; all three can reach without closing a cycle.
             [re-frame.story.config                :as rf.story.config]
@@ -225,7 +225,7 @@
   `drain-sync!` merges them onto the dispatch envelope), alongside the
   lexical `fx-decisions` wrap — both survive whatever dispatch path the
   (possibly richer-adapter) inner hook owns. A 2-arity replay (no opts)
-  stays byte-identical to the opts-free dispatch path."
+  is byte-identical to the opts-free dispatch path."
   [base-hooks fx-decisions]
   (let [inner (or (:dispatch! base-hooks) rf.story.play.settled-boundary/drain-sync!)
         ;; Route the dispatch through `inner`, optionally with opts, always
@@ -324,15 +324,15 @@
 
   Every OTHER step (`[:assert …]`, `[:wait-until …]`, `[:click …]`,
   `[:type …]`, `[:focus …]`, `[:flush-presence]`, a bare `[:wait ms]`) runs
-  in program order through the play runner's step executor (`replay-step!`,
-  rf2-3x7nj.31.1). Their runner step-results ride the returned vector's
+  in program order through the play runner's step executor (`replay-step!`).
+  Their runner step-results ride the returned vector's
   `:step-results` metadata slot, which `replay-result` folds into the
   result's `:assertions` and `:status`. A bare `[:wait ms]` does not sleep
   (a replay settles synchronously; the determinism gate refuses it).
 
   The returned vector carries an `:attribution` metadata slot: the
   last-committed `:epoch-id` (`rf.story.play.runner-events/last-epoch-id` — a genuine
-  monotonic identity, NOT a ring-length snapshot; rf2-96qsjr) at the start
+  monotonic identity, NOT a ring-length snapshot) at the start
   of each dispatch step's settle, in dispatch-step order. `replay-result`
   reads it (via `(:attribution (meta outcomes))`) and hands it to
   `project-evidence` so the replay narrative is attributed EXACTLY
@@ -366,7 +366,7 @@
                                     ;; Snapshot the last-committed
                                     ;; `:epoch-id` BEFORE the settle — this
                                     ;; dispatch step owns every record
-                                    ;; whose OWN id is greater (rf2-96qsjr:
+                                    ;; whose OWN id is greater (it is
                                     ;; an identity, not a ring-length
                                     ;; snapshot, so it stays correct
                                     ;; whatever the ring evicts).
@@ -374,7 +374,7 @@
                                     (rf.story.play.settled-boundary/dispatch-and-settle!
                                       frame-id evec replay-hooks required step
                                       dispatch-opts))
-                                  ;; rf2-3x7nj.31.1: every other step runs
+                                  ;; Every other step runs
                                   ;; through the play runner's executor.
                                   ;; Its epochs roll into the preceding
                                   ;; dispatch step's span, as in a live run.
@@ -389,7 +389,7 @@
   that satisfy `family?` (`rf.story.assertions/schema-error?` or
   `causal?`), in program order. Pure data → data. The replay counterpart of
   the live run's plan collector (`runtime/record-result-map`), for the one
-  position an artifact carries assertions in (rf2-0viz4)."
+  position an artifact carries assertions in."
   [program family?]
   (into []
         (comp (keep rf.story.play.runner/step-assertion)
@@ -405,7 +405,7 @@
   The result is the SHARED run-result shape (spec/017 §Run result): a
   top-level `:status`, the projected `:epoch-tape` / `:schema-violations` /
   `:warnings` / `:effects` / `:sub-runs` / `:renders` / `:narrative`
-  evidence (via the `.4` `project-evidence` boundary), the final
+  evidence (via the `project-evidence` boundary), the final
   `:app-db`, and a back-link `:run-artifact` to the replayed source. The
   `:script` for the two-level narrative is the artifact's
   `:event-program`.
@@ -416,7 +416,7 @@
   dispatched `:rf.assert/*` event) recorded — plus a record for each
   non-dispatch step that failed without recording one
   (`rf.story.play.runner/run-state-failures`, e.g. a `[:wait-until …]` that
-  never held), exactly as the unified run result folds them (rf2-3x7nj.31.1).
+  never held), exactly as the unified run result folds them.
   The step results are read off the `outcomes` vector's `:step-results`
   metadata (`replay-into-frame!`); a hand-built `outcomes` with none
   contributes none.
@@ -426,7 +426,7 @@
   executor skips them and their verdict is minted here, by the SAME result
   matchers the live run's result boundary uses
   (`rf.story.result/match-schema-expectations` /
-  `match-causal-expectations`, rf2-0viz4). Their records join
+  `match-causal-expectations`). Their records join
   `:assertions`: an expected schema violation that never happened fails, a
   matched one passes and is exactly consumed (its selector lands in
   `:consumed-selectors` and it no longer trips the tape floor), and a causal
@@ -449,12 +449,12 @@
                                      ;; metadata) light up EXACT narrative
                                      ;; attribution. Absent (a hand-built
                                      ;; `outcomes` with no metadata) → EVEN
-                                     ;; fallback, unchanged.
+                                     ;; fallback.
                                      :attribution (:attribution (meta outcomes))})
-        ;; rf2-3x7nj.31.1: the non-dispatch steps' runner results, bridged to
+        ;; The non-dispatch steps' runner results, bridged to
         ;; the unified result the same way `runtime/record-result-map` does.
         step-state     {:results (vec (:step-results (meta outcomes)))}
-        ;; rf2-0viz4: the tape-evaluated checkpoints, judged by the result
+        ;; The tape-evaluated checkpoints, judged by the result
         ;; boundary's own matchers against this replay's projected evidence.
         ;; Replay reads the frame's ring with no run baseline, and with no
         ;; baseline `run-tape-truncated?` answers false (as for a live inline
@@ -512,12 +512,12 @@
     `:frame`), so the replay never observes a sibling run's app-db. Every
     non-dispatch step runs through the play runner's step executor, so an
     `[:assert …]` records into the result's `:assertions` and a step the
-    replay runner cannot prove refuses (rf2-3x7nj.31.1).
+    replay runner cannot prove refuses.
   - Reapply the fx decisions / overrides — the artifact's `:fx-decisions`
     ride the per-call `:fx-overrides` on every replayed dispatch.
   - Capture a NEW epoch tape — read from `re-frame.core/epoch-history`
     after the program settles, NOT the artifact's captured tape.
-  - Project that tape through the merged `.4` evidence boundary and return
+  - Project that tape through the evidence boundary and return
     the shared run-result shape — stable + canonicalizable, so the
     determinism gate + semantic diff build on it directly.
 
@@ -533,8 +533,8 @@
 
   The replayed frame is allocated through `re-frame.core/make-frame` and —
   when this fn allocated it — torn down through `destroy-frame!` before
-  return, so a JVM test leaves no frame behind. Teardown is INCARNATION-EXACT
-  (rf2-moftbs): it destroys the frame VALUE `make-frame` returned (which carries
+  return, so a JVM test leaves no frame behind. Teardown is INCARNATION-EXACT:
+  it destroys the frame VALUE `make-frame` returned (which carries
   the exact incarnation token), so a replay program that itself destroyed and
   re-seated the same `frame-id` leaves the successor alive rather than reaping
   it on exit. A caller-supplied `:frame` is left intact (the caller owns its
@@ -545,7 +545,7 @@
          frame-id   (or frame (gen-replay-frame-id))
          hooks      (or hooks rf.story.play.settled-boundary/headless-flush-hooks)
          ;; When we allocate the replay frame, KEEP the frame VALUE `make-frame`
-         ;; returns: it carries the EXACT incarnation token (rf2-moftbs), so the
+         ;; returns: it carries the EXACT incarnation token, so the
          ;; `finally` teardown destroys ONLY the incarnation THIS replay created.
          ;; The replay program may itself `destroy-frame!` and re-`make-frame`
          ;; the SAME `frame-id` (a replayed reset composition); destroying by the
@@ -553,17 +553,17 @@
          ;; the run still reads `:pass`. Destroying the value no-ops against B
          ;; (its carried token is stale), leaving B alive, while an ordinary
          ;; A-only replay still tears A down.
-         ;; rf2-kuky.18: a replay frame is a frame STORY allocated, so it
+         ;; A replay frame is a frame STORY allocated, so it
          ;; declares Story's `:observability :errors` sink like every other
          ;; one — conj'd on AFTER the caller's `frame-config` is merged, so a
          ;; caller's own `[:observability :errors]` entries survive rather
          ;; than being replaced. Without it a `:dom`-adapter replay would be
-         ;; the single Story-allocated frame whose refusals still reached the
+         ;; the single Story-allocated frame whose refusals reach the
          ;; console.
          own-frame-value (when own-frame?
                            (rf/make-frame
                              (-> (merge {:id  frame-id
-                                         :doc "rf2-5x1wt.7 run-artifact replay frame"}
+                                         :doc "run-artifact replay frame"}
                                         frame-config)
                                  (update-in [:observability :errors] (fnil conj [])
                                             {:sink rf.story.config/error-sink-id}))))]
@@ -585,6 +585,6 @@
        (finally
          (when own-frame?
            ;; Incarnation-EXACT teardown: destroy the VALUE we created, not the
-           ;; bare `frame-id` (rf2-moftbs).
+           ;; bare `frame-id`.
            (try (rf/destroy-frame! own-frame-value)
                 (catch #?(:clj Throwable :cljs :default) _ nil))))))))
