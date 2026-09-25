@@ -1,10 +1,7 @@
 (ns day8.re-frame2-xray.epoch
   "Cross-cutting epoch primitives — target frame, epoch history, the
-  selected-epoch slot. Previously these registrations lived inside the
-  Time Travel panel namespaces (`panels.time-travel-events` +
-  `panels.time-travel-subs`). The Time Travel panel itself was deleted
-  with rf2-qy0nu (unreachable in the 4-layer shell), but its epoch /
-  target-frame plumbing is consumed by live panels:
+  selected-epoch slot. This epoch / target-frame plumbing is consumed
+  across the shell:
 
   - `panels.app-db-diff-subs` reads `:rf.xray/epoch-history`,
     `:rf.xray/target-frame`, and pivots on the spine focus epoch via
@@ -13,43 +10,41 @@
     `:rf.xray/target-frame`, `:rf.xray/target-frame-db`.
   - `panels.reactive-panel-subs` reads `:rf.xray/epoch-history` to
     project the focused event-bundle's `:trace-events` into the Reactive
-    panel's sub-cascade + view-re-render rendering (rf2-wyvf2).
+    panel's sub-cascade + view-re-render rendering.
   - `core/target-frame` + `core/set-target-frame!` read / dispatch the
-    target-frame slot and `:rf.xray/set-target-frame` event. (Pre
-    rf2-kmhvg the reader was `core/active-frame`; the rename eliminated
-    the `active` / `target` split.)
+    target-frame slot and `:rf.xray/set-target-frame` event.
   - `install/register-epoch-collector!` (re-exported as
     `preload/register-epoch-collector!`) dispatches `:rf.xray/epoch-
     recorded` when the framework records a new epoch (any frame),
-    task-coalesced to one dispatch per frame per tick (rf2-chs7).
+    task-coalesced to one dispatch per frame per tick.
   - `mount.cljs` seeds `:rf.xray/sync-epoch-history` at first open.
   - `panels.app-db-diff-sections` dispatches `:rf.xray/select-epoch`
     when a section's epoch chip is clicked.
-  - `shell/tab-bar` dispatches `:rf.xray/reset-to-epoch` (rf2-hga49) —
+  - `shell/tab-bar` dispatches `:rf.xray/reset-to-epoch` —
     the UI rewind affordance — and reads `:rf.xray/reset-flash` for the
     inline failure flash.
 
-  Splitting the plumbing out makes the cross-cutting intent visible:
-  the slot is `:rf/xray`-frame state shared across every panel that
-  cares about time, not Time Travel's private surface."
+  Keeping the plumbing in its own namespace makes the cross-cutting
+  intent visible: the slot is `:rf/xray`-frame state shared across every
+  panel that cares about time, not any one panel's private surface."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]))
 
-;; ---- the `:epoch-history` ingest gate (rf2-y8doi.13) ---------------------
+;; ---- the `:epoch-history` ingest gate -------------------------------------
 ;;
 ;; The framework's per-frame epoch ring retains RAW records — redaction
 ;; happens at off-box egress (`epoch/assembly.cljc`: "the ring and
 ;; listeners retain raw replay material"), which is right for the ring
 ;; and wrong for Xray's app-db. Every record carries `:trace-events`
 ;; verbatim, so a `:sensitive? true` cascade that `collect-trace!` and
-;; `snapshot-from-rings` both drop from `:trace-buffer` still reached the
-;; Epoch panel, the Issues ribbon, the Reactive panel, the Machine
+;; `snapshot-from-rings` both drop from `:trace-buffer` would still reach
+;; the Epoch panel, the Issues ribbon, the Reactive panel, the Machine
 ;; Inspector and the Trace feed through THIS slot — they all read
 ;; `:trace-events` off the focused record.
 ;;
-;; So the same Spec 009 §Privacy gate the trace side applies twice now
-;; also guards the one seam every `:epoch-history` write passes through.
+;; So the same Spec 009 §Privacy gate the trace side applies twice also
+;; guards the one seam every `:epoch-history` write passes through.
 ;; TWO SIGNALS, ONE GRAIN — the record:
 ;;
 ;;   1. `:rf.epoch/sensitive?` — the framework's own record-level rollup
@@ -61,11 +56,11 @@
 ;;      the panels key on.
 ;;   2. A `config/suppress-sensitive?` event in `:trace-events` — which
 ;;      is what catches a record carrying NO rollup (synthetic history
-;;      seeded through `:rf.xray/sync-epoch-history`, or a record
-;;      assembled before the rollup shipped). Belt-and-braces against
+;;      seeded through `:rf.xray/sync-epoch-history`, or any record
+;;      assembled without it). Belt-and-braces against
 ;;      the rollup's absence, not a second policy — and it drops the
 ;;      record at the SAME grain rather than editing one slot of it
-;;      (rf2-vaont; the reasoning is in `redact-history`'s docstring).
+;;      (the reasoning is in `redact-history`'s docstring).
 ;;
 ;; NO COUNTER BUMP. `config/note-suppressed!` counts what the LISTENER
 ;; dropped; the same events were already counted there on their way past
@@ -84,22 +79,22 @@
   is the same predicate `collect-trace!` and `snapshot-from-rings` gate
   on, so the three ingress paths share ONE policy rather than three.
 
-  ## The grain is the RECORD, not the event (rf2-vaont)
+  ## The grain is the RECORD, not the event
 
-  The second signal used to be answered at EVENT grain: keep the record,
-  remove the offending events from `:trace-events`. That left the
+  Answering the second signal at EVENT grain — keeping the record and
+  removing the offending events from `:trace-events` — would leave the
   cascade standing in every sibling slot, because `build-record`
   derives those slots from the very events being removed —
   `:sub-runs`, `:renders` and `:effects` are projections of
   `:trace-events`, `:trigger-event` is lifted out of the run-start's
   event vector, and `:db-before` / `:db-after` / `:frame-state-*` ride
-  in the same map. So the Reactive panel still read `:sub-runs` and
-  `:renders`, the App-DB projection still read `:db-after`, and the
-  payload the scrub had just removed was still on the record under
-  another key. The scrub moved the leak; it did not close it.
+  in the same map. The Reactive panel would still read `:sub-runs` and
+  `:renders`, the App-DB projection would still read `:db-after`, and
+  the scrubbed payload would still be on the record under another key.
+  An event-grain scrub moves the leak; it does not close it.
 
-  `trace-collector/bundles-for-frame` had already settled this question
-  for the BUNDLE read, and the reasoning transfers unchanged: a
+  `trace-collector/bundles-for-frame` answers this same question for the
+  BUNDLE read, and the reasoning transfers unchanged: a
   per-event scrub would have to reach every sibling slot to be honest,
   and a slot added upstream would silently re-open the leak. A record is
   the same shape, so it gets the same answer — one grain, not two.
@@ -137,12 +132,12 @@
     (fn [db _query]
       (get db :epoch-history [])))
 
-  ;; rf2-hga49 — transient `reset-to-event` failure flash. Holds a short
+  ;; Transient `reset-to-event` failure flash. Holds a short
   ;; message string when a `rf/restore-epoch!` rewind fails (epoch aged
   ;; out of the buffer, or a restore-during-drain rejection). nil =
   ;; nothing to show. The flash is INLINE on the tab ribbon — never a
   ;; modal — and clears on the next reset attempt (`:rf.xray/reset-to-
-  ;; epoch` dissocs the slot before re-running the restore, rf2-wa7tk).
+  ;; epoch` dissocs the slot before re-running the restore).
   ;; A failure must never be a silent lie; it must also never block.
   (rf/reg-sub :rf.xray/reset-flash
     (fn [db _query]
@@ -150,7 +145,7 @@
 
   ;; ---- effects -----------------------------------------------------------
 
-  ;; rf2-hga49 — `restore-epoch` is a side-effecting framework call (it
+  ;; `restore-epoch` is a side-effecting framework call (it
   ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
   ;; so it lives in an fx, not a plain `reg-event` `:db` reducer. `rf/restore-epoch!`
   ;; returns `false` on any of the seven documented failure modes (per
@@ -171,7 +166,7 @@
   ;; ---- events ------------------------------------------------------------
 
   ;; `:rf.xray/set-target-frame` — host-frame focus picker. Dispatched
-  ;; by `core/set-target-frame!`. EP-0002 (rf2-bd4div) — writing nil resets
+  ;; by `core/set-target-frame!`. EP-0002 — writing nil resets
   ;; to UNSELECTED (dissocs `:target-frame`), NOT to a synthesised
   ;; `:rf/default`: the inspected target is never absence-repaired to the
   ;; ordinary `:rf/default` id (Spec 002 §Frame target resolution). A known
@@ -179,22 +174,22 @@
   ;; ring so the immediate subscribe-after-dispatch read sees a hydrated
   ;; slot; a nil resets the history to `[]` (`rf/epoch-history nil` → `[]`).
   ;;
-  ;; rf2-ulpp8 — the reducer ALSO aligns `[:focus :frame]` to the same
-  ;; target. The two axes encode the same gesture (the user is observing
-  ;; this host frame); the picker-write path (`spine/set-frame-reducer`)
-  ;; already aligns both axes per rf2-ug1r6 + rf2-thodq. Pre-fix, mount-
-  ;; time and `core/set-target-frame!` callers wrote only `:target-frame`,
-  ;; leaving `[:focus :frame]` nil — which made:
+  ;; The reducer ALSO aligns `[:focus :frame]` to the same target. The
+  ;; two axes encode the same gesture (the user is observing this host
+  ;; frame), and the picker-write path (`spine/set-frame-reducer`) aligns
+  ;; both axes too. Writing only `:target-frame` from mount-time and
+  ;; `core/set-target-frame!` callers would leave `[:focus :frame]` nil,
+  ;; which would make:
   ;;   - `filter-event-bundles-by-frame` a no-op (reads `:focus-slot :frame`),
-  ;;     so the L2 list showed every frame's event-bundles even though the
-  ;;     picker view collapsed the dropdown label to a specific frame;
+  ;;     so the L2 list would show every frame's event-bundles even though
+  ;;     the picker view collapses the dropdown label to a specific frame;
   ;;   - `compose-focus`'s `slot-frame` filter inactive, so the head
-  ;;     walk picked the global most-recent event-bundle — Issues / Views /
-  ;;     App-DB Diff scoped to whichever frame's event was most recent,
-  ;;     not the observed frame.
+  ;;     walk would pick the global most-recent event-bundle — Issues /
+  ;;     Views / App-DB Diff scoped to whichever frame's event was most
+  ;;     recent, not the observed frame.
   ;; A nil `frame-id` (the reset case) symmetrically clears the focus
-  ;; slot's `:frame` — leaving it set to a stale value would re-introduce
-  ;; the misalignment in the inverse direction.
+  ;; slot's `:frame` — leaving it set to a stale value would misalign the
+  ;; two axes in the inverse direction.
   (rf/reg-event :rf.xray/set-target-frame
     (fn [{:keys [db]} [_ frame-id]]
       {:db (let [target (or frame-id defaults/default-target-frame)]
@@ -209,33 +204,33 @@
   ;; frame. Re-reads the per-frame ring into `:epoch-history` so the
   ;; companion sub re-fires on the standard app-db-write reactive path.
   ;;
-  ;; ONE DISPATCH PER FRAME PER TASK, not one per epoch (rf2-chs7). The
+  ;; ONE DISPATCH PER FRAME PER TASK, not one per epoch. The
   ;; collector coalesces a same-tick burst into a single dispatch per
-  ;; distinct frame — the un-coalesced form overflowed `:rf/xray`'s own
+  ;; distinct frame — an un-coalesced form would overflow `:rf/xray`'s own
   ;; queue past the depth-100 cap under load, and the events the router
-  ;; then dropped were Xray's own chrome events. The arg's meaning is
-  ;; unchanged ("this frame recorded"), and so is this reducer: for a
-  ;; non-target frame it is still a no-op re-read, just one that no
-  ;; longer costs a queue slot per epoch.
+  ;; then dropped would be Xray's own chrome events. The arg means "this
+  ;; frame recorded"; for a non-target frame this reducer is a no-op
+  ;; re-read that costs a queue slot per task rather than per epoch.
   ;; `:rf.trace/no-emit? true` — the dispatch must not itself emit a
   ;; trace event (the listener is part of Xray's instrumentation loop;
   ;; a self-emit would re-enter the listener).
   ;;
-  ;; rf2-y8doi.20 — COLD-START ADOPTION. When the target is still
-  ;; UNSELECTED the comparison below can never match: `target` is nil
-  ;; and every real recording frame differs from it, so `:epoch-history`
-  ;; stayed empty for as long as nobody clicked. That is the state Xray
+  ;; COLD-START ADOPTION. While the target is UNSELECTED the
+  ;; `(= frame-id target)` comparison below can never match: `target` is
+  ;; nil and every real recording frame differs from it, so without
+  ;; adoption `:epoch-history` would stay empty for as long as nobody
+  ;; clicked. That is the state Xray
   ;; mounts in whenever it comes up BEFORE the host's first cascade
   ;; (the preload's `boot-on-runtime-ready!`, or any app whose first
   ;; dispatch is user-driven): `focusable-head-frame-id` has no
   ;; pre-mount cascade to resolve, so the mount seed leaves the slot
   ;; nil, `compose-focus` yields `:epoch-id nil`, and the L4 Epoch panel
-  ;; rendered "No event focused" while the L2 list filled and
+  ;; would render "No event focused" while the L2 list filled and
   ;; auto-follow highlighted its head row.
   ;;
   ;; So an ingest onto an unselected target ADOPTS the recording frame,
   ;; aligning both axes exactly as `:rf.xray/set-target-frame` does.
-  ;; This is NOT the `:rf/default` synthesis EP-0002 (rf2-bd4div)
+  ;; This is NOT the `:rf/default` synthesis EP-0002
   ;; forbids — the adopted frame is the one that actually RECORDED, so
   ;; it is unique resolution from observed evidence, the same tier as
   ;; the mount-time discovery policy and the same "first gesture out of
@@ -278,7 +273,7 @@
   ;; per-frame ring contents. `:rf.trace/no-emit? true` matches the
   ;; `epoch-recorded` rationale above.
   ;;
-  ;; rf2-mdpfz — the sync ALSO focuses the LATEST seeded epoch. The
+  ;; The sync ALSO focuses the LATEST seeded epoch. The
   ;; sync seeds `:epoch-history` DIRECTLY, bypassing the normal trace-
   ;; driven path (`:rf.xray/epoch-recorded` → a fresh event-bundle →
   ;; `compose-focus` auto-following head), so nothing would otherwise
@@ -287,20 +282,20 @@
   ;; the Epoch / Reactive / Machines panels → their no-focus lines).
   ;; The App-DB before-image specifically follows `[:focus :epoch-id]`
   ;; with NO head-fallback (`app_db_diff_subs/app-db-current+diff` is
-  ;; deliberately fallback-free per rf2-yng0y), so seeding history is
+  ;; deliberately fallback-free), so seeding history is
   ;; not enough — focus MUST carry the epoch-id.
   ;;
   ;; We stamp the spine `[:focus :epoch-id]` (what `compose-focus`
   ;; surfaces as `:rf.xray/focus` `:epoch-id` when no event-bundle head is
   ;; present — i.e. history-only seeds), the single source of truth the
-  ;; focus-keyed panels follow (rf2-uy7nz retired the `:selected-epoch-
-  ;; id` mirror). The LATEST epoch is the HEAD of the oldest-first ring
+  ;; focus-keyed panels follow (there is no `:selected-epoch-id`
+  ;; mirror). The LATEST epoch is the HEAD of the oldest-first ring
   ;; — `(peek hist)` — matching the natural "show the most recent unless
   ;; the operator clicks an earlier row" debugging UX (the same head-bias
-  ;; the focus-resolver's rf2-h0120 head-fallback encodes). An empty
+  ;; the focus-resolver's head-fallback encodes). An empty
   ;; history clears focus so a no-epoch seed renders its empty-state.
   ;;
-  ;; rf2-y8doi.13 — `peek` runs over the GATED history, so when the
+  ;; `peek` runs over the GATED history, so when the
   ;; newest record is a redacted one the focus lands on the newest
   ;; SURVIVING record rather than on a record no panel can render. A
   ;; seed of nothing but redacted records clears focus, which is the
@@ -308,9 +303,9 @@
   ;;
   ;; When a live trace buffer IS also seeded (the chrome story seeds
   ;; both via `:rf.xray/sync-trace-buffer`), `compose-focus`'s LIVE
-  ;; auto-follow re-derives `:epoch-id` from the head event-bundle — that
-  ;; path is unchanged; this stamp is the authoritative selection only
-  ;; for history-only seeds (the standalone panel-gallery stories).
+  ;; auto-follow re-derives `:epoch-id` from the head event-bundle; this
+  ;; stamp is the authoritative selection only for history-only seeds
+  ;; (the standalone panel-gallery stories).
   (rf/reg-event :rf.xray/sync-epoch-history
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ history]]
@@ -320,18 +315,18 @@
           (some? latest-id) (assoc-in [:focus :epoch-id] latest-id)
           (nil? latest-id)  (update :focus (fnil dissoc {}) :epoch-id)))}))
 
-  ;; `:rf.xray/select-epoch` — spine shim (rf2-adve5). Writes the
+  ;; `:rf.xray/select-epoch` — spine shim. Writes the
   ;; spine's `[:focus :epoch-id]` slot — the single source of truth that
   ;; the spec/018 `:rf.xray/focus` sub surfaces (and that App-DB Diff's
   ;; `selected-epoch-*` subs rebind on via `:rf.xray/focus-epoch-id`)
-  ;; when the user picks an epoch (rf2-uy7nz retired the `:selected-
-  ;; epoch-id` mirror). Symmetric with `:rf.xray/select-dispatch-id` (in
-  ;; registry.cljs post rf2-5gl5r).
+  ;; when the user picks an epoch (there is no `:selected-epoch-id`
+  ;; mirror). Symmetric with `:rf.xray/select-dispatch-id` (in
+  ;; registry.cljs).
   (rf/reg-event :rf.xray/select-epoch
     (fn [{:keys [db]} [_ epoch-id]]
       {:db (assoc-in db [:focus :epoch-id] epoch-id)}))
 
-  ;; `:rf.xray/reset-to-epoch` (rf2-hga49) — the UI rewind affordance.
+  ;; `:rf.xray/reset-to-epoch` — the UI rewind affordance.
   ;; The tab ribbon's `Reset` button dispatches this with the OBSERVED
   ;; frame (the frame Xray is inspecting — the frame-switcher selection,
   ;; NOT `:rf/xray` Xray's own chrome frame) and the currently-focused
@@ -348,12 +343,12 @@
   ;; button is disabled when no epoch is focused, but the event stays
   ;; defensive).
   ;;
-  ;; rf2-wa7tk — clear any STALE failure flash on every fresh attempt.
+  ;; Clear any STALE failure flash on every fresh attempt.
   ;; The flash is set by `:rf.xray/reset-flash-failed` on a failed
-  ;; restore but had no auto-dismiss and no success-path clear, so a
-  ;; later SUCCESSFUL reset left the "Reset failed" message standing —
-  ;; a silent lie (the sub still returned the stale string, the ribbon
-  ;; kept rendering it). Dissoc-ing `:reset-flash` here in the `:db`
+  ;; restore and has no auto-dismiss, so without this clear a later
+  ;; SUCCESSFUL reset would leave the "Reset failed" message standing —
+  ;; a silent lie (the sub would return the stale string, the ribbon
+  ;; would keep rendering it). Dissoc-ing `:reset-flash` here in the `:db`
   ;; honours the documented "the next successful reset" clear contract
   ;; (`:rf.xray/clear-reset-flash` docstring): a fresh attempt wipes the
   ;; prior failure, and the fx re-sets the flash only when THIS attempt
@@ -364,7 +359,7 @@
       {:db (dissoc db :reset-flash)
        :fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}))
 
-  ;; `:rf.xray/reset-flash-failed` (rf2-hga49) — set the inline failure
+  ;; `:rf.xray/reset-flash-failed` — set the inline failure
   ;; flash. Dispatched from `:rf.xray.fx/restore-epoch` when
   ;; `rf/restore-epoch!` returns false. `:rf.trace/no-emit? true` keeps
   ;; Xray's own chrome event off the trace bus it is inspecting.
@@ -373,9 +368,9 @@
     (fn [{:keys [db]} _event]
       {:db (assoc db :reset-flash "Reset failed — epoch unavailable (see Trace)")}))
 
-  ;; `:rf.xray/clear-reset-flash` (rf2-hga49) — clear the inline flash.
+  ;; `:rf.xray/clear-reset-flash` — clear the inline flash.
   ;; The steady-state clear path is `:rf.xray/reset-to-epoch` dissoc-ing
-  ;; the slot on every fresh attempt (rf2-wa7tk); this event remains the
+  ;; the slot on every fresh attempt; this event is the
   ;; explicit imperative clear (tests + any future dismiss affordance).
   ;; `:rf.trace/no-emit? true` per the sibling rationale.
   (rf/reg-event :rf.xray/clear-reset-flash
