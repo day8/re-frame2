@@ -1,15 +1,15 @@
 (ns day8.re-frame2-xray.static.interceptors.panel-fresco-boundary-dom-cljs-test
-  "THE FIRST STATIC-SURFACE PANEL RE-AUTHORED IN THE RE-FRAME-NATIVE VIEW
-  LAYER, read off a real React commit (rf2-k97c.3).
+  "The Static Interceptors tab in the re-frame-native view layer, read off
+  a real React commit.
 
-  `static.interceptors.panel/Panel` is now an `rf.fresco/defview` reading
+  `static.interceptors.panel/Panel` is an `rf.fresco/defview` reading
   through Fresco's shipped collector rather than an `rf/reg-view` reading
   through whatever view build the installed substrate adapter supplies.
-  This file is the behavioural evidence for that swap.
+  This file is the behavioural evidence for that boundary.
 
-  ## What the epic asked for, and which row answers it
+  ## The boundary criteria, and which row answers each
 
-  rf2-k97c's success criteria are behavioural. Five are answerable at this
+  The criteria are behavioural. Five are answerable at this
   panel's own boundary:
 
     1 FIRST DISPLAY               — W1
@@ -29,11 +29,11 @@
   already frame-bound. A click row would assert about a control the panel
   does not have.
 
-  ## W5 IS NOT ONE OF THE SIX, AND IT IS THE ROW THIS PANEL NEEDED MOST
+  ## W5 IS NOT ONE OF THE SIX, AND IT IS THE ROW THIS PANEL NEEDS MOST
 
-  The migration moved every row's React key out of Clojure metadata, which
-  Fresco's codec reads NOWHERE, and onto a keyed fragment's attribute map,
-  which it does. A LOST KEY DOES NOT FAIL — it degrades into index-based
+  Every row carries its React key on a keyed fragment's attribute map,
+  which Fresco's codec reads, not in Clojure metadata, which it reads
+  NOWHERE. A LOST KEY DOES NOT FAIL — it degrades into index-based
   reconciliation, which paints identically and corrupts identity only once
   the list changes SHAPE. So no amount of \"the rows are on screen\" can
   see it, and an assertion on the metadata is a hollow gate that passes
@@ -56,7 +56,7 @@
 
   ## Substrate: the Reagent adapter, deliberately
 
-  A ratom-family adapter, which is the family Xray already supports —
+  A ratom-family adapter, which is the family Xray supports —
   because the claim being made is that the boundary is INDIFFERENT to it.
   `:ambient-frame nil` is load-bearing exactly as it is in the template:
   the fixture's default ambient scope is still in effect during a
@@ -257,10 +257,10 @@
 ;; ===========================================================================
 
 (deftest w1-panel-paints-and-its-read-lands-in-the-named-frame
-  (testing "rf2-k97c.3 — the migrated Static Interceptors panel commits real
+  (testing "the Static Interceptors panel commits real
             DOM through the registry entry the Static shell mounts, and its
             `rf.fresco/sub` read resolves against the frame the enclosing
-            `frame-provider` named rather than the ambient one. Epic criteria
+            `frame-provider` named rather than the ambient one. Criteria
             1 and 4."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -278,7 +278,7 @@
                         "[data-testid=\"rf-xray-static-interceptors-search\"]"))
               "and the search box rendered, so the body ran through
                `panel-tree` rather than short-circuiting to the empty state.
-               `search-box/search-box` is a plain fn and is now CALLED — used
+               `search-box/search-box` is a plain fn and is CALLED — used
                as a hiccup head it would be a loud error inside a boundary")
 
           ;; ---- criterion 4: the read is where the tree said it would be ----
@@ -303,9 +303,9 @@
 ;; ===========================================================================
 
 (deftest w2-panel-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — the mounted panel re-renders itself and commits new
+  (testing "the mounted panel re-renders itself and commits new
             DOM when its read's value really changes, and does NOT when
-            nothing it watches moved. Epic criterion 2, with the control that
+            nothing it watches moved. Criterion 2, with the control that
             makes the update mean liveness rather than a commit that simply
             had not happened yet."
     (if-not (browser?)
@@ -374,9 +374,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the migrated panel contributes
+  (testing "rendering the panel contributes
             NOTHING to the substrate's view-trace stream, even when it is
-            mounted INSIDE an application frame. Epic criterion 5, proven
+            mounted INSIDE an application frame. Criterion 5, proven
             structurally rather than by the `:rf/xray` frame gate: a Fresco
             boundary is not a substrate view render, so there is no event to
             gate. The control is an ordinary `reg-view` in the same root, the
@@ -434,12 +434,12 @@
   (zero? (ref-count-of :rf/xray tab-data-q)))
 
 (deftest w4-unmount-releases-the-read-and-reopen-does-not-grow-it
-  (testing "rf2-k97c.3 — unmounting the panel releases its subscription
+  (testing "unmounting the panel releases its subscription
             reference completely, and mounting it again returns to the SAME
-            count rather than a higher one. Epic criterion 6, and the number
-            the spike caught the rejected design on: with a four-call interop
-            binding the `:rf/xray` ref-count climbed across renders and never
-            fell on unmount.
+            count rather than a higher one. Criterion 6, and the number
+            that separates a correct binding from a four-call interop
+            binding, under which the `:rf/xray` ref-count would climb across
+            renders and never fall on unmount.
 
             THE RELEASE IS ASYNCHRONOUS BY DESIGN, and this row polls rather
             than reading once: the collector gives a cell whose last reader
@@ -495,9 +495,9 @@
 ;; ===========================================================================
 
 (deftest w5-row-identity-survives-a-head-removal
-  (testing "rf2-k97c.3 — the row React key the migration moved out of Clojure
-            metadata and into a keyed fragment's ATTRIBUTE MAP is the key
-            React actually reconciles on. Removing the HEAD of a two-row list
+  (testing "the row React key, carried on a keyed fragment's ATTRIBUTE MAP
+            rather than in Clojure metadata, is the key React actually
+            reconciles on. Removing the HEAD of a two-row list
             leaves the survivor as the SAME DOM node; under index-based
             reconciliation — which is what a lost key silently degrades to —
             React would reuse the head's node for the survivor and destroy the
