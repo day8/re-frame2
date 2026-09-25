@@ -1,22 +1,21 @@
 (ns re-frame.bench.fresco.walk-profile-baseline-cljs-test
-  "THE ABLATION BASELINE IS THE *OLD* WALK — pinned (rf2-y1jkm).
+  "THE ABLATION BASELINE IS THE *OLD* WALK — pinned.
 
   `walk_profile_app`'s `local` arm is two things at once: the ablation
   baseline every phase delta is subtracted from, and the OLD arm of the
-  in-process A/B that priced the rf2-y1jkm codec candidate. The second
+  in-process A/B that prices the codec candidate. The second
   role is the fragile one. Every helper the candidate cheapened that the
   baseline still reaches for in `front.codec` is a piece of the
   candidate the baseline has already absorbed, and the A/B then quotes a
   reduction smaller than the one it took — silently, with no arm going
   red, because both numbers still look plausible.
 
-  That is not hypothetical here: it is what the merged-PR #7383 audit
-  found. `walk-value` called `rf.bench.fresco.front.codec/convert-prop-value`, and that same
-  PR reordered `convert-prop-value`'s branches. The prop-NAME half was
-  frozen locally in the PR itself (`local-prop-cache`); the prop-VALUE
-  half was not, and this file exists because the fix for that is exactly
-  the kind of thing a later refactor re-breaks by reaching for the
-  obvious `rf.bench.fresco.front.codec/` name.
+  The candidate reorders `rf.bench.fresco.front.codec/convert-prop-value`'s
+  branches, so both halves of the baseline's prop conversion are frozen
+  locally: the prop-NAME half in `local-prop-cache`, the prop-VALUE half
+  in `local-convert-prop-value`. This file exists because a `walk-value`
+  pointed at the obvious `rf.bench.fresco.front.codec/` name is exactly
+  what a refactor reaches for.
 
   ## What is asserted, and why in this shape
 
@@ -32,7 +31,7 @@
      same probe, so a zero can never be read off a probe that was never
      live.
 
-  Reverting `walk-value` to `rf.bench.fresco.front.codec/convert-prop-value` fails (2) and
+  Pointing `walk-value` at `rf.bench.fresco.front.codec/convert-prop-value` fails (2) and
   leaves (1) green, which is the whole point: (1) is why the freeze is
   safe, (2) is why the freeze is there.
 
@@ -134,8 +133,8 @@
     (testing "the local arm converts every value through its OWN frozen copy"
       (is (zero? (probe install! restore! #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-FULL keyword-keyed)))
           (str "the `local` arm is the in-process A/B's OLD arm; entering the "
-               "shipping converter absorbs the rf2-y1jkm candidate into the "
-               "baseline it is measured against (merged-PR #7383 audit)")))
+               "shipping converter absorbs the codec candidate into the "
+               "baseline it is measured against")))
 
     (testing "and so does the no-value ablation, which converts nothing at all"
       (is (zero? (probe install! restore! #(rf.bench.fresco.walk-profile-app/walk-arm rf.bench.fresco.walk-profile-app/M-NO-VALUE keyword-keyed)))))))
