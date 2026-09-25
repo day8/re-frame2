@@ -1008,17 +1008,21 @@
       (is (= db (rf.schemas/app-schemas-digest {:frame :test/b}))
           "the empty-schema digest is stable across calls")
       (is (= db (rf.schemas/app-schemas-digest {:frame :test/b}))
-          "keyword-sugar arity equals opts-map arity"))))
+          "a repeat opts-map read answers the same digest"))))
 
-(deftest app-schemas-digest-keyword-and-opts-arities-agree
-  (testing "(app-schemas-digest frame-id) is sugar for
-            (app-schemas-digest {:frame frame-id}); both must return the
-            same string."
+(deftest app-schemas-digest-keyword-arity-is-refused
+  (testing "(app-schemas-digest {:frame frame-id}) is the one spelling; a
+            bare frame-id keyword is refused with :rf.error/no-frame-context,
+            as app-schemas refuses it."
     (rf/make-frame {:id :test/d})
     (rf/reg-app-schema [:k] {:frame :test/d} [:int])
-    (is (= (rf.schemas/app-schemas-digest {:frame :test/d})
-           (rf.schemas/app-schemas-digest {:frame :test/d}))
-        "keyword form == opts-map form")))
+    (is (re-matches #"sha256:[0-9a-f]{16}"
+                    (rf.schemas/app-schemas-digest {:frame :test/d}))
+        "the opts-map form answers a digest")
+    (is (= :rf.error/no-frame-context
+           (try (rf.schemas/app-schemas-digest :test/d) nil
+                (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+        "the keyword-sugar arity is refused")))
 
 (deftest app-schemas-digest-empty-set-is-defined
   (testing "Empty schema set has a defined, stable digest (the SHA-256 of
