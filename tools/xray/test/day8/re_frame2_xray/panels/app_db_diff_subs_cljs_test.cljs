@@ -1,20 +1,19 @@
 (ns day8.re-frame2-xray.panels.app-db-diff-subs-cljs-test
-  "Per-leaf smoke test for `app-db-diff-subs` (rf2-nb8if).
+  "Per-leaf smoke test for `app-db-diff-subs`.
 
   Calls the leaf's `install!` directly (NOT the umbrella) and asserts
   the live app-db-tab subs are registered.
 
-  ## rf2-p53m2 — dead diff-sub family pruned
+  ## No diff-sub family
 
-  The `:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff` composite
-  (plus the `:rf.xray/selected-epoch-redacted-modified-count` /
+  There is no `:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff`
+  composite (nor the `:rf.xray/selected-epoch-redacted-modified-count` /
   `:rf.xray/selected-epoch-flow-writes` inputs and the three
-  `[frame-id epoch-id]` caches) had no production view consumer and was
-  removed. The assertions below pin that the family stays gone — a
-  regression guard against re-introducing the hardened-but-unrendered
-  surface.
+  `[frame-id epoch-id]` caches): nothing in a production view would
+  consume it. The assertions below pin that the family is absent — a
+  guard against registering a hardened-but-unrendered surface.
 
-  ## rf2-y8doi.14 — the suppressed-signal count
+  ## The suppressed-signal count
 
   `:rf.xray/app-db-current+diff` carries `:redacted-modified`, read
   straight off the focused record's
@@ -22,9 +21,9 @@
   of a declared-sensitive slot, so its structural diff emits no row for a
   slot that DID change; the count is how that suppressed signal reaches
   the operator (`tools/xray/spec/004-App-DB-Diff.md` §Count semantics).
-  It is a slot on the surviving atomic sub — NOT a revival of the pruned
-  `:rf.xray/selected-epoch-redacted-modified-count`, whose absence the
-  guard below still pins."
+  It is a slot on the atomic sub — NOT a separate
+  `:rf.xray/selected-epoch-redacted-modified-count` sub, whose absence the
+  guard below pins."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as rf.registrar]
@@ -38,43 +37,41 @@
 
 (deftest leaf-install-registers-the-active-subs
   (subs/install!)
-  ;; rf2-fvplw — `:rf.xray/observed-frame` is the picker/focus-aware
-  ;; seam that replaces the legacy `:rf.xray/target-frame` read inside
-  ;; `:rf.xray/target-frame-db`.
+  ;; `:rf.xray/observed-frame` is the picker/focus-aware seam
+  ;; `:rf.xray/target-frame-db` reads, rather than `:rf.xray/target-frame`
+  ;; directly.
   (is (some? (rf.registrar/handler :sub :rf.xray/observed-frame)))
   (is (some? (rf.registrar/handler :sub :rf.xray/target-frame-db)))
   (is (some? (rf.registrar/handler :sub :rf.xray/selected-epoch-record)))
-  ;; rf2-y8doi.29 — the "show me when this changed" pair is gone: the
-  ;; result sub had no subscriber anywhere in src, and its only input
-  ;; beyond `:rf.xray/epoch-history` was the slice-focus slot whose
-  ;; writer went with it. The `some?` asserts above and below are the
+  ;; There is no "show me when this changed" pair: nothing in src would
+  ;; subscribe to the result sub, and there is no slice-focus slot for it
+  ;; to read. The `some?` asserts above and below are the
   ;; positive controls that `install!` really did run.
   (is (nil? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
   (is (nil? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
-  ;; rf2-yng0y — the atomic current-state + focused-epoch before-image
-  ;; sub the panel pivots on (collapses the former 5-deep focus chain so
+  ;; The atomic current-state + focused-epoch before-image
+  ;; sub the panel pivots on (one sub rather than a focus chain, so
   ;; `:before` / `:epoch-id` move together — no stale-`before` frame).
   (is (some? (rf.registrar/handler :sub :rf.xray/app-db-current+diff)))
-  ;; rf2-okvit — the current-state inspector's section-model sub (now
-  ;; derived from the atomic sub above).
+  ;; The current-state inspector's section-model sub (derived from the
+  ;; atomic sub above).
   (is (some? (rf.registrar/handler :sub :rf.xray/app-db-state))))
 
 (deftest pruned-diff-sub-family-stays-gone
-  ;; rf2-p53m2 — the dead composite diff family had no production view
-  ;; consumer; the Epoch panel reads `:rf.xray/selected-epoch-record`
+  ;; No composite diff family: nothing in a production view would
+  ;; consume it; the Epoch panel reads `:rf.xray/selected-epoch-record`
   ;; (not these), and the MCP `get-app-db-diff` tool goes directly
-  ;; through `diff.engine/project`. Guard against re-introduction.
+  ;; through `diff.engine/project`.
   (subs/install!)
   (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-diff)))
   (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
   (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
   (is (nil? (rf.registrar/handler :sub :rf.xray/app-db-diff)))
-  ;; rf2-e9tb0 — pinned-slices subs are gone (older prune; kept here as
-  ;; part of the dead-surface guard).
+  ;; No pinned-slices subs either (part of the same absent-surface guard).
   (is (nil? (rf.registrar/handler :sub :rf.xray/pinned-slices-store)))
   (is (nil? (rf.registrar/handler :sub :rf.xray/pinned-slices))))
 
-;; ---- rf2-y8doi.14 — :redacted-modified rides the atomic sub -------------
+;; ---- :redacted-modified rides the atomic sub -----------------------------
 ;;
 ;; `:rf.xray/app-db-current+diff` declares four inputs, two of which this
 ;; leaf does NOT install: `:rf.xray/epoch-history` and `:rf.xray/focus`
