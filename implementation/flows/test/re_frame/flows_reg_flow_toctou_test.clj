@@ -87,7 +87,7 @@
   ;; independent signal.
   (testing (str rounds " rounds: two threads, one shared frame, "
                 "cycle-forming reg-flow pair in lockstep — committed "
-                "registry is never cyclic, at least one half rejected")
+                "registry is never cyclic, exactly one half rejected")
     (let [frame-id    :qxwib.toctou/shared
           rejections  (AtomicLong. 0)
           ;; Surfaces the FIRST observed cyclic-commit so a failure
@@ -107,7 +107,7 @@
                         (fn []
                           (.await barrier)        ; release both at once
                           (try
-                            ;; rf2-bqstzr — 3-slot grammar: id slot 1, :derive
+                            ;; 3-slot grammar: id slot 1, :derive
                             ;; the value slot, remaining reflection keys (+ the
                             ;; `:frame` mounting key) the metadata middle slot.
                             (rf/reg-flow (:id flow)
@@ -147,7 +147,7 @@
       ;; --- Invariant 1: no round ever admitted a cycle. ---------------
       (is (nil? @first-bad)
           (str "A concurrent same-frame reg-flow round admitted a cycle "
-               "(committed registry is cyclic — the rf2-qxwib TOCTOU). "
+               "(committed registry is cyclic — a check-and-insert TOCTOU). "
                "First offending round: " (pr-str @first-bad)))
 
       ;; --- Invariant 2: every round rejected EXACTLY one half. --------
