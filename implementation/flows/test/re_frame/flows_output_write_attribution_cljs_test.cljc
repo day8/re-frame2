@@ -1,18 +1,18 @@
 (ns re-frame.flows-output-write-attribution-cljs-test
-  "rf2-gpj9r — a flow's output-path WRITE failure is attributed to the write,
+  "A flow's output-path WRITE failure is attributed to the write,
   not to the application's `:derive` fn.
 
-  `evaluate-flow!` used to wrap the whole recompute-and-install block in ONE
-  `try`, so a `:derive` fn that returned perfectly good value could still be
+  Were `evaluate-flow!` to wrap the whole recompute-and-install block in ONE
+  `try`, a `:derive` fn that returned a perfectly good value could be
   blamed for a throw raised afterwards by the framework's own
   `(assoc-in db (:output-path flow) new-output)`. Both the dev-only
-  `:rf.flow/failed` trace and the always-on production error record said \"a
+  `:rf.flow/failed` trace and the always-on production error record would say \"a
   flow's :derive fn threw\" and \"Fix the :derive fn\" — sending the programmer
   to code that ran to completion, and concealing the output-path / container
   mismatch that actually aborted the event.
 
-  The repair is STRUCTURAL rather than message-sniffing: the authored callback
-  and the framework install now sit in separate `try` forms, so an install
+  The separation is STRUCTURAL rather than message-sniffing: the authored
+  callback and the framework install sit in separate `try` forms, so an install
   failure is unreachable from the derive handler. The phase (`:derive` /
   `:output-write`) rides the `:rf.flow/failed` trace, the thrown ex-data
   (`:rf.flow/failed-phase`, `:rf.flow/output-path`) and — via the router's
@@ -63,7 +63,7 @@
 (defn- by-op [events op]
   (filterv #(= op (:operation %)) events))
 
-;; The scenario the bead specifies: app-db holds a VECTOR at `[:items]`, and a
+;; The scenario: app-db holds a VECTOR at `[:items]`, and a
 ;; flow declares the leaf `[:items :total]`.  Every segment is legal, so
 ;; registration correctly accepts it (it cannot prove the shape of a future
 ;; pending app-db); the mismatch only bites at install time.
@@ -82,7 +82,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest output-write-failure-is-attributed-to-the-write-not-to-derive
-  (testing "rf2-gpj9r — a successful :derive followed by a failing output
+  (testing "a successful :derive followed by a failing output
             install reports phase :output-write on both the dev trace and the
             always-on error record, and never advises fixing :derive"
     (let [traces (atom [])
@@ -103,7 +103,7 @@
              is not a derive throw, and this counter is what makes every
              assertion below non-vacuous")
 
-        ;; --- atomicity is untouched ---------------------------------------
+        ;; --- atomicity ----------------------------------------------------
         (is (= before (rf/app-db-value :rf/default))
             "the event aborted before the :db install — app-db is unchanged
              (the :bump handler's own write did not land either)")
@@ -121,16 +121,17 @@
               "the structural output path rides the trace, so the programmer
                can see which declared path could not be written")
           (is (= :rf/default (:frame tags))
-              "frame attribution is preserved"))
+              "frame attribution rides the trace"))
 
         ;; --- the always-on production error record ------------------------
         (is (= 1 (count @errors))
             "exactly one always-on record fired for one flow-eval failure")
         (let [r (first @errors)]
           (is (= :rf.error/flow-eval-exception (:error r))
-              ":rf.error/flow-eval-exception remains the aggregate
-               flow-evaluation category — no new public error id")
-          (is (= :flow-eval (:where r)) ":where still discriminates the path")
+              ":rf.error/flow-eval-exception is the aggregate
+               flow-evaluation category — the output-write phase has no error
+               id of its own")
+          (is (= :flow-eval (:where r)) ":where discriminates the path")
           (is (= :flow/output-write (:flow-id r))
               "flow attribution rides the production record")
           (is (= :output-write (:phase r))
@@ -138,7 +139,7 @@
                reading this in an :advanced build is told the output write
                failed, not that the application's :derive fn threw")
           ;; The attribution must survive an egress profile that strips
-          ;; :exception, exactly as :where / :flow-id already do.
+          ;; :exception, exactly as :where / :flow-id do.
           (let [public (dissoc r :exception)]
             (is (= :output-write (:phase public))
                 ":phase survives an :exception-dropping egress profile")))
@@ -148,14 +149,14 @@
               data   (ex-data thrown)
               msg    (ex-message thrown)]
           (is (= :flow/output-write (:rf.flow/failed-id data))
-              "the existing flow-attribution slot is unchanged")
+              "the flow-attribution slot names the failing flow")
           (is (= :output-write (:rf.flow/failed-phase data))
               "the phase is machine-readable off the thrown ex-data")
           (is (= output-path (:rf.flow/output-path data))
               "the declared output path is machine-readable off the ex-data")
           (is (some? (:cause data))
               "the original install exception is preserved under :cause")
-          ;; The whole point of the bead: the human sentence must not send the
+          ;; The point of the attribution: the human sentence must not send the
           ;; programmer to working code.
           (is (nil? (re-find #":derive fn threw" msg))
               "the message does not CLAIM the :derive fn threw")
@@ -169,14 +170,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Negative control: :derive itself throws, BEFORE any output install.
-;;    The pre-existing contract must be untouched — same error id, same
-;;    message, flow attribution, atomic abort — now with phase :derive and no
-;;    output-write attribution anywhere.
+;;    The derive-throw contract holds — the aggregate error id, the
+;;    derive-throw message, flow attribution, atomic abort — with phase :derive
+;;    and no output-write attribution anywhere.
 ;; ---------------------------------------------------------------------------
 
 (deftest derive-throw-still-reports-phase-derive
-  (testing "rf2-gpj9r negative control — when :derive itself throws, the
-            existing :rf.error/flow-eval-exception contract still holds and the
+  (testing "negative control — when :derive itself throws, the
+            :rf.error/flow-eval-exception derive-throw contract holds and the
             phase is :derive"
     (let [traces (atom [])
           errors (atom [])]
@@ -190,47 +191,47 @@
         (rf/dispatch-sync [:bump])
 
         (is (= before (rf/app-db-value :rf/default))
-            "atomic abort is unchanged for a derive throw")
+            "a derive throw aborts atomically")
 
         (let [tags (:tags (last (by-op @traces :rf.flow/failed)))]
           (is (= :flow/derive-throws (:flow-id tags)) "flow attribution")
           (is (= :derive (:phase tags))
               "the trace names :derive — the authored callback really did throw")
           (is (= "derive boom" (:exception-message tags))
-              "the structured exception summary is unchanged")
+              "the trace carries the structured exception summary")
           (is (= {:why :test} (:exception-data tags))
-              "the ex-data summary is unchanged"))
+              "the trace carries the ex-data summary"))
 
         (is (= 1 (count @errors)) "one always-on record")
         (let [r      (first @errors)
               data   (ex-data (:exception r))
               msg    (ex-message (:exception r))]
           (is (= :rf.error/flow-eval-exception (:error r))
-              "the same aggregate category")
+              "the aggregate flow-evaluation category")
           (is (= :flow/derive-throws (:flow-id r)) "flow attribution")
           (is (= :derive (:phase r)) "the production record names :derive")
           (is (= :flow/derive-throws (:rf.flow/failed-id data))
-              "the ex-data attribution slot is unchanged")
+              "the ex-data attribution slot names the flow")
           (is (= :derive (:rf.flow/failed-phase data))
               "the ex-data phase is :derive")
           (is (= :no-recovery (:recovery data))
-              "the catalogued disposition is unchanged")
-          ;; The pre-existing derive-throw wording is preserved verbatim.
+              "the catalogued disposition is :no-recovery")
+          ;; The derive-throw wording says what happened.
           (is (some? (re-find #":derive fn threw" msg))
-              "the derive-throw message is unchanged — it still says the
-               :derive fn threw, because here it did")
+              "the derive-throw message says the :derive fn threw, because
+               here it did")
           (is (some? (re-find #"Fix the :derive fn" msg))
-              "and still advises fixing it")
+              "and advises fixing it")
           (is (nil? (re-find #"output-write" msg))
               "no output-write attribution leaks onto a genuine derive throw"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Positive control: the SAME derive and the SAME output path, over a MAP at
-;;    `[:items]`.  Nothing about the repair may make a legal write fail.
+;;    `[:items]`.  The separate install `try` must not make a legal write fail.
 ;; ---------------------------------------------------------------------------
 
 (deftest legal-output-write-commits-and-emits-no-failure
-  (testing "rf2-gpj9r positive control — the same [:items :total] output path
+  (testing "positive control — the same [:items :total] output path
             over a map commits, advances dirty-check state, and emits no
             failure on either axis"
     (let [traces (atom [])
