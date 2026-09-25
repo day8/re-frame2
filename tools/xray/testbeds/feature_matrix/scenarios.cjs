@@ -12,13 +12,13 @@ const {
   readTraceEventsAsEdn,
 } = require('../../../../testbeds/spec-helpers.cjs');
 
-// rf2-taj9b — the one navigation in this file (the static-mode scenario's
-// baseline reset) carried no timeout and so took Playwright's 30s default:
+// The one navigation in this file (the static-mode scenario's baseline
+// reset) carries an explicit timeout: Playwright's 30s default would be
 // a ceiling BELOW the gate's own 45s scenario budget, firing first and
-// reporting itself in a form that reads like that budget. Read from the
+// reporting itself in a form that reads like that budget. It reads the
 // gate's own knob (`implementation/scripts/serve-and-run-xray-feature-gate.cjs`
 // uses the same variable and default) so the two move together.
-// `waitUntil: 'load'` is KEPT: this is a re-navigation of a testbed page the
+// `waitUntil: 'load'` is deliberate: this is a re-navigation of a testbed page the
 // gate has already loaded, and everything after it is a short locator budget
 // (10s for the host counter, then 5s waits) that assumes a booted document.
 const NAV_TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
@@ -61,9 +61,8 @@ const PANEL_HANDOFFS = [
   // tab. Its root view always renders the `rf-xray-module-view` testid
   // (panels/module_view.cljs).
   ['module-view', 'rf-xray-module-view'],
-  // The :fresco tab (rf2-hic-023) — six views over the Fresco evidence
-  // surface, the last two (rf2-hic-037) derivations over the same four
-  // evidence envelopes. L4-only registry tab. Its root view always renders the
+  // The :fresco tab — six views over the Fresco evidence surface, the
+  // last two derivations over the same four evidence envelopes. L4-only registry tab. Its root view always renders the
   // `rf-xray-fresco` testid (panels/fresco.cljs); the counter testbed is
   // not a Fresco application, so the panel renders its honest
   // `rf-xray-fresco-absent` state ("no Fresco evidence on this host")
@@ -162,7 +161,7 @@ const STAGED_SURFACES = [
     html: ['tools', 'xray', 'testbeds', 'machine_epochs', 'index.html'],
     servedPath: 'testbeds/machine-epochs',
   },
-  // The two-frame isolation deck (rf2-4279q4). The standard-epochs button
+  // The two-frame isolation deck. The standard-epochs button
   // ladder mounted TWICE — once per `:above` / `:below` frame-provider —
   // on one page, with an inline Xray on the right. It is THE canonical
   // per-frame ISOLATION surface: the same app code path drives two fully
@@ -180,7 +179,7 @@ const STAGED_SURFACES = [
 
 // How long `openXray` waits for the preload's auto-open to reach a
 // terminal state before it touches the toggle chord — see the race note
-// in `openXray` (rf2-7jevo). This is `mount/boot-on-runtime-ready!`'s OWN
+// in `openXray`. This is `mount/boot-on-runtime-ready!`'s OWN
 // retry budget (120 attempts × 50ms), not a guess: after it elapses the
 // tick has either mounted the shell or reported `:no-substrate-adapter`
 // and stopped for good, so at that point auto-open provably cannot fire
@@ -189,7 +188,7 @@ const AUTO_OPEN_SETTLE_MS = 120 * 50;
 
 // Ensure the Xray shell is OPEN, leaving it open for the caller.
 //
-// ## Why this settles before pressing the chord (rf2-7jevo)
+// ## Why this settles before pressing the chord
 //
 // `Ctrl+Shift+C` is a TOGGLE (`mount/toggle!`), and Xray's preload runs
 // a second, concurrent opener: `mount/boot-on-runtime-ready!` polls every
@@ -201,22 +200,21 @@ const AUTO_OPEN_SETTLE_MS = 120 * 50;
 // and leaves the React tree mounted, so the wait below then burns its
 // whole budget on a shell this helper hid itself.
 //
-// That is not a hypothesis. The 2026-07-31 nightly (run 30645068521)
-// failed here with `15 × locator resolved to hidden <div ...
-// data-testid="rf-xray-shell">` and diagnostics reading
+// The race's signature is a failure reading `locator resolved to hidden
+// <div ... data-testid="rf-xray-shell">` with diagnostics reading
 // `mounted=true visible=none` — the shell present, inline-mounted by
-// auto-open, and hidden for the full 5000ms. A longer timeout could
-// never have gone green: nothing was ever going to un-hide it.
+// auto-open, and hidden for the full 5000ms. A longer timeout cannot
+// turn that green: nothing is going to un-hide it.
 //
-// The fix is one ordering guarantee, not a longer wait. Presence is the
+// The guard is one ordering guarantee, not a longer wait. Presence is the
 // right thing to settle on because `mount-state` is a monotone latch:
 // once the shell is mounted, auto-open's tick short-circuits on
 // `@mount-state` forever, so after this wait nothing but us can move
 // the shell. Presence is NOT a proxy for open, though — `close!` keeps
 // the node — so the decision below reads VISIBILITY, the same condition
-// the assertion uses. (Pre-fix those two disagreed: a mounted-but-
-// hidden shell read as "already open", skipped the chord, and then
-// failed the visible-wait with no way to recover.)
+// the assertion uses. (Were those two to disagree, a mounted-but-hidden
+// shell would read as "already open", skip the chord, and then fail the
+// visible-wait with no way to recover.)
 async function openXray(page) {
   const shell = page.locator('[data-testid="rf-xray-shell"]');
 
@@ -240,8 +238,7 @@ async function openXray(page) {
 // 10 LIVE Dynamic panels (epoch / app-db / views / trace / machines /
 // routing / resources / derivation-graph / module-view / fresco —
 // spec/018 §5 §The 10 tabs; Resources per Spec 016 §Xray and AI
-// tooling; Graph + Frames per EP-0014 / EP-0013; Fresco per
-// rf2-hic-023).
+// tooling; Graph + Frames per EP-0014 / EP-0013).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);
@@ -272,8 +269,8 @@ async function clickSidebar(page, id, canvasTestId) {
   const tabId = LEGACY_PANEL_TO_TAB[id];
   if (!tabId) {
     throw new Error(
-      `clickSidebar: panel '${id}' has no L3 tab in the 4-layer chrome ` +
-        `(rf2-xy4yb removed it). Update the scenario or restore the panel.`,
+      `clickSidebar: panel '${id}' has no L3 tab in the 4-layer chrome. ` +
+        `Update the scenario or restore the panel.`,
     );
   }
   await clickTab(page, tabId, canvasTestId);
@@ -476,7 +473,7 @@ async function assertSourceCoordBridge(page, state, ctx, opts) {
 }
 
 /*
- * rf2-61i5 — read the pop-out document's spine + palette DOM, plus the
+ * Read the pop-out document's spine + palette DOM, plus the
  * OPENER's mount state, in one cross-realm snapshot.
  *
  * `window.open('', 'rf-xray-popout')` re-acquires the already-open window
@@ -535,7 +532,7 @@ function openerMountOf(snapshot) {
  * the capture listener there would receive a foreign-realm object. It is
  * dispatched on the pop-out shell (bubbling + cancelable), so a
  * capture-phase listener on the pop-out DOCUMENT sees it on the way down —
- * which is precisely the listener rf2-61i5 installs, and precisely the one
+ * which is precisely the listener Xray installs there, and precisely the one
  * an opener-only listener could never be.
  */
 async function sendPopoutKey(page, init) {
@@ -551,7 +548,7 @@ async function sendPopoutKey(page, init) {
     return { ok: true, defaultPrevented: ev.defaultPrevented };
   }, init);
   if (!sent.ok) {
-    failWithDetails('Could not send a key into the pop-out document (rf2-61i5)', {
+    failWithDetails('Could not send a key into the pop-out document', {
       key: init,
       observed: sent,
     });
@@ -560,14 +557,14 @@ async function sendPopoutKey(page, init) {
 }
 
 /*
- * rf2-61i5 — the pop-out document's OWN keyboard, end to end.
+ * The pop-out document's OWN keyboard, end to end.
  *
  * DOM key events do not cross realms, so a keydown made in the pop-out
  * window can only be seen by a listener installed on the POP-OUT
  * document. Sending a key into that document is therefore the one probe
  * that distinguishes "Xray has a keyboard here" from "Xray has a keyboard
- * in the opener" — the boundary the older pop-out coverage (root/shell
- * presence, shared cascade rendering) never crossed, because it sent no
+ * in the opener" — a boundary pop-out presence checks (root/shell
+ * presence, shared cascade rendering) cannot cross, because they send no
  * key at all.
  *
  * EVERY assertion downstream of a key is POLLED, never read in the same
@@ -576,15 +573,13 @@ async function sendPopoutKey(page, init) {
  * re-renders only once the subscription changes, so a same-callback read
  * can only ever observe the PRE-key DOM. That read passes vacuously
  * whenever the pre-key DOM already resembles the post-key one — an open
- * palette staying open across a toggle being the sharp case — which is the
- * defect the merged-PR audit of #9263 found in the first version of this
- * probe.
+ * palette staying open across a toggle being the sharp case.
  *
- * The two positive assertions match the acceptance rf2-61i5 names: a spine
- * step key moves focus by EXACTLY ONE row on the shared `:rf/xray` frame,
- * and Cmd/Ctrl+K opens the palette in the pop-out WITHOUT moving the
- * opener's mount state. `Ctrl+Shift+C` is asserted inert here, per the same
- * bead's non-goal.
+ * The two positive assertions are the contract: a spine step key moves
+ * focus by EXACTLY ONE row on the shared `:rf/xray` frame, and Cmd/Ctrl+K
+ * opens the palette in the pop-out WITHOUT moving the opener's mount
+ * state. `Ctrl+Shift+C` is asserted inert here, because it stays
+ * opener-owned.
  *
  * NOT asserted, deliberately: that the opener's palette stays closed. The
  * palette's open state lives on `:rf/xray`, which BOTH windows render
@@ -628,8 +623,8 @@ async function assertPopoutKeyboard(page, state) {
   );
 
   // (1) STAGE a CLOSED palette. Nothing in this scenario opens it, but a
-  //     probe that merely assumes the starting state is the probe the
-  //     audit rejected: assert it, and if a previous run left one open,
+  //     probe that merely assumes the starting state can pass
+  //     vacuously: assert it, and if a previous run left one open,
   //     close it through the same chord and wait for that to land.
   let opening = staged;
   if (opening.paletteOpen) {
@@ -652,14 +647,13 @@ async function assertPopoutKeyboard(page, state) {
   //     which the next assertion measures the previous key's effect and
   //     attributes it to this one. That is the same false-pass class as
   //     reading in the callback that sent the key, reached through the
-  //     predicate instead of through the clock; it was measured on the
-  //     first draft of this probe, which reported Cmd/Ctrl+K stepping the
-  //     spine when the step was a `j` landing late.
+  //     predicate instead of through the clock: such a probe reports
+  //     Cmd/Ctrl+K stepping the spine when the step is a `j` landing late.
   const pinnedTestId = staged.rows[staged.focusedIndex - 1];
   const pin = await sendPopoutKey(page, { key: 'j', code: 'KeyJ' });
   if (!pin.defaultPrevented) {
     failWithDetails(
-      'Pop-out document has no Xray keydown listener: a spine step key was not consumed there (rf2-61i5)',
+      'Pop-out document has no Xray keydown listener: a spine step key was not consumed there',
       { observed: { staged, pin } });
   }
   const before = await waitForValue(
@@ -681,7 +675,7 @@ async function assertPopoutKeyboard(page, state) {
   const step = await sendPopoutKey(page, { key: 'j', code: 'KeyJ' });
   if (!step.defaultPrevented) {
     failWithDetails(
-      'A pop-out spine step key was not consumed by the pop-out listener (rf2-61i5)',
+      'A pop-out spine step key was not consumed by the pop-out listener',
       { observed: { before, step } });
   }
   const afterStep = await waitForValue(
@@ -698,12 +692,12 @@ async function assertPopoutKeyboard(page, state) {
   );
   if (settledAfterStep !== expectedTestId) {
     failWithDetails(
-      'One `j` in the pop-out stepped the spine focus more than one row (rf2-61i5)',
+      'One `j` in the pop-out stepped the spine focus more than one row',
       { observed: { before, afterStep, expectedTestId, settledAfterStep } });
   }
   if (afterStep.paletteOpen) {
     failWithDetails(
-      'A bare spine key opened the command palette in the pop-out (rf2-61i5)',
+      'A bare spine key opened the command palette in the pop-out',
       { observed: afterStep });
   }
 
@@ -713,7 +707,7 @@ async function assertPopoutKeyboard(page, state) {
   const paletteOpen = await sendPopoutKey(page, { key: 'k', code: 'KeyK', ctrlKey: true });
   if (!paletteOpen.defaultPrevented) {
     failWithDetails(
-      'Cmd/Ctrl+K was not consumed in the pop-out document (rf2-61i5)',
+      'Cmd/Ctrl+K was not consumed in the pop-out document',
       { observed: { afterStep, paletteOpen } });
   }
   const afterPalette = await waitForValue(
@@ -726,7 +720,7 @@ async function assertPopoutKeyboard(page, state) {
   );
   if (afterPalette.focusedTestId !== expectedTestId) {
     failWithDetails(
-      'Cmd/Ctrl+K in the pop-out also stepped the spine — the chord was read as the bare `k` key (rf2-61i5)',
+      'Cmd/Ctrl+K in the pop-out also stepped the spine — the chord was read as the bare `k` key',
       { observed: { expectedTestId, afterStep, afterPalette } });
   }
 
@@ -757,7 +751,7 @@ async function assertPopoutKeyboard(page, state) {
   ]) {
     if (openerMountOf(snapshot) !== baseline) {
       failWithDetails(
-        `Keys pressed in the pop-out moved the OPENER's shell mount state ${when} (rf2-61i5)`,
+        `Keys pressed in the pop-out moved the OPENER's shell mount state ${when}`,
         { observed: { baseline, when, snapshot } });
     }
   }
@@ -773,7 +767,7 @@ async function assertPopoutKeyboard(page, state) {
   });
   if (shellChord.defaultPrevented) {
     failWithDetails(
-      'Ctrl+Shift+C was consumed in the pop-out — the opener-owned shell chord must fall through there (rf2-61i5)',
+      'Ctrl+Shift+C was consumed in the pop-out — the opener-owned shell chord must fall through there',
       { observed: shellChord });
   }
   const settledOpenerMount = await waitForStableValue(
@@ -782,7 +776,7 @@ async function assertPopoutKeyboard(page, state) {
   );
   if (settledOpenerMount !== baseline) {
     failWithDetails(
-      "Ctrl+Shift+C pressed in the pop-out toggled the OPENER's in-app shell (rf2-61i5)",
+      "Ctrl+Shift+C pressed in the pop-out toggled the OPENER's in-app shell",
       { observed: { baseline, settledOpenerMount } });
   }
 
@@ -910,7 +904,7 @@ async function assertDefaultInlineLaunchModes(page, state) {
     }
   });
 
-  // rf2-61i5 — the pop-out document's OWN keyboard. Every key is sent into
+  // The pop-out document's OWN keyboard. Every key is sent into
   // the pop-out realm and every consequence is POLLED for, because the
   // consequences are re-frame dispatches and dispatch is asynchronous.
   const popoutKeyboard = await assertPopoutKeyboard(page, state);
