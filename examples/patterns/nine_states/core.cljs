@@ -353,7 +353,7 @@
     ;; `:set-items`, which REPLACES the list with a server's answer. Both end
     ;; up at `:resolving` so the cardinality cascade stays the one place a
     ;; bucket is chosen — that is the property worth keeping — but only one
-    ;; of them is a fetch reply, and the machine now says which is which.
+    ;; of them is a fetch reply, and the machine says which is which.
     (fn action-conj-item [{data :data [_ {:keys [item]}] :event}]
       {:data (update data :items (fnil conj []) item)})
 
@@ -643,11 +643,11 @@
    ;; `:new-todo/todo-id` reg-cofx above). That's what keeps replay
    ;; handing back the same id every time.
    :rf.cofx/requires [:new-todo/todo-id]}
-  ;; Note this handler no longer reads the machine snapshot at all. It used
-  ;; to, to build `(conj current-items new)` for the synthetic reply below —
-  ;; handing the machine a whole new list, computed outside it, from a value
-  ;; that could be one macrostep stale. Appending is the machine's own job
-  ;; now, so the handler carries only the row.
+  ;; Note this handler does not read the machine snapshot at all. Reading it
+  ;; to build `(conj current-items new)` here would hand the machine a whole
+  ;; new list, computed outside it, from a value that could be one macrostep
+  ;; stale. Appending is the machine's own job, so the handler carries only
+  ;; the row.
   (fn handler-new-todo-submit [{:keys [db] new-id :new-todo/todo-id} _]
     (let [draft  (get-in db [:new-todo :draft])
           errors (validate-new-todo draft)]
@@ -664,16 +664,17 @@
         ;; re-pick the cardinality bucket. One place decides cardinality,
         ;; which is the property worth having.
         ;;
-        ;; And note what this is NOT. It used to dispatch the fetch PAIR —
+        ;; And note what this is NOT. It does not dispatch the fetch PAIR —
         ;; `:fetch-started` then `:fetch-succeeded {:items (conj current new)}`
-        ;; — to reach `:resolving` the "long way round". That impersonates a
-        ;; reply: on a real transport, with a load actually in flight,
-        ;; `:loading` consumes the synthetic `:fetch-succeeded` and leaves for
-        ;; a bucket, and when the genuine reply lands no bucket handles
-        ;; `:fetch-succeeded`, so the user's load is silently discarded while
-        ;; the page says "✓ Todo added." over the old list. `data-load-request-id`
-        ;; cannot close that window, because the competing writer is not a
-        ;; second request. A local append is its own event.
+        ;; — to reach `:resolving` the "long way round". That would impersonate
+        ;; a reply: on a real transport, with a load actually in flight,
+        ;; `:loading` would consume the synthetic `:fetch-succeeded` and leave
+        ;; for a bucket, and when the genuine reply landed no bucket would
+        ;; handle `:fetch-succeeded`, so the user's load would be silently
+        ;; discarded while the page said "✓ Todo added." over the old list.
+        ;; `data-load-request-id` cannot close that window, because the
+        ;; competing writer is not a second request. A local append is its
+        ;; own event.
         {:db (-> db
                  (assoc-in [:new-todo :draft]   {:title ""})
                  (assoc-in [:new-todo :errors]  {})
