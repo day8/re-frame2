@@ -27,7 +27,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The one-name-per-fact key pairs. Each pair is
 ;; [canonical-namespaced-key bare-duplicate-key]: a map carrying the FIRST
-;; MUST NOT also carry the SECOND (rf2-o6c2jr).
+;; MUST NOT also carry the SECOND.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private duplicate-key-pairs
@@ -59,8 +59,8 @@
 ;; Read a `.cljc` / `.clj` source file as a sequence of top-level forms.
 ;; `:read-cond :preserve` keeps every reader conditional as a
 ;; `ReaderConditional` VALUE, all arms intact, and `duplicate-hits` inspects
-;; every arm. (`:allow` picks the JVM arm at read time, so a `:cljs`-only or
-;; spliced emitter never reached the detector — rf2-gwye.40.) Preserve mode
+;; every arm. (`:allow` would pick the JVM arm at read time, so a `:cljs`-only
+;; or spliced emitter would never reach the detector.) Preserve mode
 ;; cannot read a SPLICING conditional placed directly inside a map literal
 ;; (`{:k v #?@(:cljs [...])}`): such a file fails this gate at read time,
 ;; loudly, rather than being skipped. `:eof ::eof` terminates the read loop
@@ -113,14 +113,14 @@
 (deftest no-trace-row-carries-one-fact-under-two-keys
   (testing "no production reply-envelope emitter map carries a fact under both
             its canonical :rf.reply/* spelling AND its bare duplicate
-            (rf2-o6c2jr — Conventions §one name per fact)"
+            (Conventions §one name per fact)"
     (doseq [rel-path emitter-source-files]
       (let [forms (read-all-forms (rf.mcp-conformance.fixtures/read-source rel-path))
             hits  (duplicate-hits forms)]
         (is (empty? hits)
             (str rel-path " contains " (count hits) " map(s) carrying a fact "
                  "under two keys — the bare duplicate MUST be dropped "
-                 "(rf2-o6c2jr, Conventions §one name per fact):\n"
+                 "(Conventions §one name per fact):\n"
                  (str/join
                    "\n"
                    (for [[canonical bare _m] hits]
@@ -165,8 +165,8 @@
           "the carried/current correlation gate legitimately nests :work/id"))))
 
 ;; ---------------------------------------------------------------------------
-;; (3) The READ boundary — every reader-conditional arm reaches the detector
-;;     (rf2-gwye.40, rf2-fzbj.14 F3). (2) hands `duplicate-hits` an
+;; (3) The READ boundary — every reader-conditional arm reaches the detector.
+;;     (2) hands `duplicate-hits` an
 ;;     already-read literal, so it proves the walk and not the read; these
 ;;     go through `read-all-forms` on source TEXT, the path (1) takes.
 ;; ---------------------------------------------------------------------------
