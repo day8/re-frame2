@@ -2553,10 +2553,10 @@ test('an unrelated implementation/scripts/* file does not fire story_xray_browse
   );
 });
 
-// rf2-5v0dg7 — reagent-slim CLIENT-RUNTIME smoke routing. The
+// reagent-slim CLIENT-RUNTIME smoke routing. The
 // serve-and-run-reagent-slim-smoke.cjs launcher IS the executable
 // orchestration for `npm run test:reagent-slim:smoke`, the command the
-// cljs-reagent-slim-bundle-isolation PR job now runs. Editing it (or its
+// cljs-reagent-slim-bundle-isolation PR job runs. Editing it (or its
 // policy test) must fire the reagent_slim_bundle gate it drives — else a PR
 // can break the launcher while avoiding the very smoke gate it orchestrates
 // (the generic implementation/scripts/* case never fires reagent_slim_bundle).
@@ -2585,7 +2585,7 @@ test('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs still arms the
 
 test('the reagent-slim adapter/testbed surface fires reagent_slim_bundle (canonical trigger) (rf2-5v0dg7)', () => {
   // The smoke testbed lives under implementation/adapters/reagent-slim/; a
-  // change there must arm the slim gate (now incl. the smoke) directly.
+  // change there must arm the slim gate (smoke included) directly.
   const result = classify('implementation/adapters/reagent-slim/testbed/smoke.cjs');
   assert.equal(result.reagent_slim_bundle, 'true');
 });
@@ -2595,7 +2595,7 @@ test('implementation/package.json still arms cljs_node_test (regression — it d
   assert.equal(result.cljs_node_test, 'true');
 });
 
-// rf2-gzavkm — the standalone example-build compiler is intentionally NOT
+// The standalone example-build compiler is intentionally NOT
 // coupled to the broad browser surface. Core changes keep their ordinary
 // browser proofs but defer the expensive all-examples compile to the nightly
 // safety net; surfaces that can directly change an example build still run it
@@ -2617,13 +2617,10 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     'implementation/ssr/src/re_frame/ssr.cljc',
     'implementation/ssr-ring/src/re_frame/ssr/ring.clj',
     'implementation/resources/src/re_frame/resources.cljc',
-    // rf2-qxg24 — `implementation/security/src/re_frame/security.cljc` is GONE
-    // from this list. It never existed: the security partition is deliberately
-    // src-less, so this row asserted that an imaginary file could change a
-    // compiled example closure. It passed anyway, and would have gone on
-    // passing forever, because these arms are pure path patterns — a phantom
-    // path classifies exactly like a real one. The tier's real routing is
-    // pinned below, from tracked paths.
+    // The security partition is deliberately src-less, so it has no row here
+    // (these arms are pure path patterns, and a phantom path would classify
+    // exactly like a real one). The tier's real routing is pinned below, from
+    // tracked paths.
     'implementation/scripts/check-examples-compile.cjs',
     'tools/story/src/re_frame/story.cljs',
     'tools/xray/src/day8/re_frame2_xray/preload.cljs',
@@ -2637,12 +2634,10 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     );
   }
 
-  // rf2-in6c4 — `testbeds/tenant_switcher/core.cljs` left this list when the
-  // gate widened its derivation from `:examples/*` to `:examples/* +
-  // :testbeds/*`. A testbed source CAN now change a swept build, because the
-  // build it belongs to is one of them. The scope discipline the case was
-  // making — that not everything under testbeds/ queues a ~10-minute compile —
-  // did not go away; it moved to the extension narrowing, pinned below.
+  // No testbed source is in this list: the gate derives its roster from
+  // `:examples/* + :testbeds/*`, so a testbed source CAN change a swept build.
+  // The scope discipline — that not everything under testbeds/ queues a
+  // ~10-minute compile — lives in the extension narrowing, pinned below.
   for (const file of [
     'implementation/core/src/re_frame/core.cljc',
     'implementation/scripts/check-elision.cjs',
@@ -2673,18 +2668,17 @@ test('cljs-examples-compile job uses the dedicated output and nightly retains fu
   assert.ok(compile < playwright, 'example compilation should fail before the browser download');
 });
 
-// rf2-k8yl5f — the re-frame2-pair skill ships a dev-only preload
+// The re-frame2-pair skill ships a dev-only preload
 // (skills/re-frame2-pair/preload/re_frame2_pair/{runtime.cljs,pure.cljc}).
 // shadow-cljs.edn adds ../skills/re-frame2-pair/preload as a :source-path and
 // wires re-frame2-pair.runtime into ~28 :examples/* dev builds via
 // `:devtools :preloads`. `shadow-cljs compile` (the examples-compile coverage
 // gate — unlike `release`) HONOURS :devtools/preloads, so a preload-only
 // change compiles into every example dev build that injects it and can break
-// that gate. Before this bead the classifier armed ONLY skills_structural on
-// the preload path, so examples_compile=false and a preload break surfaced
-// only in the unconditional nightly examples-compile net (rf2-gzavkm), never
-// at PR time. These assertions lock the examples_compile arming while keeping
-// skills_structural (the preload is still skill material) and holding scope:
+// that gate. Armed ONLY for skills_structural, a preload break would surface
+// only in the unconditional nightly examples-compile net, never at PR time.
+// These assertions lock the examples_compile arming while keeping
+// skills_structural (the preload is skill material too) and holding scope:
 // non-preload skill files must NOT drag in the heavy example-compile sweep.
 test('re-frame2-pair PRELOAD change arms examples_compile (injected into ~28 example dev builds) (rf2-k8yl5f)', () => {
   const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs');
@@ -2713,7 +2707,7 @@ test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope
   // Only the shipped preload compiles into the example builds. Other skill
   // material (SKILL.md, references, the redaction guides) must NOT drag the
   // heavy all-examples compile sweep into an ordinary skill-doc PR — it keeps
-  // its existing skills_structural-only classification.
+  // its skills_structural-only classification.
   const result = classify('skills/re-frame2-pair/SKILL.md');
   assert.equal(
     result.examples_compile,
@@ -2723,9 +2717,9 @@ test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope
   assert.equal(result.skills_structural, 'true');
 });
 
-// rf2-11yjq — the shipped re-frame2-pair preload is dev-only RUNTIME. Its
+// The shipped re-frame2-pair preload is dev-only RUNTIME. Its
 // stateful wrapper has TWO owning behavioral gates that examples_compile
-// (compile-only, rf2-k8yl5f) and skills_structural (source-shape + pure-core
+// (compile-only) and skills_structural (source-shape + pure-core
 // node fixture) do NOT exercise:
 //   - cljs-browser (gated on cljs_browser) discovers
 //     re-frame.pair-dispatch-and-settle-dom-cljs-test, which imports
@@ -2734,8 +2728,8 @@ test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope
 //   - mcp-conformance-re-frame2-pair (gated on mcp_live) boots the hermetic
 //     fixture with THIS exact preload and exercises live Pair operations across
 //     the MCP bridge.
-// Before this bead a preload-only change left both false — merging with both
-// owning behavioral gates SKIPPED (caught only by the nightly net, a PR-time
+// With both false, a preload-only change would merge with both owning
+// behavioral gates SKIPPED (caught only by the nightly net, a PR-time
 // false-green). These assertions pin all four positive outputs (incl. a nested
 // path), the non-preload negative, and the two job-level gate wirings.
 
@@ -2744,8 +2738,7 @@ const PRELOAD_RUNTIME_FILES = pinnedRoster('PRELOAD_RUNTIME_FILES', [
   'skills/re-frame2-pair/preload/re_frame2_pair/pure.cljc',
 ]);
 
-// rf2-e30e — a GLOB PROBE, and the reason the roster guard has that concept at
-// all. This path is SYNTHETIC and deliberately untracked: what it establishes
+// A GLOB PROBE, and the reason the roster guard has that concept at all. This path is SYNTHETIC and deliberately untracked: what it establishes
 // is that the classifier's preload arm matches at DEPTH, a property of the
 // glob rather than of any file, and a real nested file would prove it no
 // better. It therefore sits outside `PRELOAD_RUNTIME_FILES` — folding it back
@@ -2767,7 +2760,7 @@ for (const file of [...PRELOAD_RUNTIME_FILES, PRELOAD_RUNTIME_DEPTH_PROBE]) {
       'true',
       'the preload boots the hermetic fixture under mcp-conformance-re-frame2-pair (gated on mcp_live)',
     );
-    // regression: the rf2-k8yl5f coverage stays armed — this widens, not narrows
+    // regression: the compile + structural coverage stays armed — this widens, not narrows
     assert.equal(result.examples_compile, 'true');
     assert.equal(result.skills_structural, 'true');
   });
@@ -2791,23 +2784,19 @@ test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live
   assert.equal(result.skills_structural, 'true');
 });
 
-// rf2-g1m2q — `skills/re-frame2-pair-retro/**` and `skills/reagent-migration/**`
-// armed NOTHING AT ALL. `skills_structural` had four case arms
-// (skills/re-frame2-pair/tests/fixture/*, skills/re-frame2-pair/preload/*,
-// skills/re-frame2-pair/* with skills/shared/*, skills/re-frame2-setup/*) and
-// the main case carries no default arm, so a diff confined to either tree
-// classified to ZERO outputs — not merely skills_structural=false. Measured
-// with a passing control first, because an instrument that can answer "nothing
-// here" answers it the same way when misused: skills/re-frame2-setup/SKILL.md
-// returned skills_structural=true while both trees below returned 0 of 28.
+// `skills/re-frame2-pair-retro/**`, `skills/reagent-migration/**` and
+// `skills/re-frame2-improver/**` each need an arm of their own: the main case
+// carries no default arm, so a diff confined to a tree no arm names classifies
+// to ZERO outputs — not merely skills_structural=false.
 //
-// Both trees carry tests that the skills_structural tier is what schedules:
+// The retro and migration trees carry tests that the skills_structural tier
+// is what schedules:
 //   - skills/re-frame2-pair-retro/tests/*_test.clj, looped by the pair-retro
-//     step in the `skills-structural` job (rf2-qad4l).
+//     step in the `skills-structural` job.
 //   - skills/reagent-migration/tests/fixture/, whose MIG-23 SSR cold-start
-//     :node-test build runs in `reagent-migration-fixture-cold-start`
-//     (rf2-vpdrf / rf2-bbe91).
-// So each tree's own gate was skipped on exactly the push that could break it.
+//     :node-test build runs in `reagent-migration-fixture-cold-start`.
+// Unarmed, each tree's own gate would be skipped on exactly the push that
+// could break it.
 //
 // THE PAIR / PAIR-RETRO BOUNDARY IS THE TRAP, and it is why the retro tree
 // cannot inherit an existing arm: the `skills/re-frame2-pair/*` pattern needs a
@@ -2815,8 +2804,7 @@ test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live
 // there, so it never matches. The negative assertions pin that boundary from
 // the other side — retro paths must not arm the PAIR tree's expensive gates.
 //
-// rf2-z65e — `skills/re-frame2-improver/**` joins the roster, the THIRD tree
-// found arming nothing at all, and its near-miss is a different one:
+// The improver tree's near-miss is a different one:
 // `skills/re-frame2-implementor/` shares the prefix `skills/re-frame2-imp`,
 // carries no tests and has no arm, so the improver arm must name the tree in
 // full. The negative assertion for that boundary is below the loop.
@@ -2838,7 +2826,7 @@ for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
     assert.equal(
       result.skills_structural,
       'true',
-      `${file} is scheduled by the skills_structural tier; before rf2-g1m2q this tree armed nothing at all`,
+      `${file} is scheduled by the skills_structural tier, so its tree needs an arm of its own`,
     );
     // Scope discipline: structural ONLY. Neither tree drives a runtime, a live
     // Pair op, an example build or an emitted-scaffold compile, so neither may
@@ -2858,15 +2846,15 @@ for (const file of SKILLS_STRUCTURAL_ONLY_FILES) {
   });
 }
 
-// rf2-z65e — the improver arm's boundary, pinned from the other side. This
+// The improver arm's boundary, pinned from the other side. This
 // tree has no arm and no tests, and it is one `-` away from `improver` in a
 // shared `skills/re-frame2-imp` prefix — the pair / pair-retro trap wearing
 // different names. A pattern loosened to `skills/re-frame2-imp*` would pass
 // every assertion above and start scheduling a job with nothing to run; this
 // is the assertion that would catch it.
 //
-// It pins the CURRENT behaviour, which is that this tree still classifies to
-// nothing at all. That is a gap of its own — but an empty one: the package
+// It pins that this tree classifies to nothing at all. That is a gap of its
+// own — but an empty one: the package
 // carries no test file for any job to run, so wiring it would arm a tier over
 // prose. Should it gain a `tests/` directory, it needs an arm of its own and
 // this assertion is where the choice gets made rather than inherited.
@@ -2881,26 +2869,24 @@ test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)
   );
 });
 
-// rf2-bbe91 (audit reopen of PR #8868) — the REVERSE edge into the MIG-23 SSR
-// cold-start fixture. rf2-g1m2q above armed `skills_structural` from the SKILL
-// trees, which fires `reagent-migration-fixture-cold-start` on a change to the
-// RECIPE. It left the other direction open: the fixture pins the recipe against
-// four in-repo artefacts it resolves as `:local/root`, and a change to any of
-// THOSE classified `skills_structural=false`, so the only cross-artefact
-// cold-start witness was skipped on exactly the substrate change that could
-// break it. A skipped job is an accepted result, so the aggregator stayed green.
+// The REVERSE edge into the MIG-23 SSR cold-start fixture. The SKILL-tree arm
+// above fires `reagent-migration-fixture-cold-start` on a change to the
+// RECIPE; this is the other direction. The fixture pins the recipe against
+// four in-repo artefacts it resolves as `:local/root`, and if a change to any
+// of THOSE classified `skills_structural=false`, the only cross-artefact
+// cold-start witness would be skipped on exactly the substrate change that
+// could break it. A skipped job is an accepted result, so the aggregator would
+// stay green.
 //
 // The roster below IS `skills/reagent-migration/tests/fixture/deps.edn`'s
 // `:deps` map, and the same four `deps.edn` files the job's cache key hashes.
 //
 // EVERY PATH HERE IS TRACKED, checked with `git ls-files`, not transcribed from
 // prose. The extensions are the trap: the Fresco server door and the stock
-// Reagent adapter are `.cljs`, not `.cljc`, and the reopening audit's own note
-// spelled both `.cljc`. Nothing would have caught it — these arms are pure path
-// patterns, so a phantom file classifies identically to a real one and the
-// assertion passes while pinning a route no diff can ever take. That is the
-// same defect rf2-qxg24 removes from the examples_compile fixture list in this
-// file, and it is why the negative half below uses tracked paths too.
+// Reagent adapter are `.cljs`, not `.cljc`. These arms are pure path patterns,
+// so a phantom file classifies identically to a real one and the assertion
+// passes while pinning a route no diff can ever take — which is why the
+// negative half below uses tracked paths too.
 const MIG23_FIXTURE_LOCAL_ROOTS = pinnedRoster('MIG23_FIXTURE_LOCAL_ROOTS', [
   'implementation/core/src/re_frame/core.cljc',
   'implementation/ssr/src/re_frame/ssr.cljc',
@@ -2920,30 +2906,30 @@ for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
   });
 }
 
-// rf2-f9f3p — the SECOND fixture's half of the same reverse edge.
+// The SECOND fixture's half of the same reverse edge.
 // `re-frame2-pair-fixture-pure` is gated solely on `skills_structural` too, so
-// rf2-bbe91 armed it INCIDENTALLY for the two roots the fixtures share (core
-// and the stock Reagent adapter). It shares only two:
+// the MIG-23 roster arms it INCIDENTALLY for the two roots the fixtures share
+// (core and the stock Reagent adapter). It shares only two:
 // `skills/re-frame2-pair/tests/fixture/deps.edn` resolves FIVE in-repo
 // artefacts, because the shipped preload `:require`s `re-frame.epoch`,
-// `re-frame.schemas` and `re-frame.machines` directly. Those three classified
-// `skills_structural=false` at rf2-bbe91's tip, for `src/*` and `deps.edn`
-// alike — so the one job that compiles and tests that shipped source was
-// accepted as SKIPPED on a change to three fifths of its own in-repo
-// classpath, and a skipped required job is an accepted result.
+// `re-frame.schemas` and `re-frame.machines` directly. Unarmed for those
+// three, for `src/*` and `deps.edn` alike, the one job that compiles and tests
+// that shipped source would be accepted as SKIPPED on a change to three
+// fifths of its own in-repo classpath, and a skipped required job is an
+// accepted result.
 //
 // THE ROSTER IS THE FIXTURE'S OWN `:deps` MAP, all five roots, both entry
-// shapes. The two already covered by rf2-bbe91 are pinned here as well rather
+// shapes. The two the MIG-23 roster covers are pinned here as well rather
 // than assumed: their coverage is a side effect of the OTHER fixture's roster,
 // so a future narrowing of that roster would silently unarm this job, and
 // nothing else in this file would notice.
 //
 // EVERY PATH IS TRACKED, checked with `git ls-files` rather than transcribed —
-// the same trap rf2-bbe91's own note records, and it bites identically here:
-// these arms are pure path patterns, so a phantom file classifies exactly like
-// a real one and the assertion passes while pinning a route no diff can take.
-// The extensions are again the tell — the three added roots are `.cljc` and the
-// Reagent adapter is `.cljs`.
+// the same trap as the MIG-23 roster, and it bites identically here: these
+// arms are pure path patterns, so a phantom file classifies exactly like a
+// real one and the assertion passes while pinning a route no diff can take.
+// The extensions are again the tell — epoch, schemas and machines are `.cljc`
+// and the Reagent adapter is `.cljs`.
 const PAIR_FIXTURE_LOCAL_ROOTS = pinnedRoster('PAIR_FIXTURE_LOCAL_ROOTS', [
   'implementation/core/src/re_frame/core.cljc',
   'implementation/core/deps.edn',
@@ -2969,7 +2955,7 @@ for (const file of PAIR_FIXTURE_LOCAL_ROOTS) {
 }
 
 // The dispatch only ever SETS `skills_structural`, so it cannot narrow the
-// three newly-armed artefacts' existing routing — each of which owns lanes the
+// three Pair-only artefacts' production routing — each of which owns lanes the
 // other two do not. Pinned per artefact rather than over the intersection,
 // because the intersection is exactly what a refactor into an arm of the big
 // first-match `case` would leave standing while it dropped the rest.
@@ -2979,9 +2965,9 @@ for (const [file, keys] of [
     ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'mcp_conformance', 'mcp_live'],
   ],
   [
-    // template_expensive is deliberately absent from this roster
-    // (rf2-6r9j.108): the reduced scaffold registers no schema, so schemas
-    // never armed it on merit. The negative control lives above.
+    // template_expensive is deliberately absent from this roster: the
+    // scaffold registers no schema, so schemas has no reason to arm it. The
+    // negative control lives above.
     'implementation/schemas/src/re_frame/schemas.cljc',
     ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation'],
   ],
@@ -3011,21 +2997,20 @@ test('re-frame2-pair-fixture-pure is job-level gated on skills_structural (rf2-f
   );
 });
 
-// The negative half, now covering BOTH fixtures. The edge is the two fixtures'
+// The negative half, covering BOTH fixtures. The edge is the two fixtures'
 // CLASSPATHS, not "anything under implementation/", so it must not become a
 // default arm by drift. A `:local/root` contributes the artefact's `:paths`
 // plus its dependency declaration — an artefact's own `test/` tree is not on
 // either fixture's classpath — and the sibling per-feature artefacts are on
 // neither.
 //
-// rf2-f9f3p moved one entry: `implementation/schemas/src/re_frame/schemas.cljc`
-// stood here as a negative under rf2-bbe91 and is now a POSITIVE above, because
-// it IS on the Pair fixture's classpath even though it is not on MIG-23's. That
-// is the whole reason this pair of files is one-toucher — the roster and the
-// assertions that pin it cannot be true in separate commits. Its slot is taken
-// by `implementation/schemas/test/*`, which is the sharper boundary anyway: it
-// pins the `src/*`-plus-`deps.edn` scope on a newly-armed artefact, from the
-// side the new arms could most plausibly over-reach.
+// `implementation/schemas/src/re_frame/schemas.cljc` is NOT here: it IS on
+// the Pair fixture's classpath even though it is not on MIG-23's, so it is a
+// POSITIVE above. The roster and the assertions that pin it cannot be true in
+// separate commits, which is why this file and the classifier are
+// one-toucher. `implementation/schemas/test/*` is the sharper boundary
+// anyway: it pins the `src/*`-plus-`deps.edn` scope on a Pair-armed artefact,
+// from the side those arms could most plausibly over-reach.
 for (const file of [
   'implementation/core/test/re_frame/adapter/routing_arity_cljs_test.cljc',
   'implementation/schemas/test/re_frame/late_bind_missing_test.clj',
@@ -3044,7 +3029,7 @@ for (const file of [
 }
 
 // The dispatch only ever SETS `skills_structural`, so it cannot narrow the four
-// artefacts' existing routing. Pinned because a future refactor into an arm of
+// artefacts' production routing. Pinned because a future refactor into an arm of
 // the big first-match `case` WOULD narrow it, silently and in exactly one
 // direction — the failure the dispatch's own comment exists to prevent.
 test('the MIG-23 reverse edge does not narrow core/ssr/reagent production routing (rf2-bbe91)', () => {
@@ -3097,10 +3082,10 @@ test('mcp-conformance-re-frame2-pair job is job-level gated on mcp_live (live Pa
   );
 });
 
-// rf2-11yjq — acceptance criterion 2: delete + both rename endpoints of the
-// preload retain the same classification through the REAL Git-derived
-// discovery path (the --no-renames machinery emits BOTH endpoints of a rename,
-// rf2-vxgfnd.137). The preload case is pure path-pattern matching, so it arms
+// Delete + both rename endpoints of the preload keep the same classification
+// through the REAL Git-derived discovery path (the --no-renames machinery
+// emits BOTH endpoints of a rename). The preload case is pure path-pattern
+// matching, so it arms
 // the behavioral gates whether the preload endpoint arrives as an add, a
 // modify, a delete, or either endpoint of a rename. (classifyViaGitDiscovery /
 // renameViaGitDiscovery are defined further down; both are hoisted function
@@ -3140,34 +3125,30 @@ test('DISCOVERY: rename INTO the preload subtree arms the gates for the added en
 });
 
 // The CLJS job provisions the Clojure CLI for the steps that shell out to it.
-// (Its original subject, G-12 Arm 2's `clojure -Stree` behind
-// `test:ui-isolation`, retired with re-frame.ui — rf2-0yp7w.4. The provision
-// itself stays asserted, because the shared-installer discipline below is what
-// keeps it reproducible.)
+// The provision is asserted because the shared-installer discipline below is
+// what keeps it reproducible.
 test('cljs job provisions the Clojure CLI through the shared installer (rf2-3kewru, rf2-e7ja9)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
   const setup = block.indexOf('name: Set up Clojure CLI');
   assert.notEqual(setup, -1, 'cljs job must install the Clojure CLI');
-  // rf2-9sgj8 — the install runs the official linux-install.sh with retry
-  // (resilient against the transient curl-35 / socket-hang-up that reds setup)
-  // instead of DeLaGuardo/setup-clojure. rf2-e7ja9 — that body now lives in the
-  // one shared script rather than inline here. It is still a real Clojure CLI
-  // provision, which is all Arm 2's `clojure -Stree` needs — assert the step
-  // calls the shared installer rather than pinning the (now-removed) action SHA
-  // or a copied installer body.
+  // The install runs the official linux-install.sh with retry (resilient
+  // against the transient curl-35 / socket-hang-up that reds setup) rather
+  // than DeLaGuardo/setup-clojure, and that body lives in the one shared
+  // script rather than inline here — so assert the step calls the shared
+  // installer rather than pinning an action SHA or a copied installer body.
   assert.match(
     block,
     /\.github\/scripts\/install-clojure-cli\.sh/,
-    'cljs job must install the Clojure CLI through the shared installer (rf2-e7ja9)',
+    'cljs job must install the Clojure CLI through the shared installer',
   );
 });
 
-// rf2-e7ja9 — the resilient Clojure CLI install (rf2-9sgj8) was copied into 59
-// jobs across eight workflows. It now lives in ONE script,
-// `.github/scripts/install-clojure-cli.sh`, which every one of those jobs
-// calls. These assertions are the structural proof that it STAYS that way: a
-// reintroduced inline installer body, a resurrected setup-clojure action, or a
-// relative call path all fail here rather than silently re-forking the policy.
+// The resilient Clojure CLI install lives in ONE script,
+// `.github/scripts/install-clojure-cli.sh`, which every job that needs the CLI
+// calls (~59 jobs across the workflows). These assertions are the structural
+// proof that it STAYS that way: an inline installer body, a setup-clojure
+// action, or a relative call path all fail here rather than silently forking
+// the policy.
 const CLOJURE_INSTALLER = path.join(REPO_ROOT, '.github', 'scripts', 'install-clojure-cli.sh');
 const WORKFLOW_DIR = path.join(REPO_ROOT, '.github', 'workflows');
 const allWorkflows = () =>
@@ -3193,23 +3174,22 @@ test('the shared Clojure CLI installer exists and keeps its failure boundary (rf
     'install-clojure-cli.sh must be committed executable (100755) — the workflows run it directly',
   );
   const src = fs.readFileSync(CLOJURE_INSTALLER, 'utf8');
-  // The semantics rf2-9sgj8 established, now owned in exactly one place:
+  // The installer's semantics, owned in exactly one place:
   // whole download+install attempts, curl retry, bounded backoff, sudo
   // install, and a final `clojure --version` failure boundary.
   assert.match(src, /^set -euo pipefail$/m, 'installer must run under set -euo pipefail');
-  // rf2-xsfr widened the envelope from three attempts / 10s-20s-30s backoff —
-  // about two minutes — because github.com 5xx storms outlasted it four times
-  // in one session (#8007, #8009, #8017, #8019). #8017 logged eighteen 503s,
-  // i.e. EVERY request the old script was willing to make, and still lost. The
-  // floor is stated as an inequality, not as the literal `attempts=6`: a later
-  // widening is the intended direction of travel and must not have to come
-  // here, while a narrowing back under the observed storm must.
+  // At least six attempts, because github.com 5xx storms outlast a
+  // three-attempt / 10s-20s-30s envelope (about two minutes): one storm logged
+  // eighteen 503s, EVERY request such a script would make. The floor is stated
+  // as an inequality, not as the literal `attempts=6`: a widening is the
+  // intended direction of travel and must not have to come here, while a
+  // narrowing back under the observed storm must.
   const attemptsPin = src.match(/^attempts=(\d+)$/m);
   assert.ok(attemptsPin, 'installer must declare its attempt count as `attempts=<n>`');
   assert.ok(
     Number(attemptsPin[1]) >= 6,
-    `installer must make at least 6 whole attempts (found ${attemptsPin[1]}) — three did not ` +
-      'outlast the observed 503 storms (rf2-xsfr)',
+    `installer must make at least 6 whole attempts (found ${attemptsPin[1]}) — three do not ` +
+      'outlast the observed 503 storms',
   );
   assert.match(
     src,
@@ -3222,33 +3202,33 @@ test('the shared Clojure CLI installer exists and keeps its failure boundary (rf
     'installer must fetch the official linux-install.sh',
   );
   assert.match(src, /sudo bash \/tmp\/linux-install\.sh/, 'installer must install with sudo');
-  // Bounded backoff, now with a jitter term: ~59 jobs install this CLI
+  // Bounded backoff, with a jitter term: ~59 jobs install this CLI
   // concurrently, and without jitter they retry in lockstep and arrive on the
-  // struggling endpoint as one herd every round (rf2-xsfr).
+  // struggling endpoint as one herd every round.
   assert.match(
     src,
     /delay=\$\(\(attempt \* \d+ \+ RANDOM % \d+\)\)/,
-    'installer must keep the bounded backoff, with a jitter term (rf2-xsfr)',
+    'installer must keep the bounded backoff, with a jitter term',
   );
   assert.match(src, /sleep "\$delay"/, 'installer must sleep the computed backoff');
-  // The half of rf2-xsfr that is NOT about surviving the storm: when the
-  // attempts ARE exhausted the step must say so as infrastructure. Falling
-  // through to `clojure --version` on a runner with no CLI dies `command not
-  // found`, exit 127 — a red that reads exactly like the gate this job exists
-  // to run having failed, when in fact no gate ran at all. Distinguishing those
-  // two by hand, from the raw log, is the cost rf2-xsfr was filed to delete, so
-  // a regression here is silent and expensive: assert the annotation.
+  // The half that is NOT about surviving the storm: when the attempts ARE
+  // exhausted the step must say so as infrastructure. Falling through to
+  // `clojure --version` on a runner with no CLI dies `command not found`, exit
+  // 127 — a red that reads exactly like the gate this job exists to run having
+  // failed, when in fact no gate ran at all. Distinguishing those two by hand,
+  // from the raw log, is the cost the annotation deletes, so a regression here
+  // is silent and expensive: assert the annotation.
   assert.match(
     src,
     /echo "::error title=[^"]*::/,
     'installer must fail exhaustion as an explicit ::error annotation, so a job that never ran ' +
-      'its gate is distinguishable from a gate that failed WITHOUT reading the raw log (rf2-xsfr)',
+      'its gate is distinguishable from a gate that failed WITHOUT reading the raw log',
   );
   assert.match(
     src,
     /^\s*exit 1$/m,
     'installer must exit nonzero on exhaustion rather than falling through to `clojure --version` ' +
-      "— the old fall-through's exit 127 is the masking failure (rf2-xsfr)",
+      "— a fall-through's exit 127 is the masking failure",
   );
   assert.match(
     src,
@@ -3264,13 +3244,13 @@ test('no workflow carries an inline Clojure installer body or setup-clojure (rf2
       text,
       /brew-install\/releases\/latest\/download\/linux-install\.sh/,
       `${name} must call .github/scripts/install-clojure-cli.sh, not copy the installer body ` +
-        '(rf2-e7ja9 — 59 copies of this policy is what the extraction deleted)',
+        '(the policy lives in one script, not in a copy per job)',
     );
     assert.doesNotMatch(
       text,
       /uses:\s*\S*setup-clojure@/,
       `${name} must not use the setup-clojure action — its un-retried curl is the ` +
-        'transient curl-35 / socket-hang-up flake rf2-9sgj8 removed',
+        'transient curl-35 / socket-hang-up flake the shared installer retries through',
     );
   }
 });
@@ -3303,18 +3283,16 @@ test('every Clojure CLI step calls the shared installer by absolute path (rf2-e7
   );
 });
 
-// rf2-2718r — the adapter-disposition guard scans a FIXED cross-repo roster
+// The adapter-disposition guard scans a FIXED cross-repo roster
 // (ACTIVE_AUTHORITIES: EP-0030, implementation/README.md, implementation/adapters/
 // reagent/README.md, skills/…), not the diff. Conditional execution keyed to a diff classifier is
 // a category mismatch for a guard that scans a fixed inventory — a PR editing a
-// roster file may not fire the guard that pins it (the same inventory<->trigger
-// bug class as rf2-d9v3n / rf2-rf7gu). The ruled fix (option (e)) moves the
-// guard out of the surface-gated synthesis-docs job into the UNCONDITIONAL
-// verify-readme-links job so it runs on every PR, dissolving the roster<->
-// classifier sync problem with zero machinery. This arm pins the wiring:
-// verify-readme-links must carry BOTH guard invocations. A future PR un-moving
-// or gutting the wiring fails here (this file runs under the unconditional
-// js-harness-self-tests job's test:scripts).
+// roster file may not fire the guard that pins it. So the guard runs in the
+// UNCONDITIONAL verify-readme-links job, on every PR, which dissolves the
+// roster<->classifier sync problem with zero machinery. This arm pins the
+// wiring: verify-readme-links must carry BOTH guard invocations. A PR moving
+// the guard behind a surface gate, or gutting the wiring, fails here (this
+// file runs under the unconditional js-harness-self-tests job's test:scripts).
 test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links (rf2-2718r)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const readmeLinks = jobBlock(workflow, 'verify-readme-links');
@@ -3330,15 +3308,13 @@ test('adapter-disposition guard runs UNCONDITIONALLY in verify-readme-links (rf2
   );
 });
 
-// rf2-03298 — the fast-PR spine's tiering + mkdocs-resolution harness
-// (scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh) has existed
-// since rf2-lwweq, and for its whole life NO workflow and NO npm script ran it:
-// every assertion in it was local-only, i.e. skippable, i.e. not a gate. That is
-// how the module-only mkdocs fallback rf2-g7p7l added could have been deleted
-// while every remote check stayed green. #7364 wired the harness into the
-// unconditional verify-readme-links job — but that wiring has no pin of its own.
-// Deleting the step leaves valid YAML, a green matrix, and a witness that is
-// local-only again, which is the original defect in a new shape. Same invariant
+// The fast-PR spine's tiering + mkdocs-resolution harness
+// (scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh) runs in the
+// unconditional verify-readme-links job. Run by NO workflow, every assertion
+// in it would be local-only, i.e. skippable, i.e. not a gate — so the
+// module-only mkdocs fallback could be deleted while every remote check stayed
+// green. The wiring needs a pin of its own: deleting the step leaves valid
+// YAML, a green matrix, and a witness that is local-only again. Same invariant
 // as the adapter-disposition arm above, for the same reason, running in the same
 // unconditional job (js-harness-self-tests -> test:scripts).
 test('the fast-PR spine self-test harness is wired into a REQUIRED check (rf2-03298)', () => {
@@ -3360,7 +3336,7 @@ test('the fast-PR spine self-test harness is wired into a REQUIRED check (rf2-03
   );
 });
 
-// rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
+// Workflow-level shape: jvm-core + cljs must be
 // job-level gated (needs + if), NOT trigger-filtered, and the
 // pull_request trigger must stay unfiltered so the aggregator is always
 // present.
@@ -3418,13 +3394,13 @@ test('All required checks passed aggregator still present + needs jvm-core + clj
   assert.match(block, /- cljs\r?\n/);
 });
 
-// rf2-1x32v. The aggregator now reports a CANCELLED required job in
-// different words from a FAILED one — "incomplete, re-run" versus "failed" —
-// because reporting them identically is what made a transient read as a
-// defect, and a check that cries wolf is one that stops being read.
+// The aggregator reports a CANCELLED required job in different words from a
+// FAILED one — "incomplete, re-run" versus "failed" — because reporting them
+// identically makes a transient read as a defect, and a check that cries wolf
+// is one that stops being read.
 //
-// Splitting one blocking step into two introduced a fail-open that did not
-// exist before: delete the cancelled arm and a cancelled required job reads
+// Two blocking steps carry a fail-open that one step would not: delete the
+// cancelled arm and a cancelled required job reads
 // GREEN, which would let a cancelled `beads-pr-boundary` carry a tracker
 // database onto main. So both arms are pinned, each with its own `exit 1`.
 // The distinction is presentational ONLY — no signal is not a pass.
