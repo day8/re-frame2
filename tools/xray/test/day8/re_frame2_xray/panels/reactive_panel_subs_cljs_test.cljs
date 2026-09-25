@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.reactive-panel-subs-cljs-test
   "Tests for the Reactive panel's pure-data projection
-  (rf2-wyvf2 · spec/021 §3).
+  (spec/021 §3).
 
   Exercises `project-record` over the substrate's structured
   `:rf/epoch-record` projections (`:sub-runs`, `:renders`) plus the
@@ -20,10 +20,9 @@
   - `:renders`  entry → `{:render-key [view-id idx] ...}`.
   - flow ops on `:trace-events` → `:rf.flow/computed` / `:rf.flow/skip`.
 
-  (The earlier suite asserted the *buggy* contract — it grepped raw
-  `:trace-events` for `:rf.sub/computed` / `:rf.sub/skipped`, names the
-  substrate never emits — so it stayed green while the panel showed
-  zero subs ran.)"
+  (`:rf.sub/computed` / `:rf.sub/skipped` are names the substrate never
+  emits, so a projection grepping raw `:trace-events` for them would
+  read zero subs ran.)"
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.panels.reactive-panel-subs :as subs]))
@@ -56,7 +55,7 @@
                 :rf.sub/input-paths-unchanged input-paths-unchanged}}))
 
 (defn- skip-qv
-  "A `:rf.sub/skip` op for a CONCRETE parameterized query (rf2-cj2yx) —
+  "A `:rf.sub/skip` op for a CONCRETE parameterized query —
   the registered `sub-id` plus the EXACT `query-v` the cache/trace
   short-circuited (e.g. `[:item/derived 1]`), the two carried separately
   so the projection can dedup/exclude by the concrete query while keeping
@@ -76,13 +75,13 @@
       (is (= {:epoch-id :b} (subs/focused-epoch-record history :b))))))
 
 (deftest focused-epoch-record-nil-focus-falls-back-to-head
-  (testing "NIL :epoch-id (LIVE / cold-start) → head record (rf2-h0120
+  (testing "NIL :epoch-id (LIVE / cold-start) → head record (the
             head-fallback — the natural debugging UX)"
     (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
       (is (= {:epoch-id :c} (subs/focused-epoch-record history nil))))))
 
 (deftest focused-epoch-record-nil-when-evicted
-  (testing "rf2-uo0rc.1 — a PINNED :epoch-id no longer in the buffer
+  (testing "a PINNED :epoch-id absent from the buffer
             (evicted from the per-frame ring) resolves to nil, NOT a
             silent head-fallback. Per spec/021 §10.7 every panel renders
             the evicted placeholder; the Views panel must not show the
@@ -100,15 +99,14 @@
     (is (nil? (subs/focused-epoch-record nil :anything)))))
 
 (deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
-  (testing "rf2-hiri8 / rf2-y8doi.19 — the operator PINNED an event bundle
+  (testing "the operator PINNED an event bundle
             that settled NO epoch, so focus carries a `:dispatch-id` beside
             a nil `:epoch-id`. That is shape-identical to the cold-start
-            UNSET focus the rf2-h0120 head-fallback above exists to serve,
-            so the 2-arity cannot tell them apart and answers the HEAD —
-            the Views panel then renders the LATEST cascade underneath a
-            selection that is not that epoch's, which is the same class of
-            lie this ns's `focused-epoch-record` docstring already refuses
-            for an EVICTED bundle.
+            UNSET focus the head-fallback above exists to serve, so the
+            2-arity cannot tell them apart and answers the HEAD — which
+            would render the LATEST cascade underneath a selection that is
+            not that epoch's, the same class of lie this ns's
+            `focused-epoch-record` docstring refuses for an EVICTED bundle.
 
             The 3-arity takes the pinned `:dispatch-id` and resolves to no
             record. Cause-neutral by construction: a refused dispatch, a
@@ -123,18 +121,18 @@
           "an :ungrouped pin settles no epoch and must resolve to no record"))))
 
 (deftest focused-epoch-record-rejects-only-the-pinned-no-epoch-shape
-  (testing "rf2-hiri8 POSITIVE CONTROL — the discriminator must change
-            NOTHING else. Without this row the fix could pass by resolving
-            nothing at all: an UNSET focus over a non-empty ring still
-            head-falls-back (rf2-h0120), an ordinary pinned epoch still
-            resolves its own record, and the 2-arity is untouched."
+  (testing "POSITIVE CONTROL — the discriminator must change
+            NOTHING else. Without this row the discriminator could pass by
+            resolving nothing at all: an UNSET focus over a non-empty ring
+            head-falls-back, an ordinary pinned epoch resolves its own
+            record, and the 2-arity is unaffected."
     (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
       (is (= {:epoch-id :c} (subs/focused-epoch-record history nil nil))
-          "an unset focus must still head-fall-back through the 3-arity")
+          "an unset focus must head-fall-back through the 3-arity")
       (is (= {:epoch-id :b} (subs/focused-epoch-record history :b 999))
-          "a REAL pinned epoch still resolves its own record, pin or no pin")
+          "a REAL pinned epoch resolves its own record, pin or no pin")
       (is (= {:epoch-id :c} (subs/focused-epoch-record history nil))
-          "the 2-arity keeps its pre-rf2-hiri8 head-fallback behaviour"))))
+          "the 2-arity head-falls-back"))))
 
 ;; ---- project-record: empty --------------------------------------------
 
@@ -167,11 +165,11 @@
 
 ;; ---- project-record: subs skipped (memo-hit :rf.sub/skip) -------------
 ;;
-;; The canonical `:rf.sub/skip` evidence (rf2-ty5r5o) — the substrate
-;; emits it on `:trace-events` (NOT `:sub-runs`) on a memo hit; the
-;; projection reads it into the distinct `:subs-skipped` slice. This
-;; replaces the deleted fabricated `:recomputed? false` sub-run tests
-;; (a shape the substrate never emits).
+;; The canonical `:rf.sub/skip` evidence — the substrate emits it on
+;; `:trace-events` (NOT `:sub-runs`) on a memo hit; the projection reads it
+;; into the distinct `:subs-skipped` slice. There are no
+;; `:recomputed? false` sub-run rows here: the substrate never emits that
+;; shape.
 
 (deftest skipped-subs-reads-rf-sub-skip-ops
   (testing "skipped-subs projects each :rf.sub/skip op off :trace-events —
@@ -189,25 +187,25 @@
           "layer-2 skip names its upstream query-vectors"))))
 
 (deftest skipped-subs-excludes-subs-that-also-ran
-  (testing "rf2-ty5r5o / rf2-cj2yx — a sub that RECOMPUTED this epoch DID
+  (testing "a sub that RECOMPUTED this epoch DID
             fire, so it is a :subs-ran row and MUST NOT also appear in
             :subs-skipped (the two categories stay distinct); a pure memo-hit
             survives. Exclusion keys on the CONCRETE query-v run-set."
     (let [events [(skip-ev :read-a)     ; also ran (below) → excluded
                   (skip-ev :derived-a)] ; pure skip → kept
-          ;; ran-set is now concrete query-vs (rf2-cj2yx), not bare sub-ids.
+          ;; the ran-set is concrete query-vs, not bare sub-ids.
           rows   (subs/skipped-subs events #{[:read-a]})]
       (is (= [:derived-a] (mapv :sub-id rows))
           ":read-a is excluded (it ran); :derived-a survives"))))
 
-;; ---- concrete-query identity (rf2-cj2yx) -------------------------------
+;; ---- concrete-query identity ------------------------------------------
 ;;
 ;; The cache/trace identify a short-circuited reaction by its full query
 ;; vector, so the disclosure must dedup + cross-exclude by concrete query-v
 ;; — NOT the registered sub-id, which collapses distinct parameterizations.
 
 (deftest skipped-subs-preserves-distinct-parameterizations
-  (testing "rf2-cj2yx — two memo-hit skips sharing a registered sub-id but
+  (testing "two memo-hit skips sharing a registered sub-id but
             with DISTINCT concrete query-vs BOTH survive (dedup is by
             concrete query-v, not the registered id)."
     (let [events [(skip-qv :item/derived [:item/derived 1])
@@ -220,7 +218,7 @@
           "the registered id rides both rows for source-coord lookup"))))
 
 (deftest skipped-subs-dedups-repeated-same-concrete-query
-  (testing "rf2-cj2yx — repeated evidence for the SAME concrete query (a
+  (testing "repeated evidence for the SAME concrete query (a
             post-settle deref burst) collapses to one row."
     (let [events [(skip-qv :item/derived [:item/derived 2])
                   (skip-qv :item/derived [:item/derived 2])]
@@ -229,7 +227,7 @@
           "the same concrete query collapses to a single row"))))
 
 (deftest skipped-subs-recompute-excludes-only-exact-query
-  (testing "rf2-cj2yx — the focused counterexample: `[:item/derived 1]`
+  (testing "the focused counterexample: `[:item/derived 1]`
             recomputes while `[:item/derived 2]` memo-hits. The recompute
             excludes ONLY its exact query; the different same-id memo-hit is
             preserved + disambiguated, not suppressed."
@@ -241,9 +239,9 @@
           "only the exact recomputed query is excluded; the sibling survives"))))
 
 (deftest skipped-subs-unparameterized-behavior-unchanged
-  (testing "rf2-cj2yx — an ordinary unparameterized skip (query-v `[sub-id]`)
-            still projects one row and still excludes when that exact query
-            recomputed: the common-case behavior is unchanged."
+  (testing "an ordinary unparameterized skip (query-v `[sub-id]`)
+            projects one row and excludes when that exact query
+            recomputed: the common case."
     (is (= [:user/name]
            (mapv :sub-id (subs/skipped-subs [(skip-ev :user/name)] #{})))
         "a lone unparameterized skip survives")
@@ -252,9 +250,9 @@
         "the `[sub-id]` run-set excludes the matching `[sub-id]` skip")))
 
 (deftest skipped-subs-falls-back-to-sub-id-when-query-v-absent
-  (testing "rf2-cj2yx — documented fallback: a skip op lacking a query-v
+  (testing "documented fallback: a skip op lacking a query-v
             uses the registered `[sub-id]` shape as its identity, so it
-            still projects a row and still excludes against a `[sub-id]` run."
+            projects a row and excludes against a `[sub-id]` run."
     (let [ev {:operation :rf.sub/skip
               :tags {:rf.sub/id :legacy/sub :rf.sub/reason :input-value-equal}}]
       (is (= [{:sub-id :legacy/sub :query-v [:legacy/sub]}]
@@ -262,7 +260,7 @@
                    (subs/skipped-subs [ev] #{})))
           "query-v falls back to the bare [sub-id] shape")
       (is (= [] (subs/skipped-subs [ev] #{[:legacy/sub]}))
-          "the fallback identity still cross-excludes against a [sub-id] run"))))
+          "the fallback identity cross-excludes against a [sub-id] run"))))
 
 (deftest skipped-subs-nil-safe
   (is (= [] (subs/skipped-subs nil nil)))
@@ -272,7 +270,7 @@
       "a :rf.flow/skip is NOT a sub skip"))
 
 (deftest project-record-surfaces-subs-skipped-distinct-from-ran
-  (testing "rf2-ty5r5o — project-record reads the memo-hit :rf.sub/skip
+  (testing "project-record reads the memo-hit :rf.sub/skip
             evidence into :subs-skipped, kept DISTINCT from :subs-ran even
             when a :subs-ran row carries :value-changed? false (a recompute
             that produced the same value is NOT a memo-hit skip)."
@@ -292,18 +290,18 @@
       (is (= 1 (-> p :counts :subs-skipped))))))
 
 (deftest project-empty-record-zeroes-subs-skipped
-  (testing "rf2-ty5r5o — empty / nil record → [] :subs-skipped + 0 count."
+  (testing "empty / nil record → [] :subs-skipped + 0 count."
     (doseq [r [nil {}]]
       (let [p (subs/project-record r)]
         (is (= [] (:subs-skipped p)))
         (is (= 0 (-> p :counts :subs-skipped)))))))
 
 (deftest project-record-preserves-parameterized-skip-past-same-id-recompute
-  (testing "rf2-cj2yx — end to end: `[:item/derived 1]` recomputes (a
+  (testing "end to end: `[:item/derived 1]` recomputes (a
             :sub-runs row) while `[:item/derived 2]` memo-hits. project-record
             builds the run-set from CONCRETE query-vs, so it excludes only the
             exact recomputed query and keeps the `[:item/derived 2]` skip —
-            Xray no longer claims no concrete instance was skipped when one
+            Xray does not claim no concrete instance was skipped when one
             was."
     (let [record {:sub-runs     [{:sub-id :item/derived :query-v [:item/derived 1]
                                   :recomputed? true :value-changed? true}]
@@ -314,11 +312,11 @@
       (is (= [[:item/derived 2]] (mapv :query-v (:subs-skipped p)))
           ":item/derived 2 memo-hit survives (NOT suppressed by the same-id recompute)")
       (is (= [:item/derived] (mapv :sub-id (:subs-skipped p)))
-          "the registered id still rides the skip row")
+          "the registered id rides the skip row")
       (is (= 1 (-> p :counts :subs-skipped))))))
 
 (deftest project-record-both-parameterizations-skipped-survive
-  (testing "rf2-cj2yx — two same-id skipped queries with no recompute BOTH
+  (testing "two same-id skipped queries with no recompute BOTH
             survive through project-record (distinct concrete rows)."
     (let [record {:sub-runs     []
                   :trace-events [(skip-qv :item/derived [:item/derived 1])
@@ -367,7 +365,7 @@
       (is (= [:v-x :v-y] (mapv :view-id (:views-rendered p)))))))
 
 ;; ===========================================================================
-;; phase-B Views redesign — three-table data layer (rf2-8ve8z)
+;; the Views three-table data layer
 ;; ===========================================================================
 
 ;; ---- helpers -----------------------------------------------------------
@@ -377,8 +375,9 @@
    :recomputed? recomputed? :value-changed? changed?})
 
 (defn- rendered-ev
-  "A captured `:rf.view/rendered` trace event — tags carry the phase-A
-  rf2-9hoos fields."
+  "A captured `:rf.view/rendered` trace event — tags carry the
+  view-render fields (`:rf.view/id`, `:rf.view/render-key`,
+  `:rf.view/mount?`, `:rf.view/deref-subs`)."
   [view-id mount? deref-subs]
   {:operation :rf.view/rendered
    :tags (cond-> {:rf.view/id view-id :rf.view/render-key [view-id 0] :rf.view/mount? mount?}
@@ -391,7 +390,7 @@
 ;; ---- changed-vs-structural classifier ---------------------------------
 
 (deftest compute-view-reason-reactive-when-own-sub-changed
-  (testing "rf2-8ve8z — a view that derefs a sub that changed this cascade
+  (testing "a view that derefs a sub that changed this cascade
             gets a :reactive reason listing the INTERSECTION (its own
             changed reads), in deref order."
     (let [reason (subs/compute-view-reason [[:cart/total] [:cart/count]]
@@ -401,20 +400,20 @@
           "only the changed sub the view reads lands in the reason"))))
 
 (deftest compute-view-reason-structural-when-no-own-sub-changed
-  (testing "rf2-8ve8z — a view that derefs subs but NONE changed → the
+  (testing "a view that derefs subs but NONE changed → the
             structural (`← parent re-render`) reason, UNNAMED."
     (let [reason (subs/compute-view-reason [[:cart/total]] #{:other/sub})]
       (is (= :structural (:kind reason)))
       (is (nil? (:subs reason))))))
 
 (deftest compute-view-reason-structural-when-no-derefs
-  (testing "rf2-8ve8z — a pure structural render (no :deref-subs) → the
+  (testing "a pure structural render (no :deref-subs) → the
             structural reason. nil-safe on the deref-subs arg."
     (is (= :structural (:kind (subs/compute-view-reason nil #{:cart/total}))))
     (is (= :structural (:kind (subs/compute-view-reason [] #{:cart/total}))))))
 
 (deftest compute-view-reason-preserves-deref-order-and-dedupes
-  (testing "rf2-8ve8z — reason :subs follow deref order and de-duplicate."
+  (testing "reason :subs follow deref order and de-duplicate."
     (let [reason (subs/compute-view-reason
                    [[:b] [:a] [:a] [:c]] #{:a :b :c})]
       (is (= [:b :a :c] (:subs reason))))))
@@ -422,7 +421,7 @@
 ;; ---- view-rows projection ---------------------------------------------
 
 (deftest view-rows-maps-mount-rerender-unmount
-  (testing "rf2-8ve8z — :mount? true → :mount, false → :rerender, the
+  (testing ":mount? true → :mount, false → :rerender, the
             :rf.view/unmounted op → :unmount."
     (let [events [(rendered-ev :v/a true  [[:s1]])
                   (rendered-ev :v/b false [[:s1]])
@@ -432,7 +431,7 @@
       (is (= [:v/a :v/b :v/c] (mapv :view-id rows))))))
 
 (deftest view-rows-reactive-vs-structural-reason
-  (testing "rf2-8ve8z — a render whose deref'd sub changed → :reactive
+  (testing "a render whose deref'd sub changed → :reactive
             reason; a render whose deref'd sub did NOT change → structural."
     (let [events [(rendered-ev :v/reactive   false [[:changed]])
                   (rendered-ev :v/structural false [[:unchanged]])
@@ -445,12 +444,12 @@
       (is (= :structural (-> by-id :v/no-derefs :reason :kind))))))
 
 (deftest view-rows-unmount-reason-is-none
-  (testing "rf2-8ve8z — an unmount row carries no reason (:none)."
+  (testing "an unmount row carries no reason (:none)."
     (let [rows (subs/view-rows [(unmounted-ev :v/gone)] #{})]
       (is (= :none (-> rows first :reason :kind))))))
 
 (deftest view-rows-skips-events-without-view-id-and-non-view-ops
-  (testing "rf2-8ve8z — nil-safe: events without a :view-id and non-view
+  (testing "nil-safe: events without a :view-id and non-view
             ops are skipped, never crash."
     (let [events [{:operation :rf.view/rendered :tags {:rf.view/mount? true}} ; no view-id
                   {:operation :rf.sub/run :tags {:rf.sub/id :s1}}           ; not a view op
@@ -460,7 +459,7 @@
       (is (= :v/ok (-> rows first :view-id))))))
 
 (deftest view-rows-carries-cause-and-timing
-  (testing "rf2-ad7zx.6 / rf2-8wrzz.1 — a :rf.view/rendered op carrying
+  (testing "a :rf.view/rendered op carrying
             :rf.view/triggered-by + :rf.view/elapsed-ms threads those
             through onto the view row for the flow graph's cause + timing."
     (let [ev   {:operation :rf.view/rendered
@@ -474,16 +473,16 @@
       (is (= 2.4 (:elapsed-ms row)) "the render timing rides the row"))))
 
 (deftest view-rows-omits-cause-and-timing-when-absent
-  (testing "rf2-ad7zx.6 — a structural render with no cause / timing slots
+  (testing "a structural render with no cause / timing slots
             simply omits :triggered-by + :elapsed-ms (no nil keys)."
     (let [row (first (subs/view-rows [(rendered-ev :v/s false [[:unchanged]])] #{}))]
       (is (not (contains? row :triggered-by)))
       (is (not (contains? row :elapsed-ms))))))
 
-;; ---- teardown sections (rf2-ad7zx.6) ----------------------------------
+;; ---- teardown sections ------------------------------------------------
 
 (deftest unmounted-views-lists-unmount-ops
-  (testing "rf2-ad7zx.6 — UNMOUNTED VIEWS reads :rf.view/unmounted ops,
+  (testing "UNMOUNTED VIEWS reads :rf.view/unmounted ops,
             de-duplicated, first-seen order."
     (let [events [(unmounted-ev :v/modal)
                   (unmounted-ev :v/tooltip)
@@ -496,10 +495,9 @@
   (is (= [] (subs/unmounted-views [(rendered-ev :v/a true nil)]))))
 
 (deftest destroyed-subscriptions-reads-dispose-op-when-present
-  (testing "rf2-ad7zx.6 / rf2-uo4e2 — DESTROYED SUBSCRIPTIONS reads
-            :rf.sub/dispose ops (singular form per spec/023's
-            rf2-2v3p7 typo fix; pre-rf2-uo4e2 the fixture used the
-            past-tense form which never matched any framework-emitted
+  (testing "DESTROYED SUBSCRIPTIONS reads
+            :rf.sub/dispose ops (the singular form the framework emits;
+            a past-tense form would match no framework-emitted
             trace)."
     (is (= [] (subs/destroyed-subscriptions [(rendered-ev :v/a true nil)]))
         "no dispose op → empty (live-build reality)")
@@ -512,7 +510,7 @@
 ;; ---- Level 1 / Level 2+ partition -------------------------------------
 
 (def ^:private topology
-  "A static sub-topology snapshot in the rf2-e3acps shape: `:input-kind`
+  "A static sub-topology snapshot in the static-topology shape: `:input-kind`
   discriminates `:db` (Level 1) / `:static` / `:parametric`, and
   `:inputs` carries the literal declared QUERY-VECTORS for `:static`
   (`[[:cart/state] [:cart/items]]`) or the `:parametric` sentinel for an
@@ -522,14 +520,14 @@
    :cart/total {:input-kind :static
                 :inputs [[:cart/state] [:cart/items]]
                 :ns 'cart :line 22 :file "cart.cljs"}
-   ;; rf2-e3acps — a parametric input-fn sub: static topology reports the
+   ;; A parametric input-fn sub: static topology reports the
    ;; :parametric sentinel (realized edges are per-concrete-query-v cache
    ;; state, not statically enumerable).
    :cart/line  {:input-kind :parametric :inputs :parametric
                 :ns 'cart :line 30 :file "cart.cljs"}})
 
 (deftest partition-splits-by-input-kind
-  (testing "rf2-8ve8z + rf2-e3acps — :input-kind :db subs land in Level 1;
+  (testing ":input-kind :db subs land in Level 1;
             :static / :parametric land in Level 2+, carrying their input-sub
             names + coord (parametric carries NO static inputs)."
     (let [{:keys [level-1 level-2]}
@@ -547,7 +545,7 @@
           "Level 1 row carries the topology source coord"))))
 
 (deftest partition-parametric-sub-is-level-2-with-no-static-edges
-  (testing "rf2-e3acps — a :parametric sub is Level 2+ (composes upstream
+  (testing "a :parametric sub is Level 2+ (composes upstream
             subs) but reports NO STATIC input edges; the static partition
             must not fabricate un-materialized parametric edges + must not
             crash on the :parametric (non-vector) :inputs sentinel."
@@ -566,7 +564,7 @@
           "the parametric discriminator rides the row so the panel can badge it"))))
 
 (deftest topology-input-sub-ids-handles-static-and-parametric
-  (testing "rf2-e3acps — topology-input-sub-ids projects :static query-vectors
+  (testing "topology-input-sub-ids projects :static query-vectors
             to their sub-id heads and returns [] for the :parametric sentinel."
     (is (= [:cart/state :cart/items]
            (subs/topology-input-sub-ids (:cart/total topology)))
@@ -579,7 +577,7 @@
         ":db reader → []")))
 
 (deftest partition-carries-changed-flag
-  (testing "rf2-8ve8z — :value-changed? rides onto each row's :changed?."
+  (testing ":value-changed? rides onto each row's :changed?."
     (let [{:keys [level-1]}
           (subs/partition-subs-by-level
             [(sub-run+ :cart/state true true)
@@ -588,7 +586,7 @@
       (is (= [true false] (mapv :changed? level-1))))))
 
 (deftest partition-missing-from-topology-defaults-level-1
-  (testing "rf2-8ve8z — nil-safe: a sub absent from the topology defaults
+  (testing "nil-safe: a sub absent from the topology defaults
             to Level 1 with no inputs / no coord (degrade, never crash)."
     (let [{:keys [level-1 level-2]}
           (subs/partition-subs-by-level
@@ -598,10 +596,10 @@
       (is (nil? (-> level-1 first :coord))
           "no coord when topology absent"))))
 
-;; ---- shared-subscription edges (rf2-y23uw) ----------------------------
+;; ---- shared-subscription edges ----------------------------------------
 
 (deftest sub-readers-maps-each-sub-to-views-that-read-it
-  (testing "rf2-y23uw — sub-readers builds {sub-id [view-id ...]}: every
+  (testing "sub-readers builds {sub-id [view-id ...]}: every
             view that derefs a sub this cascade lands in that sub's reader
             list (the shared-sub edge)."
     (let [events [(rendered-ev :v/a false [[:s/x] [:s/y]])
@@ -614,7 +612,7 @@
       (is (= [:v/c] (:s/z readers))))))
 
 (deftest sub-readers-preserves-first-seen-view-order-and-dedupes
-  (testing "rf2-y23uw — a view that re-derefs the same sub, or two ops for
+  (testing "a view that re-derefs the same sub, or two ops for
             the same view-id, contribute the view-id once; reader order is
             first-seen across the trace."
     (let [events [(rendered-ev :v/b false [[:s/x] [:s/x]]) ; re-deref same sub
@@ -625,7 +623,7 @@
           "first-seen order, de-duplicated"))))
 
 (deftest sub-readers-nil-safe-and-skips-non-view-ops
-  (testing "rf2-y23uw — nil-safe; non-view ops, ops without :view-id, and
+  (testing "nil-safe; non-view ops, ops without :view-id, and
             structural renders (no :deref-subs) contribute no edges."
     (is (= {} (subs/sub-readers nil)))
     (is (= {} (subs/sub-readers [])))
@@ -637,7 +635,7 @@
           "only the rendered view that derefs a sub contributes an edge"))))
 
 (deftest partition-attaches-readers-to-sub-rows
-  (testing "rf2-y23uw — partition-subs-by-level attaches each sub's
+  (testing "partition-subs-by-level attaches each sub's
             :readers (which views read it) onto the L1 / L2 row; absent
             when no view read the sub."
     (let [readers {:cart/state [:cart/Header :cart/Summary]
@@ -655,12 +653,12 @@
       (is (= [:cart/Summary] (-> level-2 first :readers))
           ":cart/total's reader rides its L2 row"))))
 
-;; ---- project-record composes the phase-B slots ------------------------
+;; ---- project-record composes the level and view slots -----------------
 
 (deftest project-record-emits-level-and-view-slots
-  (testing "rf2-8ve8z — project-record composes :level-1-subs /
+  (testing "project-record composes :level-1-subs /
             :level-2-subs (from topology) + :view-rows (from
-            :trace-events view ops) alongside the legacy slots."
+            :trace-events view ops) alongside the run-set slots."
     (let [record {:sub-runs [(sub-run+ :cart/state true true)
                              (sub-run+ :cart/total true true)]
                   :trace-events [(rendered-ev :cart/Summary false [[:cart/total]])
@@ -674,12 +672,12 @@
       (is (= [:cart/total] (-> p :view-rows first :reason :subs)))
       (is (= :unmount (-> p :view-rows second :action)))
       (is (= 2 (-> p :counts :view-rows)))
-      ;; rf2-y23uw — shared-sub edges thread through project-record.
+      ;; Shared-sub edges thread through project-record.
       (is (= {:cart/total [:cart/Summary]} (:sub-readers p))
           ":sub-readers maps :cart/total → the views that read it")
       (is (= [:cart/Summary] (-> p :level-2-subs first :readers))
           ":cart/total's L2 row carries its :readers")
-      ;; rf2-ad7zx.6 — teardown sections compose through project-record.
+      ;; Teardown sections compose through project-record.
       (is (= [{:view-id :cart/Gone}] (:unmounted-views p))
           ":unmounted-views projects the unmount op")
       (is (= [] (:destroyed-subs p))
@@ -687,7 +685,7 @@
       (is (= 1 (-> p :counts :unmounted-views)))
       (is (= 0 (-> p :counts :destroyed-subs))))))
 
-;; ---- rf2-3x7nj.24.3: list instances reach the graph as instances -------
+;; ---- list instances reach the graph as instances ----------------------
 ;;
 ;; Producer-derived: the record is shaped the way the substrate emits it —
 ;; one `:sub-runs` row per concrete query-v, one `:rf.view/rendered` op per
@@ -725,7 +723,7 @@
           "one edge per instance pair — no edge lands on another row's box"))))
 
 (deftest partition-carries-declared-input-query-vs
-  (testing "rf2-3x7nj.24.3 — a :static Level-2 row carries its declared
+  (testing "a :static Level-2 row carries its declared
             input query-vs beside the id heads; a :parametric one does not"
     (let [{:keys [level-2]}
           (subs/partition-subs-by-level
@@ -736,8 +734,8 @@
       (is (not (contains? (second level-2) :input-query-vs))))))
 
 (deftest project-record-degrades-without-topology
-  (testing "rf2-8ve8z — nil topology: every sub falls to Level 1; the
-            panel still renders (no crash)."
+  (testing "nil topology: every sub falls to Level 1; the
+            panel renders (no crash)."
     (let [record {:sub-runs [(sub-run+ :a true true) (sub-run+ :b true false)]}
           p (subs/project-record record)]
       (is (= [:a :b] (mapv :sub-id (:level-1-subs p))))
