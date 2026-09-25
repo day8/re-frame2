@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.evidence-spine-test
   "JVM-portable regression net for the evidence-spine's pure projection
-  (rf2-ba86n.10, spec/020 §3 + spec/021 §2).
+  (spec/020 §3 + spec/021 §2).
 
   Covers the host-free surface — projection, evidence-strength
   classification, compact summaries, span-kind, focus-command construction,
@@ -82,14 +82,14 @@
            (rf.story.ui.evidence-spine/beat-evidence-strength {})))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-v917m regression — the db-evidence marker must test for an ACTUAL
+;; The db-evidence marker must test for an ACTUAL
 ;; transition (`:db-before` ≠ `:db-after`), not key PRESENCE. `epoch-beat`
 ;; ALWAYS materializes `:db-before` / `:db-after` (they sit in its base map,
 ;; not its `cond->` tail), so a key-presence test reads true for EVERY
 ;; projected beat — including a read-only dispatch that committed no db
-;; change. These cases drive a real `epoch-beat`-projected beat (the gap the
-;; earlier hand-built beats never exercised, because they all omitted or
-;; differed the db keys) and pin: no transition → NOT direct db-evidence /
+;; change. These cases drive a real `epoch-beat`-projected beat (a
+;; hand-built beat that omits or differs the db keys cannot exercise this)
+;; and pin: no transition → NOT direct db-evidence /
 ;; NO `db Δ` chip; a real transition → direct + chip present.
 ;; ---------------------------------------------------------------------------
 
@@ -110,9 +110,9 @@
 (deftest db-evidence-tests-transition-not-key-presence
   (testing "a REAL epoch-beat-projected beat with equal db-before/db-after
             carries the keys (epoch-beat always materializes them) but is
-            NOT direct db-evidence and emits NO `db Δ` chip (rf2-v917m)"
+            NOT direct db-evidence and emits NO `db Δ` chip"
     (let [beat (rf.story.play.evidence/epoch-beat no-db-change-record)]
-      ;; the keys ARE present — proving the old contains? test would mis-fire
+      ;; the keys ARE present — so a contains? test would mis-fire
       (is (contains? beat :db-before))
       (is (contains? beat :db-after))
       (is (= (:db-before beat) (:db-after beat)) "no transition occurred")
@@ -123,13 +123,13 @@
       (let [by-k (into {} (map (juxt :k :count)) (rf.story.ui.evidence-spine/beat-summary beat))]
         (is (nil? (:db by-k)) "no `db Δ` chip when db did not change"))))
   (testing "a REAL epoch-beat-projected beat WITH a db transition is direct
-            db-evidence and emits the `db Δ` chip (rf2-v917m)"
+            db-evidence and emits the `db Δ` chip"
     (let [beat (rf.story.play.evidence/epoch-beat
                 (assoc no-db-change-record :db-after {:count 7}))]
       (is (:direct? (rf.story.ui.evidence-spine/beat-evidence-strength beat)))
       (let [by-k (into {} (map (juxt :k :count)) (rf.story.ui.evidence-spine/beat-summary beat))]
         (is (= 1 (:db by-k)) "`db Δ` chip present when db changed"))))
-  (testing "absent db keys (an older beat) read as no transition, robustly"
+  (testing "absent db keys read as no transition, robustly"
     (is (= {:direct? false :attributed? false}
            (rf.story.ui.evidence-spine/beat-evidence-strength {})))
     (is (nil? (-> (rf.story.ui.evidence-spine/beat-summary {})
@@ -196,8 +196,8 @@
       (is (= :app-db (:panel cmd)))
       (is (= 42 (:epoch-id cmd)))
       (is (= 7 (:dispatch-id cmd)))
-      ;; rf2-y8doi.29 — Xray retired `:path` as a focus field, so the
-      ;; builder no longer emits one. The three asserts above are the
+      ;; `:path` is not an Xray focus field, so the builder emits
+      ;; none. The three asserts above are the
       ;; control that the command is populated at all.
       (is (not (contains? cmd :path)))
       (is (= :story/evidence-beat (:kind (:source cmd))))
@@ -215,7 +215,7 @@
     (is (contains? rf.story.ui.evidence-spine/focus-panels (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))))
 
 (deftest submit-beat-focus-command-carries-its-coordinates
-  (testing "rf2-2qtgt — the failure-to-cause leg's submit beat. A script of
+  (testing "the failure-to-cause leg's submit beat. A script of
             assertions puts every setup epoch in the leading span, and the
             first :login/flow beat there is the submit. The command its
             'Xray: Epoch' link sends must pin THAT beat's epoch AND dispatch:
@@ -318,6 +318,6 @@
 (deftest focus-panels-mirror-host-facing-vocabulary
   (testing "the spine's focus-panel set matches the Xray focus API's
             valid-panels (uses :routes / :views, NOT the embed's :routing).
-            rf2-gbz39 dropped :issues with the Xray Issues tab (Option (c))."
+            There is no :issues panel for a focus command to target."
     (is (= #{:epoch :app-db :views :trace :machines :routes}
            rf.story.ui.evidence-spine/focus-panels))))
