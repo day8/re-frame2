@@ -330,8 +330,9 @@
 ;; ===========================================================================
 
 (deftest w1-row-context-menu-bridge-mounts-and-mutes-into-the-named-frame
-  (testing "`spine-filters/RowContextMenu` mounted as the
-            shell's hiccup head commits the real menu DOM, and the Mute
+  (testing "`spine-filters/RowContextMenu` headed from a
+            Reagent root — the element the shell's call answers — commits
+            the real menu DOM, and the Mute
             item clicked from OUTSIDE any render scope lands on the frame
             the enclosing `frame-provider` named — not on a second live
             instance, and not on a `{:frame :rf/xray}` literal, which
@@ -428,8 +429,9 @@
 ;; ===========================================================================
 
 (deftest w2-modal-bridge-commits-real-rows-and-unmutes-in-place
-  (testing "`spine-filters/Modal` mounted as the shell's
-            hiccup head commits the real muted-row DOM through the keyed
+  (testing "`spine-filters/Modal` headed from a Reagent root —
+            the element the shell's call answers — commits the real
+            muted-row DOM through the keyed
             native fragment, and an Unmute click updates the LIVE surface
             in place from the boundary's own subscription. The deaf
             control is what makes that update mean liveness rather than a
