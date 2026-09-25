@@ -26,8 +26,7 @@
   FILE-SCOPED ALLOWLIST. `:doc-guide-known-unmanifested-scoped` maps each
   removed name to the repo-relative migration files allowed to mention it in
   call position. The same reference in live teaching prose remains an error."
-  (:require [clojure.string :as str]
-            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
+  (:require [re-frame.api-manifest.gen :as rf.api-manifest.gen]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private core-ns "re-frame.core")
@@ -82,19 +81,7 @@
         dir          (rf.api-manifest.projection/repo-file "docs" "core")
         ;; require-markdown-files: fail loudly if docs/core/
         ;; moves or is renamed, rather than silently checking zero files.
-        ;;
-        ;; EXCLUDE docs/core/api/** — API REFERENCE prose is the
-        ;; doc-api-check surface, not guide teaching prose (the reference
-        ;; itself lives at docs/api/, outside this scan). doc-api-check
-        ;; resolves its call-position `(rf/<var>` references with
-        ;; CROSS-NAMESPACE bare-name latitude — the reference legitimately
-        ;; names re-frame.core, re-frame.machines, … vars under the one `rf`
-        ;; alias. doc-guide-check resolves only against re-frame.core, so
-        ;; scanning an API reference here would false-positive on every
-        ;; non-core surface it names.
-        guide-files  (->> (rf.api-manifest.projection/require-markdown-files "docs/core/" dir)
-                          (remove #(str/starts-with? (rf.api-manifest.projection/repo-relative %)
-                                                     "docs/core/api/")))
+        guide-files  (rf.api-manifest.projection/require-markdown-files "docs/core/" dir)
         ;; Capability concept docs are a required one-level docs/* surface;
         ;; discovery covers new capabilities and fails loudly if the surface
         ;; disappears.

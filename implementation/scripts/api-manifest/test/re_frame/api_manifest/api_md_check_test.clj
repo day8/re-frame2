@@ -32,7 +32,7 @@
 (def ^:private synthetic-rows
   [{:namespace "re-frame.adapter.reagent" :var "adapter" :tier :adapter}
    {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter}
-   {:namespace "re-frame.adapter.helix"   :var "adapter" :tier :adapter}
+   {:namespace "re-frame.fresco.substrate" :var "adapter" :tier :adapter}
    {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation}
    {:namespace "re-frame.interop" :var "debug-enabled?" :tier :implementation}
    {:namespace "re-frame.core"            :var "reg-event" :tier :front-porch}])
@@ -82,7 +82,8 @@
     ;; `uix-adapter/adapter` mutated to `bogus-adapter/adapter`. `bogus-adapter`
     ;; is neither a documented alias nor a manifest namespace, so
     ;; [<bogus> adapter] is absent — even though re-frame.adapter.{reagent,
-    ;; uix,helix}/adapter all still carry :adapter. A bare-name match
+    ;; uix}/adapter and re-frame.fresco.substrate/adapter all carry
+    ;; :adapter. A bare-name match
     ;; would PASS this (some `adapter` row carries :adapter).
     (let [problems (problems-for
                      [{:var "adapter" :qualifier "bogus-adapter" :tier :adapter
