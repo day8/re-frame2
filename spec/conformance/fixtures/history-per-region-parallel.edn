@@ -1,6 +1,6 @@
 ;; Conformance fixture: machine/history-per-region-parallel
 ;;
-;; First-class PER-REGION history under `:type :parallel` (rf2-mle6e). Each
+;; First-class PER-REGION history under `:type :parallel`. Each
 ;; region runs an independent state-tree, so history is per-region: a history
 ;; pseudo-state inside a region's compound records THAT region's last-active
 ;; config and restores it independently of siblings. The `:rf/history` keys are
@@ -8,7 +8,7 @@
 ;; STRUCTURALLY-IDENTICAL within-region compound paths ([:group :on]) never
 ;; collide.
 ;;
-;; Per the XState v5 / W3C SCXML exit-set rule (rf2-9eidiv) only a GENUINELY
+;; Per the XState v5 / W3C SCXML exit-set rule only a GENUINELY
 ;; EXITED compound records — so the history owner in each region is `:on` (the
 ;; dim/bright compound), which :turn-off exits to its sibling :off; :turn-on
 ;; re-enters via [:group :on :hist].
