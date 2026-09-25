@@ -1,9 +1,9 @@
 (ns day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test
-  "ASSERTION-BACKED render-regression harness for the machine-epochs deck
-  (rf2-g27vv). The COMPLEMENT to `hard-machine-fidelity-cljs-test` (rf2-k08ay,
-  which this SUBSUMES + extends deck-wide): where that pins the HVAC HARD
-  machine's render fidelity, THIS pins the FULL machine × Xray-cascade-render
-  SURFACE matrix the redesigned deck drives — every rung backed by an
+  "ASSERTION-BACKED render-regression harness for the machine-epochs deck.
+  The COMPLEMENT to `hard-machine-fidelity-cljs-test` (which this SUBSUMES
+  + extends deck-wide): where that pins the HVAC HARD machine's render
+  fidelity, THIS pins the FULL machine × Xray-cascade-render SURFACE
+  matrix the deck drives — every rung backed by an
   assertion so re-driving the deck is a real regression test of Xray
   rendering, not just a visual deck.
 
@@ -25,20 +25,18 @@
       view-model.
     - `diff/project` — the snapshot diff (member-level set diff for `:tags`).
 
-  Per rf2-k08ay + the rf2-hhkbb drive-through finding, EACH rung asserts THREE
-  layers:
+  EACH rung asserts THREE layers:
     (a) TRACE shape — the machine cascade kinds + order, read off the
         structured `:cascade` (its `:kind` / `:state` / `:action` steps in
         execution order + the `:microsteps`).
-    (b) STRUCTURED outcome — the Xray-surface analogue of the rf2-hhkbb
-        cascade-summary `:outcome` / `:no-op?`: a thrown `:*` action shows
-        `:threw? true` on its cascade row (catching hhkbb); the unhandled rung
-        shows exactly ONE `:no-op` row + zero transition rows.
+    (b) STRUCTURED outcome — the Xray-surface analogue of the
+        cascade-summary `:outcome` / `:no-op?`: a thrown action shows
+        `:threw? true` on its cascade row; the unhandled rung shows
+        exactly ONE `:no-op` row + zero transition rows.
     (c) RENDERED rows — the Epoch-panel projection emits the expected row
         kinds / verbs.
 
-  Xray/Story-as-CLJS-unit-test (the Xray/Story-as-CLJS-unit-test ruling),
-  NOT Playwright. The render facts are pinned against REALITY: drive the
+  A Xray/Story-style CLJS unit test, NOT Playwright. The render facts are pinned against REALITY: drive the
   substrate, read what the projection produces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
@@ -54,7 +52,7 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; The SHARED machine specs the deck mounts — the harness drives
-            ;; the IDENTICAL values (single source of truth, rf2-g27vv).
+            ;; the IDENTICAL values (single source of truth).
             [machine-epochs.machines :as machines]))
 
 ;; ============================================================================
@@ -62,8 +60,7 @@
 ;; ============================================================================
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; `make-xray-runtime-fixture`: the `:all` reset
   ;; tier — install (== preload's alias) + registry + mount idempotency
   ;; sentinels plus the trace-collector rings — over the Reagent adapter
   ;; this suite renders through.
@@ -83,7 +80,7 @@
     (rf/dispatch-sync [id [:rf.machine/start]])))
 
 (defn- snapshot [machine-id]
-  ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+  ;; Machine snapshots are durable runtime-db state (EP-0001).
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :snapshots machine-id]))
 
@@ -183,20 +180,20 @@
           "(b) the blocked guard is a no-op — one [NO OP] row")
       (is (empty? (rows-of-kind rows :transition))
           "(c) blocked → NO transition row (suppressed beside the no-op)")
-      ;; rf2-35mwxv — the blocking guard is SURFACED in the cascade LIST (the
+      ;; The blocking guard is SURFACED in the cascade LIST (the
       ;; shared lens + Epoch mini-pipeline), not only on the chart: the LIST
       ;; carries a [GUARD] row NAMING the blocking guard with its fail outcome
       ;; chip, so the operator can answer "which guard blocked my event?" from
       ;; the list. Driven against the REAL substrate's emitted traces.
       (is (= :may-close? (:guard-id guard-row))
-          "rf2-35mwxv — the LIST guard row NAMES the blocking guard")
+          "the LIST guard row NAMES the blocking guard")
       (is (= ":may-close?" (fmt/cascade-row-label guard-row))
-          "rf2-35mwxv — the guard row renders a legible verb naming the guard")
+          "the guard row renders a legible verb naming the guard")
       (is (= "fail" (fmt/cascade-outcome-label guard-row))
-          "rf2-35mwxv — the guard row's fail outcome chip renders")
+          "the guard row's fail outcome chip renders")
       ;; The guard row leads the no-op (canonical rank guard(0) → no-op(2)).
       (is (= [:guard :no-op] (mapv :kind rows))
-          "rf2-35mwxv — the blocking guard leads the [NO OP] in the LIST"))
+          "the blocking guard leads the [NO OP] in the LIST"))
     (is (= :open (:state (snapshot :door/main)))
         "(c) the door STAYS :open — the blocked close did not advance")))
 
@@ -236,7 +233,7 @@
 
 (deftest door-unhandled-event-renders-single-no-op-staying-in-state
   (testing "rung #7 — :door/insert-coin into :alarming matches no transition →
-            a BENIGN unhandled no-op (settled coozg/e6q97/iu3no pipeline).
+            a BENIGN unhandled no-op.
             (b) exactly ONE :no-op row, :no-op? true (zero transition rows);
             (c) the verb is the bare 'staying in :alarming' (single machine →
             no machine name)."
@@ -248,9 +245,9 @@
           rows   (cascade record)
           no-ops (rows-of-kind rows :no-op)
           no-op  (first no-ops)]
-      (is (= 1 (count no-ops)) "(b) exactly one no-op row (coozg: single signal)")
+      (is (= 1 (count no-ops)) "(b) exactly one no-op row (single signal)")
       (is (empty? (rows-of-kind rows :transition))
-          "(b) NO transition row beside the no-op (e6q97 suppression)")
+          "(b) NO transition row beside the no-op (the no-op transition-row suppression)")
       (is (= :alarming (:state no-op)))
       (is (false? (:show-machine-name? no-op)) "(c) single machine → drop name")
       (let [verb (fmt/cascade-row-label no-op)]
@@ -306,7 +303,7 @@
     (is (= {:vehicle :green :pedestrian :dont-walk} (:state (snapshot :traffic/light))))))
 
 (deftest traffic-tag-set-delta-renders-member-swap
-  (testing "rung #10 (gap 7, rf2-l0us2) — a tick swaps the :tags SET members
+  (testing "rung #10 (gap 7) — a tick swaps the :tags SET members
             while a :traffic/shared member stays constant. The snapshot diff
             must surface per-MEMBER :added / :removed (the joining + leaving
             tags), NOT a whole-key set replacement; the shared member does NOT
@@ -320,7 +317,7 @@
           removed   (->> path-ops (filter (fn [[_ v]] (= :removed (:op v)))) (map first))
           member-of (fn [tag paths] (some (fn [p] (= tag (last p))) paths))]
       (is (member-of :traffic/vehicle-go added)
-          "(c) the joining tag renders as a member-level :added (rf2-l0us2)")
+          "(c) the joining tag renders as a member-level :added")
       (is (member-of :traffic/vehicle-stop removed)
           "(c) the leaving tag renders as a member-level :removed")
       (is (not (member-of :traffic/shared added))
@@ -329,7 +326,7 @@
           "(c) the constant :traffic/shared member does NOT churn (no spurious remove)"))))
 
 (deftest multiple-machines-one-cascade-no-op-names-its-machine
-  (testing "rung #11 (rf2-iu3no) — when >1 machine is in play in one cascade,
+  (testing "rung #11 — when >1 machine is in play in one cascade,
             a no-op row NAMES its machine (the single-machine case drops it).
             Capture an unhandled no-op on TWO machines in one trace window
             (door in :alarming + brew in :idle, both unhandled) and assert
@@ -341,7 +338,7 @@
     (rf/dispatch-sync [:door/main [:door/push]])
     (rf/dispatch-sync [:door/main [:door/trip]])         ; → :alarming
     ;; capture two machines' unhandled no-ops in one window → 2 distinct
-    ;; machine-ids in play, so each no-op row names its machine (rf2-iu3no).
+    ;; machine-ids in play, so each no-op row names its machine.
     (trace-collector/reset-for-test!)
     (rf/dispatch-sync [:door/main [:door/insert-coin]])  ; door no-op in :alarming
     (rf/dispatch-sync [:brew/machine [:brew/abort]])      ; brew no-op in :idle
@@ -351,18 +348,18 @@
       (is (= 2 (count no-ops)) "(b) both machines' unhandled events are no-ops")
       (is (= #{:door/main :brew/machine} ids) "(c) two distinct machines in play")
       (is (every? #(true? (:show-machine-name? %)) no-ops)
-          "(c) >1 machine in play → EACH no-op row names its machine (rf2-iu3no)"))))
+          "(c) >1 machine in play → EACH no-op row names its machine"))))
 
 ;; ============================================================================
-;; PARALLEL ROUND (rf2-bvwv4q) — parent-owned cross-region :always rounds
+;; PARALLEL ROUND — parent-owned cross-region :always rounds
 ;; ============================================================================
 ;;
 ;; REAL runtime: a parallel macrostep can move a region on the EVENT and then
 ;; again on a parent-owned cross-region `:always` round. The runtime commits
 ;; ONE aggregate `:rf.machine/transition` (settled region-map) but emits one
 ;; standalone `:rf.machine.microstep/transition` per SELECTED regional round
-;; (`machines/parallel.cljc`). Since rf2-akvfe retired the transition row's
-;; nested structured-cascade body, the per-emit cascade pipeline is the sole
+;; (`machines/parallel.cljc`). The transition row carries no nested
+;; structured-cascade body, so the per-emit cascade pipeline is the sole
 ;; canonical display — so each such round must be harvested as a first-class
 ;; `[ALWAYS]` row. This machine is ACTIONLESS (no `:rf.machine/action-ran`
 ;; fires for the round), so the round trace is its ONLY first-class evidence.
@@ -380,7 +377,7 @@
                            :done   {}}}}})
 
 (deftest parallel-always-round-projects-first-class-microstep-rows
-  (testing "rf2-bvwv4q — driving the REAL runtime, :go moves both regions
+  (testing "driving the REAL runtime, :go moves both regions
             :idle→:staged then a parent round co-selects both :staged→:done;
             the standalone :rf.machine.microstep/transition traces are
             harvested as first-class [ALWAYS] round rows (regions [:a :b],
@@ -413,8 +410,8 @@
   (testing "rung #12 — an :answer below the pass mark bumps :score; the
             guarded :always does NOT fire. (a) the transition row's
             :microsteps is 0 / nil; (c) the quiz stays :asking.
-            rf2-cdgva — at N=0 (the common case) the TRANSITION row renders
-            NO `0 microsteps` summary (the prior pure-noise affordance)."
+            At N=0 (the common case) the TRANSITION row renders NO
+            `0 microsteps` summary (pure noise)."
     (setup!)
     (let [record (drive! :quiz/scorer [:quiz/answer])
           tx     (first (rows-of-kind (cascade record) :transition))]
@@ -422,7 +419,7 @@
       (is (contains? #{0 nil} (:microsteps tx))
           "(a) below the mark → ZERO microsteps (the :always guard failed)")
       (is (nil? (fmt/cascade-outcome-label tx))
-          "(c) rf2-cdgva — N=0 renders NO '0 microsteps' summary (pure noise)")
+          "(c) N=0 renders NO '0 microsteps' summary (pure noise)")
       (is (= :asking (:state (snapshot :quiz/scorer))))
       (is (= 1 (get-in (snapshot :quiz/scorer) [:data :score]))))))
 
@@ -433,9 +430,9 @@
             :cascade carries a :microstep step whose nested :steps explain the
             eventless transition (the :award action → :passed); (c) the quiz
             lands in :passed.
-            rf2-cdgva — the TRANSITION row renders NO `N microstep(s)`
-            outcome summary; the microstep is surfaced as its own cascade
-            row instead, so no signal is lost by dropping the count."
+            The TRANSITION row renders NO `N microstep(s)` outcome summary;
+            the microstep is surfaced as its own cascade row instead, so
+            the count would carry no extra signal."
     (setup!)
     (drive! :quiz/scorer [:quiz/answer])                ; score → 1
     (drive! :quiz/scorer [:quiz/answer])                ; score → 2
@@ -449,15 +446,15 @@
       ;; (a) the macrostep settled over at least one eventless microstep.
       (is (and (number? (:microsteps tx)) (pos? (:microsteps tx)))
           "(a) :always settled over N>0 microsteps (projection preserves the count)")
-      ;; rf2-cdgva — the transition row NO LONGER renders an outcome summary;
-      ;; the redundant `N microstep(s)` count is gone (the microstep below
-      ;; carries the signal). The projection still preserves :microsteps as a
-      ;; legacy pure-data slot; only the RENDERED summary is removed.
+      ;; The transition row renders no outcome summary: an `N microstep(s)`
+      ;; count would be redundant (the microstep below carries the signal).
+      ;; The projection keeps :microsteps as a pure-data slot; only the
+      ;; RENDERED summary is absent.
       (is (nil? (fmt/cascade-outcome-label tx))
-          "(c) rf2-cdgva — the TRANSITION row renders NO 'N microstep(s)' summary")
+          "(c) the TRANSITION row renders NO 'N microstep(s)' summary")
       (is (seq microsteps)
           "(a/c) the microstep is surfaced as its own cascade step — the
-                 signal the dropped count summarised (n9f4z/52u5n)")
+                 signal a count would summarise")
       (is (= :asking (:from microstep)))
       (is (= :passed (:to microstep))
           "(a) the microstep transitions :asking → :passed")
@@ -551,20 +548,20 @@
           "(c) the child's snapshot was synchronously dissoc'd (auto-destroy)"))))
 
 ;; ============================================================================
-;; FUSE (WILDCARD-THROW) — :* action THROWS (gap b: the unasserted outcome)
+;; FUSE (THROW-ON-BOOT) — the initial `:entry` action THROWS (gap b: the
+;; unasserted outcome)
 ;; ============================================================================
 
 (deftest fuse-boot-entry-throw-renders-as-error-not-no-op
-  (testing "rung #19 (rf2-hhkbb gap b / rf2-gl588) — an initial `:entry`
+  (testing "rung #19 (gap b) — an initial `:entry`
             action that THROWS on boot is a REAL machine-action exception,
             NOT a benign no-op. The first event lazily boots :armed, whose
             `:entry :blow-fuse` throws DURING the initial-entry cascade. (b) a
             cascade row carries :threw? true + an :exception (the Xray-surface
             analogue of cascade-summary :outcome :error); (b) NO :no-op row (a
             throw is never a no-op — the contrast with the door's benign
-            no-op). Re-vehicled from the old `:*`-wildcard throw — F‴ made the
-            start marker a pure init-kick, so the boot-time `:entry` is now
-            the exception vehicle."
+            no-op). The start marker is a pure init-kick, so the boot-time
+            `:entry` is the exception vehicle."
     (setup!)
     ;; The deck deliberately doesn't eager-start the fuse: its first real
     ;; event lazily boots :armed, whose `:entry` throws on the boot cascade.
@@ -583,7 +580,7 @@
           "(b) a throwing boot `:entry` is NEVER a no-op — the foil to the benign no-op"))))
 
 ;; ============================================================================
-;; HVAC (DEEP-COMPOUND) — the LCA + self-transition headline (subsumes k08ay)
+;; HVAC (DEEP-COMPOUND) — the LCA + self-transition headline
 ;; ============================================================================
 
 (deftest hvac-power-cycle-renders-deep-parallel-initial-cascade
@@ -640,7 +637,7 @@
       (is (empty? (rows-of-kind rows :no-op))
           "(c) a genuine self-transition is NOT a no-op")
       (is (= 1 (count (rows-of-kind rows :transition)))
-          "(c) one real transition row (e6q97: not suppressed)"))
+          "(c) one real transition row (not suppressed)"))
     ;; #23 — internal self-transition (the foil): action ONLY, no boundary.
     (let [record (drive! :hvac/controller [:hvac/tweak])
           rows   (cascade record)
@@ -662,8 +659,8 @@
 ;; ============================================================================
 
 (deftest history-machine-misplaced-is-rejected
-  (testing "rung #24 (gap 8) — history is FIRST-CLASS (rf2-mle6e); the engine
-            implements record/restore. A :type :history pseudo-state still has
+  (testing "rung #24 (gap 8) — history is FIRST-CLASS; the engine
+            implements record/restore. A :type :history pseudo-state has
             a PLACEMENT constraint: it MUST have an owning compound. A
             `:type :history` MACHINE ROOT (the probe spec) is rejected with
             :rf.error/machine-history-misplaced."
@@ -679,7 +676,7 @@
       (is (= :history (:feature (ex-data thrown)))
           ":feature names the history grammar"))
     (is (true? (machines/history-rejected?))
-        "the deck's history-rejected? helper agrees the root probe is still rejected")))
+        "the deck's history-rejected? helper agrees the root probe is rejected")))
 
 ;; The eject/restore dance the deck's #25/#26 rungs drive — positions the
 ;; player deep, ejects (records), and returns the FINAL :insert's drive!
@@ -694,7 +691,7 @@
   (drive! machine-id [:insert]))  ; re-enter via :hist (RESTORES — the focal cascade)
 
 (deftest history-deep-restore-renders-restored-banner-and-source-steps
-  (testing "rung #26 (gap 8, rf2-mle6e.5) — :media/deep eject → re-insert
+  (testing "rung #26 (gap 8) — :media/deep eject → re-insert
             RESTORES the exact recorded leaf. (a) a :rf.machine.history/restored
             trace fires with :source :recorded + :kind :deep; (b) the projection
             stamps :history-restored on the transition row + every history-driven
@@ -726,7 +723,7 @@
           "(c) deep history restored the exact leaf, not :initial"))))
 
 (deftest history-shallow-restore-renders-restored-banner-shallow
-  (testing "rung #25 (gap 8, rf2-mle6e.5) — :media/shallow eject → re-insert
+  (testing "rung #25 (gap 8) — :media/shallow eject → re-insert
             restores the recorded DIRECT CHILD then descends its :initial. (a)
             the restored record is :source :recorded + :kind :shallow with the
             child-keyword :restored-config; (b) the transition row carries
@@ -749,7 +746,7 @@
           "(c) shallow restored the child then its :initial, not the exit leaf"))))
 
 (deftest history-eject-records-and-renders-recorded-banner
-  (testing "gap 8 (rf2-mle6e.5) — ejecting :player (exit to the off-compound
+  (testing "gap 8 — ejecting :player (exit to the off-compound
             :tray) WRITES :player's last config into :rf/history. (a) a
             :rf.machine.history/recorded trace fires; (b) the projection stamps
             :history-recorded on the EJECT transition row; (c) the snapshot's
@@ -774,10 +771,10 @@
           "(c) the snapshot's :rf/history slot holds the recorded leaf (App-db inspectable)"))))
 
 ;; ============================================================================
-;; MODAL (MULTI-EVENT transition) — the events-as-nodes divergence (rf2-vilpfa)
+;; MODAL (MULTI-EVENT transition) — the events-as-nodes divergence
 ;; ============================================================================
 ;;
-;; THE events-as-nodes case the original 8 miss: ONE edge (:open ──► :closed)
+;; THE events-as-nodes case: ONE edge (:open ──► :closed)
 ;; reached on THREE distinct events (:modal/cancel, :modal/submit [+:save],
 ;; :modal/escape). xstate v5 STACKS the three labels on one edge; re-frame2's
 ;; events-as-nodes render draws THREE event-nodes fanning INTO :closed. The
@@ -791,7 +788,7 @@
   (drive! :modal/main [:modal/open]))
 
 (deftest modal-cancel-lands-closed
-  (testing "rf2-vilpfa — :modal/cancel (fan-in event #1) drives :open ──►
+  (testing ":modal/cancel (fan-in event #1) drives :open ──►
             :closed. (a) a real transition row from :open to :closed; (b) no
             no-op (a handled event is not a no-op); (c) the modal lands :closed."
     (setup!)
@@ -806,7 +803,7 @@
     (is (= :closed (:state (snapshot :modal/main))))))
 
 (deftest modal-submit-runs-save-and-lands-closed
-  (testing "rf2-vilpfa — :modal/submit (fan-in event #2) drives :open ──►
+  (testing ":modal/submit (fan-in event #2) drives :open ──►
             :closed AND runs the :save action (the data-bearing branch of the
             fan-in). (a) the transition + an :save action whose :data-write sets
             :saved?; (c) the modal lands :closed with :saved? true in :data."
@@ -826,7 +823,7 @@
         "(c) the :save action wrote :saved? into the snapshot")))
 
 (deftest modal-escape-lands-closed
-  (testing "rf2-vilpfa — :modal/escape (fan-in event #3) drives :open ──►
+  (testing ":modal/escape (fan-in event #3) drives :open ──►
             :closed. (a) a real transition from :open to :closed; (c) the modal
             lands :closed — the third event proving the multi-event fan-in."
     (setup!)
@@ -840,7 +837,7 @@
     (is (= :closed (:state (snapshot :modal/main))))))
 
 (deftest modal-multi-event-fan-in-shows-three-event-nodes
-  (testing "rf2-vilpfa (events-as-nodes) — the SAME edge (:open ──► :closed) is
+  (testing "events-as-nodes — the SAME edge (:open ──► :closed) is
             reached by THREE distinct events. Driving all three captures THREE
             transition cascades whose (from→to) is identical (:open → :closed)
             but whose triggering event-ids are DISTINCT — the fan-in the
@@ -869,10 +866,10 @@
         "(c) the modal settled :closed after the full multi-event arc")))
 
 ;; ============================================================================
-;; GATE (MULTI-BRANCH GUARDED fork) — the guard-fork divergence (rf2-vilpfa)
+;; GATE (MULTI-BRANCH GUARDED fork) — the guard-fork divergence
 ;; ============================================================================
 ;;
-;; THE guard-fork case the original 8 miss: ONE event (:gate/check) forks from
+;; THE guard-fork case: ONE event (:gate/check) forks from
 ;; :idle by a guarded candidate VECTOR — first guard-pass wins (:gate-high? →
 ;; :high, :gate-low? → :low) with an unguarded fallback (→ :rejected). xstate v5
 ;; draws ONE labelled edge per branch from :idle (the guard in the label). The
@@ -888,7 +885,7 @@
        (some #(when (= guard-id (:guard-id %)) (:outcome %)))))
 
 (deftest gate-high-branch-fires-on-high-level
-  (testing "rf2-vilpfa — :gate/set 7 arms :level 7 (internal action-only
+  (testing ":gate/set 7 arms :level 7 (internal action-only
             transition), then :gate/check forks to :high: the FIRST guarded
             candidate :gate-high? passes. (a) the fork's guard row carries
             :guard-id :gate-high? with :outcome :pass; (c) the gate lands :high."
@@ -913,7 +910,7 @@
     (is (= :high (:state (snapshot :gate/main))))))
 
 (deftest gate-low-branch-fires-when-high-fails
-  (testing "rf2-vilpfa — :gate/set 2 then :gate/check forks to :low: the FIRST
+  (testing ":gate/set 2 then :gate/check forks to :low: the FIRST
             candidate :gate-high? FAILS (2<5), the candidate walk advances to
             :gate-low? which passes. (a) the fork shows :gate-high? :fail AND
             :gate-low? :pass — the multi-branch walk; (c) the gate lands :low."
@@ -929,7 +926,7 @@
     (is (= :low (:state (snapshot :gate/main))))))
 
 (deftest gate-rejected-branch-fires-on-unguarded-fallback
-  (testing "rf2-vilpfa — :gate/set 0 then :gate/check forks to :rejected: BOTH
+  (testing ":gate/set 0 then :gate/check forks to :rejected: BOTH
             guards FAIL, so the UNGUARDED fallback candidate {:target :rejected}
             fires (the else clause). (a) the fork shows :gate-high? :fail +
             :gate-low? :fail; (c) the gate lands :rejected via the fallback."
@@ -946,7 +943,7 @@
     (is (= :rejected (:state (snapshot :gate/main))))))
 
 (deftest gate-three-branches-each-land-their-guarded-target
-  (testing "rf2-vilpfa (guard-fork) — the full fork: ALL THREE :gate/check
+  (testing "guard-fork — the full fork: ALL THREE :gate/check
             branches land their guard-selected target (:high / :low /
             :rejected), each preceded by a :reset back to :idle. Proves the
             first-guard-pass-wins resolution + the unguarded fallback over the
@@ -965,22 +962,22 @@
         "(c) the gate is back at the :idle fork node after the three branches")))
 
 ;; ============================================================================
-;; INLINE action/guard verb rendering (rf2-982212) — REAL substrate
+;; INLINE action/guard verb rendering — REAL substrate
 ;; ============================================================================
 ;;
 ;; The deck machines all reference NAMED guards/actions (keyword → `:guards`
 ;; / `:actions` map). An INLINE `(fn …)` declared DIRECTLY in an `:on` /
 ;; `:entry` / `:exit` slot is first-class per Spec 005, and the runtime
 ;; carries the bare fn as the trace's `:guard-id` / `:action-id`
-;; (transition.cljc resolve-guard / resolve-action). Before rf2-982212 the
-;; cascade VERB rendered that fn via `ns-keyword`'s `str` fallthrough — the
-;; raw fn-object toString (`#object[Function …]` / a minified blob). This
+;; (transition.cljc resolve-guard / resolve-action). Rendering that fn via
+;; `ns-keyword`'s `str` fallthrough would show the raw fn-object toString
+;; (`#object[Function …]` / a minified blob). This
 ;; drives a machine whose guard AND actions are inline fns through the REAL
 ;; substrate and asserts the cascade rows render the legible `⟨inline⟩`
 ;; placeholder, not a fn-object blob.
 
 (deftest inline-guard-and-action-render-legible-verb
-  (testing "rf2-982212 — an INLINE-declared guard AND inline-declared
+  (testing "an INLINE-declared guard AND inline-declared
             entry/exit actions, driven through the REAL substrate, render a
             legible `⟨inline⟩` cascade verb — NOT the raw fn-object toString."
     (setup!)
@@ -1004,14 +1001,14 @@
       (is (some? guard-row) "an inline guard produced a :guard cascade row")
       (is (fn? (:guard-id guard-row)) "the runtime carries the bare inline fn as :guard-id")
       (is (= "⟨inline⟩" (fmt/cascade-row-label guard-row))
-          "rf2-982212 — inline guard verb is `⟨inline⟩`, not the fn-object str")
+          "inline guard verb is `⟨inline⟩`, not the fn-object str")
       ;; The inline ACTION rows (exit :left-a? + entry :in-b?) render legibly.
       (is (seq action-rows) "the inline exit/entry actions produced :action rows")
       (doseq [a action-rows]
         (is (fn? (:action-id a)) "the runtime carries the bare inline fn as :action-id")
         (let [verb (fmt/cascade-row-label a)]
           (is (= "⟨inline⟩" verb)
-              "rf2-982212 — inline action verb is `⟨inline⟩`, not the fn-object str")
+              "inline action verb is `⟨inline⟩`, not the fn-object str")
           ;; Adversarial: NO host-runtime fn-object garbage leaks into the verb.
           (is (not (string/includes? verb "object")) "no `#object` blob")
           (is (not (string/includes? verb "$"))      "no munged fn `$` separator")
