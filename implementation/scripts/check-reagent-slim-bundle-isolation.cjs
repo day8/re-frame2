@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 /*
- * Reagent Slim bundle-isolation verifier (bead rf2-5lbx / rf2-2ppcv;
- * classic-clean mirror rf2-81ndde).
+ * Reagent Slim bundle-isolation verifier.
  *
  * Two isolation directions between the coexisting adapter trees:
  *   - the SLIM bundles must be clean of stock Reagent's impl +
  *     react-dom/server (Contracts 1-4, the S3-008 / S3-005 claims below);
  *   - the CLASSIC (`examples/counter`, stock-Reagent) bundle must be clean of
- *     the slim `reagent2.*` rewrite (Contracts 5-6, rf2-81ndde — the mirror
- *     that closes the IMPL-SPEC §12.3:1070 follow-up).
+ *     the slim `reagent2.*` rewrite (Contracts 5-6, the mirror direction —
+ *     IMPL-SPEC §12.3:1070).
  *
- * THREE bundles, not two (rf2-kjx1). The gate needs an SSR exercise compiled
- * in to make its react-dom/server-absence claim non-vacuous (Contract 4), and
- * for a long time it got one by pointing the RUNNABLE example build's
- * `:init-fn` at the fixture entry. That made the artefact a reader serves —
+ * THREE bundles, not two. The gate needs an SSR exercise compiled
+ * in to make its react-dom/server-absence claim non-vacuous (Contract 4).
+ * Getting one by pointing the RUNNABLE example build's
+ * `:init-fn` at the fixture entry would make the artefact a reader serves —
  * and the bundle the substrates catalogue invites them to weigh against
  * stock — carry a CI harness the stock side does not, so the "same app,
- * different package" comparison silently moved two variables. The fixture now
- * has a build of its own:
+ * different package" comparison would silently move two variables. So the
+ * fixture has a build of its own:
  *
  *   out/examples/counter-slim-and-fast      RUNNABLE. Boots
  *                                           reagent-slim.counter.core/run and
@@ -53,14 +52,14 @@
  *     bundle win for SSR-using apps).
  *   - That react-dom/server-absence claim is only a NON-vacuous S3-005
  *     proof if the SSR path is actually compiled into the bundle.
- *     Contract 4 (rf2-t5xu3u) closes the gap with a POSITIVE presence
+ *     Contract 4 makes it non-vacuous with a POSITIVE presence
  *     check: the slim SSR boot exercise + a `reagent2.dom.server`
  *     serializer-owned literal must both be present, so removing (or
  *     DCE-eliminating) the `render-to-static-markup` exercise FAILS the
  *     gate instead of letting the absence check pass against a
  *     no-longer-SSR bundle.
  *
- * Strategy mirrors scripts/check-bundle-isolation.cjs (rf2-51x5): grep,
+ * Strategy mirrors scripts/check-bundle-isolation.cjs: grep,
  * not parse. The closure compiler under :advanced rewrites ns / Var
  * names, but it does NOT rewrite string literals. The sentinels chosen
  * below are string literals stock Reagent emits from its impl-namespace
@@ -157,7 +156,7 @@ const REACT_DOM_SERVER_SENTINELS = [
     sentinel: 'renderToReadableStream' },
 ];
 
-// Pure-CLJS-SSR presence sentinels (rf2-t5xu3u). Contract 3 above proves
+// Pure-CLJS-SSR presence sentinels. Contract 3 above proves
 // `react-dom/server` is ABSENT, but absence alone is vacuous: if the SSR
 // exercise in bundle_isolation_fixture.cljs were removed (or DCE'd
 // away), `react-dom/server` would STILL be absent, and Contract 3 would
@@ -178,9 +177,9 @@ const REACT_DOM_SERVER_SENTINELS = [
 //        NB: this sentinel alone is INSUFFICIENT. The host-global write
 //        survives even if the value written is a plain literal rather
 //        than `(rds/render-to-static-markup …)` — i.e. it does NOT by
-//        itself prove the serializer is compiled in. (Verified: stub the
-//        write to a literal string and `counterSlimPrerender` stays at 1
-//        while every serializer sentinel drops to 0.) Hence sentinel 2.
+//        itself prove the serializer is compiled in. (Stub the write to a
+//        literal string and `counterSlimPrerender` stays at 1 while every
+//        serializer sentinel drops to 0.) Hence sentinel 2.
 //
 //   2. `static-markup-bad-tag` — a string literal `ex-info` type owned
 //      exclusively by `reagent2.dom.server`'s `emit-hiccup-vector` walker. It is
@@ -192,7 +191,7 @@ const REACT_DOM_SERVER_SENTINELS = [
 //      serializer). This is the sentinel that actually binds "the
 //      pure-CLJS SSR path is compiled in".
 //
-// Sentinel counts in the current release bundle (recorded for the
+// Sentinel counts in the fixture release bundle (recorded for the
 // re-derivation contract — if these drop to 0 in a slim build that DOES
 // exercise SSR, re-pick from another serializer-owned literal, e.g.
 // 'static-markup-empty-vector', 'static-markup-bad-element', or the
@@ -200,7 +199,7 @@ const REACT_DOM_SERVER_SENTINELS = [
 //   counterSlimPrerender   : 1
 //   static-markup-bad-tag  : 3
 //
-// rf2-kjx1: this set now does DOUBLE duty, and the two duties are opposite.
+// This set does DOUBLE duty, and the two duties are opposite.
 // It is checked PRESENT in the gate-only fixture bundle (Contract 4, above)
 // and ABSENT from the runnable example bundle (Contract 7). One set, both
 // directions, which is what makes the separation checkable rather than merely
@@ -216,7 +215,7 @@ const SLIM_SSR_PRESENCE_SENTINELS = [
 ];
 
 // Slim `reagent2.*` impl-namespace sentinels — the MIRROR direction
-// (rf2-81ndde, closing the IMPL-SPEC §12.3:1070 follow-up). Contracts 2+3
+// (IMPL-SPEC §12.3:1070). Contracts 2+3
 // prove the SLIM bundle is clean of stock Reagent + react-dom/server; this
 // set proves the COMPLEMENT: the CLASSIC (stock-Reagent) `examples/counter`
 // bundle is clean of the slim `reagent2.*` rewrite. The two adapter trees
@@ -254,12 +253,12 @@ const SLIM_REAGENT2_SENTINELS = [
     sentinel: 'rf.error/template-bad-tag' },
 ];
 
-// ----- the entrypoint contract (Contract 0, rf2-kjx1) ------------------------
+// ----- the entrypoint contract (Contract 0) ----------------------------------
 //
 // The bundle greps below can only judge the artefacts a release produced; they
 // cannot say which SOURCE each build was told to boot, and that is precisely
-// where the defect this contract closes used to live. A one-token edit in
-// shadow-cljs.edn is enough to point the runnable example back at the fixture
+// where the defect this contract catches would live. A one-token edit in
+// shadow-cljs.edn is enough to point the runnable example at the fixture
 // entry, and every remaining contract would keep passing — Contract 7 would go
 // red, but with a diagnostic about a stray sentinel rather than about the
 // wiring that put it there. So assert the wiring itself, in the file that owns
@@ -325,17 +324,16 @@ function checkEntrypoints() {
 // ----- helpers ---------------------------------------------------------------
 //
 // Bundle reading is shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-jkake.15): `readReleaseBlob`
+// scripts/lib/read-release-bundle.cjs: `readReleaseBlob`
 // reads only top-level *.js — the release artefact — so a stale dev-build
 // `cljs-runtime/` subdir from a prior `shadow-cljs compile` doesn't get
-// grep-ed alongside (rf2-z9a06); that trap, first documented inline here,
-// was the reason the reader was factored out (rf2-qlk4w) and is now the
+// grep-ed alongside; that is the
 // shared default for the whole check-*-bundle family. The per-sentinel
 // scan loop + tally is the shared assertSentinelSet (scripts/lib/
-// sentinel-scan.cjs, rf2-j552l2); checkAbsent / checkPresent below supply
+// sentinel-scan.cjs); checkAbsent / checkPresent below supply
 // this gate's exact diagnostic line format.
 
-// ----- the six contract checks ----------------------------------------------
+// ----- the contract checks --------------------------------------------------
 
 function checkAbsent(blob, sentinels, blobLabel) {
   // Assert each sentinel's hit-count is 0. Used for the slim build's
@@ -371,13 +369,13 @@ function checkPresent(blob, sentinels, blobLabel) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Reagent Slim bundle isolation (rf2-5lbx / rf2-2ppcv; classic-clean rf2-81ndde) ===');
+  report.detail('=== Reagent Slim bundle isolation (slim-clean + classic-clean) ===');
   report.detail('');
 
   // Contract 0 first, and off the config rather than the bundles: if the
   // wiring moved, say so in those terms before any grep gets a chance to
   // report the symptom instead of the cause.
-  report.detail('Contract 0 (rf2-kjx1, entrypoints): shadow-cljs.edn points the runnable');
+  report.detail('Contract 0 (entrypoints): shadow-cljs.edn points the runnable');
   report.detail('                          example at the teaching run and the SSR fixture');
   report.detail('                          at its own non-runnable build.');
   const c0 = checkEntrypoints();
@@ -386,8 +384,8 @@ function main() {
   const slimDir    = path.join(ROOT, 'out', 'examples', 'counter-slim-and-fast');
   const fixtureDir = path.join(ROOT, 'out', 'reagent-slim-ssr-isolation-fixture');
   const stockDir   = path.join(ROOT, 'out', 'examples', 'counter');
-  // classifyOrFail (scripts/lib/sentinel-scan.cjs, rf2-j552l2) shares the
-  // missing/empty two-arm guard (rf2-utvst non-vacuous floor); each reject
+  // classifyOrFail (scripts/lib/sentinel-scan.cjs) shares the
+  // missing/empty two-arm guard (the non-vacuous floor); each reject
   // callback owns this gate's actionable stderr + the exit.
   const slimCls = classifyOrFail(slimDir, {
     onMissing: (dir) => {
@@ -398,7 +396,7 @@ function main() {
     },
     onEmpty: (dir) => {
       report.flushDetails();
-      // Non-vacuous floor (rf2-utvst): the slim bundle is checked
+      // Non-vacuous floor: the slim bundle is checked
       // negative-only (Contracts 2+3); a present-but-empty slim dir
       // satisfies both absence checks and would false-GREEN.
       console.error(`[reagent-slim-bundle-isolation] slim bundle present but empty (zero top-level JS) — ${dir}`);
@@ -408,7 +406,7 @@ function main() {
       process.exit(1);
     },
   });
-  // The gate-only fixture bundle (rf2-kjx1). It gets the same two-arm guard:
+  // The gate-only fixture bundle. It gets the same two-arm guard:
   // a missing or empty fixture output would make Contract 4's presence check
   // impossible AND leave Contract 7 asserting absence against nothing.
   const fixtureCls = classifyOrFail(fixtureDir, {
@@ -493,7 +491,7 @@ function main() {
   const c3 = { ok: c3a.ok && c3b.ok, checked: c3a.checked + c3b.checked };
   report.detail('');
 
-  // Contract 4 (S3-005 non-vacuity, rf2-t5xu3u): the slim SSR path is
+  // Contract 4 (S3-005 non-vacuity): the slim SSR path is
   // POSITIVELY present in the bundle. Contract 3's react-dom/server
   // absence is only a meaningful S3-005 proof if the bundle actually
   // exercises SSR; without this check, removing the example's
@@ -506,12 +504,12 @@ function main() {
   const c4 = checkPresent(fixture, SLIM_SSR_PRESENCE_SENTINELS, 'SLIM-FIXTURE');
   report.detail('');
 
-  // Contract 5 (rf2-81ndde methodology): the slim `reagent2.*` sentinels are
+  // Contract 5 (classic-clean methodology): the slim `reagent2.*` sentinels are
   // reachable from the slim counter (must be PRESENT). Mirror of Contract 1 —
   // proves the classic-clean grep in Contract 6 has signal. If these go to 0
   // in a slim build, the sentinel set has lost signal — re-derive from another
   // reagent2.* body literal.
-  report.detail('Contract 5 (rf2-81ndde methodology): slim reagent2.* sentinels are');
+  report.detail('Contract 5 (classic-clean methodology): slim reagent2.* sentinels are');
   report.detail('                          reachable from the slim counter (must be PRESENT');
   report.detail('                          in BOTH slim bundles).');
   const c5a = checkPresent(slim, SLIM_REAGENT2_SENTINELS, 'SLIM');
@@ -519,18 +517,18 @@ function main() {
   const c5 = { ok: c5a.ok && c5b.ok, checked: c5a.checked + c5b.checked };
   report.detail('');
 
-  // Contract 6 (the binding rf2-81ndde claim, IMPL-SPEC §12.3:1070): NONE of
+  // Contract 6 (the binding classic-clean claim, IMPL-SPEC §12.3:1070): NONE of
   // the slim `reagent2.*` sentinels appears in the CLASSIC (stock-Reagent)
   // bundle. The complement of Contract 2 (stock ABSENT from slim): slim is
   // ABSENT from classic. Both adapter trees live on the same in-tree
   // classpath; this proves :advanced DCE keeps the slim rewrite out of a
   // build that only `:require`s the classic thin-bridge adapter.
-  report.detail('Contract 6 (rf2-81ndde, slim isolation): the slim reagent2.* rewrite is');
+  report.detail('Contract 6 (classic-clean, slim isolation): the slim reagent2.* rewrite is');
   report.detail('                          ABSENT from the classic stock-Reagent bundle.');
   const c6 = checkAbsent(stock, SLIM_REAGENT2_SENTINELS, 'STOCK');
   report.detail('');
 
-  // Contract 7 (rf2-kjx1): the RUNNABLE example bundle is free of the gate
+  // Contract 7: the RUNNABLE example bundle is free of the gate
   // fixture. This is the contract the whole three-build split exists to make
   // statable. Contract 4 proves the SSR exercise is compiled into the fixture
   // build; this proves it is compiled into nothing else — so the artefact a
@@ -542,7 +540,7 @@ function main() {
   // and Contract 5 refuses to let that pass silently — the ordinary slim
   // client sentinels must be there. Absence proved over a bundle already
   // proved to be the slim counter.
-  report.detail('Contract 7 (rf2-kjx1, runnable purity): the gate fixture is ABSENT from');
+  report.detail('Contract 7 (runnable purity): the gate fixture is ABSENT from');
   report.detail('                          the runnable slim bundle (non-vacuous via');
   report.detail('                          Contract 5 over the same blob).');
   const c7 = checkAbsent(slim, SLIM_SSR_PRESENCE_SENTINELS, 'SLIM');
@@ -569,7 +567,7 @@ function main() {
       console.error('boot reagent-slim.counter.core/run — the code its README teaches and its');
       console.error('bundle is compared on — and :reagent-slim-ssr-isolation-fixture must own');
       console.error('reagent-slim.counter.bundle-isolation-entry/run. Pointing the runnable');
-      console.error('build at the fixture entry is the regression rf2-kjx1 fixed: it puts a CI');
+      console.error('build at the fixture entry puts a CI');
       console.error('SSR harness into the artefact readers serve and compare, so the');
       console.error('"same app, different package" comparison moves two variables at once.');
       console.error('Fix the :init-fn in implementation/shadow-cljs.edn, not this check.');
@@ -638,7 +636,7 @@ function main() {
       console.error('examples/substrates/README.md invites a reader to weigh against');
       console.error('examples/counter, so a CI harness inside it silently adds a second');
       console.error('variable to a comparison whose whole claim is that only the package');
-      console.error('changed (rf2-kjx1). Likely causes, in order of likelihood: the runnable');
+      console.error('changed. Likely causes, in order of likelihood: the runnable');
       console.error('build\'s :init-fn was re-pointed at bundle-isolation-entry (Contract 0');
       console.error('names that case directly); or reagent-slim.counter.core — or something');
       console.error('it requires — now reaches bundle_isolation_fixture / reagent2.dom.server');
@@ -651,7 +649,7 @@ function main() {
   }
 }
 
-// Checker-owned target contract (rf2-kfn9q): the exact implementation-relative
+// Checker-owned target contract: the exact implementation-relative
 // runtime this gate isolates — the slim adapter. It proves the slim bundle is
 // free of stock Reagent + react-dom/server (and the classic bundle free of the
 // reagent2.* rewrite), so it is the isolation authority for adapters/reagent-slim.
