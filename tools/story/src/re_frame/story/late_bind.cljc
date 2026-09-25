@@ -66,7 +66,7 @@
                                      scanned-then-destroyed variant. Dropping
                                      the slot also revokes any in-flight
                                      run's claim on it, because the run's
-                                     token lives IN the slot (rf2-2amkm), so
+                                     token lives IN the slot, so
                                      a scan settling after teardown is
                                      refused rather than resurrecting the
                                      frame. `frames` (`.cljc`) cannot
@@ -88,8 +88,8 @@
                                      recording started / the recorder was
                                      cleared and — via the `:recording?`-
                                      agnostic buffered append — bleed into
-                                     the CURRENT recording's `:entries`
-                                     (rf2-x76af2.18). `recorder` (cljc)
+                                     the CURRENT recording's `:entries`.
+                                     `recorder` (cljc)
                                      cannot `:require` `dom-capture` (cljs;
                                      cycle: dom-capture → recorder), so the
                                      drain routes through this hook. Absent
@@ -120,10 +120,8 @@
                                      Story's shipped jar depends on no view
                                      substrate, so the verb arrives through
                                      this hook rather than a `:require`.
-                                     Story ships NO installer for it: the
-                                     optional Freehand bridge that used to be
-                                     one retired with that substrate
-                                     (rf2-5gka), so a host calls
+                                     Story ships NO installer for it, so a
+                                     host calls
                                      `presence/install-presence-flush!`
                                      itself. Unlike
                                      every other hook here, an ABSENT
@@ -131,7 +129,7 @@
                                      requested `[:flush-presence]` refuses
                                      `:cannot-run`, because a missing hook
                                      does not prove a missing presence
-                                     runtime (rf2-36biz).
+                                     runtime.
 
   - `:render-hiccup`               — a host that can render the active view
                                      to a HICCUP TREE (data) → the play
@@ -165,9 +163,7 @@
                                      runner settling layout and paint —
                                      re-registers and wins the slot. An absent
                                      producer is a no-op: the runner falls back
-                                     to `headless-flush-hooks`, which is what
-                                     every host silently ran on before rf2-ek9qb
-                                     wired this one."
+                                     to `headless-flush-hooks`."
   )
 
 (defonce
