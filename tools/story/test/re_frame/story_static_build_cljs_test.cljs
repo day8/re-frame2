@@ -1,14 +1,13 @@
 (ns re-frame.story-static-build-cljs-test
-  "CLJS tests closing the docs-promised gap on static-build behaviour.
+  "CLJS tests for static-build behaviour.
 
-  Spec coverage (rf2-ub1n4): `tools/story/spec/013-Static-Build.md` §
+  Spec coverage: `tools/story/spec/013-Static-Build.md` §
   Static-mode runtime semantics + § What gets bundled / stripped.
 
-  The existing CLJS tests cover only the default-value of the
-  `static-mode?` `goog-define` flag (`re-frame.story-cljs-test/
-  static-mode-flag-defaults-false-in-cljs-test-build`). The bead names
-  static-build behaviour as a coverage hole because the *consequences*
-  of the flag are not exercised: the registrar-fingerprint poll
+  `re-frame.story-cljs-test/
+  static-mode-flag-defaults-false-in-cljs-test-build` pins the default
+  value of the `static-mode?` `goog-define` flag. This namespace covers
+  the flag's *consequences*: the registrar-fingerprint poll
   suppression, the first-visit help-overlay suppression, the persistence
   of registrations across a 'frozen registrar' boot.
 
@@ -206,9 +205,9 @@
 ;; `static-mode?` `rf.story.config/set-project-root!` fails closed — a passed root is
 ;; ignored (the slot stays nil) unless a host explicitly opts in via
 ;; `rf.story.config/set-allow-static-project-root!`. The dev path (static-mode? false)
-;; is unaffected. This guard is now the whole of the defence: no build in the
+;; is unaffected. This guard is the whole of the defence: no build in the
 ;; repository derives a checkout path from its environment for a host to pass
-;; in (rf2-3xq1v), so there is no ambient value for it to have to catch.
+;; in, so there is no ambient value for it to have to catch.
 
 (def ^:private sentinel-root
   "A sentinel absolute checkout root that must NEVER survive into the
