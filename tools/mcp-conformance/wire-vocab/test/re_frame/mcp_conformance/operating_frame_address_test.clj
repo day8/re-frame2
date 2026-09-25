@@ -347,7 +347,7 @@
     (is (m/validate OperatingFrameFailure (:missing-frame failure-fixtures)))))
 
 ;; ---------------------------------------------------------------------------
-;; Source-text pins — the EP-0023 collapse, as DATA, in the pair-mcp
+;; Source-text pins — the EP-0023 frame-only addressing, as DATA, in the pair-mcp
 ;; descriptor + spec. Mirrors the marker-literal pins in
 ;; `result_envelope_test.clj`.
 ;; ---------------------------------------------------------------------------
