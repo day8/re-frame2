@@ -1,6 +1,5 @@
 (ns re-frame.story.panels-e2e.sidebar-glyphs-e2e-cljs-test
-  "Multi-frame e2e coverage for the sidebar amber-glyph rhythm
-  (rf2-p0wur; rf2-lj773).
+  "Multi-frame e2e coverage for the sidebar amber-glyph rhythm.
 
   The sidebar leads every row with a role-distinguishing glyph so the
   three row types parse visually without reading text:
@@ -37,11 +36,9 @@
 
   ## Why a multi-frame e2e (not Playwright)
 
-  The bead originally specced this as a Playwright assertion. Per
-  session direction, e2e coverage is moving to multi-frame CLJS
-  Node tests — sub-millisecond per case, no DOM, no browser, and
-  the layered hiccup walk catches the same wiring bugs the browser
-  scenario would have.
+  A multi-frame CLJS Node test is sub-millisecond per case, needs no
+  DOM and no browser, and the layered hiccup walk catches the same
+  wiring bugs a browser scenario would.
 
   ## Detection strategy
 
@@ -159,7 +156,7 @@
 ;; ---- assertions --------------------------------------------------------
 
 (deftest story-rows-lead-with-story-glyph
-  (testing "rf2-p0wur — every story-row in the sidebar carries a
+  (testing "every story-row in the sidebar carries a
             `[rf.story.theme.glyphs/story-glyph]` as its first iconographic prefix.
             Two stories registered → at least two story rows in the
             tree, each with exactly one story-role sentinel underneath."
@@ -179,7 +176,7 @@
                  sentinel — the amber diamond at the row's leading edge")))))))
 
 (deftest variant-rows-lead-with-variant-glyph
-  (testing "rf2-p0wur — every non-testable variant-row carries a
+  (testing "every non-testable variant-row carries a
             `[rf.story.theme.glyphs/variant-glyph]` sentinel as the iconographic
             prefix in the variant-glyph branch of `variant-row`. Both
             registered variants are non-testable (no `:test` tag, no
@@ -198,10 +195,10 @@
                         rows)
                 "each variant row contains exactly one variant-role glyph
                  sentinel — the non-testable branch of variant-row wired
-                 `[rf.story.theme.glyphs/variant-glyph]` per rf2-p0wur")))))))
+                 `[rf.story.theme.glyphs/variant-glyph]`")))))))
 
 (deftest workspace-rows-lead-with-workspace-glyph
-  (testing "rf2-p0wur — every workspace-row carries a
+  (testing "every workspace-row carries a
             `[rf.story.theme.glyphs/workspace-glyph]` sentinel as the iconographic
             prefix. One workspace registered → one workspace row, with
             exactly one workspace-role sentinel underneath."
@@ -218,10 +215,10 @@
             (is (= {:workspace 1} (glyph-roles-under (first rows)))
                 "the workspace row contains exactly one workspace-role
                  glyph sentinel — the grid glyph at the row's leading
-                 edge per rf2-p0wur")))))))
+                 edge")))))))
 
 (deftest no-cross-role-glyph-leakage-in-rows
-  (testing "rf2-p0wur — the three row types each carry ONE role of
+  (testing "the three row types each carry ONE role of
             glyph and no other. Pins the inverse so a regression that
             wires the wrong glyph fn into a row (variant-glyph in a
             workspace row, etc.) surfaces as a mismatched role count
@@ -248,10 +245,10 @@
                         workspace-rows)
                 "no story- or variant-role glyph leaks into a workspace row")))))))
 
-;; ---- rf2-k3y92 — sidebar rows are keyboard-operable buttons -------------
+;; ---- sidebar rows are keyboard-operable buttons -------------
 
 (deftest variant-rows-expose-keyboard-button-semantics
-  (testing "rf2-k3y92 — variant rows render as clickable `<div>`s; they
+  (testing "variant rows render as clickable `<div>`s; they
             must expose `role=\"button\"` + `tabindex=\"0\"` + a key
             handler so keyboard-only users can navigate into and
             activate them. Without these, the sidebar's `<nav>` landmark
@@ -286,7 +283,7 @@
                  action — \"Open variant <id>\"")))))))
 
 (deftest workspace-rows-expose-keyboard-button-semantics
-  (testing "rf2-k3y92 — workspace rows mirror variant rows: clickable
+  (testing "workspace rows mirror variant rows: clickable
             `<div>`s that must expose `role=\"button\"` + `tabindex=\"0\"`
             + a key handler. Without these the workspace section of the
             sidebar is unreachable from the keyboard."
