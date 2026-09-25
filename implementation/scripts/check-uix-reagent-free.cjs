@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 /*
  * UIx-only bundles must NOT pull in `reagent.ratom` or
- * `reagent.impl.batching` (rf2-jicu2; resolves the rf2-ykqee
- * audit's Verdict B). Originally check-uix-helix-reagent-free.cjs;
- * the Helix arm left with the Helix adapter (S7/W13, rf2-d6epb).
+ * `reagent.impl.batching`.
  *
- * Pre-rf2-jicu2 the substrate spine (`re-frame.substrate.spine`)
- * reified `reagent.ratom/IDisposable` on its derived-value container
- * — a single require dragged ~9KB optimised / 2-3KB gzipped of
- * `reagent.ratom` + `reagent.impl.batching` into every UIx-only
- * release bundle. The spine now reifies a re-frame-owned
- * protocol (`re-frame.disposable/IDisposable`); the UIx adapter
- * drops its `reagent.core` / `reagent.ratom` requires entirely.
+ * The substrate spine (`re-frame.substrate.spine`) reifies a
+ * re-frame-owned protocol (`re-frame.disposable/IDisposable`) on its
+ * derived-value container, and the UIx adapter ships no
+ * `reagent.core` / `reagent.ratom` require. Reifying
+ * `reagent.ratom/IDisposable` instead would drag ~9KB optimised /
+ * 2-3KB gzipped of `reagent.ratom` + `reagent.impl.batching` into
+ * every UIx-only release bundle through a single require.
  *
  * This script grep-asserts that bundle for the Reagent sentinel
  * strings. The closure compiler may rename symbols under :advanced
@@ -45,10 +43,9 @@ const report = createGateReporter();
 // ----- sentinels -------------------------------------------------------------
 //
 // Each sentinel is a string fragment unique to `reagent.ratom` or
-// `reagent.impl.batching`. The bead's measurement (rf2-ykqee) names
-// those two namespaces as the dominant payload — every Reagent
-// sibling that came along for the ride was transitively imported by
-// one or the other.
+// `reagent.impl.batching`. Those two namespaces are the dominant
+// payload — every Reagent sibling that comes along for the ride is
+// transitively imported by one or the other.
 //
 //   `cljsRatom`     — set as a JS property on React components by
 //                     reagent.ratom.cljs; survives :advanced because
@@ -69,9 +66,9 @@ const REAGENT_SENTINELS = [
 // ----- helpers ---------------------------------------------------------------
 //
 // Bundle reading is shared with the sibling check-* scripts via
-// scripts/lib/read-release-bundle.cjs (rf2-jkake.15); the per-sentinel
+// scripts/lib/read-release-bundle.cjs; the per-sentinel
 // present/absent scan loop + tally is the shared assertSentinelSet
-// (scripts/lib/sentinel-scan.cjs, rf2-j552l2).
+// (scripts/lib/sentinel-scan.cjs).
 
 function checkBundle(label, bundlePath, mustContain) {
   const { status, blob } = classifyReleaseBundle(bundlePath);
@@ -81,7 +78,7 @@ function checkBundle(label, bundlePath, mustContain) {
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
   }
   if (status === 'empty') {
-    // Non-vacuous floor (rf2-utvst): the UIx bundle is checked
+    // Non-vacuous floor: the UIx bundle is checked
     // negative-only; a present-but-empty bundle satisfies every Reagent-
     // sentinel absence check and would false-GREEN.
     console.error(`[uix-reagent-free] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
@@ -116,13 +113,13 @@ function checkBundle(label, bundlePath, mustContain) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== UIx-only Reagent isolation (rf2-jicu2) ===');
+  report.detail('=== UIx-only Reagent isolation ===');
   report.detail('');
 
   const uixDir     = path.join(ROOT, 'out', 'examples', 'counter-uix');
   const reagentDir = path.join(ROOT, 'out', 'examples', 'counter');
 
-  // Negative assertion: the new spine produces a UIx-only bundle with
+  // Negative assertion: the spine produces a UIx-only bundle with
   // no Reagent dependency.
   const uix   = checkBundle('UIx-only counter   (must NOT contain reagent.ratom / reagent.impl.batching)',
                             uixDir, false);
@@ -148,7 +145,7 @@ function main() {
     console.error('');
     if (!uix.ok) {
       console.error('A UIx-only release bundle pulled in reagent.ratom');
-      console.error('or reagent.impl.batching. Per rf2-jicu2 the substrate spine reifies');
+      console.error('or reagent.impl.batching. The substrate spine reifies');
       console.error('the re-frame-owned `re-frame.disposable/IDisposable` protocol —');
       console.error('the UIx adapter ns ships no `reagent.core` /');
       console.error('`reagent.ratom` require. A regression here usually means:');
@@ -167,7 +164,7 @@ function main() {
   }
 }
 
-// Checker-owned target contract (rf2-kfn9q): the exact implementation-relative
+// Checker-owned target contract: the exact implementation-relative
 // runtimes this gate isolates. It proves the UIx-only bundle carries no stock
 // Reagent while the Reagent bundle does (the cross-substrate positive
 // control), so it isolates both adapter runtimes. See the binding in
