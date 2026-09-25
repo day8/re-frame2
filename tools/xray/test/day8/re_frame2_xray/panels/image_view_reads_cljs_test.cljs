@@ -1,9 +1,8 @@
 (ns day8.re-frame2-xray.panels.image-view-reads-cljs-test
   "CLJS coverage for the EP-0023 live image/frame read seam + the
-  Xray-as-its-own-image DOGFOODING (rf2-32siq3.12 — EP-0023 §Xray Beside The
-  Target).
+  Xray-as-its-own-image DOGFOODING (EP-0023 §Xray Beside The Target).
 
-  This is the test the .29 dogfooding review verifies: Xray models itself as a
+  Xray models itself as a
   SEPARATE image/frame that inspects the target frame as DATA — NOT as shared
   registration state. Concretely:
 
@@ -28,11 +27,11 @@
             [day8.re-frame2-xray.panels.image-view-reads :as reads]))
 
 ;; Each case starts from a clean frame registry so an `:id` from one case never
-;; carries over to the next. EP-0024 (rf2-tu2vr7): the registries collapsed —
-;; an image-loaded frame is a `re-frame.frame/frames` record carrying a
+;; carries over to the next. Under EP-0024 there is one registry: an
+;; image-loaded frame is a `re-frame.frame/frames` record carrying a
 ;; `:generation`, so resetting `rf.frame/frames` clears the image-loaded frames —
-;; the single reset is the whole clear (rf2-ji3tvy). The frame-no-emit
-;; gate (rf2-2qaqh) lives in a persistent `re-frame.trace` set the registry
+;; the single reset is the whole clear. The frame-no-emit
+;; gate lives in a persistent `re-frame.trace` set the registry
 ;; reset does NOT touch, so the seating cases also clear the shell ids they
 ;; exercise so each starts un-gated.
 (def ^:private seat-test-frame-ids
@@ -71,7 +70,7 @@
       (is (= :rf.xray/image (:rf.image/id img)))
       (is (= ["day8.re-frame2-xray.**"] (:rf.image/include-ns img))
           "Xray selects ONLY its own source namespaces")
-      ;; rf2-rjml45 — the include glob is NARROWED by `:select-ns :exclude` so Xray's
+      ;; The include glob is NARROWED by `:select-ns :exclude` so Xray's
       ;; OWN `*-cljs-test` + `test-helpers.**` namespaces (which co-register the
       ;; same `:rf.xray/*` ids in a dev/test build) are subtracted, keeping the
       ;; production image registration-disjoint from Xray's own test
@@ -85,10 +84,10 @@
       (is (= img (reads/xray-image)) "rf/image is pure — equal values"))))
 
 (deftest xray-image-excludes-its-own-test-registrations
-  (testing "rf2-rjml45 — against a pool carrying a production `:rf.xray/*` id AND
+  (testing "against a pool carrying a production `:rf.xray/*` id AND
             its `*-cljs-test` sibling co-registering the SAME id, `xray-image`
-            selects ONLY the production descriptor — the exclude prevents the
-            assembly dup-id that blocked flipping the production singleton"
+            selects ONLY the production descriptor — the exclude prevents an
+            assembly dup-id, which would block seating the production singleton"
     (let [pool [{:kind :fx :id :rf.xray.fx/open-in-editor
                  :rf.provenance/ns "day8.re-frame2-xray.open-in-editor" :impl :prod}
                 {:kind :fx :id :rf.xray.fx/open-in-editor
@@ -103,7 +102,7 @@
       (is (= :rf.xray.fx/open-in-editor (:id (first sel))))
       (is (= "day8.re-frame2-xray.open-in-editor" (:rf.provenance/ns (first sel)))
           "the PRODUCTION descriptor, not the `*-cljs-test` sibling")
-      ;; and assembly seals it WITHOUT a dup-id throw (the blocker is gone).
+      ;; and assembly seals it WITHOUT a dup-id throw.
       (let [gen (rf.image-assembly/assemble [(reads/xray-image)] pool)]
         (is (contains? (reads/application-resolver-keyset gen) [:fx :rf.xray.fx/open-in-editor])
             "the production :rf.xray.fx/open-in-editor is in the sealed generation")))))
@@ -125,8 +124,7 @@
 (deftest xray-image-isolated-from-target-image
   (testing "Xray's image and the target frame's image are REGISTRATION-DISJOINT
             — assemble BOTH and compare resolver keysets; Xray's [kind id]s do
-            not leak into / from the target's image (the strengthened
-            .29-review invariant)"
+            not leak into / from the target's image"
     ;; Explicit-pool arity: both images select from `combined-pool`. Xray
     ;; resolves its own :rf.xray/* ids; the target resolves :counter/* — the two
     ;; resolver keysets are disjoint → isolated.
@@ -158,10 +156,10 @@
           xray-sel       (set (:rf.image/include-ns (reads/xray-image)))
           target-sel     (set (:rf.image/include-ns overlap-target))]
       (is (empty? (set/intersection xray-sel target-sel))
-          "the two :select-ns :include selector STRINGS are disjoint (the old
-           proxy would call this isolated)")
+          "the two :select-ns :include selector STRINGS are disjoint (a
+           string-comparison proxy would call this isolated)")
       (is (false? (reads/xray-image-isolated-from? overlap-target xray-pool))
-          "but the two RESOLVER KEYSETS overlap → the strengthened predicate
+          "but the two RESOLVER KEYSETS overlap → the keyset predicate
            correctly reports NOT isolated"))))
 
 (deftest xray-and-target-resolvers-do-not-share-registrations
@@ -178,7 +176,7 @@
           target-keys (reads/resolver-keyset target-gen)
           ;; The APPLICATION-owned keysets exclude the framework standard the
           ;; assembly unions into EVERY generation (`:rf.interceptor/path`,
-          ;; stamped :standard true; rf2-32siq3.41) — a framework standard is
+          ;; stamped :standard true) — a framework standard is
           ;; shared by every frame by construction, NOT a leak between images.
           xray-app    (reads/application-resolver-keyset xray-gen)
           target-app  (reads/application-resolver-keyset target-gen)]
@@ -187,9 +185,9 @@
           "Xray's frame resolves Xray's own [kind id]")
       (is (contains? target-keys [:event :counter/inc])
           "the target's frame resolves the target's own [kind id]")
-      ;; The framework standard rides into BOTH generations (the rf2-32siq3.41
-      ;; fix: the standard registry is no longer empty) — shared by construction,
-      ;; so it is excluded from the leak comparison rather than flagged.
+      ;; The framework standard rides into BOTH generations — shared by
+      ;; construction, so it is excluded from the leak comparison rather than
+      ;; flagged.
       (is (contains? xray-keys [:interceptor :rf.interceptor/path])
           "the framework standard is unioned into Xray's generation")
       (is (contains? target-keys [:interceptor :rf.interceptor/path])
@@ -220,9 +218,9 @@
       ;; descriptors + EVERY framework-standard registration the assembly unions
       ;; into EVERY generation. The standard set is computed off the live
       ;; standard registry (NOT hardcoded) so adding a framework standard does
-      ;; not break this gate — today it carries `:rf.interceptor/path` (the
-      ;; interceptor standard; rf2-32siq3.41), `:rf/set-db` (the EP-0027 app-db-
-      ;; seeding event standard; rf2-v1xzoo), and the EP-0026 machine runtime
+      ;; not break this gate — it carries `:rf.interceptor/path` (the
+      ;; interceptor standard), `:rf/set-db` (the EP-0027 app-db-
+      ;; seeding event standard), and the EP-0026 machine runtime
       ;; standards (`:rf.machine/*` fx + `:rf/machine*` subs), when machines is
       ;; loaded into this test artefact.
       (let [n-standards (count (rf.image-assembly/standard-descriptors))]
@@ -261,7 +259,7 @@
 
 ;; ---- TRUE runtime self-seating (EP-0023 §Xray Beside The Target) ----------
 ;;
-;; rf2-32siq3.36 — the dogfood's runtime arm: Xray SEATS a running frame in its
+;; The dogfood's runtime arm: Xray SEATS a running frame in its
 ;; OWN image-loaded frame (built from `(xray-image)`), so its registrations are
 ;; resolved through that frame's OWN sealed generation in genuine registration
 ;; isolation — not the shared default registrar. These cases exercise the seating
@@ -285,7 +283,7 @@
            isolation from any inspected target"))))
 
 (deftest seat-xray-frame-sets-the-trace-no-emit-gate
-  (testing "seat-xray-frame! marks the shell frame trace-disabled (rf2-2qaqh) so
+  (testing "seat-xray-frame! marks the shell frame trace-disabled so
             Xray's own reactivity does not flood the ring it inspects — preserved
             across the make-frame seating that cannot carry the record-config flag"
     (is (false? (rf.trace/frame-trace-disabled? :rf.xray/seat-b))
