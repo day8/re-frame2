@@ -67,7 +67,7 @@ check_stale_mcp_binary() {
         seen_labels="$seen_labels $label"
         printf '\n' >&2
         printf '====================================================================\n' >&2
-        printf '  %s: source changed — local binary is now stale (rf2-6jj3r)\n' "$label" >&2
+        printf '  %s: source changed — local binary is now stale\n' "$label" >&2
         printf '====================================================================\n' >&2
         printf '\n' >&2
         printf '  The compiled MCP binary under tools/re-frame2-pair-mcp/out/ is\n' >&2
