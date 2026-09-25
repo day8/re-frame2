@@ -1,10 +1,9 @@
 (ns re-frame.story.ui.docs-markdown-cljs-test
-  "CLJS-side coverage of the docs prose section's markdown integration
-  (rf2-wl7yr, audit C-2).
+  "CLJS-side coverage of the docs prose section's markdown integration.
 
   Pure-data coverage of the markdown parser lives in
   `re-frame.story.ui.markdown-test`. This namespace asserts that the
-  docs pane's renderer now PASSES prose bodies through `rf.story.ui.markdown/parse`
+  docs pane's renderer PASSES prose bodies through `rf.story.ui.markdown/parse`
   rather than rendering them as raw `pre-wrap` text — pinning the
   integration so a future refactor that drops the parse call breaks
   the test loudly."
@@ -30,9 +29,9 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>], mirroring `re-frame.machines`.
+  ;; There is no app-db `:rf/runtime` path.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
