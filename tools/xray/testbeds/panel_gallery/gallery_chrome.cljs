@@ -1,15 +1,14 @@
 (ns panel-gallery.gallery-chrome
-  "Story coverage for the **full 4-layer Xray chrome**
-  (rf2-durls — redo against the de-singletoned shell + the four-bucket
-  Story authoring model; supersedes the rf2-sszlr / rf2-1w07r gallery).
+  "Story coverage for the **full 4-layer Xray chrome**, built against
+  the per-frame shell + the four-bucket Story authoring model.
 
   The variants mount `:panel-gallery.chrome/Shell` — the entire ribbon
   + event-list + tab-bar + detail-panel stack (`shell/shell-view`). Per
   spec/018-Event-Spine §2 the chrome is four stacked layers.
 
-  ## Per-cell frame isolation (de-singletoned shell — rf2-1w07r)
+  ## Per-cell frame isolation
 
-  `shell/shell-view` now takes a `:frame-id` opt (default
+  `shell/shell-view` takes a `:frame-id` opt (default
   `defaults/default-frame-id` = `:rf/xray`). The `chrome-shell` wrapper
   (`panel_views.cljs`) is `reg-view*`-registered, so its render runs
   under the Story per-variant frame scope (the namespace-preserving
@@ -27,11 +26,10 @@
   `:variants-grid` and stay fully isolated: driving one does not move
   the others.
 
-  Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
-  so every cell's subscribes collided on the single global `:rf/xray`
-  app-db; the gallery had to serialise rendering and re-dispatch its
-  seeds into `:rf/xray` through a testbed-local `:panel-gallery.chrome/
-  seed!` event. The parameterized shell retires all of that.
+  A shell that hardcoded `[frame-provider {:frame :rf/xray}]` would
+  collide every cell's subscribes on the single global `:rf/xray`
+  app-db, and the gallery would have to serialise rendering and
+  re-dispatch its seeds into `:rf/xray`.
 
   ## Seed events
 
@@ -51,10 +49,9 @@
 
   ## Feature-detect notes
 
-    - Auto-filter pills (rf2-ak4ms) — basic ribbon pill round-trip is
-      in main; the rich filter popup gallery lives in `gallery_filters`.
-    - Settings popup (rf2-9poxq / rf2-ttnst) — its variants live in
-      `gallery_settings`."
+    - Auto-filter pills — the basic ribbon pill round-trip is covered
+      here; the rich filter popup gallery lives in `gallery_filters`.
+    - Settings popup — its variants live in `gallery_settings`."
   (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.fixtures-app-db :as fixtures-app-db]
@@ -114,7 +111,7 @@
   (rf.story/reg-story :story.xray.chrome
     {:doc        "Visual gallery of the full Xray 4-layer chrome. Each
                  variant mounts the shell in its OWN isolated frame
-                 (the de-singletoned shell threads the Story per-variant
+                 (the per-frame shell threads the Story per-variant
                  frame) and seeds that frame with the canonical Xray
                  events. Cells in the grid are fully isolated — driving
                  one does not move the others."
@@ -123,8 +120,7 @@
      :substrates #{:reagent}})
 
   ;; ----- 1. Epoch tab pre-selected (default) -------------------------
-  ;; Post rf2-5gl5r the Epoch tab supersedes the retired Event/Handler
-  ;; tab as the default landing (:order -1, leftmost).
+  ;; The Epoch tab is the default landing (:order -1, leftmost).
   (rf.story/reg-variant :story.xray.chrome/tab-epoch
     {:doc        "Chrome with the Epoch tab pre-selected (default).
                  Trace buffer has six cascades; the event-list (L2)
@@ -185,20 +181,18 @@
      :tags       #{:dev :state/small}
      :substrates #{:reagent}})
 
-  ;; ----- 6. Chrome under issue load (rf2-gbz39) ---------------------
-  ;; The dedicated Issues tab was removed per Mike's Option (c) ruling;
-  ;; issues now surface INLINE in the Epoch panel + via the L2 event-
-  ;; row pink-wash + the always-on issues ribbon signal. This variant
-  ;; keeps the issue-bearing trace buffer but pre-selects the Epoch tab
-  ;; — pinning the chrome's response under issue load (the L2 rows wash
-  ;; pink; the Epoch panel surfaces the exception inline) rather than a
-  ;; standalone Issues feed that no longer exists.
+  ;; ----- 6. Chrome under issue load ---------------------------------
+  ;; There is no Issues tab: issues surface INLINE in the Epoch panel +
+  ;; via the L2 event-row pink-wash + the always-on issues ribbon
+  ;; signal. This variant pre-selects the Epoch tab over the
+  ;; issue-bearing trace buffer — pinning the chrome's response under
+  ;; issue load (the L2 rows wash pink; the Epoch panel surfaces the
+  ;; exception inline).
   (rf.story/reg-variant :story.xray.chrome/issue-load
     {:doc        "Chrome under issue load. Trace buffer carries an
                  issue mix (errors / warnings / info); the L2 event
-                 rows wash pink (rf2-b8guz) and the Epoch panel
-                 surfaces the issues inline (rf2-ahhgn). No dedicated
-                 Issues tab post rf2-gbz39 (Option (c))."
+                 rows wash pink and the Epoch panel surfaces the
+                 issues inline. There is no dedicated Issues tab."
      :setup      (chrome-setup
                    {:trace-buffer (fixtures-trace/error-buffer)
                     :selected-tab :epoch})
@@ -261,8 +255,8 @@
   ;; ----- workspace ---------------------------------------------------
   ;;
   ;; `:variants-grid` — all ten cells render simultaneously. Each cell's
-  ;; `chrome-shell` threads ITS variant frame into the de-singletoned
-  ;; shell (rf2-1w07r), and Story seeds each cell's frame independently,
+  ;; `chrome-shell` threads ITS variant frame into the per-frame
+  ;; shell, and Story seeds each cell's frame independently,
   ;; so the cells are fully isolated: every cell paints its own declared
   ;; state with no last-seed-wins bleed. Single-column so the four-layer
   ;; chrome has room to breathe.
