@@ -915,7 +915,8 @@
 (def ^:private ok-result
   {:status :ok
    :snapshot {:state :authing :data {:counter 1}}
-   :fx []})
+   :fx []
+   :handled? true})
 
 ;; rf2-y8doi.21: this used to be a HAND-WRITTEN
 ;; `{:status :error :error {:kind … :reason :no-matching-transition}}`.
@@ -1018,7 +1019,11 @@
           "and nothing for the chart to animate")
       (is (= [:open] (-> s1 :last-error :event)))
       (is (= :rf.xray.static.machines.sim/no-change
-             (-> s1 :last-error :info :kind))))))
+             (-> s1 :last-error :info :kind)))
+      (is (false? (-> s1 :last-error :info :handled?))
+          "the engine reports the event declined")
+      (is (= "no change — the event was declined, or no transition matched it"
+             (-> s1 :last-error :reason))))))
 
 (deftest step-sim-unhandled-event-appends-no-row-and-says-so
   (testing "an event the machine declares nowhere is the SAME engine
@@ -1029,7 +1034,32 @@
       (is (= :locked (sim-h/current-sim-state s1)))
       (is (= [] (:audit-trail s1)))
       (is (= :rf.xray.static.machines.sim/no-change
-             (-> s1 :last-error :info :kind))))))
+             (-> s1 :last-error :info :kind)))
+      (is (false? (-> s1 :last-error :info :handled?)))
+      (is (= "no change — the event was declined, or no transition matched it"
+             (-> s1 :last-error :reason))))))
+
+(deftest step-sim-accepted-no-op-appends-no-row-and-says-so
+  (testing "an event the engine TOOK whose transition changed nothing — a
+            targetless consumer, a targetless action that returns nil —
+            appends no row, and the rejection says it was accepted"
+    (let [d  {:initial :idle
+              :data    {:n 0}
+              :states  {:idle {:on {:help {}
+                                    :ping {:action (fn [_] nil)}}}}}
+          s0 (sim-h/make-sim-state :t d engine-seed)]
+      (doseq [ev [[:help] [:ping]]
+              :let [s1 (sim-h/step-sim s0 ev (engine-step d (:snapshot s0)))]]
+        (is (= :idle (sim-h/current-sim-state s1)) (str ev))
+        (is (= [] (:audit-trail s1)) (str ev ": no audit row"))
+        (is (= :rf.xray.static.machines.sim/no-change
+               (-> s1 :last-error :info :kind))
+            (str ev))
+        (is (true? (-> s1 :last-error :info :handled?))
+            (str ev ": the engine reports the event handled"))
+        (is (= "no change — the event was accepted, but its transition was a no-op"
+               (-> s1 :last-error :reason))
+            (str ev))))))
 
 (deftest step-sim-guard-passing-still-appends-a-row
   (testing "THE CONTROL — the same definition, the same event, the same
