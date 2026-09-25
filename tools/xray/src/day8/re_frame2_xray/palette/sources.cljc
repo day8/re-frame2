@@ -108,7 +108,7 @@
   the recency bonus is zero anyway, and the palette result list
   itself is finite.
 
-  The action names the row's dispatch id and frame (rf2-gwye.8) — the
+  The action names the row's dispatch id and frame — the
   identity `:rf.xray/focus-event` selects by. The event vector is only
   the label: two runs of one event are two different selections."
   ([buffer]
@@ -154,8 +154,7 @@
   "Indexed from `frame-ids` (a seq of registered frame ids). Tool
   frames in `internal-frames` are excluded — the SAME exclusion the
   ribbon picker applies via `frame-switcher/distinct-frames`
-  (spec/018 §8 I1), rather than a hand-rolled `:rf/xray`-only removal
-  (rf2-anbabs).
+  (spec/018 §8 I1), rather than a hand-rolled `:rf/xray`-only removal.
 
   `internal-frames` (the canonical `frame-switcher/internal-frames`
   set — `#{:rf/xray :rf/re-frame2-pair}`) is injected by the
@@ -164,13 +163,11 @@
   exclusion source of truth. Kept pure — the aggregator takes the set
   as data, never requiring the cljs-only frame-switcher ns.
 
-  The exclusion is UNCONDITIONAL. rf2-y8doi.27 dropped the
-  `show-tool-frames?` parameter: the setting it read lost its Settings
-  UI on 2026-05-27, no surface could write the slot, and every caller
-  passed `false`.
+  The exclusion is UNCONDITIONAL: there is no `show-tool-frames?`
+  parameter, and no surface writes a setting that would feed one.
 
   The 1-arity is a test / partial-drive convenience defaulting to the
-  historical minimal `#{:rf/xray}` exclusion; production always injects
+  minimal `#{:rf/xray}` exclusion; production always injects
   the full set through `build-index`."
   ([frame-ids] (frame-items frame-ids #{:rf/xray}))
   ([frame-ids internal-frames]
@@ -261,9 +258,7 @@
   ## Mode-agnostic verbs
 
   The `:modes #{:dynamic :static}` entries in the vector below are the
-  roster — read them rather than this list, which drifts (it named five
-  while seven entries carried both modes, and `:open-popout` was filed
-  under Dynamic-only while its own entry declared both).
+  roster — read them rather than this list, which can drift.
 
   - `:open-popout`             — Open Xray in a pop-out window. BOTH
                                  modes: the pop-out carries whichever
@@ -278,16 +273,16 @@
                                  with `Cmd-Shift-M`).
   - `:close-palette`           — Close the palette (parity with ESC).
 
-  ## Removed verbs
+  ## No clear-epoch-history verb
 
-  - `:clear-epoch-history` (rf2-y8doi.27) — it cleared Xray's
-    `:epoch-history` slot, which is a MIRROR of the framework's epoch
-    history rather than the store. The next recorded epoch re-seeded
-    the slot wholesale from `(vec (rf/epoch-history target))`, so the
-    verb lasted exactly one event before silently undoing itself. The
-    Buffer tab's \"Clear buffer now\" is the real scrub. A verb that
-    genuinely cleared the substrate's epoch ring would need a
-    Tool-Pair ruling — Xray does not own that ring."
+  - There is no `:clear-epoch-history` verb. Xray's `:epoch-history`
+    slot is a MIRROR of the framework's epoch history rather than the
+    store. The next recorded epoch re-seeds the slot wholesale from
+    `(vec (rf/epoch-history target))`, so clearing it would last
+    exactly one event before silently undoing itself. The Buffer
+    tab's \"Clear buffer now\" is the real scrub. Clearing the
+    substrate's epoch ring is a Tool-Pair question — Xray does not
+    own that ring."
   []
   [{:source :command
     :id     :clear-trace-buffer
@@ -298,8 +293,8 @@
     :action [:palette/clear-trace-buffer]
     :modes  #{:dynamic}
     :popout? false}
-   ;; (`:clear-epoch-history` was REMOVED here — rf2-y8doi.27. See the
-   ;; "Removed verbs" note in this fn's docstring.)
+   ;; (There is no `:clear-epoch-history` entry. See the
+   ;; "No clear-epoch-history verb" note in this fn's docstring.)
    {:source :command
     :id     :reset-suppressed-counters
     :label  "Reset redacted-events counter"
@@ -467,13 +462,12 @@
      :recents          [command-id ...]          ; recents boost
     }
 
-  `:internal-frames` (rf2-anbabs) gates the frame source through the
+  `:internal-frames` gates the frame source through the
   SAME exclusion the ribbon picker uses (spec/018 §8 I1); the
   `:rf.xray/palette-index` sub injects the canonical
-  `frame-switcher/internal-frames` set. Missing → the historical
-  minimal `#{:rf/xray}` default. The companion `:show-tool-frames?`
-  key went with its setting in rf2-y8doi.27; the exclusion is
-  unconditional.
+  `frame-switcher/internal-frames` set. Missing → the
+  minimal `#{:rf/xray}` default. There is no `:show-tool-frames?`
+  key; the exclusion is unconditional.
 
   Missing keys default to empty inputs of that kind — partial drives
   (e.g. recency-rank dragons without a populated buffer) are
@@ -485,8 +479,8 @@
   doesn't contain `:mode`. nil `:mode` keeps every item surfaced. The
   filter is applied AFTER source assembly
   but BEFORE dedup so an item with the same `[:source :id]` in both
-  modes can still surface — but no source emits the same id under
-  both modes today.
+  modes can surface — though no source emits the same id under
+  both modes.
 
   ## Recents boost
 
