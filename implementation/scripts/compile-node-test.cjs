@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// rf2-6t03c — a compile of a `:node-test`-family build that ABORTS (nonzero
+// A compile of a `:node-test`-family build that ABORTS (nonzero
 // exit; e.g. `aborted par-compile, ... still waiting for ...` from
 // `shadow.build.compiler/par-compile-one`'s 60s `:par-timeout`, seen under
 // box load AND forceable deterministically by overriding that timeout)
@@ -10,20 +10,18 @@
 // not chain the compile's exit code — a two-step invocation, a background
 // job whose failure is swallowed, anything that isn't `compile && run` —
 // silently executes stale compiled code and reports a green that means
-// nothing. That is exactly what happened measuring rf2-hofhx: one run was
-// discarded because of it.
+// nothing.
 //
-// MEASURED (2026-08-03, this bead): a `--config-merge '{:build-options
-// {:par-timeout 1}}'` compile of `node-test` reliably aborts (exit 1) inside
-// ~90s, and `out/node-test.js` from the prior successful compile is left
-// completely unchanged on disk — same size, same mtime. A subsequent full
-// compile with the default timeout self-heals (shadow-cljs's per-namespace
-// cache is keyed by source hash, not by the aborted run), so the on-disk
-// CACHE was not the reliably-reproducible carrier here; the STALE, still-
-// present BUNDLE is. This script closes that gap unconditionally, for any
-// cause of abort, not only `--config-merge`.
+// A `--config-merge '{:build-options {:par-timeout 1}}'` compile of
+// `node-test` reliably aborts (exit 1) inside ~90s, and `out/node-test.js`
+// from the prior successful compile is left completely unchanged on disk —
+// same size, same mtime. A subsequent full compile with the default timeout
+// self-heals (shadow-cljs's per-namespace cache is keyed by source hash, not
+// by the aborted run), so the on-disk CACHE is not the reliably-reproducible
+// carrier; the STALE, still-present BUNDLE is. This script closes that gap
+// unconditionally, for any cause of abort, not only `--config-merge`.
 //
-// THE FIX, two parts:
+// Two parts:
 //
 //   1. Delete `:output-to` BEFORE compiling, always. A failed compile then
 //      leaves NO bundle rather than a stale one: `node out/<build>.js`
@@ -35,8 +33,8 @@
 //
 //   2. When invoked with `--config-merge`, ALSO clear the build's on-disk
 //      shadow-cljs cache directory before AND after compiling — the other
-//      fix shadow-cljs.edn's `:node-test` build comment names, and the same
-//      rule `lane_cache.cjs` already enforces for the fresco bench lane:
+//      remedy shadow-cljs.edn's `:node-test` build comment names, and the same
+//      rule `lane_cache.cjs` enforces for the fresco bench lane:
 //      one build id driven with N different configs shares ONE cache entry,
 //      so a focused/config-merged compile against a SHARED id (like
 //      `:node-test`, which the always-on full compile also drives) must
@@ -46,58 +44,50 @@
 //      determinism: the shared id can never carry residue from a config it
 //      did not itself request.
 //
-// The cheapest fix of all remains: don't `--config-merge` against `:node-test`
+// The cheapest remedy of all: don't `--config-merge` against `:node-test`
 // in the first place. `node out/node-test.js --test=<ns>[,<ns>...]` selects
 // namespaces at RUNTIME, needs no recompile, and cannot poison anything —
 // see the comment on shadow-cljs.edn's `:node-test` build.
 //
-// rf2-4a6ei — A COMPILE THAT SUCCEEDS WITH WARNINGS IS NOT A GREEN LANE, and
-// until this script read the tally it was treated as one.  The bead reports
-// prose inside a test namespace — a citation with a bare `"` in a docstring —
-// surviving a 153-check three-engine browser gate, and explains it by the
-// namespace failing to compile and so dropping out of the build.
-//
-// MEASURED ON THIS TREE, and the explanation is REFUTED.  The plant was made
-// twice in `security/test/re_frame/security/ssr_escaping_security_cljs_test.cljc`
-// and `npm run test:security` run over each:
+// A COMPILE THAT SUCCEEDS WITH WARNINGS IS NOT A GREEN LANE.  A bare `"` in a
+// docstring inside a test namespace does not necessarily drop that namespace
+// out of the build.  Planted in
+// `security/test/re_frame/security/ssr_escaping_security_cljs_test.cljc` and
+// run with `npm run test:security`:
 //
 //   * inside the NS DOCSTRING — the ns form does not read, and the build FAILS,
-//     exit 1, naming the file and the line.  Caught already, by this script's
-//     existing exit-status check.
+//     exit 1, naming the file and the line.  This script's exit-status check
+//     catches it.
 //   * inside a DEFTEST DOCSTRING, one form further down — the bare quote closes
 //     the string early and reopens it before the line ends, so the file still
 //     READS.  `one frame per app` becomes four bare symbols in the test body,
 //     which compile to `undefined` in JavaScript and evaluate harmlessly.  The
 //     build completes, the suite runs, and the numbers are IDENTICAL to the
 //     clean tree: `Ran 93 tests containing 705 assertions. / 0 failures, 0
-//     errors.`, exit 0.  The one thing that moved is the tally: `0 warnings`
-//     became `4 warnings`, all of them `Use of undeclared Var`.
+//     errors.`, exit 0.  The one thing that moves is the tally: `0 warnings`
+//     becomes `4 warnings`, all of them `Use of undeclared Var`.
 //
-// So the namespace never left the build, the test count never dropped, and the
-// bead's candidate repair — fail when the selector matches fewer namespaces
-// than expected — would not have caught this: nothing was missing.  What was
-// missing was a READER for the number shadow-cljs had already printed.
+// So the namespace stays in the build and the test count does not drop, and a
+// repair that fails when the selector matches fewer namespaces than expected
+// would not catch this: nothing is missing.  What catches it is a READER for
+// the number shadow-cljs already prints.
 //
 // THE TALLY IS THE GATE, and it needs no bookkeeping to stay honest.  Every
-// `:node-test`-family lane compiles warning-free today, measured before arming
-// this: node-test 2395 files, node-test-security 216, node-test-testbed-support
-// 693, node-test-ui 343, node-test-freehand 488, node-test-fresco 457,
-// node-test-perf-nightly 159 — 0 warnings in all seven.  A floor of zero is
-// therefore the bound that cannot go stale, in the same spirit as
+// `:node-test`-family lane compiles warning-free, so a floor of zero is the
+// bound that cannot go stale, in the same spirit as
 // `RF2_MIN_TESTS`'s default of 1, and it carries no knob: a warning in a test
 // build is a defect, and an env var to permit one would be this bug wearing a
 // hat.
 //
-// THE SAME RULE ALREADY EXISTS ONE LANE OVER, which is the strongest evidence
-// that this is the right shape and not an invention.  `check-examples-compile.
+// THE SAME RULE EXISTS ONE LANE OVER, which is the strongest evidence that
+// this is the right shape and not an invention.  `check-examples-compile.
 // cjs` parses the identical shadow-cljs line for the `:examples/*` builds, reds
-// on `warnings > 0`, and — independently of this, under rf2-nlnd9y.1 — reached
-// the same conclusion about the unreadable case: a summary that never appeared
-// or no longer matches is a FAILURE, because otherwise the gate "reported
-// SUCCESS having verified nothing about that build".
+// on `warnings > 0`, and treats the unreadable case the same way: a summary
+// that never appears or does not match is a FAILURE, because otherwise the gate
+// would report SUCCESS having verified nothing about that build.
 //
 // NOT SHARED, and the reason is at source rather than laziness.  That parser is
-// anchored on a build id containing a slash (`[:examples/login-helix]`), which
+// anchored on a build id containing a slash (`[:examples/counter]`), which
 // no `:node-test`-family id carries, so it matches nothing here and could not be
 // called as it stands.  Generalising it would mean editing the examples gate to
 // serve this one; two four-line readers in the lanes that own them is the
@@ -105,23 +95,17 @@
 // treats a singular `1 warning` as UNPARSEABLE and fails, this one reads it and
 // fails NAMING the count.  Both red; this one says why.
 //
-// THERE ARE THREE OF US, NOT TWO — and this is the one place that says so
-// (rf2-040s1).  The paragraph above used to close by promising that a third lane
-// wanting this line would be the moment to mint one reader for all three.  The
-// third lane already existed when that was written: `lane_build.cjs` has read
-// the line since 2026-08-03, cites the same examples gate, and gives the same
-// slash-anchor reason for not reusing it.  Two authors hit one wall eleven days
-// apart and neither found the other, which is the defect the count was meant to
-// catch and did not.  So the roster is stated, and the other two files point
-// here rather than restate it:
+// THERE ARE THREE READERS, NOT TWO — and this is the one place that says so.
+// `lane_build.cjs` reads the same line, cites the same examples gate, and gives
+// the same slash-anchor reason for not reusing it.  The roster is stated here,
+// and the other two files point here rather than restate it:
 //
 //     implementation/scripts/check-examples-compile.cjs   :examples/* + :testbeds/*
 //     implementation/scripts/compile-node-test.cjs        :node-test-family (this)
 //     bench/fresco/src/re_frame/bench/fresco/lane_build.cjs  :fresco-bench (repo root)
 //
 // AND ONE LANE THAT READS NOTHING, declared here because a roster that lists
-// only its readers is the same false completeness this file was written to
-// stop (rf2-m3iin, from the rf2-pk4i6 senior review):
+// only its readers would claim a completeness it does not have:
 //
 //     npm run test:tools-machines-viz    :machines-viz-node-test    NO READER
 //
@@ -132,26 +116,23 @@
 // machines-viz-node-test`, bare shadow through the artefact's own classpath.
 // So it has NEITHER half of this script: no warnings-fatal read, and no
 // unlink-before-compile.  Its `&&` chain does stop a FAILED compile running a
-// stale bundle, so the rf2-6t03c exposure is bounded; the rf2-4a6ei one is not
-// — a broken deftest docstring in that artefact compiles to warnings, runs,
-// counts every test, and exits 0, which is exactly the hole the required `cljs`
-// job had until rf2-m3iin.
+// stale bundle, so the stale-bundle exposure is bounded; the warnings one is
+// not — a broken deftest docstring in that artefact compiles to warnings, runs,
+// counts every test, and exits 0.
 //
-// It is left UNGATED deliberately rather than by oversight.  By the test stated
+// It is UNGATED deliberately rather than by oversight.  By the test stated
 // below, its selection policy is this file's (take the LAST tally row), so the
 // right repair is for it to CALL this reader — not for a fourth parser to be
 // written — and that needs a spawn form this script does not have: it runs
 // shadow-cljs's own `runner.js` under `process.execPath` from IMPL_DIR, which
 // cannot express "through another artefact's `clojure -M:cljs-test` alias, from
-// another directory".  That form was scoped and deliberately not taken here, to
-// keep this change to the required lane it was about.  A worker adding it wants
-// `--via-clojure-alias <alias> --cwd <dir>`, and then this row moves up into the
-// roster above.
+// another directory".  The form it needs is `--via-clojure-alias <alias> --cwd
+// <dir>`, and then this row moves up into the roster above.
 //
-// THE COUNT WAS STILL THE WRONG TRIGGER, so it is replaced rather than
-// incremented.  MEASURED at three, against the live parsers: no single pattern
-// serves all three as they stand — the examples regex matches ZERO bare-keyword
-// ids, and this one reads a summary carrying no `[:id]` bracket at all, which
+// A HEADCOUNT OF READERS IS THE WRONG TRIGGER for sharing one.  Against the
+// three live parsers, no single pattern serves all three as they stand — the
+// examples regex matches ZERO bare-keyword ids,
+// and this one reads a summary carrying no `[:id]` bracket at all, which
 // that lane's regex cannot.  Nor is the examples slash merely a capture: it is a
 // FILTER, and that gate fails on any summary whose id was not requested, so an
 // id-agnostic shared pattern would hand it every id shadow prints and re-open a
@@ -173,7 +154,7 @@
 // NOT A NAG, deliberately.  shadow-cljs already prints its own `Build
 // completed. (N files, M compiled, W warnings, Ts)` line on every run, so the
 // reach is on the page whether this passes or fails and there is nothing to
-// restate.  What was absent was not the number but any consequence attached to
+// restate.  What this adds is not the number but a consequence attached to
 // it.  This script therefore says nothing extra on a clean compile and speaks
 // only when the tally is non-zero or unreadable.
 //
@@ -230,8 +211,8 @@ function runCapturing(command, args, options) {
     child.on('error', (error) => resolve({ error, captured }));
     // BOTH arguments. `close` reports a signal death as (null, 'SIGTERM') —
     // the status is NULL, and the signal name is the only place the cause is
-    // written down. Dropping the second argument threw that away and left the
-    // caller a status it cannot tell apart from "no idea" (rf2-i7q4).
+    // written down. Dropping the second argument would throw that away and
+    // leave the caller a status it cannot tell apart from "no idea".
     child.on('close', (status, signal) => resolve({ status, signal, captured }));
   });
 }
@@ -267,7 +248,7 @@ async function main(argv) {
   // Resolve shadow-cljs's own bin entry-point (a plain Node script) and
   // spawn it directly under THIS node binary — never `npx`/`npx.cmd` under
   // a shell. Mirrors serve-and-run-browser-tests.cjs's http-server
-  // resolution (rf2-wn4o1): a workspace-local `.cmd` can hijack a
+  // resolution: a workspace-local `.cmd` can hijack a
   // `shell:true` launch on Windows, and `.cmd` under `shell:false` fails
   // with EINVAL (the CVE-2024-27980 mitigation). Resolving the actual
   // `.js` entry-point sidesteps both.
@@ -293,14 +274,14 @@ async function main(argv) {
     return 1;
   }
 
-  // rf2-i7q4 — A SIGNAL-KILLED CHILD IS NOT A PASSING BUILD, and Node's own
-  // convention is what made it read as one. `close` reports a signal death as
+  // A SIGNAL-KILLED CHILD IS NOT A PASSING BUILD, and Node's own convention
+  // would make it read as one. `close` reports a signal death as
   // (null, 'SIGTERM'): the status is NULL rather than a number, `null !== 0`
-  // so this branch was entered and printed "did not complete (exit null)" —
-  // and then returned that null to `process.exit()`, which reads a non-number
-  // as SUCCESS. The wrapper said the compile had failed and told automation it
-  // had passed, in the same breath. An OOM kill, a CI job cancellation, or an
-  // administrative taskkill of the shadow-cljs JVM all land here.
+  // so this branch is entered — and returning that null to `process.exit()`,
+  // which reads a non-number as SUCCESS, would print "did not complete (exit
+  // null)" and tell automation the compile had passed, in the same breath. An
+  // OOM kill, a CI job cancellation, or an administrative taskkill of the
+  // shadow-cljs JVM all land here.
   //
   // So the seam is: a NUMERIC status is the child's own verdict and passes
   // through untouched (0 continues into the output/tally checks below; 1, 3,
@@ -327,7 +308,7 @@ async function main(argv) {
     return 1;
   }
 
-  // rf2-4a6ei. Everything above asks whether the compile RAN; this asks what it
+  // Everything above asks whether the compile RAN; this asks what it
   // found. See the header for the measurement: a broken string literal one form
   // below the ns form leaves a lane that compiles, runs, and reports test counts
   // identical to the clean tree — the only moving number is this one.
@@ -338,7 +319,7 @@ async function main(argv) {
         `${outputTo}, but printed no "Build completed." tally, so the warning ` +
         `count for this lane is UNKNOWN. Refusing rather than reporting a green ` +
         `for a question that was never answered — a warning here is how a broken ` +
-        `docstring reaches a suite that still counts every test (rf2-4a6ei).`
+        `docstring reaches a suite that still counts every test.`
     );
     return 1;
   }
@@ -354,7 +335,7 @@ async function main(argv) {
         `\`undefined\` and evaluate harmlessly. The suite then reports the same ` +
         `test and assertion counts as the clean tree while the docstring it was ` +
         `meant to carry is gone. "Use of undeclared Var" in a test namespace is ` +
-        `that shape (rf2-4a6ei).\n`
+        `that shape.\n`
     );
     return 1;
   }
