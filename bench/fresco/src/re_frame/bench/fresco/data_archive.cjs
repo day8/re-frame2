@@ -1,13 +1,12 @@
 'use strict';
-// THE RUN CORPUS LIVES IN GIT HISTORY, NOT ON MAIN (rf2-6c12m.6).
+// THE RUN CORPUS LIVES IN GIT HISTORY, NOT ON MAIN.
 //
-// `data/` beside this file held every run record the Fresco programme's
-// numbers were taken from — 237 files, 80 MB, 96% of the tracked lines under
-// the bench — and every clone carried it to serve verdicts already written
-// down in `docs/design/fresco/studio/`. The tree was deleted from main in one
-// commit; the full corpus is the tree at the commit named below, and one
-// command puts it back exactly where every reader still looks — run it from
-// the repository root:
+// `data/` beside this file is where every run record the Fresco programme's
+// numbers were taken from is read — 237 files, 80 MB — and it is not on main,
+// because every clone would carry it only to serve verdicts already written
+// down in `docs/design/fresco/studio/`. The full corpus is the tree at the
+// commit named below, and one command puts it back exactly where every reader
+// looks — run it from the repository root:
 //
 //     node bench/fresco/src/re_frame/bench/fresco/data_archive.cjs --restore
 //
@@ -17,12 +16,11 @@
 // SHA its data resolves at.
 //
 // THE ARCHIVE IS IMMUTABLE, AND THAT IS WHY THIS FILE EXISTS RATHER THAN A
-// BARE `git restore` LINE IN THE README (rf2-d1nr.2). Two things about the
-// corpus were fixed on the day it was archived and cannot be changed by any
-// commit on main:
+// BARE `git restore` LINE IN THE README. Two things about the corpus are
+// fixed by the archive commit and cannot be changed by any commit on main:
 //
-//   * ITS PATH. The corpus was archived BEFORE the rename that gave this tree
-//     its name, so inside `ARCHIVE_SHA` it sits under the former name —
+//   * ITS PATH. `ARCHIVE_SHA` predates the rename that gave this tree its
+//     name, so inside it the corpus sits under the former name —
 //     `ARCHIVE_PATH` below, which is the one place that path is spelled. A
 //     directory rename on main cannot rename a path inside an older commit,
 //     and `git restore --source=<sha> -- <path>` has no source/destination
@@ -40,9 +38,9 @@
 //     The bytes on disk stay byte-identical to the archived blob: the corpus
 //     is the measured evidence and is never rewritten.
 //
-// Readers keep their `path.join(__dirname, 'data', ...)` constants unchanged.
-// What changes is the self-tests `npm run check` runs: a check that re-derives
-// a published figure from the corpus runs when the corpus is present and is
+// Readers address the corpus as `path.join(__dirname, 'data', ...)`. Among the
+// self-tests `npm run check` runs, a check that re-derives a published figure
+// from the corpus runs when the corpus is present and is
 // SKIPPED, with one printed line, when it is not — a fixed prose skip rather
 // than a silent one, because a green run must say what it did not read. The
 // small records a self-test needs as a fixture in its own right (a mutation
@@ -52,7 +50,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-/** Where the run corpus sits once restored — the path every reader still uses. */
+/** Where the run corpus sits once restored — the path every reader uses. */
 const DATA = path.join(__dirname, 'data');
 
 /** The commit whose tree carries the full corpus. */
@@ -139,11 +137,10 @@ const restore = () => {
  * THE ARCHIVED VOCABULARY, TRANSLATED. The corpus predates the rename that gave
  * this tree its name, so its arm keys (the `lad/…` segment of a key spelled
  * `reagent-subs|lad/…#R7@page`), its segment names, its `arm`/`pairKey`/`build`
- * values and its env-var mentions all carry the old token. This is the same
- * three-form token substitution the rename applied to source, applied to an
- * archived record on the way in — so a reader written against the current
- * vocabulary reads the whole population, and a record a driver wrote TODAY
- * passes through unchanged.
+ * values and its env-var mentions all carry the former token. The three-form
+ * token substitution below maps it to the current one on the way in — so a
+ * reader written against the current vocabulary reads the whole population,
+ * and a record written in the current vocabulary passes through unchanged.
  *
  * The three rows below ARE the retired spellings, so they too are carried by
  * `PRODUCT_EXEMPTIONS` in `scripts/check_retired_spellings.py`, per construct.
