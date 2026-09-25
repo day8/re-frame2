@@ -1,6 +1,6 @@
 (ns re-frame.story.play.ci-runner-test
   "Pure unit tests for the Story `:script` CI-as-test discovery +
-  projection seams (rf2-3qcxk).
+  projection seams.
 
   All tests are JVM-runnable. The CLJS-only `install-ci-hooks!` is
   exercised by the browser-side runner in
@@ -93,7 +93,7 @@
     (let [ctx (rf.story.play.ci-runner/ci-context)]
       (is (= [:story.c/a :story.c/b] (:variants ctx)))
       (is (not (contains? ctx :summaries))
-          "the legacy per-variant :summaries projection is dropped (rf2-k9u0h)")
+          "there is no per-variant :summaries projection")
       (is (= 2 (count (:rows ctx))))
       (is (= :story.c/a (:variant-id (first (:rows ctx)))))
       (is (= "b"        (:name       (second (:rows ctx))))))))
@@ -146,7 +146,7 @@
 (deftest project-state-nil-yields-nil
   (is (nil? (rf.story.play.ci-runner/project-state nil))))
 
-;; ---- multi-play (rf2-tl7zk) ----------------------------------------------
+;; ---- multi-play ----------------------------------------------------------
 
 (deftest has-plays?-recognises-non-empty-plays
   (is (false? (rf.story.play.ci-runner/has-plays? {})))
@@ -200,7 +200,7 @@
       (is (nil? (:play-key (first rows))))
       (is (= 1   (:script-len (first rows))))
       (is (true? (:auto-run? (first rows)))
-          "bare scripts default :auto-run? to true (legacy contract)"))))
+          "bare scripts default :auto-run? to true"))))
 
 (deftest ci-context-includes-rows
   (testing "ci-context exposes the per-play rows alongside :variants"
