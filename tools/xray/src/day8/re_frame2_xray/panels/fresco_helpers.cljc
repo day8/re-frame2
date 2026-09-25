@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.fresco-helpers
   "The pure algebra behind the Fresco tab — data in, data out, and no
-  runtime read anywhere (rf2-hic-023).
+  runtime read anywhere.
 
   It is a `.cljc` for the ordinary Xray reason: the projection from an
   evidence envelope to what a reader sees is where the honesty of this tab
@@ -30,10 +30,10 @@
   | `:idle`     | Fresco answered with an empty roster — and what THAT means is per view, see [[empty-copy]] |
   | `:live`     | there are rows |
 
-  The third row used to carry one sentence for every view, and that
-  sentence was written for the mounted census: *nothing is mounted, a
-  clean bill of health*. Under Intents the same words claimed a capped
-  window proved nothing had been dispatched. Each view needs its own
+  One sentence for every view cannot serve the third row: *nothing is
+  mounted, a clean bill of health* is true of the mounted census, and
+  under Intents the same words would claim a capped window proved nothing
+  had been dispatched. Each view needs its own
   sentence ([[empty-copy]], one entry per [[sub-modes]] view) — an empty
   roster is a different fact in each, with a different remedy."
   (:require [clojure.string :as string]))
@@ -117,7 +117,7 @@
   body was suppressed. `:rf.sub/dispose` is an eviction. Reading the slot
   without filtering the operation counts all four as recomputes.
 
-  **`:rf.sub/create` WAS in this set and is not work** (rf2-y8doi.26).
+  **`:rf.sub/create` is not in this set, because it is not work.**
   Spec 009 is explicit twice over: §199 calls it *a sub was registered
   into the reactive graph (emitted at registration time, not first
   reference)*, and §241 says it is fired by `reg-sub` / `reg-runtime-sub`
@@ -128,12 +128,13 @@
   create carries no `:rf.sub/elapsed-ms` because there is no duration to
   carry.
 
-  The cost of having it here was not a slightly high count. A create
-  landed as an UNTIMED RUN, so a `reg-sub` evaluated inside a handler
-  scope made an otherwise quiet boundary read as *recomputes happened and
-  the measured half does not account for them* — `:unattributed` /
-  `:host-opaque`, whose remedy is *go and measure this in React
-  DevTools*. A registration sent the reader to another tool.
+  The cost of having it here would not be a slightly high count. A create
+  would land as an UNTIMED RUN, so a `reg-sub` evaluated inside a handler
+  scope would make an otherwise quiet boundary read as *recomputes
+  happened and the measured half does not account for them* —
+  `:unattributed` / `:host-opaque`, whose remedy is *go and measure this
+  in React DevTools*. A registration would send the reader to another
+  tool.
 
   It joins `:rf.sub/dispose` rather than `:rf.sub/skip`: a skip is the
   cell being CONSIDERED and answering without running, which is positive
@@ -148,15 +149,15 @@
   reclassification.
 
   **It lives in the shared algebra because two derivations consult it and
-  they must not disagree.** They did: `fresco-advisor` counted a skip as
-  a memo hit and derived *searched?* from recompute runs alone, while
-  `fresco-causal` collected every tagged item in the same `:subs` slot
-  without filtering operation. One tagged skip therefore made the advisor
-  report `:basis :cap` — *no search happened, raise the retention knob* —
-  about a window that had retained exactly that evidence, while the causal
-  slice reported the same event as an evidenced *subscription recomputed*
-  (rf2-hic-037, merged-PR audit #8027). Two definitions of *did work
-  happen* is what produced the disagreement, and a third would be worse."
+  they must not disagree.** With a definition each — `fresco-advisor`
+  counting a skip as a memo hit and deriving *searched?* from recompute
+  runs alone, `fresco-causal` collecting every tagged item in the same
+  `:subs` slot without filtering operation — one tagged skip would make
+  the advisor report `:basis :cap` — *no search happened, raise the
+  retention knob* — about a window that had retained exactly that
+  evidence, while the causal slice reported the same event as an
+  evidenced *subscription recomputed*. Two definitions of *did work
+  happen* produce that disagreement, and a third would be worse."
   #{:rf.sub/run})
 
 (defn sub-recompute?
@@ -287,13 +288,13 @@
   The four reads have four scopes, and one shared sentence about an empty
   one can be true of at most a single scope. Advisor and Causal add two
   more: both follow the mounted census, and each says what its own
-  absence does and does not prove. It was written for the
-  mounted census (where the entry cache really is authoritative) and then
-  shown under Intents, where an empty roster means a capped window and
-  proves nothing about what was dispatched, and under Reads, where it is
+  absence does and does not prove. A sentence written for the mounted
+  census (where the entry cache really is authoritative) would be wrong
+  under Intents, where an empty roster means a capped window and proves
+  nothing about what was dispatched, and under Reads, where it is
   compatible with mounted boundaries that read nothing at all. A confident
   wrong answer is worse than a visible gap, so each view answers for its
-  own scope and keeps its own remedy in view (rf2-hic-023, audit #7789).
+  own scope and keeps its own remedy in view.
 
   Each entry carries its own testid suffix, so a browser assertion cannot
   match the wrong view's empty."
@@ -423,7 +424,7 @@
   digits above it. `%` is itself escaped and `u` is not a hex digit, so
   the result parses back exactly one way and no two strings can encode to
   one. That is the entire job: [[id-slug]] is a MANY-to-one map, and
-  many-to-one is how two rows came to share a React key."
+  many-to-one is how two rows come to share a React key."
   [s]
   (->> s
        (map (fn [c]
@@ -450,12 +451,11 @@
 
   INJECTIVE, and provably so rather than by inspection of a few examples:
   `escaped` emits no `-`, so the LAST `-` in the result is always the
-  join, and the tail behind it decodes to exactly one input string. The
-  encoding that preceded this one was `id-slug` alone, which folded
-  `[:a/b :c :d]`, `[:a-b :c :d]` and `[:a :b/c :d]` onto one `a-b-c-d` —
-  three legal, distinct projected identities under one React key and one
-  testid (audit #7820). Namespaced and hyphenated ids are ordinary
-  programmer input, not an adversarial edge."
+  join, and the tail behind it decodes to exactly one input string.
+  `id-slug` alone would fold `[:a/b :c :d]`, `[:a-b :c :d]` and
+  `[:a :b/c :d]` onto one `a-b-c-d` — three legal, distinct projected
+  identities under one React key and one testid. Namespaced and
+  hyphenated ids are ordinary programmer input, not an adversarial edge."
   [s]
   (str (id-slug s) "-" (escaped s)))
 
@@ -477,7 +477,7 @@
   query no longer identifies anything, so the registration id is named
   beside the sentinel — otherwise every redacted read on the page reads
   the same, and a reader loses the one distinction the producer took care
-  to keep (rf2-hic-023, audit #7789)."
+  to keep."
   [[_frame-id sub-id query]]
   (if (= redacted query)
     (str (format-id sub-id) " " (format-id query))
@@ -497,17 +497,15 @@
   "The WHOLE projected read identity as one string: frame, registration
   id, projected query — in the order the producer exports them.
 
-  Every part is load-bearing and the frame is the one that was missing
-  (rf2-hic-023, audit #7802). Frames are isolated contexts, so a read of
-  `[:row 1]` in frame A and a read of `[:row 1]` in frame B are two
-  different facts about two different applications, not one fact seen
-  twice. Dropping the frame here made them one string, which made them one
-  React key and one DOM testid.
+  Every part is load-bearing, the frame included. Frames are isolated
+  contexts, so a read of `[:row 1]` in frame A and a read of `[:row 1]` in
+  frame B are two different facts about two different applications, not
+  one fact seen twice. Dropping the frame here would make them one
+  string, and so one React key and one DOM testid.
 
   Projected fields only. The query arrives already projected and is
   printed as found; re-admitting the raw query to make a slug more
-  readable would undo the producer's redaction at the last step, which is
-  the exact escape the #7789 audit caught.
+  readable would undo the producer's redaction at the last step.
 
   ONE `pr-str` over the whole triple, not three joined by a separator: a
   separator BETWEEN printed components can be forged by a component that
@@ -584,10 +582,9 @@
   arguments would put those arguments in the DOM after the schema had
   projected them out of the data. The sub-id keeps two wholly-redacted
   reads selectable apart, and the FRAME keeps two frames' boundaries apart
-  — it was dropped, so `[[:frame/a :row [:row 1]]]` and
-  `[[:frame/b :row [:row 1]]]` both slugged `row-row-1`, giving two
-  genuinely different boundaries one React key and one testid
-  (audit #7802).
+  — without it `[[:frame/a :row [:row 1]]]` and
+  `[[:frame/b :row [:row 1]]]` would both slug `row-row-1`, giving two
+  genuinely different boundaries one React key and one testid.
 
   A boundary reads a SET of cells, so the join BETWEEN elements has to be
   as unforgeable as the join inside one. Each element is already its own
@@ -611,8 +608,8 @@
   "The tab's six views, in order.
 
   The first four are the questions Spec SN §10 says a developer asks of a
-  view substrate, one sub-view each. The last two are rf2-hic-037's: the
-  ADVISOR, which ranks and classifies and then refuses the routes its
+  view substrate, one sub-view each. The last two are the ADVISOR, which
+  ranks and classifies and then refuses the routes its
   evidence cannot support, and the CAUSAL slice, which walks §10's chain
   link by link and labels every one it cannot evidence.
 
@@ -644,19 +641,17 @@
 
 ;; ---- Xray's own machinery is not application evidence --------------------
 ;;
-;; rf2-k97c.3. Xray's panels are Fresco boundaries now, and Fresco's census
-;; walks the collector's process-global entry table with NO frame filter —
-;; so the Fresco tab, which is itself a boundary reading two `:rf/xray`
-;; subs, listed ITSELF among the inspected application's boundaries. It was
-;; measured: with one application boundary mounted, the Mounted view
-;; committed two rows, the second reading
+;; Xray's panels are Fresco boundaries, and Fresco's census walks the
+;; collector's process-global entry table with NO frame filter — so
+;; unfiltered, the Fresco tab, which is itself a boundary reading two
+;; `:rf/xray` subs, would list ITSELF among the inspected application's
+;; boundaries: with one application boundary mounted, the Mounted view
+;; would commit two rows, the second reading
 ;; `day8.re-frame2-xray.panels.fresco/Panel · frame :rf/xray · 2 reads`.
-;; That is epic criterion 5 — tool activity must never masquerade as
-;; application evidence — and the migration is what made it reachable: a
-;; `reg-view` contributed nothing to Fresco's tables at all.
+;; Tool activity must never masquerade as application evidence.
 ;;
-;; THE RULE IS NOT NEW AND IS NOT BEING INVENTED HERE. `self-noise` already
-;; drops any trace event whose frame resolves to `:rf/xray`, for this exact
+;; THE RULE IS NOT INVENTED HERE. `self-noise` drops any trace event
+;; whose frame resolves to `:rf/xray`, for this exact
 ;; reason and with the same posture it states in terms: the drop is
 ;; unconditional, with no "show internals" toggle, because introspecting
 ;; Xray's own machinery is a separate feature and not an opt-out on a
@@ -674,26 +669,24 @@
 ;; the attribution roster would show an edge whose boundary is not in the
 ;; census, which is the inconsistency the one-turn read exists to prevent.
 ;;
-;; WHICH FRAMES ARE XRAY'S IS A RUNTIME FACT, NOT A LITERAL (rf2-bgol). The
-;; first cut of this filter asked `(= :rf/xray frame)`, which is right for
-;; the production singleton and wrong for every other supported shell: 008
-;; §Parameterized shell frame-id permits N shells side by side, each with a
-;; distinct `:frame-id`, and under one of those the tab was once again
-;; listing itself. [[own-frames]] is the set, and the panel supplies the
-;; instance it is rendering in — see that fn for why it cannot be read
-;; inside the subscription instead.
+;; WHICH FRAMES ARE XRAY'S IS A RUNTIME FACT, NOT A LITERAL. Asking
+;; `(= :rf/xray frame)` is right for the production singleton and wrong
+;; for every other supported shell: 008 §Parameterized shell frame-id
+;; permits N shells side by side, each with a distinct `:frame-id`, and
+;; under one of those the tab would list itself again. [[own-frames]] is
+;; the set, and the panel supplies the instance it is rendering in — see
+;; that fn for why it cannot be read inside the subscription instead.
 
 (def default-xray-frame
   "Xray's PRODUCTION SINGLETON shell frame — the value
   `defaults/default-frame-id` carries, spelled here as a literal because
   this namespace is `.cljc` and that one is not.
 
-  It is in [[own-frames]] UNCONDITIONALLY, and that is not the defect
-  rf2-bgol fixed. `:rf/xray` is RESERVED — Conventions' `:rf/*` single
-  root belongs to the framework, and Xray's L1 frame picker already
-  refuses it as a frame a user may inspect — so a row seated here is the
-  tool whichever shell is doing the looking. The defect was that it was
-  the filter's ONLY member."
+  It is in [[own-frames]] UNCONDITIONALLY. `:rf/xray` is RESERVED —
+  Conventions' `:rf/*` single root belongs to the framework, and Xray's
+  L1 frame picker refuses it as a frame a user may inspect — so a row
+  seated here is the tool whichever shell is doing the looking. It cannot
+  be the filter's ONLY member; see [[own-frames]]."
   :rf/xray)
 
 (defn own-frames
@@ -701,16 +694,16 @@
   read as the TOOL's own: [[default-xray-frame]], plus the shell the panel
   is actually in.
 
-  THE SECOND MEMBER IS THE WHOLE OF rf2-bgol. Xray's shell frame is
-  PARAMETERIZED, not a hard singleton — `spec/008-Embedding-Contract.md`
-  §Parameterized shell frame-id permits N shells side by side, each
-  passing a distinct `:frame-id`, and `mount/ensure-xray-frame!` takes
-  one. The filter was `(= :rf/xray frame)` and nothing else, so the
-  moment such a shell mounted this panel its boundary, its reads and its
-  explanations were seated in a frame the filter did not know, survived
-  all four rosters, and the tool presented itself as application evidence
-  in Mounted, Reads, Why, Advisor and Causal — the very defect the
-  singleton case had just been closed against.
+  THE SECOND MEMBER IS THE POINT. Xray's shell frame is PARAMETERIZED,
+  not a hard singleton — `spec/008-Embedding-Contract.md` §Parameterized
+  shell frame-id permits N shells side by side, each passing a distinct
+  `:frame-id`, and `mount/ensure-xray-frame!` takes one. With
+  `(= :rf/xray frame)` as the whole filter, the moment such a shell
+  mounted this panel its boundary, its reads and its explanations would
+  be seated in a frame the filter does not know, survive all four
+  rosters, and the tool would present itself as application evidence in
+  Mounted, Reads, Why, Advisor and Causal — the very defect the singleton
+  member closes.
 
   IT IS TAKEN FROM THE PANEL, NOT GUESSED. The `:rf.xray.fresco/data`
   query carries the id `rf/current-frame-id` answered in the boundary's
@@ -724,10 +717,10 @@
   makes a tempting proxy and is the wrong one: an APPLICATION frame may
   disable trace emission for its own reasons, and reading that as
   Xray-ownership would silently swallow the user's evidence — far worse
-  than the defect being repaired here.
+  than the self-listing this filter prevents.
 
   `nil` `instance-frame` — a caller with no frame to offer — yields the
-  singleton alone, which is exactly the pre-rf2-bgol behaviour."
+  singleton alone."
   [instance-frame]
   (cond-> #{default-xray-frame}
     (some? instance-frame) (conj instance-frame)))
@@ -767,8 +760,8 @@
   removed. Pure; the caller hands it exactly what
   `fresco-reads/evidence` answered.
 
-  `owned` IS A PARAMETER RATHER THAN A LITERAL, and that is rf2-bgol:
-  Xray's shell frame is parameterized (008 §Parameterized shell
+  `owned` IS A PARAMETER RATHER THAN A LITERAL, because Xray's shell
+  frame is parameterized (008 §Parameterized shell
   frame-id), so the set is a runtime fact about which shells are on the
   page and cannot be written down here. Passing it as data is the shape
   the tree already uses for exactly this — `palette/sources` takes
@@ -833,10 +826,10 @@
   fan-out and the boundaries holding it.
 
   The row's identity is the edge's WHOLE projected identity — frame,
-  registration id, projected query — in both the label and the slug. It
-  was the sub-id alone, so `[:row 1]` in frame A and `[:row 2]` in frame B
-  were two rows named `row` under one testid, and the view printed neither
-  the query nor the frame that told them apart (audit #7802). Every field
+  registration id, projected query — in both the label and the slug. On
+  the sub-id alone, `[:row 1]` in frame A and `[:row 2]` in frame B would
+  be two rows named `row` under one testid, with neither the query nor
+  the frame that tells them apart on screen. Every field
   it prints is one the producer already projected; nothing raw is
   recovered to make a row legible."
   [envelope]
@@ -872,8 +865,8 @@
              ;; ordered by dispatch and one event id can appear many times
              ;; in a window, so an event-only testid would name several rows.
              ;; Through the same injective encoding as a read key, for the
-             ;; same reason: `id-slug` alone folded `:a/b-c` and `:a-b/c`
-             ;; onto one intent testid (audit #7820).
+             ;; same reason: `id-slug` alone would fold `:a/b-c` and
+             ;; `:a-b/c` onto one intent testid.
              :slug        (identity-slug (pr-str [(:event-id i) (:dispatch-id i)]))
              :arg-count   (:arg-count i)
              :frames      (:frames i)
@@ -903,13 +896,13 @@
                ;; reading the same query in two frames have the same label,
                ;; and frames are isolated contexts — so without the frame on
                ;; screen the reader is looking at two identical lines that
-               ;; are two different facts (audit #7802).
+               ;; are two different facts.
                :frame-chip   (loss-chip nil (:frame ex))
                :instances    (:instances ex)
                :snapshot     (:snapshot ex)
                :peak-epoch   (:peak-epoch ex)
-               ;; The producer now names the READ, not just its sub-id, so
-               ;; `[:row 1]` and `[:row 2]` no longer answer as one `:row`.
+               ;; The producer names the READ, not just its sub-id, so
+               ;; `[:row 1]` and `[:row 2]` answer as two reads, not one `:row`.
                :latest-reads (if (unknown? (:latest-reads ex))
                                (:latest-reads ex)
                                (mapv latest-read-label (:latest-reads ex)))
