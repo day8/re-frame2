@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.machine-inspector-helpers
-  "Pure-data helpers for Xray's Machine Inspector panel
-  (Phase 5+, rf2-r9f9u, parent rf2-5aw5v).
+  "Pure-data helpers for Xray's Machine Inspector panel.
 
   ## Why a separate `.cljc` ns
 
@@ -20,19 +19,19 @@
   topology chart, or else one of two empty states (no machines
   registered; `empty-state-text`).
 
-    1. **Machine picker** — REMOVED by rf2-y9xmf (003 §What is NOT in
+    1. **Machine picker** — there is none (003 §What is NOT in
        the Dynamic panel post-rf2-y9xmf). The machine comes from the
        focused event: `project-focused-event-transitions` folds its
        cascade and `pick-focused-transition` takes the first record in
        trace order — UNLESS the operator has explicitly selected a
        machine that this same cascade touched, which outranks trace
        order so that a Static → Dynamic JUMP lands on the machine it
-       names (rf2-mj4jp). `pick-selected` still resolves
+       names. `pick-selected` resolves
        `project-data`'s `:selected-id` from the `:selected-machine-id`
        slot (else the first row); the panel reads `:empty-kind` and the
        RAW `:selected-machine-id` from `project-data` and nothing else
-       — never `:selected-id`, whose alphabetical-first fallback is the
-       wrong-machine half of rf2-y8doi.23.
+       — never `:selected-id`, whose alphabetical-first fallback would
+       name a machine that is not on screen.
 
     2. **MachineChart** — the real machines-viz component, not a
        placeholder. `panels/machine_canvas.cljs` requires
@@ -47,27 +46,26 @@
     3. **Active state** — highlighted on the chart from the
        focused-event record: `:from-highlight` / `:to-highlight` for a
        transition, `:current-state` for a birth or a no-op. The live
-       snapshots still reach `project-data` (each row's `:state`, and
+       snapshots reach `project-data` (each row's `:state`, and
        the `:current-state-override` in `chart-props`), but no view
        renders either.
 
-    4. **Transition history ribbon** — REMOVED by rf2-y9xmf, with the
-       rest of the Dynamic panel's ribbons. `project-transitions` still
+    4. **Transition history ribbon** — there is none, nor any other
+       ribbon in the Dynamic panel. `project-transitions`
        filters the trace buffer to the selected machine's
        `:rf.machine/transition` events into `:transitions` (below), but
        no view renders that slot.
 
-  ## What v1 does NOT include
+  ## What this panel does NOT include
 
-    - No source-coord jumps (the cross-panel jump API hasn't
-      stabilised yet — same as the routes panel's v1 deferral).
+    - No source-coord jumps (the cross-panel jump API is not yet
+      stable; the routes panel has none either).
     - No `:spawn-all` viz / `:after` countdown rings drawn here — those
       live in `tools/machines-viz/` (`chart/overlays/`). This panel
       embeds the component; the rendering is the component's job. The
       `:after` rings reach the chart through
       `panels/machine_after_rings.cljs`.
-    - No share affordance (rf2-nugvv removed it — the Machine panel was
-      the sole UI entry point to the Xray share modal).
+    - No share affordance.
 
   ## Inputs to the projection
 
@@ -81,8 +79,8 @@
     2. **`snapshots`** — `{machine-id snapshot-or-nil}` map; each
        value is the result of `(rf/machine-meta-via-sub machine-id)`
        (i.e. `(get-in runtime-db [:rf.runtime/machines :snapshots <id>])`
-       against the target frame's RUNTIME-DB partition — EP-0001 rf2-vzld77
-       moved machine snapshots out of app-db into runtime-db). nil when the
+       against the target frame's RUNTIME-DB partition — machine snapshots
+       live in runtime-db, not app-db, per EP-0001). nil when the
        machine is registered but not yet initialised.
 
     3. **`trace-buffer`** — Xray's trace ring buffer. The helper
@@ -107,7 +105,7 @@
 
   Each `transition-row` is `{:id :time :from :to :event :dispatch-id
   :microstep?}`. Microstep events (`:rf.machine.microstep/transition`)
-  are folded in at v1 with the `:microstep?` flag so the view can
+  are folded in with the `:microstep?` flag so a view can
   indent them.
 
   ## What this doesn't do
@@ -130,8 +128,7 @@
   spec/005-StateMachines.md + spec/009-Instrumentation.md the runtime
   emits `:rf.machine/transition` for outer transitions and
   `:rf.machine.microstep/transition` for `:always`-driven
-  microsteps. The set is the v1 vocabulary; future additions (timer
-  fired, invoke-all join resolved) ride follow-on beads."
+  microsteps."
   #{:rf.machine/transition
     :rf.machine.microstep/transition})
 
@@ -143,7 +140,7 @@
   (and (map? ev)
        (contains? transition-operations (:operation ev))))
 
-;; ---- machine BIRTH (`:rf.machine/started`) — rf2-eldze ------------------
+;; ---- machine BIRTH (`:rf.machine/started`) -------------------------------
 ;;
 ;; A machine's BIRTH (the `[:rf.machine/start]` kick, or the lazy first-
 ;; event fold, or a spawn) runs the initial-entry cascade and emits ONE
@@ -152,22 +149,21 @@
 ;; `commit-or-finalize` deliberately suppresses the transition trace
 ;; (machines · lifecycle_fx · registration.cljc — "a pure start emits no
 ;; `:rf.machine/transition`; `:rf.machine/started` is the sole birth
-;; signal", rf2-gl588 / rf2-coozg). The started trace carries
+;; signal"). The started trace carries
 ;; `{:machine-id :state :data :cause}` — `:state` / `:data` are the
 ;; INITIAL snapshot slots (`(:state booted)` / `(:data booted)`).
 ;;
-;; Before rf2-eldze the focused-event lens only projected
-;; `transition-event?` traces, so a focused start epoch produced zero
-;; records and the Machine tab rendered the "does not target a state
-;; machine" empty state — even though the machine DID just come up into
-;; its initial state. This is the bug rf2-eldze fixes: surface the start
-;; as a first-class focused-event record (no from-state; to-state = the
-;; resulting initial state) so the topology renders with the initial
-;; state highlighted.
+;; The focused-event lens surfaces the start as a first-class
+;; focused-event record (no from-state; to-state = the resulting initial
+;; state) so the topology renders with the initial state highlighted.
+;; Projecting `transition-event?` traces alone would give a focused start
+;; epoch zero records, and the Machine tab would render the "does not
+;; target a state machine" empty state — even though the machine DID
+;; just come up into its initial state.
 
 (def started-operation
-  "The machine-birth trace op (Spec 009 §:op-type vocabulary; rf2-it4vt /
-  rf2-gl588). `maybe-boot` emits exactly one per successful initial-entry
+  "The machine-birth trace op (Spec 009 §:op-type vocabulary).
+  `maybe-boot` emits exactly one per successful initial-entry
   cascade in BOTH creation paths (eager start-kick + lazy first-event)."
   :rf.machine/started)
 
@@ -187,7 +183,7 @@
   (and (map? ev)
        (= started-operation (:operation ev))))
 
-;; ---- no-op / guard-blocked machine event (`:rf.machine.event/unhandled-no-op`) — rf2-skmc7 -----
+;; ---- no-op / guard-blocked machine event (`:rf.machine.event/unhandled-no-op`) -----
 ;;
 ;; A machine event that matched no transition — an UNHANDLED user event, OR
 ;; a transition whose GUARD failed (`match-on-clause` returns the first
@@ -203,12 +199,12 @@
 ;; tab MUST render the machine's topology with the CURRENT state highlighted —
 ;; NOT the "does not target a state machine" placeholder.
 ;;
-;; This is the SAME underlying gap rf2-eldze fixed for the machine-START case:
-;; the focused-event lens keyed off a from→to TRANSITION, so any event that
-;; targeted a machine but produced no transition (start, guard-block, unhandled
-;; no-op) was wrongly classified as "does not target a state machine". eldze
-;; folded in `:rf.machine/started`; this folds in
-;; `:rf.machine.event/unhandled-no-op`.
+;; This is the SAME gap as the machine-START case: a focused-event lens keyed
+;; off a from→to TRANSITION alone would classify any event that targeted a
+;; machine but produced no transition (start, guard-block, unhandled no-op)
+;; as "does not target a state machine". The lens folds in
+;; `:rf.machine/started` for the start and
+;; `:rf.machine.event/unhandled-no-op` for this.
 ;;
 ;; The no-op trace carries `{:machine-id :event :state :frame}` where `:state`
 ;; is the machine's CURRENT state (`(:state snapshot)` at resolution time —
@@ -237,11 +233,11 @@
 ;; ---- machine-id resolution ----------------------------------------------
 
 (defn machine-id-of
-  "Resolve the addressed machine/actor id off a trace event. Per rf2-ws5thu
-  the live-actor lifecycle rows (`:rf.machine/transition`,
+  "Resolve the addressed machine/actor id off a trace event. The
+  live-actor lifecycle rows (`:rf.machine/transition`,
   `:rf.machine/snapshot-updated`, `:rf.machine/done`, the timer rows)
   carry the live INSTANCE address under
-  `:tags :actor-id`; the older diagnostic rows (`:rf.machine/started`,
+  `:tags :actor-id`; the diagnostic rows (`:rf.machine/started`,
   `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`,
   `:rf.machine/event-received`) and the registrar `:created` row carry it
   under `:tags :machine-id` (or `:tags :handler-id`, the same value). Prefer
@@ -269,7 +265,7 @@
     :registered?  — always true (the row exists because the id is
                     registered); included so the view can render the
                     fact distinctly from `:state` (an uninitialised
-                    registered machine still appears in the picker)."
+                    registered machine still has a row)."
   ([machine-id snapshot] (project-machine-row machine-id snapshot nil))
   ([machine-id snapshot definition]
    {:machine-id  machine-id
@@ -309,8 +305,7 @@
       :machine-id  (required)
       :frame-id    (required)
       :on-state-click
-      :on-edge-click   ;; rf2-qo5xy retired :on-transition-click — a
-                       ;; clickable event-node label fires this
+      :on-edge-click   ;; a clickable event-node label fires this
       :read-only?
       :show-microsteps? / :show-after-rings? / :show-invoke-all?
       :auto-pan?
@@ -360,8 +355,7 @@
   CLJS runtime.
 
   Newest-first — the order spec/003-Machine-Inspector.md §Transition
-  history ribbon gave the ribbon. That section now sits inside 003's
-  bounded historical run: rf2-y9xmf removed the ribbon, so no view
+  history ribbon gives. No view
   renders this projection and nothing applies `cap-transitions` to
   it. The helper returns the full filtered vector, which is the
   unbounded shape the tests assert.
@@ -377,8 +371,7 @@
                         (= machine-id (machine-id-of ev)))))
          (map transition-row)
          ;; Newest first, so the head element is the freshest
-         ;; transition — the order 003 gave the retired ribbon. No
-         ;; view renders it (see the docstring).
+         ;; transition. No view renders it (see the docstring).
          (sort-by (fn [{:keys [id time]}]
                     ;; Prefer :id when present (stable, monotonic per
                     ;; Spec 009); fall back to :time. Negate for
@@ -387,9 +380,8 @@
          vec)))
 
 (defn cap-transitions
-  "Apply the v1 200-entry cap. Pure fn. The view calls this before
-  rendering; the helper returns the unbounded projection so tests can
-  exercise it."
+  "Apply a 200-entry cap. Pure fn. No view calls this; the helper
+  returns the unbounded projection so tests can exercise it."
   ([rows] (cap-transitions rows 200))
   ([rows n]
    (if (<= (count rows) n)
@@ -425,16 +417,15 @@
        :transitions         [<transition-row> ...]
        :empty-kind          <:no-machines / nil>}
 
-  `:selected-id` and `:selected-machine-id` ARE NOT THE SAME VALUE and
-  the difference is a defect this panel has already shipped once.
+  `:selected-id` and `:selected-machine-id` ARE NOT THE SAME VALUE.
   `:selected-id` is `pick-selected`'s EFFECTIVE answer — the slot when
   one is set, else the first row of an ALPHABETICALLY sorted list — so
   it names a machine even when the operator has chosen none. Reading it
-  as though it were the operator's choice is exactly how rf2-y8doi.23's
-  wrong-machine rings arose. `:selected-machine-id` is the raw
+  as though it were the operator's choice would draw countdown rings for
+  a machine not on screen. `:selected-machine-id` is the raw
   `selected-id` ARGUMENT echoed back untouched, nil and all, and it is
-  what the Dynamic panel's selection rule (`pick-focused-transition`,
-  rf2-mj4jp) must be given."
+  what the Dynamic panel's selection rule (`pick-focused-transition`)
+  must be given."
   ([machines snapshots trace-buffer selected-id frame-id]
    (project-data machines snapshots nil trace-buffer selected-id frame-id))
   ([machines snapshots definitions trace-buffer selected-id frame-id]
@@ -448,7 +439,7 @@
      {:machines    rows
       :total       total
       :selected-id effective-id
-      ;; rf2-mj4jp — the RAW slot, echoed back so the Dynamic panel can
+      ;; The RAW slot, echoed back so the Dynamic panel can
       ;; reach the operator's actual choice without going through
       ;; `effective-id`'s alphabetical-first fallback. See the docstring.
       :selected-machine-id selected-id
@@ -469,8 +460,8 @@
     :else             (str/trim (str id))))
 
 (defn format-state
-  "Render a snapshot `:state` for display. nil → `(uninit)` so the
-  picker / placeholder render *something* rather than a blank for
+  "Render a snapshot `:state` for display. nil → `(uninit)` so a
+  view renders *something* rather than a blank for
   registered-but-uninitialised machines."
   [state]
   (cond
@@ -480,8 +471,7 @@
 
 (defn format-event
   "Compact event-vector formatter for the transition row. Falls back
-  to `str` if `pr-str` throws (mirrors the format-edn idiom the
-  retired event_detail.cljs used; relocated here so the test suite
+  to `str` if `pr-str` throws (it lives here so the test suite
   can assert against the formatted output without booting the view)."
   [event]
   (if (nil? event)
@@ -491,14 +481,14 @@
       (catch #?(:clj Throwable :cljs :default) _
         (str event)))))
 
-;; ---- focused-event lens (rf2-a9cke) -------------------------------------
+;; ---- focused-event lens -------------------------------------------------
 ;;
-;; Per Mike's canonical Machines design (rf2-si9o5): when the user focuses
+;; When the user focuses
 ;; an L2 event, the Machines panel becomes a lens on THAT event's machine
 ;; activity:
 ;;
 ;;   - If the event triggered no machine transitions → render nothing
-;;     (silent-by-default per rf2-g3ghh).
+;;     (silent-by-default).
 ;;   - If the event triggered ≥1 machine transitions → render one section
 ;;     per machine, each carrying the topology + current state + new
 ;;     state + the transition-edge + any guards + any actions that ran.
@@ -511,7 +501,7 @@
 ;;
 ;; ## Trace-shape coverage
 ;;
-;; Today's substrate (implementation/machines/) emits:
+;; The substrate (implementation/machines/) emits:
 ;;
 ;;   - `:rf.machine/transition` — outer transition; tags carry
 ;;     `:before` + `:after` snapshots + `:event` + `:machine-id`.
@@ -519,11 +509,10 @@
 ;;     same tag shape (some tests use `:from`/`:to` tag fallbacks).
 ;;
 ;; The substrate emits `:rf.machine/guard-evaluated` /
-;; `:rf.machine/action-ran` per rf2-2nwfd (see spec/009 §Trace event
-;; vocabulary). Before rf2-ko8jb (#1601) those emits carried no
-;; `:frame` tag and were silently dropped by epoch-capture; post-#1601
-;; they reach the focused epoch's `:trace-events` and flow through
-;; this projection.
+;; `:rf.machine/action-ran` (see spec/009 §Trace event
+;; vocabulary). Those emits carry a `:frame` tag — without one
+;; epoch-capture would silently drop them — so they reach the focused
+;; epoch's `:trace-events` and flow through this projection.
 ;;
 ;; The `:guard-id` / `:action-id` slot is the user-declared ref AS-IS
 ;; (per spec/Spec-Schemas: "keyword OR inline fn"). When a transition
@@ -535,7 +524,7 @@
 ;; support name: function ...`). `ref-display-id` coerces the
 ;; ref into a renderable keyword (named via `:name` meta when
 ;; available, `:rf.machine/anonymous-fn` otherwise) so the view
-;; contract stays simple. (rf2-ujra6.)
+;; contract stays simple.
 ;;
 ;; Per spec/005-StateMachines.md the guard / action functions are
 ;; resolved off the transition object on the machine definition; we
@@ -544,16 +533,16 @@
 
 (def guard-operations
   "Trace operations the focused-event lens treats as guard evaluations.
-  Today's substrate doesn't emit any of these; the set is the
-  forward-compatible vocabulary so when the runtime gains the trace
-  shape the lens lights up without code changes (rf2-a9cke
-  divergence-allowance note)."
+  The substrate emits `:rf.machine/guard-evaluated`; the set also
+  accepts the other spelling, so the lens reads either without code
+  changes."
   #{:rf.machine/guard-evaluated
     :rf.machine.guard/evaluated})
 
 (def action-operations
   "Trace operations the focused-event lens treats as action runs.
-  Forward-compatible vocabulary — same posture as `guard-operations`."
+  The substrate emits `:rf.machine/action-ran`; the other spellings are
+  accepted too — same posture as `guard-operations`."
   #{:rf.machine/action-ran
     :rf.machine.action/ran
     :rf.machine/action-executed})
@@ -575,13 +564,13 @@
   view-consumed record shape. The trace carries `:before` / `:after`
   snapshots (per registration.cljc's commit-or-finalize) so we can read
   the from-state / to-state directly off the snapshot pair. Falls back
-  to the legacy `:from`/`:to` tag slots when present (test fixtures).
+  to the `:from`/`:to` tag slots when present (test fixtures).
 
   The full `:before` / `:after` snapshot maps (`{:state X :data Y}`) are
   carried through on the record so the panel's snapshot drill-in
-  surface (rf2-lxvn6, spec/021 §10) can render them via the first-class
-  edn-inspector widget. nil when the trace pre-dates the snapshot
-  tagging contract (legacy `:from`/`:to`-only fixtures)."
+  surface (spec/021 §10) can render them via the first-class
+  edn-inspector widget. nil when the trace carries no snapshot pair
+  (`:from`/`:to`-only fixtures)."
   [ev]
   (let [tags  (get ev :tags {})
         before (:before tags)
@@ -598,20 +587,20 @@
         ;; lacks the event tag still surfaces a stable record.
         on-event   (when (vector? event-v) (first event-v))]
     {:machine-id   (machine-id-of ev)
-     ;; rf2-a28eo — the OWNING FRAME of the instance that transitioned.
+     ;; The OWNING FRAME of the instance that transitioned.
      ;; `registration.cljc`'s `:rf.machine/transition` emit stamps
      ;; `:frame frame-id` on every trace, so the record that names WHICH
      ;; MACHINE the Dynamic panel is drawing can name WHICH INSTANCE OF IT
      ;; too. One machine DEFINITION can be instantiated in several frames
      ;; and a singleton actor-id is identical across them, so `:machine-id`
-     ;; alone is not an instance address — the pair is. nil on a legacy
-     ;; replay whose traces pre-date the stamp; consumers fall back.
+     ;; alone is not an instance address — the pair is. nil on a
+     ;; replay whose traces carry no stamp; consumers fall back.
      :frame-id     (get-in ev [:tags :frame])
      :from-state   from-state
      :to-state     to-state
-     ;; Full snapshot maps for the drill-in surface (rf2-lxvn6 — spec/021
+     ;; Full snapshot maps for the drill-in surface (spec/021
      ;; §10 widget contract). nil when the trace tags lack the
-     ;; commit-or-finalize snapshot pair (legacy fixtures).
+     ;; commit-or-finalize snapshot pair (fixtures).
      :before       before
      :after        after
      :on-event     on-event
@@ -630,7 +619,7 @@
   view-consumed record shape `transition-record-from-trace` produces, so
   the focused-event lens renders a start exactly like a transition —
   except there is NO from-state (a birth is an entry into the initial
-  state, not a from→to). rf2-eldze.
+  state, not a from→to).
 
   The started trace carries `{:machine-id :state :data :cause}` (Spec 009;
   machines · lifecycle_fx · registration.cljc) where `:state` / `:data`
@@ -645,7 +634,7 @@
     :event      [:rf.machine/start] — the synthetic creation marker
 
   Guards / actions default empty — the initial-entry cascade's actions
-  are not traced as `:rf.machine/action-ran` (rf2-n9f4z), so there is
+  are not traced as `:rf.machine/action-ran`, so there is
   nothing to attach. The record shape is otherwise identical to a
   transition record so every downstream consumer (the section view, the
   snapshot drill-in, the chart highlight) treats it uniformly."
@@ -654,7 +643,7 @@
         state (:state tags)
         data  (:data tags)]
     {:machine-id  (machine-id-of ev)
-     ;; rf2-a28eo — owning frame; `registration.cljc`'s
+     ;; Owning frame; `registration.cljc`'s
      ;; `:rf.machine/started` emit stamps `:frame (:frame-id ctx)`.
      :frame-id    (get-in ev [:tags :frame])
      :from-state  nil
@@ -679,7 +668,7 @@
   no-op) trace into the same view-consumed record shape the transition / start
   projectors produce, so the focused-event lens renders the topology with the
   CURRENT state highlighted — rather than the 'does not target a state machine'
-  empty state. rf2-skmc7.
+  empty state.
 
   The no-op trace carries `{:machine-id :event :state :frame}` (Spec 009;
   machines · transition.cljc / parallel.cljc) where `:state` is the machine's
@@ -698,10 +687,9 @@
     :event      (:event tag)  — the inbound user event that produced the no-op
 
   Guards / actions default empty: a guard-blocked transition's guard DOES run,
-  but today's substrate does not emit `:rf.machine/guard-evaluated` for the
+  but the substrate does not emit `:rf.machine/guard-evaluated` for the
   declining candidate (the no-op trace is the sole signal), so there is nothing
-  to attach. When the substrate gains guard traces on the no-op path a follow-on
-  bead surfaces the failing guard in the lens; the record shape stays stable.
+  to attach. Guard traces on the no-op path would fit the same record shape.
 
   The record shape is otherwise identical to a transition record so every
   downstream consumer (section view, chart highlight, prev/next nav) treats it
@@ -711,7 +699,7 @@
         state (:state tags)
         event (:event tags)]
     {:machine-id  (machine-id-of ev)
-     ;; rf2-a28eo — owning frame; both `:rf.machine.event/unhandled-no-op`
+     ;; Owning frame; both `:rf.machine.event/unhandled-no-op`
      ;; emits (`transition.cljc`, `parallel.cljc`) stamp `:frame`.
      :frame-id    (get-in ev [:tags :frame])
      :from-state  state
@@ -794,15 +782,14 @@
   "Attach the guard/action records that fired against `transition-record`
   to the record. Walks the cascade-window trace events and matches by
   `:machine-id` + time-window (event :time between transition.start and
-  transition.end). Since today's substrate doesn't emit guard/action
-  traces this is forward-compatible — when the runtime gains them, the
-  per-transition lists populate without code changes.
+  transition.end). The substrate emits guard/action traces (see
+  `guard-operations` / `action-operations`), so the per-transition lists
+  populate from them.
 
-  The match-window v1 is loose — any guard/action trace for the same
+  The match window is loose — any guard/action trace for the same
   machine inside the cascade attributes to the only-or-first transition
-  for that machine. When the substrate ships explicit
-  `:transition-id` / `:decl-path` tags on guard/action traces a
-  follow-on bead tightens the attribution."
+  for that machine. Explicit `:transition-id` / `:decl-path` tags on
+  guard/action traces would allow a tighter attribution."
   [transition-record events]
   (let [mid       (:machine-id transition-record)
         guards    (->> events
@@ -819,7 +806,7 @@
       (seq guards)  (assoc :guards guards)
       (seq actions) (assoc :actions actions))))
 
-;; ---- history restore / record (rf2-mle6e.5) -----------------------------
+;; ---- history restore / record -------------------------------------------
 ;;
 ;; Per Spec 009 §History trace events, a transition that resolves a history
 ;; pseudo-state emits `:rf.machine.history/restored`; the exit that wrote a
@@ -851,8 +838,8 @@
 
 (defn- attach-history
   "Attach the history restore / record records for `transition-record`'s
-  machine (keyed by `:machine-id`) off the cascade-window `events`
-  (rf2-mle6e.5). A transition that resolved a history pseudo-state carries
+  machine (keyed by `:machine-id`) off the cascade-window `events`.
+  A transition that resolved a history pseudo-state carries
   `:history-restored [<record> …]`; one whose macrostep exited a
   history-bearing compound carries `:history-recorded [<record> …]`. Neither
   key is present on an ordinary (non-history) transition, so the inspector's
@@ -890,15 +877,15 @@
 
   Returns a vector of records, oldest-first (cascade-document-order),
   one per `:rf.machine/transition` / `:rf.machine.microstep/transition`
-  OR `:rf.machine/started` (machine BIRTH — rf2-eldze) event in the
+  OR `:rf.machine/started` (machine BIRTH) event in the
   cascade:
 
       {:machine-id   <kw>
-       :frame-id     <frame-id|nil>        ;; rf2-a28eo — the OWNING FRAME
+       :frame-id     <frame-id|nil>        ;; the OWNING FRAME
                                             ;; of the transitioning instance,
                                             ;; off the trace's `:tags :frame`.
-                                            ;; nil on a legacy replay that
-                                            ;; pre-dates the stamp.
+                                            ;; nil on a replay whose traces
+                                            ;; carry no stamp.
        :from-state   <kw|vec|nil>          ;; nil on a START record (birth)
        :to-state     <kw|vec|nil>          ;; the resulting INITIAL state on START
        :before       <snapshot-map|nil>   ;; full {:state :data} pre-transition (nil on START)
@@ -913,31 +900,31 @@
        :microstep?   <bool>
        :definition   <machine-def-or-nil>
        :no-op?       <bool>                ;; true iff this is a guard-blocked /
-                                            ;; unhandled / no-op record (rf2-skmc7)
+                                            ;; unhandled / no-op record
        :guards       [<guard-record>...]
        :actions      [<action-record>...]
-       :history-restored [<restore-record>...]  ;; rf2-mle6e.5, only when a
+       :history-restored [<restore-record>...]  ;; only when a
                                                  ;; history pseudo-state resolved
-       :history-recorded [<record-record>...]}  ;; rf2-mle6e.5, only when a
+       :history-recorded [<record-record>...]}  ;; only when a
                                                  ;; history-bearing compound exited
 
-  Per rf2-eldze a machine BIRTH (`:rf.machine/started`) is surfaced as a
+  A machine BIRTH (`:rf.machine/started`) is surfaced as a
   first-class record alongside transitions: a pure start emits no
   `:rf.machine/transition` (it is an entry into the initial state, not a
-  from→to), so without this fold a focused start epoch produced zero
-  records and the Machine tab rendered the 'does not target a state
+  from→to), so without this fold a focused start epoch would produce zero
+  records and the Machine tab would render the 'does not target a state
   machine' empty state — even though the machine just came up into its
   initial state. The start record carries `:from-state nil` + `:to-state`
   = the resulting initial state, so the view highlights the initial state
   on the topology.
 
-  Per rf2-skmc7 a guard-blocked / unhandled / NO-OP machine event
+  A guard-blocked / unhandled / NO-OP machine event
   (`:rf.machine.event/unhandled-no-op`) is ALSO surfaced as a first-class
-  record — the SAME gap as the eldze birth case for a DIFFERENT no-transition
+  record — the SAME gap as the birth case for a DIFFERENT no-transition
   cause. A no-op emits no `:rf.machine/transition` (the machine stayed put),
-  so without this fold a focused guard-blocked-close epoch produced zero
-  records and the Machine tab wrongly rendered 'does not target a state
-  machine' — even though the event DID dispatch to a registered machine and
+  so without this fold a focused guard-blocked-close epoch would produce
+  zero records and the Machine tab would wrongly render 'does not target a
+  state machine' — even though the event DID dispatch to a registered machine and
   ran its guard. The no-op record carries `:from-state` == `:to-state` == the
   current state + `:no-op? true`, so the view highlights the current state on
   the topology with a `[NO-OP]` marker. A no-op record is folded ONLY for a
@@ -947,7 +934,7 @@
   ghost no-op section.
 
   Returns `[]` when no machine-transition / start / no-op trace fired in the
-  cascade — the silent-by-default branch the view honours per rf2-g3ghh.
+  cascade — the silent-by-default branch the view honours.
 
   Pure fn — JVM-runnable."
   ([trace-events]
@@ -955,14 +942,14 @@
   ([trace-events definitions]
    (let [defs   (or definitions {})
          events (or trace-events [])
-         ;; rf2-3x7nj.23.2 — `:machine-id` is the LIVE instance address, and
+         ;; `:machine-id` is the LIVE instance address, and
          ;; `definitions` is keyed by REGISTERED machine ids, so a SPAWNED
          ;; actor's `<type>#<n>` address never matches. Fall back to the TYPE
          ;; its snapshot carries at `:rf/machine-type` — the slot the runtime
          ;; itself resolves a spawned actor through (`spec-from-snapshot`): a
          ;; keyword names a registered type, a map is an inline definition.
          ;; A birth or no-op record carries no stamped snapshot and stays
-         ;; without a definition, as before.
+         ;; without a definition.
          attach-def
          (fn [base]
            (let [defn-> (or (get defs (:machine-id base))
@@ -971,8 +958,8 @@
              (cond-> base
                defn-> (assoc :definition defn->))))
          order  (fn [ev] (or (:id ev) (:time ev) 0))
-         ;; (1) Transition macrosteps / microsteps AND machine births
-         ;; (rf2-eldze). A birth carries no from-state; it is projected
+         ;; (1) Transition macrosteps / microsteps AND machine births.
+         ;; A birth carries no from-state; it is projected
          ;; via `started-record-from-trace` rather than the transition
          ;; projector.
          move-records
@@ -984,14 +971,14 @@
                        (if (started-event? ev)
                          ;; Birth: no guard/action/history attach — the
                          ;; initial-entry cascade's actions are not traced as
-                         ;; `:rf.machine/action-ran` (rf2-n9f4z).
+                         ;; `:rf.machine/action-ran`.
                          (started-record-from-trace ev)
                          (-> (transition-record-from-trace ev)
                              (attach-guards-and-actions events)
                              (attach-history events))))))
               (filter :machine-id)
               vec)
-         ;; (2) Guard-blocked / unhandled / NO-OP machine events (rf2-skmc7).
+         ;; (2) Guard-blocked / unhandled / NO-OP machine events.
          ;; Folded ONLY for a machine that did NOT also produce a transition /
          ;; start record in this cascade — Spec 005 "a no-op is
          ;; single-signalled": a machine that transitioned AND no-op'd in the
@@ -1032,22 +1019,22 @@
   record's `:trace-events` is the cascade window the lens reads.
 
   Routes through the shared `panels.shared.focus-resolver/find-epoch-record`
-  (rf2-uo0rc.1) so the Machine Inspector resolves focus identically to
+  so the Machine Inspector resolves focus identically to
   every other L4 panel:
 
-    - NIL focus epoch-id + non-empty history → HEAD record (rf2-h0120
-      head-fallback — the natural LIVE/cold-start debugging UX).
+    - NIL focus epoch-id + non-empty history → HEAD record
+      (head-fallback — the natural LIVE/cold-start debugging UX).
     - focus epoch-id MATCHES a record → that record.
     - focus epoch-id pinned but EVICTED from the ring → nil. The panel
       then renders the §10.7 evicted/blank placeholder rather than
       silently falling back to HEAD and showing the LATEST machine
-      state, which lied about which epoch the operator was inspecting.
+      state, which would lie about which epoch the operator is inspecting.
     - focus pins a `:dispatch-id` but carries NO epoch-id → nil, never
-      the head (rf2-c4abp, the `:no-epoch` case of rf2-y8doi.19). See
-      below — this is the one the 2-arity could not see.
+      the head (the `:no-epoch` case). See below — reading `:epoch-id`
+      alone cannot see this one.
     - empty history → nil.
 
-  ## Why the pinned `:dispatch-id` has to travel (rf2-c4abp)
+  ## Why the pinned `:dispatch-id` has to travel
 
   A focus the operator SET to an event bundle that settled no epoch
   carries a nil `:epoch-id` — `spine/focus-event-bundle-reducer` stamps
@@ -1055,25 +1042,25 @@
   refused dispatch, a bundle still mid-build, a bundle whose epoch aged
   out of the ring, and an `:ungrouped` pin alike. That is SHAPE-IDENTICAL
   to the cold-start UNSET focus head-fallback exists to serve, so reading
-  `:epoch-id` alone cannot separate them and this helper answered the
-  HEAD for both: the Machines tab presented an unrelated event's machine
-  state as the selected event's, which is the same state-reconstruction
-  lie rf2-uo0rc.1 fixed for the evicted case.
+  `:epoch-id` alone cannot separate them and would answer the HEAD for
+  both: the Machines tab would present an unrelated event's machine
+  state as the selected event's — the same state-reconstruction lie as
+  the evicted case.
 
   Passing the pinned `:dispatch-id` into the shared resolver's 3-arity is
-  the whole fix — the algebra stays in `panels.shared.focus-resolver`, so
-  the Machine Inspector still resolves focus identically to every other L4
+  all it takes — the algebra stays in `panels.shared.focus-resolver`, so
+  the Machine Inspector resolves focus identically to every other L4
   panel rather than growing a selection policy of its own. Head-fallback
-  is untouched for a genuinely unset focus.
+  serves a genuinely unset focus.
 
   Pure fn — JVM-runnable."
   [epoch-history focus]
   (focus/find-epoch-record (:epoch-id focus) (:dispatch-id focus) epoch-history))
 
-;; ---- Dynamic-mode single-instance rule (rf2-8og3k, impl rf2-2n34o) ------
+;; ---- Dynamic-mode single-instance rule ----------------------------------
 ;;
 ;; Per spec/003-Machine-Inspector.md §Dynamic mode — single-instance,
-;; event-driven (rf2-8og3k): the Dynamic Machines panel binds to EXACTLY
+;; event-driven: the Dynamic Machines panel binds to EXACTLY
 ;; ONE machine instance per focused event, or to NONE. When the focused
 ;; event's cascade transitioned multiple instances, the rule picks the
 ;; FIRST transition trace by trace order (earliest `:rf.trace/at`;
@@ -1085,43 +1072,41 @@
 ;; rule at the call site — the spec text "first by trace order" lands
 ;; here, not buried in a `(first records)` call.
 ;;
-;; rf2-mj4jp — AN EXPLICIT SELECTION OUTRANKS TRACE ORDER, AND ONLY
-;; THAT. rf2-y8doi.23 made `:rf.xray/select-machine-id` pin the newest
-;; epoch that touches the requested machine, but the DISPLAY still took
-;; `(first records)` — so when that epoch's cascade touched A and then
-;; B, a Static JUMP to B pinned exactly the right epoch and drew A. The
-;; epoch was right, the slot was written, and the panel ignored both.
+;; AN EXPLICIT SELECTION OUTRANKS TRACE ORDER, AND ONLY
+;; THAT. `:rf.xray/select-machine-id` pins the newest
+;; epoch that touches the requested machine; were the DISPLAY to take
+;; `(first records)` regardless, then when that epoch's cascade touched
+;; A and then B, a Static JUMP to B would pin exactly the right epoch and
+;; draw A.
 ;;
-;; Trace order therefore REMAINS the rule, with the selection layered
+;; Trace order is therefore the rule, with the selection layered
 ;; above it as an override that can only fire when the operator has
 ;; named a machine AND that machine transitioned in the cascade in
 ;; front of us. A stale selection — a machine absent from this epoch —
 ;; falls straight back to trace order, so ordinary spine following
 ;; (Prev/Next, head-tracking, and the no-selection posture the panel
-;; opens in) answers bit-for-bit what it answered before.
+;; opens in) is pure trace order.
 
 (defn pick-focused-transition
   "Pick the focused transition record per the Dynamic-mode single-
-  instance rule (spec/003 §Dynamic mode — single-instance, event-driven,
-  rf2-8og3k), as refined by rf2-mj4jp.
+  instance rule (spec/003 §Dynamic mode — single-instance, event-driven),
+  with an explicit selection layered above it.
 
   Answers, in order:
 
     1. the record for `selected-machine-id`, when the operator has named
-       a machine AND it transitioned in this cascade — rf2-mj4jp, so the
+       a machine AND it transitioned in this cascade, so the
        Static → Dynamic JUMP lands on the machine it names rather than
        on whichever one the cascade happened to touch first;
     2. otherwise the FIRST record in trace order, which is what the
        upstream projection already produces — this helper names the rule;
     3. nil when no machine transitioned in the focused event's cascade.
 
-  The 1-arity is the NO-SELECTION reading, i.e. exactly rule 2, so every
-  caller and test written before rf2-mj4jp keeps its former answer.
+  The 1-arity is the NO-SELECTION reading, i.e. exactly rule 2.
 
   EVERY consumer that needs to know which machine the panel is bound to
   resolves it through THIS fn — the chart, the `:after` rings and the
-  Prev/Next scope alike — which is what keeps them from drifting apart
-  (rf2-y9xmf, rf2-y8doi.23).
+  Prev/Next scope alike — which is what keeps them from drifting apart.
 
   Pure fn — JVM-runnable."
   ([transition-records]
@@ -1133,7 +1118,7 @@
        (first transition-records))))
 
 (defn focused-event-section-key
-  "rf2-un3gfo — the STRUCTURAL React `:key` for the per-machine
+  "The STRUCTURAL React `:key` for the per-machine
   focused-event section. Keyed ONLY on the chart's topology identity —
   the inspected `target-frame` id + the record's `:machine-id` — so
   ordinary Prev/Next epoch navigation WITHIN the same machine preserves
@@ -1141,13 +1126,13 @@
 
   ### Why structural, not per-epoch
 
-  The pre-fix key embedded `(:id record)` (epoch/record id) +
+  A key embedding `(:id record)` (epoch/record id) +
   `(:from-state record)` + `(:to-state record)`, all of which change on
-  every Prev/Next. React therefore treated each navigation as a
+  every Prev/Next, would make React treat each navigation as a
   different element → unmount + remount the section + the chart → the
   chart's per-instance `parse-cache` / `layout-state` / `layout-key`
-  caches were discarded → a full topology re-parse + a fresh ELK relayout
-  ran on every Prev/Next → the topology flickered.
+  caches discarded → a full topology re-parse + a fresh ELK relayout
+  on every Prev/Next → a flickering topology.
 
   The per-epoch visuals do NOT need the key to change: the from/to/
   current/fired highlights flow into the chart as REACTIVE PROPS
@@ -1166,12 +1151,12 @@
     anyway, but a clean remount avoids carrying stale per-instance state
     across frames).
   - `machine-id` — the topology identity. A genuinely different machine
-    (different topology) STILL gets a distinct key → a clean instance +
-    its own ELK layout, exactly as before.
+    (different topology) gets a distinct key → a clean instance +
+    its own ELK layout.
 
   Highlight values, epoch/record id, from/to-state, and fired-edge ids
   are deliberately EXCLUDED. Re-fitting the viewport on navigation rides
-  the orthogonal `:fit-signal` nonce (rf2-6tw7t), never a remount.
+  the orthogonal `:fit-signal` nonce, never a remount.
 
   Pure fn — JVM-runnable. `target-frame` may be nil (single-frame /
   pre-seed); the key tolerates it."
@@ -1181,6 +1166,6 @@
 (def empty-state-text
   "The Dynamic Machines panel's empty-state placeholder text, rendered
   verbatim per spec/003 §Empty state — focused event does not target a
-  state machine (rf2-8og3k). The string is the entire empty-state
+  state machine. The string is the entire empty-state
   content — no chart, no lens, no history ribbon."
   "This event does not target a state machine")
