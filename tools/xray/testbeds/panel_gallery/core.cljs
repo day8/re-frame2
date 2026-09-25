@@ -20,18 +20,17 @@
   Four cohesive-sub-domain / runtime-structure tabs beyond the six
   core lenses — **Resources** (`:resources`, EP-0016),
   **Graph** (`:derivation-graph`, EP-0014), **Frames**
-  (`:module-view`, EP-0013) and **Fresco** (`:fresco`, rf2-hic-023) —
+  (`:module-view`, EP-0013) and **Fresco** (`:fresco`) —
   are deliberately NOT galleried here. They
   are visual *design* surfaces whose shipped-surface + focusability
   coverage lives in the feature-matrix browser sweep
   (`testbeds/feature_matrix/scenarios.cjs` `PANEL_HANDOFFS` — walks all
   ten live Dynamic tabs and asserts a real panel root, never the
   unknown-tab stub) and their own per-panel CLJS unit tests
-  (`resources_cljs_test`, `derivation_graph_cljs_test`,
+  (`resources_cljs_test`, `derivation_graph_view_cljs_test`,
   `image_view_helpers_cljs_test`, `fresco_cljs_test`). The
   panel-gallery is the magnitude/payload *visual-design* harness for the
-  six core lenses; adding the four is
-  tracked separately if/when a Figma-design pass needs them. The
+  six core lenses. The
   exclusion is locked by an explicit assertion in
   `panel_gallery_inventory_smoke_cljs_test.cljs` so it can't silently
   rot into an unexplained gap.
@@ -102,8 +101,7 @@
             ;; here because the panel-gallery embeds bare Xray widgets
             ;; without mounting the Xray shell; the shell normally calls
             ;; `global-styles/install!` from `ShellView`'s body — a
-            ;; `rf.fresco/defview` boundary, not an `rf/reg-view`
-            ;; (rf2-k97c.3).
+            ;; `rf.fresco/defview` boundary, not an `rf/reg-view`.
             ;; Without this call the tokens in
             ;; `day8.re-frame2-xray.theme.tokens` resolve their
             ;; `var(--rf-xray-*)` references to CSS fallback defaults and
@@ -164,8 +162,7 @@
     Trace · Machines · Routing. Resources · Graph · Frames · Fresco
     ship in the chrome but sit deliberately outside this gallery.
     Issues is not a tab; it surfaces inline
-    in the Epoch panel + the L2 event-row pink-wash + the ribbon signal
-    (rf2-gbz39)."]
+    in the Epoch panel + the L2 event-row pink-wash + the ribbon signal."]
    [:p "The centrepiece is the "
     [:strong "edn-inspector"]
     " widget gallery — the single CLJS-value renderer behind every
@@ -209,14 +206,14 @@
 ;; ships the coordinate verbatim, so nothing here needs to know where the
 ;; checkout lives.
 ;;
-;; `:rf.story/project-root` / `:rf.xray/project-root` remain available to
+;; `:rf.story/project-root` / `:rf.xray/project-root` serve
 ;; hosts running WITHOUT a re-frame2 dev server, where the client falls back
 ;; to an `editor://` URI that does need an absolute path. A repository
 ;; testbed is not such a host.
 ;;
 ;; The URI build stays invariant to the host page URL — `resolve-uri` reads
 ;; the configured root, not `window.location`. That is pinned by
-;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`.
+;; `day8.re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`.
 
 ;; -- Routing between landing and Story shell ------------------------------
 ;;
