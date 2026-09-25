@@ -1771,9 +1771,7 @@
   "Coeffect keys populated by the runtime itself (not by user-registered
   `reg-cofx` suppliers declared via `:rf.cofx/requires`). Filtered OUT of
   the `:rf.event/coeffects` stamp on `:rf.event/run-end` so the
-  Xray Event lens's COEFFECTS section shows only handler-declared coeffects
-  (mirrors the AFTER INTERCEPTORS section's filter-out-framework-defaults
-  posture).
+  Xray Epoch panel's COEFFECT step shows only handler-declared coeffects.
 
   `:db` + `:event` are populated by `assemble-initial-ctx`.
   `:source` + `:trace-id` are envelope keys also surfaced on the cofx
@@ -1786,7 +1784,7 @@
   `:rf.cofx` (the EP-0017 flat recordable-coeffect map) is a framework
   coeffect stamped at envelope construction, so it
   is filtered out here exactly like the other framework defaults — the
-  COEFFECTS section shows only genuinely handler-declared coeffects (Spec
+  COEFFECT step shows only genuinely handler-declared coeffects (Spec
   002 §Event Context And Coeffects).
   `:rf.cofx/mint-policy` is the resolved effective mint policy
   stamped by `assemble-initial-ctx` so the machine ensure path can read it; a
