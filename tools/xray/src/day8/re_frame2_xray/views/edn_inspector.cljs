@@ -2497,8 +2497,9 @@
        "-" (str/join "/" (map pr-str path))))
 
 ;; The triangle expand/collapse glyph carries an explicit
-;; ≥24×24 click target. The padding inside the key-column
-;; gutter grows the hit-box without shifting the surrounding layout.
+;; ≥24×24 click target. The `min-width` / `min-height` floor inside the
+;; key-column gutter grows the hit-box without shifting the surrounding
+;; layout.
 ;; Public via the value so tests can assert the computed-width
 ;; contract without re-deriving the magic numbers.
 ;;
@@ -2508,14 +2509,11 @@
 ;; visually balanced against the surrounding 12px scalar rows (~1.83×
 ;; scale) without dominating the row.
 ;;
-;; Why these numbers — `inline-flex` + the padding/font-size below
-;; resolves to approximately 38×30px in Chromium at the shell's
-;; default 13px root font-size:
+;; Why these numbers — `inline-flex` + the font-size below, with no
+;; padding:
 ;;
-;;   width  ≈ font-size(22) * glyph-advance(~0.7) + padding-l(4) +
-;;            padding-r(4)                                ≈ 23.4px
+;;   width  ≈ font-size(22) * glyph-advance(~0.7)          ≈ 15.4px
 ;;   height ≈ font-size(22) * line-height(1)               ≈ 22px
-;;            + padding-t(4) + padding-b(4)                ≈ 30px
 ;;
 ;; `min-width 24px` pins the floor in both axes even when the glyph's
 ;; intrinsic width (`▸` is narrower than `▾`) doesn't reach 24px on
@@ -2524,8 +2522,8 @@
 
 (def triangle-min-target-px
   "Minimum click-target width/height the triangle must register.
-  The CLJS-unit-test surface asserts the padding +
-  font-size combination resolves to at least this many CSS pixels
+  The CLJS-unit-test surface asserts the `min-width` /
+  `min-height` floor is at least this many CSS pixels
   along both axes.
 
   Public so external surfaces (regression tests, design audits) can
@@ -2585,10 +2583,10 @@
 ;;
 ;; Hoisting neighbours in this file (search anchors):
 ;;   - `change-annotation-style`        — inline `← was <prior>` chip
-;;   - `gutter-row-outer-base-style`    — rf2-7cddi diff-row outer skeleton
-;;   - `gutter-glyph-base-style`        — rf2-7cddi diff-row glyph skeleton
-;;   - `gutter-body-style`              — rf2-7cddi diff-row body
-;;   - `triangle-style`                 — ▸/▾ click-target (rf2-tzvk9)
+;;   - `gutter-row-outer-base-style`    — diff-row outer skeleton
+;;   - `gutter-glyph-base-style`        — diff-row glyph skeleton
+;;   - `gutter-body-style`              — diff-row body
+;;   - `triangle-style`                 — ▸/▾ click-target
 ;;   - `body-grid-style` / `body-block-style` / `key-cell-style` / `value-cell-style`
 ;;   - `r3-chip-style`                  — R3 [N∆] collapsed-change alert chip
 
@@ -2626,11 +2624,11 @@
 
 (def ^:private r3-chip-style
   "R3 `[N∆]` collapsed-change chip — constant solid-orange block with
-  white text. Per Mike pair-debug 2026-05-27: the chip is the
+  white text. The chip is the
   operator's alert that the collapsed subtree contains change; it
-  needs to read as alert-prominent, not as subtle per-op chrome. The
-  former per-op colour (amber wash for mixed / green for all-added /
-  red for all-removed) was clever but under-prominent — operators
+  needs to read as alert-prominent, not as subtle per-op chrome. A
+  per-op colour (amber wash for mixed / green for all-added /
+  red for all-removed) would be under-prominent — operators
   scanning collapsed nodes for hidden changes need the binary signal
   'is there change here?' first; the kind-of-change is secondary
   detail discoverable on expand.
@@ -2653,13 +2651,13 @@
   Dispatches the toggle event via `dispatch-fn` — the lexically-
   injected frame-aware dispatcher that `reg-view` binds inside the
   widget's render body. The dispatcher inherits the surrounding
-  frame from React context (rf2-y59tb), so the event lands on the
+  frame from React context, so the event lands on the
   same frame the widget is mounted under (`:rf/xray` in the App-DB
   panel, `:rf/default` in a standalone playground).
 
   The payload carries `rendered-expanded?` — the current visible
   state of this node — so the reducer can invert from what the user
-  sees on the first click (rf2-y59tb Bug B). Without it, default-
+  sees on the first click. Without it, default-
   expanded paths would silently no-op on the first click."
   [dispatch-fn panel-id mount-id path rendered-expanded?]
   (fn [^js e]
@@ -2670,7 +2668,7 @@
                   panel-id mount-id path rendered-expanded?])))
 
 (defn- swallow-dblclick
-  "`:on-double-click` for the `▸`/`▾` toggle glyph (rf2-6nw3g). The
+  "`:on-double-click` for the `▸`/`▾` toggle glyph. The
   triangle's `:on-click` already toggles + `stopPropagation`s each
   click, but a double-click on the glyph still emits a `dblclick` that
   would bubble to the enclosing zoomable container's `:on-double-click`
@@ -2684,15 +2682,15 @@
 
 (defn- toggle-keydown
   "`:on-key-down` for the `▸`/`▾` toggle glyph, the keyboard sibling of
-  `swallow-dblclick` above (rf2-y8doi.24).
+  `swallow-dblclick` above.
 
   The triangle announces itself as `role=\"button\"` with `tabIndex 0`,
   so a keyboard user tabs to it and presses Enter expecting the node to
-  expand. Without this handler the keydown bubbles to the enclosing
+  expand. Without this handler the keydown would bubble to the enclosing
   zoomable container's `:on-key-down` (`zoom-trigger-attrs`) and the
-  inspector RE-ROOTS instead — the announced affordance and the actual
-  behaviour disagreed. Space did nothing at all: a `<span>` with
-  `role=\"button\"` gets no synthetic click from the UA the way a real
+  inspector would RE-ROOT instead — the announced affordance and the
+  actual behaviour would disagree. Space would do nothing at all: a
+  `<span>` with `role=\"button\"` gets no synthetic click from the UA the way a real
   `<button>` does.
 
   Bare Enter / Space only — any modifier passes through untouched so
@@ -2726,15 +2724,15 @@
      preview]))
 
 ;; =========================================================================
-;; recursive inline rendering — width-aware path (rf2-kbdk8)
+;; recursive inline rendering — width-aware path
 ;; =========================================================================
 ;;
 ;; When the value's estimated inline width fits the available column
 ;; (computed by `would-fit-inline?`), the widget renders the WHOLE thing
 ;; inline as a one-line hiccup span — including nested containers. The
-;; legacy strict inline-fit gate (≤3 children + all-scalars) is kept as a
+;; strict inline-fit gate (≤3 children + all-scalars) is the
 ;; pre-measurement fallback so unit tests without a width measurement
-;; reproduce the historical behaviour; once a measurement exists the
+;; get a deterministic answer; once a measurement exists the
 ;; recursive renderer takes over and handles the deep-but-skinny case.
 ;;
 ;; Per-token syntax colour is preserved through the recursion — scalars
@@ -2747,9 +2745,9 @@
 
 (declare render-inline-recursive)
 
-;; rf2-zl4rs — forward declaration for the per-node zoom-trigger
-;; attribute factory. Zoom-in is now a node-local gesture (double-click
-;; / Enter) on the container itself rather than a separate `⊙` glyph
+;; Forward declaration for the per-node zoom-trigger
+;; attribute factory. Zoom-in is a node-local gesture (double-click
+;; / Enter) on the container itself, with no separate glyph
 ;; button; the factory composes the `:on-double-click` + `:on-key-down`
 ;; + a11y attrs that render-container merges onto each zoomable
 ;; container's outer div. Defined below alongside the breadcrumb
@@ -2793,7 +2791,7 @@
               [:span {:style {:color (get tokens tone-key)}
                       :data-rf-bracket "1"}
                text])
-            ;; rf2-7hqwe — inter-element separator follows canonical EDN
+            ;; Inter-element separator follows canonical EDN
             ;; spacing (`, ` between map/record entries, a single space
             ;; between sequentials), via the shared `inline-separator-span`.
             sep       (inline-separator-span kind)
@@ -2819,19 +2817,19 @@
   "Classify this container's diff op (`:same` / `:added` / `:removed` /
   `:children`) for `render-container`.
 
-  Extracted verbatim from `render-container`'s body for clarity
-  (rf2-nk7w0) — the answer is a pure function of
+  Split out of `render-container` for clarity — the answer is a pure
+  function of
   `(diff? before value kind path projection removed-ancestor?)`.
 
-  Diff: classify this container's op via the rf2-n2jig
-  Editscript-backed projection map. The projection is computed once at
-  the top of `render-edn-inspector` and threaded down via `opts`; the
-  per-path lookup is constant-time. When the projection is absent
-  (non-diff mode), every path reads `:same` and the gutter rows
+  Diff: classify this container's op via the
+  Editscript-backed projection map. The projection is computed once per
+  render in `render-inspector` (`project-for`) and threaded down via
+  `opts`; the per-path lookup is constant-time. When the projection is
+  absent (non-diff mode), every path reads `:same` and the gutter rows
   collapse to a transparent left border.
 
-  rf2-n2jig — tests that drive `render-node` directly without going
-  through `render-edn-inspector` skip the top-level projection compute.
+  Tests that drive `render-node` directly without going
+  through `render-inspector` skip the top-level projection compute.
   We fall back to a lightweight local op classifier in that case so the
   ancestor-chain force-open + chrome wiring still functions (the engine
   is the canonical classifier, but a 6-line `(cond ...)` fallback is no
@@ -2840,7 +2838,7 @@
   from this call path)."
   [{:keys [diff? before value kind path projection removed-ancestor?]}]
   (cond
-    ;; rf2-8pfkk — a removed-container ghost (and every container inside
+    ;; A removed-container ghost (and every container inside
     ;; it) is unconditionally `:removed`. This MUST precede the
     ;; projection lookup: the engine anchors a `dissoc`-to-`{}` on the
     ;; surviving parent and classifies the ghost's own path `:children`,
@@ -2848,7 +2846,7 @@
     ;; descendant-change rail.
     removed-ancestor? :removed
 
-    ;; rf2-0c6a3 — a collection emptied by member removal (`#{:a}→#{}`,
+    ;; A collection emptied by member removal (`#{:a}→#{}`,
     ;; `{:k :v}→{}`, `[x]→[]`, `(x)→()`) keeps its KEY INTACT: the value
     ;; is now the empty collection with the dropped member(s) struck
     ;; INSIDE it. The engine's R5 `mark-wholly-changed` legitimately
@@ -2868,22 +2866,21 @@
 
     (and diff? projection)
     (let [proj-op (engine/op-at projection path)]
-      ;; rf2-8pfkk — STRUCTURAL difference wins over a `:same`
+      ;; STRUCTURAL difference wins over a `:same`
       ;; projection. A pure vector / list tail deletion routes through
       ;; the engine's off-path `:vector-removals` channel (it owns no
       ;; stable after-side path), so `op-at` reports `:same` for the
       ;; parent even though `before` ≠ `value`. Trusting that `:same`
-      ;; collapsed the container and the dropped tail vanished. When the
-      ;; two sides genuinely differ we promote to `:children` so the
-      ;; container expands and the `children-of-pair` union walk
+      ;; would collapse the container and the dropped tail would vanish.
+      ;; When the two sides genuinely differ we promote to `:children` so
+      ;; the container expands and the `children-of-pair` union walk
       ;; surfaces the struck-through removed indices.
-      ;; rf2-bmed1 — `differs-within-bound?`, never a bare `not=`. This
+      ;; `differs-within-bound?`, never a bare `not=`. This
       ;; override fires precisely when `proj-op` is `:same`, which is
       ;; what a bounded projection correctly reports for two endless
-      ;; sequences sharing a prefix — so the raw comparison here ran
-      ;; for ever on exactly the pairs the projection bound had just
-      ;; made safe.
-      ;; rf2-t450s — and never `unrealised-sentinel` either. This
+      ;; sequences sharing a prefix — so a raw comparison here would run
+      ;; for ever on exactly the pairs the projection bound makes safe.
+      ;; And never `unrealised-sentinel` either. This
       ;; override's whole premise is that the two SIDES genuinely
       ;; differ, so it may only ever compare two VALUES. An
       ;; `::unrealised` before side is not a value: it is the marker for
@@ -2891,7 +2888,7 @@
       ;; reports a keyword differing from the after collection —
       ;; promoting an unchanged container to `:children` on no evidence,
       ;; which auto-expands it and paints it change-bearing. Excluded
-      ;; here exactly as `missing-sentinel` already is, so the
+      ;; here exactly as `missing-sentinel` is, so the
       ;; projection's own op (computed over the FULL inputs) stands.
       (if (and (= :same proj-op)
                (not= before missing-sentinel)
@@ -2907,10 +2904,10 @@
       (= before missing-sentinel) :added
       :else                       :removed)
 
-    ;; rf2-bmed1 — the no-projection route needs the same bound. It is
+    ;; The no-projection route needs the same bound. It is
     ;; reached with `:projection nil` (the test / REPL path), where a
-    ;; bare `not=` survives only because those pairs differ in LENGTH
-    ;; and the comparison stops with the shorter side.
+    ;; bare `not=` would survive only on pairs that differ in LENGTH,
+    ;; because the comparison stops with the shorter side.
     (and diff? (differs-within-bound? before value))
     :children
 
@@ -2921,10 +2918,10 @@
   triangle + brackets / summary), exclusive of the removed-ghost
   wrapper.
 
-  Extracted from `render-container` for clarity (rf2-nk7w0) — this is
+  Split out of `render-container` for clarity — this is
   the `cond` over the five header variants (empty / depth-capped /
-  inline-fit / expanded / collapsed-summary). Output is byte-identical
-  to the inlined form; all state is threaded in."
+  inline-fit / expanded / collapsed-summary). All state is threaded
+  in."
   [{:keys [empty? depth-capped? inline-fit? expanded? width-fits?
            value kind panel-id mount-id path toggle-fn max-inline-width
            diff? projection op]}]
@@ -2945,8 +2942,8 @@
                      :tabIndex   0
                      :aria-expanded false
                      :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                     ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                     ;; `triangle-style` (padding + font-size + min-width/
+                     ;; ≥24×24 click target via the shared
+                     ;; `triangle-style` (font-size + min-width/
                      ;; -height).
                      :style triangle-style}
               "▸"]]
@@ -2959,11 +2956,11 @@
     ;; records render `key value` pairs; sequentials render values
     ;; only; sets render values only (no labelled key).
     ;;
-    ;; rf2-kbdk8 — when `width-fits?` fires (a measurement is in play
+    ;; When `width-fits?` fires (a measurement is in play
     ;; and the FULL pr-str fits the available column), defer to
     ;; `render-inline-recursive` which handles nested containers in
-    ;; the same inline span. The legacy strict path (scalar-only
-    ;; children) still feeds the pre-measurement fallback.
+    ;; the same inline span. The strict path (scalar-only
+    ;; children) feeds the pre-measurement fallback.
     inline-fit?
     (let [inline-render
           (if width-fits?
@@ -2979,7 +2976,7 @@
                       (apply concat
                              (map-indexed
                                (fn [i [k cv]]
-                                 (let [;; rf2-7hqwe — EDN-correct separator
+                                 (let [;; EDN-correct separator
                                        ;; via the shared `inline-separator-span`
                                        ;; (`, ` map/record · single space seq).
                                        sep (when (pos? i)
@@ -2994,7 +2991,7 @@
                                      true (conj (render-scalar cv)))))
                                pairs))
                       [(bracket kind :close value)]))))]
-      ;; rf2-zl4rs — the inline-fit row has no separate zoom glyph;
+      ;; The inline-fit row has no separate zoom glyph;
       ;; the zoom gesture lives on the container's outer div (handlers
       ;; merged above), so the inline render passes through unwrapped.
       inline-render)
@@ -3009,15 +3006,14 @@
                      :tabIndex   0
                      :aria-expanded true
                      :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                     ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                     ;; ≥24×24 click target via the shared
                      ;; `triangle-style`.
                      :style triangle-style}
               "▾"]]
       true        (conj (bracket kind :open value)))
 
     :else
-    (let [;; R3-revised (rf2-n2jig + Mike pair-debug 2026-05-27):
-          ;; collapsed containers carrying ANY descendant change
+    (let [;; R3: collapsed containers carrying ANY descendant change
           ;; show a `[N∆]` alert chip IMMEDIATELY AFTER THE TRIANGLE
           ;; — leading-edge position, solid orange + white text,
           ;; constant regardless of op. The triangle itself stays
@@ -3036,13 +3032,12 @@
                        :tabIndex   0
                        :aria-expanded false
                        :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                       ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                       ;; ≥24×24 click target via the shared
                        ;; `triangle-style`.
                        :style triangle-style}
                 "▸"]]
         ;; Chip BEFORE summary so the alert reads at the leading
-        ;; edge (Mike pair-debug 2026-05-27). Was previously
-        ;; appended after `(collapsed-summary ...)`.
+        ;; edge.
         show-chip?
         (conj [:span {:data-rf-diff-chip "1"
                       :data-rf-diff-chip-count (str n-changes)
@@ -3054,8 +3049,7 @@
   "Render one row of a labelled-key container body (map / record /
   map-entry) as a `[key-cell value-cell]` pair of grid children.
 
-  Extracted from `render-container` for clarity (rf2-nk7w0). Output is
-  byte-identical to the inlined `(fn [[k cv cb]] …)`; the parent's
+  Split out of `render-container` for clarity; the parent's
   threaded state arrives via the opts map."
   [{:keys [k cv cb path depth diff? projection removed-ancestor?
            panel-id mount-id expansion-map dispatch-fn zoomable?
@@ -3068,13 +3062,13 @@
         ;; from "an existing key whose value changed"
         ;; which paints on the value cell. Pulled off
         ;; the projection's op at the child path.
-        ;; rf2-8pfkk — inside a removed ghost every
+        ;; Inside a removed ghost every
         ;; key is `:removed` (the projection's op at
         ;; the child path is not authoritative here —
         ;; see the `op` override above). Force the
         ;; removed key chrome + slot-anchored wash so
         ;; the whole row strikes through.
-        ;; rf2-0c6a3 — an emptied-collection slot
+        ;; An emptied-collection slot
         ;; (`:k #{:a}` → `:k #{}`) keeps its KEY INTACT:
         ;; the engine's R5 promotion classifies the
         ;; emptied set / map child path `:removed`, but
@@ -3097,7 +3091,7 @@
                          :added   "+"
                          :removed "−"
                          nil)
-        ;; rf2-zpeyv — slot-vs-value anchoring. When
+        ;; Slot-vs-value anchoring. When
         ;; the SLOT itself changes (key added /
         ;; removed) the chrome paints the WHOLE row
         ;; (key cell + value cell) in the per-op
@@ -3130,14 +3124,14 @@
                       ;; + per-token text colour on
                       ;; the value still render.
                       :slot-anchored? slot-anchored?
-                      ;; rf2-8pfkk — propagate the
+                      ;; Propagate the
                       ;; ghost so nested containers /
                       ;; leaves keep the `:removed` op.
                       :removed-ancestor? removed-ancestor?})]
-    ;; rf2-k97c.3 — the React key rides in each cell's own ATTRIBUTE MAP
+    ;; The React key rides in each cell's own ATTRIBUTE MAP
     ;; rather than in vector metadata. Both spellings work under Reagent;
     ;; only the attribute map is read by the re-frame-native view layer,
-    ;; and this renderer now feeds BOTH heads (`edn-inspector`, the
+    ;; and this renderer feeds BOTH heads (`edn-inspector`, the
     ;; Reagent one, and `edn-inspector-view`, the Fresco boundary).
     [;; Key cell — uses `div` so the grid baseline
      ;; aligns predictably across rows. `white-
@@ -3145,7 +3139,7 @@
      ;; deeply-namespaced `:rf.x.with.many.parts/k`)
      ;; from wrapping inside the key column.
      ;;
-     ;; rf2-zpeyv — when slot-anchored, paint the
+     ;; When slot-anchored, paint the
      ;; per-op wash across the KEY cell (whole-row
      ;; treatment) and strike the key text for
      ;; `:removed`. The wash on the sibling value
@@ -3178,7 +3172,7 @@
         (= child-op :removed)
         (->>
           (conj [:span {:style {:text-decoration "line-through"}}])))]
-     ;; Value cell. rf2-zpeyv — when slot-anchored,
+     ;; Value cell. When slot-anchored,
      ;; paint the per-op wash across the whole value
      ;; cell so it joins the key cell's wash into a
      ;; single banded row. The leaf's inner gutter-
@@ -3198,18 +3192,17 @@
   "Render one child of a sequential container body (vector / list / set
   / seq) as a single bare `render-node` (no key column).
 
-  Extracted from `render-container` for clarity (rf2-nk7w0). Output is
-  byte-identical to the inlined `(fn [[k cv cb]] …)`."
+  Split out of `render-container` for clarity."
   [{:keys [k cv cb path depth diff? projection removed-ancestor?
            panel-id mount-id expansion-map dispatch-fn zoomable?
            zoom-path-prefix opts]}]
   (let [child-path (conj (vec path) k)]
-    ;; rf2-k97c.3 — a KEYED FRAGMENT rather than `with-meta` on the
+    ;; A KEYED FRAGMENT rather than `with-meta` on the
     ;; child's own vector. `render-node` answers hiccup of an arbitrary
     ;; shape (a container div, a gutter row, a bare span), so there is no
     ;; one attribute map to write the key into — and vector metadata is
     ;; invisible to the re-frame-native view layer, which this renderer
-    ;; now also feeds. `[:<> {:key …} child]` carries the key on the
+    ;; also feeds. `[:<> {:key …} child]` carries the key on the
     ;; fragment and is read by BOTH substrates.
     [:<> {:key (str "v-" (pr-str k))}
      (render-node {:value cv
@@ -3225,7 +3218,7 @@
                    :zoomable? zoomable?
                    :zoom-path-prefix zoom-path-prefix
                    :opts opts
-                   ;; rf2-8pfkk — vector / set / list
+                   ;; Vector / set / list
                    ;; ghost members keep the `:removed`
                    ;; op down the subtree.
                    :removed-ancestor? removed-ancestor?})]))
@@ -3240,13 +3233,12 @@
    - expansion-map — snapshot from the expansion-slot subscription
    - opts — `:default-expanded-depth`, `:max-depth`, `:max-inline-width`
    - dispatch-fn — frame-aware dispatcher captured by the surrounding
-                   `reg-view` body (rf2-y59tb); falls back to `rf/dispatch`
+                   `reg-view` body; falls back to `rf/dispatch`
                    when called outside a registered view (test/REPL).
    - diff? / before — when diff? true the renderer paints gutter rows,
                       annotates changed leaves, and force-expands the
                       ancestor chain over any changed descendant.
-   - zoomable? / zoom-path-prefix — when zoomable? true (rf2-h71e0,
-                                    gesture reworked rf2-zl4rs), every
+   - zoomable? / zoom-path-prefix — when zoomable? true, every
                                     non-root container becomes a zoom-in
                                     target: double-click (or Enter while
                                     focused) re-roots the inspector onto
@@ -3267,27 +3259,26 @@
          :or {default-expanded-depth default-ceiling-depth
               max-depth 16
               max-inline-width 60}} opts
-        ;; rf2-zuh1e — in diff mode `cnt` reflects the UNION of BEFORE +
+        ;; In diff mode `cnt` reflects the UNION of BEFORE +
         ;; AFTER so an AFTER-side `{}` with a BEFORE side carrying keys
         ;; still expands + renders the removed rows. Outside diff mode
-        ;; the original AFTER-only count drives the header.
+        ;; the AFTER-only count drives the header.
         cnt           (if diff?
                         (diff-pair-count before value kind)
                         (child-count value kind))
         empty?        (zero? cnt)
-        ;; rf2-3x7nj.25.4 — the operator's `{:expanded? true}` override
+        ;; The operator's `{:expanded? true}` override
         ;; lifts the cap for THIS node, so the capped `▸ {…}` toggle
         ;; expands one level: its children render at `depth + 1`, capped
         ;; again. Read with a `false` default, so only a stored open
-        ;; override lifts it. Before, the cap consulted no override and
-        ;; the click stored one nothing read.
+        ;; override lifts it. A cap that consulted no override would
+        ;; leave the click storing one nothing reads.
         depth-capped? (and (>= depth max-depth)
                            (not (resolve-expanded? expansion-map panel-id
                                                    mount-id path false)))
-        ;; rf2-nk7w0 — op classification extracted to
-        ;; `classify-container-op` (the rf2-n2jig projection lookup +
-        ;; the rf2-8pfkk / rf2-0c6a3 structural overrides). Same answer
-        ;; for the (before, value, projection) tuple.
+        ;; Op classification lives in
+        ;; `classify-container-op` (the projection lookup + the
+        ;; removed-ghost / emptied-collection structural overrides).
         op            (classify-container-op
                         {:diff?             diff?
                          :before            before
@@ -3297,12 +3288,11 @@
                          :projection        projection
                          :removed-ancestor? removed-ancestor?})
         has-change?   (and diff? (not (#{:same :same-shifted} op)))
-        ;; rf2-6q2tz — the R5 wholly-changed-ancestor lookup +
+        ;; The R5 wholly-changed-ancestor lookup +
         ;; `inside-wholly?` derivation live in `render-leaf-with-diff`
-        ;; (where R5 chrome-opts are actually gated on them). The
-        ;; duplicate container-level bindings were dead code and have
-        ;; been removed; the container has no R5-specific behaviour.
-        ;; rf2-8pfkk — a removed-container ghost defaults to COLLAPSED:
+        ;; (where R5 chrome-opts are gated on them); the container has
+        ;; no R5-specific behaviour.
+        ;; A removed-container ghost defaults to COLLAPSED:
         ;; the deletion reads as a single struck-through summary line
         ;; (`:shapes {…} (N keys)`), expandable on demand to walk the
         ;; ghost. We therefore do NOT let its `:removed` op drive the
@@ -3324,10 +3314,10 @@
         expanded?     (and (not empty?)
                            (not depth-capped?)
                            (resolve-expanded? expansion-map panel-id mount-id path default?))
-        ;; rf2-kbdk8 — width-aware inline-fit. When a measurement exists
+        ;; Width-aware inline-fit. When a measurement exists
         ;; and the whole value's pr-str fits the available column, render
-        ;; the FULL tree inline (recursively). The legacy strict gate
-        ;; (≤3 children + all-scalars) remains as the pre-measurement
+        ;; the FULL tree inline (recursively). The strict gate
+        ;; (≤3 children + all-scalars) is the pre-measurement
         ;; fallback so unit tests + first-paint behaviour stay
         ;; deterministic.
         width-fits?   (and (not empty?)
@@ -3363,22 +3353,23 @@
         ;; the visible state on the first click.
         toggle-fn     (on-toggle dispatch-fn panel-id mount-id path
                                  (boolean (and expanded? (not depth-capped?))))
-        ;; rf2-zuh1e — in diff mode the body walks the UNION of BEFORE +
-        ;; AFTER children. Plain browse keeps the original AFTER-only
-        ;; `children-of` walk. The pair-list shape differs (`[k v]` for
+        ;; In diff mode the body walks the UNION of BEFORE +
+        ;; AFTER children. Plain browse walks AFTER only, via
+        ;; `children-of`. The pair-list shape differs (`[k v]` for
         ;; browse vs `[k v b]` for diff) so the downstream child-pair
         ;; construction below normalises into a uniform `[k v b]` triple
         ;; for the recursive render call.
         ;;
-        ;; rf2-vu42n — vectors / lists / seqs consume the engine's off-path
+        ;; Vectors / lists / seqs consume the engine's off-path
         ;; `:vector-removals` + `:same-shifted` projection via
         ;; `sequential-diff-children` rather than index-aligning the raw
-        ;; before/after vectors. Index alignment (the old `children-of-pair`
-        ;; vector branch) mis-attributed the strike to a surviving-shifted
-        ;; element and dropped the genuinely-removed one for scattered /
-        ;; mid-vector removals; the projection-driven walk strikes the
-        ;; actually-removed members in before-order, in place. Maps / sets /
-        ;; records / map-entries keep the `children-of-pair` union walk
+        ;; before/after vectors. Index alignment (`children-of-pair`'s
+        ;; vector branch) would mis-attribute the strike to a
+        ;; surviving-shifted element and drop the genuinely-removed one
+        ;; for scattered / mid-vector removals; the projection-driven walk
+        ;; strikes the actually-removed members in before-order, in place.
+        ;; Maps / sets / records / map-entries use the `children-of-pair`
+        ;; union walk
         ;; (their slots are key/member-addressed — no positional shift).
         children      (when (and (not empty?) (not depth-capped?) expanded? (not inline-fit?))
                         (cond
