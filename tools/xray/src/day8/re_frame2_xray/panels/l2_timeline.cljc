@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.l2-timeline
-  "Pure-fn helpers for the L2 epoch-timeline row chrome (rf2-gf58j).
+  "Pure-fn helpers for the L2 epoch-timeline row chrome.
 
   One concern lives here, pure-data + JVM/CLJS portable so the
   shape is testable from `clojure -M:test` without a CLJS runtime:
@@ -13,27 +13,21 @@
        (`event-bundle-duration-label`), and the light-pink issue
        wash (`event-bundle-has-issue?`).
 
-       Per rf2-1ve9h (Mike-approved Option A, 2026-05-28), the prior
-       parallel `:rf/dispatch-origin` axis was collapsed into `:source`
-       — `:source` is now the single closed-enum functional-origin
-       axis, read from `[:dispatched :source]`.
+       `:source` is the single closed-enum functional-origin axis,
+       read from `[:dispatched :source]`; there is no parallel
+       `:rf/dispatch-origin` axis.
 
-  The origin-prefix GLYPH and the activity-BADGE cluster this namespace
-  once computed were RETIRED from the row under rf2-pjjwh (see
-  `tools/xray/spec/018-Event-Spine.md` §Row anatomy) and their helpers
-  deleted under rf2-65qlf — the row is glyph-free. Do not re-derive
-  them here: git history is the archive, and the whole closure comes
-  back from the commit before rf2-65qlf's (`eeb0056e12`) in one
-  `git show`.
+  The row is glyph-free: there is no origin-prefix GLYPH and no
+  activity-BADGE cluster (see `tools/xray/spec/018-Event-Spine.md`
+  §Row anatomy). Do not derive them here.
 
   ## Why a dedicated namespace
 
-  `shell.cljs` is the hot-zone surface other workers (rf2-wyvf2's
-  tab inventory; rf2-2moh1's L4 tab registry) iterate on; pulling
-  the pure logic out keeps shell.cljs's `event-row` body stable and
-  lets these helpers be tested as plain data. The shell touches one
-  `:require` line and one hiccup-insertion site — the rest of the
-  L2 row's structure (gutter, event-id, time chip) is unchanged.
+  Pulling the pure logic out of `shell.cljs` keeps its `event-row`
+  body small and lets these helpers be tested as plain data. The shell
+  reads the source tag, the duration and the issue predicate from
+  here; the rest of the L2 row's structure (gutter, event-id, time
+  chip) lives in the shell.
 
   ## Event bundle record shape consumed
 
@@ -49,14 +43,14 @@
        :subs        [...]                            ;; :rf.sub/run + :rf.sub/create
        :renders     [...]                            ;; :rf.view/render
        :other       [...]                            ;; errors, warnings,
-       :errors      [...]}                           ;; existing :errors slot
+       :errors      [...]}                           ;; :errors slot
 
   Reads are defence-in-depth nil-safe so synthetic test fixtures
   that omit slots (e.g. event-bundles constructed by JVM tests) do not
   blow up."
   (:require [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]))
 
-;; ---- 1. source tag (post-rf2-1ve9h) -------------------------------------
+;; ---- 1. source tag -------------------------------------------------------
 
 (defn source-of
   "Read the `:source` slot from an event-bundle's `:dispatched` trace event.
@@ -66,10 +60,7 @@
 
   Per Spec 009 §Core fields, `:source` is HOISTED as a top-level slot
   on every trace event (not stamped under `:tags`); the build-event
-  hoist contract strips it from `:tags` before emit. Per rf2-1ve9h
-  (Mike-approved Option A, 2026-05-28) the prior `dispatch-origin-of`
-  reader (which read `[:dispatched :tags :rf/dispatch-origin]`) was
-  retired alongside the envelope axis collapse.
+  hoist contract strips it from `:tags` before emit.
 
   Falls back to `[:dispatched :tags :source]` for defence in depth —
   synthetic fixtures occasionally stamp under `:tags` directly."
@@ -91,46 +82,42 @@
   "ui")
 
 (defn origin-source-tag
-  "Pure-data SOURCE column label (rf2-ad7zx.12, rf2-lnod7). The Figma
+  "Pure-data SOURCE column label. The Figma
   EventList (the `event-list` component in
   `design-reference/xray_devtools_reference.cljs`) renders a
   left-most `source` column as a short text tag — `fx` / `view` /
   `timer` / `machine` in the mock — and tags EVERY row, never a blank
-  cell. Xray's real source axis is the closed-enum `:source` (per
-  rf2-1ve9h): substrate sources render the bare source name
+  cell. Xray's real source axis is the closed-enum `:source`:
+  substrate sources render the bare source name
   (`router` / `http` / `fx-dispatch` / `after-timer` / …) and the
   default app-code sources (`:ui`, plus the un-stamped defaults
   `:unknown` / `:other` / `:repl` / `:frame-init`, plus nil for
   pre-source-tag event-bundles) render `ui`.
 
-  Pre-rf2-lnod7 this returned nil for `:user`, which left the source
-  column BLANK for the dominant ui-origin rows — the gap audit
-  (rf2-4297k) flagged that http-origin rows showed their tag while
-  default rows showed nothing. Tagging every row with a concrete
-  source (the reference's posture) restores the column's signal.
-  Never throws."
+  Returning nil for the default sources would leave the source column
+  BLANK for the dominant ui-origin rows while http-origin rows show
+  their tag. Tagging every row with a concrete source (the reference's
+  posture) keeps the column's signal. Never throws."
   [source]
   (if (or (nil? source)
           (contains? #{:ui :unknown :other :repl :frame-init} source))
     ui-source-tag
     (name source)))
 
-;; ---- 1b. duration column (rf2-lnod7) ------------------------------------
+;; ---- 1b. duration column ------------------------------------------------
 ;;
 ;; The Figma EventList's fourth (right-most) column is `duration` — the
 ;; handler's wall-time, right-aligned, rendered as `1.2 ms` / `0.4 ms`.
 ;; The substrate stamps the handler's elapsed time on the event-bundle's
 ;; `:handler` trace event (`:rf.event/run-end`) as `:rf.event/elapsed-ms`
 ;; (spec 009) — the SAME field the L4 Event-detail event-bundle-outcome
-;; reads. Surfacing it on the L2 row restores the reference's four-column
-;; layout; the column was clipped off the live list pre-rf2-lnod7 (gap
-;; audit rf2-4297k).
+;; reads. Surfacing it on the L2 row gives the reference's four-column
+;; layout.
 
 (defn event-bundle-duration-ms
   "Pluck the handler wall-time (ms) from an event-bundle's `:handler` trace
-  event (`[:handler :tags :rf.event/elapsed-ms]`, with the legacy
-  `:duration-ms` as a fallback — rf2-3x7nj.22.5, mirroring the Epoch
-  HANDLER step's rf2-slnce repair). Returns the number or nil when the slot
+  event (`[:handler :tags :rf.event/elapsed-ms]`, with `:duration-ms` as
+  a fallback, as the Epoch HANDLER step reads it). Returns the number or nil when the slot
   is absent / non-numeric (synthetic fixtures, event-bundles whose handler
   trace predates duration tagging). Nil-safe at every level; pure data,
   JVM-runnable."
@@ -162,12 +149,12 @@
   [event-bundle]
   (format-duration-ms (event-bundle-duration-ms event-bundle)))
 
-;; ---- 2. epoch-has-an-issue signal (rf2-b8guz) ---------------------------
+;; ---- 2. epoch-has-an-issue signal ---------------------------------------
 ;;
 ;; The L2 row paints a light-pink WASH (theme token `:bg-issue-row`) when
 ;; the event's epoch CONTAINS AN ISSUE — the cross-epoch "this event had a
 ;; problem" cue at the spine, surfaced where the operator is already
-;; looking rather than gated behind the Issues tab.
+;; looking.
 ;;
 ;; "CONTAINS AN ISSUE" is the SAME set the Issues ribbon/feed aggregates:
 ;; errors + warnings (schema violations, hydration mismatches, perf-budget
@@ -177,13 +164,13 @@
 ;; `:op-type`, per Spec 009) rather than re-enumerating what counts as an
 ;; issue — so the wash stays in lockstep with the ribbon/feed by
 ;; construction. This is the SAME trace-derived signal the Epoch panel's
-;; `epoch-outcome` + `event-status-colour/event-bundle-outcome` key off
-;; (rf2-ahhgn): an event-bundle carrying any issue trace lights up.
+;; `epoch-outcome` + `event-status-colour/event-bundle-outcome` key off:
+;; an event-bundle carrying any issue trace lights up.
 ;;
 ;; Source of the issue traces on an event-bundle record: every non-domino trace
 ;; event (errors / warnings / …) lands in the event-bundle's `:other` bucket
 ;; (`re-frame.trace.projection/group-by-event` · `domino-bucket` →
-;; `:other`); the event-bundle's existing `:errors` slot is checked too for
+;; `:other`); the event-bundle's `:errors` slot is checked too for
 ;; defence in depth (synthetic fixtures / older traces that populated it
 ;; directly).
 
@@ -193,7 +180,7 @@
   the canonical `issues-ribbon-helpers/issue-event?` predicate (errors +
   warnings — the SAME set the Issues ribbon/feed aggregates, reused
   rather than re-enumerated). Drives the L2 row's light-pink
-  `:bg-issue-row` wash (rf2-b8guz).
+  `:bg-issue-row` wash.
 
   Pure data → bool; nil-safe on missing slots; JVM-runnable."
   [event-bundle]
