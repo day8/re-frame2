@@ -8,25 +8,24 @@ The tour skill enumerates Xray's Dynamic tabs in several places — `SKILL.md`,
 a user-visible **label**, a mnemonic, and an order. Those are the volatile
 facts that drift fastest as the Xray UI moves.
 
-The regression this gate exists for (rf2-3fc89f.41): the ninth Dynamic tab was
-renamed in the runtime from **"Modules"** to **"Frames"** (its `reg-l4-tab!`
-`:label` became `"Frames"`; `:module-view` stayed the *internal id*), but the
-skill kept telling operators to open a "Modules" tab — including an
-objectively-false `evals/README.md` "source of truth" example that claimed the
-registration was `{:id :module-view :label "Modules" ...}`. Every existing
-skill gate (eval-docs, eval-packaging, package-refs, mcp-drift, doc-slugs,
-readme-links, JSON parse, `npm pack`) stayed green because none of them
-compares the documented tab metadata to the runtime registry. This gate closes
-exactly that gap: it makes the shipped registry the source of truth and fails
-if the skill's documented / eval inventory diverges on `:id`, `:label`,
-`:mnem`, or `:order`.
+The drift this gate exists for: the ninth Dynamic tab's `reg-l4-tab!` `:label`
+is **"Frames"** while its *internal id* is `:module-view`, so a skill telling
+operators to open a "Modules" tab — or an `evals/README.md` "source of truth"
+example claiming the registration is `{:id :module-view :label "Modules" ...}`
+— reads plausibly and is objectively false. Every other skill gate
+(eval-docs, eval-packaging, package-refs, mcp-drift, doc-slugs, readme-links,
+JSON parse, `npm pack`) would stay green on it, because none of them compares
+the documented tab metadata to the runtime registry. This gate closes exactly
+that gap: it makes the shipped registry the source of truth and fails if the
+skill's documented / eval inventory diverges on `:id`, `:label`, `:mnem`, or
+`:order`.
 
 The runtime source of truth is the set of `panel-registry/reg-l4-tab!` calls
 whose `:modes` include `:dynamic`, under
 `tools/xray/src/day8/re_frame2_xray/panels/`, cross-checked against
 `focus.cljc`'s `valid-panels` id set (which itself mirrors
 `panel-registry/tab-ids-for-mode :dynamic`, guarded by an Xray-side build
-test). Ordered by `:order`, that is today:
+test). Ordered by `:order`, that is:
 
     Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
     Frames · Fresco   (mnemonics: e a v t m r s g u h)
@@ -63,16 +62,15 @@ Checks (all against the runtime inventory parsed fresh each run):
       SKILL.md (so a newly-added tab's user-visible name is actually taught).
 
   A5  EVAL HIGHEST-ORDER TAB LABEL — evals.json names the highest-`:order` tab
-      by its shipped visible label (today "Fresco", `:order 10`), so the
-      answer-quality fixtures pin the currently-shipped label rather than a
-      stale one.
+      by its shipped visible label (e.g. "Fresco", `:order 10`), so the
+      answer-quality fixtures pin the shipped label rather than a stale one.
 
 THE GATE DOES NOT READ THIS FILE. Its inputs are the Xray runtime and
 `skills/re-frame2-xray/**` — nothing else. So the roster above is prose no
-check covers, and it drifted exactly the way the drift this gate exists to
-catch does: it sat at nine tabs ending "Frames", naming the retired ninth-tab
-framing, while the gate itself printed "10 Dynamic tabs verified" on every run
-(rf2-vuabu). Re-derive it from `focus.cljc` `valid-panels` when you touch it.
+check covers, and it drifts exactly the way the skill docs this gate guards
+do: it can sit a tab short while the gate itself prints "N Dynamic tabs
+verified" on every run. Re-derive it from `focus.cljc` `valid-panels` when you
+touch it.
 
 Pure-Python-stdlib (no PyYAML / Node) to stay fast + CI-portable, mirroring the
 sibling `scripts/check_skill_*.py` gates.
@@ -87,8 +85,6 @@ Usage:
     python scripts/check_skill_xray_tab_inventory_drift.py --verbose
     python scripts/check_skill_xray_tab_inventory_drift.py --ci
     python scripts/check_skill_xray_tab_inventory_drift.py --self-test
-
-rf2-3fc89f.41.
 """
 
 from __future__ import annotations
@@ -353,8 +349,7 @@ def check(
             )
 
     # A5 — evals name the highest-:order tab by its shipped visible label.
-    # Derived, never hard-coded: the last tab was :module-view ("Frames") until
-    # rf2-hic-023 appended :fresco at :order 10, and it will move again.
+    # Derived, never hard-coded: appending a tab moves the highest-:order tab.
     highest = max(runtime_tabs, key=lambda t: t.get("order", 0))
     highest_label = highest.get("label")
     eval_text = skill_files.get(EVAL_HIGHEST_LABEL_FILE, "")
@@ -450,7 +445,7 @@ def _run_self_test() -> int:
 
     cases: list[tuple[str, list[dict], set, dict, bool]] = [
         ("clean", rt, vp, files(), True),
-        # A1: an inline literal claims the retired label.
+        # A1: an inline literal claims a stale label.
         ("inline stale label", rt, vp,
          files(**{"evals/README.md": 'e.g. {:id :module-view :label "Modules" :mnem "u" :order 9}.'}),
          False),
@@ -520,7 +515,7 @@ def main(argv: Iterable[str]) -> int:
         description=(
             "Verify the re-frame2-xray skill's Dynamic tab inventory "
             "(id/label/mnem/order) matches the shipped Xray reg-l4-tab! "
-            "registry (rf2-3fc89f.41)."
+            "registry."
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -560,7 +555,7 @@ def main(argv: Iterable[str]) -> int:
             "\nFix: update skills/re-frame2-xray/** (SKILL.md, README.md, "
             "references/**, evals/**) so the documented Dynamic tab "
             "id/label/mnem/order matches the shipped reg-l4-tab! registry under "
-            "tools/xray/src/day8/re_frame2_xray/panels/. (rf2-3fc89f.41)",
+            "tools/xray/src/day8/re_frame2_xray/panels/.",
             file=sys.stderr,
         )
         return 1
