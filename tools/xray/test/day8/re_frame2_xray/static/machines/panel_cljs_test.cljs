@@ -1,12 +1,10 @@
 (ns day8.re-frame2-xray.static.machines.panel-cljs-test
-  "CLJS wiring + render tests for the Static Machines sub-tab panel
-  (rf2-o5f5f.2).
+  "CLJS wiring + render tests for the Static Machines sub-tab panel.
 
   ## What's under test
 
     1. The panel mounts as the L4 detail panel for the `:machines`
-       sub-tab — previously a placeholder card, now the real master-
-       detail surface.
+       sub-tab — the master-detail surface.
 
     2. Browse-list renders one row per registered machine; search
        filters incrementally; sort cycles through Name/States/Live.
@@ -46,9 +44,8 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` carries the
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + `:all` tier,
+  ;; which resets the trace-collector rings too); `:post-reset` carries the
   ;; suppressed-count + static-persistence + machines-localStorage slate.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
@@ -57,11 +54,9 @@
                    (ls/clear!))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
-;; prefix / text-nodes copies were semantically identical to
-;; `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid`,
-;; `rf.test-helpers/find-by-testid-prefix` and `rf.test-helpers/text-content` directly (rf2-vj80u8 — no
-;; Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid`,
+;; `rf.test-helpers/find-by-testid-prefix` and `rf.test-helpers/text-content`
+;; directly; there is no Xray walker facade.
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -97,17 +92,17 @@
 
 (deftest static-shell-mounts-machines-panel-on-machines-tab
   (testing "Selecting the :machines sub-tab mounts the Static Machines
-            panel (replaces the placeholder from rf2-o5f5f.1).
+            panel.
 
-            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3. The panel is now a
-            Fresco boundary behind an `as-component` bridge, so the
-            hiccup walk stops at the bridge's `[:>]` interop head and
+            The row asserts ONE LEVEL UP from the panel's own testid. The
+            panel is a Fresco boundary behind an `as-component` bridge, so
+            the hiccup walk stops at the bridge's `[:>]` interop head and
             `rf-xray-static-machines-panel` is committed by React rather
-            than present in the tree — asserting it here would now be
+            than present in the tree — asserting it here would be
             asserting the walker's reach, not the mount. What the shell
             actually owes is that the `:machines` slot renders and
-            mounts THE REGISTRY'S `:panel`, and that the placeholder is
-            gone; that the boundary behind it paints
+            mounts THE REGISTRY'S `:panel`, and that no placeholder card
+            mounts; that the boundary behind it paints
             `rf-xray-static-machines-panel` is W1's subject in
             `panel_fresco_boundary_dom_cljs_test`, off a real React
             commit."
@@ -134,9 +129,9 @@
             "NON-VACUITY: the node the shell actually mounted in the
              :machines slot IS that bridge's return, so this row is
              about the live wiring and not about the registry alone")
-        ;; Placeholder card MUST be gone now that the panel is live.
+        ;; No placeholder card mounts in the :machines slot.
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-placeholder-machines"))
-            "placeholder no longer mounts")))))
+            "placeholder does not mount")))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) Browse-list renders one row per registered machine
@@ -309,23 +304,22 @@
           "tooltip surfaces 'Dynamic-only' message"))))
 
 ;; -------------------------------------------------------------------------
-;; (9) Sim body (rf2-r4nao — rehosted Sim machinery replaces the
-;;    rf2-o5f5f.2 placeholder)
+;; (9) Sim body
 ;; -------------------------------------------------------------------------
 
 (deftest sim-mode-renders-real-sim-body-with-no-definition-hint
   (testing "When the selected machine has no introspectable definition,
-            the Sim body renders the no-definition hint rather than the
-            old `rf2-r4nao will fill this` placeholder."
+            the Sim body renders the no-definition hint rather than a
+            placeholder."
     (xray-setup!)
     (seed-machines! [:m/a])
     (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
     (rf/with-frame :rf/xray
       (let [tree (machines-tree/panel-tree)]
-        ;; The old placeholder is gone.
+        ;; No placeholder card mounts.
         (is (nil? (rf.test-helpers/find-by-testid
                     tree "rf-xray-static-machines-sim-placeholder"))
-            "old placeholder card no longer mounts")
+            "no placeholder card mounts")
         ;; The real Sim body is mounted; no-definition variant since
         ;; the test fixture seeds no :states map.
         (is (some? (rf.test-helpers/find-by-testid
@@ -425,11 +419,11 @@
                                  "rf-xray-static-machines-topology-no-definition"))))))
 
 ;; -------------------------------------------------------------------------
-;; (11b) Topology mode — interactive canvas adapter (rf2-md9oz)
+;; (11b) Topology mode — interactive canvas adapter
 ;; -------------------------------------------------------------------------
 
 (deftest topology-mode-wraps-chart-in-canvas-host
-  (testing "rf2-md9oz — Static Topology body delegates to
+  (testing "Static Topology body delegates to
             machine-canvas/Chart so users get zoom / pan / fit."
     (xray-setup!)
     (seed-machines! [:m/a])
@@ -438,21 +432,18 @@
     (rf/with-frame :rf/xray
       (let [tree (machines-tree/panel-tree)]
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-machine-canvas-host"))
-            "the chart is now wrapped in the interactive canvas-host")
-        ;; rf2-gpzb4 (xyflow migration): the host-side controls toolbar
-        ;; is gone — xyflow renders its own `<Controls>` component
-        ;; inside the chart. The inner-testid still threads through
-        ;; via the `:inner-testid` prop so existing static-panel
-        ;; selectors keep working.
+            "the chart is wrapped in the interactive canvas-host")
+        ;; There is no host-side controls toolbar — xyflow renders its
+        ;; own `<Controls>` component inside the chart. The inner-testid
+        ;; threads through via the `:inner-testid` prop so static-panel
+        ;; selectors work.
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-svg"))
             ":inner-testid forwards through Chart to the xyflow root")))))
 
 (deftest topology-mode-omits-view-mode-toggle-on-static
-  (testing "rf2-48fwsi — the vestigial Canvas/List view-mode toggle was
-            removed framework-wide (it was dead after rf2-g2axio); it
-            must NOT mount on the Static surface either. (Pre-rf2-48fwsi
-            Static suppressed it via :show-view-mode-toggle? false; now
-            no Chart caller can render it at all.)"
+  (testing "there is no Canvas/List view-mode toggle and no Chart
+            caller can render one, so it must NOT mount on the Static
+            surface."
     (xray-setup!)
     (seed-machines! [:m/a])
     (seed-definitions! {:m/a {:initial :idle
@@ -461,16 +452,16 @@
       (let [tree (machines-tree/panel-tree)]
         (is (nil? (rf.test-helpers/find-by-testid tree
                                   "rf-xray-machine-canvas-view-mode-toggle"))
-            "the retired view-mode toggle never mounts on static")))))
+            "a view-mode toggle never mounts on static")))))
 
 (deftest topology-mode-keeps-toolbar-without-inert-popout
-  (testing "The Static panel's chart-toolbar (source-coord chip) still
-            lives ABOVE the canvas — it did not absorb into the canvas's
-            own controls toolbar.
+  (testing "The Static panel's chart-toolbar (source-coord chip)
+            lives ABOVE the canvas, separate from the canvas's own
+            controls.
 
-            rf2-h6ooa — and the 'Pop out' affordance is ABSENT: its
-            handler is a registered no-op (no pop-out window exists), so
-            the button is hidden until it does something."
+            And the 'Pop out' affordance is ABSENT: its handler is a
+            registered no-op (no pop-out window exists), so the button
+            is hidden."
     (xray-setup!)
     (seed-machines! [:m/a])
     (seed-definitions! {:m/a {:initial :idle
@@ -480,7 +471,7 @@
       (let [tree (machines-tree/panel-tree)]
         (is (some? (rf.test-helpers/find-by-testid tree
                                    "rf-xray-static-machines-topology-toolbar"))
-            "static chart-toolbar still mounts above the canvas")
+            "static chart-toolbar mounts above the canvas")
         (is (nil? (rf.test-helpers/find-by-testid tree
                                   "rf-xray-static-machines-topology-popout"))
             "the inert pop-out affordance is not rendered")))))
@@ -498,7 +489,5 @@
     (is (= :name (frame-sub [:rf.xray.static.machines/sort-key])))
     (is (= :topology (frame-sub [:rf.xray.static.machines/sub-mode :any/id])))))
 
-;; rf2-sdqsla — the `static-tab-inventory-machines-bead` test was removed:
-;; the `:placeholder-bead` slot was dropped once the rf2-o5f5f roll-out
-;; completed (every Static tab ships a real panel). Inventory shape is now
-;; covered by `static-tab-inventory-shape` in the shell test.
+;; Static tab inventory shape is covered by `static-tab-inventory-shape` in
+;; the shell test.
