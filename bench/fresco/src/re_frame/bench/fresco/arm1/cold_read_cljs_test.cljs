@@ -1,31 +1,28 @@
 (ns re-frame.bench.fresco.arm1.cold-read-cljs-test
-  "THE COLD PROBE'S OWN CONTRACT (rf2-6c237).
+  "THE COLD PROBE'S OWN CONTRACT.
 
-  rf2-6c237 rebuilt `read-key!`'s cold branch on the cold-probe
-  discipline: reuse a live sub-cache reaction by deref alone,
-  else compute pure against one render-scoped frame-state snapshot
-  through one render-scoped memo — no reaction build, no cache insert,
-  no in-tick evict, no dispose cascade per read. The read profile
-  (`read_profile_app.cljs`) prices the change; this file pins what the
-  change must keep true, and every row was proven able to go red by
-  mutating the code it guards (the mutation ledger is in the PR and the
-  studio page).
+  `read-key!`'s cold branch follows the cold-probe discipline: reuse a
+  live sub-cache reaction by deref alone, else compute pure against one
+  render-scoped frame-state snapshot through one render-scoped memo — no
+  reaction build, no cache insert, no in-tick evict, no dispose cascade
+  per read. The read profile (`read_profile_app.cljs`) prices the
+  discipline; this file pins what it must keep true, and every row goes
+  red when the code it guards is mutated.
 
-  What the probe changed on purpose, stated so nobody rediscovers it as
-  a bug: within ONE body run a cold key computes ONCE and every read of
-  it observes ONE frame-state snapshot. The predecessor recomputed per
-  read against the live frame — a difference observable only through an
-  impure sub body (sub bodies are pure by contract) or across a mid-body
-  commit, where the generation fence re-runs the body either way.
+  Deliberate, stated so nobody rediscovers it as a bug: within ONE body
+  run a cold key computes ONCE and every read of it observes ONE
+  frame-state snapshot. Recomputing per read against the live frame
+  would differ only through an impure sub body (sub bodies are pure by
+  contract) or across a mid-body commit, where the generation fence
+  re-runs the body either way.
 
-  The wiring hazards this file does NOT own are owned where they were
-  fixed: the staged-read tear (`staged_read_tear_cljs_test` — the probe
-  touches neither `make-snapshot` nor the basis arithmetic), the
-  deferred-read escape and the map-key crossing (`deferred_read_…`,
-  `boundary_crossing_…` — codec-side, untouched), the disposed cell and
-  the first registration (`disposed_cell_…`, `first_registration_…` —
-  both drive their repairs THROUGH the cold path this file pins, and
-  both stay green over it)."
+  The wiring hazards this file does NOT own have their own witnesses:
+  the staged-read tear (`staged_read_tear_cljs_test` — the probe touches
+  neither `make-snapshot` nor the basis arithmetic), the deferred-read
+  escape and the map-key crossing (`deferred_read_…`,
+  `boundary_crossing_…` — codec-side), the disposed cell and the first
+  registration (`disposed_cell_…`, `first_registration_…` — both drive
+  their guards THROUGH the cold path this file pins)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.runtime :as rf.bench.fresco.arm1.runtime]
@@ -122,9 +119,9 @@
           (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
           (is (= (:edges before) (:edges after)) "no edge added"))
         (is (zero? (count @(:sub-cache (rf.frame/frame f))))
-            "and the frame's sub-cache holds nothing — where the
-             subscribe-once crossing paid an insert and an evict per read,
-             the probe never touched it")))))
+            "and the frame's sub-cache holds nothing — a subscribe-once
+             crossing would pay an insert and an evict per read; the probe
+             never touches it")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Rung 1 — the live-reaction reuse, by deref alone
@@ -176,7 +173,7 @@
                                   (rf.bench.fresco.arm1.runtime/sub [:coldread/nope])
                                   [:li])
                               {})))]
-      (is (nil? @seen) "recovered to nil, the contract unchanged")
+      (is (nil? @seen) "recovered to nil, per the contract")
       (is (= 1 (count (filterv #(= :rf.error/no-such-sub (:error %)) records)))
           "one emission for one distinct unknown query per run")
       (is (= :coldread/nope
