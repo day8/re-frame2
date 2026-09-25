@@ -35,14 +35,17 @@
 
   Each test therefore does `(set-stubs! ...)` directly (no
   `.finally`), and a fixture's `:after` step unconditionally
-  restores the pristine originals to ALL three vars. cljs.test's
+  restores the pristine originals to ALL stubbed vars. cljs.test's
   async-test contract guarantees `:after` fires synchronously after
   `(done)` and BEFORE the next test's `:before` — so cleanup is
   Promise-chain-independent and cross-test leakage is impossible.
 
   We redefine the public per-tool entry-points
-  (`get-path/get-path-tool`, `snapshot/snapshot-tool`) and
-  `precheck/fetch-precheck-hash` so each test controls exactly what
+  (`get-path/get-path-tool`, `snapshot/snapshot-tool`,
+  `operating-frame/reset-operating-frame-tool`), the precheck seams
+  (`precheck/fetch-precheck-hash`, `precheck/precheck-target`) and, where
+  a test runs a real tool body, `nrepl/cljs-eval-value`, so each test
+  controls exactly what
   each phase sees and emits. Real `cache`, real `cap`, real
   `tools/invoke`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
@@ -63,8 +66,10 @@
 ;; The cache is module-level state; reset between tests so each case
 ;; starts from a clean slate.
 ;;
-;; The three stubbed vars (`precheck/fetch-precheck-hash`,
-;; `get-path/get-path-tool`, `snapshot/snapshot-tool`) are restored
+;; Every stubbed var (`precheck/fetch-precheck-hash`,
+;; `precheck/precheck-target`, `get-path/get-path-tool`,
+;; `snapshot/snapshot-tool`, `operating-frame/reset-operating-frame-tool`,
+;; `nrepl/cljs-eval-value`) is restored
 ;; UNCONDITIONALLY in `:after`. Originals are snapshot once at
 ;; ns-load. Cleanup is fixture-scoped, not Promise-chain-scoped —
 ;; which closes the cross-test stub-leakage race.
@@ -134,16 +139,17 @@
 ;;
 ;; `kind` is the keyword the caller picked to identify which slot
 ;; to stub — `:fetch-precheck-hash`, `:precheck-target`,
-;; `:get-path-tool`, `:snapshot-tool`. Anything else is a programmer
+;; `:get-path-tool`, `:snapshot-tool`, `:reset-operating-frame-tool`.
+;; Anything else is a programmer
 ;; error and we throw immediately rather than silently no-op.
 ;;
-;; `:precheck-target` exists because, post rf2-ajhwbm, NO real tool
-;; registers a non-nil precheck target (both `snapshot` and `get-path`
-;; are precheck-ineligible — see `precheck.cljs`). The phase-1
+;; `:precheck-target` exists because NO real tool registers a non-nil
+;; precheck target (both `snapshot` and `get-path` are
+;; precheck-ineligible — see `precheck.cljs`). The phase-1
 ;; pipeline-mechanics tests below (precheck hit ⇒ dispatch skipped)
 ;; are deliberately tool-agnostic; stubbing `precheck-target` directly
 ;; is how they manufacture an eligible target without depending on a
-;; real (and, pre-fix, buggy) eligibility path.
+;; real eligibility path.
 ;; ---------------------------------------------------------------------------
 
 (defn- set-stubs! [stubs]
@@ -172,7 +178,7 @@
 
 (deftest precheck-hit-short-circuits-dispatch
   (async done
-    ;; No real tool registers a precheck target post-rf2-ajhwbm
+    ;; No real tool registers a precheck target
     ;; (`snapshot` and `get-path` are BOTH precheck-ineligible — see
     ;; `precheck.cljs`). The pipeline mechanics under test (precheck
     ;; hit ⇒ dispatch skipped) are tool-agnostic, so we stub
@@ -207,7 +213,7 @@
                    (is (= :precheck
                           (get-in (extract-edn result)
                                   [:rf.mcp/cache-hit :via]))
-                       "marker carries :via :precheck — the rf2-36xod path")
+                       "marker carries :via :precheck — the precheck path")
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -216,12 +222,12 @@
 ;;
 ;; Cold cache. Stub `fetch-precheck-hash` to return 999. First invoke:
 ;; dispatch runs, apply-cache stores entry with :precheck-hash 999.
-;; Second invoke with the same fetched hash: precheck path now hits.
+;; Second invoke with the same fetched hash: precheck path hits.
 ;; ---------------------------------------------------------------------------
 
 (deftest precheck-miss-stores-hash-for-next-call
   (async done
-    ;; No real tool is precheck-eligible post-rf2-ajhwbm — stub
+    ;; No real tool is precheck-eligible — stub
     ;; `precheck-target` directly (see `precheck-hit-short-circuits-
     ;; dispatch` above) so the mechanics (cold miss stores the
     ;; precheck-hash; the next call short-circuits) stay covered
@@ -364,7 +370,7 @@
                    (is (invalid-arg? result)
                        "result carries the :rf.mcp/invalid-arg rejection")
                    (is (not (overflow? result))
-                       "NOT the overflow lock-out a negative cap used to cause")
+                       "NOT the overflow lock-out a negative cap would otherwise cause")
                    (is (false? @dispatched?)
                        "the tool body is never dispatched — rejection short-circuits invoke")
                    (let [body (-> (extract-edn result) :rf.mcp/invalid-arg)]
@@ -409,17 +415,14 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-gov3 — a `:rf.mcp/cache-hit` says "re-use the payload you already
-;; have". A response the wire cap replaced with `:rf.mcp/overflow` was
-;; never delivered, so it cannot underwrite that claim. `apply-cache`
-;; runs before `apply-cap`, so the miss path recorded the FULL response's
-;; hash and the cap then withheld the response — and the next identical
-;; read matched that hash and was told to re-use bytes it never received,
-;; erasing the actionable size-limit diagnosis on every repeat.
-;;
-;; These arms replace the former `cache-hit-bypasses-cap-walk`, which
-;; asserted exactly that overflow-then-cache-hit sequence and so pinned
-;; the defect rather than the contract.
+;; A `:rf.mcp/cache-hit` says "re-use the payload you already have". A
+;; response the wire cap replaced with `:rf.mcp/overflow` was never
+;; delivered, so it cannot underwrite that claim. `apply-cache` runs
+;; before `apply-cap`, so the miss path records the FULL response's hash
+;; before the cap withholds the response; left in place, that entry would
+;; let the next identical read match and be told to re-use bytes it never
+;; received, erasing the actionable size-limit diagnosis on every repeat.
+;; The cap therefore withdraws the entry, and these arms pin that.
 ;; ---------------------------------------------------------------------------
 
 (deftest withheld-payload-never-claims-a-cache-hit
@@ -453,8 +456,8 @@
 (deftest raising-the-cap-after-a-withheld-read-delivers-the-payload
   (async done
     ;; The recovery the overflow marker's hint points at. A larger
-    ;; `max-tokens` is a different cache key, so it was always able to
-    ;; recover; this pins that withdrawing the withheld entry did not
+    ;; `max-tokens` is a different cache key, so it can recover
+    ;; regardless; this pins that withdrawing the withheld entry does not
     ;; break it, and that the recovered payload then caches honestly.
     (let [tight (args-js {:cache "true" "max-tokens" 200})
           roomy (args-js {:cache "true" "max-tokens" 5000})
@@ -548,14 +551,13 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Snapshot precheck eligibility — NONE, for every `:include` shape
-;; (rf2-ajhwbm).
+;; Snapshot precheck eligibility — NONE, for every `:include` shape.
 ;;
 ;; The precheck hash is `(hash app-db@frame)` only. `:machines`/
 ;; `:sub-cache`/`:epochs`/`:traces` can all move WITHOUT an app-db
-;; write, so an `:include` retaining any of them is unsound (unchanged).
-;; `:app-db` LOOKED sound (it IS the frame db) but is not: the resolved
-;; `:app-db` slice is walked through `re-frame.core/elide-wire-value`
+;; write, so an `:include` retaining any of them is unsound.
+;; `:app-db` looks sound (it IS the frame db) but is not: the resolved
+;; `:app-db` slice is walked through `re-frame.core/project-egress`
 ;; before it crosses the wire (`snapshot.cljs` `slice-walk-src`), and the
 ;; elision registry that walk consults lives in the runtime-db partition,
 ;; not app-db — a later elision-declaration change re-shapes the egress
@@ -569,12 +571,12 @@
 ;; not EDN strings — `parse-frames-arg` / `parse-include-arg` coerce
 ;; arrays/sequentials. Build args with JS arrays to match the live shape.
 (deftest precheck-target-snapshot-eligibility-by-include
-  (testing "single-frame snapshot, app-db-only include → ineligible (rf2-ajhwbm)"
+  (testing "single-frame snapshot, app-db-only include → ineligible"
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["rf/default"] :include #js ["app-db"]})))
-        ;; :app-db egresses through elide-wire-value, whose elision
-        ;; registry lives in runtime-db — the SAME hazard get-path was
-        ;; excluded for (rf2-ww877w). No longer treated as sound.
+        ;; :app-db egresses through project-egress, whose elision
+        ;; registry lives in runtime-db — the SAME hazard that makes
+        ;; get-path ineligible.
         ":include [:app-db] still egresses through project-egress ⇒ ineligible")
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["rf/default"]
@@ -605,7 +607,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; get-path is NOT precheck-eligible. Its app-db subtree read is
-;; post-processed by `elide-wire-value`, whose elision registry lives in
+;; post-processed by `project-egress`, whose elision registry lives in
 ;; runtime-db; an elision declaration / classification flip can re-shape
 ;; the egress of an UNCHANGED app-db subtree, which the `(hash app-db)`
 ;; precheck hash can't observe. So get-path falls through to the post-eval
@@ -613,14 +615,14 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest precheck-target-get-path-is-ineligible
-  (testing "get-path with an explicit frame → ineligible (rf2-ww877w)"
+  (testing "get-path with an explicit frame → ineligible"
     (is (nil? (precheck/precheck-target
                 "get-path" (args-js {:frame "rf/default" :path "[:k]"})))
-        "explicit-frame get-path no longer registers a precheck target"))
+        "explicit-frame get-path registers no precheck target"))
   (testing "get-path with no frame (operating-frame-resolved) → ineligible"
     (is (nil? (precheck/precheck-target
                 "get-path" (args-js {:path "[:k]"})))
-        "operating-frame get-path no longer registers a precheck target"))
+        "operating-frame get-path registers no precheck target"))
   (testing "get-path batch read → ineligible"
     (is (nil? (precheck/precheck-target
                 "get-path" (args-js {:paths "[[:a] [:b]]"})))
@@ -655,7 +657,7 @@
           (.then (fn [_first] (tools/invoke nil "snapshot" args nil)))
           (.then (fn [second-result]
                    (is (zero? @fetch-count)
-                       "precheck NEVER consulted — default include is ineligible (rf2-3ljsa)")
+                       "precheck NEVER consulted — default include is ineligible")
                    (is (= 2 @call-count)
                        "second call re-dispatches — no stale precheck hit")
                    (is (not (cache-hit? second-result))
@@ -663,14 +665,13 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; END-TO-END staleness guard (rf2-ajhwbm). A single-frame APP-DB-ONLY
-;; snapshot used to be treated as precheck-sound — `(hash app-db)`
-;; unchanged ⇒ serve the prior payload without re-dispatching. But the
-;; `:app-db` slice egresses through `elide-wire-value`, whose elision
-;; registry lives in runtime-db, NOT app-db. An elision declaration can
-;; change mid-session while app-db itself never moves — under the old
-;; rule the precheck hash would still match and a STALE, differently-
-;; redacted payload would be re-served as a "cache-hit". This test
+;; END-TO-END staleness guard. A single-frame APP-DB-ONLY snapshot looks
+;; precheck-sound — `(hash app-db)` unchanged ⇒ serve the prior payload
+;; without re-dispatching. But the `:app-db` slice egresses through
+;; `project-egress`, whose elision registry lives in runtime-db, NOT
+;; app-db. An elision declaration can change mid-session while app-db
+;; itself never moves — a precheck hash would still match and a STALE,
+;; differently-redacted payload would be re-served as a "cache-hit". This test
 ;; models exactly that: app-db is genuinely unchanged across both
 ;; calls (the precheck hash, if consulted, would match), but the
 ;; tool's egressed text differs (standing in for the elision flip).
@@ -703,7 +704,7 @@
           (.then (fn [_first] (tools/invoke nil "snapshot" args nil)))
           (.then (fn [second-result]
                    (is (zero? @fetch-count)
-                       "precheck NEVER consulted — no snapshot :include is precheck-eligible (rf2-ajhwbm)")
+                       "precheck NEVER consulted — no snapshot :include is precheck-eligible")
                    (is (= 2 @call-count)
                        "second call re-dispatches — no stale precheck hit")
                    (is (not (cache-hit? second-result))
