@@ -232,8 +232,8 @@
        key, OR present with nil) yields `[]` (no ancestor-blocking, unlike
        `:on` / `:after`'s nil-is-forbidden-transition form), so the nil is
        gated BEFORE the shared normaliser (which would map nil to `[{}]`);
-    2. a malformed shape degrades to `[]` (the runtime normaliser is the
-       throw's designated surface — `:rf.error/machine-bad-always`).
+    2. a malformed shape degrades to `[]` (`validate-machine!` refuses it
+       with `:rf.error/machine-bad-always`, as the runtime normaliser does).
 
   Mirrors `validation/always-entries`.
 
@@ -255,17 +255,21 @@
 (defn- walk-nodes-with-path
   "Yield `[absolute-path node]` pairs for every state node, recursing
   through `:states`; for a parallel machine, per region (region names are
-  not part of the path). Mirrors `validation/walk-state-nodes-with-path`."
+  not part of the path). Mirrors `validation/walk-state-nodes-with-path`.
+  Only map nodes and map `:states` are walked: this sweep runs before
+  `validate-machine!`, which refuses any other shape with its own category."
   [machine]
-  (letfn [(walk [path nodes]
+  (letfn [(states-of [n]
+            (let [s (:states n)] (when (map? s) s)))
+          (walk [path nodes]
             (mapcat (fn [[k n]]
-                      (let [p (conj path k)]
-                        (cons [p n]
-                              (when (:states n) (walk p (:states n))))))
+                      (when (map? n)
+                        (let [p (conj path k)]
+                          (cons [p n] (walk p (states-of n))))))
                     nodes))]
     (if (and (map? (:regions machine)) (seq (:regions machine)))
-      (mapcat (fn [[_r body]] (walk [] (:states body))) (:regions machine))
-      (walk [] (:states machine)))))
+      (mapcat (fn [[_r body]] (walk [] (states-of body))) (:regions machine))
+      (walk [] (states-of machine)))))
 
 (defn- clause-entries
   "The `[trigger transition]` entries of `node`'s `:on` / `:after` clause, or
@@ -286,7 +290,7 @@
   labels them `:choice` so the author sees the slot they actually wrote."
   [machine]
   (let [roots (if (and (map? (:regions machine)) (seq (:regions machine)))
-                (cons machine (vals (:regions machine)))
+                (cons machine (filter map? (vals (:regions machine))))
                 [machine])
         check-node!
         (fn [path node]
