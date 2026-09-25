@@ -62,7 +62,7 @@
 
 (defn replay-script!
   "Replay `spec` (a `:script` map per `runner/parse-spec`) as a FRESH run
-  of `frame-id`'s variant (rf2-3x7nj.29.4): the one run owner resets the
+  of `frame-id`'s variant: the one run owner resets the
   frame in place to its declared start — `:setup` state, the run's epoch
   baseline re-stamped — and runs `spec`'s concrete steps
   (`rf.story.runtime/rerun!` with `{:spec spec}`). That is what the pasted
