@@ -169,8 +169,8 @@
 
          The article read is viewer-scoped, so the invalidation must reach the
          ACTING viewer's `[:article slug]` entry. The direct
-         `:rf.resource/invalidate-tags` event's `:scope` is a ScopeInput
-         (rf2-oo8cv7) — a concrete scope OR a `{:from-db …}` reference resolved
+         `:rf.resource/invalidate-tags` event's `:scope` is a ScopeInput — a
+         concrete scope OR a `{:from-db …}` reference resolved
          at use time against the handler's db coeffect, SYMMETRIC with a mutation
          descriptor / ensure — so we pass the `{:from-db :realworld/viewer}`
          reference directly (no in-handler resolve). Follow is auth-gated, so the
@@ -243,7 +243,7 @@
          into beta's textarea, where Post Comment would publish it under beta.
          A NEW article identity starts the form over; a same-slug re-entry
          (leave alpha, come back) keeps what the reader was typing. That is the
-         http twin's rule (rf2-84iek, `:comments/load`), keyed here on the
+         http twin's rule (`:comments/load`), keyed here on the
          slug the draft records rather than on a comments slice. The draft
          crossing to another ACCOUNT is `:auth/clear-session`'s to scrub."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
