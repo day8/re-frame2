@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.hydrate-dom-cljs-test
-  "THE HYDRATION DOOR, MOUNTED (rf2-2rtt6.84).
+  "THE HYDRATION DOOR, MOUNTED.
 
   `arm1/mount/hydrate-root!` adopting real server-shaped DOM in a real
   browser: the closer closes the window, the reap horizon leaves the
@@ -10,8 +10,8 @@
 
   ## Where the \"server\" bytes come from, stated plainly
 
-  **Not from `react-dom/server`.** The Node render entry is
-  rf2-2rtt6.86's bead and the end-to-end spike is rf2-2rtt6.87's; this
+  **Not from `react-dom/server`.** The Node render entry and the
+  end-to-end spike live in `ssr/`; this
   file is about the DOOR, so its fixture markup is this same tree's own
   CLIENT render, captured as `innerHTML` **under an open adoption
   window** — which is the state a server render is in, and is why the
@@ -35,17 +35,16 @@
      asserts the capture is empty.
 
      **The window is held open until [[adopted!]] resolves, and it has
-     to be** (rf2-2rtt6.87, measured). `hydrateRoot` is called plain, so
+     to be.** `hydrateRoot` is called plain, so
      it RETURNS BEFORE THE TREE IS ADOPTED: React schedules the
      hydration render, and the complaint — if there is one — arrives in
-     a later turn. These rows originally closed the window when the call
-     returned, and the SSR spike's mutation proof measured what that
-     window can see: hydrating an eight-row screen against nine-row
-     server bytes reported **1 complaint across the adoption and 0 at
-     the call's return**. A window that shuts on return is open across
-     the call and shut across the render, i.e. shut across the only part
-     that can complain, so every `(is (= [] @captured))` taken through
-     one was vacuous.
+     a later turn. The SSR spike's mutation proof measures what a
+     window closed at the call's return can see: hydrating an eight-row
+     screen against nine-row server bytes reports **1 complaint across
+     the adoption and 0 at the call's return**. A window that shuts on
+     return is open across the call and shut across the render, i.e.
+     shut across the only part that can complain, so every
+     `(is (= [] @captured))` taken through one would be vacuous.
   2. **`act` and `flushSync` are not the browser's schedule.** Adoption
      is React's own concurrent business, so `hydration-support/adopted!`
      waits on real timers for the closer's passive effect and never pulls
@@ -53,12 +52,11 @@
      claim is about the model rather than about the turn.
 
   Both live in `arm1/hydration_support.cljs` — one copy, shared with the
-  SSR spike (rf2-2rtt6.87), because a second copy of a refusal is the
+  SSR spike, because a second copy of a refusal is the
   copy that quietly weakens.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM; under `:node-test` every DOM claim degrades to a stated
-  skip."
+  Runtime: a browser, for a real React DOM; without a DOM every claim
+  degrades to a stated skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hydration-support
@@ -130,8 +128,7 @@
   "One row boundary. A single text child on purpose: React's SSR puts a
   `<!-- -->` separator between adjacent text runs and a client render
   does not, so a fixture with two text children would be measuring that
-  known divergence (rf2-2rtt6.88's text-separator row) instead of this
-  door."
+  known divergence instead of this door."
   [{:keys [i]}]
   [:li.row {:data-i i} (rf.bench.fresco.arm1.runtime/sub [:hyd/row i])])
 
@@ -159,7 +156,7 @@
   crossings on the page that the server did not render, so it still
   fails if a body runs twice or a boundary is skipped.
 
-  `:ssr :render` is the policy that does NOT move it (rf2-l0wfx). Under
+  `:ssr :render` is the policy that does NOT move it. Under
   `:render` the declaration mints no gate, the component is the
   element's own type, and the same tree renders on the server and on
   hydration's first pass — so the crossing adds no body run to adopt and
@@ -205,7 +202,7 @@
   instance setter to maintain its change tracker; a plain `set!` would
   update the tracker too, after which React reads the node as already
   agreeing and no re-assert runs. Same reason, same shape as
-  `front/revision_dom_cljs_test`'s own."
+  `re-frame.fresco.revision-dom-cljs-test`'s own."
   [node v]
   (let [d (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")]
     (.call (.-set d) node v)
@@ -229,8 +226,8 @@
     html))
 
 ;; `server-dom!`, `stamp-server-nodes!`, `server-node?`, `capture-console!`
-;; and `adopted!` moved to `arm1/hydration_support.cljs` when the SSR spike
-;; (rf2-2rtt6.87) became their second caller. They are the three reasons a
+;; and `adopted!` live in `arm1/hydration_support.cljs`, shared with the SSR
+;; spike, their second caller. They are the three reasons a
 ;; hydration row can answer FALSE, and a second copy of a refusal is the
 ;; copy that quietly weakens — so there is one copy, and both callers
 ;; take it.
@@ -307,7 +304,7 @@
                       (is (= boundary-count (:entries stats))
                           "**and every one of them is subscribed to an entry
                            that is STILL IN THE CACHE.** This is the row the
-                           0 -> 4 ms horizon exists for: an entry minted in
+                           4 ms horizon exists for: an entry minted in
                            the render and reaped before `hydrateRoot`'s
                            passive subscribe leaves its boundary holding a
                            detached entry, and the count here falls below the
@@ -483,9 +480,9 @@
                                the same root a bare provider instead would not
                                be a cheap re-render — React would reconcile a
                                different top element, tear the adopted subtree
-                               down and mount a fresh one. Measured before the
-                               repair: four body runs and four replaced nodes,
-                               i.e. everything the adoption achieved, undone by
+                               down and mount a fresh one. Measured with a bare
+                               provider: four body runs and four replaced nodes,
+                               i.e. everything the adoption achieves, undone by
                                the first ordinary render"
                         (rf.bench.fresco.arm1.runtime/reset-body-runs!)
                         (rf.bench.fresco.arm1.mount/render! handle [screen {}])
@@ -501,15 +498,15 @@
 ;; ===========================================================================
 ;; 6 — HD-019's OTHER rider: a `::h/revision` arriving mid-adoption
 ;;
-;; R3 of `studio/revision-prop-spec.md`, adjudicated on this harness
-;; (rf2-ne3ey). The design claimed a revision arriving during adoption
-;; lands on the first post-adoption commit, on the SERVER's node. R3
-;; demoted that to witness-gated intent with the fallback pre-committed;
-;; rf2-zq8kh settled the STRUCTURAL half — the revision is consumed at the
-;; codec, so React is handed a prop-identical element whether it moved or
-;; not (`front/revision_dom_cljs_test`) — and left the TIMING half here,
-;; because two hand-rolled `hydrateRoot` arms disagreed about node identity
-;; in opposite directions on consecutive runs.
+;; R3 of `studio/revision-prop-spec.md`, adjudicated on this harness. The
+;; design claims a revision arriving during adoption lands on the first
+;; post-adoption commit, on the SERVER's node; R3 holds that as
+;; witness-gated intent with the fallback pre-committed. The STRUCTURAL
+;; half is pinned elsewhere — the revision is consumed at the codec, so
+;; React is handed a prop-identical element whether it moved or not
+;; (`implementation/fresco/test/re_frame/fresco/revision_dom_cljs_test.cljs`)
+;; — and the TIMING half is pinned here, because hand-rolled `hydrateRoot`
+;; arms disagree about node identity in opposite directions from run to run.
 ;;
 ;; **The row below is not a re-run of that race, because `mid-adoption` is
 ;; a fact here rather than a wait.** `hydrate-root!` refuses to `flushSync`,
