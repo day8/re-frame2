@@ -211,9 +211,12 @@
   prediction: retired-minus-shipped must equal the drop in the
   per-subscription slope, and measured, it does, to 0.3%.
 
-  Run it:
+  Run it: no build in `implementation/shadow-cljs.edn` compiles this
+  harness, so add a `:node-script` build with `:main
+  re-frame.bench.write-attribution/-main`, `:output-to
+  \"out/write-attribution.js\"` and `:advanced` optimization with
+  `goog.DEBUG false`, release it, then:
 
-      npx shadow-cljs release ui-bench --config-merge '{...}'
       node --expose-gc out/write-attribution.js
 
   ## The registration shape is part of the instrument
