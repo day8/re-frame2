@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.sidebar-signals-cljs-test
   "JVM-portable regression net for the sidebar's five-axis signal chips
-  (rf2-ba86n.4, spec/018 §7.1 + §12.6). Every fn under test is `.cljc`-pure
+  (spec/018 §7.1 + §12.6). Every fn under test is `.cljc`-pure
   so this corpus runs on both JVM (`clojure -M:test`) and CLJS
   (`npm run test:cljs`) — see the sibling `sidebar-search-cljs-test`.
 
@@ -14,7 +14,7 @@
   buckets and reads only the variant body's real metadata.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-1ep8)."
+  selects it; a bare `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]
@@ -160,7 +160,7 @@
 ;; ---- inherited + composed world: the chips agree with the plan -----------
 
 (deftest chips-read-the-world-extends-and-compose-pass-down
-  (testing "rf2-3x7nj.28.5: the sidebar hands `variant-signals` the RAW
+  (testing "the sidebar hands `variant-signals` the RAW
             registered body, as `variant-row` does. An `:extends` child of a
             pinned variant, or a variant composing a seeding fragment,
             renders on inherited / composed world, and its chips must say
