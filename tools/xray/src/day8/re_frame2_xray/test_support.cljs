@@ -1,17 +1,16 @@
 (ns day8.re-frame2-xray.test-support
   "Single test-fixture entry-point for Xray's process-global reset.
 
-  Previously every test fixture called both `preload/reset-for-test!`
-  and `registry/reset-for-test!` — adding a new sentinel-bearing ns
-  meant updating ~30 fixtures. This ns folds those calls into one
-  helper so panel additions don't ripple through the test corpus.
+  This ns folds the per-ns `reset-for-test!` calls into one helper, so
+  adding a sentinel-bearing ns does not ripple through every fixture in
+  the test corpus.
 
   Targets the inert `day8.re-frame2-xray.install` ns for the collector
-  sentinels (rf2-5w06uu) rather than `preload`, so a fixture that only
+  sentinels rather than `preload`, so a fixture that only
   needs the sentinel reset does not drag in `preload`'s side-effecting
   boot block.
 
-  ## The three reset surfaces (rf2-sdqsla)
+  ## The three reset surfaces
 
   A fixture has up to three process-global surfaces to clear:
 
@@ -20,8 +19,8 @@
        a re-`register-xray-handlers!` actually re-runs.
     2. the trace-collector RINGS — `reset-all!` adds this. The rings
        are process-global `defonce` atoms the sentinel reset does NOT
-       touch, so a fixture that forgot the (historically separate)
-       `trace-collector/reset-for-test!` leaked trace rows into the
+       touch, so a fixture that skipped
+       `trace-collector/reset-for-test!` would leak trace rows into the
        next test (order-dependent bleed).
     3. settings / localStorage STATE — `reset-runtime!` adds this on
        top.
@@ -32,8 +31,7 @@
   for a clean-slate fixture that resets BEFORE registering frames, and
   `reset-runtime!` when the persisted settings also need wiping.
 
-  **Test-only — never call from production code.** Per rf2-kmhvg
-  cluster item 3e (audit rf2-i0veg §3e)."
+  **Test-only — never call from production code.**"
   (:require [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.config :as config]
@@ -41,7 +39,7 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
-            ;; rf2-e8330v (xxo3zz F3) — per-panel test-override seams.
+            ;; Per-panel test-override seams.
             ;; Production registration installs NO `-for-test` ids; tests
             ;; opt into the override surface via `install-test-overrides!`.
             [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]
@@ -60,7 +58,7 @@
 
       install/reset-for-test!  ; trace-cb + epoch-cb reg flags
       registry/reset-for-test! ; per-panel reg-event/reg-sub flags
-      mount/reset-for-test!    ; ensure-xray-frame! run-once guard (rf2-n4p5it)
+      mount/reset-for-test!    ; ensure-xray-frame! run-once guard
 
   Does NOT touch the trace-collector rings or the settings atom — safe
   to call MID-setup (after frames are registered) because it only flips
@@ -75,17 +73,11 @@
   "`reset-sentinels!` PLUS the trace-collector rings
   (`trace-collector/reset-for-test!`). The rings are process-global `defonce`
   atoms the sentinel reset does NOT touch — clearing them here closes the
-  cross-test trace-bleed gap (rf2-sdqsla).
+  cross-test trace-bleed gap.
 
-  There is NO mounted-view evidence release here, and nothing is missing where
-  one used to be (rf2-7gth0). The predecessor tier had a single-owner registry
-  Xray claimed at `init!`, leaving an owner, a sink, retained entries and a
-  globalThis sentinel behind for the next test to inherit. The tier that
-  replaced it, `re-frame.freehand.tool`, was a pure READER: Xray installed
-  nothing into it and so had nothing to release. Both retired with the
-  substrates they read (rf2-0yp7w), and the rule they settled still holds — a
-  substrate's own per-mount occurrence index is cleared by that substrate's
-  own fixture, never by Xray's reset tier.
+  There is NO mounted-view evidence release here, and none is missing: a
+  substrate's own per-mount occurrence index is cleared by that
+  substrate's own fixture, never by Xray's reset tier.
 
   Call at the START of a fixture, BEFORE registering frames — clearing
   the rings wipes the per-frame recording config, so a mid-setup call
@@ -108,7 +100,7 @@
   (config/reset-settings!)
   nil)
 
-;; ---- composed runtime fixture (rf2-vj80u8) ------------------------------
+;; ---- composed runtime fixture -------------------------------------------
 
 (defn make-xray-runtime-fixture
   "Build a `cljs.test` `:each` fixture that resets BOTH the per-process
@@ -117,10 +109,9 @@
   process-global reset tier, around each test.
 
   Folds the two-step `(make-reset-runtime-fixture {… :init-fn xray-init!})`
-  boilerplate — repeated across the Xray suite as a bespoke private
-  `xray-init!` fn (often with a REDUNDANT trailing
-  `trace-collector/reset-for-test!` that `reset-all!` already folds in) —
-  into one owner. The core fixture rolls back the registrar / frames /
+  boilerplate — a bespoke private `xray-init!` fn per suite, which would
+  often carry a REDUNDANT trailing `trace-collector/reset-for-test!` that
+  `reset-all!` already folds in — into one owner. The core fixture rolls back the registrar / frames /
   flows / schemas + installs the adapter; the Xray reset tier then clears
   Xray's install + registry + mount sentinels, the trace-collector rings,
   and (for `:runtime`) the persisted settings.
@@ -168,14 +159,14 @@
                    :runtime   (reset-runtime!))
                  (when post-reset (post-reset)))})))
 
-;; ---- test-only override seam orchestrator (rf2-e8330v / xxo3zz F3) -------
+;; ---- test-only override seam orchestrator -------------------------------
 
 (defn install-test-overrides!
   "Install EVERY panel's test-only override seam in one call.
 
   Production `register-xray-handlers!` installs NO ids ending in
   `-for-test` and no `(or override …)` branches in the data subs — the
-  override seam is split out per panel (xxo3zz F3 / rf2-e8330v). A test
+  override seam is split out per panel. A test
   that drives panel data via the `:rf.xray/set-*-override-for-test`
   events (or the machine-inspector `set-epoch-history-for-test` /
   `set-focus-epoch-id-for-test` seeding events) calls this AFTER
