@@ -1,8 +1,7 @@
 (ns re-frame.story.review-dialog
-  "Shared 'review-then-commit modal' primitive for Story's save-as flows
-  (rf2-7jpky; extract from rf2-dd5ze audit P0 #3).
+  "Shared 'review-then-commit modal' primitive for Story's save-as flows.
 
-  Two save-as flows ship today:
+  The two save-as flows:
 
   - record-as-`:script` — `re-frame.story.recorder` captures a trace of
     dispatched events and surfaces the generated `(reg-variant ...)`
@@ -47,12 +46,11 @@
 
   ## Why a shared ns
 
-  Pre-extraction the two flows carried parallel inline copies of the
-  same shape — same modal styling, same `open?` / `draft-id` ratom,
-  same `set-draft-id!` string-parsing helper, same `copy-to-clipboard!`
-  shim — drifted by ~120 LoC. The recorder did NOT factor the dialog
-  state machine into `.cljc`, so JVM tests couldn't pin its
-  transitions. Extracting here delivers:
+  Both flows need the same shape — same modal styling, same `open?` /
+  `draft-id` ratom, same `set-draft-id!` string-parsing helper, same
+  `copy-to-clipboard!` shim — and parallel inline copies would drift. A
+  dialog state machine kept inside a flow's `.cljs` could not be pinned
+  by JVM tests. One shared `.cljc` ns gives:
 
   - One JVM-testable dialog state machine.
   - One copy-to-clipboard shim.
@@ -203,7 +201,7 @@
   (set-draft-id state (or (parse-variant-id-string s) s)))
 
 ;; ---------------------------------------------------------------------------
-;; Snippet-format helper — `indent-after` moved to predicates leaf
+;; Snippet-format helper — `indent-after` lives in the predicates leaf
 ;;
 ;; The two save-as flows render multi-line EDN where successive items
 ;; (event vectors / map kv pairs) align directly under the opening
@@ -213,10 +211,10 @@
 ;;       {:script {:script [[:dispatch-sync [:counter/inc]]
 ;;                          [:dispatch-sync [:counter/dec]]]}})
 ;;
-;; Per rf2-ar0t9: `indent-after` lives in `re-frame.story.predicates`
+;; `indent-after` lives in `re-frame.story.predicates`
 ;; so producers (recorder, save-variant) don't have to `:require`
-;; review-dialog (the consumer) for a 4-line helper. The dep direction
-;; recorder → review-dialog was upside-down.
+;; review-dialog (the consumer) for a 4-line helper; a recorder →
+;; review-dialog dependency would run upside-down.
 ;; ---------------------------------------------------------------------------
 ;; CLJS-only: Reagent ratom factory + adapter glue
 ;;
@@ -269,10 +267,9 @@
 ;; CLJS-only: copy-to-clipboard shim
 ;;
 ;; Wraps `navigator.clipboard.writeText`. Single helper every save-as /
-;; copy flow consumes — pre-extract each flow carried its own try/catch
-;; copy.
+;; copy flow consumes, rather than a try/catch copy per flow.
 ;;
-;; Returns a `js/Promise` of a BOOLEAN OUTCOME (rf2-jgn8): `true` only
+;; Returns a `js/Promise` of a BOOLEAN OUTCOME: `true` only
 ;; once the write has actually FULFILLED, `false` when there is no
 ;; clipboard API (JSDOM / older browsers / a non-secure dev host), when
 ;; the call throws, or when the write PROMISE REJECTS (the ordinary
@@ -416,14 +413,14 @@
                               extra `[Export as :script]` button
                               renders left of 'copy'. The recorder's
                               save-dialog wires this through to the
-                              play-script export dialog (rf2-x9zsr);
+                              play-script export dialog;
                               save-variant does not (no recording to
                               export).
      - `:primary`           — optional flow-specific PRIMARY action map
                               `{:label <str> :on-click <fn> :disabled?
                               <bool> :title <str>}` rendered as the accent
                               button left of 'copy'. The promotion flow
-                              (rf2-ba86n.13) wires this to its
+                              wires this to its
                               `promote-run-artifact!` register path; recorder
                               / save-variant omit it (their commit is the
                               copy-paste). When `:disabled?` the button is
@@ -443,12 +440,11 @@
              effective-id (or draft-id placeholder-id)
              dtest        (fn [suffix] (str data-test-prefix "-" suffix))
              title-id     (str data-test-prefix "-dialog-title")]
-         ;; rf2-p1ai7: wrap in a focus-trap so Escape closes, Tab cycles,
+         ;; Wrapped in a focus-trap so Escape closes, Tab cycles,
          ;; focus moves in on mount, and focus returns to the trigger on
-         ;; close. The renderer is otherwise unchanged from the
-         ;; pre-fix shape — ARIA attrs (role / aria-modal / aria-labelledby)
+         ;; close. ARIA attrs (role / aria-modal / aria-labelledby)
          ;; ride on the inner panel + the wrapper's on-click closes on
-         ;; backdrop tap as before. Hiccup is passed eagerly to the
+         ;; backdrop tap. Hiccup is passed eagerly to the
          ;; focus-trap so tests can string-traverse the full tree.
          [rf.story.ui.a11y-dialog/focus-trap
           {:on-close on-close}
@@ -491,13 +487,13 @@
                  :title     "Export the recording as a :script (rich DSL)"
                  :on-click  (fn [_] (on-export))}
                 "export as :script"])
-             ;; rf2-ba86n.13 — optional flow-specific PRIMARY action. The
+             ;; Optional flow-specific PRIMARY action. The
              ;; promotion flow wires this through to register the curated
              ;; regression variant (the substrate's `promote-run-artifact!`
              ;; path); recorder / save-variant don't supply it (their commit
              ;; IS the copy-to-clipboard paste). `primary` is a map
              ;; `{:label :on-click :disabled? :title}`; when omitted the row
-             ;; is unchanged. Rendered with the accent `:btn` style, left of
+             ;; carries no primary button. Rendered with the accent `:btn` style, left of
              ;; 'copy', so the registering action reads as the primary intent.
              (when primary
                (let [{:keys [label on-click disabled? title]} primary]
