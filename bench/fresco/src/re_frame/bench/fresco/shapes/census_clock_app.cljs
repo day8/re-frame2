@@ -1,10 +1,9 @@
 (ns re-frame.bench.fresco.shapes.census-clock-app
-  "THE CENSUS-REAL PAGES BEHIND THE CLOCK-OF-RECORD DOOR (rf2-2rtt6.56).
+  "THE CENSUS-REAL PAGES BEHIND THE CLOCK-OF-RECORD DOOR.
 
-  The tier-1 shape roster (rf2-2rtt6.51) authored four census-real pages
-  and published no timing row. This entry takes their MOUNT rows through
-  the instrument contract the mount-gate amendment ratified (rf2-2rtt6.1,
-  2026-08-02): raw `TaskDuration` — the arm's script AND the frame it
+  The tier-1 shape roster authors four census-real pages and publishes no
+  timing row. This entry takes their MOUNT rows through the instrument
+  contract the mount-gate amendment sets: raw `TaskDuration` — the arm's script AND the frame it
   caused — read over the DevTools protocol on either side of one
   operation, the operation frame-settled before it resolves, every arm
   through ONE door with a plumb tare subtracted. The shape is
@@ -18,26 +17,24 @@
   `feed` (300 cards, 5,129 elements, 603 reads, 301 boundaries — shapes 3
   and 4 share this mount), `ordinary` (51 elements, 7 boundaries).
 
-  **THE PAIR DOES NOT ISOLATE SHELL COST FROM INTERPRETER COST**
-  (rf2-2rtt6.62, merged-PR audit of #7372/#7379). An earlier wording here
-  called shapes 2 and 3 the same screen at two boundary decompositions
-  and claimed the pair separates the two costs on one page. Byte-identical
-  cards prove markup parity, not matched workload: the two rows stand 4.35x
+  **THE PAIR DOES NOT ISOLATE SHELL COST FROM INTERPRETER COST.** Shapes 2
+  and 3 build byte-identical cards, and byte-identical cards prove markup
+  parity, not matched workload: the two rows stand 4.35x
   apart in cards (4.27x in elements, 4.28x in reads — the 29-element chrome
   does not scale) while boundaries step 1 -> 301, so a cross-row timing
   difference confounds decomposition with size and attributes nothing.
   Each row is valid WITHIN itself — every arm mounts the identical page,
   canon-gated before any clock — and that is the whole of what this
-  instrument establishes. The isolation is retracted until both
-  decompositions have been clocked at one card count.
+  instrument establishes. Isolating the two costs needs both
+  decompositions clocked at one card count.
 
   ## What this instrument does NOT measure, and why
 
   The roster's WRITE rows — shape 3's broad commit and shape 4's narrow
   commit. On this box the bulk-class rows cannot hold a
   difference-statistic control at the ~3.5% floor a magnitude needs
-  (rf2-7iqb5: 28–48% within-block IQR), and the narrow row sits on the
-  clock clamp (rf2-d2tzk fences the same class on the M1 instrument). A
+  (28–48% within-block IQR), and the narrow row sits on the clock clamp
+  (the same class the M1 instrument fences). A
   write magnitude from this door would be refused on arrival, and an
   instrument built to be refused is an instrument nobody asked for. The
   driver's header restates this refusal with the row names on it.
@@ -51,9 +48,7 @@
   re-proves it under each installed adapter before any clock is read).
   So: `?adapter=uix` carries the GATED pair (fresco / uix, same run);
   `?adapter=reagent` adds Reagent-on-subs, co-instrumented and reported
-  beside the gate, never as a second gate.
-
-  Owner: rf2-2rtt6.1 (standard); this entry rf2-2rtt6.56."
+  beside the gate, never as a second gate."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
@@ -168,7 +163,7 @@
             s   (rf.bench.fresco.lane/canonical (:container mnt))]
         (rf.bench.fresco.lane/release! mnt)
         ;; `rf.bench.fresco.lane/utf8-bytes` and not `count`: the driver prints this under a
-        ;; `bytes` label, and `count` answers UTF-16 code units (rf2-2rtt6.121).
+        ;; `bytes` label, and `count` answers UTF-16 code units.
         #js {:arm     (name arm-id)
              :hash    (str-hash s)
              :bytes   (rf.bench.fresco.lane/utf8-bytes s)
