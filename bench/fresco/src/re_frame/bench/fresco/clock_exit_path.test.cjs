@@ -2459,28 +2459,19 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   // --- THE REGIMES: what a row publishes, declared ---------------------------
   //
-  // Two rows refuse for reasons no amount of measuring can move — `M1`'s
-  // positive control undershoots 2.00x by an additive constant and no
-  // changed-set control can reach a mount; `keystroke`'s control burns a
-  // fixed 50 ms and therefore supplies no band. Both rulings NARROW THE CLAIM
-  // rather than build a better instrument: the rows publish regimes, not
-  // magnitudes.
+  // Two rows publish a regime rather than a magnitude from one run, for
+  // reasons no amount of measuring can move. `keystroke`'s control burns a
+  // fixed 50 ms and therefore supplies no band. `M1` does publish a magnitude
+  // (K1 MISSED, DECISIVELY), but an ENSEMBLE one, and one run of this driver
+  // cannot form it. Its `ctl-2x` control is not failing — the rule tests
+  // per-block band membership — and the mount regime does not wait on it.
   //
-  // THE THING THESE CASES EXIST TO PIN is that the narrowing softens nothing.
+  // THE THING THESE CASES EXIST TO PIN is that a regime softens nothing.
   // `HCLOCK_ONLY=keystroke` exits 1, and a "relabelling" that let it exit 0
   // would be the fail-open above under a nicer name. Every case below asserts
-  // the code as well as the sentence.
-  //
-  // THE MOUNT HALF IS SUPERSEDED AND THE MECHANISM IS NOT. Declaring a regime
-  // on the row rather than inferring it from the numbers stands. What that
-  // regime MEANS on `M1` does not: rf2-8a746 removed its
-  // ground (`ctl-2x` was never failing — the rule tests per-block band
-  // membership) and rf2-t2flm, then rf2-diaud, took its position (`M1` publishes
-  // a magnitude; K1 MISSED, DECISIVELY). The row still refuses HERE, for
-  // rf2-diaud's reason instead — the published magnitude is an ensemble
-  // estimate and one run cannot form it. The bracket the cases below pin moves
-  // jointly with the driver, because a print and its pin move together or one
-  // of them is a lie.
+  // the code as well as the sentence, and the regime is declared on the row
+  // rather than inferred from the numbers. A print and its pin move together,
+  // or one of them is a lie.
 
   const mountRow = (over) => clockRow({ rowId: 'M1', regime: 'mount-regime', ctlOk: false, ...over });
   const respRow = (over) =>
@@ -2553,8 +2544,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       /the control status is the published reason/,
       "ctl-2x is not failing, so its status is the published reason for nothing"
     );
-    // and what replaced it says why THIS DRIVER still refuses, which is
-    // rf2-diaud's reason and not rf2-jcm3p's: one run, no ensemble.
+    // and the line says why THIS DRIVER refuses: one run, no ensemble.
     assert.match(all, /ENSEMBLE one/);
     assert.match(all, /one run cannot form the interval it is adjudicated against/);
   });
@@ -2563,18 +2553,15 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   //
   // Two lines below the row's three strings, `reportability` annotates the
   // control status of a regime row that failed its control. The annotation is
-  // NOT " — expected, and the reason no magnitude is published": both claims
-  // are superseded. "expected" is false (`ctl-2x` is not failing — the rule
-  // tests per-block band membership, and all fourteen committed mount
-  // row-runs are IN CONTROL under the v2 class), so no live ruling predicts a
-  // failure here. "the reason no
-  // magnitude is published" fell with rf2-diaud, which publishes a magnitude on
-  // M1 and locates this driver's refusal in the ensemble bootstrap instead.
+  // NOT " — expected, and the reason no magnitude is published": neither
+  // claim holds. Nothing predicts a failure here (`ctl-2x` is not failing —
+  // the rule tests per-block band membership, and all fourteen committed
+  // mount row-runs are IN CONTROL under the mount class), and M1 does publish
+  // a magnitude: this driver's refusal is the ensemble one.
   //
-  // THE ANNOTATION STAYS. It exists because the ruling that made these rows
-  // regimes is ABOUT their controls, so a reader must meet the status rather
-  // than infer it. What survives both rulings — and is the real subject of the
-  // fixture's `ctlOk: false` — is that the mount regime does not WAIT on its
+  // THE ANNOTATION STAYS. A regime is ABOUT the row's controls, so a reader
+  // must meet the status rather than infer it. What the fixture's
+  // `ctlOk: false` exercises is that the mount regime does not WAIT on its
   // control.
   //
   // NOTE THAT THIS SUFFIX DOES NOT FIRE ON THE COMMITTED CORPUS: it needs
@@ -2588,14 +2575,14 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(
       all,
       /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — the regime does not wait on this control, so a failure here withholds nothing/,
-      'the independence is what both rulings leave standing, so it is what the annotation states'
+      'the regime is independent of its control, so that is what the annotation states'
     );
     // Two-sided, because a pin that asserted only the current sentence would
     // pass on a line that had merely gained it beside the retired one.
     assert.doesNotMatch(
       all,
       /positive control: FAIL[^\n]*expected/,
-      'ctl-2x is not failing, so no live ruling PREDICTS this failure'
+      'ctl-2x is not failing, so nothing PREDICTS this failure'
     );
     assert.doesNotMatch(
       all,
@@ -2662,10 +2649,8 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   });
 
   t('a mount regime is NOT withheld by a failing control — the two regimes differ deliberately', () => {
-    // The mount ruling's premise WAS that ctl-2x fails, so a mount regime that
-    // waited on it could never be stated at all. rf2-8a746 removed the premise and
-    // rf2-diaud the position; the independence survives both, which is why the
-    // fixture still sets `ctlOk: false` and the row still STATES itself.
+    // The mount regime does not wait on ctl-2x, which is why the fixture sets
+    // `ctlOk: false` and the row still STATES itself.
     const v = reportability([mountRow()]);
     assert.match(v.lines.join('\n'), /M1 \[mount-regime\] STATED/);
     assert.doesNotMatch(v.lines.join('\n'), /M1 .* WITHHELD/);
@@ -4160,8 +4145,8 @@ function fixtureRoundsTask(over) {
 // check standard as the gate, and a run-preserving effect-size interval as the
 // publication rule. Both are pinned here, and the interval is pinned as a
 // PROCEDURE — the corpus case below asserts that a verdict is well formed and
-// that the 42 committed row-runs publish no magnitude, which is the ruling's
-// own fence, not a preferred answer.
+// that the 42 committed row-runs publish no magnitude, which is the
+// calibration's own fence, not a preferred answer.
 {
   const {
     STANDARD, checkStandard, checkStandardSelfTest, classOf,
@@ -4436,14 +4421,13 @@ function fixtureRoundsTask(over) {
     // Driven at the boundary in each direction. A lower ratio is faster: these
     // are times.
     //
-    // A ROW AND A PAIR, AND NO BAND CONDITION. rf2-diaud asks the
-    // verdict for a ROW and a PAIR rather than for a bare limit, because the
-    // threshold belongs to the row class beside the estimand it was derived
-    // for — and `fresco / reagent-subs` is the pair validation.md's bulk bar
-    // actually names (rf2-vp0j7). rf2-8a746's rule ALSO required the effect to
-    // exceed the widest same-run band; rf2-diaud (c) and rf2-vh0e3 retired that
-    // from publication authority on every class, so it no longer reaches this
-    // verdict. Asserted below rather than assumed.
+    // A ROW AND A PAIR, AND NO BAND CONDITION. The verdict is asked for a ROW
+    // and a PAIR rather than for a bare limit, because the threshold belongs
+    // to the row class beside the estimand it was derived for — and
+    // `fresco / reagent-subs` is the pair validation.md's bulk bar actually
+    // names. The widest same-run band has no publication authority on any
+    // class, so it does not reach this verdict. Asserted below rather than
+    // assumed.
     const P = 'fresco / reagent-subs';
     const ev = (iv, bandPct) => effectVerdict(iv, BULK, P, { widestSameRunBandPct: bandPct });
     const below = { runs: 8, rounds: [6], point: 0.6, lo: 0.55, hi: 0.65, draws: 1, seed: 1 };
@@ -4471,7 +4455,7 @@ function fixtureRoundsTask(over) {
   // THE TEST PINS THE PROCEDURE, NOT THE ANSWER. What is asserted is that
   // every pair of every bulk row comes back with a WELL-FORMED verdict
   // carrying its own reason, and that none of them publishes a magnitude —
-  // which is the ruling's own fence rather than a preferred result: the 42
+  // which is the calibration's own fence rather than a preferred result: the 42
   // committed row-runs are calibration and diagnostic evidence and are NOT
   // retroactively promoted. If the procedure ever published from them this
   // test fails, and that failure is the finding.
@@ -4518,7 +4502,7 @@ function fixtureRoundsTask(over) {
           const bands = pooled.map(({ row }) => row.seamTask.band).filter(Number.isFinite).map((b) => b * 100);
           const ev = effectVerdict(iv, rowId, pair, { widestSameRunBandPct: bands.length ? Math.max(...bands) : NaN });
           assert.ok(typeof ev.why === 'string' && ev.why.length > 0, `${dir}/${rowId}/${pair}: a verdict must carry its reason`);
-          // CO-INSTRUMENTED joins the roster under rf2-vp0j7: bulk's bar names
+          // CO-INSTRUMENTED is on the roster because bulk's bar names
           // `fresco / reagent-subs`, so the other two pairs are reported and
           // not adjudicated. The fence below is what matters
           // here — an un-adjudicated pair publishes nothing either.
@@ -4540,13 +4524,12 @@ function fixtureRoundsTask(over) {
   });
 
   t('and the program itself exits 0 over both committed ensembles, publishing no BULK magnitude', () => {
-    // SCOPED TO THE BULK BLOCKS BY rf2-diaud, and the scoping is the fence
-    // rather than a relaxation of it. The mount row publishes under its own
-    // ruling, so a whole-output grep would pin M1's verdict here by accident
-    // — in the block whose entire subject is that the 42 BULK row-runs are
-    // calibration evidence and are never retroactively promoted. The M1
-    // verdict is pinned where it belongs, in the rf2-diaud
-    // block at the foot of this file.
+    // SCOPED TO THE BULK BLOCKS, and the scoping is the fence rather than a
+    // relaxation of it. The mount row publishes under its own rule, so a
+    // whole-output grep would pin M1's verdict here by accident — in the
+    // block whose entire subject is that the 42 BULK row-runs are calibration
+    // evidence and are never retroactively promoted. The M1 verdict is pinned
+    // where it belongs, in the estimand block near the foot of this file.
     const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
     for (const { dir } of CORPORA) {
       const d = path.join(__dirname, 'data', dir);
@@ -4579,9 +4562,9 @@ function fixtureRoundsTask(over) {
   });
 
   t('the residual uncertainty is carried: no surface states paint causation', () => {
-    // The ruling carries it explicitly — "non-layout and saturating below
-    // d=100" is established; that PAINT causes the concavity is not, because
-    // the datasets have no paint counter.
+    // "Non-layout and saturating below d=100" is established; that PAINT
+    // causes the concavity is not, because the datasets have no paint
+    // counter.
     for (const [name, src] of [
       ['clock_run.cjs', CLOCKSRC],
       ['clock_readjudicate.cjs', RJSRC2],
@@ -4778,11 +4761,7 @@ function fixtureRoundsTask(over) {
           /^(INSTRUMENT-LIMITED|MAGNITUDE PUBLISHABLE|ARCHITECTURE-KILL|K1 MISSED|MOUNT SHIP BAR MET|CO-INSTRUMENTED)/.test(ev.verdict),
           `${dir}/M1/${pair}: unrecognised verdict ${ev.verdict}`
         );
-        // THE PIN FLIPPED, AND IT FLIPPED BY RULING (rf2-diaud, 2026-08-08).
-        //
-        // It used to read `publishes === false` on every pair, with a message
-        // saying that a flip is a ruling to be made and not a test to be
-        // updated. The ruling says: `M1` is adjudicated against K1's `1.10x`
+        // THE GATED PAIR PUBLISHES. `M1` is adjudicated against K1's `1.10x`
         // mount gate rather than against bulk's `1.0`/`1.5`, on K1's OWN
         // floor-normalised estimand, and on the gated pair the whole interval
         // sits above the gate. The magnitude is published — as a MISS, which
@@ -5125,7 +5104,7 @@ function fixtureRoundsTask(over) {
   });
 }
 
-// --- rf2-diaud: A POINT AND AN INTERVAL MUST DESCRIBE THE SAME ESTIMAND ------
+// --- A POINT AND AN INTERVAL MUST DESCRIBE THE SAME ESTIMAND ----------------
 //
 // The defect this block pins is not a wrong number: every published figure is
 // correctly computed. The fault is a POINT and an INTERVAL from two different
@@ -5159,7 +5138,7 @@ function fixtureRoundsTask(over) {
   const prose = (file) =>
     fs.readFileSync(path.join(STUDIO, file), 'utf8').replace(/\r?\n>?[ \t]*/g, ' ').replace(/[ \t]+/g, ' ');
 
-  /** The ruling's expected outcome, to 4 places — the tool's, not the note's. */
+  /** The expected outcome, to 4 places — the tool's figures, not a note's. */
   const EXPECTED = {
     'clock-emvod': { runs: 8, point: '1.1718', lo: '1.1263', hi: '1.2190', widestBand: 22.34 },
     'clock-w3yxd': { runs: 6, point: '1.1976', lo: '1.1504', hi: '1.2468', widestBand: 18.29 },
@@ -5322,7 +5301,7 @@ function fixtureRoundsTask(over) {
 
   t('MUTATION: swapping the mount estimand changes the published figure, which is the splice', () => {
     // Both estimators are correct arithmetic. Which one the row publishes on is
-    // the RULING, and it is one field. Flipping it here and reading the figure
+    // a DECISION, and it is one field. Flipping it here and reading the figure
     // back is the closest this file can get to committing the splice on
     // purpose and watching the test catch it.
     const pooled = pooledM1('clock-emvod');
@@ -5348,7 +5327,7 @@ function fixtureRoundsTask(over) {
 
   t('criterion (c): the retirement is LOAD-BEARING, and the veto SPLITS the two ensembles', () => {
     // Stated as arithmetic rather than asserted, because a retirement that
-    // changed no outcome would not need a ruling. What the corpus shows is
+    // changed no outcome would not need arguing. What the corpus shows is
     // stronger than "it would refuse", and it is recorded here as an argument
     // in its own right:
     //
@@ -5393,15 +5372,14 @@ function fixtureRoundsTask(over) {
   });
 
   t('criterion (c): the retirement ended up GENERAL, and every class says so as data', () => {
-    // As this repair shipped it, (c) was mount-only: (b) said "bulk's path
-    // unchanged", and retiring the veto on bulk promoted DONOR-AGAINST-DONOR
-    // pairs out of the 42-run corpus rf2-8a746 fenced. rf2-vh0e3 ruled that
-    // the collision dissolves once bulk gates the pair its own bar names —
-    // an un-adjudicated pair has no verdict for a retirement to promote it
-    // into. What belongs HERE is only that criterion (c) came out general,
-    // which is what its own three reasons say; the corpus mechanics, and the
-    // two-way mutation on the field, are pinned in the rf2-vp0j7/rf2-vh0e3
-    // block at the foot of this file.
+    // Were bulk to adjudicate every pair, retiring the veto there would
+    // promote DONOR-AGAINST-DONOR pairs out of the 42-run corpus the bulk
+    // calibration fences. Bulk gates only the pair its own bar names, and an
+    // un-adjudicated pair has no verdict for a retirement to promote it into.
+    // What belongs
+    // HERE is only that criterion (c) is general, which is what its own three
+    // reasons say; the corpus mechanics, and the two-way mutation on the
+    // field, are pinned in the gated-pair block at the foot of this file.
     const classes = Object.keys(PUBLICATION);
     assert.deepStrictEqual(classes.sort(), ['bulk', 'mount'], 'every publication class is covered by this assertion');
     for (const klass of classes) {
@@ -5412,7 +5390,7 @@ function fixtureRoundsTask(over) {
   // --- 4. CRITERION (e): M1 PUBLISHES FROM THE CANONICAL TOOL'S OUTPUT ------
 
   t('criterion (e): the figures come out of clock_readjudicate.cjs itself, on both ensembles', () => {
-    // NOT from the ruling note and not from any replay. The tool is spawned,
+    // NOT from a note and not from any replay. The tool is spawned,
     // its M1 block is read, and the point and BOTH bounds are asserted off the
     // one printed line — which is the only way a splice cannot survive: a
     // figure read from one line of one estimator's output has no second line
@@ -5467,15 +5445,15 @@ function fixtureRoundsTask(over) {
     }
     const src = prose('rows-re-adjudicated-on-the-corrected-clock.md');
     // THE HONEST DISTANCE IS COMPUTED, NOT QUOTED, and it is 2.58 pp rather
-    // than the ruling's 2.59. Both are right about different summaries of the
-    // same estimand: 2.59 pp is the gap between the whole-ensemble ARITHMETIC
-    // means of the per-round bar (1.1798 / 1.2057), the ruling's figure;
-    // 2.58 pp is the gap between the figures this row PUBLISHES
-    // (1.1718 / 1.1976), which are the bootstrap's balanced
-    // mean-of-logs. Criterion (e) says the tool's output is the record, so the
-    // page states the distance between its own published points and says which
-    // summary that is — quoting 2.59 beside them would be a splice one order
-    // smaller than the one this ruling exists to retire.
+    // than 2.59. Both are right about different summaries of the same
+    // estimand: 2.59 pp is the gap between the whole-ensemble ARITHMETIC
+    // means of the per-round bar (1.1798 / 1.2057); 2.58 pp is the gap
+    // between the figures this row PUBLISHES (1.1718 / 1.1976), which are the
+    // bootstrap's balanced mean-of-logs. Criterion (e) says the tool's output
+    // is the record, so the page states the distance between its own
+    // published points and says which summary that is — quoting 2.59 beside
+    // them would be a splice one order smaller than the one this block
+    // exists to prevent.
     const gap = ((1.1976 - 1.1718) * 100).toFixed(2);
     assert.strictEqual(gap, '2.58');
     assert.match(src, new RegExp(`\\*\\*${gap} pp\\*\\*`), 'the distance between the PUBLISHED points, computed here');
@@ -5484,24 +5462,21 @@ function fixtureRoundsTask(over) {
   });
 }
 
-// --- rf2-vp0j7 / rf2-vh0e3: BULK GATES THE PAIR ITS BAR NAMES ----------------
+// --- BULK GATES THE PAIR ITS BAR NAMES ---------------------------------------
 //
-// TWO RULINGS THAT INTERLOCK, and the interlock is the whole content of the
+// TWO RULES THAT INTERLOCK, and the interlock is the whole content of the
 // block.
 //
-// rf2-vp0j7 is a scope defect. `validation.md:17` states the bulk ship bar as
-// "<= 1.0x Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
+// THE SCOPE. `validation.md:17` states the bulk ship bar as "<= 1.0x
+// Reagent-on-subs, LIKE-FOR-LIKE, both sides reading re-frame2
 // subscriptions" — ONE comparison, exactly as `:15-16` state the mount's
 // against direct UIx-on-subs. A rule adjudicating all three pairs of a bulk
 // row against it would hold `fresco / uix-subs` and `uix-subs / reagent-subs`
-// to a threshold written for a different question. That is the error `rf2-diaud`
-// fixed one class up, where it would otherwise have printed MOUNT SHIP BAR MET
-// on a donor-against-donor pair.
+// to a threshold written for a different question — the same error that,
+// one class up, would print MOUNT SHIP BAR MET on a donor-against-donor pair.
 //
-// rf2-vh0e3 is the collision it was masking. `rf2-diaud` (c) retires the
-// cross-run max-band second veto and gives three general reasons; (b) of the
-// same ruling says "bulk's path unchanged". Those cannot both hold, because
-// retiring the veto on `bulk` would promote pairs of the 42-run corpus the
+// THE VETO. The cross-run max-band second veto is retired on every class,
+// and retiring it on `bulk` would promote pairs of the 42-run corpus the
 // bulk calibration fences. EVERY ONE OF THOSE PAIRS IS `uix-subs /
 // reagent-subs` — donor against donor — so with `gatedPairs` they are not
 // adjudicated at all and there is no verdict for the retirement to promote
@@ -5511,8 +5486,8 @@ function fixtureRoundsTask(over) {
 // designed it to be.
 //
 // THE LOAD-BEARING CHECK IS THAT THE GATED PAIR DOES NOT MOVE. If retiring the
-// veto flipped `fresco / reagent-subs`, the ruling's premise would be wrong
-// and the fence would be breached. It does not: on all six row-ensemble
+// veto flipped `fresco / reagent-subs`, the retirement's premise would be
+// wrong and the fence would be breached. It does not: on all six row-ensemble
 // combinations that pair straddles `1.0` and is refused by the WHOLE-INTERVAL
 // rule, which sits ahead of the veto and is untouched by it. That is a fact
 // about this corpus and not a property of the rule, so it is driven here — and
@@ -5547,7 +5522,7 @@ function fixtureRoundsTask(over) {
     };
   };
 
-  // --- 1. rf2-vp0j7: A NON-GATED BULK PAIR REPORTS, AND ADJUDICATES NOTHING --
+  // --- 1. A NON-GATED BULK PAIR REPORTS, AND ADJUDICATES NOTHING ------------
 
   t('a non-gated bulk pair keeps its interval and loses only the VERDICT', () => {
     // `validation.md`'s "co-instrumented and reported beside" language is why
@@ -5599,7 +5574,7 @@ function fixtureRoundsTask(over) {
     }
   });
 
-  // --- 2. rf2-vp0j7: THE GATED PAIR IS THE ONLY ONE THAT ADJUDICATES --------
+  // --- 2. THE GATED PAIR IS THE ONLY ONE THAT ADJUDICATES -------------------
 
   t('the gated bulk pair still adjudicates, and is still INSTRUMENT-LIMITED on this corpus', () => {
     // The fence. `fresco / reagent-subs` is what `validation.md`'s bulk bar
@@ -5608,7 +5583,7 @@ function fixtureRoundsTask(over) {
     // by the whole-interval rule, which is the first condition and not the
     // retired second one. The reason is asserted, not just the outcome,
     // because "refused by the band" and "refused by the interval" answer the
-    // rf2-vh0e3 question differently.
+    // veto question in the header above differently.
     assert.deepStrictEqual(publicationRule('bulk300').gatedPairs, [GATED], "bulk gates the pair validation.md:17 names");
     let seen = 0;
     for (const dir of CORPORA) {
@@ -5627,11 +5602,11 @@ function fixtureRoundsTask(over) {
   });
 
   t('MUTATION: the band veto is retired on bulk, and the gated pair does not move either way', () => {
-    // rf2-vh0e3's load-bearing check, driven in BOTH directions. Retiring the
-    // veto is what the ruling does; that the one adjudicated bulk pair returns
-    // a BYTE-IDENTICAL verdict with the veto forced back on is what makes the
-    // retirement safe to make — the whole-interval rule refuses it first, so
-    // the veto is not what holds it.
+    // The load-bearing check from the header above, driven in BOTH
+    // directions. The veto is retired; that the one adjudicated bulk pair
+    // returns a BYTE-IDENTICAL verdict with the veto forced back on is what
+    // makes the retirement safe — the whole-interval rule refuses it first,
+    // so the veto is not what holds it.
     assert.strictEqual(PUBLICATION.bulk.crossRunBandVeto, false, 'the entry says so as data');
     for (const dir of CORPORA) {
       for (const rowId of BULK_ROWS) {
@@ -5655,7 +5630,7 @@ function fixtureRoundsTask(over) {
   t('MUTATION: and the retired veto still REFUSES when it is switched back on', () => {
     // The other direction, on a synthetic interval, because the corpus cannot
     // show it: no bulk pair that is adjudicated ever reaches the veto. The
-    // refusal branch is kept live so the ruling is one line to overturn, and a
+    // refusal branch is kept live so the retirement is one line to overturn, and a
     // branch nobody drives is a branch nobody can trust.
     const iv = { runs: 8, rounds: [6], point: 0.9, lo: 0.85, hi: 0.95, draws: 1, seed: 1 };
     const ev = () => effectVerdict(iv, 'bulk300', GATED, { widestSameRunBandPct: 40 });
@@ -5699,7 +5674,7 @@ function fixtureRoundsTask(over) {
   });
 
   t('MUTATION: and gatedPairs is WHY — without it the donor-against-donor pairs would publish', () => {
-    // rf2-vh0e3's cost, priced. These are the pairs the band veto masks
+    // The scope's value, priced. These are the pairs the band veto masks
     // incidentally: `uix-subs / reagent-subs` is UIx-on-subs against
     // Reagent-on-subs, whose whole interval sits below 1.0, and publishing a
     // magnitude on it would assert that a DONOR meets the CANDIDATE's bulk
@@ -5722,11 +5697,10 @@ function fixtureRoundsTask(over) {
         if (mutated.publishes) would.push(`${dir}/${rowId}`);
       }
     }
-    // THE COUNT IS THE MEASUREMENT, and it is three rather than the two both
-    // beads record: rf2-vh0e3 named `clock-emvod`'s `bulk300` and `bulk100`,
-    // and `clock-w3yxd`'s `bulk300` is a third with the same shape (effect
-    // 9.6% against a 15.5% band, whole interval [0.8740 – 0.9373]). The
-    // ruling is unaffected — all three are donor against donor.
+    // THE COUNT IS THE MEASUREMENT, and it is three: `clock-emvod`'s
+    // `bulk300` and `bulk100`, and `clock-w3yxd`'s `bulk300` with the same
+    // shape (effect 9.6% against a 15.5% band, whole interval
+    // [0.8740 – 0.9373]). All three are donor against donor.
     assert.deepStrictEqual(
       would,
       ['clock-emvod/bulk300', 'clock-emvod/bulk100', 'clock-w3yxd/bulk300'],
