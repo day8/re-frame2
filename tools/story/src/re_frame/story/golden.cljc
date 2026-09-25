@@ -1,9 +1,6 @@
 (ns re-frame.story.golden
   "Golden slices — curated canonicalized run/epoch regression artifacts
-  (NewTestStory rf2-5x1wt.32, spec/017-Testing-Story.md §Golden slices).
-  The deferred P1.5 surface, unblocked now that canonicalization has been
-  proven by the determinism gate (rf2-5x1wt.8) + the semantic diff
-  (rf2-5x1wt.9).
+  (spec/017-Testing-Story.md §Golden slices).
 
   ## What a golden slice is
 
@@ -32,8 +29,7 @@
   primitive the determinism gate compares N replays through and the
   semantic diff projects before comparing — so a golden mismatch means a
   SEMANTIC difference (app-db, effect, assertion verdict, schema failure,
-  trace spine), never volatile drift. This is exactly why the bead was
-  deferred until `.3`/`.8`'s `canonicalize` was proven: the golden reuses
+  trace spine), never volatile drift. The golden reuses
   that one strip path rather than inventing a second one.
 
   ## The behavioural slice
@@ -56,7 +52,7 @@
   - `capture-golden` — freeze a run-result (or a `:rf.test/run-artifact`,
     via `->run-result`) into a `:rf.test/golden` slice. Pure when handed a
     run-result; impure (replays into a fresh frame) when handed an
-    artifact. A normalized variant plan is refused (rf2-3x7nj.31.2).
+    artifact. A normalized variant plan is refused.
   - `golden-match?` — true iff a new run canonicalizes `=` to the golden's
     frozen slice. The fast path first confirms the golden's frozen
     `:slice-keys` still match the current `run-hash-input-keys` (a
@@ -76,7 +72,7 @@
   data: a run-result in,
   a golden / verdict out — so they run under `clojure -M:test` with no
   runtime. The only impurity is `->run-result`, which (for an artifact
-  input) replays into a fresh frame via `.7`'s `replay-run-artifact`.
+  input) replays into a fresh frame via `replay-run-artifact`.
 
   This ns is bundle-isolated tooling; it `:require`s ONLY the pure
   fingerprint / diff modules + the artifact replay seam (which itself uses
@@ -193,7 +189,7 @@
   capture-from-artifact and capture-from-result agree.
 
   A normalized variant plan (a map carrying `:world`) is REJECTED with
-  `:rf.error/golden-bad-target` (rf2-3x7nj.31.2): an artifact built from a
+  `:rf.error/golden-bad-target`: an artifact built from a
   plan drops its decorator stubs, `:db-seed`, frame-setup, loaders,
   terminal expectations and extra plays, so replaying it would freeze a run
   the variant never makes. The plan check sits ahead of the `:status` check
@@ -253,7 +249,7 @@
     so a golden frozen from an artifact captures the fresh-frame run.
 
   A normalized variant plan is REJECTED with `:rf.error/golden-bad-target`
-  (rf2-3x7nj.31.2) — capture a variant from the run-result of
+  — capture a variant from the run-result of
   `re-frame.story/run` on its id. Any other input is rejected the same way
   (see `->run-result`) — capture FAILS CLOSED rather than freezing a
   garbage golden from an unrecognized shape.
@@ -292,7 +288,7 @@
   NO second canonicalization pass) avoids running `canonicalize` twice per
   match / compare. The equivalence `hash-canonical(canonicalize(slice)) =
   run-hash(result)` is locked by the golden_test run-hash agreement
-  assertions (rf2-lvrqa — `canonical-form` is no longer idempotent under the
+  assertions (`canonical-form` is not idempotent under the
   type-tags, so the canon MUST be hashed with `hash-canonical`, not
   re-canonicalized via `content-hash`)."
   [result]
@@ -315,9 +311,9 @@
   this guard the drift would read as a confusing fake regression rather than
   'baseline surface changed — recapture'.
 
-  A golden captured before `:slice-keys` was stored (no slot) is treated as
+  A golden with no `:slice-keys` slot is treated as
   current — there is nothing to compare against, and failing it closed would
-  flag every legacy golden as stale."
+  flag every such golden as stale."
   [golden]
   (let [frozen (:slice-keys golden)]
     (or (nil? frozen)
