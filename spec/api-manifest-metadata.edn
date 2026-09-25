@@ -739,91 +739,84 @@
   ;; re-frame.core — the user-facing façade.
   ;; =========================================================================
   ;; Registration (spec/API.md §Registration).
-  ;; EP-0018 (rf2-xhfxcs.14, Slice Z — final removal flip): `reg-event` is the
-  ;; ONE public event form (coeffects in, a closed effects map out). Front-porch
-  ;; (the canonical event registrar). The former `reg-event-db` / `reg-event-fx`
-  ;; are REMOVED and public `reg-event-ctx` is demoted to a framework-internal
-  ;; primitive (EP-0007 rule 2 — no alias); they survive ONLY as `^:no-doc`
-  ;; facade-exported throwing stubs (raising `:rf.error/reg-event-db-removed` /
+  ;; `reg-event` is the ONE public event form (coeffects in, a closed effects
+  ;; map out; EP-0018). Front-porch
+  ;; (the canonical event registrar). `reg-event-db` / `reg-event-fx` are not
+  ;; public and `reg-event-ctx` is a framework-internal
+  ;; primitive (EP-0007 rule 2 — no alias); the facade exports them ONLY as
+  ;; `^:no-doc` throwing stubs (raising `:rf.error/reg-event-db-removed` /
   ;; `-fx-removed` / `-ctx-removed`), so the manifest generator + the CLJS
   ;; publics probe DROP them — they carry NO manifest row. (A classification
-  ;; entry for any of the three would be a STALE-sidecar drift error, since the
-  ;; `^:no-doc` var no longer resolves as a live PUBLIC var.)
+  ;; entry for any of the three would be a STALE-sidecar drift error, since a
+  ;; `^:no-doc` var does not resolve as a live PUBLIC var.)
   ["re-frame.core" "reg-event"]           {:tier :front-porch :owner "002" :status "EP-0018"
                                           :action :keep
-                                          :justification "Front-porch: THE event registrar since EP-0018 collapsed the -db/-fx/-ctx family into one form. The first thing anyone writes."}
-  ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 name; grammar changed to :inputs (rf2-kuky.45)"
+                                          :justification "Front-porch: THE event registrar, one form for every event (EP-0018). The first thing anyone writes."}
+  ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 name; grammar changed to :inputs"
                                           :action :keep
-                                          :justification "Front-porch: the subscription registrar -- day-one vocabulary, and half of what the Guide's first chapter teaches. The NAME is v1; the GRAMMAR is not preserved. Dependencies moved out of arg position into the metadata map as :inputs -- the slot reg-flow already uses -- and declared inputs always reach the body as a vector, so the signature is the family's (reg-sub id ?metadata computation-fn). The v1 :<- chain and two-fn tail are deleted."}
+                                          :justification "Front-porch: the subscription registrar -- day-one vocabulary, and half of what the Guide's first chapter teaches. The NAME is v1; the GRAMMAR is not: dependencies live in the metadata map as :inputs -- the slot reg-flow uses -- and declared inputs always reach the body as a vector, so the signature is the family's (reg-sub id ?metadata computation-fn). There is no :<- chain and no two-fn tail."}
   ["re-frame.core" "reg-fx"]              {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: the effect registrar, the other half of what a reg-event returns. An app that registers events registers effects in the same file."}
-  ;; EP-0017 (rf2-m4l7l2): `reg-cofx`'s signature is a BREAKING change, not a
-  ;; preservation — the v1 ctx→ctx handler `(fn [ctx] ctx)` is retired for a
+  ;; `reg-cofx`'s signature is NOT v1's (EP-0017): a
   ;; value-returning supplier `(fn [] v)` / `(fn [arg] v)` plus a registration
-  ;; grade (ambient default, or recordable via `:recordable?`/`:provided?`).
-  ;; Still a real front-porch registrar, so the tier holds; the status moves
-  ;; off "v1 (preserved)" to "v1 (changed, EP-0017)" (cf. spec/API.md §Registration,
+  ;; grade (ambient default, or recordable via `:recordable?`/`:provided?`),
+  ;; where v1 took a ctx→ctx handler `(fn [ctx] ctx)`.
+  ;; A real front-porch registrar, with the status
+  ;; "v1 (changed, EP-0017)" (cf. spec/API.md §Registration,
   ;; which carries Status `EP-0017` for this row). See spec/001-Registration.md
   ;; §Coeffects — `reg-cofx` (value-returning, graded).
   ["re-frame.core" "reg-cofx"]            {:tier :front-porch :owner "002" :status "v1 (changed, EP-0017)"
                                           :action :keep
-                                          :justification "Front-porch: one of the five registrars an ordinary app writes. EP-0017 changed its signature to a value-returning supplier, not its placement."}
-  ;; EP-0022 (rf2-0adhqs.2): the public interceptor-authoring registrar.
+                                          :justification "Front-porch: one of the five registrars an ordinary app writes. Its signature is EP-0017's value-returning supplier; its placement is v1's."}
+  ;; EP-0022: the public interceptor-authoring registrar.
   ;; `reg-interceptor` (macro, captures source coords) is the front-porch form.
-  ;; The `reg-interceptor*` facade twin (advanced HoF / programmatic variant)
-  ;; is RETIRED (rf2-m90brg, API-shrink #2) — `reg-interceptor`'s own name now
+  ;; There is no `reg-interceptor*` facade twin (advanced HoF / programmatic
+  ;; variant): `reg-interceptor`'s own name
   ;; carries a plain-fn value on CLJS (Convention A, mirroring `reg-event` /
-  ;; `reg-sub` / etc.), so the twin was a pure redundancy; a JVM programmatic
+  ;; `reg-sub` / etc.), so a twin would be pure redundancy; a JVM programmatic
   ;; caller reaches `re-frame.interceptor-registry/reg-interceptor*` directly.
   ;; The `:interceptor` registrar kind + descriptor forms are owned by
   ;; spec/001-Registration §Interceptors; the by-reference chain grammar is
   ;; spec/002-Frames §Registered interceptors.
   ["re-frame.core" "reg-interceptor"]     {:tier :front-porch :owner "001" :status "EP-0022"
                                           :action :keep
-                                          :justification "Front-porch: the public interceptor-authoring form (EP-0022 Slice C). ->interceptor and ->interceptor* were removed from the facade precisely so this is the one authoring door."}
-  ;; rf2-h1vqa4: `reg-frame` is DELETED (no alias, no tombstone — never shipped
-  ;; in a release). A frame is a LIVE runtime object, not a program member, so
-  ;; the one reg-* that constructed instead of registered corrupted the
-  ;; registrar grammar. `make-frame` (below) is the ONE programmatic
-  ;; constructor; `frame-root` is the ENSURE mount recipe.
-  ;; EP-0024 (rf2-tu2vr7): `make-frame` is the ONE frame constructor over the ONE
+                                          :justification "Front-porch: the public interceptor-authoring form (EP-0022). ->interceptor and ->interceptor* are not on the facade, so this is the one authoring door."}
+  ;; There is no `reg-frame`: a frame is a LIVE runtime object, not a
+  ;; program member, so a reg-* that constructed instead of registered would
+  ;; corrupt the registrar grammar. `make-frame` (below) is the ONE
+  ;; programmatic constructor; `frame-root` is the ENSURE mount recipe.
+  ;; EP-0024: `make-frame` is the ONE frame constructor over the ONE
   ;; `frames` registry — it backs onto the unified `re-frame.live-frame/make-frame`,
   ;; RETURNS THE FRAME VALUE (the lifecycle token), and accepts BOTH
   ;; image-selection opts (`:images` / `:id` / `:capabilities` /
   ;; `:adapter`) AND record-config opts (`:initial-events` / `:fx-overrides` /
   ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification) in one
-  ;; call. EP-0024 adopts the deferred option-(a) and REVERSES the rf2-32siq3.45
-  ;; option-(b) `:rf.error/make-frame-record-only-key` fail-loud redirect (the
-  ;; unified single frame value backed by the one registry removes the
-  ;; two-constructor split that motivated the redirect). A duplicate `:id` is now
+  ;; call — one frame value backed by the one registry, so there is no
+  ;; two-constructor split. A duplicate `:id` is
   ;; idempotent replacement (preserving durable state). The advanced
-  ;; `re-frame.frame/make-anon-frame-record!` (rf2-ji3tvy renamed it from the bare
-  ;; `make-frame` to drop the short-name collision with this public constructor)
-  ;; is an INTERNAL no-`:id` record helper; it is not facade-exported. Status
-  ;; `EP-0023` -> `EP-0024`.
+  ;; `re-frame.frame/make-anon-frame-record!` (named apart from this public
+  ;; constructor so the short names never collide)
+  ;; is an INTERNAL no-`:id` record helper; it is not facade-exported.
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "EP-0024"
                                           :action :keep
-                                          :justification "The ONE programmatic frame constructor over the ONE frames registry (EP-0024); it returns the frame value every other public surface accepts interchangeably with an id. Advanced rather than front-porch because most apps mount through frame-root. RECORDED UNCERTAINTY (scale, not placement): at 687 in-repo consumer files it is the most-referenced name on the facade, so any future move is a consumer break rather than a tidy-up -- which is why it is recorded keep and not litigated further here."}
-  ;; API-shrink #1 (rf2-csbbwu): `frame-value->id` (EP-0024 rf2-tu2vr7's public
-  ;; accessor from a frame VALUE to its frame id) is DELETED from the facade —
-  ;; `frame-provider`'s `:frame` is normalized to accept a frame value
-  ;; alongside a keyword id, so every public surface (`dispatch` /
-  ;; `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` / …)
-  ;; now accepts a frame value or its id interchangeably; there is no longer a
-  ;; public need to unwrap a value to its id. The internal normalization
-  ;; primitive (`re-frame.frame/frame-value->id`) survives for the
+                                          :justification "The ONE programmatic frame constructor over the ONE frames registry (EP-0024); it returns the frame value every other public surface accepts interchangeably with an id. Advanced rather than front-porch because most apps mount through frame-root. RECORDED UNCERTAINTY (scale, not placement): at 687 in-repo consumer files it is the most-referenced name on the facade, so any future move is a consumer break rather than a tidy-up -- which is why it is recorded keep."}
+  ;; There is no public `frame-value->id`: `frame-provider`'s `:frame`
+  ;; accepts a frame value alongside a keyword id, so every public surface
+  ;; (`dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` /
+  ;; `frame-provider` / …) accepts a frame value or its id interchangeably,
+  ;; and there is no public need to unwrap a value to its id. The internal
+  ;; normalization primitive (`re-frame.frame/frame-value->id`) serves the
   ;; framework's own call sites.
-  ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07): the
-  ;; dedicated `reload-images!` verb is RETIRED — image hot-reload is folded
-  ;; into re-`make-frame`-ing an `:id`-bearing frame with a new `:images`
-  ;; vector (EP-0023 §Hot Reload; the surgical-update path already swaps the
-  ;; generation while preserving frame memory). The facade name survives ONLY
+  ;; There is no `reload-images!` verb: image hot-reload is re-`make-frame`-ing
+  ;; an `:id`-bearing frame with a new `:images`
+  ;; vector (EP-0023 §Hot Reload; the surgical-update path swaps the
+  ;; generation while preserving frame memory). The facade name exists ONLY
   ;; as a `^:no-doc` throwing stub (`:rf.error/reload-images-removed`) and so
   ;; carries NO manifest row (the manifest generator drops `^:no-doc` vars).
-  ;; Its replacement read, `generation-diff`, is classified alongside its
-  ;; sibling `frame-generation` below.
-  ;; EP-0023 (rf2-32siq3.17 — image-loaded frames): `image` is the public
+  ;; The read that reports a reload, `generation-diff`, is classified
+  ;; alongside its sibling `frame-generation` below.
+  ;; EP-0023 (image-loaded frames): `image` is the public
   ;; `rf/image` CONSTRUCTOR — it builds an IMAGE value, the selected
   ;; registration-set value a frame resolves against (EP-0023 §Image, §Public
   ;; API). CLASSIFICATION (EP-0015 diff-time rule): a deliberate public
@@ -840,10 +833,7 @@
   ["re-frame.core" "image"]               {:tier :advanced    :owner "002" :status "EP-0023"
                                           :action :keep
                                           :justification "The public IMAGE constructor that make-frame consumes via :images (EP-0023, Image / Public API). Advanced because EP-0023 is explicit that most code should not have to name an image; it belongs beside make-frame, the only public call that takes its result."}
-  ;; (rf2-udl74a: the EP-0013 -> EP-0023 migration facade exports — migration-map /
-  ;; migration-explain / assert-process-local-frame-id! — were REMOVED with the
-  ;; atomic re-frame.realm/migration substrate removal. There is no
-  ;; retained-for-migration facade tier in pre-alpha.)
+  ;; There is no retained-for-migration facade tier in pre-alpha.
   ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "001" :status "v1"
                                           :action :keep
                                           :justification "Front-porch: the defn-shape view registrar that auto-injects lexical dispatch and subscribe. The first macro an author meets after reg-event."}
@@ -852,34 +842,31 @@
                                           :justification "Defined on re-frame.core itself as the runtime / higher-order form of front-porch reg-view -- computed ids, library-generated views, Form-3 bodies (Spec 001, Allowed forms of the middle slot). There is no owning namespace to move it to, and it must sit beside the macro whose escape hatch it is. 97 in-repo consumer files."}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"
                                           :action :keep
-                                          :justification "Advanced but facade-resident by the Conventions ruling Keep product facades coherent, which names machines as part of the single-import app-authoring vocabulary. The split an audit would propose is already made: rf2-wad2fl moved the plain-fn reg-machine* and the machine query helpers to re-frame.machines and kept the authoring macro here. 276 consumer files."}
+                                          :justification "Advanced but facade-resident by the Conventions ruling Keep product facades coherent, which names machines as part of the single-import app-authoring vocabulary. The split an audit would propose is made: the plain-fn reg-machine* and the machine query helpers live in re-frame.machines, and the authoring macro lives here. 276 consumer files."}
   ["re-frame.core" "defmachine"]          {:tier :advanced    :owner "005" :status "v1"
                                           :action :keep
                                           :justification "The defn-shape twin of reg-machine and its co-located authoring form. Splitting the pair across two requires is the exact scatter the coherent-facade ruling rejects."}
   ["re-frame.core" "reg-app-schema"]      {:tier :advanced    :owner "010" :status "v1"
                                           :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-schemas artefact, and the wrapper raises a documented :rf.error/schemas-artefact-missing when that artefact is absent. Moving the export to re-frame.schemas would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is also a registration macro the coherent-facade ruling names, and the schema INTROSPECTION reads were already moved to re-frame.schemas by rf2-wad2fl -- the registrars stayed deliberately."}
+                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-schemas artefact, and the wrapper raises a documented :rf.error/schemas-artefact-missing when that artefact is absent. Moving the export to re-frame.schemas would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is also a registration macro the coherent-facade ruling names; the schema INTROSPECTION reads live in re-frame.schemas, and the registrars stay here deliberately."}
   ["re-frame.core" "reg-app-schemas"]     {:tier :advanced    :owner "010" :status "v1"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-schemas artefact, and the wrapper raises a documented :rf.error/schemas-artefact-missing when that artefact is absent. Moving the export to re-frame.schemas would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Plural sibling of reg-app-schema with the same wrapper and the same registration role; separating the two would be arbitrary."}
-  ;; rf2-wad2fl (front-porch shrink): `reg-machine*` (the plain-fn machine-
-  ;; registration surface) is no longer a `re-frame.core` façade export — it is
-  ;; reached through `re-frame.machines/reg-machine*` (already classified
-  ;; below). The `reg-machine` / `defmachine` MACROS stay on the façade.
-  ;; EP-0015 §3 + bead item 2 (rf2-mngp4o), then EP-0025: the imperative
-  ;; `add-marks` / `set-marks` path-marks API AND the `re-frame.marks`
-  ;; namespace are removed. Durable app-db classification is now the four
+  ;; `reg-machine*` (the plain-fn machine-
+  ;; registration surface) is not a `re-frame.core` façade export — it is
+  ;; reached through `re-frame.machines/reg-machine*` (classified
+  ;; below). The `reg-machine` / `defmachine` MACROS are on the façade.
+  ;; There is no imperative path-marks API and no `re-frame.marks` namespace
+  ;; (EP-0025): durable app-db classification is the four
   ;; commit-plane effects (`:sensitive` / `:large` / `:clear-sensitive` /
-  ;; `:clear-large`, returned by a `reg-event` alongside `:db`) + `project-egress`;
-  ;; the marks projection substrate migrated into the marks-free
-  ;; `re-frame.classification` / `re-frame.elision` engine. Nothing here carries
-  ;; a manifest row.
+  ;; `:clear-large`, returned by a `reg-event` alongside `:db`) + `project-egress`,
+  ;; over the `re-frame.classification` / `re-frame.elision` engine.
   ["re-frame.core" "reg-flow"]            {:tier :advanced    :owner "013" :status "v1"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-flows artefact, and the wrapper raises a documented :rf.error/flows-artefact-missing when that artefact is absent. Moving the export to re-frame.flows would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Flows are named app-authoring vocabulary in the coherent-facade ruling."}
   ["re-frame.core" "reg-route"]           {:tier :advanced    :owner "012" :status "v1"
                                           :action :keep
-                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-routing artefact, and the wrapper raises a documented :rf.error/routing-artefact-missing when that artefact is absent. Moving the export to re-frame.routing would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Routes are named app-authoring vocabulary in the coherent-facade ruling; rf2-wad2fl already moved the URL-codec and lifecycle query helpers to re-frame.routing and kept the registration macro here."}
+                                          :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-routing artefact, and the wrapper raises a documented :rf.error/routing-artefact-missing when that artefact is absent. Moving the export to re-frame.routing would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Routes are named app-authoring vocabulary in the coherent-facade ruling; the URL-codec and lifecycle query helpers live in re-frame.routing, and the registration macro lives here."}
   ["re-frame.core" "reg-head"]            {:tier :advanced    :owner "011" :status "v1"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-ssr artefact, and the wrapper raises a documented :rf.error/ssr-artefact-missing when that artefact is absent. Moving the export to re-frame.ssr would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Spec 011 Head/meta contract; a page's head is declared in the same file as the render call it accompanies."}
@@ -889,18 +876,15 @@
   ["re-frame.core" "reg-http-interceptor"] {:tier :advanced   :owner "014" :status "v1 (optional capability)"
                                            :action :keep
                                            :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-http artefact, and the wrapper raises a documented :rf.error/http-artefact-missing when that artefact is absent. Moving the export to re-frame.http.managed would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. An app installs its auth or retry interceptor once, in the same boot file as its other registrations."}
-  ;; Resources — optional-artefact public-API wrappers (rf2-p10npe, Spec
-  ;; 016, EP-0003 slice 2). The `re-frame.core` façade exports delegate
+  ;; Resources — optional-artefact public-API wrappers (Spec
+  ;; 016, EP-0003). The `re-frame.core` façade exports delegate
   ;; through the late-bind table to `day8/re-frame2-resources`; an app
   ;; that omits the artefact sees a clean
   ;; `:rf.error/resources-artefact-missing`. Registration (`reg-resource`)
   ;; + registration-lifecycle (`clear-resource`) + introspection
-  ;; (`resource-state`; the registered SPEC has no accessor — rf2-kuky.31
-  ;; retired `resource-meta` for the generic `rf/handler-meta` query plus the
-  ;; documented `:rf/resource` inner-key projection). The producing
-  ;; `re-frame.resources` namespace is not yet introspected by the
-  ;; generator (its runtime surface lands with the later slices); these
-  ;; façade rows govern the public wrappers that ship now.
+  ;; (`resource-state`; the registered SPEC has no dedicated accessor — it is
+  ;; the generic `rf/handler-meta` query plus the
+  ;; documented `:rf/resource` inner-key projection).
   ["re-frame.core" "reg-resource"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Resource registration is the everyday half of the Spec 016 surface."}
@@ -908,109 +892,95 @@
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-resource."}
   ;; Mutations — the causal-write counterpart of the resource registration
-  ;; surface (rf2-dwme29, Spec 016 §Deferred slices / EP-0003 §Mutations, the
-  ;; first public-beta gate). Same optional-artefact wrapper posture as
+  ;; surface (Spec 016, EP-0003 §Mutations). Same optional-artefact wrapper
+  ;; posture as
   ;; reg-resource (delegate through the late-bind table; clean
   ;; :rf.error/resources-artefact-missing when the artefact is absent).
   ;; Registration (`reg-mutation`) + registration-lifecycle (`clear-mutation`)
   ;; + introspection (`mutation-state`; the registered SPEC is the generic
-  ;; query plus the `:rf/mutation` projection — rf2-kuky.31).
+  ;; query plus the `:rf/mutation` projection).
   ["re-frame.core" "reg-mutation"]        {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Mutations are the causal-write counterpart of the resource registration surface (Spec 016, EP-0003 Mutations) and share its wrapper posture exactly."}
   ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                           :action :keep
                                           :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. A live-state read that accompanies reg-mutation."}
-  ;; The `sub-mutation` / `sub-resource` reactive-read sugar fns were REMOVED
-  ;; (rf2-il99l3, reversing rf2-2cmcas): a resource / mutation state read is
+  ;; There are no `sub-mutation` / `sub-resource` reactive-read sugar fns: a
+  ;; resource / mutation state read is
   ;; the `[:rf/resource <query>]` / `[:rf/mutation {:instance …}]`
-  ;; subscription VECTOR — one read grammar. (Also dropped from the generator's
-  ;; `extra-vars`.)
-  ;; Named resource-scope resolvers — the third resources kind (rf2-hls77w,
-  ;; Spec 016 §Named resource-scope resolvers / EP-0016 D3 slice 2). The
-  ;; inverse of slice-1's spec-ahead reservation: these now ship as live
-  ;; facade vars (moved off the :api-md-known-unmanifested allowlist above).
+  ;; subscription VECTOR — one read grammar.
+  ;; Named resource-scope resolvers — the third resources kind (Spec 016
+  ;; §Named resource-scope resolvers / EP-0016 D3).
   ;; `reg-resource-scope` registers a pure named db-derived scope resolver
-  ;; under the :resource-scope kind; `clear-resource-scope` is the registrar
-  ;; decrement; `resolve-resource-scope` is the scope-resolution helper — PURE
+  ;; under the :resource-scope kind; `(rf/clear :resource-scope id)` is the
+  ;; registrar decrement; `resolve-resource-scope` is the scope-resolution helper — PURE
   ;; over the resolver registry (the logout coeffect-db idiom): not an effect
   ;; and with no observability side effect, so it emits no
   ;; `:rf.resource/scope-resolved` trace. That evidence is emitted only at the
   ;; causal resolution boundaries — a resource event's `{:from-db …}` scope,
-  ;; route entry and mutation settle. (rf2-gfrv corrects this comment's earlier
-  ;; rf2-fi6tda.7 wording, which claimed the opposite and contradicted the
-  ;; `re-frame.resources` neighbour below; the behaviour is pinned by
+  ;; route entry and mutation settle (the behaviour is pinned by
   ;; `pure-resolve-resource-scope-emits-no-trace` in
-  ;; implementation/resources/test/re_frame/resources_from_db_scope_cljs_test.cljc.)
+  ;; implementation/resources/test/re_frame/resources_from_db_scope_cljs_test.cljc).
   ;; Same optional-artefact wrapper posture
   ;; as reg-resource.
   ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                             :action :keep
-                                            :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Named resource-scope resolvers are the third resources kind (Spec 016, EP-0016 D3 slice 2) and share the wrapper posture of reg-resource."}
+                                            :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. Named resource-scope resolvers are the third resources kind (Spec 016, EP-0016 D3) and share the wrapper posture of reg-resource."}
   ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"
                                              :action :keep
                                              :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-resources artefact, and the wrapper raises a documented :rf.error/resources-artefact-missing when that artefact is absent. Moving the export to re-frame.resources would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The pure scope-resolution helper an app calls in the logout coeffect-db idiom, in the same file as the resolver it registered."}
   ;; Focus/reconnect revalidation carries NO facade row: it is the
   ;; `:revalidate-on` frame-config key, owned by the frame lifecycle
-  ;; (rf2-kuky.33, following routing's `:url-bound?` fold). The retired
-  ;; install-/remove-revalidation-listeners! pair is gone; the Lifecycle-verb
-  ;; uncertainty those two rows recorded against rf2-uimu is dissolved rather
-  ;; than answered -- there is no verb because there is no fn.
+  ;; (the same shape as routing's `:url-bound?`). There is no install/remove
+  ;; verb because there is no fn.
   ;; Clearing registrations (spec/API.md §Clearing registrations).
-  ;; rf2-wad2fl demoted `clear-flow` off the façade to `re-frame.flows`;
-  ;; rf2-kuky.80 then deleted that name too. `(rf/clear :flow id)` is the
+  ;; There is no `clear-flow`: `(rf/clear :flow id)` is the
   ;; one public door — see the `clear` row below.
   ["re-frame.core" "destroy-frame!"]      {:tier :front-porch :owner "002" :status "v1"
                                           :action :keep
                                           :justification "Front-porch: the lifecycle inverse of make-frame and the only way to release a frame's registrations, sub-cache and queue. Conventions Lifecycle-verb law cites it as the canonical destroy-* instance."}
-  ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07): the
-  ;; dedicated `reset-frame!` verb is DELETED — a full replace is reproducible
-  ;; by composition (`destroy-frame!` + `make-frame` with the
-  ;; caller's own config). The facade name survives ONLY as a `^:no-doc`
+  ;; There is no `reset-frame!` verb: a full replace is
+  ;; composition (`destroy-frame!` + `make-frame` with the
+  ;; caller's own config). The facade name exists ONLY as a `^:no-doc`
   ;; throwing stub (`:rf.error/reset-frame-removed`) and so carries NO
   ;; manifest row (the manifest generator drops `^:no-doc` vars).
   ;; Clearing registrations (spec/API.md §Clearing registrations). ONE verb,
-  ;; kind-keyed, replacing the nine per-kind clear-* names (rf2-kuky.80).
+  ;; kind-keyed — there are no per-kind clear-* names.
   ["re-frame.core" "clear"]               {:tier :advanced :owner "001" :status "v1 (preserved)"
                                           :action :keep
-                                          :justification "The ONE registrar inverse: `(clear kind id)` mirrors the `(kind, id)` grammar the registrar itself is keyed by and the read side already speaks, and it belongs on the same door as the `reg-*` verbs it undoes (Conventions Lifecycle-verb law). It REPLACES nine per-kind names in three shapes -- seven facade rows plus re-frame.flows/clear-flow and re-frame.routing/clear-route, twelve manifest rows in all -- which differed on where the name lived, whether a nilary clear-all existed, how the frame was named, and what came back; and it closes six registrar kinds (:cofx :interceptor :view :head :error-projector, plus :resource-scope's siblings) that had no public inverse at all, with zero new names. It stays on the facade rather than moving to an owning namespace for the reason the deleted per-kind rows each gave individually: it dispatches to the OPTIONAL artefacts (flows, routing, resources, http) through their late-bind wrappers, so the facade row IS the optional-capability mechanism -- an app that omits an artefact gets the documented :rf.error/<artefact>-artefact-missing rather than a hard require failure. No owning namespace could carry a verb that spans four artefacts and core."}
+                                          :justification "The ONE registrar inverse: `(clear kind id)` mirrors the `(kind, id)` grammar the registrar itself is keyed by and the read side already speaks, and it belongs on the same door as the `reg-*` verbs it undoes (Conventions Lifecycle-verb law). One kind-keyed verb covers every registrar kind, where per-kind names would differ on where the name lives, whether a nilary clear-all exists, how the frame is named, and what comes back. It stays on the facade rather than moving to an owning namespace because it dispatches to the OPTIONAL artefacts (flows, routing, resources, http) through their late-bind wrappers, so the facade row IS the optional-capability mechanism -- an app that omits an artefact gets the documented :rf.error/<artefact>-artefact-missing rather than a hard require failure. No owning namespace could carry a verb that spans four artefacts and core."}
   ["re-frame.core" "clear-sub-cache!"]    {:tier :advanced :owner "002" :status "v1 (preserved)"
                                           :action :keep
                                           :justification "The cache arm of the clear-* verb -- drops the process-local subscription cache, which is what every frame-isolation fixture and REPL session reaches for between runs. Defined on re-frame.core with no owning-namespace peer."}
   ;; Dispatch & subscribe (spec/API.md §Dispatch and subscribe).
-  ;; rf2-m90brg (API-shrink #2): the `dispatch*` / `dispatch-sync*` / `subscribe*`
-  ;; facade twins are RETIRED (no back-compat alias, pre-alpha). Each macro's
-  ;; own name now ALSO carries a plain-fn value on CLJS (Convention A, mirroring
+  ;; There are no `dispatch*` / `dispatch-sync*` / `subscribe*`
+  ;; facade twins. Each macro's
+  ;; own name ALSO carries a plain-fn value on CLJS (Convention A, mirroring
   ;; `reg-event` / `reg-sub` / etc.) for the HoF / programmatic case; the
   ;; macro's expansion calls the owning ns fn directly (`re-frame.router/
   ;; dispatch!` / `-dispatch-sync!`, `re-frame.subs/subscribe`), so a JVM
   ;; programmatic caller reaches that owning-ns fn, not a `re-frame.core`
-  ;; indirection. Superseded rationale (kept for history): `subscribe*` had
-  ;; previously been retiered to `:implementation` (EP-0024 Open Issue #8,
-  ;; rf2-5vla7c) rather than retired outright, surviving only as the macro's
-  ;; cross-namespace-reach target; rf2-m90brg completed the retirement.
+  ;; indirection.
   ["re-frame.core" "dispatch"]            {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: one of the three verbs a re-frame app is written in. Removing it from the facade would empty the facade."}
   ["re-frame.core" "dispatch-sync"]       {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: the synchronous sibling of dispatch, needed on the boot path and in every event test. It has to sit beside dispatch to be findable."}
-  ;; rf2-gkt25a / rf2-80mmlf / rf2-c6xkmn / rf2-kuky.70: the `dispatch-to-system`
-  ;; FN was DEMOTED off the `re-frame.core` facade, then DELETED (rf2-c6xkmn),
-  ;; and the `:rf.machine/dispatch-to-system` fx twin followed it under
-  ;; rf2-kuky.70 (option A on rf2-kuky.15). Both twins are gone; the address is
+  ;; There is no `dispatch-to-system` fn and no
+  ;; `:rf.machine/dispatch-to-system` fx: the address is
   ;; the id, and `:fixed-actor-id` is the one stable-name mechanism.
   ["re-frame.core" "subscribe"]           {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"
                                           :action :keep
                                           :justification "Front-porch: the read half of the app-authoring triple. Day-one vocabulary."}
-  ;; rf2-bfadc6: `subscribe-once` gained the public `{:frame}` opts-map
+  ;; `subscribe-once` takes the public `{:frame}` opts-map
   ;; call-shape `(subscribe-once query-v {:frame f})`, parallel to `subscribe`
-  ;; (EP-0024) — closes the misbinding footgun for an author who carries the
-  ;; opts form over from `subscribe`. `unsubscribe` deliberately stays
+  ;; (EP-0024), so an author who carries the
+  ;; opts form over from `subscribe` is not misbound. `unsubscribe` deliberately stays
   ;; frame-first (pure teardown, never a hot in-view call; no opts-map form).
   ["re-frame.core" "subscribe-once"]      {:tier :advanced    :owner "006" :status "v1 (preserved + extended)"
                                           :action :keep
-                                          :justification "The one-shot read beside front-porch subscribe, sharing its {:frame f} opts form -- rf2-bfadc6 added that shape precisely so an author carrying it over from subscribe is not misbound. Moving it off the facade would recreate the footgun that change closed."}
+                                          :justification "The one-shot read beside front-porch subscribe, sharing its {:frame f} opts form, so an author carrying it over from subscribe is not misbound. Moving it off the facade would split that shared shape across two doors."}
   ["re-frame.core" "unsubscribe"]         {:tier :advanced    :owner "006" :status "v1"
                                           :action :keep
                                           :justification "The ref-count release paired with subscribe's hold, and the named carve-out of the Conventions Lifecycle-verb law (Carve-out: unsubscribe). A teardown verb whose partner is front-porch belongs on the same door."}
@@ -1025,68 +995,60 @@
                                           :action :keep
                                           :justification "Front-porch: the ONE public hold primitive for carrying a frame binding across an async boundary. API.md Tier taxonomy names it explicitly as the back-room member that sits alongside the porch."}
   ;; `capture-frame` is the ONE public carry primitive. Its constructor,
-  ;; `make-capture-frame`, was a facade export retiered to `:implementation`
-  ;; (EP-0024 Open Issue #8, rf2-5vla7c) — annotation, not removal. rf2-93sxp
-  ;; moved it to `re-frame.capture-frame` (an implementation namespace the
-  ;; `reg-view` expansion names fully-qualified); it has no row, exactly as
-  ;; `re-frame.frame/bind-fn` (the internal survivor of API-shrink #1,
-  ;; rf2-csbbwu, which DELETED `frame-bound-fn` / `frame-bound-fn*`) has none.
+  ;; `make-capture-frame`, lives in `re-frame.capture-frame` (an implementation
+  ;; namespace the `reg-view` expansion names fully-qualified); it has no row,
+  ;; exactly as the internal `re-frame.frame/bind-fn` has none (there is no
+  ;; public `frame-bound-fn` / `frame-bound-fn*`).
   ["re-frame.core" "view"]                {:tier :advanced    :owner "001" :status "v1"
                                           :action :keep
                                           :justification "The runtime-lookup handle for a registered view, normatively spelled (re-frame.core/view id) in Spec 001. On CLJS it returns the installed substrate's component head, which is what makes ($ (rf/view ::row) props) compose -- everyday view composition, defined on re-frame.core itself with no other door. 152 in-repo consumer files."}
   ["re-frame.core" "current-frame-id"]    {:tier :advanced    :owner "002" :status "v1"
                                           :action :keep
                                           :justification "Answers which frame am I in inside a with-frame or frame-provider body -- a read that only makes sense against the front-porch binding forms it accompanies, so it belongs on the same door as them."}
-  ;; Interceptor authoring (spec/API.md §Interceptors). EP-0022 Slice C
-  ;; (rf2-0adhqs.3): `reg-interceptor` is the public authoring surface
+  ;; Interceptor authoring (spec/API.md §Interceptors). `reg-interceptor` is
+  ;; the public authoring surface
   ;; (spec/001 §`->interceptor` is not the application authoring form;
   ;; spec/002 §10). The lowering constructor `->interceptor*` lives ONLY on
-  ;; `re-frame.interceptor` (no row — not a public namespace), and the
-  ;; coord-capturing `->interceptor` macro is deleted (rf2-93sxp): neither
-  ;; is exported from `re-frame.core` any longer, so the `:implementation` +
-  ;; `:facade? true` rows they carried — the shape the generator now refuses —
-  ;; are gone rather than annotated.
-  ;; EP-0017 + rf2-w9xyx1: `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
-  ;; coeffect-injection interceptors — are REMOVED (EP-0017 slice A, no alias;
-  ;; spec/API.md §Standard interceptors). rf2-w9xyx1 removed them from the
-  ;; CANONICAL PUBLIC API SURFACE: a removed surface no longer occupies the
+  ;; `re-frame.interceptor` (no row — not a public namespace), and there is
+  ;; no coord-capturing `->interceptor` macro: neither
+  ;; is exported from `re-frame.core`, so neither carries a row (an
+  ;; `:implementation` + `:facade? true` row is the shape the generator refuses).
+  ;; There are no public `inject-cofx` / `inject-cofx*` v1 ctx→ctx
+  ;; coeffect-injection interceptors (EP-0017, no alias;
+  ;; spec/API.md §Standard interceptors): a removed surface does not occupy the
   ;; public facade, so there is NO `re-frame.core/inject-cofx` /
   ;; `inject-cofx*` var and NO manifest row (a `:deprecated` row would still
-  ;; read as supported public API). The migration alarm is preserved by the
+  ;; read as supported public API). The migration alarm is the
   ;; private (non-facade, un-rowed) hard-error thrower `re-frame.cofx/inject-cofx`:
-  ;; a stale call to that namespace-internal var still raises the always-on
+  ;; a stale call to that namespace-internal var raises the always-on
   ;; catalogue error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`.
   ;; Migration docs live in migration/from-re-frame-v1/README.md.
-  ;; Interceptor CONTEXT ACCESSORS REMOVED from the façade: `get-coeffect`,
-  ;; `assoc-coeffect`, `get-effect`, `assoc-effect` no longer re-export from
-  ;; `re-frame.core`. Post-EP-0017/EP-0022 they lost their audience (the setters
-  ;; had zero callers, the getters one); the intended interceptor model authors
+  ;; The interceptor CONTEXT ACCESSORS `get-coeffect`,
+  ;; `assoc-coeffect`, `get-effect`, `assoc-effect` are not re-exported from
+  ;; `re-frame.core`: the interceptor model authors
   ;; with `reg-interceptor` and works the context map directly in `:before` /
-  ;; `:after` fns. A removed surface carries NO manifest row. The underlying
-  ;; `re-frame.interceptor/{get,assoc}-{coeffect,effect}` fns remain in their
+  ;; `:after` fns, so they have no public audience and carry NO manifest row. The underlying
+  ;; `re-frame.interceptor/{get,assoc}-{coeffect,effect}` fns live in their
   ;; owning namespace as framework-internal context helpers (un-rowed).
-  ;; EP-0022 + rf2-dgtdna: the public `re-frame.core/path` VALUE constructor is
-  ;; REMOVED (EP-0022:552 "There is no public rf/path value constructor."; :932
-  ;; lists the removal; spec/API.md + spec/002-Frames.md already follow it). The
+  ;; There is no public `re-frame.core/path` VALUE constructor
+  ;; (EP-0022:552 "There is no public rf/path value constructor."; spec/API.md
+  ;; and spec/002-Frames.md follow it). The
   ;; one public path surface is the framework-registered factory ref
-  ;; `[:rf.interceptor/path <path-vector>]`. rf2-dgtdna removed the legacy
-  ;; std-interceptors `path` fn and replaced the facade var with a `^:no-doc`
-  ;; throwing stub naming the ref (`:rf.error/path-removed`) — like the EP-0018
-  ;; `reg-event-db` / EP-0017 `inject-cofx` removed stubs, a removed-name `^:no-
+  ;; `[:rf.interceptor/path <path-vector>]`. The facade name exists ONLY as a `^:no-doc`
+  ;; throwing stub naming the ref (`:rf.error/path-removed`) — like the
+  ;; `reg-event-db` and `inject-cofx` removed stubs, a removed-name `^:no-
   ;; doc` stub carries NO manifest row (the generator drops `^:no-doc` vars; a
   ;; `:deprecated`/preserved row would still read as supported public API). The
   ;; migration alarm is the always-loud throw itself. Migration docs live in
   ;; migration/from-re-frame-v1/README.md.
-  ;; EP-0022 + rf2-3qeu38 (the `rf/path` twin): the public
-  ;; `re-frame.core/unwrap-interceptor` VALUE is REMOVED — the framework ships
-  ;; NO standard unwrap (EP-0022:53-55/555-578/881/932; spec/API.md +
-  ;; spec/002-Frames.md already follow it). The canonical spelling is
+  ;; Likewise there is no public `re-frame.core/unwrap-interceptor` VALUE — the
+  ;; framework ships NO standard unwrap (EP-0022:53-55/555-578/881/932; spec/API.md
+  ;; and spec/002-Frames.md follow it). The canonical spelling is
   ;; handler-payload destructuring (the M-19 `[<id> <payload-map>]` shape), or a
   ;; project-registered `:app/unwrap` for genuine chain-wide reshaping.
-  ;; rf2-3qeu38 deleted the legacy std-interceptors value and replaced the
-  ;; facade var with a `^:no-doc` throwing stub naming those replacements
-  ;; (`:rf.error/unwrap-removed`) — like the EP-0018 `reg-event-db` / EP-0017
-  ;; `inject-cofx` / rf2-dgtdna `path` removed stubs, a removed-name `^:no-doc`
+  ;; The facade name exists ONLY as a `^:no-doc` throwing stub naming those replacements
+  ;; (`:rf.error/unwrap-removed`) — like the
+  ;; `reg-event-db` / `inject-cofx` / `path` removed stubs, a removed-name `^:no-doc`
   ;; stub carries NO manifest row (the generator drops `^:no-doc` vars; a
   ;; preserved row would still read as supported public API). The migration
   ;; alarm is the always-loud throw itself. Migration docs live in
@@ -1094,11 +1056,11 @@
   ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"
                                           :action :keep
                                           :justification "The fx-stubbing scope every event test wraps around a dispatch-sync. Defined on re-frame.core beside the dispatch verbs whose behaviour it changes; there is no other door."}
-  ;; EP-0015 §7 + bead item 2 (rf2-mngp4o): `redact-interceptor` is removed
-  ;; from the public API — registration-owned `:sensitive` payload
-  ;; classification + centralized `project-egress` replace the positional
+  ;; There is no public `redact-interceptor` (EP-0015 §7):
+  ;; registration-owned `:sensitive` payload
+  ;; classification + centralized `project-egress` do that job, not a positional
   ;; trace-scrub interceptor. The `re-frame.privacy/redact-interceptor` fn
-  ;; remains internal router plumbing (not facade-published), so it carries
+  ;; is internal router plumbing (not facade-published), so it carries
   ;; no manifest row.
   ;; Lifecycle / adapter bootstrap.
   ["re-frame.core" "init!"]                {:tier :front-porch :owner "002" :status "v1"
@@ -1109,45 +1071,42 @@
                                            :justification "The destroy-* lifecycle inverse of install-adapter! -- identity, a creation moment and owned resources, exactly the Lifecycle-verb law's discriminator. It must sit on the door that carries the call it undoes."}
   ["re-frame.core" "current-adapter"]      {:tier :advanced :owner "006" :status "v1"
                                            :action :keep
-                                           :justification "The ONE adapter read, folded onto the spec map by rf2-kuky.4 (2026-09-06, rider A-i): the former keyword-returning spelling was literally the :kind of this same map with a synthesised fallback, so two names read one value and were free to diverge in return type. Read in the same boot sitting as init!, and defined on re-frame.core with no owning public namespace. Live callers are what keep it on the facade: Story reads the optional :flush-render! contract fn off it (tools/story substrate_boundary), story-mcp presence-checks it (tools/story-mcp lifecycle), and Xray branches on its :kind for the unsupported-substrate diagnostic (tools/xray mount). The deleted siblings install-adapter! and adapter-disposed? had no non-test consumers and survive on re-frame.substrate.adapter."}
+                                           :justification "The ONE adapter read, returning the spec map: a separate keyword-returning spelling would be the :kind of this same map, so two names would read one value and be free to diverge in return type. Read in the same boot sitting as init!, and defined on re-frame.core with no owning public namespace. Live callers are what keep it on the facade: Story reads the optional :flush-render! contract fn off it (tools/story substrate_boundary), story-mcp presence-checks it (tools/story-mcp lifecycle), and Xray branches on its :kind for the unsupported-substrate diagnostic (tools/xray mount). The siblings install-adapter! and adapter-disposed? have no non-test consumers and live on re-frame.substrate.adapter."}
   ["re-frame.core" "configure!"]           {:tier :front-porch :owner "Conventions" :status "v1"
                                            :action :keep
                                            :justification "Front-porch: the single process-level config door, and the config-mutation verb the lifecycle-verb law fixes across all three facades (Conventions, configure! vs current-config). An app calls it once at boot."}
   ["re-frame.core" "current-config"]       {:tier :advanced :owner "Conventions" :status "v1"
                                            :action :keep
-                                           :justification "Ruled ADD by rf2-kuky.4 (2026-09-06, rider A-ii) on named callers, not on symmetry with configure!. Two of them: the pair preload health query read the epoch depth by (resolve 're-frame.epoch/current-config) because no facade door handled an OPTIONAL artefact being absent, and rf2-kuky.55 C1 pointed the owning-ns readers at this one door. rf2-kuky.73 executed that: re-frame.epoch/current-config is DELETED (its manifest row with it), while re-frame.elision/current-config SURVIVES as an unrostered implementation seam because this fn calls it directly for the :elision key — elision ships in core and is never an optional artefact, so it needs no late-bind indirection. Net -1 rostered var on the back of this +1. Deferring was defensible (codex); the consumers are why it was not deferred. Advanced rather than front-porch: an app configures at boot and never reads back, so the demand is tooling-shaped."}
-  ;; EP-0013 -> EP-0023 supersession (rf2-pl97nd.2): the retired app/realm/module
-  ;; COMPOSITION VOCABULARY left the public `re-frame.core` facade. The former
-  ;; rows — `rf/module` / `rf/app` / `rf/app-registrations` / `rf/app-requires` /
-  ;; `rf/app-owns` (stage-6 constructors + inspectors), `rf/install!` /
-  ;; `rf/reinstall!` (stage-7 installation), `rf/realm` / `rf/dispose-realm!`
-  ;; (stage-9 realm constructor), `rf/realm-ids` / `rf/frame-realm` /
-  ;; `rf/installed-app` (realm-enumeration + installed-app reads) — were REMOVED
-  ;; from the facade, so they drop out of the generated manifest. The underlying
-  ;; realm / app-value / module machinery was then DELETED IN FULL by EP-0024
-  ;; (no `re-frame.realm` / `re-frame.app-value` namespace survives — see line
-  ;; 451 above and spec/Spec-Schemas.md `:rf/realm` "Status: REMOVED"): there is
-  ;; no retained internal substrate. The public model is
+                                           :justification "Kept on named callers, not on symmetry with configure!: the pair preload health query reads the epoch depth through it, because this facade door handles an OPTIONAL artefact being absent where an owning-ns read would not, and the owning-ns config readers all point at this one door. There is no re-frame.epoch/current-config; re-frame.elision/current-config is an unrostered implementation seam because this fn calls it directly for the :elision key — elision ships in core and is never an optional artefact, so it needs no late-bind indirection. Advanced rather than front-porch: an app configures at boot and never reads back, so the demand is tooling-shaped."}
+  ;; There is no app/realm/module COMPOSITION VOCABULARY on the public
+  ;; `re-frame.core` facade (EP-0023 supersedes EP-0013): no
+  ;; `rf/module` / `rf/app` / `rf/app-registrations` / `rf/app-requires` /
+  ;; `rf/app-owns`, no `rf/install!` /
+  ;; `rf/reinstall!`, no `rf/realm` / `rf/dispose-realm!`, and no
+  ;; `rf/realm-ids` / `rf/frame-realm` /
+  ;; `rf/installed-app`, so none has a manifest row. Nor is there
+  ;; realm / app-value / module machinery behind the facade (EP-0024;
+  ;; no `re-frame.realm` / `re-frame.app-value` namespace — see
+  ;; spec/Spec-Schemas.md `:rf/realm`). The public model is
   ;; `image -> frame -> event stream`; frame resolution routes directly through
   ;; the process registrar. See `re-frame.core` `rf/image` /
   ;; `make-frame` rows and EP-0023 §Backwards Compatibility.
   ;; Feature registry (optional-artefact presence checks).
-  ;; rf2-kuky.4 (2026-09-08, slice rf2-kuky.75): `feature-loaded?` and
-  ;; `require-feature!` are DELETED from the facade and from the owning ns
+  ;; There is no `feature-loaded?` or
+  ;; `require-feature!`, on the facade or on the owning ns
   ;; re-frame.features. `features` is the one inventory; the boolean is the
   ;; lookup (get-in (features) [:epoch :loaded?]) and a boot-time guard is the
   ;; app's own (when-not ... (throw (ex-info ... (get (features) :epoch)))).
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"
                                            :action :keep
-                                           :justification "The ONE feature-inspection door (rf2-kuky.4, 2026-09-06 ruling; slice rf2-kuky.75, landed 2026-09-08): it answers whether the optional artefact a facade name late-binds to is actually loaded, and asking that question from anywhere but the facade whose names it is about would be incoherent. The redundant projections over it -- feature-loaded? (a get-in) and require-feature! (a when-not + throw) -- were deleted rather than kept as spellings; data before magic."}
+                                           :justification "The ONE feature-inspection door: it answers whether the optional artefact a facade name late-binds to is actually loaded, and asking that question from anywhere but the facade whose names it is about would be incoherent. Projections over it -- a loaded? boolean (a get-in) or a require guard (a when-not + throw) -- are the caller's own code rather than extra spellings; data before magic."}
   ;; Public registrar query API (spec/API.md §Public registrar query API).
-  ;; The `{:frame f …}` map ARITY added in rf2-wkw8na (EP-0023) extends these
-  ;; two EXISTING exports — it adds NO new facade name, so it adds NO new row;
+  ;; The `{:frame f …}` map ARITY (EP-0023) of these
+  ;; two exports is not a separate facade name, so it has no row of its own;
   ;; the arity is documented in each fn's docstring + spec/API.md.
-  ;; rf2-i4hk4b (API-shrink #5 registrar-introspection, ADOPT Part A): the
-  ;; `handler-ids` façade export was REMOVED — it was a documented PROJECTION
-  ;; over `registrations` (`(-> (registrations kind) keys set)`), avoidable
-  ;; pre-alpha surface; callers read `(-> (registrations …) keys set)` or
+  ;; There is no `handler-ids` façade export — it would be a
+  ;; PROJECTION over `registrations`; callers read
+  ;; `(-> (registrations …) keys set)` or
   ;; `(contains? (registrations k) id)`.
   ["re-frame.core" "registrations"]        {:tier :tooling :owner "002" :status "v1"
                                            :action :keep
@@ -1155,7 +1114,7 @@
   ["re-frame.core" "handler-meta"]         {:tier :tooling :owner "002" :status "v1"
                                            :action :keep
                                            :justification "API.md Tiering of cross-tool surfaces standing-classifies the registrar query API as tooling tiered at its re-frame.core home row -- a placement ruling already made against this family. Defined on re-frame.core itself. 130 in-repo consumer files; the same-named re-frame.story var is a different product's surface, not a door."}
-  ;; EP-0023 (rf2-wkw8na): `frame-generation` is the dedicated raw READ over the
+  ;; EP-0023: `frame-generation` is the dedicated raw READ over the
   ;; EP-0023 frame->generation model — return the sealed image generation a live
   ;; frame is running (the four stable `:rf.gen/*` keys), for tools that EP-0023
   ;; forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly`
@@ -1167,29 +1126,27 @@
   ;; row exists ahead of the spec/API.md projection EP-0023 graduates separately).
   ["re-frame.core" "frame-generation"]     {:tier :tooling :owner "002" :status "EP-0023"
                                            :action :keep
-                                           :justification "EP-0023 created this read BECAUSE EP-0023 forbids tools from consuming re-frame.live-frame and re-frame.image-assembly internals -- the facade row is the sanctioned door and the internals are the alternative it replaced, so there is nowhere to move it that EP-0023 would allow."}
-  ;; rf2-i4hk4b (API-shrink #5 registrar-introspection, ADOPT Part A): the
-  ;; `frame-shadows` façade export was REMOVED — it was a single-key read
-  ;; (`(:rf.gen/shadows (frame-generation f))`), avoidable pre-alpha surface. The
-  ;; shadow report itself is UNCHANGED: read it via `frame-generation`'s
+                                           :justification "This read exists BECAUSE EP-0023 forbids tools from consuming re-frame.live-frame and re-frame.image-assembly internals -- the facade row is the sanctioned door and the internals are the alternative EP-0023 rules out, so there is nowhere to move it that EP-0023 would allow."}
+  ;; There is no `frame-shadows` façade export — it would be a single-key read
+  ;; (`(:rf.gen/shadows (frame-generation f))`). Read the
+  ;; shadow report via `frame-generation`'s
   ;; `:rf.gen/shadows` key (its docstring + Spec 002 carry the shadow-model
-  ;; teaching the removed accessor's docstring held).
-  ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07):
-  ;; `generation-diff` is the pure two-generation comparator that REPLACES the
-  ;; retired `reload-images!` verb's report-returning role — a caller reads
+  ;; teaching).
+  ;; `generation-diff` is the pure two-generation comparator for a reload
+  ;; report (there is no `reload-images!` verb) — a caller reads
   ;; `frame-generation` before/after a re-`make-frame` reload and diffs the two
   ;; values. Tier `:tooling` (a READ, the same classification as its sibling
   ;; `frame-generation`). Owner 002 (Frames — EP-0023's
   ;; frame/image normative home).
   ["re-frame.core" "generation-diff"]      {:tier :tooling :owner "002" :status "EP-0023"
                                            :action :keep
-                                           :justification "The pure two-generation comparator that replaced the retired reload-images! verb's report-returning role (rf2-lxwpob); a caller reads frame-generation before and after a reload and diffs the two, so it belongs beside frame-generation on the same door."}
-  ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers
+                                           :justification "The pure two-generation comparator that answers what a reload changed; a caller reads frame-generation before and after a reload and diffs the two, so it belongs beside frame-generation on the same door."}
+  ;; The machine QUERY / handler-build / pure-engine helpers
   ;; (`machines`, `machine-meta`, `machine-transition`,
-  ;; `make-machine-handler`) are no longer façade exports — reach them through
-  ;; `re-frame.machines` (already classified below). The `machine-has-tag?` /
-  ;; `sub-machine` subscription-sugar fns were REMOVED (rf2-il99l3, reversing
-  ;; rf2-2cmcas): a machine read is the `[:rf.machine/has-tag? id tag]` /
+  ;; `make-machine-handler`) are not façade exports — reach them through
+  ;; `re-frame.machines` (classified below). There are no `machine-has-tag?` /
+  ;; `sub-machine` subscription-sugar fns: a machine read is the
+  ;; `[:rf.machine/has-tag? id tag]` /
   ;; `[:rf/machine id]` subscription VECTOR — one read grammar.
   ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"
                                            :action :keep
@@ -1200,94 +1157,80 @@
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"
                                            :action :keep
                                            :justification "The raw app-db read a test, a REPL session and a devtool all reach for. Defined on re-frame.core with no owning public namespace, so there is no clearer door. RECORDED UNCERTAINTY (scale): 301 in-repo consumer files."}
-  ;; EP-0001 two-partition readers (rf2-q4i9ko / bead 3). Per spec/API.md
-  ;; §Public registrar query API rows. The physical partition landed in
-  ;; rf2-adwcv6 (bead 5). rf2-t3lftq (API-shrink #3) retired
-  ;; `runtime-db-value` (superseded by `(:rf.db/runtime (frame-state-value id))`)
-  ;; and `snapshot-of` (an empirically zero-caller convenience over
-  ;; `(get-in (app-db-value frame-id) path)`) from the facade — deleted, not
-  ;; reclassified.
+  ;; EP-0001 two-partition readers. Per spec/API.md
+  ;; §Public registrar query API rows. There is no
+  ;; `runtime-db-value` (read `(:rf.db/runtime (frame-state-value id))`)
+  ;; and no `snapshot-of` (read
+  ;; `(get-in (app-db-value frame-id) path)`) on the facade.
   ["re-frame.core" "frame-state-value"]    {:tier :tooling :owner "002" :status "v1"
                                            :action :keep
                                            :justification "API.md Tiering of cross-tool surfaces standing-classifies the registrar query API as tooling tiered at its re-frame.core home row -- a placement ruling already made against this family. Defined on re-frame.core itself. The two-partition state read of the same family (EP-0001). RECORDED UNCERTAINTY (scale): 171 in-repo consumer files."}
-  ;; rf2-80mmlf: the `sub-topology` / `sub-cache` facade aliases were REMOVED.
+  ;; There are no `sub-topology` / `sub-cache` facade aliases.
   ;; They are subscription-TOOLING surfaces (not app-author front-porch reads);
   ;; their callers (tests / REPLs / dev tooling) address the owning
   ;; `re-frame.subs.tooling` namespace (`sub-topology` / `sub-cache-snapshot`)
-  ;; directly, with `subs/sub-topology` / `subs/sub-cache-snapshot` as the JVM
-  ;; legacy aliases.
+  ;; directly, with `subs/sub-topology` / `subs/sub-cache-snapshot` as JVM
+  ;; aliases.
   ["re-frame.core" "compute-sub"]          {:tier :testing :owner "008" :status "v1"
                                            :action :keep
                                            :justification "A test-tier read that computes a subscription's value with no live view. The fixture layer (re-frame.test-support) is about runtime state rather than sub evaluation, so it has no peer there, and test authors reach it in the same file as the reg-sub it exercises."}
-  ;; Schema introspection + validator-install re-exports REMOVED from the
-  ;; façade (rf2-wad2fl — front-porch shrink): `app-schemas`,
+  ;; Schema introspection + validator-install fns are not façade
+  ;; exports: `app-schemas`,
   ;; `app-schema-meta`, `app-schemas-digest`, `set-schema-fns!`,
   ;; `schema-fns`, `default-schema-fns` are
-  ;; reached through `re-frame.schemas` (already classified below). The
-  ;; `reg-app-schema` / `reg-app-schemas` REGISTRATION MACROS stay on the
-  ;; façade (above). The former boundary-interceptor façade export was
-  ;; RETIRED at rf2-kuky.64 along with the interceptor it held:
-  ;; production boundary validation is now the `:boundary? true` reg-event
-  ;; metadata key, so there is no public var left to classify.
-  ;; SSR query surface: NOT re-exported (rf2-kuky.44, executed rf2-kuky.87).
+  ;; reached through `re-frame.schemas` (classified below). The
+  ;; `reg-app-schema` / `reg-app-schemas` REGISTRATION MACROS are on the
+  ;; façade (above). There is no boundary-interceptor façade export:
+  ;; production boundary validation is the `:boundary? true` reg-event
+  ;; metadata key, so there is no public var to classify.
+  ;; SSR query surface: NOT re-exported.
   ;; `render-to-string` / `render-tree-hash` / `project-error` /
-  ;; the two head reads (now one `head-model`) / `head-model->html` carried
-  ;; `:action :keep` facade rows here until 2026-09. The justification was
-  ;; the guided `:rf.error/ssr-artefact-missing` a facade wrapper gives an
+  ;; `head-model` / `head-model->html` have no facade rows. A facade wrapper
+  ;; would exist only to give the guided `:rf.error/ssr-artefact-missing` to an
   ;; app that calls an SSR fn without the artefact -- but loading
   ;; `re-frame.ssr` is what REGISTERS the SSR runtime (`:rf/hydrate`, the
   ;; `:rf.ssr/check-*` fx, the seven `:rf.server/*` fx, the
   ;; `:rf.server/request` cofx), so no server-rendering app can be that app
-  ;; and the guided failure was unreachable. The six defs, their
-  ;; `re-frame.core-ssr` wrappers and their late-bind hooks are deleted;
-  ;; the two REGISTRARS (`reg-error-projector` / `reg-head`) stay on the
+  ;; and the guided failure would be unreachable. The two REGISTRARS
+  ;; (`reg-error-projector` / `reg-head`) are on the
   ;; facade and are classified with the other registration macros.
-  ;; Routing re-exports. rf2-wad2fl (front-porch shrink): the URL-codec
-  ;; QUERY helpers `match-url` / `route-url` are no longer façade exports —
-  ;; reach them through `re-frame.routing` (already classified below).
-  ;; `current-url` and `clear-route` were named here too and are now neither:
-  ;; rf2-kuky.36 deleted the `current-url` alias (its home is
-  ;; `re-frame.routing.history`) and rf2-kuky.80 deleted `clear-route` in
-  ;; favour of the one kind-keyed `(rf/clear :route id)`. The `reg-route`
-  ;; REGISTRATION MACRO stays on the façade (above). `route-link` (the view)
-  ;; stays on the façade (no classified owned-ns peer — the routing-ns form
+  ;; Routing re-exports. The URL-codec
+  ;; QUERY helpers `match-url` / `route-url` are not façade exports —
+  ;; reach them through `re-frame.routing` (classified below).
+  ;; There is no `current-url` alias (its home is
+  ;; `re-frame.routing.history`) and no `clear-route` — the one kind-keyed
+  ;; `(rf/clear :route id)` covers it. The `reg-route`
+  ;; REGISTRATION MACRO is on the façade (above). `route-link` (the view)
+  ;; is on the façade (no classified owned-ns peer — the routing-ns form
   ;; is CLJS-only and unrowed).
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"
                                      :action :keep
-                                     :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-routing artefact, and the wrapper raises a documented :rf.error/routing-artefact-missing when that artefact is absent. Moving the export to re-frame.routing would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is also the ONE routing surface with no rowed owning-namespace peer: re-frame.routing publishes route-link-render-ssr, not route-link (the routing-ns form is CLJS-only and unrowed). rf2-wad2fl moved the rest of the routing helpers off the facade and kept this one for exactly that reason."}
-  ;; rf2-g8pbwg: the imperative `install-url-listener!` / `remove-url-listener!`
+                                     :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-routing artefact, and the wrapper raises a documented :rf.error/routing-artefact-missing when that artefact is absent. Moving the export to re-frame.routing would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. It is also the ONE routing surface with no rowed owning-namespace peer: re-frame.routing publishes route-link-render-ssr, not route-link (the routing-ns form is CLJS-only and unrowed). The other routing helpers live on re-frame.routing; this one is on the facade for exactly that reason."}
+  ;; There are no imperative `install-url-listener!` / `remove-url-listener!`
   ;; / `install-history-listener!` / `remove-history-listener!` façade exports
-  ;; are RETIRED — a `:url-bound? true` frame installs its strategy listener on
-  ;; create and removes it on destroy, automatically. No compatibility shim
-  ;; (pre-alpha) — these rows are gone, not aliased.
+  ;; — a `:url-bound? true` frame installs its strategy listener on
+  ;; create and removes it on destroy, automatically.
   ;; HTTP test-support surface (canonical home: re-frame.http.test-support).
-  ;; rf2-kuky.13 RETIRED the last two façade rows here: the stub-family macro
-  ;; and its `*` plumbing twin had zero app / tool consumers, so the whole
-  ;; family — `with-request-stubs` (the renamed star fn) plus the raw
-  ;; install/uninstall pair (rf2-ntwwyt) — is now reached only through the home
-  ;; namespace, which the generator does not introspect.
-  ;; No façade rows, no compatibility aliases (pre-alpha).
-  ;; Observation listeners (rf2-ikjmkm / decision rf2-dbo0c9 Option C):
-  ;; ONE stream-parameterized verb, and since rf2-kuky.69 its closed
+  ;; No façade rows: the stub family, `with-request-stubs` plus the raw
+  ;; install/uninstall pair, has no app / tool consumers and is reached only
+  ;; through the home namespace, which the generator does not introspect.
+  ;; Observation listeners: ONE stream-parameterized verb, whose closed
   ;; vocabulary is the TWO RAW DEV STREAMS `:trace` / `:epoch`.
-  ;; The per-channel `register-(event|error)-listener!` facade pairs were
-  ;; REMOVED long before (pre-alpha — no compat aliases), and rf2-kuky.69
-  ;; then retired the `:events` / `:errors` STREAMS themselves: they were a
+  ;; There are no per-channel `register-(event|error)-listener!` facade pairs
+  ;; and no `:events` / `:errors` STREAMS: those would be a
   ;; second, fail-open production door — unprojected, raw `:exception`, no
   ;; frame policy, fanned across every frame — beside the projected door
   ;; Spec 015 calls normal. Independent corpus observation regardless of a
-  ;; frame's policy is WITHDRAWN as a public primitive; production
+  ;; frame's policy is not a public primitive; production
   ;; observation is `register-observability-sink!` against a frame's
   ;; `:observability` policy or the `(rf/configure! {:observability …})`
-  ;; process default (rf2-kuky.67). The always-on event-emit / error-emit
-  ;; registries SURVIVE, addressable via `re-frame.event-emit` /
+  ;; process default. The always-on event-emit / error-emit
+  ;; registries are addressable via `re-frame.event-emit` /
   ;; `re-frame.error-emit` + late-bind, for the framework's own
   ;; synchronous-window capture sites and for tests — implementation tier,
   ;; no public spelling, so no facade row here.
   ;;
-  ;; FACADE vs HOME-NAMESPACE VERB — one public spelling (rf2-kuky.20;
-  ;; supersedes the DCE tier rule filed under rf2-rfid2x, which was measured
-  ;; false at tip and rewritten by PR #9332).
+  ;; FACADE vs HOME-NAMESPACE VERB — one public spelling.
   ;; `re-frame.core/register-listener!` (`:facade? true` in the generated
   ;; manifest) is THE public call form — apps and tools alike attach through
   ;; it. Each stream also has a home-namespace verb, but those are
@@ -1297,8 +1240,8 @@
   ;;   :trace  → re-frame.trace.tooling/register-listener!
   ;;   :epoch  → re-frame.epoch/register-epoch-listener!   (rowed below)
   ;; (`re-frame.event-emit/register-event-listener!` and
-  ;;  `re-frame.error-emit/register-error-listener!` are still implementation
-  ;;  seams, but they no longer have a facade stream above them at all.)
+  ;;  `re-frame.error-emit/register-error-listener!` are implementation
+  ;;  seams with no facade stream above them at all.)
   ;; The normative rule lives in spec/Tool-Pair.md §"Facade vs home-namespace
   ;; verb — one public spelling". What keeps a tool out of a production build
   ;; is `:devtools/preloads` placement plus a `goog.DEBUG`-gated call site,
@@ -1319,7 +1262,7 @@
   ;; (tier :tooling) below.
   ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized over the two RAW DEV streams: :trace dev-only, :epoch optional artefact; the one public call form — the per-stream home verbs are implementation seams, per Tool-Pair §Facade vs home-namespace verb)"
                                             :action :keep
-                                            :justification "spec/Tool-Pair.md Facade vs home-namespace verb -- one public spelling: listeners attach through this facade, apps and tools alike, and the per-stream home verbs (re-frame.trace.tooling/register-listener! and siblings) are implementation seams rather than a second public call form. What keeps a tool out of a production build is :devtools/preloads placement plus a goog.DEBUG-gated call site, not which namespace the call names. Moving this row would delete the only public door to the raw dev listener registries. rf2-kuky.69 narrowed the vocabulary to :trace / :epoch; production observation is register-observability-sink! plus a frame :observability policy or the configure! process default."}
+                                            :justification "spec/Tool-Pair.md Facade vs home-namespace verb -- one public spelling: listeners attach through this facade, apps and tools alike, and the per-stream home verbs (re-frame.trace.tooling/register-listener! and siblings) are implementation seams rather than a second public call form. What keeps a tool out of a production build is :devtools/preloads placement plus a goog.DEBUG-gated call site, not which namespace the call names. Moving this row would delete the only public door to the raw dev listener registries. The vocabulary is :trace / :epoch; production observation is register-observability-sink! plus a frame :observability policy or the configure! process default."}
   ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (stream-parameterized over :trace / :epoch)"
                                             :action :keep
                                             :justification "The removal half of the same one-public-spelling rule, and the Lifecycle-verb law's own named exemplar of the unregister-* verb."}
@@ -1333,24 +1276,23 @@
   ["re-frame.core" "clear-trace-buffer!"]   {:tier :tooling :owner "009" :status "v1 (dev-only)"
                                             :action :keep
                                             :justification "A Spec 009 trace surface whose producing home, re-frame.trace.tooling, is internal plumbing rather than an enumerated public artefact namespace -- it carries no manifest rows, so there is no clearer door to move to and Conventions forbids inventing one to tidy the column. The clear-* inverse of the trace buffer read, on the same door as the surface it undoes."}
-  ;; The façade `clear-listeners!` verb was RETIRED (rf2-9flalp — API-shrink
-  ;; #4): dropping a stream's listeners is a test-isolation concern that lives
+  ;; There is no façade `clear-listeners!` verb: dropping a stream's listeners
+  ;; is a test-isolation concern that lives
   ;; in the fixture layer (re-frame.test-support resets the registries via the
   ;; lower-level trace.tooling / event-emit / error-emit clears directly),
   ;; not on the public facade.
-  ;; The event-bundle projection pair (group-by-event / domino-bucket) LEFT the
-  ;; facade under rf2-kuky.72 and is now rowed at its producing home — see the
+  ;; The event-bundle projection pair (group-by-event / domino-bucket) is not on
+  ;; the facade; it is rowed at its producing home — see the
   ;; re-frame.trace.projection section below.
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ;;
-  ;; WHY THE FIVE EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR 31
-  ;; optional-artefact siblings above (rf2-2hpxo, post-merge audit of PR
-  ;; #9187). Epoch is the ONE optional artefact whose facade wrappers do NOT
+  ;; WHY THE EPOCH JUSTIFICATIONS BELOW READ DIFFERENTLY FROM THEIR
+  ;; optional-artefact siblings above. Epoch is the ONE optional artefact whose
+  ;; facade wrappers do NOT
   ;; raise `:rf.error/<feature>-artefact-missing` when the artefact is absent:
   ;; `core_epoch.cljc` gives `epoch-history` `:on-absent :empty-vec`,
   ;; `restore-epoch!` / `replay-epoch!` /
-  ;; `epoch-silence-current?` `:on-absent :false`. (The sixth, the
-  ;; `:on-absent :nil` `projected-record`, retired under rf2-bv1p.)
+  ;; `epoch-silence-current?` `:on-absent :false`.
   ;; Only the WRITE surface `replace-frame-state!` carries
   ;; `:on-absent :throw`, because a silent no-op would lie about its caller's
   ;; "undo works after this call" invariant. The split is normative in three
@@ -1365,65 +1307,58 @@
   ["re-frame.core" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
                                                  :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :false, so an absent day8/re-frame2-epoch artefact returns false rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The restore verb of the same epoch surface, taken from the same door as the history read that selects the epoch."}
-  ;; rf2-ov144 — the one-call strict replay from a retained epoch id
+  ;; The one-call strict replay from a retained epoch id
   ;; (Tool-Pair §Replay), the dispatch-shaped sibling of `restore-epoch!`.
   ["re-frame.core" "replay-epoch!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
                                                  :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :false, so an absent day8/re-frame2-epoch artefact returns false rather than raising; only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The one-call strict replay (Tool-Pair, Replay) and the dispatch-shaped sibling of restore-epoch!, on the same door."}
-  ;; rf2-uhouu — THE supported receiver decision for a
+  ;; THE supported receiver decision for a
   ;; `:rf.epoch.cb/silenced-on-frame-destroy` signal: hand back the signal's tags,
-  ;; get "is this silence still current?". Weighs REGISTRATION identity (rf2-6ys5n:
-  ;; carried `:observed-gen` != the live generation => superseded) and OBSERVATION
-  ;; continuum (rf2-qg98y: a same-id successor frame re-arms by DELIVERY, minting
+  ;; get "is this silence still current?". Weighs REGISTRATION identity
+  ;; (carried `:observed-gen` != the live generation => superseded) and OBSERVATION
+  ;; continuum (a same-id successor frame re-arms by DELIVERY, minting
   ;; no generation, so `:observed-gen` still matches while the callback is live)
-  ;; under ONE ledger snapshot. It supersedes — and REPLACES — the former
-  ;; `epoch-listener-generation` + `epoch-listener-observing?` pair: those two
+  ;; under ONE ledger snapshot. It is one read rather than a
+  ;; generation read + an observing? read because two such
   ;; reads could not be composed linearizably (a replacement landing between them
-  ;; accepted a silence for an already-superseded registration), so publishing the
-  ;; halves published the race. A dev-only Tool-Pair observation surface, tiered
+  ;; would accept a silence for an already-superseded registration), so publishing
+  ;; the halves would publish the race. A dev-only Tool-Pair observation surface, tiered
   ;; exactly like its `epoch-history` / `restore-epoch!` re-export siblings;
   ;; :facade? true is generator-derived.
   ["re-frame.core" "epoch-silence-current?"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                              :action :keep
-                                             :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :false, so an absent day8/re-frame2-epoch artefact returns false rather than raising (no artefact, no silence signal to decide about); only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The supported receiver decision for a silenced-on-frame-destroy signal (rf2-uhouu); it exists because publishing the two halves separately published a race, so it belongs where its siblings are."}
-  ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3 + rf2-tfepxu /
-  ;; bead 9) originally shipped as a four-mutator family. rf2-t3lftq
-  ;; (API-shrink #3) consolidated replace-app-db! / reset-app-db! /
-  ;; replace-runtime-db! / replace-frame-state! — which shared identical
-  ;; machinery, differing only in which partition keys they touched — into
-  ;; ONE partial-map surface, replace-frame-state!: a present key replaces
-  ;; that partition, an absent key is preserved. The three siblings are
-  ;; DELETED, not reclassified. It installs into the one physical
-  ;; frame-state container via frame/commit-frame-transition! (rf2-adwcv6,
-  ;; bead 5).
+                                             :justification "Facade re-export, optional artefact (Conventions Optional-artefact wrapper convention) -- but epoch is that convention's SILENT-DEGRADE exception, not its raising case. core_epoch.cljc gives this wrapper :on-absent :false, so an absent day8/re-frame2-epoch artefact returns false rather than raising (no artefact, no silence signal to decide about); only the write surface replace-frame-state! raises :rf.error/epoch-artefact-missing (Tool-Pair Time-travel Artefact home; the 009 :rf.error/epoch-artefact-missing catalogue row; Conventions Adapter shipping convention Dependency direction). That degrade is only expressible from the ALWAYS-LOADED facade: moving the export to re-frame.epoch would turn a leftover dev-time call site into a hard require failure in a release build that omits the artefact, and would pull the artefact onto the production classpath against Conventions Bundle-isolation conformance. The surface is dev-tier, gated on interop/debug-enabled? and elided by Closure DCE under :advanced + goog.DEBUG=false (Tool-Pair Time-travel Production elision), so the facade row IS the optional-capability and release-DCE seam, not a convenience alias. The supported receiver decision for a silenced-on-frame-destroy signal; it is one read because publishing the two halves separately would publish a race, so it belongs where its siblings are."}
+  ;; EP-0001 two-partition mutator: ONE partial-map surface,
+  ;; replace-frame-state!: a present key replaces
+  ;; that partition, an absent key is preserved. There are no per-partition
+  ;; siblings (replace-app-db! / reset-app-db! / replace-runtime-db!), which
+  ;; would share identical machinery and differ only in which partition keys
+  ;; they touch. It installs into the one physical
+  ;; frame-state container via frame/commit-frame-transition!.
   ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"
                                                  :action :keep
-                                                 :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-epoch artefact, and the wrapper raises a documented :rf.error/epoch-artefact-missing when that artefact is absent. Moving the export to re-frame.epoch would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The one partial-map frame-state mutator (rf2-t3lftq consolidated four into it); Tool-Pair's restore path calls it on the same door as restore-epoch!."}
-  ;; The façade `register-epoch-listener!` / `unregister-epoch-listener!` pair
-  ;; was RETIRED (rf2-9flalp — API-shrink #4): the epoch stream is
+                                                 :justification "Facade re-export, artefact require (Conventions Optional-artefact wrapper convention): the facade name carries the contract while the code ships in the optional day8/re-frame2-epoch artefact, and the wrapper raises a documented :rf.error/epoch-artefact-missing when that artefact is absent. Moving the export to re-frame.epoch would turn that guided failure into a hard require failure for every app that omits the artefact -- the facade row IS the optional-capability mechanism, not a convenience alias. The one partial-map frame-state mutator; Tool-Pair's restore path calls it on the same door as restore-epoch!."}
+  ;; There is no façade `register-epoch-listener!` / `unregister-epoch-listener!`
+  ;; pair: the epoch stream is
   ;; registered through the single stream-parameterized verb,
   ;; `(rf/register-listener! :epoch id f)`, like :trace.
-  ;; The wrappers remain in re-frame.epoch (rowed below, canonical home).
-  ;; rf2-bv1p (ruling rf2-kuky.9 option A): the "projected-record" facade
-  ;; re-export is RETIRED, and with it re-frame.core-epoch/projected-record,
-  ;; re-frame.epoch/projected-record and the :epoch/projected-record
-  ;; late-bind hook. An :rf/epoch-record now reaches its projector through
+  ;; The wrappers live in re-frame.epoch (rowed below, canonical home).
+  ;; There is no "projected-record" facade re-export, and no
+  ;; re-frame.core-epoch/projected-record,
+  ;; re-frame.epoch/projected-record or :epoch/projected-record
+  ;; late-bind hook. An :rf/epoch-record reaches its projector through
   ;; the ONE door, project-egress, by its stamped :kind -- so record-level
   ;; egress has one public name and the epoch slot knowledge sits behind it,
-  ;; which is what "the door names the BOUNDARY, not a record kind" already
-  ;; said. The three trusted-local axes that door owned
-  ;; (:include-fx-args? / :include-runtime-db? / :include-event-args?) moved
-  ;; onto project-egress-opt-keys rather than retiring with it. rf2-kuky.93
-  ;; has since renamed all six axes together, to :rf.egress/*; the bare
-  ;; spellings above are the ones that moved at the time.
-  ;; rf2-kuky.90 (ruling rf2-kuky.9 option A): the "elide-wire-value" facade
-  ;; re-export is RETIRED -- the path walker is a framework-internal mechanism
+  ;; because the door names the BOUNDARY, not a record kind. The trusted-local
+  ;; axes are `:rf.egress/*` keys on project-egress-opt-keys.
+  ;; There is no "elide-wire-value" facade
+  ;; re-export -- the path walker is a framework-internal mechanism
   ;; behind the project-egress door, public only at its re-frame.elision home.
-  ;; Record-level egress projection (EP-0015 §10/§11 — rf2-yjbr1w).
+  ;; Record-level egress projection (EP-0015 §10/§11).
   ["re-frame.core" "project-egress"]                    {:tier :tooling  :owner "015" :status "v1"
                                                         :action :keep
                                                         :justification "EP-0015 record-level egress projection. API.md Tiering of cross-tool surfaces standing-classifies the off-box-egress projections as tooling tiered at their re-frame.core home row, and there is no rowed owning namespace to move to."}
-  ;; Frame-owned observability sink registry (EP-0015 §9 — rf2-t55hxg.7).
+  ;; Frame-owned observability sink registry (EP-0015 §9).
   ;; The NORMAL production observability story: an app registers a concrete
   ;; sink fn against the keyword id its frame :observability config names;
   ;; the runtime routes projected handled-event/error records to it. :tooling
@@ -1437,7 +1372,7 @@
                                                         :justification "The removal half of the observability sink registration, called by the same application code and so on the same door."}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"
                                                         :action :keep
-                                                        :justification "Standing-classified by the API.md Tiering of cross-tool surfaces sentence and tiered at its re-frame.core home row. (That sentence also named elide-wire-value until rf2-kuky.90 retired that export; sensitive? is unaffected -- it IS a door, read by tools directly.) The re-frame.mcp-base.sensitive rows are a different surface (scrub-snapshot, sensitive-event?), not a door for this var."}
+                                                        :justification "Standing-classified by the API.md Tiering of cross-tool surfaces sentence and tiered at its re-frame.core home row: it IS a door, read by tools directly. The re-frame.mcp-base.sensitive rows are a different surface (scrub-snapshot, sensitive-event?), not a door for this var."}
 
   ;; --- Individually-named extra-vars (generator `extra-vars`) ---
   ;; The two dev-gate Vars rowed in spec/API.md §Tracing whose home
@@ -1454,13 +1389,13 @@
   ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "with-trace-recorder!"]      {:tier :testing :owner "008" :status "v1"}
-  ;; rf2-kuky.69: the sibling of the trace bracket over the two ALWAYS-ON
+  ;; The sibling of the trace bracket over the two ALWAYS-ON
   ;; substrates. `re-frame.event-emit` / `re-frame.error-emit` are
-  ;; implementation-tier registries with no public facade spelling (the
-  ;; `register-listener!` `:events` / `:errors` streams were retired), and
-  ;; TESTS are one of the two consumers that ruling kept them for. ONE
+  ;; implementation-tier registries with no public facade spelling (there are
+  ;; no `register-listener!` `:events` / `:errors` streams), and
+  ;; TESTS are one of their two consumers. ONE
   ;; bracket rather than a hand-rolled register/finally/unregister wrapper
-  ;; per file -- the divergence rf2-64iuw measured on the trace side.
+  ;; per file, because per-file wrappers diverge.
   ["re-frame.test-support" "with-emit-recorder!"]       {:tier :testing :owner "008" :status "v1"}
 
   ;; =========================================================================
@@ -1485,49 +1420,48 @@
   ;; Introspection accessors are `tooling`; validator-install seams
   ;; `advanced`; the lower-level lifecycle/cache/validation helpers are
   ;; public-for-technical-reasons (cross-namespace reach) and NOT a
-  ;; supported surface → `implementation` (rf2-oekz6s; was internal-public).
+  ;; supported surface → `implementation`.
   ;; =========================================================================
-  ;; rf2-kuky.84 — ONE frame spelling on the side-table read lane. The three
+  ;; ONE frame spelling on the side-table read lane. The three
   ;; reads each take a single opts MAP with a REQUIRED `:frame`. `app-schemas`
   ;; answers `{path -> registration-metadata}` (the `{id -> meta}` shape
-  ;; `registrations` answers), which IS the fact the former public
-  ;; `frame-schema-entries` var carried, so that var is gone and its
-  ;; `:schemas/frame-schema-entries` late-bind hook stays as a private seam.
-  ;; `app-schema-meta` replaces the `app-schema-at` / `app-schema-meta-at`
-  ;; pair: the schema alone is the `:schema` projection.
+  ;; `registrations` answers), so there is no separate public
+  ;; `frame-schema-entries` var; its
+  ;; `:schemas/frame-schema-entries` late-bind hook is a private seam.
+  ;; `app-schema-meta` is the one per-path read: the schema alone is its
+  ;; `:schema` projection.
   ["re-frame.schemas" "app-schemas"]             {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schema-meta"]         {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schemas-digest"]      {:tier :tooling :owner "010" :status "v1"}
-  ;; Schema-fns configuration surface (rf2-kuky.39). The validator port is a
+  ;; Schema-fns configuration surface. The validator port is a
   ;; VALUE reached through ONE door: `set-schema-fns!` installs any subset,
   ;; `schema-fns` reads what is installed, `default-schema-fns` is the
   ;; framework's own bundle. All three are `advanced` — genuinely used and
   ;; supported, and NOT `implementation`, which is the unsupported tier.
-  ;; The three per-fn setters and the reset verb they replace are gone: an
-  ;; omitted key already makes a one-key install the single-purpose call, and
+  ;; There are no per-fn setters and no reset verb: an
+  ;; omitted key makes a one-key install the single-purpose call, and
   ;; `(set-schema-fns! default-schema-fns)` is the reset.
   ["re-frame.schemas" "set-schema-fns!"]         {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "schema-fns"]              {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "default-schema-fns"]      {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schema"]          {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "reg-app-schemas"]         {:tier :implementation :owner "010" :status "v1"}
-  ;; rf2-l5r974 (option a end-state) / rf2-btdpqn — the four raw schema atoms
-  ;; (schemas-by-frame / validator-fn / explainer-fn / printer-fn) are NO
-  ;; LONGER re-exported from the re-frame.schemas facade. They were an
-  ;; encapsulation-leak surface (the authoritative store's rep was frozen by
-  ;; exposure; the public printer-fn atom bypassed the never-nil invariant).
+  ;; The four raw schema atoms
+  ;; (schemas-by-frame / validator-fn / explainer-fn / printer-fn) are NOT
+  ;; re-exported from the re-frame.schemas facade. Exporting them would leak
+  ;; encapsulation (exposure freezes the authoritative store's rep, and a
+  ;; public printer-fn atom would bypass the never-nil invariant).
   ;; The supported public surface is the encapsulated snapshot/restore/clear
   ;; API (snapshot-schemas-by-frame / clear-schemas-by-frame!) plus the
-  ;; schema-fns / set-schema-fns! value pair. The atoms remain the
+  ;; schema-fns / set-schema-fns! value pair. The atoms are the
   ;; authoritative state in their home namespaces (storage / validator) but
   ;; are not public Vars on the facade, so they carry NO manifest row.
   ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :implementation :owner "010" :status "v1"}
-  ;; rf2-l4ljvr, superseded by rf2-kuky.39 — the bundle-level snapshot/restore
-  ;; pair that used to sit here is gone. The registry pair above keeps its
+  ;; There is no bundle-level snapshot/restore pair. The registry pair above has
   ;; dedicated verbs because its state is a mutable store with no value-shaped
   ;; installer; the validator bundle has one, so `schema-fns` + `set-schema-fns!`
-  ;; already give the cross-artefact fixtures (routing/ssr/ssr-ring) capture and
+  ;; give the cross-artefact fixtures (routing/ssr/ssr-ring) capture and
   ;; restore without reaching the raw atoms.
   ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :implementation :owner "010" :status "v1"}
   ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :implementation :owner "010" :status "v1"}
@@ -1554,19 +1488,17 @@
   ;; re-frame.machines — optional artefact (day8/re-frame2-machines), §005.
   ;; Query accessors `tooling`; spec/handler builders `advanced`; the fx
   ;; impls + validators + timer reset are public-for-technical-reasons only
-  ;; → `implementation` (rf2-oekz6s; was internal-public).
+  ;; → `implementation`.
   ;; =========================================================================
-  ;; rf2-kuky.31: `machines` is RETIRED — the last of the ten per-kind
-  ;; `<kind>-ids` / `<kind>-meta` aliases. It was a `filter` over
-  ;; `(registrations :event)` on `:rf/machine?`; enumerating machines is now
-  ;; that same filter written over the generic registrar query, so no
-  ;; per-kind alias row is carried here.
-  ;; rf2-kuky.31: `machine-meta` is RETIRED. It was a one-line delegate to
-  ;; `lifecycle-fx.resolver/spec-from-registry`; a single machine's spec is now
+  ;; There is no `machines` per-kind alias (nor any
+  ;; `<kind>-ids` / `<kind>-meta` alias): enumerating machines is a `filter`
+  ;; over `(registrations :event)` on `:rf/machine?`, written over the generic
+  ;; registrar query, so no per-kind alias row is carried here.
+  ;; There is no `machine-meta`: a single machine's spec is
   ;; read through the generic registrar query plus the documented `:rf/machine`
   ;; inner-key projection, so no per-kind alias row is carried here.
-  ;; rf2-kuky.70: `machine-by-system-id` is RETIRED with the rest of the
-  ;; `:system-id` family (rf2-kuky.15 ruled A). The address IS the id, so
+  ;; There is no `machine-by-system-id` and no
+  ;; `:system-id` family. The address IS the id, so
   ;; there is no reverse index to look a name up in and no row to carry.
   ["re-frame.machines" "machine-transition"]    {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "make-machine-handler"]  {:tier :advanced :owner "005" :status "v1"}
@@ -1576,16 +1508,15 @@
   ["re-frame.machines" "destroy-machine-fx"]    {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-schedule-fx"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-cancel-fx"]       {:tier :implementation :owner "005" :status "v1"}
-  ;; rf2-c6xkmn / rf2-kuky.70: the redundant `dispatch-to-system` call-site FN
-  ;; twin was DELETED first; the `:rf.machine/dispatch-to-system` fx and its
-  ;; `dispatch-to-system-fx` handler followed under rf2-kuky.70, together with
-  ;; `machine-by-system-id` and the whole `:system-id` family. A machine IS an
+  ;; There is no `dispatch-to-system` call-site FN, no
+  ;; `:rf.machine/dispatch-to-system` fx and no
+  ;; `dispatch-to-system-fx` handler. A machine IS an
   ;; event handler, so the everyday send is plain dispatch to the id you hold,
   ;; and `:fixed-actor-id` is the one stable-name mechanism.
   ["re-frame.machines" "validate-machine!"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :implementation :owner "005" :status "v1"}
-  ;; rf2-wrrvs7 — escape-hatch sibling validating the would-be-merged
+  ;; Escape-hatch sibling validating the would-be-merged
   ;; `:rf.machine/update-snapshot` snapshot `:data` before the fx writes it.
   ["re-frame.machines" "validate-update-snapshot-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "reset-timers!"]         {:tier :implementation :owner "005" :status "v1"}
@@ -1598,10 +1529,10 @@
   ;; late-bind reset hook + registrar-wiping tests call it) → :implementation,
   ;; mirroring the sibling fx-impl / validator / `reset-timers!` helpers above.
   ["re-frame.machines" "install-machine-runtime!"] {:tier :implementation :owner "005" :status "v1"}
-  ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
+  ;; Spawned-actor ownership resolver, published as the
   ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
   ["re-frame.machines" "owning-actor-id"]       {:tier :implementation :owner "005" :status "v1"}
-  ;; EP-0014 slice-6 (rf2-2axssk): the machine-selector recognizer. JVM
+  ;; EP-0014: the machine-selector recognizer. JVM
   ;; convenience alias; the body lives in the bundle-isolated
   ;; `re-frame.machines.tooling` sibling (the CLJS facade never `:require`s it
   ;; — the require is `#?@(:clj ...)`-gated — so prod CLJS bundles DCE it).
@@ -1609,13 +1540,13 @@
   ;; disposition). Owner 005 = machines host spec (the flow=013 / routing=012
   ;; host-namespace precedent).
   ;;
-  ;; rf2-kuky.86: the two algebra views (`machine-algebra-view`,
-  ;; `machine-instance-algebra-view`) carried rows here until their JVM facade
-  ;; aliases were deleted. They are NOT retired — the `defn`s stay public in
+  ;; The two algebra views (`machine-algebra-view`,
+  ;; `machine-instance-algebra-view`) have no JVM facade aliases. The `defn`s
+  ;; are public in
   ;; `re-frame.machines.tooling`, which the generator does not introspect, so
-  ;; they now carry no row for the same reason `sub-algebra-view` never did.
+  ;; they carry no row, for the same reason `sub-algebra-view` does not.
   ["re-frame.machines" "machine-selector?"]             {:tier :tooling :owner "005" :status "v1"}
-  ;; rf2-4qmiij — machine-selector edge extractor: the SET of machine ids a
+  ;; Machine-selector edge extractor: the SET of machine ids a
   ;; selector sub reads, so a graph tool draws the `:selector` edge to the
   ;; SPECIFIC machine(s), never the cross product. Same JVM-alias / tooling
   ;; shape as `machine-selector?`.
@@ -1626,13 +1557,13 @@
   ;; =========================================================================
   ["re-frame.routing" "match-url"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "route-url"]              {:tier :advanced :owner "012" :status "v1"}
-  ;; rf2-kuky.31 retired the `route-ids` / `route-meta` static-registry
-  ;; accessors (rf2-9x8q1c) along with every sibling `<kind>-ids` /
-  ;; `<kind>-meta` pair. Routing introspection is the generic registrar
+  ;; There are no `route-ids` / `route-meta` static-registry
+  ;; accessors (nor any sibling `<kind>-ids` /
+  ;; `<kind>-meta` pair). Routing introspection is the generic registrar
   ;; grammar — `(keys (rf/registrations {:source :store :kind :route}))` and
   ;; `(rf/handler-meta {:source :store :kind :route :id id})` — so there is
   ;; no row here to carry.
-  ;; rf2-aerrz5: the two shipped frame-level `:url-strategy` maps —
+  ;; The two shipped frame-level `:url-strategy` maps —
   ;; `history-url-strategy` (default, path-form) + `hash-url-strategy`
   ;; (`#`-prefixed). Declared on the URL-owning frame's `make-frame` config so
   ;; the router skins its path-form model onto the browser's chosen address-bar
@@ -1642,14 +1573,14 @@
   ;; frame-config / read surfaces.
   ["re-frame.routing" "history-url-strategy"]   {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "hash-url-strategy"]      {:tier :advanced :owner "012" :status "v1"}
-  ;; rf2-g8pbwg: STRATEGY COMBINATOR (not a third shipped strategy) — wraps
+  ;; STRATEGY COMBINATOR (not a third shipped strategy) — wraps
   ;; either shipped strategy so a deployment sub-path (an app served from
   ;; `/realworld/` on a host that mounts several demos side by side) is
   ;; stripped/re-added at the same four egress/ingress consult points. Same
   ;; routing-façade home + tier as the two shipped strategies.
   ["re-frame.routing" "with-base-path"]         {:tier :advanced :owner "012" :status "v1"}
-  ;; The `sub-route` / `sub-pending-navigation` reactive-read sugar fns were
-  ;; REMOVED (rf2-il99l3, reversing rf2-2cmcas): the route and pending-nav
+  ;; There are no `sub-route` / `sub-pending-navigation` reactive-read sugar
+  ;; fns: the route and pending-nav
   ;; reads are the `[:rf/route]` / `[:rf/pending-navigation]` subscription
   ;; VECTORS — one read grammar.
   ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
@@ -1659,8 +1590,8 @@
   ["re-frame.routing" "save-scroll-position"]   {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "lookup-scroll-position"] {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "scroll-positions-cap"]   {:tier :implementation :owner "012" :status "v1"}
-  ;; rf2-1hncp2: host-side transient scroll-cache seams. The cache moved off
-  ;; runtime-db to a module-level atom; these are the façade-published host
+  ;; Host-side transient scroll-cache seams. The cache lives in a
+  ;; module-level atom, not in runtime-db; these are the façade-published host
   ;; wrappers over it (`frame-scroll-cache` reads a frame's cache for the
   ;; pure nav-planner; `save-scroll-position!` writes it from the capture-fx;
   ;; `reset-scroll-cache!` is the test-fixture reset). Internal-public test /
@@ -1670,20 +1601,19 @@
   ["re-frame.routing" "save-scroll-position!"]  {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-scroll-cache!"]    {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-counters!"]        {:tier :implementation :owner "012" :status "v1"}
-  ;; rf2-oosjmh: host-side transient nav-counter seams (the sibling of the
+  ;; Host-side transient nav-counter seams (the sibling of the
   ;; scroll-cache seams above). The two monotonic allocators (:nav-token-counter
-  ;; + :pending-nav-counter) moved off runtime-db to a module-level
-  ;; per-frame atom (`re-frame.routing.nav-counters`) so an epoch restore
-  ;; cannot rewind + recycle a token. These are the façade-published host
+  ;; + :pending-nav-counter) live in a module-level
+  ;; per-frame atom (`re-frame.routing.nav-counters`), not in runtime-db, so an
+  ;; epoch restore cannot rewind + recycle a token. These are the façade-published host
   ;; wrappers: `counter-snapshot` reads a frame's high-water snapshot
-  ;; (analogous to `frame-scroll-cache`) — rf2-vcop6y: it is the read seam the
+  ;; (analogous to `frame-scroll-cache`); it is the read seam the
   ;; two RECORDABLE allocation cofx generators (`:rf.route/nav-allocation` /
-  ;; `:rf.route/pending-nav-allocation`) mint from (replacing the retired
-  ;; ambient `:rf.route/nav-counters` cofx); `routing-state-classification` is
+  ;; `:rf.route/pending-nav-allocation`) mint from; `routing-state-classification` is
   ;; the routing-owned durable/transient classification table (the single
   ;; source of truth the SSR payload policy + Spec-Schemas consume);
   ;; `reset-nav-counters!` is the test-fixture reset (sibling of
-  ;; `reset-scroll-cache!`); `reset-url-claims!` (rf2-3l7xxz) is the matching
+  ;; `reset-scroll-cache!`); `reset-url-claims!` is the matching
   ;; test-fixture reset for the process-global URL-ownership claim-order vector
   ;; (`re-frame.routing.nav-fx/url-claim-order`) — wired into the shared
   ;; make-reset-runtime-fixture reset-hooks table so a prior test's URL claim
@@ -1693,30 +1623,23 @@
   ["re-frame.routing" "routing-state-classification"] {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-nav-counters!"]    {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-url-claims!"]      {:tier :implementation :owner "012" :status "v1"}
-  ;; EP-0014 slice-5 (rf2-eiiifu) / rf2-kuky.86: the derivation/process algebra
+  ;; EP-0014: the derivation/process algebra
   ;; view of registered routes (`route-algebra-view`, static) and a frame's
-  ;; live route slice (`route-slice-algebra-view`, live) carried `:tooling`
-  ;; rows here while `re-frame.routing` published JVM-only convenience aliases
-  ;; of them. Those aliases are deleted, so the rows are gone. The views are
-  ;; NOT retired — the `defn`s stay public in the bundle-isolated
+  ;; live route slice (`route-slice-algebra-view`, live) have no
+  ;; `re-frame.routing` JVM aliases. The `defn`s are public in the bundle-isolated
   ;; `re-frame.routing.tooling`, which the generator does not introspect, so
-  ;; they now carry no row for exactly the reason `sub-algebra-view` never did:
+  ;; they carry no row, for exactly the reason `sub-algebra-view` does not:
   ;; the host namespace is not generator-introspected.
 
   ;; =========================================================================
   ;; re-frame.resources — optional artefact (day8/re-frame2-resources), §016.
   ;;
-  ;; rf2-ivuun. These rows are NEW because the namespace was absent from the
-  ;; generator's `jvm-namespaces` roster — eight of the nine feature artefacts
-  ;; were listed and resources was not, so the manifest carried ZERO resources
-  ;; rows and `doc_api_check` gave `docs/api/re-frame.resources.md` no coverage
-  ;; at all. The vars themselves are not new and nothing about them was ever
-  ;; unintrospectable: `day8/re-frame2-resources` was already on the
-  ;; generator's classpath. (The routing block ABOVE once cited
-  ;; `resource-ids`/`resource-meta` as the sibling enumerate pair — written
-  ;; against rows that did not exist. That is the trap this omission set: the
-  ;; manifest reads as an existence authority. rf2-kuky.31 has since retired
-  ;; the whole family, so neither side of that citation survives.)
+  ;; `re-frame.resources` is on the generator's `jvm-namespaces` roster with
+  ;; the other feature artefacts, so the manifest carries its rows and
+  ;; `doc_api_check` covers `docs/api/re-frame.resources.md`. A namespace left
+  ;; off that roster would carry ZERO rows, and because the manifest reads as
+  ;; an existence authority, prose citing its vars would be citing rows that
+  ;; do not exist.
   ;;
   ;; TIERING RULE APPLIED HERE, stated so the next reader is not guessing.
   ;;   (a) Where a `re-frame.core` facade row already exists, the home-ns row
@@ -1724,26 +1647,24 @@
   ;;       `replay-epoch!` / `restore-epoch!` are `:tooling` on BOTH
   ;;       `re-frame.core` and `re-frame.epoch`. One capability, one tier — the
   ;;       manifest must not classify the same var `:advanced` through the
-  ;;       facade door and something else through its home door. All fifteen
-  ;;       are `:advanced :owner "016" :status "v1 (optional capability)"` on
+  ;;       facade door and something else through its home door. Every one
+  ;;       is `:advanced :owner "016" :status "v1 (optional capability)"` on
   ;;       the facade, so they are that here.
-  ;;   (b) rf2-kuky.31 retired every per-kind `<kind>-ids` / `<kind>-meta`
-  ;;       accessor here — enumeration is
+  ;;   (b) There are no per-kind `<kind>-ids` / `<kind>-meta`
+  ;;       accessors here — enumeration is
   ;;       `(keys (rf/registrations {:source :store :kind k}))` and a
   ;;       registered spec is the documented inner-key projection off
   ;;       `rf/handler-meta` (`:rf/resource`, `:rf/mutation`,
-  ;;       `:rf/resource-scope`). `resource-meta` / `mutation-meta` survive
+  ;;       `:rf/resource-scope`). `resource-meta` / `mutation-meta` exist
   ;;       ARTEFACT-INTERNALLY in `re-frame.resources.registry` /
   ;;       `re-frame.resources.mutation-registry`, which the generator does
   ;;       not introspect, so they carry no row.
-  ;;   (c) The two algebra views carry NO row (rf2-kuky.86). They were
-  ;;       `:tooling` while `re-frame.resources` published `#?(:clj ...)`-gated
-  ;;       JVM aliases of the bundle-isolated `re-frame.resources.tooling`
-  ;;       sibling; those aliases are deleted, so the only public names are
+  ;;   (c) The two algebra views carry NO row. `re-frame.resources` publishes
+  ;;       no JVM aliases of the bundle-isolated `re-frame.resources.tooling`
+  ;;       sibling, so the only public names are
   ;;       the sibling's own `defn`s and the generator does not introspect
   ;;       that namespace. Exact mirror of `flow-algebra-view` /
-  ;;       `route-algebra-view` / `machine-algebra-view`, all demoted the
-  ;;       same way by the same bead (EP-0014 issue-1 disposition).
+  ;;       `route-algebra-view` / `machine-algebra-view` (EP-0014).
   ;; =========================================================================
   ;; (a) Facade-mirrored — resources.
   ["re-frame.resources" "reg-resource"]         {:tier :advanced :owner "016" :status "v1 (optional capability)"}
@@ -1759,10 +1680,10 @@
   ["re-frame.resources" "reg-resource-scope"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.resources" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; (c) Algebra views — a resource is the canonical PROCESS member of the
-  ;; algebra (Derivations §Process). rf2-kuky.86: the static registry view and
-  ;; the live per-frame cache-entry view carried `:tooling` rows here while
-  ;; `re-frame.resources` published JVM aliases of them. Those aliases are
-  ;; deleted, so the rows are gone; the `defn`s stay public in the
+  ;; algebra (Derivations §Process). The static registry view and
+  ;; the live per-frame cache-entry view have no
+  ;; `re-frame.resources` JVM aliases, so they carry no rows here; the `defn`s
+  ;; are public in the
   ;; bundle-isolated `re-frame.resources.tooling`, which the generator does not
   ;; introspect.
 
@@ -1772,26 +1693,24 @@
   ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
   ;; The canonical per-frame flow introspection surfaces — the flows analogue
-  ;; of `re-frame.schemas/app-schemas` / `app-schema-meta` (rf2-en00bk,
-  ;; applying the rf2-0frdi precedent). Frame-divergent-per-id; the
-  ;; `(handler-meta :flow flow-id)` replacement. Both take ONE opts map with a
-  ;; REQUIRED `:frame` (rf2-kuky.84). `:tooling` (pair-tools / 10x panels /
+  ;; of `re-frame.schemas/app-schemas` / `app-schema-meta`.
+  ;; Frame-divergent-per-id, so they answer what a
+  ;; `(handler-meta :flow flow-id)` read cannot. Both take ONE opts map with a
+  ;; REQUIRED `:frame`. `:tooling` (pair-tools / 10x panels /
   ;; source-coord tests), mirroring the schemas classification. `flows` is the
-  ;; per-frame slice of `flows-snapshot`, which stays as the whole-registry verb.
+  ;; per-frame slice of `flows-snapshot`, which is the whole-registry verb.
   ["re-frame.flows" "flows"]                 {:tier :tooling :owner "013" :status "v1"}
   ["re-frame.flows" "flow-meta"]             {:tier :tooling :owner "013" :status "v1"}
   ;; EP-0015: the raw `last-inputs-snapshot` is `^:no-doc` (internal / test /
   ;; rollback seam, NOT an egress boundary), so it stays off the public
   ;; manifest. Off-box reads ride the elided trace path, not a dedicated
   ;; accessor.
-  ;; EP-0014 slice-3 (rf2-s8w3nw) / rf2-kuky.86: the derivation/process algebra
-  ;; view of registered flows carried a `:tooling` row here while
-  ;; `re-frame.flows` published a JVM-only convenience alias of
-  ;; `re-frame.flows.tooling/flow-algebra-view`. That alias is deleted, so the
-  ;; row is gone. The view is NOT retired — the `defn` stays public in the
+  ;; EP-0014: the derivation/process algebra
+  ;; view of registered flows, `re-frame.flows.tooling/flow-algebra-view`, has
+  ;; no `re-frame.flows` JVM alias. The `defn` is public in the
   ;; bundle-isolated tooling sibling, which the generator does not introspect,
-  ;; so it now carries no row for exactly the reason `sub-algebra-view` never
-  ;; did.
+  ;; so it carries no row, for exactly the reason `sub-algebra-view` does
+  ;; not.
   ["re-frame.flows" "run-flows-on-db"]       {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "reset-flows!"]          {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "reset-last-inputs!"]    {:tier :implementation :owner "013" :status "v1"}
@@ -1800,30 +1719,28 @@
   ;; Managed HTTP — optional artefact (day8/re-frame2-http), §014.
   ;; The public surface is the `[:rf.http/managed args-map]` fx and its
   ;; keyword-addressed siblings, plus the `re-frame.core` facade re-exports;
-  ;; the artefact ships NO public var namespace of its own. The per-verb
-  ;; call-site helper namespace `re-frame.http` was deleted pre-alpha
-  ;; (rf2-kuky.11) — the data IS the API.
+  ;; the artefact ships NO public var namespace of its own. There is no
+  ;; per-verb call-site helper namespace `re-frame.http` — the data IS the API.
   ;; =========================================================================
-  ;; EP-0025 §HTTP carriers — the app-specific HTTP carrier mutators
-  ;; (declare-sensitive-header! / declare-sensitive-query-param! and the
-  ;; clear-*! siblings) are REMOVED from the public API, AND the earlier frame
-  ;; :sensitive {:http {...}} carrier block is REMOVED. App carrier names are
+  ;; EP-0025 §HTTP carriers — there are no app-specific HTTP carrier mutators
+  ;; (declare-sensitive-header! / declare-sensitive-query-param! and
+  ;; clear-*! siblings) in the public API, and no frame
+  ;; :sensitive {:http {...}} carrier block. App carrier names are
   ;; declared on the :rf.http/managed reg-fx registration via the :carriers
   ;; block (the transient-payload case); the immutable built-in denylists
-  ;; remain framework defaults.
+  ;; are framework defaults.
 
   ;; =========================================================================
   ;; re-frame.ssr — optional artefact (day8/re-frame2-ssr), §011.
   ;; The rowed query surface is advanced; the request/response plumbing +
   ;; templating + projection internals are public-for-technical-reasons
   ;; only (host territory, not a supported app/tool surface) →
-  ;; `implementation` (rf2-oekz6s; was internal-public).
+  ;; `implementation`.
   ;; =========================================================================
   ["re-frame.ssr" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
-  ;; The S5 structural-tree -> HTML serialiser (rf2-3omxp). Its owning
-  ;; CONTRACT is Spec 004B §The SSR consumption boundary, but the var ships
-  ;; on the §011 artefact façade alongside its siblings, so :owner stays
-  ;; "011" like every other re-frame.ssr row. Advanced, matching
+  ;; The S5 structural-tree -> HTML serialiser. Its owning
+  ;; CONTRACT is Spec 004B §The SSR consumption boundary, and the var ships
+  ;; on the §011 artefact façade alongside its siblings. Advanced, matching
   ;; `render-to-string`: both are host-called HTML producers on the rowed
   ;; query surface — the seam an SSR page assembly calls directly — not the
   ;; request/response plumbing this block tiers `implementation`. It differs
@@ -1833,17 +1750,17 @@
   ["re-frame.ssr" "emit-ui-tree"]                  {:tier :advanced :owner "004B" :status "v1"}
   ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "project-error"]                 {:tier :advanced :owner "011" :status "v1"}
-  ;; rf2-kuky.87 re-exported the head-model SERIALISER here from
-  ;; `re-frame.ssr.head`, so the emission half of the head contract sits
-  ;; on the same door as `render-to-string`; rf2-kuky.89 brought the READ
-  ;; across with it once the two former head reads collapsed into the
-  ;; single `head-model`. `(ssr/head-model->html (ssr/head-model f))` is
+  ;; The head-model SERIALISER and the single head READ, `head-model`, are
+  ;; re-exported here from
+  ;; `re-frame.ssr.head`, so the head contract sits
+  ;; on the same door as `render-to-string`:
+  ;; `(ssr/head-model->html (ssr/head-model f))` is
   ;; the whole head contract on one door. Both names are ALSO rowed at
   ;; home on `re-frame.ssr.head` below; the pairs are the same functions.
   ["re-frame.ssr" "head-model"]                    {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
   ;; The cross-host suspense boundary COMPONENT — the streaming AUTHORING
-  ;; surface (rf2-ycz3k). Advanced rather than front-porch: streaming SSR is
+  ;; surface. Advanced rather than front-porch: streaming SSR is
   ;; an opt-in capability in a separate artefact, not day-one app building.
   ;; It is nonetheless the one form an author writes for a streamed region —
   ;; `:rf/suspense-boundary` is internal wire syntax, never authored.
@@ -1853,11 +1770,10 @@
   ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "reg-error-projector"]           {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
-  ;; rf2-kuky.87: the supported client boot, promoted from
-  ;; `:implementation` and rowed in spec/API.md SSR. A host that must
-  ;; observe the MOUNTED tree still splits it into read-server-payload +
-  ;; :rf/hydrate + verify-hydration!; `hydrate-page!` stays
-  ;; `:implementation` (ruled).
+  ;; The supported client boot, rowed in spec/API.md SSR. A host that must
+  ;; observe the MOUNTED tree splits it into read-server-payload +
+  ;; :rf/hydrate + verify-hydration!; `hydrate-page!` is
+  ;; `:implementation`.
   ["re-frame.ssr" "hydrate!"]                      {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "hydrate-page!"]                 {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "verify-hydration!"]             {:tier :implementation :owner "011" :status "v1"}
@@ -1885,10 +1801,10 @@
 
   ;; =========================================================================
   ;; re-frame.ssr.head — the head/meta contract's public door
-  ;; (day8/re-frame2-ssr, §011 §Head/meta contract). It became a
-  ;; consumer-facing surface under rf2-kuky.87: with the SSR query
-  ;; re-exports gone from `re-frame.core`, the head surface is reached
-  ;; only through the artefact, so an app or host `(:require
+  ;; (day8/re-frame2-ssr, §011 §Head/meta contract). It is a
+  ;; consumer-facing surface: `re-frame.core` does not re-export the SSR
+  ;; query surface, so the head surface is reached
+  ;; only through the artefact, and an app or host `(:require
   ;; [re-frame.ssr.head :as head])` directly. `head-model` and
   ;; `head-model->html` are ALSO re-exported on `re-frame.ssr` (rowed
   ;; above) so the whole head contract sits beside `render-to-string`;
@@ -1911,7 +1827,7 @@
   ;; policy validator. Requires-directly and re-exported by nothing;
   ;; spec/API.md §Namespaces places it at `:implementation` "on the same
   ;; footing as `re-frame.ssr.ring`'s own vars" and does NOT row its vars.
-  ;; Enrolled by rf2-8arzr.7, which found it shipping unscanned.
+  ;; It is enrolled here so it does not ship unscanned.
   ;; =========================================================================
   ["re-frame.ssr.render-state" "validate-policy-opts!"] {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.render-state" "project"]               {:tier :implementation :owner "011" :status "v1"}
@@ -1923,8 +1839,7 @@
   ;; re-frame.ssr.ring — Ring host-adapter (day8/re-frame2-ssr-ring), §011.
   ;; Internal host-adapter machinery the framework wires (the individual
   ;; `*-handler` / `default-*` fns are NOT rowed as supported var APIs in
-  ;; spec/API.md) — public-for-technical-reasons → `implementation`
-  ;; (rf2-oekz6s; was internal-public).
+  ;; spec/API.md) — public-for-technical-reasons → `implementation`.
   ;; =========================================================================
   ["re-frame.ssr.ring" "ssr-handler"]               {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "ssr-middleware"]            {:tier :implementation :owner "011" :status "v1"}
@@ -1944,8 +1859,8 @@
   ;; `validate-opts!` / `http-timeout-ms` its opts seam. Requires-directly
   ;; and re-exported by nothing; spec/API.md §Namespaces places it at
   ;; `:implementation` "on the same footing as `re-frame.ssr.ring`'s own
-  ;; vars" and does NOT row its vars. Enrolled by rf2-8arzr.7, which found it
-  ;; shipping unscanned.
+  ;; vars" and does NOT row its vars. It is enrolled here so it does not
+  ;; ship unscanned.
   ;; =========================================================================
   ["re-frame.ssr.ring.node" "default-endpoint"]     {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring.node" "default-timeout-ms"]   {:tier :implementation :owner "011" :status "v1"}
@@ -1958,11 +1873,11 @@
   ;; =========================================================================
   ;; re-frame.epoch — optional artefact (day8/re-frame2-epoch), §Tool-Pair.
   ;;
-  ;; ONE GRAMMAR FOR THE EPOCH RING (rf2-kuky.55 ruled A; executed by
-  ;; rf2-kuky.82). Every var in this namespace is an implementation seam —
+  ;; ONE GRAMMAR FOR THE EPOCH RING. Every var in this namespace is an
+  ;; implementation seam —
   ;; a late-bind hook target `re-frame.core` reaches through
   ;; `re-frame.core-epoch`'s defwrappers. Tool code reads and writes the
-  ;; ring through the facade 46:0. The namespace therefore rows only what
+  ;; ring through the facade. The namespace therefore rows only what
   ;; the facade does NOT already name:
   ;;
   ;;   * FIVE vars the facade re-exports under the SAME name —
@@ -1982,10 +1897,10 @@
   ;;     file). :facade? is false on all of them, so the
   ;;     `implementation-facade-rows` invariant is untouched.
   ;;
-  ;; `current-config` was a fourteenth row until rf2-kuky.73 deleted the
-  ;; duplicate reader in favour of `(:epoch-history (rf/current-config))`.
+  ;; There is no `current-config` row: the epoch config is read as
+  ;; `(:epoch-history (rf/current-config))`.
   ;; =========================================================================
-  ;; rf2-kuky.20 / rf2-kuky.82 — `register-epoch-listener!` is the
+  ;; `register-epoch-listener!` is the
   ;; `:epoch`-stream HOME verb: an IMPLEMENTATION SEAM, not a second public
   ;; spelling. Apps and tools attach through `(rf/register-listener! :epoch …)`.
   ;; What a tool needs from the require line is the DEPENDENCY, not this verb:
@@ -2004,17 +1919,16 @@
   ;; =========================================================================
   ;; re-frame.story -- Story facade (day8/re-frame2-story), §007.
   ;;
-  ;; ALL rows here are `:facade? true` since rf2-i6kh widened `facade?` in the
-  ;; generator to the facade-namespace SET, so every one carries the two
+  ;; ALL rows here are `:facade? true`, because the generator's `facade?`
+  ;; covers the facade-namespace SET, so every one carries the two
   ;; facade-audit axes (`:action` / `:justification`) the drift-check requires.
   ;;
   ;; ALL rows are `:tooling`. That is not a flattening: Story is a tooling
   ;; PRODUCT, and spec/Conventions.md §Story / Xray nuance rules that for such
   ;; a product tooling can legitimately BE the front porch -- the discriminator
-  ;; is the user's workflow, not the tier label. The 54 rows that stood at
-  ;; `:implementation` were re-tiered by the rf2-i6kh sweep after every one was
-  ;; measured against the documentation that actually describes it; the one row
-  ;; with no such workflow (`match-schema-expectations`) LEFT the facade instead.
+  ;; is the user's workflow, not the tier label. Every row is tiered against
+  ;; the documentation that actually describes it; a var with no such
+  ;; workflow (`match-schema-expectations`) is not on the facade at all.
   ;; =========================================================================
   ;; Public execution verbs. The three-verb execution surface both spec/API.md
   ;; and tools/story/spec/017 name as THE way a Story is run.
@@ -2146,12 +2060,11 @@
   ["re-frame.story" "tag->axis-index"]               {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The tag-to-axis lookup the two `tags-*` reads are built on, exposed so a custom sidebar can order tags the way the built-in one does."}
-  ;; rf2-bsk1d9 (EP-0015), then EP-0025: Story no longer re-exports `add-marks`
+  ;; EP-0015 / EP-0025: Story does not re-export `add-marks`
   ;; / `set-marks`. Durable app-db classification is the four commit-plane
-  ;; classification effects (returned by a `reg-event` alongside `:db`); the
-  ;; imperative path-marks mutation surface AND the `re-frame.marks` namespace
-  ;; are removed. Story published these only as duals of the (already-removed)
-  ;; `re-frame.core/{add-marks,set-marks}` facade vars -- both rows are gone.
+  ;; classification effects (returned by a `reg-event` alongside `:db`); there
+  ;; is no imperative path-marks mutation surface and no `re-frame.marks`
+  ;; namespace (nor `re-frame.core/{add-marks,set-marks}` facade vars).
   ;; Canonical vocabulary tables -- read-only data an author consults while
   ;; writing `:tags` / `:status` / `:role` slots. tools/story/spec/API.md
   ;; §Facade re-export discipline names the vocabulary tables as facade
@@ -2207,19 +2120,19 @@
   ["re-frame.story" "explain-run-result"]            {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "Renders a failed result into human-readable form -- what a user reads when `result-passed?` came back false."}
-  ;; Tooling-consumer leaf operations (rf2-jy92cr). Five pure data-to-data
-  ;; leaves the downstream story-mcp tool consumes, lifted onto the facade so
-  ;; it stops reaching into Story internals. A live consumer was re-verified
-  ;; at tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc.
+  ;; Tooling-consumer leaf operations. Five pure data-to-data
+  ;; leaves the downstream story-mcp tool consumes, on the facade so
+  ;; it does not reach into Story internals. The live consumer is
+  ;; tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc.
   ["re-frame.story" "known-assertion-ids"]           {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The recognised assertion vocabulary story-mcp's `list-assertions` serves. A deliberate tooling-consumer entry point: consumed by story-mcp, not by user story bodies."}
   ["re-frame.story" "assertion-record"]              {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
-                                                     :justification "Normalizes one raw accumulator entry to the unified assertion record, for story-mcp's `preview-variant` / `read-failures`. Same rf2-jy92cr seam."}
+                                                     :justification "Normalizes one raw accumulator entry to the unified assertion record, for story-mcp's `preview-variant` / `read-failures`. Same tooling-consumer seam."}
   ["re-frame.story" "assertion-records"]             {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
-                                                     :justification "The vector form of `assertion-record`. The two are one seam; stranding half behind a door would make the tool reach into internals again."}
+                                                     :justification "The vector form of `assertion-record`. The two are one seam; stranding half behind a door would make the tool reach into internals."}
   ["re-frame.story" "aggregate-verdict"]             {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The ONE verdict-aggregation rule, so story-mcp's `read-failures` cannot drift from Story's own. A low-count integration seam whose stability is precisely the point (Conventions: consumer counts are evidence, never the verdict)."}
@@ -2230,12 +2143,8 @@
   ["re-frame.story" "snapshot-identity"]             {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "Content-hash identity for a variant, stable across hosts -- the key a visual-regression pipeline stores baselines under. spec/007-Stories.md names it in the programmatic execution + assertion surface."}
-  ;; RE-TIERED :implementation -> :tooling by the rf2-i6kh sweep.
-  ;;
-  ;; These rows were parked at `:implementation` by rf2-oekz6s, which read
-  ;; spec/API.md §Tiering of cross-tool surfaces as saying the run/reset/watch
-  ;; vocabulary is public-for-technical-reasons only. That paragraph was the
-  ;; OUTLIER, and this sweep reconciled it rather than the rows: the OWNING
+  ;; The run/reset/watch vocabulary is `:tooling`, not `:implementation`
+  ;; (public-for-technical-reasons): the OWNING
   ;; spec (007, the `:owner` of every row here) calls run-variant / reset-variant
   ;; the API the Story-as-test duality leans on; tools/story/spec/API.md
   ;; §Facade re-export discipline lists the run/reset/watch/destroy lifecycle,
@@ -2245,7 +2154,7 @@
   ;; docs/story/api/runtime.md carries reference entries for them. Conventions
   ;; §Story / Xray nuance settles the tie: for a tooling PRODUCT, tooling can
   ;; legitimately BE the front porch, and the discriminator is the user's
-  ;; workflow, not the tier label. spec/API.md was corrected in the same PR.
+  ;; workflow, not the tier label.
   ["re-frame.story" "run-variant"]                   {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The programmatic lifecycle entry point: allocate a frame, run the four phases, resolve the unified result. Taught as `(story/run-variant ...)` in tools/story/spec/Tutorial-CLJS-Unit.md, given a reference entry in docs/story/api/runtime.md, and named by spec/007-Stories.md as the API component tests and REPL exploration call. The single busiest Story surface in the corpus."}
@@ -2326,7 +2235,7 @@
                                                      :justification "The single canonical projection: determinism, semantic diff, snapshot identity, `:plan-hash` and `:run-hash` all consume it. tools/story/spec/017 §Canonicalization writes it `(story/canonicalize result)` -- the facade IS the door the spec names."}
   ["re-frame.story" "canonical-hash"]                {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
-                                                     :justification "The determinism / semantic-diff / run-equivalence hash of a canonicalized value. Held on the facade for family coherence with `canonicalize` / `content-hash` / `plan-hash` / `run-hash`: 017 §Canonicalization defines the five as one primitive set, and Conventions §Keep product facades coherent forbids splitting one behind a door while four stay. UNCERTAIN: unlike its four siblings this name carries no user-facing doc row of its own -- listed on rf2-i6kh for the operator, and not holding the tag."}
+                                                     :justification "The determinism / semantic-diff / run-equivalence hash of a canonicalized value. Held on the facade for family coherence with `canonicalize` / `content-hash` / `plan-hash` / `run-hash`: 017 §Canonicalization defines the five as one primitive set, and Conventions §Keep product facades coherent forbids splitting one behind a door while four stay. UNCERTAIN: unlike its four siblings this name carries no user-facing doc row of its own."}
   ["re-frame.story" "content-hash"]                  {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "Content hash of an exact value, no volatile strip -- the low primitive snapshot identity is built on. Documented in docs/story/api and in spec/007; part of the same five-member fingerprint set as `canonicalize`."}
@@ -2338,7 +2247,7 @@
                                                      :justification "The `:run-hash` slot's producer, over the canonical run slice -- the hash a golden match, a determinism verdict and a diff `:same?` all agree on. Documented in docs/story/04-the-variant-is-a-test.md and spec/008-Testing.md."}
   ["re-frame.story" "make-run-artifact"]             {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
-                                                     :justification "The pure constructor for a `:rf.test/run-artifact` -- what a caller hands to `replay-run-artifact` / `assert-deterministic` / `diff-run-artifacts`, all of which stay on the facade. Kept for family coherence. UNCERTAIN: spec/017 names only the `re-frame.story.artifact` door for it -- listed on rf2-i6kh for the operator, and not holding the tag."}
+                                                     :justification "The pure constructor for a `:rf.test/run-artifact` -- what a caller hands to `replay-run-artifact` / `assert-deterministic` / `diff-run-artifacts`, all of which stay on the facade. Kept for family coherence. UNCERTAIN: spec/017 names only the `re-frame.story.artifact` door for it."}
   ["re-frame.story" "run-artifact?"]                 {:tier :tooling :owner "007" :status "post-v1 lib"
                                                      :action :keep
                                                      :justification "The run-artifact recogniser -- the guard the three public artifact consumers apply to their own input. Kept beside `make-run-artifact` for the same family reason, and carrying the same stated uncertainty."}
@@ -2408,14 +2317,11 @@
 
   ;; =========================================================================
   ;; re-frame.trace.projection — the Spec 009 event-bundle projection.
-  ;; Its two public fns used to be rowed at `re-frame.core` facade twins whose
-  ;; justification read "the producing home, re-frame.trace.tooling, carries no
-  ;; manifest rows, so there is no clearer door to move to". That named the
-  ;; WRONG home: the producing home is re-frame.trace.projection, it is the
-  ;; namespace every tool already requires directly (Xray's self_noise.cljc
-  ;; composes it over the buffer it just read), and the facade twins had zero
-  ;; consumers. rf2-kuky.72 deleted the twins and enrolled the home, so these
-  ;; are ordinary home rows and carry no facade-audit axes.
+  ;; Its two public fns are rowed at their producing home, not at
+  ;; `re-frame.core` facade twins: re-frame.trace.projection is the
+  ;; namespace every tool requires directly (Xray's self_noise.cljc
+  ;; composes it over the buffer it just read), and facade twins would have no
+  ;; consumers. These are ordinary home rows and carry no facade-audit axes.
   ;; =========================================================================
   ["re-frame.trace.projection" "group-by-event"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.trace.projection" "domino-bucket"]          {:tier :tooling :owner "009" :status "v1 (dev-only)"}
@@ -2429,8 +2335,8 @@
   ["re-frame.mcp-base.sensitive" "scrub-snapshot"]       {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "strip-sensitive"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "sensitive-event?"]     {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
-  ;; sensitive-stamp? — the raw fail-closed sensitive-rollup classifier
-  ;; (rf2-5613h, private→public). Shared by pair-mcp's epoch-record rollup
+  ;; sensitive-stamp? — the raw fail-closed sensitive-rollup classifier.
+  ;; Shared by pair-mcp's epoch-record rollup
   ;; (:rf.epoch/sensitive?) AND mcp-base's own sensitive-event? trace-stamp
   ;; check, so both route through ONE fail-closed posture rather than a
   ;; divergent (true? ...) that fails open on contract drift. Same
@@ -2441,7 +2347,7 @@
   ["re-frame.mcp-base.sensitive" "reset-malformed-count!"] {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
 
   ;; =========================================================================
-  ;; re-frame.fresco — the JVM ARM of the split-host door (rf2-phm7g).
+  ;; re-frame.fresco — the JVM ARM of the split-host door.
   ;; =========================================================================
   ;; The door's `#?(:clj …)` arm is these three authoring macros and nothing
   ;; else, so `ns-publics` on the JVM returns exactly them and the generator
