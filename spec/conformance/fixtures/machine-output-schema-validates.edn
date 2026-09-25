@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/output-schema-validates
 ;;
 ;; Per [005 §Completion-output validation](../../005-StateMachines.md#completion-output-validation)
-;; and EP-0029 A8 (rf2-kgr3kk). A machine may declare a `[:schemas :output]`
+;; and EP-0029 A8. A machine may declare a `[:schemas :output]`
 ;; schema on its `:schemas` map. It validates the COMPLETION-OUTPUT payload —
 ;; the `result` the finishing machine selects from its final state's `:data`
 ;; via `:output-key` (the value the parent's `:on-done` receives). There is
@@ -15,9 +15,9 @@
 ;; A schema typo on a completion payload surfaces the mismatch; it never
 ;; deadlocks a finishing machine.
 ;;
-;; The boundary reuses the existing `:rf.error/schema-validation-failure` op
+;; The boundary uses the `:rf.error/schema-validation-failure` op
 ;; with the `:where :machine-output` value and `:phase :completion` — the
-;; same op the `:where :machine-data` boundary extends. Validation routes
+;; same op the `:where :machine-data` boundary uses. Validation routes
 ;; entirely through the optional late-bound `:schemas/validate-with-
 ;; registered-fn` adapter (machine core requires no schema library); a host
 ;; with no registered validator pays zero cost and emits no trace.
