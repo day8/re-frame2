@@ -242,7 +242,7 @@
 ;; effects `:rf.machine/spawn` and `:rf.machine/destroy` are emitted
 ;; into the fx vector by `apply-transition-once` whenever entry/exit
 ;; cascades cross a :spawn-bearing state. These handlers live in
-;; this namespace (rather than `re-frame.fx`'s reserved case-block) so
+;; this namespace (rather than `re-frame.fx`'s reserved-fx table) so
 ;; an app that doesn't pull in `day8/re-frame2-machines` carries
 ;; neither the trace strings (`:rf.machine.spawn/spawned`,
 ;; `:rf.machine/destroyed`) nor the handler symbols on its production-
