@@ -1,5 +1,5 @@
 (ns re-frame.story.plan
-  "Variant-plan compiler and `explain` base (Lane B foundation).
+  "Variant-plan compiler and `explain` base.
 
   Per `tools/story/spec/017-Testing-Story.md` §Four-bucket authoring
   model + §Variant plan + §Total resolution order, every registered
@@ -75,7 +75,7 @@
   When a variant authors `:network` (a `{[method url] {:reply …}}` route
   map), the compiler keeps the per-route reply data at `[:world :network]`
   (the source of truth that feeds `:plan-hash` through the `:world` slot
-  and `explain`) and **lowers** it to the existing managed-request stub
+  and `explain`) and **lowers** it to the managed-request stub
   machinery — the variant frame overrides `:rf.http/managed` with the stub
   fx `re-frame.http.test-support/install-managed-request-stubs!` registers
   (folded into `[:world :frame :fx-overrides]`). It reuses that helper
@@ -137,12 +137,12 @@
   The ex-message is the canonical Spec 009 thrown-error shape: the human
   `reason` sentence carrying a trailing `[:rf.error/<id>]` greppability
   token, with `:rf.error/id` the sole machine discriminator. That is
-  load-bearing rather than cosmetic (rf2-jquiy) — story-mcp's tool
+  load-bearing rather than cosmetic — story-mcp's tool
   dispatcher relays `(ex-message e)` verbatim into the MCP result
   (`tools/wire_pipeline.cljc` `(str \"Tool handler threw: \" …)`), so a
   plan failure raised under `explain` / `variant-plan` is read by the
-  consumer AI on the other end of the wire. A bare `(str id)` shipped it
-  the stringified discriminator and discarded the sentence sitting right
+  consumer AI on the other end of the wire. A bare `(str id)` would ship it
+  the stringified discriminator and discard the sentence sitting right
   there in `:reason`. Hand-rolled inline rather than routed through
   `re-frame.error`: `tools/` is bundle-isolated and MUST NOT
   `:require re-frame.*`."
@@ -244,23 +244,21 @@
 
   `:substrates` and `:component` are inherited through `:extends` like the
   rest, AND fall back to the parent STORY body when the whole chain
-  declares neither (rf2-sc5g0) — `001-Authoring.md` §Registration macros
+  declares neither — `001-Authoring.md` §Registration macros
   makes both story-level slots the default for the story's variants, and
   the fallback happens in `compile-body` rather than here because `ctx`
   is the variant-chain merge and the story is ambient, exactly like
   `:decorators` and `:tags`.
 
-  `:sensitive` / `:large` (rf2-cmjly3 finding 12) carry the EP-0025 durable
+  `:sensitive` / `:large` carry the EP-0025 durable
   app-db classification (`{:app-db [[path]…]}`) — a plain map, so they
   merge exactly like every other context key (a child re-declaring the axis
   replaces the parent's `:app-db` vector; a child that omits it inherits the
-  parent's verbatim). This is what lets `[:world :sensitive]` / `[:world
-  :large]` reach `allocate-inline!` (below in `frames.cljc`) for an inline
-  plan run, which has no registered variant body to read the classification
-  off. It does NOT change `allocate!`'s REGISTERED-variant path — that reads
-  the classification straight off the raw (un-merged) variant body via
-  `apply-variant-classification!`, entirely independent of the plan
-  compiler, and is unaffected by this key's presence here."
+  parent's verbatim). This is what lets the EFFECTIVE `[:world :sensitive]` /
+  `[:world :large]` reach both frame allocators in `frames.cljc`: `allocate!`
+  (the runtime threads the compiled `:world` for a registered variant) and
+  `allocate-inline!` (an inline plan run, which has no registered variant
+  body to read the classification off)."
   [:sub-overrides :db-seed :network :fx-overrides :interceptor-overrides
    :decorators :loaders :loaders-teardown :loaders-complete-when
    :modes :substrates :platforms :viewport :background :xray
@@ -277,8 +275,8 @@
   "The `context-keys` whose map ENTRIES are atomic. A `:network` route's
   value is one reply and a `:sub-overrides` query's value is one pinned
   value, so through `:extends` the child wins per route / per query key —
-  the same per-entry `merge` `:compose` applies to both slots (rf2-pwwu).
-  Deep-merging them fused a parent's `{:reply {:ok …}}` with a child's
+  the same per-entry `merge` `:compose` applies to both slots.
+  Deep-merging them would fuse a parent's `{:reply {:ok …}}` with a child's
   `{:reply {:failure …}}` into a reply the schema rejects and the stub
   answers with `:ok`."
   #{:network :sub-overrides})
@@ -432,7 +430,7 @@
   time. `script-assertions` are the atoms pulled from the `[:assert …]`
   checkpoints of EVERY named play (post-fold); `terminal-assertions` are
   the child's own `:assertions` atoms plus every resolved check body's
-  atoms (rf2-jjhy)."
+  atoms."
   [id script-assertions terminal-assertions]
   (let [offenders (into []
                         (comp (remove nil?)
@@ -456,7 +454,7 @@
 
 (defn- reject-malformed-causal-opts!
   "FAIL plan construction when a causal assertion atom carries a malformed
-  `:require-cause?` opt (rf2-x76af2.17). `{:require-cause? false}` is the ONE
+  `:require-cause?` opt. `{:require-cause? false}` is the ONE
   opt-out that lets `:rf.assert/no-cascade-rerender` evaluate its `[0,0]`
   default vacuously when its named cause was not observed in the run tape;
   it is a no-cascade opt ONLY. Two rejections, both surfaced before any run
@@ -874,16 +872,16 @@
 ;; source of truth that feeds `:plan-hash` via `plan-hash-input-keys`'s
 ;; `:world` slot, `explain`, and — threaded onto the artifact's `:network`
 ;; slot by `re-frame.story.determinism/->artifact` — the run
-;; artifact) AND **lowers** it to the existing managed-request stub
+;; artifact) AND **lowers** it to the managed-request stub
 ;; machinery: the variant frame overrides `:rf.http/managed` with the stub
 ;; fx that `re-frame.http.test-support/install-managed-request-stubs!`
-;; registers. We do NOT invent a new HTTP mock — the lowering names the
-;; existing seam; the runner (and `replay-run-artifact`, via the `:network`
+;; registers. There is no separate HTTP mock — the lowering names the
+;; managed-request stub seam; the runner (and `replay-run-artifact`, via the `:network`
 ;; slot) installs the route map and points `:fx-overrides` at the stub fx.
 ;;
 ;; `:network` is NOT a replacement for generic `:fx-overrides`; it is the
 ;; higher-level affordance for `:rf.http/managed` specifically. Generic
-;; `:fx-overrides` still serve every non-HTTP effect and the unusual cases
+;; `:fx-overrides` serve every non-HTTP effect and the unusual cases
 ;; (§Network stubs — "generic :fx-overrides still exists").
 
 (def managed-fx-id
@@ -1054,7 +1052,7 @@
         ;; fx-/interceptor-ids (keywords); sorting by `pr-str` gives a
         ;; total, platform-stable order so explain diffs + error messages
         ;; reproduce. (`:merged` is order-independent and `:explain` is
-        ;; excluded from `plan-hash`, so this is a pure debug-surface fix.)
+        ;; excluded from `plan-hash`, so the sort touches only the debug surface.)
         ordered  (sort-by (comp pr-str key) by-id)
         owned?   (fn [k] (and (map? variant-owned) (contains? variant-owned k)))]
     (reduce
@@ -1329,8 +1327,8 @@
                          distinct
                          vec)
         ;; Every :checks id — inherited, own or composed — MUST resolve to a
-        ;; registered check, exactly as a `:compose` id must (rf2-jjhy). An
-        ;; unresolved id used to expand to an empty atom vector, and a check
+        ;; registered check, exactly as a `:compose` id must. An
+        ;; unresolved id would expand to an empty atom vector, and a check
         ;; over no atoms aggregates `:pass` forever. The resolved bodies'
         ;; atoms feed the assertion-id guards below; the runtime dispatches
         ;; them after the script, beside the terminal `:assertions`.
@@ -1366,11 +1364,12 @@
                                     frag-layers))
         {child-script :script scripts :scripts} (normalize-scripts id child)
         script       (vec (concat compose-script child-script))
-        ;; rf2-k23efg: `compose-script` above only ever fed the REPORTED
-        ;; top-level `:script` — the runtime executes `[:world :scripts]`
-        ;; (below), never the top-level `:script` slot, so a composed
-        ;; fragment's `:script` was silently dropped from every actual run
-        ;; (plan/explain looked right; nothing happened). Fold it into the
+        ;; `compose-script` above feeds the REPORTED
+        ;; top-level `:script`, but the runtime executes `[:world :scripts]`
+        ;; (below), never the top-level `:script` slot, so without this fold a
+        ;; composed fragment's `:script` would be silently dropped from every
+        ;; actual run (plan/explain would look right; nothing would happen).
+        ;; Fold it into the
         ;; PRIMARY (first/auto-run) play too, exactly where it lands in the
         ;; top-level `:script`: prepended onto that play's own script when
         ;; the child declares one, or synthesized as a fresh auto-run play
@@ -1444,12 +1443,12 @@
         ;; plays are already folded (`normalize-scripts`), so one walk over
         ;; their `[:assert …]` checkpoints covers every in-script position.
         ;; The walk reads `scripts*` — every play the runner can drive — not
-        ;; the primary play alone (rf2-jjhy).
+        ;; the primary play alone.
         play-atoms   (into [] (mapcat (comp script-assertion-atoms :script)) scripts*)
         expect-atoms (into assertions check-atoms)
         _            (reject-unknown-assertions! id play-atoms expect-atoms)
         ;; A causal assertion's `:require-cause?` opt is a strict
-        ;; `:rf.assert/no-cascade-rerender` boolean (rf2-x76af2.17): reject
+        ;; `:rf.assert/no-cascade-rerender` boolean: reject
         ;; the key on `:rf.assert/caused` and reject a non-boolean value on
         ;; either id, at compile time, before any run.
         _            (reject-malformed-causal-opts! id play-atoms expect-atoms)
@@ -1463,7 +1462,7 @@
         ;; vectors — `[:arg]` substitution walks them too, so a query arg
         ;; can also be control-driven.
         frag-sub-ovr (reduce (fn [m l] (merge m (:sub-overrides l))) {} frag-layers)
-        ;; The RAW merged overrides BEFORE `[:arg key]` substitution — kept
+        ;; The RAW merged overrides BEFORE `[:arg key]` substitution — carried
         ;; on the plan (`[:world :render :sub-overrides-raw]`) so the render
         ;; path (`render-variant`) can RE-resolve the
         ;; placeholders against the POST-control effective args (a control
@@ -1533,18 +1532,18 @@
         _            (check-network-fx-conflict! id ctx-fx network)
         ;; Lower the route map to the managed-stub fx override; nil when
         ;; there are no routes. The derived `:fx-overrides` merges UNDER any
-        ;; non-managed author overrides (the conflict above already ruled
-        ;; out a managed-targeting author override).
+        ;; non-managed author overrides (the conflict check above rejects
+        ;; a managed-targeting author override).
         network-low  (lower-network network)
         fx-overrides (merge (when network-low (:fx-overrides network-low))
                             ctx-fx)
         interceptor-overrides ctx-ic
-        ;; ---- composed-fragment loaders / decorators (rf2-2g7ebs) ----
+        ;; ---- composed-fragment loaders / decorators ----
         ;; `ctx` (above) is reduced over the `:extends` chain bodies ONLY —
         ;; a composed fragment's `:loaders` / `:loaders-teardown` /
-        ;; `:decorators` never reached it, so they were silently dropped
-        ;; from every composed variant (the Fragment schema permits them;
-        ;; the compiler just never read them). Fold frag-layers in here,
+        ;; `:decorators` never reach it, so without this fold they would be
+        ;; silently dropped from every composed variant (the Fragment schema
+        ;; permits them). Fold frag-layers in here,
         ;; same declared-order-append discipline as `:setup` / `:script`:
         ;; composed fragments contribute FIRST, the variant-chain's own
         ;; value (`ctx`) lands after/outermost.
@@ -1556,33 +1555,31 @@
         ;; order — composed fragments sit BETWEEN the ambient story
         ;; decorators and the variant-chain's own decorators (below).
         frag-decorators (vec (mapcat #(:decorators %) frag-layers))
-        ;; ---- the parent story, resolved ONCE (rf2-sc5g0) ----
+        ;; ---- the parent story, resolved ONCE ----
         ;; The parent story id (nil for an inline plan-map target with no
         ;; `:variant/id`, or any id outside the variant-id grammar). Bound
         ;; ONCE here — the story-decorator lookup, the tag fallback, the
         ;; two ambient world keys below AND the `:story/id` stamp on the
-        ;; returned plan (rf2-xk8oz4) all read this SAME resolution, so
+        ;; returned plan all read this SAME resolution, so
         ;; they can never disagree about the parent.
         sid          (rf.story.args/parent-story-id id)
         story-body   (when sid (story-lookup sid))
         ;; ---- ambient (story-level) world keys ----
         ;; `:substrates` and `:component` are declared on the VARIANT or on
         ;; its parent STORY, and resolve variant-first-then-story
-        ;; (`multi-substrate/resolve-substrate-set`). The live canvas
-        ;; resolved them that way off the raw bodies while the plan folded
-        ;; only the variant chain, so the two slots meant something NARROWER
-        ;; on the plan than they meant on the canvas — and both have a
+        ;; (`multi-substrate/resolve-substrate-set`), and both have a
         ;; plan-side reader:
         ;; `canonical/render-host-scope` takes the substrate off
-        ;; `[:world :substrates]` (rf2-3afns) and `render/prepare-render`
-        ;; takes the subject off `[:world :component]`. So a story that
-        ;; declared either ONCE, with variants inheriting it, painted
-        ;; correctly on the live canvas while `render-variant` fell back to
-        ;; the `:reagent` host default and to a nil view. Folding them here
-        ;; makes the compiled plan mean what the canvas means, which is
-        ;; what rf2-3afns established the plan is for. Since rf2-3x7nj.28.2
-        ;; the canvas, `multi-substrate-grid` and every `workspace` cell read
-        ;; both slots off this fold too, so it is the one resolution;
+        ;; `[:world :substrates]` and `render/prepare-render`
+        ;; takes the subject off `[:world :component]`. Folding only the
+        ;; variant chain would make the two slots mean something NARROWER
+        ;; on the plan than on the canvas: a story that declared either
+        ;; ONCE, with variants inheriting it, would paint correctly on the
+        ;; live canvas while `render-variant` fell back to the `:reagent`
+        ;; host default and to a nil view. Folding them here makes the
+        ;; compiled plan mean what the canvas means. The canvas,
+        ;; `multi-substrate-grid` and every `workspace` cell read
+        ;; both slots off this fold, so it is the one resolution;
         ;; `resolve-substrate-set` over the plan's `:world` only adds the
         ;; host fallback.
         ;;
@@ -1590,15 +1587,16 @@
         ;; non-empty variant chain wins, else non-empty story, else the slot
         ;; is absent and the render-time host default applies. `seq` rather
         ;; than `contains?`: a variant declaring `:substrates #{}` declares
-        ;; nothing, which is already how both `resolve-substrate-set` and
+        ;; nothing, which is how both `resolve-substrate-set` and
         ;; `single-render-substrate` read it.
         ;;
         ;; These are the only two of the `context-keys` with a
         ;; `[:world …]` reader at all (`:modes` / `:viewport` /
         ;; `:background` / `:xray` / `:platforms` / `:dispatch-console?` are
         ;; folded for `:plan-hash` + explain and read off the bodies by the
-        ;; UI), so the plan carries variant scope everywhere else and this
-        ;; is a fix rather than a new inheritance rule.
+        ;; UI), so the plan carries variant scope everywhere else; this fold
+        ;; mirrors the canvas's resolution rather than defining an
+        ;; inheritance rule of its own.
         eff-substrates (or (when (seq (:substrates ctx))        (:substrates ctx))
                            (when (seq (:substrates story-body)) (:substrates story-body)))
         ;; ---- view arg schema + effective-args validation ----
@@ -1661,7 +1659,7 @@
                                         :db-seed       db-seed
                                         :sub-overrides sub-overrides})
         ;; ---- runner requirement ----
-        ;; rf2-m0cge5 finding 10: unioned across EVERY auto-run play's
+        ;; Unioned across EVERY auto-run play's
         ;; script, not just `script*` (the primary/first play alone).
         ;; `[:world :scripts]` retains every play, and the runtime
         ;; auto-runs each `:auto-run? true` one in order
@@ -1669,14 +1667,14 @@
         ;; `runtime/run-phase-4!` and `runner-events/auto-run!` delegate
         ;; to). Runner-selection trusts `:required-runner` VERBATIM, so an
         ;; auto-run play OTHER than the first whose step lifts capability
-        ;; (e.g. an `:assert-dom` checkpoint → `:dom`) that this slot never
-        ;; reflected let `:auto` selection pick a runner that cannot
+        ;; (e.g. an `:assert-dom` checkpoint → `:dom`) that this slot did
+        ;; not reflect would let `:auto` selection pick a runner that cannot
         ;; execute it — a spurious mid-run failure instead of an honest
         ;; `:cannot-run` refusal at selection time. `scripts*` is the
         ;; fully arg-substituted + folded plays vector (mirrors `script*`
-        ;; for the first play by construction), so this SUBSUMES the old
-        ;; single-play computation whenever the first play auto-runs (the
-        ;; common case) and correctly extends it to every other auto-run
+        ;; for the first play by construction), so this SUBSUMES a
+        ;; first-play-only computation whenever the first play auto-runs
+        ;; (the common case) and extends it to every other auto-run
         ;; play.
         auto-run-scripts (vec (mapcat :script (rf.story.play.runner/auto-runnable-plays scripts*)))
         required     (compute-required-runner setup auto-run-scripts assertions)
@@ -1686,8 +1684,8 @@
         ;; ---- full decorator stack ----
         ;; `(concat globals story fragments variant-chain)` — globals
         ;; outermost, then the parent story's `:decorators`, then composed
-        ;; fragments' `:decorators` in declared order (rf2-2g7ebs —
-        ;; `frag-decorators` above; previously dropped entirely), then the
+        ;; fragments' `:decorators` in declared order
+        ;; (`frag-decorators` above), then the
         ;; variant-chain slot (`(:decorators ctx)` — the `:extends`-merged,
         ;; child-wins refs). The SAME ordered set
         ;; `decorators/collect-decorator-refs` assembles at resolve time;
@@ -1695,8 +1693,8 @@
         ;; plan the single source of truth, so the canvas + render-variant
         ;; resolve the identical stack. Each layer falls through to `[]`
         ;; when absent — the empty-collection concat is render-transparent.
-        ;; `sid` is bound once, further up (rf2-sc5g0 moved it there so the
-        ;; ambient world keys read the same parent this does).
+        ;; `sid` is bound once, further up, so the ambient world keys read
+        ;; the same parent this does.
         story-decos  (vec (when sid (story-deco-lk sid)))
         full-decos   (vec (concat global-decos
                                   story-decos
@@ -1749,10 +1747,10 @@
                        (seq network)          (assoc :network network)
                        (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
                        (seq interceptor-overrides) (assoc-in [:frame :interceptor-overrides] interceptor-overrides)
-                       ;; `loaders` / `loaders-teardown` already fold in
-                       ;; composed-fragment contributions (rf2-2g7ebs,
-                       ;; above) — `(seq …)`, not `(contains? ctx …)`, since
-                       ;; the slot may now be non-empty from fragments alone
+                       ;; `loaders` / `loaders-teardown` fold in
+                       ;; composed-fragment contributions (above)
+                       ;; — `(seq …)`, not `(contains? ctx …)`, since
+                       ;; the slot may be non-empty from fragments alone
                        ;; even when the variant chain itself carries none.
                        (seq loaders)                (assoc :loaders loaders)
                        ;; Carry `:loaders-complete-when` onto
@@ -1768,7 +1766,7 @@
                        ;; (render-transparent).
                        (seq full-decos)             (assoc :decorators full-decos)
                        (contains? ctx :modes)       (assoc :modes (:modes ctx))
-                       ;; The two AMBIENT keys (rf2-sc5g0): resolved above,
+                       ;; The two AMBIENT keys: resolved above,
                        ;; variant chain then parent story, so
                        ;; `render-host-scope` and `prepare-render` read what
                        ;; the canvas reads. Absent when neither declares.
@@ -1777,14 +1775,14 @@
                        (contains? ctx :background)  (assoc :background (:background ctx))
                        (contains? ctx :xray)        (assoc :xray (:xray ctx))
                        (some? component-id)         (assoc :component component-id)
-                       ;; rf2-cmjly3 finding 12: the EP-0025 durable app-db
+                       ;; The EP-0025 durable app-db
                        ;; classification, carried through `:extends` like
                        ;; every other context key. Read by
                        ;; `run-inline-phase-0!` (`runtime.cljc`) and threaded
                        ;; into `allocate-inline!` (`frames.cljc`) so an inline
                        ;; plan's `:sensitive` / `:large` declaration is
-                       ;; actually applied to the elision registry instead of
-                       ;; being silently discarded.
+                       ;; applied to the elision registry rather than
+                       ;; discarded.
                        (contains? ctx :sensitive)   (assoc :sensitive (:sensitive ctx))
                        (contains? ctx :large)       (assoc :large (:large ctx)))
         resolved-conflicts (vec (mapcat :resolved (vals strict-res)))
@@ -1870,12 +1868,12 @@
              :tags            eff-tags
              :explain         explain}
       source (assoc :source source)
-      ;; The parent story id (rf2-xk8oz4). `plan-hash-input-keys` includes
+      ;; The parent story id. `plan-hash-input-keys` includes
       ;; `:story/id` SPECIFICALLY so two variants under different stories
-      ;; with otherwise-identical bodies do not collide — but this stamp
-      ;; is the only site that ever populates the slot the hash reads,
-      ;; and it was missing: `select-keys` silently dropped the absent
-      ;; key, so `plan-hash` was actually taken over `[:world :script
+      ;; with otherwise-identical bodies do not collide — and this stamp
+      ;; is the only site that populates the slot the hash reads: without
+      ;; it `select-keys` would silently drop the absent key, and
+      ;; `plan-hash` would be taken over `[:world :script
       ;; :expect :required-runner :tags]` alone. Present only when a
       ;; parent resolves (an inline plan-map target with no `:variant/id`
       ;; carries no slot — render-transparent).
@@ -1904,10 +1902,10 @@
   `opts`:
 
   - `:lookup` — a 1-arg fn `(variant-id) → raw-body` OR a
-    `{variant-id → raw-body}` map, used to resolve `:extends` parents
+    `{variant-id → raw-body}` map, resolving `:extends` parents
     (and the keyword target itself). Defaults to the side-table.
   - `:view-lookup` — a 1-arg fn `(view-id) → view-meta` OR a
-    `{view-id → view-meta}` map, used to resolve the `:component` view's
+    `{view-id → view-meta}` map, resolving the `:component` view's
     `:rf/props` / `:schema` props-schema slot for view-args validation.
     Defaults to the framework `:view` registrar (§View arg schemas).
   - `:validator-fns` — `{:validate (fn …) :explain (fn …)}` for
@@ -1971,9 +1969,9 @@
                 {:variant/id target}))
 
        ;; A map carrying `:world` is this fn's OUTPUT, not an authoring body
-       ;; (rf2-nt9f1). The map branch below reads authoring keys only, so a
-       ;; recompiled plan silently lost its seed, stubs and loaders and ran
-       ;; `:pass` for a run the variant never makes. Ids and bodies are the
+       ;; — the map branch below reads authoring keys only, so a
+       ;; recompiled plan would silently lose its seed, stubs and loaders and
+       ;; run `:pass` for a run the variant never makes. Ids and bodies are the
        ;; inputs; there is deliberately no "run a compiled plan" path.
        (and (map? target) (contains? target :world))
        (fail! :rf.error/story-compiled-plan-target
@@ -2008,9 +2006,9 @@
   compiler is the single authority for the variant layer;
   `rf.story.args/resolve-args` reads `:args` off the raw side-table body, so
   it cannot see an inherited or composed one — a child that only `:extends` a
-  parent resolved there as the STORY DEFAULT, and saving that snapshot wrote
-  the default onto a new variant as an explicit override the author never
-  made (rf2-gwye.7). Consumers needing the effective scenario args route
+  parent resolves there as the STORY DEFAULT, and saving that snapshot would
+  write the default onto a new variant as an explicit override the author
+  never made. Consumers needing the effective scenario args route
   here rather than re-walking `:extends` / `:compose` themselves.
 
   Best-effort, like every other tooling read over the compiler
