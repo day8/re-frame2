@@ -1,9 +1,9 @@
 (ns re-frame.story.ui.shell-styles
   "Style map for `re-frame.story.ui.shell`. Pure data; no Reagent
-  dependency. Extracted from `shell.cljs` per rf2-gv5kq so the shell
-  ns trends toward the 250-LoC leaf-size ceiling (rf2-zkca8).
+  dependency. A separate ns so the shell
+  ns trends toward the 250-LoC leaf-size ceiling.
 
-  ## Visual-foundation pass (rf2-ba86n.3, spec/018 §12)
+  ## Visual foundation (spec/018 §12)
 
   This is the flagship shell composition the whole Story UI inherits.
   The decisions here set the language every region picks up:
@@ -24,7 +24,7 @@
     split tells the user 'Story brought me here; Xray is showing the
     detail' without a stitched-together feel.
   - **Shared tokens.** Spacing resolves through `theme.space` (the 4px
-    rhythm), colour through `theme.colors` (zero raw hex — rf2-i3i5j),
+    rhythm), colour through `theme.colors` (zero raw hex),
     depth through `theme.depth`. No literal px / hex strings live here.
 
   CLJS-only."
@@ -38,7 +38,7 @@
                :flex-direction "column"
                :height "100vh"
                :font-family sans-stack
-               ;; rf2-ypd6h: atmospheric backdrop — radial-gradient mesh
+               ;; Atmospheric backdrop — radial-gradient mesh
                ;; over the deepest slate ground, lifts the shell out of
                ;; the 'editor pane' flat-solid floor.
                :background (:shell-root rf.story.theme.depth/backdrops)
@@ -94,11 +94,11 @@
                    :border-radius (:pill rf.story.theme.space/radius)
                    :background (:border-strong rf.story.theme.colors/tokens)}
    :splitter-active {:background (:accent-amber-soft rf.story.theme.colors/tokens)}
-   ;; rf2-pxeko — `?` help-button chip lives top-LEFT of the viewport.
+   ;; `?` help-button chip lives top-LEFT of the viewport.
    ;; The top-RIGHT corner is reserved for the Test-Codegen REC chip
    ;; (`recorder/rec-chip` in the toolbar) plus the recording-overlay
    ;; banner (`recorder/recording-overlay` at top:44px right:12px); a
-   ;; floating `?` on the right occluded the REC affordance. Top-left
+   ;; floating `?` on the right would occlude the REC affordance. Top-left
    ;; sits over the toolbar's first axis-label only — no fixed-position
    ;; conflict with the sidebar (which is part of the flex layout, not
    ;; fixed-positioned) or any other chrome affordance.
@@ -110,11 +110,11 @@
    ;;
    ;; Each inspector tenant (Xray / Explain / Evidence / Controls /
    ;; Dispatch / story-panels) renders as a labelled structural band.
-   ;; Pre-rf2-8rvu4 the rail stacked widgets with only a thin border
-   ;; between them, reading as one tall column; the section-header
+   ;; Stacked with only a thin border between them, the widgets would
+   ;; read as one tall column; the section-header
    ;; pattern gives each widget a labelled band so the panel parses as
-   ;; N labelled sections. The visual-foundation pass keeps that shape
-   ;; and adds the Story↔Xray temperature seam.
+   ;; N labelled sections, with the Story↔Xray temperature seam on
+   ;; top of that shape.
    :rhs-section
    {:padding        (str (rf.story.theme.space/pad 5) " " (rf.story.theme.space/pad 5) " 0 " (rf.story.theme.space/pad 5))
     :background     (:bg-1 rf.story.theme.colors/tokens)}
