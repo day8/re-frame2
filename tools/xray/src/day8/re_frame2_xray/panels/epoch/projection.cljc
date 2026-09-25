@@ -1037,8 +1037,8 @@
    :state      (common/tag-of ev :state)})
 
 (defn- started-cascade-row
-  "Build a cascade row from a `:rf.machine/started` trace event (rf2-it4vt,
-  the machine BIRTH signal `maybe-boot` emits per rf2-gl588 / F‴). The row
+  "Build a cascade row from a `:rf.machine/started` trace event (the
+  machine BIRTH signal `maybe-boot` emits). The row
   is the `[START]` badge — it renders at the FRONT of the cascade (rank -1)
   in BOTH creation paths:
 
@@ -1083,7 +1083,7 @@
     :rf.machine/started               (started-cascade-row ev)
     nil))
 
-;; ---- history restore / record (rf2-mle6e.5) -----------------------------
+;; ---- history restore / record -------------------------------------------
 ;;
 ;; History pseudo-states (Spec 005 §History states) record a compound's
 ;; last-active configuration on exit and restore it on re-entry. Spec 009
@@ -1102,7 +1102,7 @@
 ;;
 ;; These do NOT join `machine-cascade-trace-ops` (they are not exit/action/
 ;; entry/timer/no-op cascade ROWS — a restore IS the entry cascade, whose
-;; per-level `:entry` steps already carry the additive `:source` field per
+;; per-level `:entry` steps carry the `:source` field per
 ;; Spec 009 line 291). Instead they ENRICH the macrostep's `:transition`
 ;; cascade row, so the view reads "restored <compound> from <source>" off the
 ;; headline rather than re-folding the trace stream. They share the cascade's
@@ -1112,7 +1112,7 @@
 
 (defn history-restored-rows
   "Project every `:rf.machine.history/restored` trace event in `events`
-  into a vector of history-restore records (rf2-mle6e.5), trace order
+  into a vector of history-restore records, trace order
   preserved. Each record:
 
       {:machine-id      <kw>
@@ -1128,9 +1128,10 @@
   (->> events
        (filter (fn [ev] (= :rf.machine.history/restored (op ev))))
        (mapv (fn [ev]
-               ;; rf2-yyvtk5 — history rows now address the live actor under
+               ;; History rows address the live actor under
                ;; `:actor-id` (the join key to the transition row, which also
-               ;; carries `:actor-id`); fall back to `:machine-id` for legacy.
+               ;; carries `:actor-id`); fall back to `:machine-id` for
+               ;; fixtures that stamp only that.
                {:machine-id      (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
                 :compound-path   (common/tag-of ev :compound-path)
                 :kind            (common/tag-of ev :kind)
@@ -1141,7 +1142,7 @@
 
 (defn history-recorded-rows
   "Project every `:rf.machine.history/recorded` trace event in `events`
-  into a vector of history-record records (rf2-mle6e.5), trace order
+  into a vector of history-record records, trace order
   preserved. Each record:
 
       {:machine-id      <kw>
@@ -1155,8 +1156,9 @@
   (->> events
        (filter (fn [ev] (= :rf.machine.history/recorded (op ev))))
        (mapv (fn [ev]
-               ;; rf2-yyvtk5 — live actor under `:actor-id` (join key to the
-               ;; transition row); fall back to `:machine-id` for legacy.
+               ;; Live actor under `:actor-id` (join key to the
+               ;; transition row); fall back to `:machine-id` for
+               ;; fixtures that stamp only that.
                {:machine-id      (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
                 :compound-path   (common/tag-of ev :compound-path)
                 :kind            (common/tag-of ev :kind)
@@ -1165,7 +1167,7 @@
 
 (defn- attach-history-to-transition-rows
   "Stamp the history restore / record records (keyed by `:machine-id`)
-  onto each `:transition` cascade row (rf2-mle6e.5). A transition row that
+  onto each `:transition` cascade row. A transition row that
   resolved a history pseudo-state carries `:history-restored [<record> …]`;
   one whose macrostep exited a history-bearing compound carries
   `:history-recorded [<record> …]`. Non-history transition rows carry
@@ -1191,12 +1193,12 @@
               row))
           rows)))
 
-;; ---- inline-fn source-path enrichment (rf2-wwc3j) ----------------------
+;; ---- inline-fn source-path enrichment -----------------------------------
 ;;
 ;; Cascade rows arriving from the substrate carry no `:state-id` / `:event-id`
 ;; — those are implicit in the macrostep that surrounds them. To resolve
-;; the spec-path under which the macro stamped a per-element source-coord
-;; (rf2-8bp3), we walk the cascade and stamp each non-transition row with
+;; the spec-path under which the macro stamped a per-element source-coord,
+;; we walk the cascade and stamp each non-transition row with
 ;; the surrounding transition's source/target state + event-id:
 ;;
 ;;   :exit / :transition / :destroy-exit   → :source-state of the surrounding transition
@@ -1211,7 +1213,7 @@
 ;; This is best-effort: multi-microstep cascades carry one transition emit
 ;; per macrostep (the headline rollup), so intermediate-state inline-fn
 ;; entries fall back to the macrostep's headline state. Source resolution
-;; falls through to nil for those cases — the existing source-missing
+;; falls through to nil for those cases — the source-missing
 ;; placeholder renders in the view (graceful degradation; correct for the
 ;; common flat / single-microstep case).
 
@@ -1239,10 +1241,9 @@
 
 (defn state-node-source-coords
   "Resolve the reference-site `:source-coords` for a `:states`-tree
-  spec-path on a co-located machine `spec` (rf2-vqja2, supersedes the flat
-  `:rf.machine/state-coords` index).
+  spec-path on a co-located machine `spec`.
 
-  Per rf2-vqja2 each MAP node inside `:states` (state-node, transition map)
+  Each MAP node inside `:states` (state-node, transition map)
   carries its own `:source-coords` directly; inline-fn slots (`[… :action]`
   / `:guard` / `:entry` / `:exit`) hold a fn or keyword VALUE, not a map,
   so they carry no coord of their own. This fn walks UP from `spec-path` to
@@ -1275,7 +1276,7 @@
 
 (defn- enrich-cascade-rows
   "Stamp `:source-state` / `:target-state` / `:event-id` onto each
-  cascade row (rf2-wwc3j). Used by `cascade-row-source-key` to construct
+  cascade row. Used by `cascade-row-source-key` to construct
   inline-fn / transition / timer spec-path tuples.
 
   ALGORITHM. Walk the cascade rows in order, partitioning at each
@@ -1302,14 +1303,14 @@
         ;; actions before the transition), else fall back to the most
         ;; recent preceding transition (post-commit timer-cancels).
         ;;
-        ;; rf2-w6yfq — single-pass O(n) instead of O(n²). Walk
+        ;; Single-pass O(n). Walk
         ;; RIGHT-TO-LEFT threading `next-ahead` (the most recent
         ;; transition seen so far, looking back from the right); then
         ;; walk LEFT-TO-RIGHT threading `prior` (the most recent
         ;; transition emitted at-or-before i). Prefer `next-ahead`,
         ;; fall back to `prior`. Two linear passes + one mapv → O(n).
-        ;; Prior shape did a forward `(some … (subvec v i))` per row,
-        ;; which is O(n²); real cascades are tiny (< 10 rows) so the
+        ;; A forward `(some … (subvec v i))` per row would be
+        ;; O(n²); real cascades are tiny (< 10 rows) so the
         ;; win is asymptotic-only, but the shape is cleaner.
         next-ahead (loop [i (dec n) seen nil acc (transient (vec (repeat n nil)))]
                      (if (neg? i)
@@ -1352,29 +1353,23 @@
             (assoc :event-id (event-id-of (:event tx))))))
       rows next-tx)))
 
-;; rf2-it4vt — the `drop-spurious-no-op-transition` band-aid (rf2-e6q97) is
-;; RETIRED. It dropped the spurious `{X}→{X}` 0-microstep `:transition` row
-;; the substrate USED to emit beside a genuine no-op (and beside a redundant
-;; `[:rf.machine/start]` on an already-booted machine). rf2-coozg fixed that
-;; at the SOURCE: `commit-or-finalize` (machines · lifecycle_fx ·
-;; registration.cljc) now suppresses the no-change transition emit for a
-;; no-op macrostep (`:before` == `:after`, empty cascade, zero microsteps) —
-;; so the projection never sees a `{X}→{X}` transition to drop. With rf2-gl588
-;; (F‴) the eager start is a PURE init-kick that never feeds the marker into
-;; the transition step, so there is no `before == after` self-transition for
-;; creation either. The band-aid is fully dead on the creation path; the
-;; no-op path's transition is gone at the source — nothing to suppress
-;; tool-side. (The LIVE no-op / spawn / redundant-bootstrap correctness now
-;; lives core-side in rf2-coozg / rf2-t4582 / rf2-n9f4z, untouched here.)
+;; There is no spurious `{X}→{X}` no-op transition to drop tool-side:
+;; `commit-or-finalize` (machines · lifecycle_fx · registration.cljc)
+;; suppresses the no-change transition emit for a no-op macrostep
+;; (`:before` == `:after`, empty cascade, zero microsteps), and the eager
+;; start is a PURE init-kick that never feeds the marker into the
+;; transition step, so creation has no `before == after` self-transition
+;; either. The no-op / spawn / redundant-bootstrap correctness lives
+;; core-side.
 
 (defn machine-cascade-rows
   "Project the focused epoch's machine-related trace events into a
-  single time-ordered cascade row vector (rf2-u69j7). Each row carries
+  single time-ordered cascade row vector. Each row carries
   enough data for the view to render its phase / outcome / source-coord
   / duration / interleaved code body WITHOUT a second pass over the
   trace stream.
 
-  CANONICAL PHASE ORDER (rf2-tjqd8) — the rows are RE-SORTED panel-side
+  CANONICAL PHASE ORDER — the rows are RE-SORTED panel-side
   into `START → guard → exit → TRANSITION → entry → always →
   after-action → timer` rather than rendered in raw substrate emit order.
   The substrate emits the `:rf.machine/transition` summary LAST (after
@@ -1384,33 +1379,31 @@
   STABLE sort keyed by `[cascade-row-rank :trace-index]` — rows in the
   same rank keep their substrate emit order (multiple actions in one
   phase keep their run order). This is presentation-only; the substrate
-  trace order is untouched. rf2-it4vt — the `:start` row ranks AHEAD of
+  trace order is untouched. The `:start` row ranks AHEAD of
   everything (rank -1), so the machine's birth leads the cascade.
 
   Pipeline:
   1. Walk `:trace-events` in trace order; build one row per
      `machine-cascade-trace-ops` member, stamping `:trace-index` (the
      emit-order tiebreaker for the stable sort).
-  2. `enrich-cascade-rows` (rf2-wwc3j) — stamps `:source-state` /
+  2. `enrich-cascade-rows` — stamps `:source-state` /
      `:target-state` / `:event-id` from the surrounding `:transition`
      emit. This MUST run on the trace-ordered rows (the
      surrounding-transition resolution is emit-order-sensitive).
   3. Stable-sort by canonical rank, then re-number `:step` 1..N over the
      sorted order so the view's left-rail ordinal reflects the rendered
-     order. (The rf2-e6q97 `drop-spurious-no-op-transition` pass is
-     RETIRED — rf2-coozg suppresses the no-change transition at the
-     source, so there is no spurious `{X}→{X}` row to drop here.)
+     order. (The source suppresses the no-change transition, so there
+     is no spurious `{X}→{X}` row to drop here.)
 
   The enrichment slots feed `cascade-row-source-key` so inline-fn
   `:entry` / `:exit` / `:guard` / transition / timer rows can resolve
   their spec-path tuple to the `:source-coords` co-located on the nearest
-  enclosing `:states`-tree map node (`state-node-source-coords`; rf2-vqja2,
-  supersedes the flat `:rf.machine/state-coords` index of rf2-npvsx).
+  enclosing `:states`-tree map node (`state-node-source-coords`).
 
   Returns an empty vec when no machine-cascade events fired (vanilla
-  non-machine reg-event pipeline runs — the redesign is
-  machine-specific and the empty vec drives the view's empty-state
-  branch off the prior handler-step rendering unchanged)."
+  non-machine reg-event pipeline runs — the cascade is
+  machine-specific, and the empty vec sends the view to its empty-state
+  branch, the plain handler-step rendering)."
   [events]
   (let [base     (vec
                    (map-indexed
@@ -1419,7 +1412,7 @@
                            (filter (fn [ev] (contains? machine-cascade-trace-ops (op ev)))
                                    events))))
         enriched (enrich-cascade-rows base)
-        ;; rf2-mle6e.5 — stamp history restore / record records onto the
+        ;; Stamp history restore / record records onto the
         ;; `:transition` rows so the view's history banner reads "restored
         ;; <compound> from <source>" / "history advanced <prev> → <recorded>"
         ;; off the headline. Order-independent (keyed by machine-id), runs
@@ -1429,26 +1422,25 @@
                    (history-restored-rows events)
                    (history-recorded-rows events))
         ;; Stable canonical sort: rank first, emit-order (:trace-index)
-        ;; as tiebreaker so intra-phase run order is preserved. rf2-it4vt —
-        ;; the `:start` row ranks -1 (ahead of guards), so it leads the
+        ;; as tiebreaker so intra-phase run order is preserved.
+        ;; The `:start` row ranks -1 (ahead of guards), so it leads the
         ;; cascade in both creation paths (eager standalone / lazy fold).
-        ;; The rf2-e6q97 `drop-spurious-no-op-transition` pass is RETIRED:
-        ;; rf2-coozg suppresses the no-change transition at the source, so
+        ;; The source suppresses the no-change transition, so
         ;; there is no spurious `{X}→{X}` row to drop here.
         sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) enriched))
-        ;; rf2-iu3no — the benign no-op row renders "[NO OP] staying in
+        ;; The benign no-op row renders "[NO OP] staying in
         ;; {state}". The machine NAME is surfaced ONLY when the epoch has
         ;; >1 machine in play (a broadcast event hitting parallel regions /
         ;; multiple sibling machines), so the operator can tell WHICH
-        ;; machine stood pat. The single-machine case drops it (the EVENT
-        ;; HANDLER section already names the lone machine). "In play" =
+        ;; machine stood pat. The single-machine case omits it (the EVENT
+        ;; HANDLER section names the lone machine). "In play" =
         ;; distinct `:machine-id` across the whole cascade.
         multi-machine? (< 1 (count (into #{}
                                          (keep :machine-id)
                                          sorted)))]
     ;; Re-number :step over the FINAL (canonical) order so the left-rail
     ;; ordinal reads top-to-bottom as rendered, and stamp the no-op rows'
-    ;; machine-name visibility (rf2-iu3no).
+    ;; machine-name visibility.
     (vec (map-indexed
            (fn [i row]
              (cond-> (assoc row :step (inc i))
@@ -1456,7 +1448,7 @@
            sorted))))
 
 (defn machine-cascade-total-ms
-  "Sum of every cascade row's `:duration-ms` (rf2-u69j7). nil when no
+  "Sum of every cascade row's `:duration-ms`. nil when no
   row carries a numeric duration; the view elides the chip in that
   case. Pure-data aggregation; the view layer never re-walks the
   trace stream for chrome decisions."
@@ -1467,8 +1459,7 @@
 
 (defn machine-event-orientation
   "Project the orientation triple the EVENT HANDLER heading renders as
-  its one structured orientation line (rf2-akvfe, supersedes the
-  rf2-18oe3 DISPATCH gloss):
+  its one structured orientation line:
 
       Processing [TRIGGER] <trigger-vector> for [MACHINE] <machine-id>
                  in [STATE] <pre-transition-state>
@@ -1512,10 +1503,10 @@
                         machine-id)
         :state      (if tx (:from-state tx) (:state no-op))}))))
 
-;; ---- structured transition cascade (rf2-52u5n / rf2-n9f4z) --------------
+;; ---- structured transition cascade --------------------------------------
 ;;
 ;; The `:rf.machine/transition` trace carries a STRUCTURED `:cascade` tag
-;; (rf2-n9f4z) — the ordered step sequence that explains HOW the macrostep
+;; — the ordered step sequence that explains HOW the macrostep
 ;; reached its after-state. Each step is a self-describing map
 ;;
 ;;   {:kind   :exit | :action | :entry | :microstep
@@ -1532,14 +1523,14 @@
 ;; instrumentation test `re-frame.machine-cascade-instrumentation-cljs-test`
 ;; pins the exact shape.
 ;;
-;; This is the data rf2-52u5n renders under EVENT HANDLER. The pre-existing
-;; `machine-cascade-rows` (rf2-u69j7) is the per-EMIT stream (one row per
+;; `machine-cascade-rows` is the per-EMIT stream (one row per
 ;; `:rf.machine/action-ran` / guard / transition / timer trace) — it cannot
 ;; show the ACTION-FREE boundaries (e.g. exiting `:idle` / `:off`, which
 ;; declare no `:exit` action so emit no `:rf.machine/action-ran`), so it is
 ;; NOT a complete configuration walk. The structured `:cascade` IS the
-;; complete walk; the projection below groups it for legible per-region
-;; rendering without the view re-walking the step vector.
+;; complete walk; the helpers below group it per region. The view does not
+;; render them — the machine-epochs harness reads them as the cascade-ORDER
+;; oracle.
 
 (defn- structural-cascade-step? [step]
   (and (map? step)
@@ -1551,8 +1542,8 @@
 (defn cascade-regions
   "Group the LCA-cascade steps (`:exit` / `:action` / `:entry`) of a
   structured `:cascade` step vector by `:region`, preserving FIRST-
-  ENCOUNTER region order (rf2-52u5n). The `:microstep` steps are NOT
-  included here (they ride the `cascade-microsteps` section).
+  ENCOUNTER region order. The `:microstep` steps are NOT
+  included here (`cascade-microsteps` extracts them).
 
   Returns a vector of `{:region <name-or-nil> :steps [<step> …]}` groups,
   each group's `:steps` in their original execution order. A flat /
@@ -1560,8 +1551,7 @@
   is nil); a parallel machine carries one group per region in the order
   the substrate concatenated them (region declaration order).
 
-  Returns `[]` for a nil / empty cascade — the caller's fallback to the
-  `{from}→{to}` summary keys off the empty result."
+  Returns `[]` for a nil / empty cascade."
   [cascade]
   (let [steps (filterv structural-cascade-step? cascade)]
     (->> steps
@@ -1578,10 +1568,10 @@
 
 (defn cascade-microsteps
   "Extract the `:microstep` steps of a structured `:cascade`, ordered by
-  `:microstep-index` (rf2-52u5n). Each retains its `:from` / `:to` /
+  `:microstep-index`. Each retains its `:from` / `:to` /
   `:microstep-index` / `:region` and its nested `:steps` (the eventless
-  transition's own exit/action/entry cascade) so the view sections them
-  per index. Returns `[]` when the cascade carries no microsteps (the
+  transition's own exit/action/entry cascade) so a caller can section
+  them per index. Returns `[]` when the cascade carries no microsteps (the
   common non-`:always` macrostep)."
   [cascade]
   (->> cascade
@@ -1592,8 +1582,7 @@
 (defn cascade-step-count
   "Total structural step count across a structured `:cascade` — the
   top-level exit/action/entry steps PLUS every microstep's own nested
-  steps (rf2-52u5n). Drives the section header's `N step(s)` chip. nil
-  for a nil / empty cascade so the view elides the chip."
+  steps. nil for a nil / empty cascade."
   [cascade]
   (when (seq cascade)
     (+ (count (filterv structural-cascade-step? cascade))
@@ -1602,14 +1591,13 @@
 
 (defn parallel-cascade?
   "True iff the structured `:cascade` carries more than one distinct
-  `:region` (i.e. a parallel-machine broadcast) — the view groups
-  per-region only in that case (rf2-52u5n). A flat / compound machine's
-  steps all carry `:region nil`, so this is false and the view renders
-  one ungrouped column."
+  `:region` (i.e. a parallel-machine broadcast) — per-region grouping
+  matters only in that case. A flat / compound machine's
+  steps all carry `:region nil`, so this is false."
   [cascade]
   (< 1 (count (into #{} (keep :region) (filter structural-cascade-step? cascade)))))
 
-;; ---- machine LOGICAL-STATE delta (rf2-iwy0c) ----------------------------
+;; ---- machine LOGICAL-STATE delta ----------------------------------------
 ;;
 ;; The `:transition` cascade row carries the machine's FULL before / after
 ;; snapshot maps (`:before` / `:after`, hoisted off the
@@ -1619,16 +1607,16 @@
 ;; closed set of framework-owned `:rf/*` slots (`:rf/spawn-counter`,
 ;; after-epoch counters — Spec 005 §Reserved snapshot-internal keys).
 ;;
-;; The transition-row DELTA box (rf2-iwy0c part A) shows the LOGICAL state
+;; The transition-row DELTA box shows the LOGICAL state
 ;; change — `{:state :tags}` ONLY. `:data` is EXCLUDED (the per-action
-;; DATA Δ already carries it — folding it in here double-shows it); the
+;; DATA Δ carries it — folding it in here would double-show it); the
 ;; `:rf/*` bookkeeping slots are EXCLUDED (not user state — a raw
 ;; snapshot-diff would dump them). Projecting to exactly `{:state :tags}`
 ;; with `select-keys` filters everything else by construction.
 
 (defn machine-logical-state
   "Project a machine snapshot map down to its LOGICAL state — `{:state
-  :tags}` ONLY (rf2-iwy0c). Excludes `:data` (surfaced by the per-action
+  :tags}` ONLY. Excludes `:data` (surfaced by the per-action
   DATA Δ), `:meta`, and the framework-owned `:rf/*` snapshot slots
   (`:rf/spawn-counter` etc. — Spec 005 §Reserved snapshot-internal keys).
 
@@ -1645,7 +1633,7 @@
 
 (defn machine-logical-state-changed?
   "True iff the LOGICAL state (`{:state :tags}`) differs between the
-  before + after snapshots (rf2-iwy0c). A self / internal transition
+  before + after snapshots. A self / internal transition
   whose `:state` AND `:tags` are both unchanged returns false — the
   delta box is elided in that case (only `:data` or `:rf/*` bookkeeping
   moved, which the box does not show). nil snapshots compare as their
@@ -1662,9 +1650,9 @@
   [events]
   (or (some-> (find-op events :rf.event/run-end) :tags) {}))
 
-;; ---- t1 / t2 pending-`:db` snapshots (rf2-4wywy) ------------------------
+;; ---- t1 / t2 pending-`:db` snapshots ------------------------------------
 ;;
-;; Per rf2-ta0y7 the router stamps two pending-`:db` snapshots on the trace
+;; The router stamps two pending-`:db` snapshots on the trace
 ;; stream so per-step db attribution is possible WITHOUT a core change:
 ;;
 ;;   t1 `:rf.event/db-pending`            — POST-handler-chain, PRE-flow
@@ -1677,16 +1665,16 @@
 ;;
 ;; Both carry the FULL db value under `:tags :rf.event/db`. The epoch
 ;; record's `:db-after` is the FINAL post-commit state (== t2 when flows
-;; fired, == t1 otherwise); reading it for the HANDLER step conflated the
-;; handler's change with the following flow change (rf2-4wywy bug). The
-;; HANDLER step now reads t1; the FLOW step shows the t1→t2 reshape as its
+;; fired, == t1 otherwise); reading it for the HANDLER step would conflate
+;; the handler's change with the following flow change. The
+;; HANDLER step reads t1; the FLOW step shows the t1→t2 reshape as its
 ;; OWN `:db` diff.
 
 (defn db-pending-t1
   "The POST-handler, PRE-flow db value off the `:rf.event/db-pending`
-  (t1) trace event (rf2-ta0y7 · `:tags :rf.event/db`). nil when no t1
-  fired — the handler returned no `:db`, or the runtime predates
-  rf2-ta0y7. Callers fall back to the epoch record's `:db-before` /
+  (t1) trace event (`:tags :rf.event/db`). nil when no t1
+  fired — the handler returned no `:db`, or the runtime does not stamp
+  t1. Callers fall back to the epoch record's `:db-before` /
   `:db-after` in that case."
   [events]
   (some-> (find-op events :rf.event/db-pending)
@@ -1694,18 +1682,18 @@
 
 (defn db-pending-t2
   "The POST-flow, PRE-commit db value off the
-  `:rf.event/db-pending-post-flow` (t2) trace event (rf2-ta0y7 ·
-  `:tags :rf.event/db`). nil when no t2 fired — no flow changed `:db`
-  this epoch (t1 == t2), or the runtime predates rf2-ta0y7."
+  `:rf.event/db-pending-post-flow` (t2) trace event
+  (`:tags :rf.event/db`). nil when no t2 fired — no flow changed `:db`
+  this epoch (t1 == t2), or the runtime does not stamp t2."
   [events]
   (some-> (find-op events :rf.event/db-pending-post-flow)
           (common/tag-of :rf.event/db)))
 
 (defn no-db-effect-with-flow?
   "True iff the handler returned NO `:db` effect yet a flow still ran
-  this epoch (rf2-48oc4 edge case). The discriminator off the trace
+  this epoch (an edge case). The discriminator off the trace
   stream: NO t1 (`:rf.event/db-pending` fires only `(when has-db?)` —
-  router `flows-after-interceptor`, rf2-ta0y7) AND a t2
+  router `flows-after-interceptor`) AND a t2
   (`:rf.event/db-pending-post-flow`) DID fire (a flow synthesised a
   `:db` from app-db and changed it).
 
@@ -1713,10 +1701,9 @@
   the cascade (`db-before`) — the handler wrote nothing to `:db`. The
   HANDLER step must therefore show NO `:db` change, and the FLOW step
   must diff against that `db-before` baseline rather than fall back to a
-  scalar line. Distinct from the pre-rf2-ta0y7 fallback (no t1 AND no
-  t2), where the absence of t1 means the runtime simply never stamped
-  the snapshot — there the HANDLER step falls back to the record's
-  `:db-after`."
+  scalar line. Distinct from the no-t1-AND-no-t2 fallback, where the
+  runtime stamped no snapshot — there the HANDLER step falls back to
+  the record's `:db-after`."
   [events]
   (and (nil? (db-pending-t1 events))
        (some? (db-pending-t2 events))))
@@ -1724,11 +1711,10 @@
 (defn effective-post-handler-db
   "The db value AS IT STOOD AT END-OF-HANDLER (post-handler-effects,
   PRE-flow-transform) — the authoritative baseline for BOTH the HANDLER
-  step's `:db` and the FLOW step's diff `:before` (rf2-48oc4).
+  step's `:db` and the FLOW step's diff `:before`.
 
   The implementation MUST NOT assume the handler returned a `:db`. Three
-  emit shapes the substrate produces (router `flows-after-interceptor`,
-  rf2-ta0y7):
+  emit shapes the substrate produces (router `flows-after-interceptor`):
 
   1. Handler RETURNED a `:db` effect → t1 (`:rf.event/db-pending`) fired
      carrying that value. The post-handler db IS t1.
@@ -1740,9 +1726,8 @@
      that stood before the cascade (`no-db-effect-with-flow?`).
 
   3. Neither t1 nor t2 (no flow + handler wrote no `:db`, OR a
-     pre-rf2-ta0y7 runtime that never stamped t1) → nil. Callers fall
-     back to the epoch record's `:db-after` (preserving the legacy
-     rendering for older epochs)."
+     runtime that does not stamp t1) → nil. Callers fall
+     back to the epoch record's `:db-after`."
   [events db-before]
   (let [t1 (db-pending-t1 events)]
     (cond
@@ -1751,22 +1736,22 @@
       :else                            nil)))
 
 (defn handler-wrote-db?
-  "True iff the handler actually wrote a `:db` effect this cascade
-  (rf2-wnvid). The discriminator off the trace stream:
+  "True iff the handler actually wrote a `:db` effect this cascade.
+  The discriminator off the trace stream:
 
   1. t1 (`:rf.event/db-pending`) fired → the handler returned a `:db`
-     effect (the canonical post-rf2-ta0y7 signal).
-  2. No t1 (pre-rf2-ta0y7 runtime, or no `:rf.event/db-pending` on the
-     stream) but a `:rf.event/db-changed` commit fired → the runtime
-     installed a `:db` from the handler.
+     effect (the canonical signal).
+  2. No t1 (a runtime that does not stamp it, or no `:rf.event/db-pending`
+     on the stream) but a `:rf.event/db-changed` commit fired → the
+     runtime installed a `:db` from the handler.
 
   FALSE when the handler returned NO `:db` — INCLUDING the
   handler-threw case (button-15 `:standard-epochs/throw-handler`: the
   handler threw before returning, db-before == db-after, no t1, no
   db-changed). The HANDLER step's `:db` sub-section keys off this to
   show 'no :db (handler threw / returned no :db)' rather than falling
-  back to the full post-cascade app-db — the rf2-wnvid PHANTOM-`:db`
-  fix. Distinct from `effective-post-handler-db`, which resolves the
+  back to the full post-cascade app-db, which would render a PHANTOM
+  `:db`. Distinct from `effective-post-handler-db`, which resolves the
   db VALUE (and returns db-before in the no-db-with-flow edge case);
   this predicate answers the orthogonal 'did the handler write a `:db`
   AT ALL' question the view needs to choose between a diff and the
@@ -1774,7 +1759,7 @@
   [events]
   (or (some? (db-pending-t1 events))
       (some? (find-op events :rf.event/db-changed))
-      ;; rf2-ekq28v — an unchanged-db `:db` commit emits :rf.event/db-noop
+      ;; An unchanged-db `:db` commit emits :rf.event/db-noop
       ;; (the complement of db-changed) instead of db-changed. The handler
       ;; DID return a `:db` (it just didn't change app-db), so the HANDLER
       ;; step's `:db` section must still show the returned db rather than the
@@ -1793,16 +1778,12 @@
   The HANDLER `:db` sub-section is rendered from `:db-post-handler`
   (the effective post-handler / pre-flow snapshot) diffed against the
   record's `:db-before` by the view's edn-inspector — no flat-row diff
-  is precomputed here (rf2-sp0n9: the prior `:db-diff` Editscript A*
-  slot had no live reader; the view discarded it and re-derived its own
-  render). The framework records raw snapshots on the epoch-record;
-  consumers derive diffs on demand.
+  is precomputed here. The framework records raw snapshots on the
+  epoch-record; consumers derive diffs on demand.
 
-  Two arities — the 2-arg form (legacy callers / tests) supplies
-  nil for `db-before`. The 3-arg form takes the epoch record's
-  `:db-before` baseline (the only db snapshot still read). rf2-sp0n9
-  removed the flat-row diff that consumed the post-handler `db-after`;
-  rf2-bhxtr dropped the now-dead `db-after` param entirely."
+  Two arities — the 2-arg form (tests and callers without a baseline)
+  supplies nil for `db-before`. The 3-arg form takes the epoch record's
+  `:db-before` baseline (the only db snapshot read)."
   ([events event-id]
    (handler-row events event-id nil))
   ([events event-id db-before]
@@ -1810,31 +1791,29 @@
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
         do-fx       (find-op events :rf.fx/do-fx)
-        ;; rf2-slnce — substrate stamps the per-handler wall-clock
+        ;; The substrate stamps the per-handler wall-clock
         ;; duration as `:rf.event/elapsed-ms` on `:rf.event/run-end`
-        ;; (rf2-hhh92 · `re-frame.router/emit-run-end-trace`); spec
-        ;; 009 §238. The pre-rf2-slnce reader looked for the
-        ;; never-emitted `:duration-ms` / `:rf.event/duration-ms` →
-        ;; HANDLER duration was always nil and the cascade-summary
-        ;; chip total was systematically under-counted. Legacy
-        ;; names retained as fixture-compat fallbacks; the
+        ;; (`re-frame.router/emit-run-end-trace`); spec
+        ;; 009 §238. The runtime never emits `:duration-ms` /
+        ;; `:rf.event/duration-ms`; those are read as fixture-compat
+        ;; fallbacks only, and the
         ;; db-changed / do-fx slot fallbacks are similarly defensive.
         duration-ms (or (:rf.event/elapsed-ms run-end)
                         (:duration-ms run-end)
                         (:rf.event/duration-ms run-end)
                         (some-> db-changed :tags :duration-ms)
                         (some-> do-fx :tags :duration-ms))
-        ;; rf2-4wywy / rf2-48oc4 — the HANDLER step's `:db` must reflect
+        ;; The HANDLER step's `:db` must reflect
         ;; ONLY the handler's own contribution (post-handler, PRE-flow),
         ;; never the final post-flow state. `db-post-handler` is the
         ;; EFFECTIVE post-handler db (see `effective-post-handler-db`):
         ;;
         ;;   - t1 (`:rf.event/db-pending`) when the handler returned `:db`;
         ;;   - `db-before` when the handler returned NO `:db` yet a flow
-        ;;     fired (rf2-48oc4 edge case — the post-handler db equals
+        ;;     fired (the post-handler db equals
         ;;     db-before, so the HANDLER step shows NO `:db` change rather
         ;;     than the flow's change);
-        ;;   - nil otherwise (no flow + no `:db`, or pre-rf2-ta0y7), where
+        ;;   - nil otherwise (no flow + no `:db`, or no t1 stamped), where
         ;;     the slot stays nil and the view falls back to the record's
         ;;     `:db-after`.
         db-post-handler (effective-post-handler-db events db-before)
@@ -1849,40 +1828,36 @@
                      ;; leaves the slot nil and the view falls back to the
                      ;; record's `:db-after`.
                      :db-post-handler db-post-handler
-                     ;; rf2-wnvid — did the handler write a `:db` effect
+                     ;; Did the handler write a `:db` effect
                      ;; AT ALL this cascade? FALSE when it threw before
                      ;; returning (button-15) or returned only `:fx`. The
                      ;; view's `:db` sub-section keys off this to render the
                      ;; no-write placeholder rather than the spurious full
-                     ;; post-cascade app-db (PHANTOM-`:db` fix).
+                     ;; post-cascade app-db (a PHANTOM `:db`).
                      :db-write?      (handler-wrote-db? events)
-                     ;; :fx — legacy flat-entries slot (kept for non-view
-                     ;; consumers; tests + pre-rf2-p2zy0 callers).
+                     ;; :fx — the flat-entries slot, for non-view
+                     ;; consumers and tests.
                      :fx             (or (fx-entries events) [])
-                     ;; rf2-p2zy0 — the HANDLER body's `:fx`
+                     ;; The HANDLER body's `:fx`
                      ;; sub-section: the canonical :fx
                      ;; vector-of-vectors the handler returned, read
                      ;; off the tag the producer actually stamps
-                     ;; (rf2-m2ye2 — see `handler-fx-vec`). nil when
+                     ;; (see `handler-fx-vec`). nil when
                      ;; the handler returned no `:fx`; the view
                      ;; conditions the render on `seq`.
                      ;;
-                     ;; The `:other-effects` slot that used to sit
-                     ;; beside this one is GONE (rf2-m2ye2): a
-                     ;; top-level key outside the framework's closed
-                     ;; effect-map set is refused pre-commit and never
-                     ;; reaches do-fx, and every key INSIDE it is
-                     ;; legal, so the slot had no truthful population.
+                     ;; There is no `:other-effects` slot beside this
+                     ;; one: a top-level key outside the framework's
+                     ;; closed effect-map set is refused pre-commit and
+                     ;; never reaches do-fx, and every key INSIDE it is
+                     ;; legal, so such a slot has no truthful population.
                      :fx-vec         (handler-fx-vec events)}]
     (cond-> base
       (= :reg-machine flavour)
       (assoc :machine
-             ;; rf2-u69j7 — `:cascade` is the time-ordered row vector the
+             ;; `:cascade` is the time-ordered row vector the
              ;; view layer renders, the SINGLE source of truth for the
-             ;; machine section. rf2-bhxtr dropped the 4 legacy category-
-             ;; grouped slots (`:transition / :guards / :lifecycle /
-             ;; :timers`): they had no reader post-rf2-u69j7 (the view +
-             ;; every live consumer read only `:cascade`).
+             ;; machine section.
              {:cascade (machine-cascade-rows events)})))))
 
 ;; ---- FLOW step -----------------------------------------------------------
@@ -1894,14 +1869,11 @@
   it), `:path` (the db path the flow wrote), and optional before/after
   values. Empty vec when no flow fired this epoch.
 
-  Per rf2-yhgk8 the substrate stamps the canonical
+  The substrate stamps the canonical
   `:rf.flow/computed` operation with BARE `:flow-id` / `:path` /
   `:before` / `:result` / `:elapsed-ms` tags (Spec 009 §Flow trace
-  events · `re-frame.flows`). The pre-rf2-yhgk8 reader looked for
-  the never-emitted `:rf.flow/recomputed` op + `:rf.flow/{id,path,
-  before,after}` tags — every FLOW slot returned nil and the cascade
-  silently dropped the step (the row's view-side `:after` maps to the
-  substrate's `:result`)."
+  events · `re-frame.flows`). The row's view-side `:after` maps to the
+  substrate's `:result`."
   [events]
   (let [evs (filter-op events :rf.flow/computed)]
     (vec
