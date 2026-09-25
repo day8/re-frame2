@@ -303,7 +303,7 @@
                  ";; descriptor-manifest generator). Drift-checked in CI: adding /\n"
                  ";; removing / renaming a tool turns the gate red until this is\n"
                  ";; regenerated. Shared serialiser: re-frame.mcp-base.descriptor-manifest.\n"
-                 ";; Keystone rf2-3nbl5.2; this manifest rf2-sofwv.\n"
+                 ";; Same generate-then-drift-check shape as the api-manifest generator.\n"
                  "{:meta "
                  (pr-str (array-map :server server
                                     :tool-count tool-count))

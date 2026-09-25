@@ -22,9 +22,8 @@
   `(rf/app-db-value nil)` = nil. Neither errors. The tool therefore
   reports an EMPTY result in the same voice it reports a genuinely
   empty one, and the agent is told \"nothing happened\" when the truth
-  is \"I could not tell which frame you meant\" (rf2-q17a for
-  `get-path`; rf2-yo4s for `trace-window` / `watch-epochs`, where the
-  empty ring also makes a live cursor look aged out).
+  is \"I could not tell which frame you meant\" (for `trace-window` /
+  `watch-epochs` the empty ring also makes a live cursor look aged out).
 
   Resolving ONCE, before any read, is what makes that impossible: the
   wrong branch is never taken, so there is no wrong answer to dress up
@@ -99,7 +98,7 @@
   whatever the session says by then. Pin a second frame, or select a
   different one, and the continuation silently walks a DIFFERENT ring:
   the live `:after-id` isn't in it, so a healthy cursor is reported
-  aged-out (rf2-yo4s). Carrying the resolved id makes a cursor OWN its
+  aged-out. Carrying the resolved id makes a cursor OWN its
   frame from page 1, which is the same \"one resolution, one truth\"
   this namespace already gives the read."
   (str ":frame " resolved-frame-sym))

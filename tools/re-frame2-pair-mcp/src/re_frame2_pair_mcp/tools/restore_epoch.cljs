@@ -7,7 +7,7 @@
   `:frame-state-after` value, reinstalled atomically via
   `replace-frame-state!` (machine snapshots, the route slice, elision
   declarations, and SSR metadata revive alongside app-db, not just the
-  app-db projection — EP-0001, Mike ruling #2). Wraps the preload
+  app-db projection; see EP-0001). Wraps the preload
   runtime's `restore-epoch` primitive (`(rf/restore-epoch! frame-id
   epoch-id)`), which is itself the Tool-Pair `restore-epoch` write
   primitive the server is the canonical consumer of (000-Vision /
@@ -78,7 +78,7 @@
         (let [epoch-id payload
               ;; restore-epoch's runtime arglist is ([epoch-id]
               ;; [epoch-id frame-id]) — the frame is the SECOND arg.
-              ;; rf2-fzbj.6 — the epoch-id is EXTERNAL EDN, so it rides as
+              ;; The epoch-id is EXTERNAL EDN, so it rides as
               ;; quoted literal data rather than printed source.
               id-form (ef/rt-quote epoch-id)
               call (if frame

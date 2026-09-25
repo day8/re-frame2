@@ -77,7 +77,7 @@
   any thenable (jQuery deferreds, axios responses, promise shims) is
   recognised — matching the JS-ecosystem `await` semantic.
 
-  rf2-gwye.27 — the caller's source is terminated with a NEWLINE before
+  The caller's source is terminated with a NEWLINE before
   this wrapper's closing delimiter, so a form ending in a `;` line
   comment does not swallow it and leave the reader at EOF with the
   collection open."

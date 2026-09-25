@@ -17,7 +17,7 @@
   to `:app` (the env-var fallback) and returns `:runtime-not-preloaded`
   looking like a fresh discovery failure.
 
-  The cache has three pieces, exercised by the deftests below:
+  The cache has four pieces, exercised by the deftests below:
 
     1. `discover-app` writes the resolved build-id into the conn-atom
        on success.
@@ -122,13 +122,13 @@
         "Explicit :build arg must win over the cache")))
 
 (deftest arg-build-nil-conn-falls-through-to-env-default
-  ;; Defensive: the 1-arity legacy form (and any caller passing nil
+  ;; Defensive: the 1-arity form (and any caller passing nil
   ;; conn) skips the cache lookup without throwing. Conformance tests
   ;; rely on this stub-conn-friendly shape.
   (let [args (tu/args->js {})]
     (is (= :app (wire/arg-build nil args)))
     (is (= :app (wire/arg-build args))
-        "1-arity legacy form must still resolve to the env default")))
+        "1-arity form must resolve to the env default")))
 
 (deftest arg-build-explicit-predicate-treats-cache-as-deliberate
   ;; A session-cache hit is treated as a deliberate choice — the
@@ -143,7 +143,7 @@
     (is (true? (wire/arg-build-explicit? conn args))
         "Cache hit must count as deliberate")
     (is (false? (wire/arg-build-explicit? nil args))
-        "1-arity legacy form (no conn) ignores the cache")))
+        "1-arity form (no conn) ignores the cache")))
 
 ;; ---------------------------------------------------------------------------
 ;; `discover-app` populates the cache on success.
@@ -158,7 +158,7 @@
   (swap! conn update :probed-builds (fnil conj #{}) build-id))
 
 (deftest discover-app-caches-resolved-build-id-on-success
-  ;; The acceptance criterion: a successful `discover-app` records the
+  ;; The core contract: a successful `discover-app` records the
   ;; build-id on the conn so subsequent tool calls don't need `:build`.
   (async done
     (let [conn (fresh-conn)
@@ -175,7 +175,7 @@
 (deftest discover-app-cache-survives-into-subsequent-arg-build-call
   ;; End-to-end: after a discover-app run, the next call's `arg-build`
   ;; (with no `:build` arg) routes to the same build discover-app
-  ;; resolved — the friction the bead removes.
+  ;; resolved — the friction the cache removes.
   (async done
     (let [conn          (fresh-conn)
           _             (prime-probe-cache! conn :examples/step-deck)
@@ -450,8 +450,8 @@
     ;; `.finally`-scoped restore fires AFTER `done` advances to the next
     ;; test and would leak the multi-build stub into a neighbour (the
     ;; cross-test stub race the orient/invoke suites document). Both arms
-    ;; restored identically, so the restore now sits in the single trailing
-    ;; step, still ahead of the `done` in that same step.
+    ;; restore identically, so the restore sits in the single trailing
+    ;; step, ahead of the `done` in that same step.
     (let [orig probe/running-builds
           restore! (fn [] (set! probe/running-builds orig))
           conn (fresh-conn)]
@@ -605,7 +605,7 @@
           (.then (fn [_] (done)))))))
 
 (deftest port-discover-no-pre-probe-sticks-through-invoke
-  ;; THE acceptance: discover-app{port} (no pre-probe) then a no-build
+  ;; THE end-to-end case: discover-app{port} (no pre-probe) then a no-build
   ;; `get-path` THROUGH `tools/invoke` (the single MCP egress, incl.
   ;; `canonicalize-build-step`) lands on the resolved build, NOT `:app`.
   (async done
@@ -636,7 +636,7 @@
                    (is (= :examples/machine-epochs @captured)
                        "post-discover-app{port} (no pre-probe), a no-build call THROUGH invoke targets the resolved build")
                    (is (not= :app @captured)
-                       "it must NOT fall back to the :app env default (the live-repro bug)")))
+                       "it must NOT fall back to the :app env default")))
           (.finally (fn []
                       (set! probe/running-builds orig-running)
                       (set! probe/resolve-build-by-port orig-port)

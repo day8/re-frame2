@@ -20,7 +20,7 @@
   surfacing the resolved descriptor's `:rf.provenance/ns` + inline/image +
   `:standard` facts (plus a normalized `:rf.image/coordinate` rollup naming
   WHICH source won) the process-global reads can't. `list-subscriptions` is the
-  per-frame exemplar these now mirror.
+  per-frame exemplar these mirror.
 
   ## handler-meta
 
@@ -63,12 +63,12 @@
   the three resources-artefact kinds are EP-0016; `interceptor` is
   EP-0022). `flow` and `frame` are deliberately NOT offered: nothing is
   ever written to either registrar slot, querying one throws
-  `:rf.error/registrar-kind-not-queryable` at the framework
-  (rf2-kuky.30), and flows / frames are read through their own doors
+  `:rf.error/registrar-kind-not-queryable` at the framework, and flows /
+  frames are read through their own doors
   (`re-frame.flows/flows` / `flow-meta` / `flows-snapshot`; `rf/frame-ids` /
   `rf/frame-meta`). Asking for either gets the ordinary
-  `:reason :invalid-kind` envelope with the accepted-kinds hint
-  (rf2-zhef). App-db schemas are NOT
+  `:reason :invalid-kind` envelope with the accepted-kinds hint.
+  App-db schemas are NOT
   a registrar kind; their metadata lives in the schemas
   artefact's per-frame side-table, surfaced via `re-frame.schemas/app-schemas {:frame f}`
   / `re-frame.schemas/app-schema-meta {:frame f :path p}`. The twelve registrar kinds map directly to
@@ -103,17 +103,15 @@
   ship. That is the whole of the coupling, and it is deliberate: the
   preload is the single place a framework var is spelled, so a rename or
   a relocation on the framework side is one edit THERE and invisible
-  here. The rule was learned the expensive way (rf2-kuky.29) — the two
-  `:machine` forms were once hand-built strings naming a `machines` and
-  a `machine-meta` var on the FACADE, which the facade did not define
-  and never did: the machine query surface lives on `re-frame.machines`,
-  per spec/API.md's front-porch boundary, and both reads therefore
-  returned an eval error against every running app. Nothing in this
-  build could see it: the coupling is a STRING, so there is no
-  `:require`, no compiler error and no classpath scan that reaches it.
-  The runtime-door tests in `handler_meta_test.cljs` are the witness
-  that closes that hole — they read the preload's own source and assert
-  every symbol these forms emit is published there.
+  here. The coupling is a STRING, so nothing in this build can see a
+  wrong name: there is no `:require`, no compiler error and no classpath
+  scan that reaches it. A form naming a `machines` or a `machine-meta`
+  var on the FACADE, say, would return an eval error against every
+  running app, because the facade defines neither — the machine query
+  surface lives on `re-frame.machines`, per spec/API.md's front-porch
+  boundary. The runtime-door tests in `handler_meta_test.cljs` are the
+  witness that closes that hole — they read the preload's own source and
+  assert every symbol these forms emit is published there.
 
   ## Why not `eval-cljs`?
 
@@ -179,19 +177,19 @@
   flag) — but is in `supported-kinds` below.
 
   `:flow` and `:frame` are absent for a THIRD reason, and it is the one
-  worth spelling out (rf2-zhef). `re-frame.registrar/kinds` RESERVES both
-  slots, but nothing is ever written to either: flows live in
-  `re-frame.flows` (`flows` / `flow-meta` / `flows-snapshot`) and frames in
-  `rf/frame-ids` / `rf/frame-meta`. rf2-kuky.30 made querying them LOUD at
-  the framework — `(rf/registrations {:source :store :kind :flow})` throws
+  worth spelling out. `re-frame.registrar/kinds` RESERVES both slots, but
+  nothing is ever written to either: flows live in `re-frame.flows`
+  (`flows` / `flow-meta` / `flows-snapshot`) and frames in
+  `rf/frame-ids` / `rf/frame-meta`. Querying them is LOUD at the
+  framework — `(rf/registrations {:source :store :kind :flow})` throws
   `:rf.error/registrar-kind-not-queryable`, whose message names the real
-  door — where it previously answered an authoritative-looking `{}`. The
-  preload's kind-agnostic `registrar-list` / `registrar-describe` do not
-  catch, so while this set carried them a caller's `list-handlers {kind
-  \"flow\"}` propagated that framework throw INSTEAD OF this tool's own
-  structured envelope. Dropping them is the whole fix: `parse-kind` returns
-  nil, and the existing `:invalid-kind` + `kinds-hint` envelope answers.
-  There is no second refusal path to write or to keep in step."
+  door. The preload's kind-agnostic `registrar-list` /
+  `registrar-describe` do not catch, so were this set to carry them, a
+  caller's `list-handlers {kind \"flow\"}` would propagate that framework
+  throw INSTEAD OF this tool's own structured envelope. Leaving them out
+  is enough: `parse-kind` returns nil, and the `:invalid-kind` +
+  `kinds-hint` envelope answers. There is no second refusal path to write
+  or to keep in step."
   #{:event :sub :fx :cofx :interceptor :view :route :head
     :error-projector :resource :mutation :resource-scope})
 
@@ -280,7 +278,7 @@
   the `:rf.image/coordinate` rollup. Same `:not-registered` / `handler-fn`
   hygiene as `registrar-describe`.
 
-  rf2-fzbj.6 — `id` is EXTERNAL EDN (`parse-id` reads whatever the caller
+  `id` is EXTERNAL EDN (`parse-id` reads whatever the caller
   sent, including the composite-vector ids this tool documents), so it
   rides as QUOTED literal data. `kind` and `frame` are server-coerced from
   closed sets and stay on the default path."
@@ -299,7 +297,7 @@
   One `rt-call`, exactly like every other kind: a single expression, a
   single round-trip, and no framework var named on this side of the
   wire. `id` is caller EDN and rides quoted, as it does on the registrar
-  door above (rf2-fzbj.6)."
+  door above."
   [id]
   (ef/emit (ef/rt-call 'machine-describe (ef/rt-quote id))))
 
@@ -395,7 +393,7 @@
                       ;;     healthy runtime): surface :unexpected-shape.
                       (stamp-frame
                         (cond
-                          ;; rf2-acckgr: a genuine shape defect (should
+                          ;; A genuine shape defect (should
                           ;; not happen against a healthy runtime) —
                           ;; NOT a legitimate structured miss like
                           ;; :not-registered below. Stamp it with the

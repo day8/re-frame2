@@ -1,8 +1,8 @@
 (ns re-frame2-pair-mcp.tools.watch-epochs
   "Tool: watch-epochs — pull-mode polling with predicate filter.
 
-  The bash version streams via repeated `emit`s on stdout. MCP tools
-  aren't streaming — we return one bundle of matches per call. Callers
+  MCP tools aren't streaming — we return one bundle of matches per
+  call. Callers
   that want a tight loop call us repeatedly with the same `since-id`.
 
   Cursor pagination: a single poll's matches vector is
@@ -35,21 +35,20 @@
   override, then session pin, then sole app frame — BEFORE it touches
   the ring, and REFUSES at nil with `:ambiguous-frame` (see
   `re-frame2-pair-mcp.tools.frame-resolve`). It does not read frame nil
-  and relay the empty ring that comes back, which told the agent TWO
-  falsehoods at once: `:count 0` (\"nothing matched\") and, because a
-  cursor id cannot be found in an empty history, `:id-aged-out? true`
-  (\"your cursor fell out of the ring\") — a live cursor declared dead
-  (rf2-yo4s).
+  and relay the empty ring that comes back, which would tell the agent
+  TWO falsehoods at once: `:count 0` (\"nothing matched\") and, because
+  a cursor id cannot be found in an empty history, `:id-aged-out? true`
+  (\"your cursor fell out of the ring\") — a live cursor declared dead.
 
   The resolved id then rides BACK out of the eval and into
   `:next-cursor`, so a cursor owns the frame it is iterating from page
   1 — not from page 2, which is all a cursor built out of the caller's
-  ARGUMENTS could manage. Page 1 normally names no frame, so that
-  cursor stored nil and page 2 re-resolved against whatever the session
-  said by then. That reached the SAME dead-cursor falsehood by a second
-  route, and one the frame refusal cannot cover, because the new frame
-  resolves perfectly well — it is simply not the ring the agent was
-  reading (rf2-yo4s)."
+  ARGUMENTS can manage. Page 1 normally names no frame, so such a
+  cursor would store nil and page 2 would re-resolve against whatever
+  the session says by then. That would reach the SAME dead-cursor
+  falsehood by a second route, and one the frame refusal cannot cover,
+  because the new frame resolves perfectly well — it is simply not the
+  ring the agent was reading."
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.frame-resolve :as fr]
@@ -67,11 +66,11 @@
         ;; resolves instead of minting the malformed `::rf/default`.
         ;; Same coercion `dispatch` uses.
         frame     (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        ;; rf2-3x7nj.32.3 — `:since-id` is typed string on the wire, and
+        ;; `:since-id` is typed string on the wire, and
         ;; the reference runtime's epoch ids are INTEGERS that
         ;; `epochs-since` finds with `=`. Passed raw, a schema-conforming
-        ;; `"47"` never equals `47`, so every resume-by-id read as a false
-        ;; `:rf.mcp/cursor-stale`. Parse it exactly as `restore-epoch`
+        ;; `"47"` would never equal `47`, so every resume-by-id would read
+        ;; as a false `:rf.mcp/cursor-stale`. Parse it exactly as `restore-epoch`
         ;; parses its `epoch-id` (EDN, `args/read-edn-arg`; the value rides
         ;; quoted below): `"47"` reads as `47`, a keyword or string id
         ;; still round-trips. A non-string (a JSON number) is already the
@@ -107,7 +106,7 @@
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
         pred-arg  (when-let [p (wire/arg raw-args :pred)] (js->clj p :keywordize-keys true))
         cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))
-        ;; rf2-3x7nj.32.2 — `pred`'s keys are minted into keywords by
+        ;; `pred`'s keys are minted into keywords by
         ;; `:keywordize-keys` and PRINTED into the poll form; a key without
         ;; keyword grammar would print as code, so it is refused.
         key-refusal (args/invalid-key-refusal :pred pred-arg)]
@@ -152,21 +151,20 @@
             ;; `rf/epoch-history` answers `[]` for an unknown frame
             ;; without erroring. `epochs-since` then cannot find the
             ;; caller's id in that empty history and reports
-            ;; `:id-aged-out? true` — so the ambiguity arrived as a
-            ;; quiet poll AND a dead cursor (rf2-yo4s).
+            ;; `:id-aged-out? true` — so the ambiguity would arrive as a
+            ;; quiet poll AND a dead cursor.
             ;; The id is caller data (the `:since-id` arg, or a
             ;; caller-supplied cursor's EDN `:after-id`), so it rides
             ;; QUOTED — a list, symbol, or emitter-shaped vector is data,
-            ;; never source (rf2-3x7nj.32.2; the provenance rule in
-            ;; `eval-form`). An absent id stays the literal `nil`.
+            ;; never source (the provenance rule in `eval-form`). An
+            ;; absent id stays the literal `nil`.
             epochs-since-call (fr/frame-sym-call 'epochs-since
                                                  (when (some? effective-after)
                                                    (ef/rt-quote effective-after)))
             ;; The predicate is caller data — a JSON object on page 1, the
             ;; cursor's EDN on page 2+ — so it rides QUOTED: a list or
             ;; symbol a crafted cursor carries is compared as data, never
-            ;; evaluated (rf2-3x7nj.32.2; the provenance rule in
-            ;; `eval-form`).
+            ;; evaluated (the provenance rule in `eval-form`).
             matches-form (str "(filterv #"
                               (ef/emit (ef/rt-call 'epoch-matches?
                                                    (ef/rt-quote (or sticky-pred {}))
@@ -230,10 +228,10 @@
                     ;; where the caller names no frame and the id comes
                     ;; from the session pin or the sole app frame.
                     ;; Stamping the asked-for nil into `:next-cursor`
-                    ;; let a later pin change move the ring under the
-                    ;; agent, and then the poll declared the live cursor
-                    ;; aged out — the very falsehood this tool's frame
-                    ;; refusal exists to stop (rf2-yo4s).
+                    ;; would let a later pin change move the ring under
+                    ;; the agent, and the poll would then declare the
+                    ;; live cursor aged out — the very falsehood this
+                    ;; tool's frame refusal exists to stop.
                     read-frame (or (fr/resolved-frame v) sticky-frame)]
                 (if (and aged-out? (some? effective-after))
                   (cursor/cursor-stale-result "watch-epochs"

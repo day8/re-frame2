@@ -77,7 +77,7 @@
         (is (contains? p knob)
             (str tool " descriptor must publish " knob
                  " — its handler consumes it, but :additionalProperties false "
-                 "would reject the supported knob (rf2-mmd7o6)"))
+                 "would reject the supported knob"))
         (is (= "boolean" (get-in p [knob :type]))
             (str tool "'s " knob " must be declared boolean"))
         (is (string? (get-in p [knob :description]))
@@ -104,8 +104,8 @@
 
 (deftest additional-properties-closed-but-knobs-allowed
   (testing "descriptors stay :additionalProperties false yet declare the knobs"
-    ;; The closed-schema posture is the whole reason the omission was a
-    ;; bug — a closed schema that omits a supported input makes that input
+    ;; The closed-schema posture is the whole reason an omission matters
+    ;; — a closed schema that omits a supported input makes that input
     ;; unavailable. Assert the schema stays closed (so we never loosen it
     ;; as a shortcut) AND the knobs are explicitly declared.
     (doseq [[tool knobs] handler-consumed-knobs

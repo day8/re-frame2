@@ -98,20 +98,20 @@
   / `:sub-error` / `:not-a-sub-vector`) carry no `:value` slot, so the
   projection fires only on `(:ok? res)`.
 
-  rf2-kuky.88 — the door is called unconditionally and the profile named
+  The door is called unconditionally and the profile named
   in `egress-opts` decides the floor. A bare `:elision false` still
   redacts sensitive (large passes via the overlay); only a deliberate
   full-raw opt-in (`:elision false` AND `:include-sensitive true`) names
   `:rf.egress/local-raw`, under which the projection is the identity.
 
-  rf2-fzbj.6 — `query-v` is EXTERNAL EDN parsed off the wire, so it rides
+  `query-v` is EXTERNAL EDN parsed off the wire, so it rides
   through `ef/rt-quote` (the literal-data emission path), not the default
   `pr-str` arg path. Printed unquoted, a nested list in the query is a
   function call and a symbol a name lookup, so `read-sub!` would be handed
   whatever those evaluate to — a DIFFERENT subscription from the one asked
   for — while the call is being CONSTRUCTED, before any validation and
-  regardless of whether `eval-cljs` is enabled. The same repair `dispatch`
-  took on its event (rf2-j2wz). `frame` is a server-coerced keyword and
+  regardless of whether `eval-cljs` is enabled. `dispatch` quotes its
+  event the same way. `frame` is a server-coerced keyword and
   stays on the default path."
   [query-v frame frame-edn egress-opts]
   (let [query-form (ef/rt-quote query-v)
@@ -137,14 +137,14 @@
         ;; `:sub-cache` slice / get-path / list-subscriptions: gate OFF
         ;; forces sensitive off; `:include-sensitive` wins only when the
         ;; operator opted in. `:elision` (the size override) is honoured
-        ;; on every launch (rf2-ealv5 / rf2-3x7nj.32.4).
+        ;; on every launch.
         elision? (args/parse-bool-arg raw-args :elision)
         incl?    (if (raw-state/raw-state-allowed?)
                    (args/parse-bool-arg raw-args :include-sensitive)
                    false)
         ;; `egress-opts-edn` takes walker-aligned `include-large?` — MCP
         ;; `elision` true = emit markers = `:rf.egress/include-large?` false.
-        ;; Fail-CLOSED: the door is ALWAYS called (rf2-kuky.88) and the
+        ;; Fail-CLOSED: the door is ALWAYS called and the
         ;; NAMED profile decides the floor. A bare `:elision false` stays
         ;; on `:rf.egress/off-box-tool` with a large-inclusion overlay, so
         ;; a declared-sensitive sub value still redacts to `:rf/redacted`

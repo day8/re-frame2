@@ -65,11 +65,11 @@
 ;; to `"open"`. So stringify keywords to their FULLY-QUALIFIED form
 ;; at the `clj->js` boundary so the namespace survives.
 ;;
-;; The fix pre-walks `v`, replacing every keyword (key OR value) with
+;; `structured-of` pre-walks `v`, replacing every keyword (key OR value) with
 ;; `(str (symbol kw))` — the colon-less fully-qualified token
 ;; (`:rf/runtime` → `"rf/runtime"`, `:ok?` → `"ok?"`) — BEFORE `clj->js`
 ;; sees it. `clj->js` then only structurally coerces the (now
-;; keyword-free) tree; sets/vectors/maps coerce exactly as before. This
+;; keyword-free) tree; sets/vectors/maps coerce as usual. This
 ;; is exactly the projection the spec documents —
 ;; `:structuredContent` "drops the leading colon — ["rf/default"]"
 ;; (003-Tool-Catalogue §Id representation). The EDN text slot
@@ -94,8 +94,8 @@
 ;; guarding nil, we make the wire shape TOTAL: a `nil` payload
 ;; projects to a structured `{:rf.mcp/null true}` sentinel object so
 ;; `structuredContent` is always a record the SDK accepts. The EDN
-;; text slot still carries the verbatim `(pr-str v)` (`"nil"`) so the
-;; cljs-readable round-trip is unchanged for hosts that read the text.
+;; text slot still carries the verbatim `(pr-str v)` (`"nil"`) so hosts
+;; that read the text get the cljs-readable round-trip.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private null-structured-sentinel
@@ -219,7 +219,7 @@
   walks a tree-typed payload (`snapshot`, `get-path`, `read-sub`,
   `trace-window`, `watch-epochs`, `dispatch-dry-run`) routes its
   envelope-tail through here so
-  the rule lives in one place — drift across emit sites can no longer
+  the rule lives in one place — drift across emit sites cannot
   silently violate the MUST.
 
   Pure-data passthrough to `re-frame.mcp-base.envelope/with-indicators`
@@ -301,7 +301,7 @@
   doesn't exist) — the failed-round-trip footgun the human-facing hint's
   colon form invited.
 
-  The grammar is the security half (rf2-3x7nj.32.2): the build id is
+  The grammar is the security half: the build id is
   spliced with `str` into the JVM form `nrepl/cljs-eval` sends, so a
   keyword minted from `\"app (do (evil)) #_\"` would print as live
   Clojure and run on the shadow JVM. A string without keyword grammar

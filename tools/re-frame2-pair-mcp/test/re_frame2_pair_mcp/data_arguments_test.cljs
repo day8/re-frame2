@@ -1,41 +1,40 @@
 (ns re-frame2-pair-mcp.data-arguments-test
-  "rf2-fzbj.6 — EDN arguments advertised as DATA reach the runtime as the
-  datum the caller sent.
+  "EDN arguments advertised as DATA reach the runtime as the datum the
+  caller sent.
 
-  ## What was wrong
+  ## Why printing is not enough
 
-  `rf2-j2wz` / `rf2-olqo` repaired two slots — `dispatch`'s event and
-  `replace-app-db`'s db — by emitting them through `eval-form/rt-quote`
-  instead of the default `pr-str` arg path. The remaining EDN slots kept
-  printing, and PRINTING RENDERS A VALUE AS SOURCE. So a query, a path, a
-  signal, a scripted coeffect, a registrar id or an epoch-id containing a
-  LIST was a function call, one containing a SYMBOL was a name lookup, and
-  one shaped like the emitter's own tagged IR was spliced in as raw
-  source. All three happen while the runtime call is being CONSTRUCTED —
-  before the runtime validates anything, and regardless of whether
-  `eval-cljs` is enabled, since the expression is embedded in a DIFFERENT
-  tool's generated form.
+  Every EDN slot — `dispatch`'s event, `replace-app-db`'s db, a query, a
+  path, a signal, a scripted coeffect, a registrar id, an epoch-id — is
+  emitted through `eval-form/rt-quote` rather than the default `pr-str`
+  arg path, because PRINTING RENDERS A VALUE AS SOURCE. A printed slot
+  containing a LIST would be a function call, one containing a SYMBOL a
+  name lookup, and one shaped like the emitter's own tagged IR would be
+  spliced in as raw source. All three would happen while the runtime call
+  is being CONSTRUCTED — before the runtime validates anything, and
+  regardless of whether `eval-cljs` is enabled, since the expression is
+  embedded in a DIFFERENT tool's generated form.
 
-  The consequences are not cosmetic: a read-only tool answers `:ok? true`
-  ABOUT THE WRONG TARGET (`get-path [(inc 41)]` reads key 42 and reports
-  success), and a replayed dispatch uses a DIFFERENT causal fact from the
-  one the caller scripted, which is the exact determinism a recorded cofx
-  exists to provide.
+  The consequences would not be cosmetic: a read-only tool would answer
+  `:ok? true` ABOUT THE WRONG TARGET (`get-path [(inc 41)]` would read key
+  42 and report success), and a replayed dispatch would use a DIFFERENT
+  causal fact from the one the caller scripted, which is the exact
+  determinism a recorded cofx exists to provide.
 
   ## How these tests read the emitted form
 
   Through `quoted-datum`, which asks what the emitted argument EVALUATES
-  to rather than what it prints as. That distinction is the whole finding:
+  to rather than what it prints as. That distinction is the whole point:
   `pr-str`'d source and quoted data READ BACK IDENTICALLY as EDN, so an
-  assertion that reads the argument as EDN and compares it passes on the
-  broken tree. Only evaluation semantics tell them apart — `(quote x)`
+  assertion that reads the argument as EDN and compares it would pass on a
+  printing tree. Only evaluation semantics tell them apart — `(quote x)`
   yields `x` for every EDN value, a bare `(inc 41)` yields 42.
 
   The controls matter as much as the witnesses: ordinary scalar/map
   arguments must be unchanged, and the emitter's INTERNAL raw-source
   splices (`rt-raw` — let-bound names, synthesised predicate fns, the
   resolved-frame symbol) must stay raw source. Quoting everything would
-  break the tools as surely as quoting nothing left them wrong."
+  break the tools as surely as quoting nothing would."
   (:require [cljs.test :refer-macros [deftest is async testing use-fixtures]]
             [cljs.reader]
             [clojure.string :as str]
@@ -192,7 +191,7 @@
                    (done)))))))
 
 (deftest read-sub-ordinary-query-is-unchanged
-  ;; CONTROL — scalars and maps print and quote alike, so the repair must
+  ;; CONTROL — scalars and maps print and quote alike, so quoting must
   ;; leave the everyday query reaching the runtime as the same datum.
   (async done
     (let [forms (atom [])]
@@ -205,9 +204,9 @@
                    (done)))))))
 
 (deftest read-sub-quotes-with-eval-cljs-disabled
-  ;; The defect is reachable with the eval gate OFF, because the
-  ;; expression rides inside a DIFFERENT tool's generated form. The
-  ;; repair must therefore hold there too.
+  ;; A printed argument would be evaluated with the eval gate OFF too,
+  ;; because the expression rides inside a DIFFERENT tool's generated
+  ;; form. Quoting must therefore hold there as well.
   (async done
     (let [forms (atom [])]
       (eval-cljs/set-eval-allowed! false)

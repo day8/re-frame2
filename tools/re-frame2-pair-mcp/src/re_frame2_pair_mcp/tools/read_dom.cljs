@@ -58,7 +58,7 @@
   `dom-read` spelling — see the runtime ns's MCP-vs-runtime naming
   table.) The verb-vocab conformance linter
   (`tools/mcp-conformance/wire-vocab`) classifies tool names by prefix;
-  `read-` is conformant with zero catalogue churn.
+  `read-` is conformant with no new catalogue verb.
 
   ## Pairs with `:await-render`
 
@@ -83,7 +83,7 @@
   framework's size-elision marker shape `{:rf.size/large-elided {...}}`
   (the same convention `get-path` / `snapshot` emit) so
   the agent recognises an elision at a glance. The wire-boundary cap step
-  (`tools.cljs` §`:apply-cap`) remains the backstop.
+  (`tools.cljs` §`:apply-cap`) is the backstop.
 
   ## Privacy — PATH-project derived content (EP-0025 fail-open)
 
@@ -92,8 +92,8 @@
   off-box egress posture (the published-build default) the runtime
   PATH-projects the matched nodes through `re-frame.core/project-egress`
   (the `:rf.observe/derived-tree` boundary) against the operating frame's
-  classification. EP-0025 removed value-match (taint-by-equality), so a
-  RE-KEYED secret in a DOM node SHIPS RAW (FAIL-OPEN) — to keep a value out
+  classification. There is no value-match (taint-by-equality; see
+  EP-0025), so a RE-KEYED secret in a DOM node SHIPS RAW (FAIL-OPEN) — to keep a value out
   of rendered content, classify its app-db PATH so it is redacted at the
   source before a view renders it. The optional `:frame` arg names the
   source frame; raw rendered content is the trusted-local read (launched

@@ -15,8 +15,8 @@
   simulations and an earlier time-travel restore cannot move the baseline.
   Both the simulation and synthetic rollback are observable in the bounded
   history. Disabled recording refuses before dispatch; a rollback failure
-  is an error and can leave simulated state live. The action retains its
-  existing dispatch authority rather than requiring the named-write gate.
+  is an error and can leave simulated state live. The action carries
+  dispatch authority rather than requiring the named-write gate.
 
   ## Why this IS `--allow-sensitive-reads`-gated
 
@@ -90,7 +90,7 @@
   (`(println :x)`) is rejected the same way; the wire boundary is the
   same security gate.
 
-  ## Rejects fx-overrides (rf2-j538f7.39)
+  ## Rejects fx-overrides
 
   A caller `:fx-overrides` is REJECTED loudly (`:reason
   :fx-overrides-unsupported`, an isError). Because the effect sink
@@ -130,7 +130,7 @@
   "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [cofx '{:rf/time-ms ...}']}")
 
 (def ^:private fx-overrides-rejected
-  "Loud rejection (rf2-j538f7.39) for a caller-supplied `:fx-overrides`. The
+  "Loud rejection for a caller-supplied `:fx-overrides`. The
   runtime's dry-run records+skips every fx at the effect sink BEFORE override
   resolution, so an override cannot influence the simulation without executing
   a body — dry-run therefore refuses it rather than silently ignoring it."
@@ -229,7 +229,7 @@
   (let [event-str    (wire/arg raw-args :event)
         build-id     (wire/arg-build conn raw-args)
         frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        ;; rf2-j538f7.39: dry-run no longer accepts `:fx-overrides`. The
+        ;; Dry-run does not accept `:fx-overrides`. The
         ;; effect sink records+skips every fx BEFORE override resolution, so an
         ;; override cannot influence the simulation without executing a body —
         ;; a supplied one is REJECTED loudly below rather than threaded.
@@ -254,7 +254,7 @@
         ;; Gate OFF (the default) forces sensitive slots to redact
         ;; (`include-sensitive` false); gate ON lets that arg win.
         ;; `elision` (the size override) is honoured on every launch
-        ;; (rf2-ealv5 / rf2-3x7nj.32.4) — its `include-large?` overlay
+        ;; — its `include-large?` overlay
         ;; cannot reveal a declared-sensitive slot.
         elision?     (args/parse-bool-arg raw-args :elision)
         incl?        (if (raw-state/raw-state-allowed?)
@@ -275,7 +275,7 @@
         ;; polarity directly. MCP `elision` true = emit markers =
         ;; `:rf.egress/include-large?` false; hence `(not elision?)`.
         ;; Fail-CLOSED: the app-db-rooted `:db-state-after-simulation`
-        ;; slot ALWAYS routes through the door (rf2-kuky.88) and the NAMED
+        ;; slot ALWAYS routes through the door and the NAMED
         ;; profile decides the floor. A bare `:elision false` stays on
         ;; `:rf.egress/off-box-tool` with a large-inclusion overlay, so a
         ;; declared-sensitive db slot still redacts to `:rf/redacted`
@@ -290,7 +290,7 @@
                        (ef/emit (ef/rt-call 'current-frame)))
         [tag payload] (args/parse-event-arg event-str missing-event-hint)]
     (cond
-      ;; rf2-j538f7.39: reject a caller `:fx-overrides` LOUDLY — dry-run's
+      ;; Reject a caller `:fx-overrides` LOUDLY — dry-run's
       ;; effect sink records+skips every fx before override resolution, so an
       ;; override cannot influence the simulation without executing a body.
       fx-overrides-present?
@@ -308,7 +308,7 @@
 
       :else
       (let [event-vec payload
-            ;; rf2-j2wz — the parsed event is EXTERNAL data, so it rides
+            ;; The parsed event is EXTERNAL data, so it rides
             ;; through the literal-data emission path rather than the
             ;; default `pr-str` arg path (which is right for the
             ;; internally-composed `opts-form` below). Unquoted, a nested
@@ -319,11 +319,11 @@
             ;; regardless of whether `eval-cljs` is enabled. Dry-run shares
             ;; `dispatch`'s parser and emitter, so it shares this seam too.
             event-form (ef/rt-quote event-vec)
-            ;; rf2-fzbj.6 — the opts map is DATA-ONLY and its `:rf.cofx`
+            ;; The opts map is DATA-ONLY and its `:rf.cofx`
             ;; slot is EXTERNAL EDN, so the whole map rides as quoted
             ;; literal data, exactly as `dispatch` emits it. Unquoted, a
-            ;; scripted coeffect fact containing a list was EVALUATED
-            ;; while the call was built, so the simulation ran on a
+            ;; scripted coeffect fact containing a list would be EVALUATED
+            ;; while the call is built, so the simulation would run on a
             ;; different fact from the one the caller scripted.
             opts-map (cond-> {}
                         frame        (assoc :frame frame)
@@ -350,7 +350,7 @@
             ;;      `:include-fx-args true`). This runs on BOTH the
             ;;      elision-on and elision-off paths — turning the size
             ;;      walker off must NOT re-leak the unprovable fx args.
-            ;;   2. egress projection (ALWAYS — rf2-kuky.88) — the
+            ;;   2. egress projection (ALWAYS) — the
             ;;      app-db-rooted `:db-state-after-simulation` slot runs
             ;;      through `re-frame.core/project-egress` under the NAMED
             ;;      profile; the marker count piggybacks on the same
@@ -389,7 +389,7 @@
                        ;; A known-tool runtime failure (`:ok? false`, e.g.
                        ;; the reducer rejected the event / an interceptor
                        ;; early-returned → `:no-new-epoch`, a FAILED
-                       ;; rollback → `:rollback-failed` (rf2-glg4uo), or a
+                       ;; rollback → `:rollback-failed`, or a
                        ;; degraded runtime → `:unexpected-shape`) rides
                        ;; back as an `isError` envelope, matching the
                        ;; dispatch / read-sub no-silent-success parity
@@ -399,13 +399,13 @@
                        ;; rides through verbatim so the caller still sees
                        ;; why.
                        ;;
-                       ;; SAFETY (rf2-glg4uo): route to isError when
+                       ;; SAFETY: route to isError when
                        ;; `:ok?` is false OR the rollback did not complete.
-                       ;; The runtime now reports a failed rollback as
-                       ;; `:ok? false`, so the `:ok?` arm already catches
+                       ;; The runtime reports a failed rollback as
+                       ;; `:ok? false`, so the `:ok?` arm catches
                        ;; it; the extra `(false? (:rolled-back? result))`
                        ;; guard is defence-in-depth AT THE MCP BOUNDARY —
-                       ;; a degraded or older runtime that still returned
+                       ;; a degraded or older runtime that returns
                        ;; `:ok? true` alongside `:rolled-back? false` (the
                        ;; would-be db IS the live db) must NOT read green
                        ;; either. A successful dry-run always rolls back

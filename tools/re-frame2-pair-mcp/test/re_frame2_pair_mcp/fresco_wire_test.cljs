@@ -10,9 +10,8 @@
   That is precisely the shape that lets a rename pass review. Move or rename a
   read on the provider and Pair still COMPILES, its own suite still PASSES —
   the emitter is unit-tested against itself — and the failure appears only at
-  runtime, in someone else's process, across the nREPL boundary. Under the
-  donor door this repo carried that exposure for the whole life of the
-  five-tool family: not one test in this tree had ever seen both sides.
+  runtime, in someone else's process, across the nREPL boundary — unless a
+  test sees both sides.
 
   So this suite reads the PROVIDER'S OWN SOURCE and asserts the three halves of
   the wire contract against it:
@@ -23,8 +22,8 @@
        `re-frame.fresco.evidence/schema` stamps on every envelope — the gate
        is worthless if the two drift, because every read then reports a
        mismatch and no read ever succeeds;
-    3. no donor namespace survives anywhere in Pair's shipped source, so the
-       migration cannot be quietly re-acquired by a copied form.
+    3. no donor namespace appears anywhere in Pair's shipped source, so a
+       copied form cannot quietly re-acquire one.
 
   **The names are extracted from the emitted form, not from a list.** Asserting
   a hand-written vector against the provider would prove only that two lists
@@ -88,12 +87,12 @@
   "Every read name a form Pair will actually send resolves off the door, as a
   set.
 
-  Since rf2-t2ec the emitted form carries no `re-frame.fresco.tool/<read>`
-  SYMBOL — a var reference into a namespace the running build has not loaded is
-  rejected by shadow's analyzer before the form can run, which is what made the
-  `:evidence-tier-unavailable` rung unreachable. The door is now resolved at
+  The emitted form carries no `re-frame.fresco.tool/<read>` SYMBOL — a var
+  reference into a namespace the running build has not loaded would be
+  rejected by shadow's analyzer before the form could run, leaving the
+  `:evidence-tier-unavailable` rung unreachable. The door is resolved at
   runtime, so the read name rides as the string handed to `cljs.core/munge`,
-  and that is the occurrence this parses. Still the EMITTED form rather than a
+  and that is the occurrence this parses. It is the EMITTED form rather than a
   list: what is asserted against the provider is what Pair will send."
   [form]
   (into #{}
@@ -181,18 +180,17 @@
           (.readdirSync fs dir)))
 
 (deftest no-donor-namespace-survives-in-pairs-shipped-source
-  ;; rf2-n3mb. The donor coupling was never a `:require`, so nothing in the
-  ;; build could have told us it was there. This is the grep that can only be
-  ;; trusted because the surface it scans is small and wholly ours.
+  ;; A donor coupling need not be a `:require`, so nothing in the build
+  ;; would report it. This grep can be trusted only because the surface it
+  ;; scans is small and wholly ours.
   (let [src-root (.join path (repo-root) "tools/re-frame2-pair-mcp/src")
         files    (cljs-sources-under src-root)]
     (is (seq files) "the scan found source files to check")
     (doseq [f files]
       (let [text (read-text f)]
         (doseq [donor ["re-frame.freehand" "re-frame.ui.tool"]]
-          ;; Prose may NAME the donor to record that it was left behind — the
-          ;; fresco-tool docstring does exactly that. What must not appear is
-          ;; a donor symbol in a position that reaches the wire.
+          ;; Prose may NAME a donor namespace. What must not appear is a
+          ;; donor symbol in a position that reaches the wire.
           (is (not (str/includes? text (str donor "/")))
               (str (.basename path f) " names a donor read (" donor
                    "/…) in a callable position")))))))

@@ -32,18 +32,18 @@
   `re-frame2-pair-mcp.tools.frame-resolve`). It does not read frame nil
   and report the empty ring that comes back as `:count 0`, which says
   \"nothing happened\" in the same voice as a genuinely quiet window.
-  The empty-result advisory above could not catch that: it read the
-  SAME implicit-frame history, so both sides came back empty together
-  (rf2-yo4s).
+  The empty-result advisory above cannot catch that: it reads the SAME
+  frame's history, so on an implicit-frame read both sides would come
+  back empty together.
 
   The resolved id then rides BACK out of the eval and into
   `:next-cursor`, so a cursor owns the frame it is iterating from page
   1 — not from page 2, which is all a cursor built out of the caller's
-  ARGUMENTS could manage. Page 1 normally names no frame at all, so
-  that cursor stored nil and page 2 re-resolved against whatever the
-  session said by then: pin a second frame in between and the
-  continuation walked a different ring, where the live `:after-id` is
-  absent and the healthy cursor reads as stale (rf2-yo4s)."
+  ARGUMENTS can manage. Page 1 normally names no frame at all, so such
+  a cursor would store nil and page 2 would re-resolve against whatever
+  the session says by then: pin a second frame in between and the
+  continuation would walk a different ring, where the live `:after-id`
+  is absent and the healthy cursor reads as stale."
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.frame-resolve :as fr]
@@ -114,7 +114,7 @@
             ;; nil under two-plus app frames with no pin, and
             ;; `rf/epoch-history` answers `[]` for an unknown frame
             ;; without erroring — an ambiguity delivered as an empty
-            ;; ring (rf2-yo4s). `with-resolved-frame` below refuses
+            ;; ring. `with-resolved-frame` below refuses
             ;; before this call is ever reached.
             history-call (fr/frame-sym-call 'epoch-history)
             ;; The egress slice (`page`) is the ONLY vector
@@ -132,8 +132,7 @@
                       ;; The cursor is caller-supplied EDN, so its
                       ;; `:after-id` rides QUOTED — a list, symbol, or
                       ;; emitter-shaped vector in a crafted cursor is data,
-                      ;; never source (rf2-3x7nj.32.2; the provenance rule
-                      ;; in `eval-form`).
+                      ;; never source (the provenance rule in `eval-form`).
                       'after-id  (when (some? after-id) (ef/rt-quote after-id))
                       'aged-out? (ef/rt-raw
                                    "(and after-id (not-any? #(= after-id (:epoch-id %)) hist))")
@@ -189,8 +188,8 @@
                     ;; cursor, so `sticky-frame` is nil while the read
                     ;; resolved a real id from the session pin or the
                     ;; sole app frame. Stamping nil into `:next-cursor`
-                    ;; is what let page 2 re-resolve and walk a
-                    ;; DIFFERENT ring (rf2-yo4s). Falls back to
+                    ;; would let page 2 re-resolve and walk a
+                    ;; DIFFERENT ring. Falls back to
                     ;; `sticky-frame` only for a blank runtime result,
                     ;; where there is no page to continue anyway.
                     read-frame (or (fr/resolved-frame v) sticky-frame)
@@ -232,13 +231,12 @@
                         ;;     ring isn't empty — events exist).
                         ;;
                         ;; Both ratchets read the SAME frame's history,
-                        ;; which is why this could never catch the
-                        ;; ambiguous-frame case: a nil frame emptied
-                        ;; both sides together, so the advisory stayed
-                        ;; silent on the one reading that most needed
-                        ;; explaining (rf2-yo4s). The refusal above is
-                        ;; what covers it; this advisory keeps its own
-                        ;; narrower job.
+                        ;; which is why this cannot catch the
+                        ;; ambiguous-frame case: a nil frame would empty
+                        ;; both sides together, so the advisory would
+                        ;; stay silent on the one reading that most
+                        ;; needs explaining. The refusal above covers
+                        ;; it; this advisory has its own narrower job.
                         advisory      (when (and (zero? count)
                                                  (pos? history-count))
                                         {:reason            :window-excludes-history

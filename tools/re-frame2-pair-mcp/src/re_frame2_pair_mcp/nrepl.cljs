@@ -101,7 +101,7 @@
   override path + env var + cwd-relative file scan. Returns an integer
   or nil.
 
-  Lives on as a pure-sync helper so unit tests can pin the file-system
+  A pure-sync helper so unit tests can pin the file-system
   precedence without driving the async HTTP probe. Production boot
   prefers `discover-port` (async) which composes this with the shadow
   HTTP step.
@@ -311,9 +311,6 @@
       (if (zero? (.-length b))
         [frames b]
         (let [decoded  (try (bencode/decode b "utf8") (catch :default _ nil))
-              ;; bencode@2 stores byte cursor info on the decode fn,
-              ;; not on the module exports. `decode.bytes` is the
-              ;; cursor AFTER decoding the most recent frame.
               ;; bencode@2 exposes a per-decode cursor on the decode
               ;; fn itself. `position` is the byte offset AFTER the
               ;; just-decoded frame; `bytes` is unreliable — it gets
@@ -394,7 +391,7 @@
   `:resolved-build-id` is the build-id `discover-app` last resolved.
   Subsequent tool calls without an explicit `:build` arg
   default to it instead of the `SHADOW_CLJS_BUILD_ID` env-var fallback —
-  removing the pair-debug friction of re-passing the build on every call.
+  so a pair-debug session need not re-pass the build on every call.
   Same invalidation lifecycle as `:probed-builds`: cleared by `close!`
   and by a fresh `ensure-connection!` conn, PRESERVED across a transient
   same-port reopen.
@@ -461,11 +458,11 @@
   never concatenated) nor flip `:closed?` on the live connection.
 
   The `data` handler folds the incoming chunk into the buffer AND
-  splits off any complete frames in a single `swap!` — two-swap
-  variants left a window where a second `data` callback (or a
+  splits off any complete frames in a single `swap!` — two swaps
+  would leave a window where a second `data` callback (or a
   Buffer.concat racing) could observe the freshly-accumulated bytes
   but not yet the trimmed trailer, double-decoding the same frame.
-  One atomic swap closes that window.
+  One atomic swap leaves no such window.
 
   The 2-arity defaults `gen` to the conn's CURRENT generation — the shape
   the transport tests attach with (no reconnect in play). Production
@@ -739,7 +736,7 @@
       (.catch (fn [err] (js/Promise.reject err))))))
 
 ;; ---------------------------------------------------------------------------
-;; nREPL → CLJS eval bridge (mirrors ops.clj's cljs-eval / cljs-eval-value).
+;; nREPL → CLJS eval bridge.
 ;; ---------------------------------------------------------------------------
 
 (defn jvm-eval
@@ -755,7 +752,7 @@
   (`cljs-eval` below, the freshness read in `tools/freshness`), or nil
   when that literal would not read back as exactly one keyword.
 
-  The belt at the JVM sink (rf2-3x7nj.32.2). The JVM form is evaluated as
+  The belt at the JVM sink. The JVM form is evaluated as
   Clojure on the developer's shadow-cljs process, so a build id that
   PRINTS as more than one token — a keyword minted from `\"app (do (evil))
   #_\"` prints exactly that — is arbitrary JVM code. The id grammar at the
@@ -774,7 +771,7 @@
   `opts` (e.g. `{:timeout-ms 60000}`) tunes the per-op deadline.
 
   Rejects — without sending anything — when `build-id` does not render as
-  a single keyword literal (`build-id-literal`, rf2-3x7nj.32.2)."
+  a single keyword literal (`build-id-literal`)."
   ([conn-atom build-id form-str] (cljs-eval conn-atom build-id form-str nil))
   ([conn-atom build-id form-str opts]
    (if-let [build-pr (build-id-literal build-id)]

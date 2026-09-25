@@ -1,17 +1,16 @@
 (ns re-frame2-pair-mcp.size-override-default-launch-test
-  "The `elision false` size override is honoured on a DEFAULT launch
-  (rf2-ealv5 / rf2-3x7nj.32.4).
+  "The `elision false` size override is honoured on a DEFAULT launch.
 
   ## What this pins
 
   A `:large` declaration governs its whole subtree, so a read at or
   below it returns a `:rf.size/large-elided` marker, and the only
   structured route to the raw value is `get-path` with `elision false`.
-  Until this bead every pair tool that takes `elision` forced it back to
-  `true` unless the server was launched with `--allow-sensitive-reads` —
-  so on a default install the route did not exist, and the echoed
-  `:elision true` gave no hint the argument had been overridden. The
-  launch gate protects the SENSITIVE axis; the size override is an
+  A tool that forced `elision` back to `true` unless the server was
+  launched with `--allow-sensitive-reads` would remove that route on a
+  default install, and its echoed `:elision true` would give no hint the
+  argument had been overridden. The launch gate protects the SENSITIVE
+  axis; the size override is an
   `:rf.egress/include-large? true` overlay with the walker still
   running, so it can never reveal a declared-sensitive slot.
 
@@ -23,9 +22,9 @@
   `re-frame.projection/project-egress` against a frame whose registry
   carries a real `:large` and `:sensitive` declaration. So the assertions
   are about what comes BACK: raw content under the size override, and a
-  sensitive descendant still `:rf/redacted` in that same read. On the
-  pre-fix tree the gate-OFF form carried no overlay, the walker marked
-  the large slot, and these reds name the missing raw value.
+  sensitive descendant still `:rf/redacted` in that same read. A gate-OFF
+  form carrying no overlay would have the walker mark the large slot,
+  and these reds would name the missing raw value.
 
   The pair server never `:require`s the framework (it ships a keyword,
   not a policy); this test does, because the walker is the thing under
@@ -64,7 +63,7 @@
   (when-not (rf.substrate.adapter/current-adapter)
     (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
   (when-not (rf.frame/frame fid)
-    (rf.frame/upsert-frame! fid {:doc "rf2-ealv5 size-override fixture frame"}))
+    (rf.frame/upsert-frame! fid {:doc "size-override fixture frame"}))
   (rf.frame/swap-runtime-db! fid
     (fn [rt] (rf.elision/apply-classification-effects
                rt {:sensitive [[:docs :token]]
@@ -146,7 +145,7 @@
         (.then (fn [r] [r (tu/extract-edn r) @captured])))))
 
 ;; ---------------------------------------------------------------------------
-;; The witnesses — RED on the pre-fix tree (gate OFF forced `elision true`).
+;; The witnesses — RED on any tree whose gate OFF forces `elision true`.
 ;; ---------------------------------------------------------------------------
 
 (deftest default-launch-elision-false-reads-raw-and-still-redacts-sensitive
@@ -178,7 +177,7 @@
 
 (deftest default-launch-elision-false-reads-below-a-large-declaration
   ;; A read AT/BELOW the declaration: without the override it is a marker
-  ;; (rf2-ealv5 option (a)); with it, the raw value.
+  ;; with it, the raw value.
   (async done
     (-> (call-get-path! {:path "[:docs 0 :body]"} {:path [:docs 0 :body]})
         (.then (fn [[_ edn _]]

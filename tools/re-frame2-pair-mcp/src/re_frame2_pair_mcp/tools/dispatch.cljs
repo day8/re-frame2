@@ -118,8 +118,7 @@
   render-settle Promise (`render-settle-form`). Under `:await-render`
   an explicit `:trace` still resolves to `dispatch-and-collect` (the raw
   `:epoch`), so the await transport projects the SAME way the non-await
-  one does — an await-render epoch never crosses the wire unprojected
-  (rf2-6klf02).
+  one does — an await-render epoch never crosses the wire unprojected.
 
   Path 3 is closed by issuing `raw-state/signal-runtime!` between the
   preload probe and the dispatch eval (the snapshot / get-path /
@@ -134,7 +133,7 @@
   (`[:login \"pw\"]` → `[:login :rf/redacted]`), for EVERY epoch whether
   or not it is declared `:rf.epoch/sensitive?` (the args are
   registration-owned transient payloads the classification walker cannot
-  prove safe — rf2-nm611o / rf2-6klf02). Posture parity with
+  prove safe). Posture parity with
   `dispatch-dry-run` (signal-runtime! + projected egress, same gate)."
   (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.await-promise :as await-promise]
@@ -148,8 +147,8 @@
 ;; host-form source out of the runtime call — lives in the shared
 ;; `args/parse-event-arg` seam (byte-identical for dispatch and
 ;; dispatch-dry-run bar the missing-value hint). See its docstring for the
-;; why-EDN-not-source rationale. The call site below preserves the parse's
-;; position ahead of the nREPL eval and the permission/privacy gates.
+;; why-EDN-not-source rationale. The call site below runs the parse
+;; ahead of the nREPL eval and the permission/privacy gates.
 
 (def ^:private missing-event-hint
   "usage: dispatch {event '[:ev/id ...]' [sync true] [trace true] [frame :foo] [fx-overrides {...}] [interceptor-overrides {...}]}")
@@ -247,8 +246,8 @@
 (defn- render-settle-form
   "Build the CLJS source for an `:await-render` dispatch. `fn-sym` is the
   runtime dispatch fn (always a synchronous variant under await-render);
-  `event-form` (the parsed event wrapped for literal-data emission, per
-  rf2-j2wz) + `opts-form` are the dispatch payload. Emits a form whose
+  `event-form` (the parsed event wrapped for literal-data emission) +
+  `opts-form` are the dispatch payload. Emits a form whose
   synchronous return is a `js/Promise` resolving to the dispatch envelope
   merged with `{:settled? true}` once the substrate has flushed + the
   next paint is scheduled.
@@ -262,9 +261,9 @@
   projection (`re-frame.core/project-egress` via
   `egress/project-dispatch-result-src`) APP-SIDE before it crosses the
   wire — exactly as the NON-await `:trace` / `:settle` path does
-  (`dispatch-tool` below). Without it the await-render epoch shipped raw,
-  re-leaking the very sensitive / large app-db material the non-await
-  path elides (rf2-6klf02). The projection wraps `result#` (the runtime
+  (`dispatch-tool` below). Without it the await-render epoch would ship
+  raw, leaking the very sensitive / large app-db material the non-await
+  path elides. The projection wraps `result#` (the runtime
   return) BEFORE the `{:settled? true}` merge, so the settle confirmation
   rides on the already-projected envelope. The sync / queued consequence
   shapes carry no raw app-db, so `epoch-bearing?` is false and the bare
@@ -344,7 +343,7 @@
         ;; and REJECTS any other value with a structured error.
         fx-r         (args/parse-fx-overrides (wire/arg args :fx-overrides))
         fx-overrides (when (= :ok (first fx-r)) (second fx-r))
-        ;; rf2-m7x0qb / Tool-Pair §Replay — the
+        ;; Tool-Pair §Replay — the
         ;; per-call `:interceptor-overrides` sibling of `:fx-overrides`
         ;; above. Same wire posture (a colon-tolerant JSON object;
         ;; `parse-interceptor-overrides` coerces both ref-shaped keys and
@@ -421,8 +420,7 @@
         ;; `parse-bool-arg` reads `"false"`/`"no"`/`"0"` as false (and
         ;; defaults absent/unrecognised to the table's `false`), so the
         ;; sensitive opt-in is honoured only on a genuine truthy value —
-        ;; the same safe parse `dispatch-dry-run` already uses for this
-        ;; arg.
+        ;; the same safe parse `dispatch-dry-run` uses for this arg.
         incl?        (if (raw-state/raw-state-allowed?)
                        (args/parse-bool-arg args :include-sensitive)
                        false)
@@ -437,7 +435,7 @@
       ;; An invalid fx-overrides target short-circuits to an
       ;; honest isError rather than silently falling through to the real
       ;; fx (which the documented stub recipe promised was inert). This
-      ;; also catches the :rf/fn-override sentinel (rf2-m7x0qb) — a
+      ;; also catches the :rf/fn-override sentinel — a
       ;; recorded entry the router could not serialize, which makes the
       ;; run UNREPLAYABLE under :strict (Tool-Pair §Replay).
       (= :err (first fx-r))
@@ -445,8 +443,7 @@
 
       ;; An invalid interceptor-overrides key/replacement
       ;; short-circuits to an honest isError, mirroring the runtime's own
-      ;; :rf.error/interceptor-override-invalid chain-assembly rejection
-      ;; (rf2-m7x0qb).
+      ;; :rf.error/interceptor-override-invalid chain-assembly rejection.
       (= :err (first icpt-r))
       (js/Promise.resolve (wire/err-text (second icpt-r)))
 
@@ -468,14 +465,15 @@
             opts-map (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides)
-                        ;; rf2-m7x0qb / Tool-Pair §Replay — the
+                        ;; Tool-Pair §Replay — the
                         ;; `:interceptor-overrides` sibling of
                         ;; `:fx-overrides` above, threaded the same way
                         ;; (unconditional on presence, not gated on
                         ;; `replay?`). A recorded epoch's
                         ;; `:interceptor-overrides` re-presents VERBATIM
-                        ;; on replay (EDN by construction — EP-0022
-                        ;; retired value-valued replacements, so no
+                        ;; on replay (EDN by construction — an EP-0022
+                        ;; replacement is a ref or nil, never an
+                        ;; interceptor value, so no
                         ;; :rf/fn-override-style marker is ever needed
                         ;; here).
                         interceptor-overrides (assoc :interceptor-overrides interceptor-overrides)
@@ -494,25 +492,25 @@
                         ;; whether or not a `cofx` token was supplied (a record
                         ;; with no scripted facts still re-drives strict).
                         replay?      (assoc :rf.cofx/mint-policy :strict))
-            ;; rf2-fzbj.6 — the opts map is DATA-ONLY, and three of its
+            ;; The opts map is DATA-ONLY, and three of its
             ;; slots are EXTERNAL EDN the caller supplied (`:rf.cofx`,
             ;; `:fx-overrides`, `:interceptor-overrides`); the rest are
-            ;; server-composed keywords. `pr-str`'ing the map rendered
-            ;; those caller values as SOURCE, so a scripted coeffect fact
-            ;; `{:review/fact (inc 41)}` reached the router as 42 — the
-            ;; replay used a DIFFERENT causal fact from the one scripted,
-            ;; which is exactly what a recorded cofx exists to prevent.
-            ;; Quoting the WHOLE map is the repair rather than quoting
-            ;; slot-by-slot: `emit-arg` does not recurse into maps, so a
-            ;; per-slot node would print as the IR vector it is. Every
-            ;; value in here is data, so quoting changes nothing else.
+            ;; server-composed keywords. `pr-str`'ing the map unquoted
+            ;; would render those caller values as SOURCE, so a scripted
+            ;; coeffect fact `{:review/fact (inc 41)}` would reach the
+            ;; router as 42 — the replay would use a DIFFERENT causal fact
+            ;; from the one scripted, which is exactly what a recorded
+            ;; cofx exists to prevent. The WHOLE map is quoted rather
+            ;; than slot-by-slot: `emit-arg` does not recurse into maps,
+            ;; so a per-slot node would print as the IR vector it is.
+            ;; Every value in here is data, so quoting changes nothing
+            ;; else.
             opts-form (ef/rt-quote opts-map)
             ;; The event is a parsed CLJS vector, and it is EXTERNAL data.
             ;; It rides through `ef/rt-quote` — the literal-data emission
             ;; path — so the runtime fn receives the datum the caller sent,
-            ;; not whatever its printed form evaluates to (rf2-j2wz). The
-            ;; default `pr-str` arg path is right for the internally-
-            ;; composed `opts-form` below and wrong here: printed unquoted,
+            ;; not whatever its printed form evaluates to. The default
+            ;; `pr-str` arg path would be wrong here: printed unquoted,
             ;; a nested list in the payload is a function call and a symbol
             ;; is a name lookup, and a payload shaped like one of the
             ;; emitter's tagged vectors is spliced in as raw source. All
@@ -520,8 +518,8 @@
             ;; the runtime dispatch fn validates anything, and regardless
             ;; of whether `eval-cljs` is enabled.
             ;;
-            ;; `parse-event-arg` is the other half of the same boundary and
-            ;; is unchanged: it rejects a whole host form at the door. Its
+            ;; `parse-event-arg` is the other half of the same boundary:
+            ;; it rejects a whole host form at the door. Its
             ;; check is on the OUTER shape only, so quoting is what carries
             ;; the guarantee inward. NO `rt-raw` splice on this surface.
             ;;
@@ -555,8 +553,8 @@
           ;; selects `dispatch-and-collect`, which returns the RAW
           ;; `:epoch`), the settle form projects the result through
           ;; `project-egress` APP-SIDE before egress — the SAME off-box
-          ;; redaction the non-await `:trace` / `:settle` path applies
-          ;; (rf2-6klf02). The consequence shapes (`:sync` / `:queued`)
+          ;; redaction the non-await `:trace` / `:settle` path applies.
+          ;; The consequence shapes (`:sync` / `:queued`)
           ;; carry no raw app-db, so they ride unwrapped.
           (let [settle-form (render-settle-form fn-sym event-form opts-form
                                                 (contains? #{:trace :settle} mode)

@@ -1,5 +1,5 @@
 (ns re-frame2-pair-mcp.replay-epoch-test
-  "Unit tests for the replay-epoch tool (rf2-ov144).
+  "Unit tests for the replay-epoch tool.
 
   Strict replay of a retained epoch in ONE call — the tool sends only the
   id; the preload runtime's `replay-epoch` primitive resolves the raw
@@ -117,7 +117,7 @@
                      (is (= 12 (:epoch-id edn)) "the NEW epoch id rides through"))
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= 're-frame2-pair.runtime/replay-epoch (first parsed)))
-                     ;; rf2-fzbj.6 — caller EDN rides quoted.
+                     ;; Caller EDN rides quoted.
                      (is (= '(quote 7) (second parsed))
                          "epoch-id rides as the quoted integer 7, not the string")
                      (is (= 2 (count parsed)) "no frame arg when none was given"))
@@ -187,7 +187,7 @@
                    (done)))))))
 
 (deftest strict-missing-cofx-failure-rides-as-isError
-  ;; The runtime translated the framework's loud throw into an envelope.
+  ;; The runtime translates the framework's loud throw into an envelope.
   (async done
     (let [failure {:ok? false :reason :rf.error/missing-required-cofx
                    :frame :rf/default :epoch-id 9

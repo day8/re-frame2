@@ -18,7 +18,7 @@
        bad-selector error reason.
 
   The browser-side semantics (does the view<->DOM map resolve? does
-  elide-wire-value redact?) run in a real tab — exercised by the live
+  project-egress redact?) run in a real tab — exercised by the live
   conformance corpus, out of scope for a node-runtime unit suite. This
   suite pins the tool's outer contract; the runtime ns owns the inner
   read."
@@ -94,25 +94,24 @@
                    (done)))))))
 
 (deftest non-string-frame-does-not-throw-and-drops-cleanly
-  ;; rf2-pvh95w: read-ui used to reimplement :frame coercion locally
-  ;; (a private `frame-edn` doing a bare `(str/replace frame #"^:" "")`
-  ;; with no type guard). `str/replace` requires a STRING first arg, so a
-  ;; JSON :frame of any non-string type (number/boolean/array/object —
-  ;; e.g. a malformed client) reached it and threw a raw synchronous
-  ;; TypeError BEFORE any Promise/.catch boundary — an uncaught crash,
-  ;; not a clean `:ok? false`.
+  ;; A local :frame coercion doing a bare `(str/replace frame #"^:" "")`
+  ;; with no type guard would crash here: `str/replace` requires a
+  ;; STRING first arg, so a JSON :frame of any non-string type
+  ;; (number/boolean/array/object — e.g. a malformed client) would throw
+  ;; a raw synchronous TypeError BEFORE any Promise/.catch boundary — an
+  ;; uncaught crash, not a clean `:ok? false`.
   ;;
-  ;; :frame now routes through the shared `args/->frame-keyword` (->
+  ;; :frame routes through the shared `args/->frame-keyword` (->
   ;; `base-args/fresh-keyword`), the same coercer every sibling read tool
-  ;; (get-path/read-sub/read-dom/handler-meta) already uses — its
+  ;; (get-path/read-sub/read-dom/handler-meta) uses — its
   ;; `:else nil` fallback resolves a non-string/non-keyword :frame to
   ;; nil (dropped from the emitted form; the runtime resolves the
   ;; operating frame itself) instead of throwing.
   ;;
-  ;; The call to `read-ui-tool` below IS the regression guard: a
-  ;; resurfaced `frame-edn`-style bug would throw synchronously right
-  ;; here, failing the test with an uncaught exception rather than a
-  ;; normal assertion failure.
+  ;; The call to `read-ui-tool` below IS the regression guard: an
+  ;; unguarded coercion would throw synchronously right here, failing
+  ;; the test with an uncaught exception rather than a normal assertion
+  ;; failure.
   (async done
     (let [seen (atom nil)]
       (-> (with-captured-form! seen {:ok? true}
@@ -125,7 +124,7 @@
                    (done)))))))
 
 (deftest array-frame-does-not-throw-and-drops-cleanly
-  ;; The array/object shape the bead calls out explicitly — a JSON array
+  ;; The array/object shape — a JSON array
   ;; :frame arriving off a malformed client must degrade the same way a
   ;; number does, not throw.
   (async done
@@ -179,7 +178,7 @@
 
 (deftest large-text-elision-passes-through
   ;; Privacy / elision: the runtime routes :text through
-  ;; elide-wire-value; an over-cap blob rides as the :rf.size/large-elided
+  ;; project-egress; an over-cap blob rides as the :rf.size/large-elided
   ;; marker, never raw user DOM text.
   (async done
     (let [canned {:ok? true :via :view-id
@@ -230,7 +229,8 @@
 
 (deftest bad-selector-error-forwarded
   ;; A genuine `:ok? false` runtime failure (a thrown malformed-selector)
-  ;; MUST ride as `:isError true`, per spec/003-Tool-Catalogue.md §381.
+  ;; MUST ride as `:isError true`, per spec/003-Tool-Catalogue.md
+  ;; §*Every `:ok? false` response is `isError: true`*.
   ;; Routing every map through the shared `map-result-or-blank` /
   ;; `ok-text` path would ship this failure as `isError:false` and make
   ;; it cache-eligible.
@@ -263,7 +263,7 @@
                    (is (false? (:ok? edn)))
                    (is (= :rf.error/read-ui-blank-result (:reason edn))))
                  (is (some? (j/get r :structuredContent))
-                     "structuredContent must NOT be null (rf2-r5erl)")
+                     "structuredContent must NOT be null (a null fails the SDK outputSchema check)")
                  (is (object? (j/get r :structuredContent)))
                  (done))))))
 

@@ -37,13 +37,13 @@
     integer cap, `0` disables (escape hatch for callers that have
     already paginated). Default `5000`.
   - **Pluggable strategy**: `rf.mcp-base.cap/apply-cap` dispatches on a
-    strategy keyword. Today only `:truncate-with-marker` is
+    strategy keyword. Only `:truncate-with-marker` is
     implemented — replace the payload with the overflow marker.
     Future strategies (path-slicing, lazy summary, diff encoding,
     etc.) compose in the base without rebuilding the wrapper here.
   - **Centralised**: applied as the final step in `invoke`. Per-tool
-    functions are untouched; they emit the same shapes they always
-    did. The wire-cap is a property of the egress boundary, not of
+    functions know nothing of the cap; they emit their own shapes.
+    The wire-cap is a property of the egress boundary, not of
     each tool's internals."
   (:require [applied-science.js-interop :as j]
             [re-frame.mcp-base.cap :as rf.mcp-base.cap]
@@ -143,7 +143,7 @@
       ;; truncate the `:rf.mcp/overflow` marker key to `"overflow"`, so
       ;; SDK-friendly hosts reading structuredContent would miss the marker.
       ;; The original's `isError` crosses too: an over-cap FAILED call
-      ;; must not read as an over-cap success (rf2-3x7nj.35.3).
+      ;; must not read as an over-cap success.
       (wire/result marker (true? (j/get original :isError))))))
 
 (defn sum-payload-tokens
@@ -165,7 +165,7 @@
   (when under the cap or cap disabled) or a fresh result carrying the
   overflow marker.
 
-  Pluggable on `strategy` — see `rf.mcp-base.cap/apply-cap`. Today only
+  Pluggable on `strategy` — see `rf.mcp-base.cap/apply-cap`. Only
   `:truncate-with-marker` is wired; unknown strategies degrade safely.
 
   Adds re-frame2-pair-mcp's `overflow-hints` table lookup before delegating to
@@ -185,8 +185,8 @@
   untouched so a transient failure can't poison the cache —
   `apply-cap` measures and (if over budget) wraps an `:isError`
   result in `:rf.mcp/overflow` like any other payload — and the
-  replacement keeps `isError: true`, so the failure stays visible
-  (rf2-3x7nj.35.3). An error
+  replacement keeps `isError: true`, so the failure stays visible.
+  An error
   response can itself carry an oversize `:message` blob (e.g. a
   stack trace pretty-printed from a deep CLJS exception) and silent
   over-budget egress would violate the wire-cap contract that

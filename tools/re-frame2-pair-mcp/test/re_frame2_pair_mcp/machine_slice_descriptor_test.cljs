@@ -13,10 +13,10 @@
   through unchanged, and (b) describe the EP-0015 posture: the runtime-db
   `:machines` slice fails closed to `:rf/redacted` off-box by default and the
   trusted-local gate threads through projection rather than bypassing it. An
-  edit that re-introduces the raw-pass-through claim trips this test.
+  edit that adds a raw-pass-through claim trips this test.
 
   Behavioural redaction of the `:machines` slice itself (the server-side eval
-  form's `redact-runtime-db?`) is covered in `sensitive_filter_test`."
+  form's `redact-runtime-db?`) is covered in `elision_test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
@@ -25,16 +25,16 @@
   (:description data/snapshot))
 
 (deftest snapshot-descriptor-has-no-retired-redact-interceptor-wording
-  (testing "the snapshot descriptor names no retired `redact-interceptor` and
+  (testing "the snapshot descriptor names no `redact-interceptor` and
             does not claim the :machines slice passes through unchanged"
     (let [d (snapshot-description)]
       (is (string? d) "snapshot descriptor carries a :description string")
       (is (not (str/includes? d "redact-interceptor"))
-          "the retired EP-0015 `redact-interceptor` is not named")
+          "`redact-interceptor`, not public API per EP-0015 §7, is not named")
       (is (not (str/includes? d "`:machines` slice passes through unchanged"))
-          "the raw-pass-through claim for the :machines slice is gone")
+          "the :machines slice carries no raw-pass-through claim")
       (is (not (str/includes? d "passes through unchanged"))
-          "no raw-pass-through claim remains anywhere in the descriptor"))))
+          "no raw-pass-through claim appears anywhere in the descriptor"))))
 
 (deftest snapshot-descriptor-describes-ep0015-machine-posture
   (testing "the snapshot descriptor describes the EP-0015 fail-closed posture

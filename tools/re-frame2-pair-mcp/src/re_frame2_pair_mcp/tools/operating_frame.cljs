@@ -231,7 +231,7 @@
     (probe/eval-after-runtime!
       conn build-id form :reset-operating-frame-failed
       (fn [v]
-        ;; rf2-acckgr: `frames-list` (via `select-frame!` here) always
+        ;; `frames-list` (via `select-frame!` here) always
         ;; answers `:ok? true` against a live runtime, so a non-map `v`
         ;; means the eval came back blank/degraded — a known-tool
         ;; failure, not a success carrying bad news. err-text (not
@@ -276,7 +276,7 @@
     (probe/eval-after-runtime!
       conn build-id form :get-operating-frame-failed
       (fn [v]
-        ;; rf2-acckgr: `frames-list` always answers `:ok? true` against
+        ;; `frames-list` always answers `:ok? true` against
         ;; a live runtime, so a non-map `v` means the eval came back
         ;; blank/degraded — a known-tool failure, not a success carrying
         ;; bad news. err-text (not ok-text).

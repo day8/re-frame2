@@ -2,13 +2,12 @@
   "Unit tests for `get-operating-frame` / `reset-operating-frame`'s
   blank-runtime-result handling.
 
-  `set-operating-frame-tool` already routes a non-map / `:ok? false`
-  runtime answer through `wire/err-text`; `get-operating-frame-tool` and
-  `reset-operating-frame-tool` did not — a nil / non-map answer from a
-  degraded runtime (the eval came back blank) silently rode back as
-  `wire/ok-text` despite carrying `:ok? false` (rf2-acckgr). These tests
-  pin the fix: BOTH siblings now match `set-operating-frame-tool`'s
-  guard."
+  `set-operating-frame-tool` routes a non-map / `:ok? false` runtime
+  answer through `wire/err-text`, and so must `get-operating-frame-tool`
+  and `reset-operating-frame-tool` — otherwise a nil / non-map answer from
+  a degraded runtime (the eval came back blank) would silently ride back
+  as `wire/ok-text` despite carrying `:ok? false`. These tests pin that
+  BOTH siblings match `set-operating-frame-tool`'s guard."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]

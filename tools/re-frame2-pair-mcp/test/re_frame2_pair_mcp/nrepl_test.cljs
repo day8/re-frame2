@@ -229,10 +229,10 @@
         (is (nil? (nrepl/read-port-from-fs)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `read-port-file` — the single transport-owned port-file primitive
-;; (rf2-y8aszh). `server.cljs/ensure-connection!` re-reads the cached port
-;; file through THIS fn (its byte-for-byte `read-port-file*` copy was
-;; deleted). Pin the primitive's contract directly: an int for numeric
+;; `read-port-file` — the single transport-owned port-file primitive.
+;; `server.cljs/ensure-connection!` re-reads the cached port file through
+;; THIS fn rather than a copy of its own. Pin the primitive's contract
+;; directly: an int for numeric
 ;; content (whitespace-trimmed), nil for missing / non-numeric.
 ;; ---------------------------------------------------------------------------
 
@@ -505,9 +505,9 @@
 ;; that accumulator through `(:pending @conn)` and feed frames directly — no
 ;; socket, no bencode round-trip — to cover the response-assembly + resolution
 ;; branch, then a short-deadline op with NO `:done` frame to cover the timeout
-;; branch. Both branches were previously below the seam: the existing
-;; `send-op!-live-socket-writes-normally` deliberately feeds no `:done` frame
-;; and asserts only the write + pending registration.
+;; branch — both out of reach of
+;; `send-op!-live-socket-writes-normally`, which deliberately feeds no
+;; `:done` frame and asserts only the write + pending registration.
 ;; ===========================================================================
 
 (deftest send-op!-assembles-frames-and-resolves-on-done
@@ -682,7 +682,7 @@
                      (done))))))))
 
 (deftest discover-port-roots-single-candidate-wins
-  (testing "step 3 (rf2-3grub) — roots/list returns one shadow project → attach silently"
+  (testing "step 3 — roots/list returns one shadow project → attach silently"
     (async done
       (let [probed?  (atom false)
             probe-fn (fn [_h _p]
@@ -841,7 +841,7 @@
                      (done))))))))
 
 ;; The cwd-scan last resort (step 5) retains the WINNING candidate's file
-;; identity (rf2-q774o). A relative candidate read against Node's process CWD
+;; identity. A relative candidate read against Node's process CWD
 ;; has a stable absolute identity via path-join, so the result carries
 ;; `:port-file` exactly like steps 1/3/4 — the server caches it and the
 ;; per-tool-call re-read observes an ephemeral-port restart on this branch
@@ -1055,7 +1055,7 @@
             (fn [_]
               (is (false? (:closed? @conn)) "reopened")
               (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "the sticky build SURVIVES a same-port reopen — the rf2-c3dsr fix")
+                  "the sticky build SURVIVES a same-port reopen")
               (is (= {:step-deck :examples/step-deck} (:build-alias @conn))
                   "the forgiving-resolution alias survives the reopen too")
               (is (= #{:examples/step-deck} (:probed-builds @conn))
@@ -1094,7 +1094,7 @@
 (deftest connect!-fast-path-leaves-caches-untouched
   ;; When the socket is already open + healthy, `connect!` short-circuits
   ;; (no createConnection, no swap) — so the caches are trivially untouched.
-  ;; Pins that the fast path didn't acquire a reset side effect.
+  ;; Pins that the fast path has no reset side effect.
   (async done
     (let [conn (nrepl/make-conn 6001 "127.0.0.1")]
       (swap! conn assoc :socket #js {} :closed? false
@@ -1140,7 +1140,7 @@
               ;; Operator-initiated teardown (NOT a transient hiccup).
               (nrepl/close! conn)
               (is (nil? (:resolved-build-id @conn))
-                  "close! cleared the sticky build (l9ixp operator-teardown reset)")
+                  "close! cleared the sticky build (operator-teardown reset)")
               (is (= {} (:build-alias @conn)) "close! cleared the alias cache")
               (is (= #{} (:probed-builds @conn)) "close! cleared the probe cache")
               ;; Reopen — starts clean; no stale build carried across.
@@ -1148,7 +1148,7 @@
           (.then
             (fn [_]
               (is (nil? (:resolved-build-id @conn))
-                  "post-close reopen carries NO stale build — l9ixp preserved")))
+                  "post-close reopen carries NO stale build")))
           (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
           (.then (fn [_] (restore!) (done)))))))
 
@@ -1177,15 +1177,15 @@
           "the discarded conn keeps its state — no cross-conn mutation"))))
 
 ;; ===========================================================================
-;; Single-flight connection + generation ownership (rf2-3fc89f.23).
+;; Single-flight connection + generation ownership.
 ;;
 ;; MCP permits concurrent tool calls, and `send-op!` calls `connect!` on
 ;; EVERY op — so two simultaneous first ops both reach `connect!` before
-;; either socket comes up. The OLD code let each caller run
-;; `net/createConnection`, opening two live sockets whose handlers folded
-;; two TCP streams into one bencode buffer and whose stale close could mark
-;; the winner closed. The fix makes `connect!` single-flight (one socket per
-;; transition; concurrent callers share the same Promise) and tags every
+;; either socket comes up. If each caller ran `net/createConnection`, two
+;; live sockets' handlers would fold two TCP streams into one bencode
+;; buffer and a stale close could mark the winner closed. So `connect!` is
+;; single-flight (one socket per transition; concurrent callers share the
+;; same Promise) and tags every
 ;; socket with a `:generation` so only the authoritative socket mutates conn
 ;; state.
 ;;
@@ -1224,8 +1224,7 @@
 
 (deftest connect!-single-flight-one-socket-for-concurrent-callers
   ;; The core race: two concurrent `connect!` callers BEFORE either callback
-  ;; fires must open exactly ONE socket and share ONE Promise. On old code
-  ;; this asserted two createConnection calls.
+  ;; fires must open exactly ONE socket and share ONE Promise.
   (async done
     (let [sockets* (atom [])
           restore! (with-multi-create-connection! sockets*)
@@ -1252,7 +1251,7 @@
 (deftest concurrent-send-ops-multiplex-over-one-socket
   ;; Two simultaneous `send-op!` calls share one connect, then register
   ;; DISTINCT pending ids and write over the SAME socket — the multiplex the
-  ;; single-flight fix preserves. Ops are resolved by feeding each pending
+  ;; single-flight connect preserves. Ops are resolved by feeding each pending
   ;; accumulator a `:done` frame directly (the send-op response-assembly seam
   ;; the suite already uses), so the assertion doesn't depend on bencode
   ;; wire round-tripping.

@@ -98,7 +98,7 @@
                     (set! get-path/get-path-tool orig-get-path))))))
 
 ;; ---------------------------------------------------------------------------
-;; Acceptance #1 — multi-build, :port. discover-app {port 8033} then a
+;; Case 1 — multi-build, :port. discover-app {port 8033} then a
 ;; no-build call lands on the resolved build, NOT :app.
 ;; ---------------------------------------------------------------------------
 
@@ -111,11 +111,11 @@
             (is (= :examples/machine-epochs resolved)
                 "post-discover-app{port}, a no-build tool call THROUGH invoke targets the resolved build")
             (is (not= :app resolved)
-                "it must NOT fall back to the :app env default (the live-repro bug)")
+                "it must NOT fall back to the :app env default")
             (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Acceptance #2 — multi-build, explicit. discover-app {build ...} then a
+;; Case 2 — multi-build, explicit. discover-app {build ...} then a
 ;; no-build call lands on the resolved build, NOT :app.
 ;; ---------------------------------------------------------------------------
 

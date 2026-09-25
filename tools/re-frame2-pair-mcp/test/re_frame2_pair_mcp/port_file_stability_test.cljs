@@ -46,7 +46,7 @@
       (throw (js/Error. "ENOENT")))))
 
 (deftest cached-explicit-port-file-stays-on-connection-when-unchanged
-  (testing "ensure-connection! reuses the cached conn when the EXACT cached port-file still reads the same port (rf2-ww877w)"
+  (testing "ensure-connection! reuses the cached conn when the EXACT cached port-file still reads the same port"
     (async done
       (let [explicit-pf "C:/repo/target/shadow-cljs/nrepl.port"
             conn        (nrepl/make-conn 7001 "127.0.0.1")
@@ -77,7 +77,7 @@
             (.then (fn [_] (restore!) (done))))))))
 
 (deftest cached-probe-winning-candidate-stays-on-connection
-  (testing "a winning HTTP-probe candidate (target/shadow-cljs/nrepl.port) is reused when unchanged (rf2-ww877w)"
+  (testing "a winning HTTP-probe candidate (target/shadow-cljs/nrepl.port) is reused when unchanged"
     (async done
       ;; The probe winner is target/shadow-cljs/nrepl.port, NOT a
       ;; derived .shadow-cljs/nrepl.port. Cache the winning path; re-read
@@ -100,13 +100,13 @@
             (.then (fn [_] (restore!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; CWD-fallback restart recovery (rf2-q774o). The step-5 cwd scan retains the
-;; winning candidate's cwd-resolved absolute identity, so a session seeded
-;; from THAT discovery shape recovers from an ephemeral-port nREPL restart
-;; through the same per-tool-call re-read every other file-backed branch
-;; uses. Pre-fix, the cwd result carried :port-file nil, ensure-connection!
-;; took the cached-conn fast path forever, and the session stayed stranded
-;; on the dead port until the whole MCP server was restarted.
+;; CWD-fallback restart recovery. The step-5 cwd scan retains the winning
+;; candidate's cwd-resolved absolute identity, so a session seeded from THAT
+;; discovery shape recovers from an ephemeral-port nREPL restart through the
+;; same per-tool-call re-read every other file-backed branch uses. A cwd
+;; result carrying :port-file nil would send ensure-connection! down the
+;; cached-conn fast path forever, stranding the session on the dead port
+;; until the whole MCP server restarted.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private shadow-probe-fails
@@ -119,7 +119,7 @@
                               :error  {:reason :workspace-discovery-unsupported}})))
 
 (deftest cwd-discovery-shape-recovers-across-ephemeral-restart
-  (testing "a session seeded from the ACTUAL cwd discovery result replaces P1 with P2 when the file is rewritten (rf2-q774o)"
+  (testing "a session seeded from the ACTUAL cwd discovery result replaces P1 with P2 when the file is rewritten"
     (async done
       (let [cwd-pf   (node-path/join (js/process.cwd) ".nrepl-port")
             ;; The one cwd candidate present reads whatever `content` holds —
@@ -137,8 +137,8 @@
                 (is (= 7101 (:port r)) "cwd discovery attached to P1")
                 ;; Seed the session from the discovery result VERBATIM — the
                 ;; contract under test is that this shape carries enough for
-                ;; restart recovery. (Pre-fix it carried :port-file nil, and
-                ;; this witness then fails on the P2 assertions below.)
+                ;; restart recovery. (A shape carrying :port-file nil fails
+                ;; the P2 assertions below.)
                 (let [conn-p1 (nrepl/make-conn (:port r) "127.0.0.1")]
                   (server/set-discovered-for-tests!
                     {:conn conn-p1 :port (:port r) :port-file (:port-file r)
@@ -167,7 +167,7 @@
             (.then (fn [_] (restore!) (done))))))))
 
 (deftest cwd-cached-file-vanish-forces-rediscovery
-  (testing "a cwd-derived cache whose file vanishes enters the existing rediscovery path (rf2-q774o)"
+  (testing "a cwd-derived cache whose file vanishes enters the rediscovery path"
     (async done
       (let [cwd-pf   (node-path/join (js/process.cwd) ".nrepl-port")
             conn-p1  (nrepl/make-conn 7101 "127.0.0.1")
@@ -191,7 +191,7 @@
             (.then (fn [_] (restore!) (done))))))))
 
 (deftest cached-port-file-genuine-disappearance-still-rediscovers
-  (testing "when the cached (exact) port-file genuinely vanishes, ensure-connection! still rediscovers — the fix doesn't mask real shutdowns"
+  (testing "when the cached (exact) port-file genuinely vanishes, ensure-connection! still rediscovers — cached-path reuse doesn't mask real shutdowns"
     (async done
       (let [explicit-pf "C:/repo/target/shadow-cljs/nrepl.port"
             conn        (nrepl/make-conn 7001 "127.0.0.1")

@@ -51,7 +51,7 @@
                                   :heartbeat-age-ms 500
                                   :runtime-loaded-at 1000
                                   :build-flushed-at 5000}))
-      "Build flushed AFTER the runtime loaded ⇒ :stale-build (the rf2-lo28u killer)"))
+      "Build flushed AFTER the runtime loaded ⇒ :stale-build"))
 
 (deftest verdict-fresh-when-load-newer-than-flush
   (is (= :fresh
@@ -363,15 +363,16 @@
 
 ;; ---------------------------------------------------------------------------
 ;; build-state-jvm-form + jvm-build-freshness-once — the JVM half END TO END
-;; on a SUCCESS response (rf2-nwgaxu).
+;; on a SUCCESS response.
 ;;
 ;; Every `assemble` test above stubs `fresh/jvm-build-freshness` WHOLESALE
 ;; (`with-jvm-half!`), and the `retry-once-on-nil` tests drive a pure thunk
-;; — so the ACTUAL JVM-side form (`build-state-jvm-form`) and the round-trip
-;; that emits + parses it (`jvm-build-freshness-once`) are NEVER exercised
-;; on a success-shaped response. A malformed form — an unbalanced paren, a
-;; fat-fingered token from a bad string concat, a shape that no longer reads
-;; back the four documented keys — would stay GREEN because nothing proves
+;; — so those never exercise the ACTUAL JVM-side form
+;; (`build-state-jvm-form`) or the round-trip that emits + parses it
+;; (`jvm-build-freshness-once`) on a success-shaped response. A malformed
+;; form — an unbalanced paren, a fat-fingered token from a bad string
+;; concat, a shape that fails to read back the four documented keys —
+;; would stay GREEN there because nothing proves
 ;; the form PARSES or that a realistic JVM payload lands as the
 ;; {:compile-cycle :build-flushed-at :runtime-count :heartbeat-age-ms} map.
 ;;
@@ -381,7 +382,7 @@
 ;; form emission AND the value parse run for real. `jvm-eval` is stubbed to
 ;; capture the emitted form AND to answer with a realistic success payload —
 ;; mirroring `port_to_build_test`'s approach for its sibling JVM form
-;; (`port->build-jvm-form`), which build-state-jvm-form previously lacked.
+;; (`port->build-jvm-form`).
 ;; ---------------------------------------------------------------------------
 
 (defn- socket-conn

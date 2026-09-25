@@ -109,7 +109,7 @@
   `nrepl/build-id-literal`, which refuses (nil → this fn throws, and the
   caller's `try` degrades to nil) an id that would not print as a single
   keyword: this form is evaluated as Clojure on the shadow JVM, so a
-  multi-token id would run as code (rf2-3x7nj.32.2). Every access is
+  multi-token id would run as code. Every access is
   `try`-guarded; a missing worker / old shadow / unexpected shape
   collapses to nil so the caller degrades cleanly."
   [build-id]
@@ -200,7 +200,7 @@
   ~5-50ms round-trip on the cold/degraded path only, never on the
   healthy path (the first read already succeeds there). A persistent nil
   after the retry IS the real `:unknown` (old shadow with no
-  `get-worker`, or a dead worker), and now the caller's hint can name the
+  `get-worker`, or a dead worker), and the caller's hint names the
   concrete next step honestly."
   [conn build-id]
   (if-not (conn-has-socket? conn)

@@ -143,13 +143,14 @@
   (is (= :seq (-> (summary/tree-summary (list 1 2 3)) :rf.mcp/summary :type))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-2rtt6.132 - the marker's `:bytes` slot counts UTF-8 BYTES.
+;; The marker's `:bytes` slot counts UTF-8 BYTES.
 ;;
-;; `sample-entry-bytes` was `(count (pr-str sample))` - UTF-16 CODE UNITS -
-;; multiplied up into a slot the cross-MCP wire vocabulary names `:bytes`,
-;; the same slot `{:rf.size/large-elided ...}` carries. The two rulers agree
-;; EXACTLY on ASCII, which is why the defect survived a green suite: every
-;; fixture above is ASCII, so the wrong expression printed the right number.
+;; `:bytes` is the slot the cross-MCP wire vocabulary shares with
+;; `{:rf.size/large-elided ...}`. A `sample-entry-bytes` of
+;; `(count (pr-str sample))` would multiply UTF-16 CODE UNITS up into it
+;; instead. The two rulers agree EXACTLY on ASCII, so an ASCII-only suite
+;; would stay green over that defect: every fixture above is ASCII, so the
+;; wrong expression would print the right number.
 ;;
 ;; The fixture below is DISCRIMINATING by construction - code units, code
 ;; points and UTF-8 bytes are three different numbers - and is asserted so
@@ -159,7 +160,7 @@
 ;;
 ;; Both directions are pinned: the non-ASCII entry DIVERGES (the estimate
 ;; nearly doubles), and an ASCII entry of the SAME code-unit length AGREES
-;; with what the old expression produced.
+;; with what a code-unit ruler would produce.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private utf8-discriminating-entry
@@ -196,7 +197,7 @@
   ;; All FOUR emit sites in `summary.cljs` - map / vector / set / seq.
   ;;
   ;; Sampled per-entry size is `(max 8 (utf8-bytes (pr-str sample)))`:
-  ;;   non-ASCII entry -> max(8, 15) = 15   (code units gave max(8, 7) = 8)
+  ;;   non-ASCII entry -> max(8, 15) = 15   (code units would give max(8, 7) = 8)
   ;;   ASCII control   -> max(8,  7) =  8   (identical under either ruler)
   ;; Maps add the 16-byte key overhead on top.
   (let [bytes-of #(-> % summary/tree-summary :rf.mcp/summary :bytes)
@@ -214,10 +215,10 @@
     (testing "map - the 16-byte key overhead plus the sampled value"
       (is (= 31 (bytes-of {:k e})) "16 + 15")
       (is (= 24 (bytes-of {:k a})) "16 + 8"))
-    (testing "the correction can only ever RAISE the estimate"
-      ;; UTF-8 bytes are never fewer than UTF-16 code units, so no slice
-      ;; that read as small before reads as smaller now. Nothing in this
-      ;; server gates on the figure, so no budget's direction moves.
+    (testing "UTF-8 bytes can only ever RAISE the estimate over code units"
+      ;; UTF-8 bytes are never fewer than UTF-16 code units, so the byte
+      ;; ruler never reports a slice as smaller than a code-unit ruler
+      ;; would. Nothing in this server gates on the figure.
       (is (> (bytes-of [e e e e]) (bytes-of [a a a a]))
           "same code-unit length, larger byte estimate"))))
 

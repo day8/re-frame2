@@ -77,9 +77,8 @@
   constituent trace event, even when the other signal is absent.
 
   Cross-MCP factoring: the trace-event predicate IS
-  `re-frame.mcp-base.sensitive/sensitive-event?`, called directly — this
-  namespace carried a one-line alias over it until rf2-kuky.8 retired the
-  tool-side alias layer. The epoch-level union
+  `re-frame.mcp-base.sensitive/sensitive-event?`, called directly with no
+  tool-side alias. The epoch-level union
   check is re-frame2-pair-mcp-specific (story-mcp doesn't emit epoch records);
   the trace-event-only `strip-sensitive` in the base is the right fit
   for story-mcp consumers."

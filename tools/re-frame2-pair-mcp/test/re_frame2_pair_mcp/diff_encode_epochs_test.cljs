@@ -6,8 +6,8 @@
   its `:db-after` replaced with a path-keyed structural diff against
   its own `:db-before` by default. The transform lives in
   `re-frame.mcp-base.diff-encode` at the cross-MCP boundary — consumers
-  require it DIRECTLY (rf2-ywkiss removed the `tools.dedup` pass-through
-  facade); the `epochs-mode` wire-arg normaliser lives in
+  require it DIRECTLY (there is no `tools.dedup` pass-through facade);
+  the `epochs-mode` wire-arg normaliser lives in
   `re-frame2-pair-mcp.tools.args/parse-epochs-mode` and the snapshot
   pipeline composes the transform via
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`.
@@ -285,7 +285,7 @@
   (let [epochs [fixture-epoch fixture-epoch]
         enc    (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full)]
     (is (= epochs enc)
-        ":full mode is a no-op — agent gets the legacy shape")))
+        ":full mode is a no-op — agent gets the records verbatim")))
 
 (deftest diff-encode-epochs-each-record-self-contained
   ;; Independence property: each epoch encodes against ITS OWN

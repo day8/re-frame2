@@ -80,16 +80,16 @@
       "a QUOTED require is data, not a special invocation"))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-gwye.27 — a form ending in a `;` line comment stays READABLE.
+;; A form ending in a `;` line comment stays READABLE.
 ;;
-;; Every source wrapper appended its closing delimiters directly onto the
-;; caller's last line. A trailing line comment therefore SWALLOWED them,
-;; and the reader hit EOF with the collection still open — so a valid,
-;; annotated expression failed to READ, before it could evaluate, and the
-;; programmer had to strip a comment from otherwise-correct code. The
-;; repair is a newline at the source boundary; these read the generated
-;; source with a real reader rather than inspecting it as a string,
-;; because unreadability IS the defect.
+;; A source wrapper that appended its closing delimiters directly onto
+;; the caller's last line would have them SWALLOWED by a trailing line
+;; comment, and the reader would hit EOF with the collection still open
+;; — so a valid, annotated expression would fail to READ, before it could
+;; evaluate, and the programmer would have to strip a comment from
+;; otherwise-correct code. The wrapper puts a newline at the source
+;; boundary; these read the generated source with a real reader rather
+;; than inspecting it as a string, because unreadability IS the defect.
 ;; ---------------------------------------------------------------------------
 
 (defn- readable? [src]
@@ -221,7 +221,7 @@
         "a codec error tag IS a codec error")))
 
 (deftest mark-codec-error-flags-a-tool-built-defect-map
-  ;; rf2-acckgr: a tool's OWN `on-value` shaper can detect a defect the
+  ;; A tool's OWN `on-value` shaper can detect a defect the
   ;; runtime should never produce against a healthy build (handler-meta's
   ;; `:unexpected-shape`) — that isn't one of `envelope->result`'s own
   ;; tagged outcomes, but IS a genuine fault, not a legitimate structured

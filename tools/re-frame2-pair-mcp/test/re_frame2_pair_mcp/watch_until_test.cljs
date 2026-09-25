@@ -3,16 +3,16 @@
 
   ## `:timeout-ms` is validated, not silently coerced
 
-  THE BUG: `watch-until` accepted only a positive numeric `:timeout-ms`;
-  anything else — `\"bogus\"`, `0`, a negative value, a fractional value —
-  was SILENTLY rewritten to the 30-second default. A malformed deadline
-  could therefore block the MCP call for 30s and hide the caller's bad
-  input, unlike the other timeout-aware tools (`tail-build :wait-ms`,
+  THE HAZARD: a `watch-until` that accepted only a positive numeric
+  `:timeout-ms` and SILENTLY rewrote anything else — `\"bogus\"`, `0`, a
+  negative value, a fractional value — to the 30-second default would let
+  a malformed deadline block the MCP call for 30s and hide the caller's
+  bad input, unlike the other timeout-aware tools (`tail-build :wait-ms`,
   `eval-cljs` / `dispatch` `:timeout-ms`) which reject bad values via the
   shared `args/parse-timeout-arg` positive-millisecond contract.
 
-  THE FIX: route `:timeout-ms` through `args/parse-timeout-arg` and
-  short-circuit a bad value to an honest `{:ok? false :reason
+  THE CONTRACT: `:timeout-ms` routes through `args/parse-timeout-arg`, and
+  a bad value short-circuits to an honest `{:ok? false :reason
   :invalid-numeric-arg}` `isError` envelope BEFORE the runtime preflight —
   the validation is the first `cond` branch, so a bad value never touches
   the nREPL socket. An ABSENT arg keeps the documented default.
@@ -120,13 +120,13 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; watch-form applies the predicate TO the sample (rf2-ahjbc).
+;; watch-form applies the predicate TO the sample.
 ;;
-;; THE BUG: the emitted poll form read `(boolean ((<pred-fn>) sample))` —
-;; the pred fn was invoked with ZERO args (binding `sample` to undefined)
-;; and its boolean result was then itself INVOKED with the sample, a
-;; TypeError on every poll. The poll loop's nREPL-hiccup `.catch` swallowed
-;; the throw, so every live watch-until timed out with `:last-sample nil`.
+;; THE HAZARD: a poll form reading `(boolean ((<pred-fn>) sample))` would
+;; invoke the pred fn with ZERO args (binding `sample` to undefined) and
+;; then INVOKE its boolean result with the sample, a TypeError on every
+;; poll. The poll loop's nREPL-hiccup `.catch` would swallow the throw, so
+;; every live watch-until would time out with `:last-sample nil`.
 ;; The live turn-observation conformance witness is the end-to-end gate;
 ;; this pin makes the emission shape a unit-level regression net.
 ;; ---------------------------------------------------------------------------

@@ -105,7 +105,7 @@
                    (is (= 14 (get-in edn [:registry :counts :event]))
                        "registrar counts ride through")
                    (is (= 3 (get-in edn [:registry :counts :resource]))
-                       "EP-0016 :resource count rides through (rf2-uydhif)")
+                       "EP-0016 :resource count rides through")
                    (is (= 2 (get-in edn [:registry :counts :mutation]))
                        "EP-0016 :mutation count rides through")
                    (is (= 1 (get-in edn [:registry :counts :resource-scope]))

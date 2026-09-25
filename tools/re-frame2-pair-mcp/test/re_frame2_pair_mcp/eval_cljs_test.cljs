@@ -7,8 +7,8 @@
   NOT collapse to `{:ok? true :value nil}` for forms like `(count ...)`
   that can never be nil — shadow's `cljs-eval` against a non-running
   build yields a blank value that would otherwise read as a genuine
-  nil. The tool guards against that with two behaviours (shared with
-  the bash shim via the same `probe` logic):
+  nil. The tool guards against that with two behaviours (both in the
+  shared `probe` logic):
     1. Fail loud — preflight the runtime sentinel; a runtime-absent
        build returns `{:ok? false :reason :no-runtime-for-build ...}`
        enumerating the running builds, NEVER `:ok? true :value nil`.
@@ -569,10 +569,9 @@
                    :await true
                    :build "app"})))
         (.then (fn [r]
-                 ;; rf2-acckgr regression: a rejected await IS a known-tool
-                 ;; failure and MUST ride as isError: true per spec/003's
-                 ;; universal isError rule — it was previously masked as a
-                 ;; success (isError: false), which this test used to pin.
+                 ;; A rejected await IS a known-tool failure and MUST ride
+                 ;; as isError: true per spec/003's universal isError rule
+                 ;; — never masked as a success (isError: false).
                  (is (err? r)
                      "rejection is a known-tool failure — MUST be isError: true")
                  (let [edn (read-edn r)]
@@ -602,7 +601,7 @@
                    :timeout-ms 75
                    :build      "app"})))
         (.then (fn [r]
-                 ;; rf2-acckgr regression: a timed-out await IS a known-tool
+                 ;; A timed-out await IS a known-tool
                  ;; failure and MUST ride as isError: true per spec/003's
                  ;; universal isError rule.
                  (is (err? r) "timeout is a known-tool failure — MUST be isError: true")
@@ -614,7 +613,7 @@
                  (done))))))
 
 (deftest await-bad-sentinel-surfaces-structured
-  ;; rf2-acckgr regression: the await wrapper returning an unrecognised
+  ;; The await wrapper returning an unrecognised
   ;; sentinel (a `wrap-form` regression) hits `:on-missing`'s
   ;; `:bad-sentinel` branch, which builds `:ok? false` — it MUST ride as
   ;; isError: true, not a masked ok-text success.
@@ -637,7 +636,7 @@
                  (done))))))
 
 (deftest await-default-off-preserves-passthrough
-  ;; Without :await, today's semantics still hold — the eval form is
+  ;; Without :await, the plain semantics hold — the eval form is
   ;; sent verbatim (no wrap), the value comes back unchanged. Asserts
   ;; the wrap form is NOT in the stub's matched-form set so the
   ;; default path can never silently shift to await semantics.
@@ -735,16 +734,17 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-gwye.27 — a caller form ending in a `;` line comment stays readable
-;; through EVERY wrapper composition.
+;; A caller form ending in a `;` line comment stays readable through
+;; EVERY wrapper composition.
 ;;
-;; `(+ 20 22) ; expected answer` is valid CLJS that evaluates to 42. Each
-;; wrapper appended its closing delimiters onto that comment's line, so
-;; the comment swallowed them and the reader reached EOF with the
-;; collection open — the eval failed to READ, and the programmer had to
-;; edit correct code to get an answer. The frame wrapper composes with
-;; the other two, so a newline outside a previously built frame wrapper
-;; would not help: its `)` was already inside the comment.
+;; `(+ 20 22) ; expected answer` is valid CLJS that evaluates to 42. A
+;; wrapper that appended its closing delimiters onto that comment's line
+;; would have the comment swallow them, and the reader would reach EOF
+;; with the collection open — the eval would fail to READ, and the
+;; programmer would have to edit correct code to get an answer. The frame
+;; wrapper composes with the other two, so a newline added only outside
+;; an already-built frame wrapper would not help: its `)` would already
+;; be inside the comment.
 ;; ---------------------------------------------------------------------------
 
 (defn- readable? [src]

@@ -197,13 +197,13 @@
                                                                 read-dom/default-max-text nil nil)]
            ["read-dom explicit-attrs" (#'read-dom/read-dom-form "div" nil 10 100 ["id" "class"] nil)]
            ["read-dom sub-selector"   (#'read-dom/read-dom-form "div" ".title" 10 100 nil nil)]
-           ;; read-ui variants (re-frame2 view plane) — the SAME guard now
+           ;; read-ui variants (re-frame2 view plane) — the SAME guard
            ;; covers them, since read-ui rides the same eval-form plumbing.
            ["read-ui view-id"         (#'read-ui/read-ui-form :my.app/counter nil nil 2000 nil)]
            ;; `frame` rides pre-coerced (a keyword or nil) — read-ui-form
            ;; does no coercion of its own, matching read-dom-form's
            ;; contract; the caller (read-ui-tool) coerces via
-           ;; `args/->frame-keyword` before calling in (rf2-pvh95w).
+           ;; `args/->frame-keyword` before calling in.
            ["read-ui point+frame"     (#'read-ui/read-ui-form nil {:x 12 :y 34} nil 100 :stories)]
            ["read-ui selector"        (#'read-ui/read-ui-form nil nil "#save" 2000 nil)]]]
     (let [suspects (unresolved-alias-suspects form)]
@@ -236,7 +236,7 @@
       (is (contains? suspects 'str/lower-case)
           (str label ": the guard MUST flag the injected require-only alias "
                "`str/lower-case` — otherwise it would silently pass the exact "
-               "rf2-w2mjm form-nilling bug. Suspects: " (sort suspects)))
+               "form-nilling alias trap. Suspects: " (sort suspects)))
       ;; `sel` is an unbound symbol here too (not a local in this forged
       ;; form), so it's also caught — confirming the parse reaches inside
       ;; the runtime call args, not just the head symbol.
@@ -346,8 +346,8 @@
 (deftest bad-selector-error-forwarded
   ;; A genuine `:ok? false` runtime failure envelope (a thrown
   ;; malformed-selector) MUST ride as `:isError true`, per
-  ;; spec/003-Tool-Catalogue.md §381 ("every `:ok? false` is
-  ;; `isError:true`"). Routing any map through `ok-text` would ship
+  ;; spec/003-Tool-Catalogue.md §*Every `:ok? false` response is
+  ;; `isError: true`*. Routing any map through `ok-text` would ship
   ;; `isError:false` — violating the contract AND making the transient
   ;; failure cache-eligible (could mask a later success).
   (async done
@@ -396,7 +396,7 @@
                  ;; The load-bearing assertion: structuredContent is a
                  ;; NON-NULL record so the SDK outputSchema check passes.
                  (is (some? (j/get r :structuredContent))
-                     "structuredContent must NOT be null (the rf2-r5erl crash)")
+                     "structuredContent must NOT be null (a null fails the SDK outputSchema check)")
                  (is (object? (j/get r :structuredContent))
                      "structuredContent must be a record")
                  (done))))))

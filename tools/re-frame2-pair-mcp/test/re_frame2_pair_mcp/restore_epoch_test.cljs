@@ -122,9 +122,9 @@
                      (is (= 7 (:epoch-id edn)) "integer id round-trips through the envelope"))
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= 're-frame2-pair.runtime/restore-epoch (first parsed)))
-                     ;; rf2-fzbj.6 — the caller's epoch-id is EDN, so it
-                     ;; rides as `(quote 7)`: the same datum, emitted the
-                     ;; way every caller-supplied argument now is.
+                     ;; The caller's epoch-id is EDN, so it rides as
+                     ;; `(quote 7)`: the same datum, emitted the way every
+                     ;; caller-supplied argument is.
                      (is (= '(quote 7) (second parsed))
                          "epoch-id rides as the quoted integer 7, not \"7\""))
                    (done)))))))
@@ -184,7 +184,7 @@
                 (fn []
                   (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "999"})))))
           (.then (fn [r]
-                   (is (err? r) "soft-failure rides as an isError result (rf2-or8s29)")
+                   (is (err? r) "soft-failure rides as an isError result")
                    (let [edn (read-result-text r)]
                      (is (= false (:ok? edn)))
                      (is (= false (:restored? edn)))
@@ -208,7 +208,7 @@
                 (fn []
                   (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
           (.then (fn [r]
-                   (is (err? r) "structured runtime failure rides as isError (rf2-or8s29)")
+                   (is (err? r) "structured runtime failure rides as isError")
                    (let [edn (read-result-text r)]
                      (is (= false (:ok? edn)))
                      (is (= :restore-rejected (:reason edn))))
@@ -265,8 +265,8 @@
 ;; redaction to fire, the tool MUST signal `configure-raw-state!` to the
 ;; runtime BEFORE the restore eval — exactly like dispatch-dry-run. These
 ;; tests pin the WIRE boundary (the signal ordering + gate posture pushed);
-;; the runtime redaction itself is exercised by the bb runtime test
-;; (skills/re-frame2-pair/tests/runtime/cascade_summary_redaction_test.clj).
+;; the runtime redaction itself is exercised by the preload's pure-core
+;; node test (skills/re-frame2-pair/tests/fixture/test/re_frame2_pair/pure_test.cljs).
 ;; ---------------------------------------------------------------------------
 
 (deftest signals-raw-state-posture-before-the-restore-eval

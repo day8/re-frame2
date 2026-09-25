@@ -13,8 +13,8 @@
      rename / arg-name slip breaks the test rather than silently
      shipping a broken tool;
    - the `list-subscriptions` eval form reads the reactive sub-cache via
-     `sub-cache-info` — the wrong-source → right-source assertion
-     (rf2-qicji);
+     `sub-cache-info`, the source `snapshot`'s `:sub-cache` slice also
+     reads;
    - that the `list-subscriptions` eval form and the `snapshot :sub-cache`
      slice route through the SAME runtime accessor for the same frame
      (`sub-cache` / `sub-cache-snapshot`), so the two agree by
@@ -55,7 +55,7 @@
           "descriptor has no required args — frame defaults to operating frame")
       (let [props (:properties (:inputSchema d))]
         (is (contains? props :frame)
-            "reactive-sub-cache read takes a :frame arg (rf2-qicji)")
+            "reactive-sub-cache read takes a :frame arg")
         (is (contains? props :include-values)
             "optional :include-values arg toggles value+ref-count payload")
         (is (not (contains? props :topic))
@@ -68,7 +68,7 @@
     (let [desc (:description (descriptor-named "list-subscriptions"))]
       (is (re-find #"reactive" desc))
       (is (re-find #"sub-cache" desc))
-      (is (re-find #"rf2-qicji" desc)))))
+      (is (re-find #"never disagree" desc)))))
 
 ;; ---------------------------------------------------------------------------
 ;; list-subscriptions — reads the reactive cache
@@ -120,7 +120,7 @@
       ;; … and snapshot includes the :sub-cache slice for the same frame.
       (is (= 're-frame2-pair.runtime/snapshot-state (first snap-edn)))
       (is (contains? (set (-> snap-edn second :include)) :sub-cache)
-          "snapshot's :sub-cache slice is the peer source list-subscriptions now reads"))))
+          "snapshot's :sub-cache slice is the peer source list-subscriptions reads"))))
 
 ;; ---------------------------------------------------------------------------
 ;; tools/list surface + naming hygiene
@@ -134,12 +134,12 @@
       (is (contains? names "list-subscriptions")))))
 
 (deftest old-name-not-present
-  (testing "the pre-rename `subscription-info` tool name was never reintroduced"
+  (testing "no `subscription-info` tool name is registered"
     (let [arr   (tools/tool-descriptors-js)
           names (set (for [i (range (alength arr))]
                        (j/get (aget arr i) :name)))]
       (is (not (contains? names "subscription-info"))
-          "old name was hard-renamed (pre-alpha, no back-compat shim)"))))
+          "`subscription-info` is not a tool name (no back-compat shim)"))))
 
 (deftest tool-name-uses-kebab-case
   (testing "the descriptor name uses kebab-case"
@@ -155,7 +155,7 @@
     (is (= :rf/default (args/->frame-keyword ":rf/default")))))
 
 ;; ---------------------------------------------------------------------------
-;; Degraded-eval contract (rf2-21vvfs) — a blank/non-map eval must NOT be
+;; Degraded-eval contract — a blank/non-map eval must NOT be
 ;; fabricated into a fake `{:ok? true :subs []}` "everything fine, zero
 ;; subscriptions" answer. A non-map surfaces as `:unexpected-shape`
 ;; err-text (isError:true); a genuinely-empty read (the runtime's own

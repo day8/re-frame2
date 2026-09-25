@@ -133,14 +133,14 @@
       (is (str/includes? form "re-frame2-pair.runtime/start-recording!"))
       (is (str/includes? form ":signals"))
       (is (str/includes? form "{:focus true}"))
-      ;; rf2-fzbj.6 — the caller's stop bound rides as quoted EDN.
+      ;; The caller's stop bound rides as quoted EDN.
       (is (str/includes? form ":ms (quote 15000)"))
       (is (str/includes? form ":frame :rf/default"))
       (is (str/includes? form ":max-entries 2000")))
     (testing "the data predicate compiles into a :pred-fn slot (not raw :pred)"
       (is (str/includes? form ":pred-fn"))
       (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))
-    (testing "the elision-opts ride as :elide-opts (rf2-8fin7.2)"
+    (testing "the elision-opts ride as :elide-opts"
       (is (str/includes? form ":elide-opts"))
       (is (str/includes? form ":rf.egress/include-sensitive? false")))))
 
@@ -194,12 +194,12 @@
                  (done))))))
 
 (deftest record-runtime-ok-false-is-iserror
-  ;; Adversarial (rf2-5m2oi1): a REACHABLE runtime `:ok? false` — the
+  ;; Adversarial: a REACHABLE runtime `:ok? false` — the
   ;; `start-recording!` `:ambiguous-frame` refusal when an `:app-db`/`:sub`
   ;; signal needs a frame and none resolves in a multi-frame session — MUST
   ;; ride back as :isError, not a green tools/call carrying a buried
-  ;; `:ok? false`. Before the fix the handler wrapped every envelope in
-  ;; wire/ok-text with no `:ok?` guard. isError:true ⟺ :ok? false.
+  ;; `:ok? false` — which is what wrapping every envelope in wire/ok-text
+  ;; with no `:ok?` guard would produce. isError:true ⟺ :ok? false.
   (async done
     (let [canned {:ok? false :reason :ambiguous-frame :operation :start-recording}]
       (-> (tu/with-stubbed-eval! canned
@@ -266,7 +266,7 @@
                  (done))))))
 
 (deftest read-recording-no-such-recording-is-iserror
-  ;; Adversarial (rf2-5m2oi1): reading a recording-id that aged out / was
+  ;; Adversarial: reading a recording-id that aged out / was
   ;; stopped returns the runtime `{:ok? false :reason :no-such-recording
   ;; …}`. That MUST ride as :isError so the host can route recovery
   ;; through the error channel — not a green result hiding a buried

@@ -505,7 +505,7 @@
           ;; A closed-world tool (get-re-frame2-pair-instructions) reads
           ;; only server-local state —
           ;; no nREPL round-trip — so it is DISPATCHED HERE, before
-          ;; `ensure-connection!` (rf2-6amhbt). Otherwise a stock / degraded
+          ;; `ensure-connection!`. Otherwise a stock / degraded
           ;; install with no nREPL port would run discovery, REJECT with
           ;; `:nrepl-port-not-found`, and the tool body — which needs no
           ;; connection — would never run, contradicting the spec/003
@@ -543,10 +543,9 @@
   by anything thrown from an `eval-after-runtime!` `on-value` callback,
   i.e. all response shaping after it.
 
-  The two relays used to keep OPPOSITE halves — this one the message,
-  relay 2 the ex-data — so wherever a throw fired, half of what its
-  author wrote for the agent was discarded. Relay 2 closed its half in
-  rf2-6tzm5; this is the other (rf2-qoih4). `(ex-data err)` now merges
+  Each relay carries both the message and the ex-data; a relay keeping
+  only one half would discard half of what a throw site's author wrote
+  for the agent, wherever the throw fired. `(ex-data err)` merges
   into the envelope, so the `:rf.error/id` an agent BRANCHES on arrives
   as a keyword slot instead of a token the agent has to regex out of
   prose, and the actionable slots beside it (`:where`, `:recovery`, and
@@ -566,16 +565,15 @@
 
   ## A relayed throw's ex-data is WIRE DATA
 
-  True of relay 2 all along, and true here now: every value in an
-  ex-data map that can reach a relay MUST be EDN-round-trippable. The
-  envelope's canonical slot is `(pr-str v)` and the consumer's agent
-  reads it back with an EDN reader, so ONE unreadable value does not
-  merely go missing — it reds the read of the WHOLE envelope
-  (`No reader function for tag object`) and costs the agent the message
-  as well. `emit-name` carried exactly such a value (`(type n)`, a JS
-  constructor) for as long as this relay dropped ex-data and nobody
-  could tell; promoting ex-data to the wire is what made it matter, and
-  `error_boundary_test`'s relay-1 rows are what would have said so.
+  True of both relays: every value in an ex-data map that can reach a
+  relay MUST be EDN-round-trippable. The envelope's canonical slot is
+  `(pr-str v)` and the consumer's agent reads it back with an EDN
+  reader, so ONE unreadable value does not merely go missing — it reds
+  the read of the WHOLE envelope (`No reader function for tag object`)
+  and costs the agent the message as well. A JS constructor such as
+  `(type n)` in a site's ex-data is exactly such a value, which is why
+  `emit-name` carries none, and `error_boundary_test`'s relay-1 rows are
+  what would say so if one reached this relay.
 
   `error_boundary_test` pins both relays at the real MCP boundary,
   including this precedence rule."
@@ -590,7 +588,7 @@
                              true)))))
 
 (defn- handle-call-local
-  "Pre-connection dispatch for a closed-world tool (rf2-6amhbt). The
+  "Pre-connection dispatch for a closed-world tool. The
   handler reads only server-local state (inline text), so it is
   invoked WITHOUT `ensure-connection!` — no
   discovery, no elicitation, no nREPL socket. Uses the cached conn from
@@ -696,7 +694,7 @@
   cannot double-close the socket, republish a conn, throw an unhandled
   rejection, or change the exit status.
 
-  Teardown, in order: close the persistent nREPL socket via the existing
+  Teardown, in order: close the persistent nREPL socket via the
   idempotent `nrepl/close!` (which bumps the conn generation so a late /
   in-flight connect candidate can't publish behind us), drop the session
   conn reference, then close the SDK server + its stdio transport so no
@@ -815,7 +813,7 @@
       (when-not (js/isNaN n) n))))
 
 (defn parse-launch-flags
-  "Pluck the named launch flags out of the raw process argv. Flags today:
+  "Pluck the named launch flags out of the raw process argv. Flags:
 
     --no-eval                — opt OUT of the `eval-cljs` tool. Default
                                is eval-cljs ENABLED — it is the REPL primitive
@@ -909,8 +907,8 @@
   server in an unexpected posture. `--allow-raw-state` maps to
   `--allow-sensitive-reads`; `--allow-eval` has no replacement — eval-cljs
   defaults ON, so pass `--no-eval` to opt OUT."
-  {"--allow-raw-state" "renamed to --allow-sensitive-reads (rf2-2x3ql)"
-   "--allow-eval"      "removed — eval-cljs now defaults ENABLED; pass --no-eval to opt OUT (rf2-a0z0h)"})
+  {"--allow-raw-state" "renamed to --allow-sensitive-reads"
+   "--allow-eval"      "removed — eval-cljs defaults ENABLED; pass --no-eval to opt OUT"})
 
 (def ^:private boolean-flag-ignored-effect
   "What an operator gets when a boolean flag is given an inline value and
@@ -991,8 +989,8 @@
                    ;; the `--flag=value` style many CLIs accept). The parser
                    ;; recognises only the bare token, so the flag is NOT
                    ;; applied — and for the opt-out `--no-eval` that leaves
-                   ;; eval ON while the operator asked for it OFF
-                   ;; (rf2-3x7nj.32.7). Warn, per the posture above; the
+                   ;; eval ON while the operator asked for it OFF.
+                   ;; Warn, per the posture above; the
                    ;; inline form is deliberately NOT accepted, so there is
                    ;; one spelling of each flag.
                    (and (contains? known-boolean-flags prefix) has-inline?)

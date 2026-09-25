@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.tools.tail-build
   "Tool: tail-build — wait for hot-reload to land.
 
-  ## Pre-edit baseline (rf2-1f60u)
+  ## Pre-edit baseline
 
   The comparison value is supplied by the CALLER, captured BEFORE the
   source edit: evaluate the probe form once (eval-cljs), keep its printed
@@ -16,13 +16,13 @@
     - SLOW reload: samples equal the baseline until a later poll differs
       → success then.
 
-  The previous contract self-baselined on the first post-call sample,
-  so a reload that landed in the gap between the file write and the
-  first nREPL evaluation made every sample \"the new value\" and the tool
-  returned `:timed-out` on a SUCCESSFUL reload. A post-edit self-baseline
+  Self-baselining on the first post-call sample would not work: a reload
+  that lands in the gap between the file write and the first nREPL
+  evaluation makes every sample \"the new value\", and the tool would
+  return `:timed-out` on a SUCCESSFUL reload. A post-edit self-baseline
   cannot distinguish 'already reloaded' from 'never changed', which is
   why `:baseline` is REQUIRED whenever `:probe` is supplied (`:reason
-  :missing-baseline` otherwise — pre-alpha, no legacy self-baseline mode).
+  :missing-baseline` otherwise — there is no self-baseline mode).
 
   Baseline matching uses the sample's printed form: a sample matches when
   its `pr-str` OR its `str` rendering equals the supplied string — the
@@ -54,7 +54,7 @@
   the envelope, instead of manually calling `handler-meta` to confirm the
   rebuild landed.
 
-  ## The probe is arbitrary evaluation (rf2-3x7nj.32.1)
+  ## The probe is arbitrary evaluation
 
   `:probe` is caller-supplied CLJS source evaluated in the browser
   runtime — once, then on every poll — so it belongs to the same
@@ -85,7 +85,7 @@
 
 (def ^:private no-probe-soft-delay-ms
   "When the caller passes no probe form, we resolve after a fixed
-  soft delay — matches the bash-shim's behaviour. 300ms is the
+  soft delay. 300ms is the
   span empirical observation places shadow-cljs's bundle-swap cycle
   within after the source-file save event fires."
   300)
@@ -168,8 +168,8 @@
                         :note   baseline-without-probe-note}))
 
       (nil? probe)
-      ;; Soft delay — matches the bash version's behaviour when no probe
-      ;; is supplied. We just resolve after a short sleep.
+      ;; Soft delay when no probe is supplied: resolve after a short
+      ;; sleep.
       (js/Promise.
         (fn [resolve _]
           (js/setTimeout
@@ -184,8 +184,7 @@
 
       ;; The probe is arbitrary CLJS evaluated in the runtime — the
       ;; eval-cljs authority class — so it honours `--no-eval` exactly as
-      ;; eval-cljs does, refusing before any nREPL round-trip
-      ;; (rf2-3x7nj.32.1).
+      ;; eval-cljs does, refusing before any nREPL round-trip.
       (not (eval-cljs/eval-allowed-enabled?))
       (js/Promise.resolve
         (wire/err-text {:ok?    false
@@ -194,7 +193,7 @@
 
       ;; A probe without its pre-edit baseline re-creates the fast-reload
       ;; race this contract exists to close — refuse it with the capture
-      ;; recipe rather than self-baselining (rf2-1f60u).
+      ;; recipe rather than self-baselining.
       (nil? baseline)
       (js/Promise.resolve
         (wire/err-text {:ok?    false
@@ -230,7 +229,7 @@
                                     (fn []
                                       (let [elapsed (- (js/Date.now) start)]
                                         (if (>= elapsed wait-ms)
-                                          ;; rf2-acckgr: a timed-out probe
+                                          ;; A timed-out probe
                                           ;; wait is `:ok? false` — a
                                           ;; known-tool failure per
                                           ;; spec/003's universal isError
@@ -268,7 +267,7 @@
                 ;; (distinct from :timed-out, which means "polled but
                 ;; never left the baseline"). With probe-error included
                 ;; the operator gets the underlying exception verbatim.
-                ;; rf2-acckgr: `:ok? false` MUST ride as err-text per
+                ;; `:ok? false` MUST ride as err-text per
                 ;; spec/003's universal isError rule.
                 (wire/err-text {:ok?         false
                                 :reason      :probe-errored

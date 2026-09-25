@@ -19,10 +19,10 @@
   "Error envelope for a `:port` arg that didn't resolve to a build via
   the `:dev-http` map.
 
-  rf2-bcayt7: a `:port` that maps to no build is a known-tool failure
+  A `:port` that maps to no build is a known-tool failure
   (`:ok? false`), so it rides `wire/err-text` (`isError: true`) — the
   same universal rule the other discover-app precondition failures
-  already follow (unhealthy runtime / `:debug-disabled` /
+  follow (unhealthy runtime / `:debug-disabled` /
   `:no-frames-registered` all use `err-text`). Keeping it `isError` also
   keeps the response cache from ever masking a later valid mapping (cache
   eligibility bypasses `isError` results)."
@@ -176,7 +176,7 @@
         (.then
           (fn [health]
             (cond
-              ;; rf2-acckgr: an unhealthy runtime (`:ok? false`) is a
+              ;; An unhealthy runtime (`:ok? false`) is a
               ;; known-tool failure per spec/003's universal isError
               ;; rule, not a success carrying bad news — err-text (not
               ;; ok-text) so the host surfaces it as a failure and the
@@ -184,7 +184,7 @@
               (not (:ok? health))
               (js/Promise.resolve (wire/err-text health))
 
-              ;; rf2-acckgr: same universal isError rule — a
+              ;; The same universal isError rule — a
               ;; precondition failure (`:ok? false`) built by the tool
               ;; itself is still a known-tool failure, not a success
               ;; carrying bad news.
@@ -222,7 +222,7 @@
                                 :warning :ambiguous-frame
                                 ;; Point the operator at the
                                 ;; APP frames (the real choices). `:rf/*`
-                                ;; tool frames (`:rf/xray`, …) were already
+                                ;; tool frames (`:rf/xray`, …) are already
                                 ;; excluded from the ambiguity count, so
                                 ;; naming them here as candidates would
                                 ;; mislead. Genuine ambiguity = two-plus
@@ -242,13 +242,11 @@
                 (with-freshness conn build-id
                   (assoc health :ok? true
                                 :warning :no-source-coord-annotation
-                                ;; rf2-kuky.2 — this note used to advise
-                                ;; `(rf/configure! {:source-coords {:annotate-dom? true}})`.
-                                ;; `:source-coords` is not a configure! key and
-                                ;; `:annotate-dom?` exists nowhere in the runtime, so the
-                                ;; advice no-op'd silently. The annotation is not a knob:
-                                ;; adapters stamp it on every `reg-view` root in DEBUG
-                                ;; builds and Closure elides it from `:advanced`.
+                                ;; The annotation is not a knob — there is no
+                                ;; `:source-coords` configure! key and no
+                                ;; `:annotate-dom?` option: adapters stamp it on
+                                ;; every `reg-view` root in DEBUG builds and
+                                ;; Closure elides it from `:advanced`.
                                 :note (str "Neither data-rf2-source-coord nor "
                                            "data-rc-src is on any element. "
                                            "DOM->source ops will degrade. The attribute "

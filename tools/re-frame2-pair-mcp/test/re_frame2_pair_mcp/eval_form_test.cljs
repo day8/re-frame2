@@ -169,21 +169,20 @@
   ;; Pure-scalar vectors still go through `pr-str` byte-for-byte —
   ;; the recursion only triggers when the vector contains at least
   ;; one IR node. Pin so the contains-node check doesn't change
-  ;; the output for the existing tool sites.
+  ;; the output for scalar-only tool sites.
   (is (= "(re-frame2-pair.runtime/foo [1 2 3])"
          (ef/emit (ef/rt-call 'foo [1 2 3])))))
 
 ;; ---------------------------------------------------------------------------
-;; rt-quote — the literal-data emission path (rf2-j2wz).
+;; rt-quote — the literal-data emission path.
 ;;
 ;; `pr-str` is not a data quotation. It renders a value as SOURCE, and
 ;; source is read as code: a nested EDN list becomes a function call and a
 ;; symbol becomes a name lookup. That is invisible for the scalar payloads
 ;; the internal tool sites compose — a keyword, a string, a number, a map of
-;; those — which is why the DSL got away with `pr-str` for so long, and it
-;; is exactly wrong for EXTERNAL EDN parsed off the wire, where lists and
-;; symbols are ordinary data the caller expects to reach the handler
-;; unchanged.
+;; those — and it is exactly wrong for EXTERNAL EDN parsed off the wire,
+;; where lists and symbols are ordinary data the caller expects to reach
+;; the handler unchanged.
 ;;
 ;; `(quote <datum>)` is the only emission that evaluates to arbitrary EDN
 ;; unchanged, so it is the one shape the data-only call sites take. The
@@ -213,7 +212,7 @@
          (ef/emit [::ef/quote :bare]))))
 
 (deftest rt-quote-keeps-nested-lists-as-lists
-  ;; The defect in one line: unquoted, `(inc 41)` inside the payload
+  ;; The hazard in one line: unquoted, `(inc 41)` inside the payload
   ;; evaluates to 42 and the handler never sees the list it was sent.
   (let [datum [:cart/add '(inc 41)]
         src   (ef/emit (ef/rt-call 'dispatch-consequence! [::ef/quote datum] {}))
@@ -230,8 +229,8 @@
 
 (deftest rt-quote-does-not-splice-an-emitter-shaped-payload
   ;; A caller-supplied vector wearing the emitter's own `::raw` tag is
-  ;; PAYLOAD. Unquoted it was recognised as IR and its string spliced in
-  ;; as raw source, replacing the event outright.
+  ;; PAYLOAD. Unquoted it would be recognised as IR and its string spliced
+  ;; in as raw source, replacing the event outright.
   (let [datum [::ef/raw "(inc 41)"]
         src   (ef/emit (ef/rt-call 'dispatch-consequence! [::ef/quote datum] {}))
         arg   (second (cljs.reader/read-string src))]

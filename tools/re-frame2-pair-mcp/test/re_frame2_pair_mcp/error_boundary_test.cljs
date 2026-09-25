@@ -4,32 +4,32 @@
   A bare-keyword ex-message is tolerable inside a tool's internals. It is
   not tolerable once it is relayed onto the MCP tool surface, because the
   reader there is an agent trying to ACT on it: `:rf.error/pair-mcp-…`
-  strands every actionable word somewhere the agent never sees. PR #7036
-  converted this surface's throws to the canonical Spec 009 shape — a
-  human sentence plus a trailing `[:rf.error/<id>]` greppability token —
-  and `tools/` is bundle-isolated from `re-frame.error`, so those
-  messages are hand-rolled at each site and no shared builder can keep
-  them honest. Until this namespace nothing stood behind them but a
-  docstring.
+  strands every actionable word somewhere the agent never sees. This
+  surface's throws use the canonical Spec 009 shape — a human sentence
+  plus a trailing `[:rf.error/<id>]` greppability token — and `tools/`
+  is bundle-isolated from `re-frame.error`, so those messages are
+  hand-rolled at each site and no shared builder can keep them honest.
+  This namespace is what stands behind them.
 
-  ## Two relays, not one — the finding this bead turned up
+  ## Two relays, not one
 
-  `tools/re-frame2-pair-mcp/src` has exactly four `throw` sites, and a
-  throw reaches the agent by one of two DIFFERENT relays depending on
-  WHERE in a tool body it fires. The two relays used to keep OPPOSITE
-  halves of the exception; both now carry the whole of it, and differ
-  only in the precedence they give the two `:reason` slots:
+  `tools/re-frame2-pair-mcp/src` has five `throw` sites. One —
+  `tools/freshness.cljs`'s malformed-build-id refusal — is caught by its
+  own caller, which degrades the read to nil. A throw that escapes
+  reaches the agent by one of two DIFFERENT relays depending on WHERE in
+  a tool body it fires. Both relays carry the whole exception, and
+  differ only in the precedence they give the two `:reason` slots:
 
   - `server.cljs` `invoke-and-guard` → the ex-data merged UNDER
     `{:reason :handler-threw :message (.-message err)}`. Carries both
-    halves since rf2-qoih4. Reached by anything thrown while the tool
+    halves. Reached by anything thrown while the tool
     body builds its request — before the nREPL round-trip. `:reason`
     is the ENVELOPE's discriminator here, so it outranks a site's own;
     the site's rides in `:rf.error/id`.
 
   - `tools/probe.cljs` `err->result` → the ex-data merged OVER
-    `{:ok? false :message (ex-message err)}`. Carries both halves since
-    rf2-6tzm5. Reached by anything thrown from the `on-value` callback
+    `{:ok? false :message (ex-message err)}`. Carries both halves.
+    Reached by anything thrown from the `on-value` callback
     of `eval-after-runtime!` / `eval-after-runtime-signalled!` — i.e.
     all response shaping, after the round-trip. Here the ex-data's
     `:reason` IS the payload's discriminator, so it wins.
@@ -54,21 +54,20 @@
     fires only from response shaping — all five call sites across
     `snapshot`, `get-path`, `read-sub`, `trace-window` and `watch-epochs`
     sit inside an `on-value` callback — so it meets `err->result`. The
-    second test pins BOTH halves it now relays: the ex-data's `:reason`
+    second test pins BOTH halves it relays: the ex-data's `:reason`
     sentence and `:rf.error/id` discriminator, AND the ex-message's own
-    sentence plus trailing token. Before rf2-6tzm5 that message reached
-    no consumer at all, which is precisely why it needs a tripwire: a
-    relay that silently discards a canonical message is invisible to
-    every test that only reads ex-data.
+    sentence plus trailing token. The message half needs a tripwire of
+    its own: a relay that silently discards a canonical message is
+    invisible to every test that only reads ex-data.
 
-  The other two throws (`server.cljs`'s `:rf.error/pair-mcp-ambiguous-shadow`
+  The two discovery throws (`server.cljs`'s `:rf.error/pair-mcp-ambiguous-shadow`
   and `:rf.error/pair-mcp-nrepl-port-not-found`) are raised inside discovery
   and caught by `handle-call*`'s own arm, which rebuilds a payload from
   `:rf.error/id` and never reads the message. Their bare-keyword messages
   are genuinely tool-internal and stay that way.
 
-  The rf2-jquiy audit also named a diff-encode validation family. It is
-  not reachable from this surface at all: mcp-base's grammar gate
+  mcp-base's diff-encode validation family is not reachable from this
+  surface at all: mcp-base's grammar gate
   resolves `malli.core/validate` at runtime and soft-passes when Malli is
   absent — and Malli is deliberately absent from pair-mcp's CLJS
   classpath (`tools/mcp-base/deps.edn`) — while the shipped `:server`
@@ -82,8 +81,8 @@
   Both covered throws are programmer-typo guards: every `rt-let` call
   site passes literal quoted symbols and every `run-wire-pipeline` call
   site passes a literal `:kind`, so no tool ARGUMENT reaches either. That
-  is exactly why they were unpinned, and exactly why a future edit
-  reverting one of their messages is invisible to every other test.
+  is exactly why no other test reaches them, and why an edit reverting
+  one of their messages would be invisible to every other test.
 
   So the seam corrupts only the INPUT, at the production call site, and
   nothing else: the real `ef/rt-let` builds the malformed binding vector,
@@ -166,17 +165,17 @@
 (deftest rt-let-binding-shape-reaches-the-agent-as-a-readable-message
   ;; Reverting `emit-name`'s message to a bare `(str error-kw)` reds the
   ;; sentence assertion; dropping the trailing token reds the token
-  ;; assertion; reverting `invoke-and-guard` to `{:reason :handler-threw
-  ;; :message …}` — the shape that made this ex-data unreachable — reds the
-  ;; four ex-data rows; a regression that turns the tool error into a
+  ;; assertion; changing `invoke-and-guard` to `{:reason :handler-threw
+  ;; :message …}` — a shape that would make this ex-data unreachable — reds
+  ;; the four ex-data rows; a regression that turns the tool error into a
   ;; rejected promise reds `tu/error?` and takes the whole row with it.
   ;;
-  ;; And the row is a tripwire for the hazard that promotion introduces, at
-  ;; no extra cost: `tu/extract-edn` IS the consumer's EDN reader, so a
+  ;; And the row is a tripwire for the hazard of relaying ex-data at all,
+  ;; at no extra cost: `tu/extract-edn` IS the consumer's EDN reader, so a
   ;; single non-EDN value anywhere in a relayed ex-data reds EVERY assertion
-  ;; below at once with `No reader function for tag object`. `emit-name`
-  ;; carried one (`:type (type n)`, a JS constructor) harmlessly for as long
-  ;; as relay 1 dropped ex-data; putting it back demonstrates the failure.
+  ;; below at once with `No reader function for tag object` — adding, say,
+  ;; `:type (type n)` (a JS constructor) to `emit-name`'s ex-data
+  ;; demonstrates the failure.
   (async done
     (let [orig ef/rt-let
           ;; The REAL constructor, handed a binding name that is not a
@@ -202,15 +201,15 @@
             (is (str/includes? msg "[:rf.error/pair-mcp-rt-let-binding-bad-shape]")
                 (str "the canonical [:rf.error/…] token rides the message\n  got: "
                      (pr-str msg)))
-            ;; The other half, closed by rf2-qoih4. Relay 1 used to relay the
-            ;; message and DROP `(ex-data err)`, so the discriminator an agent
-            ;; BRANCHES on arrived only as a token embedded in prose — it had
-            ;; to regex it back out — and the actionable slots beside it did
-            ;; not arrive at all. Nothing else on this surface can notice
-            ;; that: every other assertion here reads the message, which the
-            ;; old relay preserved. These rows are the only thing standing
-            ;; between a future `{:reason :handler-threw :message …}` and a
-            ;; second round of ex-data that reaches nobody.
+            ;; The other half. A relay 1 that relayed the message and
+            ;; DROPPED `(ex-data err)` would leave the discriminator an
+            ;; agent BRANCHES on only as a token embedded in prose — it
+            ;; would have to regex it back out — and the actionable slots
+            ;; beside it would not arrive at all. Nothing else on this
+            ;; surface can notice that: every other assertion here reads
+            ;; the message, which such a relay preserves. These rows are
+            ;; the only thing standing between a `{:reason :handler-threw
+            ;; :message …}` relay and ex-data that reaches nobody.
             (is (= :rf.error/pair-mcp-rt-let-binding-bad-shape
                    (:rf.error/id edn))
                 "the machine discriminator rides as a SLOT, namespace intact")
@@ -252,14 +251,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Relay 2 — `probe/err->result`: the EX-DATA *and* the MESSAGE are the
-;; consumer contract (rf2-6tzm5 — the message half used to be dropped).
+;; consumer contract.
 ;; ---------------------------------------------------------------------------
 
 (deftest unknown-wire-pipeline-kind-reaches-the-agent-as-readable-ex-data
   ;; Reverting the ex-data's `:reason` to a bare keyword reds the sentence
   ;; assertion; dropping `:rf.error/id` reds the discriminator assertion;
-  ;; reverting `err->result` to `(merge {:ok? false} data)` — the shape that
-  ;; made this message dead prose — reds the two ex-message assertions.
+  ;; changing `err->result` to `(merge {:ok? false} data)` — a shape that
+  ;; would make this message dead prose — reds the two ex-message assertions.
   (async done
     (let [orig wp/run-wire-pipeline
           ;; The REAL pipeline, handed a `:kind` outside its closed
@@ -287,14 +286,14 @@
                      (pr-str (:reason edn))))
             (is (= :not-a-wire-kind (:kind edn))
                 "along with the actionable slot — WHICH kind was unknown")
-            ;; The tripwire the finding earned (rf2-6tzm5). `err->result`
-            ;; used to relay ex-data and DROP `(ex-message err)`, so
+            ;; The message tripwire. An `err->result` that relayed ex-data
+            ;; and DROPPED `(ex-message err)` would leave
             ;; `run-wire-pipeline`'s carefully composed message — and the
-            ;; `[:rf.error/…]` token in it — reached nobody. Nothing else on
-            ;; this surface can notice that: every other assertion here reads
-            ;; ex-data, which the old relay preserved. These two rows are the
-            ;; only thing standing between a future `(merge {:ok? false}
-            ;; data)` and a second round of silently dead prose.
+            ;; `[:rf.error/…]` token in it — reaching nobody. Nothing else
+            ;; on this surface can notice that: every other assertion here
+            ;; reads ex-data, which such a relay preserves. These two rows
+            ;; are the only thing standing between a `(merge {:ok? false}
+            ;; data)` relay and silently dead prose.
             (let [msg (:message edn)]
               (is (re-find #"unknown :kind" (str msg))
                   (str "the ex-MESSAGE reaches the agent at this relay too\n  got: "

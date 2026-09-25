@@ -4,10 +4,10 @@
   cacheability decision, and descriptor.
 
   Every registered handler has shape `(fn [conn args extra])` — the
-  MCP request context rides `extra`; today every handler ignores it
+  MCP request context rides `extra`; every handler ignores it
   through `ignoring-extra`. Pair handlers are late-bound so tests that
   replace a per-tool var affect the next call. Implementations and
-  descriptor knob splicers remain in their per-tool or per-concern
+  descriptor knob splicers live in their per-tool or per-concern
   namespaces."
   (:require [re-frame2-pair-mcp.tools.discover-app :as discover-app]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
@@ -186,7 +186,7 @@
     ;; Pure read of a frame's resolved image generation — a
     ;; function of the frame's sealed generation, cacheable like the other
     ;; read tools. The generation is inert until a re-`make-frame` reload
-    ;; (rf2-lxwpob folded the dedicated `reload-images!` verb into
+    ;; (there is no dedicated `reload-images!` verb; reloading is
     ;; re-construction), so the precheck-hash cache opt-in is safe.
     :cacheable? true
     :descriptor data/describe-image}
@@ -229,7 +229,7 @@
    {:name       "get-re-frame2-pair-instructions"
     :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2))
     :cacheable? true
-    ;; CLOSED-WORLD (rf2-6amhbt): the onboarding text is an inline `def`
+    ;; CLOSED-WORLD: the onboarding text is an inline `def`
     ;; in the bundle — zero socket bytes — so the server dispatches it at
     ;; the pre-connection boundary (bypassing `ensure-connection!`). An
     ;; agent orienting on a fresh/degraded session gets the routing
@@ -262,8 +262,8 @@
   `:hint` so a model that typo'd a name (or called a removed alias) can
   see the live catalogue and recover without a round-trip.
 
-  That hint is now load-bearing. Since rf2-wyza retired the
-  hand-maintained enumeration from the onboarding text, `tools/list`
+  That hint is load-bearing. The onboarding text carries no tool
+  enumeration, so `tools/list`
   and this hint are the ONLY places an agent learns what exists — the
   handshake for the whole set, this for a miss. Do not trim it to a
   bare `did you mean`."
@@ -289,7 +289,7 @@
   The server dispatches these at the pre-connection boundary — BEFORE
   `ensure-connection!` — so they answer even on a stock / degraded install
   with no shadow build running, symmetric with the unknown-tool
-  (rf2-4mc6q1) and gated-write (rf2-wz66k7) pre-connection guards.
+  and gated-write pre-connection guards.
 
   Unknown names return false (they route to the `:unknown-tool` guard)."
   [tool]

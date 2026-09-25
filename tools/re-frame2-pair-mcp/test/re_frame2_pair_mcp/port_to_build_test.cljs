@@ -146,8 +146,8 @@
             (fn [] (discover-app/discover-app conn (tu/args->js {:port 9999}))))
           (.then
             (fn [result]
-              ;; rf2-bcayt7: the payload carries :ok? false and now rides
-              ;; the err-text envelope (isError: true) — the universal
+              ;; The payload carries :ok? false and rides the err-text
+              ;; envelope (isError: true) — the universal
               ;; "every :ok? false is isError" rule, matching the OTHER
               ;; discover-app precondition failures (unhealthy runtime /
               ;; :debug-disabled / :no-frames-registered all err-text).
@@ -163,9 +163,9 @@
               (done)))))))
 
 (deftest discover-app-port-unresolved-iserror-matches-ok?
-  ;; Adversarial cross-check (rf2-bcayt7): the isError:true flag and the
-  ;; payload's :ok? false MUST agree — a regression back to ok-text would
-  ;; ship :ok? false WITHOUT isError, decoupling the two slots and letting
+  ;; Adversarial cross-check: the isError:true flag and the payload's
+  ;; :ok? false MUST agree — an ok-text envelope would ship :ok? false
+  ;; WITHOUT isError, decoupling the two slots and letting
   ;; the response cache retain an unresolved-port answer that masks a later
   ;; valid mapping. A distinct port proves the behaviour isn't 9999-specific.
   (async done
@@ -202,16 +202,16 @@
           ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block` a
           ;; continuation that runs the WHOLE remainder of the run
           ;; synchronously, so anything downstream of the step that finished
-          ;; the row claims a LATER namespace's throw as this row's and fires
-          ;; `done` a second time (rf2-e8kc). Here the second `done` was
-          ;; unconditional — the trailing `.then` ran it on every green pass —
-          ;; while a REJECTION reached neither, because `.finally` re-throws
-          ;; and the row simply timed out with no diagnostic at all.
+          ;; the row would claim a LATER namespace's throw as this row's and
+          ;; fire `done` a second time. A `.finally` followed by a trailing
+          ;; `.then (done)` would run that second `done` on every green pass,
+          ;; while a REJECTION would reach neither, because `.finally`
+          ;; re-throws — the row would time out with no diagnostic at all.
           (.catch (fn [e]
                     (is false (str "explicit-build discovery rejected: " e))
                     nil))
           ;; The stub restore, and the single `done` with nothing after it.
-          ;; Both arms reach this step, which is what `.finally` was for.
+          ;; Both arms reach this step, so it does a `.finally`'s job.
           (.then (fn [_]
                    (set! probe/resolve-build-by-port orig)
                    (done)))))))

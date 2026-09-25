@@ -19,7 +19,7 @@
                      "replaced with an `{:rf.mcp/overflow ...}` "
                      "marker. Must be >= 0: pass 0 to disable the cap. "
                      "A negative value is rejected with an "
-                     "`{:rf.mcp/invalid-arg ...}` error (rf2-5rdit).")})
+                     "`{:rf.mcp/invalid-arg ...}` error.")})
 
 (def limit-property
   "Per-tool descriptor slot for the `:limit` cursor-pagination knob.
@@ -30,7 +30,7 @@
   {:type        "integer"
    :description (str "Maximum number of epoch records in the response "
                      "(default 50). The default is sized to fit the "
-                     "5K-token wire-cap (rf2-rvyzy) with diff-encode + "
+                     "5K-token wire-cap with diff-encode + "
                      "dedup active. When more records remain, "
                      "`:next-cursor` is non-nil and `:has-more? true`; "
                      "pass the cursor back to fetch the next page.")})
@@ -88,7 +88,7 @@
   PRESENCE only)."
   {:type        "boolean"
    :description (str "Apply the size-elision walker "
-                     "(`re-frame.core/project-egress`, rf2-v9tw2) "
+                     "(`re-frame.core/project-egress`) "
                      "to the egressed app-db value server-side, before the "
                      "EDN crosses the wire. Default true. "
                      "A value at or below a path classified `:large` "

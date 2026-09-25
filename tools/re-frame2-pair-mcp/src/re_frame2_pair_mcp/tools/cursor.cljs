@@ -32,7 +32,7 @@
 
   The opaque cursor is `pr-str`+base64 of a small EDN map. Encoding is
   an implementation detail — agents pass it back verbatim. The shape
-  (today; subject to change behind the opaque boundary) is:
+  (subject to change behind the opaque boundary) is:
 
     {:v 1
      :after-id <epoch-id>            ; the last epoch-id we emitted
@@ -84,17 +84,17 @@
   pin -> sole app frame; see
   `re-frame2-pair-mcp.tools.frame-resolve`), and page 1 typically
   supplies none of the first tier, so the argument is nil while the
-  read is not. A cursor built from the argument therefore stored nil,
-  and page 2 — which also names no frame — re-resolved against whatever
-  the session said by then.
+  read is not. A cursor built from the argument would therefore store
+  nil, and page 2 — which also names no frame — would re-resolve against
+  whatever the session says by then.
 
-  That makes a pin change, or a second app frame registering
-  mid-pagination, silently redirect the continuation to a DIFFERENT
-  ring: the live `:after-id` is not in it, `epochs-since` answers
-  `:id-aged-out? true`, and a healthy cursor is reported stale. The
-  frame REFUSAL cannot cover this one — the newly-resolved frame is
-  perfectly unambiguous, it is just not the ring the agent was reading.
-  Only ownership from page 1 closes it (rf2-yo4s).
+  A pin change, or a second app frame registering mid-pagination, would
+  then silently redirect the continuation to a DIFFERENT ring: the live
+  `:after-id` is not in it, `epochs-since` answers `:id-aged-out? true`,
+  and a healthy cursor is reported stale. The frame REFUSAL cannot cover
+  this one — the newly-resolved frame is perfectly unambiguous, it is
+  just not the ring the agent was reading. Only ownership from page 1
+  closes it.
 
   ## Why opaque
 
@@ -146,7 +146,7 @@
   to put CODE into an eval form: `:frame` is printed into the frame
   resolution `(current-frame <frame>)`, so a decoded cursor's frame must
   be nil or a keyword with id grammar (`args/->id-keyword`) — a list,
-  symbol or other value is `::malformed` (rf2-3x7nj.32.2). The cursor's
+  symbol or other value is `::malformed`. The cursor's
   other caller-controlled slots are EDN data and ride QUOTED into the
   forms that consume them (`:after-id`, `:pred`), per the provenance
   rule in `eval-form`. Checked on DECODE only: encode sees the frame the
@@ -175,8 +175,8 @@
   The codec, size cap, and tagged-literal rejection are
   `re-frame.mcp-base.cursor/decode-cursor`'s; `valid-payload?` is the
   pair's shape check. The base's `::malformed` sentinel is re-aliased
-  to this ns's `::malformed` so existing call-sites
-  (`(= cursor-in ::cursor/malformed)`) keep matching."
+  to this ns's `::malformed` so call-sites
+  (`(= cursor-in ::cursor/malformed)`) match it."
   [s]
   (let [decoded (rf.mcp-base.cursor/decode-cursor s decodable-payload?)]
     (if (rf.mcp-base.cursor/malformed? decoded)

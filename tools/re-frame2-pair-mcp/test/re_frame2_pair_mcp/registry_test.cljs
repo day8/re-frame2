@@ -20,7 +20,7 @@
     (let [descriptor-names (set (map :name registry/tool-descriptors))
           handler-keys     (set (keys registry/handler-for))]
       (is (= descriptor-names handler-keys)
-          "handler-for keys MUST equal descriptor names — the rf2-47g8l guarantee"))))
+          "handler-for keys MUST equal descriptor names — the single-registry guarantee"))))
 
 (deftest every-handler-is-a-fn
   (testing "each registered handler is callable (the 3-arity dispatch shape)"

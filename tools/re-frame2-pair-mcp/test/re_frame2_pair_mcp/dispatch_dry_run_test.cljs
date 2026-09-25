@@ -2,10 +2,11 @@
   "Unit tests for the dispatch-dry-run tool.
 
   Simulate a re-frame2 cascade without committing — the framework's
-  dry-run effect sink (`re-frame.fx/*effect-sink*`, rf2-j538f7.39) +
-  `restore-epoch` compose into a dry-run that is STRUCTURALLY unable to
-  execute an effect on the runtime side. The MCP tool is a thin wrapper
-  that parses the event-vector arg (same EDN-data posture as `dispatch`)
+  dry-run effect sink (`re-frame.fx/*effect-sink*`) + a
+  `replace-frame-state!` rollback compose into a dry-run that is
+  STRUCTURALLY unable to execute a declared effect on the runtime side.
+  The MCP tool is a thin wrapper that parses the event-vector arg (same
+  EDN-data posture as `dispatch`)
   and surfaces the structured runtime envelope; a caller `:fx-overrides`
   is rejected (the sink records every fx before override resolution).
 
@@ -15,7 +16,7 @@
   The tool runs them through the elision walker server-side ALWAYS
   (gate OFF forces `:include-sensitive false`, which wins only under
   `--allow-sensitive-reads`; the `:elision false` size override is
-  honoured on every launch, rf2-ealv5). It also
+  honoured on every launch). It also
   issues `configure-raw-state!` between the preload probe and the eval
   (raw-state tap posture). These tests pin the wire boundary: the arg
   parser, the runtime call shape, the elision-form shape, and the
@@ -35,7 +36,7 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
-;; The tool now issues TWO evals on the happy path: the
+;; The tool issues TWO evals on the happy path: the
 ;; `configure-raw-state!` signal (raw-state/signal-runtime!) and the
 ;; `dispatch-dry-run` form. The stub matches by substring — the
 ;; configure eval resolves to nil (swallowed); the dispatch eval
@@ -82,8 +83,8 @@
         (.finally (fn [] (raw-state/set-allow-raw-state! prev))))))
 
 ;; ---------------------------------------------------------------------------
-;; Arg parsing — the exhaustive event-parse matrix now lives in `args_test`
-;; against the shared `args/parse-event-arg` seam (rf2-tcp7za). Dispatch and
+;; Arg parsing — the exhaustive event-parse matrix lives in `args_test`
+;; against the shared `args/parse-event-arg` seam. Dispatch and
 ;; dispatch-dry-run route through the SAME parser, so here we keep only the
 ;; two narrow tool-level invariants: no-eval-on-error and the DISTINCT
 ;; dry-run missing-event hint.
@@ -165,13 +166,14 @@
                    (done)))))))
 
 (deftest rejects-caller-fx-overrides
-  ;; rf2-j538f7.39: dry-run no longer accepts :fx-overrides. The runtime's
+  ;; Dry-run does not accept :fx-overrides. The runtime's
   ;; effect sink records+skips every fx BEFORE override resolution, so an
   ;; override cannot influence the simulation without executing a body. A
   ;; supplied :fx-overrides is REJECTED as an :isError envelope BEFORE the
   ;; eval, never threaded — so it can never defeat the no-fx-execute
   ;; guarantee. (A valid-looking `:stub-http` target and a bare-string
-  ;; target are both refused the same way — the whole opt is gone.)
+  ;; target are both refused the same way — the opt is refused whatever
+  ;; its value.)
   (async done
     (let [forms (atom [])]
       (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
@@ -302,7 +304,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Privacy gate. Gate OFF (default published posture) forces sensitive
 ;; slots to redact; the walker ALWAYS runs. The `:elision false` size
-;; override is honoured on every launch (rf2-ealv5 / rf2-3x7nj.32.4) — it
+;; override is honoured on every launch — it
 ;; overlays `:rf.egress/include-large? true` on the off-box-tool floor,
 ;; which cannot reveal a sensitive slot. The runtime envelope's egress
 ;; slots are walked server-side (the unit test stubs the runtime, so it
@@ -335,7 +337,7 @@
                      (is (not (str/includes? form ":rf.egress/local-raw"))
                          "the dropped opt-in never reaches the trusted-local boundary")
                      (is (str/includes? form ":rf.egress/include-large? true")
-                         "gate OFF honours the size override (rf2-ealv5 / rf2-3x7nj.32.4)"))
+                         "gate OFF honours the size override"))
                    ;; the envelope echoes the honoured elision state
                    (let [edn (read-result-text r)]
                      (is (false? (:elision edn)) "the echo reports the honoured :elision false"))
@@ -343,7 +345,7 @@
 
 (deftest gate-off-signals-configure-raw-state-before-dispatch
   ;; The raw-state tap posture is signalled before the dispatch eval, so
-  ;; the dry-run's internal restore-epoch tap is gated.
+  ;; the runtime holds the server's gate posture for the whole dry-run.
   (async done
     (let [forms (atom [])]
       (-> (with-raw-gate! false
@@ -391,7 +393,7 @@
                    (done)))))))
 
 (deftest gate-on-full-raw-opt-in-names-local-raw
-  ;; rf2-kuky.88 — the deliberate full-raw local opt-in (`:elision false`
+  ;; The deliberate full-raw local opt-in (`:elision false`
   ;; AND `:include-sensitive true`) NAMES `:rf.egress/local-raw`, under
   ;; which the projection is the identity, so the db slot still ships
   ;; raw. The door is called either way.
@@ -438,7 +440,7 @@
 ;; :would-fire-effects[*].args fail closed. The recorded fx
 ;; args are RAW fx-handler arguments (HTTP bodies, dispatched event
 ;; vectors, payment maps) NOT rooted at app-db, so the schema-path
-;; `elide-wire-value` walker cannot prove them safe — the same leak class
+;; `project-egress` walk cannot prove them safe — the same leak class
 ;; as an epoch record's :effects[*].args, which project-egress fails
 ;; closed. The dry-run egress MUST fail closed too: the emitted form
 ;; assoc's :rf/redacted onto every :would-fire-effects row's :args BY
@@ -450,7 +452,7 @@
 (deftest default-redacts-fx-args
   ;; The published-build default (gate OFF). The emitted form fail-closes
   ;; the fx args (assoc :rf/redacted on each :would-fire-effects row),
-  ;; while the app-db slot still rides the elide-wire-value walker — the
+  ;; while the app-db slot still rides the project-egress walk — the
   ;; two egress slots egress under different policies.
   (async done
     (let [forms (atom [])]
@@ -641,22 +643,20 @@
                    (done)))))))
 
 (deftest rollback-failed-rides-as-iserror
-  ;; rf2-glg4uo (P2 SAFETY). The simulation LANDED but the rollback FAILED
-  ;; (`restore-epoch` returned false: nil before-id on a frame's first
-  ;; epoch, or a tiny epoch-history ring evicted the target). The would-be
-  ;; db IS now the LIVE app-db and a spurious epoch is left at the ring
-  ;; head. The runtime now reports this as the documented
-  ;; `:ok? false :reason :rollback-failed :rolled-back? false` shape (NOT
-  ;; the old `:ok? true` + `:rollback-hint` that read GREEN over a mutated
-  ;; db). The tool's `(false? (:ok? result))` routing MUST surface it as
-  ;; an isError envelope so a dry-run that silently mutated the live app
-  ;; can never read as success. The structured :reason/:hint +
-  ;; :before-epoch-id ride through verbatim so the caller can re-restore.
+  ;; SAFETY. The simulation LANDED but the rollback FAILED
+  ;; (`replace-frame-state!` rejected the pre-call state), so the
+  ;; simulated state can still be the LIVE state. The runtime reports this
+  ;; as the documented `:ok? false :reason :rollback-failed :rolled-back?
+  ;; false` shape — never an `:ok? true` that would read GREEN over a
+  ;; mutated db. The tool's `(false? (:ok? result))` routing MUST surface
+  ;; it as an isError envelope so a dry-run that silently mutated the live
+  ;; app can never read as success. The structured :reason/:hint +
+  ;; :before-epoch-id ride through verbatim for manual recovery.
   (async done
-    (let [hint (str "restore-epoch returned false; the would-be db IS the live db "
-                    "and a spurious epoch remains at the ring head. Re-restore "
-                    "manually via (rf/restore-epoch! <frame> <before-epoch-id>) "
-                    "using :before-epoch-id from this envelope.")
+    (let [hint (str "replace-frame-state! rejected the rollback; simulated "
+                    "state can still be live. Inspect the frame state and "
+                    "replacement failure trace "
+                    "before further writes.")
           env {:ok?             false
                :reason          :rollback-failed
                :dry-run?        true
@@ -677,14 +677,13 @@
                      (is (false? (:rolled-back? edn))
                          "the mutated-state signal (rolled-back? false) rides through")
                      (is (= hint (:hint edn))
-                         "the re-restore hint rides through verbatim for manual recovery"))
+                         "the recovery hint rides through verbatim for manual recovery"))
                    (done)))))))
 
 (deftest rolled-back-false-still-iserror-even-if-runtime-claims-ok
-  ;; rf2-glg4uo belt-and-braces (defence-in-depth AT THE MCP BOUNDARY). A
-  ;; DEGRADED or OLDER runtime could still return the pre-fix shape —
-  ;; `:ok? true` alongside `:rolled-back? false` (the would-be db IS the
-  ;; live db). The MCP tool is the safety boundary the host trusts, so it
+  ;; Belt-and-braces (defence-in-depth AT THE MCP BOUNDARY). A DEGRADED
+  ;; or OLDER runtime could return `:ok? true` alongside
+  ;; `:rolled-back? false` (the would-be db IS the live db). The MCP tool is the safety boundary the host trusts, so it
   ;; must NOT green-light a non-rolled-back dry-run regardless of what the
   ;; runtime claims for `:ok?`. The `(false? (:rolled-back? result))`
   ;; guard catches exactly that — an `:ok? true :rolled-back? false`
@@ -742,14 +741,15 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j2wz — the parsed event reaches the runtime as DATA here too.
+;; The parsed event reaches the runtime as DATA here too.
 ;;
 ;; `dispatch-dry-run` shares `dispatch`'s parser and its emitter, so it
-;; shared the defect: the vector check guards only the OUTER shape, and
-;; `pr-str` renders what got past it as SOURCE. A nested list evaluated, a
-;; symbol resolved, and a payload wearing the emitter's own IR tag was
-;; spliced in as raw source — all while the runtime call was being built,
-;; ahead of the simulation, and all reachable with `eval-cljs` disabled.
+;; shares the hazard: the vector check guards only the OUTER shape, and
+;; `pr-str` would render what got past it as SOURCE. A nested list would
+;; evaluate, a symbol would resolve, and a payload wearing the emitter's
+;; own IR tag would be spliced in as raw source — all while the runtime
+;; call is being built, ahead of the simulation, and all reachable with
+;; `eval-cljs` disabled. Quoting the event closes it.
 ;;
 ;; Dry-run composes its call inside an `rt-let`, so the assertions below
 ;; read the inner runtime call out of the emitted form: `read-string`
@@ -804,9 +804,9 @@
                    (done)))))))
 
 (deftest dry-run-cofx-fact-lists-are-not-evaluated
-  ;; rf2-fzbj.6 — dry-run shares dispatch's opts composition, so it
-  ;; shared the unquoted-opts defect: a scripted fact containing a list
-  ;; was evaluated while the call was built, and the simulation then ran
+  ;; Dry-run shares dispatch's opts composition, so the opts map rides
+  ;; quoted here too: printed, a scripted fact containing a list would be
+  ;; evaluated while the call is built, and the simulation would then run
   ;; on a different fact from the one scripted.
   (async done
     (let [forms (atom [])]

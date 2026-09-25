@@ -95,10 +95,10 @@
               (done)))))))
 
 (deftest discover-app-unhealthy-runtime-is-isError
-  ;; rf2-acckgr regression: an unhealthy runtime (`:ok? false` from
-  ;; `runtime-health!`) is a known-tool failure per spec/003's universal
-  ;; isError rule, not a success carrying bad news. It used to ride back
-  ;; as ok-text (isError: false), masking the failure as a success.
+  ;; An unhealthy runtime (`:ok? false` from `runtime-health!`) is a
+  ;; known-tool failure per spec/003's universal isError rule, not a
+  ;; success carrying bad news. Riding back as ok-text (isError: false)
+  ;; would mask the failure as a success.
   (async done
     (let [conn (fresh-conn)
           _    (prime! conn :examples/step-deck)
@@ -118,9 +118,9 @@
               (done)))))))
 
 (deftest discover-app-debug-disabled-is-isError
-  ;; rf2-acckgr regression: `:debug-disabled` is a tool-built `:ok?
-  ;; false` precondition failure — same universal isError rule as the
-  ;; unhealthy-runtime branch above. It used to ride back as ok-text.
+  ;; `:debug-disabled` is a tool-built `:ok? false` precondition failure
+  ;; — same universal isError rule as the unhealthy-runtime branch above;
+  ;; it never rides back as ok-text.
   (async done
     (let [conn (fresh-conn)
           _    (prime! conn :examples/step-deck)
@@ -138,9 +138,8 @@
               (done)))))))
 
 (deftest discover-app-no-frames-registered-is-isError
-  ;; rf2-acckgr regression: `:no-frames-registered` is likewise a
-  ;; tool-built `:ok? false` precondition failure that used to ride
-  ;; back as ok-text.
+  ;; `:no-frames-registered` is likewise a tool-built `:ok? false`
+  ;; precondition failure, never ok-text.
   (async done
     (let [conn (fresh-conn)
           _    (prime! conn :examples/step-deck)

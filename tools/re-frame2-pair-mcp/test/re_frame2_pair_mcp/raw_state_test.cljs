@@ -78,7 +78,7 @@
   ;;     false)                                            ; gate OFF → force redact
   ;;
   ;; `:elision` (the size override) is parsed unconditionally — the gate
-  ;; governs the sensitive axis only (rf2-ealv5 / rf2-3x7nj.32.4).
+  ;; governs the sensitive axis only.
   (raw-state/set-allow-raw-state! false)
   (is (false? (raw-state/raw-state-allowed?))
       "Gate OFF ⇒ operator did NOT opt in; force redact")
@@ -108,7 +108,7 @@
     (is (true? (:allow-raw-state? flags))
         "--allow-sensitive-reads ⇒ :allow-raw-state? true (internal key)")
     (is (true? (:eval-allowed? flags))
-        "eval-cljs gate stays at its default ON (rf2-a0z0h)")))
+        "eval-cljs gate stays at its default ON")))
 
 (deftest parse-launch-flags-rides-alongside-no-eval
   ;; The two flags are independent — passing --no-eval (eval opt-out)
@@ -121,9 +121,9 @@
   ;; eval-cljs defaults ON; raw-state defaults OFF.
   (let [flags (server/parse-launch-flags [])]
     (is (true? (:eval-allowed? flags))
-        "eval-cljs gate defaults ON (rf2-a0z0h)")
+        "eval-cljs gate defaults ON")
     (is (false? (:allow-raw-state? flags))
-        "raw-state gate defaults OFF (rf2-c2dtu)")))
+        "raw-state gate defaults OFF")))
 
 (deftest parse-launch-flags-ignores-unknown
   ;; The PARSER stays permissive — future flags + node/shadow wrapper
@@ -203,11 +203,11 @@
     (is (re-find #"9630" (:effect d)))))
 
 (deftest launch-diagnostics-names-boolean-flag-with-inline-value
-  ;; rf2-3x7nj.32.7 — `--no-eval=true` is the `--flag=value` style many
-  ;; CLIs accept. The parser recognises only the bare token, so the opt-out
-  ;; is NOT applied and eval stays ON; before the fix the diagnostic built
-  ;; for exactly this mismatch read the `=true` prefix as the known flag and
-  ;; said nothing.
+  ;; `--no-eval=true` is the `--flag=value` style many CLIs accept. The
+  ;; parser recognises only the bare token, so the opt-out is NOT applied
+  ;; and eval stays ON; the diagnostic built for exactly this mismatch must
+  ;; name it, rather than read the `=true` prefix as the known flag and say
+  ;; nothing.
   (testing "--no-eval=true is named, and says eval-cljs stays enabled"
     (let [argv       ["--no-eval=true"]
           [d :as ds] (server/launch-diagnostics argv)]
@@ -365,7 +365,7 @@
         (when-let [r @resolve-fn*] (r nil))
         ;; The claim is already asserted above; this chain only waits for both
         ;; signals to SETTLE, either way. The swallow sits UPSTREAM of the
-        ;; single trailing `done` (rf2-qpns) — `done` runs the whole remainder
+        ;; single trailing `done` — `done` runs the whole remainder
         ;; of the run synchronously, so a `.catch` after it would swallow a
         ;; foreign throw and fire `done` a second time.
         (-> (js/Promise.all #js [p1 p2])

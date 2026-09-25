@@ -14,8 +14,7 @@
                                      unsupported / no-shadow branches.
 
   No test in this file talks to a live MCP client or a real shadow
-  process; the live verification runs against the mayor's Claude Code
-  session in the bead's live-verify step."
+  process; live verification is `test/roots-discovery-live.js`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.roots-discovery :as rd]

@@ -103,10 +103,10 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Fast reload (rf2-1f60u) — the reload lands BEFORE the first sample, so
-;; every sample is already the new value. The pre-edit baseline makes this
-;; recognizable as SUCCESS on the very first sample; the pre-fix self-baseline
-;; contract returned :timed-out here.
+;; Fast reload — the reload lands BEFORE the first sample, so every sample
+;; is already the new value. The pre-edit baseline makes this recognizable
+;; as SUCCESS on the very first sample; a self-baseline (the first sample
+;; as its own baseline) would return :timed-out here.
 ;; ---------------------------------------------------------------------------
 
 (deftest reload-landed-before-first-sample-is-success
@@ -193,7 +193,7 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Scripted workflow witness (rf2-1f60u AC 7) — the ACTUAL order: capture F0,
+;; Scripted workflow witness — the ACTUAL order: capture F0,
 ;; edit/reload to F1 BEFORE invoking tail-build, then wait. An atom stands in
 ;; for the running app's probe-visible state; the capture is taken from it
 ;; exactly as the skill instructs (pre-edit, printed form), the "edit + fast
@@ -243,7 +243,7 @@
                                                             :baseline "42"
                                                             :wait-ms 250}))
                     (.then (fn [result]
-                             ;; rf2-acckgr regression: a timed-out probe wait
+                             ;; A timed-out probe wait
                              ;; is a known-tool failure (:ok? false) and MUST
                              ;; ride as isError: true per spec/003's universal
                              ;; isError rule — not a success carrying bad news.
@@ -274,7 +274,7 @@
                                                           :baseline "0"
                                                           :wait-ms 250}))
                   (.then (fn [result]
-                           ;; rf2-acckgr regression: :probe-errored is a
+                           ;; :probe-errored is a
                            ;; known-tool failure and MUST ride as
                            ;; isError: true, not a masked ok-text success.
                            (is (tu/error? result)
@@ -334,12 +334,12 @@
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `--no-eval` (rf2-3x7nj.32.1). The probe is arbitrary caller-supplied CLJS
-;; evaluated in the runtime — once, then on every poll — so it is the
-;; eval-cljs authority class and honours the same opt-out. Before the fix
-;; the probe below ran on every poll of a `--no-eval` server (a hostile
-;; `dispatch-sync` fired repeatedly under read-only annotations); now it is
-;; refused with eval-cljs's own envelope before any nREPL round-trip. The
+;; `--no-eval`. The probe is arbitrary caller-supplied CLJS evaluated in the
+;; runtime — once, then on every poll — so it is the eval-cljs authority
+;; class and honours the same opt-out. Unrefused, the probe below would run
+;; on every poll of a `--no-eval` server (a hostile `dispatch-sync` firing
+;; repeatedly under read-only annotations); it is refused with eval-cljs's
+;; own envelope before any nREPL round-trip. The
 ;; no-probe soft delay evaluates nothing and stays available.
 ;; ---------------------------------------------------------------------------
 

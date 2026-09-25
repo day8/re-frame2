@@ -230,7 +230,7 @@
   as a string literal."
   [stop]
   (let [pred-src (pred-source (:pred stop))
-        ;; rf2-fzbj.6 — `:ms` / `:changes` are caller-supplied EDN, so they
+        ;; `:ms` / `:changes` are caller-supplied EDN, so they
         ;; ride as QUOTED literal data rather than printed source. The
         ;; runtime wants integers and rejects anything else; what quoting
         ;; buys is that a non-integer value reaches that check as the datum
@@ -255,7 +255,7 @@
   change-log. The map is a plain EDN literal (no synthesised source), so
   it inlines verbatim.
 
-  rf2-fzbj.6 — `:signals` is EXTERNAL EDN parsed off the wire, so it rides
+  `:signals` is EXTERNAL EDN parsed off the wire, so it rides
   as QUOTED literal data; the internally-synthesised `:pred-fn` stays raw
   source, which is the whole distinction this mixed map turns on."
   [signals stop frame max-entries egress-opts]
@@ -291,8 +291,7 @@
         ;; posture as snapshot / get-path / trace-window: the
         ;; `--allow-sensitive-reads` boot gate forces `:include-sensitive
         ;; false` when OFF (the published default); gate ON honours it.
-        ;; `:elision` (the size override) is honoured on every launch
-        ;; (rf2-ealv5 / rf2-3x7nj.32.4).
+        ;; `:elision` (the size override) is honoured on every launch.
         elision?    (args/parse-bool-arg raw-args :elision)
         incl?       (if (raw-state/raw-state-allowed?)
                       (args/parse-bool-arg raw-args :include-sensitive)
@@ -300,7 +299,7 @@
         ;; Polarity — MCP `elision` true = emit markers =
         ;; `:rf.egress/include-large?` false, hence `(not elision?)`.
         egress-opts (elision/egress-opts-edn (not elision?) incl?)
-        ;; rf2-3x7nj.32.2 — a JSON-object `signals` / `stop` has its keys
+        ;; A JSON-object `signals` / `stop` has its keys
         ;; minted into keywords (`js->clj :keywordize-keys`), and those are
         ;; PRINTED into the recording form; quoting cannot contain a
         ;; keyword that prints as code, so a key without keyword grammar is

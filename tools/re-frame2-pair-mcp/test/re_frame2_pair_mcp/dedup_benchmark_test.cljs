@@ -61,8 +61,8 @@
     substitutes one cache entry per distinct event subtree.
   - **Epoch slices** (whole `:db-before` reference shared across
     records — different corpus shape, not exercised by this
-    benchmark): **5-10× compression** (80-90% reduction). The
-    existing `dedup_test.cljs/reduction-ratio-shared-subtrees`
+    benchmark): **5-10× compression** (80-90% reduction).
+    `dedup_test.cljs/reduction-ratio-shared-subtrees`
     pins 89.5% on a 10-epoch / 256-key shared-`:db-before`
     payload — the load-bearing structural-dedup case.
 
@@ -198,21 +198,19 @@
   :reduction-pct .. :ratio ..}` where `:ratio` is `raw/deduped`
   (the 'Nx compression' the spec quotes).
 
-  ## Characters, and why that is the honest name (rf2-2rtt6.132)
+  ## Characters, and why that is the honest name
 
-  `(count (pr-str …))` answers UTF-16 CODE UNITS, on both hosts. These
-  two slots were called `:raw-bytes` / `:deduped-bytes` and printed with
-  a literal `B` suffix, which was untrue of the expression that produced
-  them — the same fail-open shape rf2-2rtt6.121 and rf2-2rtt6.131 swept.
+  `(count (pr-str …))` answers UTF-16 CODE UNITS, on both hosts, so the
+  slots are `:raw-chars` / `:deduped-chars` and print a `chars` unit —
+  calling them bytes would be untrue of the expression that produces
+  them.
 
-  They are RELABELLED rather than converted. Nothing here needs bytes:
-  the figures the spec quotes are `:ratio` and `:reduction-pct`, both
-  same-vs-same quotients in which the unit cancels exactly, so no
-  measured number in this file's ns docstring moves. The corpus is
-  machine-generated keywords, integers and ASCII strings, so a UTF-8
-  count would print the identical absolutes today — and would start
-  lying again the moment someone widened the corpus. A true value under
-  a true name is the fix that stays true."
+  Nothing here needs bytes: the figures the spec quotes are `:ratio` and
+  `:reduction-pct`, both same-vs-same quotients in which the unit
+  cancels exactly. The corpus is machine-generated keywords, integers
+  and ASCII strings, so a UTF-8 count would print the identical
+  absolutes — and would start lying the moment someone widened the
+  corpus. A true value under a true name stays true."
   [label events payload]
   (let [raw-chars     (count (pr-str payload))
         wrapped       (rf.mcp-base.dedup/dedup-value payload true)
@@ -232,7 +230,7 @@
      :wrapped       wrapped}))
 
 (defn- row-str [m]
-  (str "[rf2-li2cw]"
+  (str "[dedup-bench]"
        " " (:label m)
        "  events=" (:events m)
        "  raw=" (:raw-chars m) " chars"
@@ -280,15 +278,15 @@
 (deftest day8-de-dupe-trace-burst-compression-factor
   ;; Pin the measured compression factor across the scale axis. Floor is
   ;; the **observed** lower bound minus a 5% slack margin
-  ;; — currently 1.30× on raw trace bursts (observed range
+  ;; — 1.30× on raw trace bursts (observed range
   ;; 1.40-1.45×). The actual ratio prints to the test log only when
   ;; `bench-verbose?` is true (see goog-define above); on green the
   ;; measured numbers are silent. Failure messages carry the row text
   ;; so triage sees the numbers on red.
   (when bench-verbose?
     (println)
-    (println "[rf2-li2cw] structural-dedup trace-burst compression benchmark")
-    (println "[rf2-li2cw] ---------------------------------------------"))
+    (println "[dedup-bench] structural-dedup trace-burst compression benchmark")
+    (println "[dedup-bench] ---------------------------------------------"))
   (let [results (doall
                   (for [{:keys [label events cascade-width variety]} corpora]
                     (let [payload (mk-trace-burst events cascade-width variety)
@@ -327,7 +325,7 @@
         (is (= payload (tu/dedup-expand wrapped))
             (str label " — round-trip differed from original payload"))))
     (when bench-verbose?
-      (println "[rf2-li2cw] ---------------------------------------------")
+      (println "[dedup-bench] ---------------------------------------------")
       (println))))
 
 ;; ---------------------------------------------------------------------------
@@ -342,16 +340,16 @@
 
 (deftest day8-de-dupe-high-share-burst-compression-factor
   (when bench-verbose?
-    (println "[rf2-li2cw] structural-dedup high-share-burst compression benchmark")
-    (println "[rf2-li2cw] -----------------------------------------------------"))
-  (let [;; 1K replays of the same 24-event drain. Each drain body
+    (println "[dedup-bench] structural-dedup high-share-burst compression benchmark")
+    (println "[dedup-bench] -----------------------------------------------------"))
+  (let [;; 100 replays of the same 24-event drain. Each drain body
         ;; (modulo unique :id / :time / :dispatch-id) is identical.
         payload (mk-high-share-burst 100 24)
         m       (measure "high-share / 100 replays / cascade=24" (count payload) payload)]
     (print-row m)
     (testing "high-share burst exceeds the 8× pinned floor"
       ;; The high-share corpus reaches the upper-bound compression
-      ;; regime. Observed ratio currently ~14×; the floor is set well
+      ;; regime. Observed ratio ~10.8× (the ns docstring table); the floor is set well
       ;; below to surface only material regression.
       (is (>= (:ratio m) 8.0)
           (str "high-share burst ratio " (.toFixed (:ratio m) 2)
@@ -361,7 +359,7 @@
     (testing "round-trip on the high-share corpus"
       (is (= payload (tu/dedup-expand (:wrapped m)))))
     (when bench-verbose?
-      (println "[rf2-li2cw] -----------------------------------------------------")
+      (println "[dedup-bench] -----------------------------------------------------")
       (println))))
 
 ;; ---------------------------------------------------------------------------

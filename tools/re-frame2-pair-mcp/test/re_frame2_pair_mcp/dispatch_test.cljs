@@ -135,10 +135,10 @@
 (defn- opts-arg
   "The opts map the captured runtime call carries.
 
-  rf2-fzbj.6 — the data-only opts map rides QUOTED, like the event beside
-  it, because three of its slots (`:rf.cofx`, `:fx-overrides`,
+  The data-only opts map rides QUOTED, like the event beside it, because
+  three of its slots (`:rf.cofx`, `:fx-overrides`,
   `:interceptor-overrides`) are EDN the caller supplied and printing
-  rendered them as source. Unwrapping here keeps every opts assertion
+  would render them as source. Unwrapping here keeps every opts assertion
   below about the VALUE the runtime receives."
   [captured]
   (quoted-datum (nth (cljs.reader/read-string @captured) 2)))
@@ -146,8 +146,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Narrow integration arms — the exhaustive event-parse matrix (nil / blank
 ;; / unreadable / map / keyword / list / symbol / scalar / vector, with the
-;; parsed-type classification) now lives in `args_test` against the shared
-;; `args/parse-event-arg` seam (rf2-tcp7za). Here we pin only the two
+;; parsed-type classification) lives in `args_test` against the shared
+;; `args/parse-event-arg` seam. Here we pin only the two
 ;; tool-level invariants:
 ;;   1. no-eval-on-error — a bad event short-circuits to an :isError WITHOUT
 ;;      contacting the runtime (host-form source never rides into the eval);
@@ -258,7 +258,7 @@
                      (is (string? form))
                      ;; The default runtime call is
                      ;; `(rt/dispatch-consequence! (quote [:cart/checkout]) {})`.
-                     ;; The event vector rides as a QUOTED literal (rf2-j2wz)
+                     ;; The event vector rides as a QUOTED literal
                      ;; so it evaluates to the datum the caller sent.
                      (is (re-find #"dispatch-consequence!" form))
                      (is (re-find #"\[:cart/checkout\]" form))
@@ -345,9 +345,9 @@
                      (is (not (str/includes? form "__rf2pair_await__"))
                          "NO mailbox wrapper — dispatch-and-settle! is synchronous")
                      (is (str/includes? form "project-egress")
-                         "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
+                         "include-sensitive STILL projects — never a raw bypass")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                         "rf2-nmjcll — the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
+                         "the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
                      (is (str/includes? form ":rf.egress/include-sensitive? true")
                          "the app-db sensitive axis is threaded INTO the projection (over the off-box-tool floor)")
                      (is (not (str/includes? form ":rf.egress/include-fx-args?"))
@@ -432,9 +432,9 @@
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-collect"))
                      (is (str/includes? form "project-egress")
-                         "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
+                         "include-sensitive STILL projects — never a raw bypass")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                         "rf2-nmjcll — the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
+                         "the :epoch projects under the off-box-tool boundary even on the sensitive opt-in path")
                      (is (str/includes? form ":rf.egress/include-sensitive? true")
                          "the app-db sensitive axis is threaded INTO the projection (over the off-box-tool floor)")
                      (is (not (str/includes? form ":rf.egress/include-fx-args?"))
@@ -445,14 +445,14 @@
                    (done)))))))
 
 (deftest trace-include-sensitive-string-false-stays-false-no-leak
-  ;; rf2-66ippe — the include-sensitive arg MUST parse through the
+  ;; The include-sensitive arg MUST parse through the
   ;; safe `args/parse-bool-arg`, not a raw `(boolean (wire/arg …))`
   ;; coercion. Over the JSON-MCP wire the value can arrive as the STRING
   ;; "false", which is TRUTHY in CLJS — a bare `boolean` would coerce a
   ;; caller's explicit decline to TRUE under --allow-sensitive-reads,
   ;; threading `:rf.egress/include-sensitive? true` into project-egress and
-  ;; lifting the app-db sensitive axis the operator just declined. The
-  ;; fix: "false" stays false ⇒ the projection runs (epoch still routes
+  ;; lifting the app-db sensitive axis the operator just declined. Parsed
+  ;; safely, "false" stays false ⇒ the projection runs (epoch still routes
   ;; through project-egress) but WITHOUT the sensitive opt — sensitive
   ;; app-db leaves stay :rf/redacted.
   (async done
@@ -472,7 +472,7 @@
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "the off-box-tool boundary is named")
                      (is (not (str/includes? form ":rf.egress/include-sensitive? true"))
-                         "string \"false\" stays FALSE — the sensitive axis is NOT lifted (rf2-66ippe: no raw boolean fail-open)"))
+                         "string \"false\" stays FALSE — the sensitive axis is NOT lifted (no raw boolean fail-open)"))
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))
 
@@ -848,7 +848,7 @@
                                            :sync true})))
           (.then (fn [_]
                    (let [parsed (cljs.reader/read-string @captured)
-                         ;; rf2-fzbj.6 — the opts map rides quoted.
+                         ;; The opts map rides quoted.
                          opts   (quoted-datum (nth parsed 2))]
                      (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed)))
                      (is (= [:rf.xray/focus-event 85] (quoted-datum (second parsed))))
@@ -1177,22 +1177,22 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-6klf02 — the :await-render + :trace path MUST project the epoch
-;; off-box, exactly as the non-await :trace / :settle path does. Under
-;; await-render an explicit :trace still resolves to dispatch-and-collect
-;; (the RAW :epoch); the render-settle Promise wraps the runtime call, and
-;; that wrap previously emitted the BARE runtime call — so the raw epoch
-;; shipped off-box un-projected (the leak). The fix routes the await-render
-;; result through `project-egress` (egress/project-dispatch-result-src)
-;; INSIDE the settle form, the same redaction the non-await path applies.
+;; The :await-render + :trace path MUST project the epoch off-box, exactly
+;; as the non-await :trace / :settle path does. Under await-render an
+;; explicit :trace still resolves to dispatch-and-collect (the RAW
+;; :epoch); the render-settle Promise wraps the runtime call, and a wrap
+;; emitting the BARE runtime call would ship the raw epoch off-box
+;; un-projected (the leak). The await-render result routes through
+;; `project-egress` (egress/project-dispatch-result-src) INSIDE the settle
+;; form, the same redaction the non-await path applies.
 ;; ---------------------------------------------------------------------------
 
 (deftest await-render-trace-projects-epoch-off-box-when-gate-off
   ;; THE leak. Gate OFF (the published default) + :await-render :trace ⇒
   ;; the await wrap form MUST route the dispatch-and-collect :epoch through
-  ;; the framework's off-box projection before it crosses the wire. Before
-  ;; the fix the wrap form was the bare `(rt/dispatch-and-collect …)` call
-  ;; with NO projection — the raw db-before/db-after/trigger-event shipped
+  ;; the framework's off-box projection before it crosses the wire. A wrap
+  ;; form that was the bare `(rt/dispatch-and-collect …)` call with NO
+  ;; projection would ship the raw db-before/db-after/trigger-event
   ;; off-box.
   (async done
     (let [wrap-form*  (atom nil)
@@ -1213,7 +1213,7 @@
                      (is (str/includes? form "dispatch-and-collect")
                          "await-render :trace still routes to the raw-epoch dispatch-and-collect")
                      (is (str/includes? form "re-frame.core/project-egress")
-                         "gate OFF ⇒ the await-render :epoch routes through project-egress (rf2-6klf02)")
+                         "gate OFF ⇒ the await-render :epoch routes through project-egress")
                      (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
                          "the await-render epoch projects under the off-box-tool boundary")
                      (is (str/includes? form "re-frame.interop/after-render")
@@ -1371,7 +1371,7 @@
           (.then (fn [r]
                    (is (not (err? r)))
                    (let [parsed (cljs.reader/read-string @captured)
-                         ;; rf2-fzbj.6 — the opts map rides quoted.
+                         ;; The opts map rides quoted.
                          opts   (quoted-datum (nth parsed 2))]
                      (is (= [:todo/add {:text "buy milk"}] (quoted-datum (second parsed))))
                      (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))
@@ -1555,29 +1555,29 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-m7x0qb — Tool-Pair pair-mcp re-supply: `:interceptor-overrides` wire
-;; arg + strict-replay re-supply of the recorded envelope overrides
+;; Tool-Pair pair-mcp re-supply: `:interceptor-overrides` wire arg +
+;; strict-replay re-supply of the recorded envelope overrides
 ;; (`:fx-overrides` / `:interceptor-overrides`) alongside `:rf.cofx` +
-;; `:rf.cofx/mint-policy :strict`. Slice 3 follow-up of rf2-yigokd (#5292),
-;; which pinned `:fx-overrides` / `:interceptor-overrides` as bare slots on
-;; `:rf/epoch-record` and added the Tool-Pair §Replay re-supply rule. These
+;; `:rf.cofx/mint-policy :strict`. `:rf/epoch-record` carries
+;; `:fx-overrides` / `:interceptor-overrides` as bare slots, and the
+;; Tool-Pair §Replay re-supply rule says a replay re-supplies them. These
 ;; tests pin the ACTUAL pair-mcp dispatch-tool wiring for that rule — the
-;; core+epoch capture is covered by rf2-yigokd's own tests.
+;; core+epoch capture is covered by those artefacts' own tests.
 ;;
-;; Pre-fix, `:interceptor-overrides` had NO wire arg at all: the dispatch
-;; tool silently ignored it (an unrecognised key on the JS args object), so
-;; a replay of a recorded epoch with an active `:interceptor-overrides`
+;; Without an `:interceptor-overrides` wire arg the dispatch tool would
+;; silently ignore it (an unrecognised key on the JS args object), so a
+;; replay of a recorded epoch with an active `:interceptor-overrides`
 ;; would replay under a DIFFERENT effective chain than the original run —
 ;; the exact silent divergence Tool-Pair §Replay forbids. The headline
-;; regression test below is RED against pre-fix: the emitted opts map
-;; would be missing `:interceptor-overrides` entirely.
+;; regression test below goes RED if the emitted opts map is missing
+;; `:interceptor-overrides`.
 ;; ---------------------------------------------------------------------------
 
 (deftest interceptor-overrides-threaded-into-opts
   ;; The headline wire-shape case: a bare colon-tolerant keyword ref key/
   ;; value pair threads into the emitted opts under `:interceptor-overrides`
   ;; as coerced keyword refs — the `:interceptor-overrides` sibling of the
-  ;; existing `:fx-overrides` wire contract.
+  ;; `:fx-overrides` wire contract.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 1 :db-changed? false
@@ -1649,7 +1649,7 @@
                  (done))))))
 
 (deftest replay-resupplies-recorded-fx-and-interceptor-overrides
-  ;; THE HEADLINE REGRESSION TEST (rf2-m7x0qb). A strict replay is
+  ;; THE HEADLINE REGRESSION TEST. A strict replay is
   ;; faithful only when the recorded envelope's OWN `:fx-overrides` /
   ;; `:interceptor-overrides` ride along with `:rf.cofx` +
   ;; `:rf.cofx/mint-policy :strict` — per Tool-Pair §Replay's
@@ -1685,12 +1685,12 @@
                          "the recorded :fx-overrides re-supplies alongside :rf.cofx")
                      (is (= {:audit/record-event nil} (:interceptor-overrides opts))
                          (str "the recorded :interceptor-overrides re-supplies alongside :rf.cofx — "
-                              "PRE-FIX this key was silently absent, replaying under a DIFFERENT "
+                              "without it the replay would run under a DIFFERENT "
                               "effective interceptor chain than the original run")))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:rf/fn-override` sentinel fail-loud (rf2-m7x0qb / Tool-Pair §Replay). A
+;; `:rf/fn-override` sentinel fail-loud (Tool-Pair §Replay). A
 ;; recorded `:fx-overrides` entry carrying the opaque marker (a fn-valued
 ;; override the router could not serialize) makes the run UNREPLAYABLE
 ;; under :strict. The dispatch tool MUST refuse rather than re-supplying
@@ -1714,22 +1714,22 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-j2wz — the parsed event reaches the runtime as DATA.
+;; The parsed event reaches the runtime as DATA.
 ;;
 ;; `parse-event-arg`'s vector check stops a whole host form at the door, and
 ;; its docstring says why: the payload must be data, never source. But the
-;; check is on the OUTER shape only, and what got past it was emitted with
-;; `pr-str` — which renders a value as source rather than quoting it. So an
-;; event whose payload contained a list or a symbol changed meaning on the
-;; way to the handler, and one shaped like the emitter's own IR was spliced
-;; in as raw source outright. Both happen while the runtime call is being
-;; CONSTRUCTED, ahead of anything the dispatch fn validates, and both are
-;; reachable with `eval-cljs` disabled — the narrow explicit boundary the
-;; parser's own docstring draws.
+;; check is on the OUTER shape only, so what gets past it must be quoted
+;; rather than emitted with `pr-str` — which renders a value as source.
+;; Printed, an event whose payload contained a list or a symbol would change
+;; meaning on the way to the handler, and one shaped like the emitter's own
+;; IR would be spliced in as raw source outright. Both would happen while
+;; the runtime call is being CONSTRUCTED, ahead of anything the dispatch fn
+;; validates, and both would be reachable with `eval-cljs` disabled — the
+;; narrow explicit boundary the parser's own docstring draws.
 ;;
 ;; These deftests read the emitted argument through `quoted-datum`, which
-;; asks what the form EVALUATES to rather than what it prints as. The old
-;; read-back-as-EDN assertions could not see the defect at all: `pr-str`'d
+;; asks what the form EVALUATES to rather than what it prints as. A
+;; read-back-as-EDN assertion cannot see the defect at all: `pr-str`'d
 ;; source and quoted data read back identically as EDN, and only evaluation
 ;; tells them apart.
 ;; ---------------------------------------------------------------------------
@@ -1748,7 +1748,7 @@
                    (is (= [:cart/add '(inc 41)] (quoted-datum (event-arg captured)))
                        "the nested list reaches the runtime as a list")
                    (is (not (str/includes? @captured "dispatch-consequence! [:cart/add"))
-                       "the event no longer rides as a bare unquoted literal")
+                       "the event does not ride as a bare unquoted literal")
                    (done)))))))
 
 (deftest event-payload-symbols-are-not-resolved-before-dispatch
@@ -1766,7 +1766,7 @@
 
 (deftest emitter-shaped-event-payload-is-not-spliced-as-source
   ;; The strongest witness: a payload wearing the emitter's own `::raw` tag.
-  ;; Unquoted, `emit` recognised it as IR and inlined its string in the
+  ;; Unquoted, `emit` would recognise it as IR and inline its string in the
   ;; runtime call's argument position, replacing the event outright — an
   ;; arbitrary-source request through the data-only tool route.
   (async done
@@ -1785,14 +1785,15 @@
                        "no raw-source splice in the runtime call")
                    (done)))))))
 
-;; rf2-fzbj.6 — the OPTS map beside the event carries caller EDN too.
+;; The OPTS map beside the event carries caller EDN too, so it is quoted
+;; like the event.
 ;;
-;; rf2-j2wz quoted the event and left the opts map printing, and the opts
-;; map is where the scripted coeffects ride. So a `cofx "{:review/fact
-;; (inc 41)}"` reached the router as `{:review/fact 42}` — the replay ran
-;; on a DIFFERENT causal fact from the one scripted, which is precisely
-;; the determinism a recorded cofx exists to provide. Same mechanism for
-;; a parameterised `:interceptor-overrides` value.
+;; The opts map is where the scripted coeffects ride. Printed rather than
+;; quoted, a `cofx "{:review/fact (inc 41)}"` would reach the router as
+;; `{:review/fact 42}` — the replay would run on a DIFFERENT causal fact
+;; from the one scripted, which is precisely the determinism a recorded
+;; cofx exists to provide. Same mechanism for a parameterised
+;; `:interceptor-overrides` value.
 
 (deftest cofx-fact-lists-are-not-evaluated-before-dispatch
   (async done
