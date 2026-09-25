@@ -1,7 +1,6 @@
 (ns day8.re-frame2-xray.panels.event.event-status-colour
   "Event-lifecycle status colour — the canonical TanStack-style pure fn
-  that maps an event-bundle's lifecycle state to a single palette token
-  (rf2-b76v4, parent rf2-vtd5z).
+  that maps an event-bundle's lifecycle state to a single palette token.
 
   ## Why this lives in `panels/event/`
 
@@ -9,28 +8,20 @@
   `getQueryStatusColor(fetchStatus, observerCount, isStale)` → colour-key
   pure fn. Sidebar dots, row backgrounds, badges, and tab counters all
   consume the SAME fn so the devtool carries ONE lifecycle vocabulary
-  end-to-end. Pre-rf2-b76v4 Xray rolled its own colour decision at every
-  consumer site:
+  end-to-end; a colour decision rolled at each consumer site would split
+  that vocabulary.
 
-    - `shell/event-row` switched bg/border on `focused?` + `ungrouped?`
-      with no notion of error/warning/in-flight at the row level.
-    - `panels/event-detail/outcome-colour` mapped `:ok` / `:error` /
-      `:warning` onto green / red / yellow at the Event header dot.
-    - `panels/trace` had no per-row event-bundle-status surface — every
-      trace row in the focused event-bundle rendered with the same neutral
-      chrome regardless of the event-bundle's terminal state.
-
-  This ns is the new central map. The hex-resolution wrapper
-  `event-status-colour` is the one fn three call sites consume; the
-  pure `classify-status` + `status->token` data layer underneath stays
+  This ns is the central map. The hex-resolution wrapper
+  `event-status-colour` is the fn call sites consume; the pure
+  `classify-status` + `status->token` data layer underneath is
   JVM-portable so the lifecycle vocabulary is testable from
   `clojure -M:test` without a CLJS runtime.
 
   ## Lifecycle vocabulary
 
   Five canonical states the devtool surfaces (mirroring the TanStack
-  semantic anchors; the colour anchors are chosen from the existing
-  Xray palette so no new tokens are introduced):
+  semantic anchors; the colour anchors are Xray palette tokens, so the
+  vocabulary adds no tokens of its own):
 
       Status            Token            When
       ----------------  ---------------  -----------------------
@@ -72,8 +63,8 @@
 
   The Token column names a key of `theme/tokens`. Each theme's hex for
   it lives in `tokens.cljc`'s `dark-palette` / `light-palette`, and
-  this table deliberately keeps no copy: the one it had drifted, listing
-  `:yellow` as `#FBBF24`, a value in neither palette.
+  this table deliberately keeps no copy, because a copy drifts from the
+  palettes.
 
   ## Input shape
 
@@ -82,16 +73,15 @@
   as falsey / unknown. Callers project off whatever they have:
 
       {:outcome      :ok | :error | :warning | nil
-                                  ;; from `event-detail/event-bundle-outcome`
+                                  ;; from `event-bundle-outcome`
        :focused?     <bool>       ;; spine focus is on this event-bundle
        :paused?      <bool>       ;; spine :paused? slot
        :mode         :live | :retro
        :in-flight?   <bool>       ;; event-bundle dispatched but no terminal
-                                  ;; trace yet (rare in Xray today —
+                                  ;; trace yet (rare in Xray —
                                   ;; event-bundles are buffer-projected after
                                   ;; settle — but the slot is reserved
-                                  ;; for the live in-progress surface a
-                                  ;; follow-on bead will wire up)
+                                  ;; for a live in-progress surface)
        :stale?       <bool>}      ;; explicit replayed-from-history flag
 
   ## Mapping precedence
@@ -110,13 +100,12 @@
     - `:warning` outcomes resolve to `:settled-success`. The warning
       glyph (`⚠`) ALREADY carries the warning signal at the Event
       header glyph slot; the status colour reads the row as 'settled'
-      rather than re-amplifying the warning. (`outcome-colour` in
-      event-detail still uses yellow for the glyph itself; this fn
-      drives the broader row/header status, which the user reads
-      AS WELL AS the glyph.)
+      rather than re-amplifying the warning. (This fn drives the
+      broader row/header status, which the user reads AS WELL AS the
+      glyph.)
     - `:error` always wins over `:stale` so a RETRO-replayed errored
-      event-bundle still surfaces as red.
-    - `:focused?` is captured by the caller's existing focus chrome
+      event-bundle surfaces as red.
+    - `:focused?` is captured by the caller's focus chrome
       (bg-active, cyan border in `event-row`); the status fn does NOT
       override the focus highlight — both can coexist in the row's
       style map.
@@ -190,29 +179,24 @@
   routing through `status->token` + `theme/tokens` so the palette
   has exactly one source of truth.
 
-  This is the ONE fn three call sites consume:
-
-    - `shell/event-row`     — L2 row left-border accent + dim bg tint
-    - `event-detail/Panel`  — Event L4 header status dot + label
-    - `panels/trace`        — per-row left-edge stripe when the row's
-                              parent dispatch-id is in the focused
-                              event-bundle
+  Its call site is `panels/trace`'s `event-bundle-status-bar` — the 3px
+  bar above the arc, filled with the focused event-bundle's status
+  colour.
 
   Pure data → string; JVM-runnable."
   [state]
   (get tokens/tokens (event-status-token state) (:accent tokens/tokens)))
 
-;; ---- event-bundle-outcome (relocated from event_detail.cljs · rf2-5gl5r) ----
+;; ---- event-bundle-outcome -------------------------------------------------
 ;;
 ;; Pure-data classifier: project an event-bundle's `:other` bucket onto the
-;; outcome triad `:ok | :error | :warning`. Originally a private helper
-;; in the retired event-detail panel; the trace panel's
+;; outcome triad `:ok | :error | :warning`. The trace panel's
 ;; `event-bundle-status-bar` reads it via `event-bundle->state` (below), and the
-;; existing JVM test corpus targets it directly. Lifted into the
+;; JVM test corpus targets it directly. It lives in the
 ;; event-status-colour ns alongside `event-bundle->state` because the two
 ;; are co-consumed (the typical call shape is `(event-bundle->state event-bundle
-;; focus event-bundle-outcome)`) — keeping them in the same place removes
-;; the dependency-injection indirection the prior cross-ns split forced.
+;; focus event-bundle-outcome)`) — keeping them in the same place avoids
+;; a dependency-injection indirection across namespaces.
 
 (defn- error-trace?
   "True iff `ev` is an error trace — classified by the universal
@@ -254,13 +238,13 @@
        :dispatch-id <int>
        :ssr?        <bool>}        ;; true when this was an SSR-hydration event-bundle
 
-  Pure data → data. JVM-portable. Relocated from the retired
-  event-detail panel (rf2-5gl5r); the trace panel's event-bundle-status-bar
-  is the surviving consumer alongside the JVM unit-test corpus."
+  Pure data → data. JVM-portable. The trace panel's
+  event-bundle-status-bar and `filters/error-override` consume it, as
+  does the JVM unit-test corpus."
   [{:keys [event handler dispatch-id] :as event-bundle}]
   (let [event-id    (when (vector? event) (first event))
-        ;; rf2-3x7nj.22.5 — `:rf.event/run-end` stamps `:rf.event/elapsed-ms`;
-        ;; `:duration-ms` is the legacy fallback only.
+        ;; `:rf.event/run-end` stamps `:rf.event/elapsed-ms`;
+        ;; `:duration-ms` is a fallback only.
         duration-ms (or (get-in handler [:tags :rf.event/elapsed-ms])
                         (get-in handler [:tags :duration-ms]))
         ssr?        (or (= :rf.ssr/hydrated event-id)
@@ -291,18 +275,16 @@
                       it (e.g. JVM unit tests building the state map by
                       hand)
   - `outcome-fn`    — a fn `(event-bundle) -> :ok|:error|:warning`. Default
-                      `event-bundle-outcome` (above). The injection seam
-                      survives from the pre-rf2-5gl5r era where this
-                      ns deliberately avoided a circular dep on
-                      `panels/event-detail`; with that panel retired,
-                      the default behaviour is the common path.
+                      `event-bundle-outcome` (above), the common path;
+                      the seam lets a caller substitute its own
+                      classifier.
 
   Pure data → map; JVM-runnable."
   ([event-bundle focus]
    (event-bundle->state event-bundle focus event-bundle-outcome))
   ([event-bundle focus outcome-fn]
   (let [outcome   (some-> event-bundle outcome-fn :outcome)
-        ;; rf2-bz7flo — frame-strict focused? check. Dispatch ids are unique
+        ;; Frame-strict focused? check. Dispatch ids are unique
         ;; only WITHIN a frame, so when a multi-frame caller renders two
         ;; same-id event-bundles from different frames, a dispatch-id-only match
         ;; would mark BOTH focused/paused/stale. When both the event-bundle and
