@@ -1198,59 +1198,54 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        # rf2-6r9j.108 — NO template_expensive arm here, for schemas or for
-        # any other per-feature artefact. rf2-jdj17.1 armed it for
-        # implementation/schemas/* because the then-current scaffold's
-        # events.cljs side-loaded re-frame.schemas and its schema.cljs called
-        # rf/reg-app-schema. rf2-zq34m (18b9486664) deleted both, and
-        # `template_test.clj` FORBIDS `day8/re-frame2-schemas` in an emitted
-        # deps.edn and the strings `re-frame.schemas` / `reg-app-schema` in
-        # any emitted text file, so the generated `:app` has no DIRECT edge
-        # to a per-feature artefact. The emission's `:dev` build does reach
-        # some of them TRANSITIVELY, through Story's deps graph into Xray's
-        # (rf2-1bkoc); that path is left to the nightly `Template emitted-app
-        # smoke` by ruling (rf2-3x7nj.37.1), and Story/Xray's own src and
+        # NO template_expensive arm here, for schemas or for
+        # any other per-feature artefact. `template_test.clj` FORBIDS
+        # `day8/re-frame2-schemas` in an emitted deps.edn and the strings
+        # `re-frame.schemas` / `reg-app-schema` in any emitted text file, so
+        # the generated `:app` has no DIRECT edge to a per-feature artefact.
+        # The emission's `:dev` build does reach some of them TRANSITIVELY,
+        # through Story's deps graph into Xray's; that path is left to the
+        # nightly `Template emitted-app smoke`, and Story/Xray's own src and
         # deps.edn arm jvm-tools-template (~5.5-7.3 min) in their case below.
         # schemas keeps every lane of its own above — implementation_jvm,
-        # cljs_node_test, cljs_browser, cljs_prod, bundle_isolation. Re-add an
+        # cljs_node_test, cljs_browser, cljs_prod, bundle_isolation. Add an
         # arm here only WITH a real emitted dependency and a fixture that
         # compiles it.
-        # (epoch has its own case above, rf2-ribu5a.)
-        # rf2-2h1yhk / rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN
+        # (epoch has its own case above.)
+        # The docs/cljs live-cell SCI bundle BAKES IN
         # the machines and flows artefacts (`re-frame.machines` +
         # `re-frame.flows` are :require'd at bundle init, and the bundle carries
-        # the reserved :rf.machine/* lifecycle keywords). rf2-tzy13 retired the
-        # COMMITTED bundle — it is generated in CI and on docs deploy now — so
-        # this arm no longer guards a snapshot against staleness. What it guards
-        # instead is composition: a reserved-keyword rename or a late-bind hook
-        # change here can make the bundle fail to build, or build and then throw
-        # at render, and tools-playground is the PR-time proof that it still
-        # builds + renders live under headless Chromium. flows was omitted
-        # before (rf2-nyjml finding) even though it is in the require graph and
-        # in the digest roster; it fires now.
+        # the reserved :rf.machine/* lifecycle keywords). The bundle is not
+        # committed — it is generated in CI and on docs deploy — so this arm
+        # guards composition rather than a snapshot: a reserved-keyword rename
+        # or a late-bind hook change here can make the bundle fail to build,
+        # or build and then throw at render, and tools-playground is the
+        # PR-time proof that it builds + renders live under headless Chromium.
+        # Both are in the require graph and in the digest roster, so both fire.
         case "$file" in
           implementation/machines/*|implementation/flows/*) playground=true ;;
         esac
-        # rf2-wq17m (audit reopen of #7005) — the engine half of the
+        # The engine half of the
         # machines-viz parity ratchet. tools/machines-viz/deps.edn declares a
         # TEST-ONLY :local/root on implementation/machines precisely so
         # engine_grammar_parity_test.cljc can feed representative definitions
         # through BOTH the viz mirror and the engine and assert equal output:
-        # catching ENGINE-side drift is the suite's reason to exist. Yet the
-        # only lane that runs it is jvm-tools-machines-viz — neither CLJS
-        # selector reaches the namespace (`-test`, not `cljs-test$` or
-        # `-dom-cljs-test$`) — and an engine-only diff left that output false.
-        # So a grammar change could merge with its designated drift gate
-        # skipped. Scoped to the one artefact on the other end of the declared
-        # edge; the sibling per-feature trees have no such consumer.
+        # catching ENGINE-side drift is the suite's reason to exist. The
+        # only JVM lane that runs it is jvm-tools-machines-viz — neither
+        # consolidated CLJS selector reaches the namespace (`-test`, not
+        # `cljs-test$` or `-dom-cljs-test$`) — so without this arm an
+        # engine-only diff would leave that output false, and a grammar change
+        # could merge with its designated drift gate skipped. Scoped to the one
+        # artefact on the other end of the declared edge; the sibling
+        # per-feature trees have no such consumer.
         case "$file" in
           implementation/machines/*)
             tools_jvm_machines_viz=true
-            # rf2-odlm3 — the parity ratchet runs in BOTH runtimes now, so an
+            # The parity ratchet runs in BOTH runtimes, so an
             # engine change must schedule both of its lanes.
             tools_cljs_machines_viz=true ;;
         esac
-        # rf2-01dix — the HTTP wire-vocabulary false-green. Two JVM suites under
+        # The HTTP wire-vocabulary edge. Two JVM suites under
         # tools/mcp-conformance/wire-vocab READ HTTP SOURCE AS TEXT and pin the
         # MCP-visible vocabulary emitted in it: trace_catalogue_lint_test.clj
         # rosters both re_frame/http/registry.cljc and re_frame/http/
@@ -1264,30 +1259,31 @@ else
         #
         # The only job that runs those suites is mcp-conformance-wire-vocab,
         # gated on `mcp_conformance`. Folded into the per-feature bucket above,
-        # an HTTP source change set neither it nor mcp_live — so a diff that
-        # renamed a pinned reply-envelope key in the very file these suites read
-        # merged GREEN at PR time with its designated gate SKIPPED. Same shape
-        # as the epoch case above (rf2-ribu5a), reached by a text read rather
-        # than a classpath edge, which is why no dependency graph would find it.
+        # an HTTP source change would set neither it nor mcp_live — so a diff
+        # that renamed a pinned reply-envelope key in the very file these
+        # suites read would merge GREEN at PR time with its designated gate
+        # SKIPPED. Same shape as the epoch case above, reached by a text read
+        # rather than a classpath edge, which is why no dependency graph would
+        # find it.
         #
         # SCOPED TWO WAYS, and both halves are load-bearing. Narrowed to
         # `src/*`: the suites read source TEXT, so arming the whole tree would
         # queue four MCP jobs to grade nothing for the artefact's entire test
         # tree and for its deps.edn. And NOT narrowed to the
         # two rostered files: an enumeration here would be a second copy of a
-        # roster that already lives in the suites, free to drift the moment a
+        # roster that lives in the suites, free to drift the moment a
         # third HTTP source file emits the vocabulary — and it would drift in
         # the REASSURING direction, the missing row being a skipped gate rather
         # than a red one. `mcp_live` stays OFF: that is epoch's, for a live
         # fixture :local/root this artefact has no part in.
         #
-        # rf2-17a0v — THE REMAINDER, AND IT IS DECIDED PER TREE. The suites'
+        # THE REST OF THE ROSTER, DECIDED PER TREE. The suites'
         # roster is TWELVE implementation files rather than two: the same
         # `read-source` path reaches five under implementation/machines/src and
         # four under implementation/resources/src. Two of the resources entries
         # —  implementation/resources/src/re_frame/resources/events.cljc and
         # implementation/resources/src/re_frame/resources/state.cljc — arrive
-        # through a THIRD suite the rf2-01dix work never saw,
+        # through a THIRD suite,
         # tools/mcp-conformance/wire-vocab/test/re_frame/mcp_conformance/infinite_trace_ops_test.clj,
         # which pins the four EP-0021 `:rf.resource/*` ops and the loud-merge
         # error as DATA in them. Both trees join HTTP on the same `src/*`
@@ -1297,26 +1293,26 @@ else
         # `:rf.reply/*` occurrences than any rostered file in that tree, and
         # resources likewise carries
         # implementation/resources/src/re_frame/resources/reply.cljc — so the
-        # suites' roster already trails the emitters and an enumeration here
+        # suites' roster trails the emitters and an enumeration here
         # would drift on the next one.
         #
         # AND implementation/routing/src IS DELIBERATELY NOT ARMED, though
         # reply_envelope_test.clj does roster
         # implementation/routing/src/re_frame/routing/nav_token.cljc. Measured
-        # rather than reasoned. That suite's positive pin is `some` ACROSS its
-        # four emit sources, so a routing-confined rename cannot red it while
-        # the HTTP file still carries the literal — the wire-vocab suite ran
-        # GREEN against exactly that plant. The one assertion a routing-only
-        # diff CAN red is the per-file near-miss anti-pin, and
+        # rather than reasoned, with a planted routing-confined rename. That
+        # suite's positive pin is `some` ACROSS its four emit sources, so the
+        # rename cannot red it while the HTTP file carries the literal — the
+        # wire-vocab suite stays GREEN against that plant. The one assertion a
+        # routing-only diff CAN red is the per-file near-miss anti-pin, and
         # implementation/routing/test/re_frame/routing_nav_token_test.clj reds
         # on that same plant — inside implementation_jvm, which a routing/src
-        # diff already arms. Confirmed on the weakest key too
+        # diff arms anyway. The same holds on the weakest key
         # (`:rf.reply/carried`, named once there against nine for work-id):
-        # still red. So arming routing would buy four MCP jobs and no
-        # discrimination the already-armed lane lacks. The machines and
-        # resources plants ran the OTHER way — their own artefact suites stayed
-        # green with counts identical to baseline while wire-vocab went red —
-        # which is why those two ARE armed and this one is not. Revisit if
+        # red. So arming routing would buy four MCP jobs and no
+        # discrimination the armed lane lacks. The machines and resources
+        # plants go the OTHER way — their own artefact suites stay green with
+        # counts identical to baseline while wire-vocab goes red — which is
+        # why those two ARE armed and this one is not. Revisit if
         # routing grows a second reply-envelope emitter, or if
         # routing_nav_token_test.clj stops asserting these keys.
         case "$file" in
@@ -1325,20 +1321,16 @@ else
         esac
         ;;
       implementation/fresco/*)
-        # rf2-8a6s — the Fresco view substrate artefact (rf2-hic-001).
-        # The package landed with no case here at all, so a fresco-ONLY
-        # diff classified to NOTHING: every output false, every job
-        # skipped, green. TESTING.md §Changed-surface classifier names
-        # that exact shape — a new artefact directory needs a classifier
-        # rule AND a workflow gate reading it, and either side missing is
-        # a silent hole. This is the rule half; the `cljs` job's two
-        # fresco steps are the gate half.
+        # The Fresco view substrate artefact.
+        # Without a case here a fresco-ONLY diff would classify to
+        # NOTHING: every output false, every job skipped, green.
+        # TESTING.md §Changed-surface classifier names that exact shape —
+        # a new artefact directory needs a classifier rule AND a workflow
+        # gate reading it, and either side missing is a silent hole. This
+        # is the rule half; the `cljs` job's two fresco steps are the gate
+        # half.
         #
-        # ONE output, deliberately, and NOT the four the retired
-        # `implementation/freehand/*` case used to set. That case went with
-        # its tree (rf2-0yp7w) and no freehand arm survives here. The
-        # artefact's coverage today is exactly what `cljs_node_test`
-        # schedules:
+        # `cljs_node_test` first. What it schedules for the artefact:
         #
         #   - the package smoke `re-frame.fresco.smoke-cljs-test`, which
         #     rides the consolidated `:node-test` build (fresco/src +
@@ -1346,28 +1338,18 @@ else
         #     matches that build's `cljs-test$` regexp) in the `cljs` job;
         #   - the INVARIANTS GATE, `npm run test:fresco-invariants`, a step
         #     of that same job — the optional-module reachability check (which
-        #     since rf2-6c12m.1 also carries the no-bench-import row the
-        #     retired freeze gate used to seal), the budget ledger, the facade
-        #     inventory and the guide-samples check;
-        #   - the modules compile (`test:fresco-compile`), already an
+        #     also carries the no-bench-import row), the budget ledger, the
+        #     facade inventory and the guide-samples check;
+        #   - the modules compile (`test:fresco-compile`), an
         #     unconditional step there.
         #
-        # NOT implementation_jvm — AND THE OLD REASON HAS EXPIRED, so it
-        # is worth being exact about the new one. This row used to read
-        # "every suite it owns is CLJS; its `:test` alias is a classpath
-        # probe with `--probe`; it is deliberately absent from
-        # scripts/test-jvm-implementation.sh's roster. Arm this the same
-        # commit a JVM-runnable suite lands and the roster gains the row."
-        # rf2-0yp7w re-homed the bench harness here, which brought the
-        # `.cljc` equivalence pin for the canonical slot rule (rf2-ani6y) —
-        # now `test/re_frame/fresco/slot_cljs_test.cljc`, retargeted into
-        # the package when the harness moved out again (rf2-6c12m.1) — so
-        # the alias dropped `--probe` and took the test-count floor, and
-        # rf2-ipx7h put the artefact ON that roster with a required
-        # `jvm-fresco` job.
-        #
-        # The row survives because that job is UNCONDITIONAL, so it needs
-        # no arm, and because arming this root would be wrong twice over:
+        # NOT implementation_jvm. The artefact's JVM suite — the `.cljc`
+        # equivalence pin for the canonical slot rule,
+        # `test/re_frame/fresco/slot_cljs_test.cljc`, behind a `:test` alias
+        # with a test-count floor — runs in the required `jvm-fresco` job on
+        # scripts/test-jvm-implementation.sh's roster. That job is
+        # UNCONDITIONAL, so it needs no arm, and arming this root would be
+        # wrong twice over:
         # 22 OTHER jobs read `implementation_jvm`, so a fresco-only diff
         # would schedule all of them to run one five-second one-namespace
         # lane; and the arm would still not cover the lane's own inputs —
@@ -1380,35 +1362,25 @@ else
         # `-elision-prod-test$` namespace and no example resolves the
         # artefact.
         cljs_node_test=true
-        # rf2-8a6s — cljs_browser, AND THE CONDITION FOR IT HAS NOW BEEN
-        # MET. This arm originally read "NOT cljs_browser … the package
-        # owns no `-dom-cljs-test$` namespace, so arming it would
-        # schedule a Playwright job that runs not one line of the changed
-        # surface. Widen the moment a `*-dom-cljs-test` namespace lands."
-        # Three have landed — kernel_commit_owns, roots_frames_hydration
-        # and roots_frames_isolation, under implementation/fresco/test/
-        # (rf2-hic-010, rf2-hic-012) — so the narrowing expired and this
-        # is the widening it asked for.
+        # cljs_browser: the package owns `-dom-cljs-test` namespaces under
+        # implementation/fresco/test/, and only the browser lane mounts them.
         #
-        # The failure it closes wore a GREEN BADGE, which is why it is
-        # worth spelling out. `:browser-test` selects `.*-dom-cljs-test$`
-        # (it carried a leading `(?!re-frame\.freehand\.bench\.)` exclusion
-        # until that tree went under rf2-0yp7w), so those three namespaces
-        # are already IN the browser lane; the lane just
-        # never ran on a diff that touched them. The consolidated node
-        # build compiles the same namespaces, and each DOM row there
-        # reports a STATED GREEN SKIP — so the surface reported success
+        # The failure it closes wears a GREEN BADGE, which is why it is
+        # worth spelling out. `:browser-test` selects `.*-dom-cljs-test$`,
+        # so those namespaces are IN the browser lane; without this arm the
+        # lane would never run on a diff that touched them. The consolidated
+        # node build compiles the same namespaces, and each DOM row there
+        # reports a STATED GREEN SKIP — so the surface would report success
         # having executed none of its DOM assertions. An unclassified
         # surface at least fails loudly the first time somebody looks;
-        # this one did not.
+        # this one would not.
         #
-        # This ADDS to the node arm rather than replacing it. Both still
+        # This ADDS to the node arm rather than replacing it. Both
         # matter and they cover different things: `cljs_node_test` is the
         # only output that schedules the package smoke and the invariants
         # gate, neither of which the browser lane runs.
         cljs_browser=true
-        # rf2-ga8m — and, since the three-engine controlled-input gate
-        # landed (rf2-hic-016), `fresco_controlled`. That gate compiles
+        # `fresco_controlled`, the three-engine controlled-input gate. That gate compiles
         # the `:fresco/testbed` build off THIS tree — the testbed app
         # and `fresco/testbed/spec.cjs` both live under it — and drives
         # the package's element-path converge in Chromium, Firefox and
@@ -1421,8 +1393,8 @@ else
         # green under regressions these rows catch. A fresco diff that
         # did not run it would be relying on the weaker witness.
         fresco_controlled=true
-        # rf2-hic-015 — and, since the HMR witness matrix landed (rf2-vsgq),
-        # `fresco_hmr`. That gate compiles the `:fresco/hmr-testbed` build
+        # `fresco_hmr`, the HMR witness matrix. That gate compiles the
+        # `:fresco/hmr-testbed` build
         # off THIS tree — the testbed app under fresco/testbed/
         # fresco_hmr_testbed/, the page under fresco/testbed/hmr/ and
         # `fresco/testbed/hmr_spec.cjs` all live here — then starts a REAL
@@ -1430,7 +1402,7 @@ else
         # recompile, push the module and re-evaluate it.
         #
         # It is the only lane in the repo that witnesses the reload itself,
-        # and the distinction it holds is the one the #7755 audit named: the
+        # and the distinction it holds is this: the
         # package's Node HMR suites call `collector/mint-view!` directly and
         # drive the commit and release seams by hand, so they can catch
         # neither drift between the `defview` macro and a real shadow reload
@@ -1439,31 +1411,27 @@ else
         # this arm, so a fresco diff that skipped it would be resting the
         # whole HMR contract on the seam-driven witness.
         fresco_hmr=true
-        # rf2-erjv — migration_fresco_codemod, the reverse edge into the
-        # codemod's JVM lane. It landed here as the SECOND of two such edges,
-        # the first being a classpath one on the then-live
-        # `implementation/freehand/*` arm; rf2-r4j91 moved that one here as
-        # well, so this arm carries BOTH — and the freehand arm itself went
-        # with its tree under rf2-0yp7w.
+        # migration_fresco_codemod, the reverse edge into the
+        # codemod's JVM lane. This arm carries TWO such edges.
         #
         # The classpath edge: the codemod's deps.edn puts
         # `../../../implementation/fresco/src` on `:paths` so the tool and the
-        # door share ONE slot rule (rf2-ani6y, repointed off the retiring
-        # prototype by rf2-r4j91), and `shared_rule_test.clj` pins the tool's
+        # door share ONE slot rule, and `shared_rule_test.clj` pins the tool's
         # resolver and `impl/slot.cljc`'s `prop-name` `identical?` — plus the
         # file's own path, so a rule loaded from anywhere else reds rather than
         # passing on a byte-identical twin.
         #
-        # The source-text edge, which is why this arm existed first.
+        # The source-text edge.
         # `shared_rule_test.clj`'s `the-callback-contracts-are-the-doors`
-        # (rf2-vi11) reaches back up the tree with a relative `io/file` and
+        # reaches back up the tree with a relative `io/file` and
         # slurps `implementation/fresco/src/re_frame/fresco/impl/codec.cljs`,
         # because that roster is `.cljs` this JVM cannot load but CAN read —
         # then asserts the door's own `callback-contracts` set equals the one
         # the codemod PRINTS into the `defhost` sketch it invites a migrator to
         # paste. Add a fourth contract at the door, or rename one, and the
         # tool's advice goes wrong; that pin is the assertion that says so, and
-        # before this line it lived in a lane a fresco-only diff never ran.
+        # without this line it would live in a lane a fresco-only diff never
+        # runs.
         # The pin also asserts the file EXISTS where it looks, so a MOVE of
         # codec.cljs reds it rather than silently skipping — which is only
         # worth having if the move's own PR schedules the lane.
@@ -1476,31 +1444,24 @@ else
         migration_fresco_codemod=true
         ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*|implementation/security/*)
-        # rf2-qxg24 — `implementation/security/*` JOINED this arm, closing a
-        # contradiction the file carried with itself. The comment below already
-        # named the security tier as the PRECEDENT for omitting the browser /
-        # production / bundle gates, while two earlier, executable arms put
-        # security in the production fan-out and the examples-compile roster
-        # and thereby armed all four. Prose lost to code, silently, for as long
-        # as nobody classified a security path and read the output. All four
-        # source-less tiers now take the same route, which is what the prose
-        # said all along.
+        # All four source-less tiers take the same route, and the security
+        # tier is the precedent for omitting the browser / production /
+        # bundle gates. The four tiers are alike in the way that matters
+        # here: `:paths []`, `:deps {}`, no `src/` tree, no Maven artefact —
+        # test surfaces and nothing else.
         #
-        # The four tiers are alike in the way that matters here: `:paths []`,
-        # `:deps {}`, no `src/` tree, no Maven artefact — test surfaces on the
-        # root test classpath and nothing else.
-        #
-        # rf2-dxndhc — the three EP cross-conformance tiers
+        # The three EP cross-conformance tiers
         # (reply-conformance / derivation-conformance / event-conformance)
-        # are src-less `.cljc` TEST surfaces on the root test classpath
-        # (implementation/deps.edn + shadow-cljs.edn list them). They run
+        # are src-less `.cljc` TEST surfaces: shadow-cljs.edn puts each
+        # tier's test/ on the consolidated build's :source-paths, and each
+        # tier's own deps.edn `:test` alias runs it on the JVM. They run
         # in BOTH runtimes: the always-on consolidated `:node-test` gate
         # (the `cljs` job, gated on cljs_node_test) runs the `:cljs` arms,
         # and each tier's own `:test` alias runs the SAME `.cljc`
         # namespaces under the JVM to exercise the `:clj` reader-conditional
-        # arms (the JVM jobs added in test.yml, gated on implementation_jvm;
-        # mirrors the security tier). Before rf2-dxndhc a PR touching only
-        # one of these tiers left every output false, so the aggregator
+        # arms (test.yml's per-tier JVM jobs, gated on implementation_jvm;
+        # mirrors the security tier). Unrouted, a PR touching only
+        # one of these tiers would leave every output false, so the aggregator
         # could pass with both the JVM `:clj`-arm job AND the consolidated
         # node-test surface skipped. They ship NO production src (no Maven
         # artefact), so they do NOT widen any production bundle — hence no
@@ -1521,11 +1482,7 @@ else
         # exercised — that is the lane whose macro expansion reaches
         # shadow-cljs's recording read.
         #
-        # cljs_browser is deliberately OFF (rf2-7b1ti). It was on for the
-        # Freehand `-dom-cljs-test` fixture suites, which left with the
-        # rf2-0yp7w retirement along with the second consumer and the
-        # `jvm-freehand` lane this comment used to name — and no browser
-        # namespace replaced them. `re-frame.build.spec-resource` is
+        # cljs_browser is deliberately OFF. `re-frame.build.spec-resource` is
         # macro-side `.clj`, so a CLJS build can reach it only through a
         # macro require, and the single such path is
         # `re-frame.api-manifest.cljs-publics`. That namespace has exactly
@@ -1533,17 +1490,15 @@ else
         # and `day8.re-frame2-xray.panel-enum-guard-cljs-test` — both
         # plain `-cljs-test`, and nothing requires either of them. The
         # cljs_browser job compiles only the `:browser-test` build, whose
-        # `:ns-regexp` is `.*-dom-cljs-test$`, so it selected no namespace
-        # that expands through this reader: the lane cost a Chromium
+        # `:ns-regexp` is `.*-dom-cljs-test$`, so it selects no namespace
+        # that expands through this reader: arming it would cost a Chromium
         # install, compile and run on every spec-resource diff and could
-        # not have gone red for one.
+        # not go red for one.
         #
         # The spec-resource block in
-        # `implementation/scripts/_changed-surfaces.test.cjs` now asserts
-        # all three outputs, cljs_browser included, so re-adding it here
-        # reds that suite. Until rf2-7b1ti it asserted only the other two,
-        # which is how the expired reason survived unnoticed — a change to
-        # this arm's browser output moved nothing.
+        # `implementation/scripts/_changed-surfaces.test.cjs` asserts
+        # all three outputs, cljs_browser included, so adding it here
+        # reds that suite.
         #
         # No production bundle requires any of this (build-time only), so
         # cljs_prod / bundle_isolation stay off.
@@ -1551,15 +1506,16 @@ else
         cljs_node_test=true
         ;;
       implementation/test-quiet/src/*|implementation/test-quiet/test/*|implementation/test-quiet/deps.edn)
-        # rf2-am7grp — implementation/test-quiet is the test-runtime
-        # quiet-reporter artefact (day8/re-frame2-test-quiet, rf2-try1x):
+        # implementation/test-quiet is the test-runtime
+        # quiet-reporter artefact (day8/re-frame2-test-quiet):
         # the JVM runner (re-frame.test-quiet.runner, runner.clj — the
         # `:main-opts` of EVERY per-artefact `:test` alias) AND the CLJS
         # shadow-node runner (re-frame.test-quiet.shadow-node, the
         # `:node-test` build's `:main` in implementation/shadow-cljs.edn).
-        # Before this case the classifier had NO rule for test-quiet/**,
-        # so a PR changing the quiet reporter implementation, its runners,
-        # its deps.edn, or its contract tests left every output false — the
+        # Without this case the classifier would have NO rule for
+        # test-quiet/**, so a PR changing the quiet reporter implementation,
+        # its runners, its deps.edn, or its contract tests would leave every
+        # output false — the
         # JVM quiet-runner contract (test_quiet_runner_contract_test.clj,
         # test_quiet_pin*_test.clj) and the CLJS node-test quiet reporter
         # contract (test_quiet_shadow_node_cljs_test.cljs, the green/red
@@ -1579,7 +1535,7 @@ else
         cljs_node_test=true
         ;;
       spec/conformance/fixtures/*)
-        # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
+        # Fixtures under spec/conformance/fixtures/*.edn
         # are consumed by:
         #   - implementation/core/test/re_frame/conformance_test.clj
         #     (JVM core job, always-on)
