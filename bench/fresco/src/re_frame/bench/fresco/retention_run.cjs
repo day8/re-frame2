@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// rf2-flqpd — the retention diagnostic's driver.
+// The retention diagnostic's driver.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/retention_run.cjs
+//   node src/re_frame/bench/fresco/retention_run.cjs     (from bench/fresco/)
 //   RETENTION_SEGMENT=uix-subs RETENTION_CYCLES=8 node .../retention_run.cjs
 //   node .../retention_run.cjs --no-build      (reuse the last bundle)
 //
@@ -13,7 +13,7 @@
 // this driver, over a CDP session, in the order: collect, read, act,
 // collect, read.
 //
-// Two series, because rf2-flqpd's two candidate causes predict different
+// Two series, because the climb's two candidate causes predict different
 // shapes and one run can separate them:
 //
 //   SERIES A — SEGMENT ENTRIES, nothing mounted. `P0H.prepare(segment)`
@@ -28,18 +28,18 @@
 // ## No verdict — but every VALIDITY gate is a gate
 //
 // This prints a table. The stop/continue rulings on this programme are
-// operator-owned on rf2-2rtt6.1 and a diagnostic must never learn to
-// issue one — exit 0 means the probe RAN AND ITS READINGS ARE VALID, not
-// that the heap is clean.
+// operator-owned and a diagnostic must never learn to issue one — exit 0
+// means the probe RAN AND ITS READINGS ARE VALID, not that the heap is
+// clean.
 //
-// That distinction is not a licence to fail open, and this driver was
-// doing exactly that. The header already reserved exit 1 for "a census
-// that could not be read" and nothing implemented it: a failed census
-// positive control printed `[FAIL] the census cannot see a live
-// subscription` and then `[ret] ok`; an absent heap column printed `n/a`;
-// a census answering `:no-frame` printed the token; and in `repro` mode
-// an early `return` skipped the page-error and unverified-cycle gates
-// altogether. A count that is DISPLAYED but not GATED is decoration.
+// That distinction is not a licence to fail open. Exit 1 is reserved for
+// a reading that could not be taken, and without the gates below a failed
+// census positive control would print `[FAIL] the census cannot see a
+// live subscription` and then `[ret] ok`; an absent heap column would
+// print `n/a`; a census answering `:no-frame` would print the token; and
+// in `repro` mode an early `return` would skip the page-error and
+// unverified-cycle gates altogether. A count that is DISPLAYED but not
+// GATED is decoration.
 //
 // So the gates below are VALIDITY gates — could the instrument see what
 // it claims to have seen — and every one of them exits:
@@ -55,8 +55,8 @@
 //      the PAGE to collect — and `RETENTION_COLLECT` itself names a real
 //      collector, refused up front on a typo, because a misspelt one
 //      forces no collection and certifies uncollected heap as collected;
-//   5. the probe completed at all — `P0H.prepare` now RAISES with the
-//      failing teardown phase named, instead of swallowing it.
+//   5. the probe completed at all — `P0H.prepare` RAISES with the
+//      failing teardown phase named, rather than swallowing it.
 //
 // The reaction-WATCHERS column is deliberately NOT a gate: it is blind
 // under `:advanced` and carries no information in either direction, so it
@@ -67,9 +67,8 @@
 //
 // ## The build id
 //
-// `implementation/shadow-cljs.edn` is hot-zone. This rides rf2-2rtt6.2's
-// `:fresco-bench` with an output directory and an `:init-fn` merged in at
-// the CLI, which is the seam that lane established for exactly this.
+// This rides the lane's `:fresco-bench` with an output directory and an
+// `:init-fn` merged in at the CLI, so a driver adds no build id.
 
 'use strict';
 
@@ -78,10 +77,10 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -93,9 +92,9 @@ const INIT_FN = 're-frame.bench.fresco.retention-probe/-main';
 const PORT = Number(process.env.RETENTION_PORT || 8137);
 
 // The arm, the segment it needs, and how many roots a cycle mounts.
-// `grid/uix` and `grid/reagent` are the two the observation was made on;
+// `grid/uix` and `grid/reagent` are the two arms the climb was observed on;
 // `grid/floor` is the control that has no substrate, no subscription and
-// no re-frame state at all, and the bead records it staying flat.
+// no re-frame state at all, and it was measured staying flat.
 const SEGMENT = process.env.RETENTION_SEGMENT || 'uix-subs';
 const ARM = process.env.RETENTION_ARM || 'grid/uix';
 const CONTROL_ARM = process.env.RETENTION_CONTROL_ARM || 'grid/floor';
@@ -103,7 +102,7 @@ const CYCLES = Number(process.env.RETENTION_CYCLES || 6);
 const ROOTS = Number(process.env.RETENTION_ROOTS || 4);
 const ENTRIES = Number(process.env.RETENTION_ENTRIES || 6);
 
-// SERIES C reproduces the bead's OWN shape: six adapter-segment entries,
+// SERIES C reproduces the OBSERVED shape: six adapter-segment entries,
 // alternating substrate, ~200 mount/unmount cycles each. Six entries is
 // what produced 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB.
 const REPRO_SEGMENTS = Number(process.env.RETENTION_REPRO_SEGMENTS || 6);
@@ -114,7 +113,7 @@ const NO_BUILD = process.argv.includes('--no-build');
 
 // WHICH collector forces the reading, and it is a real question rather
 // than a knob. `window.gc({type:'major',execution:'sync'})` is V8's
-// `--expose-gc` door and is what rf2-flqpd used from inside the page;
+// `--expose-gc` door, the one a page calls on itself;
 // `HeapProfiler.collectGarbage` is the CDP door, which exists because a
 // measurement needs a collection the page cannot ask for. If the two
 // disagree, a mitigation built on the first is resting on the second.
@@ -126,13 +125,12 @@ const ONLY = process.env.RETENTION_ONLY || 'all';
 
 // THE ENUMS REFUSE A TYPO, before anything is built or measured. `collect()`
 // matches these strings and silently does NOTHING on any other, so an
-// unvalidated `RETENTION_COLLECT=bogus` performed no forced collection at
-// all while the header still printed it as the collector forcing every
-// COLLECTED reading — and the run exited 0, certifying UNCOLLECTED heap as
-// collected. Proven at the landed head with the one-cycle `repro` shape
-// (rf2-flqpd, merged-PR audit #7281). `none` stays a legal answer: asking
-// for no collector is a question this probe exists to compare, and is
-// nothing like failing to name one. `RETENTION_ONLY` is the same trap one
+// unvalidated `RETENTION_COLLECT=bogus` would perform no forced collection
+// at all while the header still printed it as the collector forcing every
+// COLLECTED reading — and the run would exit 0, certifying UNCOLLECTED
+// heap as collected. `none` is a legal answer: asking for no collector is
+// a question this probe exists to compare, and is nothing like failing to
+// name one. `RETENTION_ONLY` is the same trap one
 // door over — a typo there silently narrows the run to `repro` — so it is
 // held to the same rule.
 for (const [name, value, legal] of [
@@ -158,7 +156,7 @@ function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[ret] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[ret] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[ret] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   // `node cli/runner.js` rather than the `.cmd` shim: spawning a shim on
@@ -220,10 +218,10 @@ async function run() {
 
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('HeapProfiler.enable');
-  // A MAJOR collection, synchronously, before every reading. The bead
-  // records that this did not move the climb — which is what makes the
-  // figure RETENTION rather than garbage, and it is repeated here so this
-  // probe's numbers carry the same property.
+  // A MAJOR collection, synchronously, before every reading. One does not
+  // move the climb — which is what makes the figure RETENTION rather than
+  // garbage — and taking one before every reading gives this probe's
+  // numbers the same property.
   const collect = async () => {
     if (COLLECT === 'cdp' || COLLECT === 'both') await cdp.send('HeapProfiler.collectGarbage');
     if (COLLECT === 'page' || COLLECT === 'both') {
@@ -259,8 +257,8 @@ async function run() {
   // A reading BEFORE the collection and one AFTER it, from the same point
   // in the run. The gap between them is how much of an apparent climb is
   // GARBAGE the page had not been asked to drop — which is the one
-  // possibility rf2-flqpd ruled out by calling `gc()` from inside the
-  // page, and it is only ruled out if that `gc` existed.
+  // possibility a `gc()` called from inside the page rules out, and it is
+  // only ruled out if that `gc` exists.
   const bothCensus = async () => {
     const before = await raw();
     const after = await census();
@@ -308,12 +306,12 @@ async function run() {
 
   // --- SERIES C: THE REPRODUCTION ---------------------------------------
   //
-  // The bead's own shape and not a smaller one: SIX adapter-segment
+  // The observed shape and not a smaller one: SIX adapter-segment
   // entries, alternating substrate, each followed by ~200 mount/unmount
   // cycles against the live frame. That is the run whose heap read
   // 34 -> 46 -> 55 -> 63 -> 75 -> 87 MB. Censuses are taken at the segment
-  // seams only, which is where the observation was made and which keeps
-  // the collector out of the cycle loop.
+  // seams only, which is where that climb was read and which keeps the
+  // collector out of the cycle loop.
   const repro = [];
   const plan = [];
   for (let s = 0; s < REPRO_SEGMENTS; s += 1) {
@@ -329,10 +327,10 @@ async function run() {
   for (let s = 0; s < plan.length; s += 1) {
     const [seg, arm] = plan[s];
     await prepare(seg);
-    // EVERY cycle's verdict, not the last one. This loop used to overwrite
-    // `last` and return only the final cycle's reading, so 49 of 50 cycles
-    // could render nothing at all and the row would still print `ok` —
-    // while SERIES C's own claim is that every one of them was DOM-verified
+    // EVERY cycle's verdict, not the last one. A loop that overwrote `last`
+    // and returned only the final cycle's reading would let 49 of 50 cycles
+    // render nothing at all and the row still print `ok` — while SERIES
+    // C's own claim is that every one of them was DOM-verified
     // at 1,200 elements. A later cycle's silence must not overwrite an
     // earlier one's refusal, so the fold counts the failures and keeps the
     // FIRST one, which is the one that says when the page went wrong.
@@ -411,49 +409,48 @@ function table(title, rows, label) {
   try {
     out = await run();
   } catch (e) {
-    // NAMED, never a bare unhandled rejection. `P0H.prepare` now raises
-    // with the failing teardown phase in its message (`p0-arms/teardown!`),
-    // and that message is the whole point of the repair — losing it to
-    // Node's default rejection handler would put the instrument back where
-    // it started.
+    // NAMED, never a bare unhandled rejection. `P0H.prepare` raises with
+    // the failing teardown phase in its message (`p0-arms/teardown!`), and
+    // that message is the diagnosis — losing it to Node's default rejection
+    // handler would leave a failed teardown as anonymous as a swallowed one.
     console.error(`[ret] FAILED: the probe did not complete — ${e && e.stack ? e.stack : e}`);
     process.exit(1);
   } finally {
     server.close();
   }
 
-  console.log(';; ==== RETENTION DIAGNOSTIC (rf2-flqpd) ====');
+  console.log(';; ==== RETENTION DIAGNOSTIC ====');
   console.log(`;; chromium ${out.version} (playwright), :advanced, goog.DEBUG false`);
   console.log(`;; segment ${SEGMENT}; arm ${ARM}; control ${CONTROL_ARM};`);
   console.log(`;; ${ROOTS} roots per cycle, ${CYCLES} cycles, ${ENTRIES} bare segment entries`);
   console.log(`;; collector forcing every COLLECTED reading: ${COLLECT}`);
   console.log(';; every reading follows a forced MAJOR collection, so every figure is RETAINED');
-  console.log(';; THIS PRINTS NO VERDICT. Rows are operator-owned on rf2-2rtt6.1.');
+  console.log(';; THIS PRINTS NO VERDICT. Rows are operator-owned.');
 
   table('SERIES A — bare segment entries, nothing mounted', out.entries, 'entry');
   table(`SERIES B — mount/unmount cycles, arm ${ARM}`, out.armRows, 'cycle');
   table(`SERIES B — mount/unmount cycles, CONTROL ${CONTROL_ARM}`, out.controlRows, 'cycle');
   table(
-    `SERIES C — the bead's own shape: ${REPRO_SEGMENTS} segment entries x ` +
+    `SERIES C — the observed shape: ${REPRO_SEGMENTS} segment entries x ` +
       `${REPRO_CYCLES} cycles x ${REPRO_ROOTS} roots`,
     out.repro,
     'segment'
   );
 
-  // EVERY failed gate, named, in one list. This tail used to be a chain of
-  // prints with an early `return` in the middle of it: in `repro` mode the
-  // driver returned before it had looked at the page errors or the
-  // unverified cycles at all, and a failing census positive control printed
-  // `[FAIL] the census cannot see a live subscription` and then exited 0
-  // anyway. A count that is displayed but not gated is decoration.
+  // EVERY failed gate, named, in one list. A chain of prints with an early
+  // `return` in the middle of it would, in `repro` mode, return before
+  // looking at the page errors or the unverified cycles at all, and a
+  // failing census positive control would print `[FAIL] the census cannot
+  // see a live subscription` and then exit 0 anyway. A count that is
+  // displayed but not gated is decoration.
   //
   // WHAT THESE GATES ARE, AND WHAT THEY ARE NOT. They are VALIDITY gates —
   // they decide whether the instrument could see what it claims to have
-  // seen. They are NOT a verdict on the heap: this diagnostic still prints
-  // no ruling on whether the numbers are acceptable, because rows on this
-  // programme are operator-owned (rf2-2rtt6.1). Exit 0 means THE PROBE RAN
-  // AND ITS READINGS ARE VALID, which is a stronger claim than before and
-  // still not an operator's.
+  // seen. They are NOT a verdict on the heap: this diagnostic prints no
+  // ruling on whether the numbers are acceptable, because rows on this
+  // programme are operator-owned. Exit 0 means THE PROBE RAN AND ITS
+  // READINGS ARE VALID, which is a stronger claim than "it ran" and still
+  // not an operator's.
   const failures = [];
 
   // THE CENSUS'S OWN POSITIVE CONTROL. `MOUNTED` is read with 1,200
@@ -495,8 +492,8 @@ function table(title, rows, label) {
         : ';;     [FAIL] the census cannot see a live subscription, so its zero after release is\n' +
           ';;            not evidence of anything'
     );
-    // AND IT EXITS ON IT. This printed `[FAIL]` and then `[ret] ok` — an
-    // exact landed one-cycle run, deliberately blinded, did precisely that.
+    // AND IT EXITS ON IT. Without the exit, a deliberately blinded
+    // one-cycle run would print `[FAIL]` and then `[ret] ok`.
     // The ENTRIES column is the one with a working control and it is the
     // column the H1-is-dead conclusion rests on; a run whose control failed
     // has not earned that conclusion.
@@ -528,11 +525,11 @@ function table(title, rows, label) {
 
   // --- the readings themselves have to be READINGS ------------------------
   //
-  // The header has always said exit 1 is reserved for "a census that could
-  // not be read", and nothing implemented it: a census that answered
-  // `:no-frame`, `:no-sub-cache` or an error string printed the token in
-  // the table and passed, and a heap column of `n/a` printed `n/a` and
-  // passed. Every row of every series is checked, because a diagnostic
+  // Exit 1 is reserved for a reading that could not be taken. Without
+  // these checks a census that answered `:no-frame`, `:no-sub-cache` or an
+  // error string would print the token in the table and pass, and a heap
+  // column of `n/a` would print `n/a` and pass. Every row of every series
+  // is checked, because a diagnostic
   // whose readings are absent has measured nothing whatever its table
   // looks like.
   const allRows = [
@@ -553,8 +550,8 @@ function table(title, rows, label) {
           // baseline row has no frame yet and `:no-frame` is the truthful
           // answer there; the same token AFTER a segment entry means the
           // census is pointed at nothing. Refusing both would refuse every
-          // valid run, and refusing neither is how `:no-frame` used to
-          // print into the table and pass.
+          // valid run, and refusing neither would let `:no-frame` print
+          // into the table and pass.
           failures.push(
             `${series} row ${r.i}: the sub-cache census read ${JSON.stringify(sc.entries)} ` +
               `rather than a count, with a segment already entered — the census is ` +
