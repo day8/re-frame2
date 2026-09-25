@@ -3,19 +3,18 @@
 
   Only Buttons A and B (handler-exception, fx-handler-exception) are
   exercised here — they cover the most common error paths Xray
-  surfaces in the Issues / Trace / Event Detail panels and don't
+  surfaces and don't
   drag in `re-frame.flows` / `re-frame.machines` (which require
   additional test-runtime wiring).
 
   Tests that need the flow-exception or machine-action-exception
-  surface can extend this fixture; covering those two is out of
-  scope for the Phase 1 e2e helper (rf2-7icrs)."
+  surface can extend this fixture."
   (:require [re-frame.core :as rf]))
 
 (defn install!
   "Register the deliberate-throw subset (handler + fx categories).
   Each entry's throw site is identical to the canonical testbed so
-  the bug surface is preserved."
+  the bug surface is the same."
   []
   (rf/reg-event :deliberate-throw/initialise
     (fn [{:keys [db]} _ev]
