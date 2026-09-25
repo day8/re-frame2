@@ -6387,7 +6387,7 @@ test('the extracted improver reference arms the schemas JVM lane (rf2-g9at9)', (
   // match — and would take `skills_structural` away, turning a coverage fix
   // into a coverage loss. This pair is the verdict that catches that.
   assert.equal(armed.skills_structural, 'true',
-    `${reference} must KEEP its structural arm — the new case widens, it does not replace`);
+    `${reference} must KEEP its structural arm — the nested case widens, it does not replace`);
   for (const [key, value] of Object.entries(armed)) {
     if (key === 'implementation_jvm' || key === 'skills_structural') continue;
     assert.equal(value, 'false', `${reference} must arm those two alone, but ${key} fired`);
@@ -6399,7 +6399,7 @@ test('the extracted improver reference arms the schemas JVM lane (rf2-g9at9)', (
   // `implementation_jvm` is ever hoisted to the enclosing arm's top level,
   // which is the plausible wrong implementation this nesting exists to
   // refuse — it would queue the 22-job JVM tier for every prose file in the
-  // tree, which is the cost the bead names.
+  // tree.
   for (const file of [
     'skills/re-frame2-improver/references/imperative-effects.md',
     'skills/re-frame2-improver/SKILL.md',
@@ -6415,7 +6415,7 @@ test('the extracted improver reference arms the schemas JVM lane (rf2-g9at9)', (
 });
 
 test('the two skill-recipe lanes are still gated on implementation_jvm (rf2-8btol, rf2-g9at9)', () => {
-  // The third leg, the same one the rf2-61ar case above asserts for its own
+  // The third leg, the same one the prose-pin case above asserts for its own
   // lanes: arming an output binds nothing unless the job it arms still gates
   // on it. These are the two jobs that run the suites the recipes feed.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
@@ -6428,19 +6428,18 @@ test('the two skill-recipe lanes are still gated on implementation_jvm (rf2-8bto
   }
 });
 
-// rf2-w9ip — THE ROUTE-PATH CENSUS IS ARMED BY EVERY TREE IT READS.
+// THE ROUTE-PATH CENSUS IS ARMED BY EVERY TREE IT READS.
 //
 // `implementation/routing/test/re_frame/routing_path_census_test.clj` is a JVM
 // suite that reads three app trees named in its own `app-roots`. It runs only
-// in `jvm-routing`, which only `implementation_jvm` gates — and before this
-// bead none of the three roots armed that output, so the census could not fire
-// on a single edit it exists to police.
+// in `jvm-routing`, which only `implementation_jvm` gates — so unless every
+// root arms that output, the census cannot fire on an edit it exists to
+// police.
 //
 // The roster is DERIVED from the census source rather than restated here. That
 // is the whole point: a second hand-maintained list would be a fresh instance
-// of the defect (rf2-6ng7's class — a gate's inputs and its arming in two
-// files with nothing holding them in step), and fixing one instance by minting
-// another is not a fix. Add a root over there and this reds until the
+// of the defect (a gate's inputs and its arming in two files with nothing
+// holding them in step). Add a root over there and this reds until the
 // classifier catches up.
 
 const CENSUS_REL = 'implementation/routing/test/re_frame/routing_path_census_test.clj';
@@ -6525,12 +6524,12 @@ test('jvm-routing stays gated on implementation_jvm, or the census arm schedules
 });
 
 // ---------------------------------------------------------------------------
-// rf2-6ng7 — NON-LOCAL INPUT EDGES ARM THE JOB THAT READS THEM.
+// NON-LOCAL INPUT EDGES ARM THE JOB THAT READS THEM.
 //
-// The bounded audit this bead ruled found three more gates in the rf2-w9ip
-// shape above: a suite whose expected value IS a file somewhere else in the
-// repository, scheduled in a job that the file's own classification never
-// armed. Each is pinned here the way the census is — the roster READ OUT OF
+// Three more gates have the census shape above: a suite whose expected value
+// IS a file somewhere else in the repository, scheduled in a job that the
+// file's own classification would not otherwise arm. Each is pinned here the
+// way the census is — the roster READ OUT OF
 // the gate's own source, never restated. A restated list is a second thing to
 // keep in step, which is the defect these pins exist to catch.
 //
@@ -6580,11 +6579,11 @@ function defVectorStrings(source, defName, label) {
 
 // --- the Xray spec markdown two suites read --------------------------------
 //
-// The classifier's spec-md guard (rf2-f79t8) excused
-// `tools/{story,xray}/spec/**.md` from every probe on the premise that spec
-// prose "cannot affect any JVM unit test". Two suites under `tools/xray/test/`
-// read exactly that prose as their expected value, so for the Xray half the
-// premise was false.
+// The classifier's spec-md guard excuses `tools/{story,xray}/spec/**.md` from
+// the probes on the premise that spec prose "cannot affect any JVM unit
+// test". Two suites under `tools/xray/test/` read exactly that prose as their
+// expected value, so for the Xray files they read the premise does not hold,
+// and those files arm the lanes that run the suites.
 
 const XRAY_PANEL_REFS_REL =
   'tools/xray/test/day8/re_frame2_xray/panel_enum_spec_refs.clj';
@@ -6629,9 +6628,8 @@ test('the Xray spec files the coverage-matrix suite reads arm tools_jvm (rf2-6ng
 });
 
 test('Story spec markdown stays cheap (rf2-6ng7 negative control)', () => {
-  // The guard the Xray arm narrows is still doing its job on the other half:
-  // Story's spec prose has no counterpart reader inside test.yml, so it must
-  // still classify to nothing at all.
+  // The guard does its job on the other half: Story's spec prose has no
+  // counterpart reader inside test.yml, so it must classify to nothing at all.
   const verdicts = classify('tools/story/spec/API.md');
   for (const output of ['tools_jvm', 'cljs_node_test', 'mcp_conformance', 'template_expensive']) {
     assert.equal(
@@ -6687,8 +6685,8 @@ test('the rest of the setup skill stays off template_expensive (rf2-6ng7 negativ
 test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)', () => {
   // The third leg, the one no arming test can supply: arming an output binds
   // nothing unless the job running the suite is still gated on that output.
-  // (`jvm-ui` / `implementation_jvm` is already pinned by the rf2-61ar test
-  // above, so it is not restated here.)
+  // (`implementation_jvm` is pinned by the prose-pin test above, so it is not
+  // restated here.)
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   for (const [job, output] of [
     ['jvm-tools-xray', 'tools_jvm'],
@@ -6704,42 +6702,36 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 });
 
 // ===========================================================================
-// rf2-skvce — THE TREE-CLAIM META-CHECK.
+// THE TREE-CLAIM META-CHECK.
 //
 // Every test above this line pins ONE arm that somebody already thought to
-// write. The recurring incident in this repo is the arm nobody thought to
-// write: a NEW directory lands, classifies to nothing, and is gated by
-// nothing until an audit goes looking. Five recorded instances —
-// implementation/fresco (rf2-hic-001), both codemod trees,
-// implementation/ssr-node (rf2-n8vp, which landed in PR #8028 classifying to
-// nothing at all), and the Story feature-load gate (rf2-65ajl) — plus the
-// twelve top-level testbed builds this same patch closes under rf2-in6c4.
+// write. The failure this guards against is the arm nobody thought to write:
+// a NEW directory lands, classifies to nothing, and is gated by nothing until
+// an audit goes looking.
 //
 // WHAT THIS ASSERTS, precisely: every tracked tree either arms at least one
 // output of the classifier, or carries an entry in DECLARED_NO_SURFACE_OUTPUT
-// below. Nothing more. It does not model any gate's INPUTS — that is the
-// second hand-maintained model rf2-6ng7 rejected, and it would need per-gate
-// maintenance forever. Tree CLAIM is a far cheaper invariant with none: the
-// only thing that changes it is a tree appearing or disappearing.
+// below. Nothing more. It does not model any gate's INPUTS — that would be a
+// second hand-maintained model, needing per-gate maintenance forever. Tree
+// CLAIM is a far cheaper invariant with none: the only thing that changes it
+// is a tree appearing or disappearing.
 //
 // WHAT IT DELIBERATELY LETS THROUGH. A tree that arms SOMETHING passes, even
 // if the something is the wrong output, and even if a FILE inside it arms
 // nothing — `.github/scripts/nightly_failure_alert.py` classifies to zero on
-// its own (rf2-skvce finding N4) and this check will never say so, because
+// its own and this check will never say so, because
 // `.github/scripts` as a tree is lit by its siblings. Going file-level would
 // buy that one case and cost a nag on every README in the repository, which
 // is the trade the anti-over-engineering posture settles against. The
-// alerter's exposure is bounded by its own in-run --self-test at
-// expensive-tests.yml:648; it stays a declared file-level hole.
+// alerter's exposure is bounded by its own in-run --self-test step in
+// expensive-tests.yml; it stays a declared file-level hole.
 //
-// THAT HOLE WAS RE-PUT AND RE-DECLARED (rf2-skvce, second pass), because "we
-// chose not to" invites re-litigation while a measurement does not. Three
-// findings, all re-checked at source rather than carried forward:
+// The hole is declared rather than closed, for three reasons:
 //
-//   1. The cheap PR-time repair costs a MECHANISM, which is the signal
-//      rf2-6ng7's (c)-narrow ruling names for leaving a hole declared. The
+//   1. The cheap PR-time repair costs a MECHANISM, and a hole whose repair
+//      needs a new mechanism stays declared. The
 //      right semantic home is `verify-skill-mcp-drift` ("Repo invariant
-//      checks"), the always-on pure-stdlib spine that took
+//      checks"), the always-on pure-stdlib spine that runs
 //      check_gate_scheduling.py for this very reason — and every step in it is
 //      audited by scripts/check_ci_reproduce_commands.py, which requires a
 //      single-line `run: python scripts/check_<name>.py …` with a matching
@@ -6749,19 +6741,19 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 //      it without a fight and is a markdown-slug job; a checker parked in an
 //      unrelated job is how the next reader loses it.
 //
-//   2. THE EXPOSURE IS SMALLER THAN THE FINDING SAID. A broken alerter does
+//   2. THE EXPOSURE IS SMALL. A broken alerter does
 //      not fail quiet. Its self-test runs `continue-on-error` precisely so the
-//      live arm still tries, and the re-raise step at the bottom of that job
-//      still ends the run RED — same night, in the same run list the nightly
+//      live arm tries anyway, and the re-raise step at the bottom of that job
+//      ends the run RED — same night, in the same run list the nightly
 //      is read from. What is actually at risk is one night's tracking-ISSUE
 //      edit, not the signal that something failed.
 //
-//   3. Going file-level is the rejected option (a) in a new costume: a second
+//   3. Going file-level is a second
 //      hand-maintained model, of files this time, nagging on every README,
 //      .gitignore and image in the repository.
 //
-// The self-test itself was re-measured rather than assumed: 0.19s, exit 0, pure
-// stdlib. It is cheap; it is the HOME that is not free.
+// The self-test itself is cheap — pure stdlib, a fraction of a second; it is
+// the HOME that is not free.
 //
 // "AT LEAST ONE OUTPUT" IS NOT "COVERED", and the declared list is where that
 // distinction is kept honest. Several trees are properly gated at PR time by
@@ -6770,8 +6762,8 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 // surface output. Others are gated by a DIFFERENT workflow with its own
 // classifier (docs.yml's `docs_surface`, lint.yml's lint surface). So an
 // entry below is not an apology; it is a statement of where the tree's
-// coverage actually lives. Two entries say the coverage is MISSING, and name
-// the bead.
+// coverage actually lives. Where coverage is genuinely MISSING, the entry says
+// so outright (see `tools`).
 //
 // THE REASONS ARE CHECKED, NOT BELIEVED — the lesson `scripts/
 // check_gate_scheduling.py` states outright for its own DISPOSITIONS ("a
@@ -6785,12 +6777,12 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 // object is deliberate: these trees are covered by the SAME mechanism, and
 // spelling that out twelve times invites twelve slightly different stories.
 const DOCS_YML = {
-  why: "documentation staged into the MkDocs site; docs.yml's own docs_surface classifier arms on docs/*, and its build job runs mkdocs --strict over the corpus. Markdown link + anchor validation is no longer part of THAT job: rf2-v7fui moved check_doc_slugs.py to test.yml's unconditional verify-readme-links job, so these trees are slug-validated on every PR rather than only on a docs-classified one",
+  why: "documentation staged into the MkDocs site; docs.yml's own docs_surface classifier arms on docs/*, and its build job runs mkdocs --strict over the corpus. Markdown link + anchor validation is not part of THAT job: check_doc_slugs.py runs in test.yml's unconditional verify-readme-links job, so these trees are slug-validated on every PR rather than only on a docs-classified one",
   coveredBy: ['.github/workflows/docs.yml', 'scripts/check_doc_slugs.py'],
 };
 
 const SKILLS_ALWAYS_ON = {
-  why: "prose skill trees, reached at PR time by two ALWAYS-ON jobs — and an always-on job arms no surface output by construction. verify-skill-mcp-drift runs check_skill_mcp_drift.py (allowed-tools front-matter held in step with the MCP catalogues) and check_inject_cofx_residue.py (skills/ markdown scanned for retired API spellings); verify-readme-links runs check_doc_slugs.py over its full roster — docs, spec, SKILLS, migration. That second job is what closes the gap this entry used to record for rf2-v7fui: the slug gate listed skills in DEFAULT_ROOTS but ran only inside docs.yml's build job, whose docs_surface does not match skills/*, so slug and anchor validation of these files fired nowhere at PR time.",
+  why: "prose skill trees, reached at PR time by two ALWAYS-ON jobs — and an always-on job arms no surface output by construction. verify-skill-mcp-drift runs check_skill_mcp_drift.py (allowed-tools front-matter held in step with the MCP catalogues) and check_inject_cofx_residue.py (skills/ markdown scanned for retired API spellings); verify-readme-links runs check_doc_slugs.py over its full roster — docs, spec, SKILLS, migration. That second job is the one that slug- and anchor-validates these files at PR time: docs.yml's docs_surface does not match skills/*, so the slug gate would never fire on them from inside docs.yml's build job.",
   coveredBy: [
     'scripts/check_skill_mcp_drift.py',
     'scripts/check_inject_cofx_residue.py',
@@ -6819,23 +6811,22 @@ const DECLARED_NO_SURFACE_OUTPUT = {
     why: 'clj-kondo macro hooks — real Clojure, but consumed only by the linter, and armed by the same lint.yml surface as the config beside them',
     coveredBy: ['.github/workflows/lint.yml'],
   },
-  // rf2-6c12m.1. The Fresco bench lane — the measurement harness the
-  // programme's numbers were taken on — left implementation/fresco/test for
-  // its own hand-run shadow project here, off every per-PR lane BY RULING:
-  // its suites exercise LOCAL COPIES of the runtime, so running its 574
+  // The Fresco bench lane — the measurement harness — is its own hand-run
+  // shadow project here, off every per-PR lane deliberately:
+  // its suites exercise LOCAL COPIES of the runtime, so running its
   // deftests per PR could not catch a regression in the shipped one, and its
   // committed run records are evidence rather than inputs. The
   // classifier carries an explicit `bench/*` arm that sets nothing, so the
   // silence is stated in the script as well as declared here. The tree's own
   // gate is `npm run check` from bench/fresco/ (every namespace compiled
   // warnings-fatal plus the harness self-tests), which the bench README
-  // requires before a bench change is published. Two always-on PR jobs still
+  // requires before a bench change is published. Two always-on PR jobs
   // reach the tree without arming anything: verify-readme-links validates
   // bench/fresco/README.md, and js-harness-self-tests runs
   // lane_cache_wiring.test.cjs, which scans the drivers as text for the
-  // cache-clear rule (rf2-d19nf) across implementation/ AND bench/fresco/.
+  // cache-clear rule across implementation/ AND bench/fresco/.
   'bench/fresco': {
-    why: "the Fresco bench lane, a hand-run shadow-cljs project kept off every per-PR lane by ruling (rf2-6c12m.1): its suites run against local copies of the runtime, so no PR gate could learn anything from them. Its gate is `npm run check` from bench/fresco/; two always-on jobs still read it — verify-readme-links (check_readme_links.py over its README) and js-harness-self-tests (lane_cache_wiring.test.cjs over its drivers)",
+    why: "the Fresco bench lane, a hand-run shadow-cljs project kept off every per-PR lane deliberately: its suites run against local copies of the runtime, so no PR gate could learn anything from them. Its gate is `npm run check` from bench/fresco/; two always-on jobs read it — verify-readme-links (check_readme_links.py over its README) and js-harness-self-tests (lane_cache_wiring.test.cjs over its drivers)",
     coveredBy: [
       'bench/fresco/package.json',
       'scripts/check_readme_links.py',
@@ -6845,25 +6836,12 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   docs: DOCS_YML,
   'docs/EP': DOCS_YML,
   'docs/async': DOCS_YML,
-  // rf2-7cuns. This tree needed no entry until 2026-08-14 because ONE arm lit
-  // it: `docs/core/freehand/*.md` armed implementation_jvm, because
-  // samples_coverage_jvm_test.clj `file-seq`d that directory. rf2-0yp7w
-  // deleted the Freehand guide and that roster in the same commit, which
-  // removed the last tracked file matching the arm and left the whole tree
-  // dark. rf2-7v5vx then deleted the arm itself: a POSIX `case` over path
-  // strings cannot know its directory is gone, so it went on returning
-  // implementation_jvm=true for a path no diff can produce — green, and
-  // pointing at a suite that no longer exists.
-  //
-  // Declared rather than re-armed, and that half was REVIEWED under rf2-7v5vx
-  // rather than inherited: the surviving guide is docs/core/fresco/**, and
-  // rf2-r5iy7 already measured and REJECTED arming it, because the only output
-  // that would reach its checker is cljs_node_test — the ~10-minute node
-  // build, scheduled on a prose typo. Every gate named below was re-read at
-  // its source and holds. The guide-samples gate pins nothing any more: since
-  // rf2-6c12m.9 it checks only that every fresco verb a sample names resolves.
+  // Declared rather than armed: the only output that would reach the Fresco
+  // guide's checker (docs/core/fresco/**) is cljs_node_test — the ~10-minute
+  // node build, scheduled on a prose typo. The guide-samples gate checks only
+  // that every fresco verb a sample names resolves.
   'docs/core': {
-    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Fresco guide's fenced samples are covered by the unconditional fresco-guide-samples job (rf2-r5iy7; since rf2-6c12m.9 it checks only that every fresco verb a sample names resolves to a public def), which is unconditional PRECISELY so that a guide-only PR runs it.",
+    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job; and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Fresco guide's fenced samples are covered by the unconditional fresco-guide-samples job (it checks only that every fresco verb a sample names resolves to a public def), which is unconditional PRECISELY so that a guide-only PR runs it.",
     coveredBy: [
       '.github/workflows/docs.yml',
       'scripts/check_doc_slugs.py',
@@ -6876,13 +6854,12 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/routing': DOCS_YML,
   'docs/scripts': DOCS_YML,
   'docs/skills': DOCS_YML,
-  // `docs/ssr` is DELIBERATELY ABSENT since rf2-8arzr.6, and the ratchet below
-  // is what makes that a requirement rather than a tidy-up: the tree used to
-  // be DOCS_YML, and then `docs/ssr/concepts.md` gained a test.yml pin
-  // (ssr_doc_example_node_build_id_test.clj, jvm-ssr) and an arm to schedule
-  // it. One armed file arms the tree, so the declaration became stale and had
-  // to go — leaving it would have told the next reader this tree is ungated
-  // months after it stopped being. The other nine pages are still covered by
+  // `docs/ssr` is DELIBERATELY ABSENT, and the ratchet below is what makes
+  // that a requirement rather than a tidy-up: `docs/ssr/concepts.md` carries a
+  // test.yml pin (ssr_doc_example_node_build_id_test.clj, jvm-ssr) and an arm
+  // to schedule it. One armed file arms the tree, so a DOCS_YML entry here
+  // would be a stale declaration telling the next reader this tree is
+  // ungated. Its other pages are covered by
   // docs.yml + check_doc_slugs.py exactly as DOCS_YML says; that is a
   // statement about pages, and this table is keyed by tree.
   'docs/story': DOCS_YML,
@@ -6890,7 +6867,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/the-mayor-method': DOCS_YML,
   'docs/xray': DOCS_YML,
   'migration/from-clj-new-template': {
-    why: "a migration note; docs.yml's docs_surface classifier lists migration/*, and its slug/anchor validation comes from check_doc_slugs.py in test.yml's unconditional verify-readme-links job (rf2-v7fui moved it out of the docs build)",
+    why: "a migration note; docs.yml's docs_surface classifier lists migration/*, and its slug/anchor validation comes from check_doc_slugs.py in test.yml's unconditional verify-readme-links job",
     coveredBy: ['.github/workflows/docs.yml', 'scripts/check_doc_slugs.py'],
   },
   'scripts/_test_fixtures': {
@@ -6904,28 +6881,25 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   skills: SKILLS_ALWAYS_ON,
   'skills/re-frame-migration': SKILLS_ALWAYS_ON,
   'skills/re-frame2-implementor': SKILLS_ALWAYS_ON,
-  // rf2-z65e — `skills/re-frame2-improver` is DELIBERATELY ABSENT for the same
-  // reason as the two trees named below, and it is the reason this bead could
-  // not be split: the tree gained an executable half
+  // `skills/re-frame2-improver` is DELIBERATELY ABSENT for the same
+  // reason as the two trees named below: the tree has an executable half
   // (tests/storage_materializer_test.clj, looped by the improver step in the
-  // `skills-structural` job) and an arm to schedule it, so the declaration went
-  // stale in the same commit that armed it. Its neighbour one line up,
+  // `skills-structural` job) and an arm to schedule it, so a declaration here
+  // would be stale. Its neighbour one line up,
   // `skills/re-frame2-implementor`, STAYS — that tree really does arm nothing,
-  // and the two names differ by four characters after a shared
+  // and the two names share a
   // `skills/re-frame2-imp` prefix.
   //
-  // rf2-g1m2q — `skills/re-frame2-pair-retro` and `skills/reagent-migration`
-  // are DELIBERATELY ABSENT from this table now. Both used to sit here as
-  // SKILLS_ALWAYS_ON, which was true of them as pure prose trees; rf2-qad4l and
-  // rf2-vpdrf / rf2-bbe91 then gave each an executable half gated on
-  // `skills_structural` (the pair-retro bb step in `skills-structural`, and
-  // `reagent-migration-fixture-cold-start`), and this bead armed the two case
-  // arms that schedule them. A tree that arms an output must not stay declared:
+  // `skills/re-frame2-pair-retro` and `skills/reagent-migration`
+  // are DELIBERATELY ABSENT from this table. Each has an executable half gated
+  // on `skills_structural` (the pair-retro bb step in `skills-structural`, and
+  // `reagent-migration-fixture-cold-start`) and a case arm that schedules it.
+  // A tree that arms an output must not stay declared:
   // the `staleDeclarations` half of the check below fails on exactly that, so
-  // re-adding either entry reds this suite rather than passing quietly.
+  // adding either entry reds this suite rather than passing quietly.
   'skills/re-frame2-xray': SKILLS_ALWAYS_ON,
   tools: {
-    why: "A DECLARED HOLE, and since rf2-i2uoc a MEASURED one rather than an open question. The tree is three files. tools/README.md IS covered — the always-on verify-readme-links job walks it (measured: it is in check_readme_links.py's _iter_scanned set). tools/.gitignore is config no gate reads. tools/deps.edn — the tool tier’s classpath coordinator, and since rf2-6r9j.139 the ONLY build file directly under tools/ — has no CI consumer AT ALL, and arming it was refused on evidence rather than guessed: no workflow runs from tools/ (every working-directory in .github/workflows is tools/<artefact>, never the bare root); scripts/test-jvm-tools.sh iterates per-tool directories; CI compiles the pair-mcp server from tools/re-frame2-pair-mcp/shadow-cljs.edn; and verify-version-lockstep.sh reads the per-artefact deps.edn files, not this coordinator. So NO existing output would exercise it, and arming one — tools_jvm was the candidate — would schedule four probes that never read the edited file, which the tools_jvm_machines_viz note beside it calls worse than nothing. What this hole used to shelter was worse than an unexercised file: an aggregate :test alias advertising coverage of every JVM-runnable tool while omitting machines-viz, testbed-support and wire-vocab, and a tools/shadow-cljs.edn mirroring two of pair-mcp’s three builds. rf2-6r9j.139 / .140 retired both rather than gate them, because the per-tool configs beside them are the ones CI already runs. What is left is a classpath declaration whose breakage surfaces on the next `cd tools && clojure -Spath`, to the developer who caused it. Delete this entry if tools/deps.edn ever gains a real CI consumer.",
+    why: "A DECLARED HOLE, and a MEASURED one rather than an open question. The tree is three files. tools/README.md IS covered — the always-on verify-readme-links job walks it (measured: it is in check_readme_links.py's _iter_scanned set). tools/.gitignore is config no gate reads. tools/deps.edn — the tool tier’s classpath coordinator, and the ONLY build file directly under tools/ — has no CI consumer AT ALL, and is left unarmed on evidence: no workflow runs from tools/ (every working-directory in .github/workflows is tools/<artefact>, never the bare root); scripts/test-jvm-tools.sh iterates per-tool directories; CI compiles the pair-mcp server from tools/re-frame2-pair-mcp/shadow-cljs.edn; and verify-version-lockstep.sh reads the per-artefact deps.edn files, not this coordinator. So NO existing output would exercise it, and arming one — tools_jvm was the candidate — would schedule four probes that never read the edited file. There is no aggregate :test alias here and no tools/shadow-cljs.edn: the per-tool configs are the ones CI runs. tools/deps.edn is a classpath declaration whose breakage surfaces on the next `cd tools && clojure -Spath`, to the developer who caused it. Delete this entry if tools/deps.edn ever gains a real CI consumer.",
     coveredBy: ['scripts/check_readme_links.py'],
   },
 };
@@ -6938,7 +6912,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
  * DISJOINT IS THE POINT. Checking `implementation` AND `implementation/core`
  * as overlapping sets would let a healthy child vouch for a dark parent — the
  * `tools` entry above is exactly that case, and it is only visible because
- * `tools` here means the four files directly under `tools/` and not the seven
+ * `tools` here means the three files directly under `tools/` and not the
  * well-gated artefacts below them. Two levels is where the repo's own
  * ownership boundaries sit; a third would start reporting `src` and `test`.
  */
@@ -7008,8 +6982,7 @@ test('every tracked tree arms an output or is DECLARED (rf2-skvce)', () => {
 
   // THE LIST IS A RATCHET, NOT A DUMPING GROUND. Without this half a
   // declaration outlives the hole it declared, and the next reader trusts a
-  // note saying a tree is ungated when it has been gated for months — the
-  // rot _rigorous-local-inventory.test.cjs measured at six weeks. Arming a
+  // note saying a tree is ungated when it has been gated for months. Arming a
   // declared tree is meant to cost exactly one deletion here.
   assert.deepEqual(
     staleDeclarations,
@@ -7044,20 +7017,18 @@ test('every DECLARED tree still exists, and its named coverage does (rf2-skvce)'
 });
 
 // ---------------------------------------------------------------------------
-// rf2-e30e — THE GUARD'S OWN GUARD.
+// THE GUARD'S OWN GUARD.
 //
-// `pinnedRoster` covers the rosters that exist today. It cannot, by itself,
+// `pinnedRoster` covers the rosters declared through it. It cannot, by itself,
 // cover the NEXT one: a roster added by someone who has never read that comment
-// and declared as a bare array literal is precisely the silent fourth
-// occurrence this bead exists to prevent. Three times now the bug has been
-// caught by accident, so a guard that still depends on an author remembering it
-// has not changed the thing that failed.
+// and declared as a bare array literal would carry a phantom pin silently, and
+// a guard that depends on an author remembering it guards nothing.
 //
 // So this test reads THIS FILE'S OWN SOURCE and refuses a path-shaped roster
 // that never reached the guard. Parsing a roster out of source to keep it
 // honest is an idiom this suite already uses one tier over — `every spec module
 // the full-gate runner loads is armed` parses `ALL_SPEC_FILES` out of the story
-// runner for exactly this reason. The only thing new here is that the file
+// runner for exactly this reason. What differs here is that the file
 // being parsed is this one, which is the only way to reach a roster that has
 // not been written yet.
 const ROSTERS_EXEMPT_FROM_PATH_PINNING = new Set([
@@ -7113,19 +7084,19 @@ test('every path-shaped roster in this file is declared through pinnedRoster (rf
     //
     // Tolerate whitespace between the call and its first argument, because a
     // formatter will break a long call across lines and a contiguous-substring
-    // search cannot see across one. That is not hypothetical: this very check
-    // was written as `source.includes("pinnedRoster('" + name + "'")` and
-    // reported PROSE_PINS_ARMING_JVM unguarded when it was guarded three lines
-    // below, purely because prettier had wrapped the argument onto its own
-    // line. A detector that answers "not found" for a formatting reason is the
-    // same fail-open shape as the phantom pin it is here to catch.
+    // search cannot see across one: written as
+    // `source.includes("pinnedRoster('" + name + "'")`, this check would report
+    // PROSE_PINS_ARMING_JVM unguarded when it is guarded a few lines below,
+    // purely because prettier wraps the argument onto its own line. A detector
+    // that answers "not found" for a formatting reason is the same fail-open
+    // shape as the phantom pin it is here to catch.
     const guarded = new RegExp(`pinnedRoster\\(\\s*'${name}'`).test(source);
     if (paths.length > 0 && !guarded && !ROSTERS_EXEMPT_FROM_PATH_PINNING.has(name)) {
       problems.push(
         `${name} holds ${paths.length} path-shaped entry/entries (e.g. ${paths[0]}) ` +
           'but is declared as a bare array, so a phantom path in it would be inert ' +
           `rather than red. Declare it as \`const ${name} = pinnedRoster('${name}', [...])\`, ` +
-          'or pass its path column to pinnedRoster if the rows are tuples (rf2-e30e).',
+          'or pass its path column to pinnedRoster if the rows are tuples.',
       );
     }
   }
@@ -7135,7 +7106,7 @@ test('every path-shaped roster in this file is declared through pinnedRoster (rf
   assert.ok(
     scanned > 0,
     'the self-parse matched no bare roster declarations at all — the parse has rotted, ' +
-      'and a rotted parse reports a clean file (rf2-e30e)',
+      'and a rotted parse reports a clean file',
   );
   assert.deepEqual(problems, [], problems.join('\n  '));
 });
