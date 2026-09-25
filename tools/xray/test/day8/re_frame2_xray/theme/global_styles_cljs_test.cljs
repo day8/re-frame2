@@ -149,7 +149,8 @@
             `:border \"none\"` and the palette input explicitly sets
             `outline: none` (`palette/view.cljs`). Without this rule
             keyboard-only users would have no reliable focus indicator
-            anywhere in Xray. Sister-pattern to Story (`theme/motion.cljc:173`)."
+            anywhere in Xray. Sister-pattern to Story (`theme/motion.cljc`'s
+            `[data-rf-story-root] *:focus-visible` rule)."
     (let [css @#'gs/motion-css]
       (is (re-find #"\[data-testid=\"rf-xray-shell\"\][^,]*:focus-visible" css)
           "focus-visible rule scoped to the Dynamic shell root")
