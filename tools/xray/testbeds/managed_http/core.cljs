@@ -60,7 +60,7 @@
   resolves instantly, leaving nothing observably in-flight across a
   settle window. The abort path resolves a seeded handle through the LIVE
   `:rf.http/managed-abort` fx. A TEST surface — no deliberate bugs, no
-  teaching layers (feedback_testbeds_are_test_surfaces).
+  teaching layers.
 
   ## Bundle isolation
 
@@ -226,7 +226,7 @@
          ;; Stamped exactly as the live transport stamps every handle it
          ;; records. Not decoration: an UNSTAMPED handle keys under `nil`,
          ;; a scope no frame-scoped abort can reach, which would leave the
-         ;; abort step (5) below silently resolving nothing (rf2-s4dp).
+         ;; abort step (5) below silently resolving nothing.
          :frame    frame
          :abort-fn (fn [reason]
                      ;; Frame-EXACT cleanup, for the same reason lookup is
@@ -235,7 +235,7 @@
                      ;; frame, so a sibling mount's live slot would be
                      ;; deregistered along with this one.
                      (rf.http.registry/clear-in-flight-in-frame! frame request-id)
-                     ;; rf2-ibksxg — the canonical abort reply: :status :cancelled
+                     ;; The canonical abort reply: :status :cancelled
                      ;; with the :rf.http/aborted map under :error.
                      (rf/dispatch [::reply {:status                 :cancelled
                                             :cancelled?             true
@@ -323,7 +323,7 @@
     ;; ACTOR index is keyed (frame, actor-id) too, so an unstamped handle
     ;; lands in the `nil` scope while every other slot in this testbed sits
     ;; under the host frame. Actor addresses are frame-LOCAL, exactly as
-    ;; request-ids are (rf2-s4dp).
+    ;; request-ids are.
     (let [frame (:frame frame-ctx)]
       (rf.http.registry/record-in-flight!
         request-id actor-id
@@ -335,7 +335,7 @@
          ;; nil leaves this id live in the request index after step 7
          ;; destroys its actor: the actor index empties while the request
          ;; index keeps ghosts for an actor that no longer exists, and the
-         ;; registry strip below shows them (rf2-s4dp).
+         ;; registry strip below shows them.
          ;;
          ;; Frame-EXACT for the same reason the seed fx's closure is: the
          ;; one-arg `clear-in-flight!` is an ANY-FRAME sweep that would drop
@@ -368,9 +368,9 @@
     ;; The 2-arity is the FRAME-SCOPED form: it aborts only this frame's
     ;; actor, leaving a same-named actor in a sibling frame untouched. The
     ;; 1-arity is the documented ANY-FRAME seam, which sweeps the actor-id in
-    ;; EVERY frame — the very reach the frame-scoped keys removed from the
-    ;; abort half, so a testbed demonstrating the contract should not model
-    ;; it (rf2-s4dp). Actor addresses are frame-local, so this pairs with the
+    ;; EVERY frame — the reach the frame-scoped keys keep out of the abort
+    ;; half, so a testbed demonstrating the contract should not model it.
+    ;; Actor addresses are frame-local, so this pairs with the
     ;; :frame stamp `issue-as-actor` puts on the handles it records.
     (rf.http.managed/abort-on-actor-destroy (:frame frame-ctx) actor-id)
     nil))
@@ -445,7 +445,7 @@
     :watch "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."}
    {:label "Request outlives a frame teardown"
     :event [::actor-teardown]
-    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains. Request-id strip: BOTH actor-a ids are gone too and ::actor-b-1 remains — the actor slot is dropped by abort-on-actor-destroy itself, the request-ids by each handle's own abort-fn, so watch both strips to see the whole teardown (rf2-s4dp)."}])
+    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains. Request-id strip: BOTH actor-a ids are gone too and ::actor-b-1 remains — the actor slot is dropped by abort-on-actor-destroy itself, the request-ids by each handle's own abort-fn, so watch both strips to see the whole teardown."}])
 
 ;; ============================================================================
 ;; RUNNER WIRING — register the deck's run-step event
