@@ -1,48 +1,37 @@
 #!/usr/bin/env node
 'use strict';
-// THE FRESCO SSR DRIVER — build once, then BAKE or SERVE (rf2-2rtt6.86
-// clauses 3, 4 and 5).
+// THE FRESCO SSR DRIVER — build once, then BAKE or SERVE.
 //
-//     node fresco/test/re_frame/bench/fresco/ssr/driver.cjs bake
-//     node fresco/test/re_frame/bench/fresco/ssr/driver.cjs serve [--port 8137]
+//     node bench/fresco/src/re_frame/bench/fresco/ssr/driver.cjs bake
+//     node bench/fresco/src/re_frame/bench/fresco/ssr/driver.cjs serve [--port 8137]
 //
 // One renderer, run in two places: `bake` writes the static
 // HTML + payload corpus, `serve` answers real requests with the same
 // entry, and neither has a renderer of its own — both call
 // `re-frame.bench.fresco.ssr.node`'s API through the compiled bundle.
 //
-// ## WHICH BUILD ID, and why this one is the lane's own (rf2-0yp7w.9.6)
+// ## WHICH BUILD ID, and why this one is the lane's own
 //
-// Clause 5 said to carry this on existing node-build infrastructure first
-// and mint `:fresco-ssr-node` only if needed, so it rode
-// `:freehand-bench-node` — the donor tree's `:node-script` — supplying its
-// own `:main` and `:output-to` through `--config-merge`, exactly as every
-// arm in this lane rides `:fresco-bench` with its own `:init-fn`. HD-017
-// makes a build-id touch a hot-zone, sequenced dispatch, and not paying
-// one was the whole point.
-//
-// PR #8322 then deleted that build with the tree, and this driver named a
-// build that no longer existed: `npm run ssr:fresco-bake` failed with
-// `no build with id: :freehand-bench-node` before a line of ClojureScript
-// was read. Nothing was left to ride — after that retirement there is no
-// `:node-script` build anywhere in `implementation/shadow-cljs.edn` — so
-// the id below is the lane's OWN, minted there beside `:fresco-bench`
-// and shared with `keywarn_clock_run.cjs`, the lane's other Node program.
-// The sequencing law is paid once, for both.
+// The id below is the lane's OWN `:node-script` build, declared in
+// `bench/fresco/shadow-cljs.edn` beside `:fresco-bench` and shared with
+// `keywarn_clock_run.cjs`, the lane's other Node program. This driver
+// supplies its own `:main` and `:output-to` through `--config-merge`,
+// exactly as every arm in this lane rides `:fresco-bench` with its own
+// `:init-fn`, so the two Node programs cost one build id, not two.
 //
 // `:fresco-bench` — the lane's browser id — could NOT serve here: it is a
 // `:browser` target, and `renderToString` wants Node's `server.node.js`
 // through Node's own conditional exports.
 //
-// ## The cache rule (rf2-2rtt6.20), and why it is cheap here
+// ## The cache rule, and why it is cheap here
 //
 // shadow-cljs derives the build cache directory from the build id alone,
 // before any `--config-merge` is applied, so two programs under one id
 // share one cache entry. The lane's answer is to clear it, and this
 // driver does the same. It is cheaper here than in the browser lane: a
 // `:node-script` uses `:js-provider :require`, so there is no shadow-js
-// npm-conversion index — the exact artefact rf2-2rtt6.20 isolated as the
-// carrier — and what is discarded is a plain per-namespace CLJS cache.
+// npm-conversion index — the artefact that carries one program's state
+// into the next — and what is discarded is a plain per-namespace CLJS cache.
 // The cost is a cold `keywarn_clock_run.cjs` afterwards — the only other
 // program on this id — which is a hand-run bench and not a gate.
 //
@@ -79,7 +68,7 @@ const CONFIG_MERGE =
 function build() {
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
     console.error(
-      `[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs (rf2-2rtt6.20)`,
+      `[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N programs`,
     );
   }
   console.error(`[${TAG}] building the SSR node entry -> ${OUTPUT_TO}`);
@@ -135,16 +124,16 @@ function renderQuietly(label, fn) {
 
 const sha256 = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 
-// A FIGURE CLAIMED IN BYTES IS MEASURED IN BYTES (rf2-2rtt6.114).
+// A FIGURE CLAIMED IN BYTES IS MEASURED IN BYTES.
 //
 // `String.prototype.length` counts UTF-16 code units, which agree with
 // UTF-8 bytes only for ASCII — and this corpus is not ASCII. Every row's
 // title carries an em dash and the `defhost` fallback carries an ellipsis,
-// so the manifest claimed 3101 for a `dogfood-snapshot` document of which
-// 3119 bytes were written, and 485 for a `defhost-ssr-policy` document of
-// which 491 were. An astral-plane character would have doubled the error
-// again. The digest rows were never affected: `sha256` above hashes with
-// an explicit 'utf8' encoding, so this was a metrics defect and not a
+// so a code-unit count reads 3101 for a `dogfood-snapshot` document of
+// 3119 bytes, and 485 for a `defhost-ssr-policy` document of 491. An
+// astral-plane character would double the error again. The digest rows do
+// not depend on this: `sha256` above hashes with an explicit 'utf8'
+// encoding, so a code-unit count is a metrics defect and not a
 // determinism one.
 const utf8Bytes = (s) => Buffer.byteLength(s, 'utf8');
 
@@ -160,8 +149,8 @@ function bake(api) {
   for (const id of api.ids) {
     const r = renderQuietly(id, () => api.renderTwice(id));
 
-    // Clause 2, and the driver's half of it: the entry already compared
-    // the two documents byte-for-byte; this hashes them, because a hash is
+    // Determinism, and the driver's half of it: the entry compares the
+    // two documents byte-for-byte; this hashes them, because a hash is
     // what a manifest can carry and what a later run can be compared to.
     const a = sha256(r.first.document);
     const b = sha256(r.second.document);
@@ -201,10 +190,9 @@ function bake(api) {
 
     // THE CLAIM IS CHECKED AGAINST THE FILE IT DESCRIBES. Two independent
     // derivations of one number — what the encoder says the string weighs,
-    // and what the file system says landed — so a manifest column can no
-    // longer drift from the corpus it names without this refusing. It is
-    // what caught nothing for the whole life of the defect above, because
-    // nothing was comparing.
+    // and what the file system says landed — so a manifest column cannot
+    // drift from the corpus it names without this refusing. Without the
+    // comparison nothing would catch the defect above.
     for (const [field, file, claimed] of wrote) {
       const onDisk = fs.statSync(file).size;
       if (claimed !== onDisk) {
@@ -214,7 +202,7 @@ function bake(api) {
         );
         console.error(
           `[${TAG}] A size figure that disagrees with its own file is the ` +
-            `defect rf2-2rtt6.114 repaired. Fix the accounting; do not bake the manifest.`,
+            `defect this refusal exists for. Fix the accounting; do not bake the manifest.`,
         );
         process.exit(1);
       }
@@ -226,9 +214,8 @@ function bake(api) {
       documentBytes,
       bodyBytes,
       payloadBytes,
-      // No renderHash column — rf2-2rtt6.91 removed the hash from an
-      // adoption-tier root's wire, and it was the same constant for every
-      // row here anyway. sha256 is the column that separates fixtures.
+      // No renderHash column — an adoption-tier root's wire carries no
+      // hash, and it would be the same constant for every row here anyway. sha256 is the column that separates fixtures.
       sha256: a,
       frames: [r.first.frameId, r.second.frameId],
     });
@@ -254,7 +241,7 @@ function bake(api) {
 }
 
 // ---------------------------------------------------------------------------
-// serve — the live demo (clause 4)
+// serve — the live demo
 // ---------------------------------------------------------------------------
 
 // PAGE-LEVEL, and explicitly NOT a production host: Spec 011's HTTP
@@ -267,11 +254,11 @@ function serve(api, port) {
     const url = new URL(req.url, 'http://localhost');
 
     if (url.pathname === '/main.js') {
-      // There is no client bundle in this bead — the hydration door is
-      // rf2-2rtt6.84's. Answering with a comment rather than a 404 keeps
-      // the demo's console clean and says why.
+      // There is no client bundle here — hydration is a separate door.
+      // Answering with a comment rather than a 404 keeps the demo's
+      // console clean and says why.
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
-      res.end('// no client bundle in this bead — the hydration door is rf2-2rtt6.84\n');
+      res.end('// no client bundle here — hydration is a separate door\n');
       return;
     }
 
