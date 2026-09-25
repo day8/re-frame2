@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.sidebar-search
-  "Sidebar search-as-you-type filter (rf2-yngai).
+  "Sidebar search-as-you-type filter.
 
-  Different ergonomic from the Cmd-K command palette (rf2-9hc8):
+  Different ergonomic from the Cmd-K command palette:
   the palette is fuzzy whole-registry jump; this is in-tree narrowing
   by a substring query. Author audience expects both.
 
@@ -105,7 +105,7 @@
   a search `query`, return the subset whose story id matches OR whose
   variants match the query.
 
-  Resolution per spec rf2-yngai §match-semantics:
+  Resolution, per the ns docstring's §Match semantics:
 
   - A story whose id matches every token keeps ALL its variants
     (ancestor-keeps-children).
