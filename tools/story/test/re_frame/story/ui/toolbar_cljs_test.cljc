@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.toolbar-cljs-test
-  "Tests for the chrome-level toolbar (rf2-xi9zk).
+  "Tests for the chrome-level toolbar.
 
   Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
   and the CLJS node-test build (shadow's `:node-test` target; ns-regexp
@@ -10,13 +10,13 @@
   - **Pure data** (JVM + CLJS): `toggle-mode` axis semantics,
     `group-modes-by-axis` layout, `rf.story.share/parse-modes-param` URL
     parsing, `rf.story.share/prune-unregistered-modes` registrar-pruning (the
-    CLJC PRODUCTION helpers — rf2-96y71s removed the JVM copies that
-    used to shadow the live impl), schema additivity for the new
-    `:axis` slot.
-  - **CLJS-only side-effects**: localStorage round-trip via
-    `save-modes-to-storage!` + `load-modes-from-storage`,
-    `toggle-mode!` mutation against `shell-state-atom`, the rendered
-    hiccup carries chip elements per registered mode."
+    CLJC PRODUCTION helpers, exercised directly rather than through a
+    JVM copy), the mode schema's optional `:axis` slot.
+  - **CLJS-only side-effects**: `toggle-mode!` mutation against
+    `shell-state-atom`, the rendered hiccup carries chip elements per
+    registered mode. The localStorage round-trip via
+    `save-modes-to-storage!` + `load-modes-from-storage` is tested in
+    `re-frame.story.ui.toolbar-storage-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.registrar :as rf.story.registrar]
@@ -26,19 +26,19 @@
             #?@(:cljs [[re-frame.story.ui.cofx :as rf.story.ui.cofx]
                        [re-frame.story.ui.toolbar :as rf.story.ui.toolbar]])))
 
-;; The `browser?` predicate that stood here is gone with the rows it
-;; gated (rf2-r51p). It routed between a lane that could not run them and
-;; no other lane at all; the dom sibling now routes between two lanes
-;; that BOTH load the file, with a visible skip on the node side.
+;; There is no `browser?` predicate here. The browser-only rows live in
+;; the dom sibling, which both lanes load, with a visible skip on the
+;; node side; in this `-cljs-test` namespace such a gate would route
+;; between a lane that cannot run the rows and no other lane at all.
 
-;; rf2-96y71s: the `:active-modes` URL contract lives in ONE place.
-;; The pure `modes=` parser and the registrar-pruning helper are now
-;; the CLJC PRODUCTION fns `re-frame.story.share/parse-modes-param`
-;; and `re-frame.story.share/prune-unregistered-modes` — exercised
-;; directly on both runtimes below. The JVM arm no longer inlines
-;; copies of the toolbar parser (those copies asserted duplicated code
-;; rather than the live impl). The CLJS-only arm tests the live impure
-;; toolbar surfaces (localStorage, the Reagent ratom, chip hiccup).
+;; The `:active-modes` URL contract lives in ONE place. The pure
+;; `modes=` parser and the registrar-pruning helper are the CLJC
+;; PRODUCTION fns `re-frame.story.share/parse-modes-param` and
+;; `re-frame.story.share/prune-unregistered-modes` — exercised directly
+;; on both runtimes below, not through a JVM copy of the toolbar parser,
+;; which would assert duplicated code rather than the live impl. The
+;; CLJS-only arm tests the live impure toolbar surfaces (the Reagent
+;; ratom, chip hiccup).
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -107,12 +107,12 @@
              (rf.story.ui.state/clear-active-modes {:active-modes
                                         [:Mode.a/x :Mode.a/y]}))))))
 
-;; ---- pure: schema additivity --------------------------------------------
+;; ---- pure: the mode schema's :axis slot ---------------------------------
 
 (deftest mode-schema-accepts-axis
   (testing ":rf/mode schema accepts the optional :axis keyword"
     (is (nil? (rf.story.schemas/validate :mode {:args {:theme :dark}}))
-        "no axis: still valid")
+        "no axis: valid")
     (is (nil? (rf.story.schemas/validate :mode {:axis :theme
                                        :args {:theme :dark}}))
         "axis present: valid")
@@ -150,9 +150,9 @@
 
 ;; ---- pure: URL parsing (the CLJC production helper) ---------------------
 ;;
-;; rf2-96y71s: these exercise `rf.story.share/parse-modes-param` directly — the
-;; SAME fn `rf.story.share/parse-params` (and thus the url-state hydrator) uses.
-;; No JVM copy to drift out of sync.
+;; These exercise `rf.story.share/parse-modes-param` directly — the SAME fn
+;; `rf.story.share/parse-params` (and thus the url-state hydrator) uses —
+;; so there is no JVM copy to drift out of sync.
 
 (deftest parse-modes-param-roundtrip
   (testing "single qualified mode id"
@@ -175,7 +175,7 @@
 
 ;; ---- pure: prune-unregistered-modes (the CLJC production helper) --------
 ;;
-;; rf2-96y71s: `rf.story.share/prune-unregistered-modes` is the single registrar-
+;; `rf.story.share/prune-unregistered-modes` is the single registrar-
 ;; pruning helper; the toolbar's `prune-unregistered` closes the live
 ;; registrar predicate over it. Tested here with an injected set so the
 ;; pure logic runs on both runtimes without the registrar.
@@ -193,10 +193,10 @@
     (is (= [] (rf.story.share/prune-unregistered-modes
                 [:Mode.app/gone :Mode.app/also-gone] #{})))))
 
-;; ---- pure: dispatch-console visibility (rf2-qpvk) ------------------------
+;; ---- pure: dispatch-console visibility ----------------------------------
 
 (deftest dispatch-console-visible-resolution
-  (testing "rf2-qpvk: ONE rule for the toolbar chip and the RHS panel —
+  (testing "ONE rule for the toolbar chip and the RHS panel —
             the user toggle wins, then the variant body, then the story
             body, then false"
     (rf.story/reg-story :story.dc-opt-in {:doc "probe" :dispatch-console? true})
@@ -223,7 +223,7 @@
 
 #?(:cljs
    (deftest cljs-dispatch-chip-reads-effective-visibility
-     (testing "rf2-qpvk: under a story-body `:dispatch-console? true` opt-in
+     (testing "under a story-body `:dispatch-console? true` opt-in
                the chip renders PRESSED — agreeing with the panel that is
                showing — and its first click hides the panel instead of
                writing true to a panel already open"
@@ -252,12 +252,10 @@
 ;;
 ;; The localStorage / `js/window` surfaces only exist under CLJS.
 
-;; `cljs-storage-roundtrip` MOVED to
-;; `re-frame.story.ui.toolbar-storage-dom-cljs-test` under rf2-r51p, with
-;; the two hydrate rows below it. Each was guarded by
-;; `(when (browser?) ...)` here, and this namespace ends `-cljs-test`, so
-;; `:browser-test` never loaded them while `:node-test` — which has no
-;; `window.localStorage` — skipped every body: they ran in neither lane.
+;; The localStorage round-trip and hydrate rows live in
+;; `re-frame.story.ui.toolbar-storage-dom-cljs-test`. This namespace ends
+;; `-cljs-test`, so `:browser-test` never loads it, and `:node-test` has
+;; no `window.localStorage`: a storage row here would run in neither lane.
 
 #?(:cljs
    (deftest cljs-toggle-writes-shell-state
@@ -288,16 +286,14 @@
        (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
        (is (= [:Mode.app/x] (:active-modes (rf.story.ui.state/get-state))))
        (rf.story.ui.toolbar/reset-modes!)
-       ;; The SHELL-STATE half of this claim runs here. The storage half
-       ;; was dead, so rf2-r51p SPLIT the row rather than moving it whole
-       ;; — moving it would have taken this live assertion off the node
-       ;; lane. See `reset-modes-persists-empty` in
+       ;; The SHELL-STATE half of this claim runs here, on the node lane;
+       ;; the storage half is `reset-modes-persists-empty` in
        ;; `re-frame.story.ui.toolbar-storage-dom-cljs-test`.
        (is (= [] (:active-modes (rf.story.ui.state/get-state)))))))
 
 ;; The two `hydrate-modes-from-storage!` rows (precedence and stale-id
-;; pruning) MOVED to `re-frame.story.ui.toolbar-storage-dom-cljs-test`
-;; alongside the round-trip above — same reason, same rf2-r51p.
+;; pruning) live in `re-frame.story.ui.toolbar-storage-dom-cljs-test`
+;; beside the round-trip, for the same reason.
 
 #?(:cljs
    (deftest cljs-toolbar-strip-renders-chip-per-mode
