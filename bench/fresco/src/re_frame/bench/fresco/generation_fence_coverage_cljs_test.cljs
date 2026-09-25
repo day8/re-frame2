@@ -1,27 +1,24 @@
 (ns re-frame.bench.fresco.generation-fence-coverage-cljs-test
-  "WHAT THE COMMIT BASIS STILL DOES NOT SEE (rf2-2rtt6.33, re-pointed by
-  rf2-2rtt6.43).
+  "WHAT THE COMMIT BASIS SEES ON THE REGISTRY AXIS.
 
-  `hd-002-adjudication.md` §6.1 asked whether ONE generation comparison
-  per boundary could stand in for the predecessor's commit-side re-read,
-  which compared **three** things between the render that produced an
-  element and the commit about to publish it: node identity
-  (`:node-key`), version, and the rf.frame/registry epochs. This file was
-  the answer, and the answer was *no* on all three.
+  `hd-002-adjudication.md` §6.1 asks whether ONE generation comparison
+  per boundary can stand in for a commit-side re-read that compares
+  **three** things between the render that produced an element and the
+  commit about to publish it: node identity (`:node-key`), version, and
+  the rf.frame/registry epochs. A bare generation answers *no* on all
+  three.
 
-  **Two of the three have since been closed** — rf2-2rtt6.42 replaced the
-  bare generation with [[re-frame.bench.fresco.arm1.runtime/commit-basis]]
-  (the flush generation PLUS the frame's own physical-install epoch), and
-  the version axis now heals in both windows. Those rows have moved to
+  [[re-frame.bench.fresco.arm1.runtime/commit-basis]] is the flush
+  generation PLUS the frame's own physical-install epoch, so the version
+  axis heals in both windows. Those rows live in
   `arm1/staged_read_tear_cljs_test`, against the arm's own runtime,
   mutation-proved both ways, with a real-Chromium counterpart in
-  `arm1/generation_fence_dom_cljs_test`. Keeping a second copy here would
-  give one assertion two homes, so this file no longer carries them.
+  `arm1/generation_fence_dom_cljs_test`. A second copy here would give
+  one assertion two homes, so this file does not carry them.
 
-  What is left is the registry axis, and it is the whole of this file:
-  **the two terms rf2-2rtt6.42 built cannot see a `:sub` registration, so
-  the basis carries a third one that can — and it reaches a staged key
-  without touching a held one.**
+  The registry axis is the whole of this file: **those two terms cannot
+  see a `:sub` registration, so the basis carries a third one that can —
+  and it reaches a staged key without touching a held one.**
 
   ## Why the first two terms cannot see it
 
@@ -35,8 +32,8 @@
   reaction, so it reaches none of them. The second term is bumped once
   per physical frame-state install at the substrate's two write
   chokepoints — and a registry write is not a frame-state install. So
-  both of them sit still, and until rf2-2rtt6.50 React's post-`subscribe`
-  `getSnapshot` re-check sat still with them.
+  both of them sit still, and without a third term React's
+  post-`subscribe` `getSnapshot` re-check would sit still with them.
 
   ## What the third term reaches, and what it deliberately does not
 
@@ -47,13 +44,12 @@
   about to acquire another. A mounted boundary's number does not move at
   all, and the row below asserts both halves one line apart.
 
-  That is what makes this not the term rf2-2rtt6.44 costed and declined.
-  That one sat in every key's live contribution, so every mounted
-  boundary in the application re-rendered on every `reg-sub` — and read
-  back through a cell the re-registration had just made deaf, which is
-  why it bought nothing. In the gap there is no cell to be deaf: the
-  commit acquires against the registration that is live then, so the one
-  extra render is the whole repair. rf2-2rtt6.50.
+  That is what separates it from a registry term in every key's live
+  contribution, which would re-render every mounted boundary in the
+  application on every `reg-sub` — and read back through a cell the
+  re-registration had just made deaf, buying nothing. In the gap there is
+  no cell to be deaf: the commit acquires against the registration that
+  is live then, so the one extra render is the whole repair.
 
   The `:node-key` axis is silent for the same reason and is stated rather
   than staged, because a second row would re-prove this one's arithmetic
@@ -64,18 +60,17 @@
 
   ## The held-cell half is closed by events, and should stay that way
 
-  **rf2-2rtt6.44 settled the held-cell half of all three axes, and this
-  arithmetic is still not what closes it** — which is the point of keeping
-  this file. Where a boundary already holds a cell, the commit basis is
-  still blind to a re-registration, still blind to a reincarnation, and
-  *should be*: the costing found that a term would have bought nothing.
-  Each of those events leaves the arm's cell holding a reaction that can
-  no longer answer for its key, so the cell is deaf from that instant, and
-  the extra render a moved number scheduled would have read straight back
-  through it. What closes that half is `arm1.runtime/invalidate-cell!`,
-  costing nothing in this arithmetic — so `observation/registry-epoch*`
-  stayed `^:private` and no substrate reader was added, then or now: the
-  arm counts registrations on the registration hook it already installs.
+  **Events close the held-cell half of all three axes, and this
+  arithmetic does not** — which is the point of this file. Where a
+  boundary already holds a cell, the commit basis is blind to a
+  re-registration, blind to a reincarnation, and *should be*: a term there
+  would buy nothing. Each of those events leaves the arm's cell holding a
+  reaction that can no longer answer for its key, so the cell is deaf from
+  that instant, and the extra render a moved number scheduled would read
+  straight back through it. What closes that half is
+  `arm1.runtime/invalidate-cell!`, costing nothing in this arithmetic — so
+  there is no substrate registry reader: the arm counts registrations on
+  the registration hook it already installs.
   `arm1/disposed-cell-cljs-test` is the measurement for the two
   transitions that reach it as a *disposal*, armed per unique key: a
   re-registration and a frame teardown.
@@ -103,12 +98,11 @@
 
   ## Everything here runs against Arm 1's own runtime
 
-  This file used to TRANSCRIBE `flush!`, `mark-dirty!`, `acquire-cell!`
-  and the epoch-sum `getSnapshot`, because HD-017 kept runtime skeletons
-  off main. They are on main now, so the transcription is gone: the row
-  drives `render-body` (the render), `snapshot-of` (React's
+  The row drives `render-body` (the render), `snapshot-of` (React's
   `useSyncExternalStore` capture and its `checkIfSnapshotChanged`) and
-  `commit-boundary!` (React's `subscribe`) directly. The host is the
+  `commit-boundary!` (React's `subscribe`) directly, never a transcription
+  of `flush!`, `mark-dirty!`, `acquire-cell!` or the epoch-sum
+  `getSnapshot`. The host is the
   React spine's adapter rather than the plain-atom substrate, and that is
   load-bearing: on an unwatchable host a subscription never notifies and
   the control half would be as still as the axis it is controlling for."
@@ -151,12 +145,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-commit-basis-registry-axis-reaches-a-staged-key-and-not-a-held-one
-  (testing "The predecessor's third field. `obs/read` reports the registry
-            epoch on every live node and `moved?` compares it, so a handler
-            re-registration between a render and its commit corrects before
-            paint there.
+  (testing "A commit-side re-read's third field. An observation port that
+            reports the registry epoch on every live node and compares it
+            corrects a handler re-registration between a render and its
+            commit before paint.
 
-            The basis carries this axis too, since rf2-2rtt6.50 — but it
+            The basis carries this axis too — but it
             reaches only the half that needs it, and that asymmetry is the
             row. Neither of the other two terms can see a registration: it
             is not a frame-state install, so `frame-commit-epoch` does not
@@ -170,11 +164,11 @@
             gap sees the number move and re-renders through a cell the
             commit acquired against the live registration; a mounted
             boundary's number does not move at all. That is why this is not
-            the term rf2-2rtt6.44 declined — that one sat in every key's
-            live contribution and woke every mounted boundary in the
-            application, to read back through a cell the re-registration had
-            just made deaf. The mounted case is still repaired by the
-            substrate's own events (`arm1.runtime/invalidate-cell!`, off the
+            a term in every key's live contribution, which would wake every
+            mounted boundary in the application, to read back through a cell
+            the re-registration had just made deaf. The mounted case is
+            repaired by the substrate's own events
+            (`arm1.runtime/invalidate-cell!`, off the
             reaction's disposal), and this row asserts that its snapshot
             stays exactly where it was."
     (rf/reg-sub (first q) (fn [db _] (:v db)))
@@ -218,13 +212,13 @@
                  `mark-dirty!`")
             (is (> (rf.bench.fresco.arm1.runtime/commit-basis f) basis)
                 "but the basis did: `registry-epoch` is its third term, and a
-                 registration is the one thing that moves it (rf2-2rtt6.50)")
+                 registration is the one thing that moves it")
             (is (= snapshot (rf.bench.fresco.arm1.runtime/snapshot-of entry))
                 "and the MOUNTED boundary's number is still exactly the
                  number it was — its key is held, so its contribution is the
                  cell's frozen stamp and not a live basis read. This is the
-                 assertion that separates this term from the one
-                 rf2-2rtt6.44 declined")
+                 assertion that separates this term from one in every key's
+                 live contribution")
             (is (not= staged-snap (rf.bench.fresco.arm1.runtime/snapshot-of staged-entry))
                 "while the STAGED boundary's number moved — its key has no
                  cell, so it contributes the basis live, and React's
