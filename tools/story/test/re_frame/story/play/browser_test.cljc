@@ -1,12 +1,12 @@
 (ns re-frame.story.play.browser-test
   "Tests for the browser-tier assertion oracles — visual snapshot, axe-style
-  a11y, and structural a11y (NewTestStory rf2-5x1wt.28,
-  `tools/story/spec/017-Testing-Story.md` §Visual, a11y, and browser
+  a11y, and structural a11y
+  (`tools/story/spec/017-Testing-Story.md` §Visual, a11y, and browser
   checks).
 
   Every evaluator is PURE data → data (the only impurity, `browser-available?`,
   is false on the JVM — exactly the headless contract under test), so the
-  whole suite runs under `clojure -M:test` with no host. The §C4 acceptance
+  whole suite runs under `clojure -M:test` with no host. The acceptance
   bullets:
 
   - a visual assertion runs when the browser runner is selected/requested
@@ -51,7 +51,7 @@
 (deftest cannot-run-finding-rides-the-assertion-record-shape
   (testing ":cannot-run findings carry the ONE assertion-record shape"
     (let [rec (rf.story.play.browser/eval-visual-snapshot [{:opt 1}] {})]
-      ;; same slots every other assertion record carries (.19 shape)
+      ;; same slots every other assertion record carries
       (is (contains? rec :assertion))
       (is (contains? rec :payload))
       (is (contains? rec :passed?))
@@ -95,9 +95,8 @@
       (is (= :pass (:status rec))))))
 
 (deftest structural-a11y-detects-unlabeled-input
-  ;; rf2-81ud8 — an interactive <input> with no accessible name is a genuine
-  ;; structural a11y issue; the structural floor now flags it (the docstring
-  ;; no longer claims a call-site check that did not exist).
+  ;; An interactive <input> with no accessible name is a genuine structural
+  ;; a11y issue, and the structural floor flags it.
   (testing "an :input with no accessible name and a named type is flagged"
     (let [rec (rf.story.play.browser/eval-structural-a11y [] {:hiccup [:div [:input {:type "text"}]]})]
       (is (= :fail (:status rec)))
@@ -114,7 +113,7 @@
                             [] {:hiccup [:div [:input {:type :email :title "email"}]]}))))))
 
 (deftest structural-a11y-name-exempt-input-types-pass
-  ;; rf2-81ud8 — hidden / submit / reset / button / image inputs do NOT need
+  ;; Hidden / submit / reset / button / image inputs do NOT need
   ;; an explicit accessible name (not rendered, or named via :value / :alt).
   (testing "name-exempt input types are clean even without an accessible name"
     (doseq [t ["hidden" "submit" "reset" "button" "image" :hidden :submit]]
@@ -173,15 +172,15 @@
         (finally (reset! rf.story.play.browser/a11y-reader saved))))))
 
 ;; ===========================================================================
-;; AXE FINDING SELECTOR RECOVERY — :nodes → :target source link (rf2-ffu8t)
+;; AXE FINDING SELECTOR RECOVERY — :nodes → :target source link
 ;; ===========================================================================
 ;;
 ;; `eval-a11y` is :cannot-run headless (browser-available? false on the JVM),
 ;; so the selector-recovery projection is unit-tested on its pure helpers
-;; (`violation-targets` / `axe-finding`, private — deref'd via the var). The
-;; executor formerly did `select-keys [:id :impact :help]`, DISCARDING the
-;; axe `:nodes` that carry the offending-element CSS selectors; these pin the
-;; recovery so the source-link MUST (spec/021 §4 + §5) is met.
+;; (`violation-targets` / `axe-finding`, private — deref'd via the var). A
+;; bare `select-keys [:id :impact :help]` would DISCARD the axe `:nodes`
+;; that carry the offending-element CSS selectors; these pin the recovery
+;; so the source-link MUST (spec/021 §4 + §5) is met.
 
 (deftest violation-targets-recovers-node-selectors
   (let [violation-targets @#'rf.story.play.browser/violation-targets]
@@ -241,7 +240,7 @@
     (is (nil? (rf.story.play.browser/eval-browser-assertion [:rf.assert/path-equals [:n] 1] {})))))
 
 ;; ===========================================================================
-;; ID + KNOWN-SET INTEGRATION — the new id is recognised by the vocabulary
+;; ID + KNOWN-SET INTEGRATION — the ids are recognised by the vocabulary
 ;; ===========================================================================
 
 (deftest browser-tier-ids-are-known-assertions
