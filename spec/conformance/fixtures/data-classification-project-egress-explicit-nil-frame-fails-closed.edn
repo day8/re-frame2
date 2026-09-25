@@ -20,17 +20,14 @@
 ;; Call [1] is the CONTROL, and it is what makes call [0] evidence rather than a
 ;; restatement of the absent-key case: it establishes that the frame in scope
 ;; really is live and really is permissive, so a fall-through would have leaked.
-;; Under the pre-rf2-kuky.5 resolution — `(or (:frame opts) (carried scope))` —
-;; call [0] resolved that same live frame and returned the token verbatim.
+;; A truthiness resolution — `(or (:frame opts) (carried scope))` — would
+;; resolve that same live frame for call [0] and return the token verbatim.
 ;;
 ;; A port that resolves `:frame` by truthiness fails call [0] and passes call
 ;; [1], which is the signature to look for.
 ;;
-;; Three consumers each minted a fresh host object as a fake frame id purely to
-;; force this arm, because the request was otherwise unsayable (Xray's
-;; `egress/no-frame`, Xray's local-render `fresh-dead-frame-sentinel`, and
-;; core's `derivation.egress/dead-frame-sentinel`). All three are deleted; this
-;; fixture is the contract that replaces them.
+;; An explicit `:frame nil` is the one spelling of this request, so no consumer
+;; needs to mint a fake frame id to force the fail-closed arm.
 ;;
 ;; Mirrors the unit-level `re-frame.elision-test/explicit-nil-frame-fails-closed-
 ;; under-a-live-ambient-frame` and `re-frame.projection-cljs-test/explicit-nil-
