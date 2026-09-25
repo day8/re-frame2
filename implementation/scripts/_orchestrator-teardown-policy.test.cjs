@@ -13,7 +13,7 @@
  * parent exits, and `spawnSync` does not forward SIGINT/SIGTERM to its
  * child. An orchestrator that spawns a long-lived server and exits (or is
  * interrupted through a handled signal) without explicit teardown can
- * orphans the server. Orphaned shadow-cljs/Node/http-server processes hold
+ * orphan the server. Orphaned shadow-cljs/Node/http-server processes hold
  * file locks on the worktree (`implementation/`, `tools/`, `out/`), and
  * stale lock-holders can block later test and cleanup work. This gate keeps
  * teardown ownership explicit at the spawn site.
