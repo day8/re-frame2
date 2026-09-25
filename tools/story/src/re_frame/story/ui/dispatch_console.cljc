@@ -106,8 +106,7 @@
   of `\\\"<word>\\\":` (i.e. a quoted key followed by colon) is a cheap
   PRE-FILTER, not a verdict: an EDN string value followed by a keyword
   (`{:email \\\"a@b.c\\\" :password …}`) matches it too, so `parse-payload`
-  reads such a payload as EDN when `JSON.parse` refuses it
-  (rf2-3x7nj.29.5)."
+  reads such a payload as EDN when `JSON.parse` refuses it."
   [s]
   (boolean
     (and (string? s)
