@@ -114,7 +114,7 @@
   (throw (ex-info "flaky third-party metric service" {})))
 
 (defn- card-slot
-  "One card's slot in the dashboard — and, since the boundary became a
+  "One card's slot in the dashboard — and, because the boundary is a
   component, ONE program rather than two.
 
   `rf.ssr/boundary` wraps a region that's allowed to arrive late. On the
@@ -125,22 +125,22 @@
   `:id` is how the client pairs an arriving chunk with its placeholder:
   you pick it, and it has to be unique on the page.
 
-  This was a reader conditional until recently — `:rf/suspense-boundary`
-  on the server, a bare card on the client — and it was the one place this
-  example was genuinely two programs. It had to be, while the boundary was
-  a hiccup keyword: a keyword head is an HTML element on every client
-  substrate, so leaving the marker in a browser render tree sails straight
-  through the DOM tag grammar and paints a phantom `<suspense-boundary>`
-  with `:id` and `:fallback` mangled into attributes. And the marker could
-  not simply be taught client semantics either — stock Reagent's element
-  dispatch is an external dependency, and UIx views are `defui` /
-  `$` forms where a hiccup keyword head cannot occur at all.
+  Spelling the slot with the raw `:rf/suspense-boundary` marker instead
+  would make it a reader conditional — the marker on the server, a bare
+  card on the client — and the one place this example is two programs.
+  The split would be forced: a keyword head is an HTML element on every
+  client substrate, so leaving the marker in a browser render tree sails
+  straight through the DOM tag grammar and paints a phantom
+  `<suspense-boundary>` with `:id` and `:fallback` mangled into
+  attributes. And the marker cannot simply be taught client semantics
+  either — stock Reagent's element dispatch is an external dependency, and
+  UIx views are `defui` / `$` forms where a hiccup keyword head cannot
+  occur at all.
 
-  A callable component has none of those problems, and removing the
-  conditional removed something else with it: `card-view` no longer needs
-  a nil branch duplicating the skeleton to keep the client's render
-  agreeing with the DOM the stream painted. The boundary that declared the
-  fallback is the one that re-renders it.
+  A callable component has none of those problems, and it spares
+  `card-view` something else too: a nil branch duplicating the skeleton to
+  keep the client's render agreeing with the DOM the stream painted. The
+  boundary that declared the fallback is the one that re-renders it.
 
   The related trap is one level down and more tempting: a bare
   `[:dashboard/card :revenue]` head is an **HTML element**, never a view.
