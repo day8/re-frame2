@@ -40,8 +40,11 @@
   [[re-frame.bench.fresco.front.codec/boundary-props=]] and it goes red
   while every other claim here stays green.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM; under `:node-test` every claim degrades to a stated skip."
+  Runtime: `-dom-cljs-test`, written against a real React DOM; under
+  `:node-test` every claim would degrade to a stated skip. No lane runs
+  it — the bench project defines no test build — so it is compile-checked
+  only, by `compile_gate.cjs` (`npm run check` and the nightly
+  `fresco-bench-compile` job)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]

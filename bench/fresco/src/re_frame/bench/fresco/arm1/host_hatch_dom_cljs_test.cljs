@@ -57,9 +57,12 @@
   shapes that break at different moments is exactly why witnessing one
   is not witnessing the other.
 
-  Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
-  React DOM; under `:node-test` every DOM claim degrades to a stated
-  skip while the declaration/refusal rows run everywhere."
+  Runtime: `-dom-cljs-test`, written against a real React DOM; under
+  `:node-test` every DOM claim would degrade to a stated skip while the
+  declaration/refusal rows need no DOM. No lane runs it — the bench
+  project defines no test build — so it is compile-checked only, by
+  `compile_gate.cjs` (`npm run check` and the nightly
+  `fresco-bench-compile` job)."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]
@@ -588,7 +591,7 @@
           (finally (rf.bench.fresco.arm1.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5 — the declaration's refusals (these rows run under :node-test too)
+;; 5 — the declaration's refusals (these rows need no DOM)
 ;; ---------------------------------------------------------------------------
 
 (defn- error-id [f]
@@ -691,7 +694,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5b — the declaration GOVERNS, and the vector spelling is EVENT-FIRST
-;;      (HD-024). These rows run under :node-test too.
+;;      (HD-024). These rows need no DOM.
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Two laws, one surface, and both of them are about the door rather than
