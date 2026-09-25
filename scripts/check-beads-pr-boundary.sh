@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # scripts/check-beads-pr-boundary.sh
 #
-# CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7). Fails a pull
+# CI arm of the STALE WORKER-SNAPSHOT guard. Fails a pull
 # request whose diff carries the beads DATABASE — the artefact `bd`
 # auto-stages in every checkout and that a worker branch must never ship.
 # See scripts/git-hooks/lib/check-beads-boundary.sh for the diagnosis; this
@@ -15,12 +15,12 @@
 #                    branch-name filter would be trivially sidestepped.
 #   anything else -> passes with an explanatory line. Pushes to main ARE the
 #                    mayor's checkpoint flow; blocking them would break the
-#                    very thing the durable fix depends on.
+#                    very flow that keeps the tracker durable.
 #
 # The base ref is supplied by the caller rather than assumed, and a missing
 # one FAILS CLOSED: a gate that cannot see the diff certifies nothing.
 #
-# WHAT IT DIFFS: THE BRANCH DELTA, NOT TWO TREE ENDPOINTS (rf2-5z20y)
+# WHAT IT DIFFS: THE BRANCH DELTA, NOT TWO TREE ENDPOINTS
 #
 #   The comparison runs from `git merge-base BASE HEAD` to HEAD — the changes
 #   this branch INTRODUCED — never from BASE's tip to HEAD.
@@ -31,20 +31,18 @@
 #   essentially every loop tick, so any worker branch that forked before the
 #   last checkpoint would be told it had committed tracker contamination it
 #   never touched — a false RED with the wrong remedy attached, on most open
-#   branches, within minutes of this gate being wired. Reproduced on real
-#   history: branch bf8eb01b vs origin/main 1233189c reports
-#   `.beads/issues.jsonl` two-dot and reports nothing from the merge base.
+#   branches.
 #
-#   Endpoint-only good/bad fixtures cannot see this defect, which is why it
-#   shipped green. The regression test is a DIVERGED-HISTORY SEQUENCE — fork,
-#   advance the base with a beads-only checkpoint, then assert — in
-#   scripts/git-hooks/test-pre-commit.sh (layer 5).
+#   Endpoint-only good/bad fixtures cannot see this defect, so the regression
+#   test is a DIVERGED-HISTORY SEQUENCE — fork, advance the base with a
+#   beads-only checkpoint, then assert — in scripts/git-hooks/test-pre-commit.sh
+#   (layer 5).
 #
 #   An unresolvable merge base FAILS CLOSED like a missing base ref. The usual
 #   cause is a shallow clone that does not contain the branch point; on GitHub
 #   Actions use `actions/checkout` with `fetch-depth: 0`.
 #
-# WHY `--no-renames` (rf2-ajbgq)
+# WHY `--no-renames`
 #
 #   Git detects renames by default and `--name-only` then reports the
 #   DESTINATION alone. An exact rename out of the protected tree —
@@ -55,9 +53,9 @@
 #
 #   `--no-renames` presents both endpoints (a deletion plus an addition), so
 #   the shared classifier refuses the protected OLD path with no new rules.
-#   The same Git behaviour bit changed-surface discovery (rf2-vxgfnd.137) and
-#   has the same one-flag fix. A rename endpoint is pinned in layer 5 of
-#   scripts/git-hooks/test-pre-commit.sh; restoring plain `--name-only` reds it.
+#   Changed-surface discovery meets the same Git behaviour and takes the same
+#   one-flag fix. A rename endpoint is pinned in layer 5 of
+#   scripts/git-hooks/test-pre-commit.sh; dropping `--no-renames` reds it.
 #
 # Usage:
 #   sh scripts/check-beads-pr-boundary.sh [BASE_REF]
@@ -103,7 +101,7 @@ if ! git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
   exit 1
 fi
 
-# rf2-5z20y — the BRANCH DELTA, from the branch point. See the header: a
+# The BRANCH DELTA, from the branch point. See the header: a
 # two-endpoint `git diff "$BASE" HEAD` blames a branch for whatever the base
 # moved after it forked, which here means the mayor's tracker checkpoints.
 BRANCH_POINT=$(git merge-base "$BASE" HEAD 2>/dev/null) || BRANCH_POINT=""
