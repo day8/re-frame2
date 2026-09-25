@@ -1,12 +1,12 @@
 (ns re-frame.story.trace-listener-bracket-test
   "JVM pins for the register/try/finally trace-listener bracket that
   runtime's phase-1/2 capture and frames' setup + teardown capture share
-  (rf2-5zgx).
+  (`rf.story.error/with-trace-listener`).
 
-  The three call sites used to carry private copies of the bracket that
-  differed only by the listener-id prefix. Folding them must not change
-  what lands on the trace bus, so these tests pin the ids each call site
-  registers, observed through the trace registry itself:
+  The three call sites share one bracket and differ only by the
+  listener-id prefix, so these tests pin the ids each call site
+  registers — what lands on the trace bus — observed through the trace
+  registry itself:
 
   - `:re-frame.story.runtime/capture-<n>`        — phases 1 and 2;
   - `:re-frame.story.frames/setup-capture-<n>`    — the `:frame-setup`
@@ -71,7 +71,7 @@
   `{:registered [id …] :live #{id …}}` — every id registered, in order, and
   the ids still registered once `body-fn` returns. Redefining the
   `re-frame.trace.tooling` vars reaches every registration: the facade's
-  `:trace` arm calls them at call time (rf2-kuky.52)."
+  `:trace` arm calls them at call time."
   [body-fn]
   (let [registered (atom [])
         live       (atom #{})]
@@ -93,7 +93,7 @@
 
 (deftest every-bracket-registers-its-own-prefixed-id
   (testing "two run/destroy cycles of a variant that reaches all three
-            brackets register exactly today's ids: runtime's capture-<n>,
+            brackets register exactly these ids: runtime's capture-<n>,
             frames' setup-capture-<n> and teardown-capture-<n>, each prefix
             counting on its own, and none survives its bracket"
     (rf/reg-event :tlb/noop (fn [{:keys [db]} _] {:db db}))
