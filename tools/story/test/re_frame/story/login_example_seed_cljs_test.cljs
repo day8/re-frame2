@@ -1,21 +1,17 @@
 (ns re-frame.story.login-example-seed-cljs-test
-  "Regression: every variant of the login example's Story deck
+  "Every variant of the login example's Story deck
    (examples/core/login/stories.cljs) must seed the login-form slice
-   BEFORE its own variant-specific setup runs (rf2-3fc89f.28).
+   BEFORE its own variant-specific setup runs.
 
    The live app boots the slice via `:auth.login/initialise-form` (the
    single source of the form defaults). Each Story variant, however, runs
    in its OWN fresh `:preset :story` frame with no application
    `:initial-events`, so the variant's compiled `:setup` program is the
-   only application-state seed. Before the fix, four variants (`empty`,
-   `filled`, `auth-error`, `locked-out`) never seeded the slice at all, so
-   their inputs rendered uncontrolled (nil `:value`) and machine
-   transitions ran against a missing `[:auth :login-form]` slice; the
-   `submitting` / `success` variants seeded only as a side effect of the
-   `:login.story/submit` driver, and `invalid-credentials` carried a
-   one-off inline seed.
+   only application-state seed. A variant that did not seed the slice
+   would render its inputs uncontrolled (nil `:value`) and run machine
+   transitions against a missing `[:auth :login-form]` slice.
 
-   The fix registers ONE `:fragment.login/form-base` fragment whose
+   The deck registers ONE `:fragment.login/form-base` fragment whose
    `:setup` is `[[:auth.login/initialise-form]]` and composes it into every
    variant. Because the plan compiler appends a composed fragment's `:setup`
    BEFORE the variant's own (spec/017 §`:compose`; re-frame.story.compose-cljs-test),
@@ -30,8 +26,8 @@
    (tools/story/testbeds/login_form) also registers variants under the same
    `:story.login` parent — this test guards only the login EXAMPLE's seven.
 
-   Lives in the Story test tree (not under examples/, which is test-free
-   per rf2-8cevm; and not under implementation/, which must not `:require`
+   Lives in the Story test tree (not under examples/, which is test-free;
+   and not under implementation/, which must not `:require`
    from tools/). It is CLJS-only, so the JVM `clojure -M:test` story gate
    ignores it; it runs under the consolidated `npm run test:cljs` node-test
    build, whose classpath carries both `../tools/story/src` and
@@ -98,7 +94,7 @@
 (deftest the-seed-appears-exactly-once-per-variant
   (testing "no per-variant duplication: after composing the fragment, each
             variant's compiled setup runs the seed event exactly ONCE (the
-            redundant inline / driver seeds were removed)"
+            composed fragment is its only source)"
     (doseq [vid example-variant-ids]
       (let [setup (get-in (rf.story.plan/variant-plan vid) [:world :setup])
             seeds (filter #(= compiled-seed-step %) setup)]
