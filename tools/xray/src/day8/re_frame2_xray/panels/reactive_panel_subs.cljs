@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.reactive-panel-subs
-  "Subscriptions for the Views panel (rf2-wyvf2 / rf2-8ve8z · spec/021 §3).
+  "Subscriptions for the Views panel (spec/021 §3).
 
   The panel reads the focused epoch record's normalized structured
   projections — `:sub-runs` and `:renders` — assembled by the
@@ -8,9 +8,9 @@
   off the raw `:trace-events`. It does NOT re-derive sub rows from raw
   `:trace-events` by op-keyword: the canonical ops are `:rf.sub/run` /
   `:rf.sub/skip` / `:rf.view/rendered` (Spec 009 §:op-type vocabulary),
-  and the earlier op-keyword path grepped for names the substrate never
-  emits (`:rf.sub/computed` / `:rf.sub/skipped`), pinning subs-ran to
-  zero regardless of how many subs actually ran.
+  and an op-keyword path keyed on names the substrate never emits
+  (`:rf.sub/computed` / `:rf.sub/skipped`) would pin subs-ran to zero
+  regardless of how many subs actually ran.
 
   - `:sub-runs`  → subs-ran; every `:sub-runs` row is a genuine recompute
     (the substrate's `sub-run-row` hardcodes `:recomputed? true`). Each
@@ -23,7 +23,7 @@
     its input was value-equal to last-seen, so the user body did NOT
     recompute (`re-frame.subs.memo/emit-sub-skip!`). `project-record`
     reads those ops off `:trace-events` — de-duplicated + cross-excluded
-    by CONCRETE query-v identity (rf2-cj2yx), NOT the registered sub-id, so
+    by CONCRETE query-v identity, NOT the registered sub-id, so
     two parameterizations of one registered sub (`[:item/derived 1]` /
     `[:item/derived 2]`) stay distinct rows and a recomputed query excludes
     only its EXACT skip (a sub that ran DID fire; it is a `:subs-ran` row,
@@ -36,10 +36,11 @@
   - flow counts → tallied from `:trace-events` (`:rf.flow/computed` /
     `:rf.flow/skip`), the one slice with no structured projection.
 
-  ## phase-B Views redesign (rf2-8ve8z)
+  ## Level partition, view action + reason
 
-  The Views panel is THREE STACKED TABLES mirroring the reactive
-  event-bundle flowing toward the UI:
+  The composite feeds the Views panel's left → right flow graph (see
+  `reactive-panel-view`), mirroring the reactive event-bundle flowing
+  toward the UI:
 
     1. Level 1 subs (observe app-db)  — `:inputs []` per `sub-topology`
     2. Level 2+ subs                  — non-empty `:inputs`
@@ -51,11 +52,11 @@
   the static declared-input dependency graph (`{sub-id {:inputs [...] :ns :line
   :file}}`). `:inputs []` is Level 1 (reads app-db directly); non-empty
   is Level 2+. Topology also supplies the `:ns/:line/:file` source coord
-  for the `code` column's jump-to-source chip and the input-sub names
-  for the Level 2+ `inputs` column.
+  a sub node's click jumps to, and the input-sub names the Level 2+
+  edges start from.
 
-  The view ACTION + REASON ride phase-A's (rf2-9hoos) additions to the
-  view-render trace ops, read off the epoch record's `:trace-events`:
+  The view ACTION + REASON ride fields on the view-render trace ops,
+  read off the epoch record's `:trace-events`:
 
     - `:rf.view/rendered` carries `:rf.view/mount?` (true → mount,
       false → rerender) and `:rf.view/deref-subs` (the `[query-id args]`
@@ -69,8 +70,8 @@
   view rendered with no own sub change → structural (`← parent
   re-render`, deliberately UNNAMED). Unmount rows have no reason.
 
-  No new instrumentation — pure consumer over the epoch record + the
-  static topology snapshot.
+  No instrumentation of its own — a pure consumer over the epoch record
+  + the static topology snapshot.
 
   ## Public surface
 
@@ -83,7 +84,7 @@
          :has-event-bundle?    <bool>
          :triggered-by    <event-vec>
          :subs-ran        [{:sub-id _ :value-changed? _ ...} ...]
-         :views-rendered  [{:view-id _ ...} ...]      ; legacy count slot
+         :views-rendered  [{:view-id _ ...} ...]      ; count slot
          :level-1-subs    [{:sub-id _ :changed? _ :coord _ :readers [...]} ...]
          :level-2-subs    [{:sub-id _ :changed? _ :inputs [...] :coord _
                             :readers [...]} ...]
