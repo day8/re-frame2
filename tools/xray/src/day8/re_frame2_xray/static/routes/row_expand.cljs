@@ -24,15 +24,15 @@
 
   ## What the registrar writes
 
-  Both registrar-derived sections read what `reg-route` actually stores
-  (rf2-y8doi.22): the capture names are the compiled form's `:names`
+  Both registrar-derived sections read what `reg-route` actually stores:
+  the capture names are the compiled form's `:names`
   (`(:names (:rf.route/compiled meta))`, the key the framework's own
   readers use), and the source coord is the standard `:file` / `:line`
   pair `reg-route` merges into the metadata (Spec 001), rendered through
   `open-in-editor/open-chip` exactly as the Static Schemas panel renders
-  it. Absent → no section / no chip (silent-by-default). The expand used
-  to read `:keys` and `:rf.route/registered-at`, neither of which the
-  registrar writes, so both were dead against a real host."
+  it. Absent → no section / no chip (silent-by-default). Reading `:keys`
+  or `:rf.route/registered-at` would be dead against a real host: the
+  registrar writes neither."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.static.routes.simulate-nav :as sim-nav]
@@ -102,11 +102,11 @@
   (some->> (:rf.route/compiled meta) :names (mapv keyword)))
 
 (defn jump-button
-  "Cross-link chip `→ Dynamic Routing` per the parent-epic findings
-  §4.4 — fires the cross-link event the registry installs, which flips
+  "Cross-link chip `→ Dynamic` — fires the cross-link event the Static
+  Routes panel's `install!` registers, which flips
   Xray to Dynamic mode on the Routing lens. It does not scope the lens to
   this route (the handler ignores the id), so the title promises only
-  the flip (rf2-y8doi.22).
+  the flip.
 
   `dispatch` is threaded from the routes `Panel` boundary
   (this button renders inside the Reagent island and cannot recover the
