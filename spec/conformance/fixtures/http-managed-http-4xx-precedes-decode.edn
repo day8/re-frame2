@@ -7,10 +7,9 @@
 ;; The raw response body lands at `:body` (not a decoded value), and `:decode`
 ;; never runs on the response.
 ;;
-;; This is the regression guard for rf2-lokk: the Phase 1 implementation
-;; previously decoded first and classified second, which meant a JSON-API
-;; endpoint hitting an HTML 404 surfaced as `:rf.http/decode-failure` and
-;; hid the real HTTP failure category from the caller. The order is now
+;; Decoding first and classifying second would surface a JSON-API
+;; endpoint hitting an HTML 404 as `:rf.http/decode-failure` and
+;; hide the real HTTP failure category from the caller. The order is
 ;; locked: status first, decode only on success-eligible (2xx).
 ;;
 ;; The fixture exercises the contract via :rf.http/managed-canned-failure
@@ -22,7 +21,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx
                          :rf.http/managed}
- :fixture/doc          "Status classification fires before decode. A 4xx response with an HTML body — issued from a handler that asked for `:decode :json` — classifies as :rf.http/http-4xx with the raw HTML at :body, NOT as :rf.http/decode-failure. Regression guard for rf2-lokk."
+ :fixture/doc          "Status classification fires before decode. A 4xx response with an HTML body — issued from a handler that asked for `:decode :json` — classifies as :rf.http/http-4xx with the raw HTML at :body, NOT as :rf.http/decode-failure."
 
  :fixture/registry
  {:event {:page/load        {:doc "Issue the GET that 404s with HTML."}
