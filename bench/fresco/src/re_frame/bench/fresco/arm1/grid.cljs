@@ -1,18 +1,18 @@
 (ns re-frame.bench.fresco.arm1.grid
-  "THE 100-CELL CONTROLLED GRID, WRITTEN ON ARM 1 (K4, HD-019's full door
-  — rf2-2rtt6.41).
+  "THE 100-CELL CONTROLLED GRID, WRITTEN ON ARM 1 (K4, HD-019's full
+  door).
 
   validation.md's `:controlled/grid-100` witness, on the arm's own
   runtime: 100 boundaries, one event, one parametric subscription, and a
   per-cell policy in `app-db`. `arm1_controlled_grid_dom_cljs_test` is
   what reads it.
 
-  ## The model is Arm 2's, deliberately unchanged
+  ## One model, two renderers
 
-  The retired PATCH arm's `:controlled/grid-100` model — four policies
-  over one `[:agrid/cell i]` subscription — is the clearest statement in
-  the repo of what a store-backed controlled input has to do, and it now
-  drives two files: `bench/fresco/controlled_restore_dom_cljs_test`
+  The `:controlled/grid-100` model — four policies over one
+  `[:agrid/cell i]` subscription — is the clearest statement in the repo
+  of what a store-backed controlled input has to do, and it drives two
+  files: `bench/fresco/controlled_restore_dom_cljs_test`
   measures the **UIx adapter's** two input implementations against it, and
   this one measures **Arm 1's own element path** against the same four
   policies. Two arms, one model, so a difference between them is a
