@@ -1,12 +1,12 @@
 (ns day8.re-frame2-xray.panels.reply-envelope
   "ONE work/reply vocabulary for Xray + the trace tooling, reading the
   canonical *uniform reply envelope* (EP-0011) rather than per-family
-  private callback shapes (rf2-zqefg3.7).
+  private callback shapes.
 
   ## Why this namespace exists
 
-  Before EP-0011 each managed-async family spelled its completion
-  continuation differently, and each Xray panel learned that family's
+  Each managed-async family emits its own family-namespaced trace ops,
+  and a panel that reads them family by family learns each family's
   private vocabulary: the resources panel reads `:rf.resource/work-*`
   ops, the cancellation-cascade visualiser reads
   `:rf.http/aborted-on-actor-destroy` + `:rf.machine.timer/cancelled`,
@@ -45,9 +45,9 @@
   the bundle-isolation-safe price of not adding a require edge into the
   reply substrate; a drift would be caught by the closed-vocabulary
   wiring test. It DOES `:require` `re-frame.trace` for the contract-owned
-  canonical RAW trace-event frame reader (`trace-event-frame`,
-  rf2-7737vq) — the same trace-CONTRACT reader the rest of Xray already
-  consumes (`self-noise`, `trace-collector`, `runtime`); that is a read of
+  canonical RAW trace-event frame reader (`trace-event-frame`) — the
+  same trace-CONTRACT reader the rest of Xray consumes (`self-noise`,
+  `trace-collector`, `runtime`); that is a read of
   the published trace contract, not the substrate fns. The bundle
   contract is the no-tool-imports-CORE direction — nothing in
   `implementation/` may require `tools/` — which neither edge violates;
@@ -72,10 +72,10 @@
   under the unit-test target without a CLJS runtime."
   (:require [day8.re-frame2-xray.panels.resources-helpers :as rh]
             ;; the contract-owned canonical RAW trace-event frame reader
-            ;; (`[:tags :frame]` — Spec 009 §Frame identity on the raw event,
-            ;; rf2-7737vq). NOT the substrate algebra (`re-frame.reply`) the
+            ;; (`[:tags :frame]` — Spec 009 §Frame identity on the raw
+            ;; event). NOT the substrate algebra (`re-frame.reply`) the
             ;; closed vocabularies below MIRROR: `re-frame.trace` is the trace
-            ;; CONTRACT reader xray already consumes (`self-noise`,
+            ;; CONTRACT reader xray consumes (`self-noise`,
             ;; `trace-collector`, `runtime`); the no-tool-imports-core bundle
             ;; direction (core MUST NOT require tools) is unaffected.
             [re-frame.trace :as rf.trace]))
@@ -104,7 +104,7 @@
 
 (def work-statuses
   "The operational work-status vocabulary — `:rf.reply/work-status` on a reply
-  map (post-l7s7b7 single-root), the same values under the bare `:status` a
+  map, the same values under the bare `:status` a
   durable work-ledger row carries (the cross-record spelling — Managed-Effects
   §The uniform reply envelope) (mirror of `re-frame.reply/work-statuses`).
   Narrower / more operational than reply `:status`: `:timed-out` is an error
@@ -137,16 +137,16 @@
 ;; Reply-map field readers (Managed-Effects §The reply map). A reply map is
 ;; the appended last-arg of a reply-target event, or the data-only trace
 ;; summary a family emits on completion. The work-correlation reads the
-;; canonical `:rf.reply/work-id` (post-l7s7b7 the reply MAP single-roots the
+;; canonical `:rf.reply/work-id` (the reply MAP single-roots the
 ;; work identity there, EP-0011 one-name-per-fact — Managed-Effects §The
 ;; uniform reply envelope; the trace row's `:tags` stamp the same
-;; `:rf.reply/work-id`, and no bare `:work-id` trace-tag spelling remains to
-;; tolerate). The bare `:work/id` fallback is the durable work-ledger row's
+;; `:rf.reply/work-id`, and there is no bare `:work-id` trace-tag spelling
+;; to tolerate). The bare `:work/id` fallback is the durable work-ledger row's
 ;; cross-record spelling (Managed-Effects §The uniform reply envelope — a
 ;; queryable status record vs a transient causal envelope), NOT a reply-map
-;; spelling. The frame reader still accepts either the canonical
-;; `:rf.frame/id` or the bare `:frame-id` some trace rows stamp, so one
-;; reader works on both the dispatched reply map and the trace row's `:tags`.
+;; spelling. The frame readers take the canonical `:rf.frame/id`; on a raw
+;; trace row `event-frame` falls back to the bare `[:tags :frame]` HTTP
+;; stamps.
 ;; ---------------------------------------------------------------------------
 
 (defn reply-map?
@@ -161,11 +161,11 @@
   attempt identity (Managed-Effects §Work-id correlation — `=`-comparable,
   EDN-serializable); the key the stale-races view groups on.
 
-  rf2-o6c2jr — the CANONICAL trace-tag spelling is `:rf.reply/work-id`; the
-  bare `:work/id` trace-tag duplicate was dropped (one name per fact —
-  Conventions rule 1). Post-l7s7b7 the reply MAP also single-roots its work
-  identity as `:rf.reply/work-id`. Prefer `:rf.reply/work-id`; fall back to
-  the bare `:work/id`, which is now the DURABLE work-ledger row's cross-record
+  The CANONICAL trace-tag spelling is `:rf.reply/work-id`, with no bare
+  `:work/id` trace-tag duplicate (one name per fact — Conventions rule 1),
+  and the reply MAP also single-roots its work identity as
+  `:rf.reply/work-id`. Prefer `:rf.reply/work-id`; fall back to
+  the bare `:work/id`, which is the DURABLE work-ledger row's cross-record
   spelling (Managed-Effects §The uniform reply envelope — a queryable status
   record vs a transient causal envelope), NOT a reply-map key. nil when absent
   (a non-ledger-backed managed async)."
@@ -174,10 +174,10 @@
 
 (defn work-kind-of
   "Read the work-kind family tag off a reply map or trace tags (one of
-  `work-kinds`). Prefer the migrated reply-envelope spelling
-  `:rf.reply/work-kind` (post-l7s7b7 the reply MAP single-roots the work
+  `work-kinds`). Prefer the reply-envelope spelling
+  `:rf.reply/work-kind` (the reply MAP single-roots the work
   identity there — Managed-Effects §The uniform reply envelope; a family
-  trace row also stamps it additively). Fall back to the bare `:work/kind`
+  trace row stamps it too). Fall back to the bare `:work/kind`
   the durable work-ledger row keeps under the cross-record spelling rule,
   then to `:work-kind`/`:kind`. nil when absent. When absent on a reply,
   `infer-work-kind` derives it from the work-id tuple head — note a
@@ -219,7 +219,7 @@
       (infer-work-kind (work-id-of m))))
 
 ;; ---------------------------------------------------------------------------
-;; The uniform reply row (rf2-zqefg3.7 — the ONE vocabulary). Projects a
+;; The uniform reply row (the ONE vocabulary). Projects a
 ;; reply map (Managed-Effects §The reply map) into a render-safe row that
 ;; reads the SAME across every family. PRIVACY: the wire-bearing slots
 ;; (`:value` / `:error` / `:correlation` / `:meta`) are summarized; the
@@ -273,9 +273,9 @@
     {:work-id       work-id
      :work-kind     (resolve-work-kind reply)
      :status        status
-     ;; Post-l7s7b7 the reply MAP single-roots the operational work status as
+     ;; The reply MAP single-roots the operational work status as
      ;; `:rf.reply/work-status` (Managed-Effects §The uniform reply envelope);
-     ;; prefer it, tolerating the pre-migration bare `:work/status`/`:work-status`.
+     ;; prefer it, falling back to the bare `:work/status`/`:work-status`.
      :work-status   (or (:rf.reply/work-status reply) (:work/status reply) (:work-status reply))
      :attempt       (:attempt reply)
      ;; The reply MAP's frame is the canonical EP-0002 carried-frame stamp
@@ -285,8 +285,8 @@
      ;; on the dispatched map). This reply-map layer is distinct from the raw
      ;; trace-event layer (where HTTP rows ride the bare `[:tags :frame]`
      ;; carve-out — see `work-event-row`), so the canonical raw-event reader
-     ;; `trace-event-frame` does not apply to a reply map. The historical dead
-     ;; `:frame-id` / bare `:frame` reply-map aliases are gone (rf2-l9vb09).
+     ;; `trace-event-frame` does not apply to a reply map. It reads no
+     ;; `:frame-id` / bare `:frame` reply-map alias.
      :frame         (:rf.frame/id reply)
      :started-at    (:started-at reply)
      :completed-at  (:completed-at reply)
@@ -296,9 +296,9 @@
      :error-kind    (when (map? error) (:kind error))
      :correlation   (when (contains? reply :correlation) (rh/summarize (:correlation reply)))
      :stale?        (boolean (:stale? reply))
-     ;; Post-l7s7b7 reply-map spelling is `:rf.reply/stale-reason` /
+     ;; The reply-map spelling is `:rf.reply/stale-reason` /
      ;; `:rf.reply/cancel-reason` (Managed-Effects §The uniform reply
-     ;; envelope); prefer them, tolerating the pre-migration bare keys.
+     ;; envelope); prefer them, falling back to the bare keys.
      :stale-reason  (or (:rf.reply/stale-reason reply) (:stale/reason reply))
      :cancelled?    (boolean (:cancelled? reply))
      :cancel-reason (or (:rf.reply/cancel-reason reply) (:cancel/reason reply))
@@ -380,12 +380,12 @@
   PHASE it represents (Managed-Effects §Tracing). The families spell their
   ops in their own reserved namespace (Conventions §Reserved namespaces);
   this is the single cross-family lowering Xray reads so a panel groups by
-  phase, not by family. Covers the families lowered onto the envelope today
+  phase, not by family. Covers the families lowered onto the envelope
   (HTTP / resources / mutations / routing / machines / timers); a family op
-  not listed falls through to `phase-of`'s namespace+suffix heuristic so a
-  newly-added op is still classified before this table is extended."
+  not listed falls through to `phase-of`'s name-suffix heuristic so a
+  newly-added op is classified before this table is extended."
   {;; ---- issuance / start ----
-   ;; Resources lower their issuance onto the work-ledger row (`.3`, landed):
+   ;; Resources lower their issuance onto the work-ledger row:
    :rf.resource/work-started               :issued
    :rf.resource/fetch-started              :issued
    ;; Mutations reuse the resource work-ledger substrate (`:work/kind
@@ -394,13 +394,13 @@
    ;; runtime-owned reply addressing).
    :rf.mutation/started                    :issued
    ;; HTTP emits `:rf.http/issued` from inside the `:rf.http/managed` fx
-   ;; handler (rf2-x8oz5), carrying the attempt-1 `:rf.reply/work-id`; the
+   ;; handler, carrying the attempt-1 `:rf.reply/work-id`; the
    ;; canonical completion is `:rf.http/replied` (see :completed below). The
    ;; suffix heuristic would classify it too — it is listed so the table,
    ;; not a substring match, is the record of what HTTP emits.
    :rf.http/issued                         :issued
-   ;; Machines (`.4`) + routing (`.5`) issuance ops are forward-looking; the
-   ;; suffix heuristic classifies them until those PRs land their literals.
+   ;; Machine and routing issuance ops not listed here fall to the suffix
+   ;; heuristic.
    :rf.machine.timer/scheduled             :issued
    ;; ---- retry / intermediate ----
    :rf.http/retry-attempt                  :retry
@@ -415,7 +415,8 @@
    ;; ---- completion (carries the reply :status) ----
    ;; `:rf.http/replied` is the canonical EP-0011 HTTP completion row — built
    ;; FROM the reply-envelope facts (`http-reply/trace-reply`), carrying
-   ;; `:status` / `:work/id` / `:work/kind` / `:work/status` (rf2-zqefg3.2).
+   ;; `:status` / `:rf.reply/work-id` / `:rf.reply/work-kind` /
+   ;; `:rf.reply/work-status`.
    :rf.http/replied                        :completed
    :rf.http/succeeded                      :completed
    :rf.http/failed                         :completed
@@ -441,21 +442,21 @@
    ;; projector below admits only the `:rf.reply/status :cancelled` shape.
    :rf.machine/destroyed                   :completed
    ;; ---- stale suppression (the correctness boundary) ----
-   ;; Resources emit `:rf.resource/stale-suppressed` (landed). The shared
+   ;; Resources emit `:rf.resource/stale-suppressed`. The shared
    ;; substrate suppression trace is `:rf.reply/suppressed` (re-frame.reply
    ;; §suppress). Routing emits `:rf.route.nav-token/stale-suppressed`.
-   ;; rf2-waawic — the machine `:after` timer emits
+   ;; The machine `:after` timer emits
    ;; `:rf.machine.timer/stale-after` (a reply-shaped stale completion); the
    ;; suffix heuristic catches `stale-suppress` / `suppressed` but NOT
-   ;; `stale-after`, so an EP-0011 managed async stale completion from
-   ;; machines was invisible to the uniform reply-envelope view. Enumerate it
-   ;; explicitly. rf2-azcmd3 — HTTP supersession emits
+   ;; `stale-after`, so without this entry an EP-0011 managed async stale
+   ;; completion from machines would be invisible to the uniform
+   ;; reply-envelope view. HTTP supersession emits
    ;; `:rf.http/stale-suppressed` (a canonical superseded-attempt stale row).
    :rf.resource/stale-suppressed           :stale-suppressed
    :rf.route.nav-token/stale-suppressed    :stale-suppressed
    :rf.machine.timer/stale-after           :stale-suppressed
    :rf.http/stale-suppressed               :stale-suppressed
-   ;; rf2-hj4skn / rf2-ixjd48 — the `:spawn-all` join's TWO exact-attempt
+   ;; The `:spawn-all` join's TWO exact-attempt
    ;; stale rows (005 §`:spawn-all` join-child completion / 009 §op-type
    ;; vocabulary). The producer's ordered exact-attempt fence runs the
    ;; `attempt-unverified` / `attempt-superseded` gates BEFORE the `:resolved?`
@@ -479,19 +480,19 @@
    ;;     still arrives after its own join resolved) (`:rf.reply/stale-reason
    ;;     :rf.machine.spawn-all/join-resolved`).
    ;; Both carry the canonical `:status :stale` / `:rf.reply/work-status
-   ;; :suppressed` reply facts additively on the public `:child-id` / `:kind`
+   ;; :suppressed` reply facts alongside the public `:child-id` / `:kind`
    ;; shape. NEITHER name matches a `stale-suppress` / `suppressed` /
    ;; `completed` suffix (`stale-completion` / `late-completion` end in
-   ;; `-completion`, not `-completed`), so the heuristic returned nil for
-   ;; both and their exact-attempt evidence was silently dropped — enumerate
-   ;; them explicitly. The NON-DECISIVE
+   ;; `-completion`, not `-completed`), so the heuristic returns nil for
+   ;; both and without these entries their exact-attempt evidence would be
+   ;; silently dropped. The NON-DECISIVE
    ;; `:rf.machine.spawn-all/child-completed` terminal is a REAL `:completed`
    ;; (its `-completed` suffix classifies correctly) and is NOT lowered here;
-   ;; the suffix heuristic is NOT broadened to admit arbitrary `*completion`
+   ;; the suffix heuristic deliberately does NOT admit arbitrary `*completion`
    ;; ops without reply-envelope proof.
    :rf.machine.spawn-all/stale-completion  :stale-suppressed
    :rf.machine.spawn-all/late-completion   :stale-suppressed
-   ;; rf2-syc7a — the single-`:spawn` analogue (rf2-3x7nj.9.3): a completion
+   ;; The single-`:spawn` analogue: a completion
    ;; carrier dropped because the parent left or re-entered the spawning
    ;; state before it arrived (`:rf.reply/stale-reason`
    ;; `:rf.machine.spawn/state-exited` / `.../attempt-superseded`). Same
@@ -580,8 +581,7 @@
   (or (:rf.frame/id (trace-tags ev)) (rf.trace/trace-event-frame ev)))
 
 (defn trace-buffer-for-frame
-  "Restrict `trace-buffer` to the rows attributable to `frame`
-  (rf2-3x7nj.23.3).
+  "Restrict `trace-buffer` to the rows attributable to `frame`.
 
   Xray's trace buffer merges every host frame's ring, but a `:work/id` is
   frame-LOCAL: a resource work-id is `[:rf.work/resource <scoped-key>
@@ -646,7 +646,7 @@
             status  (cond
                       (= phase :completed)
                       ;; read the closed reply status from EITHER the bare
-                      ;; `:status` OR the additive production `:rf.reply/status`
+                      ;; `:status` OR the production `:rf.reply/status`
                       ;; key (machine / resource / mutation completion rows stamp
                       ;; the latter ALONGSIDE a bespoke `:status`). Some resource
                       ;; completion rows stamp the LEDGER status
@@ -677,7 +677,7 @@
                  :phase        phase
                  :work-kind    (or (work-kind-of tags) (infer-work-kind work-id))
                  :work-id      work-id
-                 ;; Frame attribution across families (rf2-l9vb09). Two
+                 ;; Frame attribution across families. Two
                  ;; legitimate frame spellings ride a managed-async reply trace
                  ;; row, by family:
                  ;;   - resources / machines / mutations stamp the EP-0002
@@ -686,18 +686,17 @@
                  ;;     facts the family emits its row FROM);
                  ;;   - HTTP stamps the bare `:frame` in `:tags` — the generic
                  ;;     raw-event carve-out read by the contract-owned canonical
-                 ;;     reader `re-frame.trace/trace-event-frame` ([:tags :frame],
-                 ;;     rf2-7737vq).
+                 ;;     reader `re-frame.trace/trace-event-frame`
+                 ;;     ([:tags :frame]).
                  ;; Prefer `:rf.frame/id`, falling back to the canonical reader
-                 ;; for the bare `[:tags :frame]` slot. The historical dead
-                 ;; aliases — bare `:frame-id` in `:tags` (rf2-shaa1 dropped it;
-                 ;; no emit site produces it) and a top-level `:frame` on the
-                 ;; raw event (raw events carry frame ONLY under `:tags`) — are
-                 ;; gone.
+                 ;; for the bare `[:tags :frame]` slot. It reads neither a
+                 ;; bare `:frame-id` in `:tags` (no emit site produces it) nor
+                 ;; a top-level `:frame` on the raw event (raw events carry
+                 ;; frame ONLY under `:tags`).
                  :frame        (event-frame ev)
-                 ;; rf2-waawic — tolerate the additive `:rf.reply/work-status`
-                 ;; production key so machine / resource / mutation rows do not
-                 ;; lose their work status.
+                 ;; Also read the `:rf.reply/work-status` production key, so
+                 ;; machine / resource / mutation rows keep their work
+                 ;; status.
                  :work-status  (or (:work/status tags) (:work-status tags)
                                    (:rf.reply/work-status tags))
                  :time         (:time ev)
@@ -711,7 +710,7 @@
                             (rh/summarize (:rf.reply/carried tags)))
                  :current (when (contains? tags :rf.reply/current)
                             (rh/summarize (:rf.reply/current tags)))
-                 ;; rf2-hj4skn — some families carry a SINGLE
+                 ;; Some families carry a SINGLE
                  ;; `:rf.reply/correlation` identity map instead of (or
                  ;; alongside) the carried/current gate pair: the `:spawn-all`
                  ;; join stamps `{:parent-id … :invoke-id … :child-id …
@@ -723,7 +722,7 @@
                  ;; completion FROM is not silently dropped.
                  :correlation (when (contains? tags :rf.reply/correlation)
                                 (rh/summarize (:rf.reply/correlation tags)))
-                 ;; rf2-hj4skn — the causal reply completion time (Managed-
+                 ;; The causal reply completion time (Managed-
                  ;; Effects §The reply map — `:rf.reply/completed-at`), distinct
                  ;; from the trace event `:time`; present on the spawn-all
                  ;; stale rows "when present" per the 009 catalogue.
@@ -750,8 +749,8 @@
   (into [] (keep work-event-row) (or trace-buffer [])))
 
 ;; ---------------------------------------------------------------------------
-;; Stale-races view — keyed on :work/id (rf2-zqefg3.7 bead requirement /
-;; Cross-Cutting F-C5 stale-suppression tally / F.11 cross-surface badge).
+;; Stale-races view — keyed on :work/id (Cross-Cutting F-C5
+;; stale-suppression tally / F.11 cross-surface badge).
 ;; Groups the cross-family work/reply rows by `:work/id` so the operator sees
 ;; each attempt's arc (issued → … → completed/suppressed) and the races where
 ;; one work id was superseded by another (carried ≠ current correlation).
@@ -763,7 +762,7 @@
   vocabulary, keyed by `:work/id` (Managed-Effects §Stale suppression — the
   correctness boundary; the row carries the carried + current correlation).
   This is the Cross-Cutting F-C5 stale-suppression tally / F.11 cross-surface
-  STALE badge, now UNIFORM across HTTP / resources / mutations / routing /
+  STALE badge, UNIFORM across HTTP / resources / mutations / routing /
   machines (each family's stale-suppressed op lowers to the same phase). Pure."
   [trace-buffer]
   (->> (project-work-events trace-buffer)
@@ -818,8 +817,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; \"What is still running?\" — work-ledger rows joined to reply status +
-;; trace cause, UNIFORM across families (rf2-zqefg3.7 bead requirement /
-;; Cross-Cutting F-C4 active managed-effects dashboard). The work ledger is
+;; trace cause, UNIFORM across families (Cross-Cutting F-C4 active
+;; managed-effects dashboard). The work ledger is
 ;; the durable substrate (Managed-Effects §Work-ledger integration — a ledger
 ;; row IS the reified continuation); a non-terminal row is live work. Joining
 ;; the ledger row to the latest trace phase for its `:work/id` answers \"is it
@@ -854,8 +853,8 @@
   work/reply row vocabulary (Managed-Effects §Work-ledger integration). The
   cross-family mirror of `resources-helpers/work-row`, but keyed on the
   ENVELOPE vocabulary (`:work-kind` / `:work/id` / live?) rather than
-  resource-specific fields, so HTTP / route / machine / timer ledger rows (as
-  later families write them) project the SAME way:
+  resource-specific fields, so HTTP / route / machine / timer ledger rows
+  project the SAME way:
 
       {:work-id      <id>
        :work-kind    :resource | :mutation | :http | :route | :machine | :timer
@@ -880,7 +879,7 @@
         ;; CEDN-1 byte `work-id-id` STRING (resources/work-ledger §record-path);
         ;; the kind-preserving work-id VECTOR is carried on the record as
         ;; `:work/id`. Read the canonical vector from there — fall back to the
-        ;; map key only for a legacy/nonconforming record that lacks the stamp —
+        ;; map key only for a nonconforming record that lacks the stamp —
         ;; so the displayed `:work-id`, the `:work-kind` inference, AND the
         ;; live-work trace join all key on the kind-preserving identity, NOT the
         ;; byte string. Mirror of resources-helpers/work-row.
