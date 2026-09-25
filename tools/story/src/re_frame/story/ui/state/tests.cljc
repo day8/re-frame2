@@ -1,7 +1,6 @@
 (ns re-frame.story.ui.state.tests
   "Pure test-run aggregation + watch-mode helpers for the shell state
-  map. Split from `re-frame.story.ui.state` to honor the leaf-size
-  ceiling.
+  map.
 
   ## What lives here
 
@@ -31,10 +30,9 @@
   Both surfaces (test-runs + watch-mode) read/write under the same
   `:tests` root in the shell-state map. They share no code with the
   selection / filter / cell-override surfaces in
-  `re-frame.story.ui.state` proper — splitting honors the leaf-size
+  `re-frame.story.ui.state` proper — a separate leaf honors the leaf-size
   ceiling without losing locality. The parent ns re-exports the
-  public defs so existing consumer requires (`re-frame.story.ui.state`)
-  keep working."
+  public defs so consumers need only require `re-frame.story.ui.state`."
   (:require [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.verdict   :as rf.story.verdict]))
 
@@ -85,9 +83,9 @@
   Buckets by each record's unified `:status` (spec/017 §Run result), so
   a `:cannot-run` assertion (a runner refusal — the distinct THIRD
   status) is counted distinctly and NOT folded into
-  `:failed`. `:skipped` is the alias count kept for the legacy
-  `:rf.assert/skipped` id (re-frame2's runtime doesn't emit it, but the
-  slot stays open). `:all-passed?` is true iff `:total > 0 AND :failed = 0
+  `:failed`. `:skipped` counts records carrying the
+  `:rf.assert/skipped` id (re-frame2's runtime doesn't emit it; the
+  slot is open for a runner that does). `:all-passed?` is true iff `:total > 0 AND :failed = 0
   AND :cannot-run = 0 AND :skipped = 0` — a refusal is NOT all-green.
 
   Lives here (not `test-mode.pure`) so both the test-mode pane AND the
@@ -237,7 +235,7 @@
 (defn- composed-script?
   "True iff a `:compose` id names a registered fragment whose own `:script`
   is non-empty. The plan compiler prepends that script onto the primary
-  play, or synthesizes one (spec/017 §Total merge order, rf2-k23efg), so it
+  play, or synthesizes one (spec/017 §Total merge order), so it
   runs like the variant's own. One lookup per compose id; `:compose` is
   child-only, so no ancestor is walked."
   [body]
@@ -265,11 +263,11 @@
 
   - a play surface — a non-empty `:script` or `:plays`; OR
   - a declarative expectation of its own — a non-empty `:assertions` or
-    `:checks` vector (rf2-uiihg); OR
+    `:checks` vector; OR
   - a non-empty `:script` it receives through a `:compose` of a fragment,
-    which the compiler folds into the primary play (rf2-dt9xf); OR
+    which the compiler folds into the primary play; OR
   - `:checks` it receives from an `:extends` ancestor or through a
-    `:compose` of a check id (rf2-ckpm4).
+    `:compose` of a check id.
 
   spec/017 lowers `:assertions` / `:checks` into `[:expect …]`, merging the
   inherited and composed check ids in, and `run-variant` evaluates them
@@ -279,7 +277,7 @@
   mode) and `test-mode.pure/variant-has-tests?` (the Tests pane) both call
   it, so they cannot disagree.
 
-  Never compiles a plan, so the sidebar hot path (rf2-dtj61) stays a
+  Never compiles a plan, so the sidebar hot path stays a
   predicate: the own slots first, then lookups per `:compose` id and per
   `:extends` ancestor. `id->body` resolves the chain; the 1-arity reads the
   registered variants."
