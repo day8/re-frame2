@@ -1615,11 +1615,11 @@
          :text-transform "none"))
 
 (def ^:private error-block-category-badge-style
-  ;; rf2-vvixub — the `:rf.error/id` category badge. Under the
+  ;; The `:rf.error/id` category badge. Under the
   ;; thrown-error human-message contract the verbatim message LEADS with
-  ;; a human-actionable sentence (no longer the bare keyword), so the
+  ;; a human-actionable sentence rather than the bare keyword, so the
   ;; machine discriminator (`:rf.error/id`, projected as `:operation`)
-  ;; now rides as a quiet metadata badge in the title bar — the category
+  ;; rides as a quiet metadata badge in the title bar — the category
   ;; pivot the operator reads at a glance, distinct from the prose
   ;; message below. Mono face (it quotes a keyword) + a calm tertiary
   ;; tone so it stays subordinate to the `✗ Exception Thrown` headline.
@@ -1632,13 +1632,12 @@
    :font-weight    600
    :letter-spacing "0.2px"})
 
-;; rf2-wnvid — collapsible exception details (`<details>`/`<summary>`).
+;; Collapsible exception details (`<details>`/`<summary>`).
 ;; The stack trace + ex-data are diagnostic depth the operator wants on
 ;; demand, not always-expanded clutter under every failed step. A native
 ;; `<details>` element gives a zero-app-db-state, accessible disclosure;
 ;; the summary row is the clickable affordance. The third + quietest tier
-;; of the hierarchy (rf2-ynvv7) — kept calm so the card stays quiet when
-;; collapsed.
+;; of the hierarchy — calm, so the card stays quiet when collapsed.
 (def ^:private error-block-details-style
   {:margin-top (:gap-1 spacing)})
 
@@ -1680,15 +1679,15 @@
 (def ^:private rolled-back-mute-style
   {:opacity 0.55})
 
-;; rf2-yz57h — SKIPPED-step body. When an upstream `:before`-chain throw
+;; SKIPPED-step body. When an upstream `:before`-chain throw
 ;; (coeffect injector / `:before` interceptor) aborts the cascade, the
 ;; HANDLER + SIDE EFFECTS steps never run. The view renders a SKIPPED
 ;; placeholder body — a muted italic line stating the step did not run —
 ;; instead of the normal body (whose `:db` sub-section would otherwise read
 ;; the misleading "— no :db (handler returned no :db)" even though the
 ;; handler's body DOES return a :db; it simply never executed). The
-;; SKIPPED placeholder body itself carries the "did not run" signal
-;; (the per-stage header glyph retired in rf2-9wq0v).
+;; SKIPPED placeholder body itself carries the "did not run" signal;
+;; there is no per-stage header glyph.
 (def ^:private skipped-body-style
   {:margin-top  "5px"
    :padding     "6px 8px"
@@ -1701,11 +1700,11 @@
    :color       text-tertiary-colour})
 
 (defn- skipped-body
-  "Render a SKIPPED step's body (rf2-yz57h) — a muted italic line stating
+  "Render a SKIPPED step's body — a muted italic line stating
   the step did not run because an upstream step threw. `what` names the
   step for the operator (e.g. \"The handler\" / \"Side effects\").
 
-  rf2-3x7nj.22.1 — `skip-reason` `:halted-depth` (stamped by
+  `skip-reason` `:halted-depth` (stamped by
   `projection/mark-halted`) words it for a drain-depth halt instead: nothing
   threw, the drain refused the event."
   ([testid what] (skipped-body testid what nil))
@@ -1718,12 +1717,10 @@
            " did not run — the drain hit its depth limit before this event could execute."
            " did not run — an upstream step threw before this step could execute."))]))
 
-;; `rolled-back-banner-style` + the `rolled-back-banner` render fn
-;; were retired (rf2-w8evg) — the rf2-7gf7v / rf2-8resu redesign moves
-;; the :app-db violation to the FX step's :db row (the implicit
-;; commit fx), so the standalone HANDLER-level "cascade rolled back"
-;; banner has no caller. Downstream-mute treatment lives on via
-;; `rolled-back-mute-style` (applied in `render-pipeline-steps`).
+;; There is no HANDLER-level "cascade rolled back" banner: the :app-db
+;; violation renders on the FX step's :db row (the implicit commit fx).
+;; Downstream-mute treatment rides `rolled-back-mute-style` (applied in
+;; `render-pipeline-steps`).
 
 ;; -- pipeline -------------------------------------------------------------
 
@@ -1769,36 +1766,32 @@
 (def ^:private panel-scroll-style
   {:flex 1 :overflow "auto" :padding "21px"})
 
-;; rf2-ahhgn epoch outcome banner — RETIRED (rf2-wnvid). The top-of-
-;; pipeline "This event failed — see the ✗ step below." banner restated
-;; what the cascade now shows inline (the failing step's 'Exception
-;; Thrown' card; the per-stage ✗ glyph itself retired in rf2-9wq0v).
-;; `outcome-banner-error-style` + `outcome-banner` are gone; the panel
-;; root keeps `data-rf-xray-outcome` for tools / e2e.
+;; There is no top-of-pipeline "This event failed" banner: it would
+;; restate what the cascade shows inline (the failing step's 'Exception
+;; Thrown' card). The panel root carries `data-rf-xray-outcome` for
+;; tools / e2e.
 
 ;; ---- expansion state helpers ---------------------------------------------
 ;;
 ;; The Epoch panel's row-expansion surface (`:rf.xray.epoch/toggle-
 ;; row-expand` event + `:rf.xray.epoch/expanded-rows` sub) is
 ;; registered by the orchestrator's `install!` but is NOT wired by the
-;; current renderer (see the ns docstring's §Expansion state): every
+;; renderer (see the ns docstring's §Expansion state): every
 ;; `epoch-step-header` call site passes `:expandable? false`, and the
 ;; view neither subscribes to `:rf.xray.epoch/expanded-rows` nor
-;; dispatches the toggle. The current view renders default-visible
+;; dispatches the toggle. The view renders default-visible
 ;; content for every step (the cascade's punch is its always-visible
-;; rhythm); the sub/event infrastructure stays in place for the
-;; follow-on rich-expansion pass where clicking a row's header mounts
-;; the edn-inspector widget under the body via `:zoomable? true` +
-;; `:header "<step>"` (rf2-h71e0 / rf2-okq7p) per the bead body's
-;; §edn-inspector composition.
+;; rhythm); the sub/event infrastructure is there for a rich-expansion
+;; renderer in which clicking a row's header mounts the edn-inspector
+;; widget under the body via `:zoomable? true` + `:header "<step>"`.
 
-;; ---- view-name hover-highlight (rf2-2f962) ------------------------------
+;; ---- view-name hover-highlight ------------------------------------------
 ;;
 ;; Hovering a view-id in the VIEWS step toggles the
 ;; `.rf-xray-view-highlight` class on the rendered view's root DOM node
 ;; (matched by Spec 006's `data-rf-view` attribute) — the same pink
-;; diagonal-stripe affordance the Reactive panel's view-node carries
-;; (rf2-e33ad / rf2-8l03l). The class lives in
+;; diagonal-stripe affordance the Reactive panel's view-node carries.
+;; The class lives in
 ;; `theme/global-styles` and is intentionally UNSCOPED so it reaches
 ;; the host app's frame outside the Xray shell. Pure DOM side-effect;
 ;; cleared on mouseleave; no layout perturbation.
@@ -1836,12 +1829,12 @@
   "Render a step's badge pill — uppercase 10px label inside a
   rounded-corners chip painted in the badge's colour.
 
-  Per the bead body's §Numbered Cascade Pattern step 2:
+  Its shape:
 
       Badge pill: uppercase text, 10px font (devtools-micro),
                   rounded, padding 5px horizontal, 3px vertical
 
-  Pair-debug 2026-05-26: when the badge's display label starts
+  When the badge's display label starts
   with `:` (e.g. `:fx`) the CSS uppercase + letter-spacing is
   skipped — the EDN-key-style label is shown as authored, distinct
   from the conventional step-name labels (DISPATCH, HANDLER, etc.)."
@@ -1857,17 +1850,16 @@
                             badge-pill-text-overlay))}
      label]))
 
-;; rf2-xgeag — violation sub-block defined further down the file (in
+;; The violation sub-block is defined further down the file (in
 ;; the §SCHEMA VIOLATION sub-block section), but each step renderer
 ;; above attaches a `(violation-blocks ...)` sub-block to its body.
 ;; Forward-declared here so the namespace compiles in source order
-;; without warnings. (`rolled-back-banner` forward declare retired
-;; alongside its defn — rf2-w8evg.)
+;; without warnings.
 (declare violation-blocks)
 (declare violation-block)
 (declare error-blocks)
 (declare error-block)
-;; rf2-2hj0h item 8 — the per-cascade-row EXCEPTION BOX
+;; The per-cascade-row EXCEPTION BOX
 ;; (`cascade-row-exception-box`) reuses the outer pipeline's collapsible
 ;; `error-block-details` (stack + ex-data disclosure), which is defined
 ;; later in source order; forward-declared so the cascade renderer compiles
@@ -1877,8 +1869,7 @@
 (defn- numbered-circle
   "Render the numbered circle — 21px diameter, painted in the step's
   badge colour with white numerals. Positioned absolutely at -44px
-  from the content column's left edge per the bead body's §Numbered
-  Cascade Pattern step 1."
+  from the content column's left edge."
   [step-number step-badge]
   [:span {:data-testid (str "rf-xray-epoch-circle-" step-number)
           :aria-label  (str "step " step-number " (" (name step-badge) ")")
@@ -1891,7 +1882,7 @@
   Returns nil for non-number durations so the view can elide the
   slot when the substrate didn't stamp one.
 
-  Per rf2-nqt3d the chip carries a subtle long-step warning when
+  The chip carries a subtle long-step warning when
   the duration exceeds 16ms (one 60Hz frame). The warning is
   conveyed by a warning-tone colour + a small `▲` marker —
   alarmist `✗` chrome would crowd the cascade with noise on the
@@ -1916,11 +1907,9 @@
           "▲"])
        (fmt/format-duration-ms duration-ms)])))
 
-;; coord-chip moved to `panels.shared.coord-chip/coord-chip` (rf2-xjgdk
-;; audit L2 — the icon-only chip was duplicated across panels; one
-;; canonical home + per-site overlays now). The Epoch panel renders
-;; with the default `:color "inherit"` + `:margin-left "4px"` knobs,
-;; which match this panel's prior shape exactly.
+;; The icon-only coord chip lives in `panels.shared.coord-chip/coord-chip`,
+;; one canonical home with per-site overlays. The Epoch panel renders
+;; with the default `:color "inherit"` + `:margin-left "4px"` knobs.
 
 (defn- step-header
   "Render a step's header row — badge pill + verb/label + optional
@@ -1929,12 +1918,11 @@
   `<div>` so clicking anywhere on the row toggles `expanded?` when the
   step carries expandable content (`expandable?` true).
 
-  rf2-9wq0v retired the per-stage ✓/✗/⊘ status glyph that used to ride
-  immediately after the badge pill — a clean run painted a tick on every
-  stage (no information), and a failure is already shown by the inline
-  exception card UNDER the failing stage (rf2-yz57h / rf2-wnvid). The
-  overall cascade-outcome banner + the per-EFFECT SIDE-EFFECTS ledger
-  glyphs carry the surviving signals."
+  There is no per-stage ✓/✗/⊘ status glyph after the badge pill — a
+  clean run would paint a tick on every stage (no information), and a
+  failure is shown by the inline exception card UNDER the failing
+  stage. The per-EFFECT SIDE-EFFECTS ledger glyphs carry the per-effect
+  status."
   [{:keys [badge verb expandable? expanded? testid duration-ms]} on-toggle]
   [:div {:data-testid (str testid "-header")
          :on-click    (when (and expandable? on-toggle)
@@ -1970,14 +1958,14 @@
       [:span {:style sub-header-trailing-style}
        trailing])]))
 
-;; ---- per-mount inspector identity (rf2-3ymg) -----------------------------
+;; ---- per-mount inspector identity ----------------------------------------
 ;;
 ;; THE THIRTEEN `ei/edn-inspector-view` HEADS BELOW EACH COMPOSE A
 ;; `:mount-id` FROM A LOGICAL SITE, AND A LOGICAL SITE CANNOT NAME A LIVE
 ;; MOUNT. `"epoch/dispatch-event"` is a CONSTANT; the machine cascade's
 ;; three are a role plus a step ordinal. Those separate the roles WITHIN one
-;; panel, which is the question rf2-k97c.3 was answering, and they are
-;; silent on a different one: which of two panels on screen is this?
+;; panel, and they are silent on a different question: which of two panels
+;; on screen is this?
 ;;
 ;; It matters because that string is physical. The widget keys its per-mount
 ;; store by `[frame-id mount-id]` (`ei/lifecycle-key`), `container-ref-for`
@@ -1987,26 +1975,24 @@
 ;; holder detaches. So two mounts sharing one id do not merely look alike:
 ;; the second installs no observer at all, and the first one to go takes the
 ;; survivor's observer and width with it, leaving a live panel on screen
-;; unobserved and unmeasured. Measured on real two-container commits before
-;; the repair, in `panels/epoch_machine_mount_instance_id_dom_cljs_test`.
+;; unobserved and unmeasured. `panels/epoch_machine_mount_instance_id_dom_cljs_test`
+;; pins this on real two-container commits.
 ;;
-;; TWO COLLISIONS, AND THEY ARE FIXED BY DIFFERENT MEANS — which is the
-;; shape finding here rather than a copy of the Trace landing's.
+;; TWO COLLISIONS, AND THEY ARE SEPARATED BY DIFFERENT MEANS.
 ;;
 ;;   * TWO EPOCH PANELS in one frame. Nothing inside the panel can tell two
 ;;     mounts of ITSELF apart — a Fresco boundary is a React function
 ;;     component with no per-instance storage its body may use, so there is
 ;;     no id for it to mint. The CALLER names them, through the optional
 ;;     `:instance-id` that `app-db-diff`, `managed-fx` and `trace` already
-;;     take. Unnamed — every call site in this tree today — every id is
-;;     byte-for-byte what it was.
+;;     take. Unnamed, every id is the bare logical site id.
 ;;
 ;;   * AN EPOCH PANEL AND A MACHINE INSPECTOR. This one is sharper and it is
 ;;     NOT the caller's to fix. The two panels render one cascade through
 ;;     ONE [[machine-cascade-mini-pipeline]], off one
-;;     `projection/machine-cascade-rows` — which is rf2-g2axio's whole point,
-;;     and is why both emitted `epoch/machine-cascade-transition-delta/1` for
-;;     the same transition. WHICH PANEL IS RENDERING IS STATICALLY KNOWN, so
+;;     `projection/machine-cascade-rows`, so unqualified, both would emit
+;;     `epoch/machine-cascade-transition-delta/1` for the same transition.
+;;     WHICH PANEL IS RENDERING IS STATICALLY KNOWN, so
 ;;     requiring a caller to work around it would be asking them to repair a
 ;;     shared helper's id namespace by hand — and a caller embedding one of
 ;;     each cannot see the collision to work around it. The Machine
@@ -2018,14 +2004,14 @@
 ;; thirteen sites pass a stable `:site-id` beside it, and the widget's
 ;; `effective-id` is `(or site-id mount-id)` — so expansion and zoom are
 ;; keyed `[panel-id site-id path]` and DO NOT READ THE MOUNT-ID AT ALL. The
-;; logical disclosure identity is therefore already separate from the
+;; logical disclosure identity is therefore separate from the
 ;; physical one: qualifying the mount-id moves exactly the lifecycle key and
 ;; the width slot, and leaves expansion, zoom, every step's own testids and
 ;; the React keys byte-for-byte. Two Epoch panels of one epoch still open
 ;; and close together ON PURPOSE, and so do an Epoch panel and a Machine
-;; Inspector over the cascade they share; what they no longer share is a
-;; ResizeObserver and a width. A row pins that bound, so a repair that
-;; qualified the `:site-id` too goes red rather than passing.
+;; Inspector over the cascade they share; what they do not share is a
+;; ResizeObserver and a width. A test row pins that bound, so qualifying
+;; the `:site-id` too goes red rather than passing.
 ;;
 ;; The value is threaded as an ordinary argument — through `ctx` where the
 ;; panel already has one, and as a trailing parameter on the helpers below
@@ -2038,15 +2024,14 @@
 (defn instance-token
   "Normalise [[Panel]]'s optional `:instance-id` prop to the string that
   qualifies one mount's inspector `:mount-id`s, or nil when the caller named
-  no instance — the single-mount default, which composes every id
-  byte-for-byte as it did before rf2-3ymg.
+  no instance — the single-mount default, which composes every id as
+  the bare site id.
 
   A KEYWORD is accepted alongside a string, and its NAMESPACE is part of the
   name: `:left/epoch` tokenises to `left/epoch`. `(subs (str id) 1)` is what
-  preserves it; `cljs.core/name` would drop it and restore the very
-  collision this removes, which is rf2-4bsq's landed repair one level up —
-  see [[Panel-bridge]], which tokenises BEFORE the Reagent crossing for
-  exactly that reason.
+  preserves it; `cljs.core/name` would drop it and reintroduce the very
+  collision this removes — see [[Panel-bridge]], which tokenises BEFORE the
+  Reagent crossing for exactly that reason.
 
   It is this panel's own normaliser rather than a call into a sibling's: the
   panels are independent surfaces, they migrate on their own schedules, and
@@ -2074,36 +2059,33 @@
   reads as exactly what it is — the Machine Inspector's copy of a row the
   Epoch panel's cascade renderer composed.
 
-  Unnamed, this is `identity` on the site id, which is what keeps every
-  existing single-mount call site byte-for-byte."
+  Unnamed, this is `identity` on the site id, so a single-mount call site
+  composes the bare site id."
   [instance site]
   (if instance (str instance "/" site) site))
 
 ;; ---- DISPATCH step -------------------------------------------------------
 
-;; rf2-akvfe — `machine-dispatch?` + `machine-event-gloss-line` RETIRED with
-;; the rf2-18oe3 DISPATCH gloss. The DISPATCH step body is now the boxed
-;; event vector ONLY; the machine-event narration (which machine, which
-;; trigger, what starting state) moved to the structured EVENT HANDLER
-;; orientation line (`event-handler-orientation-line`, near the HANDLER step).
+;; The DISPATCH step body is the boxed event vector ONLY; the
+;; machine-event narration (which machine, which trigger, what starting
+;; state) lives on the structured EVENT HANDLER orientation line
+;; (`event-handler-orientation-line`, near the HANDLER step).
 
 (defn dispatch-body
   "Render the DISPATCH step's expanded body — the event vector via the
-  canonical edn-inspector widget. Per the bead body's §DISPATCH
-  (Step 1).
+  canonical edn-inspector widget.
 
-  Per rf2-9jvx1 the body no longer repeats the `from <source>` line —
-  the header already carries that descriptor; the body is detail-only.
-  The click-to-source affordance rides on the header (rf2-93a7s).
+  The body does not repeat the `from <source>` line —
+  the header carries that descriptor; the body is detail-only.
+  The click-to-source affordance rides on the header.
 
-  Per rf2-8w8er (subsumes rf2-nszcv) the event vector renders through
+  The event vector renders through
   the first-class `edn-inspector` widget so keywords paint magenta,
-  numbers orange, strings green (rf2-79ojx palette), with
+  numbers orange, strings green, with
   width-aware inline/tree behaviour, sticky expansion, click-to-zoom,
-  and sentinel chrome (`:rf/redacted`, `:rf.size/large-elided`). Pre-
-  fix the body was plain text — the operator saw the dispatch event
-  styled DIFFERENTLY in the Event panel (inspector-styled) vs the
-  Epoch panel (plain) for the same value."
+  and sentinel chrome (`:rf/redacted`, `:rf.size/large-elided`) — so
+  the operator sees the dispatch event styled the same in the Event
+  panel and the Epoch panel."
   [{:keys [event]} instance]
   (when (vector? event)
     [:div {:data-testid "rf-xray-epoch-dispatch-event"}
@@ -2117,7 +2099,7 @@
 
 (defn- dispatch-source-label
   "Render the dispatch source label — `<source>` text. When the
-  envelope carried a `:rf.trace/call-site` coord (rf2-80u5a), the
+  envelope carried a `:rf.trace/call-site` coord, the
   label renders as a clickable button that opens the editor at the
   dispatch call-site (the React onClick / handler line that called
   `rf/dispatch`); the external-link icon rides alongside as a
@@ -2130,18 +2112,17 @@
   open-in-editor surface dispatches via)."
   [source coord]
   (let [label (if source (name source) "unknown")]
-    ;; rf2-vw5pi — routes through the shared `coord-link` (label-as-link
+    ;; Routes through the shared `coord-link` (label-as-link
     ;; companion to `coord-chip`); the per-site link / plain styles stay
     ;; here, the button + dispatch + nil-coord fallback are shared.
     (coord-link/coord-link coord label "rf-xray-epoch-dispatch-source-label"
                            {:style       link-button-style
                             :plain-style dispatch-source-plain-style})))
 
-;; ---- rf2-5qp4g — DISPATCH source enrichment per source kind --------------
+;; ---- DISPATCH source enrichment per source kind --------------------------
 ;;
-;; The closed-set substrate-internal `:source` values (rf2-ejtpd:
-;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`,
-;; `:fx-dispatch-later`) carry richer per-kind detail than the prior
+;; The closed-set substrate-internal `:source` values (`:after-timer`,
+;; `:machine-spawn`, `:fx-dispatch`, `:fx-dispatch-later`) carry richer per-kind detail than a
 ;; bare `from <source>` chrome. Each kind renders a specific label +
 ;; click-affordance:
 ;;
@@ -2154,14 +2135,12 @@
 ;;                         parent epoch #142'
 ;;
 ;; Vanilla source kinds (`:ui`, `:frame-init`, `:test-harness`,
-;; `:unknown`) fall through to the pre-rf2-5qp4g `dispatch-source-label`
-;; chrome unchanged (call-site click-to-source on the source word).
+;; `:unknown`) fall through to the plain `dispatch-source-label`
+;; chrome (call-site click-to-source on the source word).
 
 (defn- machine-state-path-coord
   "Resolve a `{:file :line}` coord for a machine state-path via the
-  `:source-coords` co-located onto the registered machine's state-node
-  (rf2-vqja2, supersedes the flat `:rf.machine/state-coords` index;
-  rf2-npvsx; rf2-8bp3's `:rf.machine/source-coords`).
+  `:source-coords` co-located onto the registered machine's state-node.
 
   `machine-id` is the machine event-id; `state-path` is a vector like
   `[:active :authenticating]`. We navigate from the spec to the state-node
@@ -2174,28 +2153,28 @@
   machines, unregistered machine-id)."
   [machine-id state-path]
   (when (and (keyword? machine-id) (vector? state-path) (seq state-path))
-    ;; rf2-dcsw1 (iwy0c-followup) — read the registration meta under the
-    ;; `:event` kind, NOT the non-existent `:machine` kind. A machine is
-    ;; registered as an `:event` handler carrying `:rf/machine? true` + the
-    ;; stamped spec (with co-located state-node `:source-coords`, rf2-vqja2)
-    ;; under `:rf/machine` (rf2-ge6uj ISSUE 2 / rf2-iwy0c part C —
-    ;; `machine-block` and `handler-source-block` already read `:event`).
+    ;; Read the registration meta under the `:event` kind — there is no
+    ;; `:machine` kind. A machine is registered as an `:event` handler
+    ;; carrying `:rf/machine? true` + the stamped spec (with co-located
+    ;; state-node `:source-coords`) under `:rf/machine` (`machine-block`
+    ;; and `handler-source-block` read `:event` too).
     (let [machine-meta (try (rf/handler-meta {:source :store :kind :event :id machine-id})
                             (catch :default _ nil))
           ;; Resolve the machine spec: the stamped spec lives under
           ;; `:rf/machine`, with legacy-shape fallbacks (mirrors the cascade
           ;; path's `machine-spec-from-meta` below).
           ;;
-          ;; rf2-hqti — a bare `:spec` alternative used to sit between the
-          ;; two below. `machine-meta` comes off a REAL `:event`
+          ;; There is no bare `:spec` alternative. `machine-meta` comes off
+          ;; a REAL `:event`
           ;; registration, and `reg-meta/retired-bare-keys` carries
           ;; `{:spec :schema}` (MIGRATION §M-54), so a registration
           ;; declaring bare `:spec` throws `:rf.error/retired-registration-key`
-          ;; at registration time — in dev AND prod. The branch was therefore
-          ;; satisfiable only by a hand-built fixture, and per rf2-t8a8's
-          ;; ruling a fallback unreachable from production BY CONSTRUCTION is
+          ;; at registration time — in dev AND prod. Such a branch would be
+          ;; satisfiable only by a hand-built fixture, and a fallback
+          ;; unreachable from production BY CONSTRUCTION is
           ;; what lets a fixture written on a retired spelling stay green
-          ;; while the real path is empty. The two survivors stay: neither
+          ;; while the real path is empty. The two fallbacks below are
+          ;; reachable: neither
           ;; `:machine-spec` (bare, legacy, NOT retired — an unknown bare key
           ;; is a dev-gated warning, so it can exist) nor the namespaced
           ;; `:rf.machine/spec` (the retired-BARE-key rule does not reach a
@@ -2216,7 +2195,7 @@
   `coord` is `{:file <string> :line <int>}` or nil; `testid` is the
   data-testid suffix."
   [path-str coord testid]
-  ;; rf2-vw5pi — shared `coord-link`; per-site styles preserved.
+  ;; Shared `coord-link`; the per-site styles live here.
   (coord-link/coord-link coord path-str testid
                          {:style       dispatch-source-state-path-button-style
                           :plain-style dispatch-source-state-path-plain-style}))
@@ -2231,9 +2210,9 @@
   with the parent-dispatch-id labelled to give the operator something
   to orient on."
   [parent-epoch-id parent-dispatch-id]
-  ;; rf2-nesy9 — render-time frame capture so the deferred parent-epoch
+  ;; Render-time frame capture so the deferred parent-epoch
   ;; focus click dispatches into the surrounding instance frame (the
-  ;; affordance renders inside the Epoch Panel reg-view), not a
+  ;; affordance renders inside the Epoch Panel), not a
   ;; `:rf/xray` literal.
   (let [frame (rf/current-frame-id)]
    (cond
@@ -2262,7 +2241,7 @@
       from :after timer · 250ms on [:active :authenticating]
 
   The state-path is a click-to-source affordance via the state-node's
-  co-located `:source-coords` (rf2-vqja2) when a coord was captured;
+  co-located `:source-coords` when a coord was captured;
   plain accent-coloured monospace span otherwise."
   [{:keys [machine-id delay-ms source-state-path]}]
   (let [path-str (pr-str source-state-path)
@@ -2285,8 +2264,7 @@
       from machine spawn · :child-actor-id
 
   No click-to-source affordance — the actor-id is the gensym'd
-  identity of the spawned actor; resolving its spec source is a
-  follow-on enrichment (rf2-5qp4g scope is the actor-id label)."
+  identity of the spawned actor, not a source location."
   [{:keys [spawned-actor-id]}]
   [:span {:data-testid "rf-xray-epoch-dispatch-source-label"
           :style dispatch-verb-style}
@@ -2308,10 +2286,10 @@
   `:dispatch-later` when the original scheduled delay was stamped
   on the dispatched trace (`:rf.event/source-detail :ms`).
 
-  rf2-x25e0 — `dispatch-id->epoch-id` is the precomputed lookup map
-  built once per panel render in `Panel` and threaded through `ctx`.
-  Replaces the prior O(N) `(some … epoch-history)` scan with an O(1)
-  map `get`."
+  `dispatch-id->epoch-id` is the precomputed lookup map
+  built once per panel render in `Panel` and threaded through `ctx`,
+  so the parent lookup is an O(1) map `get` rather than an O(N)
+  `(some … epoch-history)` scan."
   [source {:keys [parent-dispatch-id delay-ms]} dispatch-id->epoch-id]
   (let [kind-label (case source
                      :fx-dispatch       ":dispatch"
@@ -2335,7 +2313,7 @@
 (defn- dispatch-always-label
   "Render the `:always` defensive label.
 
-  Per rf2-ejtpd, `:source :always` is stamped on the
+  `:source :always` is stamped on the
   `:rf.machine.microstep/transition` trace — `:always` microsteps
   do not produce their own dispatch envelope. So the DISPATCH step
   renderer normally never sees `:source :always` on
@@ -2355,7 +2333,7 @@
   source kinds (`:ui`, `:frame-init`, `:test-harness`, `:unknown`,
   plus any source value that lacks per-kind enrichment data).
 
-  Closed-set dispatch table (rf2-ejtpd + rf2-5qp4g):
+  Closed-set dispatch table:
 
     :after-timer       → dispatch-after-timer-label
     :machine-spawn     → dispatch-machine-spawn-label
@@ -2382,24 +2360,24 @@
   "Render the DISPATCH step (always present). Header summarises `from
   <source>` with the call-site chip when a coord was captured;
   body renders the dispatched event vector as a boxed monospace
-  block (rf2-93a7s · rf2-9jvx1).
+  block.
 
-  Per rf2-80u5a the `<source>` label itself is the goto-source
+  The `<source>` label itself is the goto-source
   affordance — clickable button when `:rf.trace/call-site` was
   captured by the macro form (`rf/dispatch [...] [opts]`); plain
   text otherwise. The external-link icon rides INSIDE the button
   as a secondary cue so the affordance reads as a single labelled
   link rather than a label-with-trailing-icon.
 
-  Per rf2-5qp4g, when `:source` is one of the substrate-internal
-  closed-set values (rf2-ejtpd: `:after-timer`, `:machine-spawn`,
+  When `:source` is one of the substrate-internal
+  closed-set values (`:after-timer`, `:machine-spawn`,
   `:fx-dispatch`, `:fx-dispatch-later`), the label gains rich chrome
   for the kind (delay-ms + state-path / spawned-actor-id /
   parent-epoch navigation). Vanilla sources fall through to the
-  pre-rf2-5qp4g call-site chrome unchanged.
+  plain call-site chrome.
 
   `dispatch-id->epoch-id` is the optional precomputed
-  `{dispatch-id → epoch-id}` index (rf2-x25e0) the `:fx-dispatch` /
+  `{dispatch-id → epoch-id}` index the `:fx-dispatch` /
   `:fx-dispatch-later` enrichments use to resolve the
   parent-dispatch-id → parent-epoch-id link in O(1) (rendered as a
   click-to-navigate `:rf.xray/focus-epoch` button). When omitted
@@ -2407,7 +2385,7 @@
   back to the unresolved variant. The index is built once per panel
   render in `Panel` and threaded down via `ctx`.
 
-  `instance` (rf2-3ymg) is the mount qualifier [[Panel]] tokenised out of
+  `instance` is the mount qualifier [[Panel]] tokenised out of
   its `:instance-id` prop, or nil for the single-mount default. It reaches
   the DISPATCH step's own inspector, whose `:mount-id` is otherwise the
   CONSTANT `\"epoch/dispatch-event\"` — the sharpest of the thirteen, since
@@ -2441,17 +2419,17 @@
        :duration-ms duration-ms}
       nil)
     (dispatch-body step instance)
-    ;; rf2-3x7nj.22.1 — a `:halted-depth` record's halt card
+    ;; A `:halted-depth` record's halt card
     ;; (`projection/mark-halted`): the drain refused this event.
     (error-blocks :dispatch errors instance)
-    ;; rf2-xgeag — `:event` boundary violations attach to DISPATCH.
+    ;; `:event` boundary violations attach to DISPATCH.
     (violation-blocks :dispatch violations instance)]))
 
 ;; ---- COEFFECT step -------------------------------------------------------
 
 (defn render-coeffect-step
-  "Render one COEFFECT step — one PER injected coeffect (pair-debug
-  2026-05-26). Each coeffect installation gets its own numbered
+  "Render one COEFFECT step — one PER injected coeffect.
+  Each coeffect installation gets its own numbered
   pipeline entry with the cofx-id + value rendered as the verb
   (cofx-id is a click-to-source button when the registered cofx
   carries `:file`/`:line` meta).
@@ -2459,7 +2437,7 @@
   The projection emits N coeffect step maps for a cascade
   injecting N user-defined cofx; system-injected cofx (e.g.
   framework-auto `:db`, `:event`) are filtered at projection time
-  (rf2-cq0ch + the `system-cofx-ids` set)."
+  (the `system-cofx-ids` set)."
   ([step] (render-coeffect-step step nil))
   ([{:keys [id value input no-value? step-number violations errors]} instance]
   (let [cofx-meta  (when (keyword? id)
@@ -2477,8 +2455,8 @@
         :badge :COEFFECT
         ;; Verb = cofx-id (clickable when coord captured), nothing
         ;; else. The injected value renders in the BODY below the
-        ;; badge per pair-debug 2026-05-26. rf2-vw5pi — via shared
-        ;; `coord-link`; per-site verb styles preserved.
+        ;; badge. Via the shared `coord-link`, with the per-site verb
+        ;; styles.
         :verb (coord-link/coord-link coord label
                                      (str "rf-xray-epoch-coeffect-id-" (name id))
                                      {:style       coeffect-verb-link-button-style
@@ -2486,17 +2464,17 @@
         :expandable? false
         :testid (str "rf-xray-epoch-coeffect-" (name id))}
        nil)
-     ;; Body — `+ [:cofx-id] <value>` diff-style line. Per pair-debug
-     ;; 2026-05-26 the body sits left-aligned with the badge (no
+     ;; Body — `+ [:cofx-id] <value>` diff-style line. The body sits
+     ;; left-aligned with the badge (no
      ;; indent) so the diff-line reads at the same column as the
      ;; header's badge pill.
      ;;
-     ;; rf2-yz57h — a coeffect that THREW on injection
+     ;; A coeffect that THREW on injection
      ;; (`:rf.error/coeffect-exception`, button-19) produced no resolved
      ;; value, so the projection stamps `:no-value?` + omits `:value`. The
      ;; diff-line is replaced by a muted "injection failed" line; the shared
      ;; 'Exception Thrown' card below carries the message + details.
-     ;; rf2-lz6gl9 — a parameterized `[id arg]` cofx request carries its
+     ;; A parameterized `[id arg]` cofx request carries its
      ;; requirement arg (`:rf.cofx/arg`, surfaced as `:input`). Render it as
      ;; a distinct labelled line ABOVE the produced value so the reviewer
      ;; reads BOTH 'what was asked of the cofx' (`→ arg`) and 'what it
@@ -2521,15 +2499,15 @@
          (str "[" (fmt/ns-keyword id) "]")]
         [:span {:style coeffect-body-value-style}
          (ei/mini value 80)]])
-     ;; rf2-yz57h — a coeffect-injection EXCEPTION attaches here as the
+     ;; A coeffect-injection EXCEPTION attaches here as the
      ;; shared inline 'Exception Thrown' card (button-19), under the
-     ;; COEFFECT step where it occurred (no longer collapsed onto HANDLER).
+     ;; COEFFECT step where it occurred (not collapsed onto HANDLER).
      (error-blocks :coeffect errors instance)
-     ;; rf2-xgeag — `:cofx` boundary violations attach to the matching
+     ;; `:cofx` boundary violations attach to the matching
      ;; COEFFECT step by cofx-id.
      (violation-blocks :coeffect violations instance)])))
 
-;; ---- RECORDABLE COEFFECTS step (rf2-9fyn40 · EP-0010 · EP-0017 §9) -------
+;; ---- RECORDABLE COEFFECTS step (EP-0010 · EP-0017 §9) --------------------
 
 (defn- recordable-cofx-summary-view
   "Render a `resources-helpers/summarize` shape (the privacy-summarized
@@ -2550,14 +2528,14 @@
      [:span {:style recordable-cofx-summary-size-style} (str " (" size ")")])])
 
 (defn render-recordable-cofx-step
-  "Render the RECORDABLE COEFFECTS step (rf2-9fyn40 · EP-0010 · EP-0017 §9)
+  "Render the RECORDABLE COEFFECTS step (EP-0010 · EP-0017 §9)
   — the dispatch envelope's flat `:rf.cofx` map surfaced right after
   DISPATCH SITE. The map answers 'where did this state value come from?' —
   the explicit time / id / randomness facts the fold consumed, so a durable
   write reads as a function of prior state PLUS these recorded tokens. These
   are the handler's DECLARED RECORDABLE LEAVES (EP-0017 §9).
 
-  PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11; EP-0017 §9):
+  PRIVACY (EP-0010 §Privacy / Open Issue 4; EP-0017 §9):
 
     - `:rf/time-ms` is ALWAYS safe to surface (a wall-clock fact, never
       PII) — it renders verbatim as `time-ms <ms>`;
@@ -2605,7 +2583,7 @@
               :style recordable-cofx-key-style}
        (fmt/ns-keyword key)]
       ;; provenance: a generated fact was minted at processing-start
-      ;; (EP-0017 slice B.7), distinct from a token-supplied / replayed leaf.
+      ;; (EP-0017), distinct from a token-supplied / replayed leaf.
       (when generated?
         [:span {:data-testid (str "rf-xray-epoch-recordable-cofx-generated-" (name key))
                 :style recordable-cofx-generated-badge-style
@@ -2615,26 +2593,24 @@
         value
         (str "rf-xray-epoch-recordable-cofx-value-" (name key)))])])
 
-;; ---- INTERCEPTOR step (rf2-yz57h) ---------------------------------------
+;; ---- INTERCEPTOR step ----------------------------------------------------
 ;;
-;; The pipeline had no distinct interceptor step before rf2-yz57h —
-;; interceptors WRAP the handler chain rather than appearing as their own
-;; cascade entry. A user-interceptor `:before` / `:after` throw
-;; (rf2-mszrz `:rf.error/interceptor-exception`) therefore had no home and
-;; collapsed onto HANDLER. The INTERCEPTOR step gives those exceptions a
+;; Interceptors WRAP the handler chain rather than appearing as their own
+;; cascade entry, so a user-interceptor `:before` / `:after` throw
+;; (`:rf.error/interceptor-exception`) would otherwise have no home and
+;; collapse onto HANDLER. The INTERCEPTOR step gives those exceptions a
 ;; home (between COEFFECTS and HANDLER — the cascade position of the chain)
 ;; and makes the throwing interceptor + its phase visible.
 ;;
 ;; CONDITIONAL — the projection emits the step only when an interceptor
 ;; threw this cascade (the substrate emits no per-interceptor "ran" trace,
-;; so a clean chain leaves nothing to show; reversing this to always
-;; enumerate the chain is the open rf2-rvxem change-4 design call). One
-;; row per throwing interceptor, rendered as ONE inline line (rf2-rvxem):
+;; so a clean chain leaves nothing to show). One
+;; row per throwing interceptor, rendered as ONE inline line:
 ;; `[INTERCEPTOR badge] [grey BEFORE/AFTER phase badge] <interceptor id>
 ;; <single go-to-source glyph>` — the id is click-to-source via the
 ;; shared `coord-link` (`name ↗`, one glyph), degrading to plain text
 ;; when no coord is captured — with the shared 'Exception Thrown' card
-;; (rf2-wnvid) attaching below the row.
+;; attaching below the row.
 
 (def ^:private interceptor-row-style
   {:display     "flex"
@@ -2661,7 +2637,7 @@
 
 (defn- interceptor-phase-label
   "Render an interceptor exception row's `:phase` as a UI chip label
-  (rf2-yz57h, UPPERCASED rf2-rvxem so it reads as a grey BADGE alongside
+  (UPPERCASE, so it reads as a grey BADGE alongside
   the INTERCEPTOR pill). `:before` (threw on the way IN — handler
   skipped) / `:after` (threw on the way OUT — handler ran first). nil →
   no chip."
@@ -2672,31 +2648,30 @@
     (when (keyword? phase) (str/upper-case (name phase)))))
 
 (defn- interceptor-row-view
-  "Render one INTERCEPTOR-step row (rf2-yz57h) — ONE inline line of
-  `[INTERCEPTOR badge] [phase badge] <name> <go-to-source glyph>`
-  (rf2-rvxem), with the shared inline 'Exception Thrown' card attaching
+  "Render one INTERCEPTOR-step row — ONE inline line of
+  `[INTERCEPTOR badge] [phase badge] <name> <go-to-source glyph>`,
+  with the shared inline 'Exception Thrown' card attaching
   below.
 
-  Order (rf2-rvxem): the INTERCEPTOR badge pill leads, the grey
+  Order: the INTERCEPTOR badge pill leads, the grey
   `BEFORE` / `AFTER` phase badge sits RIGHT AFTER it (before the name),
   then the interceptor name + its single open-in-editor glyph.
 
-  rf2-siheh — the jump-to-source coord rides the projection row's
+  The jump-to-source coord rides the projection row's
   `:coord` slot (captured by the `reg-interceptor` macro at the registration
   site and threaded onto the trace by the router). The name hyperlinks via
-  `coord-link`, which ALREADY emits `name ↗` (one glyph) — the row no
-  longer appends a redundant standalone `coord-chip` (rf2-rvxem FIX 1:
-  the HANDLER / COEFFECTS rows use `coord-link` alone; only the plain-
-  label SUBS / VIEWS / SIDE-EFFECTS rows pair a label with `coord-chip`,
-  and the interceptor row conflated the two). `coord-link` drops cleanly
+  `coord-link`, which emits `name ↗` (one glyph), so the row appends no
+  standalone `coord-chip` (the HANDLER / COEFFECTS rows use `coord-link`
+  alone; only the plain-label SUBS / VIEWS / SIDE-EFFECTS rows pair a
+  label with `coord-chip`). `coord-link` drops cleanly
   to plain text + no glyph when the interceptor was registered via the
   `reg-interceptor*` fn, is a framework interceptor, or the bundle elided
   the coord in production.
 
-  `instance` (rf2-1ar7) is the mount qualifier, threaded down from
+  `instance` is the mount qualifier, threaded down from
   [[render-step]]'s `ctx` exactly as every other cascade-level value is. It
   reaches the row's 'Exception Thrown' card, whose `ex-data` disclosure
-  mounts an `ei/edn-inspector-view` — which is why this chain needed the
+  mounts an `ei/edn-inspector-view` — which is why this chain takes the
   parameter at all. See §per-mount inspector identity above
   [[dispatch-body]]."
   [idx {:keys [interceptor-id phase errors coord]} instance]
@@ -2705,48 +2680,47 @@
            :data-testid (str "rf-xray-epoch-interceptor-row-" idx)
            :data-interceptor-phase (when phase (name phase))}
      [:div {:style interceptor-row-style}
-      ;; rf2-rvxem — the INTERCEPTOR badge leads the inline row.
+      ;; The INTERCEPTOR badge leads the inline row.
       (badge-pill :INTERCEPTOR)
-      ;; rf2-rvxem — grey phase badge BEFORE the name (right after the
+      ;; Grey phase badge BEFORE the name (right after the
       ;; INTERCEPTOR pill).
       (when-let [pl (interceptor-phase-label phase)]
         [:span {:data-testid (str "rf-xray-epoch-interceptor-phase-" idx)
                 :style interceptor-phase-chip-style}
          pl])
-      ;; rf2-siheh — the name hyperlinks via `coord-link` (`name ↗`, ONE
+      ;; The name hyperlinks via `coord-link` (`name ↗`, ONE
       ;; glyph). Drops to plain text when `coord` is nil (no `:file`).
       (coord-link/coord-link coord label
                              (str "rf-xray-epoch-interceptor-id-" idx)
                              {:style       coeffect-verb-link-button-style
                               :plain-style coeffect-verb-plain-style})]
-     ;; rf2-yz57h — the interceptor EXCEPTION attaches here as the shared
+     ;; The interceptor EXCEPTION attaches here as the shared
      ;; inline 'Exception Thrown' card (button-17 :before / button-18
      ;; :after), under the INTERCEPTOR step where it occurred.
      (error-blocks (keyword (str "interceptor-row-" idx)) errors instance)]))
 
 (defn render-interceptor-step
-  "Render the INTERCEPTOR step (rf2-yz57h — present ONLY when a user
+  "Render the INTERCEPTOR step (present ONLY when a user
   interceptor threw this cascade). One row per throwing interceptor; each
   row is ONE inline line of `[INTERCEPTOR badge] [phase badge] <name>
-  <go-to-source glyph>` (rf2-rvxem) with the shared 'Exception Thrown'
+  <go-to-source glyph>` with the shared 'Exception Thrown'
   card attaching below it. The step's `:errors` slot (attached by
   `attach-exceptions`) is rendered per-row by matching the exception's
   `:failing-id` to the row's `:interceptor-id`.
 
-  ## `instance` — WHICH MOUNT OF THIS PANEL (rf2-1ar7)
+  ## `instance` — WHICH MOUNT OF THIS PANEL
 
-  rf2-3ymg threaded the mount qualifier to every step that mounts an
-  `ei/edn-inspector-view` and recorded this step as mounting none. That was
-  wrong in one direction that only shows up on a THROW: a row's exception
-  card discloses its `ex-data` through [[error-block-details]], which mounts
-  an inspector under `epoch/error-ex-data/<testid-base>`. Since the
-  testid-base is composed from the step-key and the row ordinal alone, two
-  named Epoch mounts showing the same interceptor exception composed ONE
-  mount-id — so the second installed no ResizeObserver, and detaching either
-  released the survivor's entry and its measured width.
+  This step mounts an `ei/edn-inspector-view` only on a THROW: a row's
+  exception card discloses its `ex-data` through [[error-block-details]],
+  which mounts an inspector under `epoch/error-ex-data/<testid-base>`. The
+  testid-base is composed from the step-key and the row ordinal alone, so
+  without the qualifier two named Epoch mounts showing the same interceptor
+  exception would compose ONE mount-id — the second would install no
+  ResizeObserver, and detaching either would release the survivor's entry
+  and its measured width.
 
   The single-argument arity is the unnamed single-mount default and composes
-  ids byte-for-byte as before rf2-3ymg; it is what the renderer-shape rows in
+  the bare ids; it is what the renderer-shape rows in
   `panels/epoch/view_cljs_test` call. A caller that HAS an instance in scope
   passes it — the dispatcher [[render-step]] does."
   ([step] (render-interceptor-step step nil))
@@ -2758,22 +2732,22 @@
                              (filterv #(= (:interceptor-id row) (:failing-id %))
                                       errors)))
                     rows)]
-    ;; rf2-rvxem — the INTERCEPTOR badge now LEADS each inline row
+    ;; The INTERCEPTOR badge LEADS each inline row
     ;; (`interceptor-row-view`) rather than riding a separate step-header
-    ;; above the rows. So the step-level `step-header` is gone (it would
-    ;; otherwise paint a SECOND, content-free INTERCEPTOR badge on its
+    ;; above the rows. So there is no step-level `step-header` (it would
+    ;; paint a SECOND, content-free INTERCEPTOR badge on its
     ;; own line) and the rows sit directly at the content-column anchor
     ;; next to the cascade numbered-circle — no `margin-top-5` offset.
-    ;; rf2-oqi0c — the "N interceptor(s) threw" summary verb stays DROPPED:
+    ;; There is no "N interceptor(s) threw" summary verb: it would be
     ;; redundant with the per-row id + the inline 'Exception Thrown'
-    ;; card(s), which already carry which interceptor threw + on which
+    ;; card(s), which carry which interceptor threw + on which
     ;; phase.
     [:div {:data-testid "rf-xray-epoch-step-interceptor"
            :data-step-kw "interceptor"}
      (numbered-circle step-number :INTERCEPTOR)
      (map-indexed (fn [i row] (interceptor-row-view i row instance)) rows*)])))
 
-;; ---- INTERCEPTORS step — the authored / resolved chain (rf2-se9a9t) ------
+;; ---- INTERCEPTORS step — the authored / resolved chain -------------------
 
 (def ^:private interceptor-hook-chip-style
   {:display     "inline-flex"
@@ -2793,7 +2767,7 @@
    :letter-spacing "0.5px"})
 
 (defn- authored-interceptor-row-view
-  "Render ONE row of the INTERCEPTORS step (rf2-se9a9t) — an AUTHORED
+  "Render ONE row of the INTERCEPTORS step — an AUTHORED
   interceptor reference wrapping the handler. ONE inline line of
   `<name ↗> [hook chip] [ref/factory/arg chips]` with a `MISSING` chip when
   the ref resolves to no registration (EP-0022 / Spec 002 §Error model
@@ -2857,7 +2831,7 @@
                                     :color       warning-colour
                                     :border-color warning-colour)}
          "missing"])
-      ;; rf2-9vx0jk — a per-dispatch `:interceptor-overrides` substitution that
+      ;; A per-dispatch `:interceptor-overrides` substitution that
       ;; ACTUALLY took effect on this dispatch, read off the run-start
       ;; `:rf.interceptor/override-summary` trace fact (preferred over the
       ;; registry reconstruction, which cannot show the per-dispatch delta).
@@ -2886,13 +2860,13 @@
         doc])]))
 
 (defn render-interceptors-step
-  "Render the INTERCEPTORS step (rf2-se9a9t / EP-0022 §11) — the AUTHORED
+  "Render the INTERCEPTORS step (EP-0022 §11) — the AUTHORED
   interceptor chain that wraps the dispatched event's handler. Present only
   when the event carries authored (non-`:rf/default?`) refs (the projection
   omits the step otherwise). Distinct from the exception-only INTERCEPTOR
-  step (rf2-yz57h) above: this surfaces the CLEAN chain (which interceptors
+  step above: this surfaces the CLEAN chain (which interceptors
   wrap this event + their resolved before/after/factory shape + a
-  jump-to-source), the gap the exception-only step left.
+  jump-to-source), which the exception-only step does not show.
 
   Numbered-circle + INTERCEPTORS badge header, then one row per authored
   ref via `authored-interceptor-row-view`."
@@ -2909,15 +2883,13 @@
 
 ;; ---- HANDLER step --------------------------------------------------------
 
-;; ---- Machine cascade view (rf2-u69j7) -----------------------------------
+;; ---- Machine cascade view -----------------------------------------------
 ;;
-;; Pre-rf2-u69j7 the machine-handler-section rendered 7 categories
-;; (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION /
-;; SNAPSHOT DIFF / FX). The operator had to read top-to-bottom + cross-
-;; reference categories to reconstruct what fired in what order.
-;;
-;; The redesign (rf2-u69j7) replaces the category-grouped layout with a
-;; single TIME-ORDERED CASCADE. One row per substrate emit, ordered by
+;; The machine handler section is a single TIME-ORDERED CASCADE rather
+;; than a category-grouped layout (TRANSITION / GUARDS / LIFECYCLE /
+;; AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX), which would make
+;; the operator read top-to-bottom + cross-reference categories to
+;; reconstruct what fired in what order. One row per substrate emit, ordered by
 ;; trace-event INSERTION ORDER — the substrate already emits guards →
 ;; exit actions → transition → entry actions → always → after-action
 ;; → timer-cancels in cascade order, so no re-sort is needed.
@@ -2929,17 +2901,15 @@
 ;;     :always / :after-action / :initial-entry / :destroy-exit`).
 ;;   - Verb (action-id / guard-id / transition labels / timer state),
 ;;     a click-to-source button via shared `coord-chip` style when
-;;     the machine spec carries the per-element source-coord
-;;     (rf2-8bp3 / rf2-80u5a / rf2-ehd8v).
+;;     the machine spec carries the per-element source-coord.
 ;;   - Duration chip (right-aligned, with long-step warning when
-;;     `:duration-ms > 16ms` per rf2-nqt3d).
+;;     `:duration-ms > 16ms`).
 ;;   - Outcome chip — `✓ pass / ▲ fail / ✗ threw` for guards;
-;;     `· cancelled (<reason>)` for timers. Actions carry NO chip
-;;     (rf2-2hj0h item 7); the `:transition` row carries NO chip
-;;     (rf2-cdgva — the prior `N microstep(s)` summary was redundant
-;;     with the per-microstep cascade rows).
-;;   - Body: source code (ALWAYS VISIBLE per the bead body's
-;;     "interleaved source code" requirement) + outcome detail
+;;     `· cancelled (<reason>)` for timers. Actions carry NO chip;
+;;     the `:transition` row carries NO chip (an `N microstep(s)`
+;;     summary would be redundant with the per-microstep cascade rows).
+;;   - Body: source code (ALWAYS VISIBLE — interleaved source
+;;     code) + outcome detail
 ;;     (per-action fx attribution + data-write delta for actions;
 ;;     before→after snapshot for the transition).
 
@@ -2957,11 +2927,11 @@
 (defn- named-element-key
   "Decompose a `cascade-row-source-key` tuple `k` into `[slot id]` when it
   names a co-located guard / action element (`[:guards <id>]` /
-  `[:actions <id>]`), else nil. Per
-  rf2-npvsx the source-coords + source-code for these live ON the element
+  `[:actions <id>]`), else nil. The
+  source-coords + source-code for these live ON the element
   entry (`{:fn .. :source-coords .. :source-code ..}`); reference-site
   `[:states ...]` keys resolve through the `:source-coords` co-located on
-  the nearest enclosing `:states`-tree map node instead (rf2-vqja2)."
+  the nearest enclosing `:states`-tree map node instead."
   [k]
   (when (and (vector? k) (= 2 (count k))
              (contains? #{:guards :actions} (first k)))
@@ -2969,8 +2939,7 @@
 
 (defn- cascade-row-coord
   "Lift a `{:file :line}` source-coord for a cascade row from the
-  registered machine spec (rf2-vqja2, supersedes rf2-npvsx / rf2-8bp3).
-  ONE lookup:
+  registered machine spec. ONE lookup:
 
   - Named guard/action key `[:guards <id>]` / `[:actions <id>]`: read the
     co-located `:source-coords` off the element entry.
@@ -2992,9 +2961,8 @@
         {:file (:file c) :line (:line c)}))))
 
 (defn- cascade-row-source-form
-  "Lift the source form for a cascade row from the registered machine spec
-  (rf2-npvsx, supersedes rf2-u69j7 / rf2-ypu5i / rf2-wwc3j). ONE lookup at
-  `cascade-row-source-key`'s spec-path tuple:
+  "Lift the source form for a cascade row from the registered machine spec.
+  ONE lookup at `cascade-row-source-key`'s spec-path tuple:
 
   - Named guard/action rows `[:guards <id>]` / `[:actions <id>]`: prefer
     the captured `:source-code` PR-STR off the co-located element entry
@@ -3003,11 +2971,11 @@
     builds, fixture fn-form machines).
   - Inline-fn `:entry` / `:exit` / `:guard` / `:action` rows: prefer the
     co-located `:source-code` STRING the macro stamped on the enclosing
-    `:states`-tree map node (rf2-se70xj) — a `{<slot> <source-string>}`
+    `:states`-tree map node — a `{<slot> <source-string>}`
     map under `:source-code` on the node, read at `(pop k)` + the slot
     `(last k)`. This is what lets an inline action's CODE render (the slot
     value itself is a bare compiled fn → an opaque `#object[Function]`
-    token, the rf2-se70xj symptom). Falls back to the runtime value at the
+    token). Falls back to the runtime value at the
     slot (a compiled fn object in production / fn-form fixture machines, or,
     when the user wrote a keyword reference (`:entry :enter-a`), that keyword
     — the caller's render path dispatches on shape).
@@ -3028,12 +2996,12 @@
         (let [entry (get-in spec k)]
           (or (:source-code entry)
               (:fn entry)
-              ;; A pre-rf2-npvsx fixture might still carry a bare fn under
+              ;; A fixture may carry a bare fn under
               ;; the slot; tolerate it for unit-test ergonomics.
               entry))
         ;; Inline-fn slot key (`[… :action]` / `:guard` / `:entry` /
         ;; `:exit`) under `:states`. Prefer the co-located `:source-code`
-        ;; STRING the macro stamped on the ENCLOSING map node (rf2-se70xj) —
+        ;; STRING the macro stamped on the ENCLOSING map node —
         ;; the inline fn's body cannot live on the bare slot (the runtime
         ;; engine needs a fn there), so it rides a `{<slot> <source>}` map
         ;; under the enclosing node's `:source-code`. Fall back to the
@@ -3043,12 +3011,13 @@
               enclosing-path (vec (butlast k))
               inline-src    (when (seq enclosing-path)
                               (get-in spec (conj enclosing-path :source-code slot)))
-              ;; rf2-k7yqod — the `:always` source-key is the index-free
+              ;; The `:always` source-key is the index-free
               ;; single-map shape (`[:states … :always :action]`). When the
               ;; spec wrote the VECTOR-candidate form (`:always [{…}]`), the
               ;; source lives one level deeper at index 0; probe it so a
-              ;; vector `:always` resolves too. (rf2-lai1qv will carry the
-              ;; exact matched index for multi-candidate vectors.)
+              ;; vector `:always` resolves too. (Index 0 is probed, not the
+              ;; matched index, so a multi-candidate vector shows its first
+              ;; candidate's source.)
               always-vec-src (when (and (nil? inline-src)
                                         (= :always (peek enclosing-path)))
                                (get-in spec (conj enclosing-path 0 :source-code slot)))]
@@ -3057,7 +3026,7 @@
               (get-in spec k)))))))
 
 (defn- cascade-outcome-chip
-  "Render the outcome chip for a cascade row (rf2-u69j7). Pulls glyph
+  "Render the outcome chip for a cascade row. Pulls glyph
   + label from the `panels.epoch.badge` table; colour from
   `cascade-outcome-token-key`."
   [outcome label-override]
@@ -3073,23 +3042,22 @@
        [:span {:aria-hidden true :style diff-glyph-bold-style} glyph]
        (when label-string label-string)])))
 
-;; rf2-2hj0h item 5 — the separate `[ACTION]` kind pill + `[exit]` phase
-;; chip MERGE into ONE descriptive badge (`[EXIT ACTION]` / `[ENTRY ACTION]`
-;; / `[TRANSITION ACTION]` / …). `cascade-phase-chip` is RETIRED; the merged
-;; `cascade-action-pill` below replaces both. The `…-phase-<phase>` testid
-;; is preserved ON the merged pill so existing phase-targeting selectors
-;; still resolve (the phase is still discoverable; it just rides one badge
-;; now alongside the `…-kind-action` stem).
+;; The `ACTION` kind and the `[exit]` phase MERGE into ONE descriptive
+;; badge (`[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` / …),
+;; `cascade-action-pill` below — there is no separate phase chip. The
+;; `…-phase-<phase>` testid rides ON the merged pill so phase-targeting
+;; selectors resolve (the phase rides one badge alongside the
+;; `…-kind-action` stem).
 (defn- cascade-action-pill
-  "Render the MERGED action badge for an `:action` cascade row (rf2-2hj0h
-  item 5) — `[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` /
+  "Render the MERGED action badge for an `:action` cascade row
+  — `[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` /
   `[ALWAYS ACTION]` / … — folding the `ACTION` kind + the row's `:phase`
-  into one token. Painted with the ACTION-kind hue (the same pill chrome
-  the prior `[ACTION]` kind pill used), so it reads as a single badge.
+  into one token. Painted with the ACTION-kind hue (the kind-pill
+  chrome), so it reads as a single badge.
 
   Carries BOTH the `…-kind-action` and the `…-phase-<phase>` testid stems
-  (the merged badge is the sole carrier of each now), so selectors that
-  targeted either the old kind pill or the old phase chip still resolve."
+  (the merged badge is the sole carrier of each), so selectors that
+  target either the kind or the phase resolve."
   [phase]
   [:span {:data-testid (str "rf-xray-epoch-machine-cascade-kind-action")
           :data-cascade-phase-badge (when (keyword? phase) (name phase))
@@ -3101,18 +3069,18 @@
                              (when (keyword? phase) (name phase)))}
     (badge/cascade-action-badge-label phase)]])
 
-;; rf2-2hj0h item 6 — after the merged action badge the header reads
+;; After the merged action badge the header reads
 ;; ` for <state> ` then the action name. `for` is a muted connective; the
 ;; state renders code-formatted (it may be a keyword OR a path vector /
 ;; region→state map). Elides cleanly when no state was stamped.
 ;;
-;; rf2-h710p item B — the SAME clause shape now also fronts the GUARD row's
+;; The SAME clause shape also fronts the GUARD row's
 ;; verb (`[GUARD] for <state> <guard-name>`); the clause is kind-agnostic,
 ;; rendering a resolved `<state>` value the caller picks per kind
 ;; (`cascade-action-for-state` / `cascade-guard-for-state`).
 (defn- cascade-for-state-clause
-  "Render the ` for <state> ` clause that fronts a cascade row's verb
-  (rf2-2hj0h item 6 + rf2-h710p item B). `state` is the resolved
+  "Render the ` for <state> ` clause that fronts a cascade row's verb.
+  `state` is the resolved
   belongs-to / gated state (caller-picked per kind). Returns nil (renders
   nothing) for a nil `state`, so the header falls back to the bare badge +
   verb with no dangling `for`. `step` keys the testid so per-row selectors
@@ -3127,7 +3095,7 @@
 
 (defn- cascade-microstep-round-clause
   "Render the ` for <region> · round <n> ` clause that fronts a `:microstep`
-  cascade row's verb (rf2-bvwv4q). Names the REGION the parent-owned
+  cascade row's verb. Names the REGION the parent-owned
   `:always` round moved and the shared 0-based round index, so co-selected
   regional rows (same `round <n>`, distinct region) read as ONE parent-owned
   round. Mirrors the `cascade-for-state-clause` grammar. `step` keys the
@@ -3217,7 +3185,7 @@
   so the state change is the focal point of the collapsed transition
   zone; every other kind keeps the standard verb chrome."
   [row coord verb-string]
-  ;; rf2-vw5pi — shared `coord-link`; per-site styles preserved. The
+  ;; Shared `coord-link`; the per-site styles live here. The
   ;; testid is now a single stem (`…-verb-link-<step>`) across both the
   ;; clickable + plain branches — the prior `…-verb-<step>` plain-only
   ;; variant was a hand-rolled artefact, not pinned by any selector.
