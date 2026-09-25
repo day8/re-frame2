@@ -1,11 +1,12 @@
 (ns re-frame.story.inline-plan-test
-  "Headless inline-plan execution tests (NewTestStory rf2-5x1wt.20,
-  `tools/story/spec/017-Testing-Story.md` §Inline plan + §three verbs).
+  "Headless inline-plan execution tests
+  (`tools/story/spec/017-Testing-Story.md` §Inline plan + §Public execution
+  API — the three verbs).
 
   An inline plan is an executable plan MAP that is NOT registered as a
   Story variant. `rf.story/run` / `rf.story/is` / `rf.story/explain` accept a map
   target (a keyword target is a registered variant; a map is an inline
-  plan). The §B6 acceptance bullets, verified here:
+  plan). The inline-plan contract, verified here:
 
   - an inline plan runs HEADLESSLY (the same unified run-result a
     registered variant returns);
@@ -15,7 +16,7 @@
   - `rf.story/is` reports through the test framework for a map target;
   - an inline plan and a registered variant describing the SAME behaviour
     produce equivalent final app-db + assertion records AFTER
-    `canonicalize` (the metamorphic relation, §three verbs / §20).
+    `canonicalize` (the metamorphic relation).
 
   JVM-only (`.clj`): on the JVM `rf.story/run` returns a `CompletableFuture`
   that resolves synchronously to the unified result, and `rf.story/is` BLOCKS
@@ -68,8 +69,8 @@
 ;; ===========================================================================
 
 (deftest inline-plan-runs-headless-pass
-  (testing "a map target runs headlessly and yields the unified run-result
-            (§B6 — inline plan runs headlessly). The verdict is driven by the
+  (testing "a map target runs headlessly and yields the unified run-result.
+            The verdict is driven by the
             in-script `[:assert …]` checkpoint — the same surface a registered
             variant's verdict comes from (terminal :assertions are declarative;
             the lifecycle records in-script checkpoints)."
@@ -91,7 +92,7 @@
   (testing "an INLINE plan with ONLY a terminal :assertions block (no
             in-script [:assert], no :script) AUTO-RUNS the terminal assertion
             against the FINAL settled state and produces a verdict — the same
-            lifecycle a registered variant gets (rf2-nyjoa). Both a PASS and a
+            lifecycle a registered variant gets. Both a PASS and a
             FAIL are pinned so the verdict is load-bearing, not vacuous."
     (let [pass (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
                             :assertions [[:rf.assert/path-equals [:status] :loaded]]})]
@@ -132,7 +133,7 @@
 
 (deftest inline-plan-absent-from-navigation
   (testing "running an inline plan registers NOTHING in the Story side-table
-            and leaves no variant frame behind (§B6 — absent from navigation)"
+            and leaves no variant frame behind"
     (is (empty? (rf.story/ids :variant)) "precondition: no variants registered")
     (run-target {:script [[:dispatch [:inline/set-status :ok]]
                           [:assert [:rf.assert/path-equals [:status] :ok]]]})
@@ -146,16 +147,16 @@
 (deftest inline-plan-absent-from-navigation-while-in-flight
   (testing "an inline frame is absent from variant-frames / variant-frame?
             WHILE it is allocated — the transient window between
-            `allocate-inline!` and `destroy-inline!` (rf2-r16iv). spec/017
+            `allocate-inline!` and `destroy-inline!`. spec/017
             §Inline plan: 'Inline plans MUST NOT appear in Story navigation'
-            is UNCONDITIONAL — not merely post-teardown. The pre-existing
-            absent-from-navigation test only checks AFTER `run-target`
+            is UNCONDITIONAL — not merely post-teardown. The
+            absent-from-navigation test above only checks AFTER `run-target`
             returns; on the JVM the run is synchronous so the in-flight
             window is already closed at assertion time. Here we allocate the
             inline frame and assert mid-flight, BEFORE tearing it down — the
             case the post-teardown test misses. Drives `variant-frame?` to
             read the `:rf/inline?` stamp `allocate-inline!` writes, making
-            the stamp load-bearing (no longer dead metadata)."
+            the stamp load-bearing."
     (let [inline-id :rf.story.inline/plan-transient]
       ;; Allocate an inline frame directly (the registry-free twin of
       ;; `allocate!`): empty decorator stack + no fx-overrides, events-only
@@ -180,7 +181,7 @@
         (finally
           (rf.story.frames/destroy-inline! inline-id {} nil)))
       (is (empty? (rf.story.frames/variant-frames))
-          "post-teardown: no lingering nav frame (the pre-existing guard)"))))
+          "post-teardown: no lingering nav frame"))))
 
 ;; ===========================================================================
 ;; Inline plan can use a REGISTERED check
@@ -189,11 +190,10 @@
 (deftest inline-plan-composes-registered-check
   (testing "an inline plan composing a registered check resolves the check id
             into the plan + groups its records under the check id, exactly the
-            way a registered variant does (§B6 — registered check). The check's
+            way a registered variant does. The check's
             atom appears NOWHERE else in the plan, so the one record it groups
             can only come from the check's own atoms being dispatched after the
-            script (rf2-b2mt — this test used to duplicate the atom as an
-            in-script checkpoint to make it record at all)."
+            script."
     (rf.story/reg-check :check.inline/status-loaded
       {:assertions [[:rf.assert/path-equals [:status] :loaded]]})
     ;; The compiled plan carries the composed check id under [:expect :checks].
@@ -215,7 +215,7 @@
 
 (deftest inline-plan-composes-registered-fragment
   (testing "an inline plan composing a registered fragment appends the
-            fragment's setup + script (§B6 — composed fragments/checks)"
+            fragment's setup + script"
     (rf.story/reg-fragment :fragment.inline/seed
       {:setup [[:dispatch [:inline/set-status :seeded]]]})
     (let [result (run-target {:compose [:fragment.inline/seed]
@@ -224,14 +224,15 @@
       (is (= :seeded (:status (:app-db result)))))))
 
 ;; ===========================================================================
-;; A check's assertions EXECUTE, so a check can FAIL (rf2-b2mt)
+;; A check's assertions EXECUTE, so a check can FAIL
 ;;
-;; The terminal dispatcher used to run `[:expect :assertions]` only, so a
-;; check's atoms never reached a handler: every check grouped an empty record
-;; set, and `aggregate-status` over `[]` is `:pass`. The failing check below
-;; read `:pass` with ZERO records while its terminal-`:assertions` twin read
-;; `:fail`. A passing check is pinned WITH its record count, so a real pass
-;; stays distinguishable from a vacuous one.
+;; The terminal dispatcher runs a check's atoms beside `[:expect
+;; :assertions]`. Were it to run `[:expect :assertions]` alone, a check's
+;; atoms would never reach a handler: every check would group an empty record
+;; set, and `aggregate-status` over `[]` is `:pass`, so the failing check
+;; below would read `:pass` with ZERO records while its terminal-`:assertions`
+;; twin read `:fail`. A passing check is pinned WITH its record count, so a
+;; real pass stays distinguishable from a vacuous one.
 ;; ===========================================================================
 
 (def ^:private never-true [:rf.assert/path-equals [:nope] :never-true])
@@ -243,7 +244,7 @@
 (deftest a-failing-check-fails-the-run
   (rf.story/reg-check :check.probe/must-fail {:assertions [never-true]})
   (testing "inline plan: a check whose atom is false FAILS the check and the
-            run, over the one record it grouped (was :pass over zero)"
+            run, over the one record it grouped"
     (let [result (run-target {:setup  [[:dispatch [:inline/set-status :loaded]]]
                               :checks [:check.probe/must-fail]})
           check  (check-rec result :check.probe/must-fail)]
@@ -282,13 +283,13 @@
       (is (= 1 (count (:assertions (check-rec result :check.probe/must-pass))))))))
 
 ;; ===========================================================================
-;; Compile-time guards cover EVERY check id, check body and named play (rf2-jjhy)
+;; Compile-time guards cover EVERY check id, check body and named play
 ;; ===========================================================================
 
 (deftest unknown-check-id-fails-plan-construction
   (testing "a :checks id naming no registered check FAILS plan construction
-            (the :checks twin of :compose's story-compose-unknown) — it used to
-            compile and pass forever over an empty group"
+            (the :checks twin of :compose's story-compose-unknown) — rather
+            than compiling and passing forever over an empty group"
     (let [result (run-target {:setup  [[:dispatch [:inline/set-status :loaded]]]
                               :checks [:check/no-runtime-erors]})]
       (is (= :error (:status result)))
@@ -304,8 +305,8 @@
       (is (= :check/never-registered (:check/id (ex-data ex)))))))
 
 (deftest assertion-guards-cover-every-play-and-check-body
-  (testing "a typo'd assertion id in a SECOND named play fails (the guard used
-            to read the primary play only)"
+  (testing "a typo'd assertion id in a SECOND named play fails (the guard
+            reads every play, not the primary play alone)"
     (let [result (run-target {:plays [{:name "first"  :script [[:dispatch [:inline/set-status :loaded]]]}
                                       {:name "second" :script [[:assert [:rf.assert/typo]]]}]})]
       (is (= :error (:status result)))
@@ -331,7 +332,7 @@
 (deftest inline-plan-missing-fragment-fails-cleanly
   (testing "an inline plan composing an unregistered fragment FAILS plan
             construction with a structured error result — no frame allocated,
-            no exception escapes (§B6 — missing fragment fails cleanly)"
+            no exception escapes"
     (let [result (run-target {:compose [:fragment.inline/does-not-exist]
                               :script  [[:dispatch [:inline/set-status :ok]]]})]
       (is (= :error (:status result)))
@@ -358,10 +359,10 @@
 
 (deftest compiled-plan-map-is-refused-not-recompiled
   (testing "a map carrying `:world` is a compiled plan, not an inline
-            authoring body (rf2-nt9f1). Recompiling it read only the
-            authoring keys and dropped everything under `:world`, so
-            `(run (variant-plan id))` ran unseeded and read `:pass` for a run
-            the variant never makes. It is refused with a structured error
+            authoring body. Recompiling it would read only the
+            authoring keys and drop everything under `:world`, so
+            `(run (variant-plan id))` would run unseeded and read `:pass` for
+            a run the variant never makes. It is refused with a structured error
             that says to run the variant by its id."
     (rf.story/reg-variant :story.inline/seeded {:db-seed {:n 10}
                                                 :script  [[:dispatch [:inline/inc]]]})
@@ -380,7 +381,7 @@
           (is (re-find #"(?i)run the variant by its id"
                        (str (:reason (first (:assertions result))))))
           (is (nil? (:n (:app-db result)))
-              "nothing ran: the recompile ran unseeded and read :n 1")))
+              "nothing ran: a recompile would run unseeded and read :n 1")))
       (testing "variant-plan and explain refuse it the same way"
         (doseq [verb [rf.story/variant-plan rf.story/explain]]
           (let [ex (try (verb plan) nil
@@ -399,9 +400,8 @@
 ;; ===========================================================================
 
 (deftest story-is-reports-per-assertion-for-map-target
-  (testing "rf.story/is fires one report per assertion for an inline plan
-            (§B6 — rf.story/is reports through the test framework for a map
-            target)"
+  (testing "rf.story/is fires one report per assertion for an inline plan,
+            reporting through the test framework for a map target"
     (let [[result reports]
           (capture-reports
             #(rf.story/is {:script [[:dispatch [:inline/set-status :loaded]]
@@ -429,7 +429,7 @@
 (deftest inline-and-registered-equivalent-after-canonicalize
   (testing "an inline plan and a registered variant describing the SAME
             behaviour produce equivalent final app-db + assertion records
-            AFTER canonicalize (§B6 — the metamorphic relation)"
+            AFTER canonicalize (the metamorphic relation)"
     (let [behaviour {:setup      [[:dispatch [:inline/inc]]]
                      :script     [[:dispatch [:inline/inc]]
                                   [:assert [:rf.assert/path-equals [:n] 2]]]
@@ -455,7 +455,7 @@
                  (rf.story/run-hash inline))))))))
 
 ;; ===========================================================================
-;; explain accepts a map target (rf2-5x1wt.24 base; confirmed for the verb)
+;; explain accepts a map target
 ;; ===========================================================================
 
 (deftest explain-accepts-inline-plan-map
@@ -469,15 +469,15 @@
 
 ;; ===========================================================================
 ;; FAILURE-PATH TEARDOWN — an inline plan that fails mid-run still runs the
-;; SAME teardown the success path runs (rf2-7u3eja)
+;; SAME teardown the success path runs
 ;;
-;; The success path tears the anonymous inline frame down with the decorator
-;; stack used for allocation + the plan's `:loaders-teardown`; the FAILURE
-;; path previously ran `(destroy-inline! frame-id nil nil)` — the frame was
-;; removed but `:loaders-teardown` + frame-setup decorator `:teardown` were
-;; SKIPPED, leaking any resource an inline loader or `:frame-setup` decorator
-;; opened on precisely the failure path where cleanup matters. Both paths now
-;; converge on the SAME teardown.
+;; Both the success path and the FAILURE path tear the anonymous inline frame
+;; down with the decorator stack used for allocation + the plan's
+;; `:loaders-teardown`. A failure path that ran
+;; `(destroy-inline! frame-id nil nil)` would remove the frame but SKIP
+;; `:loaders-teardown` + frame-setup decorator `:teardown`, leaking any
+;; resource an inline loader or `:frame-setup` decorator opened on precisely
+;; the failure path where cleanup matters.
 ;;
 ;; The forced post-allocation throw is a `:db-seed` schema violation: it
 ;; throws in `run-db-seed!` (phase 0.5) AFTER `allocate-inline!` ran the
@@ -512,7 +512,7 @@
             thrown AFTER frame allocation) still runs the plan's
             :loaders-teardown AND its frame-setup decorator :teardown — the
             same convergent cleanup the success path runs, so no frame /
-            decorator / loader leaks on the failure path (rf2-7u3eja).
+            decorator / loader leaks on the failure path.
 
             :init / :teardown / :loaders-teardown write to side-atoms (the
             frame's app-db is gone after destroy, so observation lives
@@ -551,7 +551,7 @@
           (testing "the FAILURE path ran the SAME teardown the success path runs"
             (is (= 1 @decorator-teardown)
                 "frame-setup decorator :teardown fired on the failure path
-                 — not skipped (the rf2-7u3eja leak)")
+                 — not skipped")
             (is (= 1 @loader-teardown)
                 "the plan's :loaders-teardown fired on the failure path"))
           (testing "the inline frame did not leak"
@@ -565,8 +565,8 @@
 
 (deftest inline-plan-success-runs-decorator-and-loader-teardown
   (testing "control: the SUCCESS path runs the SAME decorator :teardown +
-            :loaders-teardown the failure path now runs — proving the two
-            paths converge on identical cleanup (rf2-7u3eja)"
+            :loaders-teardown the failure path runs — proving the two
+            paths converge on identical cleanup"
     (let [decorator-teardown (atom 0)
           loader-teardown    (atom 0)]
       (rf/reg-event :inline/dec-init     (fn [{:keys [db]} _] {:db db}))
