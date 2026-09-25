@@ -54,7 +54,7 @@
      :cljs (cljs.reader/read-string (pr-str value))))
 
 ;; ---------------------------------------------------------------------------
-;; Builder inputs remain family-specific; the matrix compares their reply maps.
+;; Builder inputs are family-specific; the matrix compares their reply maps.
 ;; ---------------------------------------------------------------------------
 
 ;; This tier checks only reply-map `:completed-at` propagation. Router and
@@ -110,7 +110,7 @@
 ;; where a suppression call returns more than the reply, `:stale-out`).
 ;;
 ;; A nil builder means that implementation does not produce a reply for the
-;; situation. For example, route errors and cancellation remain HTTP transport
+;; situation. For example, route errors and cancellation are HTTP transport
 ;; replies rather than route-family envelopes.
 ;; ---------------------------------------------------------------------------
 
@@ -187,7 +187,7 @@
 ;; `re-frame.reply/suppress` outcome map `{:deliver? :reply :rf.reply/work-status
 ;; :trace}`; the matrix derives the stale reply from its `:reply` slot. The
 ;; `:extra` maps use reply-envelope identity keys, while the nested carried and
-;; current verification payloads retain their bare work-ledger keys.
+;; current verification payloads carry their bare work-ledger keys.
 ;; ---------------------------------------------------------------------------
 
 (defn- http-stale-out []
@@ -198,7 +198,7 @@
 ;; (resource / mutation) or `ctx-more` (route) map so the non-success stale
 ;; time-pair (below) can thread `:completed-at` onto the suppress `:extra` /
 ;; ctx and prove completion-time propagation + omission through the same shared
-;; suppress boundary. The 0-arg arity is the original no-extra outcome.
+;; suppress boundary. The 0-arg arity is the no-extra outcome.
 (defn- resource-stale-out
   ([] (resource-stale-out nil))
   ([extra-more]
@@ -234,7 +234,7 @@
                          "nav-2")))
 
 ;; ---------------------------------------------------------------------------
-;; Non-success terminal completion-time pairs (Finding 1, rf2-3fc89f.7). The
+;; Non-success terminal completion-time pairs. The
 ;; success tier already pairs `:completed-at` presence/omission across families;
 ;; these extend the SAME propagation/omission gate to the non-success terminals
 ;; whose owning builder contract ACCEPTS or DURABLY USES the causal completion
@@ -257,9 +257,7 @@
 (defn- http-cancel-with-time [] (rf.http.reply/failure-reply http-ctx an-abort))
 (defn- http-cancel-no-time   [] (rf.http.reply/failure-reply (dissoc http-ctx :completed-at) an-abort))
 
-;; Resource/mutation failure/abort thread `:completed-at` from the opts map —
-;; the causal fact closed bug rf2-rl27r2 / PR #4473 repaired (pinned only
-;; family-locally before; this closes the umbrella gap Finding 1 names).
+;; Resource/mutation failure/abort thread `:completed-at` from the opts map.
 (defn- resource-error-with-time []
   (rf.resources.reply/failure-reply resource-vp a-failure
                         {:work-kind rf.resources.reply/work-kind-resource :completed-at completion-time-ms}))
@@ -411,7 +409,7 @@
     :stale           after-stale-reply}
 
    ;; Route owns the current-navigation success envelope and stale nav-token
-   ;; suppression; transport errors and cancellation remain HTTP replies.
+   ;; suppression; transport errors and cancellation are HTTP replies.
    {:family          :route
     :work-head       :rf.work/route
     :success         route-live-reply
@@ -430,7 +428,7 @@
 
 (def ^:private time-pair-situations
   "Non-success terminal situations paired for the shared completion-time
-  propagation/omission gate (Finding 1). Each entry is
+  propagation/omission gate. Each entry is
   `[situation with-time-key no-time-key]`. The success tier owns its own pair
   (`:success` / `:success-no-time`); these extend the SAME gate to the
   non-success terminals whose owning builder contract accepts or durably uses
@@ -467,9 +465,9 @@
 ;; family × {:error :cancel :stale} cell must declare EXACTLY ONE of a complete
 ;; `-with-time` / `-no-time` pair or one explicit `time-pair-exclusions` entry,
 ;; and an UNSUPPORTED situation must declare neither. Without this, deleting BOTH
-;; pair keys from a row removed that family/situation from the propagation gate
-;; AND from its adversarial controls with nothing left to notice — no exclusion
-;; required, no diagnostic emitted, suite still green.
+;; pair keys from a row would remove that family/situation from the propagation
+;; gate AND from its adversarial controls with nothing left to notice — no
+;; exclusion required, no diagnostic emitted, suite still green.
 ;; ---------------------------------------------------------------------------
 
 (defn- paired-rows
@@ -477,7 +475,7 @@
    the propagation/omission gate and its drop/nil-fill controls iterate. Every
    row it omits is proved to be an unsupported terminal or an explicit exclusion
    by `every-nonsuccess-terminal-declares-a-time-pair-or-an-exclusion`, so this
-   derivation can no longer silently lose a family."
+   derivation cannot silently lose a family."
   [descriptors]
   (vec (for [{:keys [family] :as family-spec} descriptors
              [situation with-key no-key] time-pair-situations
@@ -592,9 +590,9 @@
 ;; Work-id identity metadata. `:work-head` is REQUIRED descriptor metadata, never
 ;; a row filter: the only legitimate filter is the situation builder, because
 ;; `:error` / `:cancel` are legitimately unsupported for some families. Filtering
-;; on `:work-head` too made a deleted or renamed head remove EVERY row of that
-;; family from the gate — the presence / vector / head / EDN round-trip
-;; assertions then ran zero times and the suite stayed green.
+;; on `:work-head` too would make a deleted or renamed head remove EVERY row of
+;; that family from the gate — the presence / vector / head / EDN round-trip
+;; assertions would then run zero times and the suite would stay green.
 ;; ---------------------------------------------------------------------------
 
 (defn- work-id-rows
@@ -647,9 +645,9 @@
 
 (deftest work-id-gate-fails-closed-on-missing-descriptor-metadata
   ;; The mutation: delete, misspell, or nil-fill one descriptor's `:work-head`.
-  ;; Under the old `:when (and builder work-head)` filter that family's rows
-  ;; disappeared and the suite stayed green. BOTH teeth are checked here — the
-  ;; rows are still VISITED, and the shared head predicate goes FALSE.
+  ;; A `:when (and builder work-head)` filter would drop that family's rows and
+  ;; leave the suite green. BOTH teeth are checked here — the rows are still
+  ;; VISITED, and the shared head predicate goes FALSE.
   (doseq [[label mutate]
           [[":work-head deleted" #(dissoc % :work-head)]
            [":work-head renamed" #(-> % (dissoc :work-head) (assoc :wrok-head :rf.work/machine))]
@@ -725,7 +723,7 @@
 ;; tier below asserts the predicate TRUE for canonical replies; each fails-closed
 ;; control asserts it FALSE for a mutated fixture. Because both sides call the
 ;; SAME predicate, weakening it reddens one side or the other — the gate cannot
-;; be gutted silently (rf2-hliknn, the rf2-lo28u "green gate, no teeth" class).
+;; be gutted silently.
 
 (defn- completion-time-propagated?
   "True iff `reply` carries the supplied causal completion time as a durable
@@ -768,13 +766,12 @@
             (str family " no-time success is still :status :ok"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Causal completion time for the NON-SUCCESS terminals (Finding 1,
-;; rf2-3fc89f.7). The success tier above pins propagation/omission for
-;; `:status :ok`; this extends the SAME gate to the error / cancel / stale
-;; terminals whose owning builder durably uses `:completed-at`. Failure /
-;; cancellation / stale timestamps are causal replay/tooling evidence — a
-;; builder silently dropping or nil-filling `:completed-at` (the rf2-rl27r2
-;; regression class) while keeping status + work-id canonical is exactly the
+;; Causal completion time for the NON-SUCCESS terminals. The success tier
+;; above pins propagation/omission for `:status :ok`; this extends the SAME
+;; gate to the error / cancel / stale terminals whose owning builder durably
+;; uses `:completed-at`. Failure / cancellation / stale timestamps are causal
+;; replay/tooling evidence — a builder silently dropping or nil-filling
+;; `:completed-at` while keeping status + work-id canonical is exactly the
 ;; drift this closes. Terminals that do not durably carry completion time are
 ;; excluded explicitly (`time-pair-exclusions`), not silently.
 ;; ---------------------------------------------------------------------------
@@ -850,7 +847,7 @@
     ;; Driven by the VALIDATED partition rather than by its own skip logic:
     ;; `every-nonsuccess-terminal-declares-a-time-pair-or-an-exclusion` proves the
     ;; rows omitted here are exactly the unsupported terminals and the explicit
-    ;; `time-pair-exclusions`, so a deleted pair can no longer skip in silence.
+    ;; `time-pair-exclusions`, so a deleted pair cannot skip in silence.
     (doseq [{:keys [family situation with-builder no-builder]} time-paired-rows
             :let [with-reply (with-builder)
                   no-reply   (no-builder)]]
