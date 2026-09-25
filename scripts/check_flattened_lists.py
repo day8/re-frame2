@@ -9,11 +9,10 @@ author indented.  A `1. ` parent is not a three-column parent either, and
 eight columns under a column-0 parent is not a grandchild: it is an indented
 CODE BLOCK, backticks and all.
 
-NOTHING ELSE IN THIS REPOSITORY SEES THIS (rf2-gyq4).  A flattened list is
-valid markup, so there is no warning for `mkdocs build --strict` to promote
-and no broken target for `check_doc_slugs.py` to resolve; measured on a tree
-carrying one deliberately re-flattened item, both exited 0.  That is how 205
-sites accumulated before rf2-3bq6 and rf2-qsjr swept them.
+NOTHING ELSE IN THIS REPOSITORY SEES THIS.  A flattened list is valid
+markup, so there is no warning for `mkdocs build --strict` to promote and no
+broken target for `check_doc_slugs.py` to resolve: both exit 0 on a tree
+carrying a flattened item.
 
     Exit code:
         0  no flattened lists
@@ -24,21 +23,16 @@ AN UNMEASURABLE FILE IS REPORTED, NAMED AND COUNTED, BUT DOES NOT FAIL THE
 BUILD, and that is a deliberate contract rather than an oversight.  "I cannot
 grade this file" is not the same statement as "this file has a flattened
 list": failing on it would demand a repair from an author whose document has
-no defect and who has no repair available — the same shape as reporting
-`spec/009-Instrumentation.md:295`, and the same reason it is refused there.
-The verdict is loud instead: its own line, its own reason, and a count in the
-summary.  THE HOLE IS CURRENTLY EMPTY — 0 unmeasurable of 291 corpus-wide.
-It was 1, `docs/EP/EP-template.md`, until `8bea22404f` (rf2-9ogc) escaped
-that file's raw `<Title>` placeholder; the refusal MECHANISM is undiminished
-and is described at `place`, so the third verdict stays.  A count is the
-thing to read, never this sentence: re-run rather than trusting a number
-written down here.
+no defect and who has no repair available — the same shape as reporting a
+site with no repair (see SAME_INDENT_PARENT below), and the same reason it is
+refused there.  The verdict is loud instead: its own line, its own reason,
+and a count in the summary.  The refusal MECHANISM is described at `place`.
+A count is the thing to read, never this docstring: re-run rather than
+trusting a number written down here.
 
-MEASURED BY RENDERING, NEVER BY COUNTING SPACES.  The predecessor
-indentation heuristic read 209 sites across 45 files with 23 false
-positives; the rendering detector read 205 across 49 with none.  The
-difference is entirely that one reasons about columns and the other about
-what the reader is shown.  The method:
+MEASURED BY RENDERING, NEVER BY COUNTING SPACES.  An indentation heuristic
+reasons about columns, and both over- and under-reports; the rendering
+detector reasons about what the reader is shown.  The method:
 
   1. Load the extension list through mkdocs' OWN config loader rather than
      transcribing `markdown_extensions` from mkdocs.yml.  MkDocs adds `toc`,
@@ -46,8 +40,8 @@ what the reader is shown.  The method:
      extensions where the yaml declares eight (plus toc).  Transcribing it
      renders a different document from the one that ships.
   2. Enumerate list-item lines in the source, with fenced blocks blanked by
-     `check_doc_slugs._strip_fences` — the corpus's existing, much-corrected
-     notion of "code, not prose", inherited rather than rebuilt.
+     `check_doc_slugs._strip_fences` — the corpus's shared notion of "code,
+     not prose", inherited rather than rebuilt.
   3. Inject a unique sentinel at the end of each item's first line.
   4. VALIDATE THE INJECTION.  The sentinel render, with sentinels textually
      removed, must equal the baseline render, and the walker's tag stack must
@@ -68,15 +62,14 @@ roots are `docs/`, `spec/` and `migration/`: `mkdocs_hooks.py`'s
 `on_pre_build` stages the latter two into `docs_dir`, so they are part of the
 built site on any invocation, local or CI.  Everything `exclude_docs` keeps
 out is skipped, and that set is read FROM `mkdocs.yml` through the loaded
-config, never transcribed — a prose list of those trees has already drifted
-once in this repo, naming two of the six.  A flattened list in an excluded
-tree reaches no reader.
+config, never transcribed — a prose list of those trees drifts.  A flattened
+list in an excluded tree reaches no reader.
 
-ONE KNOWN SITE IS NOT A DEFECT AND MUST NOT RED THIS GATE, and it is handled
-by the RULE rather than by an allowlist — see `_pair_defect` and the
-`SAME_INDENT_PARENT` note there.  `spec/009-Instrumentation.md:295` already
-sits at base + 4*depth: there is no reindent to make, so no repair exists for
-a gate to demand.  Reporting it would make this gate red on arrival and teach
+A SITE WITH NO REPAIR IS NOT A DEFECT AND MUST NOT RED THIS GATE, and it is
+handled by the RULE rather than by an allowlist — see `_pair_defect` and the
+`SAME_INDENT_PARENT` note there.  An item that already sits at
+base + 4*depth has no reindent to make, so no repair exists for a gate to
+demand.  Reporting it would make this gate red with nothing to fix and teach
 the next reader to ignore it.
 """
 
@@ -167,9 +160,9 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
     """Blank fenced-code lines, borrowing check_doc_slugs' scanner.
 
     Imported rather than reimplemented so the two gates can never disagree
-    about where a fence is — that function carries a long history of
-    corrections (indented fences inside list items, fences inside
-    blockquotes, unbalanced openers) that this gate would otherwise repeat.
+    about where a fence is — that function handles indented fences inside
+    list items, fences inside blockquotes and unbalanced openers, which this
+    gate would otherwise have to repeat.
     """
     scripts_dir = str(Path(__file__).resolve().parent)
     if scripts_dir not in sys.path:
@@ -335,20 +328,15 @@ def place(rendered: str, items: list[Item]) -> dict[str, Placement]:
             f"rendered HTML leaves <{unclosed}> unclosed, so the tag stack "
             "cannot be trusted"
         )
-    # WHY A FILE LANDS HERE, recorded so the next reader does not re-diagnose
-    # it.  NO FILE DOES, TODAY — the corpus reads 0 unmeasurable — but the
-    # mechanism is intact and the worked example is worth keeping, because it
-    # is what the check exists for.  `docs/EP/EP-template.md` opened
-    # `# EP-NNNN: <Title>`, which python-markdown passes through as a raw
+    # WHY A FILE LANDS HERE.  A raw placeholder heading such as
+    # `# EP-NNNN: <Title>` is passed through by python-markdown as a raw
     # `<title>` element in the page BODY.  Python 3.14's html.parser treats
     # `title` as an RCDATA element, so everything after it — `</h1>`, every
     # list, every HTML comment, the rest of the document — arrives as one run
     # of TEXT inside that element.  Every sentinel would then read depth 0 and
     # "not inside an li", which is not a benign misreading: it is the shape
     # this gate reports as ESCAPED.  The balance check is what stands between
-    # that and a page of manufactured defects, so it stays.  `8bea22404f`
-    # (rf2-9ogc) escaped that placeholder, which is why the file grades now;
-    # the next raw placeholder anybody writes lands here again.
+    # that and a page of manufactured defects.
     missing = [item for item in items if item.sentinel not in walker.placements]
     if missing:
         raise UnmeasurableFile(
@@ -378,21 +366,20 @@ def _pair_defect(prev: Item, cur: Item, prev_at: Placement, cur_at: Placement):
 
     SAME_INDENT_PARENT.  The rule asks whether the SOURCE indents `cur`
     deeper than `prev` and the RENDER declines to nest it.  Both halves are
-    load-bearing, and the second one is what keeps
-    `spec/009-Instrumentation.md:295` out of this report without an
-    allowlist: that item already sits at base + 4*depth relative to its
-    parent, so there is no reindent that would change the render, and a gate
-    that demands a repair which does not exist is a gate nobody can make
-    green.  What defeats the nest there is the 43-item LOOSE list around it,
-    whose four-column continuation blocks hold the content column open —
-    measured, the depth does not move at ANY indent from 2 through 8.  That
-    is rf2-luch's class (an escaped continuation block), not this one, and it
-    is detected by asking whether a repair EXISTS rather than by naming the
-    file: the pair is only a defect when `cur` is indented deeper than a
-    FOUR-COLUMN step would need, i.e. when moving it to `prev.indent + 4`
-    would be a real move.
+    load-bearing, and the second one is what keeps a site with no repair out
+    of this report without an allowlist: an item that already sits at
+    base + 4*depth relative to its parent has no reindent that would change
+    the render, and a gate that demands a repair which does not exist is a
+    gate nobody can make green.  What defeats the nest in such a case is a
+    LOOSE list around it whose four-column continuation blocks hold the
+    content column open, so the depth does not move at ANY indent.  That is
+    `check_escaped_continuations.py`'s class (an escaped continuation
+    block), not this one, and it is detected by asking whether a repair
+    EXISTS rather than by naming the file: the pair is only a defect when
+    `cur` is indented deeper than a FOUR-COLUMN step would need, i.e. when
+    moving it to `prev.indent + 4` would be a real move.
 
-    An allowlist naming the file and line was the alternative, and it is
+    An allowlist naming the file and line is the alternative, and it is
     worse in both directions: it would go stale the moment the surrounding
     list is edited, and any allowance broad enough to survive that edit is
     broad enough to hide the next real site.
@@ -421,9 +408,9 @@ def _pair_defect(prev: Item, cur: Item, prev_at: Placement, cur_at: Placement):
     # where an INDENTED code block is (telling one from a paragraph
     # continuation needs paragraph state `_strip_fences` deliberately does not
     # keep), so a deliberately list-shaped line inside an indented code sample
-    # would be reported here.  The corpus has none — 0 defects across 291
-    # files — and the predecessor rule reported such a line too, just under the
-    # wrong kind, so this narrows the message without widening the net.
+    # would be reported here.  The corpus has none, and a rule without the
+    # `in_code` test would report such a line too, just under the wrong kind,
+    # so this narrows the message without widening the net.
     if cur_at.in_code or not cur_at.in_li:
         where = (
             "an indented CODE BLOCK, backticks and all"
