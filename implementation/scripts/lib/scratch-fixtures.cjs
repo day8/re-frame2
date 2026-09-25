@@ -3,30 +3,30 @@
 'use strict';
 
 /*
- * Per-process scratch fixture lanes for the script self-tests (rf2-2i1ay).
+ * Per-process scratch fixture lanes for the script self-tests.
  *
- * WHY THIS EXISTS. Four `_*.test.cjs` suites materialise throwaway fixtures
- * under the repo's gitignored `.scratch/` — they cannot use `os.tmpdir()`
- * because each hands the fixture path to `bash` as a path RELATIVE to a cwd
+ * WHY THIS EXISTS. Several `_*.test.cjs` suites materialise throwaway fixtures
+ * under the repo's gitignored `.scratch/` — those that hand the fixture path
+ * to `bash` cannot use `os.tmpdir()`, because they pass it as a path RELATIVE to a cwd
  * of REPO_ROOT, and an absolute Windows drive path is not resolvable across
- * Git Bash / WSL bash / Linux bash alike (rf2-6m7pn4). Living inside the
+ * Git Bash / WSL bash / Linux bash alike. Living inside the
  * repo is therefore a hard requirement, not a preference.
  *
- * THE DEFECT. Each suite created a unique `mkdtemp` dir under `.scratch/`
- * — correct — but then tore down with
+ * WHY LANES. A suite that creates a unique `mkdtemp` dir under `.scratch/`
+ * but tears down with
  *
  *     fs.rmSync(SCRATCH_ROOT, { recursive: true, force: true });
  *
- * which deletes the SHARED ROOT, not the dir that suite created. Any second
- * process using `.scratch/` in the same checkout has its live fixture pulled
- * out from under it mid-run. Measured on this tree: the four suites run
- * concurrently failed 20/20, and every one of them passes standalone. The
+ * deletes the SHARED ROOT, not the dir that suite created. Any second
+ * process using `.scratch/` in the same checkout would have its live fixture
+ * pulled out from under it mid-run, while every suite still passes
+ * standalone. The
  * downstream symptom is a confusing lie — the shell script under test reports
  * `expected source file … not found` or `cd: .scratch/…: No such file or
  * directory`, so the failure reads as a defect in the script or the diff
  * rather than as a fixture that was deleted by a neighbour.
  *
- * THE FIX, and its shape. Isolation, not tolerance: no retry, no sleep, no
+ * THE SHAPE. Isolation, not tolerance: no retry, no sleep, no
  * lock. Each PROCESS gets its own lane under `.scratch/`, keyed on pid plus
  * random suffix, and teardown removes only the lanes THIS process created.
  * The shared root is created but never removed, so it is not a resource any
@@ -34,7 +34,7 @@
  *
  * A plain helper module (not a `.test.cjs`), so the `test:script-*` runners
  * do not execute it as a suite. `_scratch-fixture-isolation.test.cjs` pins
- * the contract and forbids a regression to whole-root removal.
+ * the contract and forbids whole-root removal.
  */
 
 const fs = require('fs');
