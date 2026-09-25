@@ -180,9 +180,9 @@
 ;; ---- density ------------------------------------------------------------
 ;;
 ;; The density setting (Compact / Cosy, written by the palette's
-;; density toggle and the host's `init!` `:density` opt; Comfy is
-;; the spec's third tier, catalogued here for forward compat) writes a
-;; px value to the canonical
+;; "Cycle display density" command and the host's `init!` `:density`
+;; opt; any other value, a persisted `:comfy` included, renders at
+;; 13px) writes a px value to the canonical
 ;; `--rf-xray-font-size` CSS custom property that anchors the whole
 ;; `theme/tokens/type-scale`. Every `type-scale` entry
 ;; resolves to `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`;

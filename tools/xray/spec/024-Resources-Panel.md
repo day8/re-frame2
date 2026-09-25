@@ -196,6 +196,23 @@ Two elision layers compose:
    carries the RESOLVER id, not a resource-id, so a resource-id-keyed set
    cannot decide them and gating that surface on it would be dead code.
 
+   The **work-ledger** rows (§3) take the same gate. They are runtime-db
+   state, but no per-instance declaration is lowered under the work
+   ledger, so the instance gate has nothing to match there either, and a
+   work record names its resource-id in its scoped key. A **work id** is
+   gated too, because a resource work id `[:rf.work/resource <scoped-key>
+   <generation>]` embeds its scoped key: the **live-work** (§3a) and
+   **stale-races** (§3b) rows render its display text,
+   `resources-helpers/work-id-text`, which prints a `:sensitive?`
+   resource's scope and params as `:rf/redacted` and keeps the head,
+   resource-id and generation readable. Each row keeps the raw work id as
+   its React key and as the key every join matches on (§Uniform
+   reply-envelope reads). A mutation work id `[:rf.work/resource
+   [:rf.mutation <instance-id>] <generation>]` embeds only the instance
+   id, never the mutation's scope or params, and no mutation declaration
+   classifies an instance id, so it prints as-is, on the §6c continuation
+   row too.
+
 The same `instance-row` per-slot egress seam carries the EP-0015 **on-box
 local-render** default (`:rf.egress/local-redacted`, Spec 015 §Projection
 profiles + §The graduation gate; `panels/local-render`). When a panel routes
@@ -294,7 +311,9 @@ stacked sections:
    reply-envelope reads below): the live (non-terminal) work-ledger rows
    joined to their latest reply-envelope trace **phase + emitting op** per
    `:work/id`, each row carrying work-kind, ledger status, the joined
-   latest phase/op, attempt, owner count, and the canonical `:work/id`.
+   latest phase/op, attempt, owner count, and the work id's display text,
+   which redacts a `:sensitive?` resource's scope and params (§PRIVACY);
+   the raw `:work/id` stays the row's key and join key.
    Below the rows, the **per-kind suppression tally** headline (the
    active-effects dashboard count of stale suppressions per family).
    **Silent-by-default**: the section renders nothing when there is no live
@@ -304,7 +323,8 @@ stacked sections:
    **stale-suppression correctness boundary** (carried ≠ current — one
    attempt superseded another), grouped by `:work/id` and rendered with its
    terminal `:stale` status, the phases the arc passed through, and the
-   `:work/id`. Only **suppressed** arcs render. **Silent-by-default**: the
+   work id's display text, redacted as in §3a. Only **suppressed** arcs
+   render. **Silent-by-default**: the
    section renders nothing when no arc was suppressed.
 4. **Route / resource graph** — per route declaring `:resources`: the
    route id + path, its declared resources, the **blocking vs
