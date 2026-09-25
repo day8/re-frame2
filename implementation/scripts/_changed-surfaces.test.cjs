@@ -4428,8 +4428,8 @@ test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=ada
 
 // Resources + cross-conformance tier routing. The resources artefact and the
 // three EP cross-conformance tiers (reply / derivation / event) are live
-// implementation test surfaces on the root CLJS/test classpath
-// (implementation/deps.edn + shadow-cljs.edn). Without a case for them, a PR
+// implementation test surfaces on the root CLJS test classpath (the
+// :source-paths of implementation/shadow-cljs.edn). Without a case for them, a PR
 // touching only one would leave every output false, so the aggregator could
 // pass with the relevant JVM + consolidated node-test gates skipped. These
 // assertions lock the routing.
