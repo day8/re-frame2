@@ -10,7 +10,7 @@
 ;; an active machine instance (a singleton-registered machine that has
 ;; reached a non-initial :state through prior dispatch).
 ;;
-;; Behaviour (Spec 005 §Cross-Spec Interactions §1, rf2-vsigt):
+;; Behaviour (Spec 005 §Cross-Spec Interactions §1):
 ;;   1. Each active machine emits `:rf.machine.lifecycle/destroyed` with
 ;;      `:reason :parent-frame-destroyed`, carrying the destroyed frame
 ;;      id, the machine id, and the snapshot's `:last-state`.
@@ -26,10 +26,8 @@
 ;; the corpus pins the cross-implementation TRACE-shape contract, which is
 ;; the host-agnostic observable.
 ;;
-;; Per rf2-u68jt — substrate-edge cluster (Cross-Spec #1). The harness's
-;; `{:destroy-frame <frame-id>}` dispatch step (added alongside this
-;; fixture to mirror the flow-conformance runner's shape) is the seam
-;; the fixture pulls.
+;; The harness's `{:destroy-frame <frame-id>}` dispatch step (mirroring
+;; the flow-conformance runner's shape) is the seam the fixture pulls.
 
 {:fixture/id           :cross-spec/frame-destroy-with-machines
  :fixture/spec-version "1.0"
@@ -66,15 +64,15 @@
   {:destroy-frame :rf/default}]
 
  :fixture/expect
- ;; Trace ordering contract — per rf2-vsigt §step 6 + frame.cljc's
+ ;; Trace ordering contract — per frame.cljc's
  ;; emit-frame-destroyed-trace! step ordering:
- ;;   1. :boot/seed event (on-create).
+ ;;   1. :boot/seed event (:initial-events).
  ;;   2. :auth/session event (the machine-dispatched inner [:authenticate]).
  ;;   3. destroy-frame! starts.
  ;;   4. :rf.machine.lifecycle/destroyed fires for the active machine
- ;;      BEFORE the frame's :frame/destroyed trace (rf2-vsigt §step
- ;;      3.a — emit BEFORE the destroy work so trace consumers see the
- ;;      signal while the handler still resolves).
+ ;;      BEFORE the frame's :frame/destroyed trace (emitted BEFORE the
+ ;;      destroy work so trace consumers see the signal while the handler
+ ;;      still resolves).
  ;;   5. :frame/destroyed fires last.
  {:trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :boot/seed}}
