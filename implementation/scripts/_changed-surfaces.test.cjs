@@ -3431,12 +3431,11 @@ test('the aggregator blocks on cancelled AND on failure, in distinct words (rf2-
   );
 });
 
-// rf2-wa3oo — the story-xray-browser PR job now runs the PR-SMOKE
-// tier, not the full sweep. It runs the Xray gate in --smoke mode and
-// the single-testbed Story :play-script gate (which renders the
-// assertion-strip, keeping rf2-5lw9w covered per-PR). The full sweep —
-// test:story-feature-load, the non-smoke test:xray-feature-gate, and
-// test:story-static — moved to the nightly expensive-tests.yml workflow.
+// The story-xray-browser PR job runs the PR-SMOKE tier, not the full sweep:
+// the Xray gate in --smoke mode and the single-testbed Story :play-script
+// gate (which renders the assertion-strip, keeping it covered per-PR). The
+// full sweep runs in the nightly expensive-tests.yml workflow; at PR time the
+// full feature-load and static gates run only under their own outputs (below).
 const EXPENSIVE_WORKFLOW = path.join(
   REPO_ROOT,
   '.github',
@@ -3454,7 +3453,7 @@ function storyXrayJobBlock(workflow) {
   // CRLF, so the line break after the next job header is `\r\n` — match
   // `\r?\n` (mirroring jobBlock) or the search never matches and this
   // returns the whole rest-of-file, letting a later job's step satisfy a
-  // story-xray-browser assertion (rf2-8ng3e1).
+  // story-xray-browser assertion.
   const rest = workflow.slice(start + 1);
   const nextJob = rest.search(/\n {2}[A-Za-z0-9_-]+:\r?\n/);
   return nextJob === -1 ? rest : rest.slice(0, nextJob);
@@ -3470,20 +3469,17 @@ test('PR story-xray-browser job keeps the Story :play-script gate (assertion-str
   assert.match(block, /npm run test:story-play-scripts/);
 });
 
-// rf2-65ajl — this row USED to assert `test:story-feature-load` was absent
-// from the PR job outright. That pin is what made the second half of the
-// false-green permanent: a PR could change the full gate's own runner and no
-// PR-time command would load it, because the only command that does was pinned
-// out. The tier split it was defending is real and is kept — the full sweep
-// does not belong on every Story/Xray PR — but "not on every PR" is not "on no
-// PR". The command is now present and CONDITIONAL, so the claim becomes: it
-// runs only under story_full_gate.
+// `test:story-feature-load` is present in the PR job and CONDITIONAL: it runs
+// only under story_full_gate. Pinned out of the PR job, it would leave a
+// change to the full gate's own runner loaded by no PR-time command. The tier
+// split is real — the full sweep does not belong on every Story/Xray PR — but
+// "not on every PR" is not "on no PR".
 // Return the step that RUNS `command`: from its `- name:` header through the
 // `run:` line, so the step's own `if:` is inside and a neighbour's is not.
 // Anchored on `run: ` deliberately — every one of these commands is also named
 // in the surrounding prose, and a `.includes()` over a comment would let a
-// step's condition be read off the wrong step (which is how the first draft of
-// this row passed against the smoke step's `if:`).
+// step's condition be read off the wrong step (a neighbouring smoke step's
+// `if:`, say).
 function stepRunning(block, command) {
   const marker = `run: ${command}`;
   const idx = block.indexOf(marker);
@@ -3508,29 +3504,26 @@ test('PR story-xray-browser job runs the FULL feature-load gate, gated on story_
   );
 });
 
-// rf2-9n2cv — this row USED to pin `test:story-static` out of the PR job too,
-// alongside the non-smoke Xray gate. That was the same forbids-the-fix pin
-// rf2-65ajl hit for `test:story-feature-load`, one gate over: the only command
-// that loads check-story-static.cjs was asserted absent, so the file could
-// never be exercised by the PR that changed it. The story-static half is now
-// present and CONDITIONAL (see the row below); the Xray half STAYS, and stays
-// deliberately — see the comment on it.
+// `test:story-static` is likewise present and CONDITIONAL (see the row
+// below): pinned out, check-story-static.cjs could never be exercised by the
+// PR that changed it. The non-smoke Xray gate stays nightly, deliberately —
+// see the comment on it.
 test('PR story-xray-browser job still keeps the rest of the sweep nightly (rf2-wa3oo)', () => {
   const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
   // The non-smoke (full-matrix) Xray gate must not run at PR time. The
   // `:smoke` suffix is intentionally allowed; assert the bare invocation
   // (followed by end-of-line, not `:smoke`) is absent.
   //
-  // rf2-9n2cv considered lifting this too and deliberately did NOT. It is not
-  // the same defect: `test:xray-feature-gate:smoke` — a command this job
-  // already runs — `require`s the whole of
+  // This one stays nightly deliberately. It is not the same shape:
+  // `test:xray-feature-gate:smoke` — a command this job runs — `require`s the
+  // whole of
   // tools/xray/testbeds/feature_matrix/scenarios.cjs, so the file IS loaded,
   // parsed and validated at PR time (the launcher even fails loud on an empty
   // smoke set). What is not EXECUTED at PR time is the non-smoke rows, and
   // that is the documented two-tier policy in TESTING.md ("everything else is
-  // nightly by default"), not a fail-open hole. Reversing it means running the
-  // all-scenarios/all-surfaces sweep on every scenarios.cjs edit — a policy
-  // call, filed separately rather than smuggled in here.
+  // nightly by default"), not a fail-open hole. Reversing it would mean running
+  // the all-scenarios/all-surfaces sweep on every scenarios.cjs edit — a policy
+  // call, not something to change in passing here.
   assert.doesNotMatch(block, /npm run test:xray-feature-gate(?!:smoke)/);
 });
 
@@ -3554,8 +3547,7 @@ test('PR story-xray-browser job runs the Story STATIC gate, gated on story_stati
 test('PR story-xray-browser job opens for the static tier too (rf2-9n2cv)', () => {
   // A static-gate-only change leaves both other outputs false, so a job
   // condition that did not name this one would skip the job and the new step
-  // with it — the same hole one level up, which is exactly how rf2-65ajl's
-  // never-fires mode would have presented.
+  // with it — the same hole one level up.
   const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
   const header = block.slice(0, block.indexOf('steps:'));
   assert.match(header, /outputs\.story_static_gate == 'true'/);
@@ -3576,9 +3568,9 @@ test('detect_changed_surfaces exports story_static_gate (rf2-9n2cv)', () => {
 });
 
 test('the Story static gate arms on its own definition (rf2-9n2cv)', () => {
-  // The classifier half. Before this bead, check-story-static.cjs classified
-  // to cljs_node_test + cljs_browser + cljs_prod + bundle_isolation +
-  // reagent_slim_bundle — five outputs, not one of which schedules a job that
+  // The classifier half. The generic implementation/scripts/* outputs —
+  // cljs_node_test + cljs_browser + cljs_prod + bundle_isolation +
+  // reagent_slim_bundle — are five, not one of which schedules a job that
   // runs `npm run test:story-static`.
   for (const file of [
     'implementation/scripts/check-story-static.cjs',
@@ -3592,7 +3584,7 @@ test('the Story static gate arms on its own definition (rf2-9n2cv)', () => {
     assert.equal(result.story_static_gate, 'true', file);
     // WIDENS, NEVER NARROWS. The arm sits above the generic
     // implementation/scripts/* case, so it must re-set everything that case
-    // would have set or this bead silently drops five tiers from two files.
+    // would have set or the arm silently drops five tiers from two files.
     for (const kept of [
       'cljs_node_test',
       'cljs_browser',
@@ -3664,29 +3656,26 @@ test('ordinary implementation/scripts changes do NOT arm the static gate (rf2-9n
   }
 });
 
-// rf2-xurxw — the SOURCE half of the static gate's roster.
+// The SOURCE half of the static gate's roster.
 //
-// The rows above pin the gate's own two scripts, and for a long time that was
-// the WHOLE roster. `npm run test:story-static` is the only PR-time command
-// that compiles Story under `:advanced` with
+// The rows above pin the gate's own two scripts. `npm run test:story-static`
+// is the only PR-time command that compiles Story under `:advanced` with
 // `re-frame.story.config/static-mode? true`, and the release bundle's
 // dependency closure is tools/story/src/** plus tools/xray/src/** plus the
-// export's own testbed entry — so the gate that grades the static export
-// could not be scheduled by any change capable of breaking it.
+// export's own testbed entry — so without these arms the gate that grades the
+// static export could not be scheduled by any change capable of breaking it.
 //
-// The measured instance: 58bd56635b broke the export from tools/xray/src.
-// Those paths armed story_xray_browser, so the browser job OPENED and its
-// dev-compile smokes passed, while the static step showed `skipped`. ARMING
-// THE JOB IS NOT ARMING THE STEP, and the two fixes that followed both had
-// the step skipped on their own PRs. The classifier now arms both outputs
-// from the one predicate.
+// ARMING THE JOB IS NOT ARMING THE STEP: a tools/xray/src change arms
+// story_xray_browser, so the browser job opens and its dev-compile smokes
+// pass, while the static step would show `skipped` unless story_static_gate
+// is armed too. The classifier arms both outputs from the one predicate.
 
 test('Story/Xray runtime source arms the static gate (rf2-xurxw)', () => {
   // Real paths with a per-path existsSync, the shape the two-file arm above
   // uses: a pin on a phantom path classifies byte-identically to the real
-  // file beside it and therefore cannot fail (rf2-e30e).
+  // file beside it and therefore cannot fail.
   for (const file of [
-    // The five .cljs of 58bd56635b — the commit that broke the static export.
+    // Five tools/xray/src .cljs files in the release closure.
     'tools/xray/src/day8/re_frame2_xray/core.cljs',
     'tools/xray/src/day8/re_frame2_xray/panels/machine_canvas.cljs',
     'tools/xray/src/day8/re_frame2_xray/shell.cljs',
@@ -3695,7 +3684,7 @@ test('Story/Xray runtime source arms the static gate (rf2-xurxw)', () => {
     // Story's shell requires day8.re-frame2-xray.core directly, so Story
     // source sits in the same release closure.
     'tools/story/src/re_frame/story/ui/shell.cljs',
-    // The predicate's one named .clj exception (rf2-uqf5q).
+    // The predicate's one named .clj exception.
     'tools/story/src/re_frame/story/macros.clj',
     // The export's OWN source: entry point, the staged document, the stories.
     'tools/story/testbeds/counter_with_stories/story_static.cljs',
@@ -3716,8 +3705,8 @@ test('Story/Xray runtime source arms the static gate (rf2-xurxw)', () => {
 });
 
 test('non-runtime Story/Xray paths do NOT arm the static gate (rf2-xurxw negative control)', () => {
-  // The predicate's own exclusions, taken from the SAME commit as the row
-  // above — 58bd56635b's other two paths. A widening that reached markdown
+  // The predicate's own exclusions, from the same Xray tree as the row
+  // above. A widening that reached markdown
   // specs or JVM unit tests would red here rather than quietly costing ~90 s
   // a run on changes that cannot reach the release bundle.
   for (const file of [
@@ -3762,8 +3751,8 @@ test("the static export's build definition arms the static gate (rf2-xurxw)", ()
   );
   assert.equal(classify(buildDefinition).story_static_gate, 'true', buildDefinition);
 
-  // The two npm manifests share that arm and were considered and DECLINED
-  // (rf2-xurxw ruling). Pinned OFF so a future widening has to be a
+  // The two npm manifests share that arm and are deliberately NOT armed
+  // here. Pinned OFF so a future widening has to be a
   // deliberate edit here rather than a side effect of setting the output at
   // the arm's top level — which would also red the negative control above.
   for (const declined of [
@@ -3836,11 +3825,11 @@ test('PR + nightly Story/Xray jobs cache the shadow-cljs compile output (rf2-og3
   assert.match(nightly, /story-xray-shadow-/);
 });
 
-// Testbed Playwright specs were migrated to CLJS/JVM unit tests
-// (rf2-tglku waves), so a testbed source diff only needs the transitive
-// CLJS compile coverage: top-level testbeds light `cljs_browser`, Xray
-// testbeds light `story_xray_browser`, and only adapter testbeds (which
-// keep a live Playwright smoke) light `adapter_testbed_smokes`.
+// Testbed assertions live in CLJS/JVM unit tests, so a testbed source diff
+// only needs the transitive CLJS compile coverage: top-level testbeds light
+// `cljs_browser`, Xray testbeds light `story_xray_browser`, and only adapter
+// testbeds (which carry a live Playwright smoke) light
+// `adapter_testbed_smokes`.
 
 test('top-level testbed .cljs change fires cljs_browser, not the adapter smokes (rf2-t5slp)', () => {
   const result = classify('testbeds/ssr_basic/core.cljs');
@@ -3848,19 +3837,18 @@ test('top-level testbed .cljs change fires cljs_browser, not the adapter smokes 
   assert.equal(result.cljs_browser, 'true');
 });
 
-// rf2-in6c4 — THE ARMING PIN FOR THE TESTBED COMPILE GATE, per the rf2-6ng7
-// codicil that a coverage fix pins its own arming in the same patch.
+// THE ARMING PIN FOR THE TESTBED COMPILE GATE: a coverage lane pins its own
+// arming.
 //
-// WHAT WAS DARK. `cljs_browser` above is the only lane the generic
-// `testbeds/*` case ever armed, and it does not compile a single one of these
-// builds: the top-level `testbeds/` tree holds 13 `.cljs` files, 0 test files
-// and 0 `.clj`, and no test in the armed lane `:require`s a testbed namespace
-// (the Xray e2e suites that read as though they do use their own
-// `host-fixtures` copies). shadow compiles what is required of it, so a
-// compile break confined to a top-level testbed was armed by nothing and
-// caught only by the nightly Xray FULL feature gate. `check-examples-compile.
-// cjs` now derives `:testbeds/*` alongside `:examples/*`; this is the half
-// that makes the schedule real.
+// `cljs_browser` above does not compile a single one of these builds: the
+// top-level `testbeds/` tree holds 13 `.cljs` files, 0 test files and 0
+// `.clj`, and no test in that lane `:require`s a testbed namespace (the Xray
+// e2e suites that read as though they do use their own `host-fixtures`
+// copies). shadow compiles what is required of it, so without this arm a
+// compile break confined to a top-level testbed would be caught only by the
+// nightly Xray FULL feature gate. `check-examples-compile.cjs` derives
+// `:testbeds/*` alongside `:examples/*`; this is the half that makes the
+// schedule real.
 test('top-level testbed .cljs change fires examples_compile — the only lane that compiles it (rf2-in6c4)', () => {
   const result = classify('testbeds/ssr_basic/core.cljs');
   assert.equal(
@@ -3896,7 +3884,7 @@ test('a testbed .cjs helper does NOT fire examples_compile (extension narrowing,
   }
 });
 
-// A NEW testbed build still arms the gate whatever its own files look like,
+// A NEW testbed build arms the gate whatever its own files look like,
 // because DECLARING one edits implementation/shadow-cljs.edn — which is on the
 // examples_compile roster in its own right. That is what keeps the narrowing
 // above from being a hole: the roster is derived from the build config, and
@@ -3947,11 +3935,11 @@ test('adapter-smoke harness edit fires ONLY adapter_testbed_smokes, not the adap
 });
 
 // ---------------------------------------------------------------------------
-// rf2-6r9j.87 — Test-React is the documented exception to the shipped-adapter
-// population, and before this bead the classifier did not know it. Every path
+// Test-React is the documented exception to the shipped-adapter population,
+// and the classifier knows it. Under the generic adapter fan-out, every path
 // under implementation/adapters/test-react/ — source, test, deps.edn AND a
-// prose-only README — produced the identical twelve outputs, fanning out to 45
-// distinct jobs in test.yml. Test-React has no Maven coordinate, no production
+// prose-only README — would fire the same twelve outputs, fanning out to
+// dozens of jobs in test.yml. Test-React has no Maven coordinate, no production
 // or example consumer and no browser testbed: nothing outside its own tree
 // requires `re-frame.adapter.test-react` (the only out-of-tree mentions are a
 // QUOTED `:producer-ns` symbol roster in
@@ -3959,10 +3947,10 @@ test('adapter-smoke harness edit fires ONLY adapter_testbed_smokes, not the adap
 // require — and prose comments). Exactly two lanes can reach the code:
 // `jvm-adapters-test-react` and Shadow's consolidated `:node-test`.
 //
-// The eleven retired outputs. This is the twelve the artefact used to fire
-// MINUS `cljs_node_test`, which is genuinely retained — the fixture is CLJC
-// specifically so it runs under BOTH hosts, and narrowing away either host
-// would be the fail-open this bead exists to remove, not the fix.
+// The eleven outputs Test-React does NOT fire: the generic twelve MINUS
+// `cljs_node_test`, which it keeps — the fixture is CLJC specifically so it
+// runs under BOTH hosts, and narrowing away either host would be a fail-open,
+// not a fix.
 const TEST_REACT_RETIRED_OUTPUTS = [
   'implementation_jvm',
   'adapter_diagnostic',
@@ -4031,8 +4019,8 @@ test('Test-React README.md arms NO executable lane (rf2-6r9j.87)', () => {
 });
 
 // The REVERSE edge, which the narrowing must not cut: the fixture depends on
-// core, so a core change still has to run its JVM suite. That edge rides
-// `adapter_diagnostic` (which core already sets and which the job condition
+// core, so a core change has to run its JVM suite. That edge rides
+// `adapter_diagnostic` (which core sets and which the job condition
 // keeps in a disjunction), NOT `test_react_jvm` — so this asserts both halves,
 // because setting `test_react_jvm` on the core arm would work too and would be
 // the wrong repair: it would put a second name on an edge that already has one.
@@ -4069,8 +4057,7 @@ test('published adapters keep the full fan-out after the Test-React carve-out (r
 // The never-fires mode. A job reads `needs.<job>.outputs.<name>`, which
 // resolves to the empty string unless the producing job DECLARES it, so an
 // emitted-but-undeclared output makes every `== 'true'` false — a gate that can
-// never fire, and silently. Same shape rf2-9n2cv / rf2-65ajl pinned for the
-// Story outputs, and the same phantom-pending family as rf2-dtvmb.
+// never fire, and silently. Same shape as the Story output pins above.
 test('detect_changed_surfaces exports test_react_jvm (rf2-6r9j.87)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'detect_changed_surfaces');
   assert.match(
@@ -4108,13 +4095,12 @@ test('a forced full run still arms test_react_jvm (rf2-6r9j.87)', () => {
   assert.equal(classify('.github/workflows/test.yml').test_react_jvm, 'true');
 });
 
-// The negative control the bead names, one level down. scripts/test-fast-pr.sh
-// gates its whole JVM tier on the classifier's output; before this change that
-// was `implementation_jvm` alone, and the per-artefact selector that would pick
-// implementation/adapters/test-react by path prefix only ever runs INSIDE that
-// tier. So dropping `implementation_jvm` from the Test-React arm without
-// teaching the spine the new signal makes a Test-React-only LOCAL diff skip its
-// own JVM suite silently.
+// The same control one level down. scripts/test-fast-pr.sh gates its whole
+// JVM tier on the classifier's output, and the per-artefact selector that
+// would pick implementation/adapters/test-react by path prefix only ever runs
+// INSIDE that tier. The Test-React arm does not set `implementation_jvm`, so
+// unless the spine reads the narrow signal too, a Test-React-only LOCAL diff
+// skips its own JVM suite silently.
 test('the local spine consumes test_react_jvm for its JVM tier (rf2-6r9j.87)', () => {
   const spine = fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'test-fast-pr.sh'), 'utf8');
   assert.match(
@@ -4129,10 +4115,10 @@ test('the local spine consumes test_react_jvm for its JVM tier (rf2-6r9j.87)', (
   );
 });
 
-// rf2-y9o5e3 — every EXECUTABLE examples/scripts gate file must fire the
+// Every EXECUTABLE examples/scripts gate file must fire the
 // browser gate it drives, so a PR breaking a launcher / shared port
 // resolver can't avoid the gate it can break. The two adapter-smoke helpers
-// that STAY under examples/scripts/ (the example dev runner + Story launchers
+// under examples/scripts/ (the example dev runner + Story launchers
 // share them) — spec-helpers.cjs (the Playwright assertion matchers) and
 // examples-port.cjs (the port resolver) — fire adapter_testbed_smokes; the
 // Story launchers + their dedicated port resolver fire story_xray_browser;
@@ -4152,12 +4138,11 @@ for (const file of ADAPTER_SMOKE_GATE_FILES) {
   });
 }
 
-// rf2-65ajl — this roster used to be four files all asserted to fire
-// story_xray_browser. Two of them are not on the PR-smoke tier's path at all:
-// the smoke runs `test:xray-feature-gate:smoke` + `test:story-play-scripts`,
-// and serve-and-run-story-feature-load-tests.cjs / run-story-feature-load-
+// Only these two are on the PR-smoke tier's path: the smoke runs
+// `test:xray-feature-gate:smoke` + `test:story-play-scripts`, while
+// serve-and-run-story-feature-load-tests.cjs / run-story-feature-load-
 // tests.cjs are reachable from `npm run test:story-feature-load` and nothing
-// else. They move to the story_full_gate roster below, where the output
+// else. Those two are on the story_full_gate roster below, where the output
 // schedules the step that actually runs them.
 const STORY_SMOKE_GATE_FILES = pinnedRoster('STORY_SMOKE_GATE_FILES', [
   'examples/scripts/serve-and-run-story-play-scripts.cjs',
@@ -4170,10 +4155,11 @@ for (const file of STORY_SMOKE_GATE_FILES) {
   });
 }
 
-// rf2-65ajl — the FULL Story feature-load gate. Two independent halves had to
-// close together: the classifier armed nothing for tools/story/test/**, and the
-// job story_xray_browser schedules ran neither command that loads those files.
-// These rows pin the first half; the workflow rows above pin the second.
+// The FULL Story feature-load gate. Two independent halves make it real: the
+// classifier arms story_full_gate for the files it loads, and the job
+// story_xray_browser schedules runs the command that loads them under that
+// output. These rows pin the first half; the workflow rows above pin the
+// second.
 
 const STORY_FULL_GATE_FILES = pinnedRoster('STORY_FULL_GATE_FILES', [
   'tools/story/test/story_feature_load.cjs',
@@ -4190,11 +4176,11 @@ for (const file of STORY_FULL_GATE_FILES) {
 }
 
 test('the full-gate launchers do not fall through to the generic examples fan-out (rf2-65ajl)', () => {
-  // Moving these two off the story_xray_browser arm left them with no arm of
-  // their own, so a POSIX `case` walked on to the generic `examples/*` case and
-  // silently armed cljs_node_test + cljs_browser — two heavy jobs, on two Node
-  // launchers that compile no CLJS. They have a dedicated no-op arm now whose
-  // only job is to stop the walk; this row is what keeps it there.
+  // Without an arm of their own, a POSIX `case` would walk on to the generic
+  // `examples/*` case and silently arm cljs_node_test + cljs_browser — two
+  // heavy jobs, on two Node launchers that compile no CLJS. They have a
+  // dedicated no-op arm whose only job is to stop the walk; this row is what
+  // keeps it there.
   for (const file of [
     'examples/scripts/serve-and-run-story-feature-load-tests.cjs',
     'examples/scripts/run-story-feature-load-tests.cjs',
@@ -4203,11 +4189,11 @@ test('the full-gate launchers do not fall through to the generic examples fan-ou
     assert.equal(result.story_full_gate, 'true', file);
     assert.equal(result.cljs_browser, 'false', file);
     assert.equal(result.cljs_node_test, 'false', file);
-    // The one arm they kept: they are under examples/, so the examples-compile
-    // roster still fires, exactly as it did before this bead.
+    // The one arm they do fire: they are under examples/, so the
+    // examples-compile roster fires.
     assert.equal(result.examples_compile, 'true', file);
-    // And the smoke tier they were wrongly on: neither smoke command loads
-    // them, so it must not fire.
+    // And the smoke tier: neither smoke command loads them, so it must not
+    // fire.
     assert.equal(result.story_xray_browser, 'false', file);
   }
 });
@@ -4260,8 +4246,8 @@ test('every spec module the full-gate runner loads is armed (rf2-65ajl)', () => 
 });
 
 test('ordinary Story/Xray runtime changes keep the cheap smoke path (rf2-65ajl)', () => {
-  // The bead's second criterion. A src/testbed change must NOT drag the full
-  // sweep onto the critical path — it gets the smoke tier it already had.
+  // A src/testbed change must NOT drag the full sweep onto the critical path —
+  // it gets the smoke tier.
   for (const file of [
     'tools/story/src/re_frame/story.cljc',
     'tools/story/testbeds/counter_with_stories/stories.cljs',
@@ -4269,7 +4255,7 @@ test('ordinary Story/Xray runtime changes keep the cheap smoke path (rf2-65ajl)'
     'tools/xray/testbeds/edn_inspector/core.cljs',
     // The Xray gate's own scenario roster is the instructive contrast: unlike
     // the Story runners, `test:xray-feature-gate:smoke` — a command the smoke
-    // tier already runs — reads this file, so the cheap tier really does
+    // tier runs — reads this file, so the cheap tier really does
     // exercise it and it needs no second output.
     'tools/xray/testbeds/feature_matrix/scenarios.cjs',
   ]) {
@@ -4284,8 +4270,8 @@ test('ordinary Story/Xray runtime changes keep the cheap smoke path (rf2-65ajl)'
 });
 
 test('unrelated JVM / unit-test-only changes arm NEITHER browser tier (rf2-65ajl negative control)', () => {
-  // The bead's fourth criterion. The expensive browser job must stay off
-  // changes that cannot reach a browser at all.
+  // The expensive browser job must stay off changes that cannot reach a
+  // browser at all.
   for (const file of [
     // Real files, not hypotheticals: a negative control that pins a path
     // nothing produces any more is permanently, silently green.
@@ -4311,13 +4297,13 @@ test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser ga
   assert.equal(result.story_xray_browser, 'true');
 });
 
-// rf2-6ng7 class — spec-helpers.cjs is the shared Playwright assertion-matcher
+// spec-helpers.cjs is the shared Playwright assertion-matcher
 // module with FOUR live gate-family consumers: the adapter/ui smoke specs, the
 // Story/Xray PR-smoke tier (serve-and-run-story-play-scripts.cjs and
 // tools/xray/testbeds/feature_matrix/scenarios.cjs both require it), and the
-// tenant-switcher smoke (testbeds/tenant_switcher/spec.cjs). Its case used to
-// arm only the smoke pair, so a break confined to the Story/Xray-only exports
-// (navigate, reloadPage, …) or the tenant spec's matchers merged green.
+// tenant-switcher smoke (testbeds/tenant_switcher/spec.cjs). Armed only for
+// the smoke pair, a break confined to the Story/Xray-only exports (navigate,
+// reloadPage, …) or the tenant spec's matchers would merge green.
 test('examples/scripts/spec-helpers.cjs (shared matchers) fires every gate that loads it (rf2-6ng7 class)', () => {
   const result = classify('examples/scripts/spec-helpers.cjs');
   assert.equal(result.adapter_testbed_smokes, 'true');
@@ -4344,11 +4330,12 @@ test('examples/scripts/examples-port.cjs stays adapter-smoke-scoped after the sp
   assert.equal(result.tenant_switcher_smoke, 'false');
 });
 
-// rf2-6ng7 class — testbeds/spec-helpers.cjs is require'd ONLY by
+// testbeds/spec-helpers.cjs is require'd ONLY by
 // tools/xray/testbeds/feature_matrix/scenarios.cjs, which both Xray
-// feature-gate tiers load. The generic testbeds/* fall-through armed only
-// cljs_browser — a CLJS lane that never loads a .cjs — so an edit breaking it
-// red-ded no armed PR job and was caught only by the nightly full gate.
+// feature-gate tiers load. The generic testbeds/* fall-through arms only
+// cljs_browser — a CLJS lane that never loads a .cjs — so without its own arm
+// an edit breaking it would red no armed PR job and be caught only by the
+// nightly full gate.
 test('testbeds/spec-helpers.cjs fires the Xray smoke tier, not the CLJS browser lane (rf2-6ng7 class)', () => {
   const result = classify('testbeds/spec-helpers.cjs');
   assert.equal(
@@ -4363,7 +4350,7 @@ test('testbeds/spec-helpers.cjs fires the Xray smoke tier, not the CLJS browser 
   );
 });
 
-// rf2-eqjxya — examples-staging.cjs is the SHARED staging/cleaning helper
+// examples-staging.cjs is the SHARED staging/cleaning helper
 // (stageShared / cleanStageDirs / stageExample) require'd by the adapter-smoke
 // orchestrator (serve-and-run-adapter-smokes.cjs → adapter_testbed_smokes) AND
 // both Story launchers (serve-and-run-story-{feature-load-tests,play-scripts}.cjs
@@ -4384,14 +4371,14 @@ test('examples/scripts/examples-staging.cjs (shared staging helper) fires BOTH b
   );
 });
 
-// rf2-78th1g — examples-asset-manifest.cjs is the single side-effect-free
-// OWNER of every examples external-asset EXCEPTION (rf2-phpbo8). Its
+// examples-asset-manifest.cjs is the single side-effect-free
+// OWNER of every examples external-asset EXCEPTION. Its
 // stagedAssetsByBuild projection is require'd by examples-staging.cjs — the
-// shared staging helper that itself fires BOTH browser gates (rf2-eqjxya) — so
+// shared staging helper that itself fires BOTH browser gates — so
 // a regression in the manifest data or its projection can break the staged
-// output those gates serve before they run. Before this bead a manifest-only
-// PR fell through to the generic examples/* case (cljs_browser + cljs_node_test),
-// skipping both Playwright gates it underpins. Mirror the examples-staging.cjs
+// output those gates serve before they run. Falling through to the generic
+// examples/* case (cljs_browser + cljs_node_test), a manifest-only PR would
+// skip both Playwright gates it underpins. Mirror the examples-staging.cjs
 // case: fire BOTH browser gates.
 test('examples/scripts/examples-asset-manifest.cjs (staging asset manifest) fires BOTH browser gates (rf2-78th1g)', () => {
   const result = classify('examples/scripts/examples-asset-manifest.cjs');
@@ -4428,32 +4415,23 @@ test('examples/scripts static-only scanners stay on the always-on JS harness pat
 
 test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=adapters/ (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  // Verify the adapter-testbed-smokes job still passes the narrow
-  // adapters/ filter — the re-frame.ui substrate smoke has its OWN job
-  // (ui-smoke, ADAPTER_SMOKE_FILTER=ui/testbed; rf2-nojiwy), so the
-  // adapter job must never widen onto it.
+  // Verify the adapter-testbed-smokes job passes the narrow adapters/ filter
+  // (a substring OR-match against the orchestrator's shadow-cljs build ids),
+  // so it runs exactly the adapter smokes and never widens onto another
+  // testbed family.
   assert.match(
     workflow,
     /adapter-testbed-smokes:[\s\S]*ADAPTER_SMOKE_FILTER:\s*"adapters\/"/,
   );
 });
 
-// rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
-// substrate testbed (implementation/ui/testbed/) rides the shared
-// adapter-smoke orchestrator under its own classifier output and
-// its own CI job (ui-smoke, ADAPTER_SMOKE_FILTER=ui/testbed). The trigger
-// discipline mirrors adapter_testbed_smokes: direct substrate-source +
-// smoke-harness changes fire it; core / adapter-source / generic
-// build-config changes do not (nightly runs the unfiltered sweep).
-
-// rf2-dxndhc — resources + cross-conformance tier routing false-green
-// fix (review wave rf2-ks67un). The resources artefact and the three
-// EP cross-conformance tiers (reply / derivation / event) are live
+// Resources + cross-conformance tier routing. The resources artefact and the
+// three EP cross-conformance tiers (reply / derivation / event) are live
 // implementation test surfaces on the root CLJS/test classpath
-// (implementation/deps.edn + shadow-cljs.edn), but the classifier had
-// NO case for them — a PR touching only one left every output false, so
-// the aggregator could pass with the relevant JVM + consolidated
-// node-test gates skipped. These assertions lock the new routing.
+// (implementation/deps.edn + shadow-cljs.edn). Without a case for them, a PR
+// touching only one would leave every output false, so the aggregator could
+// pass with the relevant JVM + consolidated node-test gates skipped. These
+// assertions lock the routing.
 
 test('implementation/resources/* arms implementation_jvm + the CLJS surfaces (rf2-dxndhc)', () => {
   const result = classify('implementation/resources/src/re_frame/resources.cljc');
@@ -4474,26 +4452,15 @@ test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test
   assert.equal(result.cljs_node_test, 'true');
 });
 
-// rf2-z23f — EVERY PATH HERE IS TRACKED, and the `pinnedRoster` guard is what
-// keeps it that way. The row this list replaces named
-// `reply_vocabulary_conformance_cljs_test.cljc`; the tracked file is
-// `reply_vocab_conformance_cljs_test.cljc` — "vocab", not "vocabulary". That
-// spelling was never a tracked path at any point in history (`git log --all
-// --diff-filter=A` finds no commit adding it), so it was wrong when written
-// rather than drift from a rename.
-//
-// It cost nothing visible and that is the point: the classifier arm for these
-// tiers is a DIRECTORY-prefix glob (`implementation/reply-conformance/*`), so
-// the phantom classified identically to the real file and the row passed —
-// inert rather than earning its green. A tier pin naming a file that does not
-// exist cannot fail, which makes it a fail-OPEN: the suite reported coverage of
-// a conformance tier it had never actually reached.
-//
-// The SECURITY_TIER_FILES block below is the same bug, found and fixed one tier
-// over (rf2-qxg24, whose row asserted from a `security.cljc` that has never
-// existed). Under rf2-e30e the executable guard PR #9133 wrote inline here is
-// no longer this block's private property: it is `pinnedRoster`, and every path
-// roster in this file — that block included — now declares through it.
+// EVERY PATH HERE IS TRACKED, and the `pinnedRoster` guard is what keeps it
+// that way. The classifier arm for these tiers is a DIRECTORY-prefix glob
+// (`implementation/reply-conformance/*`), so a phantom path —
+// `reply_vocabulary_conformance_cljs_test.cljc` where the tracked file is
+// `reply_vocab_conformance_cljs_test.cljc`, say — would classify identically
+// to the real file and the row would pass, inert rather than earning its
+// green. A tier pin naming a file that does not exist cannot fail, which makes
+// it a fail-OPEN: the suite would report coverage of a conformance tier it had
+// never actually reached.
 //
 // The reply tier contributes BOTH of its live suites — the vocabulary suite and
 // the egress-projection suite — because the tier owns two guarantees and a
@@ -4507,11 +4474,9 @@ const CONFORMANCE_TIERS = pinnedRoster('CONFORMANCE_TIERS', [
 ]);
 for (const file of CONFORMANCE_TIERS) {
   test(`${file} arms implementation_jvm + cljs_node_test (cross-conformance tier, rf2-dxndhc)`, () => {
-    // The existence half of this test moved to `pinnedRoster` (rf2-e30e). It is
-    // not weaker for having moved — the same `fs.existsSync` still runs against
-    // the same four paths, and it now runs against the other thirteen rosters
-    // too. What is gone is the SECOND mechanism, which is what let the security
-    // tier below sit unguarded while this one was fixed.
+    // The existence half of this test lives in `pinnedRoster`: the same
+    // `fs.existsSync` runs against these four paths and against every other
+    // roster in this file, with no SECOND mechanism for a roster to slip past.
     const result = classify(file);
     assert.equal(
       result.implementation_jvm,
@@ -4535,24 +4500,20 @@ test('a src-less conformance tier does NOT widen production bundles (no bundle_i
   assert.equal(result.cljs_prod, 'false');
 });
 
-// rf2-qxg24 — the security tier is the FOURTH source-less partition and now
-// takes the same route as the three above. It had been the stated precedent for
-// that route since rf2-dxndhc while two earlier executable arms classified it
-// as a shipped production feature, arming `cljs_browser`, `cljs_prod`,
-// `bundle_isolation` and `examples_compile` on every security-only edit.
+// The security tier is the FOURTH source-less partition and takes the same
+// route as the three above: it arms none of `cljs_browser`, `cljs_prod`,
+// `bundle_isolation` and `examples_compile`.
 //
 // NONE of those four gates can observe an edit here. `implementation/security`
 // is `:paths []` / `:deps {}` with no `src/` tree and no published artefact;
 // `:browser-test` selects only `*-dom-cljs-test` namespaces and every namespace
 // in this tree is `-security-cljs-test`; the production and bundle-isolation
 // builds do not require the test tree; and the all-examples compiler has no
-// edge to it. The toll was not theoretical — security-only commit d1fa5ff493
-// made the ~10-minute all-examples job its critical path.
+// edge to it. Arming them would put the ~10-minute all-examples job on a
+// security-only edit's critical path for nothing.
 //
-// Paths are TRACKED files, checked with `git ls-files`. That is the whole point
-// of this bead: the row this replaces asserted from
-// `implementation/security/src/re_frame/security.cljc`, which has never
-// existed.
+// Paths are TRACKED files, checked with `git ls-files` — the tier has no
+// `src/`, so a `src/` path here would be a phantom.
 const SECURITY_TIER_FILES = pinnedRoster('SECURITY_TIER_FILES', [
   'implementation/security/deps.edn',
   'implementation/security/test/re_frame/security/mcp_egress_security_cljs_test.cljc',
@@ -4565,14 +4526,14 @@ for (const file of SECURITY_TIER_FILES) {
     assert.equal(
       result.implementation_jvm,
       'true',
-      'a security-tier change must still run the jvm-security suite (its own :test alias)',
+      'a security-tier change must run the jvm-security suite (its own :test alias)',
     );
     assert.equal(
       result.cljs_node_test,
       'true',
-      'a security-tier change must still run the consolidated :node-test build',
+      'a security-tier change must run the consolidated :node-test build',
     );
-    // The four gates this bead removes, locked so the broad production arm
+    // The four gates the tier does not arm, locked so the broad production arm
     // cannot silently return.
     for (const key of ['examples_compile', 'cljs_browser', 'cljs_prod', 'bundle_isolation']) {
       assert.equal(
@@ -4595,7 +4556,7 @@ test('jvm-security remains gated on implementation_jvm and in the aggregator (rf
   assert.match(
     block,
     /implementation\/security/,
-    'jvm-security must still run from implementation/security',
+    'jvm-security must run from implementation/security',
   );
   assert.match(
     jobBlock(workflow, 'all-required-passed'),
@@ -4605,10 +4566,10 @@ test('jvm-security remains gated on implementation_jvm and in the aggregator (rf
 });
 
 test('narrowing the security tier leaves the production per-feature fan-out intact (rf2-qxg24 criterion 5)', () => {
-  // The arms security LEFT still route every src-bearing artefact exactly as
-  // before. This is the regression that matters: the edit removed one entry
-  // from two shared patterns, and a fat-fingered pattern would take a sibling
-  // with it — silently, since fewer gates always passes.
+  // The shared arms route every src-bearing artefact to the full production
+  // fan-out. This is the regression that matters: the security tier is carved
+  // out of two shared patterns, and a fat-fingered pattern would take a
+  // sibling with it — silently, since fewer gates always passes.
   for (const file of [
     'implementation/schemas/src/re_frame/schemas.cljc',
     'implementation/machines/src/re_frame/machines.cljc',
