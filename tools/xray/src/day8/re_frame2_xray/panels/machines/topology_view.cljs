@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.panels.machines.topology-view
-  "Reagent view ↔ xyflow projector composition (rf2-uwvyj · spec/021
-  §6 + §17.4).
+  "Reagent view ↔ xyflow projector composition (spec/021 §6 + §17.4).
 
   This is the public consumer surface: the Static Machines panel's
   Topology mode (or any other Xray panel rendering a single
@@ -19,13 +18,13 @@
                                           ▼
                                   <ReactFlow> in React tree
 
-  ## Layout (rf2-5qsxo)
+  ## Layout
 
   This view renders through `machine-canvas/Chart` → the shared
   `mv-chart/MachineChart` so the blank-state (Case-B) topology gets the
   SAME elkjs hierarchical-layered layout, sized state nodes, arrowheads,
   and Controls chrome as the focused-event chart — the Stately/xstate
-  look. `machines-viz` is the SOLE topology projector (rf2-5fm165); the
+  look. `machines-viz` is the SOLE topology projector; the
   node / transition counts this wrapper stamps as `:data-node-count` /
   `:data-edge-count` come from the SAME `chart-layout/semantic-counts`
   the live chart uses for its own `data-node-count` / `data-edge-count`,
@@ -44,7 +43,7 @@
        records) — `trace-state/current-state-from-epoch-history` walks
        backward through prior epochs for the most recent transition
        this machine took. This is the **case-B refinement** per
-       spec/021 §6.2 / §17.4.1 (rf2-dbi87): when the focused epoch
+       spec/021 §6.2 / §17.4.1: when the focused epoch
        has no transition, the topology is STILL rendered and the
        last-seen state is annotated as `:current`.
     4. Caller-supplied `:snapshot-state` (the machine's live
@@ -65,17 +64,17 @@
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
 (defn static-context-shape
-  "rf2-vcnvj; rf2-3q4k5b (EP-0005) — derive the STATIC context shape from a
+  "Derive the STATIC context shape (EP-0005) from a
   machine definition for the chart's root Context panel. Returns a map of
   `{key type-caption}` so the root chrome shows the operator the context
   KEYS + their TYPE shape (e.g. `{:opened-count \"number\" :trail
   \"vector\"}`) even with no live snapshot in hand. This is deliberately
   the SHAPE, not the live values — the live runtime `:data` overlay
-  stays a separate diagnostic (per the bead). Returns nil when the
+  is a separate diagnostic. Returns nil when the
   definition declares neither a `[:schemas :data]` schema nor a map `:data` (so the
   panel stays hidden).
 
-  Declared over inferred (rf2-3q4k5b): when the machine declares a
+  Declared over inferred: when the machine declares a
   `[:schemas :data]` schema, the shape is read AUTHORITATIVELY off the schema; otherwise
   it is INFERRED from one sample of the initial `:data`. The provenance is
   reported by `static-context-inferred?` (drives the chart's
@@ -87,14 +86,14 @@
   (:shape (context-shape/static-context-shape definition)))
 
 (defn static-context-inferred?
-  "rf2-3q4k5b (EP-0005) — true when `static-context-shape` for this definition
-  is INFERRED from one sample of `:data` (rf2-5tz9p's caveat applies — the
-  chart shows the `inferred from :data` badge); false when it is AUTHORITATIVE
+  "Per EP-0005, true when `static-context-shape` for this definition
+  is INFERRED from one sample of `:data` (the one-sample caveat applies —
+  the chart shows the `inferred from :data` badge); false when it is AUTHORITATIVE
   from a declared `[:schemas :data]` schema (the chart drops the inferred badge and shows
   a `declared` badge). Feeds the chart's `:context-band-inferred?` prop.
 
   Defaults to true when there is no shape at all, so a host that threads it
-  unconditionally keeps the historical inferred-by-default posture. Pure."
+  unconditionally gets the inferred-by-default posture. Pure."
   [definition]
   (let [result (context-shape/static-context-shape definition)]
     (if result (:inferred? result) true)))
@@ -104,7 +103,7 @@
   epoch-history walk-back > live snapshot `:state` > nil.
 
   The walk-back + snapshot fallbacks are the case-B refinement per
-  spec/021 §6.2 / §17.4.1 (rf2-dbi87) — even when the focused epoch
+  spec/021 §6.2 / §17.4.1 — even when the focused epoch
   has no transition, render the topology with the most-recent-known
   state annotated as `:current`.
 
@@ -113,8 +112,8 @@
   threaded via `machine-canvas/Chart`'s `:current-state`) can light EVERY
   active leaf of a PARALLEL machine. A region-map (`{:data :loading
   :form :neutral}`) is passed through UNCHANGED — narrowing it to
-  keyword/vector dropped the parallel snapshot before the chart could
-  render the N-active highlight (a live parallel machine showed no
+  keyword/vector would drop the parallel snapshot before the chart could
+  render the N-active highlight (a live parallel machine would show no
   active regions while the wrapper still claimed `data-current-state-source
   = \"snapshot\"`). See machines-viz `API.md` §`:current-state`."
   [machine-id current-state-path trace-events epoch-history snapshot-state]
@@ -134,9 +133,8 @@
           (vector? snapshot-state)  snapshot-state
           ;; PARALLEL region-map — pass through unchanged so every active
           ;; region leaf lights up (the multi-active highlight). Dropping
-          ;; it here is the rf2-di7mda bug: the chart CAN render N-active,
-          ;; but the caller blanked the topology for a live parallel
-          ;; machine.
+          ;; it here would blank the topology for a live parallel machine
+          ;; even though the chart CAN render N-active.
           (map? snapshot-state)     snapshot-state
           :else                     nil))))
 
@@ -170,7 +168,7 @@
                            a transition for this machine. A region-map
                            forwards through to `:current-state` so the
                            chart lights EVERY active region leaf (the
-                           multi-active highlight — rf2-di7mda).
+                           multi-active highlight).
     :height              — outer wrapper height (default `'100%'` so the
                            chart fills its container — the topology is the
                            centrepiece and should not sit in a fixed box).
@@ -179,7 +177,7 @@
                            container itself is auto-height.
     :show-controls?      — pass-through to `machine-canvas/Chart`
                            (default true).
-    :fit-signal          — rf2-6tw7t. Opaque fit-on-entry nonce forwarded
+    :fit-signal          — opaque fit-on-entry nonce forwarded
                            to `machine-canvas/Chart`'s `:fit-signal`. A
                            host bumps it on panel-entry / tab-activation
                            so the topology re-frames to view. nil → inert.
@@ -202,28 +200,27 @@
                                               snapshot-state)
         fired-ids (trace-state/extract-fired-edge-ids definition trace-events
                                                       machine-id)
-        ;; rf2-fzrzlw — the guard-blocked no-op edge ids for the focused
+        ;; The guard-blocked no-op edge ids for the focused
         ;; epoch. A guard-blocked transition emits NO `:rf.machine/transition`
         ;; (so `fired-ids` is empty for it), but the runtime DOES emit
         ;; `:rf.machine/guard-evaluated` fail/threw — so the attempted-and-
         ;; rejected edge can still be marked PINK on the chart.
         guard-blocked-ids (trace-state/extract-guard-blocked-edge-ids
                             definition trace-events machine-id)
-        ;; Case-B detection (rf2-dbi87 / spec/021 §6.2): the focused
+        ;; Case-B detection (spec/021 §6.2): the focused
         ;; epoch fired no transitions for this machine. The view STILL
         ;; renders the topology — only the fired-this-epoch overlay is
         ;; absent. Surfaces as a data attribute so tests + downstream
         ;; views can assert the empty-state shape.
         no-transition-this-epoch? (empty? fired-ids)
-        ;; rf2-5fm165 — the semantic node / transition counts come from the
+        ;; The semantic node / transition counts come from the
         ;; SAME `chart-layout/semantic-counts` the live MachineChart uses for
         ;; its own `data-node-count` / `data-edge-count`, so this wrapper's
         ;; summary and the chart it mounts agree by construction. The state
         ;; count excludes synthetic layout chrome (region / root-container /
         ;; machine-root / parallel-root nodes + `:history?` pseudo-states);
         ;; the transition count includes machine-level / parallel-root /
-        ;; region-`:on-done` fallbacks (real transitions the pre-rf2-5fm165
-        ;; xray-local fallback projector silently dropped).
+        ;; region-`:on-done` fallbacks, which are real transitions.
         {:keys [state-count transition-count]}
         (chart-layout/semantic-counts (chart-layout/project-definition definition))]
     (cond
@@ -262,17 +259,17 @@
              :style {:position "relative"
                      :width  "100%"
                      :height height
-                     ;; rf2-zdfbm — non-zero-parent-height floor so xyflow
-                     ;; still mounts when `:height` resolves against an
-                     ;; auto-height container (the default is now `100%`,
+                     ;; Non-zero-parent-height floor so xyflow
+                     ;; mounts when `:height` resolves against an
+                     ;; auto-height container (the default is `100%`,
                      ;; letting the topology fill its panel instead of
-                     ;; sitting in a fixed 320px box).
+                     ;; sitting in a fixed box).
                      :min-height "320px"
                      :background (:bg-1 tokens)
                      :border (str "1px solid " (:border-default tokens))
                      :border-radius "6px"
                      :overflow "hidden"}}
-       ;; rf2-5qsxo — render through the shared elkjs MachineChart so the
+       ;; Render through the shared elkjs MachineChart so the
        ;; Case-B blank-state topology gets the Stately/xstate look (sized
        ;; nodes, arrowheads, hierarchical layout, Controls). The resolved
        ;; current-state path drives the active-state highlight; there is
@@ -282,33 +279,33 @@
         {:definition             definition
          :machine-id             machine-id
          :current-state          cur-path
-         ;; rf2-xf5on — forward the fired-this-epoch edge ids the view
-         ;; already computes (line ~166) into the chart so the traversed
+         ;; Forward the fired-this-epoch edge ids the view
+         ;; computes above (`fired-ids`) into the chart so the traversed
          ;; edges paint the FIRED treatment. The docstring's `:trace-events`
          ;; contract promises `fired-this-epoch` edge highlights; `Chart`
          ;; exposes + forwards `:fired-edge-ids`, so the wiring must reach
          ;; it. `#{}` (case-B / no transition this epoch) → no fired
          ;; highlight, identical to passing none.
          :fired-edge-ids         fired-ids
-         ;; rf2-fzrzlw — forward the guard-blocked no-op edge ids so the
+         ;; Forward the guard-blocked no-op edge ids so the
          ;; attempted-and-rejected edge paints PINK even though it fired
          ;; no transition (the door :door/close blocked by :may-close?).
          :guard-blocked-edge-ids guard-blocked-ids
-         ;; rf2-vcnvj — surface the STATIC context shape (keys + type
+         ;; Surface the STATIC context shape (keys + type
          ;; captions) so the root Context chrome renders on the blank-state
          ;; topology. nil when the machine declares neither a `[:schemas :data]`
          ;; schema nor a map `:data` (panel stays hidden).
          :context-band           (static-context-shape definition)
-         ;; rf2-3q4k5b (EP-0005) — declared over inferred. False when the
+         ;; Declared over inferred (EP-0005). False when the
          ;; shape came from a declared `[:schemas :data]` schema (authoritative — the
          ;; chart drops the `inferred from :data` badge); true when inferred
-         ;; from one sample of `:data` (rf2-5tz9p's badge stays). The chart's
-         ;; prop already defaults true, but threading it explicitly keeps the
+         ;; from one sample of `:data` (the inferred badge shows). The chart's
+         ;; prop defaults true, but threading it explicitly keeps the
          ;; declared path correct.
          :context-band-inferred? (static-context-inferred? definition)
          :show-after-rings?      false
          :show-controls?         show-controls?
-         ;; rf2-6tw7t — fit-on-entry nonce pass-through; hosts that mount
+         ;; Fit-on-entry nonce pass-through; hosts that mount
          ;; this consumer surface inside a tab/panel bump it on entry so
          ;; the topology re-frames. nil → inert.
          :fit-signal             fit-signal
