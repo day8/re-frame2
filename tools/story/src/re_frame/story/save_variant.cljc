@@ -126,7 +126,7 @@
 ;;   args               :cell-overrides + :active-modes   rf.story.args/resolve-args → :args
 ;;   transient-controls in-flight :cell-overrides          folds into :args (no 2nd slot)
 ;;   sub-overrides      — (View State pins nothing live)   reg-variant :sub-overrides
-;;   db-seed            — (no live app-db capture)         reg-variant :setup/:db
+;;   db-seed            — (no live app-db capture)         reg-variant :db-seed
 ;;   route              — (no live route capture)          — (no variant body slot)
 ;;   network            — (no live Network controls)       reg-variant :network
 ;;   fx-overrides       — (no live Effects controls)       reg-variant :fx-overrides
@@ -182,7 +182,8 @@
                       folded in by `resolve-args`).
   - `variant-body`  — the resolved source variant body (or nil) — read
                       for declared `:sub-overrides` / `:network` /
-                      `:fx-overrides` / `:setup` / `:viewport` slots.
+                      `:fx-overrides` / `:db-seed` / `:setup` /
+                      `:viewport` slots.
   - `shell`         — the shell-state map — read for the live chrome-wide
                       `:viewport` selection (the viewport fork).
 
@@ -200,7 +201,11 @@
   (let [sub-ovr   (declared-slot variant-body :sub-overrides)
         network   (declared-slot variant-body :network)
         fx-ovr    (declared-slot variant-body :fx-overrides)
+        db-seed   (declared-slot variant-body :db-seed)
         setup     (declared-slot variant-body :setup)
+        setup-note (if (seq setup)
+                     " The source's :setup events re-run in the saved variant via :extends."
+                     "")
         body-vp   (declared-slot variant-body :viewport)
         live-vp   (:viewport shell)
         declared  (fn [slice label value note]
@@ -224,14 +229,17 @@
                   "No live View-State controls and none declared on the source — sub-overrides are not yet projectable."))
 
      ;; db-seed: no control captures the live app-db. This row reads the
-     ;; source body's `:setup` (real setup events), not a declared
-     ;; `:db-seed`, and surfaces it as captured-as-declared so the report
-     ;; is honest about what carries forward via :extends.
-     (if (some? setup)
-       (declared :db-seed (slice-labels :db-seed) setup
-                 "No live app-db capture — the source's declared :setup events carry forward via :extends, captured-as-declared.")
+     ;; source body's declared `:db-seed`, which `:extends` carries into the
+     ;; saved variant. A declared `:setup` is not a seed, so it never sets
+     ;; this row's status or value; the note says separately that its
+     ;; events re-run through `:extends`.
+     (if (some? db-seed)
+       (declared :db-seed (slice-labels :db-seed) db-seed
+                 (str "No live app-db capture — the source's declared :db-seed carries forward via :extends, captured-as-declared."
+                      setup-note))
        (not-wired :db-seed (slice-labels :db-seed)
-                  "No live app-db capture and no :setup declared on the source — app-db state is not captured."))
+                  (str "No live app-db capture and no :db-seed declared on the source — app-db state is not captured."
+                       setup-note)))
 
      (not-wired :route (slice-labels :route)
                 "No live route capture and no route slot on a variant body — route state is not captured.")
@@ -482,7 +490,7 @@
                ;; as-declared (carried via :extends) or not-wired, and warned
                ;; about. Never fabricated. Read the resolved source body so
                ;; declared :sub-overrides / :network / :fx-overrides /
-               ;; :setup / :viewport slots surface as captured-as-declared.
+               ;; :db-seed / :viewport slots surface as captured-as-declared.
                slices     (capture-slices
                             snapshot
                             (rf.story.registrar/handler-meta :variant target)

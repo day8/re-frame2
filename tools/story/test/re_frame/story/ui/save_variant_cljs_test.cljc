@@ -262,6 +262,7 @@
     (let [body     {:sub-overrides {[:s] :v}
                     :network       {[:get "/u"] {:reply {}}}
                     :fx-overrides  {:my/fx 1}
+                    :db-seed       {:count 1}
                     :setup         [[:e]]
                     :viewport      :tablet}
           report   (rf.story.save-variant/capture-slices {:n 1} body {})
@@ -269,15 +270,41 @@
       (doseq [[s v] {:sub-overrides {[:s] :v}
                      :network       {[:get "/u"] {:reply {}}}
                      :fx-overrides  {:my/fx 1}
-                     :db-seed       [[:e]]
+                     :db-seed       {:count 1}
                      :viewport      :tablet}]
         (is (= :captured-as-declared (-> by-slice s :status))
             (str s " carries the declared source value forward"))
         (is (= v (-> by-slice s :value)) (str s " value is the declared slot")))
+      (is (str/includes? (-> by-slice :db-seed :note) ":setup events re-run")
+          "a declared :setup is reported beside the seed, not as the seed")
       (is (not-any? #(str/includes? (:note %) "rf2-") report)
           "no note cites a bead id")
       (is (= :not-wired (-> by-slice :route :status))
           "route has no declared source slot — not-wired"))))
+
+(deftest capture-slices-db-seed-row-reads-the-declared-db-seed
+  (testing "a source declaring only :db-seed has its seed captured-as-declared"
+    (let [report   (rf.story.save-variant/capture-slices {:n 1} {:db-seed {:count 1}} {})
+          db-seed  (first (filter #(= :db-seed (:slice %)) report))]
+      (is (= :captured-as-declared (:status db-seed))
+          "the declared :db-seed carries forward via :extends")
+      (is (= {:count 1} (:value db-seed)) "the row's value is the declared seed")
+      (is (str/includes? (:note db-seed) ":db-seed"))
+      (is (not (str/includes? (:note db-seed) ":setup"))
+          "no :setup is declared, so the note names none")))
+  (testing "a source declaring only :setup is not reported as a DB seed"
+    (let [report   (rf.story.save-variant/capture-slices {:n 1} {:setup [[:e]]} {})
+          db-seed  (first (filter #(= :db-seed (:slice %)) report))]
+      (is (= :not-wired (:status db-seed)) ":setup events are not a seed")
+      (is (nil? (:value db-seed)) "the :setup vector is never the row's value")
+      (is (str/includes? (:note db-seed) "app-db state is not captured"))
+      (is (str/includes? (:note db-seed) ":setup events re-run")
+          "the note says what :extends does with the declared :setup")))
+  (testing "an empty :setup declares no events to re-run"
+    (let [report   (rf.story.save-variant/capture-slices {:n 1} {:setup []} {})
+          db-seed  (first (filter #(= :db-seed (:slice %)) report))]
+      (is (= :not-wired (:status db-seed)))
+      (is (not (str/includes? (:note db-seed) ":setup"))))))
 
 (deftest slice-warnings-filters-projectable
   (testing "slice-warnings keeps only the rows the user must see — every slice
