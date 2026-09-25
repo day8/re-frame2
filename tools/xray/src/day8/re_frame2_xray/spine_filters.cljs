@@ -1,15 +1,13 @@
 (ns day8.re-frame2-xray.spine-filters
-  "Per-event-id mute / hide-from-spine filter (rf2-ikuwt).
+  "Per-event-id mute / hide-from-spine filter.
 
   ## Why mute?
 
-  Pre-rf2-ikuwt the only way to hide noisy events (clock-ticks,
-  infrastructure heartbeats, mouse-move floods) was the heavyweight
-  OUT-pill flow — right-click → popup → confirm → persisted as an OUT
-  pill that affects every downstream event-bundle reader. Mike's directive
-  watching the parallel-frames testbed live (2026-05-19): the OUT
-  pill flow is too ceremonious for the common 'this event-id is noise
-  right now, hide it from L2' gesture.
+  The OUT-pill flow — right-click → popup → confirm → an OUT pill that
+  affects every downstream event-bundle reader — is too ceremonious for
+  the common 'this event-id is noise right now, hide it from L2' gesture
+  on noisy events (clock-ticks, infrastructure heartbeats, mouse-move
+  floods).
 
   This ns adds a separate one-step mute affordance:
 
@@ -17,7 +15,7 @@
       (one-step) and 'Always hide this event-type…' (the existing
       OUT-pill flow). Both items prevent the browser context menu.
     - The mute set persists to localStorage under
-      `xray.spine.muted-event-ids` (per bead) as a transient
+      `xray.spine.muted-event-ids` as a transient
       within-session slot — reset to empty on every load by
       `mount.cljs`'s `::reset-transient-filters` hook, the same
       transient pattern as the IN/OUT pills (no hydrate on install).
@@ -36,10 +34,10 @@
   `:rf.xray/event-bundles` sub still carries every event so the Trace
   tab's own filter UI (separate concern) sees the full stream.
 
-  ## Scope (v1, per bead rf2-ikuwt)
+  ## Scope
 
-    - Exact event-id match only (no regex / glob — deferred to v1.1).
-    - Global mute (not frame-scoped — deferred).
+    - Exact event-id match only (no regex / glob).
+    - Global mute (not frame-scoped).
     - Mute list persists to localStorage.
     - Right-click context menu + L1 ribbon indicator + unmute
       manager modal.
@@ -52,8 +50,8 @@
     - The L1 ribbon mute-count indicator + the unmute manager modal
       mount points live in `shell.cljs` so the chrome owns its
       placement; this ns exposes `Modal` for the shell to mount
-      alongside the other modals. Since rf2-k97c.3 `Modal` and
-      `RowContextMenu` are migration BRIDGES onto Fresco boundaries
+      alongside the other modals. `Modal` and
+      `RowContextMenu` are `as-component` BRIDGES onto Fresco boundaries
       rather than `rf/reg-view`s — see their docstrings.
 
   ## Storage shape
@@ -124,11 +122,10 @@
 ;; ---- localStorage round-trip --------------------------------------------
 
 (def default-storage-key
-  "localStorage key the mute set persists under per bead rf2-ikuwt."
+  "localStorage key the mute set persists under."
   "xray.spine.muted-event-ids")
 
-;; Raw browser access lives in the shared `local-storage` seam
-;; (rf2-jkake.24).
+;; Raw browser access lives in the shared `local-storage` seam.
 
 (defn ->edn
   "Serialise the muted set into a stable EDN string. Sorting the
@@ -182,8 +179,8 @@
 
 (defn hydrate!
   "The localStorage → app-db DATA LAYER for the muted-event-ids slot.
-  Mirrors `filters/hydrate!`: re-entrant + idempotent, but DELIBERATELY
-  NOT on the production init path (rf2-swclw) — the mute set is a
+  Re-entrant + idempotent, but DELIBERATELY
+  NOT on the production init path — the mute set is a
   transient filter that resets on every load, so restoring localStorage
   here on boot would resurrect the stale set the reset exists to kill.
   Retained for its data-layer callers (the round-trip tests + hosts that
@@ -198,7 +195,7 @@
 
 ;; ---- Row context menu --------------------------------------------------
 ;;
-;; Per spec/018 §7 + rf2-ikuwt the L2 row's right-click opens a small
+;; Per spec/018 §7 the L2 row's right-click opens a small
 ;; floating context menu with two items:
 ;;
 ;;   1. 'Mute <event-id>' — one-step mute via `:rf.xray/mute-event-id`.
@@ -207,8 +204,8 @@
 ;;      unmute manager.
 ;;
 ;;   2. 'Always hide this event-type…' — opens the rich OUT-filter
-;;      popup via `:rf.xray/hide-event-type` (the existing flow,
-;;      preserved verbatim). The user can fine-tune the OUT pill's
+;;      popup via `:rf.xray/hide-event-type` (the OUT-pill flow).
+;;      The user can fine-tune the OUT pill's
 ;;      pattern before confirming.
 ;;
 ;; The menu state lives in app-db at `:row-context-menu` as
@@ -217,7 +214,7 @@
 ;; the menu and owns the dismiss events.
 
 (defn- menu-style [x y]
-  ;; rf2-om6fa — `:fixed` positioning so the menu floats free of the
+  ;; `:fixed` positioning so the menu floats free of the
   ;; row's overflow:hidden clipping. z-index sits ABOVE the L2 list
   ;; but BELOW the modal backdrops so opening a modal while the menu
   ;; is up still puts the modal on top.
@@ -266,9 +263,8 @@
   shell-view root so the menu floats above the L2 list's
   overflow-hidden clipping.
 
-  THIS REPLACED THE READING `row-context-menu` AT rf2-k97c.3, and the
-  change is about WHERE THE READ SITS rather than about inlining.
-  [[RowContextMenuView]] is a Fresco boundary, and `rf.fresco/sub` is
+  THIS FN READS NOTHING, and the point is WHERE THE READ SITS rather
+  than inlining. [[RowContextMenuView]] is a Fresco boundary, and `rf.fresco/sub` is
   legal only inside a boundary render
   (`:rf.error/fresco-sub-outside-render`) while an ambient `rf/subscribe`
   is refused inside one (`:rf.error/ambient-frame-refused`) — so one read
@@ -278,7 +274,7 @@
   boundary's gate and read on its own side rather than finding a reading
   arity here.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
+  `dispatch` is the frame-aware dispatcher its caller
   captured, so the menu actions land on the surrounding instance frame,
   not a `{:frame :rf/xray}` literal."
   [dispatch menu]
@@ -339,22 +335,21 @@
         "Always hide this event-type…"]]]]))
 
 (rf.fresco/defview ^:private RowContextMenuView
-  "The row context menu — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The row context menu — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Rendered at the shell-view root so the popover floats
   above the L2 list's clipping.
 
-  CLOSED-STATE COST IS UNCHANGED — one subscription and a gate.
+  CLOSED-STATE COST IS ONE SUBSCRIPTION AND A GATE.
   `rf.fresco/sub` records its edge where the read happens, so the
   not-taken branch contributes no edge.
 
-  THE DISPATCH IS FRAME-CARRYING, captured here at render time
-  (rf2-nesy9). `rf/current-frame-id` answers the declared frame inside a
+  THE DISPATCH IS FRAME-CARRYING, captured here at render time.
+  `rf/current-frame-id` answers the declared frame inside a
   Fresco body — it neither reads nor dispatches, so the boundary's
   refusal tier does not touch it — and an explicitly carried
   `{:frame <id>}` still answers, because that tier deletes the ambient
-  FIND and not the CARRYING. This is what replaced `reg-view`'s
-  lexically injected bare `dispatch`, which a `defview` body does not
-  bind.
+  FIND and not the CARRYING. A `defview` body binds no bare
+  `dispatch`, so this is the dispatcher the tree gets.
 
   PRIVATE; [[RowContextMenu]] in front of it is the public name the
   shell already mounts."
@@ -374,18 +369,17 @@
   "The row context menu's public callable — what `shell.cljs` mounts as
   a hiccup head at the shell-view root.
 
-  Since rf2-k97c.3 it is the MIGRATION BRIDGE rather than the view:
+  It is the `as-component` BRIDGE rather than the view:
   Reagent-shaped hiccup interoping to the React component
   [[RowContextMenuView]] presents as, and the enclosing
   `rf/frame-provider` is what puts the instance frame in React context
   for it. The open/closed gate is
   inside the view, so this is always mounted and renders nothing while
-  the menu is closed — the same shape a mounted `reg-view` returning nil
-  had.
+  the menu is closed.
 
-  NOT SCAFFOLDING — THIS STAYS (rf2-lect, ruled option 2). The shell IS a
-  Fresco tree now, and this pair stayed anyway: a Reagent parent still
-  heads it on purpose, in the shipped boundary witness suite. The chain is
+  NOT SCAFFOLDING — THIS STAYS. The shell is a Fresco tree, and the pair
+  is kept because a Reagent parent heads it on purpose, in the shipped
+  boundary witness suite. The chain is
   `[:>]` -> `as-component` -> [[RowContextMenuView]]."
   []
   [:> RowContextMenu-component {}])
@@ -500,16 +494,16 @@
                       :gap "4px"
                       :overflow-y "auto"
                       :max-height "44vh"}}]
-        ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader meta,
+        ;; KEYED FRAGMENT rather than `^{:key …}` reader meta,
         ;; which Reagent honours and Fresco's codec reads nowhere. Both
         ;; of `mute-row`'s arguments are positional, so there is no props
         ;; map to hold the key and inserting one would shift them.
         ;;
-        ;; rf2-k97c.3 — `mute-row` is CALLED rather than headed: it is a
+        ;; `mute-row` is CALLED rather than headed: it is a
         ;; plain fn answering hiccup, which Fresco grades a loud error in
         ;; head position (HD-016 — a plain function call INLINES into the
-        ;; enclosing boundary). The fragment stays exactly as rf2-a38l
-        ;; left it; it carries the key without adding a DOM node, which
+        ;; enclosing boundary). The fragment carries the key without
+        ;; adding a DOM node, which
         ;; keeps `mute-row` the presentational helper it is.
         (for [id (sort-by str muted-ids)]
           [:<> {:key (str id)} (mute-row dispatch id)])))
@@ -531,13 +525,13 @@
    "Unmute all"])
 
 (defn dialog-tree
-  "The mute manager modal — backdrop + dialog scaffold (rf2-7oxvd)
+  "The mute manager modal — backdrop + dialog scaffold
   around the manager body — as a pure function of its RESOLVED reads and
   a frame-aware `dispatch`. Returns the full
   `[:div backdrop [:div dialog …]]` tree.
 
-  THIS REPLACED THE READING `dialog` AT rf2-k97c.3, for the same reason
-  [[row-context-menu-tree]] replaced `row-context-menu`: [[ModalView]] is
+  THIS FN READS NOTHING, for the same reason as
+  [[row-context-menu-tree]]: [[ModalView]] is
   a Fresco boundary, and the two lanes cannot share one read.
   `rf.fresco/sub` is legal only inside a boundary render
   (`:rf.error/fresco-sub-outside-render`) and an ambient `rf/subscribe`
@@ -546,17 +540,17 @@
   reads nothing at all.
 
   IT DOES NOT GATE on `:rf.xray/mute-manager-open?` — that gate is
-  [[ModalView]]'s, exactly as it was the caller's before rf2-k97c.3 — so
+  [[ModalView]]'s — so
   this always answers a tree. `modals-aria-cljs-test` drives it through a
   file-local door of its own that reproduces the boundary's reads, the
   same way that file already drives
   `panels.cancellation-cascade/popover-tree`.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
+  `dispatch` is the frame-aware dispatcher its caller
   captured — threaded to header / rows / clear-all so unmute actions land
   on the surrounding instance frame, not a `{:frame :rf/xray}` literal."
   [dispatch {:keys [muted positioning]}]
-  ;; rf2-7oxvd — shared backdrop + dialog scaffold. Keeps this modal's
+  ;; Shared backdrop + dialog scaffold. Keeps this modal's
   ;; own `backdrop-style` / `dialog-style`, its `tab-index "-1"` dialog
   ;; root (the empty-state body has no focusable child, so the trap
   ;; pins focus on the root), and its dialog-level Esc handler.
@@ -586,18 +580,17 @@
        (clear-all-button dispatch)]])))
 
 (rf.fresco/defview ^:private ModalView
-  "The mute manager modal — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The mute manager modal — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Renders only when `:rf.xray/mute-manager-open?` is true.
 
-  CLOSED-STATE COST IS UNCHANGED — one subscription and a gate. The other
+  CLOSED-STATE COST IS ONE SUBSCRIPTION AND A GATE. The other
   two reads sit inside the `when`, and `rf.fresco/sub` records its edge
   where the read happens, so a branch not taken contributes no edge. That
-  is Fresco's documented behaviour rather than an accident, and it is why
-  the short-circuit survived the migration intact.
+  is Fresco's documented behaviour rather than an accident, and it is
+  what keeps the short-circuit.
 
-  THE DISPATCH IS FRAME-CARRYING, captured here at render time
-  (rf2-nesy9) — see [[RowContextMenuView]], which says the same thing at
-  more length.
+  THE DISPATCH IS FRAME-CARRYING, captured here at render time — see
+  [[RowContextMenuView]], which says the same thing at more length.
 
   PRIVATE; [[Modal]] in front of it is the public name the shell already
   mounts."
@@ -618,7 +611,7 @@
   "The mute manager modal's public callable — what `shell.cljs` mounts as
   a hiccup head at the shell-view root.
 
-  Since rf2-k97c.3 it is the MIGRATION BRIDGE rather than the view; see
+  It is the `as-component` BRIDGE rather than the view; see
   [[RowContextMenu]], which says the same thing at more length. The
   open/closed gate is inside [[ModalView]], so this is always mounted and
   renders nothing while the manager is closed."
@@ -635,10 +628,10 @@
   Mounted inline in the L1 ribbon next to the REDACTED indicator —
   surfaces the mute state without claiming a permanent ribbon slot.
 
-  `dispatch` (rf2-nesy9) is the frame-aware dispatcher its caller
+  `dispatch` is the frame-aware dispatcher its caller
   captured. CALLED rather than headed — it is a plain fn answering
   hiccup, which Fresco grades a loud error in head position — and
-  `shell.cljs` has always called it."
+  `shell.cljs` calls it."
   [dispatch muted-count]
   (when (pos? muted-count)
     [:button {:data-testid "rf-xray-ribbon-mute-indicator"
@@ -702,8 +695,7 @@
   ;; ---- events: mute / unmute / clear -----------------------------------
   ;;
   ;; Every mutation attaches the persist fx so the post-mutation set
-  ;; lands in localStorage in one place (no fx-per-handler duplication;
-  ;; mirrors the filters subsystem's pattern).
+  ;; lands in localStorage in one place (no fx-per-handler duplication).
 
   (rf/reg-event :rf.xray/mute-event-id
     (fn [{:keys [db]} [_ event-id]]
@@ -769,7 +761,7 @@
     (fn [{:keys [db]} [_ muted]]
       {:db (assoc db :muted-event-ids (set (or muted #{})))}))
 
-  ;; NO hydrate on install (rf2-swclw). The muted-event-ids set is a
+  ;; NO hydrate on install. The muted-event-ids set is a
   ;; TRANSIENT exploration filter — it resets to empty on every page
   ;; load so a fresh session never silently hides events muted in a
   ;; past session. The slot starts at its registry default `#{}` and
