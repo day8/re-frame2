@@ -1,17 +1,15 @@
 (ns panel-gallery.gallery-app-db
   "Story coverage for the **app-db tab** of the Xray 4-layer chrome
-  (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
+  (spec/018-Event-Spine).
 
   The App-db tab body is the `app-db-diff/Panel` view: the current-state
   section model over the observed frame's app-db. Each variant seeds its
   frame's `:epoch-history` via REAL Xray init events fired into the
   variant frame.
 
-  rf2-e9tb0 — the pinned-watches strip was dropped in favour of the
-  segment-inspector popup; the gallery's variants no longer touch
-  `:pinned-slices-store`. rf2-y8doi.29 then retired that popup, the
-  'Show me when this changed' walker and the slice-focus event
-  unreached, so no variant seeds a focused path either.
+  The panel has no pin store and no 'show me when this changed'
+  walker — zoom into a node is the path interaction — so no variant
+  seeds pinned slices or a focused path.
 
   ## Frame isolation
 
@@ -38,10 +36,8 @@
 
   (rf.story/reg-tag :feature/xray-app-db
     {:axis :feature
-     :doc  "Xray App-db tab — changed slices, reserved-keys group,
-            and the 'Show me when this changed' walker (per spec/018-
-            Event-Spine §5.2). Pinned-watches strip dropped under
-            rf2-e9tb0."})
+     :doc  "Xray App-db tab — changed slices and the reserved-keys
+            group (per spec/018-Event-Spine §5.2)."})
 
   (rf.story/reg-story :story.xray.app-db
     {:doc        "Visual gallery of the Xray App-db tab under varying
@@ -64,8 +60,7 @@
   ;; ----- 2. empty (no epochs) -----------------------------------------
   (rf.story/reg-variant :story.xray.app-db/empty
     {:doc        "No epochs in history. Panel renders the empty-state
-                 + reserved scaffolding only (rf2-e9tb0 dropped the
-                 pinned-watches strip)."
+                 + reserved scaffolding only."
      :setup     [[:rf.xray/sync-epoch-history (fixtures/empty-buffer)]]
      :tags       #{:dev :state/empty}
      :substrates #{:reagent}})
