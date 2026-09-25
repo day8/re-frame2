@@ -1,26 +1,26 @@
 (ns re-frame.story.ui.watch
-  "Watch-mode detector compute + hot-path cache (rf2-z1h0f / rf2-zrswb).
+  "Watch-mode detector compute + hot-path cache.
 
   The chrome-level test widget's eye toggle enables watch mode; while on,
   the shell polls `compute-testable-content-hashes` every 500ms, diffs it
   against the recorded `[:tests :content-hashes]` slot, and re-runs the
   variants whose watch hash drifted — snapshot identity plus the slots that
-  decide what a run judges (`judged-slots`, rf2-dt9xf) and the
+  decide what a run judges (`judged-slots`) and the
   registrations the variant reaches by reference
-  (`referenced-registrations`, rf2-pt0d1).
+  (`referenced-registrations`).
 
   This leaf hosts ONLY the pure-ish compute + its cache — it requires
   neither `shell` nor `sidebar`, so BOTH can consume it without a load
   cycle. The detector orchestration (`detect-watch-drift!`, which calls
-  `sidebar/watch-rerun!`) stays in `re-frame.story.ui.shell`; the toggle
+  `sidebar/watch-rerun!`) lives in `re-frame.story.ui.shell`; the toggle
   seed (`sidebar/set-watch-mode!`, which must compute the baseline BEFORE
-  flipping the flag — rf2-asp2op) lives in `re-frame.story.ui.sidebar`.
+  flipping the flag) lives in `re-frame.story.ui.sidebar`.
   Both call `compute-testable-content-hashes` here.
 
-  ## Hot path (rf2-zrswb)
+  ## Hot path
 
   `compute-testable-content-hashes` runs every 500ms while watch mode is
-  on. The naïve walk hashed every testable variant on every tick — the
+  on. A naïve walk would hash every testable variant on every tick — the
   canonical tuple serialised per variant, O(V × variant-body-size), to
   produce the same hash 99.9% of the time.
 
@@ -33,9 +33,9 @@
   3. `cell-overrides` — per-cell control edits land here and ARE threaded
      through `args/resolve-args` into `snapshot-tuple`'s `:effective-args`
      slot (identity.cljc + args.cljc), so they DO perturb the hash
-     (rf2-mclvi — a dropped `:cell-overrides` key served stale answers
-     after every control edit and the detector missed the re-run).
-  4. `view-schema-digest` per testable frame — rf2-3y7l7u. `snapshot-tuple`
+     (a key without `:cell-overrides` would serve stale answers after
+     every control edit and the detector would miss the re-run).
+  4. `view-schema-digest` per testable frame. `snapshot-tuple`
      ALSO hashes each variant frame's registered app-db schema digest
      (rf.story.identity/view-schema-digest, off the `:schemas/app-schemas-digest`
      late-bind hook). A view-schema hot-reload perturbs THAT digest but
@@ -59,7 +59,7 @@
   (atom {:key nil :hashes nil}))
 
 (defn- testable-schema-signal
-  "Fifth cache-key input (rf2-3y7l7u): the per-testable-frame view-schema
+  "Fifth cache-key input: the per-testable-frame view-schema
   digests, in `testable` order. A view-schema hot-reload changes a
   variant frame's registered app-db schema digest — which `snapshot-tuple`
   hashes via `rf.story.identity/view-schema-digest` — WITHOUT bumping the Story
@@ -72,7 +72,7 @@
 
 (def ^:private judged-slots
   "Variant-body slots that decide what a run JUDGES without being render
-  inputs (rf2-dt9xf): the declarative expectations, and the `:compose` /
+  inputs: the declarative expectations, and the `:compose` /
   `:extends` routes by which checks and a fragment `:script` arrive.
   Snapshot identity hashes declared render inputs (spec/002
   §Snapshot-identity computation) and keys visual review and sharing, so it
@@ -102,7 +102,7 @@
         acc))))
 
 (defn- referenced-registrations
-  "The registrations a run of `body` reads by reference (rf2-pt0d1), each
+  "The registrations a run of `body` reads by reference, each
   `without-cosmetics`: every fragment or check its `:compose` names, every
   `:extends` ancestor (whose world and `:checks` flow down, spec/017
   §`:extends`), and every check it names or receives from one. An edit to
@@ -142,11 +142,11 @@
   slots plus the parent story's slice, the view's registered schema-
   digest, AND the variant's resolved effective args (which fold in the
   user's live `:cell-overrides`) — see `re-frame.story.identity` §What's in
-  the hash + /spec/007-Stories.md §Variant snapshot identity (which now
+  the hash + /spec/007-Stories.md §Variant snapshot identity (which
   includes composed fragments' render inputs). The rest is the variant's
   `judged-slots` and its `referenced-registrations`.
 
-  HOT PATH (rf2-zrswb): the registrar-driven cache short-circuits when
+  HOT PATH: the registrar-driven cache short-circuits when
   none of the five perturbing inputs (registrar tick, `:active-modes`,
   `:substrate`, `:cell-overrides`, per-frame view-schema digest) have
   drifted since the last tick — see the ns docstring."
