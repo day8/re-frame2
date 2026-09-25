@@ -55,7 +55,7 @@
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [Handle pos-top pos-right pos-bottom pos-left
                      four-cardinal-handles
-                     chart-constants palette-of]]
+                     chart-constants palette-of lifecycle-of]]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
              :refer [sans-stack chart-label-stack]]))
@@ -287,6 +287,51 @@
                        :line-height "1"}}
         (str "needs " (str/join ", " requires))])]))
 
+;; ---- container lifecycle band -------------------------------------------
+
+(defn- container-lifecycle-band
+  "A container's own `:tags` and `:entry` / `:exit` actions, painted as the
+  band that closes its header — the compound state, the parallel region body
+  and the machine root's frame alike, since the runtime runs a container's
+  entry / exit and joins its tags exactly as it does a leaf's. The rows are
+  the leaf state's own: the neutral `tag-pill` row, then an `action-row` per
+  lifecycle action with its `needs …` requirement line.
+
+  `lifecycle` is the `lifecycle-of` map. `opts` carries what follows the
+  container kind's header: the band's `:testid`, the header `:background`
+  and bottom `:divider` it continues, the title strip's `:pad-x` so the rows
+  align with the title, and any placement `:style`.
+
+  Every row stays one line (`nowrap`, clipped), so the band paints exactly
+  the `projection/lifecycle-band-height` its container's ELK top padding
+  reserves. nil when the container declares no tags and no lifecycle
+  action — such a container renders exactly as one without the band."
+  [{:keys [tags entry exit entry-requires exit-requires]} vc ct
+   {:keys [testid background divider pad-x style]}]
+  (when (or (seq tags) entry exit)
+    (let [{:keys [state-body-pad-y state-body-gap]} vc]
+      [:div {:data-testid testid
+             :style (merge {:display        "flex"
+                            :flex-direction "column"
+                            :gap            (str state-body-gap "px")
+                            :padding        (str state-body-pad-y "px " pad-x "px")
+                            :background     background
+                            :border-bottom  divider
+                            :white-space    "nowrap"
+                            :overflow       "hidden"}
+                           style)}
+       (when (seq tags)
+         [:div {:data-testid "rf-mv-chart-state-tags"
+                :style {:display     "flex"
+                        :align-items "center"}}
+          (->> tags
+               sort
+               (map (fn [t] (tag-pill t ct vc))))])
+       (when entry
+         (action-row {:kind :entry :name-str entry :requires entry-requires :vc vc :ct ct}))
+       (when exit
+         (action-row {:kind :exit :name-str exit :requires exit-requires :vc vc :ct ct}))])))
+
 ;; ---- state node ---------------------------------------------------------
 
 (defn state-node
@@ -466,11 +511,16 @@
 (defn compound-node
   "Reagent component for a compound state container. Renders a
   translucent boxed background with a header strip carrying the
-  compound state's label.
+  compound state's label, closed by the compound's own lifecycle band
+  (`container-lifecycle-band` — its tags and entry / exit actions) when it
+  declares any.
 
   xyflow's `parentId` mechanic places child state nodes inside
   this container; this component only renders the surrounding
-  chrome.
+  chrome. The header's height is the TOP padding ELK reserved for it
+  (`data-reserved-top`: the title strip, the lifecycle band's
+  `projection/lifecycle-band-height` and a body-pad band), so the first
+  child lays out below the band.
 
   ## Border handles
 
@@ -505,8 +555,13 @@
         ;; Inactive compounds read NEUTRAL.
         active? (boolean (.-active d))
         {:keys [compound-radius container-title-height container-title-pad-x
-                container-title-px container-divider-width
+                container-title-px container-divider-width container-body-pad
                 stroke-width stroke-width-emphasis]} vc
+        lifecycle (lifecycle-of d)
+        ;; The ELK top padding this compound's header takes, from the SAME
+        ;; `projection/lifecycle-band-height` `->elk-children` feeds ELK.
+        reserved-top (+ container-title-height container-body-pad
+                        (projection/lifecycle-band-height vc lifecycle))
         ;; Solid SUBTLE NEUTRAL border by default (no dashed, no accent
         ;; wash — dashed/accent is reserved for parallel regions + runtime
         ;; state). Active swaps to the runtime accent.
@@ -517,6 +572,7 @@
              :data-node-id (.-id props)
              :data-state-path (when path (pr-str (js->clj path)))
              :data-active (str active?)
+             :data-reserved-top (str reserved-top)
              ;; The painted box FILLS the xyflow node box ELK sized
              ;; (`width/height:100%`); it carries NO `min-width` /
              ;; `min-height`. The compound size floor lives in the ELK input
@@ -588,6 +644,18 @@
                       :cursor      (if on-click "pointer" "default")
                       :user-select "none"}}
         label]
+       ;; LIFECYCLE BAND — directly under the title strip and its divider.
+       (container-lifecycle-band
+         lifecycle vc ct
+         {:testid     (str "rf-mv-chart-lifecycle-band-" (.-id props))
+          :background (:container-header-bg ct)
+          :divider    (str container-divider-width "px solid " (:divider ct))
+          :pad-x      container-title-pad-x
+          :style      {:position "absolute"
+                       :top      (str (+ container-title-height
+                                         container-divider-width) "px")
+                       :left     0
+                       :right    0}})
        ;; Invisible xyflow attachment points.
        (four-cardinal-handles)])))
 
@@ -788,7 +856,11 @@
       caption shape the host feeds via `:context-band`), with a provenance
       badge: a quiet `inferred from :data` badge when `:contextInferred` is
       true (the one-sample inference), or a positive `declared` badge when
-      false (the authoritative `[:schemas :data]` shape, EP-0005 / EP-0029 A3).
+      false (the authoritative `[:schemas :data]` shape, EP-0005 / EP-0029 A3);
+    - the machine root's own lifecycle band closing the header
+      (`container-lifecycle-band` — the root's tags and entry / exit
+      actions, which the runtime runs at birth and teardown) when the root
+      declares any.
 
   Structural chrome, not a state: NEUTRAL border (no runtime accent — the
   projector never marks it `:active`), no `:onClick`. The painted box FILLS
@@ -806,22 +878,25 @@
         parallel? (boolean (.-parallel d))
         context  (js->clj (.-context d))
         inferred? (boolean (.-contextInferred d))
+        lifecycle (lifecycle-of d)
         {:keys [compound-radius container-title-height container-title-pad-x
                 container-title-px container-divider-width container-body-pad
                 stroke-width]} vc
         ;; The ELK top padding the frame reserves for its header: the title
         ;; strip + a body-pad band + the variable-height Context band
         ;; (`projection/context-band-height` for this context's
-        ;; row count). Single-sourced from the SAME helper `->elk-children`
-        ;; feeds ELK, so the rendered header and the reservation can never
-        ;; drift. Surfaced as `data-reserved-top` so the DOM regression can
-        ;; pin "the rendered header fits within what ELK reserved" — i.e. the
-        ;; first child laid out at the reserved content edge starts BELOW the
-        ;; header, never under the Context band.
+        ;; row count) + the root's lifecycle band
+        ;; (`projection/lifecycle-band-height`). Single-sourced from the SAME
+        ;; helpers `->elk-children` feeds ELK, so the rendered header and the
+        ;; reservation can never drift. Surfaced as `data-reserved-top` so the
+        ;; DOM regression can pin "the rendered header fits within what ELK
+        ;; reserved" — i.e. the first child laid out at the reserved content
+        ;; edge starts BELOW the header, never under one of its bands.
         reserved-top (+ container-title-height container-body-pad
                         (projection/context-band-height
                           (if (seq context) (count context) 0)
-                          container-divider-width))]
+                          container-divider-width)
+                        (projection/lifecycle-band-height vc lifecycle))]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-root-container-" (.-id props))
              :data-node-id (.-id props)
@@ -943,7 +1018,15 @@
                             :text-overflow "ellipsis"}}
               [:span {:style {:color (:accent ct) :font-weight 600}} k]
               [:span {:style {:color (:text-tertiary ct)}} ":"]
-              [:span {:style {:overflow "hidden" :text-overflow "ellipsis"}} v]])])]
+              [:span {:style {:overflow "hidden" :text-overflow "ellipsis"}} v]])])
+        ;; LIFECYCLE BAND — the machine root's own tags and entry / exit
+        ;; actions, closing the header.
+        (container-lifecycle-band
+          lifecycle vc ct
+          {:testid     (str "rf-mv-chart-lifecycle-band-" (.-id props))
+           :background (:container-header-bg ct)
+           :divider    (str container-divider-width "px solid " (:divider ct))
+           :pad-x      container-title-pad-x})]
        (four-cardinal-handles)])))
 
 ;; ---- machine-root node --------------------------------------------------
@@ -1046,6 +1129,15 @@
 ;; `initial-marker` nodes; final states paint the quiet doubled ring
 ;; inline on `state-node` (no glyph).
 
+;; ---- parallel-region node -----------------------------------------------
+
+(defn- region-node
+  "The parallel-region container: `chart.nodes.parallel-region-node` paints
+  it, closing its header with this ns's `container-lifecycle-band` — handed
+  in, because this ns requires that one and so it cannot require the band."
+  [props]
+  (parallel-region-node/parallel-region-node props container-lifecycle-band))
+
 ;; ---- node-types map -----------------------------------------------------
 
 (defn node-types
@@ -1061,7 +1153,7 @@
   []
   #js {"state"           state-node
        "compound"        compound-node
-       "parallel-region" parallel-region-node/parallel-region-node
+       "parallel-region" region-node
        ;; The synthetic ROOT-CONTAINER frame (the Stately-style named box
        ;; wrapping the whole machine; carries the root title strip +
        ;; Context band in a proper frame header).

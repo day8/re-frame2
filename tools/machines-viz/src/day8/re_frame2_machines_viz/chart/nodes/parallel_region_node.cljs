@@ -49,7 +49,9 @@
   uses the same mechanic; the region-node mirrors it for consistency."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
-             :refer [four-cardinal-handles chart-constants palette-of]]
+             :refer [four-cardinal-handles chart-constants palette-of
+                     lifecycle-of]]
+            [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
              :refer [sans-stack mono-stack]]))
 
@@ -57,8 +59,10 @@
 
 (defn parallel-region-node
   "Reagent component for a parallel-region container. xyflow
-  invokes this via `nodeTypes={:parallel-region parallel-region-node}`.
-  Reads `:data {:label :regionIndex :regionId ...}` off the xyflow props.
+  invokes it through `chart.nodes/node-types`, which hands in
+  `lifecycle-band` — `chart.nodes`' container lifecycle band, which this ns
+  cannot require because `chart.nodes` requires it. Reads `:data {:label
+  :regionIndex :regionId ...}` off the xyflow props.
 
   Grammar (the dashed/accent treatment is reserved for regions — solid
   neutral is the compound container):
@@ -68,31 +72,46 @@
       rotation is not the topology signal.
     - A full-width REGION TITLE STRIP carrying the uppercased label, with
       a subtle `∥` parallel glyph (small, never dominating).
+    - The region body's own lifecycle band (its tags and entry / exit
+      actions, which the runtime runs as it does a state's) closing the
+      header when the body declares any. The header's height is the TOP
+      padding ELK reserved for it (`data-reserved-top`, from the same
+      `projection/lifecycle-band-height`).
     - Active / focus colour is reserved for RUNTIME state: an active
       region (a descendant leaf is active, folded into `:active` via the
       `:parent-id` chain) firms its dashed boundary to a solid runtime-
       accent border + glow ring. Inactive regions read fully neutral."
-  [^js props]
+  [^js props lifecycle-band]
   (let [d            (.-data props)
         vc           (chart-constants d)
         ct           (palette-of d)
         label        (or (.-label d) "")
         region-index (.-regionIndex d)
         active?      (boolean (.-active d))
+        lifecycle    (lifecycle-of d)
         {:keys [compound-radius region-title-height region-title-pad-x
                 container-title-px container-divider-width
+                container-title-height container-body-pad
                 stroke-width stroke-width-emphasis]} vc
+        ;; The ELK top padding this region's header takes, from the SAME
+        ;; `container-elk-padding` + `lifecycle-band-height` `->elk-children`
+        ;; feeds ELK for every container.
+        reserved-top (+ container-title-height container-body-pad
+                        (projection/lifecycle-band-height vc lifecycle))
         ;; NEUTRAL boundary by default (no rotation colour).
         ;; Active swaps the dashed neutral to a solid runtime accent.
         border-color (if active? (:active ct) (:region-border ct))
         border-style (if active? "solid" "dashed")
-        border-w     (if active? stroke-width-emphasis stroke-width)]
+        border-w     (if active? stroke-width-emphasis stroke-width)
+        divider      (str container-divider-width "px "
+                          border-style " " border-color)]
     (r/as-element
       [:div {:data-testid    (str "rf-mv-chart-region-" (.-id props))
              :data-node-id    (.-id props)
              :data-region-id  (when-let [rid (.-regionId d)] (str rid))
              :data-region-index (when (some? region-index) (str region-index))
              :data-active     (str active?)
+             :data-reserved-top (str reserved-top)
              :style {:position       "relative"
                      :width          "100%"
                      :height         "100%"
@@ -117,8 +136,7 @@
                       :background     (if active?
                                         (:active-wash ct)
                                         (:region-header-bg ct))
-                      :border-bottom  (str container-divider-width "px "
-                                           border-style " " border-color)
+                      :border-bottom  divider
                       :border-top-left-radius  (str compound-radius "px")
                       :border-top-right-radius (str compound-radius "px")
                       :font-family    sans-stack
@@ -135,6 +153,18 @@
                         :font-family mono-stack}}
          "∥"]
         label]
+       ;; LIFECYCLE BAND — directly under the title strip and its divider.
+       (lifecycle-band
+         lifecycle vc ct
+         {:testid     (str "rf-mv-chart-lifecycle-band-" (.-id props))
+          :background (:region-header-bg ct)
+          :divider    divider
+          :pad-x      region-title-pad-x
+          :style      {:position "absolute"
+                       :top      (str (+ region-title-height
+                                         container-divider-width) "px")
+                       :left     0
+                       :right    0}})
        ;; Invisible xyflow attachment points so an edge whose endpoint
        ;; is a region container has a handle to anchor to. Without them
        ;; xyflow silently drops the edge (same mechanic as the

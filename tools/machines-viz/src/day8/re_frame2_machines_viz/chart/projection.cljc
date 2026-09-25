@@ -751,6 +751,59 @@
        (or divider-width 0))
     0))
 
+;; ---- container lifecycle-band height ------------------------------------
+;;
+;; A container — a compound state, a parallel region body, the machine
+;; root's frame — paints its own `:tags` and `:entry` / `:exit` actions in a
+;; LIFECYCLE BAND that closes its header (`chart.nodes/container-lifecycle-
+;; band`), in the leaf state's tag-chip and action-row presentation. The band
+;; is header chrome, not an ELK child, so ELK's INCLUDE_CHILDREN pass never
+;; grows the container to enclose it; the container's TOP padding reserves it
+;; instead, from this model of the band's rendered height. The renderers read
+;; the same model for their `data-reserved-top`, so the reservation and the
+;; paint cannot drift.
+
+(def ^:private chip-border-px
+  "The vertical border (px) a tag chip or action chip adds to its `height`:
+  1px top + 1px bottom, since the chip's `height` sizes its content box."
+  2)
+
+(defn- lifecycle-action-row-height
+  "The rendered height (px) of one entry / exit action row: the caption, the
+  caption gap and the chip, plus a gap and the caption-sized `needs …` line
+  when the action declares requirements."
+  [{:keys [action-caption-px action-caption-gap action-pill-height]} requires?]
+  (+ action-caption-px action-caption-gap action-pill-height chip-border-px
+     (if requires? (+ action-caption-gap action-caption-px) 0)))
+
+(defn lifecycle-band-height
+  "The rendered height (px) of the lifecycle band a container paints for its
+  `:tags`, `:entry`, `:exit`, `:entry-requires` and `:exit-requires` at the
+  density `chart-vc`:
+
+    pad-y + rows + (rows − 1) · gap + pad-y + divider
+
+  The tag row is one chip high (the band never wraps it) and each action row
+  is `lifecycle-action-row-height`. Returns 0 when the container has no tags
+  and no lifecycle action: it paints no band, so it reserves nothing and lays
+  out exactly as a container that has no band at all. Pure — JVM-runnable so
+  the projection regression can pin it without a renderer."
+  [{:keys [state-body-pad-y state-body-gap tag-pill-height
+           container-divider-width] :as chart-vc}
+   {:keys [tags entry exit entry-requires exit-requires]}]
+  (let [rows (cond-> []
+               (seq tags) (conj (+ tag-pill-height chip-border-px))
+               entry      (conj (lifecycle-action-row-height
+                                  chart-vc (seq entry-requires)))
+               exit       (conj (lifecycle-action-row-height
+                                  chart-vc (seq exit-requires))))]
+    (if (seq rows)
+      (+ (* 2 state-body-pad-y)
+         (reduce + rows)
+         (* (dec (count rows)) state-body-gap)
+         (or container-divider-width 0))
+      0)))
+
 (defn container-elk-padding
   "The `elk.padding` string for a compound / region container, derived
   from the active density's `visual-constants` rather than a hardcoded
@@ -760,8 +813,7 @@
 
     - TOP   = `:container-title-height` (the solid title strip the
               `compound-node` paints) PLUS a `:container-body-pad` band
-              so the metadata row (compound tags / entry-exit rows) and
-              the first child clear the header;
+              so the first child clears the header;
     - LEFT   = `:container-body-pad` — the inset the container chrome
               leaves around its children below the strip — UNLESS
               `reserve-initial-marker?` is set, in which case it grows to
@@ -788,12 +840,13 @@
   reservation is what grows the box to enclose it.
 
   `extra-top` (default 0) is ADDED to the TOP reservation, ABOVE the
-  title-strip + body-pad band. The synthetic ROOT-CONTAINER frame uses it
-  to reserve the variable-height Context band the frame header paints UNDER
-  its title strip (`context-band-height`): without it, the band — which is
-  NOT an ELK child and so never grows the box via `INCLUDE_CHILDREN` —
-  would overlap the first child ELK laid out at the plain reserved content
-  edge. Every other container passes 0 (no band)."
+  title-strip + body-pad band. It reserves the header bands a container
+  paints UNDER its title strip: every container's lifecycle band
+  (`lifecycle-band-height`) and, on the synthetic ROOT-CONTAINER frame, the
+  variable-height Context band (`context-band-height`). Neither band is an
+  ELK child, so neither grows the box via `INCLUDE_CHILDREN`; without the
+  reservation a band would overlap the first child ELK laid out at the plain
+  reserved content edge. A container painting no band passes 0."
   ([] (container-elk-padding vc/chart false 0))
   ([chart-vc] (container-elk-padding chart-vc false 0))
   ([chart-vc reserve-initial-marker?]
@@ -818,8 +871,9 @@
   `parentId`, NOT the pre-v12 `parentNode`). Nesting recurses — a compound
   inside a region, or a compound inside a compound, lays out correctly.
   Each container (region OR compound) gets its own
-  `elk.algorithm`/`elk.padding` so the header strip has room and the zone
-  gets a clean internal layout; top-level nodes are laid out at the root.
+  `elk.algorithm`/`elk.padding` so the header strip — and the lifecycle
+  band under it (`lifecycle-band-height`) — has room and the zone gets a
+  clean internal layout; top-level nodes are laid out at the root.
 
   Synthetic event-nodes (one per parsed edge) sit alongside state-nodes as
   elk children of the SOURCE state's parent container (top-level when the
@@ -862,25 +916,12 @@
    (->elk-children parsed measured-dims chart-vc context-rows :tb))
   ([{:keys [nodes edges] :as parsed} measured-dims chart-vc context-rows direction]
   (let [resolved-vc   (or chart-vc vc/chart)
-        ;; the default container padding (no initial-marker reservation). A
-        ;; container whose own initial substate carries a marker takes the
-        ;; wider-LEFT variant instead (see `marker-container-pad` +
-        ;; `marker-container-ids` below).
-        container-pad (container-elk-padding resolved-vc)
-        ;; the LEFT-widened padding for a container that holds a NESTED
-        ;; initial substate, so the marker's leftward glyph extent sits
-        ;; inside the border instead of spilling past it.
-        marker-container-pad (container-elk-padding resolved-vc true)
         ;; the ROOT-CONTAINER frame ALSO reserves the variable-height
-        ;; Context band ON TOP of the title strip. The frame holds the
-        ;; machine's top-level initial (so it is in `marker-container-ids`),
-        ;; so the band reservation rides the LEFT-widened variant. The band
-        ;; height is derived from the context-row count + the density's
-        ;; divider hairline; 0 rows ⇒ the extra-top is 0 and this collapses
-        ;; to the plain marker-widened padding.
+        ;; Context band ON TOP of the title strip. The band height is derived
+        ;; from the context-row count + the density's divider hairline; 0
+        ;; rows ⇒ no extra top.
         context-band-px (context-band-height (or context-rows 0)
                                              (:container-divider-width resolved-vc))
-        root-container-pad (container-elk-padding resolved-vc true context-band-px)
         ;; the set of container-ids (each `:parent-id` an `:initial?` state
         ;; nests under) that therefore need the LEFT-widened padding. A
         ;; compound / region always has an `:initial?` child, so this is the
@@ -944,25 +985,27 @@
         ;; A container holding a NESTED initial substate uses the LEFT-
         ;; widened padding so the substate's initial-marker glyph sits inside
         ;; the border instead of spilling past it; every other container
-        ;; keeps the plain body-pad inset.
-        ;; The ROOT-CONTAINER frame additionally reserves the Context band on
-        ;; TOP (it holds the top-level initial, so it ALSO takes the marker-
-        ;; widened LEFT). `root-container-pad` folds both; with 0 context
-        ;; rows it equals `marker-container-pad`, so a context-less root
-        ;; carries the plain marker-widened padding.
+        ;; keeps the plain body-pad inset. The ROOT-CONTAINER frame always
+        ;; takes the marker-widened LEFT (it holds the top-level initial).
+        ;; TOP reserves the container's own lifecycle band — 0 when it
+        ;; declares no tags and no entry / exit, leaving that container's
+        ;; padding exactly the plain one — plus, on the frame, the Context
+        ;; band.
         container-opts (fn [parent-id]
-                         (cond-> {"elk.algorithm" "layered"
-                                  "elk.padding"   (cond
-                                                    (= parent-id layout/root-container-id)
-                                                    root-container-pad
-                                                    (contains? marker-container-ids
-                                                               parent-id)
-                                                    marker-container-pad
-                                                    :else
-                                                    container-pad)}
-                           (contains? fork-containers parent-id)
-                           (assoc "elk.layered.crossingMinimization.semiInteractive"
-                                  "true")))
+                         (let [root?   (= parent-id layout/root-container-id)
+                               band-px (lifecycle-band-height
+                                         resolved-vc (get node-by-id parent-id))]
+                           (cond-> {"elk.algorithm" "layered"
+                                    "elk.padding"   (container-elk-padding
+                                                      resolved-vc
+                                                      (or root?
+                                                          (contains? marker-container-ids
+                                                                     parent-id))
+                                                      (+ band-px
+                                                         (if root? context-band-px 0)))}
+                             (contains? fork-containers parent-id)
+                             (assoc "elk.layered.crossingMinimization.semiInteractive"
+                                    "true"))))
         build (fn build [n]
                 (let [;; the local initial state leads its container's model
                       ;; order (machine-root sinks last); biases ELK's
@@ -982,9 +1025,9 @@
                                                     (dissoc k ::event-parent)
                                                     (build k)))))
                            ;; the container top padding clears the solid
-                           ;; title strip PLUS a body-pad band (metadata row
-                           ;; for compound tags / entry-exit rows), so
-                           ;; children never collide with the header;
+                           ;; title strip, the container's lifecycle band
+                           ;; and a body-pad band, so children never collide
+                           ;; with the header;
                            ;; side/bottom track the `:container-body-pad`
                            ;; inset. Density-derived via `container-elk-
                            ;; padding`. `container-opts` adds semiInteractive
