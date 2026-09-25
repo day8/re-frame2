@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.play-status
   "Toolbar chip + failure-banner UI for Story's rich `:script`
-  runner (rf2-8i2a9).
+  runner.
 
   ## What this renders
 
@@ -19,7 +19,7 @@
   observe every step transition. Production CLJS builds DCE the file
   entirely via `re-frame.story.config/enabled?`.
 
-  ## Multi-play (rf2-tl7zk)
+  ## Multi-play
 
   Variants that declare `:plays` (a vector of named plays) get a
   dropdown affordance inside the chip:
@@ -38,7 +38,7 @@
   runs every play sequentially, updating the chip as each one
   completes.
 
-  ## Every run is fresh (rf2-3x7nj.30.3)
+  ## Every run is fresh
 
   Re-run, a play row and Run all each run the variant again from its
   declared start through the one run owner (`rf.story.runtime/rerun!`):
@@ -46,7 +46,7 @@
   Controls overrides, modes and substrate), then the chosen play runs. A
   single play starts from `:setup`; Run all resets once and runs every
   play in order. The other plays' row badges therefore go IDLE after a
-  single-play run — those verdicts belonged to earlier runs."
+  single-play run — those verdicts belong to earlier runs."
   (:require [reagent.core                    :as r]
             [re-frame.story.config           :as rf.story.config]
             [re-frame.story.play.dom         :as rf.story.play.dom]
@@ -296,7 +296,7 @@
   outer `rf.story.play.runner-events/run-state` deref drives re-renders. Tagged with
   `data-test=\"story-play-status\"` for browser tests.
 
-  rf2-tl7zk multi-play: when the variant declares `:plays` (more than
+  Multi-play: when the variant declares `:plays` (more than
   one), the chip grows a `[v]` dropdown affordance that opens a panel
   listing each play with its per-play status + a 'Run all' option."
   [variant-id]
@@ -308,7 +308,7 @@
                            (rf.story.play.runner/default-play-key plays))
             ;; In multi-play mode, the chip's state reflects the
             ;; ACTIVE play's per-(variant, play) row; in single-play
-            ;; mode it reflects the legacy single-script state.
+            ;; mode it reflects the single-script state.
             state      (if multi?
                          (rf.story.play.runner-events/current-state-for-play variant-id active-key)
                          (get @rf.story.play.runner-events/run-state variant-id))
@@ -351,7 +351,7 @@
                              (str "play: " (or active-name "(default)"))
                              "the play script"))
            ;; `active-key` is captured HERE, before the fresh run's
-           ;; in-place reset evicts the active play (rf2-3x7nj.30.3).
+           ;; in-place reset evicts the active play.
            :on-click  (fn [e]
                         (.stopPropagation e)
                         (rf.story.runtime/rerun! variant-id {:play active-key}))}
@@ -409,7 +409,7 @@
   production builds + variants without a play surface don't render
   the chip at all.
 
-  rf2-tl7zk: checks both single-script + multi-play surfaces via
+  Checks both single-script + multi-play surfaces via
   `variant-plays` (which resolves both)."
   [variant-id]
   (when (and rf.story.config/enabled? variant-id)
