@@ -166,7 +166,7 @@ function main() {
     console.log('');
   }
 
-  // Headline number for the findings doc.
+  // Headline number: what enabling Story costs a consumer's dev bundle.
   const storyOn = measured.find((m) => m.role === 'story-on');
   const rawCost = storyOn.raw - baseline.raw;
   const gzCost  = storyOn.gz  - baseline.gz;
@@ -177,7 +177,7 @@ function main() {
   console.log('Reminder: under :advanced + re-frame.story.config/*enabled?*=false,');
   console.log('this cost collapses to ZERO. The gate is implementation/scripts/check-bundle-isolation.cjs.');
   console.log('');
-  console.log('See ai/findings/story-bundle-vs-sb9-20260513.md for the SB9 comparison.');
+  console.log('See tools/story/spec/005-SOTA-Features.md §Bundle-size comparison for the Storybook 9 comparison.');
 
   // Always exit 0 — informational.
   process.exit(0);
