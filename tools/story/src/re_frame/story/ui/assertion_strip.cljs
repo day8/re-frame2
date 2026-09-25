@@ -48,8 +48,8 @@
   set; the rendered hiccup is read off the projected data + the atom.
 
   CLJS-only. The inline strip never lands in production (Story is a
-  dev-only artefact); the test-mode pane already lives at
-  `tools/story/src/re_frame/story/ui/test_mode/view.cljs` and is
+  dev-only artefact); the test-mode pane at
+  `tools/story/src/re_frame/story/ui/test_mode/view.cljs` is
   CLJS-only for the same reason."
   (:require [clojure.string :as str]
             [reagent.core :as r]
@@ -122,7 +122,7 @@
   For errors: surfaces the captured error's `:message` — the one sentence
   saying what went wrong (a setup that threw, or an event nobody
   registered) — falling back to `:reason`, then to a bare `\"error\"`. It
-  is never blank: a silent errored row was the rf2-uky0n defect.
+  is never blank: a silent errored row would hide what went wrong.
   For passes: leaves blank — the label already names the assertion.
   For skips: surfaces `:reason` when present.
 
@@ -167,8 +167,7 @@
   the original record order.
 
   Pure data → data; JVM-testable shape (though this namespace itself is
-  CLJS — the pure helpers move to `pure.cljc` once a second consumer
-  appears)."
+  CLJS)."
   [records]
   (let [recs (vec (or records []))]
     (->> recs
@@ -352,7 +351,7 @@
   the canvas height.
 
   `:stack` is deliberately NOT rendered here: the strip is inline-sized,
-  and the test-mode pane already renders the stack for tested variants."
+  and the test-mode pane renders the stack for tested variants."
   [detail]
   (let [{:keys [reason error expected actual event phase predicate source]} detail]
     [:div {:style     (:detail styles)
@@ -539,7 +538,7 @@
                       ;; component element) — `^{:key ...}` on a function-CALL
                       ;; form is dropped at read time (the meta does not
                       ;; transfer to render-row's return value), so React's
-                      ;; row seq would have no key and warn 194×/run. Rendering
+                      ;; row seq would have no key and warn. Rendering
                       ;; `[render-row ...]` as a component vector lands the key
                       ;; on the element Reagent hands to React.
                       ^{:key (str gi "/" ri "/" rkey)}
@@ -552,7 +551,7 @@
 ;; `[:rf.assert/* …]` atoms that have NOT YET run (the explicit `:assertions`
 ;; variant DATA the authoring flow emits). It is the read-only display of a
 ;; variant's declared expectations: the atom + its runner cost / `:cannot-run`
-;; honesty flag (read from the EXISTING requirement registry via
+;; honesty flag (read from the requirement registry via
 ;; `rf.story.author-expectations/expectation-cost`), so a reader sees what a story expects AND what
 ;; runner each expectation needs, without having to run it. Distinct from the
 ;; run-result strip — no verdict glyph, a runner-cost stripe instead.
@@ -588,7 +587,7 @@
 (defn authored-row
   "Render one AUTHORED expectation atom (un-run) with its runner cost. Pure
   shape: takes the canonical `[:rf.assert/* …]` atom, returns hiccup. The
-  cost (`rf.story.author-expectations/expectation-cost`) reads the EXISTING requirement registry —
+  cost (`rf.story.author-expectations/expectation-cost`) reads the requirement registry —
   the cheapest runner that proves it + whether it `:cannot-run` headless —
   so the declared expectation reads with its honesty floor attached."
   [atom]
