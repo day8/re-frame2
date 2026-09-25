@@ -3,9 +3,9 @@
 
   ## What is guarded, and why it is worth a file of its own
 
-  `re-frame.core/project-egress` is the ONE record-level egress door
-  since rf2-bv1p (ruling rf2-kuky.9 option A retired the standalone
-  `projected-record` door), and it recognises an epoch record SOLELY by
+  `re-frame.core/project-egress` is the ONE record-level egress door —
+  there is no standalone `projected-record` door — and it recognises an
+  epoch record SOLELY by
   its stamped `:kind :rf/epoch-record`. There is no shape test and no
   second name to call.
 
@@ -18,7 +18,8 @@
   MCP wire RAW to an off-box agent with `--allow-sensitive-reads` OFF.
 
   The trigger is real rather than hypothetical: an app running a
-  pre-rf2-kuky.92 `re-frame.epoch.assembly` stamps no `:kind` at all, so
+  `re-frame.epoch.assembly` that predates the `:kind` stamp stamps no
+  `:kind` at all, so
   a version-skewed pair session takes exactly that path. Every eval form
   this server emits therefore checks the stamp BEFORE the door call and
   THROWS otherwise. Silently shipping raw state is far worse than an
@@ -57,8 +58,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private stamped
-  "What `re-frame.epoch.assembly` produces post-rf2-kuky.92 — the `:kind`
-  stamp is the ONLY thing `project-egress` routes on."
+  "What `re-frame.epoch.assembly` produces — the `:kind` stamp is the
+  ONLY thing `project-egress` routes on."
   {:kind      :rf/epoch-record
    :frame     :app/main
    :db-after  {:auth {:token "s3cr3t"}}
@@ -66,7 +67,7 @@
 
 (def ^:private unstamped
   "The same record from an app whose `re-frame.epoch.assembly` predates
-  rf2-kuky.92 — byte-identical payload, no `:kind`. This is the record
+  the `:kind` stamp — byte-identical payload, no `:kind`. This is the record
   that would be bare-walked from `:path []` and shipped RAW."
   (dissoc stamped :kind))
 
@@ -126,7 +127,7 @@
         (is (str/includes? src "(re-frame.core/project-egress r# {:rf.egress/profile")
             "a STAMPED record still reaches the door with the egress opts threaded in")
         (is (not (str/includes? src "projected-record"))
-            "the retired door is gone (rf2-bv1p)")
+            "no standalone projected-record door is named")
         ;; The throw must sit BEFORE the door call, not after it — a guard
         ;; that fires only once the record has already been projected has
         ;; already leaked.
@@ -145,7 +146,7 @@
         (is (str/includes? src "(re-frame.core/project-egress e# {:rf.egress/profile")
             "a STAMPED epoch still reaches the door with the egress opts threaded in")
         (is (not (str/includes? src "projected-record"))
-            "the retired door is gone (rf2-bv1p)")
+            "no standalone projected-record door is named")
         (is (< (.indexOf src "(throw (ex-info")
                (.indexOf src "(re-frame.core/project-egress"))
             "the guard is sequenced BEFORE the door call")))))
