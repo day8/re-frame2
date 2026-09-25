@@ -1,22 +1,21 @@
 #!/usr/bin/env node
 /*
- * Single MCP-conformance entry-point for operator pairs (rf2-gt4pf,
- * rf2-a9l6e).
+ * Single MCP-conformance entry-point for operator pairs.
  *
  * ONE command, TWO explicit profiles. Every terminal verdict this script
  * prints names the profile that actually ran, because the two profiles do
  * not prove the same thing and a bare "green" cannot be told apart from a
- * skip (rf2-a9l6e).
+ * skip.
  *
  *   default  (medium)     the six MCP-conformance gates PR CI runs as
  *                         separate jobs in `.github/workflows/test.yml`:
  *
  *     1. JVM tools/story-mcp         (`clojure -M:test`)
- *     2. Node tools/story-mcp        stdio roundtrip (rf2-h8z5l)
+ *     2. Node tools/story-mcp        stdio roundtrip
  *     3. Node tools/re-frame2-pair-mcp  shadow-cljs :server-test
- *     4. MCP conformance tools/re-frame2-pair-mcp  (SDK Client driver, rf2-cum40)
- *     5. MCP conformance tools/story-mcp           (SDK Client driver, rf2-cum40)
- *     6. MCP conformance wire-vocab  (rf2-j2z7o + rf2-6m8tq + rf2-zvv65)
+ *     4. MCP conformance tools/re-frame2-pair-mcp  (SDK Client driver)
+ *     5. MCP conformance tools/story-mcp           (SDK Client driver)
+ *     6. MCP conformance wire-vocab  (`clojure -M:test`)
  *
  *   --live   (expensive)  the same six gates, then the EXISTING hermetic
  *                         live Pair suite
@@ -37,12 +36,12 @@
  *
  * WHY THE PROFILE MUST BE NAMED. Under the default profile the child
  * orchestrator correctly marks its live-* rows `SKIP` (no
- * `SHADOW_CLJS_NREPL_PORT`, so no live runtime is proven). This runner used
- * to collapse that whole child run to one status row and end with an
- * unqualified `ALL MCP-CONFORMANCE GATES GREEN`, which reads as full MCP
- * compatibility when the live layer was never exercised. The default
- * profile now ends on a verdict that says so, and prints the exact `--live`
- * invocation beside a `NOT RUN` row for the hermetic suite.
+ * `SHADOW_CLJS_NREPL_PORT`, so no live runtime is proven). Collapsing that
+ * whole child run to one status row and ending with an unqualified
+ * `ALL MCP-CONFORMANCE GATES GREEN` would read as full MCP compatibility
+ * when the live layer was never exercised. So the default profile ends on
+ * a verdict that says so, and prints the exact `--live` invocation beside
+ * a `NOT RUN` row for the hermetic suite.
  *
  * The live roster is NOT re-listed here: `LIVE_TESTS` from
  * `tools/mcp-conformance/scripts/live-test-inventory.cjs` is the one owner
@@ -58,8 +57,7 @@
  * one-glance, matching the shape of
  * `tools/mcp-conformance/scripts/test-all.cjs`.
  *
- * Out of scope per Mike's minimum-scope direction (rf2-gt4pf), unchanged by
- * rf2-a9l6e:
+ * Deliberately out of scope:
  *   - Formal runner ns (this is a Node operator-side ergonomic, not a
  *     CI gate — CI keeps the six split jobs for differential surface
  *     attribution)
@@ -86,7 +84,7 @@ const WIRE_VOCAB = path.join(CONFORMANCE, 'wire-vocab');
 // The single live roster. Both `tools/mcp-conformance/scripts/test-all.cjs`
 // and the hermetic runner derive their live rows from this module; we read
 // it only to say how many rows the live profile covers, so there is no
-// second inventory to drift (rf2-a9l6e).
+// second inventory to drift.
 const { LIVE_TESTS } = require(
   path.join(CONFORMANCE, 'scripts', 'live-test-inventory.cjs'),
 );
@@ -113,7 +111,7 @@ const EXIT_USAGE = 64;
 // ---------------------------------------------------------------------
 // Profile selection. Pure, side-effect-free, and resolved BEFORE anything
 // installs, compiles, or boots a server — `--help` and an unknown option
-// must never mutate dependency state (rf2-a9l6e).
+// must never mutate dependency state.
 function parseArgs(argv) {
   let profile = PROFILE_DEFAULT;
   let help = false;
@@ -165,7 +163,7 @@ PREREQUISITES
   --live also needs Playwright's Chromium and a free port for nREPL.
   Node dependencies are installed by this runner: \`npm ci\` where the tool
   package commits a lockfile, a skip-if-present \`npm install\` where it does
-  not (rf2-vtp2er) — so a repeat run does not re-mutate dependency state.
+  not — so a repeat run does not re-mutate dependency state.
 
 EXIT CODES
   0   the SELECTED profile passed (the verdict line names which one)
@@ -185,20 +183,20 @@ NARROWER NEIGHBOUR
 }
 
 // ---------------------------------------------------------------------
-// Exec-safety: no shell dispatch, no bare-name spawns (rf2-1irs7).
+// Exec-safety: no shell dispatch, no bare-name spawns.
 //
-// The original form spawned every step with
-// `spawnSync(bareCommandString, { shell: true, cwd })`. On Windows that
-// is the rf2-33vvc command-hijack accident class: a shell-enabled spawn +
+// Spawning a step as
+// `spawnSync(bareCommandString, { shell: true, cwd })` is, on Windows,
+// the command-hijack accident class: a shell-enabled spawn +
 // a bare exe name (`npm`/`npx`/`clojure`) + a repo-controlled `cwd`
 // resolves against the cwd ahead of PATH, so a checkout that ever
 // carried a `npm.cmd` / `npx.cmd` / `clojure.cmd` in one of these dirs
 // (a fixture dir, anywhere in PATHEXT order) would silently execute it.
 //
-// The mcp-conformance slice already SOLVED this for its inner spawn
+// The mcp-conformance slice solves this for its inner spawn
 // sites (`tools/mcp-conformance/test/end-to-end-story.cjs`,
-// `scripts/run-live-...-hermetic.cjs`): resolve each tool name to a
-// single trusted absolute path OUTSIDE the workspace via
+// `scripts/run-re-frame2-pair-live-hermetic-suite.cjs`): resolve each
+// tool name to a single trusted absolute path OUTSIDE the workspace via
 // `resolveTrustedExe`, then spawn with an args ARRAY and no shell. We
 // reuse that exact primitive here rather than hand-roll a second one.
 const { resolveTrustedExe } = require(
@@ -214,15 +212,15 @@ const { resolveTrustedExe } = require(
 // `.cmd` correctly without re-introducing a shell, so `resolveTrustedExe`
 // + `cross-spawn` is the only combination that is both hardened and
 // cross-platform (Windows / macOS / Linux).
-// rf2-ocfiq — `cross-spawn` is an `implementation/` devDependency added
-// by rf2-1irs7. A STALE `implementation/node_modules` (one that predates
-// the 1irs7 install — e.g. an operator who pulled the change but didn't
-// re-run `npm install`) would otherwise crash with a raw loader stack
+// `cross-spawn` is an `implementation/` devDependency. A STALE
+// `implementation/node_modules` (one installed before cross-spawn was
+// declared — e.g. an operator who pulled but didn't re-run
+// `npm install`) would otherwise crash with a raw loader stack
 // (`Error: Cannot find module 'cross-spawn'`) that gives NO hint the fix
 // is a one-time `npm install`. The script's own prep STEPS install deps
 // for the TOOLS packages, not for `implementation/` itself, so they
 // can't cover this. Fail LOUD with an actionable hint instead.
-// rf2-a9l6e — loaded lazily, on the first spawn only, so `--help` and the
+// It is loaded lazily, on the first spawn only, so `--help` and the
 // unknown-option refusal answer correctly on a checkout whose
 // implementation/node_modules is absent, and so the profile-selection
 // regression test can require this module without touching npm state.
@@ -237,7 +235,7 @@ function loadCrossSpawn() {
         "\ntest:mcp-conformance: 'cross-spawn' is not installed.\n" +
           '  This entry-point requires the implementation/ devDependencies.\n' +
           '  Fix: run `npm install` in implementation/ first ' +
-          '(rf2-1irs7 added cross-spawn as a devDependency).\n\n',
+          '(cross-spawn is one of its devDependencies).\n\n',
       );
       process.exit(1);
     }
@@ -260,12 +258,12 @@ function trustedExe(name) {
 // always the currently-running Node, always outside the workspace by
 // construction — so they skip the PATH walk entirely (the same posture
 // the slice's `scripts/test-all.cjs` uses for its own node sub-tests).
-// Reproducible-install posture (rf2-vtp2er). A bare `npm install` mutates
+// Reproducible-install posture. A bare `npm install` mutates
 // dependency state on every run — it can rewrite node_modules and (for a
 // package without a committed lockfile) resolve semver ranges against
-// whatever the registry happens to publish at run time. That makes a local
-// `npm run test:mcp-conformance` not a pure verification command and leaves
-// dirty-worktree noise for workers. We pin each tool package to the most
+// whatever the registry happens to publish at run time. That would make a
+// local `npm run test:mcp-conformance` not a pure verification command and
+// leave dirty-worktree noise for workers. We pin each tool package to the most
 // reproducible install its on-disk state allows:
 //
 //   - A package WITH a committed package-lock.json (tools/mcp-conformance)
@@ -280,8 +278,7 @@ function trustedExe(name) {
 //     treated as already-bootstrapped and the install is SKIPPED, so a
 //     repeated verification run does not re-mutate dependency state.
 //     Whether this package SHOULD carry a committed lockfile is a separate
-//     architecture decision flagged to the operator (rf2-vtp2er follow-up);
-//     this runner does not decide it.
+//     architecture decision; this runner does not decide it.
 //
 // `resolveInstallStep` turns the declarative `install` marker into the
 // concrete exe/args (or a skip) at run time, against the live on-disk
@@ -350,7 +347,7 @@ const DEFAULT_GATES = [
     cwd: STORY_MCP,
   },
   {
-    name: 'Node tools/story-mcp stdio roundtrip (rf2-h8z5l)',
+    name: 'Node tools/story-mcp stdio roundtrip',
     node: true,
     args: ['test/stdio-roundtrip.js'],
     cwd: STORY_MCP,
@@ -362,7 +359,7 @@ const DEFAULT_GATES = [
     cwd: PAIR_MCP,
   },
   {
-    name: 'MCP conformance tools/re-frame2-pair-mcp + tools/story-mcp (rf2-cum40)',
+    name: 'MCP conformance tools/re-frame2-pair-mcp + tools/story-mcp',
     node: true,
     args: ['scripts/test-all.cjs'],
     cwd: CONFORMANCE,
@@ -376,7 +373,7 @@ const DEFAULT_GATES = [
     // artificially split its output.
   },
   {
-    name: 'MCP conformance wire-vocab (rf2-j2z7o + rf2-6m8tq + rf2-zvv65)',
+    name: 'MCP conformance wire-vocab (clojure -M:test)',
     exe: 'clojure',
     args: ['-M:test'],
     cwd: WIRE_VOCAB,
@@ -431,7 +428,7 @@ function banner(line) {
 
 // The terminal verdict. EVERY branch names the profile that ran, so a
 // green can never be mistaken for the other profile's green, nor for a
-// skip (rf2-a9l6e).
+// skip.
 function verdict(profile, gates, firstFailure) {
   const total = gateCount(gates);
   if (firstFailure) {
@@ -494,7 +491,7 @@ function renderReport({ profile, gates, results, firstFailure }) {
 function runStep(step) {
   // Resolve the executable up-front: `node` steps use the absolute
   // `process.execPath`; native-tool steps resolve their bare name to a
-  // trusted absolute path outside the workspace (rf2-1irs7 / rf2-33vvc).
+  // trusted absolute path outside the workspace.
   const exe = step.node ? process.execPath : trustedExe(step.exe);
   banner(
     '▶ ' + step.name +
@@ -504,8 +501,8 @@ function runStep(step) {
   );
   // `cross-spawn` + args ARRAY + no shell: the resolved absolute path
   // is the only thing the OS interprets, so a workspace-local
-  // `npm.cmd` / `npx.cmd` / `clojure.cmd` can no longer hijack the
-  // invocation (rf2-1irs7). cross-spawn handles the Windows `.cmd` /
+  // `npm.cmd` / `npx.cmd` / `clojure.cmd` cannot hijack the
+  // invocation. cross-spawn handles the Windows `.cmd` /
   // extensionless-shim dispatch that built-in `spawnSync` can't without
   // one.
   return loadCrossSpawn().sync(exe, step.args, {
@@ -547,7 +544,7 @@ function main(argv) {
 
   for (const rawStep of [...prep, ...gates]) {
     // Install steps resolve their concrete command (npm ci / npm install /
-    // skip) from the live on-disk lockfile + node_modules state (rf2-vtp2er).
+    // skip) from the live on-disk lockfile + node_modules state.
     const step = rawStep.install ? resolveInstallStep(rawStep) : rawStep;
 
     if (step.skip) {
@@ -555,7 +552,7 @@ function main(argv) {
         '▷ ' + step.name +
           '\n  cwd: ' + step.cwd +
           '\n  SKIPPED: node_modules already present and no committed ' +
-          'lockfile to install against (reproducible-verify; rf2-vtp2er).',
+          'lockfile to install against (reproducible-verify).',
       );
       continue;
     }
