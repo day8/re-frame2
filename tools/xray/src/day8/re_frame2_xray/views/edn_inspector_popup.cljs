@@ -23,13 +23,12 @@
   pure data for the node lane. [[popup-chrome]] renders a SINGLE popup's
   chrome and is public so tests can drive it without the stack.
 
-  rf2-bcub — an inline `[edn-inspector-popup value opts]` component used
-  to sit here too, a form-2 wrapper minting its own `mount-id`. It is
-  GONE: zero mounts tree-wide, and nothing but its own tests called it.
+  There is no inline `[edn-inspector-popup value opts]` component: every
+  popup opens through the open event.
 
   `opts` (the `:opts` half of the open payload; all keys optional).
 
-  **Every key is FORWARDED to the embedded widget** (rf2-y8doi.24) —
+  **Every key is FORWARDED to the embedded widget** —
   `views.edn-inspector`'s own docstring is the roster, and the popup
   deliberately keeps no allow-list of its own so a new widget opt needs
   no edit here. Three keys the popup reads or rewrites on the way
@@ -53,8 +52,8 @@
                            closes (X / Esc / backdrop). The default
                            `:on-close` dispatches
                            `[:rf.xray.edn-inspector-popup/close mount-id]`
-                           against the `:rf/xray` frame so the popup
-                           closes itself via the registered handler.
+                           against the surrounding instance frame so the
+                           popup closes itself via the registered handler.
 
   `:popup-affordance?` is forced `false` — a popup does not offer to
   open itself in a popup. `:default-expanded-depth` is NOT defaulted
@@ -85,8 +84,8 @@
     top entry, leaving any popups beneath it open).
   - Per-popup payload (the rendered value + opts snapshot) is held
     in app-db at `[:rf.xray.edn-inspector-popup/entries mount-id]`
-    so a programmatic open call (e.g. from a context-menu handler
-    in a future bead) survives shadow-cljs `:after-load` reloads
+    so a programmatic open call (e.g. from a context-menu handler)
+    survives shadow-cljs `:after-load` reloads
     and re-opening with the same id restores its expansion state
     (the underlying edn-inspector expansion slot is keyed on
     `[panel-id mount-id path]`, so the popup's contents survive
@@ -100,7 +99,7 @@
   and the popup's lifecycle is self-contained. The shell wires the
   `edn-inspector-popup-stack` view into its overlay container; the
   `install!` fn here makes the registrations idempotent so that
-  wire-up is a one-call addition.
+  wire-up is one call.
 
   ## Z-index
 
@@ -221,9 +220,9 @@
 
 (defn install-events!
   "Register the popup's open / close / clear events. Every dispatch
-  carries the `{:frame :rf/xray}` envelope at call time so React's
-  click/keydown context pop doesn't leak the event to `:rf/default`
-  (same fix as the settings popup)."
+  site passes an explicit `{:frame …}` envelope — the instance frame
+  `popup-chrome` captures at render time — so the event lands on that
+  frame even after React's click/keydown context has popped."
   []
   (rf/reg-event :rf.xray.edn-inspector-popup/open
     (fn [{:keys [db]} [_ mount-id payload]]
@@ -257,9 +256,9 @@
 
 (defn install!
   "Idempotent install for the popup's Xray-side registrations.
-  Returns nil per the facade convention. Call this from
-  `registry.cljs` (follow-on wire-up bead) alongside the other
-  per-feature `install!` fns; calling it more than once re-registers
+  Returns nil per the facade convention. `registry.cljs` calls it
+  alongside the other per-feature `install!` fns; calling it more
+  than once re-registers
   the same handlers and is harmless."
   []
   (install-subs!)
@@ -395,42 +394,36 @@
    title])
 
 ;; =========================================================================
-;; the embedded widget's head — ONE PER LANE (rf2-k97c.3)
+;; the embedded widget's head — ONE PER LANE
 ;; =========================================================================
 ;;
 ;; `popup-chrome` is shared by two lanes and the only thing that differs
 ;; between them is the head it embeds the value under. `views.edn-inspector`
-;; already ships BOTH (the T4 dual-head facade): `edn-inspector` is the
+;; ships BOTH (a dual-head facade): `edn-inspector` is the
 ;; Reagent `reg-view` head and `edn-inspector-view` is the Fresco boundary,
 ;; over one renderer.
 ;;
 ;; The choice is therefore a PARAMETER here rather than a branch: the head
 ;; is passed in, exactly as the tree's `as-child` islands pass `identity`
 ;; or `reagent.core/as-element` rather than reaching for a Fresco API. The
-;; default is the Reagent one, so every existing direct caller of
-;; `popup-chrome` — the node-lane rows — keeps the hiccup it already had,
+;; default is the Reagent one, so the direct callers of
+;; `popup-chrome` — the node-lane rows — get the Reagent hiccup,
 ;; and only the boundary opts in.
 ;;
-;; THIS WAS FILED AS SCAFFOLDING WITH A DEFINED END, AND THAT PREDICTION WAS
-;; WRONG — rf2-bcub MEASURED IT. The note here used to say that once
-;; `edn-inspector-popup` became a Fresco body "or goes", [[fresco-inspector]]
-;; would be the only lane and this parameter would go with its default.
-;; `edn-inspector-popup` HAS now gone (rf2-bcub: zero mounts tree-wide), and
-;; the parameter and its Reagent default STAY, because what depends on them
-;; is the NODE LANE rather than that var: ELEVEN `popup-chrome` tests call it
+;; The parameter and its Reagent default are not scaffolding: the NODE
+;; LANE depends on them. The `popup-chrome` tests call it
 ;; without `:inspector` and so render through [[reagent-inspector]], and one
 ;; walks the body asserting a THREE-element fn mount — which is
 ;; `[ei/edn-inspector value opts]`, and which [[fresco-inspector]]'s
 ;; two-element `[ei/edn-inspector-view {…}]` would fail. [[reagent-inspector]]
-;; is load-bearing once more in `edn_inspector_popup_wireup_cljs_test`, where
+;; is load-bearing in `edn_inspector_popup_wireup_cljs_test` too, where
 ;; its head grading `:invalid` is what keeps the boundary row beside it
 ;; non-vacuous. Dropping either makes a live assertion UNWRITABLE, not idle.
 
 (defn reagent-inspector
   "The embedded widget as a REAGENT head — `[ei/edn-inspector value opts]`,
-  the shape this file emitted before rf2-k97c.3 and still the right one
-  under a Reagent parent. `mount-id` is unused: the Reagent head is a
-  form-2 component and mints its own per-mount identity."
+  the right shape under a Reagent parent. `mount-id` is unused: the
+  Reagent head is a form-2 component and mints its own per-mount identity."
   [_mount-id value opts]
   [ei/edn-inspector value opts])
 
@@ -475,7 +468,7 @@
         ;; Capture the surrounding instance frame at render time so the
         ;; deferred close handlers dispatch into it, not a
         ;; `:rf/xray` literal. popup-chrome renders inside the panels'
-        ;; reg-views (and the stack reg-view), so current-frame-id resolves
+        ;; reg-views (and the stack view), so current-frame-id resolves
         ;; through the React-context tier here.
         frame         (rf/current-frame-id)
         close-handler (close-fn mount-id {:on-close on-close} frame)
@@ -526,19 +519,17 @@
        ;; almost certainly already mounts the same value at the
        ;; same path).
        ;;
-       ;; rf2-k97c.3 — CALLED rather than headed, so the lane's head
+       ;; CALLED rather than headed, so the lane's head
        ;; (Reagent `reg-view` or Fresco boundary) is the caller's to
        ;; choose. Both lanes carry the same opts map.
        ;;
-       ;; rf2-y8doi.24 — FORWARD the caller's opts rather than rebuild
-       ;; them. This used to hand the widget a fixed four-key map, so
-       ;; every other opt the caller passed was silently dropped on the
-       ;; floor — `:zoomable?`, `:card?`, `:header`, `:added?`,
-       ;; `:before`. `popup-affordance-button` already forwards the
+       ;; FORWARD the caller's opts rather than rebuild
+       ;; them. A fixed key map would silently drop every other opt the
+       ;; caller passed — `:zoomable?`, `:card?`, `:header`, `:added?`,
+       ;; `:before`. `popup-affordance-button` forwards the
        ;; mount's whole opts map into the open payload, so the opts ARE
-       ;; here; the popup was the only thing discarding them, and a
-       ;; value you popped out precisely because it was cramped lost
-       ;; the affordances the inline mount had.
+       ;; here, and a value you popped out precisely because it was
+       ;; cramped keeps the affordances the inline mount had.
        ;;
        ;; Two keys are deliberately NOT forwarded:
        ;;
@@ -553,16 +544,15 @@
        ;;   was opened from — silently undoing the isolation above.
        ;;
        ;; `:popup-affordance? false` stops a popup offering to open
-       ;; itself in a popup. The button already sets it; asserting it
+       ;; itself in a popup. The button sets it too; asserting it
        ;; here covers the callers that dispatch
        ;; `:rf.xray.edn-inspector-popup/open` directly.
        ;;
-       ;; `:default-expanded-depth` now simply passes through when the
-       ;; caller set one. The old `:or` default of 2 was the defect the
-       ;; item names: the widget's own ceiling is
-       ;; `ei/default-ceiling-depth` (8), so the ROOMY popup
-       ;; auto-expanded less than the cramped inline mount it was
-       ;; opened from.
+       ;; `:default-expanded-depth` passes through when the caller set
+       ;; one and is not defaulted here: the widget's own ceiling is
+       ;; `ei/default-ceiling-depth` (8), and a smaller popup default
+       ;; would make the ROOMY popup auto-expand less than the cramped
+       ;; inline mount it was opened from.
        (inspector mount-id value
                   (-> (or opts {})
                       (dissoc :site-id)
@@ -579,13 +569,12 @@
   — `:stack`, `:entries` and `:positioning`. The empty/non-empty gate is
   the CALLER's, so this never answers nil.
 
-  rf2-k97c.3 — split out of the view when the view became a Fresco
-  boundary, so the stack stays drivable from the node lane without a
-  React commit. A boundary's body may only run inside a React render
-  window (`rf.fresco/sub` REFUSES outside one, naming the query), so
-  calling the view var directly is no longer a way to get hiccup; this
-  is. It is PURE of its arguments — no read, no `subscribe-once`, no
-  fallback arity — which is precisely what the migration removes.
+  Split from the view, which is a Fresco boundary, so the stack is
+  drivable from the node lane without a React commit. A boundary's body
+  may only run inside a React render window (`rf.fresco/sub` REFUSES
+  outside one, naming the query), so calling the view var directly is
+  not a way to get hiccup; this is. It is PURE of its arguments — no
+  read, no `subscribe-once`, no fallback arity.
 
   The embedded widget's head is [[fresco-inspector]] here rather than
   `popup-chrome`'s Reagent default: this tree is what the boundary
@@ -597,7 +586,7 @@
         (map-indexed
           (fn [idx mount-id]
             (let [{:keys [value opts]} (get entries mount-id)]
-              ;; rf2-a38l — KEYED FRAGMENT rather than `with-meta` on
+              ;; KEYED FRAGMENT rather than `with-meta` on
               ;; the vector `popup-chrome` returns. Reagent reads that
               ;; metadata; Fresco's codec takes a literal `:key` from
               ;; an ATTRIBUTE MAP and reads Clojure metadata nowhere,
@@ -618,44 +607,38 @@
 
 (rf.fresco/defview edn-inspector-popup-stack-view
   "Stack view that renders every open popup in z-index order — a FRESCO
-  BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Mounted once at the
+  BOUNDARY, not an `rf/reg-view`. Mounted once at the
   shell's overlay container; each entry's payload is the value + opts
   the caller passed to `:open`.
 
   This view is the entry point for **programmatic** opens — a
   context-menu handler dispatches
   `[:rf.xray.edn-inspector-popup/open mount-id {:value v :opts o}]`
-  and this view picks the entry up and renders it. Since rf2-bcub it is
-  the ONLY entry point: the plain `[edn-inspector-popup v opts]`
-  component that served **inline** opens (a panel controlling the popup
-  imperatively from its own view tree) had no mount anywhere and is gone.
+  and this view picks the entry up and renders it. It is the ONLY
+  entry point: there is no inline `[edn-inspector-popup v opts]`
+  component for a panel to control imperatively from its own view tree.
 
-  ## WHY A BOUNDARY, AND WHAT ACTUALLY MOVED
+  ## WHY A BOUNDARY
 
-  The frame reasoning is UNCHANGED from the `reg-view` this replaced: a
-  boundary reads its frame from the same `re-frame.adapter.context` React
-  context that `rf/frame-provider` writes, so the reads still resolve
+  A boundary reads its frame from the `re-frame.adapter.context` React
+  context that `rf/frame-provider` writes, so the reads resolve
   through the surrounding `:rf/xray` frame, and a plain `defn` here would
-  still raise `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun,
-  EP-0002 having removed the `:rf/default` floor). What changed is the
-  OBSERVER — the reads are `rf.fresco/sub`, recorded by Fresco's own
-  collector rather than by whichever reaction machinery the installed
-  adapter supplies, which is this epic's coupling (3).
+  raise `:rf.error/no-frame-context` (Spec 006 §Plain-fn footgun; there
+  is no `:rf/default` floor). The reads are `rf.fresco/sub`, recorded by
+  Fresco's own collector rather than by whichever reaction machinery the
+  installed adapter supplies.
 
-  ## CLOSED-STATE COST IS NOW WHAT IT ALWAYS CLAIMED TO BE
+  ## CLOSED-STATE COST
 
-  One subscription and a gate. The `reg-view` read all three slots
-  unconditionally and then gated, so its docstring's \"one subscribe + a
-  `when`\" was aspirational; `rf.fresco/sub` records its edge WHERE THE
-  READ HAPPENS, so moving the other two inside the `when` makes a closed
+  One subscription and a gate. `rf.fresco/sub` records its edge WHERE THE
+  READ HAPPENS, so reading the other two inside the `when` makes a closed
   stack hold one edge instead of three. A branch not taken contributes
   none — Fresco's documented behaviour (HD-002), not an accident.
 
   PUBLIC, like `edn-inspector-view` and `resizable-table-view` beside it:
-  this is the head a Fresco parent writes, and the shell's root swap is
-  what will write it. [[edn-inspector-popup-stack]] in front of it is the
-  name the Reagent shell still mounts — see that bridge's docstring for
-  why the two names sit this way round here."
+  this is the head a Fresco parent writes. [[edn-inspector-popup-stack]]
+  in front of it is the name `shell.cljs` calls — see the bridge's
+  section comment for why the two names sit this way round here."
   [_props]
   (let [stack (rf.fresco/sub [stack-slot])]
     (when (seq stack)
@@ -664,11 +647,11 @@
          :entries     (rf.fresco/sub [entries-slot])
          :positioning (rf.fresco/sub [:rf.xray/modal-positioning])}))))
 
-;; ---- the migration bridge (rf2-k97c.3) ----------------------------------
+;; ---- the Reagent-parent bridge ------------------------------------------
 ;;
-;; Since rf2-k97c.3 `shell.cljs`'s tree is a Fresco one and CALLS
+;; `shell.cljs`'s tree is a Fresco one and CALLS
 ;; `(edn-inspector-popup/edn-inspector-popup-stack)`, while the shipped
-;; boundary witness suite still HEADS it from a Reagent parent — which a
+;; boundary witness suite HEADS it from a Reagent parent — which a
 ;; React component cannot be, and which is the crossing this bridge is for.
 ;;
 ;; `rf.fresco/as-component` is Fresco's own outward door for exactly this:
@@ -680,18 +663,15 @@
 ;; sound — the inspected VALUES never cross it; they are read inside the
 ;; boundary and reach the widget as ordinary CLJS.
 ;;
-;; NAMING: the mayor's 2026-09-10 ruling is that a boundary keeps the
-;; NATURAL name and the caller is handed a PUBLIC bridge (#9581). The
-;; constraint that forced #9578's opposite spelling applies HERE and is
-;; why the names sit this way round: `shell.cljs` mounts this var BY NAME
-;; and is fenced to the root-swap slice, so the public name has to go on
-;; the thing that head site already writes. `machine_after_rings.cljs`
-;; records the same fork from the other side.
+;; NAMING: here the BRIDGE carries the natural name and the boundary the
+;; `-view` suffix, because `shell.cljs` calls this var BY NAME, so the
+;; public name goes on the thing that head site writes.
+;; `machine_after_rings.cljs` sits the other way round: its boundary keeps
+;; the natural name and its sole caller takes the bridge.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS (rf2-lect, ruled option 2). The end
-;; this comment used to name has ARRIVED: the shell IS a Fresco tree. The
-;; pair stayed anyway, because a Reagent parent still heads it on purpose
-;; — the shipped boundary witness suite. The chain is `[:>]` ->
+;; NOT SCAFFOLDING — THE PAIR STAYS. The shell IS a Fresco tree, and a
+;; Reagent parent heads the stack on purpose — the shipped boundary
+;; witness suite. The chain is `[:>]` ->
 ;; `as-component` -> [[edn-inspector-popup-stack-view]].
 
 (def ^:private edn-inspector-popup-stack-component
@@ -706,14 +686,13 @@
   "The popup stack's public callable — what `shell.cljs` mounts as a
   hiccup head at the shell root.
 
-  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  It is the bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component
   [[edn-inspector-popup-stack-view]] presents as. The enclosing
   `rf/frame-provider` is what puts `:rf/xray` in React context for it.
 
   The empty/non-empty gate is inside the boundary, so this is always
-  mounted and renders nothing while no popup is open — the same shape a
-  mounted `reg-view` returning nil had.
+  mounted and renders nothing while no popup is open.
 
   Callers wanting the MARKUP as data — the node-lane rows — build it from
   [[popup-stack-tree]] with the slots' values instead; this returns an
