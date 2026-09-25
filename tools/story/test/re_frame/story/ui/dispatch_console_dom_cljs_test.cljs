@@ -1,24 +1,22 @@
 (ns re-frame.story.ui.dispatch-console-dom-cljs-test
-  "Browser-lane half of the Dispatch Console's history persistence
-  (rf2-q9kv5), promoted out of `re-frame.story.ui.dispatch-console-cljs-test`
-  under rf2-r51p.
+  "Browser-lane half of the Dispatch Console's history persistence. The
+  pure and node-lane rows are `re-frame.story.ui.dispatch-console-cljs-test`.
 
-  ## What was wrong, and it was the file's LOCATION rather than its guard
+  ## Why these rows need a `-dom-cljs-test` namespace, not just a guard
 
-  These rows sat inside `(when (browser?) ...)` in a namespace ending
-  `-cljs-test`. `:node-test` selected that namespace and the guard was
-  false there — this repo ships no jsdom, no happy-dom and no DOM shim in
-  any dependency list, so `window.localStorage` is simply absent under
-  Node — while `:browser-test`, whose `:ns-regexp` is
-  `.*-dom-cljs-test$`, never loaded the file at all. They executed in
-  NEITHER lane.
+  Inside `(when (browser?) ...)` in a namespace ending `-cljs-test`, these
+  rows would execute in NEITHER lane. `:node-test` selects that namespace
+  and the guard is false there — this repo ships no jsdom, no happy-dom
+  and no DOM shim in any dependency list, so `window.localStorage` is
+  simply absent under Node — while `:browser-test`, whose `:ns-regexp` is
+  `.*-dom-cljs-test$`, never loads the file at all.
 
   Every row here is a real `.setItem` / `.getItem` round-trip through
   `save-history!` / `load-history!`, read back after the in-memory ratom
   is dropped to simulate a reload. That is real host-storage semantics,
-  which rf2-r51p rules needs a real host rather than a stub.
+  which needs a real host rather than a stub.
 
-  ## THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES
+  ## A GUARD AS WELL, BECAUSE THIS FILE RUNS ON BOTH LANES
 
   `:node-test`'s `cljs-test$` is a bare SUFFIX match that
   `-dom-cljs-test` satisfies exactly as `-cljs-test` does, and
@@ -93,7 +91,7 @@
 (deftest clear-history-drops-storage
   (testing "clear-history! wipes the PERSISTED slot, not just the ratom.
 
-            The node half of this row (ratom emptied) stays in the
+            The node half of this row (ratom emptied) is in the
             sibling; only the storage claim lives here."
     (if-not (browser?)
       (is true skip-msg)
@@ -101,11 +99,11 @@
             entry (rf.story.ui.dispatch-console/build-history-entry
                     :ev/x nil :dispatch 1)]
         (rf.story.ui.dispatch-console/append-history! vid entry)
-        ;; Teeth: the old row asserted `(= [] (load-history! vid))` after
-        ;; the clear, which passes just as happily against a storage that
-        ;; never held anything. Prove the entry WAS persisted first, so
-        ;; the empty read below is evidence that `clear-history!` removed
-        ;; it rather than evidence that nothing ever landed.
+        ;; Teeth: `(= [] (load-history! vid))` after the clear would pass
+        ;; just as happily against a storage that never held anything.
+        ;; Prove the entry WAS persisted first, so the empty read below
+        ;; is evidence that `clear-history!` removed it rather than
+        ;; evidence that nothing ever landed.
         (reset! rf.story.ui.dispatch-console/history-state {})
         (is (= 1 (count (rf.story.ui.dispatch-console/load-history! vid)))
             "precondition: append-history! really did persist the entry")
