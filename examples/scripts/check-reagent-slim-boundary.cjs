@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * `check-reagent-slim-boundary` — STATIC source-boundary gate over the stock
- * Reagent example tree (rf2-hekqp; follow-up to rf2-2bih3 / PR #3137).
+ * Reagent example tree.
  *
  * The boundary this guards
  * ------------------------
@@ -17,10 +17,9 @@
  * The slim substrate's whole point is bundle isolation: its user-facing import
  * point is `reagent2.*` (not stock `reagent.*`) and it wires
  * `re-frame.adapter.reagent-slim`. That wiring belongs ONLY to the
- * examples/substrates/reagent_slim/ tree. rf2-2bih3 (PR #3137) confirmed the stock tree
- * was clean of slim wiring at the time, but shipped WITHOUT a guard keeping it
- * so — a future edit could silently re-cross the boundary (e.g. a copy/paste
- * from the slim counter), and no automated gate would catch it.
+ * examples/substrates/reagent_slim/ tree. Without a guard an edit could
+ * silently cross the boundary (e.g. a copy/paste from the slim counter), and
+ * no other automated gate would catch it.
  *
  * What this gate does (STATIC — no browser, no Playwright, no compile)
  * -------------------------------------------------------------------
@@ -36,11 +35,11 @@
  * `re-frame.adapter.reagent-slim` rule, and `reagent.core` does NOT match the
  * `reagent2.*` rule.
  *
- * This is NOT a per-example *.spec.cjs — examples/ stays test-free (rf2-8cevm).
+ * This is NOT a per-example *.spec.cjs — examples/ is test-free.
  * It is a pure static scanner, wired into the always-run `test:scripts`
  * gate (see implementation/scripts/check-reagent-slim-boundary.test.cjs) so a
- * slim require leaking into the stock-Reagent examples turns that gate RED in CI without
- * a new .github workflow job.
+ * slim require leaking into the stock-Reagent examples turns that gate RED in CI with
+ * no workflow job of its own.
  *
  * CLI
  * ---
@@ -61,7 +60,7 @@ const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const EXAMPLES_ROOT = path.join(REPO_ROOT, 'examples');
-// The stock-Reagent examples this gate guards now live across the concept
+// The stock-Reagent examples this gate guards live across the concept
 // buckets (core/, capabilities/, patterns/, real-apps/). The slim example is
 // the legitimate home of slim wiring and lives under
 // examples/substrates/reagent_slim/ — part of the substrates/ tree, which this
@@ -118,11 +117,11 @@ const SOURCE_EXTS = new Set(['.clj', '.cljs', '.cljc']);
 // EACH declared root is enumerated INDEPENDENTLY (its own readdirSync), so a
 // single missing / unreadable root — core, capabilities, patterns, or real-apps —
 // is surfaced by name via assertWalkComplete rather than being erased into a
-// smaller-but-above-floor array (the old catch-and-continue let a forbidden slim
-// import in an unwalked root stay invisible — rf2-3fc89f.31). Every declared
+// smaller-but-above-floor array (catching and continuing would let a forbidden
+// slim import in an unwalked root stay invisible). Every declared
 // root is therefore proven readable independently of the aggregate count floor,
-// which is now only a SECONDARY drift ratchet. The `node_modules` / `.shadow-cljs`
-// prunes stay a POLICY skip (not an error). `io` is injectable so a test can
+// which is only a SECONDARY drift ratchet. The `node_modules` / `.shadow-cljs`
+// prunes are a POLICY skip (not an error). `io` is injectable so a test can
 // drive a deterministic missing-root / unreadable-subtree failure.
 function listStockReagentSources(roots = STOCK_REAGENT_ROOTS, { io = fs } = {}) {
   const { items, walkErrors } = walkDir({
@@ -203,9 +202,9 @@ module.exports = {
 if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
   // Fail-closed enumeration: a missing/unreadable declared root (or any nested
-  // directory) throws by name (rf2-3fc89f.31), so every declared root is proven
+  // directory) throws by name, so every declared root is proven
   // readable independently — the walk itself is the completeness proof. The
-  // count floor below is now a SECONDARY drift ratchet only. Surface the
+  // count floor below is a SECONDARY drift ratchet only. Surface the
   // actionable discovery-failure message cleanly (no JS stack) and exit non-zero.
   let files;
   try {
