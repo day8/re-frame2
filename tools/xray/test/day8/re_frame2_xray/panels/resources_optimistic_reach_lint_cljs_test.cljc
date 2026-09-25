@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.resources-optimistic-reach-lint-cljs-test
-  "The optimistic-reach lint (rf2-ynkzj) over a REAL settled mutation.
+  "The optimistic-reach lint over a REAL settled mutation.
 
   An optimistic patch can reach a cache key that the mutation's settlement
   never does: `:optimistic-tags` patches the viewer's feed, but `:invalidates`
@@ -20,7 +20,7 @@
     1. FORGETS THE FEED — one refetch (the list), the feed stays on the
        optimistic guess, and the lint names exactly that instance and the feed.
     2. COMPLETE — the feed descriptor is present, two refetches, no row.
-    3. WRONG SCOPE — the feed descriptor names the wrong scope: the existing
+    3. WRONG SCOPE — the feed descriptor names the wrong scope: the
        scope-mismatch warning fires and this lint adds no second row.
 
   JVM-portable (`.cljc`): the tools/xray JVM corpus and the consolidated
@@ -237,7 +237,7 @@
         (settle-favourite! :m/favorite-wrong-scope
                            (favourite-plan {:scope :rf.scope/global :tags #{[:feed]}}))
         warning (tags-of :rf.warning/mutation-scope-mismatch trace)]
-    (testing "the existing write-side tripwire fires for the wrong scope"
+    (testing "the write-side tripwire fires for the wrong scope"
       (is (some? warning))
       (is (= :m/favorite-wrong-scope (:mutation warning)))
       (is (= session (:other-scope warning))))
