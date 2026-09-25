@@ -1,19 +1,19 @@
 (ns re-frame.flows-reg-flow-destroy-linearization-test
-  "JVM regression coverage for the `reg-flow` vs concurrent `destroy-frame!`
-  LINEARIZATION race (rf2-3fc89f.6).
+  "JVM coverage for the `reg-flow` vs concurrent `destroy-frame!`
+  LINEARIZATION race.
 
-  THE BUG. `reg-flow`'s pre-serializer liveness check was a check-then-act: it
-  proved `(frame/frame frame-id)` live, THEN entered
-  `frame/call-serialized-with-drain!` and unconditionally installed the flow
-  row. `call-serialized-with-drain!` deliberately runs its thunk in-line for an
-  ABSENT frame (so `clear-flow` stays idempotent and mid-drain effects run
-  reentrantly), and `destroy-frame!` did not serialize its teardown with that
-  helper — so a `destroy-frame!` completing in the window between the liveness
-  check and the winning registry mutation left a GHOST flow row keyed by the
+  THE HAZARD. `call-serialized-with-drain!` deliberately runs its thunk in-line
+  for an ABSENT frame (so `clear-flow` stays idempotent and mid-drain effects
+  run reentrantly). Were `reg-flow`'s pre-serializer liveness check a bare
+  check-then-act — proving `(frame/frame frame-id)` live, THEN entering
+  `frame/call-serialized-with-drain!` and unconditionally installing the flow
+  row — and `destroy-frame!` not serialized with that helper, a
+  `destroy-frame!` completing in the window between the liveness check and the
+  winning registry mutation would leave a GHOST flow row keyed by the
   destroyed frame-id. A later `make-frame` reusing that id could inherit and
   evaluate the stale flow.
 
-  THE FIX (ONE frame-owned lifecycle gate — the frame's `:drain-lock`).
+  THE GATE (ONE frame-owned lifecycle gate — the frame's `:drain-lock`).
 
     - `reg-flow` PINS the incarnation it selected (`frame/frame-incarnation-
       token`, the frame record's `:drain-lock` atom — fresh per first-time
@@ -80,7 +80,7 @@
       (:rf.error/id (ex-data e)))))
 
 ;; ---------------------------------------------------------------------------
-;; Criterion 1 + 2 — the exact bead interleaving: destroy completes in the
+;; The racing interleaving: destroy completes in the
 ;; window AFTER reg-flow's liveness decision and BEFORE its registry mutation.
 ;; The registration must REFUSE and leave NO ghost row on ANY surface.
 ;; ---------------------------------------------------------------------------
@@ -94,10 +94,10 @@
       (rf/make-frame {:id :fc/scratch :doc "scratch frame destroyed mid-registration"})
       ;; Park reg-flow right AFTER its outer pin (the FIRST frame-incarnation-token
       ;; read, which captures the still-live token) but BEFORE it enters the
-      ;; serialized mutation — exactly the bead's "after the liveness decision,
+      ;; serialized mutation — exactly the "after the liveness decision,
       ;; before the registry mutation" window. reg-flow holds NO lock while
       ;; parked, so destroy on the main thread proceeds freely. NB: `destroy-frame!`
-      ;; itself now routes its liveness flip through `call-serialized-with-drain!`,
+      ;; itself routes its liveness flip through `call-serialized-with-drain!`,
       ;; so the pause seam MUST NOT be that helper (it would park destroy too);
       ;; `frame-incarnation-token` is called only by reg-flow here.
       (with-redefs [rf.frame/frame-incarnation-token
@@ -115,7 +115,7 @@
                                      :output-path [:out]
                                      ;; Declare an output classification so the
                                      ;; elision-declaration surface is exercised
-                                     ;; too (criterion 2).
+                                     ;; too.
                                      :sensitive   [[:out]]}
                                     (fn [n] (* 2 (or n 0))))))]
           (await! entered "reg-flow parked past its pin")
@@ -137,10 +137,10 @@
       (is (empty? (rf.elision/sensitive-declarations :fc/scratch))
           "no flow-sourced :sensitive declaration survives")
       (is (nil? (rf.registrar/lookup :flow :ghost))
-          "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
+          "the :flow registrar slot is RESERVED-but-empty throughout (single-store)"))))
 
 ;; ---------------------------------------------------------------------------
-;; Criterion 3 — a stale reg-flow pinned to the OLD incarnation must NOT write
+;; A stale reg-flow pinned to the OLD incarnation must NOT write
 ;; into a NEW same-id incarnation's slot; the re-registered frame inherits
 ;; nothing.
 ;; ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@
       (rf/reg-event :fc/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       ;; Park reg-flow right after its outer pin (captures incarnation X's token)
       ;; via `frame-incarnation-token` — NOT `call-serialized-with-drain!`, which
-      ;; `destroy-frame!` now also uses.
+      ;; `destroy-frame!` also uses.
       (with-redefs [rf.frame/frame-incarnation-token
                     (fn [id]
                       (let [tok (orig-token id)]
@@ -192,7 +192,7 @@
           "the stale flow did not run — no [:out] write in the new incarnation's app-db"))))
 
 ;; ---------------------------------------------------------------------------
-;; Criterion 4 (reg wins) — when reg-flow holds the gate, destroy WAITS; after
+;; Reg wins — when reg-flow holds the gate, destroy WAITS; after
 ;; reg-flow commits its row, the destroy's teardown removes it. reg-flow itself
 ;; succeeds (does not throw).
 ;; ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@
                                     (fn [n] (* 2 (or n 0))))))]
           (await! in-thunk "reg-flow inside thunk holding the lock")
           ;; Destroy on this thread must BLOCK on the drain-lock reg-flow holds
-          ;; (its mark-frame-destroyed! now takes the same lock). Prove it can't
+          ;; (its mark-frame-destroyed! takes the same lock). Prove it can't
           ;; complete while reg-flow is parked.
           (let [destroyer (future (rf.frame/destroy-frame! :fc/winner))]
             (is (= ::still-blocked (deref destroyer 1000 ::still-blocked))
@@ -240,7 +240,7 @@
           "no leftover flow row — the destroy's flows-teardown removed the committed row"))))
 
 ;; ---------------------------------------------------------------------------
-;; Criterion 4 (contention) — hammer both orderings on real threads. The
+;; Contention — hammer both orderings on real threads. The
 ;; invariant after every (reg-flow || destroy) pair: no ghost row, no deadlock,
 ;; no flake.
 ;; ---------------------------------------------------------------------------
@@ -277,15 +277,15 @@
             (str "no ghost flow row for the destroyed frame on iteration " i))))))
 
 ;; ---------------------------------------------------------------------------
-;; Criterion 5 — same-frame IN-DRAIN reg-flow reentrancy is preserved: a
-;; reg-flow issued from inside an event handler (reentrantly, mid-drain) still
-;; registers and materialises. The added revalidation passes reentrantly (the
+;; Same-frame IN-DRAIN reg-flow reentrancy: a
+;; reg-flow issued from inside an event handler (reentrantly, mid-drain)
+;; registers and materialises. The revalidation passes reentrantly (the
 ;; drainer thread sees the SAME live incarnation token) and the serializer runs
 ;; the thunk directly rather than self-deadlocking on the lock.
 ;; ---------------------------------------------------------------------------
 
 (deftest in-drain-reg-flow-reentrancy-preserved
-  (testing "a mid-drain reg-flow still registers and materialises (no deadlock, revalidation passes)"
+  (testing "a mid-drain reg-flow registers and materialises (no deadlock, revalidation passes)"
     (rf/make-frame {:id :fc/live :doc "in-drain reg-flow frame"})
     (rf/reg-event :fc/seed (fn [_ _] {:db {:n 5}}))
     ;; A handler that, mid-drain, registers a NEW flow reentrantly.
@@ -303,8 +303,8 @@
         "the mid-drain flow materialised its output (3 × 5 = 15) on the same drain")))
 
 ;; ---------------------------------------------------------------------------
-;; clear-flow stays IDEMPOTENT for an absent frame (an explicit gate acceptance
-;; point) — the fix must not turn a no-op clear into a throw.
+;; clear-flow stays IDEMPOTENT for an absent frame — the lifecycle gate must
+;; not turn a no-op clear into a throw.
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-idempotent-for-absent-frame
@@ -319,13 +319,13 @@
 ;; ---------------------------------------------------------------------------
 ;; Reentrancy: `destroy-frame!` invoked from INSIDE a cold
 ;; `call-serialized-with-drain!` critical section on the SAME thread must run
-;; the (now-serialized) liveness flip DIRECTLY, not spin-CAS forever on the
-;; drain-lock its own thread already holds. This is the epoch-suite deadlock
-;; regression: `perform-restore!` runs a Tool-Pair write under
+;; the serialized liveness flip DIRECTLY, not spin-CAS forever on the
+;; drain-lock its own thread already holds. This is the epoch-suite shape:
+;; `perform-restore!` runs a Tool-Pair write under
 ;; `call-serialized-with-drain!` (holds the drain-lock, sets NO `:in-drain?`),
 ;; and its write body can call `destroy-frame!` on the same frame (the
 ;; post-liveness-teardown window). The `:serialized-holder` thread marker makes
-;; that nested destroy reentrant; without it the JVM epoch suite hung.
+;; that nested destroy reentrant; without it the JVM epoch suite would hang.
 ;; ---------------------------------------------------------------------------
 
 (deftest destroy-from-within-a-cold-serialized-write-does-not-deadlock
@@ -340,7 +340,7 @@
                      (rf.frame/destroy-frame! :fc/nested)
                      :ok)))]
       (is (= :ok (deref done 30000 ::timeout))
-          "the nested destroy ran reentrantly and the serialized write returned (pre-fix: deadlock)"))
+          "the nested destroy ran reentrantly and the serialized write returned (no deadlock)"))
     (is (nil? (rf.frame/frame :fc/nested))
         "the frame was destroyed")
     (is (not (contains? (rf.flows/flows-snapshot) :fc/nested))
