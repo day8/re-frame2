@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * `dev` — cross-platform testbed dev launcher (rf2-5dphw).
+ * `dev` — cross-platform testbed dev launcher.
  *
  * Spawns `shadow-cljs watch <build...>` with the CLI args you name, and
  * prints each watched build's served URL on start.
@@ -10,10 +10,9 @@
  * handler, which resolves a classpath-relative source coordinate against
  * the live source paths at request time — so the chips land on the real
  * file of whatever clone is running the watch, at any path, on any OS,
- * with nothing to configure (rf2-3xq1v; the launcher used to export an
- * absolute repo root for a browser-side resolver that no longer exists).
+ * with nothing to configure.
  *
- * EXPLICIT BUILD-IDS ONLY (rf2-trlj7). The launcher takes one or more
+ * EXPLICIT BUILD-IDS ONLY. The launcher takes one or more
  * explicit shadow-cljs build-ids — name the build(s) you actually want to
  * watch:
  *
@@ -22,14 +21,14 @@
  *   npm run dev -- :examples/standard-epochs :examples/routes-epochs
  *   npm run dev -- :examples/login-form --verbose
  *
- * Group aliases (`xray` / `stories` / `epochs` / `all`) used to expand a
- * single short name to a whole surface, but a group fired SIX builds into
- * a single `shadow-cljs watch`, and six concurrent Closure externs-
- * prebuilds raced on the shared externs.zip — intermittent build failures
- * ("Exception parsing externs.zip", "this.contents is null"). They were
- * removed (Mike-ruled 2026-06-03): name explicit build-ids so nobody
- * accidentally fires a mass-parallel compile. Watch a handful at once by
- * listing them — keep the count modest to avoid the race.
+ * There are no group aliases (`xray` / `stories` / `epochs` / `all`)
+ * expanding a single short name to a whole surface: a group would fire many
+ * builds into a single `shadow-cljs watch`, and concurrent Closure
+ * externs-prebuilds race on the shared externs.zip — intermittent build
+ * failures ("Exception parsing externs.zip", "this.contents is null"). Name
+ * explicit build-ids so nobody accidentally fires a mass-parallel compile.
+ * Watch a handful at once by listing them — keep the count modest to avoid
+ * the race.
  *
  * Build-ids and extra `shadow-cljs watch` flags pass through unchanged.
  * Duplicate build-ids are de-duplicated while PRESERVING first-seen order
@@ -37,16 +36,16 @@
  * Non-build flags (anything not starting with `:`) pass through in place
  * and are never treated as builds for URL printing.
  *
- * Launching `npx shadow-cljs watch ...` directly still works, and behaves
+ * Launching `npx shadow-cljs watch ...` directly also works, and behaves
  * identically apart from the URL printing.
  *
- * SPAWN FORM (rf2-1ggkn). We resolve shadow-cljs's own JS entry-point
+ * SPAWN FORM. We resolve shadow-cljs's own JS entry-point
  * (`shadow-cljs/cli/runner.js`) and spawn it under THIS `node` binary
  * (`process.execPath`) with `shell:false` — never `npx`/`npx.cmd` under a
  * shell. Two reasons:
  *   1. Passing an args array with `shell:true` triggers Node's DEP0190
- *      DeprecationWarning (args are concatenated, not escaped) — so the
- *      old `shell: isWin` form printed a warning on every Windows launch.
+ *      DeprecationWarning (args are concatenated, not escaped) — so a
+ *      `shell: isWin` form would print a warning on every Windows launch.
  *   2. Simply dropping `shell:true` is NOT a fix on Windows: spawning a
  *      `.cmd` (npx.cmd) without a shell throws `EINVAL` since the
  *      CVE-2024-27980 mitigation. Resolving the runner's `.js` and
@@ -54,7 +53,7 @@
  *      warning-clean, shell-free form works on Windows AND POSIX.
  * The colon-prefixed build-ids and any extra `shadow-cljs watch` flags are
  * just elements of the args array — they pass through unescaped and
- * unconcatenated, exactly as before.
+ * unconcatenated.
  *
  * URL DISCOVERABILITY. For every watched build that has a `:dev-http`
  * port, the launcher prints `http://localhost:<port>/` on start (Story
@@ -71,7 +70,7 @@ const { spawn } = require('child_process');
 const { IMPL_ROOT } = require('./_path-policy.cjs');
 
 // ===========================================================================
-// OWNED-RANGE PORT MAP (rf2-ot0lv). Single source of truth for who-owns-
+// OWNED-RANGE PORT MAP. Single source of truth for who-owns-
 // which-localhost-band across the dev/test tooling, so the next port
 // addition can't silently collide. Each owner keeps to its band; adding a
 // surface picks the next free slot WITHIN the owner's band.
@@ -85,11 +84,7 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           8033 machine-epochs
 //                                           8034 edn-inspector
 //                                           8035 managed-http
-//                                         8036 was the freehand-views deck
-//                                         and is FREE again (rf2-puwyb): the
-//                                         deck, its build id and its :dev-http
-//                                         entry all went with the Freehand
-//                                         retirement (rf2-0yp7w).
+//                                         8036 is FREE.
 //   8037        xray-feature-gate         NOT a :dev-http port, and the one
 //                                         reserved slot in the Xray run above:
 //                                         PREFERRED_PORT in implementation/
@@ -110,15 +105,15 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           8042 counter-with-stories
 //                                           8043 login-form
 //                                           8044 linearlite (plain example)
-//                                           8045 fresco-counter (rf2-kttom)
+//                                           8045 fresco-counter
 //                                         The next free slot in this band is
 //                                         8046.
 //   805x        examples orchestrator     DEFAULT_PORT in
 //                                           examples/scripts/examples-port.cjs
 //                                           (8050; pre-flight + forward scan).
 //   806x        Top-level testbeds        :dev-http (shadow-cljs.edn):
-//                                           8060 tenant-switcher (rf2-5e22yc)
-//                                           8061 fresco HMR (rf2-vsgq) —
+//                                           8060 tenant-switcher
+//                                           8061 fresco HMR —
 //                                         the one :dev-http port a GATE
 //                                         depends on, because the contract it
 //                                         witnesses is what a real hot reload
@@ -132,9 +127,8 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 // Every band whose Notes above read `:dev-http (shadow-cljs.edn)` is
 // mirrored entry-for-entry in the DEV_HTTP map below (READ-only —
 // shadow-cljs.edn is hot-zone). DEV_HTTP is the roster, and is deliberately
-// NOT re-listed here: a transcribed band list goes stale in silence, which
-// this sentence proved by naming 8030-8035 / 8040-8045 / 8765 while the live
-// 806x band sat in the table right above it (rf2-puwyb). A band whose Notes
+// NOT re-listed here: a transcribed band list goes stale in silence. A band
+// whose Notes
 // read otherwise is not in DEV_HTTP — the 805x examples band is the test-
 // orchestrator's http-server default, resolved at runtime, so it lives only
 // here + in examples-port.cjs.
@@ -157,23 +151,23 @@ const DEV_HTTP = {
   ':examples/login-with-stories': { port: 8041, story: true },
   ':examples/counter-with-stories': { port: 8042, story: true },
   ':examples/login-form': { port: 8043, story: true },
-  // rf2-tideyl — Linearlite optimistic-board example (804x band, plain
+  // Linearlite optimistic-board example (804x band, plain
   // build: no Story shell, so no `story: true`).
   ':examples/linearlite': { port: 8044 },
-  // rf2-kttom — the Fresco Story testbed (804x band). Story shell at
+  // The Fresco Story testbed (804x band). Story shell at
   // /#/stories, so `story: true` like its Reagent siblings; the difference
   // is in the deck, which declares `:substrates #{:fresco}` and paints
   // through the host-registered `:fresco` render fn.
   ':examples/fresco-counter': { port: 8045, story: true },
-  // rf2-5e22yc — top-level tenant-switcher testbed (806x band).
+  // Top-level tenant-switcher testbed (806x band).
   ':testbeds/tenant-switcher': { port: 8060 },
-  // rf2-vsgq — the Fresco HMR testbed (806x band). Unlike every other
+  // The Fresco HMR testbed (806x band). Unlike every other
   // entry here this build is not primarily a developer surface: it is the
   // one build in the repo driven by a GATE that needs `watch`, because the
   // contract it witnesses is what a real hot reload does to a live page
   // (scripts/serve-and-run-fresco-hmr-testbed.cjs). `npx shadow-cljs watch
-  // :fresco/hmr-testbed` still opens it by hand at the URL below, which is
-  // how the witnesses were developed.
+  // :fresco/hmr-testbed` also opens it by hand at the URL below, which is
+  // how the witnesses are developed.
   ':fresco/hmr-testbed': { port: 8061 },
 };
 
@@ -236,8 +230,8 @@ if (require.main === module) {
   const builds = resolveArgs(rawArgs);
 
   // Resolve shadow-cljs's own JS entry-point and run it under THIS node
-  // binary (shell-free, .cmd-free) — see SPAWN FORM in the header comment
-  // (rf2-1ggkn). Resolution is rooted at IMPL_ROOT so it finds the
+  // binary (shell-free, .cmd-free) — see SPAWN FORM in the header comment.
+  // Resolution is rooted at IMPL_ROOT so it finds the
   // implementation's local install regardless of this launcher's own cwd.
   let shadowRunner;
   try {
@@ -255,7 +249,7 @@ if (require.main === module) {
   console.log(`> shadow-cljs watch ${builds.join(' ')}`);
 
   // Print the served URL(s) for every watched build that has a dev-http
-  // port — answers "how do I see them" up front (rf2-jooy3).
+  // port — answers "how do I see them" up front.
   const urlLines = [];
   for (const build of builds) {
     for (const url of urlsForBuild(build)) {
