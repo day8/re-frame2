@@ -13,8 +13,7 @@
   `re-frame2-pair-mcp.tools.sensitive` — a rename or signature change
   surfaces as a failing test rather than a silent contract drift. The
   trace-event predicate is `re-frame.mcp-base.sensitive/sensitive-event?`,
-  called directly since rf2-kuky.8 retired this namespace's one-line alias
-  over it.
+  called directly — this namespace carries no alias over it.
 
   The `wire-pipeline-epoch-vector-*` deftests at the foot drive the
   `:epoch-vector` arm of `run-wire-pipeline` — the SAME call site
@@ -48,8 +47,7 @@
   ;; boolean into the wrong shape. A fail-OPEN posture would silently
   ;; leak sensitive events on such drift. re-frame2-pair-mcp calls
   ;; `re-frame.mcp-base.sensitive/sensitive-event?` directly so the
-  ;; contract is byte-identical across the MCP triplet (rf2-kuky.8
-  ;; retired the one-line alias this file used to reach it through).
+  ;; contract is byte-identical across the MCP triplet.
   (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the contract-drift warning
     (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
     (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
@@ -376,7 +374,7 @@
 ;; Integration through the :epoch-vector wire pipeline.
 ;;
 ;; `run-wire-pipeline` with `:kind :epoch-vector` is the EXACT call site
-;; `trace-window` (trace_window.cljs:138) and `watch-epochs`
+;; `trace-window` (trace_window.cljs) and `watch-epochs`
 ;; (watch_epochs.cljs) route projected epoch vectors through before the
 ;; payload crosses the MCP boundary. Its first step is `strip-sensitive`,
 ;; so the `sensitive-epoch?` predicate governs the tool response path —
