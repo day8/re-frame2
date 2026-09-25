@@ -1,10 +1,10 @@
 (ns re-frame.story.determinism
-  "The determinism gate — `assert-deterministic` (NewTestStory rf2-5x1wt.8,
-  spec/017-Testing-Story.md §Determinism gate). It answers ONE question:
+  "The determinism gate — `assert-deterministic` (spec/017-Testing-Story.md
+  §Determinism gate). It answers ONE question:
   does this artifact / event program produce the SAME run every time?
 
   A normalized variant PLAN is refused with `:cannot-run :reason
-  :determinism-plan-target` (rf2-3x7nj.31.2): an artifact built from a plan
+  :determinism-plan-target`: an artifact built from a plan
   is a program projection that drops the plan's decorator stubs, `:db-seed`,
   frame-setup, loaders, terminal expectations and extra plays, so replaying
   it judges a run the variant never makes. A variant's determinism is judged
@@ -17,13 +17,12 @@
   FRESH frame N times yields the SAME canonical run-result every time —
   same final app-db, same effects, same assertion verdicts, same epoch
   causal spine — after the per-RUN bookkeeping is normalized away. The
-  normalization is `re-frame.story.fingerprint/canonicalize` (rf2-5x1wt.3,
-  EXTENDED by this bead): a fresh frame restarts the process-global epoch /
+  normalization is `re-frame.story.fingerprint/canonicalize`: a fresh
+  frame restarts the process-global epoch /
   dispatch / trace-id counters and allocates a new `:rf.test.replay/*`
   frame id, so two semantically-equal runs stamp DIFFERENT epoch ids,
-  dispatch ids, trace ids, frame ids, and wall-clock times. The `.7`
-  replay worker deliberately left stripping those per-frame stamps in the
-  tape to THIS gate; `canonicalize` now strips them (reserved keys
+  dispatch ids, trace ids, frame ids, and wall-clock times. Replay leaves
+  those per-frame stamps in the tape; `canonicalize` strips them (reserved keys
   recursively, the common `:id` / `:time` / `:frame` stamps structurally on
   their trace-event / epoch-record carriers), so two semantically-equal
   runs canonicalize `=` and `run-hash` equal.
@@ -53,14 +52,14 @@
   program contains a bare `[:wait ms]` cannot be given a stable verdict, so
   `assert-deterministic` REFUSES it with `:cannot-run` (the spec's third
   result state) rather than running it flakily. This is the same refusal
-  vocabulary the settled-boundary uses (rf2-5x1wt.2).
+  vocabulary the settled-boundary uses.
 
   ## Pure / JVM-testable
 
   This ns splits the PURE verdict logic (`wait-steps`, `has-wall-clock-wait?`,
   `cannot-run-wait-refusal`, `plan-target?`, `plan-target-refusal`,
   `compare-runs`) from the impure REPLAY driver
-  (`assert-deterministic`, which calls `.7`'s `replay-run-artifact` N times
+  (`assert-deterministic`, which calls `replay-run-artifact` N times
   into fresh frames). The pure half runs under `clojure -M:test` with no
   runtime; the replay half settles synchronously to a fixed point via the
   headless flush-hooks, so the JVM gate exercises the full gate."
@@ -87,20 +86,20 @@
     :fx-overrides]` become the artifact `:fx-decisions`, its `[:world
     :network]` per-route reply map becomes the artifact `:network` slot (so
     replay re-installs the managed-request stubs the `:fx-decisions` redirect
-    points at — rf2-tymyh, spec/017 §The network surface), and it gets a
+    points at — spec/017 §The network surface), and it gets a
     `:source`. For a plan of a REGISTERED variant `[:world :setup]` stays out
     of the program, as it does from a Test-mode capture: promotion `:extends`
     that variant by default, which supplies its setup and world exactly once
-    (rf2-hyheo), and `[:source :args]` records the args the plan resolved,
-    so promotion can hand that setup the run inputs it was compiled with
-    (rf2-30a8k). A plan with no registered variant has nothing to extend, so
+    and `[:source :args]` records the args the plan resolved,
+    so promotion can hand that setup the run inputs it was compiled with.
+    A plan with no registered variant has nothing to extend, so
     its setup folds in first, the setup-first fold `make-run-artifact`
     applies. It is NOT a reproduction of the variant's run: decorator stubs
     (`:rf.story/force-fx-stub`), `:db-seed`, frame-setup decorators, loaders,
     interceptor overrides, the plan's `:expect` (terminal `:assertions` /
     `:checks`) and every play in `[:world :scripts]` after the primary one are
     not carried. That is why the determinism gate and the golden family refuse
-    a plan (rf2-3x7nj.31.2);
+    a plan;
   - any other map carrying `:setup` / `:script` / `:event-program` — folded
     by `make-run-artifact` directly.
 
@@ -118,11 +117,11 @@
     ;; primary script under :script, fx decisions under [:world :frame
     ;; :fx-overrides], the per-route HTTP reply map under [:world :network].
     ;; The script is the event program; setup folds in first only when no
-    ;; registered variant can supply it through :extends (rf2-hyheo). Carry
+    ;; registered variant can supply it through :extends. Carry
     ;; the network routes so replay re-installs the managed-request stubs.
     ;; For a registered variant the source also records the args the plan
     ;; resolved, run inputs included, which the setup :extends supplies was
-    ;; compiled with (rf2-30a8k).
+    ;; compiled with.
     (and (map? target) (contains? target :world))
     (let [registered? (rf.story.registrar/registered? :variant (:variant/id target))
           args        (get-in target [:world :args])]
@@ -173,7 +172,7 @@
                 "deterministic, queue/state-based settle).")})
 
 ;; ===========================================================================
-;; THE PLAN-TARGET REFUSAL  (pure — rf2-3x7nj.31.2)
+;; THE PLAN-TARGET REFUSAL  (pure)
 ;; ===========================================================================
 
 (defn plan-target?
@@ -186,7 +185,7 @@
 
 (defn plan-target-refusal
   "Build the `:cannot-run` refusal for a normalized variant `plan` handed to
-  the gate (spec §Determinism gate, rf2-3x7nj.31.2). Pure data → data.
+  the gate (spec §Determinism gate). Pure data → data.
 
   The gate replays an artifact, and `->artifact` of a plan is a program
   projection, not the variant's run: it drops the decorator stubs, the
@@ -247,11 +246,11 @@
         ;; hashing the canon directly via `hash-canonical` avoids the second
         ;; pass while staying byte-identical: `run-hash` ≡ `(hash-canonical
         ;; (canonicalize (slice r)))` by definition of `canonical-hash`
-        ;; (rf2-lvrqa — `canonical-form` is no longer idempotent under the
+        ;; (`canonical-form` is not idempotent under the
         ;; type-tags, so the canon MUST NOT be re-canonicalized; `hash-canonical`
         ;; hashes an already-canonical value with no second pass). The two-stage
         ;; contract — the hash is the cheap discriminator, canonical `=` is the
-        ;; authority — is preserved exactly.
+        ;; authority — holds exactly.
         canons   (mapv (comp rf.story.fingerprint/canonicalize slice) results)
         hashes   (mapv rf.story.fingerprint/hash-canonical canons)
         base     (first canons)
@@ -303,7 +302,7 @@
   Returns one of three statuses (never a flaky verdict):
 
   - `{:status :cannot-run :reason :determinism-plan-target …}` — the target
-    is a normalized variant plan (rf2-3x7nj.31.2). Pure pre-flight: no
+    is a normalized variant plan. Pure pre-flight: no
     replay runs, so no effect fires.
   - `{:status :cannot-run :reason :determinism-wall-clock-wait …}` — the
     program contains a bare `[:wait ms]`; the gate REFUSES rather than run
@@ -313,7 +312,7 @@
   - `{:status :non-deterministic :divergence {…} :runs N :hashes [...]
       :results [run-result …]}` — at least one replay diverged; the
     divergence names the first differing run + both run-hashes, and the
-    per-run results are returned for a semantic diff (rf2-5x1wt.9).
+    per-run results are returned for a semantic diff.
 
   Each replay runs into its OWN fresh `:rf.test.replay/*` frame (torn down
   before return), so the gate observes no cross-run app-db leak — the same
