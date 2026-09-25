@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.coverage-matrix-metadata-test
   "Guard against silent drift in the Xray feature-matrix coverage
-  METADATA (rf2-dwn5yn, finding 2).
+  METADATA.
 
   ## The problem
 
@@ -14,14 +14,10 @@
        claims to exercise. `serve-and-run-xray-feature-gate.cjs` dedupes
        these into a `Covered N matrix rows` summary line.
 
-  Until this guard landed, `coveredRows` was free-form text: nothing
-  checked the names against the spec, so a scenario could claim
-  `'Epoch Panel'` while the matrix row is `'Event Detail'`, or claim a
-  row that no longer exists, and the gate would happily print a
-  MISLEADING `Covered N matrix rows` count (the audit finding: the
-  scenarios already drifted to `Epoch Panel` / `Effects` / `Flows` /
-  `Pop-out, Docking, …` against spec rows `Event Detail` /
-  `Pop-out and Default True-Inline Embedding`).
+  `coveredRows` is free-form text: unchecked against the spec, a
+  scenario could claim `'Epoch Panel'` while the matrix row is
+  `'Event Detail'`, or claim a row that does not exist, and the gate
+  would happily print a MISLEADING `Covered N matrix rows` count.
 
   ## What this guard enforces
 
@@ -38,9 +34,9 @@
     every entry names a real catalogued id, so ADDING or REMOVING a
     bug-class fails until the mapping is updated (017 §Vision).
   - Every TEST FILE the spec cites as an owning gate exists under
-    `tools/xray/test/` (rf2-y8doi.28). The names guard above never looked
-    at the files, so the Owning-gate column went on citing ten suites that
-    did not exist, one of them under a \"Failure blocks merge\" promise.
+    `tools/xray/test/`. The names guard above never looks at the
+    files, so without this check the Owning-gate column could cite
+    suites that do not exist.
 
   Runs in the fast `clojure -M:test` JVM gate (it slurps committed
   markdown + the scenarios CJS at test time — same posture as the
@@ -151,30 +147,27 @@
   the scenario) is reconciled. Keep this set MINIMAL — a new
   `coveredRows` name should prefer the exact spec-row name.
 
-    - `Epoch Panel` → `Event Detail`: the Epoch panel superseded the
-      retired Event/Handler panel (rf2-5gl5r); the matrix row kept its
+    - `Epoch Panel` → `Event Detail`: the Epoch panel is the
+      event-detail surface; the matrix row carries the
       user-facing `Event Detail` name (it names the user-visible
       contract, not the impl panel id).
-    - `Effects` → `Event Detail`: the dedicated Effects panel was
-      dropped (rf2-xy4yb); fx/effects rows fold into the Epoch panel's
+    - `Effects` → `Event Detail`: there is no dedicated Effects panel;
+      fx/effects rows fold into the Epoch panel's
       numbered cascade, whose matrix row is `Event Detail`.
-    - `Flows` → `Event Detail`: the dedicated Flows panel was dropped
-      (rf2-xy4yb); a flow that fired is a FLOW step of the Epoch panel's
+    - `Flows` → `Event Detail`: there is no dedicated Flows panel;
+      a flow that fired is a FLOW step of the Epoch panel's
       numbered cascade, sitting right after HANDLER and before FX
-      (`016-Auxiliary-Panels.md` §Flows content, rf2-lo37i; `021` §9.1
+      (`016-Auxiliary-Panels.md` §Flows content; `021` §9.1
       owns the step roster and `018-Event-Spine.md` §5.1 entry 6 the
       content contract). The Epoch panel's matrix row is `Event Detail`,
       so this is the same fold as `Effects` above, one step along the
-      same cascade. Until rf2-onaxh this alias read
-      `Views (incl. nested subs)`, which credited a tab no flow evidence
-      opens — 016 §Flows content records that the glyph an earlier draft
-      promised on flow-output subs in the Views tab was NEVER BUILT, so
-      there is no flows surface in Views to cover.
+      same cascade. Mapping it to `Views (incl. nested subs)` would
+      credit a tab no flow evidence opens: there is no flows surface in
+      Views to cover (016 §Flows content).
     - `Pop-out, Docking, and Inline Embedding` →
-      `Pop-out and Default True-Inline Embedding`: the `dock!`/`undock!`
-      body-padding surface was removed (rf2-sbfb7); the matrix row was
-      renamed to drop 'Docking', but the scenario label still carries
-      the old phrasing."
+      `Pop-out and Default True-Inline Embedding`: there is no
+      `dock!`/`undock!` body-padding surface, so the matrix row does
+      not say 'Docking', while the scenario label does."
   {"Epoch Panel"                              "Event Detail"
    "Effects"                                  "Event Detail"
    "Flows"                                    "Event Detail"
@@ -291,39 +284,14 @@
       ;; Regression pin: the current canonical covered-row set. Update
       ;; this number deliberately when a scenario starts/stops covering a
       ;; row — that is the signal the gate's summary changed.
-      ;; 12 -> 13 (rf2-6pohj): the `freehand-views populated Views roster`
-      ;; scenario was the first to claim `Mounted view reads (Freehand tool
-      ;; door, rf2-7gth0)`. That row was `covered` by the node lane alone
-      ;; until the Freehand-hosted deck gave the browser gate a surface with
-      ;; real connected occurrences to project.
-      ;; 13 -> 12 (rf2-l86mm): and back again, one substrate later. The Views
-      ;; panel's Mounted Views + Declared View Sites sections retired with
-      ;; Freehand rather than migrating to Fresco (spec/021 §3.4.3), so the
-      ;; scenario, its sole-claimed matrix row, and the row's retention
-      ;; sibling all went with them. The count returning to its pre-rf2-6pohj
-      ;; value is the honest reading: the gate covers one fewer row because
-      ;; there is one fewer row to cover.
-      ;; 12 -> 12 (rf2-y8doi.28): the two-frame isolation scenario stopped
-      ;; claiming `App-DB Diff` and `Flows`. It reads each frame's app-db
-      ;; through `page.evaluate` and opens neither tab, so it is a compile-
-      ;; and-boot smoke, not coverage of either row. The count holds because
-      ;; both rows keep another claimant: the shell handoff sweep claims
-      ;; `App-DB Diff` and the deterministic-exceptions scenario `Flows`.
-      ;; 12 -> 11 (rf2-onaxh): the `Flows` alias was remapped from
-      ;; `Views (incl. nested subs)` to `Event Detail`, and `Views` lost its
-      ;; ONLY claimant with it. `Flows` is claimed by exactly one scenario —
-      ;; deterministic-exceptions — which declares `panels: ['epoch',
-      ;; 'trace']` and never opens the Views tab, so canonicalising its claim
-      ;; onto `Views` reported a panel covered without opening it. Flows are
-      ;; the Epoch cascade's FLOW step (016 §Flows content), whose row is
-      ;; `Event Detail` — which that scenario already claims via `Epoch
-      ;; Panel`, so the remap is a pure loss of the false credit and adds no
-      ;; row. This is a false ATTRIBUTION, not missing Views coverage: no
-      ;; scenario claims that row by name, and the one scenario that DOES
-      ;; open the Views tab (the shell handoff sweep, via the computed
-      ;; `PANEL_HANDOFFS` roster) deliberately does not claim it — a
-      ;; root-testid handoff is chrome wiring, not the row's contract, which
-      ;; demands the graph's changed/unchanged sub and view nodes.
+      ;; The two-frame isolation scenario claims no row: it reads each
+      ;; frame's app-db through `page.evaluate` and opens no tab, so it is
+      ;; a compile-and-boot smoke, not coverage.
+      ;; No scenario claims `Views (incl. nested subs)`: the one scenario
+      ;; that opens the Views tab (the shell handoff sweep, via the
+      ;; computed `PANEL_HANDOFFS` roster) deliberately does not claim it —
+      ;; a root-testid handoff is chrome wiring, not the row's contract,
+      ;; which demands the graph's changed/unchanged sub and view nodes.
       (is (= 11 (count canonical))
           (str "canonical covered-row count drifted to " (count canonical)
                " (" (str/join ", " (sort canonical)) ") — update this pin "
