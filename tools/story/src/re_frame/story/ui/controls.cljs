@@ -3,7 +3,7 @@
   `003-Render-Shell.md` §Shell lifecycle + `001-Authoring.md`
   §Controls — schema-derived, zero-`:argtypes`. The per-variant mode
   picker lives on the chrome-level toolbar
-  (`re-frame.story.ui.toolbar`); the controls panel keeps args /
+  (`re-frame.story.ui.toolbar`); the controls panel carries args /
   decorator sections only.
 
   ## Args derivation
@@ -157,11 +157,11 @@
   - `:keyword`            → `{:widget :text :coerce :keyword}` (the
                             `:coerce` tag is what makes the promised
                             keyword-coercion-at-edit actually happen —
-                            `render-text` reads it, rf2-i6v4)
+                            `render-text` reads it)
   - `[:enum a b c]`       → `{:widget :select :options [a b c]}`
   - `[:int {:min 8}]` etc. → the same widget as the bare keyword — a
                             scalar carrying Malli properties is still that
-                            scalar (rf2-3x7nj.28.4)
+                            scalar
   - `[:maybe X]`          → the widget for `X`
 
   Collection shapes:
@@ -190,7 +190,7 @@
 
     (vector? schema-fragment)
     (case (schema-op schema-fragment)
-      ;; rf2-3x7nj.28.4 — `[:int {:min 8 :max 64}]` is still an :int.
+      ;; `[:int {:min 8 :max 64}]` is still an :int.
       (:string :int :double :number :boolean :keyword)
       (infer-widget (schema-op schema-fragment))
       :maybe  (infer-widget (first (schema-children schema-fragment)))
@@ -274,7 +274,7 @@
   `eff-args` arg threads the caller's already-resolved args through so
   we don't re-run `rf.story.args/resolve-args` (which itself deep-merges five
   precedence layers and re-reads the registrar). The single-arity
-  overload preserves the canonical surface for tests + non-render
+  overload is the canonical surface for tests + non-render
   callers; the render path threads its own resolution.
 
   SCHEMA SOURCE: the auto-derivation schema is
@@ -381,13 +381,12 @@
   Threads the arg-key's current 'saved' value (active-modes applied,
   cell-overrides excluded — the SAME baseline `args-editor` resolves for
   its diff-from-saved affordance) as `set-cell-override`'s vivification
-  seed (rf2-mzfh9c). Without it, editing ONE entry of a not-yet-
+  seed. Without it, editing ONE entry of a not-yet-
   overridden `:vector`/`:set` arg would have no way to know its sibling
   entries and would silently drop them; the seed is read fresh on every
   write (cheap — a registry-backed deep-merge, no validation) rather than
-  threaded through the render tree, so this stays a one-line change at
-  the single choke point every widget's on-change already funnels
-  through."
+  threaded through the render tree, at the single choke point every
+  widget's on-change funnels through."
   [variant-id path value]
   (let [shell (rf.story.ui.state/get-state)
         base  (get (rf.story.plan/effective-args variant-id {:active-modes (:active-modes shell)})
@@ -415,11 +414,11 @@
   table). `widget-spec` with no `:coerce` coerces to the string
   unchanged, so this is safe for a plain text field.
 
-  rf2-i6v4: `infer-widget` promises keyword coercion at edit for a
-  `:keyword` schema, but the inferred editor wrote a plain string — so an
-  ordinary keyword argument could not round-trip through its own
-  generated control, and the written `\"loading\"` failed the very schema
-  that produced the widget."
+  `infer-widget` promises keyword coercion at edit for a `:keyword`
+  schema; writing the plain string instead would mean an ordinary keyword
+  argument could not round-trip through its own generated control, and
+  the written `\"loading\"` would fail the very schema that produced the
+  widget."
   [variant-id path widget-spec]
   (fn [e]
     (on-change-at-path variant-id path
@@ -432,7 +431,7 @@
   option as its token; this reverses that projection so the override
   carries the original `:large` / `3` rather than `\":large\"` / `\"3\"`.
 
-  The same token round-trip the View-State form's select already
+  The same token round-trip the View-State form's select
   performs (`rf.story.ui.view-state/field-widget`) — one idiom, not two.
 
   Returns a single-element vector `[option]` on a hit and nil on a miss —
@@ -491,14 +490,14 @@
                                             (read-event-checked e)))}])
 
 (defn- render-select [variant-id path value {:keys [options]}]
-  ;; rf2-i6v4 — the DOM can only carry a STRING as an <option value>, so
+  ;; The DOM can only carry a STRING as an <option value>, so
   ;; the chosen token is mapped back to the source option before it is
-  ;; written. Writing the raw string instead (as this did) meant that
+  ;; written. Writing the raw string instead would mean that
   ;; picking `:large` from a widget the `[:enum :small :large]` schema
-  ;; GENERATED stored `":large"`, which then failed that same schema and
-  ;; never exercised the view's keyword branch; a numeric enum went the
-  ;; same way. The sibling `render-radio` already writes the source
-  ;; option, so the two now agree.
+  ;; GENERATED stores `":large"`, which then fails that same schema and
+  ;; never exercises the view's keyword branch; a numeric enum goes the
+  ;; same way. The sibling `render-radio` writes the source
+  ;; option too, so the two agree.
   [:select {:value      (str value)
             :style      (:input styles)
             :aria-label (path-label path)
@@ -714,14 +713,13 @@
   long). The sync mutation is done inside `swap-state!` so concurrent
   renders observe a single authoritative state.
 
-  Per rf2-c8kfy — row keys MUST be a stable per-entry identity so
+  Row keys MUST be a stable per-entry identity so
   React reconciles surviving rows in place across a mid-list delete
-  (no focus / cursor leakage onto neighbouring rows). The previous
-  positional-key shape (`^{:key i}`) caused the focused input's DOM
-  node to be reused with the next entry's value after a delete; for
-  `:set`-kind repeaters every keystroke triggered a re-sort and the
-  bug fired on every keystroke. Same class of fix as rf2-kgn0c /
-  rf2-z4fza / rf2-c56hr."
+  (no focus / cursor leakage onto neighbouring rows). A positional key
+  (`^{:key i}`) would reuse the focused input's DOM node with the next
+  entry's value after a delete; for `:set`-kind repeaters every
+  keystroke triggers a re-sort, so that would happen on every
+  keystroke."
   [variant-id path n]
   (let [path-v (vec path)
         ids    (rf.story.ui.state/repeater-row-ids (rf.story.ui.state/get-state) variant-id path-v)]
@@ -737,7 +735,7 @@
   + an inline `[-]` button. A trailing `[+]` button appends a fresh
   default-valued entry.
 
-  Per rf2-c8kfy each row is keyed on a stable monotonic id from the
+  Each row is keyed on a stable monotonic id from the
   shell-state's `:rf.story/repeater-row-ids` slot — NOT on its index.
   Add allocates a fresh id; delete drops the id at position i in
   lockstep with the entry. This pins React-key stability across a
@@ -795,11 +793,11 @@
   fixed; no `[+]` / `[-]` affordance. Each position's path is
   `[... i]`.
 
-  Per rf2-c8kfy each row is keyed `t:<i>`. Tuple arity is fixed
+  Each row is keyed `t:<i>`. Tuple arity is fixed
   (no add / delete affordance) so positional identity IS stable
-  identity — the namespacing prefix is for discipline-consistency
-  with the repeater fix and the rf2-kgn0c sibling family, not to
-  fix a focus-leak (tuple slots can't reshuffle)."
+  identity — the namespacing prefix is for consistency with the
+  repeater's row keys, not to prevent a focus-leak (tuple slots can't
+  reshuffle)."
   [variant-id path value {:keys [positions]} opts]
   (let [entries (vector-coerce value)]
     [:div
@@ -831,7 +829,7 @@
     ;; state); calling them directly keeps the disclosure header +
     ;; nested rows in one inline tree (testable + no extra reactive
     ;; boundary). Scalars stay a `[scalar-widget ...]` component vector
-    ;; — the existing nested-dispatch test asserts on that shape.
+    ;; — the nested-dispatch test asserts on that shape.
     :group    (group-widget    variant-id path value widget-spec opts)
     :repeater (repeater-widget variant-id path value widget-spec opts)
     :tuple    (tuple-widget    variant-id path value widget-spec opts)
@@ -920,9 +918,9 @@
   `rf.story.args/resolve-args` and walks every key, rendering a widget per the
   inferred argtype. Top-level keys render as flat rows; collection
   argtypes (`:map` / `:vector` / `:set` / `:tuple`) recurse into nested
-  rows (rf2-agshe).
+  rows.
 
-  Per rf2-ba86n.5 this is a Form-2 component: the outer closure holds the
+  This is a Form-2 component: the outer closure holds the
   `:expanded` ratom — a SET of expanded nested-control paths — so
   summarise-before-expand state is component-local ephemeral UI state,
   NOT `:cell-overrides` / shell-state (controls must not become hidden
@@ -936,7 +934,7 @@
   - keeps args a control surface, not a fidelity rung — every value
     here is an explicit view input.
 
-  FLAT-PANEL CAP (rf2-ba86n.18 / C2): a panel whose top-level arg count
+  FLAT-PANEL CAP (C2): a panel whose top-level arg count
   exceeds `rf.story.budgets/controls-flat-row-cap` (60) renders the first `cap` rows
   and a `+N more` expander rather than flooding the panel (spec/018 §10 —
   cap or page; fail by summarizing, not flooding). The reveal flag is the
@@ -948,11 +946,11 @@
   still counts ALL violations (capped or not — the honest 'N args block
   proof' signal is never paged away).
 
-  HOT PATH (rf2-wb4y3): every keystroke in a control row writes through
+  HOT PATH: every keystroke in a control row writes through
   `:cell-overrides`, the shell-state ratom re-renders this component,
   which re-runs the whole derivation. We resolve args ONCE here and
   thread the result into `resolve-argtypes` — without the thread the
-  resolution ran twice (once here, once inside `resolve-argtypes`'s
+  resolution would run twice (once here, once inside `resolve-argtypes`'s
   fallback-inference branch). Same precedence chain, no duplicated work.
   The saved-baseline resolution adds one more pass; it is cheap (a five-
   layer deep-merge over registry reads, no validation)."
@@ -986,7 +984,7 @@
          (validation-banner (count viols))
          (if (empty? eff-args)
            [:div {:style (:empty styles)} "no args resolved"]
-           ;; rf2-ba86n.18 / C2 — flat-panel row cap. Bound the sorted
+           ;; C2 — flat-panel row cap. Bound the sorted
            ;; top-level rows at `controls-flat-row-cap` (60) with a
            ;; `+N more` expander rather than flooding the panel. The reveal
            ;; flag rides the component-local `expanded` ratom under the
@@ -1035,16 +1033,15 @@
                                    rf.story.ui.state/clear-cell-overrides variant-id))}
             "reset overrides"])]))))
 
-;; rf2-xi9zk: the controls-panel `mode-picker` is **superseded** by the
-;; chrome-level toolbar (`re-frame.story.ui.toolbar`). Modes are
-;; chrome-wide now — not a per-variant controls section — so a chrome-
-;; level surface is the right home. The controls panel keeps args /
-;; decorator sections only.
+;; There is no controls-panel mode picker: modes are chrome-wide — not a
+;; per-variant controls section — so they live on the chrome-level
+;; toolbar (`re-frame.story.ui.toolbar`). The controls panel carries
+;; args / decorator sections only.
 
 (defn decorator-list
   "Show the variant's resolved decorator stack as a read-only list.
 
-  Per rf2-4t5u: the resolved stack can carry the SAME decorator id more
+  The resolved stack can carry the SAME decorator id more
   than once — e.g. a story-level decorator and a variant-level
   decorator may share an id, and `resolve-decorators` concats the
   `:hiccup` / `:frame-setup` / `:fx-override` packs without
@@ -1053,7 +1050,7 @@
   tuple rather than the bare id."
   [variant-id]
   (let [shell (deref rf.story.ui.state/shell-state-atom)
-        ;; rf2-eyrpr — thread the per-run opts into `resolve-decorators` so
+        ;; Thread the per-run opts into `resolve-decorators` so
         ;; the plan recompile substitutes `[:arg]` keys resolvable only
         ;; through a mode / cell layer (mirrors the args panel's resolve).
         pack  (rf.story.decorators/resolve-decorators
@@ -1073,23 +1070,23 @@
 
 (defn panel
   "The full controls panel — args editor + decorator list + save-as-variant
-  action. Per rf2-xi9zk the per-variant mode-picker moved to the
+  action. The mode picker lives on the
   chrome-level toolbar (`re-frame.story.ui.toolbar`); the controls panel
-  keeps args / decorator sections only.
+  carries args / decorator sections only.
 
-  rf2-one3t: the 'save as new variant' button captures the live canvas
+  The 'save as new variant' button captures the live canvas
   state (effective args after the five-layer precedence chain) and
   surfaces an EDN `(reg-variant ...)` form in a review-then-commit
   modal — the SB9 story-from-UI parity affordance (per
   spec/005-SOTA-Features §Save current canvas state as variant).
 
-  rf2-ba86n.12: the 'add expectations…' button authors EXPECTATIONS onto
+  The 'add expectations…' button authors EXPECTATIONS onto
   the story (app-db / sub / DOM / schema / a11y), shows the runner cost /
   `:cannot-run` BEFORE save, and emits an `:assertions` reg-variant form.
   DISTINCT from save-current-state (state authoring) and failure promotion
   (a captured artifact) — spec/021 §S5.
 
-  rf2-ba86n.7: the View-State section (`rf.story.ui.view-state/view-state-section`)
+  The View-State section (`rf.story.ui.view-state/view-state-section`)
   sits BELOW the args editor — the orthogonal fidelity-ladder channel
   (the three labelled rungs + source/provenance + the honesty guardrail
   + the upgrade path). Args are an explicit CONTROL channel (above), NOT
