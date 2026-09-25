@@ -1,14 +1,12 @@
 (ns day8.re-frame2-xray.panels.fresco-causal-native-island-dom-cljs-test
-  "THE CAUSAL SLICE OVER A SUBJECT PAST THE FENCE (rf2-t2d3).
+  "THE CAUSAL SLICE OVER A SUBJECT PAST THE FENCE.
 
   `fresco_causal_cljs_test` mounts interpreted Fresco and nothing else:
   `rf.fresco/defview` boundaries reading `rf.fresco/sub`. Every link it evidences, and
   every link it labels `:host-opaque`, would read exactly the same on a
-  repository with no native tier in it — which is what CHECKPOINT 3
-  (`rf2-hic-038`, row 7) named when it scored the row's deciding
-  evidence, *one causal trace with an opaque foreign subtree*, unmet.
-  This namespace supplies the subject that was missing, and then says
-  plainly what having it does and does not prove.
+  repository with no native tier in it, so it cannot show *one causal
+  trace with an opaque foreign subtree*. This namespace supplies that
+  subject, and then says plainly what having it does and does not prove.
 
   ## The three rows, and the order they have to be read in
 
@@ -20,8 +18,9 @@
 
   ## Why the third row is the one that matters
 
-  The bead asked for *a control distinguishing opaque-because-foreign
-  from opaque-because-React-owns-paint*. There is none to build, and the
+  The natural thing to want is *a control distinguishing
+  opaque-because-foreign from opaque-because-React-owns-paint*. There is
+  none to build, and the
   reason is structural rather than unfinished: **the projection holds no
   tree**. `causal/slice` is a pure function of four evidence envelopes and
   a trace window, and not one of them carries a node, a child, an element
@@ -32,7 +31,8 @@
   `causal/link-host` reads only the static `causal/host-opaque-links`
   roster: links 5, 6 and 7 are constants.
 
-  That makes the honest reading of row 7's phrase the narrow one. Xray
+  That makes the honest reading of *an opaque foreign subtree* the narrow
+  one. Xray
   names and times the boundary and observes the island's reads — those
   are witnessed below, over a genuine raw-React island. What it does NOT
   do is report an opacity that is ABOUT a foreign subtree, and the third
@@ -151,8 +151,8 @@
    [:> Foreign]])
 
 (rf.fresco/defview interpreted-boundary
-  "The arm with no native tier anywhere under it — the subject the landed
-  causal slice already has, mounted here so the third row can compare
+  "The arm with no native tier anywhere under it — the kind of subject
+  `fresco_causal_cljs_test` mounts, here so the third row can compare
   against it on ONE runtime rather than across two files."
   [_]
   [:div.interpreted [:i.plain (str (rf.fresco/sub [::plain]))]])
@@ -368,8 +368,8 @@
                       (is (false? (:complete? s)))
                       (is (= :uncorrelated (:reason (:loss s)))))))
 
-                (testing "the advisor NAMES and TIMES the island — row 7's own two
-                          verbs, over a subject past the fence"
+                (testing "the advisor NAMES and TIMES the island, over a subject
+                          past the fence"
                   (let [adv (advisor/advise e (advisor/sub-timing w))
                         row (first (filter #(= ik (get-in % [:boundary :key]))
                                            (:rows adv)))]
@@ -465,12 +465,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest host-opacity-does-not-mean-a-foreign-subtree-was-crossed
-  ;; The control the bead asked for, and its answer is a refusal. Two
+  ;; The crossing control, and its answer is a refusal. Two
   ;; slices on ONE runtime: one over a boundary whose subtree crosses the
   ;; fence twice, one over a boundary with no native tier under it at all.
   ;; If `:host-opaque` carried anything about a crossing, links 5-7 would
   ;; differ. They are identical, field for field — so the phrase "opaque
-  ;; foreign subtree" cannot be read off this output, and a checklist row
+  ;; foreign subtree" cannot be read off this output, and anything
   ;; deciding on it is deciding on something the projection never computes.
   (async done
     (if-not (rf.fresco.impl.mount/browser?)
@@ -497,7 +497,7 @@
                   (is (= (host-links crossing) (host-links plain))
                       (str "`:host-opaque` means React owns commit and paint for "
                            "ANY boundary. It does not mean a foreign subtree was "
-                           "crossed, and it never has — a native tier absent from "
+                           "crossed — a native tier absent from "
                            "the repository entirely would produce these same three "
                            "links")))
 
