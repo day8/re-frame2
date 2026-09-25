@@ -1,6 +1,5 @@
 (ns re-frame.api-manifest.cljs-manifest-probe-cljs-test
-  "CLJS-side public-var enumeration probe for the API manifest (rf2-2mtte;
-  follow-on to the rf2-3nbl5.2 keystone).
+  "CLJS-side public-var enumeration probe for the API manifest.
 
   The JVM manifest generator (`re-frame.api-manifest.gen`) runtime-verifies
   every JVM-loadable public namespace via `ns-publics`. The Reagent / UIx
@@ -19,7 +18,7 @@
     entire public surface IS the documented adapter API (spec/API.md
     §UIx adapter), so BOTH directions are checked (a var added
     without a row, or a row with no live var, → RED).
-  - `re-frame.fresco` (rf2-phm7g) — fully-rowed, and the one covered
+  - `re-frame.fresco` — fully-rowed, and the first covered
     namespace that is NOT CLJS-only. The door is a SPLIT-HOST `.cljc`:
     its `#?(:clj …)` arm is three authoring macros the JVM generator
     introspects and rows under `:classification`, and its `#?(:cljs …)`
@@ -30,7 +29,7 @@
     the probe holds the whole door to full completeness. This is the
     case `:jvm-only-classification` mirrors from the other side, and
     the reason that key needs no entry here.
-  - `re-frame.story` (rf2-i6kh post-merge audit) — fully-rowed, and the
+  - `re-frame.story` — fully-rowed, and the
     SECOND split-host `.cljc` door: the same shape as Fresco at
     product-façade scale. Its `#?(:clj …)` arm is the nine `reg-*`
     macros and its `.cljc` body ~107 fns, all JVM-introspected and rowed
@@ -40,7 +39,7 @@
     macros are `:require-macros`-referred by the door's own `:cljs` arm,
     so all of it lands on ONE live analyzer surface and `reconcile-rows`
     carries both row sets.
-  - `day8.re-frame2-xray.core` (rf2-ar67) — fully-rowed, and the ONLY
+  - `day8.re-frame2-xray.core` — fully-rowed, and the ONLY
     Xray namespace held to completeness. It is the Xray FAÇADE, the third
     of the three spec/Conventions.md §Facade policy names, and all
     sixteen of its exports are enumerated by name in
@@ -50,36 +49,37 @@
     live var, → RED). The rest of Xray stays a curated subset for the
     reason below; they are ordinary namespaces that publish a few
     documented vars, not enumerated surfaces.
-  - The rest of the Xray public surface (rf2-jhn46) — curated subsets
+  - The rest of the Xray public surface — curated subsets
     (direction 1
     only). spec/API.md tiers the Xray surfaces `internal-public` (the
     `mount` shell lifecycle + the `panels` `mount-<panel>!` family — the
     supported host-embed surface), `implementation` (the panel-leaf `Panel`
-    reg-views, exported only so the shell composes them — NOT host-facing;
-    rf2-oekz6s) and `tooling` (the `config` published constants, the
+    reg-views, exported only so the shell composes them — NOT host-facing)
+    and `tooling` (the `config` published constants, the
     `open-in-editor` chip), with the rest
     \"otherwise unrowed-internal\". The probe checks EXISTENCE, not tier, so
-    these tier reclassifications do not affect it. So only the rowed
+    these tiers do not affect it. So only the rowed
     vars are verified to still resolve (a var renamed / removed under a
     rowed name → RED); the surfaces are NOT held to full completeness.
     Covered namespaces:
       - `day8.re-frame2-xray.mount` — `mounted?` read.
       - `day8.re-frame2-xray.panels` — the `mount-<panel>!` aggregators.
       - `day8.re-frame2-xray.panels.{epoch-panel,app-db-diff,reactive-panel,
-        trace,machine-inspector,routing}` — the six Dynamic `Panel`s.
+        trace,machine-inspector,routing,resources}` — the seven Dynamic
+        `Panel`s.
       - `day8.re-frame2-xray.static.{flows,interceptors,routes,schemas}.panel`
         — four Static `Panel`s — and `static.machines.panel` (lowercase
         `panel`), the five Static reg-views.
       - `day8.re-frame2-xray.config` — the published layout-host constants.
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
 
-  The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
-  CLJS-only surface the keystone names. It compiles under the pair-MCP
+  The pair-MCP server (`re-frame2-pair-mcp.server`) is a further
+  CLJS-only surface. It compiles under the pair-MCP
   artefact's OWN shadow-cljs build (`tools/re-frame2-pair-mcp`,
   `:server-test`) — it is not on the consolidated `:node-test`
-  classpath and pulls the npm MCP SDK — so its probe rides that build;
+  classpath and pulls the npm MCP SDK — so a probe for it rides that build;
   the shared `cljs-publics` + `cljs-probe` namespaces are the reusable
-  mechanism for it (see rf2-2mtte PR notes)."
+  mechanism for one."
   (:require-macros [re-frame.api-manifest.cljs-publics
                     :refer [emit-ns-publics emit-cljs-only-rows
                             emit-classification-rows]])
@@ -121,7 +121,7 @@
    namespace, enumerated off the analyzer at compile time."
   {"re-frame.adapter.reagent"  (emit-ns-publics re-frame.adapter.reagent)
    "re-frame.adapter.uix"      (emit-ns-publics re-frame.adapter.uix)
-   ;; The Fresco door (rf2-phm7g) — a SPLIT-HOST `.cljc`, and the first
+   ;; The Fresco door — a SPLIT-HOST `.cljc`, and the first
    ;; namespace the probe covers that the JVM generator ALSO owns. The
    ;; analyzer surface here is the door's `#?(:cljs …)` arm (the runtime
    ;; aliases, rowed under `:cljs-only`) plus the three `:require-macros`-
@@ -129,7 +129,7 @@
    ;; JVM introspects them). `reconcile-rows` below carries both sets, so
    ;; the two arms reconcile against one live surface.
    "re-frame.fresco"          (emit-ns-publics re-frame.fresco)
-   ;; The Story FAÇADE (rf2-i6kh post-merge audit) — the SECOND split-host
+   ;; The Story FAÇADE — the SECOND split-host
    ;; `.cljc` door here, and the second namespace the JVM generator also
    ;; owns. Its `#?(:clj …)` arm is the nine `reg-*` macros (self-referred
    ;; by the door's own `:require-macros`, so the analyzer carries them) and
@@ -139,11 +139,11 @@
    ;; analyzer surface, exactly as Fresco's do, so `reconcile-rows` carries
    ;; both and the door is held to full completeness.
    "re-frame.story"            (emit-ns-publics re-frame.story)
-   ;; The Xray FAÇADE (rf2-ar67) — fully-rowed, unlike every other Xray
+   ;; The Xray FAÇADE — fully-rowed, unlike every other Xray
    ;; namespace here. See `fully-rowed` below for why the postures differ.
    "day8.re-frame2-xray.core"  (emit-ns-publics day8.re-frame2-xray.core)
    "day8.re-frame2-xray.mount" (emit-ns-publics day8.re-frame2-xray.mount)
-   ;; The rest of the Xray public surface (rf2-jhn46) — curated subsets
+   ;; The rest of the Xray public surface — curated subsets
    ;; (direction 1).
    "day8.re-frame2-xray.panels"                      (emit-ns-publics day8.re-frame2-xray.panels)
    "day8.re-frame2-xray.panels.epoch-panel"          (emit-ns-publics day8.re-frame2-xray.panels.epoch-panel)
@@ -168,7 +168,7 @@
    documented authoring surface (`re-frame.fresco.impl.*` is where the
    non-surface lives, and the door re-exports none of it).
 
-   `day8.re-frame2-xray.core` joins them (rf2-ar67) on the same test, and
+   `day8.re-frame2-xray.core` belongs on the same test, and
    the test is what separates it from its own siblings: a namespace belongs
    here when its ENTIRE public surface is the documented API, and the Xray
    façade's is — tools/xray/spec/API.md §Wider public surface enumerates all
@@ -180,14 +180,11 @@
    `:justification` and `:action` spec/Conventions.md §Facade policy demands
    at diff time.
 
-   `re-frame.story` joins them last (rf2-i6kh post-merge audit), and it is
-   the case that shows why direction 2 is the half that matters. The Story
-   sweep classified the 116 exports the JVM generator can `ns-publics` and
-   read as complete; five more facade fns live on the door's `#?(:cljs …)`
-   arm, and NOTHING enumerated them — four were silenced by name on a
-   projection allowlist, the fifth was not even documented as a var-row, and
-   every gate stayed green over the omission. Direction 1 could never have
-   found them: there were no rows to go stale. Holding the whole door to
+   `re-frame.story` is the case that shows why direction 2 is the half that
+   matters. The JVM generator can `ns-publics` only the door's JVM-visible
+   exports; five more facade fns live on its `#?(:cljs …)` arm, and
+   direction 1 alone could never find an unrowed one there, because an
+   unrowed export has no row to go stale. Holding the whole door to
    completeness is what makes a sixth CLJS-only export impossible to add
    unclassified. The façade re-exports its sub-namespaces' surfaces rather
    than being a subset of them (`re-frame.story.ui.*` / `.theme.*` are the
@@ -211,7 +208,7 @@
 
 (def fresco-classification-rows
   "The `re-frame.fresco` `:classification` rows — the door's three
-   authoring macros (rf2-phm7g).
+   authoring macros.
 
    Every other namespace this probe covers is CLJS-only, so all its rows
    live under `:cljs-only`. The Fresco door does not: it is a `.cljc` the
@@ -225,7 +222,7 @@
 
 (def story-classification-rows
   "The `re-frame.story` `:classification` rows — the Story façade's
-   JVM-introspected arm (rf2-i6kh post-merge audit).
+   JVM-introspected arm.
 
    The same split-host case as `fresco-classification-rows` above, at the
    scale of a whole product façade rather than three macros. `re-frame.story`
@@ -276,17 +273,17 @@
 
 (deftest runtime-verified-rows-are-actually-covered
   (testing ":runtime-verified? true means the probe really covers that namespace"
-    ;; NON-VACUITY, and generic (rf2-phm7g). Every check above is conditional
+    ;; NON-VACUITY, and generic. Every check above is conditional
     ;; on a namespace being IN `live-publics`: `reconcile` filters its rows to
     ;; the covered set, so deleting a namespace's `emit-ns-publics` entry
     ;; removes its rows from the reconciliation and the probe goes GREEN over a
-    ;; surface it no longer looks at — the exact fail-open shape that left the
-    ;; Fresco door uninventoried on both hosts.
+    ;; surface it no longer looks at — a fail-open shape that would leave the
+    ;; surface uninventoried on both hosts.
     ;;
-    ;; The sidecar already states the intended invariant, in a field: a
+    ;; The sidecar states the intended invariant, in a field: a
     ;; `:cljs-only` row is `:runtime-verified? true` "once the probe covers its
-    ;; namespace". That was a hand-maintained boolean nothing executed. Here it
-    ;; is executed. Uncovered-by-design rows (`re-frame.core`'s reader-
+    ;; namespace". Here that boolean is executed rather than hand-maintained.
+    ;; Uncovered-by-design rows (`re-frame.core`'s reader-
     ;; conditional pair, which the JVM generator owns) carry `false` and are
     ;; unaffected, so this asserts the flag rather than the roster and needs no
     ;; edit when a namespace is legitimately added or dropped.
