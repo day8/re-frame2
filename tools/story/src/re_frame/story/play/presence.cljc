@@ -1,6 +1,6 @@
 (ns re-frame.story.play.presence
   "The presence rung of Story playback — the seam a `[:flush-presence]`
-  script step reaches for (rf2-qwzmt, S4-H).
+  script step reaches for.
 
   ## Why a rung exists
 
@@ -34,21 +34,17 @@
   a host calls `install-presence-flush!` with its own clock advance, from its
   own side of the seam.
 
-  STORY SHIPS NO BRIDGE, and that is a deliberate end state rather than a gap
-  (rf2-5gka). It used to ship an optional one for Freehand — a namespace that
-  required that substrate's presence runtime and installed the verb at its
-  own load time. Freehand is retired (rf2-0yp7w), and no supported substrate
-  publishes a presence-advance verb to write the next bridge against, so
-  there is nothing for one to compose. `install-presence-flush!` is therefore
+  STORY SHIPS NO BRIDGE, and that is a deliberate end state rather than a gap.
+  No supported substrate publishes a presence-advance verb to write a bridge
+  against, so there is nothing for one to compose. `install-presence-flush!` is therefore
   not a fallback for the unusual host; it is the whole integration.
 
   ## No host installed → `:cannot-run`, never a silent skip
 
   With NO host installed the advance DID NOT HAPPEN, and a requested
-  `[:flush-presence]` therefore REFUSES (`:cannot-run`) at the executor
-  (rf2-36biz). The earlier reading — that this should be a no-op mirroring
-  the framework's JVM arm of `flush-presence!` — conflated two different
-  facts. A structural JVM render provably has no lifecycle to advance; an
+  `[:flush-presence]` therefore REFUSES (`:cannot-run`) at the executor.
+  A no-op mirroring the framework's JVM arm of `flush-presence!` would
+  conflate two different facts. A structural JVM render provably has no lifecycle to advance; an
   ABSENT HOOK proves nothing of the kind, because an app can render a real
   retaining boundary and simply omit the install call. Its playback would
   then advance nothing while Story reported a clean verdict.
@@ -92,8 +88,8 @@
   "`x` as a thenable, or nil. CLJS-only, and CONDITIONAL: a host whose advance
   runs inside a synchronous commit boundary (`flushSync`, so the DOM is
   settled by the time it returns) hands back nil, while one built on an
-  awaited React `act` hands back a Promise. Both shapes have shipped, so the
-  seam supports both rather than picking. Duck-typed on `.then` rather than
+  awaited React `act` hands back a Promise. A host may hand back either, so
+  the seam supports both rather than picking. Duck-typed on `.then` rather than
   `instance? js/Promise` so any thenable a host hands back is observed."
   [x]
   #?(:clj  (do x nil)
@@ -111,7 +107,7 @@
     {:status :error    :ms … :error s} — the host verb threw
 
   An `:advanced` result additionally carries `:pending <thenable>` when the
-  host verb returned one and has therefore NOT finished (rf2-iz0t8). A
+  host verb returned one and has therefore NOT finished. A
   Promise-backed host does exactly that, and returning `:advanced` bare would
   report that the advance succeeded while its outcome was still unknown.
   `settle!` is how a caller waits for the answer; `:advanced` on its own means
@@ -139,7 +135,7 @@
 
   SYNCHRONOUS — `k` runs before `settle!` returns — for every advance that is
   already over: the JVM verb, a synchronous custom host, `:no-host`, and a
-  host that threw. Those paths keep their existing behaviour exactly.
+  host that threw.
 
   When `res` carries a `:pending` thenable (the Promise-backed CLJS host),
   `k` runs once it settles:
@@ -149,12 +145,12 @@
                 synchronously throwing host produces, so a rejection needs no
                 new vocabulary downstream
 
-  This is the whole of rf2-iz0t8: before it, `advance!` returned `:advanced`
-  the instant the verb was CALLED, the executor recorded a clean step, and a
-  later rejection (a React `act` failure, `:rf.error/flush-convergence-
-  exceeded`) became an unhandled rejection that could no longer change the
-  recorded result — a presence-bearing play reported `:pass` over a flush that
-  had actually failed.
+  Without it, `advance!` returning `:advanced` the instant the verb is CALLED
+  would let the executor record a clean step, and a later rejection (a React
+  `act` failure, `:rf.error/flush-convergence-exceeded`) would become an
+  unhandled rejection that could no longer change the recorded result — a
+  presence-bearing play would report `:pass` over a flush that had actually
+  failed.
 
   Rejection is observed via the two-argument `.then`, not a chained `.catch`:
   a `.catch` would also swallow — and re-enter `k` for — a throw from `k`
