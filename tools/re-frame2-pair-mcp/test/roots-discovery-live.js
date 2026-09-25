@@ -1,4 +1,4 @@
-// Live verification harness for rf2-3grub.
+// Live verification harness for roots-based nREPL port discovery.
 //
 // Spawns the compiled MCP server as a child process and acts as a
 // minimal MCP client that:
@@ -11,8 +11,8 @@
 //      port it discovered.
 //
 // This is NOT testing against the real Claude Code MCP client — that
-// path is exercised by the mayor having the freshly-built MCP server
-// reload in their Claude Code session. This harness PINS the contract
+// path is exercised by reloading the freshly-built MCP server in a
+// Claude Code session. This harness PINS the contract
 // that the server correctly issues `roots/list` and walks the workspace
 // when the client exposes the capability, independent of the live host.
 //
@@ -29,7 +29,7 @@ const SERVER = path.join(__dirname, '..', 'out', 'server.js');
 // Build a synthetic workspace with one shadow project — a fake
 // `shadow-cljs.edn` + a port file at `.shadow-cljs/nrepl.port` with
 // a port number the test asserts the server picked up.
-const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-3grub-'));
+const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'pair-roots-discovery-'));
 const PROJ     = path.join(TMP_ROOT, 'proj');
 fs.mkdirSync(PROJ, { recursive: true });
 fs.writeFileSync(path.join(PROJ, 'shadow-cljs.edn'), '{}\n');
@@ -43,8 +43,8 @@ function run() {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
     delete env.SHADOW_CLJS_NREPL_PORT;
-    // --http-port 1 so the rf2-umoz2 HTTP probe ALWAYS fails — the only way
-    // to land on the discovered port is via the rf2-3grub roots/list path.
+    // --http-port 1 so the shadow HTTP probe ALWAYS fails — the only way
+    // to land on the discovered port is via the roots/list path.
     const child = spawn(process.execPath, [SERVER, '--http-port', '1'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: os.tmpdir(),
@@ -167,19 +167,19 @@ function run() {
       // the port file, and used it.
       if (!stderrBuf.includes('nREPL port = ' + FAKE_PORT)) {
         throw new Error(
-          'Server did not pick up the rf2-3grub port file at ' + FAKE_PORT +
+          'Server did not pick up the roots-discovered port file at ' + FAKE_PORT +
           '. stderr:\n' + stderrBuf,
         );
       }
       console.log('OK   roots/list → walk → port-file → port=' + FAKE_PORT +
-                  ' (rf2-3grub primary path live-verified)');
+                  ' (roots-discovery primary path live-verified)');
 
       // The actual tool call will surface an isError (no live nREPL at
       // the fake port). We only care that discovery worked.
       console.log('OK   discover-app result envelope:', resp.result?.isError ? 'isError (expected — fake port)' : 'unexpectedly ok');
 
       child.kill();
-      console.log('\nrf2-3grub ROOTS-DISCOVERY LIVE VERIFY GREEN');
+      console.log('\nROOTS-DISCOVERY LIVE VERIFY GREEN');
       resolve();
     })().catch((e) => {
       child.kill();
