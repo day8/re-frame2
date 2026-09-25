@@ -43,7 +43,7 @@ jobs:
             ${{ runner.os }}-expensive-implementation-
             ${{ runner.os }}-cljs-
 
-      # rf2-og36y: same keyed shadow-cljs compile cache as the PR-smoke
+      # Same keyed shadow-cljs compile cache as the PR-smoke
       # gate (.shadow-cljs incremental state + .cpcache classpath cache).
       # Restoring the warm cache here keeps the nightly-full sweep fast
       # AND keeps the cache primed for the PR-smoke gate (which shares the
@@ -62,13 +62,14 @@ jobs:
       - name: npm install
         run: npm ci
 
-      # rf2-gzavkm — core-only PRs no longer queue the all-examples compile.
-      # Keep that transitive safety net unconditional in the nightly/manual
-      # full sweep, before the browser download so compile failures stay cheap.
+      # Core-only PRs do not queue the all-examples compile, so the
+      # nightly/manual full sweep keeps that transitive safety net
+      # unconditional, before the browser download so compile failures stay
+      # cheap.
       - name: Compile every standalone example build (nightly coverage net)
         run: npm run test:examples-compile
 
-      # rf2-169n — cache the Playwright browser binary (see `cljs-browser` in
+      # Cache the Playwright browser binary (see `cljs-browser` in
       # test.yml for the scheme). On a hit the install below still runs
       # `--with-deps`; only the browser download is skipped.
       - name: Cache Playwright browser binary
@@ -82,23 +83,20 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: timeout -k 10 720 npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh" $?
 
-      # rf2-wh5to — the eleven gates below used to be ONE unnamed
-      # `set -euo pipefail` step. That structure is why the
-      # 2026-07-08..07-21 nightly outage cost fourteen red nights and TWO
-      # repair rounds instead of one:
+      # The gates below are separate steps rather than ONE unnamed
+      # `set -euo pipefail` step, because that structure turns one broken
+      # nightly into several repair rounds:
       #
       #   - A `set -e` chain aborts at the FIRST failing gate, so every
-      #     later gate is simply not run. `test:story-feature-load` broke
-      #     on 07-08 and `test:story-static` broke on 07-13, but the
-      #     second was invisible until the first was fixed on 07-21 —
-      #     the 07-21 nightly then went red on a bug that had been live
-      #     for eight nights, costing another day of the alpha clock.
-      #   - The blob was also a single step-level result, so nothing —
-      #     not the Actions UI, not the jobs API — recorded WHICH gate
-      #     failed. Finding that out meant reading a 2000-line step log.
+      #     later gate is simply not run. A second broken gate stays
+      #     invisible until the first is fixed, and the nightly then goes
+      #     red again on a bug that has been live all along.
+      #   - The blob is also a single step-level result, so nothing —
+      #     not the Actions UI, not the jobs API — records WHICH gate
+      #     failed. Finding that out means reading a 2000-line step log.
       #     (`gh run view --log-failed` prints `UNKNOWN STEP` against
       #     every line either way; that is a `gh` limitation, not
-      #     something this restructure fixes.)
+      #     something this structure fixes.)
       #
       # One named step per gate, each `if: ${{ !cancelled() }}`, so a red
       # night names the failing gate in the Actions UI and in
@@ -107,7 +105,7 @@ jobs:
       # builds and tears down its own artefacts and servers), the job
       # still fails if any one of them fails, and nothing here is
       # skipped, retried, softened or allow-listed — only the reporting
-      # changes. The extra CI minutes are spent only on already-red
+      # differs. The extra CI minutes are spent only on already-red
       # nightly runs.
       - name: Gate — browser tests (test:browser)
         if: ${{ !cancelled() }}
@@ -153,21 +151,21 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:story-static
 
-      # rf2-a9oic — a build NAMED for the nightly that was in no nightly.
+      # A build NAMED for the nightly has to run in the nightly.
       # `:node-test-perf-nightly` selects `-emit-nightly-test$`, which the
       # consolidated `:node-test` build's `cljs-test$` does not match, so the
       # two `*_emit_nightly_test.cljs` namespaces (core's
       # performance_emit_nightly_test, and the fresco bench tree's
-      # render_measure_emit_nightly_test) run in this lane ALONE — and the lane
-      # ran nowhere. `check_test_lane_bijection.py` could not see it: the lane
-      # has a selector and the selector reaches files, so the bijection holds.
-      # What nothing asserted until rf2-6ckzl's audit is that the lane is ever
-      # RUN.
+      # render_measure_emit_nightly_test) run in this lane ALONE.
+      # `check_test_lane_bijection.py` cannot tell whether it runs: the lane
+      # has a selector and the selector reaches files, so the bijection holds
+      # either way. What it does not assert is that the lane is ever RUN —
+      # this step is what does.
       #
       # NIGHTLY rather than per-PR on the build's own documented grounds, not
       # on cost: shadow-cljs.edn says these User-Timing assertions are "noisy
       # under per-PR CI runners; nightly cadence reduces false negatives from
-      # runner load". The defect was the missing schedule, not the tier. Cost
+      # runner load". The tier is right; what the lane needs is a schedule. Cost
       # is not the constraint either way — measured cold at 32s (10.8s of
       # compile), 12 tests / 37 assertions green.
       - name: Gate — perf User-Timing emission, nightly lane (test:cljs-perf-emit-nightly)
@@ -175,21 +173,20 @@ jobs:
         run: npm run test:cljs-perf-emit-nightly
 
       # ==================================================================
-      # rf2-mvq7 — THE NARROW-ARMED GATES, given the arm against main they
-      # never had. From the rf2-2uy8 B+ ruling: TESTING.md calls this sweep a
-      # strict superset of the surface-armed PR gates, and for the expensive
-      # browser class it is. It was not for the gates below. Each runs only
-      # when `detect_changed_surfaces` arms it at PR time, and none had any
-      # arm that ever ran against main — so a CROSS-SURFACE regression in one
-      # sits green on main until some PR happens to touch its narrow surface.
-      # That is the rf2-8yyd shape one tier down: the gate is not red and not
-      # green, it is absent, and a rollup cannot tell absent from passing.
+      # THE NARROW-ARMED GATES, given an arm against main. TESTING.md calls
+      # this sweep a strict superset of the surface-armed PR gates, and these
+      # steps are what make that true for the gates below. Each runs at PR
+      # time only when `detect_changed_surfaces` arms it, so without an arm
+      # against main a CROSS-SURFACE regression in one would sit green on main
+      # until some PR happens to touch its narrow surface. That is the
+      # absent-gate shape one tier down: the gate is not red and not green, it
+      # is absent, and a rollup cannot tell absent from passing.
       #
       # Every one of these rides setup this job already does (npm ci under
       # `implementation`, JDK, Clojure CLI, pinned Chromium), which is what
       # makes them cheap enough to be unconditional here. Each is its own
       # NAMED step rather than a block, because `nightly_failure_alert.py`
-      # keys its failure signature on the step name (rf2-wh5to): one newly-red
+      # keys its failure signature on the step name: one newly-red
       # gate must become one new signature in the tracking issue, not a
       # reshuffle of a shared step's.
       #
@@ -225,7 +222,7 @@ jobs:
         run: npm run build:machines-viz-viewer
 
       # ------------------------------------------------------------------
-      # rf2-mvq7 — DECLARED HOLES. These four narrow-armed gates are NOT in
+      # DECLARED HOLES. These four narrow-armed gates are NOT in
       # this sweep, and the omission is a decision rather than an oversight.
       # The idiom is `check_gate_scheduling.py`'s `unscheduled` kind: a hole
       # that is named costs a reader one paragraph; a hole that is not costs
@@ -238,19 +235,16 @@ jobs:
       #                              `:dev-http` origin on 8061, and drives 36
       #                              real reloads per engine. Two more engine
       #                              downloads plus a watch daemon is not the
-      #                              "few minutes of nightly runtime" the
-      #                              rf2-2uy8 ruling budgeted, and the
+      #                              "few minutes of nightly runtime" this
+      #                              sweep budgets, and the
       #                              process-orchestration class is the one
       #                              most prone to false negatives here.
       #                              ACCEPTED EXPOSURE: a cross-surface break
       #                              of the caret/composition or HMR contracts
       #                              sits on main until a PR touches
       #                              `implementation/fresco/**`, the gates'
-      #                              own launchers, or the build-config trio
-      #                              (the `implementation/ui/**` arm named
-      #                              here retired with that tree, rf2-0yp7w.6,
-      #                              which NARROWS the surface that catches
-      #                              such a break). Reconsider when
+      #                              own launchers, or the build-config trio.
+      #                              Reconsider when
       #                              this job needs Firefox or WebKit for some
       #                              other reason and the marginal cost is a
       #                              step rather than an install.
@@ -314,16 +308,16 @@ jobs:
         working-directory: implementation
         run: npm ci
 
-      # rf2-qa5ty — `npm ci` installs the playwright PACKAGE but no browser
-      # BINARY, so this tier's Chromium proof (the emitted dev-page boot
-      # proof) used to exit 2 = skipped and this job reported green having
+      # `npm ci` installs the playwright PACKAGE but no browser BINARY, so
+      # without this step the tier's Chromium proof (the emitted dev-page boot
+      # proof) could not launch, and a skipped proof would report green having
       # loaded no page in any browser.
-      # With a browser provisioned, that skip is now a HARD FAILURE under CI
-      # (`browser-proofs-required?` in `emitted_test_run_test.clj`).
+      # With a browser provisioned, an unlaunchable browser is a HARD FAILURE
+      # under CI (`browser-proofs-required?` in `emitted_test_run_test.clj`).
       # `--with-deps` because the runner carries none of Chromium's shared
       # libraries and nothing earlier in this job installs them.
       #
-      # rf2-169n — and cache that binary (see `cljs-browser` in test.yml for
+      # And cache that binary (see `cljs-browser` in test.yml for
       # the scheme). A hit skips the browser download but NOT `--with-deps`:
       # the apt system libraries are not cacheable, which is exactly why the
       # flag stays.
@@ -376,15 +370,15 @@ jobs:
       # because the shipped preload `:require`s `re-frame.schemas` and
       # `re-frame.machines` directly, per the fixture's own deps.edn).
       #
-      # THE KEY MUST NAME ALL FIVE (rf2-cd0zz). It named NONE of them, so any
-      # artefact dependency bump left the key unchanged: the pre-bump entry
-      # kept being restored and — because an exact key hit suppresses the
-      # save — never refreshed, returning the cold-resolve cost this key
+      # THE KEY MUST NAME ALL FIVE. With a key naming none of them, an
+      # artefact dependency bump leaves the key unchanged: the pre-bump entry
+      # keeps being restored and — because an exact key hit suppresses the
+      # save — never refreshes, returning the cold-resolve cost this key
       # exists to amortise, against an orchestrator that fails the job when
       # its `SHADOW_BOOT_TIMEOUT_MS` watchdog beats the nREPL port file.
       # Same roster as `mcp-conformance-re-frame2-pair` and
-      # `re-frame2-pair-fixture-pure` in test.yml (rf2-nsb3e widened the
-      # latter). The tools/* entries stay — they key the server bundles.
+      # `re-frame2-pair-fixture-pure` in test.yml. The tools/* entries
+      # stay — they key the server bundles.
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -410,14 +404,9 @@ jobs:
         run: npm install
 
       - name: Run MCP client conformance
-        # rf2-mw1c0: previously had `npm run test:xray` here, a stale
-        # leftover from the rf2-3pdp9 Xray rename (PR #2067; from the tool's pre-rename name). The
-        # underlying pre-rename npm test script was deleted a week earlier
-        # in rf2-bu21t (the tool-MCP drop) so the rename mechanically
-        # produced a reference to a script that has never existed. The
-        # Xray MCP server isn't built yet — there is nothing to invoke
-        # here. Remove the line; revisit if/when an Xray MCP conformance
-        # entry-point is added to tools/mcp-conformance/package.json.
+        # There is no Xray MCP conformance entry-point in
+        # tools/mcp-conformance/package.json, so nothing Xray-specific runs
+        # here.
         run: |
           set -euo pipefail
           npm run test:exec-safety
@@ -428,7 +417,7 @@ jobs:
         working-directory: implementation
         run: npm install --no-audit --no-fund
 
-      # rf2-169n — cache the Playwright browser binary (see `cljs-browser` in
+      # Cache the Playwright browser binary (see `cljs-browser` in
       # test.yml for the scheme). Keyed on implementation/package-lock.json
       # because the install step below runs under `implementation`, which is
       # what pins the Playwright `npx` resolves. On a hit the install still
@@ -448,16 +437,16 @@ jobs:
       - name: Run re-frame2-pair live conformance suite (hermetic)
         run: npm run test:re-frame2-pair-live-hermetic-suite
 
-      # rf2-mvq7 — three more narrow-armed gates given an arm against main.
+      # Three more narrow-armed gates given an arm against main.
       # `test:unit` and `test:flag-gates` are `mcp-conformance`'s own Node
       # cluster and the cross-MCP CLI flag-vocabulary gate; `test:stdin-eof-
       # shutdown` is the re-frame2-pair-mcp shutdown regression. All three run
       # only when the classifier arms `mcp_conformance` / `mcp_live` at PR
-      # time, and this sweep already carried their siblings
-      # (`test:re-frame2-pair`, `test:story`, `test:exec-safety`) and not
-      # them. Each is its own NAMED step, not an addition to the conformance
-      # block above, so a newly-red one becomes its own failure signature for
-      # `nightly_failure_alert.py` (rf2-wh5to). Both installs they need are
+      # time, like their siblings in this sweep (`test:re-frame2-pair`,
+      # `test:story`, `test:exec-safety`). Each is its own NAMED step, not an
+      # addition to the conformance block above, so a newly-red one becomes
+      # its own failure signature for `nightly_failure_alert.py`. Both
+      # installs they need are
       # already done by this job.
       - name: Gate — mcp-conformance Node unit-regression cluster (test:unit)
         if: ${{ !cancelled() }}
@@ -474,10 +463,9 @@ jobs:
 
   mcp-live-windows:
     name: MCP live hermetic suite on WINDOWS (two consecutive runs)
-    # rf2-hhw6, closing rf2-kzbf's AC4. THE ONLY WINDOWS RUNNER IN THIS REPO,
+    # THE ONLY WINDOWS RUNNER IN THIS REPO,
     # and it exists because the mechanism it covers cannot execute anywhere
-    # else. `makeShadowTreeReaper` — the owned-descendant teardown rf2-kzbf
-    # shipped, in
+    # else. `makeShadowTreeReaper` — the owned-descendant teardown in
     # `tools/mcp-conformance/scripts/run-re-frame2-pair-live-hermetic-suite.cjs`
     # — opens `if (platform !== 'win32') return inert;`. Every other job that
     # runs the hermetic suite is ubuntu-latest (`mcp-live` above, and
@@ -505,11 +493,11 @@ jobs:
     #
     #   3. BAND. A job added to test.yml moves the per-PR check-count band the
     #      merge criterion measures every open PR against. A nightly job does
-    #      not. This change adds no job key to test.yml.
+    #      not.
     runs-on: windows-latest
     # Two full hermetic runs plus a cold toolchain. The per-step caps below are
     # the real bounds; this is the circuit breaker that keeps a wedged runner
-    # from producing no verdict at all (rf2-rsn1e).
+    # from producing no verdict at all.
     timeout-minutes: 60
     defaults:
       run:
@@ -526,20 +514,20 @@ jobs:
       # NOT `.github/scripts/install-clojure-cli.sh`, and NOT the setup-clojure
       # action. Both exclusions are forced rather than chosen:
       #
-      #   * The shared installer — rf2-e7ja9's single owner of this policy —
+      #   * The shared installer — the single owner of this policy —
       #     fetches the official `linux-install.sh` and runs it under `sudo`.
       #     Neither half exists here, so it is structurally unusable on this
       #     platform rather than merely awkward.
       #   * The setup-clojure action is refused repo-wide by
       #     `implementation/scripts/_changed-surfaces.test.cjs` ("no workflow
-      #     carries an inline Clojure installer body or setup-clojure"), for
-      #     the un-retried curl rf2-9sgj8 removed.
+      #     carries an inline Clojure installer body or setup-clojure"),
+      #     because of its un-retried curl.
       #
       # So: deps.clj, the single-binary drop-in for the Clojure CLI, pinned by
       # version AND verified against the SHA-256 its release publishes, with
       # Invoke-WebRequest's own retry supplying the resilience the shared
       # installer gets from its curl/backoff loop. This IS a second owner of
-      # Clojure-install policy, which rf2-e7ja9 exists to prevent; the
+      # Clojure-install policy, which the shared installer exists to prevent; the
       # difference is that it owns one job on the one platform the shared
       # script cannot reach, not 59 copies of a reachable one.
       #
@@ -572,10 +560,10 @@ jobs:
         with:
           node-version: '24'
 
-      # The SAME key roster as `mcp-live` above, deliberately unaltered: rf2-cd0zz
-      # is the record of what happens when this key omits an artefact the fixture
-      # resolves — the pre-bump entry keeps being restored and, because an exact
-      # key hit suppresses the save, never refreshes. `runner.os` is `Windows`
+      # The SAME key roster as `mcp-live` above, deliberately unaltered: when
+      # this key omits an artefact the fixture resolves, the pre-bump entry
+      # keeps being restored and, because an exact key hit suppresses the
+      # save, never refreshes. `runner.os` is `Windows`
       # here, so this can never collide with the Linux entry.
       #
       # `~/AppData/Local/Apps/clojure` is deps.clj's own tools directory, the
@@ -597,8 +585,8 @@ jobs:
       # `nightly_failure_alert.py`. deps.clj downloads the official Clojure
       # tools on its first invocation; without this, a failure in THAT download
       # would surface six steps later as an unexplained shadow-cljs boot
-      # timeout, which is the misattribution rf2-xsfr's `::error` annotation
-      # exists to delete on the Linux side.
+      # timeout, which is the misattribution install-clojure-cli.sh's
+      # `::error` annotation exists to prevent on the Linux side.
       - name: Verify the Clojure CLI answers
         run: clojure -Sdescribe
 
@@ -612,7 +600,7 @@ jobs:
 
       # `npm ci` rather than `npm install`: tools/mcp-conformance ships a
       # committed package-lock.json, so this is lockfile-exact and fails on
-      # package.json/lock drift (rf2-vtp2er's posture, matching test.yml's
+      # package.json/lock drift (matching test.yml's
       # `mcp-conformance-re-frame2-pair`).
       - name: Install mcp-conformance deps
         run: npm ci
@@ -674,7 +662,7 @@ jobs:
       # whatever run 1's teardown left behind. Leaving the tree alone is what
       # actually exercises the orchestrator's stale-port-file wipe
       # (`wipeStalePortFileCandidate`) and its stale-bundle removal, rather
-      # than assuming them. rf2-kzbf AC3.
+      # than assuming them.
       - name: Run re-frame2-pair-mcp live conformance suite (HERMETIC, run 1 of 2)
         timeout-minutes: 15
         run: npm run test:re-frame2-pair-live-hermetic-suite
@@ -691,7 +679,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $listeners = @(Get-NetTCPConnection -LocalPort 8030 -State Listen -ErrorAction SilentlyContinue)
           if ($listeners.Count -gt 0) {
-            Write-Host "::error title=Hermetic teardown leaked the fixture port after run 1::$($listeners.Count) process(es) still LISTENING on 8030. The owned-descendant reap did not drain the shadow-cljs subtree (rf2-kzbf / rf2-hhw6)."
+            Write-Host "::error title=Hermetic teardown leaked the fixture port after run 1::$($listeners.Count) process(es) still LISTENING on 8030. The owned-descendant reap did not drain the shadow-cljs subtree."
             foreach ($l in $listeners) {
               $owner = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
               $name = if ($owner) { $owner.ProcessName } else { '<already exited>' }
@@ -713,7 +701,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $listeners = @(Get-NetTCPConnection -LocalPort 8030 -State Listen -ErrorAction SilentlyContinue)
           if ($listeners.Count -gt 0) {
-            Write-Host "::error title=Hermetic teardown leaked the fixture port after run 2::$($listeners.Count) process(es) still LISTENING on 8030. The owned-descendant reap did not drain the shadow-cljs subtree (rf2-kzbf / rf2-hhw6)."
+            Write-Host "::error title=Hermetic teardown leaked the fixture port after run 2::$($listeners.Count) process(es) still LISTENING on 8030. The owned-descendant reap did not drain the shadow-cljs subtree."
             foreach ($l in $listeners) {
               $owner = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
               $name = if ($owner) { $owner.ProcessName } else { '<already exited>' }
@@ -725,13 +713,13 @@ jobs:
           Write-Host 'port 8030 is free - run 2 left no listener behind.'
 
   jvm-slow-tests:
-    # rf2-bv2qqm — the heavy `^:slow` / `^:stress` JVM tests (the SSR
+    # The heavy `^:slow` / `^:stress` JVM tests (the SSR
     # 2000-request teardown load test, the ssr-ring multi-thread Jetty
     # burst tests, and the core/machines/routing/flows 5000-iter × 8-thread
     # concurrency-stress suites) are EXCLUDED from the PR/local `:test`
     # gate (`-e :slow -e :stress` in each artefact's deps.edn). This nightly
     # job runs them via the per-artefact `:slow-test` alias
-    # (`-i :slow -i :stress`) so the coverage moved off the PR critical path
+    # (`-i :slow -i :stress`) so the coverage kept off the PR critical path
     # is NOT lost. `:test` (PR) + `:slow-test` (here) partition the suite:
     # every test runs exactly once across the two. Local mirror:
     # `scripts/test-rigorous-local.sh`.
@@ -776,7 +764,7 @@ jobs:
             ${{ runner.os }}-clj-
 
       - name: Run JVM slow/stress tests
-        # rf2-g2ytj — the routing `popstate-mid-push-stress` suite defaults
+        # The routing `popstate-mid-push-stress` suite defaults
         # to 5000 iters × 8 threads (~60s on an unstarved box), but the
         # loaded nightly runner starves it ~8× so all 8 threads finish only
         # ~650/5000 iters before the test's 120s per-future deref bound and
@@ -792,23 +780,21 @@ jobs:
           RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
 
-  # rf2-a7ds — THE ONLY THING IN CI THAT COMPILES THE FRESCO BENCH LANE.
-  # NIGHTLY, AND NIGHTLY ONLY: ruling rf2-6c12m.1 deliberately keeps `bench/*`
-  # off every per-PR lane, and a nightly is not a PR gate. Nothing here may be
+  # THE ONLY THING IN CI THAT COMPILES THE FRESCO BENCH LANE.
+  # NIGHTLY, AND NIGHTLY ONLY: `bench/*` is deliberately kept off every
+  # per-PR lane, and a nightly is not a PR gate. Nothing here may be
   # promoted to `test.yml`, whose `pull_request` trigger is unfiltered.
   #
-  # WHAT WAS UNCOVERED, AND WHY THE OBVIOUS INSTRUMENT COULD NOT SEE IT.
+  # WHY THE OBVIOUS INSTRUMENT CANNOT SEE IT.
   # `bench/fresco/` is its own shadow-cljs project rather than a roster entry:
   # `implementation/scripts/check-examples-compile.cjs` derives its build ids
   # from `implementation/shadow-cljs.edn`, which carries none of the bench ones
   # (ask it — `node implementation/scripts/check-examples-compile.cjs --list`).
   # `bench/` Clojure files DO arm `lint.yml`'s require-alias-dialect step, but
-  # clj-kondo runs with no classpath and therefore cannot resolve vars at all —
-  # run over the pre-fix tree it named the deleted `re-frame.fresco/mount!`
-  # ZERO times. An undeclared var is caught by a COMPILER or by nothing, so
-  # five bench arms called a deleted public name from the day it was deleted
-  # until somebody happened to look (fixed in 5c024a0eb3). This job is the
-  # instrument of the right kind.
+  # clj-kondo runs with no classpath and therefore cannot resolve vars at all,
+  # so a call to a deleted public var reads clean there. An undeclared var is
+  # caught by a COMPILER or by nothing, and this job is the instrument of the
+  # right kind.
   #
   # NO `npm ci` IN `bench/fresco/`, AND THAT IS THE DESIGN RATHER THAN A
   # SHORTCUT — so do not "fix" the absent `bench/fresco/package-lock.json` by
@@ -881,24 +867,23 @@ jobs:
         run: |
           node -e "require('./src/re_frame/bench/fresco/lane_build.cjs').shadowBuild({project: process.cwd(), mode: 'compile', buildId: 'fresco-bench-node', tag: 'fresco-bench-node'})"
 
-      # rf2-u297 — AND THE 21 NON-COMPILE MEMBERS, WHICH NOTHING ELSE IN CI RUNS.
+      # AND THE 21 NON-COMPILE MEMBERS, WHICH NOTHING ELSE IN CI RUNS.
       #
-      # Ruled YES by rf2-50fe, narrowly, and for THIS job only: it already pays
-      # for checkout, JDK, Node, `npm ci` and a 30-minute budget, so the whole
-      # marginal cost is the ~35s below. rf2-6c12m.1's ground is untouched —
-      # `bench/*` arms NOTHING on any per-PR lane, this changes no classifier and
-      # no registry, and nothing here may be promoted to `test.yml`. The bench
+      # Here, narrowly, and for THIS job only: it already pays for checkout,
+      # JDK, Node, `npm ci` and a 30-minute budget, so the whole marginal cost
+      # is the ~35s below. The per-PR ground is untouched — `bench/*` arms
+      # NOTHING on any per-PR lane, this adds no classifier and no registry
+      # entry, and nothing here may be promoted to `test.yml`. The bench
       # suites exercise LOCAL COPIES of the runtime, so a per-PR run could not
-      # catch a regression in the shipped one; that is why cheapness was never
-      # the rebuttal, and it is still not.
+      # catch a regression in the shipped one; cheapness is not the rebuttal.
       #
-      # WHAT WAS UNCOVERED. `npm run check` is a 22-command chain and CI ran
-      # member 1. `test:scripts` globs `implementation/`-relative paths and so
-      # reaches exactly one of the other 21 (`lane_cache_wiring.test.cjs`);
-      # ESLint lints the files and cannot see a failing assertion. So PR #9580's
-      # corpus-backed boundary check — added to stop a future raw read silently
-      # dropping the native arm from a published population — was a gate nothing
-      # executed.
+      # WHY THIS STEP. `npm run check` is a 22-command chain and the compile
+      # step above runs member 1. `test:scripts` globs `implementation/`-relative
+      # paths and so reaches exactly one of the other 21
+      # (`lane_cache_wiring.test.cjs`); ESLint lints the files and cannot see a
+      # failing assertion. So without this step the corpus-backed boundary
+      # check — which stops a future raw read silently dropping the native arm
+      # from a published population — would be a gate nothing executes.
       #
       # MEMBER 1 IS DROPPED, THE OTHER 21 ARE NOT LISTED, so a member added to
       # `check` tomorrow is covered without editing this job — the same
@@ -934,7 +919,7 @@ jobs:
       # the present-but-not-executed failure this whole step exists to end. So a
       # failed fetch REDS this step rather than falling back: `data/` is
       # git-ignored, the restore writes the working tree only, and a silent
-      # fallback would disarm exactly what rf2-u297 was filed to arm.
+      # fallback would disarm exactly what this step exists to arm.
       - name: Run bench members 2..22 of `npm run check` (nothing else in CI does)
         working-directory: bench/fresco
         run: |
@@ -966,33 +951,30 @@ jobs:
             console.log(";; " + (chain.length - 1) + " members ran");
           '
 
-  # THE GATE-SCHEDULING AUDIT USED TO LIVE HERE, AND NO LONGER DOES (rf2-k78o2).
-  # It asserts that every `test:*` / `bench:*` / `build:*` command in
+  # THE GATE-SCHEDULING AUDIT IS NOT HERE. `scripts/check_gate_scheduling.py`
+  # asserts that every `test:*` / `bench:*` / `build:*` command in
   # implementation/package.json is either reachable from a workflow or carries a
-  # declared, machine-CHECKED disposition saying why not. It landed in this
-  # nightly for one reason only: .github/workflows/test.yml was fenced off by an
-  # open PR (rf2-eegpw / #7530) the day it was written. That fence is gone, the
-  # check measures ~0.3s including interpreter start, and a PR that adds an
-  # unscheduled gate should learn so in three minutes rather than twenty-four
-  # hours — so it is now `scripts/check_gate_scheduling.py`, running always-on
-  # in test.yml's `verify-skill-mcp-drift` repo-invariant job and in
-  # scripts/test-fast-pr.sh.
+  # declared, machine-CHECKED disposition saying why not. It runs always-on in
+  # test.yml's `verify-skill-mcp-drift` repo-invariant job and in
+  # scripts/test-fast-pr.sh: it measures ~0.3s including interpreter start, and
+  # a PR that adds an unscheduled gate should learn so in three minutes rather
+  # than twenty-four hours.
   #
   # It is NOT also kept here. A per-PR always-on gate means main cannot carry a
   # violation for a night, so a nightly arm would re-prove a property already
   # proven on every merge — and a second copy is a second thing to keep in step.
 
-  # rf2-6sg25 — until this job existed, a red nightly told NOBODY. Of the
-  # thirty runs ending 2026-08-04, eighteen failed and 2026-07-09..07-21 was
-  # thirteen consecutive red nights; the only way to find out was to open the
-  # Actions tab. Multiple gates are deliberately nightly-only BECAUSE this
+  # Without this job a red nightly tells NOBODY: the only way to find out is
+  # to open the Actions tab. Over one measured window of thirty runs, eighteen
+  # failed, thirteen of them on consecutive nights. Multiple gates are
+  # deliberately nightly-only BECAUSE this
   # workflow is treated as the system of record (TESTING.md), so a system of
   # record that can be red for a fortnight unseen is an instrument that reports
   # nothing and is believed anyway.
   #
   # It alerts on a CHANGE OF FAILURE SIGNATURE, not on failure: at an 18-in-30
   # failure rate a per-run alert would have been muted inside a week, and a
-  # muted alert is the original fail-open in a new suit. The thresholds were
+  # muted alert is the same fail-open in a new suit. The thresholds were
   # measured against that real history rather than guessed — see the module
   # docstring of .github/scripts/nightly_failure_alert.py, and reproduce the
   # measurement with its `--replay 30` mode. Over those thirty runs: eighteen
@@ -1014,7 +996,7 @@ jobs:
       - mcp-live
       - mcp-live-windows
       - jvm-slow-tests
-      # rf2-a7ds. The alerter reads the whole run's jobs from the API, so this
+      # The alerter reads the whole run's jobs from the API, so this
       # entry is about ORDERING rather than visibility: without it the
       # signature can be derived while the bench compile is still running, and
       # a red lane would be absent from the night's tracking issue.
@@ -1038,7 +1020,7 @@ jobs:
       # plain failing step, and the reason is this job's own fail-open: a
       # self-test step that ABORTS the job takes the notification down with it,
       # so a broken alerter would be reported by nothing — the exact circularity
-      # rf2-6sg25 is about. Ordering it this way means a red self-test still
+      # this job exists to break. Ordering it this way means a red self-test still
       # lets the live arm try (a signature is derived from data, not from the
       # arithmetic under test), and the job still ends red so the failure is on
       # the record.
