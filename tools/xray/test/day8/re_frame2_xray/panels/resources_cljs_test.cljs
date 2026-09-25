@@ -730,6 +730,64 @@
           (is (= zix-scoped-key (:scoped-key row))
               "the RAW scoped-key survives as the identity/react key"))))))
 
+;; ---- (4c) PRIVACY: the work-ledger row redacts a :sensitive? resource ----
+;;
+;; The §3 work-ledger row renders a record's outcome preview, and a failed
+;; record's outcome carries the error envelope. Driven through the
+;; production composite and read off the rendered rows, both ways: the
+;; resource declared `:sensitive?` renders `[redacted]`, and a sibling that is
+;; not keeps its preview.
+
+(def ^:private work-secret "tok-ledger-secret-7c1")
+
+(defn- failed-work-record [rid]
+  (let [k [[:rf.scope/session {:token work-secret}] rid {:slug "welcome"}]]
+    {:work/id      [:rf.work/resource k 2]
+     :work/kind    :resource
+     :resource/key k
+     :generation   2
+     :status       :failed
+     :outcome      {:error {:status 401 :body work-secret} :completed-at 9}}))
+
+(def ^:private sensitive-work-regs
+  {:article/by-slug {:rf/resource {:scope :rf.scope/global :sensitive? true
+                                   :request (fn [_ _] {})}}
+   :comments/list   {:rf/resource {:scope :rf.scope/global
+                                   :request (fn [_ _] {})}}})
+
+(defn- work-row-node [tree rid]
+  (find-by-testid tree (str "rf-xray-resources-work-row-"
+                            (hash (:work/id (failed-work-record rid))))))
+
+(deftest work-ledger-row-redacts-a-sensitive-resource
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-registered-resources-override-for-test
+                       sensitive-work-regs]
+                      {:frame :rf/xray})
+    (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test {}]
+                      {:frame :rf/xray})
+    (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test
+                       {"w-sensitive" (failed-work-record :article/by-slug)
+                        "w-plain"     (failed-work-record :comments/list)}]
+                      {:frame :rf/xray})
+    (let [tree (panel-tree)
+          s    (work-row-node tree :article/by-slug)
+          ok   (work-row-node tree :comments/list)]
+      (is (some? s) "the sensitive resource's work row rendered")
+      (is (some? ok) "the sibling's work row rendered")
+      (testing "the sensitive resource's outcome renders [redacted], never the error body"
+        (is (re-find #"\[redacted\]" (node-text s)))
+        (is (not (str/includes? (node-text s) work-secret))))
+      (testing "CONTROL — the sibling's outcome keeps its preview"
+        (is (str/includes? (node-text ok) work-secret)))
+      (testing "the composite's work rows redact every value-bearing slot"
+        (let [row (first (filter #(= :article/by-slug (:resource-id %))
+                                 (:work @(rf/subscribe [:rf.xray/resources-tab-data]))))]
+          (is (true? (get-in row [:resource/key :scope :redacted?])))
+          (is (true? (get-in row [:resource/key :params :redacted?])))
+          (is (true? (get-in row [:outcome :redacted?]))))))))
+
 ;; ---- (6) silent state ---------------------------------------------------
 
 (deftest panel-silent-when-no-resources
