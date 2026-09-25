@@ -34,8 +34,6 @@
 ;; by pinning the fx-handler-exception → projector path. The three
 ;; together exercise every 500-class trace shape that flows through
 ;; the server projector.
-;;
-;; Per rf2-e3imj — substrate-edge cluster (Cross-Spec #16).
 
 {:fixture/id           :cross-spec/server-error-projection
  :fixture/spec-version "1.0"
@@ -72,7 +70,7 @@
  :fixture/expect
  ;; app-db remains empty — neither the fx-throw nor the projector
  ;; writes user-visible state. The response accumulator (a
- ;; framework-private side-channel atom, per rf2-jbcmt) carries the
+ ;; framework-private side-channel atom) carries the
  ;; projected public-error; asserted via :ssr/public-error below.
  {:final-app-db {}
 
