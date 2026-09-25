@@ -3,15 +3,13 @@
 'use strict';
 
 /*
- * Hermetic classifier tests for `.github/scripts/resolve-clojure-deps.sh`
- * (rf2-vm036, merged-PR audit of #7221).
+ * Hermetic classifier tests for `.github/scripts/resolve-clojure-deps.sh`.
  *
  * WHAT IS BEING PINNED. The script retries `clojure -P` when the resolver's
  * output carries a transient TRANSPORT signature, and reports differently
- * when it does not. Two things had to be true and only one was: the retry is
- * bounded (it was), and the verdict after exhaustion is honest about what the
- * signature proves (it was not — it read "INFRASTRUCTURE, not this diff" and
- * "not of any coordinate").
+ * when it does not. Two things must be true: the retry is bounded, and the
+ * verdict after exhaustion is honest about what the signature proves — it
+ * never reads "INFRASTRUCTURE, not this diff" or "not of any coordinate".
  *
  * A 403, an `ArtifactTransportException`, an `UnknownHostException` — each
  * earns a retry, and none establishes ownership. A repository the change
@@ -19,14 +17,13 @@
  * exhausted verdict must present the signature as EVIDENCE A RE-RUN MAY HELP
  * and must not tell the author to look away from their own diff.
  *
- * HERMETIC, and that is the point. The audit's finding came from running the
- * real script against a stub resolver; these tests do the same, so they
- * exercise the classifier rather than describing it. `clojure` and `sleep` are
+ * HERMETIC, and that is the point. These tests run the real script against a
+ * stub resolver, so they exercise the classifier rather than describing it. `clojure` and `sleep` are
  * both stubbed onto PATH — `sleep` so the 45s of real backoff costs nothing,
  * `clojure` so each attempt's output is scripted. No network, no JVM.
  *
  * Fixtures take a process-scoped lane under the gitignored `.scratch/`
- * (rf2-2i1ay) rather than `os.tmpdir()`, so concurrent runs cannot collide.
+ * rather than `os.tmpdir()`, so concurrent runs cannot collide.
  */
 
 const assert = require('assert/strict');
@@ -97,7 +94,7 @@ function shQuote(s) {
 
 // Run the real script with the sandbox ahead of PATH. Paths are repo-relative
 // and drive-letter-free, then made absolute inside the shell against a cwd of
-// REPO_ROOT — the only form every supported Bash flavour accepts (rf2-6m7pn4).
+// REPO_ROOT — the only form every supported Bash flavour accepts.
 function runScript(sandbox, args = []) {
   const command =
     `PATH="$PWD/${sandbox.binRel}:$PATH" ` +
@@ -140,7 +137,7 @@ const SERVER_5XX = [
 ].join('\n');
 
 // A fault the DIFF owns that nevertheless emits transport signatures — the
-// audit's counter-example, and the reason the verdict must stay cause-neutral.
+// counter-example, and the reason the verdict must stay cause-neutral.
 const DIFF_OWNED_AUTH_403 = [
   'ArtifactTransportException: authentication failed for repository configured by this change',
   '(https://private.example.invalid/maven): status code: 403, reason phrase: Forbidden',
@@ -223,11 +220,11 @@ test('a MATCHED failure is retried to the bound, then reports WITHOUT blaming in
       /re-run may help|RE-RUN MAY HELP/,
       'the verdict must present the signature as evidence a re-run may help',
     );
-    // The categorical claims this bead was reopened to remove.
+    // Categorical claims the verdict must never make.
     assert.doesNotMatch(
       res.output,
       /INFRASTRUCTURE, not this diff/,
-      'the verdict must not categorically absolve the diff (rf2-vm036 audit of #7221)',
+      'the verdict must not categorically absolve the diff',
     );
     assert.doesNotMatch(
       res.output,
@@ -240,8 +237,8 @@ test('a MATCHED failure is retried to the bound, then reports WITHOUT blaming in
 });
 
 test('a diff-owned auth 403 gets the SAME cause-neutral treatment, not an absolution', () => {
-  // The audit's hermetic counter-example: the diff added a repository that
-  // needs credentials. It matches the transport signatures, so it is retried
+  // The hermetic counter-example: the diff adds a repository that needs
+  // credentials. It matches the transport signatures, so it is retried
   // — that is acceptable — but it must not be told it is not its own fault.
   const sandbox = makeSandbox([{ out: DIFF_OWNED_AUTH_403, code: 1 }]);
   try {
