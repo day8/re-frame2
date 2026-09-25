@@ -1,5 +1,5 @@
 (ns re-frame.api-manifest.story-spec-check
-  "Story API-spec projection check (rf2-gkp0t).
+  "Story API-spec projection check.
 
   `tools/story/spec/API.md` is the consolidated Story public-API surface
   — a human-readable projection of the manifest's `re-frame.story` rows.
@@ -26,22 +26,23 @@
   only those, are the sidecar's `:story-spec-known-unmanifested` set, so any
   OTHER unresolved reference still fails.
 
-  NO FACADE EXPORT IS ON THAT ALLOWLIST, and none may be added. Four once
-  were: `re-frame.story` is a split-host `.cljc` whose `#?(:cljs …)` arm
-  publishes five facade fns the JVM generator cannot `ns-publics`, and
-  silencing them kept those four out of the manifest entirely — beyond the
-  reach of the facade-audit invariants (tier / action / justification).
-  rf2-i6kh dropped the exemptions and gave all five real `:cljs-only` rows,
-  which this check resolves like any other var-row. A facade var missing from
-  the manifest is a row to add, never a name to silence here."
+  NO FACADE EXPORT IS ON THAT ALLOWLIST, and none may be added.
+  `re-frame.story` is a split-host `.cljc` whose `#?(:cljs …)` arm
+  publishes five facade fns the JVM generator cannot `ns-publics`. They
+  carry real `:cljs-only` rows, which this check resolves like any other
+  var-row and which keep them within reach of the facade-audit invariants
+  (tier / action / justification); silencing them here would put them out of
+  the manifest's reach entirely. A facade var missing from the manifest is a
+  row to add, never a name to silence here."
   (:require [re-frame.api-manifest.gen :as rf.api-manifest.gen]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private story-ns "re-frame.story")
 
 (def ^:private min-var-rows
-  "Non-vacuous floor (rf2-utvst). tools/story/spec/API.md carries ~65
-   back-ticked-identifier var-rows; this floor sits well below that, so it
+  "Non-vacuous floor. tools/story/spec/API.md carries many more
+   back-ticked-identifier var-rows (the check reports the count); this floor
+   sits well below that, so it
    trips only when the table shape changes (the first-cell back-ticked-
    identifier discriminator stops matching) or the doc is gutted — the
    cases that would turn the gate into a vacuous green — never on ordinary
