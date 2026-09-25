@@ -9,10 +9,10 @@
   uppercase, `:text-secondary`; the body is mono-stack, 12px,
   `:text-primary`, 6px/0/0/18px padding.
 
-  This is the single source of truth for the shape — both
-  `panels/managed_fx_template/section` and `panels/event_detail/section`
-  render through it, so a rhythm tweak (a tighter letter-spacing, say,
-  or a swap of the dotted rule for a solid one) lands in one place.
+  This is the single source of truth for the shape — panels render
+  their sections through `section-row`, so a rhythm tweak (a tighter
+  letter-spacing, say, or a swap of the dotted rule for a solid one)
+  lands in one place.
 
   ## Shape
 
@@ -36,16 +36,12 @@
                            always renders.
     `:count*`            — optional; non-nil renders as ` (N)` after
                            the label in `:text-tertiary` (mono-stack).
-                           Matches event_detail's INTERCEPTORS / EFFECTS
-                           HANDLERS RAN sections.
-    `:container-padding` — optional CSS string; default `\"8px 12px\"`
-                           (event_detail's choice). Callers that want
-                           the managed_fx_template rhythm pass `\"8px 0\"`
-                           — the only divergent token between the two
-                           consumers.
+    `:container-padding` — optional CSS string; default `\"8px 12px\"`.
+                           Callers that want the managed_fx_template
+                           rhythm pass `\"8px 0\"`.
 
-  Pure hiccup. `.cljc` so JVM consumers (the spec linter, future
-  story snapshots) can require it without a CLJS runtime.
+  Pure hiccup. `.cljc` so JVM consumers can require it without a CLJS
+  runtime.
 
   ## What is intentionally NOT here
 
