@@ -11,7 +11,7 @@
 ;;                  [005-StateMachines §SSR mode](../../005-StateMachines.md#ssr-mode)
 ;;                  -- points at that rule and gives the reason.
 ;;
-;; THE RULED CONTRACT, quoted from 011 bullet 3. On successful hydration the
+;; THE CONTRACT, quoted from 011 bullet 3. On successful hydration the
 ;; client installs the snapshot and then reconciles each ACTIVE `:after`
 ;; declaration in it to exactly ONE armed timer. Three things are normative:
 ;;
@@ -46,8 +46,8 @@
 ;; exactly once, on the way in.
 ;;
 ;; THE CLOCK PHASE IS THE LOAD-BEARING HALF, and it is here because a
-;; SUBSET-matched `/scheduled` trace alone is not the contract (rf2-bmqv, the
-;; merged-PR audit of the fixture's first form). A trace assertion says a row
+;; SUBSET-matched `/scheduled` trace alone is not the contract. A trace
+;; assertion says a row
 ;; was emitted; it cannot say the timer behind that row still EXISTS, because
 ;; an order-preserving subset match tolerates a later cancellation, and it
 ;; cannot say the timer is wired to anything, because a row is not a
@@ -95,8 +95,6 @@
 ;; :on-restore`); resuming a wall-clock deadline into a rewound past would be
 ;; wrong. `:rf/ssr-rendered-at` is optional diagnostic metadata the payload
 ;; builder does not populate, and nothing subtracts it.
-;;
-;; Per rf2-bmqv, split out of the rf2-ry7x ruling.
 
 {:fixture/id           :cross-spec/machine-after-hydration-rearm
  :fixture/spec-version "1.0"
@@ -137,7 +135,7 @@
  ;; the reason the sibling server-half fixture sees no timer. A port
  ;; whose harness leaves the platform unresolved will observe an empty
  ;; `:fx` and no `/scheduled` row; that is a harness fact, not a
- ;; conformance failure -- and it is now a LOUD one, because the clock
+ ;; conformance failure -- and it is a LOUD one, because the clock
  ;; phase below reads zero live timers and fails rather than passing
  ;; vacuously.
  :fixture/frame-config {:initial-events [] :platform :client}
@@ -197,7 +195,7 @@
   ;; The load-bearing trace contract. The hydrate event runs with
   ;; :source :ssr-hydration (Spec 011 §The :rf/hydrate event), and the
   ;; re-arm emits the ORDINARY :rf.machine.timer/scheduled row -- the same
-  ;; shape a state entry emits, so the existing scheduled -> fired /
+  ;; shape a state entry emits, so the scheduled -> fired /
   ;; cancelled pairing on (actor-id, state, epoch) holds for a hydrated
   ;; timer exactly as for an entered one.
   ;;
