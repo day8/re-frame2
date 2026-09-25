@@ -1,5 +1,5 @@
 (ns re-frame.story-runtime-test
-  "JVM tests for re-frame2-story Stage 3 (rf2-von3) — runtime.
+  "JVM tests for the re-frame2-story runtime.
 
   Covers:
 
@@ -17,8 +17,7 @@
   - Frame teardown via `destroy-variant!`.
   - Error projection per `002-Runtime.md` §Error projection.
 
-  All tests run on the JVM via `clojure -M:test`. Per the
-  `jvm_interop_must_work` user-feedback rule the runtime must be JVM-
+  All tests run on the JVM via `clojure -M:test`. The runtime is JVM-
   portable — `run-variant` returns a CompletableFuture on JVM (vs JS
   Promise on CLJS); the tests `deref` it for the result map."
   (:require [clojure.string :as str]
@@ -31,7 +30,7 @@
             ;; under `clojure -M:test` (the dep rides the shared `:test`
             ;; alias). Without it the facade degrades to `[]` and that
             ;; test's sanity check fails whenever this namespace runs alone;
-            ;; the full lane passed only because a sibling loaded it first.
+            ;; the full lane would pass only because a sibling loaded it first.
             [re-frame.epoch]
             [re-frame.frame           :as rf.frame]
             [re-frame.late-bind       :as rf.late-bind]
@@ -50,12 +49,12 @@
             [re-frame.story.loaders   :as rf.story.loaders]
             [re-frame.story.runtime   :as rf.story.runtime]
             [re-frame.story.ui.watch  :as rf.story.ui.watch]
-            ;; EP-0023 behaviour-variant image fixtures (rf2-fpr0b5): two
+            ;; EP-0023 behaviour-variant image fixtures: two
             ;; namespaces register the SAME event id with DIFFERENT meanings;
             ;; a variant's `:images` `:select-ns` selects one or the other.
             [story.test-helpers.image-behaviour-v1]
             [story.test-helpers.image-behaviour-v2]
-            ;; rf2-14gqim runtime-image-last shadow fixture: registers a broken
+            ;; Runtime-image-last shadow fixture: registers a broken
             ;; handler under the SAME id as a Story-runtime `:rf.assert/*` handler
             ;; from an app provenance, so a scoped app image overlaps the runtime
             ;; image on that `[kind id]`.
@@ -74,7 +73,7 @@
   ;; pattern). `rf/init!` is idempotent for the adapter it seated, so a re-boot
   ;; of plain-atom is a no-op; we tolerate the
   ;; `:rf.error/adapter-already-installed` a sibling suite's DIFFERENT adapter
-  ;; would raise (rf2-kuky.1).
+  ;; would raise.
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch clojure.lang.ExceptionInfo _ nil))
   ;; Re-require machines so its framework `:rf/machine` runtime-db sub
@@ -236,7 +235,7 @@
       (is (= 1 (count (:overrides stack)))
           "last-wins: only one entry per fx-id")
       (is (contains? (:overrides stack) :http))
-      ;; Stage 5 (rf2-h8et) — the stub-id is now namespaced by fx-id
+      ;; The stub-id is namespaced by fx-id
       ;; so the ref-args-driven `:rf.story/force-fx-stub` decorator
       ;; can register distinct stubs for distinct fx-ids referenced
       ;; from the same decorator id. The decorator-id segment is
@@ -245,12 +244,12 @@
              (get-in stack [:overrides :http]))))))
 
 ;; ===========================================================================
-;; GLOBAL DECORATORS (rf2-835ey — Storybook preview.ts parity, F-1)
+;; GLOBAL DECORATORS (Storybook preview.ts parity)
 ;; ===========================================================================
 
 (deftest reg-global-decorator-appends-to-resolved-stack
   (testing "a global decorator prefixes the resolved decorator stack for
-            every variant — outermost wrap layer per rf2-835ey"
+            every variant — the outermost wrap layer"
     (rf.story/reg-global-decorator :app/theme
       {:kind :hiccup :wrap (fn [body _] [:div.theme body])})
     (rf.story/reg-decorator :story-deco
@@ -420,8 +419,7 @@
 (deftest snapshot-identity-distinct-modes-same-args
   (testing "two DISTINCT modes registering IDENTICAL args still produce
             DIFFERENT snapshot hashes — proving the top-level :active-modes
-            slot is load-bearing, not vacuously covered by :effective-args
-            (rf2-oy4c9 / guards the rf2-z86vu 'do not simplify away' slot).
+            slot is load-bearing, not vacuously covered by :effective-args.
             Contrast snapshot-identity-changes-with-mode, whose two modes
             carry DIFFERENT args, so its hash difference is explained by
             :effective-args alone and survives deleting :active-modes."
@@ -469,8 +467,8 @@
 (deftest snapshot-identity-changes-with-variant-decorators
   (testing "Per /spec/007-Stories.md §Variant snapshot identity — a
             variant-level :decorators change MUST perturb the content-hash.
-            Closes rf2-9g48l: watch-mode auto-rerun keys off this identity,
-            so a decorator-only edit was silently dropped before this fix."
+            Watch-mode auto-rerun keys off this identity, so a decorator-only
+            edit left out of it would be silently dropped."
     (rf.story/reg-decorator :centered
       {:kind :hiccup
        :wrap (fn [body _args] [:div.centered body])})
@@ -503,11 +501,10 @@
 
 (deftest snapshot-identity-changes-with-play-script
   (testing "Per /spec/007-Stories.md §Variant snapshot identity — a variant-level
-            :script change MUST perturb the content-hash. Closes
-            rf2-bgwnf: variant-body-slice selected the legacy :play key
-            (removed by rf2-0wrud), so play-script edits were silently
-            dropped from the hash — breaking watch-mode auto-rerun and
-            visual-regression baseline invalidation."
+            :script change MUST perturb the content-hash. A
+            variant-body-slice that did not select :script would silently
+            drop play-script edits from the hash — breaking watch-mode
+            auto-rerun and visual-regression baseline invalidation."
     (rf.story/reg-story :story.id-ps
       {:component :app/v})
     (rf.story/reg-variant :story.id-ps/v
@@ -532,9 +529,8 @@
 
 (deftest snapshot-identity-changes-with-plays
   (testing "Per /spec/007-Stories.md §Variant snapshot identity — the multi-play
-            :plays surface (rf2-tl7zk) also participates in the hash.
-            Companion to rf2-bgwnf: both play surfaces (:script and
-            :plays) must perturb snapshot identity."
+            :plays surface also participates in the hash: both play
+            surfaces (:script and :plays) must perturb snapshot identity."
     (rf.story/reg-story :story.id-plays
       {:component :app/v})
     (rf.story/reg-variant :story.id-plays/v
@@ -553,8 +549,7 @@
             *registered* schema digest of the view (per spec/011
             §:rf/schema-digest) participates in the hash. A schema change
             on the view MUST invalidate the snapshot identity (and the
-            visual-regression baseline keyed off it). Closes rf2-9g48l:
-            the digest is sourced via the `:schemas/app-schemas-digest`
+            visual-regression baseline keyed off it). The digest is sourced via the `:schemas/app-schemas-digest`
             late-bind hook so identity.cljc does NOT statically :require
             the schemas artefact."
     (rf.story/reg-story :story.id-sd
@@ -563,12 +558,11 @@
     (let [prior (rf.late-bind/get-fn :schemas/app-schemas-digest)]
       (try
         ;; Simulate a registered schema by installing a hook with a
-        ;; fixed digest value. EP-0002 (rf2-bd4div) — the digest is
-        ;; frame-local, so `view-schema-digest` now invokes the hook with
+        ;; fixed digest value. The digest is frame-local (EP-0002), so
+        ;; `view-schema-digest` invokes the hook with
         ;; the variant's TARGET frame-id (no ambient resolution). The stub
         ;; takes (and ignores) that `{:frame target}` opts map, matching
-        ;; the real `app-schemas-digest` hook's one map arity
-        ;; (rf2-kuky.84).
+        ;; the real `app-schemas-digest` hook's one map arity.
         (rf.late-bind/set-fn! :schemas/app-schemas-digest
                            (fn [_opts] "sha256:0000000000000001"))
         (let [h1 (-> (rf.story/snapshot-identity :story.id-sd/v) :content-hash)]
@@ -591,16 +585,16 @@
           (rf.late-bind/set-fn! :schemas/app-schemas-digest prior))))))
 
 (deftest snapshot-identity-changes-with-variant-component
-  (testing "rf2-bah5o2 — the per-variant `:component` view-id OVERRIDE
+  (testing "the per-variant `:component` view-id OVERRIDE
             participates in the hash. The renderer resolves variant-first
             `(or (:component variant) (:component story))`, so a variant's
-            OWN `:component` decides WHICH view renders. Before the fix
-            `variant-body-slice` omitted `:component`, so a watch-session
-            edit swapping the view produced NO drift (the re-registration
-            bumped the mutation-tick but the recomputed hash was unchanged)
-            and two variants differing only in `:component` shared a
-            content-hash. plan.cljc DID fold `:component` into the plan-
-            hash; only the snapshot path was incomplete."
+            OWN `:component` decides WHICH view renders. Were
+            `variant-body-slice` to omit `:component`, a watch-session
+            edit swapping the view would produce NO drift (the
+            re-registration bumps the mutation-tick but the recomputed hash
+            is unchanged) and two variants differing only in `:component`
+            would share a content-hash. plan.cljc folds `:component` into
+            the plan-hash too."
     (rf.story/reg-story :story.id-comp {:component :app/parent})
     (rf.story/reg-variant :story.id-comp/v {:setup [] :component :view-a})
     (let [h1 (-> (rf.story/snapshot-identity :story.id-comp/v) :content-hash)]
@@ -608,21 +602,20 @@
       (let [h2 (-> (rf.story/snapshot-identity :story.id-comp/v) :content-hash)]
         (is (not= h1 h2)
             "swapping the variant's :component override must produce a fresh hash"))
-      (testing "the :variant tuple slice now carries the variant's own
+      (testing "the :variant tuple slice carries the variant's own
                 :component — the slot that resolves the two-variant collision"
         (is (= :view-b (get-in (rf.story.identity/snapshot-tuple :story.id-comp/v)
                                [:variant :component]))
             "variant-body-slice must select :component")))))
 
 (deftest snapshot-identity-changes-with-render-inputs
-  (testing "rf2-9zj0nc — the variant's `:sub-overrides` / `:db-seed` /
+  (testing "the variant's `:sub-overrides` / `:db-seed` /
             `:network` render inputs participate in the hash. Each changes
             the settled rendered state (pinned sub outputs / pre-script
-            app-db seed / stubbed HTTP replies). Before the fix
-            `variant-body-slice` omitted all three, so an edit produced no
-            drift and the visual-regression baseline stayed stale — even
-            though the plan-hash DID capture them, confirming the snapshot
-            path was the incomplete one."
+            app-db seed / stubbed HTTP replies). A `variant-body-slice`
+            omitting them would let an edit produce no drift and leave the
+            visual-regression baseline stale, though the plan-hash
+            captures all three."
     (rf.story/reg-story :story.id-render {:component :app/v})
     (testing ":sub-overrides edit perturbs the hash"
       (rf.story/reg-variant :story.id-render/v
@@ -647,18 +640,18 @@
         (is (not= h1 (-> (rf.story/snapshot-identity :story.id-render/v) :content-hash))
             "editing a :network reply must produce a fresh hash")))))
 
-;; ---- rf2-pt0d1: a composed fragment's render inputs ----------------------
+;; ---- a composed fragment's render inputs ---------------------------------
 ;;
 ;; spec/017 §Strict composition folds a composed fragment's `:setup`,
 ;; `:db-seed`, `:network`, `:sub-overrides`, `:loaders` and `:decorators`
 ;; into the composing variant's world, so each is a render input of that
-;; variant. Identity read only the variant's own body, so editing the
-;; fragment changed the settled app-db and the run's verdict while the
-;; content-hash stayed put. (A composed fragment's `:args` already reached the
-;; hash through `:effective-args`.)
+;; variant. An identity reading only the variant's own body would let an
+;; edit to the fragment change the settled app-db and the run's verdict
+;; while the content-hash stayed put. (A composed fragment's `:args` reaches
+;; the hash through `:effective-args`.)
 
 (deftest snapshot-identity-changes-with-composed-fragment-render-inputs
-  (testing "rf2-pt0d1 — re-registering a fragment the variant `:compose`s
+  (testing "re-registering a fragment the variant `:compose`s
             with a different render input perturbs the variant's hash"
     (rf.story/reg-decorator :centered
       {:kind :hiccup :wrap (fn [body _args] [:div.centered body])})
@@ -687,10 +680,10 @@
               "editing a composed fragment's :decorators must produce a fresh hash"))))))
 
 (deftest snapshot-tuple-unchanged-without-composed-render-inputs
-  (testing "rf2-pt0d1 — the tuple's :composed slot appears only when a
+  (testing "the tuple's :composed slot appears only when a
             composed fragment carries a render input, so a variant that
             composes nothing, only a check, or only a fragment's :args keeps
-            exactly the identity it had before the slot existed"
+            an identity the slot does not touch"
     (rf.story/reg-story :story.id-no-compose {:component :app/v})
     (rf.story/reg-check :check.id-no-compose/c {:assertions [[:rf.assert/path-equals [:n] 1]]})
     (rf.story/reg-fragment :fragment.id-no-compose/args {:args {:label "a"}})
@@ -701,17 +694,17 @@
       (is (not (contains? (rf.story.identity/snapshot-tuple vid) :composed))
           (str vid " composes no render input, so its tuple carries no :composed slot")))))
 
-;; ---- rf2-0ae7o.5: render inputs inherited through `:extends` -------------
+;; ---- render inputs inherited through `:extends` --------------------------
 ;;
 ;; spec/017 §`:extends` passes an ancestor's world down (setup, render
 ;; fixtures, network stubs, decorators) and never its behaviour, so each of
-;; those is a render input of every variant below it. Identity resolved only
-;; args and tags through the chain, so editing a parent's `:db-seed` or
-;; `:setup` changed the child's settled app-db and its verdict while the
-;; child's content-hash stayed put.
+;; those is a render input of every variant below it. An identity resolving
+;; only args and tags through the chain would let an edit to a parent's
+;; `:db-seed` or `:setup` change the child's settled app-db and its verdict
+;; while the child's content-hash stayed put.
 
 (deftest snapshot-identity-changes-with-inherited-render-inputs
-  (testing "rf2-0ae7o.5 — re-registering an `:extends` ancestor with a
+  (testing "re-registering an `:extends` ancestor with a
             different render input changes what the child settles to AND the
             child's hash"
     (rf/reg-event :test.id-inherit/set-n
@@ -775,11 +768,11 @@
           (is (= child-0 (hash-of :story.id-inherit/child))))))))
 
 (deftest snapshot-tuple-unchanged-without-inherited-render-inputs
-  (testing "rf2-0ae7o.5 — the tuple's :inherited slot appears only when an
+  (testing "the tuple's :inherited slot appears only when an
             `:extends` ancestor carries an inheritable render input, so a
             variant with no ancestor, or whose ancestors carry only `:args`,
-            `:tags` or behaviour (`:script`, expectations), keeps exactly the
-            identity it had before the slot existed"
+            `:tags` or behaviour (`:script`, expectations), keeps an
+            identity the slot does not touch"
     (rf.story/reg-story :story.id-no-inherit {:component :app/v})
     (rf.story/reg-variant :story.id-no-inherit/p-args {:args {:label "a"}})
     (rf.story/reg-variant :story.id-no-inherit/p-tags {:tags #{:docs}})
@@ -808,14 +801,14 @@
       (is (= [{:db-seed {:n 1}} {:setup [[:n/set 2]]}]
              (:inherited (rf.story.identity/snapshot-tuple :story.id-no-inherit/ext-ext)))))))
 
-;; ---- rf2-38gqa: authored `:fx-overrides` ----------------------------------
+;; ---- authored `:fx-overrides` ---------------------------------------------
 ;;
 ;; spec/017 §The effect-override surface makes `:fx-overrides` a first-class
 ;; world input on a variant or fragment body, and §`:extends` passes it down.
-;; Identity selected it in none of its slices, so pointing an override at a
-;; different effect changed the settled app-db and the verdict while the hash
-;; stayed put. On the variant's own body the watch hash stayed put too, so
-;; watch mode kept the old verdict.
+;; An identity selecting it in none of its slices would let an override
+;; pointed at a different effect change the settled app-db and the verdict
+;; while the hash stayed put — and, on the variant's own body, the watch hash
+;; too, so watch mode would keep a stale verdict.
 
 (def ^:private fx-override-body
   {:tags       #{:test}
@@ -848,7 +841,7 @@
     [before (fx-override-run vid)]))
 
 (deftest snapshot-identity-changes-with-own-fx-overrides
-  (testing "rf2-38gqa — editing the variant's own `:fx-overrides` flips its
+  (testing "editing the variant's own `:fx-overrides` flips its
             verdict, so it moves both snapshot identity and the watch hash"
     (let [vid            :story.id-fx/own
           place!         (fn [ovr]
@@ -865,7 +858,7 @@
         (is (= after (fx-override-run vid)))))))
 
 (deftest snapshot-identity-changes-with-composed-fx-overrides
-  (testing "rf2-38gqa — editing the `:fx-overrides` of a fragment the variant
+  (testing "editing the `:fx-overrides` of a fragment the variant
             `:compose`s flips its verdict and moves its snapshot identity"
     (let [vid            :story.id-fx/composed
           place!         (fn [ovr]
@@ -881,7 +874,7 @@
           "and the watch hash still moves through the fragment reference"))))
 
 (deftest snapshot-identity-changes-with-inherited-fx-overrides
-  (testing "rf2-38gqa — editing the `:fx-overrides` of an `:extends` ancestor
+  (testing "editing the `:fx-overrides` of an `:extends` ancestor
             flips the child's verdict and moves the child's snapshot identity"
     (let [vid            :story.id-fx/child
           place!         (fn [ovr]
@@ -896,14 +889,14 @@
       (is (not= (:watch before) (:watch after))
           "and the watch hash still moves through the ancestor reference"))))
 
-;; ---- rf2-0ae7o.8: authored `:interceptor-overrides` ----------------------
+;; ---- authored `:interceptor-overrides` -----------------------------------
 ;;
 ;; spec/017 §The interceptor-override surface: the override is the ref "the
 ;; runner installs under that id for the duration of the variant". The plan
-;; compiled an own, inherited or composed map into
-;; `[:world :frame :interceptor-overrides]`, but frame allocation installed
-;; only `:fx-overrides`, so an authored interceptor override was silently
-;; ignored and every run settled as if it were absent.
+;; compiles an own, inherited or composed map into
+;; `[:world :frame :interceptor-overrides]` and frame allocation installs it
+;; beside `:fx-overrides`; left uninstalled, an authored interceptor override
+;; would be silently ignored and every run would settle as if it were absent.
 
 (def ^:private icpt-override-body
   {:tags       #{:test}
@@ -947,7 +940,7 @@
     [before (icpt-override-run vid)]))
 
 (deftest interceptor-overrides-own-body
-  (testing "rf2-0ae7o.8 — the variant's own `:interceptor-overrides` is
+  (testing "the variant's own `:interceptor-overrides` is
             installed on its frame, so it decides what the run settles to"
     (let [vid            :story.id-icpt/own
           place!         (fn [ovr]
@@ -965,7 +958,7 @@
         (is (= after (icpt-override-run vid)))))))
 
 (deftest interceptor-overrides-compose-fragment
-  (testing "rf2-0ae7o.8 — a composed fragment's `:interceptor-overrides` is
+  (testing "a composed fragment's `:interceptor-overrides` is
             installed on the variant's frame"
     (let [vid            :story.id-icpt/composed
           place!         (fn [ovr]
@@ -981,7 +974,7 @@
           "and the watch hash still moves through the fragment reference"))))
 
 (deftest interceptor-overrides-extends-ancestor
-  (testing "rf2-0ae7o.8 — an `:extends` ancestor's `:interceptor-overrides` is
+  (testing "an `:extends` ancestor's `:interceptor-overrides` is
             installed on the child's frame"
     (let [vid            :story.id-icpt/child
           place!         (fn [ovr]
@@ -997,7 +990,7 @@
           "and the watch hash still moves through the ancestor reference"))))
 
 (deftest interceptor-overrides-inline-plan
-  (testing "rf2-0ae7o.8 — an inline plan's `:interceptor-overrides` is
+  (testing "an inline plan's `:interceptor-overrides` is
             installed on its anonymous frame"
     (reg-icpt-fixtures!)
     (let [run! (fn [ovr]
@@ -1012,13 +1005,13 @@
               (run! {:test.id-icpt/tag :test.id-icpt/two})])
           "the inline plan's override decides the settled app-db and the verdict"))))
 
-;; ---- rf2-0ae7o.8: behaviour-variant `:images` ----------------------------
+;; ---- behaviour-variant `:images` -----------------------------------------
 ;;
 ;; A variant frame resolves its handlers through `[<story-images…>
 ;; <variant-images…> runtime-image]` (002-Runtime §Image composition), so
 ;; swapping the image a variant or its story declares changes which handler
-;; runs, and with it the settled app-db and the verdict. Identity selected
-;; `:images` from neither body, and the watch hash missed it too. An `:extends`
+;; runs, and with it the settled app-db and the verdict — so both snapshot
+;; identity and the watch hash select `:images` from both bodies. An `:extends`
 ;; ancestor's `:images` never reach the child's frame, and a fragment body
 ;; cannot carry `:images` at all.
 
@@ -1045,7 +1038,7 @@
     [before (fx-override-run vid)]))
 
 (deftest images-own-body
-  (testing "rf2-0ae7o.8 — swapping the variant's own `:images` changes which
+  (testing "swapping the variant's own `:images` changes which
             handler runs, so it moves snapshot identity and the watch hash"
     (let [vid            :story.id-img/own
           place!         (fn [image]
@@ -1059,7 +1052,7 @@
           "and a fresh watch hash, so watch mode re-runs the variant"))))
 
 (deftest images-story-body
-  (testing "rf2-0ae7o.8 — swapping the parent story's `:images` changes which
+  (testing "swapping the parent story's `:images` changes which
             handler its variants run, so it moves their snapshot identity"
     (let [vid            :story.id-imgstory/v
           place!         (fn [image]
@@ -1074,7 +1067,7 @@
           "and a fresh watch hash, so watch mode re-runs the variant"))))
 
 (deftest images-not-inherited-through-extends
-  (testing "rf2-0ae7o.8 — an `:extends` ancestor's `:images` never reach the
+  (testing "an `:extends` ancestor's `:images` never reach the
             child's frame, so swapping them leaves the child's settled state
             and its snapshot identity alone"
     ;; Only v1 is loaded, so the child's default image resolves the step
@@ -1094,19 +1087,18 @@
       (is (= (:id-hash before) (:id-hash after))
           "so the child's snapshot identity must not move"))))
 
-;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
+;; ---- the STORY-side identity inputs (story-body-slice) --------------------
 ;;
 ;; `story-body-slice` selects the parent story's `[:component :decorators]`
-;; into the tuple's `:story` slot. Every existing snapshot-identity guard
-;; drives the VARIANT-level slots (rf2-bah5o2 `:component`, rf2-9g48l
-;; `:decorators`); the sibling STORY-level slots that a component-less /
-;; decorator-inheriting variant renders through were untested. That is the
-;; same silent-drop-from-select-keys failure class: a refactor dropping
-;; `:component` or `:decorators` from `story-body-slice`'s select-keys ships
-;; green. These pin both.
+;; into the tuple's `:story` slot. The guards above drive the VARIANT-level
+;; slots (`:component`, `:decorators`); these pin the sibling STORY-level
+;; slots that a component-less / decorator-inheriting variant renders
+;; through. The failure class is the same silent drop from select-keys:
+;; without these, a refactor dropping `:component` or `:decorators` from
+;; `story-body-slice`'s select-keys would ship green.
 
 (deftest snapshot-identity-changes-with-story-component
-  (testing "rf2-8fz0n8 — the PARENT STORY's `:component` participates in the
+  (testing "the PARENT STORY's `:component` participates in the
             hash via `story-body-slice`'s `(select-keys body [:component
             :decorators])`. The renderer resolves variant-first `(or
             (:component variant) (:component story))`, so for a variant that
@@ -1115,7 +1107,7 @@
             `:component` MUST perturb the child variant's snapshot identity.
             RED against a refactor dropping `:component` from
             `story-body-slice`'s select-keys — the STORY-side sibling of the
-            variant-override guard rf2-bah5o2."
+            variant-override guard above."
     (rf.story/reg-story :story.story-comp {:component :view-a})
     ;; Component-less variant — the rendered view is the STORY's `:component`.
     (rf.story/reg-variant :story.story-comp/v {:setup []})
@@ -1130,14 +1122,14 @@
             "story-body-slice must select :component")))))
 
 (deftest snapshot-identity-changes-with-story-decorators
-  (testing "rf2-8fz0n8 — the PARENT STORY's `:decorators` participate in the
+  (testing "the PARENT STORY's `:decorators` participate in the
             hash via `story-body-slice`'s `(select-keys body [:component
             :decorators])`. Story decorators wrap EVERY variant of the story
             (composed before the variant's own), so a story-level decorator
             edit changes the child variant's settled rendered state and MUST
             perturb its snapshot identity. RED against a refactor dropping
             `:decorators` from `story-body-slice`'s select-keys — the
-            STORY-side sibling of the variant-decorators guard rf2-9g48l."
+            STORY-side sibling of the variant-decorators guard above."
     (rf.story/reg-decorator :centered
       {:kind :hiccup :wrap (fn [body _args] [:div.centered body])})
     (rf.story/reg-decorator :boxed
@@ -1162,16 +1154,15 @@
                                      [:story :decorators]))
             "story-body-slice must select :decorators")))))
 
-;; ---- rf2-chzryf: identity keys off EFFECTIVE tags, not raw child :tags ----
+;; ---- identity keys off EFFECTIVE tags, not raw child :tags ---------------
 ;;
-;; Follow-on from rf2-n0vmq2/#5308. The shared `re-frame.story.tags`
-;; resolver feeds every OTHER tag consumer (membership, docs chips, the
-;; tag filter, plan compilation, snapshot UI state). Snapshot identity was
-;; the straggler still reading the RAW child `:tags`. These tests pin the
-;; decision: the content-hash keys off the variant's EFFECTIVE tag set.
+;; The shared `re-frame.story.tags` resolver feeds every tag consumer
+;; (membership, docs chips, the tag filter, plan compilation, snapshot UI
+;; state), snapshot identity included: the content-hash keys off the
+;; variant's EFFECTIVE tag set, never the RAW child `:tags`.
 
 (deftest snapshot-identity-hashes-effective-not-raw-tags
-  (testing "rf2-chzryf — two authorings that resolve to the SAME effective
+  (testing "two authorings that resolve to the SAME effective
             tag set produce the SAME hash. `#{:docs}` and
             `#{:dev :!dev :docs}` both resolve to `#{:docs}` (the `:!dev`
             marker drops itself AND cancels the unioned `:dev`), so the
@@ -1194,7 +1185,7 @@
           (is (not (contains? eff :!dev)) "raw `:!x` marker never reaches the hash"))))))
 
 (deftest snapshot-identity-changes-with-effective-tag-set
-  (testing "rf2-chzryf — a genuine change to the effective tag set DOES
+  (testing "a genuine change to the effective tag set DOES
             perturb the hash (tags remain identity-bearing, they are not
             simply dropped from the identity)."
     (rf.story/reg-story :story.eff-tag-chg {:component :app/v})
@@ -1206,12 +1197,12 @@
             "adding an effective tag must produce a fresh hash")))))
 
 (deftest snapshot-identity-changes-with-extends-parent-tag
-  (testing "rf2-chzryf — the correctness win: editing an `:extends`-PARENT's
+  (testing "editing an `:extends`-PARENT's
             tags changes the CHILD's effective classification and MUST
             perturb the child's snapshot identity. RED against the raw-tags
             reader — the child's raw `:tags` are empty and its story's tags
-            are unchanged, so the pre-fix identity slice (child raw + story
-            raw, never the extends-parent) would NOT see the change."
+            are unchanged, so an identity slice of child raw + story raw
+            (never the extends-parent) would NOT see the change."
     (rf.story/reg-story :story.eff-tag-ext {:component :app/v})
     ;; Child ONLY :extends the parent — declares no tags of its own, so its
     ;; effective set is entirely inherited from the parent.
@@ -1229,7 +1220,7 @@
             "an :extends-parent tag edit perturbs the child's hash")))))
 
 (deftest snapshot-identity-changes-with-story-fallback-tag
-  (testing "rf2-8fz0n8 — for a TAGLESS variant (no own `:tags`, no `:extends`
+  (testing "for a TAGLESS variant (no own `:tags`, no `:extends`
             chain that declares tags) the effective tag set FALLS BACK to the
             parent story's `:tags` (`re-frame.story.tags/raw-inherited-tags`
             story-fallback branch, reached through `effective-tags-slice`).
@@ -1238,7 +1229,7 @@
             identity — even though the child's own `:tags` are empty and
             `story-body-slice` never selects `:tags`. RED against a break in
             `effective-tags-slice`'s story-fallback path; the story-fallback
-            sibling of the `:extends`-parent guard rf2-chzryf."
+            sibling of the `:extends`-parent guard above."
     (rf.story/reg-story :story.story-tag {:component :app/v :tags #{:docs}})
     ;; Tagless variant — inherits the story's tags as the fallback default.
     (rf.story/reg-variant :story.story-tag/v {:setup []})
@@ -1263,12 +1254,12 @@
         "map key order doesn't affect the hash")))
 
 (deftest snapshot-tuple-canonical-slot-tracks-fingerprint-version
-  ;; rf2-e8hgr — doc↔code drift guard. The snapshot tuple's
+  ;; Doc↔code drift guard. The snapshot tuple's
   ;; `:rf/snapshot-canonical` slot is NOT an independently-versioned
   ;; marker: it reads its value straight from the single source of truth,
-  ;; `fingerprint/canonical-version`. This locks them together so a future
+  ;; `fingerprint/canonical-version`. This locks them together so a
   ;; canonical-version bump cannot leave the tuple slot pinned to a stale
-  ;; literal (the v1/v2 drift this bead fixed).
+  ;; literal.
   (testing "the tuple's :rf/snapshot-canonical slot equals fingerprint/canonical-version"
     (rf.story/reg-story :story.id-canon {:component :app/c})
     (rf.story/reg-variant :story.id-canon/v {:setup []})
@@ -1283,14 +1274,14 @@
 (deftest lifecycle-machine-registered
   (testing "the lifecycle machine is registered after install-canonical-vocabulary!"
     ;; Enumerated through the generic registrar read filtered on
-    ;; `:rf/machine?` — there is no per-kind `machines` accessor (rf2-kuky.31).
+    ;; `:rf/machine?` — there is no per-kind `machines` accessor.
     (is (some (set [rf.story.loaders/lifecycle-machine-id])
               (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
                           (rf/registrations {:source :store :kind :event})))))))
 
 (deftest lifecycle-transitions-pre-mount-to-ready
   (testing "the lifecycle progresses through every documented state"
-    ;; rf2-043cm — `:loaders` keeps `allocate!` on the classical
+    ;; `:loaders` keeps `allocate!` on the classical
     ;; four-phase route (`:pre-mount → :mounting → :loading → :ready`).
     ;; The events-only fast-path (`:pre-mount → :ready`) is exercised
     ;; separately by `lifecycle-events-only-fast-path-to-ready` /
@@ -1308,7 +1299,7 @@
 
 (deftest lifecycle-mirror-to-friendly-path
   (testing "the discrete state is mirrored to [:rf.story/lifecycle]"
-    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; `:loaders` keeps the classical four-phase route so
     ;; the test reaches `:loading`.
     (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.mirror/v {:loaders [[:test/noop]]})
@@ -1321,7 +1312,7 @@
 
 (deftest lifecycle-watcher-fires-on-transitions
   (testing "watch-variant callbacks see every transition"
-    ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
+    ;; `:loaders` keeps the classical four-phase route so
     ;; watchers observe the full transition cascade.
     (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.watch/v {:loaders [[:test/noop]]})
@@ -1340,7 +1331,7 @@
       (unsubscribe)
       (rf.story.frames/destroy! :story.watch/v))))
 
-;; rf2-043cm — events-only fast-path coverage.
+;; Events-only fast-path coverage.
 ;;
 ;; A variant declaring `:setup` only (no `:loaders`, no `:frame-setup`
 ;; decorators, no `:loaders-complete-when`) has nothing to wait for
@@ -1387,9 +1378,9 @@
         ":hiccup + :fx-override decorators don't drive the lifecycle machine")))
 
 (deftest lifecycle-events-only-fast-path-to-ready
-  (testing "rf2-043cm — an events-only variant's frame allocation
+  (testing "an events-only variant's frame allocation
             drives the lifecycle from :pre-mount directly to :ready
-            in a single transition. The skeleton (rf2-0s4p1) reads
+            in a single transition. The loading skeleton reads
             `:ready` immediately and never engages."
     (rf.story/reg-variant :story.eo.fast/v {:setup []})
     (let [r (rf.story/resolve-decorators :story.eo.fast/v)]
@@ -1401,7 +1392,7 @@
       (rf.story.frames/destroy! :story.eo.fast/v))))
 
 (deftest lifecycle-events-only-watcher-sees-single-transition
-  (testing "rf2-043cm — a watcher registered before allocate observes
+  (testing "a watcher registered before allocate observes
             ONE transition (:pre-mount → :ready) for events-only
             variants, not the three the classical path fires"
     (rf.story/reg-variant :story.eo.watch/v {:setup []})
@@ -1418,12 +1409,12 @@
           "the single transition was :pre-mount → :ready")
       (is (= [:rf.story.lifecycle/mount-ready]
              (:event (first @transitions)))
-          "the firing event was :mount-ready (the rf2-043cm fast-path)")
+          "the firing event was :mount-ready (the events-only fast-path)")
       (unsub)
       (rf.story.frames/destroy! :story.eo.watch/v))))
 
 (deftest lifecycle-events-only-run-variant-lands-ready
-  (testing "rf2-043cm — `run-variant` against an events-only body
+  (testing "`run-variant` against an events-only body
             resolves to a result whose :lifecycle is :ready and whose
             :assertions vector is empty (no loader-incomplete projection)"
     (rf/reg-event :test/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
@@ -1438,7 +1429,7 @@
     (rf.story/destroy-variant! :story.eo.run/v)))
 
 (deftest lifecycle-start-loaders-from-ready-is-noop
-  (testing "rf2-043cm — `start-loaders!` against a frame already at
+  (testing "`start-loaders!` against a frame already at
             :ready (an events-only variant) is a benign no-op. The
             :ready node has no transition out for :loaders-started so
             the discrete state stays :ready."
@@ -1475,7 +1466,7 @@
     (rf.story/destroy-variant! :story.run/v)))
 
 ;; ===========================================================================
-;; EP-0023 BEHAVIOUR-VARIANT IMAGES (rf2-fpr0b5)
+;; EP-0023 BEHAVIOUR-VARIANT IMAGES
 ;; ===========================================================================
 
 (deftest behaviour-variant-images-resolve-same-id-differently
@@ -1511,7 +1502,7 @@
           "variant under the v2 image ran the add-hundred handler — SAME id,
            DIFFERENT behaviour, resolved through the variant frame's own image")
       (is (= :v2-add-hundred (-> rb :app-db :behaviour)))
-      ;; item 4 — the result reports WHICH behaviour set ran.
+      ;; The result reports WHICH behaviour set ran.
       (is (= [:img/behaviour-v1] (:images ra))
           "the result surfaces the resolved behaviour-variant image ids")
       (is (= [:img/behaviour-v2] (:images rb))))
@@ -1539,21 +1530,21 @@
     (rf.story.frames/destroy! :story.img/state-only)))
 
 ;; ===========================================================================
-;; VARIANT-IMAGE COMPOSITION MODEL (rf2-14gqim)
+;; VARIANT-IMAGE COMPOSITION MODEL
 ;;
 ;; Gate-verifies the owned-frame image composition `allocate!` builds:
 ;;
 ;;     composed :images = [<story-images…> <variant-images…> runtime-image]
 ;;                        (EP-0026 §Layered Resolution — the later image wins)
 ;;
-;; The five tests below pin, from first principles, the axes the ruling
-;; blessed: story→variant inheritance, variant later-wins override, authored-
+;; The five tests below pin, from first principles, the model's axes:
+;; story→variant inheritance, variant later-wins override, authored-
 ;; id reporting excluding the library runtime image, the runtime-image-LAST
 ;; shadow invariant, and the absence-is-default (no-app-image) fallback.
 ;; ===========================================================================
 
 (deftest variant-image-inherits-story-image
-  (testing "rf2-14gqim (1) — a variant with NO :images inherits its parent
+  (testing "(1) — a variant with NO :images inherits its parent
             story's :images. The story declares the app image ONCE; the variant
             resolves :img.counter/step through the inherited v1 image (add one),
             and the inherited image id surfaces on the run-result :images slot."
@@ -1574,7 +1565,7 @@
     (rf.story/destroy-variant! :story.imginh/child)))
 
 (deftest variant-image-later-wins-over-story-image
-  (testing "rf2-14gqim (2) — a variant's own :images layer ON TOP of the story
+  (testing "(2) — a variant's own :images layer ON TOP of the story
             image and WIN the same [kind id] (later image wins). Story declares
             the v1 image (add one); the variant declares the v2 image (add
             hundred) for the SAME :img.counter/step id. The composition
@@ -1608,7 +1599,7 @@
     (rf.story/destroy-variant! :story.imgover/wins)))
 
 (deftest authored-image-report-excludes-runtime-image
-  (testing "rf2-14gqim (3) — the AUTHORED :images report (frame-meta :rf/images)
+  (testing "(3) — the AUTHORED :images report (frame-meta :rf/images)
             carries the story + variant app image ids and EXCLUDES the
             library-composed :rf.story/runtime image, even though the runtime
             image IS genuinely composed into the frame's generation."
@@ -1635,7 +1626,7 @@
     (rf.story.frames/destroy! :story.imgrep/v)))
 
 (deftest runtime-image-composed-last-shadows-app-image
-  (testing "rf2-14gqim (4) — the load-bearing shadow test. An app image
+  (testing "(4) — the load-bearing shadow test. An app image
             overlaps a Story-runtime [kind id] (:rf.assert/path-equals); because
             the runtime image is composed LAST, it WINS the overlap, so the real
             Story assertion handler stays live (the broken app shadow never
@@ -1667,7 +1658,7 @@
     (rf.story/destroy-variant! :story.shadow/v)))
 
 (deftest no-app-image-resolves-default-image-with-runtime-visible
-  (testing "rf2-14gqim (5) — absence-is-default. With NO story/variant app
+  (testing "(5) — absence-is-default. With NO story/variant app
             image, compose-variant-images yields nil, allocate! omits :images,
             and the frame resolves the EP-0026 default whole-store projection.
             No :rf/images is stamped, and the Story runtime stays visible through
@@ -1775,16 +1766,15 @@
     (rf.story/destroy-variant! :story.reset/v)))
 
 ;; ===========================================================================
-;; PLAN-ROUTED RUNTIME (rf2-5x1wt.22 — §B8 Runtime Migration)
+;; PLAN-ROUTED RUNTIME
 ;;
-;; The runtime now routes phase 2 (setup) and phase 4 (script) through the
+;; The runtime routes phase 2 (setup) and phase 4 (script) through the
 ;; normalized variant plan (`re-frame.story.plan`) rather than reading the
-;; shipping `:setup` / `:script` slots off the registered body. These
-;; tests pin the migration's load-bearing behaviour: the PUBLIC `:setup` /
-;; `:script` vocabulary runs, composed-fragment setup is executed in
-;; phase 2 (a behaviour the pre-migration runtime did NOT deliver — it
-;; ignored `:compose` entirely for setup), and named `:plays` remain
-;; driven as named scripts.
+;; `:setup` / `:script` slots off the registered body. These tests pin the
+;; load-bearing behaviour: the PUBLIC `:setup` / `:script` vocabulary runs,
+;; composed-fragment setup is executed in phase 2 (a runtime reading only
+;; the registered body would ignore `:compose` entirely for setup), and
+;; named `:plays` are driven as named scripts.
 ;; ===========================================================================
 
 (deftest run-variant-public-setup-and-script-vocabulary
@@ -1816,7 +1806,8 @@
 (deftest run-variant-composed-fragment-setup-runs-in-phase-2
   (testing "a :compose fragment's :setup is executed in phase 2 — the plan
             compiler resolves :compose, so fragment preconditions land in
-            the frame (the pre-migration runtime ignored :compose for setup)"
+            the frame (a runtime reading only the registered body would
+            ignore :compose for setup)"
     (rf/reg-event :test/frag-seed
       (fn [{:keys [db]} _] {:db (assoc db :from-fragment :alice)}))
     (rf/reg-event :test/observe-frag
@@ -1858,7 +1849,7 @@
     (rf.story/destroy-variant! :story.plays/v)))
 
 ;; ===========================================================================
-;; TERMINAL ASSERTIONS AUTO-RUN (rf2-nyjoa — Mike RULED B)
+;; TERMINAL ASSERTIONS AUTO-RUN
 ;;
 ;; The terminal `:assertions` slot is the handler-backed "check the FINAL
 ;; settled state" surface. It AUTO-RUNS after the script phase settles and
@@ -1874,8 +1865,8 @@
 (deftest run-variant-terminal-assertions-only-pass
   (testing "the CANONICAL reg-variant example — a variant with ONLY a
             terminal :assertions block (no in-script [:assert], no :script)
-            now AUTO-RUNS the terminal assertion against the FINAL settled
-            state and produces a :pass verdict (rf2-nyjoa)"
+            AUTO-RUNS the terminal assertion against the FINAL settled
+            state and produces a :pass verdict"
     (rf/reg-event :test/seed-state
       (fn [{:keys [db]} _] {:db (assoc-in db [:checkout :state] :submitted)}))
     (rf.story/reg-variant :story.nyjoa/pass
@@ -1897,7 +1888,7 @@
 
 (deftest run-variant-terminal-assertions-only-fail
   (testing "a FAILING terminal assertion (no in-script [:assert]) flips the
-            unified verdict to :fail (rf2-nyjoa)"
+            unified verdict to :fail"
     (rf/reg-event :test/seed-other
       (fn [{:keys [db]} _] {:db (assoc-in db [:checkout :state] :draft)}))
     (rf.story/reg-variant :story.nyjoa/fail
@@ -1918,7 +1909,7 @@
 (deftest run-variant-terminal-assertion-evaluates-final-state-after-script
   (testing "a terminal assertion evaluates the FINAL settled state — it sees
             the state AFTER the script's dispatches commit, not the
-            pre-script state (rf2-nyjoa: terminal = check the FINAL state)"
+            pre-script state (terminal = check the FINAL state)"
     (rf/reg-event :test/set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (rf.story/reg-variant :story.nyjoa/after-script
       {:script     [[:dispatch [:test/set-n 7]]]
@@ -1936,8 +1927,7 @@
             reg-event handler, so the auto-run records NO handler-backed
             record for it; the result boundary owns its single verdict
             against the epoch tape. Pinned alongside a handler-backed
-            terminal assertion in the same block so the split is exercised
-            (rf2-nyjoa critical guard)."
+            terminal assertion in the same block so the split is exercised."
     (rf/reg-event :test/seed-ok (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
     (rf.story/reg-variant :story.nyjoa/mixed
       {:setup      [[:test/seed-ok]]
@@ -1982,7 +1972,7 @@
 (deftest run-variant-non-dispatch-setup-step-is-refused
   (testing "a :setup carrying a non-dispatch step (e.g. [:wait …] / [:click …])
             is REFUSED at phase-2 with :rf.error/story-setup-step-unrunnable
-            rather than SILENTLY DROPPED (rf2-zaiwl). The step is legal in
+            rather than SILENTLY DROPPED. The step is legal in
             :setup and lifts :required-runner to :dom/:cljs-reactive, but the
             headless runner cannot honour that boundary — so it fails closed
             (:cannot-run shape) instead of vanishing the precondition."
@@ -2012,7 +2002,7 @@
 (deftest run-variant-legit-setup-steps-still-compile-and-run
   (testing "the legit setup shapes — a tagged [:dispatch …] AND a bare event
             vector (coerced to [:dispatch …]) — still run cleanly through
-            phase 2 (rf2-zaiwl positive control: the refusal targets ONLY
+            phase 2 (positive control: the refusal targets ONLY
             non-dispatch steps)"
     (rf/reg-event :test/seed-a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     (rf/reg-event :test/seed-b (fn [{:keys [db]} _] {:db (assoc db :b true)}))
@@ -2026,20 +2016,20 @@
       (is (true? (-> r :app-db :b)) "the bare-event-vector setup step ran"))
     (rf.story/destroy-variant! :story.zaiwl/ok)))
 
-;; ---- plan-construction-error? discrimination (rf2-x3mol) -----------------
+;; ---- plan-construction-error? discrimination -----------------------------
 ;;
-;; PR #2430 (rf2-5x1wt.22) narrowed `plan-construction-error?` from the
-;; over-broad "`:rf.error/id` present" to "`:where` = `'rf.story/variant-
-;; plan`". The discrimination is load-bearing: a FRAMEWORK runtime error
+;; `plan-construction-error?` keys on "`:where` = `'rf.story/variant-
+;; plan`", not the over-broad "`:rf.error/id` present". The discrimination
+;; is load-bearing: a FRAMEWORK runtime error
 ;; thrown AFTER frame allocation that ALSO carries an `:rf.error/id` (the
 ;; cited case is `:rf.error/no-adapter-installed` from `make-frame` →
 ;; `make-state-container` on a host with no adapter installed) MUST take
 ;; the frame-bound record/transition branch (`record-error!` +
 ;; `rf.story.loaders/error!`), NOT `plan-error-result` (which would stamp the raw
 ;; `:rf.error/id` as the assertion id, misreporting a runtime failure as a
-;; plan-construction failure). The pre-existing suite pinned only the
-;; POSITIVE branch (a true plan error projects correctly); these pin the
-;; NEGATIVE branch + the precise `:where`-marker scoping.
+;; plan-construction failure). Other tests pin the POSITIVE branch (a true
+;; plan error projects correctly); these pin the NEGATIVE branch + the
+;; precise `:where`-marker scoping.
 
 (deftest plan-construction-error?-discriminates-on-where-marker
   (testing "the predicate keys on :where 'rf.story/variant-plan ONLY — an
@@ -2048,7 +2038,7 @@
             path), while a :where-marked plan failure IS"
     (let [plan-construction-error? @#'rf.story.runtime/plan-construction-error?]
       ;; NEGATIVE: a framework runtime error carrying :rf.error/id but no
-      ;; :where marker — the #2430 cum40 regression case. Must be false so
+      ;; :where marker. Must be false so
       ;; handle-run-error! takes the frame-bound branch, NOT plan-error-result.
       (is (false? (plan-construction-error?
                     (ex-info "no adapter installed"
@@ -2084,8 +2074,8 @@
     ;; Redef a phase fn that runs AFTER run-phase-0! (so the frame is
     ;; allocated and the lifecycle is past :pre-mount) to throw an ex-info
     ;; carrying an :rf.error/id but NO :where 'rf.story/variant-plan marker
-    ;; — simulating the :rf.error/no-adapter-installed case the #2430 fix
-    ;; guards against.
+    ;; — simulating the :rf.error/no-adapter-installed case this guards
+    ;; against.
     (with-redefs [rf.story.runtime/run-phase-2!
                   (fn [_ctx]
                     (throw (ex-info "no adapter installed"
@@ -2138,14 +2128,14 @@
       (is (some #(= :rf.error/exception (:assertion %)) (:assertions r))
           "an exception assertion was recorded")
       (is (some #(= :phase-2-events (:phase %)) (:assertions r)))
-      ;; rf2-izz5 — ONE record per failure. Phases 1-2 used to record it
-      ;; through two live paths (the per-phase capture AND the drain).
+      ;; ONE record per failure — recording it through both the per-phase
+      ;; capture AND the drain would double it.
       (is (= 1 (count (filter #(= :rf.error/exception (:assertion %)) (:assertions r))))
           "the setup failure is recorded exactly once"))
     (rf.story/destroy-variant! :story.err/v)))
 
 (deftest phase-1-and-2-exceptions-record-once
-  (testing "rf2-izz5 — a loader failure records once, and a setup failure never
+  (testing "a loader failure records once, and a setup failure never
             resurfaces as a phase-4 record at the script's first drain"
     (rf/reg-event :test/boom-once (fn [_ _] (throw (ex-info "bang" {:why :test}))))
     (rf/reg-event :test/fine-once (fn [{:keys [db]} _] {:db db}))
@@ -2162,7 +2152,7 @@
     (rf.story/destroy-variant! :story.err-once/loader)
     (rf.story/destroy-variant! :story.err-once/setup-then-script)))
 
-;; ---- rf2-poty — a throw BEFORE the frame exists is :error, never :pass ----
+;; ---- a throw BEFORE the frame exists is :error, never :pass --------------
 
 (deftest no-adapter-installed-run-is-an-error-not-a-pass
   (testing "with no adapter installed, run-variant and an inline run resolve
@@ -2187,12 +2177,12 @@
         (is (= :ready (:lifecycle r)))))
     (rf.story/destroy-variant! :story.no-adapter/v)))
 
-;; ---- rf2-9ppq — every run chain has a rejection path ----------------------
+;; ---- every run chain has a rejection path --------------------------------
 
 (deftest run-chains-settle-when-result-assembly-throws
   (testing "a throw inside record-result-map settles every run chain :error
-            inside the deref timeout — it used to leave the promise pending for
-            ever (a JVM TimeoutException)"
+            inside the deref timeout — a chain with no rejection path would
+            leave the promise pending for ever (a JVM TimeoutException)"
     (rf/reg-event :test/fine-9ppq (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.chain-9ppq/v {:script [[:dispatch-sync [:test/fine-9ppq]]]})
     (with-redefs [rf.story.runtime/record-result-map
@@ -2214,21 +2204,21 @@
     (rf.story.runtime/reset-run-owner! :story.chain-9ppq/v)
     (rf.story/destroy-variant! :story.chain-9ppq/v)))
 
-;; ---- rf2-294yq5.5 — exception ex-data wire-elision -----------------------
+;; ---- exception ex-data wire-elision --------------------------------------
 
 (deftest exception-ex-data-redacts-sensitive-slot-jvm
   (testing "a handler throwing ex-info with a value at a frame-owned sensitive
             key records :rf/redacted in :error :data, NOT the raw secret; the
-            :error :message survives verbatim (rf2-294yq5.5 / rf2-bsk1d9). JVM
+            :error :message survives verbatim. JVM
             gate (the CLJS twin lives in error_projection_redaction_cljs_test.cljs)"
     (rf/reg-event :auth/boom-jvm
       (fn [_ _]
         (throw (ex-info "Invalid credentials"
                         {:token  "BEARER-secret-12345"
                          :reason :bad-password}))))
-    ;; rf2-bsk1d9 — declare the sensitive ex-data path on the variant body
-    ;; (EP-0015 frame-owned classification, installed at frame creation); no
-    ;; public add-marks mutation, no run-once-then-mark-then-rerun dance.
+    ;; Declare the sensitive ex-data path on the variant body
+    ;; (EP-0015 frame-owned classification, installed at frame creation); there
+    ;; is no public add-marks mutation, so no run-once-then-mark-then-rerun dance.
     (rf.story/reg-variant :story.err-redaction-jvm/v
       {:setup      []
        :sensitive   {:app-db [[:token]]}
@@ -2247,7 +2237,7 @@
 
 (deftest exception-ex-data-non-sensitive-passes-through-jvm
   (testing "with NO marks, captured ex-data passes through unredacted —
-            frame-scoped elision only redacts marked paths (rf2-294yq5.5)"
+            frame-scoped elision only redacts marked paths"
     (rf/reg-event :plain/boom-jvm
       (fn [_ _] (throw (ex-info "boom" {:detail "not-secret"}))))
     (rf.story/reg-variant :story.err-plain-jvm/v
@@ -2258,13 +2248,13 @@
           "an unmarked ex-data slot is not redacted"))
     (rf.story/destroy-variant! :story.err-plain-jvm/v)))
 
-;; ---- rf2-294yq5.1 — :frame-setup :init failures are captured -------------
+;; ---- :frame-setup :init failures are captured -----------------------------
 
 (deftest frame-setup-init-throw-is-captured-as-failed-assertion
   (testing "a :frame-setup :init handler that THROWS is captured as a
             :phase-0-setup :rf.error/exception assertion — NOT a silent
             :pass / :ready against a frame missing its declared
-            preconditions (rf2-294yq5.1)"
+            preconditions"
     (rf/reg-event :test/setup-boom
       (fn [_ _] (throw (ex-info "setup blew up" {:why :setup}))))
     (rf.story/reg-decorator :boom-setup
@@ -2284,17 +2274,17 @@
           "the run does NOT aggregate to :pass — a broken setup is a
            failed run, not a false green")
       (is (seq recs)
-          "the assertions vector is non-empty (regression: it was [] before
-           the listener-before-setup fix)"))
+          "the assertions vector is non-empty (a listener installed after
+           setup would leave it [])"))
     (rf.story/destroy-variant! :story.init-boom/v)))
 
-;; ---- rf2-294yq5.2 — cofx / interceptor failures are captured -------------
+;; ---- cofx / interceptor failures are captured -----------------------------
 
 (deftest cofx-injection-throw-is-captured
   (testing "a phase-2 event whose injected COFX throws is captured as an
             :rf.error/exception assertion carrying the
-            :rf.error/coeffect-exception operation (rf2-294yq5.2) — the
-            old handler-exception-only capture was a false green"
+            :rf.error/coeffect-exception operation — a
+            handler-exception-only capture would be a false green"
     (rf/reg-cofx :test/boom-cofx
       (fn [] (throw (ex-info "cofx blew up" {:why :cofx}))))
     (rf/reg-event :test/uses-boom-cofx
@@ -2317,7 +2307,7 @@
 (deftest user-interceptor-throw-is-captured
   (testing "a phase-2 event whose USER INTERCEPTOR :before throws is
             captured as an :rf.error/exception assertion carrying the
-            :rf.error/interceptor-exception operation (rf2-294yq5.2)"
+            :rf.error/interceptor-exception operation"
     ;; EP-0022: author the interceptor with `reg-interceptor` (the public
     ;; form; it returns the id) and reference it by id from the chain.
     (let [boom-icpt (rf/reg-interceptor :test/boom-icpt
@@ -2339,7 +2329,7 @@
         (is (not= :pass (:status r))))
       (rf.story/destroy-variant! :story.icpt-boom/v))))
 
-;; ---- rf2-0ae7o.13 — a dispatch that resolves NO handler is a captured failure
+;; ---- a dispatch that resolves NO handler is a captured failure
 
 (defn- no-such-handler-record [result]
   (first (filter #(and (= :rf.error/exception (:assertion %))
@@ -2349,11 +2339,11 @@
 (deftest setup-no-such-handler-is-captured
   (testing "a :setup dispatch whose event has NO registered handler is captured
             as a failed :rf.error/exception record carrying the
-            :rf.error/no-such-handler operation (rf2-0ae7o.13). The framework
+            :rf.error/no-such-handler operation. The framework
             refuses the dispatch before any pipeline runs and settles no epoch
-            for it (rf2-erczwd), so the epoch tape is silent — the phase
-            trace-listener is the ONE capture that can see it. Before this the
-            unfilled upgrade scaffold read a vacuous :pass."
+            for it, so the epoch tape is silent — the phase
+            trace-listener is the ONE capture that can see it. Without it the
+            unfilled upgrade scaffold would read a vacuous :pass."
     (rf.story/reg-variant :story.nsh/setup
       {:setup [[:dispatch [:your/setup-event {}]]]})
     (let [r   (rf.story.async/deref-blocking (rf.story/run-variant :story.nsh/setup) 5000)
@@ -2375,7 +2365,7 @@
 
 (deftest script-no-such-handler-is-captured
   (testing "a :script dispatch whose event has NO registered handler is captured
-            the same way, attributed to the play phase (rf2-0ae7o.13) — a
+            the same way, attributed to the play phase — a
             misspelt event id in a script is a real authoring error, not a pass"
     (rf/reg-event :test/nsh-ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
     (rf.story/reg-variant :story.nsh/script
@@ -2399,12 +2389,11 @@
       (is (= :pass (:status r))))
     (rf.story/destroy-variant! :story.nsh/script-ok)))
 
-;; ---- rf2-294yq5.3 — run-variant enforces a fresh-run boundary ------------
+;; ---- run-variant enforces a fresh-run boundary ----------------------------
 
 (deftest run-variant-twice-is-stateless
   (testing "two consecutive run-variant calls on the same id produce the
-            SAME fresh app-db — run-variant does not reuse the prior frame
-            (rf2-294yq5.3)"
+            SAME fresh app-db — run-variant does not reuse the prior frame"
     (rf/reg-event :test/inc-counter
       (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (rf.story/reg-variant :story.fresh/v
@@ -2418,7 +2407,7 @@
     (rf.story/destroy-variant! :story.fresh/v)))
 
 (deftest run-variant-twice-epoch-tape-does-not-bleed
-  (testing "rf2-xj0bj0 — a second run-variant on the same id projects
+  (testing "a second run-variant on the same id projects
             evidence from ITS OWN epoch records only. The reset-in-place
             path (rf.story.frames/reset-state!, the fresh-run boundary) resets
             app-db/runtime-db but never touches the epoch ring (only
@@ -2441,7 +2430,7 @@
           "identical scripts against a fresh frame produce a SAME-SIZED
            epoch tape on both runs — the second run's tape is scoped to
            its OWN records, not the first run's tape plus its own (which
-           would be roughly double-length before the fix)")
+           would be roughly double-length)")
       (is (= (:schema-violations r1) (:schema-violations r2))
           "identical re-runs project IDENTICAL evidence — no stale
            violation/warning carries over from the first run"))
@@ -2450,7 +2439,7 @@
 (deftest run-variant-twice-reruns-loaders
   (testing "a LOADER variant reruns its loaders on the second run-variant —
             the prior :ready frame is destroyed, so run-loaders! does not
-            short-circuit (rf2-294yq5.3)"
+            short-circuit"
     (rf/reg-event :test/load-mark
       (fn [{:keys [db]} _] {:db (update db :loads (fnil inc 0))}))
     (rf.story/reg-variant :story.fresh-loader/v
@@ -2477,7 +2466,7 @@
       (is (= :dark (:theme r))))))
 
 (deftest configure-sets-editor-preference
-  (testing "configure! writes the :rf.story/editor preference (rf2-evgf5)"
+  (testing "configure! writes the :rf.story/editor preference"
     ;; Default is :vscode.
     (rf.story.config/set-editor! :vscode)
     (is (= :vscode (rf.story.config/get-editor)))
@@ -2497,8 +2486,7 @@
 
 (deftest configure-sets-global-decorators
   (testing "configure! :rf.story/global-decorators replaces the global
-            ref vector wholesale (rf2-9qpk3 · audit C-1/F-1 — preview.ts
-            parity)"
+            ref vector wholesale (preview.ts parity)"
     ;; The decorator bodies must already be registered; configure! is
     ;; the opt-in surface, not the body-registration surface.
     (rf.story/reg-decorator :app/theme
@@ -2595,7 +2583,7 @@
       (is (= [:div.g [:div.s [:div.v [:span "leaf"]]]] wrapped)))))
 
 (deftest configure-sets-project-root
-  (testing "configure! writes the :rf.story/project-root config slot (rf2-zfy1e)"
+  (testing "configure! writes the :rf.story/project-root config slot"
     ;; Default is nil — no prefix applied to source-coord files.
     (rf.story.config/set-project-root! nil)
     (is (nil? (rf.story.config/get-project-root)))
@@ -2650,7 +2638,7 @@
 ;; ===========================================================================
 
 (deftest public-api-surface
-  (testing "every Stage 3 `002-Runtime.md` §Programmatic API fn is present on the public ns"
+  (testing "every `002-Runtime.md` §Programmatic API fn is present on the public ns"
     (is (fn? @#'rf.story/run-variant))
     (is (fn? @#'rf.story/reset-variant))
     (is (fn? @#'rf.story/watch-variant))
@@ -2664,7 +2652,7 @@
     (is (fn? @#'rf.story/variant-frame?))))
 
 ;; ===========================================================================
-;; VARIANT-BODY CLASSIFICATION (rf2-7c6ecy)
+;; VARIANT-BODY CLASSIFICATION
 ;; ===========================================================================
 ;;
 ;; EP-0025: a variant declares its sensitive / large app-db paths on its body
@@ -2675,14 +2663,12 @@
 ;; `make-frame`, BEFORE the lifecycle / init events
 ;; (`rf.story.frames/apply-variant-classification!`, `:source :effect`).
 ;;
-;; Two coupled defects this section guards against (the two were a three-way
-;; doc/schema/lowering shape mismatch + a missing fail-loud validation):
+;; This section guards two coupled properties (doc, schema and lowering
+;; agree on one shape, and a malformed declaration fails loud):
 ;;
 ;;   1. POSITIVE — a documented (NESTED) variant classification actually
 ;;      classifies: the declared path REDACTS to `:rf/redacted` at wire
-;;      egress. (Before the doc reconciliation an author following the
-;;      docstring's FLAT example wrote `:sensitive [[:auth :token]]`, which
-;;      the schema REJECTED and the lowering silently DROPPED.)
+;;      egress.
 ;;   2. NEGATIVE — a MALFORMED variant classification (a NESTED-but-bad
 ;;      `:app-db` payload that the loose schema admits) is routed through the
 ;;      SAME fail-loud commit-plane validator the router uses
@@ -2692,7 +2678,7 @@
 ;;      failed `:rf.error/exception` assertion carrying that error id.
 
 (deftest variant-classification-nested-form-redacts-at-egress
-  (testing "rf2-7c6ecy POSITIVE — a documented NESTED variant `:sensitive`
+  (testing "POSITIVE — a documented NESTED variant `:sensitive`
             declaration (`{:app-db [[:auth :token]]}`) lowers into the variant
             frame's elision registry and REDACTS the path at wire egress"
     (rf/reg-event :auth/login-7c6ecy
@@ -2714,7 +2700,7 @@
     (rf.story/destroy-variant! :story.classif/sensitive)))
 
 (deftest variant-classification-large-nested-form-elides-at-egress
-  (testing "rf2-7c6ecy POSITIVE — a documented NESTED variant `:large`
+  (testing "POSITIVE — a documented NESTED variant `:large`
             declaration (`{:app-db [[:docs :blob]]}`) elides the path to the
             `:rf.size/large-elided` marker at wire egress"
     (rf/reg-event :docs/upload-7c6ecy
@@ -2733,7 +2719,7 @@
     (rf.story/destroy-variant! :story.classif/large)))
 
 (deftest variant-classification-malformed-fails-loud-pre-commit
-  (testing "rf2-7c6ecy NEGATIVE — a MALFORMED variant classification (a
+  (testing "NEGATIVE — a MALFORMED variant classification (a
             NESTED-but-bad `:app-db` payload the loose schema admits) FAILS
             LOUD pre-commit through `elision/classification-effect-defect`,
             recorded as a failed `:rf.error/classification-effect-shape`
@@ -2741,7 +2727,7 @@
     (rf/reg-event :noop-7c6ecy (fn [{:keys [db]} _] {:db db}))
     ;; `:app-db` is a vector (passes the schema) whose entry is NOT a valid
     ;; concrete :rf/path — a non-sequential scalar. The framework's pure
-    ;; commit-plane validator rejects it; the variant path now routes through
+    ;; commit-plane validator rejects it; the variant path routes through
     ;; that SAME validator pre-commit.
     (rf.story/reg-variant :story.classif/bad
       {:setup    [[:noop-7c6ecy]]
@@ -2766,24 +2752,22 @@
             "the malformed path did not land in the elision registry (no partial commit)")))
     (rf.story/destroy-variant! :story.classif/bad)))
 
-;; ---- rf2-lsr95i: registered `:extends` inherits `:sensitive`/`:large` -----
+;; ---- registered `:extends` inherits `:sensitive`/`:large` ----------------
 ;;
-;; The plan compiler (`plan.cljc` `context-keys`) already folds a variant's
+;; The plan compiler (`plan.cljc` `context-keys`) folds a variant's
 ;; `:sensitive` / `:large` root→child through its `:extends` chain into the
 ;; compiled plan's `[:world :sensitive]` / `[:world :large]` — the SAME merge
 ;; `[:world :decorators]` / `[:world :setup]` get (`extends-inherits-
 ;; decorators-when-child-declares-none` above documents the sibling case for
-;; decorators). But `rf.story.frames/allocate!` ignored that compiled plan for
-;; classification and re-read a variant's RAW (un-merged) body instead — so a
-;; child that only `:extends`ed a `:sensitive`/`:large` parent, declaring no
-;; classification of its own, silently dropped the parent's redaction: the
-;; inherited secret rode into the child frame's wire trace unredacted (a
-;; privacy gap). The fix threads the compiled plan's `[:world :sensitive]` /
-;; `[:world :large]` into `allocate!`, mirroring how `allocate-inline!`
-;; already receives it for an inline plan (rf2-cmjly3 finding 12, below).
+;; decorators). `rf.story.frames/allocate!` classifies from that compiled
+;; plan, as `allocate-inline!` does for an inline plan (below). Re-reading a
+;; variant's RAW (un-merged) body instead would let a child that only
+;; `:extends`es a `:sensitive`/`:large` parent, declaring no classification
+;; of its own, silently drop the parent's redaction: the inherited secret
+;; would ride into the child frame's wire trace unredacted (a privacy gap).
 
 (deftest extends-inherits-sensitive-classification-when-child-declares-none
-  (testing "rf2-lsr95i — a registered variant that only `:extends`es a
+  (testing "a registered variant that only `:extends`es a
             `:sensitive`-classified parent, declaring no classification of
             its own, still redacts the inherited path at wire egress"
     (rf/reg-event :auth/login-lsr95i
@@ -2809,16 +2793,16 @@
                      {:frame :story.classif-ext.lsr95i/child})]
         (is (= :rf/redacted (get-in walked [:auth :token]))
             "the PARENT's :sensitive declaration, inherited through a bare
-             :extends, redacts the child frame's path at egress — RED
-             against the pre-fix `allocate!`, which read the child's raw
-             (un-merged) body and saw no :sensitive declaration at all")))
+             :extends, redacts the child frame's path at egress — an
+             `allocate!` reading the child's raw (un-merged) body would
+             see no :sensitive declaration at all")))
     (rf.story/destroy-variant! :story.classif-ext.lsr95i/child)
     (rf.story/destroy-variant! :story.classif-ext.lsr95i/parent)))
 
 (deftest extends-child-own-classification-still-applies
-  (testing "rf2-lsr95i companion — a child that DECLARES its own
-            `:sensitive` axis on an `:extends`ed variant still redacts (the
-            plan-threaded fix must not regress the non-inherited case)"
+  (testing "companion — a child that DECLARES its own
+            `:sensitive` axis on an `:extends`ed variant still redacts
+            (classifying from the compiled plan keeps the non-inherited case)"
     (rf/reg-event :docs/upload-lsr95i
       (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] "large-blob-lsr95i")}))
     (rf.story/reg-variant :story.classif-ext.lsr95i/base
@@ -2838,19 +2822,17 @@
     (rf.story/destroy-variant! :story.classif-ext.lsr95i/override)
     (rf.story/destroy-variant! :story.classif-ext.lsr95i/base)))
 
-;; ---- rf2-cmjly3 finding 12: inline-plan :sensitive/:large classification --
+;; ---- inline-plan :sensitive/:large classification ------------------------
 ;;
-;; Prior to the fix, `allocate-inline!` never called
-;; `apply-variant-classification!` at all, and `plan.cljc`'s `context-keys`
-;; did not carry `:sensitive`/`:large` into the compiled plan's `:world` —
-;; so an inline plan run (`rf.story/run` on a MAP target) declaring
-;; `:sensitive`/`:large` got NO error and NO redaction: a value marked
-;; sensitive rode into the wire trace unredacted (a silent privacy no-op).
-;; The fix routes `:sensitive`/`:large` through `[:world :sensitive]` /
-;; `[:world :large]` (plan.cljc `context-keys`) and applies the
-;; classification in `allocate-inline!` (frames.cljc), validating BEFORE
-;; `rf/make-frame` so a malformed declaration never leaves an orphan
-;; anonymous frame behind (see `validate-classification-effects!`).
+;; An inline plan run (`rf.story/run` on a MAP target) routes
+;; `:sensitive`/`:large` through `[:world :sensitive]` / `[:world :large]`
+;; (plan.cljc `context-keys`) and `allocate-inline!` (frames.cljc) applies
+;; the classification via `apply-variant-classification!`, validating AFTER
+;; `rf/make-frame` so a malformed declaration has a live frame to record its
+;; failure against. Without that, an inline plan declaring
+;; `:sensitive`/`:large` would get NO error and NO redaction: a value marked
+;; sensitive would ride into the wire trace unredacted (a silent privacy
+;; no-op).
 ;;
 ;; The inline frame is anonymous and torn down INSIDE the same promise that
 ;; resolves the run result (unlike a registered variant, whose frame stays
@@ -2862,11 +2844,10 @@
 ;; stashes the result into a test-side atom passed as an event arg.
 
 (deftest inline-plan-sensitive-classification-redacts-at-egress
-  (testing "rf2-cmjly3 finding 12 POSITIVE — an inline plan MAP declaring
+  (testing "POSITIVE — an inline plan MAP declaring
             `:sensitive {:app-db [...]}` actually classifies its anonymous
             frame's elision registry — the declared path is redacted at
-            wire egress, mirroring the registered-variant behaviour
-            (rf2-7c6ecy)"
+            wire egress, mirroring the registered-variant behaviour"
     (rf/reg-event :classif-inline-cmjly3/login+probe
       (fn [{:keys [db]} [_ probe-atom]]
         (let [db'      (assoc-in db [:auth :token] "BEARER-secret-cmjly3")
@@ -2883,11 +2864,11 @@
           "the inline run reaches :ready — classification did not abort it")
       (is (= :rf/redacted @probe)
           "the inline plan's :sensitive declaration redacts the path at
-           wire egress — pre-fix this stayed the raw secret (no
-           classification was ever applied for an inline run)"))))
+           wire egress — with no classification applied for an inline run
+           this would stay the raw secret"))))
 
 (deftest inline-plan-without-classification-does-not-redact
-  (testing "rf2-cmjly3 finding 12 — sanity / no-regression: an inline plan
+  (testing "sanity: an inline plan
             with NO `:sensitive` declaration leaves the same path
             unredacted, proving the probe mechanism (not some unrelated
             default redaction) is what the positive test exercises"
@@ -2907,7 +2888,7 @@
           "no :sensitive declaration -> the path passes through unredacted"))))
 
 (deftest inline-plan-malformed-classification-fails-loud-with-no-frame-registered
-  (testing "rf2-cmjly3 finding 12 NEGATIVE — a MALFORMED inline
+  (testing "NEGATIVE — a MALFORMED inline
             `:sensitive` declaration fails loud through the SAME
             `elision/classification-effect-defect` validator the
             registered-variant path uses — recorded as a failed
@@ -2935,6 +2916,5 @@
           "the failure routes through the SAME fail-loud id the
            registered-variant path uses")
       (is (not= :pass (:status r))
-          "the run does NOT report a vacuous :pass — pre-fix (validating
-           before rf/make-frame) this silently passed with zero
-           assertions"))))
+          "the run does NOT report a vacuous :pass — validating before
+           rf/make-frame would silently pass with zero assertions"))))
