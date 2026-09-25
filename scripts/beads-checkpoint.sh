@@ -472,8 +472,8 @@ if [ "$MODE" = "pre-pull" ]; then
   printf '\n[re-frame2] the working tracker export is AHEAD of HEAD.\n' >&2
   printf '  working %s rows, HEAD %s rows, in %s\n\n' "$work_rows" "$head_rows" "$TRACKER" >&2
   printf '  `git checkout HEAD -- .beads` here would revert it, and the next\n' >&2
-  printf '  checkpoint would write that revert back over the database — the\n' >&2
-  printf '  rf2-51uz1 fault, which has silently reopened closed beads before.\n\n' >&2
+  printf '  checkpoint would write that revert back over the database, which\n' >&2
+  printf '  silently reopens closed beads.\n\n' >&2
   # The third step is a fetch-then-rebase pair, not `git pull --rebase`:
   # a pull rebases onto FETCH_HEAD, a scratch file any concurrent
   # git process in the same checkout rewrites, so naming remote and branch
@@ -568,8 +568,8 @@ if [ -n "$FACTS" ]; then
   printf '  export %s rows, HEAD %s rows.' "$export_rows" "$head_rows" >&2
   if [ "$export_rows" = "$head_rows" ]; then
     printf ' EQUAL COUNTS ARE NOT EQUALITY:\n' >&2
-    printf '  commit 667c744dc875 passed this floor at 1938 == 1938 and still deleted three\n' >&2
-    printf '  issues and reverted two closes, because Git and Dolt had diverged one for one.\n' >&2
+    printf '  when Git and Dolt diverge one row for one row, an export passes this floor\n' >&2
+    printf '  at an equal count and still deletes issues and reverts closes.\n' >&2
   else
     printf '\n' >&2
   fi
@@ -626,12 +626,12 @@ MEMORY_FACTS=$(memory_facts "$TMP_EXPORT" "$TMP_HEAD") || MEMORY_VERDICT=$?
 # than printing a loss banner with no facts under it.
 if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
   printf '\n' >&2
-  printf 'beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****\n' >&2
+  printf 'beads-checkpoint: ***** MEMORY RECONCILIATION FAILED *****\n' >&2
   printf '  The tracker'"'"'s `bd remember` rows do not reconcile against HEAD.\n\n' >&2
   printf '%s\n' "$MEMORY_FACTS" >&2
   printf '\n  `bd stats` reports ISSUES ONLY, and the row-count floor above is dominated\n' >&2
-  printf '  by issue rows, so a memory-only deletion passes both in silence. That is\n' >&2
-  printf '  exactly how 210 keys disappeared on 2026-09-08 with nothing on screen.\n' >&2
+  printf '  by issue rows, so a memory-only deletion passes both in silence. This\n' >&2
+  printf '  warning is the only thing on screen that reports it.\n' >&2
   printf '\n  THIS IS A WARNING, NOT A REFUSAL — the checkpoint continues and commits\n' >&2
   printf '  the export. The database is the source of truth, and this may well be a\n' >&2
   printf '  deliberate `bd forget` or a retention cull. If it is NOT, the rows are not\n' >&2
@@ -653,8 +653,8 @@ if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
     printf '  there is no baseline to recover from. The database is the only copy.\n' >&2
   fi
   printf '\n  Select on `.key`. A bare grep for the key matches rows that merely MENTION\n' >&2
-  printf '  it — bead prose naming a deleted key has already been mistaken for the\n' >&2
-  printf '  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).\n\n' >&2
+  printf '  it — bead prose naming a deleted key is easily mistaken for the\n' >&2
+  printf '  memory itself (CLAUDE.md instrument item (f)).\n\n' >&2
 elif [ -n "$MEMORY_FACTS" ]; then
   # WELL-FORMEDNESS ONLY. The key set reconciled, so nothing is
   # missing and none of the recovery narrative above applies. Say what fired,
@@ -664,7 +664,7 @@ elif [ -n "$MEMORY_FACTS" ]; then
   printf '  The loss detector is the KEY-SET comparison against HEAD, it ran, and it\n' >&2
   printf '  found nothing missing: every `bd remember` key HEAD carries is present in\n' >&2
   printf '  the fresh export. What fired is the other arm — the two populations do not\n' >&2
-  printf '  account for every row of the file (rf2-cve7, rf2-q88t).\n\n' >&2
+  printf '  account for every row of the file.\n\n' >&2
   printf '%s\n' "$MEMORY_FACTS" >&2
   printf '\n  A row that is neither an issue nor a memory is USUALLY A BLANK LINE. The\n' >&2
   printf '  count above names the side that carries it — the tracker this checkpoint is\n' >&2
