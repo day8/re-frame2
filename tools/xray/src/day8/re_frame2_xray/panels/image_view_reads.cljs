@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.image-view-reads
   "Live read seam + Xray-as-its-own-image constructor for the EP-0023
-  IMAGE / FRAME inspection (rf2-32siq3.12).
+  IMAGE / FRAME inspection.
 
   ## The two jobs
 
@@ -28,14 +28,11 @@
          > That keeps the inspection tool from becoming part of the thing
          > being inspected. (EP-0023 §Xray Beside The Target)
 
-     SCOPE NOTE (honest claim): this ns CONSTRUCTS Xray's own image and proves
-     the isolation invariant; it does NOT yet SEAT the running Xray shell in a
-     frame built from that image via `rf/make-frame`. Xray today still runs on
-     the ambient registrar like any other surface; actually seating Xray in its
-     own frame is deferred follow-up (rf2-32siq3.36). What is realized here is
-     the image VALUE + the proven disjointness — Xray's instruction set is a
-     separate image, provably non-overlapping with the target's — not the
-     full Xray-runs-in-its-own-frame runtime.
+     SCOPE: this ns CONSTRUCTS Xray's own image, proves the isolation
+     invariant, and SEATS the running Xray shell in a frame built from that
+     image via `rf/make-frame` (`seat-xray-frame!`, which `mount` calls).
+     Xray's instruction set is a separate image, provably non-overlapping
+     with the target's, and the shell resolves its registrations through it.
 
      This ns constructs Xray's own registration set as an EP-0023 `rf/image`
      — selected by the `:select-ns :include` glob over Xray's OWN source
@@ -72,9 +69,9 @@
 
 (defn live-frames
   "The image-loaded frames as `{frame-id frame-view}` (EP-0024 §One live frame
-  registry, rf2-tu2vr7), read via `re-frame.live-frame/image-view-frames`. With
-  the registries collapsed an image-loaded frame is a single `frames` record
-  carrying a resolved generation; the seam projects each into the inert frame
+  registry), read via `re-frame.live-frame/image-view-frames`. An
+  image-loaded frame is a single `frames` record carrying a resolved
+  generation; the seam projects each into the inert frame
   view (`:rf.frame/object` / `:rf.frame/generation` / `:rf.frame/id` /
   `:rf.frame/adapter` / …) the pure projectors here consume. Fail-soft: a
   core too old to expose the seam (or any throw) degrades to `{}`, so an
@@ -96,8 +93,8 @@
     (catch :default _ nil)))
 
 (defn image-view-data
-  "Project the live EP-0023 image/frame model into the view-facing data
-  (rf2-32siq3.12): the live-frame registry → frame-rows, each carrying its
+  "Project the live EP-0023 image/frame model into the view-facing data:
+  the live-frame registry → frame-rows, each carrying its
   resolved image (its generation's `[kind id]` descriptors). Fail-soft
   composition of `live-frames` + the pure `h/project-image-view`. Pure-read
   `() -> data`."
@@ -136,7 +133,7 @@
   `day8.re-frame2-xray.open-in-editor-cljs-test` registers `[:fx :rf.xray.fx/open-in-editor]`
   alongside the production `day8.re-frame2-xray.open-in-editor`). Within one image
   a `(kind, id)` collision is fail-loud (`:rf.error/image-duplicate-id`) — which
-  blocked flipping the production singleton onto image-loaded seating.
+  would block seating the production singleton on an image-loaded frame.
 
   Two excludes cover the two shapes of Xray's non-production namespaces:
 
@@ -169,7 +166,7 @@
   registration-set value (a SEPARATE image, not shared registration state),
   `xray-image-isolated-from?` proves it registration-disjoint from a target
   frame's image, and `seat-xray-frame!` SEATS a running Xray frame on it (true
-  runtime self-seating — Xray runs in its own image-loaded frame, not the legacy
+  runtime self-seating — Xray runs in its own image-loaded frame, not the
   shared registrar). The returned image value is Xray's instruction set; it
   never mixes with a target frame's image, and the target frame is inspected as
   DATA through the live-read fns.
@@ -179,8 +176,8 @@
   namespaces are subtracted — in a dev/test build that loads them, those
   co-register the same `:rf.xray/*` ids the production sources do, and without
   the exclude the `(kind, id)` collision is a fail-loud
-  `:rf.error/image-duplicate-id` at assembly (the blocker that gated the
-  production-singleton flip). Production builds never load those namespaces, so
+  `:rf.error/image-duplicate-id` at assembly. Production builds never load
+  those namespaces, so
   the exclude is a no-op there.
 
   Returns the normalized inert image value (`:rf.image/id` /
@@ -203,7 +200,7 @@
   APPLICATION-owned — i.e. excluding the FRAMEWORK-STANDARD registrations
   (descriptors stamped `:standard true`) the EP-0023 assembly unions into EVERY
   generation (EP-0023 §Image — \"+ framework standard registrations\", e.g.
-  `[:interceptor :rf.interceptor/path]`; rf2-32siq3.41). A framework standard is
+  `[:interceptor :rf.interceptor/path]`). A framework standard is
   present in every frame BY DEFINITION — it is the framework, not a leak between
   two application images — so the registration-isolation invariant
   (`xray-image-isolated-from?`) compares only the application-owned keysets. A
@@ -225,15 +222,14 @@
   `:rf.gen/resolver` KEYSETS (the `[kind id]` pairs each frame would resolve,
   EXCLUDING the framework-standard registrations the EP-0023 assembly unions
   into every generation — `[:interceptor :rf.interceptor/path]` et al, stamped
-  `:standard true`; rf2-32siq3.41). Isolation holds iff the two
+  `:standard true`). Isolation holds iff the two
   application-owned keysets are DISJOINT — no APPLICATION `[kind id]` is resolved
   by BOTH a frame built from Xray's image and a frame built from the target's
   image, so neither frame can see the other's APPLICATION registrations. A
   framework standard is shared by every frame by construction (it is the
   framework, not a leak between two images), so it is excluded from the
   comparison rather than reported as a false-positive overlap. This is stronger
-  than comparing the
-  `:rf.image/include-ns` selector strings (the prior proxy): different globs can
+  than comparing the `:rf.image/include-ns` selector strings: different globs can
   select OVERLAPPING namespaces, and inline `:registrations` carry no
   `:select-ns` selector at all, yet either can introduce a shared `[kind id]` —
   the keyset comparison catches both, the string comparison neither.
@@ -281,41 +277,41 @@
   "True iff an image-loaded frame is already registered under `frame-id` (its
   one-registry record carries a resolved generation) — the idempotency probe
   `seat-xray-frame!` reads to skip a redundant re-seat (re-open, hot-reload,
-  repeated testbed mount). EP-0024 (rf2-tu2vr7): the registries collapsed and a
-  duplicate `:id` is now idempotent replacement (no fail-loud gate), so this is
-  a benign skip-optimisation rather than a guard against a throw. Pure read."
+  repeated testbed mount). Under EP-0024 a duplicate `:id` is idempotent
+  replacement (no fail-loud gate), so this is a benign skip-optimisation
+  rather than a guard against a throw. Pure read."
   [frame-id]
   (some? (rf.live-frame/live-frame frame-id)))
 
 (defn seat-xray-frame!
   "SEAT a running Xray frame in its OWN EP-0023 image-loaded frame — the TRUE
-  runtime dogfood (EP-0023 §Xray Beside The Target, rf2-32siq3.36). This is the
+  runtime dogfood (EP-0023 §Xray Beside The Target). This is the
   runtime counterpart to `xray-image` (the image VALUE) and
   `xray-image-isolated-from?` (the proven disjointness): Xray runs in genuine
   registration ISOLATION from the inspected target — its `:rf.xray/*`
   registrations are resolved through the frame's OWN sealed image generation
   (built from `(xray-image)`), never the shared default registrar.
 
-  Replaces the legacy realm seating (a bare `{:rf.trace/frame-no-emit?
-  true}` config), which produced the shell frame against the process-global
-  registrar and relied on id-collision-avoidance. Here the frame resolves ONLY
+  Seating by a bare `{:rf.trace/frame-no-emit? true}` config would produce
+  the shell frame against the process-global registrar and rely on
+  id-collision-avoidance. Here the frame resolves ONLY
   Xray's image (plus the framework-standard registrations the assembly unions
   into every generation) — the EP's literal `(rf/make-frame {:id … :images
   [(xray-image)] …})` shape.
 
   ## Idempotency
 
-  EP-0024 (rf2-tu2vr7): `make-frame {:id …}` is IDEMPOTENT REPLACEMENT on a
-  duplicate `:id` (config + generation refresh, durable state preserved) — it no
-  longer fails loud. The seating still runs `make-frame` ONLY when `frame-id` is
-  not already image-loaded (`xray-frame-seated?`), now as a benign
+  Under EP-0024 `make-frame {:id …}` is IDEMPOTENT REPLACEMENT on a
+  duplicate `:id` (config + generation refresh, durable state preserved) — it
+  does not fail loud. The seating runs `make-frame` ONLY when `frame-id` is
+  not already image-loaded (`xray-frame-seated?`), as a benign
   skip-optimisation rather than a guard against a throw: a re-open / hot-reload /
   repeated testbed mount that finds the frame already seated SKIPS the
   `make-frame` and just re-asserts the trace-emission gate below (the per-frame
   app-db seeding is the caller's idempotent first-mount-hook chain, not this
   fn's job).
 
-  ## Trace-emission gate (rf2-2qaqh — preserved)
+  ## Trace-emission gate
 
   `make-frame` is the EP-0023 OBJECT constructor: it honours only the
   frame-creation opts (`:images` / `:id` / `:initial-events` / …) and would reject
@@ -348,7 +344,7 @@
                (if (= pool ::live)
                  (rf.live-frame/make-frame opts)
                  (rf.live-frame/make-frame opts pool)))]
-     ;; Frame-scoped trace gate (rf2-2qaqh): mark the shell frame a tool /
+     ;; Frame-scoped trace gate: mark the shell frame a tool /
      ;; inspector frame so its own `:rf.sub/run` / `:rf.view/render` reactivity
      ;; does NOT flood the shared trace ring it inspects. Independent of the
      ;; image generation, so set on both fresh seat and re-seat.
