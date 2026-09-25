@@ -273,9 +273,8 @@
     (when (:open? dialog)
       (let [{:keys [draft-id source-id args violations slices]} dialog
             snippet (rf.story.save-variant/gen-variant-snippet
-                      {:variant-id (or draft-id :story.saved/example)
-                       :extends    source-id
-                       :args       args})]
+                      (assoc (rf.story.save-variant/saved-variant-body source-id args)
+                             :variant-id (or draft-id :story.saved/example)))]
         (rf.story.review-dialog/review-dialog dialog
           {:title             "Save current canvas state as new variant"
            :hint              [:div

@@ -565,6 +565,7 @@ extra plumbing.
 ;; In re-frame.story.save-variant
 (snapshot-args                 variant-id)           ; pure args snapshot
 (snapshot-args                 variant-id opts)      ; with :active-modes, :cell-overrides
+(saved-variant-body            source-id args)       ; the body Save writes: :extends, :compose, :args
 (gen-variant-snippet           opts)                 ; render (reg-variant ...)
 (save-current-as-variant!)                           ; impure trigger — uses focused variant
 (save-current-as-variant!      {:variant-id ...})    ; explicit target
@@ -579,6 +580,8 @@ extra plumbing.
 - `:variant-id` (required) — keyword id for the new variant.
 - `:extends`    (optional) — source variant id (pins `:component`,
                               `:decorators`, non-overridden args).
+- `:compose`    (optional) — the source's `:compose` ids, which `:extends`
+                              does not carry; `saved-variant-body` supplies them.
 - `:args`       (required) — the captured args map.
 - `:doc`        (optional) — docstring.
 - `:alias`      (optional) — short alias for the form (default `rf.story`, the canonical `re-frame.story` alias, so the form pastes and runs verbatim).

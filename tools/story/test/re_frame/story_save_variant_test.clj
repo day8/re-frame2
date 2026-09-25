@@ -26,6 +26,8 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
+            [re-frame.story.plan :as rf.story.plan]
+            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.save-variant :as rf.story.save-variant]
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
@@ -298,6 +300,140 @@
           (is (nil? (:value row)))
           (is (str/includes? (:note row) "app-db state is not captured"))
           (is (not (str/includes? (:note row) ":setup"))))))))
+
+(def ^:private cart-route {[:get "/api/cart"] {:reply {:ok {:items []}}}})
+
+(defn- saved-rows
+  "The capture report `save-current-as-variant!` builds for `variant-id`,
+  keyed by slice."
+  [variant-id]
+  (rf.story.save-variant/set-open-dialog-fn! (fn [& _] nil))
+  (into {} (map (juxt :slice identity))
+        (:slices (rf.story.save-variant/save-current-as-variant!
+                   {:variant-id variant-id}))))
+
+(deftest save-current-as-variant!-reports-the-slots-the-source-inherits
+  (testing "the sub-overrides, network and viewport rows read what the saved
+            variant runs with, so a value the source inherits through
+            :extends reads exactly like a declared one"
+    (rf.story/reg-variant :story.inherit/parent
+      {:args          {:n 1}
+       :sub-overrides {[:cart/items] [:a]}
+       :network       cart-route
+       :viewport      :tablet})
+    (rf.story/reg-variant :story.inherit/child {:extends :story.inherit/parent})
+    (let [rows (saved-rows :story.inherit/child)]
+      (is (= :captured-as-declared (-> rows :sub-overrides :status)))
+      (is (= {[:cart/items] [:a]} (-> rows :sub-overrides :value)))
+      (is (= :captured-as-declared (-> rows :network :status)))
+      (is (= cart-route (-> rows :network :value)))
+      (is (= :captured-as-declared (-> rows :viewport :status)))
+      (is (= :tablet (-> rows :viewport :value)))))
+  (testing "a chain that carries none of them stays not-wired"
+    (rf.story/reg-variant :story.inherit/bare-parent {:args {:n 1}})
+    (rf.story/reg-variant :story.inherit/bare-child {:extends :story.inherit/bare-parent})
+    (let [rows (saved-rows :story.inherit/bare-child)]
+      (doseq [s [:sub-overrides :network :viewport]]
+        (is (= :not-wired (-> rows s :status)) (str s))
+        (is (nil? (-> rows s :value)) (str s))))))
+
+(deftest save-current-as-variant!-fx-overrides-row-reads-the-declared-slot
+  (testing "a source's :network lowers to a managed-stub fx override in the
+            compiled plan, and the row never reports that lowering"
+    (rf.story/reg-variant :story.fx/net {:args {:n 1} :network cart-route})
+    (is (= {:rf.http/managed :rf.http/managed-test-stub}
+           (get-in (rf.story.plan/variant-plan {:extends :story.fx/net :args {:n 1}})
+                   [:world :frame :fx-overrides]))
+        "control: the compiled world does carry the lowering")
+    (let [row (:fx-overrides (saved-rows :story.fx/net))]
+      (is (= :not-wired (:status row)))
+      (is (nil? (:value row)) "the managed-stub lowering is not an fx override")))
+  (testing "an fx override the source inherits is not shown, and the note says so"
+    (rf.story/reg-variant :story.fx/parent {:args {:n 1} :fx-overrides {:app/toast :noop}})
+    (rf.story/reg-variant :story.fx/child {:extends :story.fx/parent})
+    (let [row (:fx-overrides (saved-rows :story.fx/child))]
+      (is (= :not-wired (:status row)))
+      (is (str/includes? (:note row) ":fx-overrides the source inherits or composes are not shown"))))
+  (testing "a declared fx override is captured-as-declared, and the note still
+            says inherited or composed ones are not shown"
+    (rf.story/reg-variant :story.fx/own {:args {:n 1} :fx-overrides {:app/toast :noop}})
+    (let [row (:fx-overrides (saved-rows :story.fx/own))]
+      (is (= :captured-as-declared (:status row)))
+      (is (= {:app/toast :noop} (:value row)))
+      (is (str/includes? (:note row) ":fx-overrides the source inherits or composes are not shown")))))
+
+(defn- reg-composing-source! []
+  (rf.story/reg-fragment :fragment.sv/cart
+    {:db-seed       {[:count] 7}
+     :sub-overrides {[:cart/items] [:a]}
+     :network       cart-route})
+  (rf.story/reg-variant :story.sv/source {:args {:n 1} :compose [:fragment.sv/cart]}))
+
+(deftest saved-variant-body-carries-the-source-compose
+  (testing "the saved body copies the source's :compose, and the snippet prints it"
+    (reg-composing-source!)
+    (let [body (rf.story.save-variant/saved-variant-body :story.sv/source {:n 1})]
+      (is (= {:extends :story.sv/source :compose [:fragment.sv/cart] :args {:n 1}} body))
+      (is (str/includes? (rf.story.save-variant/gen-variant-snippet
+                           (assoc body :variant-id :story.sv/saved))
+                         ":compose [:fragment.sv/cart]"))))
+  (testing "the saved form re-registers the world the source composes"
+    (reg-composing-source!)
+    (let [snippet     (rf.story.save-variant/gen-variant-snippet
+                        (assoc (rf.story.save-variant/saved-variant-body
+                                 :story.sv/source
+                                 (rf.story.save-variant/snapshot-args :story.sv/source))
+                               :variant-id :story.sv/saved))
+          [_ id body] (edn/read-string snippet)
+          world-of    (fn [vid]
+                        (select-keys (:world (rf.story.plan/variant-plan vid))
+                                     [:db-seed :network :render :frame :setup :fidelity]))]
+      (rf.story.registrar/reg-variant* id body)
+      (is (= {[:count] 7} (:db-seed (world-of :story.sv/source))) "control: the source seeds")
+      (is (= (world-of :story.sv/source) (world-of :story.sv/saved))
+          "the saved variant runs the seed, stubs and overrides the source composes")))
+  (testing "the capture report reads the composed values the saved variant runs with"
+    (reg-composing-source!)
+    (let [rows (saved-rows :story.sv/source)]
+      (is (= {[:count] 7} (-> rows :db-seed :value)))
+      (is (= {[:cart/items] [:a]} (-> rows :sub-overrides :value)))
+      (is (= cart-route (-> rows :network :value)))))
+  (testing "a source that composes nothing gets no :compose slot"
+    (rf.story/reg-variant :story.sv/plain {:args {:n 1}})
+    (let [body (rf.story.save-variant/saved-variant-body :story.sv/plain {:n 1})]
+      (is (not (contains? body :compose)))
+      (is (not (str/includes? (rf.story.save-variant/gen-variant-snippet
+                                (assoc body :variant-id :story.sv/saved-plain))
+                              ":compose"))))))
+
+(deftest saved-variant-body-leaves-out-a-compose-whose-order-it-cannot-keep
+  (testing ":compose runs a fragment's setup BEFORE the source's own, while a
+            variant extending the source runs the source's own setup first"
+    (rf.story/reg-fragment :fragment.sv/boot {:setup [[:frag/boot]]})
+    (rf.story/reg-variant :story.sv/own-setup
+      {:args {:n 1} :setup [[:own/boot]] :compose [:fragment.sv/boot]})
+    (let [setup-of #(mapv second (get-in (rf.story.plan/variant-plan %) [:world :setup]))]
+      (is (= [[:frag/boot] [:own/boot]] (setup-of :story.sv/own-setup))
+          "control: the source runs the fragment's setup first")
+      (is (= [[:own/boot] [:frag/boot]]
+             (setup-of {:extends :story.sv/own-setup
+                        :compose [:fragment.sv/boot]
+                        :args    {:n 1}}))
+          "a copied :compose would run them the other way round"))
+    (is (not (contains? (rf.story.save-variant/saved-variant-body :story.sv/own-setup {:n 1})
+                        :compose))))
+  (testing "the same holds when both carry a script"
+    (rf.story/reg-fragment :fragment.sv/click {:script [[:frag/click]]})
+    (rf.story/reg-variant :story.sv/own-script
+      {:args {:n 1} :script [[:own/click]] :compose [:fragment.sv/click]})
+    (is (not (contains? (rf.story.save-variant/saved-variant-body :story.sv/own-script {:n 1})
+                        :compose))))
+  (testing "a source setup with no fragment setup beside it keeps the copy"
+    (rf.story/reg-fragment :fragment.sv/seed {:db-seed {[:count] 1}})
+    (rf.story/reg-variant :story.sv/setup-and-seed
+      {:args {:n 1} :setup [[:own/boot]] :compose [:fragment.sv/seed]})
+    (is (= [:fragment.sv/seed]
+           (:compose (rf.story.save-variant/saved-variant-body :story.sv/setup-and-seed {:n 1}))))))
 
 (deftest save-current-as-variant!-nil-when-no-focus
   (testing "without a focused variant the trigger is a no-op"

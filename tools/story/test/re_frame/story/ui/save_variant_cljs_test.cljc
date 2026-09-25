@@ -20,6 +20,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.story.save-variant :as rf.story.save-variant]
+            #?(:cljs [re-frame.story :as rf.story])
             #?(:cljs [re-frame.story.ui.save-variant :as rf.story.ui.save-variant])))
 
 ;; ---- JVM + CLJS: contract surface ----------------------------------------
@@ -372,3 +373,20 @@
              "the slice report renders inside the open dialog")
          (is (str/includes? flat "story-save-variant-snippet")
              "the snippet still renders — the report is non-blocking")))))
+
+#?(:cljs
+   (deftest save-dialog-snippet-carries-the-source-compose
+     (testing "the dialog prints the saved body, so a source's :compose ids
+               ride into the snippet the user pastes"
+       (rf.story/clear-all!)
+       (try
+         (rf.story/reg-fragment :fragment.svui/cart {:db-seed {[:count] 7}})
+         (rf.story/reg-variant :story.svui/source {:args {:n 1} :compose [:fragment.svui/cart]})
+         (reset! rf.story.ui.save-variant/ui-dialog
+                 (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
+                                             :story.svui/source {:n 1} 12345))
+         (let [flat (str (rf.story.ui.save-variant/save-dialog))]
+           (is (str/includes? flat ":compose [:fragment.svui/cart]")))
+         (finally
+           (reset! rf.story.ui.save-variant/ui-dialog rf.story.save-variant/initial-dialog-state)
+           (rf.story/clear-all!))))))
