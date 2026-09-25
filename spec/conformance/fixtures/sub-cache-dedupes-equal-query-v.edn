@@ -23,9 +23,9 @@
 ;; ("two DISTINCT array instances subscribed through the SAME frame produce ONE
 ;; `:rf.sub/first-run? true`") would need a new harness primitive that
 ;; subscribes the same query through two distinct host allocations and counts
-;; cache-slot creations; the Mode-A DSL has no such op today (its `:sub-values`
+;; cache-slot creations; the Mode-A DSL has no such op (its `:sub-values`
 ;; map keys are unique, and CLJS EDN vectors are value-equal so two literals
-;; ARE one key). That live-observability extension is flagged as follow-up.
+;; ARE one key).
 ;;
 ;; Capabilities exercised:
 ;;   :identity/cedn1 — the canonical-identity comparison the value-keyed
