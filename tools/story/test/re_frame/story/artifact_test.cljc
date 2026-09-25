@@ -636,8 +636,8 @@
 ;;
 ;; The narrative supports EXACT (`:rf.story/script-idx` stamps) and EVEN (an
 ;; arbitrary forward partition) beat→step attribution. `replay-into-frame!`
-;; records each dispatch step's settle boundary (the epoch-history
-;; length at the start of its settle) on the outcomes metadata, and
+;; records each dispatch step's settle boundary (the last-committed
+;; `:epoch-id` at the start of its settle) on the outcomes metadata, and
 ;; `replay-result` feeds it through `project-evidence` as `:attribution`, so
 ;; the narrative is attributed EXACTLY. Without the stamp `explicit-beats?`
 ;; would be false and every run would fall to EVEN — which mis-attributes
