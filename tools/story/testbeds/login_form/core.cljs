@@ -75,7 +75,7 @@
   ;; Story owns this page's full-width browser-test canvas. When the
   ;; Xray preload is present in shared dev test runs, keep its trace
   ;; collectors/API/keybinding installed but skip the default panel
-  ;; launch; app pages that want Xray inline still provide the normal
+  ;; launch; app pages that want Xray inline provide the normal
   ;; `[data-rf-xray-host]` contract.
   (xray-config/configure! {:rf.xray/auto-open? false})
   (rf/init! rf.adapter.reagent/adapter)
@@ -97,7 +97,7 @@
   ;; EP-0002: `init!` installs the adapter only and a
   ;; frameless `dispatch-sync` raises `:rf.error/no-frame-context`.
   ;; Run the seed dispatch inside the testbed's `:rf/default` frame
-  ;; scope — symmetric to counter-with-stories' migrated boot.
+  ;; scope — symmetric to counter-with-stories' boot.
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:login/flow [:login/dismiss]]))
   ;; Wire the live-app↔Story-shell hash router (shared helper). The live-app
