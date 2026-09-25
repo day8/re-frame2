@@ -2,17 +2,16 @@
 """Check that every label in the list after each `SKILL-REDIRECT.md ->` arrow in
 the skills/ tree resolves to a real bullet label in the root SKILL-REDIRECT.md.
 
-Anchor coupling (rf2-o2qrj). SKILL-REDIRECT.md is the single coupling point for
+Anchor coupling. SKILL-REDIRECT.md is the single coupling point for
 deep-dive routing from the AI skills. Leaf files cite its bullet labels (e.g.
 `SKILL-REDIRECT.md -> *EP - Frames (002)*`), often as a comma-separated list of
 several labels after one arrow. If SKILL-REDIRECT.md is renamed, restructured,
 or a bullet label drifts, every leaf citation goes stale silently.
 
-The census is the regression guard (rf2-8y1bo): at 2026-09-22 this read 83 label
-tokens over 171 skills/**/*.md, 0 broken, against the 60 the first-label-only
-read it replaced saw on the tree before that change. A green on a materially
-lower count means the list parse is stopping early -- a parser regression, not
-a pass. If a leaf ever uses a separator this cannot read, widen the alternation
+The census is the regression guard: every label in each list is read, not only
+the first, so a green on a materially lower label count than the tree carries
+means the list parse is stopping early -- a parser regression, not a pass. If
+a leaf ever uses a separator this cannot read, widen the alternation
 in NEXT_LABEL_RE by that one token; never loosen the label pattern into a
 general emphasis scan, or ordinary italic prose starts reading as a label.
 
@@ -107,7 +106,7 @@ def main() -> int:
     broken = [(p, ln, raw, norm) for (p, ln, raw, norm) in refs if norm not in canonical]
     ok = len(refs) - len(broken)
 
-    # Silent-on-success (rf2-try1x): the audit summary prints only when
+    # Silent on success: the audit summary prints only when
     # there are broken refs. On green the exit code is the success
     # signal and the script emits no stdout.
     if broken:
