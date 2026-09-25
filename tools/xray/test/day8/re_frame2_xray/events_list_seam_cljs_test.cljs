@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.events-list-seam-cljs-test
-  "CLJS tests for the L2/L3 events-list seam resize handle (rf2-t2dsh).
+  "CLJS tests for the L2/L3 events-list seam resize handle.
 
   Asserts:
     1. The seam's markup carries the documented testid, role, and ARIA
@@ -19,10 +19,9 @@
        Home/End clamp-overshoot, Enter/Space reset.
     8. The L2 event-list reads its height from the sub — sub updates
        lift the rendered :height style.
-    9. The previously-shipped `:resize \"vertical\"` corner-grip is
-       gone — the L2 list's inline style no longer carries
-       `:resize`. Documents the disposition of the prior affordance
-       (retired in favour of the seam).
+    9. The L2 list's inline style carries no `:resize` — there is no
+       browser-native corner-grip; the seam is the sole vertical-resize
+       affordance.
    10. The seam cursor is `row-resize` — the affordance hover signal."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -41,7 +40,7 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom + the `:runtime`
+  ;; `make-xray-runtime-fixture`: plain-atom + the `:runtime`
   ;; reset tier (sentinels + trace rings + persisted settings); `:post-reset`
   ;; force-clears the module-level seam-drag defonce (survives the runtime
   ;; reset) so no stale drag leaks between tests.
@@ -54,9 +53,8 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid copies this file
-;; carried were semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` directly — there is no Xray
+;; walker facade.
 ;; `all-testids` (every carried testid in pre-order, for the DOM-order seam
 ;; assertion) is not exposed by test-helpers, so it is expressed over
 ;; `rf.test-helpers/find-by-testid-prefix` with the empty-prefix (matches every string
@@ -69,16 +67,15 @@
   [tree]
   (map (comp :data-testid rf.test-helpers/attrs) (rf.test-helpers/find-by-testid-prefix tree "")))
 
-;; ---- the seam's markup (rf2-k97c.3) ------------------------------------
+;; ---- the seam's markup -------------------------------------------------
 ;;
-;; The seam is `resize-handle/seam-handle-view`, a Fresco BOUNDARY, since
-;; rf2-k97c.3 — it stopped being a `reagent.core/as-element` island when
-;; the whole of `resize_handle.cljs` migrated. Its `rf.fresco/sub` is
+;; The seam is `resize-handle/seam-handle-view`, a Fresco BOUNDARY. Its
+;; `rf.fresco/sub` is
 ;; legal only inside a boundary render, so calling the boundary from the
 ;; node lane would raise `:rf.error/fresco-sub-outside-render` rather
 ;; than answer hiccup. These rows drive the boundary's PURE inner fn
 ;; instead, reading the same sub the boundary reads so `aria-valuenow`
-;; is still the LIVE height rather than a fixture constant.
+;; is the LIVE height rather than a fixture constant.
 
 (defn- seam-markup
   "The seam's node as `seam-handle-view` composes it.
@@ -134,7 +131,7 @@
 ;; ---- shell DOM-order contract -------------------------------------------
 
 (deftest shell-mounts-seam-between-list-and-tab-bar
-  (testing "rf2-t2dsh — the seam handle sits between the L2 event list
+  (testing "the seam handle sits between the L2 event list
             and the L3 tab bar in DOM order. The seam IS the
             boundary; placing it anywhere else (above the events-
             ribbon, below the tab-bar) would break the click-and-drag
@@ -155,8 +152,8 @@
             "seam appears BEFORE the tab-bar in pre-order")))))
 
 (deftest l2-list-no-longer-carries-native-resize
-  (testing "rf2-t2dsh — the previous browser-native `:resize
-            \"vertical\"` corner-grip is retired. The L2 list's inline
+  (testing "there is no browser-native `:resize
+            \"vertical\"` corner-grip: the L2 list's inline
             style MUST NOT carry `:resize` — the seam handle is the
             sole vertical-resize affordance."
     (setup!)
@@ -166,7 +163,7 @@
             style (:style (second list))]
         (is (some? list) "event-list container present")
         (is (nil? (:resize style))
-            "no `:resize` declaration — corner-grip retired")))))
+            "no `:resize` declaration — no corner-grip")))))
 
 ;; ---- drag lifecycle -----------------------------------------------------
 
@@ -226,11 +223,11 @@
           "drag up shrinks: 250 - 100 = 150"))))
 
 (deftest seam-drag-binds-the-seams-own-document
-  (testing "rf2-3x7nj.27.2 — in the pop-out, `js/document` names the
-            OPENER's document. A seam drag bound there never tracked the
-            pop-out pointer, never saw its release, overrode the host
-            page's cursor, and let a later hover over the host page drive
-            the pop-out's list height. The drag must bind to the seam's
+  (testing "in the pop-out, `js/document` names the
+            OPENER's document. A seam drag bound there would never track
+            the pop-out pointer or see its release, would override the
+            host page's cursor, and would let a later hover over the host
+            page drive the pop-out's list height. The drag must bind to the seam's
             OWN document, and detach from that same one."
     (popout-document/with-opener-globals
       (fn [{opener-listeners :listeners opener-doc :doc}]
@@ -291,7 +288,7 @@
       "in-range value persists verbatim through the round-trip"))
 
 (deftest clamp-events-list-height-pure-helper-snaps-non-numeric
-  (testing "rf2-t2dsh — pure helper falls back to the default for
+  (testing "pure helper falls back to the default for
             non-numeric input so a malformed persisted payload never
             leaves the list at an unusable size."
     (is (= config/default-events-list-height-px
@@ -438,7 +435,7 @@
 ;; ---- sub drives the L2 list height -------------------------------------
 
 (deftest list-height-tracks-sub-update
-  (testing "rf2-t2dsh — the L2 list's inline :height style reads from
+  (testing "the L2 list's inline :height style reads from
             the events-list-height-px sub. After a set-events-list-
             height-px dispatch, the rendered tree carries the new
             height literal (px-suffixed string)."
