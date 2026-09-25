@@ -1,15 +1,15 @@
 (ns re-frame.bench.fresco.arm1.staged-read-tear-cljs-test
-  "A STAGED READ THAT MOVES BEFORE THE COMMIT (rf2-2rtt6.42).
+  "A STAGED READ THAT MOVES BEFORE THE COMMIT.
 
-  `generation_fence_coverage_cljs_test` settled what the generation
-  fence covers and found the hole; this file is the hole closed, over
-  Arm 1's OWN runtime rather than a transcription of it.
+  `generation_fence_coverage_cljs_test` states what the generation
+  fence covers and where it cannot reach; this file proves that gap
+  closed over Arm 1's OWN runtime rather than a transcription of it.
 
-  ## The defect these rows are about
+  ## The gap these rows are about
 
-  Two windows, and the arm only ever guarded one of them:
+  Two windows, and the fence guards only one of them:
 
-      predecessor   render probes a site … COMMIT re-reads that site
+      the mount     render reads a site … COMMIT acquires that site
                     |<------- the render->commit gap ------->|
 
       the fence     capture … BODY RUNS … compare … RETURN
@@ -18,22 +18,23 @@
   `render-body` compares and returns; the commit that follows — React
   calling the read-set entry's `subscribe`, where `acquire-cell!`
   installs the edge and the watch — compares nothing, by design (`no
-  commit-phase deref`). What reached the gap instead was the epoch-sum
+  commit-phase deref`). What reaches the gap instead is the epoch-sum
   `getSnapshot` plus React's own post-`subscribe` re-check, and that is
-  real — but it was driven by ONE counter. An epoch moved only when
-  `flush!` bumped it, `flush!` ran only from `mark-dirty!`, and
-  `mark-dirty!` has exactly one caller: the value-change watch
-  `acquire-cell!` installs AT COMMIT. So for a key nothing holds yet —
-  no cell, no watch, no epoch — a move in the gap marked nothing, bumped
-  nothing, and left `getSnapshot` answering the same number before and
-  after the commit. The boundary painted the old value and, because the
-  watch's baseline was already the new one, **no later notification was
-  coming for a change that had already happened**. Spec 006 invariant
-  5's stronger half, executed: *a staged site publishes stale and
-  nothing ever corrects it.*
+  real — but driven by the flush generation alone it would not be
+  enough. An epoch moves only when `flush!` finds a dirty cell, and
+  `mark-dirty!` takes a CELL: its callers are the value-change watch
+  `acquire-cell!` installs AT COMMIT and the rewire of a cell that
+  already exists. So for a key nothing holds yet — no cell, no watch, no
+  epoch — a move in the gap marks nothing and bumps nothing, and a
+  `getSnapshot` built on those counters alone would answer the same
+  number before and after the commit. The boundary would paint the old
+  value and, because the watch's baseline is already the new one, **no
+  later notification would come for a change that had already
+  happened**. That is Spec 006 invariant 5's stronger half: *a staged
+  site publishes stale and nothing ever corrects it.*
 
-  A baseline deref at acquire — which this arm already performs, and
-  which is the right fix for a DIFFERENT problem (a fresh reaction whose
+  A baseline deref at acquire — which this arm performs, and which
+  answers a DIFFERENT problem (a fresh reaction whose
   `unset` baseline is never `rf=` a real value reports movement on the
   first later commit whatever it did) — cannot close this one. It gives
   the cell a correct baseline and no COMPARISON: it silently adopts the
@@ -53,9 +54,9 @@
 
   The second term is the substrate's own read-evidence
   counter — one bump per physical frame-state install, at both write
-  chokepoints — and Spec 006 already uses it to answer exactly this
+  chokepoints — and Spec 006 uses it to answer exactly this
   question without watching anything. The third counts `:sub`
-  registrations, which are neither a flush nor an install (rf2-2rtt6.50);
+  registrations, which are neither a flush nor an install;
   this file's rows are the version axis and do not exercise it. So a
   staged key's number is `basis@render` while the boundary renders and
   `basis@commit` once the commit acquires it: equal when nothing moved in
@@ -76,10 +77,10 @@
   `arm1/generation_fence_dom_cljs_test`'s staged row then proves REACT
   drives this seam, in a real browser, against the real DOM.
 
-  Two rows fail on the pre-fix runtime and pass on it —
-  `a-staged-read-that-moves-in-the-gap-is-corrected` and
+  Two rows would fail on a runtime that counted the flush generation
+  alone — `a-staged-read-that-moves-in-the-gap-is-corrected` and
   `the-fence-sees-a-mid-body-move-of-a-key-nothing-holds` — and the
-  remaining rows are what stops the repair from being \"re-render
+  remaining rows are what stop the staged term from meaning \"re-render
   always\": a clean mount must ask React for nothing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -116,7 +117,7 @@
   (fn [_] (let [v (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0])] (vreset! seen v) [:li (str v)])))
 
 ;; ---------------------------------------------------------------------------
-;; The tear, and its repair
+;; The tear, and what closes it
 ;; ---------------------------------------------------------------------------
 
 (deftest a-staged-read-that-moves-in-the-gap-is-corrected
@@ -159,8 +160,8 @@
           (release!))))))
 
 (deftest the-baseline-deref-alone-cannot-see-the-move
-  (testing "why the arm's existing acquire-time baseline deref is not the
-           fix. It gives a fresh cell a correct baseline — which is worth
+  (testing "why the arm's acquire-time baseline deref cannot close the
+           gap. It gives a fresh cell a correct baseline — which is worth
            having, and is what stops every newly mounted boundary
            re-rendering once for nothing — but it performs no COMPARISON,
            so on its own it adopts the moved value as though it had
@@ -185,7 +186,7 @@
         (release!)))))
 
 (deftest a-clean-mount-asks-react-for-nothing
-  (testing "the half that stops the repair from being `re-render always`.
+  (testing "the half that stops the staged term from meaning `re-render always`.
            A staged key whose value did NOT move in the gap must leave
            the snapshot exactly where the render left it, or every mount
            in the application pays a second render."
@@ -199,13 +200,12 @@
       (release!))))
 
 (deftest a-retained-key-moving-in-the-gap-is-still-corrected
-  (testing "the path that already worked, kept working. A key some
-           earlier boundary committed has a cell whose watch PRE-DATES
-           the move, so the ordinary invalidation path reaches it. The
-           repair must not disturb that — and the epoch it stamps is now
-           a `commit-basis` reading rather than a private count, so this
-           row is also the check that re-stamping still strictly
-           increases."
+  (testing "the retained path. A key some earlier boundary committed
+           has a cell whose watch PRE-DATES the move, so the ordinary
+           invalidation path reaches it. The staged term must not
+           disturb that — and the epoch a flush stamps is a
+           `commit-basis` reading rather than a private count, so this
+           row is also the check that re-stamping strictly increases."
     (seeded!)
     (let [warm  (render (done-row (volatile! nil)))
           hold! (rf.bench.fresco.arm1.runtime/commit-boundary! warm (fn []))]
@@ -229,8 +229,8 @@
            rather than the generation alone. A body reads a key nothing
            holds, writes, and reads again. No cell means no watch means
            no `mark-dirty!` means no generation bump — so a fence
-           comparing the generation saw one still number across a body
-           whose two reads straddled two commits. The frame's install
+           comparing the generation would see one still number across a
+           body whose two reads straddle two commits. The frame's install
            epoch moves for that write, so the basis does, and the body
            re-runs against the newer commit."
     (seeded!)
@@ -251,24 +251,24 @@
       (is (true? @then-) "and the winning run read the committed value"))))
 
 ;; ---------------------------------------------------------------------------
-;; The cost of the repair, stated as assertions
+;; The cost of the staged term, stated as assertions
 ;; ---------------------------------------------------------------------------
 
 (deftest the-repair-costs-no-hook-no-object-and-no-record-of-a-read
   (testing "the tripwire, checked rather than claimed. Closing the gap
-           added one integer term to a number that was already being
-           summed — no second scratch, nothing keyed by a render or an
+           costs one integer term in a number that is summed anyway —
+           no second scratch, nothing keyed by a render or an
            attempt, no per-read object, and no commit-phase deref of a
            subscription value."
     (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
-        "still two hooks; the repair rides `useSyncExternalStore`'s own
+        "two hooks; the staged term rides `useSyncExternalStore`'s own
          snapshot re-check rather than buying a third")
     (let [inv (rf.bench.fresco.arm1.runtime/retained-inventory)]
       (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
              (into #{} (map :token) (:absent inv)))
-          "the enumerated absences are unchanged")))
-  (testing "and a render still mutates neither the index nor a reference,
-           which is the clause the repair had to stay inside: the staged
+          "the enumerated absences stand")))
+  (testing "and a render mutates neither the cell table nor a reference,
+           which is the clause the staged term stays inside: the staged
            term is READ from the frame, never recorded by the render"
     (seeded!)
     (let [before (rf.bench.fresco.arm1.runtime/stats)]
