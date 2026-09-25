@@ -1,5 +1,5 @@
 (ns re-frame.story-chrome-a11y-cljs-test
-  "CLJS smoke tests for rf2-18t6p — the chrome-a11y panel.
+  "CLJS smoke tests for the chrome-a11y panel.
 
   Mirrors the shape of `story-a11y-cljs-test` (the variant a11y panel
   test) — registration + state-management surface that's load-bearing
@@ -58,7 +58,7 @@
             Per Spec 006 §Source-coord annotation the annotator can only
             attach `data-rf2-source-coord` to hiccup DOM roots; a bare
             `[panel variant-id]` root makes the panel invisible to Story
-            Inspect Mode + Xray Inspect Mode (rf2-iwny7). The `[:div]`
+            Inspect Mode + Xray Inspect Mode. The `[:div]`
             wrap is load-bearing."
     (let [view-fn (rf/view rf.story.ui.chrome-a11y/panel-render-id)
           out     (view-fn :story.unknown/y)]

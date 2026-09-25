@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.view-state-test
-  "JVM-portable regression net for the View-State fidelity-controls' pure
-  projection (rf2-ba86n.7, spec/019 §1/§5 + spec/017 §View-state
-  subscription overrides).
+  "JVM-portable tests for the View-State fidelity-controls' pure
+  projection (spec/019 §1/§5 + spec/017 §View-state subscription
+  overrides).
 
   Covers the host-free surface — no host, no Reagent:
 
@@ -19,8 +19,8 @@
   - `view-state-model` / `compile-model` — the composed model + error
     trapping over the pure plan compiler.
 
-  CLJS render (the rung-view hiccup, the dialog, the guardrail) is left
-  to a smoke / cljs test; this corpus pins the pure projection only."
+  CLJS render (the rung-view hiccup, the dialog, the guardrail) is
+  outside this corpus, which pins the pure projection only."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
@@ -149,15 +149,15 @@
    :story.login/seeded {:db-seed {:login {:state :idle}}}
    ;; `:compose` is child-only, so a composed pin reaches the upgrade only
    ;; when the scaffold RE-EMITS the source's slots — i.e. when the source
-   ;; also pins directly. These two are that mixed shape (rf2-yt6ak).
+   ;; also pins directly. These two are that mixed shape.
    :story.login/composed-pin     {:sub-overrides {[:login/own] "own pin"}
                                   :compose       [:fragment.login/pinned-email]
                                   :args          {:heading "context"}}
    :story.login/composed-context {:sub-overrides {[:login/own] "own pin"}
                                   :compose       [:fragment.login/context]}
    ;; A pinned layer carrying the fx-stub decorator its real events need,
-   ;; under a source that declares no decorators of its own (rf2-yemtm), and
-   ;; a sibling source that does declare its own.
+   ;; under a source that declares no decorators of its own, and a sibling
+   ;; source that does declare its own.
    :story.login/stubbed-pin      {:extends       :story.login/base
                                   :decorators    [[:story.login/fx-stub :rf.http/managed {}]]
                                   :sub-overrides {[:login/state] :authenticated}}
@@ -196,7 +196,7 @@
 (deftest upgrade-snippet-reads-back-as-one-reg-variant-form
   (testing "every shape the generator emits parses — the rung note sits on its
             own line, never after the body's last value, where `;` would
-            swallow the envelope's closing `})` (rf2-mw9th half 1)"
+            swallow the envelope's closing `})`"
     (doseq [[source-id rung] [[:story.login/error :real-setup]
                               [:story.login/error :db-seed]
                               [:story.login/locked :real-setup]
@@ -212,8 +212,7 @@
 (deftest upgrade-snippet-drops-the-pin-instead-of-extending-the-pinned-source
   (testing "the upgrade scaffold stays a reg-variant and adds the rung slot,
             but does NOT :extends the pinned source — :extends inherits
-            :sub-overrides, so extending it would keep the pin (rf2-mw9th
-            half 2; this test used to pin `:extends <source>`)"
+            :sub-overrides, so extending it would keep the pin"
     (let [[op id body] (read-upgrade :story.login/error :real-setup)]
       (is (= 'rf.story/reg-variant op) "stays a reg-variant — artifact kind unchanged")
       (is (= :story.login/error-upgraded id))
@@ -263,7 +262,7 @@
 (deftest completed-upgrade-drops-pins-composed-from-fragments
   (testing "a source that pins directly AND composes a pinning fragment: the
             scaffold re-emits the source's own slots, so a `:compose` copied
-            as-is carries the fragment's pin into the child (rf2-yt6ak)"
+            as-is would carry the fragment's pin into the child"
     (testing "control — the source rests on both pins"
       (is (= {[:login/own] "own pin" [:login/email] "PINNED"}
              (get-in (rf.story.plan/variant-plan :story.login/composed-pin
@@ -294,7 +293,7 @@
 
 (deftest completed-upgrade-carries-decorators-from-a-skipped-pinned-layer
   (testing "extending above a pinned layer must not strip the decorators that
-            layer supplied — the fx stubs real setup events need (rf2-yemtm).
+            layer supplied — the fx stubs real setup events need.
             `:decorators` merge child-wins, so the nearest skipped layer's are
             copied when the source declares none"
     (let [stub        [[:story.login/fx-stub :rf.http/managed {}]]
@@ -365,7 +364,7 @@
 (deftest sub-override-failures-filters-the-where-sub-override-events
   (testing "only :rf.error/schema-validation-failure events whose :where
             is :sub-override are surfaced — the override-violated-its-
-            output-schema honesty case (rf2-7pgiz fold-in)"
+            output-schema honesty case"
     (let [events [{:op-type :error :operation :rf.error/schema-validation-failure
                    :id 1 :time 100 :tags {:where :sub-override :sub-id :login/state
                                           :explain {:errors [{:path [] :message "bad"}]}}}
@@ -407,7 +406,7 @@
       (is (not (str/blank? (:error m)))))))
 
 ;; ---------------------------------------------------------------------------
-;; compile-model — the ambient arg layers (rf2-851t0)
+;; compile-model — the ambient arg layers
 ;;
 ;; The run resolves an `[:arg key]` through global-args and the parent
 ;; story's `:args`; the pure compiler folds those only when handed

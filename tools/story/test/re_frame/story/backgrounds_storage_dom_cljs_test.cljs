@@ -1,52 +1,34 @@
 (ns re-frame.story.backgrounds-storage-dom-cljs-test
-  "Browser-lane home for background-selection persistence (rf2-zll4h),
-  assembled under rf2-r51p out of rows that ran in NO lane at all.
+  "Browser-lane home for background-selection persistence.
 
-  ## Where these rows came from, and why neither source could run them
+  ## Why these rows live in a `-dom-cljs-test` namespace
 
-  `re-frame.story.backgrounds-test` (`backgrounds_test.cljc`) held four
-  `#?(:cljs (deftest storage-* ...))` rows. Its namespace ends `-test`,
-  not `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`) does not
-  select it and `:browser-test`'s (`.*-dom-cljs-test$`) does not match it
-  either, and nothing else requires it. Those rows were therefore not
-  merely guarded-false — they were UNREACHABLE: no CLJS build compiled
-  them at all. That file's own docstring said \"Runs on both JVM and CLJS
-  — the CLJS arm exercises the localStorage round-trip\", which had never
-  been true.
+  Every row below is a genuine round-trip — `save-to-storage!` writes
+  through `.setItem`, `load-from-storage` reads back through `.getItem`,
+  `hydrate!` seeds the shell slot from what survived. That is real
+  host-storage semantics, which needs a real `window.localStorage` rather
+  than a stub.
 
-  `re-frame.story.ui.backgrounds-switcher-cljs-test` held the two
-  `hydrate!` rows. That namespace IS selected by `:node-test`, but its
-  rows sat inside `(when (browser?) ...)` and the node runtime has no
+  A namespace ending `-test` (such as `backgrounds_test.cljc`) is selected
+  by neither CLJS build: `:node-test`'s `:ns-regexp` is `cljs-test$` and
+  `:browser-test`'s is `.*-dom-cljs-test$`. A plain `-cljs-test` namespace
+  loads only under `:node-test`, whose runtime has no
   `window.localStorage` — this repo ships no jsdom, no happy-dom and no
-  DOM shim in any dependency list — while `:browser-test` never loads a
-  plain `-cljs-test` file. So those executed in neither lane.
+  DOM shim in any dependency list. A `-dom-cljs-test` namespace is the
+  one the browser lane loads.
 
-  Both defects have one repair, because both rows want the same thing: a
-  real `window.localStorage`. Every row below is a genuine round-trip —
-  `save-to-storage!` writes through `.setItem`, `load-from-storage` reads
-  back through `.getItem`, `hydrate!` seeds the shell slot from what
-  survived. That is real host-storage semantics, which is the case
-  rf2-r51p rules needs a real host rather than a stub.
-
-  ## THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES
+  ## THE GUARD, BECAUSE THIS FILE RUNS ON BOTH LANES
 
   `:node-test`'s `cljs-test$` is a bare SUFFIX match, which
   `-dom-cljs-test` satisfies exactly as `-cljs-test` does, and
-  `implementation/shadow-cljs.edn` records that overlap as deliberate. So
-  moving a row here ADDS the browser lane; it removes nothing. Each row
-  answers the node lane with a VISIBLE marker assertion rather than a
-  silent `when`, so no deftest here holds zero assertions — that hollow
-  shape is what rf2-r51p exists to remove, and a bare `when` would
-  merely relocate it.
+  `implementation/shadow-cljs.edn` records that overlap as deliberate.
+  Each row answers the node lane with a VISIBLE marker assertion rather
+  than a silent `when`, so no deftest here holds zero assertions — a
+  bare `when` would leave a hollow deftest in the node lane.
 
-  The JVM half of both source files is untouched: neither carries a
-  single `#?(:clj ...)` form, and every cross-host row in them (preset
-  table, custom-colour validation, resolve precedence, `wrap-style`) is
-  a bare unconditional `deftest` that still runs under `clojure -M:test`.
-
-  These assertions had never executed in ANY lane. A failure here is
-  evidence about `save-to-storage!` / `load-from-storage` / `hydrate!`
-  arriving for the first time, not a regression introduced by the move."
+  The cross-host rows (preset table, custom-colour validation, resolve
+  precedence, `wrap-style`) are bare unconditional `deftest`s in
+  `backgrounds_test.cljc`, which run under `clojure -M:test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.story.backgrounds :as rf.story.backgrounds]
             [re-frame.story.ui.backgrounds-switcher
@@ -116,11 +98,11 @@
       (is true skip-msg)
       (do
         (clear-storage!)
-        ;; This row used to assert `(nil? (load-from-storage))` straight
-        ;; after a `clear-storage!`, which passes against a storage that
-        ;; silently swallows every write — the exact vacuity rf2-r51p
-        ;; tightens for. Seed a VALID value first, so the assertions below
-        ;; distinguish "the invalid save was refused" from "nothing works".
+        ;; Asserting `(nil? (load-from-storage))` straight after a
+        ;; `clear-storage!` would pass against a storage that silently
+        ;; swallows every write. Seed a VALID value first, so the assertions
+        ;; below distinguish "the invalid save was refused" from "nothing
+        ;; works".
         (rf.story.backgrounds/save-to-storage! :dark)
         (is (= :dark (rf.story.backgrounds/load-from-storage))
             "precondition: a valid selection really does persist")

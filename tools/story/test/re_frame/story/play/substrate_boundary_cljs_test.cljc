@@ -1,26 +1,26 @@
 (ns re-frame.story.play.substrate-boundary-cljs-test
-  "rf2-ek9qb — the `:settled-boundary-hooks` PRODUCER, and the settle it
-  put in place of a timer.
+  "The `:settled-boundary-hooks` PRODUCER, and the substrate settle it
+  provides in place of a timer.
 
-  The defect these tests witness was not that the settle was slow. It was
-  that Story had NO settle signal from the substrate at all: the
-  `:settled-boundary-hooks` slot had a consumer and no producer, so every
-  host ran at `:provides :headless`, whose only flush is a no-op, and the
-  real settle after an interaction was the run-loop's `setTimeout` 0 —
-  which drains the microtask queue but never asks a rAF-scheduled
-  substrate to commit.
+  What these tests witness is not how fast the settle is. It is that
+  Story has a settle signal from the substrate at all: with the
+  `:settled-boundary-hooks` slot holding a consumer and no producer, every
+  host would run at `:provides :headless`, whose only flush is a no-op,
+  and the only settle after an interaction would be the run-loop's
+  `setTimeout` 0 — which drains the microtask queue but never asks a
+  rAF-scheduled substrate to commit.
 
   So the witness cannot be a timing measurement (a fast machine proves
   nothing, and a slow one proves nothing either). It is a COUNT: with a
-  substrate whose commit is observable, does the runner call it? Before
-  this bead it did not, once, ever — `substrate-commits-before-a-dom-step`
-  and `settle-is-synchronous-not-scheduled` both read 0.
+  substrate whose commit is observable, does the runner call it? Without
+  the producer it never does — `substrate-commits-before-a-dom-step`
+  and `settle-is-synchronous-not-scheduled` would both read 0.
 
   Runner note, and it is why this file is named and extensioned the way
   it is: `.cljc` so the JVM lane (`clojure -M:test` from `tools/story`)
   loads it, and `*_cljs_test` so the `:node-test` build's `cljs-test$`
   ns-regexp DISCOVERS it too. Both lanes therefore execute every assertion
-  here — which matters because the production change is entirely `.cljc`
+  here — which matters because the production code is entirely `.cljc`
   and a reader-conditional mistake in the `:cljs` branch would be
   invisible to a JVM-only run. Nothing in this file needs a DOM: the
   settle under test happens BEFORE the DOM executor runs, which is exactly
@@ -45,7 +45,7 @@
   (atom 0))
 
 (defn- committing-adapter
-  "`plain-atom` plus the ONE optional contract fn this bead is about. The
+  "`plain-atom` plus the ONE optional contract fn under test here. The
   real Reagent adapter's is `(fn [f] (f) (r/flush))`; this one keeps the
   same shape and counts instead of flushing, so a JVM run can observe the
   call the browser would make."
@@ -56,8 +56,8 @@
 ;; NOT `rf.story.late-bind/clear!` — that wipes the canonical shims every sibling
 ;; test ns registers at load time (`:run-play-step`, `:clear-step-boundaries`,
 ;; `:ensure-canonical-installed`), and the wipe outlives this ns in a shared
-;; JVM. Snapshot the whole map and restore it, so exactly the one slot this
-;; bead is about is under test and nothing else moves.
+;; JVM. Snapshot the whole map and restore it, so exactly the one slot these
+;; tests are about is under test and nothing else moves.
 
 (use-fixtures :each
   (fn [t]
@@ -67,7 +67,7 @@
       ;; Cold-start the adapter slot in the PROLOGUE, not only the epilogue.
       ;; `committing-adapter` is `plain-atom` plus one optional contract fn, so
       ;; it carries plain-atom's canonical `:rf.adapter/plain-atom` kind — and
-      ;; `init!` is idempotent for the seated adapter (rf2-kuky.1). If a sibling
+      ;; `init!` is idempotent for the seated adapter. If a sibling
       ;; suite in this shared runtime has already seated plain-atom, the `init!`
       ;; below is a same-adapter no-op, `:flush-render!` is never installed, and
       ;; the witness silently measures nothing. Destroying first means the first
@@ -91,7 +91,7 @@
 
 (deftest headless-when-no-adapter-is-seated
   (testing "with no adapter installed the producer yields the headless
-            default — the JVM floor is unchanged, which is what makes
+            default — the JVM floor stays headless, which is what makes
             installing it unconditionally safe"
     (is (nil? (rf.story.play.substrate-boundary/adapter-flush-render)))
     (let [hooks (rf.story.play.substrate-boundary/substrate-flush-hooks :any-frame)]
@@ -139,7 +139,7 @@
 
 (deftest install-registers-the-late-bind-slot
   (testing "before install! the slot is empty and the runner falls back to
-            headless — the state every host shipped in before rf2-ek9qb"
+            headless"
     (is (nil? (rf.story.late-bind/get-fn :settled-boundary-hooks)))
     (rf/init! (committing-adapter))
     (is (= :headless
@@ -156,11 +156,11 @@
 ;; ---- the settle, which is the point --------------------------------------
 
 (deftest substrate-commits-before-a-dom-step
-  (testing "WITNESS (rf2-ek9qb): a step that reads the DOM now runs against
-            a COMMITTED substrate. Without the producer + the pre-step
-            settle this count stays 0 — the runner never asked the
-            substrate to commit, and the only thing between an event and a
-            DOM read was a setTimeout 0"
+  (testing "WITNESS: a step that reads the DOM runs against a COMMITTED
+            substrate. Without the producer + the pre-step settle this
+            count would stay 0 — the runner would never ask the substrate
+            to commit, and the only thing between an event and a DOM read
+            would be a setTimeout 0"
     (rf/init! (committing-adapter))
     (rf.story.play.substrate-boundary/install!)
     (is (zero? @commits))
@@ -182,15 +182,15 @@
 
 (deftest headless-steps-do-not-commit
   (testing "a step that requires only :headless does not drag the
-            substrate through a commit — the ladder still means what it
-            says, and the cheap path stays cheap"
+            substrate through a commit — the ladder means what it says,
+            and the cheap path stays cheap"
     (rf/init! (committing-adapter))
     (rf.story.play.substrate-boundary/install!)
     (rf.story.play.runner-events/exec-step! :f 0 [:wait-until [:queue-empty]])
     (is (zero? @commits))))
 
 (deftest no-producer-means-no-commit
-  (testing "the fix is the PRODUCER, not the pre-step settle alone: with
+  (testing "the commit needs the PRODUCER, not the pre-step settle alone: with
             the slot empty, the same DOM step commits nothing even though
             the adapter could have"
     (rf/init! (committing-adapter))
@@ -239,29 +239,27 @@
       (is (= :flush-timeout (:reason res))))))
 
 ;; ===========================================================================
-;; THE TERMINAL PATH — where the settle used to be asked and then ignored
+;; THE TERMINAL PATH — where the settle's result must gate the read
 ;; ===========================================================================
 ;;
-;; Merged-PR audit #8313 reopened this bead on one missed path.
-;; `exec-step!` short-circuits correctly — `(or (settle-substrate-for-step!
-;; …) (case stype …))`, so an in-script DOM checkpoint cannot run against a
-;; substrate that failed to commit. `run-terminal-assertions!` called the
-;; SAME settle, DISCARDED its result, and then called `exec-assert!`
-;; unconditionally. The audit's control redefined the settle to error and
-;; the executor to record its invocation, and got `[:settle-error
-;; :assert-ran]` back: both ran.
+;; `exec-step!` short-circuits — `(or (settle-substrate-for-step! …)
+;; (case stype …))`, so an in-script DOM checkpoint cannot run against a
+;; substrate that failed to commit. `run-terminal-assertions!` asks the
+;; SAME settle and must honour its result the same way: a terminal path
+;; that discarded the result and then called `exec-assert!`
+;; unconditionally would run both.
 ;;
 ;; Two consequences, and the second is the one that bites. The assertion
-;; READ a substrate whose commit had just thrown or timed out — so it could
-;; record a PASS it had not earned. And the settle failure itself
-;; disappeared: terminal assertions are not a runner step stream, so the
-;; discarded step-result had nowhere to land, and the ONE accumulator the
-;; terminal verdict is folded from (`:rf.story/assertions`) never heard
-;; about it. A DOM-family atom records NOTHING under a headless runner (the
-;; executor's own `{:skipped? true}` branch declines to mint a vacuous
-;; record), which is precisely why the witnesses below can count: before
-;; the repair the accumulator held ZERO records for a failed settle, after
-;; it holds exactly one carrying the refusal.
+;; would READ a substrate whose commit had just thrown or timed out — so it
+;; could record a PASS it had not earned. And the settle failure itself
+;; would disappear: terminal assertions are not a runner step stream, so a
+;; discarded step-result has nowhere to land, and the ONE accumulator the
+;; terminal verdict is folded from (`:rf.story/assertions`) would never
+;; hear about it. A DOM-family atom records NOTHING under a headless runner
+;; (the executor's own `{:skipped? true}` branch declines to mint a vacuous
+;; record), which is precisely why the witnesses below can count: a
+;; discarded settle failure leaves ZERO records in the accumulator, an
+;; honoured one leaves exactly one carrying the refusal.
 
 (def ^:private terminal-frame
   "A real registered frame — `rf.story.assertions/record!` lands its record by
@@ -296,12 +294,11 @@
   [rf.story.assertions/id-dom-text "[data-test=x]" "42"])
 
 (deftest terminal-assertion-refuses-when-the-commit-throws
-  (testing "WITNESS (rf2-ek9qb, audit #8313): a terminal DOM assertion whose
-            pre-read settle THREW must not be evaluated, and the failure
-            must reach the unified verdict. Before the repair the throw was
-            discarded and the accumulator held nothing at all — the run
-            reported on a substrate that had blown up mid-commit as though
-            nothing had happened"
+  (testing "WITNESS: a terminal DOM assertion whose pre-read settle THREW
+            must not be evaluated, and the failure must reach the unified
+            verdict. Discarding the throw would leave the accumulator
+            holding nothing at all — the run would report on a substrate
+            that had blown up mid-commit as though nothing had happened"
     (terminal-frame!)
     (install-hooks! {:provides :dom
                      :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
@@ -318,7 +315,7 @@
            substrate that threw mid-commit is a fault, not a refusal"))))
 
 (deftest terminal-assertion-refuses-when-the-commit-times-out
-  (testing "WITNESS (rf2-ek9qb, audit #8313): the same for the other way a
+  (testing "WITNESS: the same for the other way a
             settle declines — an over-budget flush phase. `settle-to!`
             returns the fail-closed :flush-timeout refusal, so the terminal
             verdict must read :cannot-run: the runner could not establish
@@ -336,10 +333,9 @@
           "the distinct THIRD status — never a silent pass"))))
 
 (deftest a-settled-terminal-assertion-still-evaluates
-  (testing "the repair must not over-fire. With a commit that SUCCEEDS the
-            terminal path is exactly what it was: the substrate is asked to
-            commit, and the executor — not a refusal record — owns the
-            verdict. Under a headless runner that DOM executor declines to
+  (testing "the refusal must not over-fire. With a commit that SUCCEEDS
+            the substrate is asked to commit, and the executor — not a
+            refusal record — owns the verdict. Under a headless runner that DOM executor declines to
             mint a record at all, so an empty accumulator here is the proof
             that nothing was refused"
     (terminal-frame!)
@@ -350,11 +346,11 @@
         "no refusal record was minted for a settle that succeeded")))
 
 (deftest a-headless-terminal-assertion-is-untouched
-  (testing "the JVM / node-runtime path is unchanged: below :cljs-reactive
+  (testing "the JVM / node-runtime path never settles: below :cljs-reactive
             `settle-substrate-for-step!` returns nil without consulting a
-            hook, so a handler-backed terminal atom takes the same
-            `exec-assert!` arm it always did — even under hooks whose :dom
-            flush would throw if it were ever reached"
+            hook, so a handler-backed terminal atom goes straight to the
+            `exec-assert!` arm — even under hooks whose :dom flush would
+            throw if it were ever reached"
     (terminal-frame!)
     (install-hooks! {:provides :dom
                      :flush!   {:dom (fn [_] (throw (ex-info "must not run" {})))}})
@@ -369,7 +365,7 @@
 
 #?(:clj
    (deftest jvm-only-a-refused-terminal-settle-never-reaches-the-executor
-     ;; JVM-ONLY, and the name says so. The audit's control is the only
+     ;; JVM-ONLY, and the name says so. A spy on the executor is the only
      ;; direct read of "did `exec-assert!` run?": a DOM-family atom records
      ;; nothing under a headless runner either way, so the count witnesses
      ;; above prove the failure ARRIVES without proving the evaluation was
@@ -378,9 +374,9 @@
      ;; may already have inlined (`:static-fns`), so a spy that never fires
      ;; would read as a PASS there: a false green, which is worse than no
      ;; witness at all.
-     (testing "WITNESS (rf2-ek9qb, audit #8313): the refusal REPLACES the
-               evaluation. The audit's control got [:settle-error
-               :assert-ran] from the landed fn — both ran"
+     (testing "WITNESS: the refusal REPLACES the evaluation. An executor
+               invoked behind the failed settle would leave [:assert-ran]
+               in the spy — both would have run"
        (terminal-frame!)
        (install-hooks! {:provides :dom
                         :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})

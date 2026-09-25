@@ -1,5 +1,5 @@
 (ns re-frame.story.runtime-db-seed-test
-  "End-to-end run-path tests for the `:db-seed` fidelity rung (rf2-blw1q).
+  "End-to-end run-path tests for the `:db-seed` fidelity rung.
 
   `:db-seed` is the MIDDLE rung of spec/017's fidelity ladder
   (`#{:real-setup :db-seed :sub-overrides}`): a schema-checked direct
@@ -18,11 +18,11 @@
   - with NO schemas artefact / no validator the seed is applied unchecked
     (the host-free floor).
 
-  Validation reuses the EXISTING schemas late-bind seam — the runtime
+  Validation reuses the schemas late-bind seam — the runtime
   reaches `:schemas/frame-schema-entries` +
   `:schemas/validate-with-registered-fn` / `:schemas/explain-with-registered-fn`
   through `re-frame.late-bind` (the SAME seam the `:sub-return` path + the
-  rf2-7pgiz `:sub-override` fold-in use). The schemas artefact is NOT on
+  `:sub-override` validation use). The schemas artefact is NOT on
   Story's classpath, so these tests REGISTER those hooks directly (backed
   by Malli, which IS on the classpath) exactly as the artefact would —
   which is itself proof the runtime takes no hard dep on the schemas
@@ -90,17 +90,17 @@
                  (:assertions result))))
 
 ;; ===========================================================================
-;; schema acceptance — :db-seed is a TYPED slot, no longer silently ignored
+;; schema acceptance — :db-seed is a TYPED slot, never silently ignored
 ;; ===========================================================================
 
 (deftest db-seed-is-accepted-by-the-variant-schema
-  (testing "reg-variant ACCEPTS a well-shaped :db-seed (the typed slot — the
-            pre-rf2-blw1q bug was silent-accept-then-ignore)"
+  (testing "reg-variant ACCEPTS a well-shaped :db-seed (the typed slot —
+            never silent-accept-then-ignore)"
     (is (some? (rf.story/reg-variant :story.cart/typed {:db-seed {:cart {:items []}}}))
         "a {path → value} :db-seed registers without a shape error")))
 
 (deftest malformed-db-seed-is-rejected-by-the-variant-schema
-  (testing "a non-map :db-seed is REJECTED at registration (no longer silently
+  (testing "a non-map :db-seed is REJECTED at registration (never silently
             accepted) — :rf.error/variant-shape"
     (let [ex (try (rf.story/reg-variant :story.cart/malformed {:db-seed [1 2 3]})
                   nil

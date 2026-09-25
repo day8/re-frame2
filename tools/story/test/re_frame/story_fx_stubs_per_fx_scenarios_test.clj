@@ -1,31 +1,29 @@
 (ns re-frame.story-fx-stubs-per-fx-scenarios-test
-  "Explicit per-fx regression net for `:rf.story/force-fx-stub`
-  (rf2-ysr4y + rf2-mwr16). Pairs with `re-frame.story-fx-stubs-test`,
-  which already covers boot-time registration, the ref-args
-  expansion, the multi-decorator `:overrides` map and the per-frame
-  stub-call log; this namespace adds the four canonical fx-id
-  scenarios called out by the spec/015 §force-fx-stub matrix —
-  `:http`, `:analytics`, `:websocket`, `:navigation` — plus the two
-  stage-5 scenarios that the existing suite only covered
-  implicitly:
+  "Explicit per-fx regression net for `:rf.story/force-fx-stub`.
+  Pairs with `re-frame.story-fx-stubs-test`, which covers boot-time
+  registration, the ref-args expansion, the multi-decorator
+  `:overrides` map and the per-frame stub-call log; this namespace
+  covers the four canonical fx-id scenarios called out by the
+  spec/015 §force-fx-stub matrix — `:http`, `:analytics`,
+  `:websocket`, `:navigation` — plus two scenarios the sibling suite
+  does not exercise directly:
 
-  - **stub-overriding-real** (rf2-mwr16): a real `reg-fx` handler is
+  - **stub-overriding-real**: a real `reg-fx` handler is
     registered *and* the stub is installed via the decorator. The
     real handler would throw if it ran; the stub captures the
     payload. Asserts the stub takes precedence at the framework
     `:fx-overrides` redirect.
 
-  - **stub-failure-mode** (rf2-mwr16): the stub `:response` is a
-    failure payload (`{:status :error ...}`). The variant under
-    test reads the response into app-db; `:rf.assert/path-equals`
-    against the failure path passes; the shell does not crash and
-    the lifecycle reaches `:ready`.
+  - **stub-failure-mode**: the stub `:response` is a failure
+    payload (`{:status :error ...}`). The stub only logs the call;
+    the variant records the failure into app-db through its own
+    event; `:rf.assert/path-equals` against the failure path
+    passes; the shell does not crash and the lifecycle reaches
+    `:ready`.
 
   Per spec/004 §force-fx-stub the code path is identical for every
-  fx-id keyword. The value of these tests is preventing a future
-  regression that special-cases `:http` (because every existing
-  test happens to exercise that fx-id) — see rf2-ysr4y for the
-  motivation."
+  fx-id keyword. The value of these tests is catching a change that
+  special-cases `:http`, the fx-id most other stub tests exercise."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -61,7 +59,7 @@
 (use-fixtures :each reset-all)
 
 ;; ===========================================================================
-;; rf2-ysr4y — per-fx scenarios (HTTP / analytics / websocket / navigation)
+;; Per-fx scenarios (HTTP / analytics / websocket / navigation)
 ;;
 ;; Each scenario registers an event that emits the fx-id under test, runs
 ;; a variant with the matching `force-fx-stub`, then asserts:
@@ -156,7 +154,7 @@
     (rf.story/destroy-variant! :story.fxscen.navigation/v)))
 
 ;; ===========================================================================
-;; rf2-mwr16 — stub-overriding-real
+;; stub-overriding-real
 ;;
 ;; Register a real `reg-fx` handler that would throw if invoked, install
 ;; the stub via decorator, then dispatch the fx and assert the real
@@ -215,7 +213,7 @@
       (rf.story/destroy-variant! :story.fxoverride/real))))
 
 ;; ===========================================================================
-;; rf2-mwr16 — stub-failure-mode
+;; stub-failure-mode
 ;;
 ;; Install a stub whose :response represents a failure payload, and author
 ;; the failure STATE separately, the way a variant must. The stub only
@@ -231,7 +229,7 @@
 ;;
 ;; A separately dispatched failure event tests the downstream state
 ;; transition. It does not prove the request would have produced that
-;; reply (rf2-3x7nj.31.4).
+;; reply.
 ;; ===========================================================================
 
 (deftest stub-failure-mode-records-without-crash

@@ -1,18 +1,17 @@
 (ns re-frame.story.sub-overrides-render-dom-cljs-test
-  "End-to-end ACCEPTANCE test for the sub-override subscribe seam
-  (rf2-7pgiz): render a REAL, normally-authored view through the Story
-  override-context carriage and assert the pinned `:sub-overrides` value
-  appears ON SCREEN — not merely that the resolver returns it.
+  "End-to-end ACCEPTANCE test for the sub-override subscribe seam: render
+  a REAL, normally-authored view through the Story override-context
+  carriage and assert the pinned `:sub-overrides` value appears ON
+  SCREEN — not merely that the resolver returns it.
 
-  This is the test the bead deferred to land WITH the seam. It is the
-  load-bearing assertion because the bug it closes was specifically that
-  the override did NOT survive into a view's DEFERRED React render: a
-  `binding`-bound dynamic var unwinds before the descendant view's own
-  reaction runs. Only a REAL React render of the override-context
-  Provider wrapping the view proves the carriage survives that boundary
-  and the core `:subs/resolve-sub-override` consult substitutes.
+  It is the load-bearing assertion because the override must survive into
+  a view's DEFERRED React render, and a `binding`-bound dynamic var would
+  not: it unwinds before the descendant view's own reaction runs. Only a
+  REAL React render of the override-context Provider wrapping the view
+  proves the carriage survives that boundary and the core
+  `:subs/resolve-sub-override` consult substitutes.
 
-  Naming convention (rf2-2hrj8): the `-dom-cljs-test$` suffix opts this
+  Naming convention: the `-dom-cljs-test$` suffix opts this
   file into the `:browser-test` build (Playwright + Chromium, real React
   via `react-dom/client`). `:node-test` also loads it (its `cljs-test$`
   regex matches the `-dom-cljs-test` suffix), where the mounting branch
@@ -31,8 +30,8 @@
             [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
 
 ;; `make-reset-runtime-fixture` performs the snapshot/restore + frames-reset +
-;; adapter dispose/install this suite hand-rolled. `:ambient-frame nil` preserves
-;; the suite's no-ambient-scope behaviour — each render-based test binds its own
+;; adapter dispose/install. `:ambient-frame nil` leaves the suite with no
+;; ambient scope — each render-based test binds its own
 ;; `*current-frame* :rf/default` around the mount.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -73,7 +72,7 @@
      (when (= state :error)
        [:p.err msg])]))
 
-;; ---- 1 · the acceptance criterion — override surfaces ON SCREEN ----------
+;; ---- 1 · the override surfaces ON SCREEN ---------------------------------
 
 (deftest override-surfaces-at-render
   (testing "a variant pinning [:login/state] :error renders the error state on screen"
@@ -89,7 +88,7 @@
              mount-node (make-mount-node!)
              root       (react-dom-client/createRoot mount-node)]
          (try
-           ;; EP-0002 (rf2-9o48ih): `login-panel` is a plain Reagent fn (no
+           ;; EP-0002: `login-panel` is a plain Reagent fn (no
            ;; `:contextType` wiring), so its `subscribe` resolves the frame from
            ;; the dynamic-var tier, not React context. The Story override-
            ;; provider carries sub-overrides, NOT a frame scope. Bind the
@@ -123,8 +122,8 @@
              root       (react-dom-client/createRoot mount-node)]
          (try
            ;; nil overrides → the Provider is render-transparent; the view
-           ;; reads the real (default nil → idle) subscription. EP-0002
-           ;; (rf2-9o48ih): bind the ambient `:rf/default` frame around the
+           ;; reads the real (default nil → idle) subscription. EP-0002:
+           ;; bind the ambient `:rf/default` frame around the
            ;; render so the plain-fn view's subscribe resolves a frame via the
            ;; dynamic-var tier (the override-provider carries no frame scope).
            (binding [rf.frame/*current-frame* :rf/default]
@@ -151,7 +150,7 @@
        (rf/reg-sub :login/message (fn [db _] (get-in db [:login :message])))
        ;; Seed a REAL app-db value distinct from the override.
        (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:login {:state :ok}}}))
-       ;; EP-0002 (rf2-9o48ih): the dispatch + the plain-fn view's subscribe
+       ;; EP-0002: the dispatch + the plain-fn view's subscribe
        ;; both need a carried frame. Bind the ambient `:rf/default` scope
        ;; (the fixture ensured the frame exists) around the seed dispatch and
        ;; the synchronous `act` render so neither raises no-frame-context.

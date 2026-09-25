@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.recorder-export-dialog-cljs-test
-  "Tests for the recorder → :script export dialog UI (rf2-x9zsr).
+  "Tests for the recorder → :script export dialog UI.
 
   Two tiers:
 
@@ -75,7 +75,7 @@
          (is (= [[:counter/inc] [:counter/dec]] (:events s)))
          (is (= {:n 1} (:final-db s)))
          (is (true? (:auto-assert? s))
-             "auto-assert defaults ON per bead — user toggles off if too noisy")))))
+             "auto-assert defaults ON — user toggles off if too noisy")))))
 
 #?(:cljs
    (deftest variant-id-derived-from-source-id
@@ -116,9 +116,9 @@
          (is (str/includes? flat ":story.x/source")
              "source-id appears via :extends")
          (is (str/includes? flat ":script")
-             "snippet carries the public :script slot name (rf2-7mj4z)")
+             "snippet carries the public :script slot name")
          (is (not (str/includes? flat ":play-script"))
-             "snippet no longer emits the transitional :play-script slot")
+             "snippet emits no :play-script slot")
          (is (str/includes? flat "story-recorder-export-snippet")
              ":data-test for the snippet pre tag")
          (is (str/includes? flat "story-recorder-export-copy")
@@ -143,7 +143,7 @@
               call-site (open-from-recorder-dialog!) with the recorder's live
               capture, then churns the recorder — exercising the
               snapshot-independence the test name promises, NOT a self-poke of
-              the dialog's own ratom (rf2-x76af2.20)."
+              the dialog's own ratom."
        ;; Seed the recorder with a completed capture.
        (rf.story.recorder/clear!)
        (rf.story.recorder/start-recording! :story.a/source)
@@ -194,7 +194,7 @@
 
 #?(:cljs
    (deftest dialog-auto-assert-diffs-against-the-recording-seed
-     (testing "rf2-3x7nj.29.2: given the recording's seed db, the default
+     (testing "given the recording's seed db, the default
                auto-assert pins only what the recording changed — not the
                static keys it never touched, not Story's :rf.story/* records"
        (rf.story.ui.recorder-export-dialog/open-dialog!
@@ -213,7 +213,7 @@
 
 #?(:cljs
    (deftest open-from-recorder-dialog-carries-the-seed
-     (testing "rf2-3x7nj.29.2: the recorder save dialog's export hand-off
+     (testing "the recorder save dialog's export hand-off
                carries the recording's seed db onto the export dialog"
        (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
          {:events    [[:counter/inc]]

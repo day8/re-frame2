@@ -1,5 +1,5 @@
 (ns re-frame.story.play.presence-cljs-test
-  "S4-H (rf2-qwzmt) — Story's presence rung: the `[:flush-presence]` script
+  "Story's presence rung: the `[:flush-presence]` script
   step consumes the framework's own presence clock so a
   presence-bearing variant settles DETERMINISTICALLY during playback.
 
@@ -19,20 +19,18 @@
   - The SEAM against a stub presence host (both hosts) — the step routes the
     ms through `re-frame.story.play.presence/advance!`; a script WITHOUT the
     step leaves the retained exit pending and its assertion FAILS, the same
-    script WITH it passes. This is the red-before/green-after, proven
+    script WITH it passes. This is the red/green pair, proven
     host-agnostically through the real `run!` playback loop.
 
-  THERE IS NO THIRD LAYER, and its absence is deliberate (rf2-5gka). Story
-  used to ship an optional Freehand bridge plus two suites driving the real
-  substrate clock through it; Freehand is retired (rf2-0yp7w) and no
-  supported substrate publishes a presence-clock verb to put in its place, so
-  the bridge and those suites went with the donor. What remains is the whole
-  of what Story owns: the rung is a SEAM, and a host installs its own advance
+  THERE IS NO THIRD LAYER, and its absence is deliberate. No supported
+  substrate publishes a presence-clock verb, so there is no bridge driving
+  a real substrate clock to test. These two layers are the whole of what
+  Story owns: the rung is a SEAM, and a host installs its own advance
   through the public `install-presence-flush!`.
 
   That makes the stub host the right instrument rather than a compromise. A
   substrate's own three-phase machine (`:mounting` → `:present` →
-  `:unmounting` against real DOM) was never Story's to prove; what these
+  `:unmounting` against real DOM) is not Story's to prove; what these
   tests pin is that its PLAYBACK LOOP reaches the installed verb at the right
   point, and fails CLOSED when there is none.
 
@@ -53,7 +51,7 @@
             [re-frame.story.play.runner           :as rf.story.play.runner]
             [re-frame.story.play.runner-events    :as rf.story.play.runner-events]
             [re-frame.story.requirements          :as rf.story.requirements]))
-;; NO SUBSTRATE :require, and that is the point of the rung (rf2-5gka): the
+;; NO SUBSTRATE :require, and that is the point of the rung: the
 ;; seam under test reaches its advance through the late-bind registry, so
 ;; every test here drives it with a stub host and Story's test classpath
 ;; carries no view substrate at all.
@@ -163,7 +161,7 @@
 (deftest advance-with-no-host-reports-no-host
   (testing "with no host installed the advance DID NOT HAPPEN, and `advance!`
             says so faithfully — the executor projects `:no-host` into a
-            `:cannot-run` refusal (rf2-36biz). `advance!` itself stays pure
+            `:cannot-run` refusal. `advance!` itself stays pure
             data → data: it reports, the executor judges"
     (is (nil? (rf.story.play.presence/presence-flush-fn)))
     (is (= {:status :no-host :ms nil} (rf.story.play.presence/advance! nil)))
@@ -183,15 +181,16 @@
 ;; ===========================================================================
 
 (def exec-step!
-  "The private single-step executor, reached via var-quote — the established
+  "The private single-step executor, reached via var-quote — the
   Story-test seam."
   @#'rf.story.play.runner-events/exec-step!)
 
 (def presence-frame :story.presence/frame)
 
 (defn setup!
-  "Fresh registrar + runtime + variant frame. Shared with the real-clock
-  companion so both halves of the rung test the same harness."
+  "Fresh registrar + runtime + variant frame. Shared with
+  `presence-stale-settlement-cljs-test` so both suites test the same
+  harness."
   []
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
@@ -222,8 +221,7 @@
 
   There is no clock to reset alongside it: every host in this ns is a stub
   whose whole state is the atom `install-stub-presence-host!` returns, and
-  that dies with the test. The reset this used to perform belonged to the
-  retired substrate bridge, which armed a process-global exit scheduler."
+  that dies with the test."
   []
   ;; The late-bind hook registry is process-global — a leaked presence host
   ;; would silently arm every LATER test's `[:flush-presence]` step.
@@ -283,7 +281,7 @@
       (is (= [100 nil] (:advances @state))))))
 
 (deftest presence-step-with-no-host-refuses-cannot-run
-  (testing "rf2-36biz — with NO presence host installed the advance did not
+  (testing "with NO presence host installed the advance did not
             happen, so the step REFUSES (`:cannot-run`) rather than skipping
             silently. `no hook installed` does not prove `no presence runtime
             exists`: an app can render retaining views and simply omit the
@@ -295,33 +293,25 @@
       (is (nil? (:exception res)) "an absent host is a refusal, not a throw")
       (is (string? (:message res)))
       (is (re-find #"install-presence-flush!" (:message res))
-          "the refusal NAMES the install path — an actionable refusal. It is
-           now the ONLY install path: the optional bridge that used to be the
-           other branch of this alternation retired with Freehand (rf2-5gka),
-           so naming it is no longer a weaker claim than naming the seam")
-      ;; A SEPARATE assertion rather than a branch of an alternation, for the
-      ;; reason the retired substrate arm carried: `re-find` is satisfied by
-      ;; any one branch, so folding this in would WEAKEN the install-path
-      ;; claim above rather than add to it.
+          "the refusal NAMES the install path — an actionable refusal, and
+           the only install path there is")
+      ;; A SEPARATE assertion rather than a branch of an alternation:
+      ;; `re-find` is satisfied by any one branch, so folding this in would
+      ;; WEAKEN the install-path claim above rather than add to it.
       (is (not (re-find #"(?i)freehand|re-frame\.ui" (:message res)))
-          "rf2-5gka — the refusal is SUBSTRATE-NEUTRAL, and this is the only
-           test that pins that. The message used to tell the user their app
-           was one 'that renders Freehand views' (census row S11); the rung
-           reaches its advance through a late-bind hook and never named a
-           substrate for any reason but the retired bridge. A user-facing
-           string is invisible to a residue grep over :require forms, so
-           nothing else would notice a retired name coming back"))))
+          "the refusal is SUBSTRATE-NEUTRAL, and this is the only test that
+           pins that: the rung reaches its advance through a late-bind hook
+           and names no substrate. A user-facing string is invisible to a
+           residue grep over :require forms, so nothing else would notice a
+           retired substrate's name in it"))))
 
-;; The shipped-bridge arm that stood here retired with Freehand (rf2-5gka). It
-;; drove `presence-host/install!` — a namespace whose whole content was two
-;; substrate verbs — and asserted that requiring it armed the hook. There is
-;; no shipped installer to assert now, and the seam it installed THROUGH is
-;; covered directly: `install-presence-flush-registers-the-hook` pins the same
-;; late-bind slot and the same `advance!` threading, without a substrate.
+;; There is no shipped presence installer to assert. The seam a host
+;; installs THROUGH is covered directly: `install-presence-flush-registers-the-hook`
+;; pins the late-bind slot and the `advance!` threading, without a substrate.
 ;;
-;; `0` remains a legal advance distinct from `nil`, and that moved there with
-;; it. Which arity a HOST selects on `some?` is now the host's own business —
-;; the seam's duty is only to hand `0` through as `0`.
+;; `0` is a legal advance distinct from `nil`, and that is pinned there too.
+;; Which arity a HOST selects on `some?` is the host's own business — the
+;; seam's duty is only to hand `0` through as `0`.
 
 (deftest presence-step-surfaces-a-throwing-host-as-an-exception
   (rf.story.play.presence/install-presence-flush! (fn [_] (throw (ex-info "boom" {}))))
@@ -374,21 +364,20 @@
 
 ;; ---------------------------------------------------------------------------
 ;; FAIL CLOSED: an uninstalled host is a refusal, never a silent green
-;; (rf2-36biz)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The retired justification for the silent skip was "the DOM assertion that
-;; FOLLOWS carries the `:dom` requirement, so an incapable runner refuses
-;; there". The grammar never required a following assertion, never required it
-;; to be `:assert-dom`, and — more fundamentally — "no hook installed" does
-;; not prove "no presence runtime exists". These two tests drive the SAME
-;; script under the SAME headless runner with the ONLY following assertion an
-;; `:assert-db`, so that premise cannot come back: the pair differs in exactly
-;; one thing, whether the host was installed, and the verdicts must differ.
+;; A silent skip cannot rest on "the DOM assertion that FOLLOWS carries the
+;; `:dom` requirement, so an incapable runner refuses there". The grammar
+;; requires no following assertion, nor that it be `:assert-dom`, and — more
+;; fundamentally — "no hook installed" does not prove "no presence runtime
+;; exists". These two tests drive the SAME script under the SAME headless
+;; runner with the ONLY following assertion an `:assert-db`, so that premise
+;; cannot hold: the pair differs in exactly one thing, whether the host was
+;; installed, and the verdicts must differ.
 
 #?(:clj
    (deftest playback-with-no-presence-host-refuses-rather-than-passing-falsely
-     (testing "RED-the-bug: no host installed. `[:flush-presence 100]` never
+     (testing "RED — no host installed. `[:flush-presence 100]` never
                advanced anything, yet `[:assert-db [:toast] :retained]` holds
                anyway — the toast is retained because NOTHING moved the clock,
                not because the advance stayed below :timeout-ms. The
@@ -405,13 +394,13 @@
          (is (= :cannot-run (:status state))
              "an uninstalled presence host fails CLOSED")
          (is (not= :pass (:status state))
-             "the silent false green rf2-36biz names is gone")))))
+             "no silent false green")))))
 
 #?(:clj
    (deftest playback-with-an-installed-host-still-passes-the-same-script
      (install-stub-presence-host! 300)
-     (testing "the other direction — over-tightening would be worse than the
-               bug. The IDENTICAL script, `:assert-db` its only assertion,
+     (testing "the other direction — over-tightening would be worse than a
+               silent green. The IDENTICAL script, `:assert-db` its only assertion,
                still passes once a host is properly installed"
        (let [done  (atom nil)
              _     (rf.story.play.runner-events/run! presence-frame "with-host"
@@ -424,9 +413,8 @@
          (is (= :pass (:status state))
              "a valid setup is never refused")))))
 
-;; A host's OWN clock is not proven here, and no longer anywhere in Story. The
-;; `.cljs` companion that drove Freehand's real presence scheduler through the
-;; shipped bridge retired with both (rf2-5gka). If a substrate ever publishes
-;; a presence-advance verb and a bridge is written for it, its real-clock arm
-;; belongs beside that bridge — and will need a MAP fixture if that verb is
-;; Promise-backed, which a `.cljc` may not use.
+;; A host's OWN clock is not proven here, nor anywhere in Story: no supported
+;; substrate publishes a presence-advance verb. If a substrate publishes one
+;; and a bridge is written for it, its real-clock arm belongs beside that
+;; bridge — and needs a MAP fixture if that verb is Promise-backed, which a
+;; `.cljc` may not use.

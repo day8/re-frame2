@@ -1,12 +1,13 @@
 (ns re-frame.story.ui.canvas-resolved-args-cljs-test
-  "rf2-gwye.7 — the canvas renders the RESOLVED scenario's args.
+  "The canvas renders the RESOLVED scenario's args.
 
-  `canvas-inner` hands the variant's view its effective args. Before the fix
-  it read them from `rf.story.args/resolve-args`, which folds only the
-  variant's OWN `:args`, so a variant that `:extends` a parent (or
-  `:compose`s a fragment) carrying args rendered the STORY DEFAULT instead,
-  while `run-variant` (which reads the compiled plan) reported the inherited
-  value. The canvas and the run described two different scenarios.
+  `canvas-inner` hands the variant's view its effective args, read off the
+  compiled plan. Reading them from `rf.story.args/resolve-args`, which folds
+  only the variant's OWN `:args`, would render the STORY DEFAULT for a
+  variant that `:extends` a parent (or `:compose`s a fragment) carrying
+  args, while `run-variant` (which reads the compiled plan) reports the
+  inherited value — the canvas and the run would describe two different
+  scenarios.
 
   Each test observes the value the view actually rendered: the probe view
   prints the props it was handed, read back through the same expanded-hiccup
@@ -36,9 +37,9 @@
     {:component :views/resolved-args-probe
      :args      {:count 0 :nested {:v 0}}})
   (rf.story/reg-mode :Mode.canvas-args/loud {:args {:count 5 :theme :loud}})
-  ;; Every variant declares `:loaders` so `events-only-variant?` is false on
-  ;; both sides of the fix: the skeleton gate is then governed only by the
-  ;; lifecycle `ready-tree` drives, and the args are the one thing that varies.
+  ;; Every variant declares `:loaders` so `events-only-variant?` is false for
+  ;; all of them: the skeleton gate is then governed only by the lifecycle
+  ;; `ready-tree` drives, and the args are the one thing that varies.
   (rf.story/reg-variant :story.canvas-args/parent
     {:args {:count 42 :nested {:v 7}} :loaders [[:noop/loader]]})
   (rf.story/reg-variant :story.canvas-args/child
@@ -103,7 +104,7 @@
         ":compose — the fragment's args reach the view")))
 
 (deftest canvas-args-keep-mode-and-cell-precedence
-  (testing "the run layers still fold AROUND the resolved variant layer:
+  (testing "the run layers fold AROUND the resolved variant layer:
             an active mode sits BELOW the inherited variant args, a cell
             override sits above everything"
     (shell! #(assoc % :active-modes [:Mode.canvas-args/loud]))
@@ -115,5 +116,5 @@
 
 (deftest canvas-args-direct-variant-control
   (testing "control — a variant with no :extends / :compose renders its own
-            args, unchanged by the fix"
+            args"
     (is (= "count=3 nested=0" (rendered :story.canvas-args/direct)))))

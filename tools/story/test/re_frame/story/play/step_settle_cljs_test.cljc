@@ -1,12 +1,12 @@
 (ns re-frame.story.play.step-settle-cljs-test
-  "rf2-n0sz4 — the settle rung for a step's ASYNCHRONOUS preconditions.
+  "The settle rung for a step's ASYNCHRONOUS preconditions.
 
-  rf2-ek9qb gave a step's required BOUNDARY a producer, so a DOM-touching
-  step now asks the live adapter to COMMIT before it runs. That closed the
-  render race and only that one: a synchronous commit can commit only what
-  the host has already SCHEDULED. Two things a play depends on are
-  scheduled-but-not-landed at the instant the step wants them, and the
-  browser lane measured both —
+  A step's required BOUNDARY has a producer, so a DOM-touching step asks
+  the live adapter to COMMIT before it runs. That closes the render race
+  and only that one: a synchronous commit can commit only what the host
+  has already SCHEDULED. Two things a play depends on can be
+  scheduled-but-not-landed at the instant the step wants them, and each
+  surfaces in the browser lane as a failed read —
 
     - the async DISPATCH behind a synthetic DOM event
       (`expected 42 at [:count] but got 0`), and
@@ -17,10 +17,10 @@
   A timing measurement proves nothing in either direction: a fast machine
   passes a broken runner and a loaded one fails a correct one. So the
   witnesses below assert on STATE the runner is supposed to consult —
-  `step-precondition-unmet`, the one decision the poll is built on. Before
-  this bead nothing consulted it: the run-loop executed every step the
-  moment it reached it, and the only thing standing between a `:click` and
-  the next step's read of app-db was one blind `setTimeout` 0.
+  `step-precondition-unmet`, the one decision the poll is built on. Without
+  it the run-loop would execute every step the moment it reached it, and
+  the only thing standing between a `:click` and the next step's read of
+  app-db would be one blind `setTimeout` 0.
 
   The load-bearing subtlety, and the reason the queue is the predicate:
   `rf.router/dispatch-sync!` pushes its seed at the FRONT of the queue and
@@ -35,7 +35,7 @@
   and `*_cljs_test` so the `:node-test` build's `cljs-test$` ns-regexp
   discovers it too — the same dual-lane trick
   `substrate_boundary_cljs_test.cljc` uses, and for the same reason: the
-  production change is `.cljc` and a reader-conditional mistake in the
+  production code is `.cljc` and a reader-conditional mistake in the
   `:cljs` branch would be invisible to a JVM-only run.
 
   ONE test is deliberately CLJS-only, and it is flagged in its own name.
@@ -111,10 +111,10 @@
             and burn the whole budget doing it, so it is excluded"
     (is (nil? (step-required-selector
                 [:assert [:rf.assert/dom-hidden "[data-test=gone]"]]))))
-  (testing "AND IN RAW FORM, which is the half audit #8319 caught. `run!`
+  (testing "AND IN RAW FORM. `run!`
             documents and accepts a hand-built spec and does not fold it, so
             this shape reaches the run-loop verbatim. Read as a bare
-            selector it demanded the node be PRESENT — inverting the
+            selector it would demand the node be PRESENT — inverting the
             assertion, burning the whole budget, and failing a script that
             passes character-for-character through the folded entry path.
             One step must not mean two things"
@@ -152,7 +152,8 @@
   (testing "with no DOM available the selector precondition is MOOT — the
             executor's own no-DOM {:skipped? true} branch is the right
             answer and must not be pre-empted by a timeout. This is what
-            keeps the JVM / node-runtime headless path unchanged"
+            keeps the JVM / node-runtime headless path from ever waiting
+            on a node"
     (is (nil? (step-precondition-unmet settle-frame [:click "[data-test=go]"])))
     (is (nil? (step-precondition-unmet
                 settle-frame
@@ -170,13 +171,13 @@
 
 #?(:cljs
    (deftest queue-not-drained-is-an-unmet-precondition
-     (testing "THE HOLE rf2-n0sz4 measured. `rf.router/dispatch!` enqueues and
+     (testing "THE HOLE the poll closes. `rf.router/dispatch!` enqueues and
                schedules the drain through `interop/next-tick` — a
                MACROTASK, so it provably has not run on the statement after
                the dispatch. That is the state a step lands in right after a
-               synthetic DOM event fires a handler that dispatches, and it
-               is exactly the state the runner used to execute the next step
-               in, reading app-db before the event landed"
+               synthetic DOM event fires a handler that dispatches, and a
+               runner executing the next step in that state would read
+               app-db before the event landed"
        (rf.router/dispatch! [:settle/inc] {:frame settle-frame})
        (let [unmet (step-precondition-unmet settle-frame
                                             [:assert [:rf.assert/path-equals [:n] 1]])]

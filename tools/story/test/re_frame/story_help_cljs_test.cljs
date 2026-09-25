@@ -1,5 +1,5 @@
 (ns re-frame.story-help-cljs-test
-  "CLJS smoke tests for rf2-381i — first-time-user help overlay.
+  "CLJS smoke tests for Story's first-time-user help overlay.
 
   Covers:
 
@@ -7,12 +7,11 @@
   - `help-content` renders as hiccup.
   - `open!` / `close!` toggle the local open atom.
 
-  The localStorage round-trip is NOT here. It used to be, guarded by a
-  `browser?` predicate — but this namespace ends `-cljs-test`, which
-  `:browser-test` never loads, and the node lane has no
-  `window.localStorage`, so those rows ran in neither lane. They now live
-  in `re-frame.story-help-dom-cljs-test`, which BOTH lanes load
-  (rf2-r51p)."
+  The localStorage round-trip is NOT here: this namespace ends
+  `-cljs-test`, which `:browser-test` never loads, and the node lane has
+  no `window.localStorage`, so a storage row here would run in neither
+  lane. It lives in `re-frame.story-help-dom-cljs-test`, which BOTH
+  lanes load."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.story.ui.help :as rf.story.ui.help]
@@ -27,19 +26,16 @@
 
 (use-fixtures :each {:before clear-flag! :after clear-flag!})
 
-;; ---- localStorage round-trip ---------------------------------------------
+;; ---- seen? without localStorage ------------------------------------------
 
 (deftest seen-defaults-to-false
   (testing "seen? is false when localStorage has never been touched"
     (is (false? (rf.story.ui.help/seen?)))))
 
-;; `mark-seen-persists` MOVED to `re-frame.story-help-dom-cljs-test`
-;; (rf2-r51p). It was guarded by `(when (browser?) ...)` here, and this
-;; namespace ends `-cljs-test`, so `:browser-test` never loaded it while
-;; `:node-test` — which has no `window.localStorage` — skipped the body:
-;; it executed in neither lane. `seen-defaults-to-false` above STAYS,
-;; because it asserts the no-storage degradation path and the node lane
-;; is exactly where that belongs.
+;; `seen-defaults-to-false` asserts the no-storage degradation path, and
+;; the node lane is exactly where that belongs. The persistence
+;; round-trip, `mark-seen-persists`, needs `window.localStorage` and
+;; lives in `re-frame.story-help-dom-cljs-test`.
 
 ;; ---- hiccup shape --------------------------------------------------------
 
@@ -57,10 +53,10 @@
   []
   (set (filter string? (tree-seq sequential? seq (shortcuts-table)))))
 
-;; rf2-nxbdw — spec 014 §Keyboard shortcuts, API.md and `shortcut-keys`'
-;; own docstring all say the overlay's table is READ from the hotkey
-;; registry. It used to hard-code the four letters, so a fifth binding
-;; would never have reached the cheat-sheet.
+;; Spec 014 §Chrome-visibility hotkeys, API.md and `shortcut-keys`' own
+;; docstring all say the overlay's table is READ from the hotkey
+;; registry. A table that hard-coded the four letters would never show a
+;; fifth binding on the cheat-sheet.
 
 (deftest shortcuts-table-renders-every-registered-key
   (testing "each key the registry binds appears in the help table"
@@ -71,7 +67,7 @@
 
 (deftest shortcuts-table-follows-the-registry
   (testing "a key added to the registry appears in the table with no help.cljs edit"
-    (is (not (contains? (table-strings) "z")) "control: no z row today")
+    (is (not (contains? (table-strings) "z")) "control: no z row before the redef")
     (with-redefs [rf.story.ui.keybindings/shortcut-keys
                   (fn [] ["a" "f" "s" "t" "z"])]
       (is (contains? (table-strings) "z")
@@ -121,9 +117,7 @@
     (rf.story.ui.help/close!)
     (is (false? @@#'rf.story.ui.help/open?))))
 
-;; This row was SPLIT rather than moved (rf2-r51p). Its two `open?` ratom
-;; assertions above genuinely run on node; only a trailing
-;; `(when (browser?) (is (true? (seen?))))` was dead. Moving the row whole
-;; would have taken LIVE assertions off the node lane — this bug in
-;; reverse — so the persistence half now lives in
+;; The two `open?` ratom assertions above run on node, so they live here.
+;; The persistence half of `close!` — it marks the overlay seen — needs
+;; `window.localStorage`, so it lives in
 ;; `re-frame.story-help-dom-cljs-test` as `close!-marks-the-overlay-seen`.

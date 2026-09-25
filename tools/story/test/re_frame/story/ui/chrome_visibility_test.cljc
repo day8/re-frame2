@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.chrome-visibility-test
   "JVM-portable regression net for the chrome-visibility transitions
-  + per-pane visibility resolution (rf2-p3i0t / rf2-g8l8x / rf2-pucku).
+  + per-pane visibility resolution.
 
   Surface covered:
 
@@ -99,7 +99,7 @@
   (testing "unknown pane kw → defaults visible (forward-compat)"
     (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :unknown {})))))
 
-;; ---- Xray-embed collapse (rf2-ba86n.19) ---------------------------------
+;; ---- Xray-embed collapse ------------------------------------------------
 ;;
 ;; Lazy Xray-diff mounting: the `:xray-embed-collapsed?` slot defers the
 ;; panel mount + its diff compute until expanded. Pure transition coverage

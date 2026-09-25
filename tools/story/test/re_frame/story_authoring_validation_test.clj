@@ -2,7 +2,7 @@
   "JVM tests closing the docs-promised gap on macro-time validation +
   source-coordinate stamping at the authoring surface.
 
-  Spec coverage (rf2-ub1n4): `tools/story/spec/001-Authoring.md` §
+  Spec coverage: `tools/story/spec/001-Authoring.md` §
   Source-coord stamping and § Registration macros.
 
   Two surfaces are exercised here that the browser smoke does not:
@@ -13,7 +13,7 @@
     gen-reg-call` and `expand-reg-story`. The expansion form binds
     `*pending-coords*` from `(meta &form)` and calls the runtime
     `reg-*!` helper, which runs the malli schema check + tag-vocab
-    cross-check. (`:extends` is NOT resolved at registration — rf2-f6z88:
+    cross-check. (`:extends` is NOT resolved at registration:
     the raw body is stored, `:extends` intact, and the plan compiler is
     the single merge authority; the `:rf.error/story-extends-unknown`
     error surfaces at plan-compile, not registration.) The cross-cutting
@@ -79,7 +79,7 @@
         (is (re-find #"workspace schema" (:reason (ex-data e))))))))
 
 (deftest reg-workspace-isolation-slot-accepts-both-values
-  ;; rf2-gqid4 — the optional `:isolation` slot accepts `:isolated`
+  ;; The optional `:isolation` slot accepts `:isolated`
   ;; (default) and `:shared`. Other values reject with
   ;; :rf.error/workspace-shape.
   (testing ":isolation :isolated registers cleanly"
@@ -133,7 +133,7 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/story-panel-shape (:rf.error/id (ex-data e))))))))
 
-;; ---- fragments + checks (rf2-5x1wt.15) ------------------------------------
+;; ---- fragments + checks ---------------------------------------------------
 
 (deftest reg-fragment-registers-and-is-queryable
   (testing "reg-fragment lands a body in the :fragment side-table"
@@ -189,18 +189,18 @@
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
-;; rf2-mantt — CLOSED authoring-body schemas (swallow-class fix)
+;; CLOSED authoring-body schemas
 ;; ===========================================================================
 ;;
 ;; The Variant + Workspace (and sibling) authoring-body `:map`s are
-;; `{:closed true}`: a removed slot (the REMOVED `:play`, rf2-0wrud) or a
-;; typo is REJECTED at `reg-*` call-time with an actionable
+;; `{:closed true}`: an undeclared slot (such as `:play`) or a typo is
+;; REJECTED at `reg-*` call-time with an actionable
 ;; `:rf.error/<kind>-shape` that NAMES the unknown key + nearest declared
-;; slot — rather than silently swallowed and dropped at runtime (the
-;; failure mode that shipped a dead Story scaffold, rf2-1774m).
+;; slot — rather than silently swallowed and dropped at runtime, which
+;; would ship a dead Story scaffold.
 
 (deftest reg-variant-rejects-removed-play-slot
-  (testing "the REMOVED :play slot (rf2-0wrud) is rejected at reg-time —
+  (testing "the undeclared :play slot is rejected at reg-time —
             the closed Variant schema does not silently swallow it"
     (try
       (rf.story/reg-variant :story.swallow/play
@@ -231,15 +231,15 @@
         (is (re-find #"did you mean :script\?" (:reason (ex-data e)))
             "the nearest-key suggestion points at :script")))))
 
-;; ---- rf2-hwcdh2 — body-level props-schema slots are GONE -----------------
+;; ---- there are no body-level props-schema slots --------------------------
 ;;
 ;; The view-args (props) schema lives ONLY on the registered `:component`
 ;; view's `reg-view` metadata (first-match `[:rf/props :schema]`, resolved
-;; off the view-meta by the plan compiler). A `:rf/props` / `:schema` slot
-;; on a STORY or VARIANT body used to pass closed-shape validation but was
-;; silently UNREAD (an accepted-but-dead authoring surface). The slots are
-;; removed, so a props schema authored on the body now REJECTS at reg-time
-;; with the dead key named, rather than being swallowed with no effect.
+;; off the view-meta by the plan compiler). There is no `:rf/props` /
+;; `:schema` slot on a STORY or VARIANT body: nothing would read one, so
+;; accepting it would make an accepted-but-dead authoring surface. A props
+;; schema authored on the body REJECTS at reg-time with the dead key named,
+;; rather than being swallowed with no effect.
 
 (deftest reg-story-rejects-body-level-props-schema-slots
   (testing ":schema on a STORY body is rejected — props schema lives on the
@@ -286,9 +286,9 @@
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 (deftest props-schema-on-view-metadata-still-drives-validation
-  (testing "the LIVE path is unchanged — a props schema on the registered
-            :component view's metadata (NOT the body) still copies into the
-            compiled plan and validates :effective-args (rf2-hwcdh2)"
+  (testing "the LIVE path — a props schema on the registered
+            :component view's metadata (NOT the body) copies into the
+            compiled plan and validates :effective-args"
     (rf.story/reg-variant :story.live/props
       {:component :views/widget
        :args      {:label "Hi"}})
@@ -300,17 +300,17 @@
       (is (= {:label "Hi"} (get-in p [:world :effective-args]))))))
 
 (deftest reg-variant-migrated-setup-script-authoring-validates
-  (testing "the migrated authoring shape (the template scaffold, rf2-1774m)
+  (testing "the template scaffold's authoring shape
             — :setup preconditions + :script with [:assert [:rf.assert/…]]
             checkpoints + dispatch-sync increments — VALIDATES cleanly"
-    ;; The exact bodies the migrated template scaffold ships.
+    ;; Bodies in the template scaffold's authoring shape.
     (is (some? (rf.story/reg-variant :story.migrated/empty
                  {:doc    "Fresh counter at zero."
                   :setup  [[:counter/initialise]]
                   :script [[:assert [:rf.assert/path-equals [:counter/value] 0]]]
                   :tags   #{:dev :docs :test}
                   :substrates #{:reagent}}))
-        "empty-variant migrated body validates")
+        "empty-variant scaffold-shaped body validates")
     (is (some? (rf.story/reg-variant :story.migrated/incremented
                  {:doc    "three increments dispatched from :script."
                   :setup  [[:counter/initialise]]
@@ -322,12 +322,12 @@
                            [:assert [:rf.assert/dispatched? [:counter/increment]]]]
                   :tags   #{:dev :docs :test}
                   :substrates #{:reagent}}))
-        "incremented-variant migrated body validates")
+        "incremented-variant scaffold-shaped body validates")
     ;; The body is stored under the keys the author wrote.
     (let [body (rf.story/handler-meta :variant :story.migrated/incremented)]
       (is (= [[:counter/initialise]] (:setup body)) ":setup stored verbatim")
       (is (= 6 (count (:script body))) ":script stored verbatim")
-      (is (not (contains? body :play)) "no dead :play slot survives"))))
+      (is (not (contains? body :play)) "no :play slot is stored"))))
 
 (deftest reg-variant-accepts-mcp-origin-stamp
   (testing "the story-mcp write surface stamps :origin onto the variant
@@ -351,8 +351,8 @@
 (deftest reg-workspace-accepts-documented-grid-slots
   (testing "the documented :variants-grid / :grid slots the canonical
             testbed + examples + spec/001-Authoring.md author — :columns,
-            :for, :tags — VALIDATE on the closed schema (closing must not
-            drop intended authoring, rf2-mantt triage)"
+            :for, :tags — VALIDATE on the closed schema (the closed schema
+            must not drop intended authoring)"
     (is (some? (rf.story/reg-workspace :Workspace.docslots/auto
                  {:doc     "auto-enumerated grid"
                   :layout  :variants-grid
@@ -386,7 +386,7 @@
         (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
-;; rf2-tl7zk — :plays multi-play schema contract
+;; :plays multi-play schema contract
 ;; ===========================================================================
 
 (deftest reg-variant-plays-accepts-named-list
@@ -443,15 +443,15 @@
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
-;; rf2-7dewo — ONE variant vocabulary: :setup / :script / :plays
+;; ONE variant vocabulary: :setup / :script / :plays
 ;; ===========================================================================
 ;;
 ;; Per tools/story/spec/017-Testing-Story.md §Public vocabulary, `:setup`
 ;; and `:script` (and named `:plays`) are the variant/fragment body keys,
 ;; and the registrar stores them VERBATIM: `handler-meta` / `variant->edn`
-;; hand back exactly what was authored. The retired `:events` /
-;; `:play-script` spellings are not slots — the closed schema rejects
-;; them like any unknown key (a red witness per removed key below).
+;; hand back exactly what was authored. `:events` and `:play-script` are
+;; not slots — the closed schema rejects them like any unknown key (a red
+;; witness per key below).
 
 (defn- shape-error
   "Register `body` under `id` and return the thrown `:rf.error/id`, or nil
@@ -499,11 +499,11 @@
           (is (= :rf.error/fragment-shape (:rf.error/id (ex-data e)))
               (str label " rejects with :rf.error/fragment-shape")))))))
 
-;; ---- rf2-uys9 — play maps are closed --------------------------------------
+;; ---- play maps are closed -------------------------------------------------
 ;;
 ;; An absent `:auto-run?` means auto-run (`play.runner/default-auto-run?`),
-;; so a misspelt opt-out used to RUN the script with no error. The
-;; `PlaySpec` / `NamedPlaySpec` map branches are closed: the typo rejects
+;; so on an open map a misspelt opt-out would RUN the script with no error.
+;; The `PlaySpec` / `NamedPlaySpec` map branches are closed: the typo rejects
 ;; at reg-time, naming the key, WHERE it sits, and the nearest declared key.
 
 (defn- shape-data
@@ -633,8 +633,8 @@
 ;; ===========================================================================
 
 (deftest reg-variant-extends-unknown-carries-parent-id
-  (testing ":extends to an unregistered parent no longer throws at
-            REGISTRATION (rf2-f6z88 — the raw body is stored, `:extends`
+  (testing ":extends to an unregistered parent does not throw at
+            REGISTRATION (the raw body is stored, `:extends`
             intact); the error surfaces at PLAN-COMPILE (the merge
             authority) and carries the missing parent id."
     ;; Registration succeeds — raw body stored with the unknown parent.
@@ -650,17 +650,18 @@
         (is (= :story.x/no-such-parent (:parent (ex-data e))))))))
 
 ;; ===========================================================================
-;; EXTENDS — PLAY-SURFACE OVERRIDE (rf2-ee38b.3)
+;; EXTENDS — PLAY-SURFACE OVERRIDE
 ;; ===========================================================================
 ;;
 ;; :script and :plays are mutually-exclusive sibling encodings of
 ;; the play surface. A child overriding a parent's :script with
-;; :plays (or vice versa) used to FAIL: the straight merge carried BOTH
-;; keys and the schema's mutual-exclusion :fn rejected a body the author
-;; never wrote with both. Registration now stores the child's raw body as
+;; :plays (or vice versa) must not FAIL: a straight merge would carry BOTH
+;; keys and the schema's mutual-exclusion :fn would reject a body the author
+;; never wrote with both. Registration stores the child's raw body as
 ;; authored — the parent is never merged in at this layer — and the plan
-;; compiler lowers both encodings to `:script` (see `plan.cljc` §Play surface),
-;; so the child's own encoding wins and the schema never sees both keys.
+;; compiler lowers both encodings to `:script` (see the `:script` / `:plays`
+;; lowering in `plan.cljc`), so the child's own encoding wins and the
+;; schema never sees both keys.
 
 (deftest reg-variant-extends-child-plays-overrides-parent-play-script
   (testing "a child declaring :plays while inheriting :script from
@@ -668,7 +669,7 @@
     (rf.story/reg-variant :story.extplay/parent
       {:setup      []
        :script {:script [[:dispatch [:p/legacy]]]}})
-    ;; This used to throw :rf.error/variant-shape (both keys present).
+    ;; A straight merge would throw :rf.error/variant-shape here (both keys present).
     (rf.story/reg-variant :story.extplay/child
       {:extends :story.extplay/parent
        :plays   [{:name "happy" :script [[:dispatch [:c/happy]]]}]})
@@ -695,7 +696,7 @@
             context flows down, behaviour/judgement is local). A child
             that declares NEITHER play encoding does NOT silently run the
             parent's :script. The registrar stores the RAW body
-            (rf2-f6z88) — `:extends` intact, parent NOT merged — so the
+            — `:extends` intact, parent NOT merged — so the
             child's body carries no play surface, and the plan compiler
             (the merge authority) takes script from the CHILD ONLY."
     (rf.story/reg-variant :story.extplay/parent3
@@ -779,13 +780,13 @@
              (:line (:source body-b)))
           "both generated variants share the parent's expansion line"))))
 
-;; ---- rf2-pjay — a NON-literal :variants map is desugared at runtime -------
+;; ---- a NON-literal :variants map is desugared at runtime -----------------
 ;;
 ;; The macro peels only a LITERAL `:variants` map. A def'd or merged map —
 ;; and every programmatic `reg-story*` call — reaches the runtime helper
-;; with `:variants` still on the body, which used to be dropped silently:
-;; story registered, zero variants, success return. The helper now
-;; desugars it through the same `reg-variant*` rail.
+;; with `:variants` still on the body. The helper desugars it through the
+;; same `reg-variant*` rail; dropping it would register the story with
+;; zero variants and return success.
 
 (def ^:private formb-variants
   {:a {:setup [[:init-a]]}
@@ -827,19 +828,19 @@
       (is (= :rf.error/variant-shape (:rf.error/id data)))
       (is (str/includes? (str (:reason data)) ":scripts (did you mean :script?)")))))
 
-;; ---- rf2-g2k4 — a computed :variants inside a LITERAL body ---------------
+;; ---- a computed :variants inside a LITERAL body --------------------------
 ;;
-;; rf2-pjay taught `reg-story*` to desugar a runtime `:variants`, but the
-;; macro never reached it for the commonest shape: a literal outer body
-;; whose `:variants` is a symbol or an expression. The macro classified only
-;; the OUTER map as literal and walked whatever `:variants` held with `for`,
-;; so `{:variants vs}` failed expansion with "Don't know how to create ISeq
-;; from: clojure.lang.Symbol" and `{:variants (merge vs ...)}` with "nth not
-;; supported on this type: Symbol". Only a literal `:variants` MAP is peeled
-;; now; every other `:variants` form reaches `reg-story*` unchanged.
+;; The commonest shape is a literal outer body whose `:variants` is a symbol
+;; or an expression. Only a literal `:variants` MAP is peeled; every other
+;; `:variants` form reaches `reg-story*` unchanged, which desugars it at
+;; runtime. A macro that classified only the OUTER map as literal and walked
+;; whatever `:variants` held with `for` would fail expansion:
+;; `{:variants vs}` with "Don't know how to create ISeq from:
+;; clojure.lang.Symbol" and `{:variants (merge vs ...)}` with "nth not
+;; supported on this type: Symbol".
 ;;
 ;; The public-macro rows expand at TEST time (`eval-here`), not load time, so
-;; a regressed expansion fails its own row instead of the whole namespace.
+;; a broken expansion fails its own row instead of the whole namespace.
 
 (defn- expand
   "`expand-reg-story` for `metadata` at a fixed call site in this ns."
@@ -974,7 +975,7 @@
            (rf.story.macros/variant-id-for :story.foo :bar)))))
 
 ;; ===========================================================================
-;; configure! key validation (rf2-xwr1d)
+;; configure! key validation
 ;;
 ;; Pre-alpha posture: configure! validates its keys and throws on any key
 ;; outside the closed known-set. A misspelled or unknown key must fail
@@ -989,7 +990,7 @@
       (is (some? e) "expected ex-info to be thrown")
       ;; Canonical thrown-error shape: a human sentence carrying the
       ;; offending key(s) + the trailing `[:rf.error/<id>]` token — NOT
-      ;; the bare keyword string (rf2-r2redv).
+      ;; the bare keyword string.
       (let [msg (.getMessage ^Exception e)]
         (is (re-find #":rf.story/edtior" msg)
             "the message names the unknown key the author typed")

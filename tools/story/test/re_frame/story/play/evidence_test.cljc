@@ -1,11 +1,10 @@
 (ns re-frame.story.play.evidence-test
-  "Pure projection tests for `re-frame.story.play.evidence` (rf2-5x1wt.4,
-  spec/017-Testing-Story.md §Run-result evidence projection + §A0c of the
-  NewTestStory plan).
+  "Pure projection tests for `re-frame.story.play.evidence`
+  (spec/017-Testing-Story.md §Run-result evidence projection).
 
   These are entirely pure: hand-built `:rf/epoch-record` tapes in,
   run-result evidence slots out. They run under `clojure -M:test` (JVM) and
-  the node-runtime CLJS build. They pin the bead's acceptance:
+  the node-runtime CLJS build. They pin the projection's contract:
 
   - a schema failure in an epoch trace appears in run-result schema
     violations;
@@ -119,9 +118,9 @@
       (is (= [1 2] (mapv :epoch-id ws))))))
 
 (deftest warning-projection-keys-on-canonical-op-type
-  ;; Regression for rf2-v7idy: the framework emits `:op-type :warning`
+  ;; The framework emits `:op-type :warning`
   ;; (every `(trace/emit! :warning …)` site; spec/009 §Op-type vocabulary),
-  ;; NEVER `:op-type :warn`. A prior `(= :warn (:op-type …))` predicate left
+  ;; NEVER `:op-type :warn`. A `(= :warn (:op-type …))` predicate would leave
   ;; the `:warnings` projection silently always-empty against real tapes,
   ;; defeating `:rf.assert/no-warnings`. This pins the canonical value: a
   ;; real `:warning`-op trace MUST project, and a bogus `:warn`-op trace
@@ -163,7 +162,7 @@
       (is (= [1] (mapv :epoch-id (:renders ev)))))))
 
 ;; ===========================================================================
-;; REACTIVE-COUNTS PROJECTION  (rf2-5x1wt.30, spec/017 §1a / §Runner kinds)
+;; REACTIVE-COUNTS PROJECTION  (spec/017 §Runner kinds and capabilities)
 ;; ===========================================================================
 
 (deftest reactive-counts-nil-for-bare-headless-tape
@@ -213,8 +212,7 @@
       (is (= {:total 3} (:by-sub-id rc)) "the over-recompute signal: :total recomputed 3×")
       ;; The tape SUPPLIES one render row for :v in each of the two epochs, so
       ;; the aggregate is 2. The count comes from the rows the tape carries —
-      ;; never inferred from the epoch count, which is not a render-count proxy
-      ;; (rf2-vxgfnd.167).
+      ;; never inferred from the epoch count, which is not a render-count proxy.
       (is (= {:v 2} (:by-view rc))
           "the two supplied :v render rows aggregate to 2")
       (is (= {:a {:sub-recomputes 1 :view-renders 1}
@@ -283,7 +281,7 @@
 (deftest stamp-tape-from-settle-boundaries
   (testing "stamp-tape maps runner-recorded per-dispatch-step settle
             boundaries onto the raw tape — the discriminating re-dispatch
-            case the EVEN partition mis-groups (rf2-rkd14)"
+            case the EVEN partition mis-groups"
     ;; Two dispatch steps; the SECOND re-dispatches → settles to 2 epochs.
     ;; Tape = [a c d]; boundaries = [0 1] (e0 committed before step 1's
     ;; settle began at count 1). EXACT: step 0 owns {a}; step 1 owns {c d}.
@@ -321,7 +319,7 @@
                           :rf.story/script-idx))
           "no stamp key is added on the fallback path"))))
 
-;; ---- rf2-96qsjr: stamp-tape survives epoch-history ring eviction ---------
+;; ---- stamp-tape survives epoch-history ring eviction ---------------------
 ;;
 ;; `epoch-history` is a bounded per-frame ring (default depth 50); once
 ;; total epochs exceed the depth, the ring evicts the OLDEST records.
@@ -341,7 +339,7 @@
 ;; before that step's dispatch, exactly what `last-epoch-id` snapshots.
 
 (deftest stamp-tape-survives-ring-eviction-no-plateau
-  (testing "rf2-96qsjr: five dispatch steps' worth of boundaries, recorded
+  (testing "five dispatch steps' worth of boundaries, recorded
             as genuine (non-plateauing) epoch-ids, correctly attribute
             each SURVIVING record to the step that actually produced it
             — even though the two earliest records were evicted from the
@@ -377,13 +375,13 @@
             "step 4 correctly owns its surviving epoch")))))
 
 (deftest stamp-tape-plateaued-count-boundaries-would-misattribute
-  (testing "rf2-96qsjr: documents the OLD count-based boundary bug as a
-            CONTRAST, not a desired behaviour. Once a depth-3 ring is
+  (testing "documents count-based boundaries as a CONTRAST, not a
+            desired behaviour. Once a depth-3 ring is
             full, `(count (epoch-history ...))` plateaus at 3 for every
             subsequent boundary snapshot, so feeding `stamp-tape` boundary
             values shaped like that (rather than genuine epoch-ids)
             collapses every surviving record onto the LAST step —
-            demonstrating why the producer had to stop recording
+            demonstrating why the producer records epoch-ids rather than
             ring-length counts. `runner-events/last-epoch-id` never
             emits boundaries shaped like this in production; this input
             is deliberately pathological."
@@ -405,7 +403,7 @@
            `tape` (48-50), so every record's owner-search bottoms out at
            the LAST boundary (index 4) — collapsing steps 2/3/4's
            distinct epochs onto step 4 alone. This is the 'confident but
-           wrong' misattribution the bug reported."))))
+           wrong' misattribution a count-based recorder produces."))))
 
 (deftest narrative-no-dispatch-steps-leads-whole-tape
   (testing "a script with no dispatch steps puts the whole tape in a leading span"
@@ -462,7 +460,7 @@
         (is (not (contains? no-cap :caption)))))))
 
 ;; ===========================================================================
-;; NARRATIVE NAVIGATION — the scrub backbone (rf2-5x1wt.23)
+;; NARRATIVE NAVIGATION — the scrub backbone
 ;; ===========================================================================
 
 (deftest narrative-beats-flatten-tree-in-tape-order
@@ -516,11 +514,11 @@
              (mapv :epoch-id (rf.story.play.evidence/narrative-beats n)))))))
 
 (deftest navigation-agrees-with-the-tape
-  (testing "the flattened scrub sequence agrees with the retained epoch tape (§B9)"
+  (testing "the flattened scrub sequence agrees with the retained epoch tape"
     ;; Every committed epoch in the tape appears exactly once in the scrub,
     ;; in tape order — no beat invented, none dropped, regardless of the
-    ;; span grouping. This is the §B9 'narrative data AGREES with the
-    ;; retained epoch tape' acceptance, at the navigation layer.
+    ;; span grouping. This is the 'narrative data AGREES with the
+    ;; retained epoch tape' contract, at the navigation layer.
     (let [script   [[:dispatch [:a]] [:wait 5] [:dispatch [:b]]]
           tape     [(epoch 1 {:rf.story/script-idx 0})
                     (epoch 2 {:rf.story/script-idx 0})
@@ -588,7 +586,7 @@
           "cannot be both sibling-green and tape-clean"))))
 
 ;; ===========================================================================
-;; RUN-TAPE TRUNCATION SIGNAL  (rf2-4u5zl4)
+;; RUN-TAPE TRUNCATION SIGNAL
 ;; ===========================================================================
 ;;
 ;; `run-tape-truncated?` observes whether the bounded per-frame ring evicted

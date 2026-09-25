@@ -1,14 +1,14 @@
 (ns re-frame.story.ui.sub-overrides-render-paths-cljs-test
-  "rf2-3x7nj.28.6 — every Story surface that renders a variant renders it
-  inside the variant's view-state override scope.
+  "Every Story surface that renders a variant renders it inside the
+  variant's view-state override scope.
 
   spec/017 §View-state subscription overrides: a variant's `:sub-overrides`
   feed the RENDER PATH, where a normally-authored view's
-  `@(rf/subscribe [:q])` paints the pinned value. The canvas's single pane
-  wrapped the view in `canvas/sub-overrides-scope`; the canvas's
-  side-by-side substrate grid and every workspace cell did not, so a
-  pinned design state painted from the real app-db exactly where a set of
-  states is meant to be compared.
+  `@(rf/subscribe [:q])` paints the pinned value. The canvas's single pane,
+  its side-by-side substrate grid and every workspace cell each render
+  inside that scope; a surface outside it would paint a pinned design state
+  from the real app-db exactly where a set of states is meant to be
+  compared.
 
   The scope is the override-context Provider
   (`re-frame.story.sub-overrides/override-provider`), which an expanded
@@ -18,9 +18,9 @@
   proven with a real React render in
   `re-frame.story.sub-overrides-render-dom-cljs-test`.
 
-  The single pane is the CONTROL: it always applied the scope, so it shows
-  the probe can see one — and would fail alongside the others, rather than
-  masking them, in a build whose override seam is compiled out.
+  The single pane is the CONTROL: it shows the probe can see a scope — and
+  would fail alongside the others, rather than masking them, in a build
+  whose override seam is compiled out.
 
   Runner note: `.cljs`, and `workspace.cljc`'s renderer sits inside
   `#?(:cljs …)`, so only `npm run test:cljs` grades this namespace."
@@ -82,7 +82,7 @@
 (defn- register-variants! []
   (rf/reg-sub :probe/n (fn [db _] (:n db)))
   (rf/reg-view* :views/probe probe-view)
-  (rf.story/reg-story* :story.pinned {:doc "rf2-3x7nj.28.6 witness story"
+  (rf.story/reg-story* :story.pinned {:doc "Override-scope witness story"
                                       :component :views/probe})
   ;; `:loaders` so the canvas takes its skeleton-gated path, which the test
   ;; drives to `:ready` itself.
@@ -175,7 +175,7 @@
 ;; ===========================================================================
 
 (deftest the-single-pane-renders-inside-the-override-scope
-  (testing "control — the path that always applied the scope"
+  (testing "control — the single pane, whose scope the probe must see"
     (let [tree  (canvas-tree :story.pinned/single)
           scope (scope-around tree (attr= :data-test "probe-view"))]
       (is (some? scope) "the pane's subject sits inside an override scope")
@@ -184,10 +184,10 @@
     (rf.story/destroy-variant! :story.pinned/single)))
 
 (deftest the-substrate-grid-renders-inside-the-override-scope
-  (testing "rf2-3x7nj.28.6 — a variant declaring two substrates takes the
-            canvas's grid branch, which wrapped the grid in the frame
-            provider and nothing else, so every cell's `subscribe` read the
-            real app-db instead of the pinned value"
+  (testing "a variant declaring two substrates takes the canvas's grid
+            branch; a grid wrapped in the frame provider and nothing else
+            would leave every cell's `subscribe` reading the real app-db
+            instead of the pinned value"
     (rf.story/register-substrate! :uix uix-stub-render)
     (let [tree  (canvas-tree :story.pinned/multi)
           scope (scope-around tree (attr= :role "group"))]
@@ -203,9 +203,10 @@
 ;; ===========================================================================
 
 (deftest a-workspace-cell-renders-inside-the-override-scope
-  (testing "rf2-3x7nj.28.6 — a `:grid` / `:variants-grid` / `:tabs` / `:prose`
-            cell rendered the view with no override scope, so a devcards-style
-            gallery of design states painted each from its real app-db"
+  (testing "a `:grid` / `:variants-grid` / `:tabs` / `:prose` cell
+            renders the view inside the override scope; without it a
+            devcards-style gallery of design states would paint each from
+            its real app-db"
     (let [tree  (cell-tree :story.pinned/cell)
           scope (scope-around tree (attr= :data-test "probe-view"))]
       (is (contains-node? tree (attr= :data-test "probe-view"))

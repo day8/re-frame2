@@ -1,9 +1,7 @@
 (ns re-frame.story.panels-e2e.viewport-indicator-e2e-cljs-test
-  "Multi-frame e2e coverage for the viewport-px chrome indicator
-  (rf2-f9xkq, replaces the Playwright
-  `viewport-px-chrome-indicator-tracks-viewport-changes` scenario).
+  "Multi-frame e2e coverage for the viewport-px chrome indicator.
 
-  Per spec/014 §Viewport-px indicator chip (rf2-zgu68) the canvas
+  Per spec/014 §Viewport-px indicator chip the canvas
   renders a bottom-right chip with `\"<W> × <H>\"` text when a sized
   viewport mode is active. The `:full` preset suppresses the chip.
 
@@ -94,7 +92,7 @@
 ;; ---- pipeline (1): default :full → indicator absent ---------------------
 
 (deftest default-full-preset-elides-indicator
-  (testing "rf2-f9xkq — without any toolbar selection, `effective-viewport`
+  (testing "without any toolbar selection, `effective-viewport`
             resolves to `:full` (no width/height) and the indicator
             self-elides (returns nil). Pinning the inverse here ensures
             the later 'indicator-renders' tests can't be trivial-pass."
@@ -107,7 +105,7 @@
 ;; ---- pipeline (2): toolbar select! drives indicator to sized preset -----
 
 (deftest select-mobile-portrait-renders-indicator-with-375x667
-  (testing "rf2-f9xkq — `select! :mobile-portrait` writes the shell-state
+  (testing "`select! :mobile-portrait` writes the shell-state
             slot; `effective-viewport` reads through it; the indicator
             renders the canonical \"375 × 667\" text with the
             `data-viewport-dims` attribute matching."
@@ -130,7 +128,7 @@
 ;; ---- pipeline (3): switching preset tracks the dimensions ---------------
 
 (deftest selecting-different-preset-updates-indicator-text
-  (testing "rf2-f9xkq — calling `select!` with a different preset
+  (testing "calling `select!` with a different preset
             updates the indicator's rendered text. Catches the
             'indicator stuck on first selection' class of regression."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -149,7 +147,7 @@
 ;; ---- pipeline (4): switching back to :full elides the indicator ---------
 
 (deftest selecting-full-after-sized-elides-indicator
-  (testing "rf2-f9xkq — after a sized preset, switching back to `:full`
+  (testing "after a sized preset, switching back to `:full`
             (the no-resize default) re-elides the indicator. Pins the
             'sized → unsized → no chip' transition so a regression that
             kept a stale chip after un-selection would surface."
@@ -166,7 +164,7 @@
 ;; ---- pipeline (5): custom {:width :height} map renders custom dims ------
 
 (deftest custom-viewport-map-renders-indicator-with-custom-dims
-  (testing "rf2-f9xkq — a custom `{:width :height}` selection drives
+  (testing "a custom `{:width :height}` selection drives
             the indicator with the custom dimensions. Pins the custom-
             entry path (the dropdown's Width × Height row at the
             bottom)."
@@ -184,7 +182,7 @@
 ;; ---- pipeline (6): per-variant body override beats toolbar selection ----
 
 (deftest variant-body-viewport-override-wins-over-toolbar
-  (testing "rf2-f9xkq — when a variant body declares `:viewport`, that
+  (testing "when a variant body declares `:viewport`, that
             override wins over the toolbar's selection at indicator-
             render time. Per spec/014 §`:viewport` body slot."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames

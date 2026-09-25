@@ -1,16 +1,17 @@
 (ns re-frame.story.ui.test-mode.promotion-row-dom-cljs-test
-  "DOM-mount acceptance for rf2-vgthk: the Test pane offers promotion for a
-  variant whose `:script` dispatches nothing.
+  "DOM-mount acceptance: the Test pane offers promotion for a variant whose
+  `:script` dispatches nothing.
 
   Every variant of the login_form testbed — the Story tutorial's flagship
   demo — is a `:setup` precondition plus a `:script` of `[:assert …]`
   checkpoints. Test mode records a run's DISPATCH-ONLY projection of its
   program (`:play-events`), which for that shape is empty, and the promotion
-  row is gated on a capturable artifact, so the row never rendered and the
-  demo could not be promoted from Test mode. Whether the row renders is a
-  React commit fact, so this mounts the real pane. The same row must survive
-  a checkpoint that reads an input only the run's `:cell-overrides` supply
-  (rf2-cml0h): the gate compiles the source with the inputs the run received.
+  row is gated on a capturable artifact, so a capture that needed dispatched
+  events would never render the row and the demo could not be promoted from
+  Test mode. Whether the row renders is a React commit fact, so this mounts
+  the real pane. The same row must survive a checkpoint that reads an input
+  only the run's `:cell-overrides` supply: the gate compiles the source with
+  the inputs the run received.
 
   The fixture mirrors `login-form.stories-cljs-test`: the source-store
   baseline is captured ONCE at ns load, so the variant frames' `login-form.**`
@@ -94,7 +95,7 @@
 (deftest checkpoint-only-variant-offers-promotion
   (testing "after a Test-mode run of :story.login-form/idle — a :setup
             precondition and one [:assert …] checkpoint, nothing dispatched
-            by the script — the pane renders the promotion row (rf2-vgthk)"
+            by the script — the pane renders the promotion row"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (async done
@@ -129,7 +130,7 @@
   (testing "after a Test-mode run of a checkpoint-only variant whose [:arg]
             only the controls panel's :cell-overrides supply, the pane still
             renders the promotion row: capture compiles the source with the
-            inputs the run received (rf2-cml0h)"
+            inputs the run received"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (async done

@@ -1,14 +1,14 @@
 (ns re-frame.story.ui.run-all-status-cljs-test
-  "rf2-3x7nj.28.1 — the sidebar's Run all and watch mode record the run's
-  `:status`, as the Tests pane does.
+  "The sidebar's Run all and watch mode record the run's `:status`, as
+  the Tests pane does.
 
   Both write a variant's dot through `record-test-run`, where an explicit
   run `:status` wins and a missing one is derived from the assertion counts.
-  The Tests pane's `store-result!` threads the status; the sidebar's
-  `run-one-test!` — behind Run all and `watch-rerun!` — did not. So a run
-  the agreement floor fails while every assertion that ran passes (here a
-  thrown fx after the `:db` commits) recorded a green `:pass` dot on Run
-  all and a red one on the pane's Re-run.
+  The Tests pane's `store-result!` and the sidebar's `run-one-test!` —
+  behind Run all and `watch-rerun!` — both thread the status. Dropping it
+  would record a green `:pass` dot on Run all and a red one on the pane's
+  Re-run for a run the agreement floor fails while every assertion that
+  ran passes (here a thrown fx after the `:db` commits).
 
   Drives the real `run-one-test!` and reads the dot it records; the JVM
   replica of its pipeline is `re-frame.story-ui-test`

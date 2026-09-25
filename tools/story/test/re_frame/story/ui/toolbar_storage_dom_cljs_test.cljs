@@ -1,40 +1,40 @@
 (ns re-frame.story.ui.toolbar-storage-dom-cljs-test
   "Browser-lane half of the toolbar's mode-persistence round-trip and
-  hydrate precedence, promoted out of `re-frame.story.ui.toolbar-cljs-test`
-  under rf2-r51p.
+  hydrate precedence; `re-frame.story.ui.toolbar-cljs-test` holds the
+  node-lane half.
 
-  ## What was wrong, and it was the file's LOCATION rather than its guard
+  ## Why these rows need the file's LOCATION, not just a guard
 
-  These rows sat inside `(when (browser?) ...)` in a namespace ending
-  `-cljs-test`. `:node-test` selected it and the guard was false — this
-  repo ships no jsdom, no happy-dom and no DOM shim in any dependency
-  list, so `window.localStorage` is absent under Node — while
-  `:browser-test` (`:ns-regexp \".*-dom-cljs-test$\"`) never loaded the
-  file at all. They executed in NEITHER lane.
+  Inside `(when (browser?) ...)` in a namespace ending `-cljs-test`,
+  these rows would execute in NEITHER lane: `:node-test` selects such a
+  namespace and the guard is false — this repo ships no jsdom, no
+  happy-dom and no DOM shim in any dependency list, so
+  `window.localStorage` is absent under Node — while `:browser-test`
+  (`:ns-regexp \".*-dom-cljs-test$\"`) never loads it at all.
 
   Every row is a real `.setItem` / `.getItem` round-trip through
   `save-modes-to-storage!` / `load-modes-from-storage`, which is real
-  host-storage semantics — the case rf2-r51p rules needs a real host
-  rather than a stub.
+  host-storage semantics — the case that needs a real host rather than a
+  stub.
 
   ## Why this is a SECOND dom namespace for the toolbar
 
-  `re-frame.story.ui.toolbar-persistence-dom-cljs-test` already exists and
-  owns the reload-survival scenarios (rf2-jpi7n): set modes, simulate a
+  `re-frame.story.ui.toolbar-persistence-dom-cljs-test` owns the
+  reload-survival scenarios: set modes, simulate a
   reload, assert rehydration, plus URL-beats-storage ordering. What lives
   HERE is the narrower contract its docstring names as its pair and does
   not itself cover — the bare save/load round-trip, and hydrate's
   precedence and pruning rules. Keeping them apart keeps each file's
   narrative intact.
 
-  ## THE GUARD STAYS, BECAUSE THIS FILE RUNS ON BOTH LANES
+  ## THE GUARD IS NEEDED, BECAUSE THIS FILE RUNS ON BOTH LANES
 
   `:node-test`'s `cljs-test$` is a bare SUFFIX match that
-  `-dom-cljs-test` satisfies, so moving a row here ADDS the browser lane
-  and removes nothing. Each row answers the node lane with a VISIBLE
-  marker assertion rather than a silent `when`, so no deftest here holds
-  zero assertions — a bare `when` would relocate the hollow shape
-  rf2-r51p exists to remove rather than fix it."
+  `-dom-cljs-test` satisfies, so a row here gains the browser lane and
+  loses nothing. Each row answers the node lane with a VISIBLE marker
+  assertion rather than a silent `when`, so no deftest here holds zero
+  assertions — a bare `when` would leave a hollow, zero-assertion row on
+  the node lane."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.ui.state :as rf.story.ui.state]
@@ -81,16 +81,16 @@
 (deftest reset-modes-persists-empty
   (testing "reset-modes! persists the empty vector, not just the ratom.
 
-            The node half of this row (shell state emptied) stays in the
+            The node half of this row (shell state emptied) lives in the
             sibling; only the storage claim lives here."
     (if-not (browser?)
       (is true skip-msg)
       (do
         (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
         (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-        ;; Teeth: the old row asserted `(= [] (load-modes-from-storage))`
-        ;; after the reset, which passes just as happily against a storage
-        ;; that never held anything. Prove the toggle PERSISTED first, so
+        ;; Teeth: `(= [] (load-modes-from-storage))` after the reset alone
+        ;; passes just as happily against a storage that never held
+        ;; anything. Prove the toggle PERSISTED first, so
         ;; the empty read below is evidence that reset-modes! cleared it.
         (is (= [:Mode.app/x] (rf.story.ui.toolbar/load-modes-from-storage))
             "precondition: toggle-mode! really did persist the mode")

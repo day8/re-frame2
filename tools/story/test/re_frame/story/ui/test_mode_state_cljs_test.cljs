@@ -1,7 +1,7 @@
 (ns re-frame.story.ui.test-mode-state-cljs-test
-  "Tests for the `:test` pane's local state surface (rf2-tistm).
+  "Tests for the `:test` pane's local state surface.
 
-  Covers the rf2-tistm race-guard: `select-step!` must no-op while a
+  Covers the race guard: `select-step!` must no-op while a
   re-run is in flight (the variant frame is being reset; restoring
   against it would land against transient state and the new
   :epoch-ids slice would silently re-index :selected-step against a
@@ -22,10 +22,10 @@
 
 (use-fixtures :each {:before reset-results! :after reset-results!})
 
-;; ---- rf2-tistm: select-step! race guard ----------------------------------
+;; ---- select-step! race guard ---------------------------------------------
 
 (deftest select-step-noops-while-running
-  (testing "rf2-tistm — select-step! must no-op when the variant's slot
+  (testing "select-step! must no-op when the variant's slot
             carries :running? true. Concurrent restore against the
             frame being reset by run-variant-pane! would corrupt the
             scrubber state on resolve (store-result! writes a fresh
@@ -48,9 +48,9 @@
            consistent"))))
 
 (deftest select-step-fires-when-not-running
-  (testing "rf2-tistm sanity: the guard is conditional on :running? — when
-            the slot is idle (:running? falsy), select-step! restores the
-            epoch and stamps :selected-step as before"
+  (testing "sanity: the guard is conditional on :running? — when the slot
+            is idle (:running? falsy), select-step! restores the epoch and
+            stamps :selected-step"
     (let [variant-id :story.unit/idle
           epoch-ids  [:epoch/a :epoch/b :epoch/c]
           restored   (atom [])]
@@ -65,10 +65,10 @@
       (is (= 1 (get-in @rf.story.ui.test-mode.state/results-atom [variant-id :selected-step]))
           ":selected-step is stamped to the requested index"))))
 
-;; ---- rf2-tistm: toggle-expanded! keyed by row-key ------------------------
+;; ---- toggle-expanded! keyed by row-key -----------------------------------
 
 (deftest toggle-expanded-uses-row-key
-  (testing "rf2-tistm — toggle-expanded! threads its key (a string row-key
+  (testing "toggle-expanded! threads its key (a string row-key
             in normal use, but any value) straight into the :expanded set.
             View consumers pass assertion-row's :row-key — see the JVM
             test pinning row-key = :label in re-frame.story-ui-test."

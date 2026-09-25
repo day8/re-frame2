@@ -1,6 +1,6 @@
 (ns re-frame.story.play.step-runner-test
-  "The tagged setup/script step runner (NewTestStory rf2-5x1wt.17,
-  spec/017-Testing-Story.md §Script step grammar + §Setup and script).
+  "The tagged setup/script step runner
+  (spec/017-Testing-Story.md §Script step grammar + §Setup and script).
 
   Three layers, all under `clojure -M:test` (JVM) + the node-runtime CLJS
   build:
@@ -243,8 +243,7 @@
       (is (nil? (:passed? res))))))
 
 (deftest queue-empty-reads-the-real-router-queue
-  (testing "queue-empty? reads the frame's ACTUAL router queue rather than
-            a hard-coded `true` stub (rf2-m0cge5 finding 1). `[:click]` /
+  (testing "queue-empty? reads the frame's ACTUAL router queue. `[:click]` /
             `[:type]` / `[:focus]` fire a synthetic DOM event directly and
             never call `rf.story.play.settled-boundary/dispatch-and-settle!`, so a handler the
             event triggers may enqueue an ASYNC `[:dispatch …]` that has not
@@ -266,9 +265,9 @@
     (let [router (:router (rf.frame/frame step-frame))]
       (swap! router update :queue conj {:event [:step/inc]})
       (is (false? (queue-empty? step-frame))
-          "a non-empty router queue reads as NOT drained — the old
-           hard-coded stub silently reported `true` here, hiding a pending
-           dispatch from a following :assert-* read")
+          "a non-empty router queue reads as NOT drained — a constant
+           `true` here would hide a pending dispatch from a following
+           :assert-* read")
       ;; Draining the queue (what the router's own drain loop does once the
       ;; scheduled tick runs) flips the read back to true.
       (swap! router assoc :queue (empty (:queue @router)))

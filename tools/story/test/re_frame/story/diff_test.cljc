@@ -1,16 +1,16 @@
 (ns re-frame.story.diff-test
   "Tests for the semantic diff over canonical run artifacts —
-  `diff-run-artifacts` + the pure `diff-runs` core (rf2-5x1wt.9,
-  spec/017-Testing-Story.md §Semantic diff).
+  `diff-run-artifacts` + the pure `diff-runs` core
+  (spec/017-Testing-Story.md §Semantic diff).
 
   Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
   build:
 
   - PURE: the facet diffs (`diff-app-db`, `diff-effects`,
     `diff-schema-violations`, `diff-trace-ops`, …) and the diagnostic-only
-    `diff-sub-runs` (NOT wired into `diff-runs` — outside the `:same?` slice,
-    rf2-e6uod / rf2-5l0a5) and the
-    assembler (`diff-runs`) over HAND-BUILT run-results — the §A5 acceptance
+    `diff-sub-runs` (NOT wired into `diff-runs` — outside the `:same?`
+    slice) and the
+    assembler (`diff-runs`) over HAND-BUILT run-results — the acceptance
     bullets:
       • a small readable diff for an app-db change;
       • an effect-only diff;
@@ -33,7 +33,7 @@
             [re-frame.story.fingerprint :as rf.story.fingerprint]))
 
 ;; ===========================================================================
-;; PURE: app-db delta  (§A5 — a small readable diff for an app-db change)
+;; PURE: app-db delta  (a small readable diff for an app-db change)
 ;; ===========================================================================
 
 (deftest diff-app-db-readable-delta
@@ -63,7 +63,7 @@
       (is (= [{:path [:user :profile :age] :baseline 30 :current 31}]
              (:changed d)))))
 
-  ;; rf2-bd6ei — a run that clears app-db to {} must not emit a spurious root
+  ;; A run that clears app-db to {} must not emit a spurious root
   ;; leaf {:path [] :current {}} / {:path [] :baseline {}}; the real
   ;; populated-vs-empty difference must still diff correctly.
   (testing "current cleared to {} reports the removed key, NOT a spurious [] leaf"
@@ -92,7 +92,7 @@
     (is (nil? (rf.story.diff/diff-app-db {} {})))))
 
 ;; ===========================================================================
-;; PURE: effect-only diff  (§A5 — an effect-only diff)
+;; PURE: effect-only diff
 ;; ===========================================================================
 
 (deftest diff-effects-multiset-delta
@@ -117,7 +117,7 @@
       (is (nil? (:only-current d))))))
 
 ;; ===========================================================================
-;; PURE: schema-error diff  (§A5 — a schema-error diff)
+;; PURE: schema-error diff
 ;; ===========================================================================
 
 (deftest diff-schema-violations-by-selector
@@ -179,7 +179,7 @@
 
 (deftest diff-sub-runs-multiset-delta
   (testing "diff-sub-runs is a DIAGNOSTIC fn — called directly it still
-            reports a view-fact delta (rf2-e6uod / rf2-5l0a5)"
+            reports a view-fact delta"
     (let [d (rf.story.diff/diff-sub-runs
               {:sub-runs [{:query [:visible-todos] :value 3}]}
               {:sub-runs [{:query [:visible-todos] :value 5}]})]
@@ -195,7 +195,7 @@
 
 ;; ===========================================================================
 ;; PURE: warnings / assertions / checks / sub-overrides / fidelity facets
-;; (rf2-rv9tt — the run-hash slice slots that previously had NO facet)
+;; (run-hash slice slots, each with its own facet)
 ;; ===========================================================================
 
 (deftest diff-warnings-multiset-delta
@@ -307,24 +307,24 @@
              :epoch-tape (tape-with-ops [:rf.event/run-start])}]
       (is (= {:same? true} (rf.story.diff/diff-runs r r))))))
 
-;; rf2-sn7nh — diff-runs' :same? gate is canonicalize equality, so it
-;; inherited the rf2-lvrqa map/vector collision (a map<->vector flip in
-;; app-db read as :same? true, and the :app-db facet never ran because the
-;; gate suppressed the whole diff first) and the rf2-4gwja fn-slot
-;; nondeterminism (a same-semantics fn in app-db read as a false :changed).
-;; The foundation fixes land both here for free.
+;; diff-runs' :same? gate is canonicalize equality, so canonicalization
+;; decides two hazards here: a map<->vector flip in app-db must not read as
+;; :same? true (the gate would suppress the whole diff, so the :app-db facet
+;; would never run), and a same-semantics fn in app-db must not read as a
+;; false :changed. Canonicalization type-tags collections and folds fns to
+;; the `opaque-fn` sentinel, so both hold here too.
 (deftest diff-runs-inherits-lvrqa-and-4gwja-fixes
-  (testing "a map<->vector flip in app-db is NO LONGER :same? true and
-            surfaces a readable :app-db facet (rf2-sn7nh / rf2-lvrqa)"
+  (testing "a map<->vector flip in app-db is NOT :same? true and
+            surfaces a readable :app-db facet"
     (let [d (rf.story.diff/diff-runs {:status :pass :app-db {:k {:a 1}}}
                             {:status :pass :app-db {:k [:a 1]}})]
       (is (false? (:same? d)) "the collision is witnessed, not suppressed")
       (is (contains? (:facets d) :app-db) "the :app-db facet localises it")))
-  (testing "an empty-map<->empty-vector flip is also witnessed (rf2-lvrqa)"
+  (testing "an empty-map<->empty-vector flip is also witnessed"
     (is (false? (:same? (rf.story.diff/diff-runs {:status :pass :app-db {:k {}}}
                                         {:status :pass :app-db {:k []}})))))
   (testing "a same-semantics fn in app-db is :same? true — no false :changed
-            from object-identity noise (rf2-sn7nh / rf2-4gwja)"
+            from object-identity noise"
     (is (= {:same? true}
            (rf.story.diff/diff-runs {:status :pass :app-db {:cb (fn [] 1)}}
                            {:status :pass :app-db {:cb (fn [] 1)}})))))
@@ -352,18 +352,18 @@
       (is (= [{:fx :http/get :outcome :error}] (get-in d [:effects :only-current]))))))
 
 ;; ===========================================================================
-;; PURE: the assembler covers EVERY run-hash slice slot (rf2-rv9tt)
-;; — each previously-silent surface now names its facet through diff-runs
+;; PURE: the assembler covers EVERY run-hash slice slot
+;; — each surface names its facet through diff-runs
 ;; ===========================================================================
 
 (deftest diff-runs-covers-every-slice-surface
-  (testing "a warnings-ONLY delta surfaces the :warnings facet (was {:facets #{}})"
+  (testing "a warnings-ONLY delta surfaces the :warnings facet (never {:facets #{}})"
     (let [base {:status :pass :warnings []}
           cur  {:status :pass :warnings [{:operation :slow-sub :category :perf}]}
           d    (rf.story.diff/diff-runs base cur)]
       (is (false? (:same? d)))
       (is (= #{:warnings} (:facets d)))
-      (is (seq (:facets d)) "the previously-silent warnings delta is now named")))
+      (is (seq (:facets d)) "the warnings delta is named")))
 
   (testing "an assertions-ONLY verdict flip surfaces the :assertions facet"
     (let [base {:status :pass :assertions [{:assertion :rf.assert/eq :payload [1 1]
@@ -398,7 +398,7 @@
       (is (= #{:fidelity} (:facets d))))))
 
 ;; ===========================================================================
-;; PURE: facet-set == canonical slice keys (rf2-e6uod / rf2-5l0a5)
+;; PURE: facet-set == canonical slice keys
 ;; — the diff's facet set is EXACTLY the run-hash slice :same? is judged over,
 ;;   so no facet is dead (fires on a slot outside the slice) and no slice slot
 ;;   is uncovered. `:trace-ops` is the readable projection of the `:epoch-tape`
@@ -428,8 +428,7 @@
 
 (deftest diff-runs-sub-runs-only-delta-is-same
   (testing "two runs differing ONLY in :sub-runs diff to {:same? true} — the
-            :sub-runs delta does NOT decide :same? (it is outside the slice,
-            rf2-e6uod / rf2-5l0a5)"
+            :sub-runs delta does NOT decide :same? (it is outside the slice)"
     (let [base {:status :pass :app-db {:n 1}
                 :sub-runs [{:query [:visible-todos] :value 3}]}
           cur  (assoc base :sub-runs [{:query [:visible-todos] :value 5}])
@@ -441,7 +440,7 @@
           "no :sub-runs facet ever fires through diff-runs"))))
 
 ;; ===========================================================================
-;; PURE: the non-empty-:facets INVARIANT (rf2-rv9tt — the masterpiece guarantee)
+;; PURE: the non-empty-:facets INVARIANT
 ;; ===========================================================================
 
 (deftest diff-runs-never-returns-empty-facets

@@ -1,13 +1,11 @@
 (ns re-frame.story-error-test
   "JVM tests for `re-frame.story.error` — the ONE shared Throwable→error-map
-  projection + `:rf.error/exception` assertion-record builder (rf2-9kpsq).
+  projection + `:rf.error/exception` assertion-record builder.
 
-  The projection used to be copy-pasted verbatim across five sites in four
-  namespaces, with the wrapping record duplicated three times; the copies
-  had begun to drift (one site guarded each accessor, another dropped
-  `:stack` / `:data`). These tests pin the canonical shape and confirm the
-  drift is gone — every routed site now yields the SAME
-  `{:message :stack :data}` shape."
+  Every routed site yields the SAME `{:message :stack :data}` shape from
+  this one projection; a copy at each site would drift (one guarding each
+  accessor, another dropping `:stack` / `:data`). These tests pin the
+  canonical shape."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -18,8 +16,8 @@
 ;; ---- fixture ---------------------------------------------------------------
 ;;
 ;; Most assertions here are pure (`throwable->error-map` is data→data), but
-;; the `exception-record` projection is FRAME-SCOPED egress (EP-0015 issue 1,
-;; rf2-t55hxg.18): the `:data` slot is walked against the record's frame and
+;; the `exception-record` projection is FRAME-SCOPED egress (EP-0015 issue
+;; 1): the `:data` slot is walked against the record's frame and
 ;; FAILS CLOSED when that frame is unresolvable. Tests that need a live
 ;; variant frame (`make-frame`) require an installed adapter, so init the
 ;; plain-atom adapter and clean frame state around each test.
@@ -45,12 +43,12 @@
           ":data is the ex-data of an ExceptionInfo")
       (is (string? (:stack m))
           ":stack is a string on the JVM")
-      ;; rf2-qk0h9 regression guard: the trace must be CAPTURED into
-      ;; :stack, not leaked to System/err. The buggy `with-out-str`
-      ;; capture of the no-arg `.printStackTrace` returned "" (still a
-      ;; string — so the bare `string?` assertion above passed while the
-      ;; trace trailed every green run on stderr). Asserting the rendered
-      ;; trace text is actually present pins the explicit-PrintWriter fix.
+      ;; The trace must be CAPTURED into :stack, not leaked to
+      ;; System/err. A `with-out-str` capture of the no-arg
+      ;; `.printStackTrace` would return "" (still a string — so the bare
+      ;; `string?` assertion above would pass while the trace trailed
+      ;; every green run on stderr). Asserting the rendered trace text is
+      ;; present pins the explicit-PrintWriter capture.
       (is (str/includes? (:stack m) "boom")
           ":stack carries the rendered trace (captured, not leaked to stderr)"))))
 
@@ -90,7 +88,7 @@
 (deftest exception-record-wraps-the-projection
   (testing "exception-record builds the full :rf.error/exception assertion
             record with the canonical error projection embedded"
-    ;; EP-0015 issue 1 (rf2-t55hxg.18) — `exception-record` threads
+    ;; EP-0015 issue 1 — `exception-record` threads
     ;; `variant-id` as the `:frame` for the `:data` wire-elision. The
     ;; `:data` projection is FRAME-SCOPED egress: the frame must RESOLVE to
     ;; a live frame for its (empty) policy to be consulted; an unresolvable
@@ -128,7 +126,7 @@
       (is (nil? (-> r :error :stack)))
       (is (nil? (-> r :error :data))))))
 
-;; ---- rf2-0ae7o.13: the no-handler refusal is a captured failure -----------
+;; ---- the no-handler refusal is a captured failure -------------------------
 
 (def ^:private no-such-handler-trace
   "The trace the framework's `handle-no-handler!` emits for a dispatch that
@@ -177,9 +175,9 @@
         (rf/destroy-frame! :story.x/v)))))
 
 (deftest captured-failure-record-projects-a-pipeline-exception-trace
-  (testing "the same projection reads a pipeline-exception trace exactly as
-            the drain sites did before it existed: :event, the pre-extracted
-            :exception-message, the throwable, and :failing-id"
+  (testing "the same projection reads a pipeline-exception trace: :event,
+            the pre-extracted :exception-message, the throwable, and
+            :failing-id"
     (rf/make-frame {:id :story.x/v})
     (try
       (let [e (ex-info "kaboom" {:k :v})
@@ -203,12 +201,11 @@
       (finally
         (rf/destroy-frame! :story.x/v)))))
 
-;; ---- drift is gone: every routed record shares the projection -------------
+;; ---- every routed record shares the projection ----------------------------
 
 (deftest all-exception-records-share-the-canonical-error-shape
   (testing "records built for every phase carry IDENTICAL :error key sets —
-            the previously-drifted :stack / :data fields are now consistent
-            across all sites (rf2-9kpsq)"
+            :stack / :data are consistent across all sites"
     (let [e          (ex-info "x" {:d 1})
           phases     [:phase-0-setup :phase-1-loaders :phase-2-events
                       :phase-4-play :phase-4-setup :phase-teardown

@@ -1,47 +1,36 @@
 (ns re-frame.story.panels-e2e.xray-embed-e2e-cljs-test
-  "Multi-frame e2e coverage for the Xray-in-Story embed surface
-  (rf2-piucm, replaces the Playwright `xray-rhs-smoke` spec).
+  "Multi-frame e2e coverage for the Xray-in-Story embed surface.
 
-  Story's RHS hosts ONE Xray panel at a time under a chip-row picker
-  (rf2-v1ach). Three bug classes drove this coverage:
+  Story's RHS hosts ONE Xray panel at a time under a chip-row picker.
+  Three failure classes shape this coverage:
 
-  - **rf2-senbl** / **rf2-ibpwr** / **rf2-r8trk** — `mount-fn-for`
-    returning nil (rf2-senbl) and `xray-available?` returning a
-    false-negative (rf2-ibpwr) because the previous `find-ns-obj` +
-    `aget` walk did not surface top-level def'd fns as
-    parent-namespace JS properties. The fix for `mount-fn-for` is a
-    `case` dispatch via direct `:require`; `xray-available?` was
-    retired entirely by rf2-r8trk once `day8/re-frame2-xray` became a
-    declared Story dependency. We assert here that every catalogued
-    panel-id resolves to a callable mount-fn so a regression in the
-    require / case shape is caught at unit-test speed.
-  - **rf2-4l7t2** — React 18+ throws \"Attempted to synchronously
+  - **Mount-fn resolution** — `mount-fn-for` looks the panel's mount fn
+    up in the descriptor-derived `mount-fns` map, the fns `:require`d
+    directly. A runtime `find-ns-obj` + `aget` walk would return nil,
+    because it does not surface top-level def'd fns as
+    parent-namespace JS properties. There is no `xray-available?`
+    gate: `day8/re-frame2-xray` is a declared Story dependency. We
+    assert here that every catalogued panel-id resolves to a callable
+    mount-fn so a regression in the require / lookup shape is caught
+    at unit-test speed.
+  - **Root unmount timing** — React 18+ throws \"Attempted to synchronously
     unmount a root while React was already rendering\" whenever a
     Xray-owned React root is torn down inside the outer Story-
-    Reagent render cascade. The fix: one persistent host class, the
+    Reagent render cascade. So there is one persistent host class, the
     panel-id drives an internal swap via `:component-did-update`,
     and every `.unmount` runs inside `js/queueMicrotask`. We assert
     here that `panel-host-component` returns a Reagent class
     descriptor wired to the four lifecycle hooks so the
     persistence-across-panel-id-swaps invariant is intact.
-  - **rf2-v1ach** — the embed's hiccup carries `data-active-panel`
+  - **Chip-row wiring** — the embed's hiccup carries `data-active-panel`
     reflecting the resolved panel, AND a chip per catalogued panel.
     A regression in `effective-panel` or `panel-catalog` would either
     blank the wrapper attr or drop a chip from the picker — both
     detectable from the expanded hiccup tree.
 
-  ## What the Playwright spec did vs. this test
+  ## What this test walks
 
-  The Playwright spec drove an actual browser:
-
-    1. `gotoStory` → click variant in sidebar
-    2. Wait for `data-test=\"story-xray-embed\"` to be visible
-    3. Assert `data-active-panel` = `event-detail`
-    4. Assert all 6 chips render (rf2-gbz39 dropped :issues)
-    5. Click App-db chip, assert `data-active-panel` = `app-db`
-    6. Click counter inc to prove dispatch sanity
-
-  This CLJS test exercises the same surface at the hiccup level:
+  It exercises the embed surface at the hiccup level:
 
     1. Install Story canonical vocab + Xray
     2. Set `:selected-variant` in shell state (the same write the
@@ -65,15 +54,8 @@
             [day8.re-frame2-xray.test-helpers.e2e-multi-frame :as xray-e2e]
             [day8.re-frame2-xray.test-helpers.host-fixtures.counter :as counter]))
 
-;; rf2-ibpwr: pre-fix, `xray-preset/xray-available?` used a
-;; `find-ns-obj` + `aget` walk that returned a false-negative under
-;; node-test (same bug class as the pre-rf2-senbl `mount-fn-for`
-;; walk). The fixture below used to stub the predicate via
-;; `with-redefs` so the embed rendered its full surface.
-;;
-;; rf2-r8trk retired the predicate outright: `day8/re-frame2-xray` is a
-;; declared Story dependency, so the embed has no availability gate to
-;; stub. The stub fixture is no longer needed.
+;; There is no Xray availability gate to stub: `day8/re-frame2-xray` is a
+;; declared Story dependency, so the fixture below needs no `with-redefs`.
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -97,14 +79,13 @@
 
 (deftest panel-catalog-shape-matches-rf2-v1ach
   (testing "the chip-row catalog exposes the 6 canonical Xray panels"
-    ;; rf2-v1ach lists the chip-row panels (event / app-db / views /
-    ;; trace / machines / routing). rf2-gbz39 removed `:issues` alongside
-    ;; the Xray Issues tab (Mike's Option (c) ruling). Catch the
+    ;; The chip-row panels are epoch / app-db / views / trace / machines
+    ;; / routing; there is no `:issues` panel. Catch the
     ;; regression where one is dropped (the chip-row would silently lose
     ;; an affordance) or a new panel sneaks into the catalog without a
     ;; deliberate design decision.
     (is (= 6 (count rf.story.ui.xray-embed/panel-catalog))
-        "6 panels in the chip-row catalog (rf2-v1ach; rf2-gbz39 dropped :issues)")
+        "6 panels in the chip-row catalog (no :issues panel)")
     (is (= #{:epoch :app-db :views :trace :machines :routing}
            rf.story.ui.xray-embed/panel-ids)
         "panel-ids set matches the catalog")
@@ -113,13 +94,12 @@
          most-common diagnostic lens)")))
 
 (deftest mount-fn-resolves-for-every-panel
-  (testing "rf2-senbl — every catalogued panel-id resolves to a callable
+  (testing "every catalogued panel-id resolves to a callable
             mount-fn via `mount-fn-for` (compile-time symbol resolution,
             not a runtime `find-ns-obj` walk)"
     (doseq [pid rf.story.ui.xray-embed/panel-ids]
       (is (fn? (rf.story.ui.xray-embed/mount-fn-for pid))
-          (str "mount-fn-for " pid " returned a callable — rf2-senbl
-                regression class")))
+          (str "mount-fn-for " pid " returned a callable")))
     (testing "unknown panel-id → nil (graceful, not throw)"
       (is (nil? (rf.story.ui.xray-embed/mount-fn-for :no-such-panel))))))
 
@@ -127,7 +107,7 @@
 
 (deftest xray-embed-paints-with-default-panel
   (testing "after selecting a variant the embed renders with
-            data-active-panel = event-detail + a chip per panel"
+            data-active-panel = epoch + a chip per panel"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
       (fn []
@@ -143,20 +123,19 @@
                                         child))
                                     wrapper)]
           (is (some? wrapper)
-              "embed wrapper present (rf2-v1ach `[data-test=\"story-xray-embed\"]`)")
+              "embed wrapper present (`[data-test=\"story-xray-embed\"]`)")
           (is (= "epoch" (get-in wrapper [1 :data-active-panel]))
               "data-active-panel carries the resolved default
-               (rf2-v1ach + rf2-senbl class — would be blank if
-               effective-panel returned nil)")
+               (would be blank if effective-panel returned nil)")
           (is (= 6 (count chips))
-              "one chip per catalogued panel (rf2-v1ach; rf2-gbz39 dropped :issues)")
+              "one chip per catalogued panel (no :issues chip)")
           (is (vector? panel-host-slot)
               "panel-host slot is a hiccup vector in the wrapper's
                children — the mount target the panel-host-component
-               class drives (rf2-4l7t2 class)")
+               class drives")
           (is (= :epoch (second panel-host-slot))
               "panel-host-component is mounted with the resolved
-               panel-id as its argv — rf2-4l7t2 fix: argv-diff in
+               panel-id as its argv — argv-diff in
                :component-did-update drives the in-place panel swap"))))))
 
 (deftest xray-embed-empty-state-without-variant
@@ -173,7 +152,7 @@
 ;; ---- chip click round-trip ----------------------------------------------
 
 (deftest chip-click-flips-active-panel
-  (testing "rf2-senbl + rf2-v1ach — clicking the App-db chip swaps the
+  (testing "clicking the App-db chip swaps the
             resolved panel-id; embed wrapper re-renders with the new
             data-active-panel"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -196,14 +175,14 @@
                 wrapper    (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree-after "story-xray-embed")]
             (is (= "app-db" (get-in wrapper [1 :data-active-panel]))
                 "data-active-panel flipped to app-db after the chip click —
-                 effective-panel honours the user override (rf2-v1ach)")
+                 effective-panel honours the user override")
             (is (= :app-db (rf.story.ui.xray-embed/effective-panel
                              (rf.story.ui.state/get-state) variant-id))
                 "effective-panel resolves the override directly")))))))
 
 ;; ---- lazy Xray-diff mounting: no compute on a collapsed embed -----------
 ;;
-;; rf2-ba86n.19 (spec/018 §10) — the embed defers the panel MOUNT until it
+;; Per spec/018 §10 the embed defers the panel MOUNT until it
 ;; is expanded. `panel-host-component` is the SOLE caller of `mount-fn-for`
 ;; → `mount-<panel>!` (the fn that runs the panel's expensive diff compute:
 ;; app-db structural diff, epoch timeline). So the render-path proof that
@@ -228,7 +207,7 @@
         (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "story-xray-embed")))
 
 (deftest collapsed-embed-does-not-mount-panel-host
-  (testing "rf2-ba86n.19 — a COLLAPSED embed renders no panel-host slot, so
+  (testing "a COLLAPSED embed renders no panel-host slot, so
             no mount-<panel>! fires and the panel's expensive diff is never
             computed; expanding restores the panel-host"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -250,8 +229,7 @@
               placeholder    (rf.story.test-helpers.e2e-multi-frame/find-by-test-id collapsed-tree "story-xray-embed-collapsed")]
           (is (nil? (panel-host-slot collapsed-tree))
               "COLLAPSED embed renders NO panel-host slot → mount-<panel>! is
-               never invoked → the panel's expensive diff is not computed
-               (rf2-ba86n.19 acceptance)")
+               never invoked → the panel's expensive diff is not computed")
           (is (some? placeholder)
               "collapsed embed shows the quiet placeholder in place of the panel")
           (is (= "true" (get-in wrapper [1 :data-xray-embed-collapsed]))
@@ -259,7 +237,7 @@
           ;; The chip-row picker still paints while collapsed (cheap; no Xray
           ;; symbol) so the author's lens choice survives a collapse.
           (is (= 6 (count (rf.story.test-helpers.e2e-multi-frame/find-all-by-test-id collapsed-tree "story-xray-panel-chip")))
-              "chip-row picker survives a collapse (no compute, just data; rf2-gbz39 dropped :issues)"))
+              "chip-row picker survives a collapse (no compute, just data)"))
         ;; Expand again → panel-host slot returns (mount resumes on next commit).
         (rf.story.ui.state/swap-state! rf.story.ui.state/set-xray-embed-collapsed false)
         (let [reexpanded-tree (rf.story.ui.xray-embed/xray-embed-panel)]
@@ -267,7 +245,7 @@
               "expanding restores the panel-host slot → mount + diff compute resume"))))))
 
 (deftest disclosure-toggle-flips-collapsed-state
-  (testing "rf2-ba86n.19 — the disclosure toggle's on-click flips the
+  (testing "the disclosure toggle's on-click flips the
             embed-collapsed shell slot (expanded → collapsed → expanded)"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-variant!}
@@ -299,8 +277,8 @@
 ;; ---- React lifecycle invariant ------------------------------------------
 ;;
 ;; The `panel-host-component` symbol is the React class owning the DOM
-;; mount lifecycle. rf2-4l7t2's fix is to make the host class persist
-;; across panel-id swaps via `:component-did-update`, with deferred
+;; mount lifecycle. The host class persists across panel-id swaps via
+;; `:component-did-update`, with deferred
 ;; (microtask) `.unmount` calls so React 18+ doesn't see a synchronous
 ;; root unmount inside the outer render cycle. We can't drive the
 ;; React commit phase in node-test, but we CAN assert the lifecycle
@@ -309,7 +287,7 @@
 ;; swap mid-mount.
 
 (deftest panel-host-class-wires-lifecycle-hooks
-  (testing "rf2-4l7t2 — panel-host-component returns a Reagent class
+  (testing "panel-host-component returns a Reagent class
             wired to the four lifecycle hooks (mount / update / unmount
             / render)"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -334,11 +312,9 @@
               focused-event  (xray-e2e/xray-focused-event)
               focused-frame  (xray-e2e/xray-focused-frame)]
           (is (pos? (count cascades))
-              "Xray records cascades for host dispatches (replaces the
-               `await loadedCanvas.locator('[data-test=\"inc\"]').click()`
-               sanity check from the Playwright spec)")
+              "Xray records cascades for host dispatches")
           (is (= [:counter/inc] focused-event)
               "spine focus is on the host's :counter/inc dispatch")
           (is (= :rf/default focused-frame)
               "focused cascade's :frame is the host frame — proves
-               cross-frame routing works (rf2-83d4x class)"))))))
+               cross-frame routing works"))))))

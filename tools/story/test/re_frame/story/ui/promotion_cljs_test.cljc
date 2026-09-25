@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.promotion-cljs-test
-  "Tests for the generated-failure promotion UX (rf2-ba86n.13, spec/021 §3).
+  "Tests for the generated-failure promotion UX (spec/021 §3).
 
   Two tiers (mirrors `save_variant_cljs_test`):
 
@@ -7,7 +7,7 @@
     label derivation, the `result->artifact` capture-source rule, the
     draft → promote-opts projection, and the `(reg-variant …)` snippet
     shape. These pin the contract the dialog + sidebar + test-pane depend
-    on, AND assert promotion drives the EXISTING `re-frame.story.promotion`
+    on, AND assert promotion drives the shared `re-frame.story.promotion`
     substrate (non-destructive, distinct from save-current-state).
 
   - **CLJS-only** (the capture store + dialog ratoms + render depend on
@@ -122,7 +122,7 @@
   (testing "a run whose script dispatches nothing — a :setup precondition and
             [:assert …] checkpoints only, the login_form testbed's shape —
             captures the source variant's stepped program with the result
-            attached, so promotion reads its source (rf2-vgthk)"
+            attached, so promotion reads its source"
     (rf.story.registrar/reg-variant* :story.x/checkpoints
       {:setup  [[:x/boot]]
        :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
@@ -148,7 +148,7 @@
   (testing "a run whose checkpoint reads an input only an active mode supplies
             captures the source's program compiled with the run's inputs and
             records them for promotion. :substrate is not a compile input and
-            is not recorded (rf2-cml0h)"
+            is not recorded"
     (rf.story.registrar/reg-mode* :Mode.x/expect-two {:args {:expected 2}})
     (rf.story.registrar/reg-variant* :story.x/mode-input
       {:setup  [[:x/boot]]
@@ -159,7 +159,7 @@
                     :substrate      :reagent}
           art      (rf.story.ui.promotion/result->artifact result [] run-opts)]
       (is (nil? (rf.story.ui.promotion/result->artifact result []))
-          "without the run's inputs the source does not compile, as before")
+          "without the run's inputs the source does not compile")
       (is (= [[:assert [:rf.assert/path-equals [:n] 2]]] (:event-program art))
           "the checkpoint holds the value the mode supplied")
       (is (= {:active-modes [:Mode.x/expect-two]} (get-in art [:source :run-opts]))
@@ -216,7 +216,7 @@
           "the remaining step is the behaviour under test"))))
 
 ;; ===========================================================================
-;; The promote path drives the EXISTING substrate (non-destructive, distinct)
+;; The promote path drives the shared substrate (non-destructive, distinct)
 ;; ===========================================================================
 
 (deftest snippet-mirrors-substrate-body
@@ -234,7 +234,7 @@
 (deftest promotion-snippet-carries-source-expectations
   (testing "a captured run whose source variant declared terminal :assertions
             previews them in the snippet, so the regression an author pastes
-            into source can still fail (rf2-5vmog)"
+            into source can still fail"
     (rf.story.registrar/reg-variant* :story.x/source
       {:script     [[:dispatch [:counter/inc]]]
        :assertions [[:rf.assert/path-equals [:count] 1]]})
@@ -250,7 +250,7 @@
 (deftest promotion-snippet-keeps-composed-check-ids
   (testing "a captured run whose source failed through a check named in
             :compose pastes back into a variant that still names that check,
-            as the snippet keeps the source's own :checks (rf2-6h2z3)"
+            as the snippet keeps the source's own :checks"
     (rf.story.registrar/reg-check* :check.x/count-is-one
       {:assertions [[:rf.assert/path-equals [:count] 1]]})
     (rf.story.registrar/reg-variant* :story.x/composed
@@ -272,12 +272,12 @@
           "the pasted variant resolves the check its source failed through"))))
 
 ;; ===========================================================================
-;; The snippet keeps the run's world: :network and :fx-overrides (rf2-siyxz)
+;; The snippet keeps the run's world: :network and :fx-overrides
 ;; ===========================================================================
 ;;
 ;; `artifact->variant-body` lifts a run artifact's `:network` route map and its
-;; non-HTTP `:fx-decisions` onto the body's `:network` / `:fx-overrides` slots
-;; (rf2-vf8es), and `promote!` registers them. The snippet renders only the
+;; non-HTTP `:fx-decisions` onto the body's `:network` / `:fx-overrides` slots,
+;; and `promote!` registers them. The snippet renders only the
 ;; keys in its order list, so a slot the list omits is silently absent from
 ;; what the author pastes. These tests take a REAL run — a compiled plan,
 ;; coerced by the determinism seam, replayed — through the dialog's own
@@ -319,7 +319,7 @@
 
 (deftest promotion-snippet-keeps-network-stubs
   (testing "a promoted :network-stubbed run pastes back into a variant that
-            still installs its route stubs (rf2-siyxz)"
+            still installs its route stubs"
     (rf/reg-event :promo-snip/get-cart
       (fn [{:keys [db]} [_ msg reply]]
         (if reply
@@ -344,7 +344,7 @@
 
 (deftest promotion-snippet-keeps-fx-overrides
   (testing "a promoted run that redirected a non-HTTP effect pastes back into a
-            variant that still redirects it (rf2-siyxz)"
+            variant that still redirects it"
     (rf/reg-fx :promo-snip/toast {:platforms #{:client :server}} (fn [_ _] nil))
     (rf/reg-fx :promo-snip/toast-stub {:platforms #{:client :server}} (fn [_ _] nil))
     (rf/reg-event :promo-snip/save (fn [_ _] {:fx [[:promo-snip/toast "saved"]]}))
@@ -489,7 +489,7 @@
 
 ;; ===========================================================================
 ;; CLJS-only: the promote-confirmation gate is part of the dialog lifecycle
-;; (rf2-lc0cp) — `mark-promoted!` records the green confirmation; `open!`
+;; — `mark-promoted!` records the green confirmation; `open!`
 ;; resets it so a freshly-opened artifact ALWAYS reads as un-promoted.
 ;; ===========================================================================
 
@@ -517,7 +517,7 @@
              "after mark-promoted! the green confirmation renders")
          (is (str/includes? (flat) "regression-a")
              "the confirmation names the promoted id")
-         ;; --- open B: stale confirmation MUST NOT leak across (rf2-lc0cp) ---
+         ;; --- open B: stale confirmation MUST NOT leak across ---
          (rf.story.ui.promotion/open! id-b)
          (is (nil? (:promoted-id @rf.story.ui.promotion/dialog-atom))
              "open! resets :promoted-id — B starts un-promoted")

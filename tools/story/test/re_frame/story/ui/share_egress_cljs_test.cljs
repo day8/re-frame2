@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.share-egress-cljs-test
-  "CLJS tests for the human share / export / copy egress UI surface
-  (rf2-ba86n.16). The PURE reproducibility classifier is covered JVM-side
+  "CLJS tests for the human share / export / copy egress UI surface.
+  The PURE reproducibility classifier is covered JVM-side
   in `re-frame.story.egress-test`; this file pins the UI glue that the
   classifier feeds: the reproducibility badge hiccup, the report + EDN-
   snippet builders over shell state, and the dialog open/close + render.
@@ -21,7 +21,7 @@
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
 (use-fixtures :each
-  ;; Map form (`:before` / `:after`) — async tests in this ns (the rf2-ehc5bq
+  ;; Map form (`:before` / `:after`) — async tests in this ns (the
   ;; screenshot suite) require the map fixture shape; cljs.test aborts an
   ;; async test under a bare-fn fixture.
   {:before (fn []
@@ -83,18 +83,18 @@
       (is (= :view-only (:status report)))
       (is (some #(= :override-fn (:code %)) (:reasons report))))))
 
-;; ---- rf2-nlvgc — the report compiles the shared cell, not the bare body ----
+;; ---- the report compiles the shared cell, not the bare body --------------
 
 (def ^:private labelled-view
   "A registered view requiring `:label` — the prop the story supplies."
   :views.nlvgc/labelled)
 
 (deftest report-keeps-the-plan-of-a-variant-that-leaves-a-prop-to-its-story
-  (testing "rf2-nlvgc: a variant whose required prop comes from its story's
+  (testing "a variant whose required prop comes from its story's
             :args still carries its plan-derived downgrade reason. The report
             compiles the shared cell with the ambient arg layers, as a run
-            does; the bare compile failed view-args validation, the plan was
-            dropped, and a function-valued network stub read :full"
+            does; a bare compile would fail view-args validation, drop the
+            plan, and read a function-valued network stub as :full"
     (rf.registrar/register! :view labelled-view
                             {:rf/props   [:map [:label :string]]
                              :handler-fn (fn [_] nil)})
@@ -131,7 +131,7 @@
     (let [snip (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state) 1700000000000)]
       ;; This string pins EMITTED OUTPUT, not this file's alias: share.cljs
       ;; passes `"rf.story"` to `rf.story.predicates/reg-variant-form`, the
-      ;; canonical `re-frame.story` alias (rf2-0ae7o.6), so the copyable form
+      ;; canonical `re-frame.story` alias, so the copyable form
       ;; pastes and runs verbatim in a stories namespace.
       (is (str/starts-with? snip "(rf.story/reg-variant "))
       (is (str/includes? snip ":extends :story.egress/counter")
@@ -139,7 +139,7 @@
       (is (str/includes? snip ":n 7") "the cell-override beats the variant default")
       (is (str/ends-with? snip "})")))))
 
-;; ---- rf2-0ae7o.6 — Copy EDN pastes verbatim under the canonical alias -----
+;; ---- Copy EDN pastes verbatim under the canonical alias -------------------
 
 (deftest edn-snippet-output-pastes-verbatim
   (testing "the Copy EDN form names `re-frame.story` by its canonical alias
@@ -157,10 +157,10 @@
           [head _ body]    (reader/read-string snip)]
       (is (= 'rf.story/reg-variant head))
       (is (not (str/includes? snip "(story/"))
-          "the spelling J1 had to translate before pasting is gone")
+          "no `story/` spelling that would need translating before pasting")
       (is (= :story.egress/counter (:extends body))))))
 
-;; ---- rf2-fjax — the copied form must not extend itself -------------------
+;; ---- the copied form must not extend itself ------------------------------
 
 (deftest edn-snippet-registers-a-distinct-id
   (testing "the snippet's registration id is DERIVED from the focused
@@ -212,20 +212,21 @@
             "and inherits the parent's un-overridden args through :extends"))
 
       ;; 2 · the SOURCE registration is untouched and still renderable — the
-      ;; failure mode was that pasting REPLACED it with a self-cycling body.
+      ;; failure mode this guards is pasting REPLACING it with a
+      ;; self-cycling body.
       (let [src (rf.story.plan/variant-plan :story.egress/counter)]
         (is (some? src) "the source variant still compiles")
         (is (= 1 (get-in src [:world :effective-args :n]))
             "the source still carries its own args, unreplaced")))))
 
-;; ---- rf2-gwye.7 — the copied args are the RESOLVED scenario's -------------
+;; ---- the copied args are the RESOLVED scenario's -------------------------
 
 (deftest edn-snippet-carries-inherited-and-composed-args
-  (testing "rf2-gwye.7: Copy EDN pins the args the focused cell actually runs
+  (testing "Copy EDN pins the args the focused cell actually runs
             with. An :extends parent's (or a :compose fragment's) args beat
             the story default, exactly as the compiled plan resolves them.
-            Before the fix the snippet read the variant's OWN :args only, so
-            the story default replaced the inherited value in the pasted form."
+            A snippet that read the variant's OWN :args only would let the
+            story default replace the inherited value in the pasted form."
     (rf.story/reg-story :story.egress {:args {:n 0 :nested {:v 0}}})
     (rf.story/reg-variant :story.egress/parent
                           {:tags #{:dev} :setup [] :args {:n 42 :nested {:v 7}}})
@@ -293,10 +294,10 @@
       (is (some? (rf.story.ui.share/share-export-dialog))
           "clicking the chip opens the dialog (it now renders a tree)"))))
 
-;; ---- rf2-76l69l: declared-arg-keys is the stale-override contract --------
+;; ---- declared-arg-keys is the stale-override contract --------------------
 
 (deftest declared-arg-keys-unions-args-and-argtypes
-  (testing "rf2-76l69l — declared-arg-keys is the variant's editable arg
+  (testing "declared-arg-keys is the variant's editable arg
             surface: resolved-args keys ∪ :argtypes keys"
     (rf.story/reg-variant :story.dak/v
       {:tags     #{:dev}
@@ -310,14 +311,14 @@
       (is (not (contains? ks :removed)) "a never-declared key is NOT in the set"))))
 
 (deftest declared-arg-keys-nil-for-unregistered
-  (testing "rf2-76l69l — an unregistered variant has no known contract → nil
+  (testing "an unregistered variant has no known contract → nil
             (so drop-stale-overrides degrades to keep-all, not drop-all)"
     (is (nil? (rf.story.ui.share/declared-arg-keys :story.dak/never-registered)))))
 
 (deftest drop-stale-overrides-against-live-contract
-  (testing "rf2-76l69l — a stale override (an arg the variant removed) is
+  (testing "a stale override (an arg the variant removed) is
             dropped + reported against the live declared-key set, while a
-            still-declared override survives — the end-to-end finding-2 fix"
+            still-declared override survives"
     (rf.story/reg-variant :story.dak/contract
       {:tags   #{:dev}
        :setup []
@@ -332,12 +333,12 @@
           "the dropped token names the stale key"))))
 
 ;; ===========================================================================
-;; rf2-ehc5bq — screenshot egress: real capture-to-PNG + clipboard write, or
-;; an HONEST unavailable/error state. The old body marked `:copied :screenshot`
-;; BEFORE any capture/write and only optionally poked an absent host shim, so
-;; a no-shim click was a silent no-op that still flashed copied. These tests
+;; Screenshot egress: real capture-to-PNG + clipboard write, or an HONEST
+;; unavailable/error state. A body that marked `:copied :screenshot` BEFORE
+;; any capture/write, and only optionally poked an absent host shim, would
+;; make a no-shim click a silent no-op that still flashed copied. These tests
 ;; exercise the ACTION (not just the render) on both the success path and the
-;; failure paths; the failure-path tests fail against that old false-success
+;; failure paths; the failure-path tests fail against such a false-success
 ;; no-op.
 ;;
 ;; The `:node-test` runner has no DOM (`js/document` / `js/window` /
@@ -400,7 +401,7 @@
                      (js/Promise.resolve js/undefined))}})
 
 (deftest screenshot-success-writes-png-and-marks-copied
-  (testing "rf2-ehc5bq — with a canvas node + a capture seam + the async
+  (testing "with a canvas node + a capture seam + the async
             Clipboard image-write API, copy-screenshot! rasters to a PNG,
             writes a ClipboardItem, and ONLY THEN flashes :copied :screenshot"
     (async done
@@ -425,10 +426,10 @@
               (fn [] (restore! prev) (done))))))))
 
 (deftest screenshot-no-shim-reports-error-not-false-copied
-  (testing "rf2-ehc5bq (adversarial) — clipboard image-write IS available but
+  (testing "(adversarial) clipboard image-write IS available but
             NO host capture seam is installed: copy-screenshot! must record an
             HONEST :error and must NOT flash :copied :screenshot. This FAILS
-            against the old body that marked copied before any capture."
+            against a body that marks copied before any capture."
     (async done
       (let [prev (install-globals!
                    {"document"      (fake-document #js {:tag "canvas"})
@@ -442,7 +443,7 @@
                 (is (false? ok?) "no seam → failure outcome")
                 (let [snap (rf.story.ui.share/dialog-state-snapshot)]
                   (is (not= :screenshot (:copied snap))
-                      "MUST NOT report success on a no-op (the false-success bug)")
+                      "MUST NOT report success on a no-op")
                   (is (= :screenshot (:cmd (:error snap)))
                       "records an honest screenshot error")
                   (is (string? (:reason (:error snap)))
@@ -451,10 +452,10 @@
               (fn [] (restore! prev) (done))))))))
 
 (deftest screenshot-no-clipboard-reports-error-not-false-copied
-  (testing "rf2-ehc5bq (adversarial) — a host WITHOUT the async Clipboard
+  (testing "(adversarial) a host WITHOUT the async Clipboard
             image-write API (no navigator.clipboard.write / no ClipboardItem)
-            yields an honest :error, never a false :copied. FAILS against the
-            old false-success no-op."
+            yields an honest :error, never a false :copied. FAILS against a
+            false-success no-op."
     (async done
       (let [prev (install-globals!
                    {"document"      (fake-document #js {:tag "canvas"})
@@ -478,7 +479,7 @@
               (fn [] (restore! prev) (done))))))))
 
 (deftest screenshot-no-canvas-reports-error
-  (testing "rf2-ehc5bq — no variant canvas node in the DOM → honest :error, no
+  (testing "no variant canvas node in the DOM → honest :error, no
             false :copied."
     (async done
       (let [prev (install-globals!
@@ -497,7 +498,7 @@
               (fn [] (restore! prev) (done))))))))
 
 (deftest screenshot-row-renders-error-not-copied-after-no-op
-  (testing "rf2-ehc5bq — after a failed screenshot egress the open dialog
+  (testing "after a failed screenshot egress the open dialog
             threads the honest error reason into the screenshot row (`:error`)
             and leaves it NOT copied (`:copied? false`). `command-block` is a
             child component, so `str` over the dialog shows its invocation
@@ -532,13 +533,13 @@
             (.finally
               (fn [] (restore! prev) (done))))))))
 
-;; ---- rf2-jgn8 — TEXT copy reports completion, never assumes it -----------
+;; ---- TEXT copy reports completion, never assumes it ----------------------
 ;;
-;; `copy-text!` backs Copy URL / Copy EDN / Copy static-build command. It used
-;; to call the shared clipboard shim and `mark-copied!` on the very next line,
-;; so an absent `navigator.clipboard` (an insecure dev host, JSDOM), a denied
-;; permission, or a merely PENDING write all displayed "copied ✓". These pin
-;; the same honesty the screenshot path above already had.
+;; `copy-text!` backs Copy URL / Copy EDN / Copy static-build command. Calling
+;; the shared clipboard shim and `mark-copied!` on the very next line would
+;; make an absent `navigator.clipboard` (an insecure dev host, JSDOM), a
+;; denied permission, or a merely PENDING write all display "copied ✓". These
+;; pin the same honesty the screenshot path above has.
 
 (defn- fake-navigator-with-write-text
   "A `js/navigator.clipboard` whose `writeText` records the text and returns
@@ -550,7 +551,7 @@
                          (outcome-fn text))}})
 
 (deftest copy-text-marks-copied-only-after-the-write-fulfils
-  (testing "rf2-jgn8 — a fulfilled writeText flashes :copied and no error"
+  (testing "a fulfilled writeText flashes :copied and no error"
     (async done
       (let [written (atom nil)
             prev    (install-globals!
@@ -567,9 +568,9 @@
             (.finally (fn [] (restore! prev) (done))))))))
 
 (deftest copy-text-no-clipboard-api-reports-error-not-false-copied
-  (testing "rf2-jgn8 (adversarial) — no navigator.clipboard at all (an insecure
+  (testing "(adversarial) no navigator.clipboard at all (an insecure
             dev host / JSDOM): copy-text! must record an HONEST :error and must
-            NOT flash :copied. This FAILS against the old fire-and-forget body."
+            NOT flash :copied. This FAILS against a fire-and-forget body."
     (async done
       (let [prev (install-globals! {"navigator" #js {}})]
         (-> (rf.story.ui.share/copy-text! :copy-edn "(reg-variant …)")
@@ -577,7 +578,7 @@
                      (is (false? ok?) "no clipboard API → failure outcome")
                      (let [snap (rf.story.ui.share/dialog-state-snapshot)]
                        (is (not= :copy-edn (:copied snap))
-                           "MUST NOT report success on a no-op (the false-success bug)")
+                           "MUST NOT report success on a no-op")
                        (is (= :copy-edn (:cmd (:error snap)))
                            "records an honest error for THIS command")
                        (is (string? (:reason (:error snap)))
@@ -585,9 +586,9 @@
             (.finally (fn [] (restore! prev) (done))))))))
 
 (deftest copy-text-rejected-write-reports-error-not-false-copied
-  (testing "rf2-jgn8 (adversarial) — the ordinary PERMISSION DENIAL: the API is
-            present but writeText REJECTS. The old body never observed the
-            rejected Promise, so it showed copied and leaked an unhandled
+  (testing "(adversarial) the ordinary PERMISSION DENIAL: the API is
+            present but writeText REJECTS. A body that never observed the
+            rejected Promise would show copied and leak an unhandled
             rejection."
     (async done
       (let [prev (install-globals!
@@ -604,7 +605,7 @@
             (.finally (fn [] (restore! prev) (done))))))))
 
 (deftest copy-text-does-not-mark-copied-while-the-write-is-pending
-  (testing "rf2-jgn8 — a write that has NOT settled yet must leave the row
+  (testing "a write that has NOT settled yet must leave the row
             un-copied; success appears only on fulfilment."
     (async done
       (let [resolve-fn (atom nil)
@@ -623,10 +624,10 @@
                          "success appears once the write fulfils")))
             (.finally (fn [] (restore! prev) (done))))))))
 
-;; ---- rf2-3x7nj.29.7 — a failed TEXT copy shows on its ROW -----------------
+;; ---- a failed TEXT copy shows on its ROW ---------------------------------
 ;;
-;; rf2-jgn8 made the state honest, and the suite above pins only the state
-;; atom, so a row that never rendered the error passed it. `command-block` is
+;; The suite above pins only the state atom, so a row that never rendered the
+;; error would pass it. `command-block` is
 ;; a child component: the dialog's hiccup holds its invocation props, so
 ;; `expand-command-rows` calls it the way Reagent would and these assertions
 ;; read the row's own `data-test` hooks.
@@ -661,8 +662,8 @@
       (.then (fn [_] (expand-command-rows (rf.story.ui.share/share-export-dialog))))))
 
 (deftest text-copy-failure-renders-on-its-own-row
-  (testing "rf2-3x7nj.29.7 — Share URL, Copy EDN and Static build each render
-            their own failed copy, as the Screenshot row already did"
+  (testing "Share URL, Copy EDN and Static build each render
+            their own failed copy, as the Screenshot row does"
     (async done
       (rf.story/reg-variant :story.egress/copied {:tags #{:dev} :setup []})
       (rf.story.ui.state/swap-state! #(assoc % :selected-variant :story.egress/copied))
@@ -684,7 +685,7 @@
             (.finally (fn [] (restore! prev) (done))))))))
 
 (deftest failed-copy-edn-shows-the-snippet-to-copy-by-hand
-  (testing "rf2-3x7nj.29.7 — Copy EDN has no on-screen body of its own, so a
+  (testing "Copy EDN has no on-screen body of its own, so a
             failed copy shows the snippet read-only: the manual fallback
             `copy-text!` promises. A dialog with no failure shows none."
     (async done

@@ -1,7 +1,7 @@
 (ns re-frame.story.sensitive-trace-cljs-test
-  "Privacy / sensitive-trace tests for re-frame2-story (rf2-bclgj).
+  "Privacy / sensitive-trace tests for re-frame2-story.
 
-  Per Spec 009 §Privacy (resolved by rf2-a32kd): framework-published
+  Per Spec 009 §Privacy: framework-published
   trace-consuming integrations MUST default-suppress `:sensitive? true`
   events. Story is a framework-published consumer — its play-runner's
   per-frame listener, the recorder's listener, the runtime's
@@ -11,22 +11,22 @@
   ## Coverage
 
   - **Pure config**: the framework-published `rf/sensitive?` (Story
-    composes against it directly since rf2-kuky.8 retired the tool-side
+    composes against it directly; there is no tool-side
     `sensitive-event?` alias), `suppress-sensitive?`,
     `note-suppressed!`, `suppressed-count`, `reset-suppressed-count!`
-    against the `egress-profile` (EP-0015 frame-owned egress, rf2-3t26eh).
+    against the `egress-profile` (EP-0015 frame-owned egress).
   - **`configure!`**: the `:rf.story/egress-profile` opts key wires
     through to the config atom.
   - **Play listener**: the per-frame trace listener (the Spec 009 privacy
-    egress seam, rf2-luzky) default-drops sensitive events at the gate
+    egress seam) default-drops sensitive events at the gate
     (bumping the redaction counter) before its handler-exception capture
     runs.
   - **Recorder listener**: a sensitive event does not land in the
     recorder's captured-events vector.
 
   Runs on both the JVM (`clojure -M:test`) and the CLJS node-test
-  build (shadow's `:node-test` target; ns ends in `-test.cljc` and
-  picks up via the test-runner's regex).  The trace-panel listener
+  build (shadow's `:node-test` target; the ns ends in `-cljs-test`, which
+  the build's `cljs-test$` ns-regexp selects).  The trace-panel listener
   ships as `.cljs` only — its coverage rides on the same
   `suppress-sensitive?` helper exercised here, and the panel-level
   redaction indicator is verified by the CLJS ui-cljs test arm."
@@ -43,7 +43,7 @@
 
 (defn reset-config! [f]
   ;; Always restore the session-pin to the redacting default AND clear every
-  ;; per-frame override (rf2-6z4znr) before AND after every test so a failing
+  ;; per-frame override before AND after every test so a failing
   ;; test can't poison the next one.
   (rf.story.config/reset-all!)
   (try
@@ -96,7 +96,7 @@
 
 (defn- handler-exception-event
   "Build a `:rf.error/handler-exception` trace event for `frame-id`. The
-  play-listener's surviving non-privacy job is to capture these into
+  play-listener's non-privacy job is to capture these into
   `rf.story.play/pending-exceptions`. `sensitive?` flags whether the privacy gate
   should drop it before capture."
   [frame-id sensitive?]
@@ -115,8 +115,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-framework-predicate-recognises-the-flag
-  ;; rf2-kuky.8 — Story composes against `rf/sensitive?` directly; the
-  ;; one-line `rf.story.config/sensitive-event?` alias is deleted.
+  ;; Story composes against `rf/sensitive?` directly; there is no
+  ;; `rf.story.config/sensitive-event?` alias.
   (testing "events with :sensitive? true are recognised"
     (is (rf.privacy/sensitive? (sensitive-dispatch-event :v/x [:auth/login])))
     (is (rf.privacy/sensitive? {:sensitive? true})))
@@ -129,8 +129,8 @@
     (is (not (rf.privacy/sensitive? nil)))
     (is (not (rf.privacy/sensitive? "trace event")))
     (is (not (rf.privacy/sensitive? 42))))
-  (testing "a MALFORMED truthy stamp is sensitive — Story's listeners now
-            suppress it, matching what the MCP wire already did"
+  (testing "a MALFORMED truthy stamp is sensitive — Story's listeners
+            suppress it, as the MCP wire does"
     (is (rf.privacy/sensitive? {:sensitive? "true"}))
     (is (rf.privacy/sensitive? {:sensitive? :yes}))
     (is (rf.privacy/sensitive? {:sensitive? 1}))))
@@ -241,14 +241,12 @@
   (is (zero? (rf.story.config/suppressed-count :story.a/b))))
 
 ;; ---------------------------------------------------------------------------
-;; Play listener — the Spec 009 §Privacy egress seam (rf2-luzky)
+;; Play listener — the Spec 009 §Privacy egress seam
 ;;
-;; rf2-luzky folded the `trace-accumulators` dev side-table away; the
-;; play-listener's surviving jobs are the PRIVACY gate (default-drop
+;; The play-listener has two jobs: the PRIVACY gate (default-drop
 ;; `:sensitive?` + bump `rf.story.config/note-suppressed!`) and the synchronous
 ;; handler-exception capture into `rf.story.play/pending-exceptions`. These tests
-;; pin the privacy INVARIANT directly against those observable outputs —
-;; not via the removed side-table accessors:
+;; pin the privacy INVARIANT directly against those observable outputs:
 ;;
 ;;   - a SENSITIVE event is dropped at the gate (the suppressed-events
 ;;     counter bumps; the exception capture never sees it);
@@ -306,7 +304,7 @@
           "the suppressed-events counter stays at zero"))))
 
 (deftest play-listener-captures-non-sensitive-handler-exception
-  (testing "regression: a non-sensitive handler-exception is captured under default settings"
+  (testing "control: a non-sensitive handler-exception is captured under default settings"
     (let [frame-id :story.regression/v
           build    @#'rf.story.play/listener-for-frame
           listen   (build frame-id)
@@ -336,7 +334,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest recorder-listener-redacts-sensitive-dispatches
-  (testing "by default the recorder records-but-redacts :sensitive? events (rf2-hdadz)"
+  (testing "by default the recorder records-but-redacts :sensitive? events"
     (rf.story.recorder/clear!)
     (rf.story.recorder/start-recording! :story.recorder/sens 0)
     (let [listen @#'rf.story.recorder/trace-listener
@@ -375,7 +373,7 @@
                                            [:auth/login {:password "x"}])]
       (listen ev)
       (is (= [[:auth/login {:password "x"}]] (rf.story.recorder/recorded-events))
-          "the captured-events vector now has the sensitive event verbatim")
+          "the captured-events vector holds the sensitive event verbatim")
       (is (zero? (rf.story.config/suppressed-count :story.recorder/sens))))
     (rf.story.recorder/clear!)))
 
@@ -422,7 +420,7 @@
     (reset! @#'rf.story.config/frame-egress-profiles {})))
 
 (deftest recorder-listener-still-captures-non-sensitive
-  (testing "regression: ordinary events still land in the recorder under default settings"
+  (testing "control: ordinary events land in the recorder under default settings"
     (rf.story.recorder/clear!)
     (rf.story.recorder/start-recording! :story.recorder/plain 0)
     (let [listen @#'rf.story.recorder/trace-listener
@@ -433,24 +431,23 @@
     (rf.story.recorder/clear!)))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-cmjly3 finding 13 — recordable-event? must gate on the ORIGINAL id,
-;; not the [:rf/redacted] placeholder
+;; recordable-event? gates on the ORIGINAL id, not the [:rf/redacted]
+;; placeholder
 ;;
-;; The redact branch used to call `record-event!` with the FIXED
-;; `redacted-event` placeholder (`[:rf/redacted]`), so `append`'s internal
-;; `recordable-event?` filter ran against `[:rf/redacted]` — always
-;; "recordable" (its ns "rf" matches none of `recordable-event?`'s
-;; internal-namespace exclusions) — never against the ORIGINAL event id. A
-;; sensitive `:rf.assert/*` / `:rf.story/*` event therefore recorded a
-;; `[:rf/redacted]` row instead of being dropped, contradicting the
-;; listener's own docstring ("a sensitive :rf.assert/* event still gets
-;; dropped, not redacted-and-recorded, because assertions are an authored
-;; not observed surface"). The fix tests `recordable-event?` on the
-;; ORIGINAL `(:rf.event/v tags)` BEFORE the redact/pass fork.
+;; The redact branch calls `record-event!` with the FIXED `redacted-event`
+;; placeholder (`[:rf/redacted]`), which `append`'s internal
+;; `recordable-event?` filter always passes (its ns "rf" matches none of
+;; `recordable-event?`'s internal-namespace exclusions). So the listener
+;; tests `recordable-event?` on the ORIGINAL `(:rf.event/v tags)` BEFORE the
+;; redact/pass fork; otherwise a sensitive `:rf.assert/*` / `:rf.story/*`
+;; event would record a `[:rf/redacted]` row instead of being dropped,
+;; contradicting the listener's own docstring ("a sensitive :rf.assert/*
+;; event still gets dropped, not redacted-and-recorded, because assertions
+;; are an authored not observed surface").
 ;; ---------------------------------------------------------------------------
 
 (deftest recorder-listener-drops-sensitive-non-recordable-event-rf2-cmjly3
-  (testing "rf2-cmjly3 finding 13: a sensitive :rf.assert/* event is DROPPED
+  (testing "a sensitive :rf.assert/* event is DROPPED
             entirely — no [:rf/redacted] row, and the suppressed-events
             counter (the UI's 'count of redacted rows actually shown' hint)
             does not bump for a row that was never recorded"
@@ -461,14 +458,14 @@
                                            [:rf.assert/path-equals [:n] 1])]
       (listen ev)
       (is (= [] (rf.story.recorder/recorded-events))
-          "the sensitive :rf.assert/* event is dropped — pre-fix this
-           recorded a spurious [:rf/redacted] row")
+          "the sensitive :rf.assert/* event is dropped — no spurious
+           [:rf/redacted] row")
       (is (zero? (rf.story.config/suppressed-count :story.recorder/sens-drop))
           "no row recorded => no suppressed-count bump either"))
     (rf.story.recorder/clear!)))
 
 (deftest recorder-listener-drops-sensitive-non-recordable-story-internal-event-rf2-cmjly3
-  (testing "rf2-cmjly3 finding 13 — the same drop applies to a sensitive
+  (testing "the same drop applies to a sensitive
             :rf.story/* internal-helper event, the OTHER non-recordable
             namespace class"
     (rf.story.recorder/clear!)
@@ -482,9 +479,8 @@
     (rf.story.recorder/clear!)))
 
 (deftest recorder-listener-still-redacts-sensitive-recordable-event-rf2-cmjly3
-  (testing "rf2-cmjly3 finding 13 — no regression: an ORDINARY sensitive
-            user event (a recordable id) still record-but-redacts exactly
-            as before the fix"
+  (testing "control: an ORDINARY sensitive user event (a recordable id)
+            is recorded-but-redacted"
     (rf.story.recorder/clear!)
     (rf.story.recorder/start-recording! :story.recorder/sens-redact 0)
     (let [listen @#'rf.story.recorder/trace-listener
@@ -496,7 +492,7 @@
     (rf.story.recorder/clear!)))
 
 ;; ---------------------------------------------------------------------------
-;; Retroactive scrub on egress-profile narrowing (rf2-lqmje / EP-0015 rf2-3t26eh)
+;; Retroactive scrub on egress-profile narrowing (EP-0015)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: narrowing the local-render
@@ -511,8 +507,8 @@
   (testing "session-pin reveal → redact transition invokes registered callbacks (with nil frame-id)"
     (let [called?  (atom false)
           token-id ::scrub-callback-test]
-      ;; rf2-6z4znr — callbacks now receive the narrowed frame-id; a
-      ;; session-pin narrow passes nil (scrub-all signal).
+      ;; Callbacks receive the narrowed frame-id; a session-pin narrow
+      ;; passes nil (scrub-all signal).
       (rf.story.config/register-toggle-off-callback! token-id (fn [_frame-id] (reset! called? true)))
       (try
         (rf.story.config/set-egress-profile! :rf.egress/local-raw)
@@ -561,10 +557,10 @@
           (rf.story.config/unregister-toggle-off-callback! token-good))))))
 
 ;; ---------------------------------------------------------------------------
-;; Per-(tool,frame) egress visibility (EP-0015 issue 7, rf2-6z4znr)
+;; Per-(tool,frame) egress visibility (EP-0015 issue 7)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The acceptance core: frame A can be local-raw while frame B stays
+;; The contract: frame A can be local-raw while frame B stays
 ;; local-redacted, across every Story listener seam; narrowing one frame
 ;; scrubs only that frame; a frameless / unknown event fails closed.
 

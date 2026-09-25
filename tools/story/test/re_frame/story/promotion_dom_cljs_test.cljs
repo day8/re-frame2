@@ -1,5 +1,5 @@
 (ns re-frame.story.promotion-dom-cljs-test
-  "DOM-driven acceptance for rf2-5vmog: a variant whose `:script` types,
+  "DOM-driven acceptance: a variant whose `:script` types,
   clicks, waits and asserts, and which declares a terminal assertion,
   promotes through the Test-mode dialog's own capture into a regression
   that fails for the same reason, passes once the app is fixed, and fails
@@ -111,7 +111,7 @@
   (testing "a DOM-driven source promoted through the Test-mode dialog's capture
             fails under the fault with its source's verdict, passes by all
             three of its assertions once the app is fixed, and fails again
-            when the fault returns (rf2-5vmog)"
+            when the fault returns"
     (when (browser?)
       (async done
         (let [root   (mount-form!)

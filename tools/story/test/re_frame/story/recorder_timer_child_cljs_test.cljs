@@ -1,8 +1,8 @@
 (ns re-frame.story.recorder-timer-child-cljs-test
-  "rf2-tbik1 — a recorded `:dispatch-later` child runs ONCE when the
+  "A recorded `:dispatch-later` child runs ONCE when the
   recording is replayed in the browser runtime.
 
-  rf2-3x7nj.30.2 stopped the recorder capturing a child its root's handler
+  The recorder does not capture a child its root's handler
   dispatched, keyed on the `:rf.trace/parent-dispatch-id` tag, because
   replaying the root re-dispatches the child. A `:dispatch-later` child is
   re-armed by the replayed root in exactly the same way, but in CLJS its
@@ -17,7 +17,7 @@
   recording's seed db), replays it as a registered variant, and counts the
   child handler's runs.
 
-  rf2-mcjdg adds an unrelated dispatch between the root and the child,
+  The second test adds an unrelated dispatch between the root and the child,
   under the export's 50ms wait threshold. Its gap folds out of the script,
   but on replay it runs straight after the root that re-armed the timer, so
   the child's wait must still cover the whole delay from there, not only
@@ -56,7 +56,7 @@
   (* 4 later-ms))
 
 (def ^:private other-gap-ms
-  "rf2-mcjdg: when the unrelated dispatch lands after the root. Under the
+  "When the unrelated dispatch lands after the root. Under the
   50ms threshold, so the export folds its gap out, and far enough before
   the child that a wait measured from it falls short of `later-ms`."
   30)
@@ -101,7 +101,7 @@
 (defn- after-ms [ms f] (js/setTimeout f ms))
 
 (deftest recorded-dispatch-later-child-runs-once-on-replay
-  (testing "rf2-tbik1: replaying a root re-arms its :dispatch-later timer, so
+  (testing "replaying a root re-arms its :dispatch-later timer, so
             the recording must not also carry the timer's child as a step of
             its own — and it must still wait for that timer, or the export's
             auto-assert, which runs straight after the root, reads the db
@@ -166,7 +166,7 @@
   (some #(when (= event-id (first (:event %))) (:t %)) entries))
 
 (deftest a-short-gap-event-does-not-shorten-the-timer-wait
-  (testing "rf2-mcjdg: an unrelated dispatch between the root and its
+  (testing "an unrelated dispatch between the root and its
             :dispatch-later child, under the wait threshold, folds out of the
             script — and replayed it runs straight after the re-armed root, so
             a wait measured from it reaches the auto-assert before the timer"

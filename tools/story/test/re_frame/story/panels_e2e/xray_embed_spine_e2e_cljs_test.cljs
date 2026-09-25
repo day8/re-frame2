@@ -1,37 +1,34 @@
 (ns re-frame.story.panels-e2e.xray-embed-spine-e2e-cljs-test
-  "Regression coverage for rf2-9k43e — the Story RHS Xray embed showed
-  ONLY the final/focused event: no event spine, no way to navigate to a
-  variant's PAST events in-place. The only workaround was the
-  Ctrl+Shift+C / `Pop out` full-shell escape hatch (which DOES carry the
-  L2 event spine).
+  "Coverage for the Story RHS Xray embed's event spine.
 
-  Mike RULED scope = A (2026-06-01): add the COMPACT, clickable
-  recent-events SPINE to the embed so past events/epochs are focusable
-  IN-PLACE; keep the full-shell pop-out for deep history. The spine
-  REUSES the full-shell L2 component (`shell/event-list`) via the new
+  The embed carries a COMPACT, clickable recent-events SPINE so a
+  variant's PAST events/epochs are focusable IN-PLACE; the
+  Ctrl+Shift+C / `Pop out` full-shell escape hatch (which carries the
+  full L2 event spine) serves deep history. The spine REUSES the
+  full-shell L2 component (`shell/event-list`) via
   `panels/mount-event-spine!` — NOT a parallel spine.
 
-  This file pins both halves of the ruling:
+  This file pins both halves:
 
   ## 1 — the embed RENDERS the spine band (hiccup level)
 
   The expanded embed's hiccup must carry the `story-xray-spine-band`
   region + its `:event-spine` mount slot (the `panel-host-component`
-  argv driving `mount-event-spine!`). Pre-fix neither existed. Collapsing
-  the embed drops the spine too (lazy-diff deferral, rf2-ba86n.19).
+  argv driving `mount-event-spine!`). Collapsing the embed drops the
+  spine too (lazy-diff deferral, spec/018 §10).
 
   ## 2 — selecting a PAST event focuses it IN-PLACE (contract level)
 
-  Per project policy regressions pin at the CLJS contract layer, not
-  Playwright (modelled on `sync_epoch_focus_e2e_cljs_test` for rf2-mdpfz).
+  Regressions pin at the CLJS contract layer, not Playwright (modelled
+  on `sync_epoch_focus_e2e_cljs_test`).
   We seed THREE real host cascades through the trace bus, then dispatch
   the EXACT event the spine row's body-click fires
   (`:rf.xray/focus-event <past-id> <frame>`) for a PAST cascade — and
   assert the spine sub `:rf.xray/focus` AND the focus-keyed panel subs
   (`:rf.xray/app-db-current+diff`, `:rf.xray/epoch-pipeline`) re-bind to
-  the CHOSEN PAST epoch, not the latest. Pre-fix the embed had no
-  affordance to drive that focus from a past row at all; this is the
-  behaviour the inline spine unlocks."
+  the CHOSEN PAST epoch, not the latest. Without the inline spine the
+  embed would have no affordance to drive that focus from a past row
+  at all."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -57,9 +54,9 @@
 ;; ---- 1 · the embed renders the spine band (hiccup level) ----------------
 
 (deftest mount-event-spine-resolves-to-callable
-  (testing "rf2-9k43e — `:event-spine` resolves to a callable mount-fn
+  (testing "`:event-spine` resolves to a callable mount-fn
             (the isolated L2 `shell/event-list` via mount-event-spine!),
-            reusing the same require/case shape every chip panel uses"
+            reusing the same descriptor lookup every chip panel uses"
     (is (fn? (rf.story.ui.xray-embed/mount-fn-for :event-spine))
         "mount-fn-for :event-spine returned a callable mount-fn")
     (testing "the spine is NOT a chip-row panel (not in the catalog)"
@@ -67,7 +64,7 @@
           ":event-spine is a persistent band, not a chip-selected panel"))))
 
 (deftest expanded-embed-renders-spine-band
-  (testing "rf2-9k43e — an EXPANDED embed renders the recent-events spine
+  (testing "an EXPANDED embed renders the recent-events spine
             band ABOVE the chip-selected panel, with the :event-spine
             mount slot driving mount-event-spine!"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -87,8 +84,8 @@
                                    node))
                                (rf.story.test-helpers.e2e-multi-frame/hiccup-seq band))]
           (is (some? band)
-              "spine band present in the expanded embed (rf2-9k43e
-               `[data-test=\"story-xray-spine-band\"]`)")
+              "spine band present in the expanded embed
+               (`[data-test=\"story-xray-spine-band\"]`)")
           (is (some? caption)
               "spine caption present so the affordance reads as the
                variant's clickable recent-events timeline")
@@ -97,7 +94,7 @@
                mount-event-spine! (the isolated full-shell L2 list)"))))))
 
 (deftest collapsed-embed-drops-spine-band
-  (testing "rf2-9k43e + rf2-ba86n.19 — collapsing the embed drops the
+  (testing "collapsing the embed drops the
             spine band too (no spine mount → no L2 compute) and restores
             it on expand"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -124,7 +121,7 @@
 ;; Driving that event for a PAST cascade IS clicking a past spine row.
 ;; We assert the spine sub + the focus-keyed panel subs follow it
 ;; in-place to the chosen PAST epoch — the behaviour the inline spine
-;; unlocks (pre-fix the embed only ever surfaced the latest/head event).
+;; provides.
 
 (defn- seed-three-host-cascades! []
   ;; THREE real dispatches through the trace bus → three cascades /
@@ -134,7 +131,7 @@
   (xray-e2e/dispatch-host [:counter/inc]))  ; value 6 — HEAD
 
 (deftest spine-row-click-focuses-past-event-in-place
-  (testing "rf2-9k43e — dispatching the spine row's focus event for a
+  (testing "dispatching the spine row's focus event for a
             PAST cascade re-binds :rf.xray/focus to that PAST epoch
             (NOT the head); the focus-keyed panels follow in-place"
     (xray-e2e/with-host-and-xray-frames
@@ -159,8 +156,7 @@
               "precondition: the chosen PAST cascade is not the head")
           ;; Baseline: focus tracks the HEAD (LIVE) before any click.
           (is (= head-id (:dispatch-id (xray-e2e/sub-xray [:rf.xray/focus])))
-              "baseline: the spine focus tracks the latest/head event
-               (the only thing the pre-fix embed ever surfaced)")
+              "baseline: the spine focus tracks the latest/head event")
           ;; Click a PAST spine row == dispatch its body-click event.
           (xray-e2e/dispatch-xray [:rf.xray/focus-event past-id past-frame])
           (let [focus (xray-e2e/sub-xray [:rf.xray/focus])]

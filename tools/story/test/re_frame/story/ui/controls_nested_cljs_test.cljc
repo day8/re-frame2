@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.controls-nested-cljs-test
-  "Tests for the Story Controls panel's nested Malli walker (rf2-agshe).
+  "Tests for the Story Controls panel's nested Malli walker.
 
   The walker recurses into `:map` / `:vector` / `:tuple` / `:set`
   schemas — these tests pin the pure-data widget-spec emission, the
@@ -10,7 +10,7 @@
 
   - **JVM + CLJS** (`state.cljc` / `args.cljc` are `.cljc`) — the
     path-aware `set-cell-override` fn (plus its `-scalar` wrapper) in
-    isolation, AND the rf2-mzfh9c edit -> `resolve-args` round-trip: a
+    isolation, AND the edit -> `resolve-args` round-trip: a
     nested-control edit against a REGISTERED variant's real args,
     resolved back through `rf.story.args/resolve-args` the way the canvas
     actually reads them. `rf.story/reg-variant` + `rf.story.args/resolve-args` are
@@ -40,8 +40,7 @@
   ;; event/registrar entries a LIVE variant run needs; nothing in this
   ;; file dispatches a run — the JVM+CLJS round-trip tests below only
   ;; read `rf.story/reg-variant` bodies back through `rf.story.args/resolve-args`
-  ;; (plain registrar data, no frame involved) — so it stays CLJS-only,
-  ;; matching what this file has always needed.
+  ;; (plain registrar data, no frame involved) — so it stays CLJS-only.
   #?(:cljs (rf.story/install-canonical-vocabulary!))
   (test-fn))
 
@@ -123,7 +122,7 @@
 
 #?(:cljs
    (deftest infer-widget-enum-still-scalar
-     (testing "scalar :enum path survives the new vector dispatch"
+     (testing "the scalar :enum path is not caught by the vector dispatch"
        (let [w (rf.story.ui.controls/infer-widget [:enum :a :b :c])]
          (is (= :select (:widget w)))
          (is (= [:a :b :c] (:options w)))))))
@@ -135,15 +134,15 @@
 
 ;; ---- CLJS: resolve-argtypes from the component view's props schema -------
 ;;
-;; rf2-din8u / rf2-vnedo — the auto-derivation schema is the COMPILED
+;; The auto-derivation schema is the COMPILED
 ;; variant-plan's `[:world :view-args-schema]`, resolved first-match
 ;; `[:rf/props :schema]` off the variant's `:component` VIEW metadata. These
 ;; exercise the PRODUCTION path: a REGISTERED view carries the props schema
 ;; under `:rf/props`; the variant points its `:component` at it; the plan
 ;; compiles via the DEFAULT side-table lookup (no `:lookup` / `:view-lookup`
-;; arg). This is the CI-blind-spot gate — the pre-ruling resolver read
-;; `:schema` off the bare variant body, which both missed `:rf/props` AND
-;; never saw the compiled `:component`.
+;; arg). A resolver reading `:schema` off the bare variant body would both
+;; miss `:rf/props` AND never see the compiled `:component`; only the
+;; production path shows that.
 
 #?(:cljs
    (deftest resolve-argtypes-picks-up-component-props-schema
@@ -202,7 +201,7 @@
          ;; :items vector value → :repeater
          (is (= :repeater (-> t :items :widget)))))))
 
-;; ---- rf2-wb4y3: 2-arity threads precomputed eff-args ---------------------
+;; ---- 2-arity threads precomputed eff-args --------------------------------
 
 #?(:cljs
    (deftest resolve-argtypes-2-arity-threads-eff-args
@@ -228,7 +227,7 @@
 
 #?(:cljs
    (deftest resolve-argtypes-1-arity-still-resolves-internally
-     (testing "the 1-arity overload still works for non-render callers
+     (testing "the 1-arity overload serves non-render callers
                (tests, docs, etc.) — it calls rf.story.args/resolve-args itself"
        (rf.story/reg-variant :story.nest/v5
          {:args   {:title "hi"}
@@ -262,17 +261,16 @@
 (deftest set-cell-override-tolerates-integer-indices
   (testing "vector indices are valid path elements — WITHOUT a base seed
             (the caller supplied none) the missing collection vivifies
-            as a real VECTOR (rf2-mzfh9c), NOT the int-keyed map plain
-            `assoc-in` would have minted for a missing intermediate value"
+            as a real VECTOR, NOT the int-keyed map plain `assoc-in`
+            would mint for a missing intermediate value"
     (let [s  rf.story.ui.state/default-shell-state
           s1 (rf.story.ui.state/set-cell-override s :story.a/x [:items 0] "x")]
       (is (= "x" (get-in s1 [:cell-overrides :story.a/x :items 0])))
       (is (vector? (get-in s1 [:cell-overrides :story.a/x :items]))
-          "rf2-mzfh9c: a real vector — not {0 \"x\"}, the collection-kind
-           corruption the bug reported")
+          "a real vector — not {0 \"x\"}, a collection-kind corruption")
       (is (= ["x"] (get-in s1 [:cell-overrides :story.a/x :items]))))))
 
-;; ---- rf2-mzfh9c: kind-aware vivification (nested :vector/:set edit) -----
+;; ---- kind-aware vivification (nested :vector/:set edit) -----------------
 ;;
 ;; Editing an EXISTING entry of a not-yet-overridden `:vector`/`:set` arg
 ;; is the most common controls-panel interaction (open panel, edit an
@@ -283,7 +281,7 @@
 ;; — and walks it via `assoc-in-kind-aware` instead of raw `assoc-in`.
 
 (deftest set-cell-override-with-base-seeds-missing-vector-preserving-siblings
-  (testing "rf2-mzfh9c: a `base` seed lets a first-ever edit of an
+  (testing "a `base` seed lets a first-ever edit of an
             unoverridden vector preserve sibling entries instead of
             truncating to a singleton or corrupting into a map"
     (let [s  rf.story.ui.state/default-shell-state
@@ -302,9 +300,9 @@
       (is (= #{"x" "b"} (get-in s1 [:cell-overrides :story.a/x :items]))))))
 
 (deftest set-cell-override-set-override-already-established-does-not-throw
-  (testing "rf2-mzfh9c: editing an entry when the OVERRIDE (not just the
-            base) is already a real set does not throw — the reported
-            'assoc undefined on PersistentHashSet' failure mode"
+  (testing "editing an entry when the OVERRIDE (not just the
+            base) is already a real set does not throw — no
+            'assoc undefined on PersistentHashSet' failure"
     (let [s0 rf.story.ui.state/default-shell-state
           s1 (rf.story.ui.state/set-cell-override-scalar s0 :story.a/x :items #{"a" "b"})
           s2 (rf.story.ui.state/set-cell-override s1 :story.a/x [:items 0] "x")]
@@ -317,7 +315,7 @@
             level: the nested SET is seeded from base so its sibling
             entries survive (replace-semantics), while the enclosing MAP
             stays MINIMAL — its unrelated :other key is NOT written into
-            the override (rf2-57ikh), because deep-merge resolution
+            the override, because deep-merge resolution
             restores unrelated map keys from base at read time"
     (let [s  rf.story.ui.state/default-shell-state
           ;; :group has an unrelated sibling key + a nested :tags SET,
@@ -331,18 +329,18 @@
            deep-merge read against base restores it, so pinning it in the
            override would be redundant and would shadow later base changes"))))
 
-;; ---- rf2-mzfh9c: the edit -> resolve-args ROUND TRIP ---------------------
+;; ---- the edit -> resolve-args ROUND TRIP ---------------------------------
 ;;
 ;; The isolated set-cell-override tests above pin the shell-state write
 ;; shape; they never prove the write actually SURVIVES a real
 ;; `rf.story.args/resolve-args` deep-merge read against a REGISTERED variant's
 ;; base args — the exact seam `args.cljc`'s documented 'vectors/sets
-;; replace, not merge element-wise' semantics corrupted before this fix.
+;; replace, not merge element-wise' semantics can corrupt.
 ;; `rf.story/reg-variant` + `rf.story.args/resolve-args` are plain registrar reads
 ;; (no frame / dispatch), so this tier runs on JVM + CLJS.
 
 (deftest set-cell-override-edit-vector-entry-then-resolve-args-round-trip
-  (testing "rf2-mzfh9c: editing ONE entry of a registered variant's
+  (testing "editing ONE entry of a registered variant's
             un-overridden :vector arg, seeded the SAME way the controls
             panel seeds it (`rf.story.args/resolve-args` minus cell-overrides),
             round-trips through `resolve-args` as the sibling-preserving
@@ -365,10 +363,10 @@
       (is (= ["a" "X" "c"] (:items eff))
           "resolve-args' deep-merge (vectors replace whole) reflects the
            SAME sibling-preserving vector — the edit->resolve-args round
-           trip the isolated set-cell-override tests never proved"))))
+           trip the isolated set-cell-override tests do not prove"))))
 
 (deftest set-cell-override-edit-set-entry-then-resolve-args-round-trip
-  (testing "rf2-mzfh9c: the same round-trip for a :set-kind arg — the
+  (testing "the same round-trip for a :set-kind arg — the
             override stays a real set (matching the schema's declared
             kind), and a SECOND edit against the now-established set
             override does not throw"
@@ -401,7 +399,7 @@
              it with \"y\" leaves {y x}")))))
 
 (deftest set-cell-override-edit-nested-map-key-then-resolve-args-round-trip
-  (testing "rf2-57ikh: editing ONE key of a registered variant's nested
+  (testing "editing ONE key of a registered variant's nested
             :map arg writes ONLY that key into the override (its map
             siblings stay unwritten), yet `resolve-args`' deep-merge
             restores the untouched siblings from base — the edit->read
@@ -420,7 +418,7 @@
           "precondition: the registered base map")
       (is (= {:title "Edited"} (:settings overrides))
           "only the edited :title key is written; the :enabled? sibling
-           stays OUT of the override (rf2-57ikh)")
+           stays OUT of the override")
       (is (= {:title "Edited" :enabled? true} (:settings eff))
           "resolve-args' deep-merge restores the untouched :enabled?
            sibling from base while reflecting the :title edit"))))
@@ -447,7 +445,7 @@
       (is (= {:author "bob"}
              (get-in s2 [:cell-overrides :story.a/x :meta]))))))
 
-;; ---- JVM + CLJS: per-arg clear-cell-override (rf2-ba86n.5) ---------------
+;; ---- JVM + CLJS: per-arg clear-cell-override -----------------------------
 
 (deftest clear-cell-override-drops-one-arg-keeps-others
   (testing "clear-cell-override reverts a single arg-key, leaving the
@@ -484,7 +482,7 @@
 (deftest clear-cell-override-drops-matching-repeater-row-ids
   (testing "clearing a collection arg drops only the repeater row-id
             bookkeeping anchored on that arg-key; sibling collection
-            row-ids survive (rf2-c8kfy lockstep)"
+            row-ids survive (the two stay in lockstep)"
     (let [s0 rf.story.ui.state/default-shell-state
           ;; Two collection args under one variant, each with row ids.
           s1 (-> s0

@@ -2,10 +2,10 @@
   "End-to-end wiring contract: variant selection seeds BOTH Xray's
   trace-buffer AND its target-frame in one selection edge.
 
-  ## Why this file exists alongside the two #1822 unit tests
+  ## Why this file exists alongside two unit tests
 
-  PR #1822 fixed the empty-Xray-on-Story-RHS bug with two cooperating
-  changes, each pinned by its own unit test:
+  Xray on Story's RHS shows the selected variant only when two cooperating
+  halves both work, and each half is pinned by its own unit test:
 
   - Xray side (`panels-mount-cljs-test`) — mounting a panel routes
     through `mount/ensure-xray-frame!`, so the first-mount hook table
@@ -25,9 +25,9 @@
   actually dispatches `:setup` → the user selects it → Xray observes
   BOTH (a) the variant's cascade in its trace-buffer AND (b) its
   target-frame re-oriented to the variant + epoch-history hydrated.
-  That conjunction IS the empty-Xray contract — the bug was that a
-  selection produced an empty buffer AND a stale target-frame
-  simultaneously. This file pins the conjunction.
+  That conjunction IS the empty-Xray contract — an empty buffer or a stale
+  target-frame after a selection is an empty RHS. This file pins the
+  conjunction.
 
   ## What it drives
 
@@ -146,20 +146,19 @@
 ;; ---- the conjunction contract -------------------------------------------
 
 (deftest variant-selection-seeds-trace-buffer-and-target-frame
-  (testing "Selecting a variant whose `:setup` actually dispatch
+  (testing "Selecting a variant whose `:setup` actually dispatches
             (`:counter/initialise`) seeds BOTH halves of the Xray
             observation contract in ONE selection edge:
 
               (a) `:rf.xray/target-frame` re-orients to the variant-id
-                  (the Story-side #1822 fix), AND
+                  (the Story-side selection-watcher), AND
               (b) the variant's `:counter/initialise` cascade lands in
-                  Xray's trace-buffer / cascades (the trace-bus →
-                  buffer wiring the Xray-side #1822 fix restored).
+                  Xray's trace-buffer / cascades (the Xray-side
+                  trace-bus → buffer wiring).
 
-            Pre-fix the RHS rendered empty Event + App-DB panels because
-            the buffer was empty AND the target-frame was stale at the
-            same time. This pins the conjunction the two #1822 unit
-            tests cover only separately."
+            An empty buffer or a stale target-frame renders empty Event +
+            App-DB panels on the RHS. This pins the conjunction the two
+            unit tests cover only separately."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories register-counter-story!}
       (fn []
@@ -209,8 +208,8 @@
 (deftest switching-variants-re-seeds-both-slots
   (testing "Switching from one variant to another re-seeds BOTH the
             trace-buffer view (cascades now include the second variant's
-            event) AND the target-frame — the empty-RHS bug would
-            reappear on every switch if either half failed to re-fire."
+            event) AND the target-frame — the RHS would render empty on
+            every switch if either half failed to re-fire."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
@@ -247,23 +246,22 @@
           (finally
             (remove-selection-watcher!)))))))
 
-;; ---- the boot race (rf2-88f1) -------------------------------------------
+;; ---- the boot race -------------------------------------------------------
 
 (deftest a-selection-edge-with-xrays-frame-absent-still-lands
-  (testing "rf2-88f1 — the shell's re-orientation goes through Xray's
+  (testing "the shell's re-orientation goes through Xray's
             host-facing facade (`core/set-target-frame!`), which SEATS
             `:rf/xray` before it dispatches. So a selection edge that lands
             while Xray's frame is absent still lands its intent.
 
             That window is not hypothetical. Xray seats `:rf/xray` from its
-            preload's readiness loop on a bounded 50ms poll (rf2-avi7), and
-            Story's boot runs `rf/init!`, mounts the shell and selects a
-            variant before the next tick — so the very first selection of
-            every page fell inside it. Pre-fix the shell hand-rolled
-            `(rf/with-frame :rf/xray (rf/dispatch-sync
-            [:rf.xray/set-target-frame now]))`, which recovered-but-emitted
-            `:rf.error/frame-destroyed` and dropped the re-orientation
-            entirely: measured twice per Story feature-load page.
+            preload's readiness loop on a bounded 50ms poll, and Story's
+            boot runs `rf/init!`, mounts the shell and selects a variant
+            before the next tick — so the very first selection of every
+            page falls inside it. A hand-rolled `(rf/with-frame :rf/xray
+            (rf/dispatch-sync [:rf.xray/set-target-frame now]))` would
+            recover-but-emit `:rf.error/frame-destroyed` and drop the
+            re-orientation entirely.
 
             Destroying the frame the harness seated reproduces exactly the
             state that window leaves — Xray addressable but not writable —
@@ -283,8 +281,8 @@
                 "the selection edge seated Xray's frame through the facade")
             (flush-xray-queue!)
             (is (empty? (frame-destroyed-records seen))
-                "and nothing recovered-but-emitted — this is the pair of
-                 console errors the Story feature-load gate was carrying"))
+                "and nothing recovered-but-emitted — no
+                 `:rf.error/frame-destroyed` reaches the console"))
           (rf/with-frame :rf/xray
             (is (= variant-id @(rf/subscribe [:rf.xray/target-frame]))
                 "the re-orientation landed rather than being dropped"))

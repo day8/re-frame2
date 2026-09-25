@@ -1,5 +1,5 @@
 (ns re-frame.story.egress-fail-closed-test
-  "rf2-kuky.6 — Story's two record-don't-throw redaction catches FAIL CLOSED.
+  "Story's two record-don't-throw redaction catches FAIL CLOSED.
 
   ## The hazard
 
@@ -11,15 +11,13 @@
     - `re-frame.story.error/elide-ex-data` — a captured `ex-data` map.
 
   Both wrap the walk in a catch, because a redaction failure must never
-  break an assertion or lose an error record. Both catches USED TO RETURN
-  THE RAW VALUE. That was harmless while the walker could not reject its
-  opts map at all — the only way in was a genuine walk error.
+  break an assertion or lose an error record.
 
-  rf2-kuky.6 CLOSES the walker's opts map, which turns a stale or
-  misspelled policy key at either site into a THROW. A throw that returns
-  the raw value converts a spelling mistake into a leak of exactly the
-  payload the projection exists to protect — and silently, because the
-  catch is there precisely so nothing surfaces.
+  The walker's opts map is CLOSED, so a stale or misspelled policy key at
+  either site is a THROW. A catch that returned the raw value would
+  convert a spelling mistake into a leak of exactly the payload the
+  projection exists to protect — and silently, because the catch is there
+  precisely so nothing surfaces.
 
   ## What is pinned
 
@@ -44,14 +42,14 @@
 
 (defn- throwing-walker
   "Stand in for `elide-wire-value` rejecting its opts map, which is what a
-  stale key at these sites now produces."
+  stale key at these sites produces."
   [_v _opts]
   (throw (ex-info "unrecognised egress opts key(s) [:include-sensitive?]"
                   {:rf.error/id  :rf.error/bad-egress-opts
                    :unknown-keys [:include-sensitive?]})))
 
 (deftest assertion-redaction-fails-closed-on-a-walker-throw
-  (testing "rf2-kuky.6 — a rejected opts key at the assertion projection site
+  (testing "a rejected opts key at the assertion projection site
             yields the sentinel, NEVER the raw asserted value."
     (with-redefs [rf.elision/elide-wire-value throwing-walker]
       (is (= rf.privacy/redacted-sentinel
@@ -68,7 +66,7 @@
              (redact-at :app/main [:auth :password] {:password "s3cret"}))))))
 
 (deftest ex-data-projection-fails-closed-on-a-walker-throw
-  (testing "rf2-kuky.6 — a rejected opts key at the error-projection site
+  (testing "a rejected opts key at the error-projection site
             yields the sentinel, NEVER the raw `ex-data`."
     (with-redefs [rf.elision/elide-wire-value throwing-walker]
       (is (= rf.privacy/redacted-sentinel
@@ -77,9 +75,9 @@
             walker behaves."
     (with-redefs [rf.elision/elide-wire-value (fn [v _opts] v)]
       (is (= {:token "s3cret"} (elide-ex-data :app/main {:token "s3cret"})))))
-  (testing "the pre-existing frameless / nil-data pass-throughs are UNCHANGED:
-            they short-circuit BEFORE the walk, so they were never the
-            leak path this closes. `ex-data` with no frame in hand is
+  (testing "the frameless / nil-data pass-throughs short-circuit BEFORE the
+            walk, so a walker throw cannot reach them. `ex-data` with no
+            frame in hand is
             structural framework metadata (`:rf.error/id`, `:where`), not
             app-db-sourced, and walking it frameless would fail closed and
             wrongly redact the whole map."

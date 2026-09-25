@@ -1,8 +1,8 @@
 (ns re-frame.story.test-helpers.e2e-multi-frame
-  "Multi-frame end-to-end test harness for Story (rf2-piucm).
+  "Multi-frame end-to-end test harness for Story.
 
   Mirrors the Xray harness at
-  `day8.re-frame2-xray.test-helpers.e2e-multi-frame` (rf2-7icrs).
+  `day8.re-frame2-xray.test-helpers.e2e-multi-frame`.
   Story is structurally analogous to Xray — another re-frame2 tool
   that observes / embeds a host. The host here is a Story VARIANT
   frame (each `run-variant` call allocates one); the observer is the
@@ -27,10 +27,9 @@
   This helper exposes:
 
   - `with-story-and-xray-frames` — install Story canonical vocab +
-    Xray under `:rf/xray`, run body, tear down. Used for surfaces
-    1 + 6 (Xray-in-Story embed + panel routing) where the test needs
-    both Story's variant-allocation lifecycle AND Xray's trace-bus
-    pipeline live in one process.
+    Xray under `:rf/xray`, run body, tear down. Used wherever a test
+    needs both Story's variant-allocation lifecycle AND Xray's
+    trace-bus pipeline live in one process.
 
   - `dispatch-into-variant` / `sub-in-variant` — convenience wrappers
     that thread the variant frame id through `rf/dispatch-sync` /
@@ -45,15 +44,15 @@
 
   ## Helper choice — local vs framework
 
-  The framework ships `re-frame.test-helpers` (rf2-irp6j) with a
-  similar hiccup-walking surface — but it (a) keys on `:data-testid`
-  while Story uses `:data-test`, and (b) eagerly invokes ANY fn-headed
-  vector without a class-3 guard, which throws on the Xray embed's
-  `r/create-class`-built `panel-host-component`. The walkers here
-  handle both — `:data-test` lookups via `find-by-data-attr` and
-  graceful-skip of class-3 components when their invocation returns
-  non-hiccup. When a framework-level helper supports both, this ns
-  can shrink to the harness fns.
+  The framework ships `re-frame.test-helpers` with a similar
+  hiccup-walking surface, including `find-by-attr` for a `:data-test`
+  lookup — but its `expand-tree` recognises only a reagent-slim class
+  as class-3 and invokes any other fn-headed vector with no try/catch,
+  so it would call the Xray embed's `reagent.core/create-class`-built
+  `panel-host-component` as a plain fn. The walker here leaves a
+  class-3 vector unexpanded when invoking it throws or returns
+  non-hiccup, which is what lets a positional test find the embed's
+  mount slot.
 
   ## Cost
 
@@ -88,11 +87,10 @@
     machines artefact's ns-load registers this; a full
     `registrar/clear-all!` drops it, and CLJS has no
     `require :reload` to re-fire ns-load side effects. We re-fire
-    the registration manually here. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
-    machine snapshots are durable RUNTIME-DB state, so the framework
-    sub is a runtime-db sub reading
-    `[:rf.runtime/machines :snapshots <id>]` — NOT the retired app-db
-    `:rf/runtime` path.
+    the registration manually here. Machine snapshots are durable
+    RUNTIME-DB state (EP-0001), so the framework sub is a runtime-db
+    sub reading `[:rf.runtime/machines :snapshots <id>]`, not an
+    app-db path.
   - `rf.story/install-canonical-vocabulary!` — register the
     `:rf.story.lifecycle/machine` + helper events the runtime
     depends on.
@@ -105,9 +103,8 @@
   (rf.story/clear-all!)
   ;; Re-register the framework's `:rf/machine` sub after the clear-all.
   ;; Mirrors the `reset-all!` pattern in `re-frame.story-runtime-cljs-test`.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; `[:rf.runtime/machines :snapshots <id>]`, NOT the retired app-db
-  ;; `:rf/runtime` path.
+  ;; A runtime-db sub (EP-0001) reading
+  ;; `[:rf.runtime/machines :snapshots <id>]`, not an app-db path.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -185,9 +182,9 @@
 
 (defn select-variant!
   "Set the shell-state-atom's `:selected-variant` slot — the embed
-  surface reads this to decide which variant to mount. Mirrors what
-  `sidebar/clickVariant` does in the browser without going through
-  the DOM."
+  surface reads this to decide which variant to mount. Mirrors a
+  sidebar variant click (`clickVariant` in `story_browser_scenarios.cjs`)
+  without going through the DOM."
   [variant-id]
   (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant variant-id)
   nil)
@@ -197,11 +194,8 @@
 ;; Story's chrome surfaces are mostly function components. To inspect
 ;; the final rendered hiccup we need to invoke `[fn args...]` nodes
 ;; recursively so the test sees the same tree the renderer would.
-;; `expand-tree` matches the pattern Xray's pills test uses
-;; (`tools/xray/test/.../filters/pills_cljs_test.cljs`) — kept inline
-;; here so this helper is dependency-free at the Story-side seam (the
-;; pattern is small enough not to warrant a framework-level helper
-;; yet; rf2-irp6j tracks promoting it).
+;; `expand-tree` is local rather than `re-frame.test-helpers/expand-tree`
+;; because it leaves a class-3 vector unexpanded (see the ns docstring).
 
 (declare expand-tree)
 

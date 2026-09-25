@@ -1,5 +1,5 @@
 (ns re-frame.story-substrate-isolation-test
-  "JVM test pinning Story's substrate-isolation contract (rf2-k7zdq).
+  "JVM test pinning Story's substrate-isolation contract.
 
   Story's UI-shell substrate is Reagent (`003-Render-Shell.md` §UI shell substrate); per-variant
   multi-substrate rendering (UIx) is OPT-IN via
@@ -88,7 +88,7 @@
 
 (deftest story-source-must-not-require-uix
   (testing "no namespace under tools/story/src/ may :require uix.*
-(rf2-k7zdq — multi-substrate is opt-in via register-substrate!)"
+(multi-substrate is opt-in via register-substrate!)"
     (let [files     (src-files)
           offences  (mapcat offending-requires files)]
       (is (seq files) "expected to find source files under tools/story/src/")

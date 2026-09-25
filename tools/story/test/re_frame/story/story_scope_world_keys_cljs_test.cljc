@@ -1,40 +1,38 @@
 (ns re-frame.story.story-scope-world-keys-cljs-test
-  "rf2-sc5g0 — a STORY-level `:substrates` / `:component` declaration must
-  reach the compiled plan.
+  "A STORY-level `:substrates` / `:component` declaration reaches the
+  compiled plan.
 
-  ## The defect this namespace is the witness for
+  ## Why the plan folds the story in
 
-  `rf.story.plan/variant-plan` folded `:substrates` and `:component` from the
-  VARIANT body and its `:extends` chain only. It resolved the parent story
-  for decorators and tags and for nothing else, so a story that declared
-  either key ONCE — the shape `001-Authoring.md` calls the normal one, the
-  parent carrying the subject while variants vary by args — never had it
-  land on `[:world …]`.
+  `rf.story.plan/variant-plan` folds `:substrates` and `:component` from the
+  VARIANT body and its `:extends` chain first, then from the parent story,
+  so a story that declares either key ONCE — the shape `001-Authoring.md`
+  calls the normal one, the parent carrying the subject while variants vary
+  by args — has it land on `[:world …]`.
 
-  Both slots have a plan-side reader, which is why that was a live defect
-  rather than an untidy plan:
+  Both slots have a plan-side reader, so folding the variant chain alone
+  would be a live defect rather than an untidy plan:
 
   - `canonical/render-host-scope` takes the substrate off
-    `[:world :substrates]` (rf2-3afns) and feeds it to
+    `[:world :substrates]` and feeds it to
     `multi-substrate/single-render-substrate`, which answers the `:reagent`
-    host default for an absent set. So a story declaring `#{:uix}` or
-    `#{:fresco}` painted correctly on the live canvas — which resolves
-    variant-then-story through `multi-substrate/resolve-substrate-set` —
-    and rendered under REAGENT through `render-variant`. Exactly the
-    disagreement rf2-3afns closed, one level up.
+    host default for an absent set. Without the story fold, a story
+    declaring `#{:uix}` or `#{:fresco}` would render under REAGENT through
+    `render-variant`.
   - `rf.story.render/prepare-render` takes the subject off `[:world :component]`
-    with NO fallback of its own, so the same story shape gave
-    `render-variant` a NIL view. Measured, not inferred: before the fix
-    `(get-in (rf.story.render/prepare-render v) [:render-inputs :view])` answered
-    `nil` for a story-level `:component` and the view id for a
+    with NO fallback of its own, so without the story fold the same story
+    shape would give `render-variant` a NIL view:
+    `(get-in (rf.story.render/prepare-render v) [:render-inputs :view])` would
+    answer `nil` for a story-level `:component` and the view id for a
     variant-level one.
 
-  ## Why the fix is on the plan and not on the two readers
+  ## Why the fold is on the plan and not on the readers
 
-  rf2-3afns established that the compiled plan is the one thing the canvas
-  and `render-variant` both read, so they cannot drift. Teaching each
-  reader its own `(or variant story)` walk would have been a third and
-  fourth copy of a precedence rule that already exists in four places.
+  The compiled plan is the one thing the canvas and `render-variant` both
+  read, so they cannot drift — the canvas, `multi-substrate-grid` and every
+  `workspace` cell read both slots off it. Teaching each reader its own
+  `(or variant story)` walk would copy a precedence rule the plan fold
+  already owns.
 
   ## Scope
 
@@ -43,7 +41,7 @@
   `:viewport`, `:background`, `:xray`, `:platforms` and
   `:dispatch-console?` ride the plan for `:plan-hash` + explain and are
   read off the bodies by the UI, which resolves story scope itself. So
-  this is a fix to two slots, not a new inheritance rule for the plan.
+  the fold covers two slots; it is not a new inheritance rule for the plan.
 
   Both arms: `.cljc` with a `-cljs-test` ns, so the JVM runner
   (`clojure -M:test` from `tools/story`) and the shadow `:node-test` build
@@ -77,13 +75,12 @@
                                  (assoc metadata :handler-fn (fn [_] nil))))
 
 ;; ===========================================================================
-;; 1 · :substrates — the bead's exact repro
+;; 1 · :substrates — declared once, on the story
 ;; ===========================================================================
 
 (deftest a-story-level-substrate-reaches-the-plan
-  (testing "rf2-sc5g0 — the assertion that returned `nil`. A story declares
-            the authoring layer once; its variants inherit it and declare
-            nothing. `[:world :substrates]` is where
+  (testing "A story declares the authoring layer once; its variants inherit
+            it and declare nothing. `[:world :substrates]` is where
             `canonical/render-host-scope` reads it, so an absent slot is a
             silent Reagent render."
     (rf.story.registrar/reg-story* :story.scope-sub
@@ -96,9 +93,9 @@
                    [:world :substrates]))))
 
   (testing "and it is the DEFAULT side-table lookup that resolves it — no
-            `:story-lookup` was threaded above. A fix that only worked
+            `:story-lookup` was threaded above. A fold that only worked
             through an injected test double would leave the production path
-            exactly as broken as it was."
+            without it."
     (is (= #{:fresco}
            (:substrates (rf.story.registrar/handler-meta :story :story.scope-sub))))))
 
@@ -106,7 +103,7 @@
   (testing "precedence is variant-chain FIRST, then the story — the same
             order `multi-substrate/resolve-substrate-set` applies, and the
             same order the plan's `:component` fold applies for the subject
-            (which `canvas/canvas-inner` reads, rf2-3x7nj.28.2).
+            (which `canvas/canvas-inner` reads).
             A story-level default must not overwrite a variant that
             deliberately differs."
     (rf.story.registrar/reg-story* :story.scope-win
@@ -120,8 +117,8 @@
 
 (deftest an-extends-chain-still-wins-over-its-story
   (testing "the `:extends` chain is part of the VARIANT layer, so an
-            inherited declaration beats the story's too — the parent-first
-            fold this bead added sits UNDER the chain, not over it"
+            inherited declaration beats the story's too — the story fold
+            sits UNDER the chain, not over it"
     (rf.story.registrar/reg-story* :story.scope-ext
       {:doc "story default" :component :views/probe :substrates #{:reagent}})
     (rf.story.registrar/reg-variant* :story.scope-ext/base
@@ -159,18 +156,16 @@
                         :substrates)))))
 
 ;; ===========================================================================
-;; 2 · :component — the same asymmetry, and it was painting a nil view
+;; 2 · :component — the same fold, or render-variant paints a nil view
 ;; ===========================================================================
 
 (deftest a-story-level-component-reaches-the-plan-and-the-render-inputs
-  (testing "rf2-sc5g0 — `rf.story.render/prepare-render` reads
-            `(get-in plan [:world :component])` with no fallback, so the
-            NORMAL authoring shape (`001-Authoring.md`: the parent story
-            carries the component, variants vary by args) handed
-            `render-variant` a nil view. The canvas was unaffected because
-            it walked to the story itself (`canvas/variant-component`, since
-            replaced by a read of this same `[:world :component]`,
-            rf2-3x7nj.28.2)."
+  (testing "`rf.story.render/prepare-render` reads
+            `(get-in plan [:world :component])` with no fallback, so without
+            the story fold the NORMAL authoring shape (`001-Authoring.md`:
+            the parent story carries the component, variants vary by args)
+            would hand `render-variant` a nil view. The canvas reads this
+            same `[:world :component]`, so it would paint nil too."
     (rf.story.registrar/reg-story* :story.scope-cmp
       {:doc "the parent carries the subject" :component :views/probe})
     (rf.story.registrar/reg-variant* :story.scope-cmp/v
@@ -180,8 +175,8 @@
     (let [prepared (rf.story.render/prepare-render :story.scope-cmp/v)]
       (is (= :prepared (:status prepared)))
       (is (= :views/probe (get-in prepared [:render-inputs :view]))
-          "the subject reaches the host render hook — this is the
-           assertion that answered nil before the fix"))))
+          "the subject reaches the host render hook — without the story
+           fold this reads nil"))))
 
 (deftest a-variant-component-still-overrides-its-story
   (testing "`:component` is documented as the per-variant OVERRIDE
@@ -196,8 +191,8 @@
 
 (deftest no-component-anywhere-leaves-the-slot-absent
   (testing "an events-only variant under a story that names no subject
-            carries no `:component` slot — unchanged, and the row that
-            says the fold did not start inventing one"
+            carries no `:component` slot — the row that says the fold does
+            not invent one"
     (rf.story.registrar/reg-story* :story.scope-cmp-none {:doc "no subject"})
     (rf.story.registrar/reg-variant* :story.scope-cmp-none/v {:doc "no subject"})
     (is (not (contains? (:world (rf.story.plan/variant-plan :story.scope-cmp-none/v))
@@ -208,7 +203,7 @@
 ;; ===========================================================================
 
 (deftest the-view-args-schema-follows-a-story-level-component
-  (testing "rf2-sc5g0 — folding `:component` makes the plan compiler's
+  (testing "folding `:component` makes the plan compiler's
             view-args schema resolution see the story-level subject too.
             That is the point, not a side effect: the explicit-view-input
             contract must not apply or not apply depending on WHICH body

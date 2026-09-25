@@ -1,6 +1,5 @@
 (ns re-frame.story.ui.explain-panel-cljs-test
-  "CLJS-side regression net for the Explain panel (rf2-ba86n.9,
-  spec/020 §4).
+  "CLJS-side regression net for the Explain panel (spec/020 §4).
 
   Pairs with the host-free projection coverage in
   `re_frame/story/ui/explain_panel_test.cljc`. This namespace pins the
@@ -9,8 +8,8 @@
   - **command-palette reachability** — the synthetic `Explain variant`
     command appears in the palette corpus, ranks for an `explain`
     query, and `select-entry!` runs `rf.story.ui.explain-panel/open!` which flips
-    the `:explain` panel-visibility slot on. This is the bead's
-    'reachable from the command palette' acceptance.
+    the `:explain` panel-visibility slot on — the panel's 'reachable
+    from the command palette' contract.
 
   - **render-with-explain state** — for a registered variant the panel
     renders the section inventory (one `story-explain-section` node per
@@ -70,9 +69,9 @@
     (let [entries  (rf.story.ui.command-palette/entries (rf.story.ui.state/registry-snapshot))
           commands (filterv #(= :command (:kind %)) entries)
           explain  (first (filter #(= :explain (:id %)) commands))]
-      ;; rf2-ba86n.6 added the :save-current-as-variant command, so the
-      ;; corpus now carries more than one synthetic command — assert the
-      ;; Explain command is PRESENT rather than the sole entry.
+      ;; The corpus carries more than one synthetic command (the
+      ;; :save-current-as-variant command too) — assert the Explain
+      ;; command is PRESENT rather than the sole entry.
       (is (some? explain) "the Explain command is in the corpus")
       (is (= :explain (:action explain))))))
 

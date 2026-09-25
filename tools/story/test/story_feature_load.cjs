@@ -493,14 +493,17 @@ async function assertToolbarRecorder(page, phase) {
     );
   });
 
-  // There is no toolbar/recorder/redacts-sensitive-events step.
-  // Handler-meta `:sensitive?` is not consulted, and the
-  // `:rf.event/dispatched` queue-time emit stamps `:sensitive?` from no
-  // source (the schema-overlap path stamps only AFTER handler-scope
-  // binding, which is established AFTER the queue-time emit fires). The
-  // recorder's redaction gates on `(privacy/sensitive? ev)`, but no
-  // mechanism flips that bit on the `:rf.event/dispatched` trace event
-  // the recorder listens for.
+  // There is no toolbar/recorder/redacts-sensitive-events step. The
+  // recorder's whole-event `[:rf/redacted]` placeholder gates on
+  // `(privacy/sensitive? ev)`, and nothing sets that bit on the top-level
+  // `:rf.event/dispatched` trace the recorder listens for: handler-meta
+  // `:sensitive?` is not a declaration, and the classified-path stamp
+  // comes from a handler scope, which is bound only after the queue-time
+  // emit fires. A payload path classified on the event's registration
+  // (`{:sensitive [[:password]]}`) is redacted anyway: the classification
+  // projection replaces its value with `:rf/redacted` in the trace's
+  // `:rf.event/v` before delivery, so the recorded event carries the
+  // sentinel at that path.
 }
 
 async function assertDiagnostics(page, phase) {

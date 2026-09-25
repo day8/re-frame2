@@ -1,6 +1,5 @@
 (ns re-frame.story.panels-e2e.share-url-state-hydration-e2e-cljs-test
-  "Regression coverage for the full shell URL-hydration sequence
-  (rf2-ovb1en).
+  "Coverage for the full shell URL-hydration sequence.
 
   Shell mount runs TWO URL-hydration passes, in this order
   (`re-frame.story.ui.shell/hydrate-url-state!`):
@@ -10,13 +9,14 @@
       2. rf.story.ui.share/hydrate-from-url!     ← owns ONLY the focused-variant
                                          cell-overrides slice + drift hint
 
-  The bug: pass 2 used to reparse the RAW `substrate=` without registry
-  validation and write it unconditionally, RESURRECTING a stale value pass
-  1 had already normalised to `:reagent` (`substrate=ghost-substrate` →
-  `:reagent` by pass 1 → `:ghost-substrate` again by pass 2). It also wrote
-  cell-overrides only when `(seq overrides)`, so an all-stale `overrides=`
-  set (which `drop-stale-overrides` collapses to nil) left the UNFILTERED
-  slice pass 1 had installed live as orphan args.
+  The hazard is pass 2 undoing pass 1. A pass 2 that reparsed the RAW
+  `substrate=` without registry validation and wrote it unconditionally
+  would RESURRECT a stale value pass 1 had already normalised to
+  `:reagent` (`substrate=ghost-substrate` → `:reagent` by pass 1 →
+  `:ghost-substrate` again by pass 2). One that wrote cell-overrides only
+  when `(seq overrides)` would let an all-stale `overrides=` set (which
+  `drop-stale-overrides` collapses to nil) leave the UNFILTERED slice
+  pass 1 had installed live as orphan args.
 
   This ns drives the real two-pass sequence against the live registry +
   the production `url-state` validators, with the URL parse seam stubbed
@@ -27,7 +27,7 @@
   - an unregistered `substrate=` ends as `:reagent` (pass 2 cannot revive it);
   - an all-stale `overrides=` leaves NO `[:cell-overrides variant-id]` slice
     and still records the dropped-override drift hint;
-  - a valid `substrate=` + valid `overrides=` still hydrate (no regression)."
+  - a valid `substrate=` + valid `overrides=` hydrate normally."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -99,7 +99,7 @@
 ;; =========================================================================
 
 (deftest unregistered-substrate-ends-reagent-after-full-hydration
-  (testing "rf2-ovb1en — `substrate=ghost-substrate` is normalised to
+  (testing "`substrate=ghost-substrate` is normalised to
             :reagent by pass 1 and pass 2 (share) MUST NOT resurrect the
             raw stale value. The end state after BOTH passes is :reagent."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -112,7 +112,7 @@
            "substrate" "ghost-substrate"})
         (is (= :reagent (:substrate (rf.story.ui.state/get-state)))
             "unregistered substrate= degrades to :reagent — pass 2 cannot
-             revive the stale value it once reparsed without validation")
+             revive the stale value")
         (is (= :story.sample/card (:selected-variant (rf.story.ui.state/get-state)))
             "the registered variant is still focused")))))
 
@@ -121,7 +121,7 @@
 ;; =========================================================================
 
 (deftest all-stale-overrides-clears-slice-and-records-hint
-  (testing "rf2-ovb1en — an `overrides=` set whose keys the variant no
+  (testing "an `overrides=` set whose keys the variant no
             longer declares collapses to nil under `drop-stale-overrides`;
             the end state has NO [:cell-overrides variant-id] slice (pass 1's
             unfiltered install is cleared by pass 2) AND the share-import
@@ -143,13 +143,13 @@
               "both stale overrides are reported in the drift hint"))))))
 
 ;; =========================================================================
-;; (3) valid substrate= + valid overrides= still hydrate (no regression)
+;; (3) valid substrate= + valid overrides= hydrate
 ;; =========================================================================
 
 (deftest valid-substrate-and-overrides-still-hydrate
-  (testing "rf2-ovb1en — a registered non-default substrate= and a declared
-            overrides= entry still hydrate after the complete sequence; the
-            fix narrows pass 2, it does not break the happy path."
+  (testing "a registered non-default substrate= and a declared
+            overrides= entry hydrate after the complete sequence; pass 2's
+            narrow ownership does not break the happy path."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories (fn [] (register-variant!) (register-substrates!))}
       (fn []

@@ -1,6 +1,5 @@
 (ns re-frame.story-save-variant-cljs-test
-  "CLJS-side tests for the save-current-canvas-state-as-variant flow
-  (rf2-one3t).
+  "CLJS-side tests for the save-current-canvas-state-as-variant flow.
 
   Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
   The pure-data corpus mirrors the JVM `re-frame.story-save-variant-
@@ -9,9 +8,8 @@
   as well as the JVM.
 
   Browser-only behaviour (Reagent ratom, modal dialog rendering) lives
-  in the CLJS-only `re-frame.story.ui.save-variant` ns and is exercised
-  under the `:browser-test` target via a separate Playwright spec
-  when that layer ships."
+  in the CLJS-only `re-frame.story.ui.save-variant` ns, which
+  `re-frame.story.ui.save-variant-cljs-test` covers."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [cljs.reader :as edn]
             [clojure.string :as str]

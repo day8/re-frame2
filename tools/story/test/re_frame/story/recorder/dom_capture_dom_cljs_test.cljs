@@ -1,6 +1,6 @@
 (ns re-frame.story.recorder.dom-capture-dom-cljs-test
-  "DOM-gated tests for the recorder's DOM-event capture layer
-  (rf2-d5u89). Exercises:
+  "DOM-gated tests for the recorder's DOM-event capture layer.
+  Exercises:
 
   - Selector picking via real DOM nodes.
   - The impure recorder seams (`record-dom-click!` etc.) appending
@@ -16,20 +16,18 @@
   on it, drives synthetic events, and tears the root down on each
   fixture exit.
 
-  ## Runtime gating (rf2-jmfvc)
+  ## Runtime gating
 
   This ns is suffixed `-dom-cljs-test` (file `*_dom_cljs_test.cljs`)
   so it matches the `:browser-test` build's `-dom-cljs-test$`
   ns-regexp and ACTUALLY RUNS against a real DOM — the only gate
-  where the DOM bodies below execute. It was previously named
-  `-cljs-test`: under `:node-test` (`cljs-test$`) its bodies
-  short-circuit via `dom-available?` (no `js/document` on node), and
-  it never matched the `:browser-test` gate, so its ~25 assertions
-  ran in NO gate (latent false-green). The `-dom-cljs-test` suffix
-  fixes that — `:node-test`'s `cljs-test$` regex still matches it
-  too, where every row reports a STATED skip through `skip!` rather
-  than passing with zero assertions (rf2-s6uu), and `:browser-test`
-  now picks it up and runs the real assertions."
+  where the DOM bodies below execute. Under a bare `-cljs-test`
+  suffix only `:node-test` (`cljs-test$`) would load it, where its
+  bodies short-circuit via `dom-available?` (no `js/document` on
+  node), so its assertions would run in NO gate (a latent
+  false-green). `:node-test`'s `cljs-test$` regex matches the
+  `-dom-cljs-test` suffix too, and there every row reports a STATED
+  skip through `skip!` rather than passing with zero assertions."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.recorder :as rf.story.recorder]
@@ -46,7 +44,7 @@
 (defn- skip!
   "The stated skip for a row under `:node-test`, which has no
   `js/document`: one marker assertion, so the row reports a skip instead
-  of passing with zero assertions (rf2-s6uu). Under `:browser-test` the
+  of passing with zero assertions. Under `:browser-test` the
   real body runs."
   []
   (is true "skipped: needs a real DOM — the assertions run under :browser-test"))
@@ -222,11 +220,10 @@
           (is (= "alice" (:text (first type-entries)))
               "the entry carries the final typed value"))))))
 
-;; NOTE: the rf2-eztym.3 stop-before-flush regression lives in the sibling
-;; `dom-capture-stop-flush-dom-cljs-test` (the `-dom-cljs-test` suffix runs
-;; it under the `:browser-test` gate against a real DOM — the only place the
-;; post-stop-flush bug is observable; this `-cljs-test` file's bodies
-;; short-circuit on node).
+;; NOTE: the stop-before-flush regression lives in the sibling
+;; `dom-capture-stop-flush-dom-cljs-test`, which runs under the
+;; `:browser-test` gate against a real DOM — the only place a post-stop
+;; flush is observable.
 
 (deftest change-event-flushes-immediately
   (if-not (dom-available?)
@@ -261,7 +258,7 @@
 (deftest click-on-submit-button-records-one-step
   (if-not (dom-available?)
     (skip!)
-    (testing "rf2-0ae7o.11 (a): clicking a form's submit button records the click
+    (testing "clicking a form's submit button records the click
               alone — the submit event that click causes is not captured as a
               second, spurious `[:click <form>]` step. (A submit with no
               submitter, which no click represents, is still captured: see
@@ -331,11 +328,11 @@
         (is (< t 10000)
             "sanity: not an absolute epoch")))))
 
-;; ---- sensitive-input redaction (rf2-0qoi0) -------------------------------
+;; ---- sensitive-input redaction -------------------------------
 ;;
 ;; The DOM-capture rail is the SECOND credential/PII egress (the dispatch
-;; rail being the first, redacted by `rf.story.recorder/trace-listener`). Post
-;; rf2-nkjkj `:entries` is the PRIMARY codegen source, so a typed password
+;; rail being the first, redacted by `rf.story.recorder/trace-listener`).
+;; `:entries` is the PRIMARY codegen source, so a typed password
 ;; would otherwise ride verbatim into the generated `:script` step.
 ;; These tests pin the record-but-redact policy on the DOM rail: a
 ;; password field's value is scrubbed at the capture boundary so the
@@ -353,7 +350,7 @@
 (deftest password-field-type-is-redacted-in-generated-snippet
   (if-not (dom-available?)
     (skip!)
-    (testing "RED→GREEN (rf2-0qoi0): a typed <input type=password> value is
+    (testing "a typed <input type=password> value is
               SCRUBBED — neither the recorded :dom/type entry nor the
               generated play-script :type step carries the plaintext"
       (rf.story.recorder/start-recording! :story.login/flow)
@@ -410,7 +407,7 @@
   (if-not (dom-available?)
     (skip!)
     (testing ":rf.egress/local-raw → the DOM rail captures the verbatim
-              password (host opt-in, mirrors the dispatch rail; EP-0015 rf2-3t26eh)"
+              password (host opt-in, mirrors the dispatch rail; EP-0015)"
       (rf.story.config/set-egress-profile! :rf.egress/local-raw)
       (rf.story.recorder/start-recording! :story.login/flow)
       (let [pw (mk-input! {:type "password" :id "pw"})]

@@ -1,12 +1,11 @@
 (ns re-frame.story.predicates-test
   "Unit tests for the shared predicate-symbol resolver
-  `re-frame.story.predicates/resolve-sym-pred` (rf2-le0p4 dedup).
+  `re-frame.story.predicates/resolve-sym-pred`.
 
-  Before rf2-le0p4 the symbol→fn resolver lived as two near-byte-identical
-  private mirrors — `assertions/resolve-sym-pred` and
-  `runner-events/resolve-predicate`. They are now ONE shared leaf impl;
-  these tests pin (a) the resolver's own JVM `requiring-resolve` contract
-  and (b) that BOTH call sites resolve the same symbol identically."
+  The symbol→fn resolver is ONE shared leaf impl, called by both
+  `assertions` and `runner-events`; these tests pin (a) the resolver's own
+  JVM `requiring-resolve` contract and (b) that BOTH call sites resolve the
+  same symbol identically."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.predicates :as rf.story.predicates]))
 
@@ -26,11 +25,10 @@
     (is (nil? (rf.story.predicates/resolve-sym-pred nil)))))
 
 ;; ---------------------------------------------------------------------------
-;; Dedup contract — both former call sites resolve identically through the
+;; Shared-resolver contract — both call sites resolve identically through the
 ;; ONE shared fn. assertions' `[:fn sym]` schema fold and runner-events'
-;; `:pred sym` form previously each carried a private copy; they now both
-;; route through `rf.story.predicates/resolve-sym-pred`, so a single symbol resolves to the
-;; SAME fn for either consumer.
+;; `:pred sym` form both route through `rf.story.predicates/resolve-sym-pred`,
+;; so a single symbol resolves to the SAME fn for either consumer.
 ;; ---------------------------------------------------------------------------
 
 (deftest both-call-sites-resolve-a-symbol-pred-identically

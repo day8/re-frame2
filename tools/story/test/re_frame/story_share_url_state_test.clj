@@ -1,8 +1,8 @@
 (ns re-frame.story-share-url-state-test
-  "JVM tests for the URL-state slot extensions (rf2-o4u18).
+  "JVM tests for the URL-state sharability slots.
 
   Pairs with `re-frame.story-share-test` (variant + modes + overrides +
-  substrate). This ns pins the new sharability slots — workspace,
+  substrate). This ns pins the remaining sharability slots — workspace,
   mode-tab, viewport, background, tag-filter — and the
   `rf.story.share/parse-params` round-trip.
 
@@ -145,7 +145,7 @@
 ;; ---- parse-params round-trip --------------------------------------------
 
 (deftest parse-params-full-round-trip
-  (testing "rf2-o4u18 — full encode → URLSearchParams-shaped getter → parse
+  (testing "full encode → URLSearchParams-shaped getter → parse
             round-trips every slot"
     (let [in    {:variant-id     :story.counter/loaded
                  :workspace-id   nil

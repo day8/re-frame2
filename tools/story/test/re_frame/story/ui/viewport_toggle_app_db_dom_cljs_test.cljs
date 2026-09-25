@@ -1,22 +1,19 @@
 (ns re-frame.story.ui.viewport-toggle-app-db-dom-cljs-test
-  "DOM-mount regression for rf2-j8hklm: toggling the toolbar viewport
-  across the `:full`-vs-sized boundary must NOT force-remount the
-  canvas / re-run the variant, wiping the live variant's interactive
-  app-db.
+  "DOM-mount test: toggling the toolbar viewport across the
+  `:full`-vs-sized boundary must NOT force-remount the canvas / re-run
+  the variant, wiping the live variant's interactive app-db.
 
   ## Why this needs a REAL DOM mount
 
-  The bug is a React RECONCILIATION-identity defect: `shell.cljs`'s
-  `framed-canvas` used to pick between TWO DIFFERENT hiccup shapes —
-  `[:div {...} [rf.story.ui.canvas/canvas]]` when a sized viewport was active, or
-  bare `[rf.story.ui.canvas/canvas]` otherwise — at the SAME tree position. Toggling
-  `sized?` therefore changed the React element TYPE at that slot, which
-  forces React to unmount the old subtree and mount a fresh one — no
+  What is at stake is React RECONCILIATION identity. Were `shell.cljs`'s
+  `framed-canvas` to pick between TWO DIFFERENT hiccup shapes —
+  `[:div {...} [rf.story.ui.canvas/canvas]]` when a sized viewport is active, or
+  bare `[rf.story.ui.canvas/canvas]` otherwise — at the SAME tree position, toggling
+  `sized?` would change the React element TYPE at that slot, which
+  forces React to unmount the old subtree and mount a fresh one. No
   amount of pure hiccup-tree inspection proves whether that actually
   happens; only a real React commit + a SECOND real React commit after
-  the toggle can. This is also the acceptance criterion the bead itself
-  names as the test gap: 'no test mounts the real shell and toggles
-  viewport to check state survival.'
+  the toggle can.
 
   ## Pipeline under test
 
@@ -94,10 +91,10 @@
     (js/document.body.appendChild node)
     node))
 
-;; ---- the regression ---------------------------------------------------
+;; ---- the viewport toggle keeps the canvas mounted ---------------------
 
 (deftest viewport-toggle-across-full-vs-sized-boundary-preserves-app-db
-  (testing "rf2-j8hklm: selecting a sized viewport preset after the
+  (testing "selecting a sized viewport preset after the
             canvas has already mounted + run its variant does NOT wipe
             interactive app-db state accumulated since that run"
     (if-not (browser?)
@@ -116,8 +113,8 @@
         ;; chance to allocate that frame — which fails loud
         ;; (`:rf.error/frame-provider-frame-absent`) for this variant's
         ;; events-only fast path (no loaders means no skeleton gates that
-        ;; first pass). That race is orthogonal to rf2-j8hklm and not
-        ;; this test's concern; omitting `:component` keeps `canvas-inner`
+        ;; first pass). That race is orthogonal to the reconciliation
+        ;; identity under test and not this test's concern; omitting `:component` keeps `canvas-inner`
         ;; on its `nil? view-id` branch (a harmless placeholder message)
         ;; so only the mechanism under test — `framed-canvas` /
         ;; `rf.story.ui.canvas/canvas`'s mount lifecycle — is exercised.
@@ -161,7 +158,7 @@
             (is (some? (.querySelector mount-node "[data-test=\"story-canvas-frame-sized\"]"))
                 "the toggle actually took effect — :tablet is a sized preset")
             (is (= 2 (:n (rf/app-db-value variant-id)))
-                "rf2-j8hklm: the interactive app-db mutation SURVIVES the
+                "the interactive app-db mutation SURVIVES the
                  viewport toggle — the canvas was not force-remounted /
                  re-run across the :full-vs-sized boundary")
 
@@ -169,7 +166,7 @@
               (try (.unmount root) (catch :default _ nil)))))))))
 
 (deftest viewport-toggle-back-to-full-also-preserves-app-db
-  (testing "rf2-j8hklm: the inverse direction — sized back to :full —
+  (testing "the inverse direction — sized back to :full —
             is the SAME reconciliation boundary and must be equally
             stable"
     (if-not (browser?)

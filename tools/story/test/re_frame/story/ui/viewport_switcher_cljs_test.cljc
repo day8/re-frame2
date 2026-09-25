@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.viewport-switcher-cljs-test
-  "CLJS-side smoke tests for the viewport switcher chip (rf2-zll4h).
+  "CLJS-side smoke tests for the viewport switcher chip.
 
   Runs in shadow's `:node-test` build (the ns name ends in `cljs-test`
   to match `:ns-regexp \"cljs-test$\"`). The JVM gate is covered by
@@ -58,7 +58,7 @@
 
 #?(:cljs
    (deftest cljs-effective-viewport-respects-variant-override
-     (testing "rf2-zll4h: per-variant :viewport body slot beats toolbar"
+     (testing "per-variant :viewport body slot beats toolbar"
        (rf.story/reg-story* :story.vp-override
          {:doc "viewport override fixture" :component :ignored
           :viewport :desktop})
@@ -87,7 +87,7 @@
 
 #?(:cljs
    (deftest cljs-effective-viewport-follows-the-extends-chain
-     (testing "rf2-3x7nj.28.2: `:viewport` is world context, which spec/017
+     (testing "`:viewport` is world context, which spec/017
                §`:extends` inherits — an `:extends` child is framed at its
                parent's viewport, the one the compiled plan carries, not at
                the toolbar selection"
@@ -136,7 +136,7 @@
 
 #?(:cljs
    (deftest cljs-chip-uses-aria-haspopup-not-aria-pressed
-     (testing "rf2-zll4h reset-gate: chip MUST NOT emit aria-pressed='true'
+     (testing "reset gate: chip MUST NOT emit aria-pressed='true'
                by default. The toolbar reset assertion in
                story_feature_load counts [aria-pressed='true'] post-reset
                and demands count === 0."
@@ -170,10 +170,10 @@
 
 ;; ---- localStorage hydration: see the dom sibling -----------------------
 ;;
-;; rf2-r51p MOVED the two `hydrate!` rows to
-;; `re-frame.story.viewport-storage-dom-cljs-test`, where they sit beside
-;; the `save-to-storage!` / `load-from-storage` round-trip they depend on.
-;; They were guarded by `(when (browser?) ...)` here, and this namespace
-;; ends `-cljs-test`, so `:browser-test` never loaded it while
-;; `:node-test` -- which has no `window.localStorage` -- skipped the body:
-;; they executed in neither lane.
+;; The two `hydrate!` rows live in
+;; `re-frame.story.viewport-storage-dom-cljs-test`, beside the
+;; `save-to-storage!` / `load-from-storage` round-trip they depend on.
+;; Guarded by `(when (browser?) ...)` here they would execute in neither
+;; lane: this namespace ends `-cljs-test`, so `:browser-test` never loads
+;; it, while `:node-test` -- which has no `window.localStorage` -- would
+;; skip the body.

@@ -1,8 +1,6 @@
 (ns re-frame.story.ui.command-palette.view-cljs-test
-  "CLJS-side regression net for Story's command palette panel
-  (rf2-9i7oj — every other Story UI panel ships a `*_view_cljs_test`
-  companion; the palette is the dispatch-everything surface and
-  carried zero render coverage before this).
+  "CLJS-side regression net for Story's command palette panel — the
+  dispatch-everything surface.
 
   Pairs with the pure-data tests for `palette/entries`,
   `palette/search`, `palette/clamp-active-index`, and
@@ -28,11 +26,9 @@
 
   - **render-with-active-highlight state** — the row at index
     `:active` carries `aria-selected=true`; every other row carries
-    `aria-selected=false`. This branch is the palette's analogue of
-    the bead's `recents-boost` scope — the only state-distinguishing
-    render path within the results list (there is no recents-boost
-    feature in the current implementation; if/when one ships, add
-    a fifth test pinning its render shape).
+    `aria-selected=false`. This branch is the only state-distinguishing
+    render path within the results list; the palette has no
+    recents-boost ranking.
 
   Per spec/008 the renderer is a thin projection over the pure-data
   helpers and a prop map; calling `render-palette` directly walks
@@ -73,7 +69,7 @@
    :on-row-select    noop})
 
 ;; ===========================================================================
-;; rf2-9i7oj — testid presence
+;; testid presence
 ;;
 ;; Pin that the root scrim carries the `story-command-palette` data-test
 ;; selector. Spec/008 contracts on this selector for e2e tests; a
@@ -95,7 +91,7 @@
           "input field present with its data-test selector"))))
 
 ;; ===========================================================================
-;; rf2-9i7oj — render-on-empty state
+;; render-on-empty state
 ;;
 ;; With no results the panel renders the `story-command-palette-empty`
 ;; placeholder and NO `story-command-palette-result` rows.
@@ -116,7 +112,7 @@
           "no result rows rendered when results is empty"))))
 
 ;; ===========================================================================
-;; rf2-9i7oj — render-with-results state
+;; render-with-results state
 ;;
 ;; With a populated result list the panel renders one
 ;; `story-command-palette-result` row per entry; the empty placeholder
@@ -148,14 +144,12 @@
           "rows carry the entries' kind name in order"))))
 
 ;; ===========================================================================
-;; rf2-9i7oj — render-with-active-highlight state
+;; render-with-active-highlight state
 ;;
 ;; The row at index `:active` carries `aria-selected=true`; every other
-;; row carries `aria-selected=false`. This is the palette's analogue of
-;; the bead's `recents-boost` scope — the only state-distinguishing
-;; render path within the results list. (No recents-boost feature
-;; exists in the current implementation; if/when one ships, add a
-;; further test pinning its render shape.)
+;; row carries `aria-selected=false`. This is the only
+;; state-distinguishing render path within the results list; the
+;; palette has no recents-boost ranking.
 ;; ===========================================================================
 
 (deftest active-row-carries-aria-selected-true

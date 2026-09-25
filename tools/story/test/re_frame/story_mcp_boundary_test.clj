@@ -1,8 +1,7 @@
 (ns re-frame.story-mcp-boundary-test
-  "JVM tests closing the docs-promised gap on the Story-side MCP-
-  consumer contract.
+  "JVM tests pinning the Story side of the MCP-consumer contract.
 
-  Spec coverage (rf2-ub1n4): `tools/story/spec/006-MCP-Surface.md` §
+  Spec coverage: `tools/story/spec/006-MCP-Surface.md` §
   Story's public read primitives (consumed by MCP), § Story's public
   write primitives (consumed by MCP write surface), § Late-bind
   `reg-story-panel` contract.
@@ -12,10 +11,9 @@
   §Architecture; live-browser access is pair-owned per §Two surfaces,
   one live door). The story-mcp tests at
   `tools/story-mcp/test/` cover the MCP side — the wire envelope, the
-  per-tool semantics, the write-gate contract. What the bead calls out
-  as 'Story MCP boundary not covered' is the **Story side**: the
-  public Var surface Story commits to keeping stable for the MCP jar
-  to call.
+  per-tool semantics, the write-gate contract. This namespace covers
+  the **Story side**: the public Var surface Story commits to keeping
+  stable for the MCP jar to call.
 
   Per spec/006 the contract is a fixed enumeration of fns + the
   late-bind `reg-story-panel` adapter. Drift on Story's side
@@ -35,19 +33,22 @@
   - **`unregister!` removes a slot from the side-table.** The MCP
     `unregister-variant` tool consumes this.
   - **`clear-kind!` clears a single kind without affecting siblings.**
-    Used by MCP's `clear-variants` / `clear-stories` tools.
-  - **`reg-story-panel` is the late-bind hook spec/006 §5 describes.**
-    Xray's epoch-view registration is the canonical late-bind
-    example: Story ships a stub registration (the SOTA spec's
-    five-line snippet); Xray's panel registers under the same
-    `:rf.story/xray-epoch` id and the registration replaces the stub.
-    This pins the late-bind contract Story exposes to third-party
-    tooling — including the MCP jar's hypothetical `register-story-
-    panel` write tool (per spec/006 §5).
+    Part of spec/006's public write surface; the MCP jar ships no
+    clear tool.
+  - **`reg-story-panel` is the late-bind hook spec/006 §Late-bind
+    `reg-story-panel` contract describes.** A stub registration under
+    `:rf.story/xray-epoch` is replaced by a second registration under
+    the same id. The id and the Xray-shaped `:render` are fixture
+    data: Xray itself mounts through its own per-panel contract, not
+    `reg-story-panel`. This pins the late-bind contract Story exposes
+    to third-party tooling — including the MCP jar's hypothetical
+    `register-story-panel` write tool (per spec/006 §Late-bind
+    `reg-story-panel` contract).
 
   Test isolation: each test runs against a clean side-table seeded
-  with `install-canonical-vocabulary!` (the canonical seven tags +
-  the lifecycle machine)."
+  with `install-canonical-vocabulary!` (the canonical tags, the
+  lifecycle machine, the assertion handlers and the built-in
+  decorators)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story            :as rf.story]
             [re-frame.story.registrar  :as rf.story.registrar]
@@ -67,10 +68,9 @@
 ;; ===========================================================================
 ;;
 ;; Each Var named in spec/006-MCP-Surface.md §Story's public read
-;; primitives must resolve to a function on `re-frame.story`. Adding
-;; this assertion makes a renaming / removal a build-time failure that
-;; lands in the Story corpus rather than only in the MCP jar's test
-;; suite (which lags Story's own changes by jar-publication cadence).
+;; primitives must resolve to a function on `re-frame.story`. This
+;; assertion makes a renaming / removal a failure in the Story corpus
+;; rather than only in the MCP jar's test suite.
 
 (deftest public-read-surface-resolves
   (testing "every spec/006 §Story's public read primitive resolves
@@ -169,8 +169,8 @@
 
 (deftest clear-kind-leaves-siblings-untouched
   (testing "clear-kind! :variant clears all variants but leaves modes,
-            workspaces, and tags untouched — the contract MCP needs for
-            a 'clear all variants' tool that doesn't nuke the rest of
+            workspaces, and tags untouched — the contract a 'clear all
+            variants' tool would need so it doesn't nuke the rest of
             the registry"
     (rf.story/reg-variant :story.kindA/v {:setup []})
     (rf.story/reg-variant :story.kindB/w {:setup []})
@@ -189,10 +189,12 @@
         "canonical inclusion + :state/* magnitude tags survive")))
 
 ;; ===========================================================================
-;; LATE-BIND `reg-story-panel` CONTRACT (spec/006 §5)
+;; LATE-BIND `reg-story-panel` CONTRACT (spec/006 §Late-bind
+;; `reg-story-panel` contract)
 ;; ===========================================================================
 ;;
-;; Per spec/006 §5: late-bind is the contract — a `:render` id can be
+;; Per spec/006 §Late-bind `reg-story-panel` contract, rule 5: late-bind
+;; is the contract — a `:render` id can be
 ;; registered from any artefact on the classpath; Story panels resolve
 ;; via `(rf/view <render-id>)` at render time, so the view-author and
 ;; the panel-registrant need not live in the same jar.
@@ -205,8 +207,8 @@
 
 (deftest reg-story-panel-late-bind-replaces-stub
   (testing "registering a panel under an id, then re-registering under
-            the same id, replaces the slot — this is the late-bind
-            contract Xray's epoch-view depends on"
+            the same id, replaces the slot — the late-bind contract a
+            panel shipped from another artefact depends on"
     (rf.story/reg-story-panel :rf.story/xray-epoch
       {:doc       "Story-shipped stub"
        :title     "Epochs (stub)"
@@ -215,7 +217,7 @@
     (let [stub-body (rf.story/handler-meta :story-panel :rf.story/xray-epoch)]
       (is (= "Epochs (stub)" (:title stub-body)))
       (is (= :rf.story.stubs/xray-epoch-stub (:render stub-body))))
-    ;; Now Xray ships its real view — register under the same id.
+    ;; A second artefact registers its real view under the same id.
     (rf.story/reg-story-panel :rf.story/xray-epoch
       {:doc       "Xray-shipped real view"
        :title     "Epochs (Xray)"
@@ -225,7 +227,7 @@
       (is (= "Epochs (Xray)" (:title real-body)))
       (is (= :day8.re-frame2-xray.panels.time-travel/Panel
              (:render real-body))
-          "Xray's :render slot replaces the stub's"))))
+          "the real view's :render slot replaces the stub's"))))
 
 (deftest reg-story-panel-placement-vocabulary
   (testing "the panel :placement slot accepts the five documented values

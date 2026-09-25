@@ -1,7 +1,6 @@
 (ns re-frame.story-multi-substrate-cljs-test
-  "CLJS smoke tests for Stage 6 (rf2-zhwd) — multi-substrate
-  side-by-side renderer. The JVM side has no DOM so the visual /
-  React paths are CLJS-only."
+  "CLJS smoke tests for the multi-substrate side-by-side renderer. The
+  JVM side has no DOM so the visual / React paths are CLJS-only."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -73,8 +72,6 @@
 ;; `story/ui/render_shell_cljs_test.cljs` exercise that copy and never reach
 ;; this one, which they only cover on `:reagent`.
 ;;
-;; rf2-nfwbt: recovered from the retired re-frame.ui consumer test, which was
-;; the only caller of `render-view` against a foreign substrate in the tree.
 ;; A stub render-fn is enough — the point is the dispatch and the degrade,
 ;; not any particular substrate, so this needs no adapter dependency.
 

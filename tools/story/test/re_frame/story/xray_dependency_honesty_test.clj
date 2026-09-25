@@ -1,18 +1,20 @@
 (ns re-frame.story.xray-dependency-honesty-test
-  "Dependency-honesty gate for Story's Xray coupling (rf2-r8trk).
+  "Dependency-honesty gate for Story's Xray coupling.
 
-  ## The bug this pins
+  ## Why the gate exists
 
   Story's shipped shell hard-`:require`s `day8.re-frame2-xray.*`
-  namespaces from three sources — `re-frame.story.ui.xray-embed`
+  namespaces from four sources — `re-frame.story.ui.xray-embed`
   (mount + panels), `re-frame.story.xray-preset` (mount + config +
-  keybinding), and `re-frame.story.ui.evidence-spine` (core). But
-  `tools/story/deps.edn` declared no `day8/re-frame2-xray` dependency.
+  keybinding), `re-frame.story.ui.evidence-spine` (core) and
+  `re-frame.story.ui.shell` (core). So `tools/story/deps.edn` must
+  declare the `day8/re-frame2-xray` dependency.
 
-  The repository-wide Shadow build masked the omission by carrying
-  `../tools/xray/src` on its GLOBAL `:source-paths`, so every in-repo
-  build compiled fine. A fresh consumer whose only tool dependency was
-  `day8/re-frame2-story` could not compile the shell at all:
+  The repository-wide Shadow build carries `../tools/xray/src` on its
+  GLOBAL `:source-paths`, so every in-repo build compiles whether or not
+  Story declares it. Without the declaration, a fresh consumer whose only
+  tool dependency is `day8/re-frame2-story` could not compile the shell at
+  all:
 
       No such namespace: day8.re-frame2-xray.mount
       ... in re_frame/story/xray_preset.cljc
@@ -32,8 +34,7 @@
   `deps.edn` alone. Resolution NEVER consults the live classpath, so a
   leaked `tools/xray/src` entry cannot satisfy the assertion: delete
   the `day8/re-frame2-xray` entry from `deps.edn` and this test reds
-  even though the repository Shadow build still compiles. That is
-  exactly the regression rf2-r8trk fixed.
+  even though the repository Shadow build still compiles.
 
   This is a JVM-only `.clj` test: it reads files off disk, so it runs
   under `clojure -M:test` from `tools/story` and is invisible to the
@@ -183,8 +184,8 @@
 
 (deftest xray-namespaces-resolve-under-the-declared-xray-root
   (testing "the specific Xray namespaces the shell composes resolve
-            under the DECLARED xray root — this is the compile the bead
-            proved impossible before the dep was declared."
+            under the DECLARED xray root — without the declared dep a
+            fresh consumer cannot compile them."
     (let [xray-root (get (declared-source-roots (read-deps)) 'day8/re-frame2-xray)
           required  (->> (required-day8-namespaces)
                          keys
@@ -216,24 +217,19 @@
           (str "Xray sources must not require re-frame.story.* — found: "
                (str/join ", " cycles))))))
 
-;; rf2-q5pd6 closed the sibling gap this file used to document. The old
-;; `filters-config-namespace-is-genuinely-absent` test asserted that
-;; `day8.re-frame2-xray.filters.config` does not exist, in order to
-;; justify keeping a runtime probe for it in `xray-preset`. Both the
-;; probe and `filters-available?` are gone: the preset now drives the
-;; surface Xray actually ships (`config/configure!`'s `:rf.xray/filters`
-;; seed + the `:rf.xray/hydrate-filters` event). Asserting the continued
-;; absence of a namespace nothing references would pin a fact with no
-;; consequence, so the test retired with the probe.
+;; No test here asserts that `day8.re-frame2-xray.filters.config` is
+;; absent: the preset drives the surface Xray actually ships
+;; (`config/configure!`'s `:rf.xray/filters` seed + the
+;; `:rf.xray/hydrate-filters` event), and asserting the absence of a
+;; namespace nothing references would pin a fact with no consequence.
 ;;
-;; What replaced it is behavioural, not structural: the CLJS suite
+;; The filter check is behavioural, not structural: the CLJS suite
 ;; (`xray-preset-cljs-test`) asserts the real `:rf/xray` `:active-filters`
-;; slot and a real matcher outcome, so a regression back to an inert
-;; preset reds on the BEHAVIOUR rather than on a namespace-absence proxy.
+;; slot and a real matcher outcome, so an inert preset reds on the
+;; BEHAVIOUR rather than on a namespace-absence proxy.
 ;;
 ;; A source-text assertion ("xray_preset.cljc must not contain
-;; find-ns-obj") was written and then dropped: it is satisfiable by
-;; rewording a comment, and it red-lit on this file's own prose
-;; explaining the history it guards. The `required-day8-namespaces`
-;; gate above already covers the structural half honestly — it parses
-;; ns forms rather than grepping text.
+;; find-ns-obj") would be satisfiable by rewording a comment, and would
+;; red-light on any prose that names the probe. The
+;; `required-day8-namespaces` gate above covers the structural half
+;; honestly — it parses ns forms rather than grepping text.

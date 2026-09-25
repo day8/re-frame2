@@ -1,8 +1,7 @@
 (ns re-frame.story.panels-e2e.embed-url-flag-e2e-cljs-test
-  "Multi-frame e2e coverage for the `?embed=1` URL chrome-hide flag
-  (rf2-k4fds, replaces the Playwright `embed=1` smoke).
+  "Multi-frame e2e coverage for the `?embed=1` URL chrome-hide flag.
 
-  Per spec/Conventions.md §Embed mode (rf2-pucku) the Story chrome
+  Per spec/Conventions.md §Embed mode the Story chrome
   (sidebar / toolbar / inspectors) elides when the page is loaded
   with `?embed=1` in `window.location.search`. The chrome-visibility
   resolver wires it through `[:chrome-visibility :embed?]` on the
@@ -128,7 +127,7 @@
 ;; ---- Pipeline (1): URL → shell-state hydrate ----------------------------
 
 (deftest hydrate-embed-flag-seeds-true-when-parser-returns-true
-  (testing "rf2-pucku — `hydrate-embed-flag!` writes :embed? true to
+  (testing "`hydrate-embed-flag!` writes :embed? true to
             the shell-state-atom when the URL parser reports the flag.
             The parser itself is covered by url-state-cljs-test; this
             seam test pins the parser→state hand-off."
@@ -144,7 +143,7 @@
                 "shell-state-atom carries :embed? true after hydrate")))))))
 
 (deftest hydrate-embed-flag-seeds-false-without-flag
-  (testing "rf2-pucku — `hydrate-embed-flag!` writes :embed? false
+  (testing "`hydrate-embed-flag!` writes :embed? false
             (the default-chrome shape) when no `?embed=1` is in the
             URL. Pins the 'absent param → chrome on' contract."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -161,7 +160,7 @@
 ;; ---- Pipeline (2): :embed? true → chrome elides at render --------------
 
 (deftest embed-mode-hides-every-chrome-pane
-  (testing "rf2-k4fds — with `:embed?` true on the shell-state-atom,
+  (testing "with `:embed?` true on the shell-state-atom,
             shell's reagent-render produces a hiccup tree where
             sidebar / toolbar / right-panel guards all elide. The
             `[main-pane]` vector (which contains the variant canvas)
@@ -200,7 +199,7 @@
                render saw the embed-mode state")
           (is (empty? sidebar-nodes)
               "no [rf.story.ui.sidebar/sidebar ...] vector in the tree — the
-               sidebar guard elided per rf2-pucku")
+               sidebar guard elided")
           (is (empty? toolbar-nodes)
               "no [rf.story.ui.toolbar/toolbar-strip] vector in the tree")
           (is (nil? toolbar-by-attr)
@@ -224,7 +223,7 @@
 ;; ---- Pipeline (3): :embed? false → chrome present (inverse) ------------
 
 (deftest no-embed-flag-leaves-chrome-visible
-  (testing "rf2-k4fds — without `:embed?` set (the default shape),
+  (testing "without `:embed?` set (the default shape),
             shell's reagent-render produces a hiccup tree where the
             three chrome guards all admit their components. Pins the
             inverse so the assertions above can't trivially pass on

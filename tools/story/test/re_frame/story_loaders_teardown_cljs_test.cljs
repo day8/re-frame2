@@ -1,5 +1,5 @@
 (ns re-frame.story-loaders-teardown-cljs-test
-  "CLJS unit tests for variant-body `:loaders-teardown` slot (rf2-lqs0b).
+  "CLJS unit tests for variant-body `:loaders-teardown` slot.
 
   The `:loaders-teardown` slot is the symmetric counterpart of `:loaders`
   on the variant body itself: a vector of event vectors dispatch-synced
@@ -46,9 +46,8 @@
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading [:rf.runtime/machines :snapshots
+  ;; <id>] — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -272,12 +271,12 @@
                   (done)))))))))
 
 ;; ===========================================================================
-;; UNAFFECTED SHAPES — variants without `:loaders-teardown` work as before
+;; NO SLOT — variants without `:loaders-teardown` tear down cleanly
 ;; ===========================================================================
 
 (deftest variant-without-loaders-teardown-still-tears-down
-  (testing "a variant declaring no `:loaders-teardown` slot still
-            tears down cleanly — destroy! is a no-op for the new step"
+  (testing "a variant declaring no `:loaders-teardown` slot tears
+            down cleanly — the loaders-teardown step is a no-op for it"
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (rf.story/reg-variant :story.lt.none/v

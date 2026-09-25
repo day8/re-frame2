@@ -1,5 +1,5 @@
 (ns re-frame.story-panels-cljs-test
-  "CLJS smoke tests for Stage 6 (rf2-zhwd) — the v1.0 story-panel set.
+  "CLJS smoke tests for the v1.0 story-panel set.
 
   Covers the panel-registration contract documented in `003-Render-Shell.md` §Panel registration contract:
   the v1 panels (a11y, layout-debug controls) register with `:placement`
@@ -27,7 +27,7 @@
 ;; ---- the v1.0 panels --------------------------------------------------
 
 (deftest v1-panels-registered
-  (testing "Stage 6 ships the v1.0 story-panel registrations"
+  (testing "install-canonical-vocabulary! registers the v1.0 story-panels"
     (let [ps (rf.story/registrations :story-panel)]
       (is (contains? ps rf.story.ui.a11y/panel-id))
       (is (contains? ps rf.story.ui.panels/layout-debug-panel-id)))))

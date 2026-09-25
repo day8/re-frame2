@@ -3,10 +3,9 @@
 
   The strip is consumed by both the canvas inline strip and the
   workspace cell — see `re-frame.story.ui.canvas/render-assertions` +
-  `re-frame.story.ui.workspace/variant-cell-inner`. The legacy inline
-  rendering `pr-str`-ed raw assertion records; this strip lifts the
-  Storybook-inspired shape that already lives in
-  `re-frame.story.ui.test-mode.view`.
+  `re-frame.story.ui.workspace/variant-cell-inner`. Rather than
+  `pr-str`-ing raw assertion records, it renders the Storybook-inspired
+  shape `re-frame.story.ui.test-mode.view` also uses.
 
   Surface covered (pure + rendered):
 
@@ -15,7 +14,7 @@
                         :long? flag for the click-to-reveal chord
   - `summary-line`    — fail → reason/expected vs actual; pass → blank;
                         skip → reason; error → the captured error's
-                        :message (rf2-uky0n)
+                        :message
   - `group-by-event`  — cluster records by dispatching :event, preserve
                         insertion order, nil-event records cluster under
                         a leading group
@@ -92,7 +91,7 @@
 (deftest summary-line-error-message
   (testing "an errored row surfaces the captured error's :message — the
             one sentence saying what went wrong. This is the setup-failure
-            case: a :setup that throws, or (rf2-0ae7o.13) one dispatching
+            case: a :setup that throws, or one dispatching
             an event nobody registered, lands an :rf.error/exception record
             whose :error map carries the message and whose :reason is nil"
     (let [row {:status :error
@@ -279,10 +278,9 @@
   (testing "an ERRORED row is not a failed row. It carries its own
             :data-status, surfaces the captured error's :message as the
             inline summary, and its expanded detail renders that message —
-            the one sentence that says what went wrong. Before rf2-uky0n
-            the strip had no :error arm at all, so this row painted as a
-            grey `·` with no summary and a detail panel that never read
-            :error"
+            the one sentence that says what went wrong. Without an :error
+            arm this row would paint as a grey `·` with no summary and a
+            detail panel that never reads :error"
     (let [row    {:status  :error
                   :label   ":rf.error/exception"
                   :row-key ":rf.error/exception"
@@ -307,8 +305,8 @@
           "open? true → the detail panel renders inline")
       (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
           "the error message itself appears inside the rendered hiccup —
-           this is the assertion the pre-fix renderer fails, because
-           row-detail never destructured :error"))))
+           a renderer whose row-detail does not destructure :error fails
+           this assertion"))))
 
 (defn- find-detail-value-element
   "Walk `hiccup` and return the first `[detail-value <label> <v>]` component
@@ -389,7 +387,7 @@
 
   The strip renders each row as a Reagent component vector
   `[rf.story.ui.assertion-strip/render-row row open? toggle]` (the key MUST sit on a vector
-  literal — rf2-5lw9w), so the raw hiccup carries un-expanded row
+  literal), so the raw hiccup carries un-expanded row
   elements. Tests that assert per-row `:key` meta read this raw form;
   tests that walk the row's inner shape use `render-strip-expanded`."
   [assertions]
@@ -401,7 +399,7 @@
   component vector with the hiccup that `render-row` produces — i.e. what
   Reagent expands the element into at mount time. Lets the shape-walking
   tests below assert the row's inner `data-test` tree even though the
-  strip now emits component vectors (so React keys land on the element).
+  strip emits component vectors (so React keys land on the element).
   Preserves all other nodes verbatim."
   [hiccup]
   (letfn [(render-row-element? [x]
@@ -490,13 +488,13 @@
             lands its captured :rf.error/exception record already-open, so
             the author reads what went wrong without a click.
 
-            The fixture is the REAL captured record shape (rf2-uky0n): NO
+            The fixture is the REAL captured record shape: NO
             :status key, :passed? false, an :error map. That matters — with
             :status omitted the projection reaches its
             `(or (:error rec) (:exception rec))` arm, which is the arm real
             captured records take. A fixture that stamped :status would
             exercise a different arm and could pass while the real thing
-            stayed broken"
+            stays broken"
     (let [assertions [{:assertion :rf.error/exception
                        :passed?   false
                        :event     [:your/setup-event {}]
@@ -596,15 +594,14 @@
 
 ;; ---- :key meta on the row seq --------------------------------------------
 ;;
-;; Regression net for rf2-5lw9w. The inner row `for` previously attached
-;; `^{:key ...}` to the function-CALL form `(render-row ...)`; in CLJS the
-;; metadata is dropped at read time (it never transfers to render-row's
-;; return value), so React saw an unkeyed row seq and warned 194×/run —
-;; failing the Story/Xray feature-load browser gate all session. The fix
-;; renders each row as a component vector `[render-row ...]` so the key
-;; lands on the element. The pre-existing suite checked row SHAPE but never
-;; the seq-key contract, which is why this slipped past node-test. These
-;; tests pin `(meta element) :key` on every rendered row element.
+;; The inner row `for` renders each row as a component vector
+;; `[render-row ...]` so its `^{:key ...}` lands on the element. Attached to
+;; the function-CALL form `(render-row ...)` the metadata would be dropped
+;; (it never transfers to render-row's return value), so React would see an
+;; unkeyed row seq and warn on every run — failing the Story/Xray
+;; feature-load browser gate. A row-SHAPE check cannot see the seq-key
+;; contract, so these tests pin `(meta element) :key` on every rendered row
+;; element.
 
 (defn- collect-row-seq-elements
   "Walk `hiccup` and collect the elements of the inner row sequence — the
@@ -630,7 +627,7 @@
 (deftest assertion-strip-row-seq-elements-carry-key-meta
   (testing "every rendered row element carries a unique :key in its
             metadata so React's row seq is keyed — the meta MUST sit on a
-            vector literal, NOT a function-call form (rf2-5lw9w)"
+            vector literal, NOT a function-call form"
     (let [assertions [{:assertion :rf.assert/path-equals
                        :passed? true :payload [[:c] 1] :expected 1 :actual 1}
                       {:assertion :rf.assert/path-equals
@@ -670,15 +667,15 @@
       (is (= 3 (count (into #{} keys)))
           "keys are unique strip-wide even across groups"))))
 
-;; ---- :key meta on the OUTER group seq (rf2-uhq5j / rf2-5lw9w-one-up) ------
+;; ---- :key meta on the OUTER group seq ------------------------------------
 ;;
 ;; The strip nests two `for` seqs: outer groups → inner rows. The inner
-;; row keys are pinned above. The OUTER group element's
-;; `^{:key (str "group-" gi)}` (assertion_strip.cljs:468) was never
-;; asserted — a missing/duplicate group key warns in React exactly like
-;; the rf2-5lw9w row-key bug, one level up, and would slip past node-test
-;; the same way. These tests pin `(meta element) :key` on every group
-;; element so a regression there can't go silent.
+;; row keys are pinned above. The OUTER group element carries
+;; `^{:key (str "group-" gi)}` (assertion_strip.cljs) — a missing/duplicate
+;; group key warns in React exactly like a missing row key, one level up,
+;; and a shape check would not see it either. These tests pin
+;; `(meta element) :key` on every group element so a regression there
+;; can't go silent.
 
 (defn- collect-group-seq-elements
   "Walk `hiccup` and collect the outer group elements — the `[:div ...]`
@@ -705,7 +702,7 @@
 
 (deftest assertion-strip-group-seq-elements-carry-key-meta
   (testing "every outer group element carries a unique :key in its
-            metadata so React's GROUP seq is keyed — the rf2-5lw9w
+            metadata so React's GROUP seq is keyed — the missing-row-key
             failure mode one level up (the outer for over groups)"
     (let [assertions [{:assertion :rf.assert/path-equals :passed? true
                        :event [:click] :payload [[:c] 1]}

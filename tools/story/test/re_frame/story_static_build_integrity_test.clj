@@ -1,11 +1,11 @@
 (ns re-frame.story-static-build-integrity-test
-  "JVM tests pinning the static-build link-integrity contract (rf2-5onip).
+  "JVM tests pinning the static-build link-integrity contract.
 
   Per `tools/story/spec/015-Test-Coverage.md` §Static-build scenarios:
-  the existing `story_static_build_cljs_test.cljs` covers the goog-
-  define + help-suppression branches; the existing `check-story-static.cjs`
-  drives a Playwright smoke against the built bundle. Both are
-  post-build-shape checks. What the bead calls out as missing:
+  `story_static_build_cljs_test.cljs` covers the goog-define +
+  help-suppression branches, and `check-story-static.cjs` drives a
+  Playwright smoke against the built bundle. Both are post-build-shape
+  checks. This namespace pins the rest:
 
   - **all-stories-resolvable** — every registered variant id in a
     seeded registry resolves to a renderable variant body
@@ -27,8 +27,8 @@
     in-bundle variants.
 
   These are JVM-pure-data tests over the seeded registry — no
-  shadow-cljs release build required. They run on the default CI gate
-  via `npm run test:cljs` (CLJ arm)."
+  shadow-cljs release build required. They run in `tools/story`'s JVM
+  `clojure -M:test` gate."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
@@ -78,7 +78,7 @@
                 :story.bundle.counter/three]}))
 
 ;; ===========================================================================
-;; rf2-5onip — all-stories-resolvable post-build
+;; all-stories-resolvable post-build
 ;;
 ;; The static export walks the registry at build time to produce its
 ;; deployable artefact. After mount, the shell reads (ids :variant) and
@@ -157,7 +157,7 @@
         "list-modes ↔ registrations agree on the mode id-set")))
 
 ;; ===========================================================================
-;; rf2-5onip — link integrity (share URLs round-trip to registered ids)
+;; link integrity (share URLs round-trip to registered ids)
 ;;
 ;; The static export embeds share URLs in prose blocks, docs panels, and
 ;; the per-variant share affordance. Each URL encodes a `?variant=<id>`
@@ -262,7 +262,7 @@
              — the shell's no-such-variant empty state engages")))))
 
 ;; ===========================================================================
-;; rf2-5onip — bundle-relative selectors (pr-str round-trip)
+;; bundle-relative selectors (pr-str round-trip)
 ;;
 ;; The shell stamps `data-test-variant="(pr-str variant-id)"` on the
 ;; canvas root (per canvas.cljs §reagent-render). Playwright specs and

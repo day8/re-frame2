@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.test-mode.stepper-view-cljs-test
-  "CLJS render-shape tests for the play step-debugger view (rf2-ulw5m +
-  spec/009 §Play step-debugger).
+  "CLJS render-shape tests for the play step-debugger view (spec/009
+  §Play step-debugger).
 
   Renders the stepper-section component with synthetic local state and
   asserts the hiccup tree carries the documented `data-test` selectors,
@@ -68,7 +68,7 @@
       (is (some? start)    "Start button is present")
       (is (some? hint)     "inactive hint is present")
       (is (re-find #"no :script has no steps" (last hint))
-          "the hint does not promise a :script to a variant without one (rf2-yemtm)")
+          "the hint does not promise a :script to a variant without one")
       (is (nil?  step-btn) "Step button is NOT present in inactive state"))))
 
 ;; ---- active state -------------------------------------------------------

@@ -1,5 +1,5 @@
 (ns re-frame.story.recorder.selector-test
-  "Pure unit tests for the recorder's selector picker (rf2-d5u89).
+  "Pure unit tests for the recorder's selector picker.
 
   Covers:
   - Priority tiers (data-test > id > aria-label > nth-of-type).
@@ -54,7 +54,7 @@
               :index-of-type 2})))))
 
 (deftest positional-recognises-the-fallback-only
-  (testing "rf2-3x7nj.30.5: `positional?` is true of exactly what the
+  (testing "`positional?` is true of exactly what the
             nth-of-type fallback builds, so the translator hints those steps"
     (doseq [shape [{:tag "input" :attrs {} :index-of-type 1}
                    {:tag "BUTTON" :attrs {} :index-of-type 3}

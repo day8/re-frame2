@@ -1,15 +1,15 @@
 (ns re-frame.story.ui.canvas-run-status-cljs-test
-  "rf2-mc87a: the canvas records the settled verdict of its own run, and
-  stamps it on the canvas section as `data-run-status`, for every play shape.
+  "The canvas records the settled verdict of its own run, and stamps it on
+  the canvas section as `data-run-status`, for every play shape.
 
-  The local visual-review recipe (docs/story/08) settled each capture on the
-  play-status chip reaching a terminal status. A declarative variant
-  (`:assertions` / `:checks`, no play) never renders that chip, and a play
-  that does not auto-run leaves it `idle`, so the recipe waited out its
-  timeout on both. The unified run result's `:status` settles for all of
-  them, which is what the canvas now records.
+  The local visual-review recipe (docs/story/08) settles each capture on
+  `data-run-status` rather than on the play-status chip reaching a terminal
+  status: a declarative variant (`:assertions` / `:checks`, no play) never
+  renders that chip, and a play that does not auto-run leaves it `idle`.
+  The unified run result's `:status` settles for all of them, which is what
+  the canvas records.
 
-  rf2-oovoq: the stamp names the run in view by run-key AND generation, so
+  The stamp names the run in view by run-key AND generation, so
   returning to a variant under an identical run-key does not show the
   previous visit's verdict while the fresh generation is in flight.
 
@@ -138,7 +138,7 @@
                     (done)))))))
 
 (deftest a-return-to-the-same-run-key-is-unstamped-until-its-fresh-run-settles
-  ;; rf2-oovoq: A settles, B runs, then A is selected again with the same
+  ;; A settles, B runs, then A is selected again with the same
   ;; modes, overrides and tick, so under the SAME run-key. The canvas stays
   ;; mounted, so A's previous entry is still recorded, while the revisit
   ;; claims a fresh generation and resets A's frame. The previous verdict
@@ -185,12 +185,12 @@
                     (is false (str "a canvas run rejected: " e))
                     (done)))))))
 
-;; rf2-iwl02: every author-triggered run goes through `runtime/rerun!`, which
+;; Every author-triggered run goes through `runtime/rerun!`, which
 ;; re-prepares the variant in place under the SAME run-key, so the canvas sees
-;; no key change and runs nothing itself. Only the run's starter — the play
-;; chip — held its promise, so the canvas never heard the verdict and its
-;; stamp vanished instead of following the new run. Setup reads `rerun-n`, so
-;; a flip between runs makes the re-run's verdict differ from the first.
+;; no key change and runs nothing itself. If only the run's starter — the play
+;; chip — held its promise, the canvas would never hear the verdict and its
+;; stamp would vanish instead of following the new run. Setup reads `rerun-n`,
+;; so a flip between runs makes the re-run's verdict differ from the first.
 
 (def ^:private rerun-n (atom 1))
 
@@ -229,7 +229,7 @@
                     (is false (str "a run rejected: " e))
                     (done)))))))
 
-;; rf2-iftxj: the stamp follows EVERY author-triggered run, whichever way it
+;; The stamp follows EVERY author-triggered run, whichever way it
 ;; settles, and following it costs no execution. Each prepare runs `:setup`
 ;; once, so the boot count is the number of runs; the canvas's own lifecycle
 ;; call after a Re-run sees an unchanged run-key and starts nothing.
@@ -279,7 +279,7 @@
                     (done)))))))
 
 (deftest the-section-carries-the-status-only-for-its-own-run
-  (testing "rf2-mc87a / rf2-oovoq: `data-run-status` stamps the settled verdict of the run in view"
+  (testing "`data-run-status` stamps the settled verdict of the run in view"
     (let [rk      {:variant-id :story.mc87a/declarative :hot-reload-tick 0}
           newer   (assoc rk :hot-reload-tick 1)
           snap    {:content-hash "abc123"}]
@@ -292,7 +292,7 @@
       (is (nil? (:data-run-status (section-props rk snap {:run-key rk :generation 1 :status :pass} 2)))
           "a previous generation's verdict never stands for a fresh run under the same run-key")
       (is (= ":story.mc87a/declarative" (:data-test-variant (section-props rk snap nil 1)))
-          "the existing test hooks are unchanged")
+          "the section's other test hooks ride beside the stamp")
       (is (= "abc123" (:data-snapshot-hash (section-props rk snap nil 1))))
       (is (nil? (:data-run-status (section-props {:variant-id nil} nil {:run-key {:variant-id nil} :generation 0 :status :pass} 0)))
           "no variant selected, no stamp"))))

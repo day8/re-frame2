@@ -1,25 +1,25 @@
 (ns re-frame.story.ui.shell.rails-splitter-unmount-dom-cljs-test
-  "DOM-mount regression for rf2-cmjly3 finding 6: the resizable rail
-  splitter's `on-mouse-down` installs document-level mousemove/mouseup
-  listeners that were previously removed ONLY from inside the mouseup
-  handler itself. If the splitter unmounted mid-drag — e.g. a
+  "DOM-mount tests for the resizable rail splitter's listener teardown:
+  its `on-mouse-down` installs document-level mousemove/mouseup
+  listeners. If the splitter unmounts mid-drag — e.g. a
   narrow-viewport flip drops `[rf.story.ui.shell.rails/splitter :left]` from `shell.cljs`
-  (`rf.story.ui.shell.rails/narrow-viewport?`) — mouseup never fires, so the document
-  listeners were never torn down and kept calling `set-width!` against the
-  (by-then stale) component's closure forever: a permanent per-drag
-  listener leak plus phantom rail-width writes driven by a component no
-  longer on screen.
+  (`rf.story.ui.shell.rails/narrow-viewport?`) — mouseup never fires, so
+  listeners removed ONLY from inside the mouseup handler would never be
+  torn down and would keep calling `set-width!` against the (by-then
+  stale) component's closure forever: a permanent per-drag listener leak
+  plus phantom rail-width writes driven by a component no longer on
+  screen.
 
-  ## The fix
+  ## The teardown
 
   The drag's `move-fn`/`up-fn` closures are tracked in a component-level
   atom (`drag-handlers`); `:component-will-unmount` removes them from
   `js/document` if a drag is still in flight when the component goes away,
-  in addition to `up-fn`'s own (unchanged) removal on a normal mouseup.
+  in addition to `up-fn`'s own removal on a normal mouseup.
 
   ## Why this needs a REAL DOM mount
 
-  The bug is a real `document.addEventListener` / `removeEventListener`
+  The leak is a real `document.addEventListener` / `removeEventListener`
   side effect wired through Reagent's `:on-mouse-down` (React's synthetic
   event system) — a hiccup-level test never invokes real DOM event
   dispatch or the `:component-will-unmount` lifecycle hook. This test
@@ -51,13 +51,13 @@
 (use-fixtures :each
   {:before (fn [] (when (browser?) (rf.story.ui.state/reset-shell-state!)))})
 
-;; ---- the regression ---------------------------------------------------
+;; ---- mid-drag unmount -------------------------------------------------
 
 (deftest splitter-unmount-mid-drag-tears-down-document-listeners
-  (testing "rf2-cmjly3 finding 6: a mousemove dispatched AFTER the
-            splitter unmounts mid-drag (no mouseup ever fired) is a no-op
-            — :component-will-unmount removed the document-level listener
-            the pre-fix code left dangling"
+  (testing "a mousemove dispatched AFTER the splitter unmounts mid-drag
+            (no mouseup ever fired) is a no-op —
+            :component-will-unmount removed the document-level listener
+            that mouseup alone would leave dangling"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (let [mount-node (make-mount-node!)
@@ -86,16 +86,15 @@
               ;; Unmount MID-DRAG — no mouseup ever fired.
               (react-dom/flushSync (fn [] (.unmount root)))
               ;; A further mousemove after the mid-drag unmount must be a
-              ;; no-op — the pre-fix bug kept the listener attached against
-              ;; the (now stale) component closure and would have moved
-              ;; the rail again here.
+              ;; no-op — a listener left attached against the (now stale)
+              ;; component closure would move the rail again here.
               (react-dom/flushSync
                 (fn []
                   (.dispatchEvent js/document
                     (js/MouseEvent. "mousemove" #js {:bubbles true :clientX 400}))))
               (let [width-2 (:left (rf.story.ui.shell.rails/current-widths))]
                 (is (= width-1 width-2)
-                    "rf2-cmjly3 finding 6: a mousemove AFTER a mid-drag
+                    "a mousemove AFTER a mid-drag
                      unmount does not move the rail — the document
                      listener was torn down by :component-will-unmount"))))
           (finally
@@ -107,7 +106,7 @@
   (some-> (.getItem js/localStorage rail-storage-key) js/JSON.parse (js->clj :keywordize-keys true)))
 
 (deftest splitter-drag-persists-once-on-release
-  (testing "rf2-ohc5: a drag writes rail widths to shell state per mousemove
+  (testing "a drag writes rail widths to shell state per mousemove
             but persists them to localStorage ONCE — on mouseup, or when a
             mid-drag unmount cuts the drag short — not per mouse event"
     (if-not (browser?)
@@ -149,10 +148,9 @@
               (try (.unmount root) (catch :default _ nil)))))))))
 
 (deftest splitter-normal-mouseup-still-tears-down-listeners
-  (testing "rf2-cmjly3 finding 6 — no regression: the ORIGINAL teardown
-            path (mouseup firing while the component is still mounted)
-            still removes the document listeners — a further mousemove
-            after mouseup is a no-op, same as before the fix"
+  (testing "the normal teardown path (mouseup firing while the
+            component is still mounted) removes the document listeners
+            — a further mousemove after mouseup is a no-op"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (let [mount-node (make-mount-node!)
@@ -180,6 +178,6 @@
                   (.dispatchEvent js/document
                     (js/MouseEvent. "mousemove" #js {:bubbles true :clientX 400}))))
               (is (= width-after-move (:left (rf.story.ui.shell.rails/current-widths)))
-                  "a mousemove after a normal mouseup is still a no-op")))
+                  "a mousemove after a normal mouseup is a no-op")))
           (finally
             (try (.unmount root) (catch :default _ nil))))))))

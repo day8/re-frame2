@@ -1,6 +1,6 @@
 (ns re-frame.story.sub-overrides-cljs-test
   "View-state subscription overrides — render-path read + the
-  sub-assertion-honesty rule (rf2-5x1wt.13).
+  sub-assertion-honesty rule.
 
   Per `tools/story/spec/017-Testing-Story.md` §View-state subscription
   overrides, a `:sub-overrides` value feeds the RENDER PATH only — never
@@ -60,7 +60,7 @@
           (testing "non-overridden query → falls through to compute-sub"
             (is (= :ok (rf.story.sub-overrides/read [:login/other] real-read)))))))))
 
-;; ---- the React-context resolver (the LIVE carriage, rf2-7pgiz) -----------
+;; ---- the React-context resolver (the LIVE carriage) ----------------------
 ;;
 ;; `resolve-sub-override-hit` is the fn published to core under
 ;; `:subs/resolve-sub-override`. It reads the closest enclosing

@@ -1,33 +1,33 @@
 (ns re-frame.story-recorder-test
-  "JVM tests for the Test Codegen recorder (rf2-5fc15).
+  "JVM tests for the Test Codegen recorder.
 
   Pure-data coverage: the recordable-event? predicate, the state
   machine (start / append / stop / reset), the impure entrypoints
   driving the per-process atom, and the gen-play-snippet codegen.
-  Mirrors the cljc node-test arm in `recorder_cljs_test.cljs`.
+  Mirrors the node-test arm in `story_recorder_cljs_test.cljs`.
 
   ## Coverage layers
 
   - `recordable-event?` — filters assertion events + Story-internal
     helpers without dropping legitimate user dispatches.
   - State machine (`start` / `append` / `stop` / `reset`) — pure
-    transitions; one place to lock the contract before wiring the
-    impure side.
+    transitions; one place to lock the contract apart from the impure
+    side.
   - Impure entrypoints (`start-recording!`, `stop-recording!`,
     `record-event!`, `clear!`, `toggle!`) — exercise the per-process
     atom alongside the predicate filter.
   - `gen-play-snippet` — the codegen output is `read-string`-able
     EDN; the assertion is shape-level (round-trips back to the same
-    public `:script` body — rf2-7mj4z) so future cosmetic changes to
-    formatting don't churn the test."
+    public `:script` body) so a cosmetic formatting change does not
+    churn the test."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; EP-0015 (rf2-mngp4o): `redact-interceptor` is no longer
-            ;; published from `re-frame.core`; it survives as an internal
-            ;; helper in its home ns, exercised here directly.
+            ;; `re-frame.core` publishes no `redact-interceptor` (EP-0015
+            ;; §7); it is an internal helper in its home ns, exercised here
+            ;; directly.
             [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -181,14 +181,14 @@
 
 (deftest gen-play-snippet-empty
   (testing "gen-play-snippet with no events renders an empty :script
-            body vector (rf2-7mj4z — recorder emits the :script
-            spelling, never the retired :play-script)"
+            body vector (the recorder emits the :script spelling, never
+            :play-script)"
     (let [snip (rf.story.recorder/gen-play-snippet [] {:variant-id :story.x/y})]
       (is (string? snip))
       (is (str/includes? snip ":story.x/y"))
       (is (str/includes? snip ":script"))
       (is (not (str/includes? snip ":play-script"))
-          "the recorder never emits the retired :play-script slot")
+          "the recorder never emits a :play-script slot")
       (is (str/includes? snip "[]")))))
 
 (deftest gen-play-snippet-renders-reg-variant
@@ -225,8 +225,8 @@
 (defn- extract-play-script-vector
   "Pull the inner `:script` vector substring out of the rendered snippet
   by walking balanced brackets after the public `:script` body's inner
-  `:script` token. Per rf2-7mj4z the recorder emits the PUBLIC `:script`
-  slot with a `{:auto-run? ... :script [...]}` body; the first `:script`
+  `:script` token. The recorder emits the PUBLIC `:script` slot with a
+  `{:auto-run? ... :script [...]}` body; the first `:script`
   token is the body key, and the first `[` after it opens the inner step
   vector."
   [snippet]
@@ -250,16 +250,16 @@
 
 (defn- unwrap-dispatch-sync-steps
   "Project the parsed `:script` vector back to the bare event-vector
-  list. Each step is `[:dispatch-sync <event-vec>]` (per rf2-0wrud)."
+  list. Each step is `[:dispatch-sync <event-vec>]`."
   [script-vec]
   (mapv second script-vec))
 
 (deftest gen-play-snippet-roundtrips-events
   (testing "the rendered public :script body vector reads back as
             [:dispatch-sync <event>] steps that unwrap to the original
-            events (rf2-7mj4z — the recorder emits the public :script
-            slot; rf2-0wrud — gen-play-snippet wraps each captured event
-            as a :dispatch-sync step)"
+            events (the recorder emits the public :script slot, and
+            gen-play-snippet wraps each captured event as a :dispatch-sync
+            step)"
     (let [events     [[:counter/inc]
                       [:auth/login {:email "alice@example.com" :remember? true}]
                       [:cart/add-item :widget-x 3]]
@@ -276,7 +276,7 @@
       (is (= events (unwrap-dispatch-sync-steps script-vec))
           "unwrapping :dispatch-sync round-trips to the original events"))))
 
-;; ---- rf2-d5u89: DOM-event entries + per-event timestamps ----------------
+;; ---- DOM-event entries + per-event timestamps ---------------------------
 
 (deftest append-dom-click-pure-shape
   (testing "append-dom of a click vector lands an :entries entry"
@@ -331,7 +331,7 @@
       (is (= :dom/click (:kind (first entries))))
       (is (= :dom/type (:kind (second entries)))))))
 
-;; ---- mid-recording assertion insertion (rf2-39u9e) ----------------------
+;; ---- mid-recording assertion insertion ----------------------------------
 
 (deftest assertion-vocabulary-covers-canonical-seven
   (testing "the picker vocabulary enumerates all seven canonical :rf.assert/* ids"
@@ -532,8 +532,8 @@
     (rf.story.recorder/stop-recording!)
     (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
            (rf.story.recorder/recorded-events))
-        "back-compat :events slot still carries bare event vectors")
-    ;; rf2-d5u89: parallel :entries slot carries the rich shape too.
+        "the :events slot carries bare event vectors")
+    ;; The parallel :entries slot carries the rich shape.
     (let [entries (rf.story.recorder/recorded-entries)]
       (is (= 3 (count entries))
           ":entries mirrors :events one-for-one")
@@ -594,16 +594,16 @@
     (rf.story.recorder/remove-trace-listener!)))
 
 (deftest trace-listener-redacts-sensitive-dispatches-end-to-end
-  (testing "a `redact-interceptor`-interceptor handler still appears in the
-            recording with the payload scrubbed (rf2-hdadz). The
-            handler-meta `:sensitive?` annotation has been removed,
-            so sensitivity now flows via the `redact-interceptor`
-            interceptor (or schema-marked paths)."
+  (testing "a `redact-interceptor`-interceptor handler appears in the
+            recording with the payload scrubbed. There is no
+            handler-meta `:sensitive?` annotation, so sensitivity
+            flows via the `redact-interceptor` interceptor (or
+            schema-marked paths)."
     (reset-rf-state!)
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
-    ;; EP-0022 reference-only flip: chains carry references only, so register the
+    ;; Interceptor chains carry references only (EP-0022), so register the
     ;; interceptor value then reference it by id (the value's `:id`).
     (rf/reg-interceptor :rf/redact-interceptor
       (rf.privacy/redact-interceptor [[:password] [:totp]]))
@@ -665,18 +665,18 @@
     (rf.story/destroy-variant! :story.recorder/source)
     (rf.story.recorder/remove-trace-listener!)))
 
-;; ---- rf2-xxnqd: recorder FACADE contract --------------------------------
+;; ---- recorder FACADE contract --------------------------------------------
 ;;
 ;; Pins the public `re-frame.story` recorder boundary so the docs
 ;; (tools/story/spec/API.md §Recorder facade + spec/005 §Recorder) and
-;; the implementation cannot silently drift again. Two failure modes
+;; the implementation cannot silently drift. Two failure modes
 ;; this guards:
 ;;
 ;;   1. Accidental facade growth/shrink — a new recorder helper picked
 ;;      up by the namespace, or one of the intended seven removed.
-;;   2. Vocabulary drift — `gen-play-snippet` reverting to the retired
-;;      `:play-script` spelling at the facade level (the recorder-ns test
-;;      pins the ns; this pins the re-export).
+;;   2. Vocabulary drift — `gen-play-snippet` emitting a `:play-script`
+;;      spelling at the facade level (the recorder-ns test pins the ns;
+;;      this pins the re-export).
 
 (def ^:private intended-recorder-facade-vars
   "The exact recorder entries the public `re-frame.story` facade is
@@ -705,16 +705,16 @@
 (deftest facade-does-not-expose-the-transitional-play-script-alias
   (testing "no `play-script`-spelled recorder var leaked onto the facade —
             the public spelling is `:script`, so the translator is
-            `recording->script-body` (rf2-na8xn7), not `recording->play-script`,
+            `recording->script-body`, not `recording->play-script`,
             `gen-play-script`, or a `play-script`-named re-export"
     (let [public-syms (set (keys (ns-publics 're-frame.story)))]
-      ;; The facade now carries ZERO `play-script` token — the translator
-      ;; was renamed to `recording->script-body` to match the public
-      ;; `:script` body it returns (rf2-na8xn7).
+      ;; The facade carries ZERO `play-script` token — the translator is
+      ;; `recording->script-body`, matching the public `:script` body it
+      ;; returns.
       (is (contains? public-syms 'recording->script-body)
           "the translator is re-exported as `recording->script-body`")
       (is (not (contains? public-syms 'recording->play-script))
-          "the old `play-script`-spelled facade name is gone (rf2-na8xn7)")
+          "no `play-script`-spelled facade name")
       (is (not (contains? public-syms 'gen-play-script))
           "the codegen fn is `gen-play-snippet`, not `gen-play-script`")
       (is (not (contains? public-syms 'render-script-body))
@@ -724,15 +724,15 @@
 
 (deftest facade-gen-play-snippet-emits-public-script-slot
   (testing "rf.story/gen-play-snippet (the facade re-export) emits the
-            :script slot, never the retired :play-script
-            (rf2-7mj4z) — pinned at the facade, not just the recorder ns"
+            :script slot, never :play-script — pinned at the facade,
+            not just the recorder ns"
     (let [snip (rf.story/gen-play-snippet [[:counter/inc]]
                                        {:variant-id :story.x/y})]
       (is (string? snip))
       (is (str/includes? snip ":script")
           "the :script slot is present")
       (is (not (str/includes? snip ":play-script"))
-          "the retired :play-script slot is NOT emitted at the facade"))))
+          "no :play-script slot is emitted at the facade"))))
 
 (deftest facade-recording->script-body-delegates-to-play-export
   (testing "rf.story/recording->script-body (the facade re-export) returns
@@ -746,7 +746,7 @@
       (is (vector? (:script one-arg)) ":script is the runner step vector")
       (is (contains? one-arg :auto-run?) ":auto-run? slot present")
       (is (not (contains? one-arg :play-script))
-          "the body carries the runner's :script key, never the retired :play-script")
+          "the body carries the runner's :script key, never :play-script")
       ;; Each captured event becomes a runner dispatch step — the live
       ;; counterpart to gen-play-snippet's text projection.
       (is (= 2 (count (:script one-arg)))
@@ -760,12 +760,12 @@
 
 ;; ---- EP-0023: a recording's address is the variant FRAME -----------------
 ;;
-;; EP-0023 collapses the old EP-0013 public (realm, frame) address to a single
-;; frame target. A recording carries no separate realm key on its captured
-;; state or on the replayable play body; replay dispatches frame-scoped
-;; ({:frame variant-id}) and lands in the frame's own running environment by
-;; construction. These lock that collapse — the captured state is the bare
-;; recorder shape, and the play body never grows a realm key.
+;; A recording's address is a single frame target (EP-0023). A recording
+;; carries no separate realm key on its captured state or on the replayable
+;; play body; replay dispatches frame-scoped ({:frame variant-id}) and lands
+;; in the frame's own running environment by construction. These lock that
+;; shape — the captured state is the bare recorder shape, and the play body
+;; never grows a realm key.
 
 (deftest recording-state-is-the-bare-frame-target-shape
   (testing "start writes the bare recorder shape — no realm key, the
@@ -781,7 +781,7 @@
 (deftest end-to-end-recording-and-play-body-carry-no-realm-key
   (testing "a recording against a variant frame captures no realm key, and the
             translated play body is the frame-only shape that replays unchanged
-            (EP-0023 frame-target collapse)"
+            (EP-0023 frame target)"
     (reset-rf-state!)
     (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf.story/reg-variant :story.frame/target {})
@@ -804,7 +804,7 @@
     (rf.story/destroy-variant! :story.frame/target)
     (rf.story.recorder/remove-trace-listener!)))
 
-;; ---- rf2-3x7nj.30.2: a cascaded child is not a step of its own -----------
+;; ---- a cascaded child is not a step of its own ---------------------------
 
 (deftest trace-listener-skips-fx-cascaded-children
   (testing "an event another event dispatched through its :fx is not recorded

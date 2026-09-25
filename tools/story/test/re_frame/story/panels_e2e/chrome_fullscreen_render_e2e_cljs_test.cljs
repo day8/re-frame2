@@ -1,8 +1,7 @@
 (ns re-frame.story.panels-e2e.chrome-fullscreen-render-e2e-cljs-test
-  "Multi-frame e2e coverage for the full-screen chrome toggle (rf2-8us1r,
-  replaces the Playwright `full-screen-chrome-toggle-f-hotkey` scenario).
+  "Multi-frame e2e coverage for the full-screen chrome toggle.
 
-  Per spec/014 §Chrome-visibility hotkeys (rf2-p3i0t) pressing `f`
+  Per spec/014 §Chrome-visibility hotkeys pressing `f`
   (no modifier, not editable target) toggles `:full-screen?` on the
   shell-state-atom; the shell's reagent-render elides every chrome
   pane (sidebar / toolbar / right-panel) when `:full-screen?` is true.
@@ -98,7 +97,7 @@
 ;; ---- pipeline (1): `f` keydown → shell-state flip -----------------------
 
 (deftest f-keydown-flips-full-screen-on-shell-state
-  (testing "rf2-8us1r — pressing `f` (no modifier, not editable) drives
+  (testing "pressing `f` (no modifier, not editable) drives
             `dispatch!` and lands `:full-screen? true` on the live
             shell-state-atom. The state-mutation arm is covered by
             chrome_hotkeys_e2e; pinned here so the render test below
@@ -115,7 +114,7 @@
 ;; ---- pipeline (2): full-screen → chrome elides at render ----------------
 
 (deftest full-screen-render-elides-every-chrome-pane
-  (testing "rf2-8us1r — with `:full-screen? true` on the shell-state-atom,
+  (testing "with `:full-screen? true` on the shell-state-atom,
             shell's reagent-render produces a hiccup tree where the
             sidebar / toolbar / right-panel guards all elide. The
             `[main-pane]` slot (the variant canvas) still renders so
@@ -143,7 +142,7 @@
                the render saw the full-screen state")
           (is (empty? sidebar-nodes)
               "no [rf.story.ui.sidebar/sidebar] vector in the tree — the sidebar
-               guard elided per rf2-p3i0t")
+               guard elided")
           (is (empty? toolbar-nodes)
               "no [rf.story.ui.toolbar/toolbar-strip] vector in the tree")
           (is (nil? toolbar-by-attr)
@@ -164,7 +163,7 @@
 ;; ---- pipeline (3): default (no full-screen) → chrome present ------------
 
 (deftest default-render-preserves-chrome-panes
-  (testing "rf2-8us1r — without `:full-screen?` set (the default shape),
+  (testing "without `:full-screen?` set (the default shape),
             shell's reagent-render produces a hiccup tree where the
             three chrome guards all admit their components. Pins the
             inverse so the elision test above can't trivially pass."
@@ -189,7 +188,7 @@
 ;; ---- pipeline (4): full-round-trip `f` → `f` -----------------------------
 
 (deftest f-keydown-round-trip-flips-render-twice
-  (testing "rf2-8us1r — two `f` keydowns round-trip:
+  (testing "two `f` keydowns round-trip:
               press 1 → chrome elides;
               press 2 → chrome returns.
             Asserts the keydown→state→render pipeline is stable across

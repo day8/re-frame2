@@ -1,6 +1,6 @@
 (ns re-frame.story-decorator-chain-test
   "Canvas-side regression net for decorator-chain composition and the
-  per-variant frame-isolation pair (rf2-b9f3i).
+  per-variant frame-isolation pair.
 
   Spec/002 §Decorator composition pins:
 
@@ -129,7 +129,7 @@
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :setup     [[:record/observed]]
        ;; :emit/track dispatches in :script so the tape + stub-call log
-       ;; (the SSOT :rf.assert/effect-emitted projects from — rf2-luzky) sees it.
+       ;; (the SSOT :rf.assert/effect-emitted projects from) sees it.
        :script [[:dispatch-sync [:rf.assert/path-equals [:seen-user :name] "alice"]]
                     [:dispatch-sync [:emit/track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]]})
@@ -161,7 +161,7 @@
   (testing ":extends gives a child variant access to its parent's
             :decorators only when the child does NOT declare its own
             :decorators slot. The PLAN COMPILER is the merge authority
-            (rf2-f6z88 / rf2-g74i9, spec/017 §305-306): the registrar
+            (spec/017 §305-306): the registrar
             stores the RAW body (`:extends` intact); the compiler walks
             the chain and folds `:decorators` into `[:world :decorators]`
             child-wins (no per-key concat). `resolve-decorators` reads
@@ -237,8 +237,8 @@
                     [:rf.story/force-fx-stub :analytics {:ack? true}]]
        :setup     [[:inc-and-track] [:inc-and-track]]
        ;; :script emits one more inc-and-track so :rf.assert/effect-emitted
-       ;; sees the emission via the tape + stub-call log SSOT (rf2-luzky —
-       ;; there is no play-start accumulator reset).
+       ;; sees the emission via the tape + stub-call log SSOT (there is
+       ;; no play-start accumulator reset).
        :script [[:dispatch-sync [:rf.assert/path-equals [:counter] 102]]
                     [:dispatch-sync [:inc-and-track]]
                     [:dispatch-sync [:rf.assert/effect-emitted :analytics]]
@@ -277,9 +277,7 @@
       ;; emitted-fx isolation: the stub-call log keys by frame-id; each
       ;; frame's log carries only its own emissions. Three per frame:
       ;; two during :setup phase + one during :script phase. Note the
-      ;; stub-call log accumulates across phases (unlike the assertion
-      ;; emitted-fx accumulator which the play-runner resets at play
-      ;; start).
+      ;; stub-call log accumulates across phases.
       (is (= 3 (count logA))
           "frame A's stub log carries exactly three entries — two from
            :setup + one from :script")

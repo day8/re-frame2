@@ -1,5 +1,5 @@
 (ns re-frame.story-layout-debug-test
-  "JVM tests for Stage 6 (rf2-zhwd) — layout-debug decorator trio.
+  "JVM tests for the layout-debug decorator trio.
 
   Coverage:
   - The three decorators register under canonical ids.

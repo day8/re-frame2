@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.url-state-test
-  "Pure tests for the URL-state engine (rf2-o4u18).
+  "Pure tests for the URL-state engine.
 
   The CLJS browser surface (pushState / popstate / window.location) is
   exercised in `re-frame.story.ui.url-state-cljs-test` and in the
@@ -8,7 +8,7 @@
   - `params-from-state`     — project shell-state slots onto build-params shape.
   - `url-from-state`        — full path + query + hash composition, and the
                               ownership boundary it shares with the share
-                              builder (rf2-gee8n).
+                              builder.
   - `url-relevant-slots-changed?` — diff for the state watcher.
   - `apply-parsed-to-state` — fold parsed slots back into shell-state."
   (:require [clojure.string :as str]
@@ -105,29 +105,30 @@
       (is (re-find #"tag-filter=" url))
       (is (re-find #"substrate="  url)))))
 
-;; ---- rf2-gee8n: the address-bar writer owns the Story vocabulary only ----
+;; ---- the address-bar writer owns the Story vocabulary only --------------
 ;;
 ;; `url-from-state` is the SECOND writer of the address-bar URL — the
-;; state-watcher pushes its output on every URL-relevant change. It used to
-;; compose from `{:pathname :hash}` alone, rebuilding the query from shell
-;; state and discarding `location.search` wholesale, so the first state
-;; change after mount erased every param Story does not own: `embed=1`
-;; (rf2-pucku chrome state, read once at mount and never round-tripped),
-;; a referrer `from=`, a host page's analytics params.
+;; state-watcher pushes its output on every URL-relevant change. Composing
+;; from `{:pathname :hash}` alone, rebuilding the query from shell state
+;; and discarding `location.search` wholesale, would make the first state
+;; change after mount erase every param Story does not own: `embed=1`
+;; (chrome state, read once at mount and never round-tripped), a referrer
+;; `from=`, a host page's analytics params.
 ;;
-;; The share builder had already settled the boundary (rf2-b7je1): Story
-;; owns exactly `rf.story.share/story-query-keys` and preserves everything else.
-;; These pin that this writer applies the SAME boundary — it calls the same
-;; merge — so the two cannot drift about who owns what.
+;; Story owns exactly `rf.story.share/story-query-keys` and preserves
+;; everything else. These pin that this writer applies the SAME boundary as
+;; the share builder — it calls the same merge — so the two cannot drift
+;; about who owns what.
 
 (def ^:private third-party-search
   "A `location.search` of the shape a host page hands the shell: two
   params Story does not own, plus a stale Story key left by an earlier
-  push. `embed=1` is the concrete casualty rf2-gee8n was filed for."
+  push. `embed=1` is the concrete param a query rebuilt from shell state
+  would erase."
   "?from=index&embed=1&variant=story.old%2Fa")
 
 (deftest url-from-state-preserves-unowned-query-params
-  (testing "rf2-gee8n — unrelated params survive verbatim and in order,
+  (testing "unrelated params survive verbatim and in order,
             ahead of the generated ones, while the stale Story key is
             replaced by this state's value"
     (is (= "/counter-with-stories/?from=index&embed=1&variant=story.new%2Fb#/stories"
@@ -138,10 +139,10 @@
               :hash     "#/stories"})))))
 
 (deftest url-from-state-clears-every-stale-story-key
-  (testing "rf2-gee8n — the clear set is the whole vocabulary, not the
+  (testing "the clear set is the whole vocabulary, not the
             subset this state emits: a slot the shell leaves empty must
             not leave a stale value standing for the hydrator to restore
-            (the omission hole rf2-b7je1 closed on the share builder)"
+            (the same omission rule the share builder applies)"
     (let [stale {"variant"    "story.old%2Fa"
                  "workspace"  "story.old%2Fws"
                  "mode-tab"   "docs"
@@ -166,7 +167,7 @@
           "every stale Story key is gone; both unowned params survive"))))
 
 (deftest url-from-state-no-bare-question-mark-when-query-empties
-  (testing "rf2-gee8n — clearing the last Story key off a search that held
+  (testing "clearing the last Story key off a search that held
             nothing else leaves no dangling `?`; a bare `?` differs from
             `location.search`'s empty string, so the watcher would push a
             cosmetic history entry the shell can never match again"
@@ -176,7 +177,7 @@
                                   :hash     "#/stories"})))))
 
 (deftest url-from-state-and-share-builder-agree-on-ownership
-  (testing "rf2-gee8n — the two writers of this URL apply one boundary
+  (testing "the two writers of this URL apply one boundary
             because they call one merge: given the same base and the same
             cell, the address-bar composer and the share-URL builder
             produce the same string"
@@ -192,21 +193,19 @@
                {:pathname pathname :search search :hash hash}))
           "same base + same cell ⇒ same URL from either writer"))))
 
-;; ---- rf2-b7je1: the address bar owns ESCAPED spellings too --------------
+;; ---- the address bar owns ESCAPED spellings too ------------------------
 ;;
-;; Unifying the two writers on `rf.story.share/apply-story-params` carried the
-;; share builder's remaining ownership hole onto the LIVE address bar:
-;; ownership was matched on raw key text while `URLSearchParams` compares
-;; DECODED names, so a `location.search` spelling a Story key with escapes
-;; survived and the generated value was appended behind it. `.get` is
-;; first-value, so the next reload restored the stale cell — the very
-;; thing sharing one merge was supposed to make impossible. The pin is on
-;; the address-bar writer specifically: the repair lives in the shared
-;; helper, so this and the share-builder half must move together or not
-;; at all.
+;; Both writers share `rf.story.share/apply-story-params`. `URLSearchParams`
+;; compares DECODED names, so ownership matched on raw key text would let a
+;; `location.search` spelling a Story key with escapes survive, with the
+;; generated value appended behind it. `.get` is first-value, so the next
+;; reload would restore the stale cell — the very thing sharing one merge
+;; exists to make impossible. The pin is on the address-bar writer
+;; specifically: the key decoding lives in the shared helper, so this and
+;; the share-builder half must move together or not at all.
 
 (deftest url-from-state-clears-percent-encoded-story-keys
-  (testing "rf2-b7je1 audit — `%76ariant=` IS `variant=` to the browser, so
+  (testing "`%76ariant=` IS `variant=` to the browser, so
             a state-driven push must clear it rather than append behind it"
     (is (= "/p/?embed=1&variant=story.new%2Fb#/stories"
            (rf.story.ui.url-state/url-from-state
@@ -217,7 +216,7 @@
         "the escaped stale key is gone; unowned embed=1 survives, in order")))
 
 (deftest url-from-state-clears-every-escaped-story-key
-  (testing "rf2-b7je1 audit — the whole vocabulary, spelled with escapes:
+  (testing "the whole vocabulary, spelled with escapes:
             every Story key goes, both unowned params stay. Derived from
             `rf.story.share/story-query-keys` so a key added to the vocabulary is
             covered here without editing this test."
@@ -246,8 +245,8 @@
           "every escaped Story key is cleared; both unowned params survive"))))
 
 (deftest url-from-state-and-share-builder-agree-on-escaped-keys
-  (testing "rf2-b7je1 audit — one merge, one boundary: the fix must not
-            have taught only one of the two writers about escaped keys"
+  (testing "one merge, one boundary: both writers clear escaped keys,
+            not just one of them"
     (let [pathname "/counter-with-stories/"
           search   "?%76ariant=story.old%2Fa&embed=1&%73ubstrate=uix"
           hash     "#/stories"]
@@ -313,10 +312,9 @@
                 :panel-visibility {:trace false}})))))
 
 (deftest url-relevant-slots-changed-detects-focused-overrides-change
-  (testing "rf2-5fyo3 — a controls edit on the FOCUSED variant changes
+  (testing "a controls edit on the FOCUSED variant changes
             its cell-overrides slice and MUST trigger a push so the
-            live address bar round-trips the override (the share popover
-            that used to own override serialisation was retired)"
+            live address bar round-trips the override"
     (is (rf.story.ui.url-state/url-relevant-slots-changed?
           {:selected-variant :foo/a :cell-overrides {}}
           {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}))
@@ -325,7 +323,7 @@
           {:selected-variant :foo/a :cell-overrides {:foo/a {:x 2}}}))))
 
 (deftest url-relevant-slots-changed-ignores-unfocused-overrides-change
-  (testing "rf2-5fyo3 — overrides on a NON-focused variant stay off the
+  (testing "overrides on a NON-focused variant stay off the
             URL (the URL carries only the focused variant's overrides)"
     (is (not (rf.story.ui.url-state/url-relevant-slots-changed?
                {:selected-variant :foo/a :cell-overrides {:foo/b {:x 1}}}
@@ -350,7 +348,7 @@
     (is (nil? (:selected-variant out)))))
 
 (deftest apply-parsed-variant-wins-over-workspace
-  (testing "rf2-hscut — variant click clears :selected-workspace. When the
+  (testing "variant click clears :selected-workspace. When the
             URL carries BOTH (a teammate crafted a URL or a stale
             bookmark), variant wins."
     (let [out (rf.story.ui.url-state/apply-parsed-to-state
@@ -398,21 +396,21 @@
               {} {:substrate :uix} {})]
     (is (= :uix (:substrate out)))))
 
-;; ---- rf2-dxz4sg: substrate authoritative-clear --------------------------
+;; ---- substrate authoritative-clear ---------------------------------------
 ;;
 ;; The build side omits `substrate=` to encode the `:reagent` default
 ;; (`rf.story.share/build-params` emits it only for a non-default substrate). So
 ;; an omitted/nil parsed substrate MUST hydrate as `:reagent`, not preserve
 ;; the recipient's stale in-memory `:uix`. This mirrors the
-;; authoritative-clear discipline the other URL-owned chrome slots already
-;; get (rf2-fkmnh). The same single fn drives mount-time hydration AND
+;; authoritative-clear discipline the other URL-owned chrome slots
+;; get. The same single fn drives mount-time hydration AND
 ;; no-query popstate (via `parse-current-url-or-empty`), so both paths heal.
 
 (deftest apply-parsed-empty-url-clears-stale-substrate-to-reagent
-  (testing "rf2-dxz4sg — an all-nil parsed URL (no-query popstate / a share
+  (testing "an all-nil parsed URL (no-query popstate / a share
             URL that omits everything) clears a stale `:substrate :uix` back
-            to the `:reagent` default rather than preserving it. Before the
-            fix `:substrate` only wrote when truthy, so the stale value leaked."
+            to the `:reagent` default rather than preserving it. Writing
+            `:substrate` only when truthy would leak the stale value."
     (let [stale        {:substrate :uix}
           empty-parsed {:variant-id nil :workspace-id nil :mode-tab nil
                         :active-modes nil :viewport nil :background nil
@@ -422,7 +420,7 @@
           "omitted substrate= hydrates as the :reagent default, not stale :uix"))))
 
 (deftest apply-parsed-default-share-link-clears-stale-substrate
-  (testing "rf2-dxz4sg — the bead's concrete scenario: a recipient with stale
+  (testing "the concrete scenario: a recipient with stale
             in-memory `:substrate :uix` opens a DEFAULT share link
             `?variant=story.counter/loaded` that carries NO substrate= (the
             sender omitted it precisely to mean `:reagent`). The recipient
@@ -437,8 +435,8 @@
           "recipient's stale :uix is cleared to the :reagent default"))))
 
 (deftest apply-parsed-explicit-non-default-substrate-round-trips
-  (testing "rf2-dxz4sg — an explicit non-default substrate still hydrates to
-            that substrate (the fix only changes omitted/invalid handling).
+  (testing "an explicit non-default substrate hydrates to
+            that substrate; only omitted/invalid values fall back.
             With a :substrate? validator that registers :uix it is kept; with
             no validator any present id is accepted (registry unreachable)."
     (let [with-validator (rf.story.ui.url-state/apply-parsed-to-state
@@ -452,7 +450,7 @@
           "with no validator a present substrate is accepted as-is"))))
 
 (deftest apply-parsed-invalid-substrate-degrades-to-reagent
-  (testing "rf2-dxz4sg — a present-but-UNREGISTERED substrate (rejected by the
+  (testing "a present-but-UNREGISTERED substrate (rejected by the
             :substrate? validator) degrades to the :reagent default rather than
             preserving the prior local substrate, so a stale URL can't pin a
             substrate the host app never registered."
@@ -463,14 +461,14 @@
       (is (= :reagent (:substrate out))
           "unregistered substrate= clears to :reagent, not the stale :uix"))))
 
-;; ---- rf2-j0hwf: cell-overrides hydration --------------------------------
+;; ---- cell-overrides hydration --------------------------------------------
 
 (deftest apply-parsed-installs-cell-overrides-under-focused-variant
-  (testing "rf2-j0hwf — parsed :cell-overrides are written under
+  (testing "parsed :cell-overrides are written under
             [:cell-overrides variant-id] so a shared URL / popstate
             restores the same effective args, not just the selection.
-            (Reproduces the bead's verification: previously this
-            destructure dropped :cell-overrides entirely.)"
+            A destructure that dropped :cell-overrides would restore the
+            selection alone."
     (let [out (rf.story.ui.url-state/apply-parsed-to-state
                 {} {:variant-id     :story.foo/bar
                     :cell-overrides {:label "Hi"}} {})]
@@ -479,7 +477,7 @@
           "overrides land under the focused variant"))))
 
 (deftest apply-parsed-overrides-dropped-when-variant-invalid
-  (testing "rf2-j0hwf — overrides are variant-scoped: when the variant id
+  (testing "overrides are variant-scoped: when the variant id
             is rejected by the validator (stale URL) the overrides are
             not installed (no orphan slice under an unfocused variant)"
     (let [out (rf.story.ui.url-state/apply-parsed-to-state
@@ -491,7 +489,7 @@
           "no overrides installed for a rejected variant"))))
 
 (deftest apply-parsed-overrides-ignored-without-variant
-  (testing "rf2-j0hwf — overrides without a variant id never install
+  (testing "overrides without a variant id never install
             (the URL carries only the focused variant's slice)"
     (let [out (rf.story.ui.url-state/apply-parsed-to-state
                 {} {:cell-overrides {:label "Hi"}} {})]
@@ -499,7 +497,7 @@
       (is (empty? (:cell-overrides out))))))
 
 (deftest apply-parsed-overrides-round-trip-through-state
-  (testing "rf2-j0hwf — state → params-from-state → apply-parsed-to-state
+  (testing "state → params-from-state → apply-parsed-to-state
             restores the focused variant's overrides slice (the URL
             carries the focused variant only, so the projected
             :cell-overrides is the bare slice, not the side-table)"
@@ -510,15 +508,15 @@
       (is (= {:label "Save, continue" :n 3}
              (get-in out [:cell-overrides :foo/bar]))))))
 
-;; ---- rf2-2cpoo: URL is authoritative — clear stale overrides on hydrate ---
+;; ---- URL is authoritative — clear stale overrides on hydrate -------------
 
 (deftest apply-parsed-clears-stale-overrides-when-url-omits-them
-  (testing "rf2-2cpoo — hydrating a URL that KEEPS the focused variant but
+  (testing "hydrating a URL that KEEPS the focused variant but
             carries NO overrides CLEARS the stale in-memory overrides for it.
-            Previously the write-only branch left them intact, so back/forward,
-            a bookmark, or a share link that no longer encoded overrides still
-            rendered the prior control edits — the address bar stopped being the
-            source of truth."
+            A write-only branch would leave them intact, so back/forward,
+            a bookmark, or a share link that encodes no overrides would
+            render the prior control edits — the address bar would stop being
+            the source of truth."
     (let [stale {:selected-variant :story.foo/bar
                  :cell-overrides   {:story.foo/bar {:label "stale edit"}}}
           ;; parsed URL: same variant, NO :cell-overrides slice.
@@ -528,7 +526,7 @@
           "the focused variant's stale overrides are cleared — URL wins"))))
 
 (deftest apply-parsed-overwrites-stale-overrides-when-url-has-new
-  (testing "rf2-2cpoo — a URL that carries DIFFERENT overrides for the kept
+  (testing "a URL that carries DIFFERENT overrides for the kept
             variant overwrites the stale slice (not a deep-merge); the slice
             equals the URL payload exactly"
     (let [stale {:selected-variant :story.foo/bar
@@ -540,7 +538,7 @@
           "the slice is REPLACED by the URL payload, dropping the stale :keep"))))
 
 (deftest apply-parsed-clear-leaves-other-variants-overrides-intact
-  (testing "rf2-2cpoo — clearing the focused variant's overrides touches ONLY
+  (testing "clearing the focused variant's overrides touches ONLY
             its slice; another variant's overrides survive (the URL speaks for
             the focused variant alone)"
     (let [stale {:selected-variant :story.foo/bar
@@ -553,7 +551,7 @@
           "an unfocused variant's overrides are left intact"))))
 
 (deftest apply-parsed-share-back-forward-scenario
-  (testing "rf2-2cpoo — the back/forward + share scenario end-to-end: an
+  (testing "the back/forward + share scenario end-to-end: an
             override edit, then navigating to an override-free URL for the same
             variant (a bookmark / share link from before the edit) renders
             WITHOUT the edit. state → params (with edit) → params (without) →
@@ -571,18 +569,18 @@
           "navigating to the override-free shared URL clears the stale edit —
            the address bar is authoritative"))))
 
-;; ---- rf2-gchydo: mode-tab is URL-authoritative too (per-variant) -------
+;; ---- mode-tab is URL-authoritative too (per-variant) --------------------
 ;;
 ;; `:active-mode-tab` gets the SAME authoritative-clear treatment as
-;; `:cell-overrides` (rf2-2cpoo) above — it is per-variant, so the clear
+;; `:cell-overrides` above — it is per-variant, so the clear
 ;; is scoped to the focused variant via `dissoc`, NOT an unconditional
-;; `:always` write like the global rf2-fkmnh slots below.
+;; `:always` write like the global slots below.
 
 (deftest apply-parsed-clears-stale-mode-tab-when-url-omits-it
-  (testing "rf2-gchydo — hydrating a URL that KEEPS the focused variant but
+  (testing "hydrating a URL that KEEPS the focused variant but
             carries NO mode-tab= clears the stale [:active-mode-tab
             variant-id] entry so the reader's :dev default applies.
-            Reproduces the bead's repro: select variant A (no mode-tab=),
+            The repro: select variant A (no mode-tab=),
             Test tab (mode-tab=test), Docs (mode-tab=docs), Back twice to
             the first entry (no mode-tab=) — the stale :docs must not
             survive."
@@ -592,10 +590,10 @@
       (is (= :story.foo/bar (:selected-variant out)))
       (is (nil? (get-in out [:active-mode-tab :story.foo/bar]))
           "the stale entry is dissoc'd, not left at :docs — the reader's
-           default-mode-tab (:dev) fallback now applies"))))
+           default-mode-tab (:dev) fallback applies"))))
 
 (deftest apply-parsed-sets-mode-tab-when-url-carries-it
-  (testing "rf2-gchydo — a URL that DOES carry mode-tab= overwrites a stale
+  (testing "a URL that DOES carry mode-tab= overwrites a stale
             entry (authoritative, not a merge) — the sibling of the clear
             test above"
     (let [stale {:selected-variant :story.foo/bar
@@ -605,7 +603,7 @@
       (is (= :docs (get-in out [:active-mode-tab :story.foo/bar]))))))
 
 (deftest apply-parsed-clears-mode-tab-leaves-other-variants-intact
-  (testing "rf2-gchydo — clearing the focused variant's mode-tab touches
+  (testing "clearing the focused variant's mode-tab touches
             ONLY its entry; another variant's mode-tab survives (mode-tab
             is per-variant, the URL speaks for the focused variant alone)"
     (let [stale {:selected-variant :story.foo/bar
@@ -618,12 +616,11 @@
           "an unfocused variant's mode-tab is left intact"))))
 
 (deftest apply-parsed-mode-tab-untouched-when-variant-not-kept
-  (testing "rf2-gchydo — mode-tab is per-variant: when NO variant is kept
+  (testing "mode-tab is per-variant: when NO variant is kept
             (e.g. an invalid/rejected variant id, or none at all) there is
             no focused variant's entry to clear, so OTHER variants'
             mode-tab entries are left alone entirely (unlike the global
-            rf2-fkmnh slots below, this is not an unconditional :always
-            write)"
+            slots below, this is not an unconditional :always write)"
     (let [stale {:active-mode-tab {:story.other/baz :test}}
           out   (rf.story.ui.url-state/apply-parsed-to-state stale {} {})]
       (is (nil? (:selected-variant out)))
@@ -631,7 +628,7 @@
           "no variant kept -> the mode-tab map is untouched"))))
 
 (deftest apply-parsed-mode-tab-back-forward-scenario
-  (testing "rf2-gchydo — the bead's concrete Back/Back scenario end-to-end:
+  (testing "the concrete Back/Back scenario end-to-end:
             select variant (no mode-tab), Test tab (mode-tab=test), Docs
             tab (mode-tab=docs), Back twice to the first (variant-only)
             history entry — the address bar has reverted to no mode-tab=,
@@ -650,10 +647,10 @@
           "Back/Back to the mode-tab-less entry reverts the stale :docs —
            address bar and rendered UI agree again"))))
 
-;; ---- rf2-fkmnh: URL authoritative for ALL URL-owned chrome slots --------
+;; ---- URL authoritative for ALL URL-owned chrome slots --------------------
 
 (deftest apply-parsed-clears-active-modes-when-url-omits-modes
-  (testing "rf2-fkmnh — hydrating a URL that omits `modes=` clears stale
+  (testing "hydrating a URL that omits `modes=` clears stale
             `:active-modes` to []. A share link like ?variant=foo/bar must
             restore the DEFAULT (no modes) view for the recipient, not keep
             their localStorage-seeded modes."
@@ -663,7 +660,7 @@
           "omitted modes= clears active-modes to the empty default"))))
 
 (deftest apply-parsed-sets-active-modes-when-url-carries-them
-  (testing "rf2-fkmnh — a URL that DOES carry modes= overwrites stale modes
+  (testing "a URL that DOES carry modes= overwrites stale modes
             (authoritative, not a merge)"
     (let [stale {:active-modes [:m/light]}
           out   (rf.story.ui.url-state/apply-parsed-to-state
@@ -671,14 +668,14 @@
       (is (= [:m/dark] (:active-modes out))))))
 
 (deftest apply-parsed-clears-tag-filter-when-url-omits-it
-  (testing "rf2-fkmnh — omitted tag-filter= clears `:tag-filter` to #{}"
+  (testing "omitted tag-filter= clears `:tag-filter` to #{}"
     (let [stale {:tag-filter #{:tag/a :tag/b}}
           out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
       (is (= #{} (:tag-filter out))
           "omitted tag-filter= clears to the empty set default"))))
 
 (deftest apply-parsed-clears-viewport-when-url-omits-it
-  (testing "rf2-fkmnh — omitted viewport= clears `:viewport` to nil so the
+  (testing "omitted viewport= clears `:viewport` to nil so the
             chrome falls back to the :full default"
     (let [stale {:viewport :tablet}
           out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
@@ -686,14 +683,14 @@
           "omitted viewport= clears to nil (chrome resolves to :full)"))))
 
 (deftest apply-parsed-clears-background-when-url-omits-it
-  (testing "rf2-fkmnh — omitted background= clears `:background` to nil"
+  (testing "omitted background= clears `:background` to nil"
     (let [stale {:background :dark}
           out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
       (is (nil? (:background out))
           "omitted background= clears to nil (chrome resolves to default)"))))
 
 (deftest apply-parsed-clears-invalid-viewport-rather-than-keeping-stale
-  (testing "rf2-fkmnh — a present-but-INVALID viewport (rejected by the
+  (testing "a present-but-INVALID viewport (rejected by the
             validator) clears the slot rather than preserving the stale
             in-memory value, so a poisoned URL still degrades to default"
     (let [stale {:viewport :tablet}
@@ -704,7 +701,7 @@
           "invalid viewport= clears the stale value, not preserves it"))))
 
 (deftest apply-parsed-clears-invalid-background-rather-than-keeping-stale
-  (testing "rf2-fkmnh — a present-but-INVALID background clears the slot"
+  (testing "a present-but-INVALID background clears the slot"
     (let [stale {:background :dark}
           out   (rf.story.ui.url-state/apply-parsed-to-state
                   stale {:background :nonsense}
@@ -712,7 +709,7 @@
       (is (nil? (:background out))))))
 
 (deftest apply-parsed-empty-url-clears-every-url-owned-slot
-  (testing "rf2-fkmnh — applying the all-nil parsed shape (a no-query
+  (testing "applying the all-nil parsed shape (a no-query
             popstate / share URL that omits everything) clears ALL
             URL-owned slots back to their defaults — selection, modes,
             viewport, background, tag-filter — so the address bar is the
@@ -734,12 +731,12 @@
       (is (nil? (:viewport out)))
       (is (nil? (:background out)))
       (is (= #{} (:tag-filter out)))
-      ;; rf2-dxz4sg — substrate is a URL-owned slot too: a bare URL clears it
+      ;; Substrate is a URL-owned slot too: a bare URL clears it
       ;; to the :reagent default rather than leaking the stale :uix.
       (is (= :reagent (:substrate out))))))
 
 (deftest apply-parsed-share-counter-link-restores-default-chrome
-  (testing "rf2-fkmnh — the bead's concrete scenario: a recipient with prior
+  (testing "the concrete scenario: a recipient with prior
             localStorage-seeded chrome (modes/viewport/background/tag-filter)
             opens a share link `?variant=story.counter/loaded` that carries
             ONLY the variant. The recipient lands on the variant with the
@@ -757,7 +754,7 @@
       (is (nil? (:viewport out))     "recipient's local viewport cleared")
       (is (nil? (:background out))   "recipient's local background cleared")
       (is (= #{} (:tag-filter out))  "recipient's local tag-filter cleared")
-      ;; rf2-dxz4sg — the omitted substrate= means :reagent, so the
+      ;; The omitted substrate= means :reagent, so the
       ;; recipient's stale :uix is cleared to the default.
       (is (= :reagent (:substrate out)) "recipient's local substrate cleared"))))
 

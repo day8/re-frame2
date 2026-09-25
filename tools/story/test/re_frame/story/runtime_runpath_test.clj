@@ -1,19 +1,18 @@
 (ns re-frame.story.runtime-runpath-test
-  "End-to-end run-path wiring tests (rf2-baah3 + rf2-9ikj0).
+  "End-to-end run-path wiring tests.
 
   These drive `rf.story/run` to terminal on the JVM (where the future resolves
-  synchronously) and assert the run-path now THREADS the requirements
-  registry + routes the browser-tier a11y-structural executor — the two
-  surfaces that existed but were orphaned from the run path:
+  synchronously) and assert the run-path THREADS the requirements
+  registry + routes the browser-tier a11y-structural executor:
 
-  - rf2-baah3 — `re-frame.story.requirements` (`normalize-run-opts` →
+  - `re-frame.story.requirements` (`normalize-run-opts` →
     `select-runner` → `unmet-assertions` / `unmet-steps` →
     `validate-run-evidence`) is wired into `run-variant` / `run-inline-plan`:
     an UNMET requirement surfaces `:cannot-run` (the distinct THIRD status,
     never a false pass), the cheapest capable runner is selected, and the
     result carries `:runner` / `:required-runner`.
 
-  - rf2-9ikj0 — `re-frame.story.play.browser/eval-browser-assertion` is
+  - `re-frame.story.play.browser/eval-browser-assertion` is
     routed from the run path's in-script `[:assert …]` executor: an
     `:rf.assert/a11y-structural` checkpoint EVALUATES (:pass / :fail) at the
     `:hiccup` tier against the rendered hiccup tree (the `:render-hiccup`
@@ -58,14 +57,14 @@
                  (:assertions result))))
 
 ;; ===========================================================================
-;; rf2-baah3 — requirements selection / validation wired into the run path
+;; requirements selection / validation wired into the run path
 ;; ===========================================================================
 
 (deftest unmet-requirement-surfaces-cannot-run
   (testing "a terminal :rf.assert/visual-snapshot (requires :pixels) under the
             default :headless runner makes the run :cannot-run — the distinct
-            THIRD status, NEVER a false pass (rf2-baah3 — requirements wired
-            into run-variant)"
+            THIRD status, NEVER a false pass (requirements wired into
+            run-variant)"
     (let [result (run-target {:setup      [[:dispatch [:rp/set-status :ready]]]
                               :assertions [[:rf.assert/visual-snapshot]]})]
       (is (= :cannot-run (:status result))
@@ -83,7 +82,7 @@
   (testing "a healthy headless run (an :app-db assertion the :headless runner
             CAN prove) reads :pass with NO :cannot-run — the requirements
             wiring must not false-refuse a run whose tokens the runner provides
-            (rf2-baah3 / rf2-qoxw7 — empty-is-healthy slots impose no gate)"
+            (empty-is-healthy slots impose no gate)"
     (let [result (run-target {:script [[:dispatch [:rp/set-status :loaded]]
                                        [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
       (is (= :pass (:status result)) "a met-and-passing headless run is :pass")
@@ -94,7 +93,7 @@
 (deftest auto-selects-cheapest-capable-runner
   (testing "under :auto the cheapest CAPABLE runner is selected — :headless for
             an app-db-only plan, :hiccup for a :hiccup-structure requirement
-            (rf2-baah3 — select-runner threaded through normalize-run-opts)"
+            (select-runner threaded through normalize-run-opts)"
     (let [headless (run-target {:script [[:dispatch [:rp/set-status :loaded]]
                                          [:assert [:rf.assert/path-equals [:status] :loaded]]]}
                                {:runner :auto})]
@@ -112,7 +111,7 @@
 (deftest fixed-headless-refuses-hiccup-structure-requirement
   (testing "under fixed :headless a :hiccup-structure (a11y-structural)
             requirement refuses :cannot-run at PREFLIGHT — the fixed runner
-            runs single-pass and refuses per-requirement (rf2-baah3)"
+            runs single-pass and refuses per-requirement"
     (let [result (run-target {:assertions [[:rf.assert/a11y-structural]]}
                              {:runner :headless})]
       (is (= :cannot-run (:status result)))
@@ -121,21 +120,20 @@
           "the refusal attributes the missing :hiccup-structure token"))))
 
 ;; ===========================================================================
-;; rf2-9ikj0 — a11y-structural executor routed into the run path
+;; a11y-structural executor routed into the run path
 ;; ===========================================================================
 
 (deftest a11y-structural-evaluates-and-fails-at-hiccup
   (testing "an in-script [:assert [:rf.assert/a11y-structural]] checkpoint
             EVALUATES at :hiccup against the rendered tree and FAILS the run
-            when the tree carries a structural issue (rf2-9ikj0 — the
-            previously-orphaned executor is wired in)"
+            when the tree carries a structural issue"
     ;; The host renders a tree with an :img missing :alt — a structural issue.
     (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] [:div [:img {:src "/k.png"}]]))
     (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
                                        [:assert [:rf.assert/a11y-structural]]]}
                              {:runner :hiccup})]
       (is (= :fail (:status result))
-          "a structural-a11y finding fails the run (no longer a no-op skip)")
+          "a structural-a11y finding fails the run (never a no-op skip)")
       (let [rec (a11y-structural-record result)]
         (is (some? rec) "the a11y-structural assertion record landed on the slot")
         (is (false? (:passed? rec)) "the img-missing-alt issue is a :fail")
@@ -143,7 +141,7 @@
 
 (deftest a11y-structural-evaluates-and-passes-at-hiccup
   (testing "a structurally-clean rendered tree PASSES :rf.assert/a11y-structural
-            on the normal :hiccup run path (rf2-9ikj0)"
+            on the normal :hiccup run path"
     (rf.story.late-bind/set-fn! :render-hiccup
                        (fn [_frame] [:div [:img {:src "/k.png" :alt "a kitten"}]
                                      [:button "Go"]]))
@@ -159,7 +157,7 @@
 (deftest a11y-structural-cannot-run-without-a-hiccup-tree
   (testing "with NO :render-hiccup host the :hiccup runner cannot supply a
             rendered tree, so :rf.assert/a11y-structural records :cannot-run —
-            NEVER a vacuous pass over a nil tree (rf2-9ikj0 honesty floor)"
+            NEVER a vacuous pass over a nil tree (the honesty floor)"
     ;; No :render-hiccup host installed (the fixture cleared it). The runner is
     ;; :hiccup so the PREFLIGHT capability check passes (:hiccup provides
     ;; :hiccup-structure); the executor's own tree-availability guard refuses.
@@ -177,7 +175,7 @@
 (deftest visual-snapshot-cannot-run-headless-through-run-path
   (testing "a :rf.assert/visual-snapshot checkpoint routed through the run-path
             executor records :cannot-run headless (browser-only :pixels) — the
-            executor's browser-available? guard, surfaced end-to-end (rf2-9ikj0)"
+            executor's browser-available? guard, surfaced end-to-end"
     (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
                                        [:assert [:rf.assert/visual-snapshot]]]}
                              {:runner :browser})]
@@ -186,22 +184,22 @@
       (is (= :cannot-run (:status result)))
       (let [rec (first (filter #(= :rf.assert/visual-snapshot (:assertion %))
                                (:assertions result)))]
-        (is (some? rec) "the visual-snapshot record landed (no longer dropped)")
+        (is (some? rec) "the visual-snapshot record landed (never dropped)")
         (is (= :cannot-run (:status rec)))))))
 
 ;; ===========================================================================
-;; rf2-2cpoo — run opts (:cell-overrides / :active-modes) thread into PLAN
+;; Run opts (:cell-overrides / :active-modes) thread into PLAN
 ;; compilation, so the EXECUTED `[:arg …]` substitutions match the REPORTED
-;; `:effective-args`. Before the fix the runtime compiled the plan with the
-;; static variant args while reporting `args/resolve-args` (override/mode
-;; aware), so a cell override or active mode executed a DIFFERENT scenario
-;; than the one the result claimed — a false pass/fail + misleading snapshot.
+;; `:effective-args`. Compiling the plan with the static variant args while
+;; reporting `args/resolve-args` (override/mode aware) would make a cell
+;; override or active mode execute a DIFFERENT scenario than the one the
+;; result claims — a false pass/fail + misleading snapshot.
 ;; ===========================================================================
 
 (deftest cell-override-threads-into-script-arg-substitution
   (testing "a :cell-override drives an `[:arg …]` placeholder in the SCRIPT;
             the executed app-db AND the reported :effective-args BOTH reflect
-            the override value — not the static story arg (rf2-2cpoo)"
+            the override value — not the static story arg"
     (rf.story/reg-variant
       :story.opts/scripted
       {:args   {:value "static"}
@@ -223,7 +221,7 @@
 (deftest cell-override-threads-into-db-seed-arg-substitution
   (testing "a :cell-override drives an `[:arg …]` placeholder in the :db-seed;
             the seeded app-db reflects the override, matching :effective-args
-            (rf2-2cpoo — db-seed substitution uses the run-opts effective args)"
+            (db-seed substitution uses the run-opts effective args)"
     (rf.story/reg-variant
       :story.opts/seeded
       {:args    {:value "static"}
@@ -239,8 +237,8 @@
 (deftest active-mode-threads-into-arg-substitution
   (testing "an :active-mode's :args drive an `[:arg …]` placeholder for an arg
             the variant does NOT itself set; the executed app-db AND the
-            reported :effective-args BOTH reflect the mode value (rf2-2cpoo —
-            mode args fold into plan compilation at `mode < variant` precedence,
+            reported :effective-args BOTH reflect the mode value (mode args
+            fold into plan compilation at `mode < variant` precedence,
             so the mode supplies args the variant leaves open)"
     (rf.story/reg-mode :Mode.test/big {:args {:value "from-mode"}})
     (rf.story/reg-variant
@@ -261,7 +259,7 @@
 (deftest cell-override-wins-over-active-mode-in-arg-substitution
   (testing "precedence holds end-to-end: mode < cell-override; the SCRIPT
             dispatches the override (highest layer), matching :effective-args
-            (rf2-2cpoo — the plan folds layers in resolve-args precedence)"
+            (the plan folds layers in resolve-args precedence)"
     (rf.story/reg-mode :Mode.test/mid {:args {:value "from-mode"}})
     (rf.story/reg-variant
       :story.opts/precedence
@@ -276,9 +274,8 @@
           "and in the reported :effective-args — executed == reported"))))
 
 (deftest no-run-opts-still-uses-static-args
-  (testing "with NO run opts the run still substitutes the STATIC variant args —
-            the run-args threading is purely additive (rf2-2cpoo regression
-            guard: the absent-opts path is unchanged)"
+  (testing "with NO run opts the run substitutes the STATIC variant args —
+            run opts only add layers above them"
     (rf.story/reg-variant
       :story.opts/plain
       {:args   {:value "static"}
@@ -288,23 +285,22 @@
       (is (= "static" (get-in result [:effective-args :value]))))))
 
 ;; ===========================================================================
-;; rf2-5fv445 — a plan-construction failure routes to `plan-error-result`
-;; REGARDLESS of the prior frame's lifecycle state. Before the fix
-;; `handle-run-error!` gated the plan-error branch on
-;; `(= :pre-mount (loaders/current-state variant-id))`; the plan compiles in
-;; `prepare-context` BEFORE this run resets its frame, so when a PRIOR
-;; `run-variant` had already driven the same-id frame to `:ready`, the guard
-;; saw `:ready` and fell through to the frame-bound `:else` branch — recording
-;; an opaque `:rf.error/exception` AND reading the prior run's stale `:app-db`
-;; into the error result (spec/017 §Run result: `:app-db` is THIS run's final
-;; db; the error language must read identically across UI/MCP).
+;; A plan-construction failure routes to `plan-error-result` REGARDLESS of
+;; the prior frame's lifecycle state. The plan compiles in `prepare-context`
+;; BEFORE this run resets its frame, so gating the plan-error branch on
+;; `(= :pre-mount (loaders/current-state variant-id))` would, once a PRIOR
+;; `run-variant` had driven the same-id frame to `:ready`, fall through to
+;; the frame-bound `:else` branch — recording an opaque `:rf.error/exception`
+;; AND reading the prior run's stale `:app-db` into the error result
+;; (spec/017 §Run result: `:app-db` is THIS run's final db; the error
+;; language must read identically across UI/MCP).
 ;; ===========================================================================
 
 (deftest plan-error-after-prior-ready-run-reports-structured-error-not-stale-db
   (testing "a plan-construction failure (missing [:arg :missing]) on the SECOND
             run of a variant that the FIRST run drove to :ready surfaces the
             structured :rf.error/story-missing-arg assertion directly and does
-            NOT leak the prior run's app-db value (rf2-5fv445)"
+            NOT leak the prior run's app-db value"
     ;; Run 1: a valid variant that seeds app-db with {:value \"old\"} and runs
     ;; to a healthy terminal — the frame ends at :ready with that app-db.
     (rf.story/reg-variant
@@ -340,10 +336,10 @@
            frame-free empty-result default ({}) — never the prior frame's db"))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.30.1 — a play step that fails WITHOUT recording an assertion
-;; reaches the unified verdict. A `[:wait-until …]` that never holds marks the
-;; play's run-state `:fail` and writes nothing to `:rf.story/assertions`, so
-;; the unified result used to read `:pass` over it (vacuously, with zero
+;; A play step that fails WITHOUT recording an assertion reaches the unified
+;; verdict. A `[:wait-until …]` that never holds marks the play's run-state
+;; `:fail` and writes nothing to `:rf.story/assertions`; a verdict read from
+;; the assertions alone would read `:pass` over it (vacuously, with zero
 ;; assertions) while the chip read FAIL.
 ;; ===========================================================================
 
@@ -387,10 +383,10 @@
       (is (= 1 (count (step-failed-records result)))))))
 
 ;; ===========================================================================
-;; rf2-3x7nj.30.6 — a decorator ref that does not resolve REFUSES the run
-;; before any phase runs. The spec's old bare `[:force-fx-stub …]` spelling
-;; names no registered decorator, so the stub never installed, the real
-;; effect fired, and the run still read :pass.
+;; A decorator ref that does not resolve REFUSES the run before any phase
+;; runs. A bare `[:force-fx-stub …]` spelling names no registered decorator;
+;; without the refusal the stub would never install, the real effect would
+;; fire, and the run would read :pass.
 ;; ===========================================================================
 
 (def ^:private real-calls (atom 0))

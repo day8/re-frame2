@@ -1,6 +1,6 @@
 (ns re-frame.story.theme.status-vocab-cljs-test
-  "Lock-tests for the shared status colour vocabulary (rf2-lcl6n /
-  rf2-gsqbp, spec/018 §12.6). `theme.status` is the single constructed
+  "Lock-tests for the shared status colour vocabulary (spec/018
+  §12.6). `theme.status` is the single constructed
   source of truth — the sidebar signal chips, the test-mode result rows,
   the evidence beats, and the play-status banner all key off these
   tokens — and its own docstring states it is JVM-portable 'so the test
@@ -15,7 +15,7 @@
   `:require` (the sidebar style derivation + the empty-canvas render
   hook) are gated `#?(:cljs …)`, mirroring `sidebar-chips-cljs-test`.
 
-  ## What these lock (the drift the .3 PR claimed but did not guard)
+  ## What these lock
 
   1. **Descriptor completeness** — every one of the nine canonical
      statuses carries all FOUR discriminators (colour / glyph / shape /
@@ -33,8 +33,8 @@
   5. **Single-source derivation** (CLJS) — the sidebar's
      `:signal-status-*` style keys are EQUAL to `rf.story.theme.status/chip-style`
      output, so a drift in one region is structurally impossible.
-  6. **Empty-canvas hook** (CLJS) — the `story-canvas-empty` render hook
-     spec/018 §12.5 promises still renders."
+  6. **Empty-canvas hook** (CLJS) — the empty state renders the
+     `story-canvas-empty` hook spec/018 §12.5 promises."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [re-frame.story.theme.status :as rf.story.theme.status]
@@ -102,7 +102,7 @@
 
 (deftest zero-raw-hex-resolved-colours
   (testing "every colour resolves to a non-nil string (token-derived, never
-            a dangling keyword) — rf2-i3i5j zero-raw-hex contract"
+            a dangling keyword) — the zero-raw-hex contract"
     (doseq [s expected-statuses
             k [:fg :bg :border]]
       (let [v (get (rf.story.theme.status/descriptor s) k)]
@@ -118,8 +118,8 @@
         (is (contains? cs :background))
         (is (contains? cs :color)))))
   (testing "the five shapes render VISUALLY DISTINCT decorations — the
-            shape channel is genuinely five values, not the degraded two
-            (solid-border vs dashed) the .3 PR shipped (rf2-gsqbp)"
+            shape channel is genuinely five values, not a degraded two
+            (solid-border vs dashed)"
     ;; :solid — no border decoration; the filled ground is the signal.
     (let [pass (rf.story.theme.status/chip-style :pass)]
       (is (not (contains? pass :border)))
@@ -131,15 +131,15 @@
     (let [red (rf.story.theme.status/chip-style :redacted)]
       (is (str/includes? (:border red) "dashed")))
     ;; :ring — 2px DOUBLE border (pending — a hollow double-ring, NOT a
-    ;; plain solid edge: this is the channel the .3 PR collapsed).
+    ;; plain solid edge, which would collapse it into :outline).
     (let [pend (rf.story.theme.status/chip-style :pending)]
       (is (str/includes? (:border pend) "double")))
     ;; :half — a one-sided left-accent BAR (running), NOT a full border.
     (let [run (rf.story.theme.status/chip-style :running)]
       (is (contains? run :border-left))
       (is (not (contains? run :border)))))
-  (testing "outline / ring / half no longer collapse to the same CSS —
-            the regression rf2-gsqbp fixed stays fixed"
+  (testing "outline / ring / half render three different CSS values —
+            none collapses to another"
     (let [outline (:border      (rf.story.theme.status/chip-style :error))
           ring    (:border      (rf.story.theme.status/chip-style :pending))
           half    (:border-left (rf.story.theme.status/chip-style :running))]
@@ -192,7 +192,7 @@
      (testing "the per-variant status dots project from the descriptor
                source (`rf.story.ui.sidebar/dot-style`) — the same single source the
                chips read; there are no duplicate per-status style-map
-               entries left to drift (rf2-wh5to)"
+               entries to drift"
        (is (= {:background (rf.story.theme.status/fg :pass)} (rf.story.ui.sidebar/dot-style :pass)))
        (is (= {:background (rf.story.theme.status/fg :fail)} (rf.story.ui.sidebar/dot-style :fail)))
        (is (= (rf.story.theme.status/fg :running) (:background (rf.story.ui.sidebar/dot-style :running))))
@@ -202,7 +202,7 @@
               (:border (rf.story.ui.sidebar/dot-style :cannot-run))))
        (is (not= (rf.story.ui.sidebar/dot-style :pending) (rf.story.ui.sidebar/dot-style :cannot-run))))))
 
-;; ---- glyph channel rendered in the sidebar chip (rf2-gsqbp) -------------
+;; ---- glyph channel rendered in the sidebar chip -------------
 
 #?(:cljs
    (defn- walk-find-data-test
@@ -224,7 +224,7 @@
    (deftest sidebar-status-chip-renders-the-glyph
      (testing "the status chip in the rendered signal strip carries the
                descriptor's :glyph — the spec/018 §12.6 headline channel
-               that survives colour-blindness + Windows HCM (rf2-gsqbp)"
+               that survives colour-blindness + Windows HCM"
        (let [tree   (rf.story.ui.sidebar/signal-chips {} :fail)
              glyphs (walk-find-data-test tree "story-sidebar-signal-glyph")]
          (is (= 1 (count glyphs)) "exactly one status glyph in the strip")
@@ -238,8 +238,8 @@
 
 #?(:cljs
    (deftest sidebar-status-chip-keeps-label-and-data-value
-     (testing "rendering the glyph does NOT regress the text label or the
-               data-value / title channels (AT + test corpus still read it)"
+     (testing "rendering the glyph keeps the text label and the
+               data-value / title channels (AT + test corpus read them)"
        (let [tree  (rf.story.ui.sidebar/signal-chips {} :pass)
              chips (walk-find-data-test tree "story-sidebar-signal-chip")
              status-chip (first (filter #(= "status" (:data-axis (second %)))
@@ -247,7 +247,7 @@
              props (second status-chip)]
          (is (= "pass" (:data-value props)))
          (is (str/includes? (:title props) "status"))
-         ;; the label text is still present as a child of the chip
+         ;; the label text is present as a child of the chip
          (is (some string? (drop 2 status-chip))))))
    )
 
@@ -271,8 +271,7 @@
    (deftest story-canvas-empty-hook-renders
      (testing "with no variant / workspace / story selected, the main pane
                renders the spec/018 §12.5 calm empty state carrying the
-               `story-canvas-empty` hook (the hook the .3 review flagged
-               as unguarded)"
+               `story-canvas-empty` hook"
        (rf.story.ui.state/reset-shell-state!)
        (let [tree (#'rf.story.ui.shell/main-pane)
              hits (walk-find-data-test tree "story-canvas-empty")]

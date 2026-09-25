@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.test-watch-mode-cljs-test
   "Tests for the chrome-level test widget's watch-mode auto-re-run
-  (rf2-z1h0f — Storybook 9 Vitest-addon watch-toggle parity).
+  (Storybook 9 Vitest-addon watch-toggle parity).
 
   Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
   and the CLJS node-test build (shadow's `:node-test` target; ns-regexp
@@ -183,9 +183,9 @@
 ;; This test exercises the public surface that the shell's detector
 ;; calls — `rf.story.ui.sidebar/watch-rerun!` for the drifted variant-ids. We assert
 ;; that calling it stamps `:running` for each variant before the async
-;; result lands. The async resolution is covered by the existing test-
-;; widget tests' 'Run all' coverage; the drift→rerun wiring is the new
-;; surface here.
+;; result lands. The async resolution is covered by the test-widget
+;; tests' 'Run all' coverage; the drift→rerun wiring is this test's
+;; surface.
 
 #?(:cljs
    (deftest watch-rerun-stamps-running-for-each-variant
@@ -214,20 +214,19 @@
        (let [s (rf.story.ui.state/get-state)]
          (is (nil? (get-in s [:tests :runs :story.x/a])))))))
 
-;; ---- rf2-mclvi regression: cell-override edit triggers a re-run -------
+;; ---- a cell-override edit triggers a re-run ----------------------------
 ;;
-;; Before rf2-mclvi the watch-mode hash cache key explicitly omitted
-;; `:cell-overrides` while `snapshot-tuple` (via `resolve-args`) DID
-;; thread overrides into the hash input. The cache served stale answers
-;; on every control edit; the detector saw no drift and missed the
-;; re-run. The cache now includes `:cell-overrides` in the key + threads
-;; per-variant overrides into the snapshot-identity opts.
+;; `snapshot-tuple` (via `resolve-args`) threads overrides into the hash
+;; input, so the watch-mode hash cache includes `:cell-overrides` in its
+;; key and threads per-variant overrides into the snapshot-identity opts.
+;; A key that omitted them would serve a stale answer on every control
+;; edit; the detector would see no drift and miss the re-run.
 
 #?(:cljs
    (deftest cell-override-edit-perturbs-watch-mode-hash
      (testing "editing :cell-overrides on a :test-tagged variant
                produces a fresh content-hash via detect-watch-drift!
-               and stamps the variant :running (rf2-mclvi)"
+               and stamps the variant :running"
        (rf.story/reg-variant :story.x/a
          {:component :app.ui/echo
           :args      {:n 0}
@@ -271,26 +270,26 @@
                  (str "expected the variant marked :running after the cell-
                        override edit; run-state was " (pr-str run-state)))))))))
 
-;; ---- rf2-3h3c2y: drift re-runs ONLY the drifted variant's dot ----------
+;; ---- drift re-runs ONLY the drifted variant's dot ----------------------
 ;;
-;; The spec/009 §Test-watch-mode contract (015-Test-Coverage.md:112 +
-;; scenario :216) says watch-mode "re-runs drifted testable variants
-;; only". The single-variant `cell-override-edit-perturbs-watch-mode-hash`
+;; The watch-mode contract (tools/story/spec/009-Test-Mode.md §Watch mode;
+;; 015-Test-Coverage.md row "Test watch mode") says watch-mode "re-runs
+;; drifted testable variants only". The single-variant `cell-override-edit-perturbs-watch-mode-hash`
 ;; test above proves drift → re-run for the edited variant, but with only
 ;; ONE testable variant registered it cannot prove the SELECTIVE half —
 ;; that a sibling testable variant does NOT re-run when it hasn't drifted.
 ;;
 ;; This test registers TWO :test variants, seeds the baseline, edits only
 ;; A's :cell-overrides, and asserts the detector stamps A :running while
-;; leaving B untouched. That is the "only that variant's dot" contract the
-;; retired browser assertion owed, expressed against the CLJS state the DOM
-;; dot reflects (per the locked Story testing posture).
+;; leaving B untouched. That is the "only that variant's dot" contract,
+;; expressed against the CLJS state the DOM dot reflects (per the Story
+;; testing posture: CLJS unit tests, not Playwright).
 
 #?(:cljs
    (deftest drift-reruns-only-the-drifted-variant
      (testing "editing one variant's :cell-overrides drifts + re-runs ONLY
                that variant; the sibling testable variant's dot is left
-               untouched (rf2-3h3c2y — selective drift-rerun)"
+               untouched (selective drift-rerun)"
        (rf.story/reg-variant :story.x/a
          {:component :app.ui/echo
           :args      {:n 0}
@@ -330,20 +329,21 @@
                (str "expected B to have no fresh run stamp — only the drifted "
                     "variant re-runs; runs was " (pr-str runs))))))))
 
-;; ---- rf2-asp2op: toggle-ON seeds the baseline → no spurious full re-run ---
+;; ---- toggle-ON seeds the baseline → no spurious full re-run -------------
 ;;
 ;; The watch toggle's contract (sidebar.cljs) promises: "Toggle-on seeds
 ;; [:tests :content-hashes] so the first detector tick doesn't fire a
-;; spurious re-run for every variant." Before the fix the on-click only
-;; flipped the flag; the slot stayed {} on enable, so the first
-;; detect-watch-drift! tick read every testable variant as absent-from-prev
-;; → drifted, re-running the WHOLE :test suite the instant watch turned on.
-;; `rf.story.ui.sidebar/set-watch-mode!` now seeds the real baseline BEFORE the flag
-;; flips, so the first tick diffs against truth and re-runs nothing.
+;; spurious re-run for every variant." An on-click that only flipped the
+;; flag would leave the slot {} on enable, so the first
+;; detect-watch-drift! tick would read every testable variant as
+;; absent-from-prev → drifted, re-running the WHOLE :test suite the instant
+;; watch turned on. `rf.story.ui.sidebar/set-watch-mode!` seeds the real
+;; baseline BEFORE the flag flips, so the first tick diffs against truth
+;; and re-runs nothing.
 
 #?(:cljs
    (deftest toggle-on-seeds-baseline-no-spurious-full-rerun
-     (testing "rf2-asp2op — enabling watch via `rf.story.ui.sidebar/set-watch-mode!`
+     (testing "enabling watch via `rf.story.ui.sidebar/set-watch-mode!`
                seeds [:tests :content-hashes] from the CURRENT registry
                BEFORE the flag flips, so the first detector tick re-runs
                NOTHING (the registry is unchanged since the seed)"
@@ -361,28 +361,29 @@
        ;; First detector tick — registry UNCHANGED since the seed.
        (rf.story.ui.shell/detect-watch-drift!)
        (testing "no variant re-runs — the seeded baseline matches, so drift
-                 is empty (the pre-fix bug re-ran the whole suite here)"
+                 is empty (an unseeded baseline would re-run the whole
+                 suite here)"
          (let [runs (get-in (rf.story.ui.state/get-state) [:tests :runs])]
            (is (nil? (get runs :story.x/a))
                (str "expected NO re-run on enable; runs was " (pr-str runs)))
            (is (nil? (get runs :story.x/b))))))))
 
-;; ---- rf2-3y7l7u: a view-schema hot-reload busts the testable-hash cache --
+;; ---- a view-schema hot-reload busts the testable-hash cache ------------
 ;;
 ;; `compute-testable-content-hashes` caches on
 ;; [registrar-tick modes substrate cell-overrides <per-frame view-schema
 ;; digests>]. snapshot-tuple hashes each variant frame's app-db schema
 ;; digest (identity/view-schema-digest, off :schemas/app-schemas-digest) —
 ;; but a schema hot-reload does NOT write the Story side-table, so it does
-;; NOT bump the registrar mutation-tick. Before the fifth key input was
-;; added the cache served the stale hash across a schema change and the
-;; schema-affected variant never re-ran.
+;; NOT bump the registrar mutation-tick. Without the digests in its key the
+;; cache would serve the stale hash across a schema change and the
+;; schema-affected variant would never re-run.
 
 #?(:cljs
    (deftest schema-hot-reload-busts-testable-hash-cache
-     (testing "rf2-3y7l7u — mutating the view-schema digest (registrar tick,
-               modes, substrate, overrides all unchanged) must change the
-               cached testable hash; before the fix the cache short-circuited
+     (testing "mutating the view-schema digest (registrar tick, modes,
+               substrate, overrides all unchanged) must change the cached
+               testable hash; a cache keyed without it would short-circuit
                the real drift"
        (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
                                       :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
@@ -402,18 +403,18 @@
            (finally
              (rf.late-bind/set-fn! :schemas/app-schemas-digest prior)))))))
 
-;; ---- rf2-dt9xf: an expectation-only edit re-runs ------------------------
+;; ---- an expectation-only edit re-runs ----------------------------------
 ;;
 ;; Snapshot identity hashes a variant's declared RENDER inputs (spec/002
 ;; §Snapshot-identity computation) because it keys visual review and
 ;; sharing, so it leaves out the slots that only decide what a run JUDGES.
-;; Watch mode keyed on identity alone, so re-registering a variant with only
-;; its expectations changed left the hash where it was and the dot kept the
-;; previous verdict. The watch hash folds those slots in; identity is
-;; unchanged.
+;; Keyed on identity alone, watch mode would leave the hash where it was
+;; when a variant is re-registered with only its expectations changed, and
+;; the dot would keep the previous verdict. The watch hash folds those slots
+;; in; identity leaves them out.
 
 (deftest expectation-only-edit-drifts-watch-hash
-  (testing "rf2-dt9xf — re-registering :test variants with ONLY :assertions,
+  (testing "re-registering :test variants with ONLY :assertions,
             :checks, :compose or :extends changed drifts exactly those
             variants' watch hashes (so detect-watch-drift! re-runs them) and
             leaves their snapshot identity unchanged; an identical
@@ -450,7 +451,7 @@
         (is (= ids-before (identities))
             "snapshot identity is NOT widened — these slots are not render inputs")))))
 
-;; ---- rf2-pt0d1: a composed fragment's render-input edit re-runs ---------
+;; ---- a composed fragment's render-input edit re-runs -------------------
 ;;
 ;; A fragment the variant `:compose`s folds its `:db-seed` / `:setup` into the
 ;; variant's world (spec/017 §Strict composition), so editing the fragment
@@ -459,7 +460,7 @@
 ;; exactly the variants composing that fragment.
 
 (deftest composed-fragment-render-edit-drifts-identity-and-watch-hash
-  (testing "rf2-pt0d1 — re-registering a composed fragment with a different
+  (testing "re-registering a composed fragment with a different
             :db-seed or :setup drifts the composing variant's snapshot
             identity and its watch hash; a variant that does not compose the
             fragment does not drift"
@@ -486,16 +487,17 @@
         (is (not= set-up-id (identity-of :story.x/set-up))
             "a composed :setup edit changes the composing variant's identity")))))
 
-;; ---- rf2-pt0d1: an edit to a registration reached by reference re-runs ---
+;; ---- an edit to a registration reached by reference re-runs ------------
 ;;
 ;; A run reads registrations the variant only NAMES: the checks it lists or
 ;; receives from an `:extends` ancestor, the fragments and checks it
 ;; `:compose`s, and the ancestors themselves, whose world flows down
-;; (spec/017 §`:extends`). Re-registering one of those changed the verdict
-;; while the variant's own body, and so its watch hash, stayed put.
+;; (spec/017 §`:extends`). Re-registering one of those changes the verdict
+;; while the variant's own body stays put, so the watch hash reaches them
+;; too.
 
 (deftest referenced-registration-edit-drifts-watch-hash
-  (testing "rf2-pt0d1 — re-registering a registration a :test variant
+  (testing "re-registering a registration a :test variant
             reaches only by reference drifts exactly the variants that reach
             it; a cosmetic :doc edit, an identical re-registration and an
             edit to an unreferenced registration drift nothing"

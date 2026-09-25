@@ -1,12 +1,12 @@
 (ns re-frame.story.ui.a11y-incomplete-cljs-test
-  "rf2-0ae7o.2 — axe-core's INCOMPLETE results reach the a11y panel's state
-  beside its violations, and are shown rather than failed.
+  "axe-core's INCOMPLETE results reach the a11y panel's state beside its
+  violations, and are shown rather than failed.
 
-  Before this, the scan's `.then` kept `(.-violations results)` and dropped
-  `incomplete`, so a variant axe could not fully decide read '0 violation(s)
-  found in variant' and 'no violations': a clean bill over checks nobody had
-  looked at (the login-form testbed's `/idle` read 0 violations beside one
-  incomplete `color-contrast` rule on 5 nodes).
+  A scan whose `.then` kept `(.-violations results)` and dropped
+  `incomplete` would make a variant that axe could not fully decide read
+  '0 violation(s) found in variant' and 'no violations': a clean bill over
+  checks nobody had looked at (the login-form testbed's `/idle` shape: 0
+  violations beside one incomplete `color-contrast` rule on 5 nodes).
 
   Same harness as `a11y-stale-settlement-cljs-test`: a fake axe on
   `js/window` makes `ensure-axe-loaded!` resolve at once, so the REAL
@@ -124,7 +124,7 @@
 (deftest violations-still-warn-and-incomplete-rides-beside-them
   (testing "POSITIVE CONTROL for the warning count above, and the mixed
             shape: one violation and one incomplete rule. The violation
-            still emits its warning — so the zero above is the incomplete
+            emits its warning — so the zero above is the incomplete
             rule's silence, not a listener that hears nothing"
     (async done
       (let [warnings (collect-a11y-warnings!)]
@@ -145,8 +145,8 @@
             (.then (fn [_] (done))))))))
 
 (deftest a-result-without-an-incomplete-key-stores-an-empty-bag
-  (testing "a results object carrying no `incomplete` array (older fakes,
-            and any axe build that omits it) stores `[]` rather than
+  (testing "a results object carrying no `incomplete` array (a fake that
+            sets only `violations`, or an axe build that omits it) stores `[]` rather than
             throwing inside the settlement"
     (async done
       (install-axe! #js {:violations #js []})

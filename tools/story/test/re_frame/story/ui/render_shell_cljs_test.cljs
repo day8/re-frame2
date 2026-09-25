@@ -1,13 +1,12 @@
 (ns re-frame.story.ui.render-shell-cljs-test
-  "CLJS-side regression net for render-shell error-boundary recovery
-  and slow-loading variant feedback (rf2-g5p99).
+  "CLJS-side tests for render-shell error-boundary recovery and
+  slow-loading variant feedback.
 
   Pairs with the JVM `re-frame.story-runtime-test` (lifecycle phase
   ordering + loader-incomplete record shape) and the CLJS
   `re-frame.story-multi-substrate-cljs-test` (per-substrate try/catch
   cell shape). This namespace pins the scenarios spec/003 §Shell
-  lifecycle + spec/015 §Render shell scenarios call out as Deferred
-  under bd:rf2-g5p99:
+  lifecycle + spec/015 §Render shell scenarios call out:
 
   - **Error-boundary recovery (decorator wrap throws)** — a `:hiccup`
     decorator's `:wrap` fn throws on render; `safe-decorated-view`
@@ -15,8 +14,8 @@
     uncoated variant view rather than letting React unmount the
     shell. Pin the projection's data shape — the error block carries
     the message string, the decorator stack ids, AND the uncoated
-    view as a fallback render. This is the rf2-zme7 'never blank the
-    canvas' rule.
+    view as a fallback render. This is the 'never blank the canvas'
+    rule.
 
   - **Error-boundary recovery (no decorators on the stack)** — the
     no-decorator branch must round-trip the view unchanged. Pinning
@@ -60,9 +59,8 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>] — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -78,16 +76,16 @@
 
 (defn- hiccup-text-flatten
   "Walk a hiccup tree and collect every string node. Used for substring
-  assertions against the error projection (matches the cluster 1
-  `toolbar-strip` test's flatten pattern)."
+  assertions against the error projection (matches the flatten pattern
+  of the `toolbar-strip` tests in `toolbar_cljs_test`)."
   [hiccup]
   (->> (tree-seq coll? seq hiccup)
        (filter string?)))
 
 ;; ===========================================================================
-;; rf2-g5p99 — error-boundary: decorator wrap throws
+;; error-boundary: decorator wrap throws
 ;;
-;; The contract per `002-Runtime.md` §Substrate hooks + §Error projection + rf2-zme7: a throwing
+;; The contract per `002-Runtime.md` §Substrate hooks + §Error projection: a throwing
 ;; decorator must NOT take down the shell. `safe-decorated-view`
 ;; catches the throw and returns an inline error projection alongside
 ;; the uncoated view. The user sees both: 'decorator stack <ids>
@@ -99,7 +97,7 @@
             throws does NOT unmount the shell. safe-decorated-view
             catches and returns a hiccup error block. The block names
             the offending decorator id AND embeds the uncoated view
-            (the 'never blank the canvas' contract from rf2-zme7)"
+            (the 'never blank the canvas' contract)"
     (let [boom-dec   {:id   :crashing-wrap
                       :body {:wrap (fn [_body _args]
                                      (throw (ex-info "wrap exploded"
@@ -119,10 +117,10 @@
       ;; The decorator id is named so the user can find which one threw.
       (is (some #(re-find #"crashing-wrap" %) text-bits)
           "the decorator id is named in the error projection")
-      ;; The uncoated view is embedded — the rf2-zme7 'never blank' rule.
+      ;; The uncoated view is embedded — the 'never blank' rule.
       (is (some #(= "user view" %) text-bits)
           "the user's view renders uncoated below the error block —
-           the canvas never blanks per rf2-zme7"))))
+           the canvas never blanks"))))
 
 (deftest decorator-wrap-throw-multiple-decorators-names-stack
   (testing "when several :hiccup decorators wrap the body and ONE
@@ -173,7 +171,7 @@
             "no error projection on the happy path")))))
 
 ;; ===========================================================================
-;; rf2-g5p99 — slow-loading / loader-incomplete projection
+;; slow-loading / loader-incomplete projection
 ;;
 ;; The contract per spec/003 §Loader feedback + spec/002 §Four-phase
 ;; lifecycle: when a variant's :loaders-complete-when predicate is
@@ -223,7 +221,7 @@
            generic-message branch engages"))))
 
 ;; ===========================================================================
-;; rf2-g5p99 — unregistered-substrate inline error (slow-loading
+;; unregistered-substrate inline error (slow-loading
 ;; substrate path)
 ;;
 ;; The user-facing variant of 'slow loading': the variant declares a
@@ -304,19 +302,17 @@
             "grid outer wrap rendered")))))
 
 ;; ===========================================================================
-;; rf2-hzhmv / rf2-ba86n.8 — render-variant host APPLIES decorators
+;; render-variant host APPLIES decorators
 ;;
-;; The host-application gap rf2-hzhmv flagged: the render-variant host hook
-;; (`canonical/render-host-scope`) used to render the BARE view, dropping the
-;; variant's :decorators — so a render-variant render of a decorated variant
-;; diverged from the live canvas (which wraps via safe-decorated-view). The
-;; consolidation routes BOTH through the shared
-;; `rf.story.ui.multi-substrate/render-decorated-view` seam, so they paint the same tree.
-;; These CLJS tests prove the HOST actually applies the decorators — the
-;; existing render_cljs_test §decorators-are-view-wrapping only pinned that
-;; :decorators RIDE render-inputs, never that the host APPLIES them. Uses a
-;; REGISTERED variant via the DEFAULT lookup (the production path the
-;; rf2-din8u gate mandates).
+;; The render-variant host hook (`canonical/render-host-scope`) and the live
+;; canvas both route through the shared
+;; `rf.story.ui.multi-substrate/render-decorated-view` seam, so they paint the
+;; same tree. A host rendering the BARE view would drop the variant's
+;; :decorators, and a render-variant render of a decorated variant would
+;; diverge from the canvas. render_cljs_test §decorators-are-view-wrapping
+;; pins only that :decorators RIDE render-inputs; these CLJS tests prove the
+;; HOST APPLIES them. They use a REGISTERED variant via the DEFAULT lookup
+;; (the production path).
 ;; ===========================================================================
 
 (deftest render-decorated-view-wraps-via-shared-seam
@@ -341,7 +337,7 @@
           "the compiled plan carries the decorator refs at [:world :decorators]")
       (is (= :div.themed outer)
           "render-decorated-view wraps the view in the :hiccup decorator —
-           the host no longer paints the bare view (rf2-hzhmv)"))))
+           the host does not paint the bare view"))))
 
 (deftest render-decorated-view-bare-when-no-decorators
   (testing "a variant with NO :decorators renders bare through the shared
@@ -361,8 +357,7 @@
 (deftest render-variant-and-canvas-resolve-same-inherited-decorators
   (testing "render-variant's render-inputs and the canvas decorator pack
             resolve the SAME :extends-inherited decorator off the compiled
-            plan — the registered (DEFAULT-lookup) production path
-            (rf2-hzhmv / rf2-ba86n.8 / rf2-g74i9)"
+            plan — the registered (DEFAULT-lookup) production path"
     (rf.story/reg-decorator :deco/parent-themed
       {:kind :hiccup :wrap (fn [body _] [:div.parent-themed body])})
     (rf.story/reg-variant :story.inhdeco/parent

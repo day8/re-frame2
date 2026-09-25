@@ -1,6 +1,6 @@
 (ns re-frame.story.play.settled-boundary-test
-  "Contract tests for the `settled-boundary` primitive (rf2-5x1wt.2,
-  spec/017-Testing-Story.md §Script and `settled-boundary`).
+  "Contract tests for the `settled-boundary` primitive
+  (spec/017-Testing-Story.md §Script and `settled-boundary`).
 
   Two layers:
 
@@ -225,7 +225,7 @@
   (testing "when the TERMINAL (richest) flush itself blows the wall-clock
             budget, the settle is refused with :cannot-run/:flush-timeout —
             never a silent :settled pass. The deadline check after each
-            flush MUST also cover the last flush in the ladder (rf2-65bnwl):
+            flush MUST also cover the last flush in the ladder:
             the top-of-loop check passes for the terminal :dom level (budget
             not yet spent), the :dom flush then runs over budget, and the
             settle must NOT report :settled."
@@ -234,7 +234,8 @@
           ;; it, then the terminal :dom flush deterministically pushes the
           ;; wall clock past the deadline by busy-spinning on now-ms (no
           ;; platform sleep — works on JVM + CLJS). This is the ONLY level
-          ;; whose post-flush deadline check the buggy code skipped.
+          ;; whose post-flush deadline check a top-of-next-iteration-only
+          ;; check would skip.
           budget 30
           hooks  {:provides   :dom
                   :timeout-ms budget

@@ -1,16 +1,16 @@
 (ns re-frame.story.test-support-test
-  "JVM coverage for the canonical Story test-fixture helper (rf2-lh99f).
+  "JVM coverage for the canonical Story test-fixture helper.
 
   The helper (`re-frame.story/use-fixtures` / `with-clean-registry`,
-  bodies in `re-frame.story.test-support`) replaces the hand-rolled
-  `reset-all!` every consumer used to copy. The two things this suite
-  locks:
+  bodies in `re-frame.story.test-support`) is the canonical Story test
+  reset, so a consumer need not hand-roll its own `reset-all!`. The two
+  things this suite locks:
 
   1. **No `:pre-mount` footgun.** A variant registered + run UNDER the
      helper reaches `:ready` — proving the canonical Story vocabulary
      (the seven `:rf.assert/*` handlers + the lifecycle machine) and the
      framework `:rf/machine` subscription are present after the reset.
-     The footgun the bead names is a reset that wipes the `:rf/machine`
+     The footgun is a reset that wipes the `:rf/machine`
      sub and traps the variant at `:pre-mount`; the helper resets via
      registrar snapshot/restore, so it cannot happen.
 
@@ -49,8 +49,7 @@
 (deftest helper-variant-reaches-ready-not-pre-mount
   (testing "a variant registered + run under the helper reaches :ready —
             the canonical vocabulary + lifecycle machine survive the
-            reset, so the variant is NOT trapped at :pre-mount (rf2-lh99f
-            — the footgun this helper closes)"
+            reset, so the variant is NOT trapped at :pre-mount"
     (rf.story/reg-variant :story.fixture/lands-ready
       {:tags   #{:test}
        :script [[:dispatch-sync [:rf.assert/no-warnings]]]})
@@ -110,21 +109,21 @@
     (is (contains? @rf.story.play.runner-events/run-state :story.fixture/runs)
         "the run recorded its run-state for this frame")))
 
-;; ---- 2b. play-atom isolation (rf2-eztym.2) -------------------------------
+;; ---- 2b. play-atom isolation ---------------------------------------------
 ;;
 ;; play.cljc owns two per-process defonce atoms keyed by frame-id —
 ;; `pending-exceptions` and `stepper-state`. Per-frame teardown
 ;; (`frames/destroy!`) evicts them one frame at a time, but a registry reset
-;; that bypasses frame teardown previously left both populated. The canonical
+;; that bypasses frame teardown would leave both populated. So the canonical
 ;; test-reset path (`rf.story/clear-all!` → `rf.story.play/clear-all-play-state!`, and
-;; `story-reset!` via the fixture) must now wipe both, else a stepper /
-;; pending-exception session in one test leaks into the next: a stale
+;; `story-reset!` via the fixture) wipes both; otherwise a stepper /
+;; pending-exception session in one test would leak into the next: a stale
 ;; `stepper-state` entry makes `play-stepper-active?` report a session the
 ;; later test never began.
 
 (deftest clear-all-evicts-play-atoms
   (testing "rf.story/clear-all! wipes pending-exceptions + stepper-state — the
-            remaining un-reset per-process play state (rf2-eztym.2)"
+            per-process play state keyed by frame-id"
     ;; Dirty both atoms directly (the per-frame mutators are private; these
     ;; are the slots a real begin-stepper! / handler-exception capture fill).
     (reset! rf.story.play/pending-exceptions {:story.leak/frame [{:op-type :error}]})
@@ -142,7 +141,7 @@
 (deftest story-reset-evicts-play-atoms
   (testing "the fixture's story-reset! (run via with-clean-registry) fully
             clears both play atoms, so no stepper / pending-exception state
-            bleeds across a reset that bypasses frame teardown (rf2-eztym.2)"
+            bleeds across a reset that bypasses frame teardown"
     (reset! rf.story.play/pending-exceptions {:story.leak/frame [{:op-type :error}]})
     (reset! rf.story.play/stepper-state      {:story.leak/frame {:remaining [] :ran [] :results []}})
     (rf.story.test-support/with-clean-registry
@@ -172,12 +171,12 @@
       (is (= :ready lifecycle)
           "the bracketed run reached :ready (no :pre-mount footgun)"))))
 
-;; ---- 4. config-leak isolation (rf2-6ez1u) --------------------------------
+;; ---- 4. config-leak isolation --------------------------------------------
 ;;
 ;; The fixture (`story-reset!`) calls `rf.story.config/reset-all!`, which restores
 ;; every leakable process-global config atom. These tests lock that a
 ;; `configure!` (or any config mutation) in one test cannot leak into a
-;; sibling test in the same JVM run. The footgun the bead names:
+;; sibling test in the same JVM run. The footgun:
 ;; `global-args` is Layer 1 of args resolution, so a leaked global arg
 ;; silently changes the EFFECTIVE args of an unrelated later variant.
 ;;
@@ -190,8 +189,7 @@
 (deftest config-reset-all-restores-every-leakable-atom
   (testing "rf.story.config/reset-all! (called by the fixture) restores every
             leakable config atom to its load-time default — direct,
-            order-independent unit coverage of the reset surface
-            (rf2-6ez1u)"
+            order-independent unit coverage of the reset surface"
     ;; Dirty every leakable atom via the public configure! surface…
     (rf.story/configure! {:rf.story/global-args     {:theme :dark}
                        :rf.story/editor          :cursor
@@ -215,13 +213,13 @@
 
 (deftest config-reset-all-leaves-toggle-off-callbacks
   (testing "rf.story.config/reset-all! does NOT clear toggle-off-callbacks — those
-            are load-time module registrations, not per-test state
-            (rf2-6ez1u). Resetting egress-profile also does not FIRE them
+            are load-time module registrations, not per-test state.
+            Resetting egress-profile also does not FIRE them
             (reset! restores the default; it does not simulate a runtime
             reveal → redact narrowing)."
     (let [fired (atom 0)]
-      ;; rf2-6z4znr — toggle-off callbacks now take the narrowed frame-id
-      ;; (nil on a session-pin narrow).
+      ;; Toggle-off callbacks take the narrowed frame-id (nil on a
+      ;; session-pin narrow).
       (rf.story.config/register-toggle-off-callback! ::probe (fn [_frame-id] (swap! fired inc)))
       ;; widen to raw via the public surface, then reset-all!
       (rf.story.config/set-egress-profile! :rf.egress/local-raw)
@@ -243,7 +241,7 @@
 (deftest config-isolation-a
   (testing "this test sees a pristine global config (no sibling leaked into
             it) THEN dirties global-args — the fixture must roll it back
-            before config-isolation-b runs (rf2-6ez1u)"
+            before config-isolation-b runs"
     (is (= {} (rf.story.config/get-global-args))
         "global-args is the pristine {} default — no sibling test leaked a
          configure! into this one")
@@ -265,7 +263,7 @@
 (deftest config-isolation-b
   (testing "the sibling test sees its OWN clean config slate — the
             global-args + egress-profile config-isolation-a set are gone
-            (rf.story.config/reset-all! ran in the fixture between them) (rf2-6ez1u)"
+            (rf.story.config/reset-all! ran in the fixture between them)"
     (is (= {} (rf.story.config/get-global-args))
         "config-isolation-a's leaked global-args did NOT survive the reset")
     (is (= :rf.egress/local-redacted @rf.story.config/session-egress-profile)
@@ -273,8 +271,8 @@
     (rf.story/reg-variant :story.cfg/probe-b {:tags #{:test}})
     (is (= {} (rf.story/resolve-args :story.cfg/probe-b))
         "with the global layer reset, an arg-less variant resolves to {} —
-         NOT to {:rf.cfg/leaked :from-a} (the green-but-wrong footgun this
-         closes)")
+         NOT to {:rf.cfg/leaked :from-a} (the green-but-wrong footgun a
+         leak would cause)")
     ;; leak our own, symmetric to the a/b pattern — config-isolation-a's
     ;; reset proves the converse direction too under either run order.
     (rf.story/configure! {:rf.story/global-args {:rf.cfg/leaked :from-b}})))

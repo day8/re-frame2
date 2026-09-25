@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.view-state-upgrade-test
-  "End-to-end acceptance for the fidelity-upgrade handoff (rf2-mw9th). The
+  "End-to-end acceptance for the fidelity-upgrade handoff. The
   snippet `upgrade-snippet` emits is taken down the path an author takes —
   read, completed, registered, compiled, run — and graded on what the
   UPGRADED variant can prove, never on the snippet's shape:

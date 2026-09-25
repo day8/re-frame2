@@ -1,6 +1,6 @@
 (ns re-frame.story.panels-e2e.toolbar-clusters-e2e-cljs-test
   "Multi-frame e2e coverage for the toolbar's 5-cluster structure and
-  per-chip active-state (rf2-piucm; rf2-v58dm).
+  per-chip active-state.
 
   The toolbar strip composes ~5 logical affordance clusters separated
   by token-driven dividers:
@@ -15,7 +15,7 @@
 
   ## What this catches
 
-  - **rf2-v58dm clusters present**: the rendered hiccup carries one
+  - **Clusters present**: the rendered hiccup carries one
     `[data-test=\"story-toolbar-cluster\"]` per logical group, with
     the right `:data-cluster` label. A regression that drops a
     cluster (e.g. accidental flatten) would leave the toolbar
@@ -84,7 +84,7 @@
   through the `:background` field which `:chip-active` overrides."
   [chip-node]
   (let [style (get-in chip-node [1 :style])]
-    ;; rf2-v58dm — `:chip-active` overrides `:background` to the
+    ;; `:chip-active` overrides `:background` to the
     ;; accent-amber token. Even without resolving the exact hex we
     ;; can assert the override is *present* by checking the bg field
     ;; differs from the base chip bg. The merge is `(merge :chip
@@ -96,7 +96,7 @@
 ;; ---- cluster structure --------------------------------------------------
 
 (deftest five-clusters-render-with-canonical-labels
-  (testing "rf2-v58dm — the toolbar strip composes 5 logical clusters:
+  (testing "the toolbar strip composes 5 logical clusters:
             MODES / DATA / VIEW / DEBUG / REC. Each carries the
             canonical `:data-cluster` label so visual + test corpora
             can locate them."
@@ -108,7 +108,7 @@
               labels   (set (map (fn [n] (get-in n [1 :data-cluster]))
                                  clusters))]
           (is (>= (count clusters) 5)
-              "at least 5 cluster nodes render (rf2-v58dm 5-cluster shape)")
+              "at least 5 cluster nodes render (the 5-cluster shape)")
           (is (contains? labels "modes") "MODES cluster present")
           (is (contains? labels "data")  "DATA cluster present (gated on variant)")
           (is (contains? labels "view")  "VIEW cluster present")
@@ -118,7 +118,7 @@
 ;; ---- chip active-state flips on click ----------------------------------
 
 (deftest chip-click-flips-active-state
-  (testing "rf2-v58dm — clicking a chip toggles `:active-modes` AND
+  (testing "clicking a chip toggles `:active-modes` AND
             the chip's aria-pressed flips AND the chip's style merges
             the `:chip-active` overlay"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
@@ -145,7 +145,7 @@
                 "chip style merged :chip-active overlay (amber accent)")))))))
 
 (deftest single-select-within-axis-evicts-sibling
-  (testing "rf2-v58dm + spec/010 §Selection semantics — clicking a
+  (testing "spec/010 §Selection semantics — clicking a
             theme chip when another theme chip is active evicts the
             sibling. The rendered hiccup mirrors the eviction."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames

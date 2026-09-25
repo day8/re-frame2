@@ -1,11 +1,10 @@
 (ns re-frame.story.ui.docs-rollup-cljs-test
-  "CLJS-side regression net for the per-story rollup docs page
-  (rf2-8j7wg, audit C-4).
+  "CLJS-side regression net for the per-story rollup docs page.
 
   The rollup page composes one `rollup-variant-block` per variant of
   the parent story; the underlying section helpers (prose-for-variant,
   args-rows, decorator-rows, parameter-rows, variant-tags) are
-  exercised by the existing docs-mode-pane test suite. This namespace
+  exercised by the docs-mode-pane test suite. This namespace
   pins:
 
   - `variant-ids-for-story` returns the sorted variant set
@@ -40,9 +39,8 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>] — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))

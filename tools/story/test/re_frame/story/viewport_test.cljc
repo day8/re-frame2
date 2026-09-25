@@ -1,18 +1,12 @@
 (ns re-frame.story.viewport-test
-  "Tests for the viewport switcher's pure state model (rf2-zll4h).
+  "Tests for the viewport switcher's pure state model.
 
   Runs on the JVM (cognitect.test-runner under `clojure -M:test`) and
   NOWHERE ELSE. This namespace ends `-test` rather than `cljs-test`, so
   no CLJS build selects it: `:node-test`'s `:ns-regexp` is `cljs-test$`
   and `:browser-test`'s is `.*-dom-cljs-test$`, and nothing else
-  requires it.
-
-  This docstring used to add \"and the CLJS node-test build\" and send a
-  reader to `viewport_switcher_cljs_test` for the CLJS coverage. Both
-  halves were wrong: the `#?(:cljs ...)` rows here were unreachable, and
-  that sibling's matching rows were themselves guarded into neither
-  lane. They are now together in
-  `re-frame.story.viewport-storage-dom-cljs-test` (rf2-r51p).
+  requires it. The localStorage rows, which need a real host, live in
+  `re-frame.story.viewport-storage-dom-cljs-test`.
 
   Coverage layers:
 
@@ -20,14 +14,14 @@
   - Custom `{:width :height}` validation.
   - Selection precedence (story-override > toolbar selection > default).
   - `wrap-style` shape (nil for `:full`, populated for sized presets).
-  - localStorage round-trip — moved out; see the dom sibling named above."
+  - localStorage round-trip — in the dom sibling named above."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.viewport :as rf.story.viewport]))
 
 ;; ---- preset table --------------------------------------------------------
 
 (deftest preset-table-includes-every-bead-mandated-id
-  (testing "every preset id called out by rf2-zll4h is present"
+  (testing "every preset id is present"
     (let [expected #{:full :mobile-portrait :mobile-landscape
                      :tablet :desktop :desktop-wide}]
       (is (= expected (set (keys rf.story.viewport/presets))))
@@ -41,7 +35,7 @@
       (is (nil? (:height p))))))
 
 (deftest preset-tablet-has-canonical-dimensions
-  (testing ":tablet is 768x1024 (bead-mandated)"
+  (testing ":tablet is 768x1024"
     (is (= {:label "Tablet" :width 768 :height 1024}
            (get rf.story.viewport/presets :tablet)))))
 
@@ -102,7 +96,7 @@
       (is (= 1024 (:height r))))))
 
 (deftest resolve-story-override-beats-toolbar
-  (testing "rf2-zll4h precedence: story-override wins over toolbar selection"
+  (testing "precedence: story-override wins over toolbar selection"
     (let [r (rf.story.viewport/resolve :mobile-portrait :tablet)]
       (is (= "Mobile portrait" (:label r))
           "override (:mobile-portrait) beat the toolbar (:tablet)"))))
@@ -146,20 +140,12 @@
 
 ;; ---- localStorage round-trip: see the dom sibling ----------------------
 ;;
-;; rf2-r51p MOVED the four `storage-*` rows to
-;; `re-frame.story.viewport-storage-dom-cljs-test`. They were written as
-;; `#?(:cljs (deftest ...))` here, and THIS namespace ends `-test` rather
-;; than `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`) never
-;; selected it, `:browser-test`'s (`.*-dom-cljs-test$`) never matched it,
-;; and nothing else requires it. Those rows were UNREACHABLE -- never
-;; compiled by any CLJS build at all.
+;; The `storage-*` rows live in `re-frame.story.viewport-storage-dom-cljs-test`:
+;; they need a real `window.localStorage`, and THIS namespace ends `-test`
+;; rather than `cljs-test`, so `:node-test`'s `:ns-regexp` (`cljs-test$`)
+;; does not select it, `:browser-test`'s (`.*-dom-cljs-test$`) does not
+;; match it, and nothing else requires it — `#?(:cljs (deftest ...))` rows
+;; here would never be compiled by any CLJS build.
 ;;
-;; The docstring above used to send a reader to
-;; `viewport_switcher_cljs_test` for the CLJS coverage. That file's
-;; corresponding rows were themselves dead (guarded by `(when (browser?)
-;; ...)` in a namespace the browser lane never loads), so both layers of
-;; the intended coverage were inert and each pointed at the other. They
-;; are now together in the dom sibling named above.
-;;
-;; The JVM half of this file is unaffected: every row above is a bare
-;; unconditional `deftest` and this file carries no `#?(:clj ...)` form.
+;; Every row above is a bare unconditional `deftest` and this file carries
+;; no `#?(:clj ...)` form, so all of them run on the JVM.

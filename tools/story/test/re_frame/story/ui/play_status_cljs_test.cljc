@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.play-status-cljs-test
-  "Tests for the play-status chip + failure-banner UI (rf2-8i2a9).
+  "Tests for the play-status chip + failure-banner UI.
 
   Pure helpers run on both JVM and CLJS. The chip/banner Reagent
   components themselves are CLJS-only — their hiccup output is
@@ -75,9 +75,9 @@
 ;; ---- JVM-side pure helper exercises --------------------------------------
 ;;
 ;; The play-status ns itself is CLJS-only so JVM gates the require under
-;; the reader conditional above. We still want JVM coverage of the
-;; underlying pure runner fns the banner / chip read — which already
-;; live in `runner_test.cljc`. The four tests below are a smoke check
+;; the reader conditional above. JVM coverage of the underlying pure
+;; runner fns the banner / chip read lives in `runner_test.cljc`. The
+;; two tests below are a smoke check
 ;; that the runner exports survive a separate JVM-side require + a
 ;; minimal banner-shape assertion (without depending on the .cljs file).
 
@@ -106,7 +106,7 @@
       (is (= 1 (:count summ)))
       (is (= 1 (:idx (:first summ)))))))
 
-;; ---- multi-play helpers (rf2-tl7zk) -------------------------------------
+;; ---- multi-play helpers -------------------------------------------------
 
 #?(:cljs
    (deftest chip-label-multi-idle

@@ -1,15 +1,15 @@
 (ns re-frame.story.panels-e2e.chrome-hotkeys-e2e-cljs-test
   "Multi-frame e2e coverage for the chrome-visibility hotkey
-  registry (rf2-piucm; rf2-g8l8x / rf2-p3i0t).
+  registry.
 
   The hotkey dispatcher binds ONE capture-phase keydown listener and
   routes lowercase keys (no modifier, not editable) to chrome-
   visibility toggles:
 
-      f → full-screen   (rf2-p3i0t)
-      s → sidebar       (rf2-g8l8x)
-      a → RHS / addons  (rf2-g8l8x)
-      t → toolbar       (rf2-g8l8x)
+      f → full-screen
+      s → sidebar
+      a → RHS / addons
+      t → toolbar
       Escape → exit full-screen (when full-screen is on)
 
   ## What the unit test in `keybindings_cljs_test` already covers
@@ -21,7 +21,7 @@
   ## What this e2e test adds
 
   Drives the FULL `dispatch!` pipeline (not just the handler fns) —
-  this is what catches the wrong-frame-dispatch class (rf2-83d4x):
+  this is what catches the wrong-frame-dispatch class:
 
   1. Synthetic keydown event with the right `key` / `target` / no
      modifier flows through the discrimination predicates AND lands
@@ -50,7 +50,7 @@
 ;; ---- happy-path: each canonical key flips its slot ----------------------
 
 (deftest f-key-toggles-full-screen
-  (testing "rf2-p3i0t — `f` (no modifier, not editable) flips
+  (testing "`f` (no modifier, not editable) flips
             :full-screen?"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
@@ -65,7 +65,7 @@
             "second f keydown flipped back to false")))))
 
 (deftest s-key-toggles-sidebar
-  (testing "rf2-g8l8x — `s` flips :sidebar?"
+  (testing "`s` flips :sidebar?"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
@@ -74,7 +74,7 @@
         (is (false? (:sidebar? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility))))))))
 
 (deftest a-key-toggles-rhs
-  (testing "rf2-g8l8x — `a` (for `addons` per Storybook convention)
+  (testing "`a` (for `addons` per Storybook convention)
             flips :rhs?"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
@@ -84,7 +84,7 @@
         (is (false? (:rhs? (rf.story.test-helpers.e2e-multi-frame/chrome-visibility))))))))
 
 (deftest t-key-toggles-toolbar
-  (testing "rf2-g8l8x — `t` flips :toolbar?"
+  (testing "`t` flips :toolbar?"
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
@@ -96,7 +96,7 @@
 
 (deftest modifier-held-passes-through
   (testing "Cmd-/Ctrl-/Alt-held → dispatch! is a no-op (the palette /
-            browser owns modifier-bearing chords). rf2-g8l8x §exclusions"
+            browser owns modifier-bearing chords)."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
@@ -110,7 +110,7 @@
 (deftest focused-input-passes-through
   (testing "target is INPUT / TEXTAREA / SELECT / contenteditable →
             dispatch! is a no-op. Typing `f` into the sidebar search
-            shouldn't toggle full-screen. rf2-g8l8x §focus-discrimination"
+            shouldn't toggle full-screen."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
       (fn []
@@ -137,7 +137,7 @@
 ;; ---- Escape exits full-screen ------------------------------------------
 
 (deftest escape-exits-full-screen-only-when-on
-  (testing "rf2-p3i0t — Escape exits full-screen when on; no-op
+  (testing "Escape exits full-screen when on; no-op
             otherwise."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {}
@@ -166,7 +166,7 @@
 ;; ---- bindings table sanity (catches an additive regression) -------------
 
 (deftest bindings-table-stays-stable
-  (testing "rf2-g8l8x — the canonical 4-key registry is f / s / a / t.
+  (testing "the canonical 4-key registry is f / s / a / t.
             Adding a key here without spec discussion would risk
             colliding with author muscle-memory."
     (is (= #{"f" "s" "a" "t"} (set (keys rf.story.ui.keybindings/bindings)))

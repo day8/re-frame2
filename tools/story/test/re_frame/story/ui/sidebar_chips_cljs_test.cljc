@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.sidebar-chips-cljs-test
   "Tests for the sidebar's rendered signal-chip strip + large-list bounding
-  + variants-grid grouping (rf2-ba86n.4, spec/018 §7.1 + §10).
+  + variants-grid grouping (spec/018 §7.1 + §10).
 
   Runs on both the JVM (cognitect.test-runner under `clojure -M:test`) and
   the CLJS node-test build (shadow's `:node-test` target; ns-regexp
@@ -65,9 +65,9 @@
        (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/p {:layout :prose})))
        (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/c {:layout :custom}))))))
 
-;; rf2-dacnd — the sidebar read "VARIANTS-GRID · 0" for a grid rendering five
-;; cells: a `:variants-grid` enumerates its anchor story's variants from the
-;; registry and carries no `:variants` slot, which is what the count read.
+;; A `:variants-grid` enumerates its anchor story's variants from the
+;; registry and carries no `:variants` slot, so a count read off that slot
+;; would show "VARIANTS-GRID · 0" for a grid rendering five cells.
 
 #?(:cljs
    (deftest variants-grid-count-is-the-cells-it-renders-rf2-dacnd

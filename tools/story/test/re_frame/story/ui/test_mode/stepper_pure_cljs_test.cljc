@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.test-mode.stepper-pure-cljs-test
   "JVM + CLJS pure-data tests for the play step-debugger helpers
-  (rf2-ulw5m + spec/009 §Play step-debugger).
+  (spec/009 §Play step-debugger).
 
   The substantive UI is CLJS but every projection function the view
   consumes is .cljc + pure so the JVM test corpus pins the contract
@@ -132,12 +132,11 @@
   (is (false? (rf.story.ui.test-mode.stepper-pure/breakpoint-hit? 2 [2]))
       "non-set inputs are rejected — only a set returns hit"))
 
-;; ---- step-statuses (rf2-ee38b.3 — full-script step list) ----------------
+;; ---- step-statuses (full-script step list) ------------------------------
 
 (deftest step-statuses-one-row-per-step
   (testing "step-statuses produces one row per coerced step, covering EVERY
-            step type — not just the dispatch steps the legacy projection
-            surfaced"
+            step type — not just the dispatch steps"
     (let [steps   [[:dispatch-sync [:e/a]]
                    [:wait 50]
                    [:assert-db [:n] 5]

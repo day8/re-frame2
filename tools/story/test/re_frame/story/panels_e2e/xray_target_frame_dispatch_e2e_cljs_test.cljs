@@ -2,33 +2,31 @@
   "Story selection-watcher → Xray `set-target-frame` dispatch.
 
   When the user picks a variant in Story's sidebar the shell's
-  selection-watcher fires on the `:selected-variant` edge. Pre-fix the
-  watcher pre-allocated the variant's frame + ran the Xray cross-host
-  bridges but never told Xray which frame to OBSERVE. So Xray stayed
-  anchored on whatever its first-mount seed picked (commonly the boot
-  `:rf/default` or the previously-focused variant) — the App-DB diff
-  + Event tab rendered against a frame the user was no longer looking
-  at, producing the empty-Xray-on-Story-RHS class of bug surfaced in
-  rf2-fj332. The post-fix watcher dispatches
+  selection-watcher fires on the `:selected-variant` edge: it
+  pre-allocates the variant's frame, runs the Xray cross-host bridges,
+  and tells Xray which frame to OBSERVE by dispatching
   `[:rf.xray/set-target-frame <variant-id>]` into `:rf/xray`, which
   writes both `:target-frame` AND re-seeds `:epoch-history` from
-  `(rf/epoch-history variant-id)` in lockstep per the rf2-boyc2
-  contract.
+  `(rf/epoch-history variant-id)` in lockstep. Without that dispatch
+  Xray would stay anchored on whatever its first-mount seed picked
+  (commonly the boot `:rf/default` or the previously-focused variant),
+  and the App-DB diff + Event tab would render against a frame the
+  user is not looking at — an empty Xray on Story's RHS.
 
   Pin: the variant-id IS the frame-id (Story `make-frame`s each variant
   under its variant-id; see `re-frame.story.frames`).
 
-  ## Why each selection edge is followed by a queue flush (rf2-88f1)
+  ## Why each selection edge is followed by a queue flush
 
-  The watcher now makes this gesture through Xray's host-facing facade,
+  The watcher makes this gesture through Xray's host-facing facade,
   `core/set-target-frame!`, rather than hand-rolling `(rf/with-frame :rf/xray
   (rf/dispatch-sync …))` — a host has no business knowing that `:rf/xray` is
-  Xray's frame, and the hand-rolled form raced Xray's seat at boot. The facade
-  rides the ordinary async queue, as Story's sibling Xray gestures already do,
+  Xray's frame, and the hand-rolled form would race Xray's seat at boot. The
+  facade rides the ordinary async queue, as Story's sibling Xray gestures do,
   so the slot lands on a later task rather than before `select-variant!`
   returns. These deftests are synchronous, so they flush the queue themselves
-  instead of racing the host scheduler. What they assert is unchanged: WHICH
-  edges re-orient Xray and which do not.
+  instead of racing the host scheduler. What they assert is WHICH edges
+  re-orient Xray and which do not.
 
   Sub-second per surface; no DOM / no React mount / no Playwright."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -77,10 +75,9 @@
   (testing "Picking a variant fires `:rf.xray/set-target-frame
             <variant-id>` into `:rf/xray` — so Xray re-orients its
             `:target-frame` + `:epoch-history` slots in lockstep on
-            every selection edge. Pre-fix the watcher pre-allocated
-            the variant's frame but never told Xray to OBSERVE it,
-            so the App-DB / Event panels rendered against the prior
-            target-frame (commonly the boot default)."
+            every selection edge. Without it the App-DB / Event
+            panels would render against the prior target-frame
+            (commonly the boot default)."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
@@ -105,10 +102,8 @@
             (remove-selection-watcher!)))))))
 
 (deftest selection-watcher-re-dispatches-on-each-variant-change
-  (testing "Switching variants re-fires the dispatch — pre-fix the
-            watcher dispatched zero times so a switch left Xray
-            stuck on the prior frame. The post-fix watcher fires on
-            every edge."
+  (testing "Switching variants re-fires the dispatch on every edge,
+            so a switch never leaves Xray stuck on the prior frame."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []
@@ -136,8 +131,8 @@
             inner branch (the watcher only re-orients on a non-nil
             edge). Xray's `:target-frame` retains the last selected
             value rather than being reset to nil — consistent with the
-            picker contract (a nil dispatch resets to the boot
-            default, which would clobber the user's last context)."
+            picker contract (a nil dispatch clears the target, which
+            would clobber the user's last context)."
     (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
       {:register-stories
        (fn []

@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.tag-badges-cljs-test
   "Tests for the sidebar tag-as-badge affordance on variant rows
-  (rf2-nwiwr — Storybook 9 badges-addon parity per spec/005 §v1.1).
+  (Storybook 9 badges-addon parity per spec/005 §v1.1).
 
   Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
   and the CLJS node-test build (shadow's `:node-test` target; ns-regexp

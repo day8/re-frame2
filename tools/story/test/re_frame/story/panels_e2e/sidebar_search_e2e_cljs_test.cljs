@@ -1,6 +1,5 @@
 (ns re-frame.story.panels-e2e.sidebar-search-e2e-cljs-test
-  "Multi-frame e2e coverage for the sidebar search-as-you-type filter
-  (rf2-piucm; rf2-yngai).
+  "Multi-frame e2e coverage for the sidebar search-as-you-type filter.
 
   The pure helpers under `re-frame.story.ui.sidebar-search` already
   have a JVM-portable test corpus
@@ -174,7 +173,7 @@
 ;; ---- live filter projection matches the pure helper -------------------
 
 (deftest sidebar-tree-matches-pure-filter-projection
-  (testing "rf2-yngai — the rendered tree's variant set MUST equal what
+  (testing "the rendered tree's variant set MUST equal what
             `filter-grouped-tree` returns when given the same registry
             + query. Pins the integration between the live sidebar and
             the pure helper so the two cannot drift."

@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.test-mode.view-variant-switch-dom-cljs-test
-  "DOM-mount regression for rf2-4e545l finding 3: the `:test` mode
+  "DOM-mount test: the `:test` mode
   pane's `test-view` must auto-run a NEWLY-focused variant even when
   React reconciles the switch as a prop update rather than a fresh
   mount.
@@ -15,10 +15,10 @@
   remounting it. Whether that reconciliation actually happens (as
   opposed to a fresh mount) is a React-commit fact; no amount of pure
   hiccup-tree inspection proves it — only a real render + a SECOND real
-  render after the prop swap can. `test-view`'s prior implementation
-  drove the auto-run from `:component-did-mount` alone, which never
-  re-fires on a reconciled prop update, so the newly-focused variant's
-  pane rendered blank until the user clicked Re-run.
+  render after the prop swap can. Driving the auto-run from
+  `:component-did-mount` alone would never re-fire on a reconciled prop
+  update, so the newly-focused variant's pane would render blank until
+  the user clicked Re-run.
 
   ## Pipeline under test
 
@@ -90,10 +90,10 @@
     (js/document.body.appendChild node)
     node))
 
-;; ---- the regression ---------------------------------------------------
+;; ---- the reconciled switch ---------------------------------------------
 
 (deftest switching-variant-prop-without-remount-autoruns-new-variant
-  (testing "rf2-4e545l finding 3 — mounting test-view with NO React key
+  (testing "mounting test-view with NO React key
             (mirroring shell.cljs's `[test-mode-view/test-view
             variant-id]` call site) and then re-rendering the SAME root
             with a DIFFERENT variant-id (simulating :selected-variant
@@ -134,11 +134,11 @@
             (react-dom/flushSync
               (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view vb])))
             (is (true? (get-in @rf.story.ui.test-mode.state/results-atom [vb :running?]))
-                "rf2-4e545l: variant B auto-ran too, even though React
-                 reconciled the swap as a prop update rather than a
-                 fresh mount — the pre-fix :component-did-mount-only
-                 auto-run never re-fired here, leaving the pane blank
-                 until a manual Re-run")
+                "variant B auto-ran too, even though React reconciled
+                 the swap as a prop update rather than a fresh mount —
+                 a :component-did-mount-only auto-run would never
+                 re-fire here, leaving the pane blank until a manual
+                 Re-run")
 
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))

@@ -1,11 +1,10 @@
 (ns re-frame.story.play.run-loop-settle-cljs-test
-  "rf2-n0sz4 (merged-PR audit #8319) — the run-loop's precondition POLL,
-  driven end to end.
+  "The run-loop's precondition POLL, driven end to end.
 
   The sibling `step-settle-cljs-test` witnesses the poll's DECISION
   (`step-precondition-unmet` / `step-required-selector`) as pure reads, on
   both runtimes. That is the right shape for a decision, and it is not
-  enough for the two defects the audit named: both are about what the LOOP
+  enough for the two behaviours pinned here: both are about what the LOOP
   does with an answer, and neither is reachable without actually running a
   script. So these witnesses drive `run!` and read the recorded results.
 
@@ -20,7 +19,7 @@
   node runtime's only reachable unmet precondition is the event queue,
   which is global to every step in the script and clears itself within a
   tick — it cannot express 'this selector is absent, and stays absent',
-  which is the exact state both defects live in. So the fixture installs a
+  which is the exact state both behaviours turn on. So the fixture installs a
   `document` whose every query MISSES: `dom-available?` reads true, and
   the selector precondition is then genuinely, permanently unmet. Nothing
   is faked about the code under test — only the environment it reads.
@@ -28,7 +27,7 @@
   ## No timings
 
   A budget-exhausted poll is 2 seconds of wall clock, so a red run here is
-  slow. That is a property of the defect, not of the assertions: nothing
+  slow. That is a property of the failure, not of the assertions: nothing
   below asserts on elapsed time. The witnesses read the RECORDED RESULTS —
   how many, in what order, carrying which message — which is the same
   discipline the sibling file states and for the same reason."
@@ -104,7 +103,7 @@
 (defn- run-script!
   "Drive `script` as a HAND-BUILT spec through the explicit-spec arity of
   `run!` — deliberately, since that is the entry path that does not fold,
-  and the one the raw-`:assert-dom` defect lives behind."
+  and the one a raw `:assert-dom` reaches the loop through."
   [script done-cb]
   (rf.story.play.runner-events/run! run-frame "witness" {:name "witness" :script script} done-cb))
 
@@ -116,12 +115,12 @@
 ;; ===========================================================================
 
 (deftest raw-assert-dom-hidden-passes-on-absence
-  (testing "WITNESS (rf2-n0sz4, audit #8319): `[:assert-dom sel :hidden]`
+  (testing "WITNESS: `[:assert-dom sel :hidden]`
             handed to `run!` as an explicit spec is never folded, so the
-            run-loop sees it raw. Read as a bare selector it demanded the
-            node be PRESENT — so the runner waited out the entire settle
-            budget for a node the author had just declared should not be
-            there, and then failed the step. The identical assertion
+            run-loop sees it raw. Read as a bare selector it would demand
+            the node be PRESENT — so the runner would wait out the entire
+            settle budget for a node the author has just declared should not
+            be there, and then fail the step. The identical assertion
             through the folded entry path passes immediately. Behaviour
             must not depend on which supported entry path supplied the
             same step"
@@ -140,7 +139,7 @@
           (done))))))
 
 (deftest raw-assert-dom-text-still-waits-for-its-node
-  (testing "the repair is mode-aware, not blanket. The presence-asserting
+  (testing "the hidden arm is mode-aware, not blanket. The presence-asserting
             half of the family still demands its node through the raw
             entry path — otherwise `:text` / `:visible` would read a DOM
             that had not rendered yet, which is the race the poll exists
@@ -160,15 +159,15 @@
 ;; ===========================================================================
 
 (deftest a-failing-commit-while-the-selector-is-absent-is-recorded-verbatim
-  (testing "WITNESS (rf2-n0sz4, audit #8319): while a precondition is unmet
-            the poll commits the substrate and used to DISCARD the result,
-            on the reasoning that `exec-step!` establishes the same
-            boundary and would report the refusal when the step ran. The
-            precondition is what makes that false — a step parks here
+  (testing "WITNESS: while a precondition is unmet the poll commits the
+            substrate, and a failing commit's result is RECORDED, not
+            discarded. Discarding it on the reasoning that `exec-step!`
+            establishes the same boundary and would report the refusal when
+            the step ran is false under a precondition — a step parks here
             precisely because it is not running, and a selector that stays
-            absent never reaches `exec-step!` at all. So the loop re-ran
+            absent never reaches `exec-step!` at all. The loop would re-run
             the same broken flush every tick for the whole budget and then
-            reported the generic precondition timeout in place of the real
+            report the generic precondition timeout in place of the real
             settle error: the true cause discarded, the symptom recorded"
     (async done
       (install-hooks!
@@ -212,7 +211,7 @@
 ;; ===========================================================================
 
 (deftest a-genuine-precondition-timeout-advances-exactly-once
-  (testing "the useful bounded poll is kept, and its failure path is pinned
+  (testing "the bounded poll's failure path is pinned
             from both sides. With a commit that SUCCEEDS, an absent
             selector is a real un-settleable precondition: the step fails
             readably naming what never settled, contributes exactly ONE

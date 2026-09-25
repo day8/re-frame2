@@ -1,7 +1,7 @@
 (ns re-frame.story.story-is-test
-  "Headless `rf.story/is` clojure.test bridge tests (NewTestStory
-  rf2-5x1wt.19, `tools/story/spec/017-Testing-Story.md` §Public execution
-  API — the three verbs; §Run result — `rf.story/is` reports per assertion).
+  "Headless `rf.story/is` clojure.test bridge tests
+  (`tools/story/spec/017-Testing-Story.md` §Public execution API — the
+  three verbs; §Run result — `rf.story/is` reports per assertion).
 
   JVM-only (`.clj`): on the JVM `rf.story/is` BLOCKS on the run promise and
   fires one `clojure.test` report per assertion synchronously, so the
@@ -52,7 +52,7 @@
 
 (deftest story-is-reports-per-assertion-pass
   (testing "rf.story/is fires one :pass report per passing assertion + returns
-            the unified result (§B5 — rf.story/is reports per assertion)"
+            the unified result"
     (rf.story/reg-variant :story.is/pass
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :loaded]]
@@ -64,7 +64,7 @@
       (is (every? #(= :pass (:type %)) reports)))))
 
 (deftest story-is-reports-per-assertion-fail
-  (testing "rf.story/is fires a :fail report for a failing assertion (§B5)"
+  (testing "rf.story/is fires a :fail report for a failing assertion"
     (rf.story/reg-variant :story.is/fail
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :idle]]
@@ -77,7 +77,7 @@
           "the report names the failing assertion id"))))
 
 (deftest story-is-two-is-in-one-script-report-as-two-results
-  (testing "per-assertion cljs.test/is granularity (rf2-2yrb91): TWO
+  (testing "per-assertion cljs.test/is granularity: TWO
             assertions in ONE :script emit TWO independent reports — one
             failing assertion does not collapse or suppress the other, and
             the pass/fail verdict is tracked separately per :assert step"
@@ -137,8 +137,7 @@
 (deftest story-is-honours-custom-timeout-ms
   (testing "rf.story/is :timeout-ms opt threads through to the JVM blocking
             deref — a run that resolves inside the window is reported
-            normally; an extra opt is stripped before reaching the runner
-            (rf2-zaklu)"
+            normally; an extra opt is stripped before reaching the runner"
     (rf.story/reg-variant :story.is/timeout
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :loaded]]
@@ -156,11 +155,11 @@
   (testing "the :timeout-ms value is the literal bound handed to the JVM
             blocking deref — a never-resolving promise + a tight custom
             timeout throws promptly rather than blocking on the 30000ms
-            default (rf2-zaklu)"
+            default"
     ;; Drive `rf.story.async/deref-blocking` directly with the custom bound: a
     ;; CompletableFuture that never completes must throw a TimeoutException
     ;; at the custom 50ms bound, not the 30000ms default. This is the unit
-    ;; that `rf.story/is` now parameterises.
+    ;; that `rf.story/is` parameterises.
     (let [never (java.util.concurrent.CompletableFuture.)
           t0    (System/currentTimeMillis)]
       (is (thrown? java.util.concurrent.TimeoutException

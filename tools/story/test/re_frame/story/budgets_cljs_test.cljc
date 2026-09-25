@@ -1,11 +1,11 @@
 (ns re-frame.story.budgets-cljs-test
   "Deterministic enforcement gate for the Story UI parity budgets
-  (rf2-ba86n.2, ratified 2026-05-30; normative table spec/018 §10; single
-  source of truth `re-frame.story.budgets`).
+  (normative table spec/018 §10; single source of truth
+  `re-frame.story.budgets`).
 
   ## What this gate asserts — and what it deliberately does NOT
 
-  The ratified F2 enforcement is a DETERMINISTIC structural/complexity gate,
+  The F2 enforcement is a DETERMINISTIC structural/complexity gate,
   NOT a wall-clock micro-bench. Wall-clock latency in CI is flaky (shared
   runners, GC, JIT warm-up), so this gate enforces the *shape* that makes the
   documented latency targets achievable:
@@ -24,8 +24,7 @@
   The DOCUMENTED latency targets (rebuild ≤ 8 ms, inline-validate ≤ 4 ms,
   spine first paint ≤ 100 ms) live as data in `rf.story.budgets/latency-targets-ms`
   and are review-checklist / future-micro-bench bars — this gate does NOT
-  assert them as wall-clock time. See the PR body for the structural-vs-clock
-  rationale flag.
+  assert them as wall-clock time.
 
   ## Where it runs
 
@@ -72,11 +71,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest floor-fixture-is-realistic-scale
-  (testing "the gate exercises at LEAST the ratified project floor"
-    (is (= 2000 floor) "floor variant count is the ratified 2 000")
-    (is (= 200 stories) "floor story count is the ratified 200")
+  (testing "the gate exercises at LEAST the project floor"
+    (is (= 2000 floor) "floor variant count is 2 000")
+    (is (= 200 stories) "floor story count is 200")
     (is (= 50 (:workspaces rf.story.budgets/project-floor))
-        "floor workspace count is the ratified 50"))
+        "floor workspace count is 50"))
   (testing "the synthetic registry actually holds floor-many variants"
     (let [reg (floor-registry rf.story.budgets/project-floor)]
       (is (= floor (count reg))))))
@@ -183,12 +182,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest matrix-dimension-guard
-  (testing "warn threshold is the ratified 12×12 = 144"
+  (testing "warn threshold is 12×12 = 144"
     (is (= 144 rf.story.budgets/matrix-warn-threshold))
     (is (not (rf.story.budgets/matrix-warn? [11 11])) "121 cells: below warn")
     (is (rf.story.budgets/matrix-warn? [12 12]) "144 cells: at warn")
     (is (rf.story.budgets/matrix-warn? [13 12]) "156 cells: past warn"))
-  (testing "hard cap is the ratified 400; beyond it the grid MUST paginate"
+  (testing "hard cap is 400; beyond it the grid MUST paginate"
     (is (= 400 rf.story.budgets/matrix-hard-cap))
     (is (not (rf.story.budgets/matrix-over-hard-cap? [20 20])) "400 cells: at cap, not over")
     (is (rf.story.budgets/matrix-over-hard-cap? [21 20]) "420 cells: over the hard cap")
@@ -202,7 +201,7 @@
     (is (= 24 (rf.story.budgets/matrix-product [2 3 4])))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-ba86n.18 — the WIRED render-path bounding (perf fixtures)
+;; The WIRED render-path bounding (perf fixtures)
 ;;
 ;; The tests above assert the pure budget primitives. These exercise the
 ;; helpers the RENDER PATHS actually call (`rf.story.ui.workspace/bound-grid-cells`,
@@ -286,18 +285,18 @@
        (is (not (vector? rf.story.ui.controls/flat-expanded-sentinel))))))
 
 ;; ---------------------------------------------------------------------------
-;; Ratified numbers — the budget table matches the ratification verbatim
+;; Budget numbers — the budget table matches spec/018 §10 verbatim
 ;; ---------------------------------------------------------------------------
 
 (deftest ratified-budget-numbers
-  (testing "every cap is the as-proposed, ratified value"
+  (testing "every cap is its spec/018 §10 value"
     (is (= 40  rf.story.budgets/sidebar-variant-cap)   "sidebar variant cap")
     (is (= 20  rf.story.budgets/captured-artifact-cap) "captured-artifacts cap")
     (is (= 60  rf.story.budgets/controls-flat-row-cap) "controls flat-panel row cap")
     (is (= 100 rf.story.budgets/grid-visible-cell-cap) "variants-grid visible cell cap")
     (is (= 144 rf.story.budgets/matrix-warn-threshold) "matrix warn threshold")
     (is (= 400 rf.story.budgets/matrix-hard-cap)       "matrix hard cap"))
-  (testing "the documented latency TARGETS carry the ratified numbers (data
+  (testing "the documented latency TARGETS carry the spec/018 §10 numbers (data
             only — not asserted as wall-clock by this gate)"
     (is (= 8   (:filtered-rebuild  rf.story.budgets/latency-targets-ms)))
     (is (= 4   (:inline-validate   rf.story.budgets/latency-targets-ms)))
@@ -329,7 +328,7 @@
                                       vs rf.story.budgets/sidebar-variant-cap false)]
          (is (= rf.story.budgets/sidebar-variant-cap (count shown)))
          (is (= (- floor rf.story.budgets/sidebar-variant-cap) hidden))))
-     (testing "rf2-ba86n.18 — the controls flat-panel cap render path reads
+     (testing "the controls flat-panel cap render path reads
                the C2 budget single-source (no parallel copy)"
        (let [entries (mapv (fn [i] [(keyword (str "a" i)) i])
                            (range (inc rf.story.budgets/controls-flat-row-cap)))

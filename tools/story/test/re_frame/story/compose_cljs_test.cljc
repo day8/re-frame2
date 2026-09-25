@@ -1,15 +1,15 @@
 (ns re-frame.story.compose-cljs-test
   "Tests for strict `:compose` composition — fragments, checks, total merge
-  order, variant-owned-wins, and the silent-conflict failure (rf2-5x1wt.15).
+  order, variant-owned-wins, and the silent-conflict failure.
 
   Per `tools/story/spec/017-Testing-Story.md` §`:compose` / §Merge rules /
-  §Conflict resolution + `ai/findings/NewTestStory` §B3. The compiler is a
+  §Conflict resolution. The compiler is a
   pure data → data fn, so every test runs on both the JVM and CLJS without
   a host: fragment / check / variant bodies are supplied through explicit
   `:lookup` / `:fragment-lookup` / `:check-lookup` maps of RAW bodies.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
+  selects it; a bare `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.schemas :as rf.story.schemas]))
@@ -83,11 +83,11 @@
              (:script p))))))
 
 ;; ===========================================================================
-;; rf2-k23efg — composed-fragment :script must be EXECUTED, not just
-;; reported. The runtime drives `[:world :scripts]` (the named-play set),
-;; NEVER the reported top-level `:script` slot — before the fix,
-;; `compose-script` folded only into the latter, so a composed fragment's
-;; script never actually ran (rf.story.plan/explain looked right; nothing happened).
+;; Composed-fragment :script must be EXECUTED, not just reported. The
+;; runtime drives `[:world :scripts]` (the named-play set), NEVER the
+;; reported top-level `:script` slot — so a `compose-script` folding only
+;; into the latter would leave a composed fragment's script unrun while
+;; rf.story.plan/explain looked right.
 ;; ===========================================================================
 
 (deftest fragment-script-composes-into-executed-scripts
@@ -129,11 +129,11 @@
       (is (= [[:dispatch [:seed-only]]] (:script (first scripts)))))))
 
 ;; ===========================================================================
-;; rf2-2g7ebs — composed-fragment :loaders / :loaders-teardown / :decorators
+;; Composed-fragment :loaders / :loaders-teardown / :decorators
 ;;
-;; `ctx` (the per-field `:extends`-chain merge) never read frag-layers for
-;; these three slots before the fix — silently dropped from every composed
-;; variant even though the Fragment schema permits them.
+;; The Fragment schema permits these three slots, so `ctx` (the per-field
+;; `:extends`-chain merge) reads frag-layers for them; skipping them would
+;; silently drop them from every composed variant.
 ;; ===========================================================================
 
 (deftest fragment-loaders-compose-and-append
@@ -215,7 +215,7 @@
              (get-in p [:explain :compose]))))))
 
 ;; ---- check identity is a SET: a check rides :expect :checks ONCE ---------
-;; (rf2-ufosd — a check inherited + re-composed, or composed twice, must not
+;; (A check inherited + re-composed, or composed twice, must not
 ;;  appear N times; the runner would otherwise expand it into N duplicate
 ;;  grouped check records for one logical check id.)
 
@@ -259,7 +259,7 @@
     (let [variants {:story.k/parent {:checks [:check/no-runtime-errors]}
                     :story.k/child  {:extends :story.k/parent
                                      :checks  [:check/extra]}}
-          ;; Every :checks id must resolve (rf2-jjhy).
+          ;; Every :checks id must resolve.
           checks   {:check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]}
                     :check/extra             {:assertions [[:rf.assert/no-warnings]]}}
           p (compose-plan :story.k/child {:variants variants :checks checks})]
@@ -450,10 +450,10 @@
                  (get-in p [:world :frame :interceptor-overrides]))))))))
 
 ;; ---- explain :strict-conflicts order is DETERMINISTIC --------------------
-;; (rf2-sylr6 — resolution iterates an internal hash-map keyed by the
-;;  override id; without a stable key order the :resolved / :unresolved
-;;  vectors followed hash-map iteration order, which differs across CLJS /
-;;  JVM. The fix sorts by key, so explain diffs + error messages reproduce.)
+;; (Resolution iterates an internal hash-map keyed by the override id;
+;;  without a stable key order the :resolved / :unresolved vectors would
+;;  follow hash-map iteration order, which differs across CLJS / JVM.
+;;  Resolution sorts by key, so explain diffs + error messages reproduce.)
 
 (deftest strict-conflicts-explain-order-is-deterministic
   (testing "the resolved :strict-conflicts vector is in a stable, sorted key order"

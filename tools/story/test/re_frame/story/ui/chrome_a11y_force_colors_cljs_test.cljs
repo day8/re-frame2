@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.chrome-a11y-force-colors-cljs-test
   "CLJS smoke tests for the 'Use system colors' opt-in surface in the
-  Chrome A11y panel (rf2-846h2, parent rf2-4w88j #20).
+  Chrome A11y panel.
 
   Coverage:
 
@@ -59,7 +59,7 @@
 ;; ---- defaults -----------------------------------------------------------
 
 (deftest force-colors-opt-in-defaults-to-false
-  (testing "rf2-846h2 — opt-in defaults to false when localStorage is
+  (testing "opt-in defaults to false when localStorage is
             empty (or unavailable). The system-token chrome only
             activates under explicit operator opt-in or OS HCM."
     (is (false? (rf.story.ui.chrome-a11y/force-colors-opt-in?)))))
@@ -67,7 +67,7 @@
 ;; ---- set / clear --------------------------------------------------------
 
 (deftest set-true-stamps-attribute-on-html-root
-  (testing "rf2-846h2 — `set-force-colors-opt-in!` writes through to
+  (testing "`set-force-colors-opt-in!` writes through to
             the in-memory ratom AND stamps the attribute on `<html>`
             so the sibling selectors in `theme/motion.cljc` fire on
             the next paint."
@@ -80,7 +80,7 @@
           "<html> carries the active attribute"))))
 
 (deftest set-false-clears-attribute-on-html-root
-  (testing "rf2-846h2 — flipping the toggle off clears the attribute
+  (testing "flipping the toggle off clears the attribute
             so the chrome reverts to author-encoded colours."
     (rf.story.ui.chrome-a11y/set-force-colors-opt-in! true)
     (rf.story.ui.chrome-a11y/set-force-colors-opt-in! false)
@@ -93,7 +93,7 @@
 ;; ---- bootstrap restores persisted state --------------------------------
 
 (deftest bootstrap-restores-persisted-attribute
-  (testing "rf2-846h2 — `bootstrap-force-colors!` re-applies the
+  (testing "`bootstrap-force-colors!` re-applies the
             persisted toggle to the live DOM so a reload that mounts
             the chrome root after `set-force-colors-opt-in!` ran
             in a previous session lands on a stamped `<html>`."
@@ -124,7 +124,7 @@
 ;; ---- apply is no-op-safe ------------------------------------------------
 
 (deftest apply-attribute-handles-missing-roots
-  (testing "rf2-846h2 — `apply-force-colors-attribute!` returns nil
+  (testing "`apply-force-colors-attribute!` returns nil
             without throwing even in environments without a chrome
             root or without an `<html>` document (defensive: the
             helper is called from the bootstrap path that may run
@@ -135,7 +135,7 @@
 ;; ---- motion-css carries the attribute-selector arm ---------------------
 
 (deftest motion-css-declares-attribute-selector-rules
-  (testing "rf2-846h2 — `theme/motion.cljc/motion-css` carries a
+  (testing "`theme/motion.cljc/motion-css` carries a
             sibling block keyed on `[data-rf-force-colors=\"active\"]`
             so the operator opt-in activates the same system-token
             chrome the OS HCM media query paints."

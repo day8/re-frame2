@@ -1,6 +1,6 @@
 (ns re-frame.story-assertions-cljs-test
-  "CLJS smoke tests for re-frame2-story Stage 5 (rf2-h8et) —
-  `:rf.assert/*` vocabulary + play sequence + assertions-passing?.
+  "CLJS smoke tests for re-frame2-story's `:rf.assert/*` vocabulary +
+  play sequence + assertions-passing?.
 
   The bulk of assertion coverage lives in the JVM test ns
   (`re-frame.story-assertions-test`); this namespace covers the
@@ -27,8 +27,8 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped `:rf/machine`
-  ;; sub after the registrar clear. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
-  ;; machine snapshots are durable RUNTIME-DB state at
+  ;; sub after the registrar clear. Machine snapshots are durable
+  ;; RUNTIME-DB state (EP-0001) at
   ;; [:rf.runtime/machines :snapshots <id>], so the framework sub is a
   ;; runtime-db sub (the db-position arg is the runtime-db value) — mirror
   ;; `re-frame.machines` exactly. CLJS has no `require :reload` to re-fire
@@ -119,25 +119,25 @@
 ;; ---- public API additions surface check ---------------------------------
 
 (deftest cljs-public-api-surface
-  (testing "Stage 5 public fns are present on the CLJS story ns"
+  (testing "the assertion public fns are present on the CLJS story ns"
     (is (fn? rf.story/assertions-passing?))
     (is (fn? rf.story/read-assertions))
     (is (fn? rf.story/canonical-assertion-ids))
     (is (= :rf.story/force-fx-stub rf.story/force-fx-stub-id))))
 
 ;; ===========================================================================
-;; Internal assertion-helper branches (rf2-uhq5j)
+;; Internal assertion-helper branches
 ;;
 ;; The seven evaluators are exercised end-to-end via run-variant above +
-;; the JVM ns. The branches below were untested at any layer — reached
-;; directly via var-quote (the established Story-test seam pattern).
+;; the JVM ns. No end-to-end case reaches the branches below, so they are
+;; reached directly via var-quote (the Story-test seam pattern).
 ;; ===========================================================================
 
 ;; ---- event-matches? — the fn? + bare-keyword? branches ------------------
 ;;
 ;; story_assertions_test.clj only passes literal event vectors, so the
 ;; predicate-needle (`fn?`) and bare-keyword (`keyword?`) branches of
-;; `:rf.assert/dispatched?` (/spec/007-Stories.md's `[event-or-pred]`) had no test.
+;; `:rf.assert/dispatched?` (/spec/007-Stories.md's `[event-or-pred]`) are tested here.
 
 (def ^:private event-matches? @#'rf.story.assertions/event-matches?)
 
@@ -158,7 +158,7 @@
         "different head id → not matched")))
 
 (deftest cljs-event-matches?-vector-and-fallthrough
-  (testing "the literal-vector branch still matches exactly; non-fn/
+  (testing "the literal-vector branch matches exactly; non-fn/
             vector/keyword needles fall through to false"
     (is (true?  (event-matches? [:user/click 1] [:user/click 1])))
     (is (false? (event-matches? [:user/click 1] [:user/click 2])))
@@ -169,8 +169,7 @@
 
 ;; ---- evaluate-sub-equals — the sub-throws (::compute-error) arm ----------
 ;;
-;; Only the clean pass/fail of a well-behaved sub was tested. The
-;; evaluator wraps `rf.subs/compute-sub` in its OWN try/catch and, when
+;; The evaluator wraps `rf.subs/compute-sub` in its OWN try/catch and, when
 ;; that throws, records :passed? false with :actual :rf.assert/sub-threw
 ;; rather than propagating. Note `compute-sub` normally swallows a
 ;; throwing sub-body internally (it recovers to nil), so the evaluator's
@@ -194,13 +193,13 @@
         (is (re-find #"threw" (:reason out))
             ":reason explains the sub threw")))))
 
-;; ---- evaluate-sub-equals — runtime-db-projection sub (rf2-pecaxy) --------
+;; ---- evaluate-sub-equals — runtime-db-projection sub ---------------------
 ;;
 ;; A `:runtime-db` sub (the idiomatic machine-snapshot shape) projects state
 ;; from the runtime-db partition. The evaluator must resolve it against the
 ;; FULL frame-state value `{:rf.db/app … :rf.db/runtime …}` so `compute-sub`
-;; reads the runtime partition the sub belongs to. Pre-fix the evaluator was
-;; handed bare app-db, so the runtime-db sub read nil. Here we register a
+;; reads the runtime partition the sub belongs to; handed bare app-db, the
+;; runtime-db sub would read nil. Here we register a
 ;; runtime-db sub, hand the evaluator a frame-state value, and assert it
 ;; resolves the live runtime-db value — and that bare app-db reads nil.
 
@@ -211,10 +210,10 @@
       (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
     (let [runtime    {:rf.runtime/machines {:snapshots {:traffic-light {:state :red}}}}
           frame-state {:rf.db/app {} :rf.db/runtime runtime}
-          ;; The faithful read: the play-runner now hands the full
+          ;; The faithful read: the play-runner hands the full
           ;; frame-state value (app + runtime).
           ok         (evaluate-sub-equals :rf/default frame-state [[:pecaxy/light] :red])
-          ;; The pre-pecaxy bug: bare app-db → the runtime-db sub reads nil.
+          ;; Bare app-db → the runtime-db sub reads nil.
           bug        (evaluate-sub-equals :rf/default {:rf.db/app {}} [[:pecaxy/light] :red])]
       (is (true? (:passed? ok))
           "runtime-db sub resolves :red through the frame-state value")
@@ -225,12 +224,12 @@
 
 ;; ---- evaluate-effect-emitted — the pred-rejects-but-present arm ----------
 ;;
-;; Only present/absent was tested. When the fx-id WAS emitted but the
+;; When the fx-id WAS emitted but the
 ;; optional predicate rejects it, the evaluator must record :passed?
 ;; false with the pred-reject reason (and a thrown predicate is treated
 ;; as a rejection, never propagated).
 ;;
-;; rf2-q651r — the evaluator is now a pure fn: its first arg is the
+;; The evaluator is a pure fn: its first arg is the
 ;; tape-projected emitted-fx SET (`rf.story.assertions/emitted-fx`), not a frame-id.
 ;; We pass the set directly (the realistic shape: the fx WAS emitted).
 

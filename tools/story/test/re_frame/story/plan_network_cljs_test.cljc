@@ -1,15 +1,15 @@
 (ns re-frame.story.plan-network-cljs-test
-  "Tests for the first-class `:network` world slot (rf2-5x1wt.14).
+  "Tests for the first-class `:network` world slot.
 
-  Per `tools/story/spec/017-Testing-Story.md` §Network world +
-  `ai/findings/NewTestStory` §B2c. The plan compiler is a pure data →
+  Per `tools/story/spec/017-Testing-Story.md` §Network world. The plan
+  compiler is a pure data →
   data fn, so every test runs host-free on the JVM and CLJS: variant
   bodies are supplied through an explicit `:lookup` map of RAW bodies.
 
   `:network` is the higher-level affordance for `:rf.http/managed`. The
   compiler keeps the per-route reply data at `[:world :network]` (the
   source of truth that feeds `:plan-hash` through `:world` + `explain`)
-  and lowers it to the existing managed-request stub fx — the variant
+  and lowers it to the managed-request stub fx — the variant
   frame overrides `:rf.http/managed` with
   `re-frame.http.test-support/install-managed-request-stubs!`'s stub fx
   id. These tests pin: mixed success/failure per route, the fail-closed
@@ -18,7 +18,7 @@
   explain visibility, plan-hash sensitivity, and the schema acceptance.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
+  selects it; a `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.story.plan        :as rf.story.plan]
@@ -60,7 +60,7 @@
         (is (= :rf.http/managed rf.story.plan/managed-fx-id))))))
 
 (deftest one-route-succeeds-one-fails-in-one-variant
-  (testing "mixed success/failure routes coexist in one variant (the §B2c case)"
+  (testing "mixed success/failure routes coexist in one variant"
     (let [routes {cart-route     {:reply {:ok {:items [{:sku "A"}]}}}
                   checkout-route {:reply {:failure {:kind :rf.http/http-5xx
                                                     :status 503}}}}
@@ -157,10 +157,10 @@
 
 (deftest network-and-composed-fragment-managed-fx-override-conflict-fails
   (testing ":network + a COMPOSED FRAGMENT's :fx-overrides on :rf.http/managed
-            is the same hard conflict as a direct author override (rf2-x0t0n).
+            is the same hard conflict as a direct author override.
 
             check-network-fx-conflict! runs against ctx-fx =
-            (merge composed-fx (:fx-overrides ctx)) (plan.cljc:1238/1250), so a
+            (merge composed-fx (:fx-overrides ctx)) in variant-plan, so a
             fragment contributing :rf.http/managed (landing in composed-fx)
             collides with the variant's :network exactly as a direct override
             would. The DIRECT path is covered above; this exercises the
@@ -250,10 +250,11 @@
 
 (deftest network-same-route-child-reply-replaces-parent-through-extends
   (testing "a child flipping the SAME route :ok -> :failure REPLACES the parent's
-            reply (rf2-pwwu). A route's value is one reply, so the child wins per
+            reply. A route's value is one reply, so the child wins per
             route — exactly as :compose resolves the same slot. A deep merge
-            compiled {:reply {:ok .. :failure ..}}, which the :reply schema
-            rejects and the stub answers with :ok, losing the failure case."
+            would compile {:reply {:ok .. :failure ..}}, which the :reply
+            schema rejects and the stub answers with :ok, losing the failure
+            case."
     (let [failure {:kind :rf.http/http-4xx :status 409}
           m {:story.n/ok    {:network {cart-route {:reply {:ok {:items [1]}}}}}
              :story.n/fails {:extends :story.n/ok

@@ -1,6 +1,5 @@
 (ns re-frame.story-assertions-test
-  "JVM tests for re-frame2-story Stage 5 (rf2-h8et) — `:rf.assert/*`
-  vocabulary.
+  "JVM tests for re-frame2-story's `:rf.assert/*` vocabulary.
 
   Covers each of the seven canonical assertion semantics from
   /spec/007-Stories.md §Assertion vocabulary:
@@ -18,12 +17,12 @@
   - `assertions-passing?` predicate.
   - The canonical seven register at boot."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            ;; rf2-q651r — the three trace-bus assertions + the q651r
-            ;; regression below project from the epoch tape (the SSOT).
+            ;; The three tape-projected assertions + the SSOT test below
+            ;; project from the epoch tape (the SSOT).
             ;; Requiring the epoch artefact installs its late-bind hooks so
             ;; `rf/epoch-history` records a live tape under `clojure -M:test`
             ;; (the dep rides the shared `:test` alias). Without this the
-            ;; facade degrades to `[]` and the regression has no tape to
+            ;; facade degrades to `[]` and those tests have no tape to
             ;; read.
             [re-frame.epoch            :as rf.epoch]
             [re-frame.core             :as rf]
@@ -55,7 +54,7 @@
   (rf.story.loaders/clear-watchers!)
   (rf.story.config/set-global-args! {})
   ;; Clear per-frame assertion accumulators between tests.
-  ;; rf2-q651r — clear the epoch tape + listeners between tests so the
+  ;; Clear the epoch tape + listeners between tests so the
   ;; tape-projected assertions read only their own freshly-captured tape.
   (rf.epoch/clear-history!)
   (rf.epoch/clear-epoch-listeners!)
@@ -79,14 +78,14 @@
       (is (contains? events :rf.assert/state-is))
       (is (contains? events :rf.assert/no-warnings))
       (is (contains? events :rf.assert/effect-emitted))))
-  (testing ":rf.assert/schema-error is NOT a reg-event handler (rf2-5x1wt.21)
+  (testing ":rf.assert/schema-error is NOT a reg-event handler
             — it is tape-evaluated, not dispatched into the frame"
     (let [events (re-frame.registrar/registrations :event)]
       (is (not (contains? events :rf.assert/schema-error))))))
 
 (deftest canonical-assertion-ids-set-exported
   (testing "canonical-assertion-ids returns the seven dispatched handlers PLUS
-            the tape-evaluated :rf.assert/schema-error (rf2-5x1wt.21)"
+            the tape-evaluated :rf.assert/schema-error"
     (is (= 8 (count (rf.story/canonical-assertion-ids))))
     (is (contains? (rf.story/canonical-assertion-ids) :rf.assert/schema-error))
     (is (= rf.story.assertions/canonical-assertion-ids
@@ -177,13 +176,12 @@
     (rf.story/destroy-variant! :story.sub/bad)))
 
 (deftest sub-equals-runtime-db-projection
-  ;; rf2-pecaxy regression: a `:rf.assert/sub-equals` over a sub that
-  ;; projects RUNTIME-DB state (the idiomatic machine-snapshot shape) must
-  ;; resolve the live value — NOT nil. Pre-fix the play-runner handed
-  ;; `compute-sub` the bare app-db `:db` cofx, so a `:runtime-db` sub read
-  ;; app-db and returned nil. The fix passes the full frame-state value
-  ;; `{:rf.db/app … :rf.db/runtime …}` so `compute-sub` resolves the
-  ;; runtime-db partition the sub belongs to.
+  ;; A `:rf.assert/sub-equals` over a sub that projects RUNTIME-DB state
+  ;; (the idiomatic machine-snapshot shape) must resolve the live value —
+  ;; NOT nil. The play-runner passes `compute-sub` the full frame-state
+  ;; value `{:rf.db/app … :rf.db/runtime …}` so it resolves the runtime-db
+  ;; partition the sub belongs to; handed the bare app-db `:db` cofx, a
+  ;; `:runtime-db` sub would read app-db and return nil.
   (testing ":rf.assert/sub-equals resolves a runtime-db-projection sub (not nil)"
     ;; Seed a machine snapshot into the runtime-db partition (EP-0001).
     (rf/reg-event :test/seed-machine-sub
@@ -203,7 +201,7 @@
       (is (true? (:passed? a))
           "the runtime-db-projection sub resolved its live value through sub-equals")
       (is (= :red (:actual a))
-          "actual is the live runtime-db value, not nil (the pre-pecaxy bug)"))
+          "actual is the live runtime-db value, not nil"))
     (rf.story/destroy-variant! :story.sub/runtime)))
 
 ;; ===========================================================================
@@ -240,7 +238,7 @@
 (deftest state-is-pass
   (testing ":rf.assert/state-is passes when machine snapshot matches"
     ;; Seed a tiny machine snapshot manually into the runtime-db partition
-    ;; (EP-0001 rf2-vzld77: machine snapshots are durable runtime-db state).
+    ;; (EP-0001: machine snapshots are durable runtime-db state).
     (rf/reg-event :test/seed-machine
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {})
@@ -270,7 +268,7 @@
     (rf.story/destroy-variant! :story.machine/mismatch)))
 
 ;; ===========================================================================
-;; :rf.assert/no-warnings  (Stage 5 trace-bus accumulator)
+;; :rf.assert/no-warnings  (tape-projected)
 ;; ===========================================================================
 
 (deftest no-warnings-pass-when-silent
@@ -283,7 +281,7 @@
     (rf.story/destroy-variant! :story.warn/silent)))
 
 ;; ===========================================================================
-;; :rf.assert/effect-emitted  (Stage 5 trace-bus accumulator + fx-stub log)
+;; :rf.assert/effect-emitted  (tape-projected + fx-stub log)
 ;; ===========================================================================
 
 (deftest effect-emitted-fail-when-no-fx
@@ -404,7 +402,7 @@
 
 ;; ===========================================================================
 ;; :rf.assert/schema-error — the EXPECTED schema-violation declaration
-;; (rf2-5x1wt.21, spec/017 §Schema rule). Pure selector parsing — the
+;; (spec/017 §Schema rule). Pure selector parsing — the
 ;; declared expectation's surface selector MUST mirror the projected
 ;; violation's selector so the multiset matcher pairs them.
 ;; ===========================================================================
@@ -457,15 +455,13 @@
       (is (= [:event :x] (:selector exp))))))
 
 ;; ===========================================================================
-;; evaluate-no-warnings — the FAIL branch (rf2-bmpn2)
+;; evaluate-no-warnings — the FAIL branch
 ;;
-;; Of the seven canonical evaluators, no-warnings' FAILING branch (warnings
-;; present) was the only one untested at any layer: the JVM
-;; `no-warnings-pass-when-silent` covers only the empty/pass path, and the
-;; evidence/result projection tests exercise the :warnings SLOT but never
-;; the evaluator's :count / :actual / reason projection. The evaluator is
-;; now a pure fn over the tape-projected warning records (rf2-q651r), so we
-;; reach the fail branch directly via the established var-quote seam.
+;; The JVM `no-warnings-pass-when-silent` covers only the empty/pass path,
+;; and the evidence/result projection tests exercise the :warnings SLOT but
+;; never the evaluator's :count / :actual / reason projection. The evaluator
+;; is a pure fn over the tape-projected warning records, so the tests reach
+;; the fail branch directly via the var-quote seam.
 ;; ===========================================================================
 
 (def ^:private evaluate-no-warnings @#'rf.story.assertions/evaluate-no-warnings)
@@ -497,12 +493,12 @@
       (is (re-find #"no warning" (:reason out))))))
 
 ;; ===========================================================================
-;; Causal pure-fn gaps — causal-bounds + causal-effect-surface (rf2-e0rpy)
+;; Causal pure fns — causal-bounds + causal-effect-surface
 ;;
-;; These pure projection fns back the rf2-5x1wt.31 causal assertions and
-;; had NO direct unit test — only indirect result_test coverage that never
-;; reached three branches: causal-bounds :exactly, causal-bounds :min over
-;; :caused, and causal-effect-surface :sub-over-:view precedence.
+;; These pure projection fns back the causal assertions. result_test covers
+;; them only indirectly and never reaches three branches: causal-bounds
+;; :exactly, causal-bounds :min over :caused, and causal-effect-surface
+;; :sub-over-:view precedence.
 ;; ===========================================================================
 
 (deftest causal-bounds-exactly-shorthand
@@ -540,17 +536,15 @@
         "neither :sub nor :view → the cause's total recompute+render count")))
 
 ;; ===========================================================================
-;; rf2-q651r — SSOT regression: an in-script [:assert [:rf.assert/no-warnings]]
-;; AGREES with the run-result :warnings slot (no atom/tape divergence).
+;; SSOT: an in-script [:assert [:rf.assert/no-warnings]] AGREES with the
+;; run-result :warnings slot (no atom/tape divergence).
 ;;
-;; PRE-fix the three trace-bus assertions read the `trace-accumulators`
-;; atom — a SECOND capture path fed by the play listener, which routed
-;; `:op-type :error` events (e.g. :rf.error/no-such-handler) into the
-;; warnings accumulator. So a play that dispatched an unregistered event
-;; recorded a "warning" in the atom (the in-script [:no-warnings] FAILED)
-;; while the run-result :warnings slot — projected from the tape, keyed on
-;; `:op-type :warning` — stayed EMPTY (the slot said pass). The atom and the
-;; slot DISAGREED. POST-fix both read the tape projection, so they AGREE.
+;; Both read the tape projection, keyed on `:op-type :warning`. A SECOND
+;; capture path — an atom fed by the play listener — would disagree: it
+;; would route `:op-type :error` events (e.g. :rf.error/no-such-handler)
+;; into its warnings accumulator, so a play that dispatched an unregistered
+;; event would FAIL the in-script [:no-warnings] while the tape-projected
+;; :warnings slot stayed EMPTY.
 ;; ===========================================================================
 
 (deftest no-warnings-agrees-with-warnings-slot-on-error-only-run
@@ -605,7 +599,7 @@
     (rf.story/destroy-variant! :story.ssot/dispatched)))
 
 ;; ===========================================================================
-;; rf2-ynjts.21 — `dispatched-events` projection: the PRIVACY filter +
+;; `dispatched-events` projection: the PRIVACY filter +
 ;; the assertion-event exclusion (the two branches the behavioural
 ;; `dispatched?-projects-from-tape-trigger-events` test above does not reach).
 ;;
@@ -616,8 +610,8 @@
 ;;
 ;;   1. PRIVACY: the `:trigger-event` of an epoch flagged
 ;;      `:rf.epoch/sensitive?` is DROPPED while Story's local-render egress
-;;      profile redacts (`:rf.egress/local-redacted` — the default, EP-0015
-;;      rf2-3t26eh), so a sensitive event vector never lands raw on an
+;;      profile redacts (`:rf.egress/local-redacted` — the default,
+;;      EP-0015), so a sensitive event vector never lands raw on an
 ;;      assertion record's `:actual` (which serialises into the test-mode
 ;;      pane, MCP `read-assertions`, and JSON-log egress). Under the
 ;;      trusted-local `:rf.egress/local-raw` profile, sensitive
@@ -629,7 +623,7 @@
 ;;      pass on a verdict the runner itself dispatched.
 ;;
 ;; Both are PURE projection branches over the tape, so the tests inject a
-;; synthetic tape through the private `frame-tape` var (the established
+;; synthetic tape through the private `frame-tape` var (the
 ;; `@#'` / `with-redefs` idiom in this file) — deterministic, host-free, no
 ;; live dispatch needed. The egress profile is restored in a `finally`
 ;; so it cannot poison a sibling test (the fixture does not reset it).
@@ -742,18 +736,16 @@
     (rf.story/destroy-variant! :story.ssot/effect)))
 
 ;; ===========================================================================
-;; rf2-luzky — fold coverage: a STUBBED fx is answerable from the stub-call
-;; log SSOT, not the removed `trace-accumulators` side-table / dropped
-;; `tap-stub-event!` mirror.
+;; A STUBBED fx is answerable from the stub-call log SSOT.
 ;;
 ;; A stubbed fx lands on the epoch tape under its REWRITTEN stub id
 ;; (`:rf.story.fx-stub/<dec>+<fx>`), not its original id — so the tape
 ;; :effects projection alone can't answer `[:rf.assert/effect-emitted
 ;; <original-fx>]`. `emitted-fx` unions the tape effects with
 ;; `fx-stubs/observed-fx-ids` (the stub-call log, read via the
-;; `:stub-observed-fx-ids` late-bind hook). This proves dropping the
-;; `tap-stub-event!` dev-mirror lost no coverage: the original-fx fact is
-;; still answerable from the canonical stub-call log.
+;; `:stub-observed-fx-ids` late-bind hook), so the original-fx fact is
+;; answerable from the canonical stub-call log with no side-table or
+;; dev-mirror of its own.
 ;; ===========================================================================
 
 (deftest effect-emitted-projects-stubbed-fx-from-stub-log
@@ -782,12 +774,12 @@
     (rf.story/destroy-variant! :story.ssot/stubbed)))
 
 ;; ===========================================================================
-;; rf2-3okc — the tape-projected assertions read ONLY the current run
+;; The tape-projected assertions read ONLY the current run
 ;;
 ;; A same-id re-run resets the frame IN PLACE (`ensure-fresh-frame!`), so the
-;; frame-owned epoch ring still carries the previous run's epochs. The three
-;; tape-projected handlers used to read ALL of it, so a script that had stopped
-;; dispatching an event kept passing `dispatched?` on the previous run's
+;; frame-owned epoch ring still carries the previous run's epochs. A
+;; tape-projected handler reading ALL of it would let a script that stopped
+;; dispatching an event keep passing `dispatched?` on the previous run's
 ;; evidence. Each shape below is one run that establishes a fact, then the SAME
 ;; id re-registered without it: the second record must read only its own run.
 ;; ===========================================================================
@@ -800,7 +792,7 @@
      (:passed? (last (filter #(= assertion-id (:assertion %)) (:assertions r))))]))
 
 (deftest dispatched-assertion-reads-only-the-current-run
-  (testing "rf2-3okc C1/C2/C3 — a same-id re-run does not inherit the previous run's dispatch"
+  (testing "C1/C2/C3 — a same-id re-run does not inherit the previous run's dispatch"
     (rf/reg-event :okc/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
     (rf.story/reg-variant :story.okc/dispatched
       {:script [[:dispatch [:okc/ok]] [:assert [:rf.assert/dispatched? [:okc/ok]]]]})
@@ -819,7 +811,7 @@
     (rf.story/destroy-variant! :story.okc/dispatched-fresh)))
 
 (deftest effect-emitted-and-no-warnings-read-only-the-current-run
-  (testing "rf2-3okc — effect-emitted and no-warnings are run-scoped too, in both directions"
+  (testing "effect-emitted and no-warnings are run-scoped too, in both directions"
     (rf/reg-fx :okc/fx {:platforms #{:client :server}} (fn [_ _] nil))
     (rf/reg-event :okc/emit (fn [_ _] {:fx [[:okc/fx 1]]}))
     (rf/reg-event :okc/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
@@ -835,7 +827,7 @@
     (let [[status passed?] (okc-run-verdict :story.okc/fx :rf.assert/effect-emitted)]
       (is (false? passed?)
           "a same-id re-run that emits nothing records effect-emitted FALSE — the
-           record no longer inherits the previous run's fx")
+           record does not inherit the previous run's fx")
       (is (not= :pass status)))
     (rf.story/reg-variant :story.okc/warn
       {:script [[:dispatch-sync [:okc/warn]] [:assert [:rf.assert/no-warnings]]]})
@@ -845,19 +837,18 @@
       {:script [[:dispatch-sync [:okc/ok]] [:assert [:rf.assert/no-warnings]]]})
     (is (= [:pass true] (okc-run-verdict :story.okc/warn :rf.assert/no-warnings))
         "a clean same-id re-run PASSES no-warnings — the previous run's warning
-         no longer fails it")
+         does not fail it")
     (rf.story/destroy-variant! :story.okc/fx)
     (rf.story/destroy-variant! :story.okc/warn)))
 
 ;; ===========================================================================
-;; rf2-v5p6l — a REAL failed assertion resolves to its OWN retained beat
+;; A REAL failed assertion resolves to its OWN retained beat
 ;;
 ;; The Test pane resolves a failed row to its Evidence beat through the
 ;; record's `:dispatch-id` (`test-mode.pure/assertion-row` keeps it,
-;; `evidence-spine/row->beat-index` resolves it). The coverage that shipped
-;; that linkage built its rows BY HAND, so it could not see that canonical
-;; records never carried the coordinate. These records come from a real
-;; `story/run` instead, and the expected beat is found by its TRIGGER EVENT,
+;; `evidence-spine/row->beat-index` resolves it). Rows built BY HAND cannot
+;; see whether canonical records carry the coordinate, so these records
+;; come from a real `story/run`, and the expected beat is found by its TRIGGER EVENT,
 ;; never by dispatch id, so the expectation does not lean on the coordinate
 ;; under test.
 ;; ===========================================================================

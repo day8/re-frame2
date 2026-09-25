@@ -1,12 +1,11 @@
 (ns re-frame.story.ui.controls-scalar-widgets-cljs-test
-  "Tests for the Story Controls panel's scalar widget vocabulary
-  (rf2-viymg).
+  "Tests for the Story Controls panel's scalar widget vocabulary.
 
   Per /spec/007-Stories.md §argtypes the closed control vocabulary is
   `:text` / `:textarea` / `:number` / `:boolean` / `:select` / `:radio`
-  / `:date` / `:color`. These tests pin the rendered hiccup for the
-  four widgets that landed late (`:textarea` / `:radio` / `:date` /
-  `:color`) plus the unknown-widget fallback, and exercise the
+  / `:date` / `:color`. These tests pin the rendered hiccup for
+  `:textarea` / `:radio` / `:date` / `:color` plus the unknown-widget
+  fallback, and exercise the
   on-change writes for each through the shell-state's `:cell-overrides`
   slot.
 
@@ -256,22 +255,20 @@
 
 #?(:cljs
    (deftest unknown-widget-still-renders-fallback-span
-     (testing "an unknown widget tag renders the inline fallback span —
-               this is the existing contract and must survive the new
-               widget additions"
+     (testing "an unknown widget tag renders the inline fallback span"
        (let [tree (rf.story.ui.controls/scalar-widget
                     :story.x/v [:k] "v" {:widget :ratchet})]
          (is (= :span (first tree)))
          (is (re-find #"unsupported widget"
                       (nth tree 2)))))))
 
-;; ---- arg-widget dispatch covers the new widget tags ---------------------
+;; ---- arg-widget dispatch covers the textarea/radio/date/color tags ------
 
 #?(:cljs
    (deftest arg-widget-dispatches-new-scalar-widgets
-     (testing "arg-widget routes every new vocabulary entry to scalar-
-               widget (rather than the unknown-widget fallback that would
-               fire if the dispatch case omitted the new tags)"
+     (testing "arg-widget routes :textarea / :radio / :date / :color to
+               scalar-widget (rather than the unknown-widget fallback that
+               would fire if the dispatch case omitted them)"
        (doseq [w [:textarea :radio :date :color]]
          (let [spec    (cond-> {:widget w}
                          (#{:radio} w) (assoc :options [:a :b]))
@@ -282,7 +279,7 @@
            ;; dispatch carried our :widget tag through.
            (is (= w (:widget sub-spec))))))))
 
-;; ---- aria-label on every scalar widget (rf2-u01y5) ----------------------
+;; ---- aria-label on every scalar widget ----------------------------------
 ;;
 ;; Every scalar widget MUST carry an :aria-label derived from its path tail
 ;; — without this the visible <span> label sibling has no programmatic
@@ -290,7 +287,7 @@
 
 #?(:cljs
    (deftest each-scalar-widget-carries-aria-label
-     (testing "rf2-u01y5: every scalar widget renders with an :aria-label
+     (testing "every scalar widget renders with an :aria-label
                derived from its path tail so screen readers announce the
                input by name rather than 'edit, blank'."
        (doseq [[w expected-tag]
@@ -312,7 +309,7 @@
 
 #?(:cljs
    (deftest radio-widget-radiogroup-has-aria-label
-     (testing "rf2-u01y5: the :radio container is a role=radiogroup with
+     (testing "the :radio container is a role=radiogroup with
                an aria-label — the inner inputs inherit a name from their
                wrapping <label> so they don't need their own aria-label."
        (let [tree (rf.story.ui.controls/scalar-widget
@@ -325,7 +322,7 @@
 
 #?(:cljs
    (deftest nested-path-aria-label-is-breadcrumb
-     (testing "rf2-u01y5: nested path produces a slash-joined breadcrumb
+     (testing "a nested path produces a slash-joined breadcrumb
                so a nested input is announced as 'address / street'
                rather than just 'street'."
        (let [tree (rf.story.ui.controls/scalar-widget
@@ -333,17 +330,17 @@
          (is (re-find #"address" (-> tree second :aria-label)))
          (is (re-find #"street"  (-> tree second :aria-label)))))))
 
-;; ---- rf2-i6v4 · typed values survive the DOM adapter ---------------------
+;; ---- typed values survive the DOM adapter ---------------------------------
 ;;
 ;; The controls panel infers its widgets from the variant's Spec 010
 ;; schema, so a widget the schema GENERATED must write a value that
 ;; schema ACCEPTS. `<option value>` can only carry a string, so a select
-;; whose on-change wrote the raw DOM string turned `:large` into
+;; whose on-change wrote the raw DOM string would turn `:large` into
 ;; `":large"` — a value the very `[:enum :small :large]` that produced the
 ;; widget rejects, and one that never reaches the view's keyword branch.
-;; The `:radio` renderer above already writes the source option; these
-;; pin the same contract for `:select`, and for the keyword coercion
-;; `infer-widget`'s `:keyword` case has always promised.
+;; The `:radio` renderer above writes the source option; these pin the
+;; same contract for `:select`, and for the keyword coercion
+;; `infer-widget`'s `:keyword` case promises.
 
 #?(:cljs
    (deftest select-widget-on-change-writes-the-keyword-option
@@ -401,8 +398,8 @@
 #?(:cljs
    (deftest select-widget-nested-path-writes-the-typed-option
      (testing "the same adapter at a NESTED path also writes the typed
-               option — the fix is in the widget, not in a top-level
-               special case"
+               option — the coercion lives in the widget, not in a
+               top-level special case"
        (let [tree    (rf.story.ui.controls/scalar-widget
                        :story.x/v [:theme :mode] :light
                        {:widget :select :options [:light :dark]})
@@ -414,11 +411,11 @@
 #?(:cljs
    (deftest infer-widget-keyword-carries-the-coercion-tag
      (testing "a :keyword schema infers a text widget TAGGED for keyword
-               coercion — the docstring's promise, now carried in data"
+               coercion — the docstring's promise, carried in data"
        (is (= {:widget :text :coerce :keyword}
               (rf.story.ui.controls/infer-widget :keyword))))))
 
-;; ---- rf2-3x7nj.28.4 · a scalar schema carrying properties keeps its type ---
+;; ---- a scalar schema carrying properties keeps its type -------------------
 
 #?(:cljs
    (deftest infer-widget-property-carrying-scalars-infer-as-their-keyword
@@ -466,8 +463,8 @@
 
 #?(:cljs
    (deftest plain-text-widget-still-writes-a-string
-     (testing "an untagged :text widget is untouched — actual string args
-               stay strings"
+     (testing "an untagged :text widget does no coercion — actual string
+               args stay strings"
        (let [tree    (rf.story.ui.controls/scalar-widget
                        :story.x/v [:title] "" {:widget :text})
              handler (-> tree second :on-change)]

@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.backgrounds-switcher-cljs-test
-  "CLJS-side smoke tests for the backgrounds switcher chip (rf2-zll4h).
+  "CLJS-side smoke tests for the backgrounds switcher chip.
 
   Coverage mirrors `viewport_switcher_cljs_test`:
 
@@ -55,7 +55,7 @@
 
 #?(:cljs
    (deftest cljs-effective-background-respects-variant-override
-     (testing "rf2-zll4h: per-variant :background body slot beats toolbar"
+     (testing "per-variant :background body slot beats toolbar"
        (rf.story/reg-story* :story.bg-override
          {:doc "background override fixture" :component :ignored
           :background :paper})
@@ -84,7 +84,7 @@
 
 #?(:cljs
    (deftest cljs-effective-background-follows-the-extends-chain
-     (testing "rf2-3x7nj.28.2: `:background` is world context, which spec/017
+     (testing "`:background` is world context, which spec/017
                §`:extends` inherits — an `:extends` child is framed on its
                parent's background, the one the compiled plan carries, not
                on the toolbar selection"
@@ -132,7 +132,7 @@
 
 #?(:cljs
    (deftest cljs-chip-uses-aria-haspopup-not-aria-pressed
-     (testing "rf2-zll4h reset-gate: chip MUST NOT emit aria-pressed='true'"
+     (testing "reset gate: chip MUST NOT emit aria-pressed='true'"
        (let [hiccup (rf.story.ui.backgrounds-switcher/chip)]
          (let [flat (->> (tree-seq coll? seq hiccup)
                          (filter map?))
@@ -158,10 +158,9 @@
 
 ;; ---- localStorage hydration: see the dom sibling -----------------------
 ;;
-;; rf2-r51p MOVED the two `hydrate!` rows to
-;; `re-frame.story.backgrounds-storage-dom-cljs-test`, where they sit
-;; beside the `save-to-storage!` / `load-from-storage` round-trip they
-;; depend on. They were guarded by `(when (browser?) ...)` here, and this
-;; namespace ends `-cljs-test`, so `:browser-test` never loaded it while
-;; `:node-test` -- which has no `window.localStorage` -- skipped the body:
-;; they executed in neither lane.
+;; The `hydrate!` rows live in
+;; `re-frame.story.backgrounds-storage-dom-cljs-test`, beside the
+;; `save-to-storage!` / `load-from-storage` round-trip they depend on.
+;; This namespace ends `-cljs-test`, so `:browser-test` never loads it,
+;; and `:node-test` has no `window.localStorage`: a row guarded by
+;; `(when (browser?) ...)` here would execute in neither lane.

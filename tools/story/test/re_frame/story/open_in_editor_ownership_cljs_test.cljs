@@ -1,18 +1,18 @@
 (ns re-frame.story.open-in-editor-ownership-cljs-test
-  "Cross-tool ownership contract for open-in-editor (rf2-5ot1d).
+  "Cross-tool ownership contract for open-in-editor.
 
   ## What this pins
 
   Story and Xray each own a DISTINCT open-in-editor effect —
-  `:rf.story.fx/open-in-editor` and `:rf.xray.fx/open-in-editor`. The
-  retired `:rf.editor/open` was a single shared fx-id both tools
-  registered, and `re-frame.registrar/register!` is last-writer-wins
-  (`swap! reg assoc-in`), so whichever tool's installer ran LAST
-  silently commandeered the other tool's editor preference, project
-  root and navigator seam. Co-loading is the FLAGSHIP topology (Story
-  mounts Xray as its embed), so that was not an edge case.
+  `:rf.story.fx/open-in-editor` and `:rf.xray.fx/open-in-editor`. There
+  is no shared fx-id both tools register: `re-frame.registrar/register!`
+  is last-writer-wins (`swap! reg assoc-in`), so with one shared id
+  whichever tool's installer ran LAST would silently commandeer the other
+  tool's editor preference, project root and navigator seam. Co-loading is
+  the FLAGSHIP topology (Story mounts Xray as its embed), so that is not
+  an edge case.
 
-  The regression this file forbids: a load-order-dependent policy
+  The failure this file forbids: a load-order-dependent policy
   takeover. Both tools are configured with DELIBERATELY DIFFERENT
   editors and project roots, then installed in BOTH orders. Each
   tool's public event must drive its OWN tool's navigator with its
@@ -97,13 +97,13 @@
 (defn- ensure-adapter!
   "Install the plain-atom test adapter unless one is already installed.
 
-  Per rf2-oslyz: `rf/make-frame` needs a state-container factory, and this
-  namespace supplied none — every test here failed with
-  `:rf.error/no-adapter-installed` when the selector ran it ALONE, and only
-  passed in the consolidated run because some earlier namespace happened to
-  have called `init!` first. A suite whose green depends on a neighbour is
-  not a suite. `init!` throws when an adapter is already installed, which is
-  the idempotent case, so the throw is the no-op branch."
+  `rf/make-frame` needs a state-container factory. A namespace that
+  supplies none passes only when some earlier namespace happens to have
+  called `init!` first — run ALONE, every test here would fail with
+  `:rf.error/no-adapter-installed`. A suite whose green depends on a
+  neighbour is not a suite. `init!` is a no-op for the adapter already
+  seated and throws `:rf.error/adapter-already-installed` for a different
+  one, so the catch is the no-op branch for an already-seated adapter."
   []
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil)))
@@ -151,11 +151,11 @@
 ;; ---- the ownership contract ---------------------------------------------
 
 (deftest each-tool-keeps-its-own-editor-regardless-of-install-order
-  (testing "rf2-5ot1d — installing Story-then-Xray AND Xray-then-Story
+  (testing "installing Story-then-Xray AND Xray-then-Story
             both leave each tool driving its OWN navigator with its OWN
-            editor + project root. Under the retired shared
-            `:rf.editor/open` the second installer overwrote the first,
-            so exactly one of these two orders necessarily failed."
+            editor + project root. Were the two tools to share one fx-id,
+            the second installer would overwrite the first, so exactly one
+            of these two orders would fail."
     (doseq [[label install-first! install-second!]
             [["story-then-xray" install-story! install-xray!]
              ["xray-then-story" install-xray!  install-story!]]]
@@ -176,7 +176,7 @@
                "carrying Story's " story-editor " URI")))))
 
 (deftest the-two-effect-ids-are-distinct-and-separately-registered
-  (testing "rf2-5ot1d — the tools register two DISTINCT fx-ids, so no
+  (testing "the tools register two DISTINCT fx-ids, so no
             `[kind id]` pair is claimed by two provenance namespaces.
             Cross-source same-id provenance is exactly what image
             assembly rejects as `:rf.error/image-duplicate-id`; distinct
@@ -205,7 +205,7 @@
 ;; ---- Xray-specific policy stays Xray-owned ------------------------------
 
 (deftest xray-operator-override-does-not-reach-story
-  (testing "rf2-5ot1d — the operator's `[:general :editor-override]`
+  (testing "the operator's `[:general :editor-override]`
             is Xray policy. It must retarget Xray's launch and leave
             Story's entirely alone, in a co-loaded process."
     (configure-both-tools!)
@@ -225,8 +225,8 @@
          override is not a global editor setting")))
 
 (deftest xray-unconfigured-editor-hint-does-not-gate-story
-  (testing "rf2-5ot1d — Xray's unconfigured-editor DX hint is Xray
-            EVENT policy (rf2-4s08ov). With no editor confirmed on the
+  (testing "Xray's unconfigured-editor DX hint is Xray
+            EVENT policy. With no editor confirmed on the
             Xray side it must suppress Xray's silent navigation while
             Story — which has no such gate — still opens normally."
     (rf.story.config/set-editor! story-editor)
@@ -254,13 +254,11 @@
 ;; ---- Story's public event is actually installed in production -----------
 
 (deftest story-public-event-exists-after-canonical-boot
-  (testing "rf2-5ot1d item 4 — `[:rf.story/open-in-editor coord]` is a
-            DOCUMENTED public dispatch, but its installer was absent
-            from the canonical roster: the sole caller was Story's own
-            test, so the documented path had no production handler.
-            The installer now rides the canonical roster, so the event
-            works after an explicit `rf.story.canonical/install!` with no
-            hand-wiring."
+  (testing "`[:rf.story/open-in-editor coord]` is a DOCUMENTED public
+            dispatch, and its installer rides the canonical roster, so the
+            event works after an explicit `rf.story.canonical/install!` with
+            no hand-wiring. An installer absent from the roster would leave
+            the documented path with no production handler."
     (configure-both-tools!)
     (rf.story.canonical/reset-installed-flag!)
     (rf.story.canonical/install!)

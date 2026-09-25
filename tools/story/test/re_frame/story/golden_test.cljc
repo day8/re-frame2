@@ -1,6 +1,6 @@
 (ns re-frame.story.golden-test
   "Tests for golden slices — curated canonicalized run regression artifacts
-  (rf2-5x1wt.32, spec/017-Testing-Story.md §Golden slices).
+  (spec/017-Testing-Story.md §Golden slices).
 
   Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
   build:
@@ -13,7 +13,7 @@
         false for a real semantic difference;
       • volatile fields (frame / epoch / trace ids, timestamps) do NOT
         cause a false mismatch — because the slice is compared via
-        `canonicalize`, reusing `.8`'s strip rules;
+        `canonicalize`, reusing the determinism gate's strip rules;
       • a mismatch report DELEGATES to `re-frame.story.diff/diff-runs` (the
         readable facet diff), not a reinvented diff.
   - HEADLESS (against a live frame): `capture-golden` / `golden-match?` over
@@ -31,12 +31,12 @@
             [re-frame.story.golden      :as rf.story.golden]))
 
 ;; ===========================================================================
-;; This ns is the rf2-5x1wt.32 golden-slice coverage, extended by:
-;;   • rf2-vvub1 — the §Capture path FAILS CLOSED: an unrecognized target is
-;;     REJECTED with :rf.error/golden-bad-target (and, since rf2-3x7nj.31.2,
-;;     so is a normalized plan, whose artifact is not the variant's run);
-;;   • rf2-9fd9c — golden-match? + compare-golden share ONE GREEN/RED
-;;     authority (no inline-drift) and canonicalize the run ONCE per call.
+;; Beyond the golden-slice acceptance bullets, this ns pins:
+;;   • the capture path FAILS CLOSED: an unrecognized target is REJECTED
+;;     with :rf.error/golden-bad-target, and so is a normalized plan, whose
+;;     artifact is not the variant's run;
+;;   • golden-match? + compare-golden share ONE GREEN/RED authority (no
+;;     inline-drift) and canonicalize the run ONCE per call.
 ;; ===========================================================================
 
 ;; ===========================================================================
@@ -165,7 +165,7 @@
 (deftest golden-match-ignores-volatile-fields
   (testing "two runs differing ONLY in per-run stamps (frame / epoch / trace
             ids, timestamps) still MATCH — the golden compares via canonicalize,
-            reusing .8's strip rules"
+            reusing the determinism gate's strip rules"
     (let [captured (noisy-run {:frame :rf.test.replay/frame-aaa :epoch-id 5
                                :committed-at 1000 :trace-id 17 :db-after {:n 1}})
           g        (rf.story.golden/make-golden captured)
@@ -241,13 +241,13 @@
       (is (= #{:app-db} (:facets (:diff r)))))))
 
 ;; ===========================================================================
-;; PURE: rf2-ursej — the frozen :slice-keys DRIVE compare (drift-detection)
+;; PURE: the frozen :slice-keys DRIVE compare (drift-detection)
 ;; ===========================================================================
 
 (deftest slice-keys-current-predicate
   (testing "a freshly-captured golden's :slice-keys are current; a golden whose
-            frozen surface differs from run-hash-input-keys is stale; a legacy
-            golden with NO :slice-keys is treated as current"
+            frozen surface differs from run-hash-input-keys is stale; a golden
+            with NO :slice-keys is treated as current"
     (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1}}))]
       (is (true? (rf.story.golden/slice-keys-current? g))
           "the surface a golden was captured over matches the current keys")
@@ -256,13 +256,13 @@
                                                :some-new-slot))))
           "a frozen surface that drifted from the current keys is stale")
       (is (true? (rf.story.golden/slice-keys-current? (dissoc g :slice-keys)))
-          "a golden captured before :slice-keys existed is not flagged stale"))))
+          "a golden carrying no :slice-keys is not flagged stale"))))
 
 (deftest compare-golden-stale-slice-keys-distinct-verdict
   (testing "when a golden's frozen :slice-keys no longer match the current
             run-hash-input-keys, compare-golden returns a DISTINCT
             :stale-slice-keys verdict (NOT a fake regression diff) — the stored
-            slice-keys now DRIVE the compare, fulfilling the make-golden promise"
+            slice-keys DRIVE the compare, as make-golden promises"
     (let [run    (run-result {:app-db {:n 1}})
           ;; Simulate a future slice-surface change: the frozen golden was
           ;; captured over a DIFFERENT key set than the current one.
@@ -289,7 +289,7 @@
            the frozen surface drifts from the current keys"))))
 
 ;; ===========================================================================
-;; PURE: rf2-9fd9c — golden-match? + compare-golden share ONE authority
+;; PURE: golden-match? + compare-golden share ONE authority
 ;; ===========================================================================
 
 (deftest match-and-compare-agree
@@ -338,15 +338,14 @@
           "the frozen golden hash is reported as :golden-run-hash"))))
 
 ;; ===========================================================================
-;; PURE: rf2-vvub1 — capture FAILS CLOSED on an unrecognized target
+;; PURE: capture FAILS CLOSED on an unrecognized target
 ;; ===========================================================================
 
 (deftest capture-golden-rejects-bad-target
   (testing "a target that is neither a run-result (no :status) nor a
             run-artifact is REJECTED with :rf.error/golden-bad-target — NOT
-            silently frozen into a near-empty golden (the rf2-vvub1
-            silent-wrong path, closed). A normalized plan is rejected too:
-            see capture-golden-refuses-a-normalized-plan"
+            silently frozen into a near-empty golden. A normalized plan is
+            rejected too: see capture-golden-refuses-a-normalized-plan"
     (doseq [bad [{:some :map :no :status-world-or-kind}
                  {:event-program [[:dispatch [:x]]]} ; missing :artifact/kind ⇒ not a run-artifact
                  42
@@ -421,13 +420,14 @@
              (get-in r [:diff :app-db :changed]))))))
 
 ;; ===========================================================================
-;; HEADLESS: rf2-3x7nj.31.2 — a normalized PLAN is refused, never replayed
+;; HEADLESS: a normalized PLAN is refused, never replayed
 ;; ===========================================================================
 ;;
 ;; An artifact built from a plan (`determinism/->artifact`) drops the plan's
 ;; decorator stubs, `:db-seed`, frame-setup, loaders, terminal expectations
-;; and extra plays, so replaying it froze a run the variant never makes. A
-;; variant's golden is captured from the run-result of running the variant.
+;; and extra plays, so replaying it would freeze a run the variant never
+;; makes. A variant's golden is captured from the run-result of running the
+;; variant.
 
 (deftest capture-golden-refuses-a-normalized-plan
   (let [dispatched (atom 0)]
@@ -449,9 +449,9 @@
       (testing "the plan was never replayed"
         (is (zero? @dispatched))))))
 
-;; rf2-3x7nj.31.3 — a failing fx run carries a per-run `:error-trace` pointer
-;; and the raw thrown exception, so a golden never matched the very artifact
-;; it was captured from.
+;; A failing fx run carries a per-run `:error-trace` pointer and the raw
+;; thrown exception; were the canonical slice to keep either, a golden would
+;; never match the very artifact it was captured from.
 (deftest golden-of-a-failing-artifact-matches-its-own-replay
   (testing "a golden captured from an artifact whose fx throws matches a
             re-replay of that artifact"
@@ -464,7 +464,7 @@
       (is (true? (rf.story.golden/golden-match? g art)))
       (is (true? (:match? (rf.story.golden/compare-golden g art)))))))
 
-;; rf2-3x7nj.31.2 — a REGISTERED stubbed variant: no real effect fires through
+;; A REGISTERED stubbed variant: no real effect fires through
 ;; capture, match or compare, and the variant's golden is captured from its
 ;; run-result. JVM-only: `rf.story/run` derefs a CompletableFuture here.
 #?(:clj

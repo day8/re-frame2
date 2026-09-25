@@ -1,14 +1,14 @@
 (ns re-frame.story.run-owner-cljs-test
-  "Regression net for Story's ONE run owner (rf2-j538f7.34).
+  "Regression net for Story's ONE run owner.
 
-  A focused shell selection used to have THREE execution owners — the
-  selection-edge frame preallocation (a full `run-variant`), the canvas
-  `component-did-mount` run (a second full `run-variant`), and the post-commit
-  `auto-run!` — so a variant's play-script (and its external effects) ran up to
-  THREE times and a cumulative script double-counted (a passing variant looked
-  failed). These tests drive the production ownership sequence directly against
-  the real plain-atom adapter + lifecycle machine + plan compiler + runner, and
-  pin that the script now executes EXACTLY ONCE.
+  A focused shell selection reaches the run owner from three places — the
+  selection-edge frame preallocation, the canvas `component-did-mount`, and
+  the post-commit `auto-run!`. Were each a full `run-variant`, a variant's
+  play-script (and its external effects) would run up to THREE times and a
+  cumulative script would double-count (a passing variant would look
+  failed). These tests drive the production ownership sequence directly
+  against the real plain-atom adapter + lifecycle machine + plan compiler +
+  runner, and pin that the script executes EXACTLY ONCE.
 
   Runs on BOTH runtimes: the play-scripts are pure `:dispatch-sync`, which
   `rf.story.async/promise` executes synchronously, so the frame's app-db and the
@@ -17,12 +17,12 @@
   JVM-gated (it blocks a thread).
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it. Under its old `-cljc-test` name no CLJS build selected it, so
-  the `:cljs` branches below never compiled (rf2-exlh)."
+  selects it; under a `-cljc-test` name no CLJS build would select it, and
+  the `:cljs` branches below would never compile."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             ;; Loaded so `rf/epoch-history` records a live tape: the fresh
             ;; re-run tests below read `:rf.assert/dispatched?`, which is
-            ;; tape-projected (rf2-3x7nj.30.3).
+            ;; tape-projected.
             [re-frame.epoch]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -41,8 +41,8 @@
 
 ;; ---- external-effect counter (an irreversible effect proxy) --------------
 ;;
-;; A single owner would ISSUE this exactly once per script run; the pre-fix
-;; three-owner composition issued it up to nine times. app-db resets between
+;; A single owner ISSUES the script's three effects once per run; a
+;; three-owner composition would issue up to nine. app-db resets between
 ;; runs hide the mutation, but an external effect cannot be un-sent — so this
 ;; counter is the honest witness of how many times the script actually ran.
 
@@ -218,11 +218,11 @@
       (is (= 3 (count-of b)) "B ran to 3")
       (is (= 6 @ext-effect-count) "each variant issued its 3 effects exactly once"))))
 
-;; ---- (6) the public headless run-variant is unchanged --------------------
+;; ---- (6) the public headless run-variant is one full run -----------------
 
 (deftest public-run-variant-still-runs-full-once
   (testing "the headless `rf.story/run-variant` (test-mode / MCP / sidebar
-            Run-all) is byte-for-byte the old full run: script once, count 3"
+            Run-all) is one full run: script once, count 3"
     (let [vid :story.owner/headless]
       (reg-cumulative! vid)
       #?(:clj
@@ -280,13 +280,13 @@
                  "the superseded result names A's own generation, not B's")
              (is (= :pass (:status b-result)) "B greens on its own state")
              (is (= 1 (:count (:app-db b-result))) "B ran its single increment: 0 -> 1")
-             ;; The decisive criterion-5 proof: only B's increment issued an
+             ;; The decisive proof: only B's increment issued an
              ;; external effect. A's stale continuation was aborted before it
              ;; could dispatch — it never mutated the successor frame.
              (is (= 1 @ext-effect-count)
                  "ONLY B's effect fired — A's stale continuation dispatched nothing")))))))
 
-;; ---- (8) every author-triggered run is FRESH (rf2-3x7nj.30.3) -------------
+;; ---- (8) every author-triggered run is FRESH ------------------------------
 ;;
 ;; The play chip's and banner's Re-run, a dropdown play row, Run all, the
 ;; recorder export's replay and the CI `runPlay` hook all call `rerun!`. These
@@ -402,7 +402,7 @@
       #?(:clj (is (= :error (settled-status (rerun! vid {:play "no-such-play"})))
                   "a play key naming no play refuses the run rather than running another")))))
 
-;; ---- (9) the recorder export's replay is the same fresh run (rf2-3x7nj.29.4)
+;; ---- (9) the recorder export's replay is the same fresh run
 
 #?(:clj
    (deftest export-replay-runs-the-recording-fresh
