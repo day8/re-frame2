@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.machines.trace-state
   "Single source of truth for deriving machine STATE + fired-edge ids
-  from `:rf.machine/transition` trace events (rf2-8jzm1 · spec/021 §6 +
+  from `:rf.machine/transition` trace events (spec/021 §6 +
   machines-viz `001-Topology-Parity.md` §4.4 / G3).
 
   ## Scope
@@ -19,7 +19,7 @@
        returning machines-viz-CANONICAL edge ids (see below).
 
     3. **Which edges were GUARD-BLOCKED this epoch?** —
-       `extract-guard-blocked-edge-ids` (rf2-fzrzlw), returning the
+       `extract-guard-blocked-edge-ids`, returning the
        canonical edge ids whose guard evaluated `:fail` / `:threw` so
        the transition was a no-op. A guard-blocked no-op emits NO
        `:rf.machine/transition` (the chart's fired set is empty), so
@@ -32,22 +32,21 @@
        (Stately takes no transition + highlights nothing on a block);
        only possible because re-frame2 emits `guard-evaluated`.
 
-  Before rf2-8jzm1 these helpers were scattered through the pure-data
-  projector `topology.cljs`, interleaved with node/edge geometry. They
-  are a distinct concern — *trace events → state paths / edge ids* — so
-  they live here as one cohesive, documented module.
+  These helpers are a distinct concern from node/edge geometry —
+  *trace events → state paths / edge ids* — so they live here as one
+  cohesive, documented module.
 
   ## Canonical fired-edge ids (G3 — the live-chart prerequisite)
 
   `extract-fired-edge-ids` mints the SAME edge ids the live MachineChart
-  mints, so a future 'highlight the edge that fired this epoch' wiring
-  (rf2-qeemm / B8) lands on real chart edges. Rather than RE-IMPLEMENT
+  mints, so the 'highlight the edge that fired this epoch' wiring
+  lands on real chart edges. Rather than RE-IMPLEMENT
   the canonical id scheme (source-id `__` target-id `__` event-segment
   `__g_<guard>` `__a_<action>` + per-key ordinal tiebreak — private to
   `chart.layout`), this module PROJECTS the definition through the public
   `chart.layout/project-definition` and looks the ids up off the projected
   edges. So the ids agree with the live chart BY CONSTRUCTION — there is
-  exactly one minting fn, mirroring the node-id unification (rf2-m8kod).
+  exactly one minting fn, as there is for node ids.
 
   The match is loose by necessity: a `:rf.machine/transition` trace
   carries `(from-state, to-state, event)` (Spec 005 §lifecycle_fx) but
@@ -86,8 +85,8 @@
 
 (defn- machine-transition?
   "True when `ev` is a `:rf.machine/transition` trace event for
-  `machine-id` (or for ANY machine when `machine-id` is nil). Per
-  rf2-ws5thu the addressed live actor lives under `:tags :actor-id`
+  `machine-id` (or for ANY machine when `machine-id` is nil). The
+  addressed live actor lives under `:tags :actor-id`
   (with a `:tags :machine-id` fallback for legacy fixtures)."
   [ev machine-id]
   (and (= :rf.machine/transition (:operation ev))
@@ -105,7 +104,7 @@
   "True when `ev` is a `:rf.machine.microstep/transition` trace event for
   `machine-id` (or for ANY machine when `machine-id` is nil) — the parent-
   owned regional `:always` ROUND evidence a parallel macrostep emits
-  (rf2-bvwv4q · `machines/parallel.cljc`). The addressed live actor lives
+  (`machines/parallel.cljc`). The addressed live actor lives
   under `:tags :actor-id` (`:tags :machine-id` / top-level fallbacks for
   legacy fixtures), mirroring `machine-transition?`."
   [ev machine-id]
@@ -123,7 +122,7 @@
        `lifecycle_fx/registration` `trace/emit!` of
        `:rf.machine/transition`).
     2. Legacy/test fixtures: top-level `:to` or `:tags :to`.
-    3. Pre-rf2-hwuki: `:payload :to`.
+    3. `:payload`-carrying fixtures: `:payload :to`.
 
   Returns the normalised path vector or nil."
   [ev]
@@ -139,7 +138,7 @@
 
     1. Modern runtime: `:tags {:before {:state ...}}`.
     2. Legacy/test fixtures: top-level `:from` or `:tags :from`.
-    3. Pre-rf2-hwuki: `:payload :from`.
+    3. `:payload`-carrying fixtures: `:payload :from`.
 
   Returns the normalised path vector or nil."
   [ev]
@@ -151,13 +150,13 @@
 
 ;; ---- raw (un-normalised) before/after state -----------------------------
 ;;
-;; rf2-8ncxrf — a PARALLEL machine's snapshot `:state` is a region-MAP
+;; A PARALLEL machine's snapshot `:state` is a region-MAP
 ;; (`{:climate :idle :fan :off}`), one active leaf per orthogonal region
 ;; (Spec 005 §Parallel regions). `from-path-from-trace` / `to-path-from-trace`
 ;; run that value through `normalise-path`, which returns nil for a map —
 ;; correct for the single-active path resolvers, but it means a parallel
-;; transition's before/after vanish there and `extract-fired-edge-ids` lights
-;; NO edge for an event that fired in N regions at once. The parallel branch
+;; transition's before/after vanish there and `extract-fired-edge-ids` would
+;; light NO edge for an event that fired in N regions at once. The parallel branch
 ;; needs the RAW `:state` value (keyword / vector / region-map) so it can
 ;; iterate the per-region (from, to) pairs. These readers mirror the
 ;; before/after slot tolerance of the path readers but DON'T normalise.
@@ -200,10 +199,10 @@
        (`lifecycle_fx/registration`) emits `(trace/emit! :rf.machine
        :rf.machine/transition {:event inner-event ...})`, so the inner
        event lands under `:tags :event`. This is the shape the live chart
-       wiring (rf2-qeemm / G3) sees in production + the sub-reactivity
+       wiring (G3) sees in production + the sub-reactivity
        fixtures use.
     2. Legacy/test fixtures: top-level `:event`.
-    3. Pre-rf2-hwuki: `:payload :event`.
+    3. `:payload`-carrying fixtures: `:payload :event`.
 
   The event may be a keyword or a `[event-id & args]` vector; returns the
   bare event keyword (the vector's head) or nil."
@@ -234,7 +233,7 @@
   `:rf.machine/transition` trace events vector. Returns the `:from`
   path of the most recent matching trace, or nil. Pure.
 
-  Per spec/021 §6.2 Case C (Figma reconcile · rf2-ad7zx.10): the
+  Per spec/021 §6.2 Case C: the
   focused fired transition's source state renders as the dashed/dim
   `:from` circle. The view layer pairs this with
   `current-state-from-traces` (the TO / `:current` double-circle).
@@ -276,7 +275,7 @@
   `state-path`. A STATE-LOCAL edge declares on the active leaf (`path` ==
   `state-path`); an INHERITED edge declares on an ANCESTOR still on the
   active path (`path` is a strict prefix). A path declared on a DIFFERENT
-  branch (a sibling state reusing the same event, or the bug's sibling
+  branch (a sibling state reusing the same event, or a sibling
   guard case) is NOT a prefix of the active path, so it is excluded. nil
   `state-path` (region-map / absent) disables the check upstream — never
   reaches here."
@@ -289,13 +288,13 @@
   `(from*, to*, event*)` paths read off the trace (already path-coerced;
   `from*` / `to*` are the runtime's actual LEAF before/after state).
   A STATE-LOCAL edge matches on all three; falls back to a MACHINE-LEVEL
-  (top-level `:on`) edge matched on (to, event) alone — rf2-vcnvj projects
-  the fallback ONCE from the synthetic MACHINE-ROOT node, so its
+  (top-level `:on`) edge matched on (to, event) alone — the projection
+  emits the fallback ONCE from the synthetic MACHINE-ROOT node, so its
   `:from-path` is the root context `[]`, not the concrete leaf the runtime
   fired it from. Without that fallback the door `:door/audit` fallback
   firing from `:alarming` would highlight no edge. Returns a seq of ids.
 
-  rf2-6e8rh8 — `:from-path` / `:to-path` match via `on-active-path?`
+  `:from-path` / `:to-path` match via `on-active-path?`
   (prefix), NOT `=` (exact equality). Per Spec 005 deepest-wins, a
   transition inherited from a compound ANCESTOR fires with the runtime's
   `:before :state` at the active LEAF (e.g. `[:open :wide]`) while
@@ -323,7 +322,7 @@
             edges))))
 
 (defn- cascade-from-trace
-  "rf2-l8ls6w — pull the structured `:cascade` step vector off a
+  "Pull the structured `:cascade` step vector off a
   `:rf.machine/transition` trace. The runtime stamps it under `:tags :cascade`
   (modern) — `commit-or-finalize` (`lifecycle_fx/registration`) emits
   `(trace/emit! :rf.machine :rf.machine/transition {… :cascade cascade})`, so
@@ -335,7 +334,7 @@
       []))
 
 (defn- microstep-cascade-steps
-  "rf2-8i1tg3 — the `:kind :microstep` steps off a transition trace's
+  "The `:kind :microstep` steps off a transition trace's
   `:cascade`, in firing order. `transition.cljc`'s unified `:always`
   loop (`machine-transition-single`) appends ONE such step per
   eventless iteration — `{:kind :microstep :from <state> :to <state>
@@ -348,12 +347,12 @@
   (filterv #(= :microstep (:kind %)) cascade))
 
 (defn- raised-cascade-steps
-  "rf2-nb8nj — the `:kind :raised-transition` steps off a transition trace's
+  "The `:kind :raised-transition` steps off a transition trace's
   `:cascade`, in FIFO dequeue order. Both engines append ONE such wrapper per
   HANDLED internal-event dequeue — `{:kind :raised-transition :event <vec>
   :from <state> :to <state> :region <r-or-nil> :steps [...]}` — so a
   same-macrostep raise that moved the machine on is explained in the same
-  trace as the dispatched event instead of being discarded (flat/compound) or
+  trace as the dispatched event, neither discarded (flat/compound) nor
   flattened in with the external rows (root-parallel).
 
   `:from`/`:to` are the RAW before/after `:state` values: a keyword or path
@@ -366,7 +365,7 @@
   (filterv #(= :raised-transition (:kind %)) cascade))
 
 (defn- macrostep-boundary-steps
-  "rf2-nb8nj — every step that marks where the DISPATCHED event's own
+  "Every step that marks where the DISPATCHED event's own
   transition ended and same-macrostep continuation began: the `:always`
   microsteps AND the raised-event wrappers, in cascade (execution) order.
   Both carry `:from`/`:to`, which is all `direct-event-target` needs."
@@ -374,7 +373,7 @@
   (filterv #(#{:microstep :raised-transition} (:kind %)) cascade))
 
 (defn- direct-event-target
-  "rf2-8i1tg3 / rf2-nb8nj — the state the DISPATCHED event's own transition
+  "The state the DISPATCHED event's own transition
   landed in, as opposed to `to-path-from-trace`'s `:after`, which is the
   FINAL state once every subsequent same-macrostep step has also settled.
   When `boundaries` ran (`(seq boundaries)` true), that direct target is the
@@ -383,20 +382,19 @@
   transition's target IS the settled `:after`, so `to-path-from-trace`
   already reads it.
 
-  rf2-nb8nj — a RAISED-event wrapper is as much a boundary as an `:always`
-  microstep, and it was the un-handled case: a macrostep whose event raised
-  an internal event but ran no `:always` had NO boundary at all, so this
-  returned the post-raise settled state and the dispatched event's edge was
-  matched as `(before, settled, event)` — an aggregate edge that does not
-  exist. That lit nothing, the same silent miss rf2-8i1tg3 fixed for
-  `:always`, reached by the other route."
+  A RAISED-event wrapper is as much a boundary as an `:always` microstep:
+  without it, a macrostep whose event raised an internal event but ran no
+  `:always` would have NO boundary at all, so this would return the
+  post-raise settled state and match the dispatched event's edge as
+  `(before, settled, event)` — an aggregate edge that does not exist,
+  which lights nothing."
   [ev boundaries]
   (if (seq boundaries)
     (normalise-path (:from (first boundaries)))
     (to-path-from-trace ev)))
 
 (defn- handled-regions-from-cascade
-  "rf2-l8ls6w — the SET of region names a parallel macrostep actually HANDLED
+  "The SET of region names a parallel macrostep actually HANDLED
   the EXTERNAL event, read off the trace's structured `:cascade`. Each cascade
   step carries `:region <region-name>` (stamped by the single-machine engine
   from the synthetic region-spec's `:rf/region` — `transition.cljc` §structured
@@ -407,7 +405,7 @@
   is the resting state + a non-empty event cascade) from a region that simply
   did not move.
 
-  rf2-v528f — `:kind :microstep` steps are EXCLUDED. A parallel macrostep's
+  `:kind :microstep` steps are EXCLUDED. A parallel macrostep's
   `:cascade` interleaves the event-handling steps with one `:kind :microstep`
   step per parent-owned `:always` ROUND (`parallel.cljc` — each carries the
   round's `:region`). A region that DECLINED the event but participated in
@@ -417,18 +415,14 @@
   steps alone; the round edges light off the standalone round evidence
   (`microstep-region-rounds`), not this set.
 
-  rf2-nb8nj — `:kind :raised-transition` steps are EXCLUDED for the SAME
-  reason, and this is the exclusion the runtime previously made impossible.
+  `:kind :raised-transition` steps are EXCLUDED for the SAME reason.
   A raised internal event is re-broadcast across EVERY region, so a region
-  that DECLINED the external event can still move on the raise. Before
-  rf2-nb8nj the parallel parent queue flattened the rebroadcast's rows
-  straight into the accumulator with no boundary and no trigger event, so
-  those `:exit`/`:action`/`:entry` rows were indistinguishable from the
-  external event's — this set counted the raise-only region as having handled
-  the DISPATCHED event and minted a phantom event edge for it. The runtime
-  now nests those rows under a wrapper carrying their own `:event`, so
-  removing the wrapper removes exactly the misattributed rows; the raised
-  hops light their own edges off `region-continuations` instead. Returns the
+  that DECLINED the external event can still move on the raise. The runtime
+  nests the rebroadcast's `:exit`/`:action`/`:entry` rows under a wrapper
+  carrying their own `:event`; counting them would mark a raise-only region
+  as having handled the DISPATCHED event and mint a phantom event edge for
+  it, so removing the wrapper removes exactly those rows. The raised hops
+  light their own edges off `region-continuations` instead. Returns the
   set of non-nil `:region`s present in the remaining cascade steps."
   [cascade]
   (into #{}
@@ -437,7 +431,7 @@
         cascade))
 
 (defn- cascade-continuation-stream
-  "rf2-nb8nj — the ORDERED per-region continuation stream carried by a
+  "The ORDERED per-region continuation stream carried by a
   root-parallel macrostep's structured `:cascade`:
   `region -> [{:kind :round | :raised, :from, :to, :event} …]`, each region's
   vector in actual EXECUTION order.
@@ -447,15 +441,15 @@
   per region selected in a parent-owned `:always` ROUND and one
   `:kind :raised-transition` wrapper per HANDLED internal-event dequeue — so
   reading the two kinds off ONE walk of the cascade preserves how they
-  interleaved. Reading them into two independently grouped buckets does not,
-  which is the defect this replaced: `:always` is preferred at each iteration
-  of the parent loop, but a raise that ENABLES an `:always` puts that round
-  AFTER itself, so 'a round if one ran, else a raise' picked the later
-  boundary and read the dispatched event's target off it.
+  interleaved. Reading them into two independently grouped buckets would
+  not: `:always` is preferred at each iteration of the parent loop, but a
+  raise that ENABLES an `:always` puts that round AFTER itself, so 'a round
+  if one ran, else a raise' would pick the later boundary and read the
+  dispatched event's target off it.
 
   A round step's `:from`/`:to` are that region's own in-region states and it
   lights under the synthetic `:always` event id `chart.layout` mints eventless
-  edges with (rf2-oy49f1). A wrapper's `:from`/`:to` are the whole composite
+  edges with. A wrapper's `:from`/`:to` are the whole composite
   region-MAPs (the trace's `:before`/`:after` shape), so each region's hop is
   the pair of values under its key, under the INTERNAL event's id keyword (the
   head of the wrapper's `:event` vector) — the dispatched event and the
@@ -497,14 +491,14 @@
     cascade))
 
 (defn- region-continuations
-  "rf2-nb8nj — the ONE ordered per-region continuation stream
+  "The ONE ordered per-region continuation stream
   `parallel-transition-fired-ids` consumes.
 
   The structured `:cascade` is the authority, because it is the only record
   that carries the two continuation kinds in the order they ran
   (`cascade-continuation-stream`). `region->rounds` — the standalone
   `:rf.machine.microstep/transition` round evidence gathered by
-  `microstep-region-rounds` (rf2-bvwv4q) — is the FALLBACK for a region the
+  `microstep-region-rounds` — is the FALLBACK for a region the
   cascade recorded NO boundary for: a legacy or trimmed trace that carries the
   round traces but no structured cascade. There is nothing to interleave in
   that case, so the fallback is order-safe by construction; where the cascade
@@ -522,11 +516,11 @@
     region->rounds))
 
 (defn- region-local-fired-ids
-  "rf2-8ncxrf — fired-edge ids for ONE region that CHANGED state (its
+  "Fired-edge ids for ONE region that CHANGED state (its
   `before ≠ after`). The region-scoped match: the edge's `:from-path` /
   `:to-path` are the IN-REGION paths and its `:source` is
   `(region-scoped-id region from)` — the same injective id-scheme
-  `highlight-ids` resolves a region-map against (rf2-wnzha), so two regions
+  `highlight-ids` resolves a region-map against, so two regions
   sharing a state NAME never cross-match. Returns a seq of ids (empty when no
   region-LOCAL edge matched — e.g. the region moved via the parallel ROOT
   `:on`; that fallback is matched by `region-root-on-fired-ids`)."
@@ -541,7 +535,7 @@
           edges)))
 
 (defn- region-root-on-fired-ids
-  "rf2-3v3gv1 — fired-edge ids for ONE region that the parallel ROOT `:on`
+  "Fired-edge ids for ONE region that the parallel ROOT `:on`
   moved (the ancestor fallback — Spec 005 §Root parallel `:on`). When no
   region-LOCAL transition handles the event, the root `:on` fires, moving one
   or more REGION-QUALIFIED targets. `project-parallel`
@@ -565,13 +559,13 @@
           edges)))
 
 (defn- region-machine-on-fired-ids
-  "rf2-85a9do — fired-edge ids for ONE region that CHANGED via its OWN
+  "Fired-edge ids for ONE region that CHANGED via its OWN
   region-level top-level `:on` fallback (a legal Spec 005 region-level
   fallback — XState v5: a region is an orthogonal compound state, so its
   `:on` is an ordinary region-scoped transition that applies when no
   child state handles the event).
 
-  `project-parallel` (`layout.cljc` §rf2-7i7t3) projects such a region
+  `project-parallel` (`layout.cljc`) projects such a region
   def's top-level `:on` by DROPPING the synthetic machine-root node and
   re-pointing the machine-level fallback edge's source to the REGION
   CONTAINER (`region-node-id`). So the projected edge carries
@@ -579,10 +573,10 @@
   region)`, and an in-region `:to-path` (NOT region-qualified, and NOT
   `:parallel-root-on?`). Neither `region-local-fired-ids` (keys on the
   region-scoped in-region source) nor `region-root-on-fired-ids` (keys on
-  `:parallel-root-on?` + a region-qualified `:to-path`) can reach it, so
-  the region top-level fallback was the one traversed arm Xray failed to
-  light — leaving a parallel region state change with no fired-edge
-  highlight (the edge-id agreement the live chart relies on, machines-viz
+  `:parallel-root-on?` + a region-qualified `:to-path`) can reach it;
+  without this arm a parallel region state change through the region
+  top-level fallback would get no fired-edge highlight (the edge-id
+  agreement the live chart relies on, machines-viz
   `001-Topology-Parity.md`).
 
   We match the machine-level fallback edge whose `:source` is THIS
@@ -600,14 +594,14 @@
           edges)))
 
 (defn- region-self-internal-fired-ids
-  "rf2-l8ls6w — fired-edge ids for ONE region that was HANDLED but whose state
+  "Fired-edge ids for ONE region that was HANDLED but whose state
   did NOT change (`before == after`): a real targetless/internal or external
   self transition (`:target :same-state`). The runtime emits a
   `:rf.machine/transition` (the macrostep was not a no-op — the handled
   region's cascade is non-empty) and machines-viz projects the self edge, yet
   the before/after region-map shows no change for the region, so
-  `region-local-fired-ids` (which keys on `from ≠ to`) skips it and Xray
-  highlights nothing.
+  `region-local-fired-ids` (which keys on `from ≠ to`) skips it; without
+  this arm Xray would highlight nothing.
 
   A self/internal edge in the region is region-scoped exactly like any region
   edge: its `:from-path == :to-path == self*` (the resting/self path) and its
@@ -627,14 +621,14 @@
           edges)))
 
 (defn- region-machine-internal-fired-ids
-  "rf2-pdvtxt — fired-edge ids for ONE region HANDLED-but-UNCHANGED via its
+  "Fired-edge ids for ONE region HANDLED-but-UNCHANGED via its
   OWN region-level TARGETLESS/action-only top-level `:on` fallback (a legal
   Spec 005 region-level internal fallback — XState v5 targetless semantics:
   the region's `:on` runs an `:action` and moves no state when no child
   handles the event).
 
   The peer of `region-machine-on-fired-ids` for the UNCHANGED case.
-  `project-parallel` (`layout.cljc` §rf2-pdvtxt) projects such a region def's
+  `project-parallel` (`layout.cljc`) projects such a region def's
   targetless top-level `:on` by dropping the synthetic machine-root node and
   anchoring the internal fallback edge to the REGION CONTAINER on BOTH ends:
   `:machine-level? true`, `:internal? true`, `:source == :target ==
@@ -643,8 +637,9 @@
   `region-self-internal-fired-ids` keys on the region-SCOPED in-region source
   (`region-scoped-id region self*`), so it lights a LEAF self/internal edge
   but CANNOT reach a region-ROOT internal fallback whose source is the
-  container. Before this arm, such a handled-unchanged region-root fallback
-  was the one traversed edge Xray failed to light on a focused epoch.
+  container. Without this arm, such a handled-unchanged region-root
+  fallback would be the one traversed edge Xray fails to light on a
+  focused epoch.
 
   We match the machine-level INTERNAL fallback edge whose `:source` is THIS
   region's container, on the event, excluding `:parallel-root-on?` edges.
@@ -661,7 +656,7 @@
           edges)))
 
 (defn- microstep-region-rounds
-  "rf2-bvwv4q — group the machine's parent-owned parallel `:always` ROUND
+  "Group the machine's parent-owned parallel `:always` ROUND
   evidence (`:rf.machine.microstep/transition` traces) into
   `region -> [round …]`, each round `{:from :to :index}` ordered by
   `:microstep-index`. Only REGION-tagged microsteps (parallel rounds)
@@ -676,11 +671,11 @@
   these standalone round traces are first-class evidence of the intermediate
   hops.
 
-  rf2-nb8nj — they are no longer the ONLY evidence, and no longer the primary
-  one: `parallel.cljc` also stamps each round as a top-level `:kind :microstep`
-  step in the transition's structured `:cascade`, which is the record that
-  also carries the RAISED continuations and therefore the only one that shows
-  how the two interleaved. `region-continuations` reads the cascade first and
+  They are not the ONLY evidence, nor the primary one: `parallel.cljc`
+  also stamps each round as a top-level `:kind :microstep` step in the
+  transition's structured `:cascade`, which is the record that also
+  carries the RAISED continuations and therefore the only one that shows
+  how the two interleave. `region-continuations` reads the cascade first and
   falls back to this map per region, for a legacy or trimmed trace that
   carries the round traces without a structured cascade. Returns `{}` when the
   buffer carries no parallel rounds."
@@ -720,16 +715,16 @@
   (the three edge shapes are mutually exclusive per region) and the
   HANDLED-but-UNCHANGED outcome lights the self/internal edge:
 
-    - **rf2-8ncxrf — region CHANGED via a region-local transition.** `from ≠
+    - **Region CHANGED via a region-local transition.** `from ≠
       after`; the region-scoped (from, to, event) match (`region-local-fired-
       ids`) lights the moved region's edge. WINS over both fallbacks below.
-    - **rf2-85a9do — region CHANGED via its OWN top-level `:on` fallback.**
+    - **Region CHANGED via its OWN top-level `:on` fallback.**
       `from ≠ after`, no region-local edge matched, but the region def
       carried a region-level `:on` whose machine-level fallback edge
       (`:machine-level?`, sourced from the region CONTAINER, in-region
       `:to-path`, NOT `:parallel-root-on?`) moved it. `region-machine-on-
       fired-ids` lights it. Reserved between region-local and the root `:on`.
-    - **rf2-3v3gv1 — region CHANGED via the parallel ROOT `:on`.** `from ≠
+    - **Region CHANGED via the parallel ROOT `:on`.** `from ≠
       after` but NEITHER a region-local NOR a region-level `:on` edge matched —
       the move came from the root `:on` ancestor fallback. `region-root-on-
       fired-ids` lights the root-sourced chip whose region-qualified
@@ -737,23 +732,23 @@
       region-local/region-level edge ALSO matches cannot happen — the root
       `:on` is suppressed ENTIRELY when any region handles the event, Spec
       005; so the three are mutually exclusive per region.)
-    - **rf2-l8ls6w / rf2-pdvtxt / rf2-v528f — region HANDLED but UNCHANGED.**
+    - **Region HANDLED but UNCHANGED.**
       `before == the EVENT target` (the event left the region resting) yet the
       region appears in the `:cascade` (a real self/internal transition fired
       with a non-empty event cascade) — EVEN when a later `:always` round then
-      moves the region on, so the settled `after` differs (rf2-v528f). Two
+      moves the region on, so the settled `after` differs. Two
       self/internal edge shapes are lit, in order: a LEAF self/internal edge
       (`region-self-internal-fired-ids`, region-scoped in-region source), else a
       region-ROOT targetless/action-only `:on` fallback (`region-machine-
       internal-fired-ids`, `:machine-level? true` `:internal? true` sourced from
-      the region CONTAINER — rf2-pdvtxt). A region that simply DECLINED the
+      the region CONTAINER). A region that simply DECLINED the
       event (RESTING — absent from the event cascade) lights nothing.
 
   `handled-regions` is the set of region names the cascade recorded (from
   `handled-regions-from-cascade`). Per-region `from` / `to` are coerced
   through `normalise-path` (a region value is a keyword or in-region vector).
 
-  rf2-bvwv4q — PARENT-OWNED `:always` ROUNDS. A parallel macrostep can move a
+  PARENT-OWNED `:always` ROUNDS. A parallel macrostep can move a
   region on the EVENT and then again on one or more cross-region `:always`
   rounds; the runtime commits ONE `:rf.machine/transition` whose `:after` is
   the FINAL settled state, PLUS one standalone `:rf.machine.microstep/
@@ -765,16 +760,16 @@
   the parallel analog of the single-active `direct-event-target`), PLUS each
   round's own regional `:always` edge.
 
-  rf2-v528f — the event edge is derived from `before` vs the EVENT target (the
+  The event edge is derived from `before` vs the EVENT target (the
   first continuation's `:from`), NOT `before` vs the settled `after`. So a region that
   handled the event with a SELF/INTERNAL transition (`before == event-target`)
   and THEN took an `:always` round still lights its self/internal event edge —
-  the round moving the region on no longer suppresses it. Conversely a region
+  the round moving the region on does not suppress it. Conversely a region
   that DECLINED the event but later took an `:always` round (its first round's
   `:from` equals its pre-event state, and it is ABSENT from the non-microstep
   event cascade) gains NO phantom event edge — only its round edges light.
 
-  rf2-nb8nj — RAISED internal events, the third continuation shape alongside
+  RAISED internal events, the third continuation shape alongside
   the event and the parent-owned rounds, and the reason the two are read off
   ONE ordered stream (`region->continuations`) rather than two independently
   grouped buckets. The settled `after` is no more the EVENT's target under a
@@ -783,14 +778,14 @@
   round over any raise is wrong precisely where a raise ENABLES a round: for
   `:r0 --:go--> :r1` raising `[:settle]`, `:r1 --:settle--> :r2`, and
   `:r2 --:always--> :r3`, the round's `:from` is `:r2` and the dispatched
-  event read as `:r0 → :r2` — an aggregate edge that does not exist, so the
-  real `:go` edge went dark while the later two lit.
+  event would read as `:r0 → :r2` — an aggregate edge that does not exist,
+  so the real `:go` edge would go dark while the later two lit.
 
   Each raised hop then lights its OWN edge under its OWN event, through the
   same region-local → region-`:on` → root-`:on` fallback the event branch
   uses, so the dispatched event and the internal event show as distinct
   causal steps rather than one aggregate; each round lights its regional
-  `:always` edge as before. A region that moved ONLY on the raise is ABSENT
+  `:always` edge. A region that moved ONLY on the raise is ABSENT
   from `handled-regions` (the wrapper is excluded there), so it mints no
   phantom edge for the dispatched event.
   Returns a seq of ids."
@@ -800,7 +795,7 @@
       (fn [[region region-before]]
         (let [region-after  (get after-map region)
               continuations (get region->continuations region)
-              ;; rf2-bvwv4q / rf2-nb8nj — with any same-macrostep continuation
+              ;; With any same-macrostep continuation
               ;; the macrostep `:after` is the FINAL settled state; the state
               ;; the EVENT committed is the FIRST continuation boundary's
               ;; `:from`, in execution order. With none, the event's target IS
@@ -813,10 +808,9 @@
               ;; Each continuation's OWN regional edge. A parent-owned
               ;; `:always` ROUND lights region-scoped under `:always` — read
               ;; off the round evidence so an ACTIONLESS round still
-              ;; highlights (rf2-bvwv4q). A RAISED hop that moved the region
+              ;; highlights. A RAISED hop that moved the region
               ;; takes the same three-way fallback as the event branch; a
-              ;; handled-but-unchanged hop lights the self/internal edge
-              ;; (rf2-nb8nj).
+              ;; handled-but-unchanged hop lights the self/internal edge.
               continue-ids  (mapcat
                               (fn [{:keys [kind from to event]}]
                                 (let [h-from (normalise-path from)
@@ -847,7 +841,7 @@
               ;; idle→staged), never the settled state (idle→done — a phantom
               ;; aggregate edge). region-
               ;; local match wins; else the region's OWN top-level `:on`
-              ;; fallback (rf2-85a9do); else the parallel ROOT `:on` ancestor
+              ;; fallback; else the parallel ROOT `:on` ancestor
               ;; fallback. The three edge shapes are mutually exclusive per
               ;; region (a region-scoped in-region source, vs a region-container
               ;; source, vs a `:parallel-root-on?` region-qualified target).
@@ -860,11 +854,11 @@
               ;; transition whose EVENT target is the resting state
               ;; (`region-before == event-target`) with a non-empty event
               ;; cascade — EVEN when a later `:always` round then moves the
-              ;; region on, so the settled `region-after` differs (rf2-v528f).
+              ;; region on, so the settled `region-after` differs.
               ;; The discriminator is the EVENT target, not the settled state.
               ;; A LEAF self/internal edge wins; else a region-ROOT targetless/
-              ;; action-only `:on` fallback (rf2-pdvtxt). `handled-regions` is
-              ;; derived from the NON-microstep cascade steps (rf2-v528f), so a
+              ;; action-only `:on` fallback. `handled-regions` is
+              ;; derived from the NON-microstep cascade steps, so a
               ;; region that DECLINED the event but took a round is ABSENT and
               ;; lights no phantom event edge — only its `continue-ids` light. A
               ;; RESTING region (unchanged + absent from the event cascade)
@@ -889,8 +883,8 @@
   definition is projected through `chart.layout/project-definition` and
   each transition trace's `(from-path, to-path, event)` is matched
   against the projected edges' `:from-path` / `:to-path` / `:event`.
-  This is the prerequisite for wiring a fired-this-epoch edge highlight
-  onto the live chart (rf2-qeemm / B8) — the ids agree by construction,
+  This is what lets a fired-this-epoch edge highlight land on the live
+  chart — the ids agree by construction,
   not by a re-implemented id scheme (the G3 'single edge-id source of
   truth' contract — machines-viz `001-Topology-Parity.md` §4.4).
 
@@ -901,48 +895,49 @@
   Transitions that don't carry an explicit event-id are excluded (they
   can't be matched to a declared edge).
 
-  rf2-8ncxrf — PARALLEL multi-region transitions. A `:type :parallel`
+  PARALLEL multi-region transitions. A `:type :parallel`
   machine's `:before` / `:after` `:state` is a region-MAP, and ONE event
   fires transitions in N regions simultaneously yet emits ONE trace. The
   per-event branch detects the region-map shape and lights EVERY changed
   region's edge (`parallel-transition-fired-ids`), so the focused Machine
   view renders all N fired region-transitions — not a blank chart (the
-  single-active path returns nil for a map, which is why the event-focused
-  view showed NO transition for `[:hvac/power-cycle]`).
+  single-active path returns nil for a map, so on its own it would show NO
+  transition for an event like `[:hvac/power-cycle]`).
 
-  rf2-3v3gv1 — PARALLEL ROOT `:on` (the ancestor fallback — Spec 005 §Root
+  PARALLEL ROOT `:on` (the ancestor fallback — Spec 005 §Root
   parallel `:on`). When no region-local transition handles the event the root
   `:on` fires, moving one or more region-qualified targets; the move shows in
   the before/after region-map but is sourced from the synthetic MACHINE-ROOT
   chip (region-qualified `:to-path`), not a region-local edge — so the per-
   region branch falls back to matching the root-sourced chip.
 
-  rf2-l8ls6w — HANDLED-but-UNCHANGED parallel regions. A parallel region can
+  HANDLED-but-UNCHANGED parallel regions. A parallel region can
   fire a real targetless/internal or self transition with `before == after`
-  and a non-empty cascade; the before/after region-map shows no change, so the
-  pure region-map diff skipped it. The per-region branch reads the trace's
+  and a non-empty cascade; the before/after region-map shows no change, so a
+  pure region-map diff would skip it. The per-region branch reads the trace's
   structured `:cascade` (`handled-regions-from-cascade`) to distinguish a
   HANDLED-unchanged region (lights its self/internal edge) from a RESTING
   region that simply declined the event (lights nothing).
 
-  rf2-8i1tg3 — `:always`-MICROSTEP macrosteps (single-active machines; the
-  parallel analog rides the rf2-bvwv4q round path below). `commit-or-finalize`
+  `:always`-MICROSTEP macrosteps (single-active machines; the
+  parallel analog rides the round path below). `commit-or-finalize`
   emits ONE `:rf.machine/transition` per macrostep whose `:after` is the
   FINAL settled state once every `:always` iteration has ALSO run — not the
   state the dispatched event's own transition landed in. Matching
-  `(from, :after, event)` against the declared edges therefore looks for an
-  edge that does not exist (the dispatched event's real target, followed by
-  N eventless hops, was collapsed into one before/after pair) and silently
-  returns nothing — a `:microsteps > 0` transition lit NO fired edge at all.
+  `(from, :after, event)` against the declared edges would therefore look
+  for an edge that does not exist (the dispatched event's real target,
+  followed by N eventless hops, is collapsed into one before/after pair)
+  and silently return nothing — a `:microsteps > 0` transition would light
+  NO fired edge at all.
   `direct-event-target` recovers the event-driven transition's OWN target
   (the first `:always` microstep's `:from`, i.e. before the loop advanced
   further) so its edge matches by construction; `microstep-cascade-steps`
   then walks the structured `:cascade`'s `:microstep` entries and lights
   EACH `:always` hop's own edge too (`chart.layout` mints eventless edges
-  with `:event :always` — rf2-oy49f1), so a multi-hop `:always` cascade
+  with `:event :always`), so a multi-hop `:always` cascade
   highlights the FULL path the macrostep walked, not just its entry edge.
 
-  rf2-bvwv4q / rf2-nb8nj — PARALLEL CONTINUATIONS, one ordered stream. A
+  PARALLEL CONTINUATIONS, one ordered stream. A
   parallel macrostep may move a region on the EVENT and again on cross-region
   parent-owned `:always` ROUNDS and on same-macrostep RAISED internal events,
   interleaved. `region-continuations` reads that interleaving off ONE walk of
@@ -967,7 +962,7 @@
                  ;; PARALLEL multi-region: derive from the region-maps + the
                  ;; structured cascade + the parent-owned `:always` round
                  ;; evidence, folded into ONE ordered per-region continuation
-                 ;; stream (rf2-bvwv4q / rf2-nb8nj), so every region that moved
+                 ;; stream, so every region that moved
                  ;; (on the event, via the root `:on`, on an `:always` round, or
                  ;; on a raised internal event) OR was handled-unchanged lights
                  ;; its edge.
@@ -979,11 +974,11 @@
                      event*
                      (handled-regions-from-cascade cascade)
                      (region-continuations cascade region->rounds)))
-                 ;; Single-active (flat / compound): the existing
+                 ;; Single-active (flat / compound): the
                  ;; (from, to, event) match + machine-level fallback —
-                 ;; PLUS (rf2-8i1tg3) the direct event-driven target
+                 ;; PLUS the direct event-driven target
                  ;; (not the post-settle state) and every `:always`
-                 ;; microstep's own edge — PLUS (rf2-nb8nj) every
+                 ;; microstep's own edge — PLUS every
                  ;; same-macrostep RAISED transition's own edge, matched
                  ;; under the internal event that selected it, and the
                  ;; `:always` microsteps nested inside those raises.
@@ -994,8 +989,8 @@
                        to*        (direct-event-target
                                     ev (macrostep-boundary-steps cascade))
                        ;; `:always` hops light under the synthetic `:always`
-                       ;; event id `chart.layout` mints eventless edges with
-                       ;; (rf2-oy49f1); a raised hop lights under its own
+                       ;; event id `chart.layout` mints eventless edges
+                       ;; with; a raised hop lights under its own
                        ;; internal event id.
                        always-ids (fn [steps]
                                     (mapcat
@@ -1039,7 +1034,7 @@
                          raised))))))))
          set)))
 
-;; ---- guard-blocked-edge ids (rf2-fzrzlw) --------------------------------
+;; ---- guard-blocked-edge ids ---------------------------------------------
 
 (defn- machine-guard-evaluated?
   "True when `ev` is a `:rf.machine/guard-evaluated` trace event for
@@ -1091,14 +1086,14 @@
 
 (defn- guard-state-from-trace
   "Pull the ACTIVE state path the guard was evaluated against off a
-  `:rf.machine/guard-evaluated` trace (rf2-tjm3u2). The runtime stamps the
+  `:rf.machine/guard-evaluated` trace. The runtime stamps the
   snapshot's `:state` under `:tags :state` (machines · transition.cljc
   `evaluate-guard`). Coerced through `normalise-path` so a keyword
   (`:open`) or vector path (`[:authenticated :cart]`) both land as a path
   vector; a parallel region-MAP `:state` (no single active leaf) or an
   absent slot returns nil — and a nil state then disables source-path
-  disambiguation (the consumer falls back to the `(event, guard)` match,
-  preserving the pre-rf2-tjm3u2 behaviour for traces that carry no state)."
+  disambiguation (the consumer falls back to the `(event, guard)` match
+  for traces that carry no state)."
   [ev]
   (normalise-path (get-in ev [:tags :state])))
 
@@ -1108,21 +1103,21 @@
   machines-viz-canonical edge ids that were GUARD-BLOCKED this epoch —
   the transition's guard evaluated `:fail` / `:threw` so the event was
   a no-op (NO `:rf.machine/transition` was emitted). Pure fn —
-  JVM-runnable. rf2-fzrzlw.
+  JVM-runnable.
 
   A guard-blocked no-op paints NOTHING on the chart via the fired set
   (it carries no transition), so the operator cannot see which edge the
   event hit or that a guard rejected it. The runtime emits the exact
   data on the no-op path: `:rf.machine/guard-evaluated {:guard-id …
   :outcome :fail/:threw :input {:event …} :state …}` carrying the NAMED
-  guard AND the ACTIVE state the guard ran against (rf2-tjm3u2), so the
+  guard AND the ACTIVE state the guard ran against, so the
   blocked-edge match is EXACT.
 
-  rf2-tjm3u2 — match by `(source-path, event, guard)`, NOT `(event,
+  Match by `(source-path, event, guard)`, NOT `(event,
   guard)` alone. A machine may declare the SAME event + SAME guard id on
   MULTIPLE states (`:open` and `:ajar` both with `:door/close` guarded by
-  `:may-close?`). `(event, guard)` alone matched EVERY such edge, so ONE
-  guard failure in ONE active state painted ALL of them pink. The guard
+  `:may-close?`). `(event, guard)` alone would match EVERY such edge, so
+  ONE guard failure in ONE active state would paint ALL of them pink. The guard
   runs during the ACTIVE-configuration resolution, so the trace's `:state`
   (the active path) is the discriminator: only an edge whose declaring
   `:from-path` is ON that active path (a prefix of it — `on-active-path?`)
@@ -1132,14 +1127,13 @@
   active path and is correctly excluded. The MACHINE-LEVEL fallback
   (top-level `:on`, `:from-path []`) is on EVERY active path (the empty
   vector is a prefix of all), so it still matches — matching the
-  machine-level fallback `extract-fired-edge-ids` keeps.
+  machine-level fallback `extract-fired-edge-ids` applies.
 
-  Backward-compatible: when the trace carries NO `:state` (a region-MAP
-  parallel snapshot, or an older/hand-built trace), `on-active-path?` is
-  not consulted and the match falls back to `(event, guard)` alone — the
-  pre-rf2-tjm3u2 behaviour. So a guarded FORK on a single state (two
+  When the trace carries NO `:state` (a region-MAP parallel snapshot, or
+  a hand-built trace), `on-active-path?` is not consulted and the match
+  falls back to `(event, guard)` alone. So a guarded FORK on a single state (two
   same-source candidates differing by guard) still lights ONLY the arm
-  whose named guard the trace reports failing (the named guard remains the
+  whose named guard the trace reports failing (the named guard is the
   fork-arm discriminator).
 
   The returned ids are the EXACT ids the live MachineChart mints: the
@@ -1149,9 +1143,9 @@
   because both the trace's `:guard-id` and the edge's `:guard` are the
   SAME user-declared ref off the SAME definition (keyword or fn).
 
-  Scope is GUARD-BLOCKED only (rf2-fzrzlw design call (3)): a truly-
-  unhandled event (no declared edge for it) is a separate state-node
-  'ignored event' marker, filed separately.
+  Scope is GUARD-BLOCKED only: a truly-unhandled event (no declared
+  edge for it) is a separate state-node 'ignored event' concern, not
+  handled here.
 
   Returns `#{}` for a nil/empty definition or no fail/threw guard
   traces."
@@ -1164,7 +1158,7 @@
            (fn [ev]
              (let [guard* (guard-ref-from-trace ev)
                    event* (guard-event-from-trace ev)
-                   ;; rf2-tjm3u2 — the active state path the guard ran
+                   ;; The active state path the guard ran
                    ;; against. nil (region-map / absent) disables source-
                    ;; path disambiguation (the `(event, guard)` fallback).
                    state* (guard-state-from-trace ev)]
