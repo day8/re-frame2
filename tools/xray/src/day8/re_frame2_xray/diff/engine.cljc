@@ -1,16 +1,10 @@
 (ns day8.re-frame2-xray.diff.engine
-  "Editscript-backed diff projection engine (rf2-n2jig).
+  "Editscript-backed diff projection engine.
 
   ## Purpose
 
-  Replace the home-grown classifier (since deleted from
-  `tools/xray/src/day8/re_frame2_xray/views/edn_inspector.cljs`)
-  (`diff-op`, `diff-op-container`, `children-changed?`, etc.). Per
-  pair-debug 2026-05-27 the project locks Editscript in as the canonical
-  diff engine for Xray — pre-alpha posture, no transitional double-engine
-  state, no shim. The findings doc
-  (`ai/findings/diff-mode-3-key-and-triangle-grammar-2026-05-27.md` §9)
-  carries the full rationale.
+  Editscript is the canonical diff engine for Xray, and the only one:
+  there is no second classifier beside it and no shim.
 
   ## Output shape
 
@@ -43,8 +37,7 @@
   reclassifies as `:modified` at the container path with `:before` carrying
   the old value.
 
-  ## Wholly-changed reclassification (R5, revised per Mike's pair-debug
-  answer Q2)
+  ## Wholly-changed reclassification (R5)
 
   When EVERY descendant of a container is `:added` (or `:removed`), the
   container reclassifies to `:added` (or `:removed`) and is recorded in
@@ -179,17 +172,16 @@
   path scheme (the member itself is the trailing path segment).
 
   Editscript's A* emits per-member `:+` / `:-` edits for a SINGLE-member
-  swap (`#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`, fixed member-level by
-  rf2-l0us2) but crosses its cost threshold and falls back to a WHOLE-SET
+  swap (`#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`) but crosses its cost
+  threshold and falls back to a WHOLE-SET
   `:r` once MULTIPLE members change simultaneously
   (`#{:a :b :c} → #{:a :d :e}` ⇒ `[[] :r #{:a :d :e}]`) — the empty↔populated
   edge (`#{} → #{:a}`) hits the same `:r`. Left alone the `:r` classifies as
   a single `:modified` at the set's path and every per-member path returns
   `:same` from `op-at`, which the renderer paints as a whole-set
-  removal/add ('sea of red') instead of member-level `-removed +added`
-  (rf2-4vp8c, residual of rf2-l0us2 which fixed only the single-member
-  case). Synthesizing the membership delta restores member-level chrome
-  REGARDLESS of how many members changed; this subsumes the empty↔populated
+  removal/add ('sea of red') instead of member-level `-removed +added`.
+  Synthesizing the membership delta gives member-level chrome
+  REGARDLESS of how many members change; this subsumes the empty↔populated
   set expansion (the in-both set is empty there, so it degenerates to
   all-`:+` or all-`:-`).
 
@@ -214,14 +206,14 @@
     - SEQUENTIAL↔SEQUENTIAL → per-index, for `0 … (min n m)-1` where the
       values differ, the expansion of that pair; then `:+` for the after
       tail, or `:-` for the before tail in DESCENDING index order. The two
-      sides must be the same sequential kind, except at the empty edge
-      (rf2-yucxn), which any two sequentials share.
+      sides must be the same sequential kind, except at the empty edge,
+      which any two sequentials share.
 
   The tail removals descend because `project` replays `:-` edits
   sequentially against the shrinking sequence (`replay-vector-edits`), and
   only a descending walk keeps each index naming its ORIGINAL element
-  (rf2-gwye.10 — ascending indices dropped every other removal and invented
-  shifts); `resolve-vector-removals` sorts them back into before order. A
+  (ascending indices would drop every other removal and invent shifts);
+  `resolve-vector-removals` sorts them back into before order. A
   per-index replacement neither lengthens nor shortens the sequence, so no
   index in the tail is shifted by one."
   [path b a]
@@ -279,7 +271,7 @@
   downstream classification sees member-level granularity instead of one
   whole-value `:modified`.
 
-  ## Why every same-kind `:r` is expanded (rf2-3x7nj.26.4)
+  ## Why every same-kind `:r` is expanded
 
   Left alone a whole-value `:r` classifies as ONE `:modified` at the
   collection's path, and every member path answers `:same` from `op-at` —
@@ -288,17 +280,17 @@
   its COST MODEL's call, not anything the programmer chose, so the
   projection must not depend on it. It emits the `:r`:
 
-    - at the empty edge of every collection kind: `{} → {:a 1}`
-      (rf2-9d4j8), `#{} → #{:a}` (rf2-l0us2), `[1] → []` (rf2-yucxn);
+    - at the empty edge of every collection kind: `{} → {:a 1}`,
+      `#{} → #{:a}`, `[1] → []`;
     - for a multi-member set swap: `#{:a :b :c} → #{:a :d :e}` ⇒
-      `[[] :r #{:a :d :e}]` (rf2-4vp8c);
+      `[[] :r #{:a :d :e}]`;
     - once enough of a POPULATED vector or map differs:
       `{:scores [10 20 30]} → {:scores [11 21 31]}` ⇒
       `[[[:scores] :r [11 21 31]]]`, a reversal `[1 2 3 4] → [4 3 2 1]`,
       or a map whose keys were all replaced
-      `{:prefs {:a 1 :b 2}} → {:prefs {:c 3 :d 4}}` (rf2-3x7nj.26.4 —
-      the scoping this function used to carry rested on the false premise
-      that populated vectors and maps never collapse).
+      `{:prefs {:a 1 :b 2}} → {:prefs {:c 3 :d 4}}` (populated vectors
+      and maps collapse too, so an expansion scoped to the empty edge
+      would miss them).
 
   So every `:r` between two collections of the same kind expands, through
   `replacement-edits`, into the edits Editscript would have emitted member
@@ -315,7 +307,7 @@
   member-level granularity.
 
   `before-value` resolves the edit's AFTER-coordinate path to its BEFORE
-  value (rf2-3x7nj.26.2): a replaced collection nested under a vector
+  value: a replaced collection nested under a vector
   element that a prior insert/delete shifted lives at a different index
   on the before side, so a raw `(value-at before path)` would compare the
   replacement against the wrong element.
@@ -345,10 +337,9 @@
 
 (defn- expanded-editscript
   "Return `raw-edits` with whole-value collection replacements
-  pre-expanded into per-member `:+` / `:-` edits: empty↔populated maps
-  (rf2-9d4j8), empty↔populated sets (rf2-l0us2), and multi-member set
-  swaps (rf2-4vp8c). `before-value` resolves an AFTER-coordinate path to
-  its BEFORE value (rf2-3x7nj.26.2). Pure."
+  pre-expanded into per-member `:+` / `:-` edits: empty↔populated maps,
+  empty↔populated sets, and multi-member set swaps. `before-value`
+  resolves an AFTER-coordinate path to its BEFORE value. Pure."
   [raw-edits before-value after]
   (into []
         (mapcat (fn [edit] (expand-collection-replacement edit before-value after)))
@@ -416,14 +407,14 @@
 ;; This is a per-vector linear walk, O(N + edits-per-vector). Pure.
 
 (defn- replay-vector-edits
-  "rf2-3eplfk — UNIFIED replay of an Editscript edit script at ONE
+  "UNIFIED replay of an Editscript edit script at ONE
   vector/list parent. Replays the `:+` (insert) and `:-` (delete) edits in
   EDIT-SCRIPT ORDER against a single evolving slot vector and returns
   `{:removed :slots}` — the one source of truth for BOTH the removals
   channel (`resolve-vector-removals`) and the shift channel
   (`shift-suffixes-for-vector`).
 
-  ## Why a unified `:+`/`:-` replay (the bug this fixes)
+  ## Why a unified `:+`/`:-` replay
 
   Editscript applies `:+`/`:-` edits SEQUENTIALLY against an EVOLVING
   sequence: a `:-` at edit-index `i` removes whatever element CURRENTLY
@@ -432,13 +423,12 @@
   position relative to the sequence AS IT STANDS at that edit — NOT a
   pristine before-index.
 
-  The pre-fix code (rf2-lkehao's `replay-vector-deletes`) replayed ONLY the
-  `:-` edits against `(range before-len)`, IGNORING the interleaved `:+`
-  inserts. For a delete-only script that is correct (no inserts shift the
-  indices). But for a MIXED insert+delete script it reads the WRONG slot —
-  every symptom in rf2-3eplfk (mis-attributed removal, surviving element
-  struck, DROPPED out-of-range removal, phantom shift) traces to deleting
-  against pristine indices when prior inserts had already shifted them.
+  Replaying ONLY the `:-` edits against `(range before-len)`, IGNORING the
+  interleaved `:+` inserts, is correct for a delete-only script (no inserts
+  shift the indices). But for a MIXED insert+delete script it reads the
+  WRONG slot — deleting against pristine indices after prior inserts have
+  shifted them mis-attributes a removal, strikes a surviving element, DROPS
+  an out-of-range removal and invents a phantom shift.
   Example `[:a :b :c :d] → [:a :X :b :c]` ⇒ `[[1] :+ :X] [[4] :-]`: against
   `(range 4)` the `[4] :-` is out-of-range and silently dropped; against the
   evolving sequence (length 5 after the insert) index 4 correctly removes
@@ -508,14 +498,13 @@
 
   The `slots` vector aligns 1:1 with the after-vector: each entry is either
   an original before-index (a survivor) or `::insert` (a `:+` slot). This is
-  the SAME unified walk that feeds the removals channel (rf2-3eplfk) — the
+  the SAME unified walk that feeds the removals channel — the
   shift was-index is derived from it, NOT from a deletes-then-splice-inserts
-  reconstruction (the pre-fix two-step replayed deletes against pristine
-  `(range before-len)` then spliced inserts afterward, which mis-read every
-  `:-` whose edit-index a prior `:+` had shifted: e.g.
-  `[:a :b :c :d] → [:X :a :d]` struck the surviving `:d` and reported `:c`
-  removed; the unified walk removes the actual `:b`/`:c` and reports `:d`
-  `(was 3)` correctly).
+  reconstruction (replaying deletes against pristine `(range before-len)`
+  and splicing inserts afterward would mis-read every `:-` whose
+  edit-index a prior `:+` has shifted: e.g. `[:a :b :c :d] → [:X :a :d]`
+  would strike the surviving `:d` and report `:c` removed; the unified
+  walk removes the actual `:b`/`:c` and reports `:d` `(was 3)`).
 
   An after-index whose slot is an `::insert` classifies under `:added`
   (skipped here); an after-index in `replace-set` classifies under
@@ -535,7 +524,6 @@
 
 ;; =========================================================================
 ;; vector coordinates — AFTER-side paths onto BEFORE-side slots
-;; (rf2-3x7nj.26.2)
 ;; =========================================================================
 ;;
 ;; Editscript addresses every edit against the EVOLVING sequence, so each
@@ -545,16 +533,14 @@
 ;; prepend names before-element 1). A before-side read must therefore map
 ;; every vector segment of the path, from the root down, through that
 ;; vector's replay `:slots` — the same 1:1 after→before alignment the
-;; removals and shift channels already use. Translating the last segment
-;; alone (the rf2-96csq4 repair) left every nested path reading the wrong
-;; element.
+;; removals and shift channels use. Translating the last segment alone
+;; would leave every nested path reading the wrong element.
 
 (defn- vector-parent?
   "True when `path`'s parent is a sequential on either side. A `:-`'s
   parent is a sequential in `before`, a `:+`'s in `after`; for an in-place
   edit (no parent type-change) both agree, and accepting either lets a
-  single grouping capture the whole edit script per vector parent
-  (rf2-3eplfk)."
+  single grouping capture the whole edit script per vector parent."
   [before after path]
   (when (seq path)
     (let [pp (vec (butlast path))]
@@ -562,7 +548,7 @@
           (seq-coll? (value-at after pp))))))
 
 (defn- group-vector-edits
-  "rf2-3eplfk — UNIFIED grouping. Collect, per vector parent, the ordered
+  "UNIFIED grouping. Collect, per vector parent, the ordered
   `:+`/`:-` edits (in edit-script order) for the single
   `replay-vector-edits` walk, plus the set of `:r` after-indices (replaces
   are length-/order-preserving so they sit OUT of the replay, but their
@@ -668,7 +654,7 @@
   renderer's path-keyed lookup finds an op at every descendant slot. The
   expansion is recursive over maps / vectors / sets. Pure.
 
-  rf2-bufw2 — an EMPTY container (`[]`, `{}`, `#{}`, `'()`) is itself a
+  An EMPTY container (`[]`, `{}`, `#{}`, `'()`) is itself a
   terminal leaf the operator navigates to and sees in the tree: it has
   no descendant slots to recurse into, so the recursive branches below
   would emit NOTHING and the slot would fall through `op-at` to `:same`
@@ -680,8 +666,7 @@
   absent↔empty-collection transition surfaces honestly. The check is
   `container?` + `empty?` (NOT type-specific) because the equivalence
   covers all four collection kinds, and ordering it before the
-  recursive branches keeps the per-kind walks for the non-empty case
-  untouched."
+  recursive branches leaves the per-kind walks to the non-empty case."
   [path op value]
   (cond
     (and (container? value) (empty? value))
@@ -711,7 +696,7 @@
        (mapv (fn [i] (vec (take i path))))))
 
 (defn- mark-wholly-changed
-  "Per R5 (revised): walk down from root, when EVERY descendant slot
+  "Per R5: walk down from root, when EVERY descendant slot
   carries `:added`, the container reclassifies to `:added` and gets
   added to `:wholly-changed-roots`. Same rule mirrored for `:removed`.
 
@@ -723,26 +708,26 @@
   ancestor counts.
 
   The root path `[]` is explicitly excluded from wholly-changed
-  promotion (rf2-9d4j8). Empty→populated cold-boot epochs would
+  promotion. Empty→populated cold-boot epochs would
   otherwise see ALL per-key chrome (glyph + stripe) suppressed under a
   single root-level reclassification, which contradicts the operator's
   read on a cold-boot diff: each top-level key is a discrete addition
   and wants its own gutter chrome. Nested containers can still qualify
   as wholly-changed (e.g. `{} → {:user {:id 7}}` marks `[:user]`).
 
-  ## Sets are member-keyed — a swap is NOT wholly-changed (rf2-l0us2)
+  ## Sets are member-keyed — a swap is NOT wholly-changed
 
   Editscript keys SET members by VALUE, not by a positional/key slot
   shared across both sides (`#{:a} → #{:b}` emits `[[:a] :-] [[:b] :+]`).
   So a set whose membership SWAPPED has every BEFORE-member at a
   `:removed` leaf and every AFTER-member at an `:added` leaf — two
-  DISJOINT path-sets. The before-side uniformity walk then sees the set
-  as 'all members removed' and the after-side walk sees it as 'all
-  members added', and BOTH falsely promote the set container to wholly-
-  changed. The renderer paints that as a struck-through whole key (the
-  'sea of red' from the bead repro: `:tags #{:door/locked}` →
-  `#{:door/closed}` rendered as `:tags` removed, not `-:door/locked
-  +:door/closed` with `:tags` intact).
+  DISJOINT path-sets. A one-sided before walk would see the set as 'all
+  members removed' and a one-sided after walk would see it as 'all
+  members added', and BOTH would falsely promote the set container to
+  wholly-changed. The renderer would paint that as a struck-through whole
+  key (the 'sea of red': `:tags #{:door/locked}` → `#{:door/closed}`
+  rendered as `:tags` removed, not `-:door/locked +:door/closed` with
+  `:tags` intact).
 
   Concretely: a set is wholly-changed ONLY when the OPPOSITE side is
   empty or absent — a genuine `#{} → #{…}` cold-boot or `#{…} → #{}`
@@ -758,26 +743,26 @@
   BOTH a `:removed` leaf (the gone member) AND an `:added` leaf (the new
   member), so the uniformity test fails AT THE SET and at every ANCESTOR
   of it — no false promotion anywhere up the tree (an ancestor MAP whose
-  only changed descendant is a swapped set was the deeper trap a set-only
-  gate missed). When the opposite set is empty/absent the union equals
+  only changed descendant is a swapped set is the deeper trap a set-only
+  gate would miss). When the opposite set is empty/absent the union equals
   the present side's members (all one op), so cold-boot / clear sets still
   promote correctly.
 
-  ## Maps take the same union (rf2-3x7nj.26.3)
+  ## Maps take the same union
 
   A map is keyed by a shared key, but a map whose EVERY old key was
   removed and every new key added puts its before-leaves and after-leaves
   at disjoint paths exactly as a set swap does (`{:errors {:email …}} →
   {:errors {:name …}}` ⇒ `[[:errors :email] :-] [[:errors :name] :+ …]`),
-  so each one-sided walk saw a uniform side and promoted the surviving map
-  — or its shallowest ancestor with no other leaf — to a wholly-changed
-  root. `collect-leaves` therefore also walks the keys present ONLY on the
+  so a one-sided walk would see a uniform side and promote the surviving
+  map — or its shallowest ancestor with no other leaf — to a
+  wholly-changed root. `collect-leaves` therefore also walks the keys present ONLY on the
   opposite side: a swapped key contributes its opposite-side leaf, and the
   uniformity test fails at the map and every ancestor. A genuinely new or
   removed map is unaffected — its opposite is empty or absent, so the
   union is one side.
 
-  ## Both walks run in AFTER coordinates (rf2-3x7nj.26.2)
+  ## Both walks run in AFTER coordinates
 
   `path-ops` is keyed by AFTER-coordinate paths, so a walk that pairs a
   vector element with its counterpart by EQUAL index — or looks a
@@ -820,7 +805,7 @@
         ;; at disjoint paths); vectors pair children through the replay.
         (fn collect-leaves [side data opposite path]
           (cond
-            ;; rf2-bufw2 — an empty container is a terminal leaf (it has
+            ;; An empty container is a terminal leaf (it has
             ;; no descendant slots), exactly as `expand-leaf-paths`
             ;; treats it. The two walkers MUST agree on what a leaf is:
             ;; if `collect-leaves` skipped an empty-collection slot, a
@@ -835,7 +820,7 @@
             (and (container? data) (empty? data))
             [path]
 
-            ;; rf2-3x7nj.26.3 — a key present only on the OPPOSITE side is
+            ;; A key present only on the OPPOSITE side is
             ;; walked too, over the opposite value (so from the other
             ;; side), so a map whose keys were all swapped contributes
             ;; both a removed and an added leaf.
@@ -857,7 +842,7 @@
                                               ov missing-sentinel (conj path k))))
                           opp))))
 
-            ;; rf2-l0us2 — sets are member-keyed, so a swap puts each
+            ;; Sets are member-keyed, so a swap puts each
             ;; side's members at DISJOINT paths. Collect the UNION of both
             ;; sides' members so a swapped set contributes both a removed
             ;; and an added leaf, breaking the false uniformity at the set
@@ -914,7 +899,7 @@
 
               ;; Root path `[]` never qualifies as a wholly-changed root —
               ;; recurse into children instead so nested containers can
-              ;; still be marked (rf2-9d4j8).
+              ;; still be marked.
               (= [] path)
               (descend acc)
 
@@ -923,7 +908,7 @@
 
               :else
               (descend acc))))
-        ;; rf2-y8doi.25 — ASK BEFORE WALKING. `check-uniform` promotes a
+        ;; ASK BEFORE WALKING. `check-uniform` promotes a
         ;; container only when EVERY leaf under it carries `target-op`, so a
         ;; `path-ops` holding no `:added` leaf anywhere cannot produce a
         ;; single `:added` root however far the walk goes — and likewise for
@@ -933,8 +918,8 @@
         ;; part. The case that matters is the NO-OP EPOCH: an empty edit
         ;; script (the ordinary shape once the on-box egress seam has
         ;; rebuilt an unchanged value, so `project`'s own `identical?`
-        ;; short-circuit does not fire) walked every container of the whole
-        ;; db TWICE to conclude `#{}`. Spec 004 names 1–50 MB app-dbs as the
+        ;; short-circuit does not fire) would walk every container of the
+        ;; whole db TWICE to conclude `#{}`. Spec 004 names 1–50 MB app-dbs as the
         ;; single most-used Xray surface, and the App-DB tab follows head.
         any-leaf-op?
         (fn [target-op]
@@ -969,28 +954,29 @@
   the CHANGES hiding under this path, directly + indirectly. Excludes the
   empty root path unless explicitly changed.
 
-  ## What counts as a change (rf2-y8doi.25)
+  ## What counts as a change
 
-  Two of the inputs are deliberately not the obvious ones, and each was
-  wrong in a different direction.
+  Two of the inputs are deliberately not the obvious ones, and the obvious
+  choice for each is wrong in a different direction.
 
   - **`:same-shifted` is EXCLUDED.** A positional shift is not a change —
     it is the SAME element at a new index, and the operator already reads
     the move as the R6 `(was N)` suffix on the element itself. Counting it
-    again at every ancestor inflated the chip by the length of the vector's
-    tail: prepend one element to a 100-vector and the parent read `[100∆]`.
-    `flat-rows-from-path-ops` already drops `:same-shifted` for exactly this
-    reason; this is that same rule applied to the collapsed count.
+    again at every ancestor would inflate the chip by the length of the
+    vector's tail: prepend one element to a 100-vector and the parent would
+    read `[100∆]`. `flat-rows-from-path-ops` drops `:same-shifted` for
+    exactly this reason; this is that same rule applied to the collapsed
+    count.
 
   - **`:vector-removals` is INCLUDED**, though no entry of it appears in
     `path-ops` at all. A removed vector element has no stable after-path
     (the survivors shift up to fill the gap — see `vector-removals-at`), so
     it rides an off-path channel keyed by the PARENT path, and a count taken
-    over `path-ops` alone could not see it. A container whose only change
-    was a TAIL removal — which shifts nobody, so there is no `:same-shifted`
-    leaf to count by accident either — therefore showed NO collapsed signal
-    whatever: `[N∆]` absent and `op-at` reading `:same` on a vector that had
-    just lost an element.
+    over `path-ops` alone could not see it. Without it, a container whose
+    only change is a TAIL removal — which shifts nobody, so there is no
+    `:same-shifted` leaf to count by accident either — would show NO
+    collapsed signal whatever: `[N∆]` absent and `op-at` reading `:same` on
+    a vector that has just lost an element.
 
   Each removal counts ONCE at its vector parent and once at every ancestor
   above it, which is what feeding its `[parent-path before-index]` through
@@ -1024,7 +1010,7 @@
 
 (defn- compare-path
   "Total-order comparator for two path vectors that may carry MIXED
-  segment types (rf2-n83r8).
+  segment types.
 
   Clojure's default vector comparator compares element-wise using each
   element's natural `compare`, which throws `ClassCastException` the
@@ -1038,8 +1024,7 @@
   would crash the sort at consumer time, well downstream of the
   Editscript `try/catch` at `expanded-editscript`.
 
-  Strategy (bead-suggested option 2, Mike-confirmed): depth (path
-  length) first, then per-segment lexicographic comparison of each
+  Strategy: depth (path length) first, then per-segment lexicographic comparison of each
   segment's `pr-str`. Properties:
 
     - Total — any two segments compare via their string serialisation,
@@ -1069,7 +1054,7 @@
               c)))))))
 
 (defn- flat-rows-from-path-ops
-  "Build the legacy flat-diff lens — one row per non-`:same` leaf op.
+  "Build the flat-diff lens — one row per non-`:same` leaf op.
   Each row is a map `{:path :op :before :after}`. Used by the `:diff`
   mode (pure-diff) renderer."
   [path-ops]
@@ -1090,7 +1075,7 @@
        vec))
 
 (defn- resolve-vector-removals
-  "rf2-yucxn / rf2-3eplfk — recover the true `{:before-index :before-value}`
+  "Recover the true `{:before-index :before-value}`
   for every element removed at a single vector/list parent.
 
   `removed` is the vector of ORIGINAL before-indices removed at this parent,
@@ -1098,18 +1083,18 @@
   `:+`/`:-` in edit-script order — see that fn's docstring). `bvec` is the
   parent's before-side sequence as a vector.
 
-  ## Why the unified replay (rf2-3eplfk)
+  ## Why the unified replay
 
   Editscript applies `:+`/`:-` edits SEQUENTIALLY against an EVOLVING
   sequence: a `:-`'s edit-index is a position AFTER prior `:+` inserts have
-  shifted it. The pre-fix path (rf2-yucxn / rf2-lkehao) replayed ONLY the
-  `:-` edits against `(range before-len)`, IGNORING interleaved inserts —
-  correct for delete-only scripts but WRONG for mixed insert+delete (it
-  read the wrong slot, and silently DROPPED an out-of-range `:-` whose true
-  index sat past `before-len` because a prior `:+` had grown the sequence).
-  Recording before-indices from the one unified walk fixes both. (The even
-  earlier per-edit `(value-at before [parent i])` resolution read one
-  before-value repeatedly and dropped the rest.)
+  shifted it. Replaying ONLY the `:-` edits against `(range before-len)`,
+  IGNORING interleaved inserts, is correct for delete-only scripts but
+  WRONG for mixed insert+delete (it would read the wrong slot, and
+  silently DROP an out-of-range `:-` whose true index sits past
+  `before-len` because a prior `:+` has grown the sequence). Recording
+  before-indices from the one unified walk avoids both. (A per-edit
+  `(value-at before [parent i])` resolution would read one before-value
+  repeatedly and drop the rest.)
 
   Returns a vector of `{:before-index :before-value}` in before-index
   order. Pure."
@@ -1130,7 +1115,7 @@
      :wholly-changed-roots #{}
      :shift-suffix         {}}
     (let [raw-edits (raw-editscript before after)
-          ;; rf2-3x7nj.26.2 — the expansion below compares a replaced
+          ;; The expansion below compares a replaced
           ;; collection against its BEFORE counterpart, and a replacement
           ;; nested under a shifted vector element has that counterpart at
           ;; another index. The translation it needs consults only the
@@ -1155,24 +1140,24 @@
           ;; (`group-vector-edits`).
           {:keys [vec-groups other-edits]}
           (group-vector-edits before after script-edits)
-          ;; rf2-3eplfk — ONE `replay-vector-edits` walk per vector parent
+          ;; ONE `replay-vector-edits` walk per vector parent
           ;; produces BOTH the removals (`:removed`) and the shift slots
           ;; (`:slots`). Both downstream channels derive from this single
           ;; evolving-survivor walk so they can never disagree about which
-          ;; slot a `:-` removed (the scar history rf2-1njv97/yucxn/vu42n
-          ;; was two replays that diverged on mixed insert+delete scripts).
+          ;; slot a `:-` removed (two separate replays diverge on mixed
+          ;; insert+delete scripts).
           vec-replays
           (replay-vector-groups before vec-groups)
-          ;; rf2-3x7nj.26.2 — every BEFORE-side read below goes through
+          ;; Every BEFORE-side read below goes through
           ;; the translated path, never a raw `(value-at before path)`.
           ;; Editscript addresses edits against the evolving sequence, so
           ;; any vector index on an edit's path — the edit's own leaf or
-          ;; an ancestor it descends through — is an AFTER index. REPROS:
+          ;; an ancestor it descends through — is an AFTER index. EXAMPLES:
           ;; before `[:x :y]`, after `[:new :x :z]` ⇒ `[[0] :+ :new]
-          ;; [[2] :r :z]` (rf2-96csq4: the raw read of `[2]` is out of
+          ;; [[2] :r :z]` (the raw read of `[2]` is out of
           ;; range); and a toggled todo after a prepend ⇒ `[[:todos 0] :+
           ;; …] [[:todos 2 :done?] :r true]`, whose raw read of `[:todos 2]`
-          ;; is out of range too, so the change classified `:added`.
+          ;; is out of range too, so the change would classify `:added`.
           before-at
           (fn [path] (before-value-at before vec-replays path))
           vector-removals
@@ -1207,12 +1192,11 @@
             other-edits)
           ;; Step 2 — re-classify modifieds via the value-pair rules so R7
           ;; type-change + R8 redaction branches surface in the op map.
-          ;; Consumes the entry's OWN `:before`/`:after` (already resolved
-          ;; correctly in Step 1, including the rf2-96csq4 replay-aware
-          ;; `:r` resolution) rather than re-deriving via a fresh
-          ;; `value-at before/after path` — re-deriving here was the
-          ;; SECOND site of the same post-shift bug (it silently discarded
-          ;; Step 1's correct `:before` and re-computed the wrong one).
+          ;; Consumes the entry's OWN `:before`/`:after` (resolved in
+          ;; Step 1, including the replay-aware `:r` resolution) rather
+          ;; than re-deriving via a fresh `value-at before/after path` —
+          ;; re-deriving here would silently discard Step 1's correct
+          ;; `:before` and re-compute the wrong one after a shift.
           path-ops
           (reduce
             (fn [acc {:keys [path op value]
@@ -1234,7 +1218,7 @@
             per-leaf)
           ;; Step 3 — R6 vector shift suffixes. Derived from the SAME unified
           ;; `replay-vector-edits` slots that fed the removals channel
-          ;; (rf2-3eplfk) — `:same-shifted` for any surviving after-index
+          ;; — `:same-shifted` for any surviving after-index
           ;; whose before-index moved. The `:r` after-indices (collected in
           ;; the unified grouping) are skipped because they classify as
           ;; `:modified`, not `:same-shifted`.
@@ -1310,7 +1294,7 @@
                             vector-removals))]
       {:path-ops             path-ops-with-shifts
        :container-ops        container-ops'
-       ;; rf2-n83r8 — `compare-path` is mixed-type safe; see its
+       ;; `compare-path` is mixed-type safe; see its
        ;; docstring for the rationale and the latent-fragility caveat.
        :flat-rows            (vec (sort-by :path compare-path flat-rows))
        :vector-removals      vector-removals
@@ -1341,20 +1325,16 @@
 
 (defn change-count-at
   "Lookup the descendant-change count at the container `path`. Returns
-  `0` for paths with no entry. Drives R3-revised's `[N∆]` chip."
+  `0` for paths with no entry. Drives R3's `[N∆]` chip."
   [projection path]
   (or (:change-count (get-in projection [:container-ops (vec path)]))
       0))
 
 ;; =========================================================================
-;; rf2-5j7ch / rf2-9d4j8 — empty↔populated map replacements are now
-;; expanded inside `project` (via `expand-empty-map-replacement` at the
-;; expanded-editscript stage). The previous post-processor `expand-empty-root-
-;; replacement` operated on `:flat-rows` only and left `:path-ops` /
-;; `:container-ops` carrying a single `[]`-anchored `:modified` op,
-;; which made `op-at` return `:same` for every per-key path in the
-;; FULL+DIFF lens (rf2-9d4j8). Pre-alpha clean swap: the post-processor
-;; is removed and the engine produces per-key rows at every lens.
+;; There is no post-processor over `:flat-rows`: `project` expands every
+;; same-kind collection replacement itself (`expand-collection-replacement`
+;; at the expanded-editscript stage), so `:path-ops`, `:container-ops` and
+;; `:flat-rows` carry the same per-key rows at every lens.
 
 (defn wholly-changed-ancestor
   "Return the shallowest wholly-changed-root that is an ancestor of
@@ -1399,8 +1379,8 @@
   a `:path-ops` leaf op. The renderer's sequential body walk consumes
   this channel to splice each genuinely-removed element back into the
   rendered list at its true before-index, struck-through, rather than
-  index-aligning the raw before/after vectors (rf2-vu42n — index
-  alignment mis-attributes the strike to a surviving-shifted member and
-  drops the actually-removed one for scattered / mid-vector removals)."
+  index-aligning the raw before/after vectors (index alignment would
+  mis-attribute the strike to a surviving-shifted member and drop the
+  actually-removed one for scattered / mid-vector removals)."
   [projection path]
   (get-in projection [:vector-removals (vec path)]))
