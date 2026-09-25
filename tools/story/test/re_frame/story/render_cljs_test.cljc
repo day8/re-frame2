@@ -1,10 +1,8 @@
 (ns re-frame.story.render-cljs-test
-  "Tests for `render-variant` + the workshop-superset plan slots
-  (rf2-5x1wt.24).
+  "Tests for `render-variant` + the workshop-superset plan slots.
 
   Per `tools/story/spec/017-Testing-Story.md` §Args, controls, and
-  `render-variant` + §Storytelling superset, and
-  `ai/findings/NewTestStory` §B10. The render-prep core
+  `render-variant` + §Workshop superset. The render-prep core
   (`re-frame.story.render/prepare-render`) is a pure data → data fn, so
   every test runs on both the JVM and CLJS without a host: variant bodies
   + view metadata are supplied through explicit `:lookup` / `:view-lookup`
@@ -13,7 +11,7 @@
   no-host `:cannot-run` refusal are both pinned.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
+  selects it; a plain `-test` name would run on the JVM only."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
@@ -60,7 +58,7 @@
        (map? extra)        (merge extra)))))
 
 ;; ===========================================================================
-;; Workshop-superset plan slots (§B10 task #1)
+;; Workshop-superset plan slots
 ;; ===========================================================================
 
 (deftest workshop-vocabulary-flows-through-the-plan
@@ -87,7 +85,7 @@
         (is (= {:label "Go"} (:effective-args w)))))))
 
 ;; ===========================================================================
-;; prepare-render — the documented shape (§B10 task #5)
+;; prepare-render — the documented shape
 ;; ===========================================================================
 
 (deftest prepare-render-returns-prepared-shape
@@ -106,7 +104,7 @@
           (is (= :story.button/primary (:frame ri))))))))
 
 ;; ===========================================================================
-;; Controls update :effective-args + render through the SAME plan (§B10 test 1)
+;; Controls update :effective-args + render through the SAME plan
 ;; ===========================================================================
 
 (deftest control-overrides-update-effective-args
@@ -135,7 +133,7 @@
           (is (= (:plan-hash base) (:plan-hash same))))))))
 
 ;; ===========================================================================
-;; View-arg schema failures stop render before an invalid view call (§B10 test 2)
+;; View-arg schema failures stop render before an invalid view call
 ;; ===========================================================================
 
 (def ^:private button-view-meta
@@ -188,7 +186,6 @@
 
 ;; ===========================================================================
 ;; render-variant returns the documented shape + does NOT run script/expect
-;; (§B10 test 3)
 ;; ===========================================================================
 
 (deftest render-variant-renders-via-host-hook
@@ -279,10 +276,9 @@
       (is (= :test/boom (get-in r [:error :data :rf.error/id]))))))
 
 (deftest render-variant-host-throw-carries-prepared-slots
-  ;; rf2-jh42p — on the host-render-throw path, prepare-render already
+  ;; On the host-render-throw path, prepare-render has already
   ;; produced :plan / :plan-hash / :effective-args, so the :error result
   ;; MUST thread them onto the documented shape rather than dropping them.
-  ;; Pre-fix these slots are absent (this test fails); post-fix they ride.
   (testing "a host-render throw projects to :error WITH the prepared plan
             context (spec/017 §Args — :plan/:plan-hash/:effective-args)"
     (rf.story.render/install-render-host!
@@ -316,8 +312,8 @@
         (is (not (contains? r :effective-args)))))))
 
 ;; ===========================================================================
-;; Inline-plan map target (§B10 — render-variant for BOTH registered +
-;; inline plans)
+;; Inline-plan map target (render-variant for BOTH registered + inline
+;; plans)
 ;; ===========================================================================
 
 (deftest render-variant-accepts-inline-plan-map
@@ -335,7 +331,6 @@
 
 ;; ===========================================================================
 ;; Runner ↔ render-variant agree on :plan-hash where inputs match
-;; (§B10 test 4)
 ;; ===========================================================================
 
 (deftest render-variant-plan-hash-matches-the-runner-plan-hash
@@ -358,7 +353,6 @@
 
 ;; ===========================================================================
 ;; Decorators are view-wrapping; fx-overrides live in :fx-overrides
-;; (§B10 test 5)
 ;; ===========================================================================
 
 (deftest decorators-are-view-wrapping-fx-overrides-are-separate
