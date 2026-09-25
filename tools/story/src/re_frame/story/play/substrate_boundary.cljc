@@ -1,18 +1,18 @@
 (ns re-frame.story.play.substrate-boundary
   "The `:settled-boundary-hooks` PRODUCER — the adapter-aware caller the
-  `settled-boundary` contract has always been written against
+  `settled-boundary` contract is written against
   (`re-frame.story.play.settled-boundary` §The flush-hook seam).
 
-  ## What was missing
+  ## Why a producer
 
   `settled-boundary` names a ladder (`:headless` → `:cljs-reactive` →
   `:dom` → `:browser`) and takes its richer flushes from a hooks map the
-  host registers under the `:settled-boundary-hooks` late-bind slot. The
-  CONSUMER shipped (`runner-events/current-flush-hooks`); no producer
-  ever did. Every host therefore ran at `:provides :headless`, whose only
-  flush is a no-op — so the live browser shell had no way to ask the
-  substrate to commit a render, and a play's real settle after an
-  interaction was the run-loop's `setTimeout` 0 yield (rf2-ek9qb).
+  host registers under the `:settled-boundary-hooks` late-bind slot, which
+  `runner-events/current-flush-hooks` consumes. Without a producer every
+  host would run at `:provides :headless`, whose only flush is a no-op —
+  so the live browser shell would have no way to ask the substrate to
+  commit a render, and a play's real settle after an interaction would be
+  the run-loop's `setTimeout` 0 yield.
 
   A macrotask yield drains the MICROTASK queue, which is the right
   instrument for a host that commits inside `flushSync` or on a promise.
@@ -20,12 +20,12 @@
   re-renders on a `requestAnimationFrame`-style tick — `setTimeout` 0
   fires BEFORE the next frame, and in a backgrounded or headless tab that
   frame is throttled to ~never (`re-frame.substrate.adapter/flush-render!`
-  §Why it exists). So the yield raced the render, and raced it hardest
-  exactly where the machine was busiest.
+  §Why it exists). So the yield would race the render, and race it
+  hardest exactly where the machine is busiest.
 
   ## The settle signal, and why it is not `reagent.core/flush`
 
-  The framework already owns the substrate-neutral answer:
+  The framework owns the substrate-neutral answer:
   **`flush-render!`**, the optional adapter-contract fn that commits
   pending renders through the substrate's SYNCHRONOUS-commit path
   (`flushSync` for the React-hook substrates, `reagent.core/flush` for the
@@ -41,8 +41,8 @@
   `re-frame.core/current-adapter` — the introspection surface Spec
   006 documents for exactly this purpose (\"give me the adapter fns to
   call — tools\"). Story consequently settles correctly under Reagent,
-  reagent-slim and UIx today, and under any adapter added later, with no
-  entry here per substrate and no substrate on Story's classpath.
+  reagent-slim, UIx and any other adapter, with no entry here per
+  substrate and no substrate on Story's classpath.
 
   ## What it declares
 
@@ -51,11 +51,11 @@
   commits the pending renders to the DOM before it returns, which is the
   `:dom` rung's guarantee. An adapter with no live commit (plain-atom,
   SSR) ships no `:flush-render!`, and a bare JVM run seats no adapter at
-  all; both fall back to `headless-flush-hooks`, so nothing about the
-  headless floor changes and the fail-closed ladder still refuses a step
-  it cannot honour.
+  all; both fall back to `headless-flush-hooks`, so the headless floor is
+  the same with or without this producer and the fail-closed ladder
+  refuses a step it cannot honour.
 
-  `:dispatch!` stays `drain-sync!` — the framework's run-to-fixed-point
+  `:dispatch!` is `drain-sync!` — the framework's run-to-fixed-point
   drain is the same at every rung, and the richer rungs add the render
   commit on top of it rather than replacing it."
   (:require [re-frame.core :as rf]
@@ -97,8 +97,8 @@
   requiring only `:cljs-reactive` gets the reaction flush without being
   told it got a DOM commit it did not ask for.
 
-  Without one, the headless default — unchanged behaviour, and the
-  reason installing this producer is safe on every host."
+  Without one, the headless default — the same hooks a host without this
+  producer gets, which is what makes installing it safe on every host."
   [_frame-id]
   (if-let [flush-render (adapter-flush-render)]
     (let [commit! (fn substrate-commit [_frame-id]
