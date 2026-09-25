@@ -1,14 +1,13 @@
 (ns re-frame2-pair-mcp.id-injection-test
-  "rf2-3x7nj.32.2 — a caller-supplied id must never print into evaluated
-  source as code.
+  "A caller-supplied id must never print into evaluated source as code.
 
   Tools mint caller ids into keywords and PRINT them into the forms they
   evaluate: the `:build` into the Clojure form `nrepl/cljs-eval` sends to
   the shadow-cljs JVM, a `:frame` / view / fx / interceptor id (and every
   key of a keywordized object argument) into the browser form. A keyword
   prints its name unescaped, so one minted from `\"app (do (evil)) #_\"`
-  prints as live code. Before the fix any tool — read-only ones included,
-  and past `--no-eval` — ran such a string on the JVM or in the page.
+  prints as live code. Unchecked, any tool — read-only ones included, and
+  past `--no-eval` — would run such a string on the JVM or in the page.
 
   Each witness below drives a hostile id through the real code path and
   captures what reaches the eval sink, asserting the payload never
@@ -117,7 +116,7 @@
     (is (nil? (args/->id-keyword "::rf/default")) "a doubled colon is not a keyword id")
     (is (nil? (args/->id-keyword (keyword (str "x (" payload ")"))))
         "an already-minted keyword is shape-checked too"))
-  (testing "absent / blank / non-string input is nil, as before"
+  (testing "absent / blank / non-string input is nil"
     (is (nil? (args/->id-keyword nil)))
     (is (nil? (args/->id-keyword "")))
     (is (nil? (args/->id-keyword 42))))
