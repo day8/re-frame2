@@ -22,7 +22,7 @@
 //      reconstructs correctly — real caches decode cleanly.
 //   3. a dangling ref (no matching entry) throws its own distinct
 //      error, pinned alongside.
-//   4. the reference grammar (rf2-kjv05): only `de-dupe.cache/cache-N`
+//   4. the reference grammar: only `de-dupe.cache/cache-N`
 //      is a reference, `de-dupe.cache/!…` is an escaped payload literal,
 //      and any other string in the namespace is ordinary data — with a
 //      positive control that a genuinely missing reference still fails
@@ -111,7 +111,7 @@ test('dangling ref (no matching entry) still throws its own distinct error', () 
   assert.throws(
     () => decodeDedupEnvelope(envelope(cache)),
     /no matching entry/i,
-    'a ref with no cache entry throws the missing-entry error (unchanged)',
+    'a ref with no cache entry throws the missing-entry error',
   );
 });
 
@@ -121,21 +121,20 @@ test('non-dedup envelope passes through untouched', () => {
 });
 
 // ---------------------------------------------------------------------
-// rf2-6i2yi4 finding 5: a de-duped map KEY (not just VALUE) is expanded.
+// A de-duped map KEY (not just VALUE) is expanded.
 //
 // The real `re-frame.mcp-base.dedup/expand` dispatches on `map-entry?` before
 // `coll?` and expands BOTH halves of every map-entry; `cachable?`
 // permits a de-duped map key. A decoder that only recurses into `v[k]`
 // while using `k` verbatim leaves a de-duped key as the raw
-// "de-dupe.cache/cache-N" placeholder string — before this fix, the
-// assertion below would have found `Object.keys(out)` still carrying
-// that raw placeholder instead of the expanded key.
+// "de-dupe.cache/cache-N" placeholder string — the assertion below would
+// then find `Object.keys(out)` still carrying that raw placeholder instead
+// of the expanded key.
 // ---------------------------------------------------------------------
 
 test('a de-duped map KEY is expanded, not left as the raw cache-ref placeholder (rf2-6i2yi4 finding 5)', () => {
   // cache-0's single entry has a KEY that is itself a cache reference to
-  // a de-duped vector — the "path-keyed structure" shape the finding
-  // describes.
+  // a de-duped vector — the "path-keyed structure" shape.
   const cache = {
     [cacheId(0)]: { [cacheId(1)]: 'value-for-vector-key' },
     [cacheId(1)]: ['a', 'b'],
@@ -159,16 +158,15 @@ test('a de-duped map key that expands to a plain string is used directly (no JSO
 });
 
 // ---------------------------------------------------------------------
-// rf2-6i2yi4 finding 7: eagerly validate EVERY cache entry, not just
-// those reachable from cache-0.
+// Eagerly validate EVERY cache entry, not just those reachable from
+// cache-0.
 //
 // The real `re-frame.mcp-base.dedup/decompress-cache` expands every key before
-// picking cache-0 off the result. Before this fix, `expandCache` called
-// only `expandEntry(ROOT_CACHE_ID)`, so a malformed entry unreachable
-// from the root (an "orphan") was never visited and decoded cleanly —
+// picking cache-0 off the result. An `expandCache` that called only
+// `expandEntry(ROOT_CACHE_ID)` would never visit a malformed entry
+// unreachable from the root (an "orphan") and would decode it cleanly —
 // grading GREEN a wire payload a real client rejects outright. These
-// tests would NOT have thrown before the fix (the malformed orphan was
-// simply never visited).
+// tests would NOT throw against such a decoder.
 // ---------------------------------------------------------------------
 
 test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws (rf2-6i2yi4 finding 7)', () => {
@@ -205,15 +203,15 @@ test('a well-formed orphan entry is harmless — root value unaffected', () => {
 });
 
 // ---------------------------------------------------------------------
-// rf2-kjv05: an ordinary payload value that OCCUPIES the reference
-// namespace is data, not a reference.
+// An ordinary payload value that OCCUPIES the reference namespace is
+// data, not a reference.
 //
-// This decoder used to classify every string beginning `de-dupe.cache/`
-// as a reference — broader even than the Clojure side, because JSON has
-// already erased the symbol/string distinction by the time the string
-// arrives. An ordinary payload value spelled that way therefore decoded
-// as another cached subtree, or threw the missing-entry error, in a
-// payload a conformant server had encoded perfectly well.
+// Classifying every string beginning `de-dupe.cache/` as a reference
+// would be broader even than the Clojure side, because JSON has already
+// erased the symbol/string distinction by the time the string arrives.
+// An ordinary payload value spelled that way would then decode as
+// another cached subtree, or throw the missing-entry error, in a payload
+// a conformant server had encoded perfectly well.
 //
 // The fixtures below are the JSON projection of what
 // `re-frame.mcp-base.dedup/de-dupe-eq` actually emits for the matching
@@ -250,10 +248,10 @@ test('ordinary payload strings in the reference namespace decode verbatim, besid
 });
 
 test('POSITIVE CONTROL: a missing GENUINE reference still fails loudly (rf2-kjv05)', () => {
-  // The same shape, with the genuine `cache-1` entry deleted. Reference
-  // resolution must NOT have been disabled wholesale by the data rule
-  // above: a `cache-<digits>` token is a reference whether or not the
-  // table holds the slot, so this is still the loud missing-entry error.
+  // The same shape, with the genuine `cache-1` entry deleted. The data
+  // rule above must NOT disable reference resolution wholesale: a
+  // `cache-<digits>` token is a reference whether or not the table holds
+  // the slot, so this is still the loud missing-entry error.
   const cache = {
     [cacheId(0)]: {
       literal: CACHE_NS_PREFIX + 'not-a-ref',
@@ -289,7 +287,8 @@ test('escaping is reversible under repetition — one marker is stripped, not al
 test('a namespace-occupying string is not a reference even when a same-named slot exists (rf2-kjv05)', () => {
   // The aliasing case at its sharpest: the table really does hold
   // `cache-1`, and the payload really does contain that spelling as
-  // data. Before the fix the literal decoded as the cached subtree.
+  // data. A prefix-only decoder would decode the literal as the cached
+  // subtree.
   const cache = {
     [cacheId(0)]: { data: escaped('cache-1'), ref: cacheId(1) },
     [cacheId(1)]: { i: 'am the subtree' },
@@ -313,17 +312,16 @@ test('an escaped literal used as a map KEY is unescaped too (rf2-kjv05)', () => 
 });
 
 // ---------------------------------------------------------------------
-// rf2-kjv05, second cut — payloads whose colliding token was a KEYWORD.
+// Payloads whose colliding token is a KEYWORD.
 //
-// This decoder's grammar is type-blind, so nothing below required a
-// change to `lib/dedup-envelope.cjs`: these are the SAME three rules,
-// exercised against the wider set of payloads the encoder now escapes.
-// They are here because the keyword gap was invisible from the Clojure
-// side — `cache-element?` tests `symbol?`, so a payload keyword was
-// never aliased on the JVM and every round-trip assertion passed, while
-// Cheshire flattened `:de-dupe.cache/cache-1` to the very string a real
-// reference arrives under and THIS decoder resolved it to the cached
-// subtree.
+// This decoder's grammar is type-blind, so these are the SAME three
+// rules, exercised against the wider set of payloads the encoder
+// escapes. They are here because a keyword gap is invisible from the
+// Clojure side — `cache-element?` tests `symbol?`, so a payload keyword
+// is never aliased on the JVM and every round-trip assertion passes,
+// while Cheshire flattens `:de-dupe.cache/cache-1` to the very string a
+// real reference arrives under, and THIS decoder would resolve an
+// unescaped one to the cached subtree.
 //
 // Each `cache` literal below is transcribed from a real
 // Cheshire encode of the matching Clojure payload, not hand-built: the
@@ -336,9 +334,9 @@ test('an escaped literal used as a map KEY is unescaped too (rf2-kjv05)', () => 
 // ---------------------------------------------------------------------
 
 test('a payload KEYWORD that spells a reference decodes as data, not as the slot (rf2-kjv05)', () => {
-  // Clojure payload: {:literal :de-dupe.cache/cache-1 :a shared :b shared}
-  // — the audit probe verbatim. Before the encoder escaped keywords,
-  // `literal` decoded here as {"big":["repeat","me"]}.
+  // Clojure payload: {:literal :de-dupe.cache/cache-1 :a shared :b shared}.
+  // Were the keyword unescaped, `literal` would decode here as
+  // {"big":["repeat","me"]}.
   const cache = {
     [cacheId(1)]: { big: ['repeat', 'me'] },
     [cacheId(0)]: {
@@ -358,8 +356,8 @@ test('a payload KEYWORD that spells a reference decodes as data, not as the slot
 
 test('a payload KEYWORD in map-KEY position decodes under its own name (rf2-kjv05)', () => {
   // Clojure payload: {:de-dupe.cache/cache-1 "keyed" :a shared :b shared}.
-  // Unescaped, the key resolved to the cached subtree and the entry
-  // landed under a JSON.stringify of it — unreachable by its own name.
+  // Unescaped, the key would resolve to the cached subtree and the entry
+  // would land under a JSON.stringify of it — unreachable by its own name.
   const cache = {
     [cacheId(1)]: { big: ['repeat', 'me'] },
     [cacheId(0)]: {
@@ -378,8 +376,8 @@ test('a payload KEYWORD in map-KEY position decodes under its own name (rf2-kjv0
 
 test('a payload KEYWORD already spelled like an escape sheds exactly one marker (rf2-kjv05)', () => {
   // Clojure payload: {:literal :de-dupe.cache/!cache-1 …}. The encoder
-  // emits `!!cache-1`; unescaped it would have arrived as `!cache-1` and
-  // decoded to `cache-1` — the escape mangling its own payload.
+  // emits `!!cache-1`; unescaped it would arrive as `!cache-1` and decode
+  // to `cache-1` — the escape mangling its own payload.
   const cache = {
     [cacheId(1)]: { big: ['repeat', 'me'] },
     [cacheId(0)]: {
@@ -416,15 +414,15 @@ test('symbol, keyword and string payloads collapse to ONE JSON token — all thr
 });
 
 // ---------------------------------------------------------------------
-// rf2-gwye.36 (rf2-fzbj.14 F1): an own `__proto__` payload key survives.
+// An own `__proto__` payload key survives.
 //
 // `JSON.parse` keeps `"__proto__"` as an ordinary own data property, and
 // the codec promises encode-then-decode is the identity on the JSON
 // projection (`tools/mcp-base/spec/dedup.md`). Plain assignment
 // `out['__proto__'] = v` does not create that property: it runs the
-// inherited `Object.prototype.__proto__` setter, so the key vanished and
-// its object value became the rebuilt object's PROTOTYPE — the payload's
-// fields then read back as inherited values.
+// inherited `Object.prototype.__proto__` setter, so the key would vanish
+// and its object value would become the rebuilt object's PROTOTYPE — the
+// payload's fields would then read back as inherited values.
 //
 // The wire is transcribed from a real encode: `dedup-value` (enabled)
 // over the payload below, serialised with Cheshire. Both strings go
@@ -464,14 +462,13 @@ test('an own "__proto__" payload key survives expansion, at the root and nested 
 });
 
 // ---------------------------------------------------------------------
-// rf2-gwye.38 (rf2-fzbj.14 F2): the dedup wrapper is CLOSED.
+// The dedup wrapper is CLOSED.
 //
 // The JVM contract pins `DedupTable` as `[:map {:closed true}
-// [:rf.mcp/dedup-table …]]`. The decoder used to check only that the
-// marker was present, then return the expanded cache — erasing any
-// sibling, so a response the JVM schema rejects was graded on a
-// sanitised value. Neither the inner nor a sibling `ok?` wins: the
-// envelope is malformed.
+// [:rf.mcp/dedup-table …]]`. Checking only that the marker is present,
+// then returning the expanded cache, would erase any sibling, so a
+// response the JVM schema rejects would be graded on a sanitised value.
+// Neither the inner nor a sibling `ok?` wins: the envelope is malformed.
 // ---------------------------------------------------------------------
 
 test('a dedup wrapper carrying a sibling key is rejected, harmless or conflicting (rf2-gwye.38)', () => {
@@ -497,9 +494,9 @@ test('a dedup wrapper carrying a sibling key is rejected, harmless or conflictin
 });
 
 test('POSITIVE CONTROL: the keyword rule did not disable resolution either (rf2-kjv05)', () => {
-  // Same shape as the keyword value test, `cache-1` deleted. Widening
-  // the escape set must not have turned a dangling genuine reference
-  // into "probably data" — it is still the loud missing-entry error.
+  // Same shape as the keyword value test, `cache-1` deleted. Escaping
+  // keywords must not turn a dangling genuine reference into "probably
+  // data" — it is still the loud missing-entry error.
   const cache = {
     [cacheId(0)]: { literal: escaped('cache-1'), a: cacheId(1) },
   };
