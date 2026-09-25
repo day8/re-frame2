@@ -30,9 +30,11 @@
     1. the app-db `:sensitive` / `:large` substitution table at egress
        (`:db-before` / `:db-after`, precedence, bookkeeping pass-through);
     2. the **facade** path (`re-frame.core/project-egress`), which is what
-       the consumers call — the JVM tier drives the artefact-internal
-       `re-frame.core/project-egress` almost exclusively, so the
-       `late-bind` seam the browser crosses is otherwise untested on this host;
+       the consumers call and which reaches the epoch artefact's projector
+       across the `late-bind` seam (`:epoch/project-record`): its output is
+       compared with that published projector called directly, so a seam
+       that routed the record elsewhere, or a door that altered what it
+       hands on, reds on the consumers' host;
     3. the forwarder / bulk-egress shapes the consumers run
        (`register-listener! :epoch` + the whole-ring composition
        `(mapv project-egress (epoch-history …))`), including the
@@ -49,7 +51,12 @@
        reply lands there the same way a server's does;
     7. classification RETENTION — a path classified once keeps redacting on
        later, unrelated cascades, and the `:rf.epoch/sensitive?` rollup badge
-       survives projection.
+       survives projection;
+    8. the one door's epoch arm — the `:kind :rf/epoch-record` stamp an
+       unstamped record leaks without, the explicit `:frame` override, the
+       shared and epoch-only axes and the profile floor resolved once at the
+       record boundary, and guards G1 (absent projector) and G2 (a core
+       whose door does not dispatch the kind).
 
   NOT mirrored, and why: the
   resource / mutation trace family's egress projector is OWNED by the
@@ -417,20 +424,23 @@
             dispatches to. That crosses the `late-bind` seam
             (`:epoch/project-record`). This arm pins the seam on the
             consumers' host: the facade must produce the SAME redacted shape
-            the artefact fn does — a seam that silently fell through to
-            identity would leak everything."
+            as the projector the artefact publishes under that hook, called
+            directly with the record's own frame — a seam that silently fell
+            through to identity would leak everything."
     (fresh-frame!)
     (reg-login!)
     (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
     (let [raw     (last-record)
           via-fac (rf/project-egress raw)
-          via-art (rf/project-egress raw)]
+          via-art ((rf.late-bind/get-fn :epoch/project-record)
+                   raw {:frame frame-id})]
       (is (some? via-fac)
           "the late-bound hook is published (a nil here would mean the
            artefact was not seen, and every consumer would silently egress
            nothing)")
       (is (= via-art via-fac)
-          "facade and artefact projections are identical")
+          "the facade's projection is the artefact projector's own, called
+           directly — the door neither reroutes the record nor alters it")
       (is (= :rf/redacted (get-in via-fac [:db-after :auth :password]))
           "the facade path redacts the sensitive leaf")
       (is (not (contains-secret? via-fac))
@@ -459,10 +469,12 @@
       (is (= :rf/redacted (get-in (rf/project-egress raw {})
                                   [:db-after :auth :password]))
           "and an empty opts map keeps the fail-closed default")
-      (is (= (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool})
+      (is (= ((rf.late-bind/get-fn :epoch/project-record)
+              raw {:rf.egress/profile :rf.egress/off-box-tool :frame frame-id})
              (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool}))
           "the named `:rf.egress/off-box-tool` boundary (the MCP wire) agrees
-           across facade and artefact"))))
+           across facade and artefact: the facade hands the profile to the
+           published projector unchanged"))))
 
 ;; ============================================================================
 ;;  3. The forwarder + bulk-egress shapes the CLJS consumers run
@@ -937,23 +949,19 @@
           "and the stamp survives projection as bookkeeping, so a consumer
            can branch on the kind of a record it received off-box"))))
 
-(deftest project-egress-on-a-stamped-record-matches-the-epoch-door
-  (testing "the public door and the epoch door produce the SAME projection
-            for the same policy — one engine, reached two ways, so the pair
-            cannot drift"
-    (let [raw  (login-record!)
-          opts {:rf.egress/profile :rf.egress/off-box-tool}]
-      (is (= (rf/project-egress raw opts)
-             (rf/project-egress raw opts))
-          "identical projections")
-      (let [proj (rf/project-egress raw opts)]
-        (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
-            "and the door's projection redacts the classified leaf")
-        (is (= benign (get-in proj [:db-after :audit :note]))
-            "NEGATIVE CONTROL — the unclassified sibling rides RAW, so the
-             assertion above is not blanket redaction")
-        (is (not (contains-secret? proj))
-            "no secret bytes anywhere in the door's projected record")))))
+(deftest project-egress-on-a-stamped-record-redacts-the-classified-leaf
+  (testing "a STAMPED record through the door is projected under its own
+            frame's classification — the counterpart of the unstamped
+            record below, which leaks through the same call"
+    (let [proj (rf/project-egress (login-record!)
+                                  {:rf.egress/profile :rf.egress/off-box-tool})]
+      (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
+          "the door's projection redacts the classified leaf")
+      (is (= benign (get-in proj [:db-after :audit :note]))
+          "NEGATIVE CONTROL — the unclassified sibling rides RAW, so the
+           assertion above is not blanket redaction")
+      (is (not (contains-secret? proj))
+          "no secret bytes anywhere in the door's projected record"))))
 
 (deftest an-unstamped-record-through-the-door-is-the-leak-the-stamp-closes
   (testing "THE VECTOR, pinned as a contrast: strip the `:kind` stamp and the
@@ -1112,11 +1120,6 @@
                      [:db-after :auth :password]))
           "`local-raw`'s own floor opts sensitive back in with NO explicit
            override from the caller")
-      (is (= secret
-             (get-in (rf/project-egress
-                       raw {:rf.egress/profile :rf.egress/local-raw})
-                     [:db-after :auth :password]))
-          "and the same holds through the public door")
       (is (= :rf/redacted
              (get-in (rf/project-egress
                        raw {:rf.egress/profile          :rf.egress/local-raw
