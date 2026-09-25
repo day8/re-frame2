@@ -27,11 +27,10 @@
     EDN / mono-column rendering.
   - **`sans-stack`** — the Inter font stack for chrome / labels /
     prose.
-  - **`type-scale`** — typography sizes (px strings) + base
-    line-height. The shell's default density — denser
-    than the spec's cosy baseline, closer to compact, because Xray
-    is an info-dense dev tool. One-knob tuning lives here; raise the
-    sizes one number to bring the shell to spec-cosy.
+  - **`type-scale`** — typography sizes (`calc()` strings over the
+    `--rf-xray-font-size` knob) + line-heights. At the default 13px
+    knob it is the spec's cosy tier (spec/007-UX-IA.md §Sizes); the
+    density setting moves the knob, not the scale.
   - **`layout`** — chrome dimensions (the ribbon heights) consumed
     by the shell. Single source for the density knob.
 
@@ -590,11 +589,10 @@
 (def type-scale
   "Xray shell typography sizes.
 
-  Xray is an info-dense dev surface, and the spec's cosy baseline
-  (body 14 / mono 13 / line-height 1.5) is too LARGE for it — the eye
-  has to travel further than the data warrants. This scale runs ~1px below cosy across the board and
-  tightens line-height to 1.35, which is the readability floor for
-  monospaced data dumps.
+  Xray is an info-dense dev surface. At the default 13px knob this
+  scale is the spec's cosy tier (body 13 / mono ~12, spec/007-UX-IA.md
+  §Sizes), and its line-height is tight, 1.35, which is the
+  readability floor for monospaced data dumps.
 
   ## One knob, whole scale
 
@@ -628,7 +626,7 @@
    :micro        (font-size-css (:micro       type-scale-multipliers))
    ;; Vertical rhythm — unitless ratios, unchanged by the font-size
    ;; knob (line-height naturally scales with the resolved font-size).
-   :line-height-tight 1.35   ; denser blocks than cosy 1.5
+   :line-height-tight 1.35   ; tight leading for dense blocks
    :line-height-mono  1.4    ; mono needs a touch more leading for ascender clearance
    })
 
