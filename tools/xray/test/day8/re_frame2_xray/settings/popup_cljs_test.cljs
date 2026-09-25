@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.settings.popup-cljs-test
-  "CLJS tests for the Settings popup modal (rf2-9poxq).
+  "CLJS tests for the Settings popup modal.
 
   Asserts:
   - Modal renders when `:rf.xray/settings-open?` true
@@ -7,7 +7,7 @@
   - Each section renders
   - Tab strip switches sections
 
-  Click-time frame-routing tests (rf2-smvvz — the X button / backdrop /
+  Click-time frame-routing tests (the X button / backdrop /
   Esc / tab-button must close the modal even when the dispatch fires
   outside `:rf/xray`'s React-context tier) live in
   `popup_dispatch_routing_cljs_test.cljs` — separate ns because they
@@ -29,9 +29,9 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the `:runtime` reset tier
-  ;; (sentinels + trace-collector rings + the persisted settings atom).
+  ;; `make-xray-runtime-fixture` owns the setup: plain-atom adapter + the
+  ;; `:runtime` reset tier (sentinels + trace-collector rings + the
+  ;; persisted settings atom).
   (xray-test-support/make-xray-runtime-fixture {:tier :runtime}))
 
 (defn- setup! []
@@ -39,8 +39,7 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- hiccup walker -----------------------------------------------------
-;; Thin alias over re-frame.test-helpers so call sites read identically
-;; to before.
+;; Thin alias over re-frame.test-helpers.
 
 (def ^:private find-by-testid rf.test-helpers/find-by-testid)
 
@@ -99,29 +98,25 @@
       (is (find-by-testid rendered "rf-xray-settings-section-general"))
       (is (find-by-testid rendered "rf-xray-settings-panel-position-right-rail"))
       (is (find-by-testid rendered "rf-xray-settings-auto-open-on-error"))
-      ;; UX cleanup 2026-05-27: the text-size slider was removed —
-      ;; defaults suffice. The `:general :text-size` slot + the
-      ;; `apply-text-size!` effect remain so any host-set default still
-      ;; lands; only the UI surface went away.
+      ;; There is no text-size slider — defaults suffice. The
+      ;; `:general :text-size` slot + the `apply-text-size!` effect
+      ;; serve a host-set default.
       (is (nil? (find-by-testid rendered "rf-xray-settings-text-size-input"))
-          "Text-size slider removed from the popup (defaults suffice)")
-      ;; rf2-pu9sb originally moved the Epoch history slider from
-      ;; General to Buffer. That move was reverted 2026-05-27 per Mike
-      ;; — the slider is back in General, sitting next to the auto-
-      ;; open-on-error checkbox. The slot stays `:general
-      ;; :epoch-history`; the Buffer section no longer carries the
-      ;; slider.
+          "No text-size slider in the popup (defaults suffice)")
+      ;; The Epoch history slider lives in General, next to the auto-
+      ;; open-on-error checkbox. Its slot is `:general :epoch-history`;
+      ;; the Buffer section does not carry the slider.
       (is (find-by-testid rendered "rf-xray-settings-epoch-history-input")
-          "Epoch history slider renders in General (relocated back from Buffer)")
+          "Epoch history slider renders in General")
       (is (find-by-testid rendered "rf-xray-settings-epoch-history-value")
           "Epoch history numeric readout renders alongside the slider"))))
 
 (deftest general-section-restores-show-unchanged-subs-pin
-  (testing "rf2-16y3x — the General tab re-exposes the 'Always show
-            unchanged subs' pin (spec/021 §3.4). The control had been
-            removed while its `:general :show-unchanged-subs?` slot stayed,
-            so the spec/source promised a pin with no UI. The controlled
-            checkbox reflects the slot and writes via :rf.xray/settings-update."
+  (testing "the General tab exposes the 'Always show
+            unchanged subs' pin (spec/021 §3.4) for the
+            `:general :show-unchanged-subs?` slot, so the pin the spec
+            promises has a UI. The controlled checkbox reflects the slot
+            and writes via :rf.xray/settings-update."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
@@ -129,7 +124,7 @@
     (rf/with-frame :rf/xray
       (let [rendered (modal-trees/settings-popup-tree)
             box      (find-by-testid rendered "rf-xray-settings-show-unchanged-subs")]
-        (is (some? box) "the restored show-unchanged-subs checkbox renders")
+        (is (some? box) "the show-unchanged-subs checkbox renders")
         (is (= false (:checked (second box)))
             "unchecked by default (slot default OFF)")
         (is (fn? (:on-change (second box)))
@@ -143,15 +138,13 @@
         (is (= true (:checked (second box)))
             "the checkbox reflects the flipped-on pin")))))
 
-;; rf2-pu9sb moved the Epoch history slider from General to Buffer;
-;; that move was reverted 2026-05-27 per Mike. The slot stays
-;; `:general :epoch-history`; only the visual home moved. The
-;; coverage now lives in `general-section-renders` above; the Buffer
-;; section no longer carries the slider.
+;; The Epoch history slider's slot is `:general :epoch-history` and its
+;; visual home is General; `general-section-renders` above covers it,
+;; and the Buffer section does not carry the slider.
 
 (deftest epoch-history-slider-absent-from-buffer-section
-  (testing "Epoch history slider does NOT render in the Buffer section
-            after the 2026-05-27 revert; it lives in General."
+  (testing "Epoch history slider does NOT render in the Buffer section;
+            it lives in General."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
@@ -160,33 +153,31 @@
       (let [rendered (modal-trees/settings-popup-tree)]
         (is (find-by-testid rendered "rf-xray-settings-section-buffer"))
         (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-input"))
-            "Epoch history slider is no longer in Buffer (relocated back to General)")
+            "Epoch history slider is not in Buffer (it lives in General)")
         (is (nil? (find-by-testid rendered "rf-xray-settings-epoch-history-value"))
-            "Epoch history numeric readout is no longer in Buffer")
-        ;; The dead `:buffer :retained-epochs` numeric input had no
-        ;; substrate consumer and was removed in the rf2-pu9sb cleanup.
+            "Epoch history numeric readout is not in Buffer")
+        ;; There is no `:buffer :retained-epochs` numeric input: it
+        ;; would have no substrate consumer.
         (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-retained-epochs"))
-            "Dead `:buffer :retained-epochs` numeric input is gone")
-        ;; rf2-5u03ig — the `:buffer :app-db/inspector-collapse-threshold`
-        ;; numeric input had no runtime consumer (the inspector already
-        ;; auto-collapses on depth/width) and was removed. The
-        ;; `:events-retained` field stays — it now writes through to
+            "No `:buffer :retained-epochs` numeric input")
+        ;; There is no `:buffer :app-db/inspector-collapse-threshold`
+        ;; numeric input: it would have no runtime consumer (the
+        ;; inspector auto-collapses on depth/width). The
+        ;; `:events-retained` field writes through to
         ;; `(rf/configure! {:trace-buffer ...})`.
         (is (nil? (find-by-testid rendered "rf-xray-settings-buffer-inspector-collapse"))
-            "Inert `:buffer :app-db/inspector-collapse-threshold` input is gone")
+            "No `:buffer :app-db/inspector-collapse-threshold` input")
         (is (find-by-testid rendered "rf-xray-settings-buffer-events-retained")
-            "Events-retained field stays (now wired to :trace-buffer)")))))
+            "Events-retained field renders (wired to :trace-buffer)")))))
 
-;; Filters tab removed (rf2-wknb3) — filter management lives in the
+;; There is no Filters tab — filter management lives in the
 ;; top-ribbon pill strip (`filters/pills.cljs`), the per-pill edit
-;; popup (`filters/edit_popup.cljs`), and the mute manager modal
-;; (rf2-ikuwt). The settings tab's only widget was a dead-chrome
-;; 'Open auto-filter UI' button dispatching an unregistered event.
+;; popup (`filters/edit_popup.cljs`), and the mute manager modal.
 
 (deftest filters-section-is-gone
-  (testing "rf2-wknb3 — selecting `:filters` no longer surfaces a
-            section; the body falls through to the General section's
-            fallback (default branch of the body case)."
+  (testing "selecting `:filters` surfaces no section; the body falls
+            through to the General section's fallback (default branch
+            of the body case)."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
@@ -194,21 +185,17 @@
     (rf/with-frame :rf/xray
       (let [rendered (modal-trees/settings-popup-tree)]
         (is (nil? (find-by-testid rendered "rf-xray-settings-section-filters"))
-            "Filters section is gone")
+            "No Filters section")
         (is (nil? (find-by-testid rendered "rf-xray-settings-tab-filters"))
-            "Filters tab button is gone from the strip")))))
+            "No Filters tab button in the strip")))))
 
-;; Theme tab removed (rf2-ou3pn) — the top-ribbon sun/moon icon is
-;; now the canonical light/dark affordance. The previous
-;; `theme-section-renders` + `theme-label-matches-actual-default`
-;; tests are gone with the tab. `config/default-settings :theme` is
-;; still pinned `:light` by `theme/effects_cljs_test.cljs` (canonical
-;; default + apply-theme! fallback). The `:use-system-colors?`
-;; HCM-override checkbox moved to General → Power user and is now
-;; exercised by `use-system-colors-renders-in-general`.
+;; There is no Theme tab — the top-ribbon sun/moon icon is the
+;; canonical light/dark affordance. `config/default-settings :theme` is
+;; pinned `:light` by `persistence_cljs_test.cljs`'s
+;; `defaults-match-spec`.
 
 (deftest editor-override-picker-renders-in-general
-  (testing "rf2-dudqz — General tab carries the editor-override picker
+  (testing "General tab carries the editor-override picker
             (radio set + Reset button + host-default hint). One radio
             per enumerated editor plus '(project default)' and
             Custom; the custom URI-template input is gated on the
@@ -239,7 +226,7 @@
             "custom template input hidden until Custom radio is active")))))
 
 (deftest editor-override-custom-input-surfaces-when-custom-selected
-  (testing "rf2-dudqz — selecting Custom (writing `{:custom <tpl>}`
+  (testing "selecting Custom (writing `{:custom <tpl>}`
             to the slot) reveals the URI-template input on the next
             render"
     (setup!)
@@ -255,27 +242,27 @@
              :custom shape")))))
 
 (deftest editor-override-custom-radio-seeds-working-template
-  (testing "rf2-rc35g — the Custom radio's seed value (used when the
+  (testing "the Custom radio's seed value (used when the
             user first selects Custom with no prior template) is a
             working vscode-style URI rather than `{:custom \"\"}`.
-            Pre-fix, click-to-source silently no-op'd until the user
-            finished typing the template; the seed makes the override
-            resolve to a valid URI immediately so the user edits from
-            a known baseline."
+            With an empty seed, click-to-source would silently no-op
+            until the user finished typing the template; the seed makes
+            the override resolve to a valid URI immediately so the user
+            edits from a known baseline."
     (let [seed @#'view/custom-template-seed]
       (is (string? seed) "the seed is a string")
       (is (not= "" seed)
-          "the seed is NOT the empty string (rf2-rc35g — empty
-           templates break click-to-source)")
+          "the seed is NOT the empty string (empty templates break
+           click-to-source)")
       (is (= "vscode://file/{path}:{line}:{column}" seed)
           "the seed echoes the framework-default :vscode URI shape so
            the chip resolves to a working URI immediately")
       (is (config/valid-editor-override? {:custom seed})
           "the seeded `{:custom <seed>}` shape passes the read-side
-           validator (rf2-a1tv6)"))))
+           validator"))))
 
 (deftest editor-override-default-radio-is-checked-on-fresh-install
-  (testing "rf2-dudqz — with no override, the '(project default)'
+  (testing "with no override, the '(project default)'
             radio is the selected option"
     (setup!)
     (rf/with-frame :rf/xray
@@ -291,7 +278,7 @@
             "VS Code radio is unchecked")))))
 
 (deftest editor-override-enumerated-radio-reflects-active-override
-  (testing "rf2-dudqz — writing an enumerated-keyword override
+  (testing "writing an enumerated-keyword override
             (`:idea`) flips the checked radio to that option"
     (setup!)
     (rf/with-frame :rf/xray
@@ -308,20 +295,16 @@
             "the :idea radio is the checked option after the override
              writes")))))
 
-;; rf2-ou3pn moved the `:use-system-colors?` HCM-override checkbox
-;; from the retired Theme tab into General → Power user; the UI
-;; surface was then removed entirely 2026-05-27 (UX cleanup pass).
-;; The settings slot + the `apply-use-system-colors!` effect remain
-;; so a future UI can re-expose if needed; the OS-level
-;; `@media (forced-colors: active)` detection still works
-;; automatically. No deftest covers the checkbox now — the slot's
-;; behaviour is exercised by the substrate-level theme effects
-;; tests; the cosmetic surface is the only thing that went away.
+;; The popup surfaces no `:use-system-colors?` HCM-override checkbox.
+;; The settings slot + the `apply-use-system-colors!` effect exist so a
+;; UI can expose it; the OS-level `@media (forced-colors: active)`
+;; detection works automatically. The slot's behaviour is exercised by
+;; the settings effects tests.
 
 (deftest use-system-colors-checkbox-absent-from-general
-  (testing "2026-05-27 UX cleanup — the `:use-system-colors?` checkbox
-            is no longer surfaced in the popup. The slot + the
-            `apply-use-system-colors!` effect remain; only the UI went."
+  (testing "the `:use-system-colors?` checkbox is not surfaced in the
+            popup. The slot + the `apply-use-system-colors!` effect
+            exist without a UI."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open])
@@ -329,9 +312,9 @@
     (rf/with-frame :rf/xray
       (let [rendered (modal-trees/settings-popup-tree)]
         (is (nil? (find-by-testid rendered "rf-xray-settings-use-system-colors"))
-            "Use system colors toggle no longer renders")
+            "Use system colors toggle does not render")
         (is (nil? (find-by-testid rendered "rf-xray-settings-section-theme"))
-            "Theme section is also gone (retired by rf2-ou3pn earlier)")))))
+            "There is no Theme section either")))))
 
 ;; ---- Tab switching ------------------------------------------------------
 
@@ -372,7 +355,7 @@
     (rf/dispatch-sync [:rf.xray/settings-toggle]))
   (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))))
 
-;; ---- Modal positioning (rf2-om6fa) -------------------------------------
+;; ---- Modal positioning --------------------------------------------------
 
 (deftest backdrop-defaults-to-fixed-positioning
   (testing "with no :rf.xray/modal-positioning slot set, backdrop
