@@ -1,6 +1,5 @@
 (ns re-frame.story-fx-stubs-test
-  "JVM tests for re-frame2-story Stage 5 (rf2-h8et) —
-  `:rf.story/force-fx-stub` decorator.
+  "JVM tests for Story's `:rf.story/force-fx-stub` decorator.
 
   Covers:
 
@@ -12,7 +11,8 @@
   - The fx-overrides map threads onto the variant frame's config so
     re-frame's router redirects the fx.
   - `:rf.assert/effect-emitted` observes a stubbed fx.
-  - Frame teardown drops the stub-event log."
+  - The per-frame stub-call log records each stubbed call's fx-id and
+    payload, isolated by frame, and `observed-fx-ids` reads it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -126,7 +126,7 @@
 ;; ===========================================================================
 
 (deftest force-fx-stub-emits-fx-into-accumulator
-  (testing "a stubbed fx emits into the assertion accumulator so :rf.assert/effect-emitted passes"
+  (testing "a stubbed fx lands in the per-frame stub-call log so :rf.assert/effect-emitted passes"
     (rf/reg-event :do/http-call
       (fn [_ _]
         {:fx [[:http {:url "/test" :method :get}]]}))
@@ -138,7 +138,7 @@
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxemit/v) 5000)
           last-a (last (:assertions r))]
       (is (true? (:passed? last-a))
-          "force-fx-stub's stub event taps emitted-fx accumulator so :rf.assert/effect-emitted sees the call"))
+          "force-fx-stub's stub event records the call in the stub-call log, which :rf.assert/effect-emitted reads"))
     (rf.story/destroy-variant! :story.fxemit/v)))
 
 ;; ===========================================================================
