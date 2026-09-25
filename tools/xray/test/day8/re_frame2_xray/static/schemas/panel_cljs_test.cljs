@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.schemas.panel-cljs-test
-  "CLJS wiring + view tests for the Static Schemas sub-tab
-  (rf2-o5f5f.4)."
+  "CLJS wiring + view tests for the Static Schemas sub-tab."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -12,26 +11,21 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `reset-all!` folds the trace-collector ring reset in, so the old
-  ;; bespoke `xray-init!` (reset-all! + a REDUNDANT direct trace reset) is
-  ;; gone (rf2-vj80u8). Default `:all` tier + plain-atom adapter.
+  ;; `reset-all!` folds the trace-collector ring reset in, so no direct
+  ;; trace reset is needed. Default `:all` tier + plain-atom adapter.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers ------------------------------------------------------
 ;;
-;; PLAIN DESCENT — nothing is CALLED. These rows used
-;; `rf.test-helpers/find-by-testid` / `…/find-by-testid-prefix`, which EXPAND
-;; function components as they walk (rf2-vj80u8 retired this file's private
-;; copies in favour of them).
-;;
-;; rf2-k97c.3 made that expansion UNSAFE. Every plain helper the panel used
-;; to head with is now CALLED, so its markup is already realized in the tree
-;; and a shallow walk suffices again — but the one fn-headed vector that
-;; REMAINS is `[ei/edn-inspector-view …]`, a FRESCO BOUNDARY: a React
-;; function component whose body may only run inside a React render window.
-;; Applying it here would run `rf.fresco/sub` outside the collector, which
-;; is not a leaf-expansion at all. So the widget stays a LEAF, exactly as
-;; `panels/app_db_diff_cljs_test` already settled for the same reason.
+;; PLAIN DESCENT — nothing is CALLED. `rf.test-helpers/find-by-testid` /
+;; `…/find-by-testid-prefix` EXPAND function components as they walk, which
+;; is UNSAFE here. The panel CALLS every plain helper, so its markup is
+;; already realized in the tree and a shallow walk suffices — but the one
+;; fn-headed vector the panel emits is `[ei/edn-inspector-view …]`, a FRESCO
+;; BOUNDARY: a React function component whose body may only run inside a
+;; React render window. Applying it here would run `rf.fresco/sub` outside
+;; the collector, which is not a leaf-expansion at all. So the widget stays a
+;; LEAF, exactly as in `panels/app_db_diff_cljs_test`, for the same reason.
 
 (defn- hiccup-nodes [tree]
   (tree-seq (some-fn vector? seq?) seq tree))
@@ -60,13 +54,13 @@
 (defn- panel-tree
   "The hiccup the view rows below walk, driven through the pure projection.
 
-  rf2-k97c.3 — `panel/Panel` is now an `rf.fresco/defview` boundary, a real
-  React function component whose body may only run inside a React render
-  window, so `(panel/Panel)` is no longer a callable that answers hiccup.
-  This helper REPRODUCES THE BOUNDARY'S READ EXACTLY — the one
+  `panel/Panel` is an `rf.fresco/defview` boundary, a real React function
+  component whose body may only run inside a React render window, so
+  `(panel/Panel)` is not a callable that answers hiccup. This helper
+  REPRODUCES THE BOUNDARY'S READ EXACTLY — the one
   `:rf.xray.static.schemas/tab-data` query the boundary issues — and hands
-  the value to `panel/panel-tree`, so every row below asserts on the same
-  hiccup it asserted on before.
+  the value to `panel/panel-tree`, so every row below asserts on the
+  hiccup the boundary renders.
 
   The dispatcher is nil: no row here types into the search box, and the
   search box only calls it from `:on-change`. The boundary's OWN behaviour
@@ -208,15 +202,15 @@
 
 ;; -------------------------------------------------------------------------
 ;; (2b) THE PRODUCTION PATH — rows that reach the panel through REAL
-;;      registrations, with no override seam anywhere (rf2-t8a8)
+;;      registrations, with no override seam anywhere
 ;; -------------------------------------------------------------------------
 ;;
 ;; Every row above this point feeds the panel a SYNTHETIC metadata map through
 ;; `:rf.xray.static.schemas/set-registry-override-for-test`. That is a hollow
-;; gate for the registrar side of this panel in the precise sense the project
-;; means it: a synthetic map can carry any key at all, so the whole suite stayed
-;; green for the panel's entire life while it read the RETIRED `:spec` key and
-;; showed zero event rows and zero sub rows against every real host app. A
+;; gate for the registrar side of this panel: a synthetic map can carry any
+;; key at all, so a panel reading the wrong metadata key — `:spec` rather
+;; than `:schema` — would show zero event rows and zero sub rows against every
+;; real host app while the whole suite stayed green. A
 ;; synthetic map can carry `:spec`; a live `rf/reg-event` CANNOT — the
 ;; registrar hard-errors on it (`:rf.error/retired-registration-key`, pinned by
 ;; `re-frame.reg-meta-noswallow-cljs-test/retired-spec-key-hard-errors-per-registrar`).
@@ -224,10 +218,9 @@
 ;; So these two rows take the path production takes. They register through the
 ;; PUBLIC registrars and read through the PRODUCTION `:rf.xray.static.schemas/
 ;; registry` sub — the one that assembles its three inputs from the live
-;; registries and has no override branch to fall into. Revert `meta-row` to
-;; `:spec` and both rows go red on a real absent row, which is the mechanical
-;; test this repair had to satisfy: delete the signal, keep the fault, and the
-;; row must NOT still pass.
+;; registries and has no override branch to fall into. Point `meta-row` at
+;; `:spec` and both rows go red on a real absent row: delete the signal, keep
+;; the fault, and the row must NOT still pass.
 
 (def ^:private live-event-id ::live-event)
 (def ^:private live-sub-id   ::live-sub)
@@ -258,7 +251,7 @@
     (fn [{:keys [db]} _] {:db db})))
 
 (deftest live-registrations-surface-through-the-production-read
-  (testing "rf2-t8a8 — an event and a sub registered through the PUBLIC
+  (testing "an event and a sub registered through the PUBLIC
             registrars surface as rows in the panel's own composite, read
             through the PRODUCTION registry sub with no override installed"
     (setup-xray-production!)
@@ -291,8 +284,8 @@
              every registration being listed")))))
 
 (deftest live-registration-renders-a-row-surface
-  (testing "rf2-t8a8 — and it reaches the SCREEN: the live event's row
-            surface is in the hiccup the boundary renders, so the repair is
+  (testing "and it reaches the SCREEN: the live event's row
+            surface is in the hiccup the boundary renders, so the read is
             end-to-end and not merely a projection that nobody paints"
     (setup-xray-production!)
     (register-live-schemas!)
@@ -307,8 +300,9 @@
                      (str "rf-xray-static-schemas-row-sub-" (pr-str live-sub-id))))
             "and the live sub's")
         (is (nil? (find-by-testid tree "rf-xray-static-schemas-empty"))
-            "and the panel is NOT showing its empty state — which is exactly
-             what it showed against every real registrar before this repair")))))
+            "and the panel is NOT showing its empty state — which is what a
+             panel reading the wrong key would show against every real
+             registrar")))))
 
 (def two-frame-registry
   "Two frames each carrying a distinct app-db schema, plus the shared
@@ -384,11 +378,11 @@
           "at least one jump-to-source chip rendered"))))
 
 ;; -------------------------------------------------------------------------
-;; (4) a11y list semantics (rf2-mq8wk)
+;; (4) a11y list semantics
 ;; -------------------------------------------------------------------------
 
 (deftest panel-list-carries-list-semantics
-  (testing "rf2-mq8wk — the schemas <ul> is role=list, rows role=listitem"
+  (testing "the schemas <ul> is role=list, rows role=listitem"
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
@@ -403,15 +397,15 @@
             "every row carries role=listitem")))))
 
 ;; -------------------------------------------------------------------------
-;; (5) schema EDN renders through the shared widget (rf2-2kwhw)
+;; (5) schema EDN renders through the shared widget
 ;; -------------------------------------------------------------------------
 
 (defn- inspector-view-forms
   "Every `[ei/edn-inspector-view {…}]` form in the tree — the widget's
-  FRESCO head, and now the only fn-headed vector the panel emits.
+  FRESCO head, and the only fn-headed vector the panel emits.
 
-  No expansion of any kind. The panel CALLS every plain helper since
-  rf2-k97c.3, so the tree is already realized down to this leaf, and the
+  No expansion of any kind. The panel CALLS every plain helper, so the
+  tree is already realized down to this leaf, and the
   leaf must STAY a leaf: applying a boundary here would run
   `rf.fresco/sub` outside the collector."
   [tree]
@@ -419,19 +413,17 @@
            (hiccup-nodes tree)))
 
 (deftest schema-edn-renders-through-the-widgets-fresco-head
-  (testing "rf2-2kwhw + rf2-oqa60 — the Malli schema renders via the
-            shared EDN widget; rf2-k97c.3 — through its FRESCO head.
+  (testing "the Malli schema renders via the shared EDN widget, through
+            its FRESCO head.
 
-            This row used to assert on the widget's expanded
-            `rf-xray-edn-inspector-*` CONTAINER testid, which only exists
-            once the widget has been invoked. The walker above no longer
-            invokes anything, and it must not: `ei/edn-inspector-view` is a
-            boundary whose body may only run inside a React render window.
-            So the claim moves up one level to the thing the panel actually
-            emits — and in doing so it pins the HD-016 repair directly,
-            which the old spelling could not: `ei/edn-inspector` is a plain
-            fn, and a plain fn in hiccup head position is a loud error
-            inside a Fresco body."
+            The row asserts on the head form the panel emits, not on the
+            widget's expanded `rf-xray-edn-inspector-*` CONTAINER testid,
+            which only exists once the widget has been invoked. The walker
+            above invokes nothing, and it must not: `ei/edn-inspector-view`
+            is a boundary whose body may only run inside a React render
+            window. Asserting on the head also pins HD-016 directly:
+            `ei/edn-inspector` is a plain fn, and a plain fn in hiccup head
+            position is a loud error inside a Fresco body."
     (setup-xray!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync
@@ -452,11 +444,10 @@
              rather than degrade")
         (is (= (count heads) (count (set (map #(:mount-id (second %)) heads))))
             "each mount gets its OWN `:mount-id` — two mounts sharing one
-             would share a width slot and a projection cache, which is the
-             per-mount identity defect rf2-d2aj records")))))
+             would share a width slot and a projection cache")))))
 
 ;; -------------------------------------------------------------------------
-;; (5a) ONE APP-DB PATH, TWO FRAMES, ONE RENDER FRAME (rf2-uyg0)
+;; (5a) ONE APP-DB PATH, TWO FRAMES, ONE RENDER FRAME
 ;; -------------------------------------------------------------------------
 ;;
 ;; THE ROW ABOVE CANNOT SEE THIS. `sample-registry` is one frame's app-db
@@ -505,12 +496,9 @@
      :mount-ids (mapv #(:mount-id (second %)) heads)}))
 
 (deftest two-rows-sharing-a-schema-path-across-frames-get-distinct-mount-ids
-  (testing "rf2-uyg0 — the inspector node key is qualified by the row's
+  (testing "the inspector node key is qualified by the row's
             OWNING FRAME, so two rows sharing an app-db schema path across
             two frames do not collide on one `:mount-id`.
-
-            The frame was already destructured BY NAME in `schema-row`, one
-            line above the key that omitted it.
 
             WHY A COLLIDING `:mount-id` IS NOT COSMETIC. `edn-widget/
             inspect-view` hands the node key straight to the boundary as its
@@ -554,20 +542,19 @@
         [:rf.xray.static.schemas/set-registry-override-for-test nil]))))
 
 ;; -------------------------------------------------------------------------
-;; (6) row React keys reach the RENDERER, not just the reader (rf2-k97c.3)
+;; (6) row React keys reach the RENDERER, not just the reader
 ;; -------------------------------------------------------------------------
 
 (deftest row-keys-ride-the-attribute-map-not-metadata
-  (testing "rf2-k97c.3, RULING 2's key sweep — each catalogue row's React key
+  (testing "each catalogue row's React key
             is carried on a keyed FRAGMENT'S ATTRIBUTE MAP, which is the one
             spelling the shipped renderer reads.
 
-            It was `^{:key …}` reader metadata on the row's vector literal.
-            Reagent's `get-react-key` does read that, so it worked; Fresco's
-            codec reads `:key` from an attribute map and reads Clojure
-            metadata NOWHERE, so it would have gone inert the moment this
-            panel started rendering through a boundary — and silently, since
-            a lost key does not fail but degrades into index-based
+            `^{:key …}` reader metadata on the row's vector literal would
+            not do. Reagent's `get-react-key` reads it, but Fresco's codec
+            reads `:key` from an attribute map and reads Clojure metadata
+            NOWHERE, so under a boundary it would go inert — and silently,
+            since a lost key does not fail but degrades into index-based
             reconciliation.
 
             ASSERTING ON THE METADATA HERE WOULD BE A HOLLOW GATE: it would
