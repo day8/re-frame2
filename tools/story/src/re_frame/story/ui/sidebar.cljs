@@ -71,8 +71,8 @@
             [re-frame.story.ui.workspace      :as rf.story.ui.workspace]))
 
 ;; Styles live in `re-frame.story.ui.sidebar-styles` (pure-data leaf,
-;; no Reagent dep). Required as `styles` above so the in-file call
-;; sites (`(:wrap styles)` etc.) stay textually identical.
+;; no Reagent dep), referred as `styles` above for the in-file call
+;; sites (`(:wrap styles)` etc.).
 
 ;; ---- pure: collect tags from registered variants ------------------------
 
@@ -88,9 +88,9 @@
 
 ;; `group-tags-by-axis` and `ordered-axes` are pure data → data leaves
 ;; — they live in `re-frame.story.ui.state` so the JVM test corpus can
-;; exercise them without booting Reagent (rf2-7ncf9).
+;; exercise them without booting Reagent.
 
-;; ---- pure: per-variant status dot (rf2-q0irb) ---------------------------
+;; ---- pure: per-variant status dot ---------------------------------------
 
 (defn dot-style
   "Pure data → data: project a run status's compact dot paint from the
@@ -132,7 +132,7 @@
   [status]
   (str "tests: " (rf.story.theme.status/label status)))
 
-;; ---- pure: per-tag badge styling (rf2-nwiwr) ----------------------------
+;; ---- pure: per-tag badge styling ----------------------------------------
 
 (def tag->badge-style-key
   "Pure data → data: map a tag keyword to the per-tag styles map key
@@ -159,7 +159,7 @@
        (sort-by name)
        vec))
 
-;; ---- pure: large-list bounding (rf2-ba86n.4) ----------------------------
+;; ---- pure: large-list bounding ------------------------------------------
 
 (def default-variant-cap
   "Per-story variant cap before the sidebar bounds the list with a
@@ -170,8 +170,8 @@
   until the author opts to expand it.
 
   Single source of truth: `re-frame.story.budgets/sidebar-variant-cap`
-  (N1). This alias keeps the in-file call sites (`bound-variants … cap`)
-  textually stable while the number lives in one budget table."
+  (N1). This alias serves the in-file call sites (`bound-variants … cap`)
+  while the number lives in one budget table."
   rf.story.budgets/sidebar-variant-cap)
 
 (defn bound-variants
@@ -188,12 +188,12 @@
       {:shown  (vec (take cap variants))
        :hidden (- total cap)})))
 
-;; ---- captured run artifacts (rf2-ba86n.13) ------------------------------
+;; ---- captured run artifacts ---------------------------------------------
 ;;
 ;; Anonymous captured run artifacts (generated / replayed failures) are
 ;; surfaced as a BOUNDED, collapsed affordance — NOT a permanent nav row
-;; per artifact (spec/021 §3 acceptance + spec/018 §10; respects ba86n.4's
-;; sidebar bounding). The section is a single collapsible header carrying a
+;; per artifact (spec/021 §3 acceptance + spec/018 §10; respects the
+;; sidebar bounding above). The section is a single collapsible header carrying a
 ;; count; expanding it lists the captured artifacts, each row OPENING the
 ;; promotion dialog (`rf.story.ui.promotion/open!`) without becoming a Story variant.
 ;; The store lives in `re-frame.story.ui.promotion/captured-atom`; promoting
@@ -248,7 +248,7 @@
       (tag-chip tag (contains? tag-filter tag)))]])
 
 (defn- tag-filter-row
-  "Faceted filter (rf2-7ncf9). Tags are grouped by their registered
+  "Faceted filter. Tags are grouped by their registered
   `:axis` slot — one labelled chip row per axis (`:status`, `:role`,
   `:team`, `:feature`, then any project-defined axes alphabetically,
   with un-axis-grouped tags trailing in an `OTHER` row).
@@ -256,9 +256,9 @@
   Active chips highlight; the AND-across / OR-within rule lives in
   `rf.story.ui.state/variant-tag-match?`.
 
-  `tag->axis` is computed once at the sidebar top and threaded in;
-  per rf2-0z8e2 we previously walked the tag registrar twice per
-  render (once here, once at the top for the variant filter)."
+  `tag->axis` is computed once at the sidebar top and threaded in,
+  so a render walks the tag registrar once rather than twice
+  (here and at the top for the variant filter)."
   [variants tag-filter tag->axis]
   (let [all-tags (collect-tags variants)]
     (if (empty? all-tags)
@@ -281,7 +281,7 @@
   Public so the JVM + CLJS test corpus can render it directly without
   walking a Reagent tree.
 
-  rf2-k3y92 — uses `role=\"img\"` rather than `role=\"status\"`. The
+  Uses `role=\"img\"` rather than `role=\"status\"`. The
   status-dot is a static decoration painted alongside the row label,
   not an out-of-band update channel. `role=\"status\"` adds an implicit
   `aria-live=\"polite\"`, which means every mounted dot is announced
@@ -320,7 +320,7 @@
                    :title     (str tag)}
             (name tag)]))])))
 
-;; ---- signal chips (rf2-ba86n.4) -----------------------------------------
+;; ---- signal chips -------------------------------------------------------
 ;;
 ;; Five DISTINCT axes (spec/018 §7.1 + §12.6) — status / fidelity /
 ;; world-inputs / runner-requirement / frame-binding. The pure derivation
@@ -419,7 +419,7 @@
       (signal-chip frame-binding)]]))
 
 (defn- highlighted-label
-  "rf2-yngai — render a variant / story label with the matched
+  "Render a variant / story label with the matched
   substring wrapped in an amber-tint span. Returns a hiccup fragment
   suitable for splatting inside the row `<span>`. No-search shortcut
   returns the raw string unwrapped so the no-search path stays quiet."
@@ -436,7 +436,7 @@
             ^{:key (str "txt-" i)}
             [:span text]))))))
 
-;; rf2-k3y92 — Enter/Space activation for sidebar rows. The
+;; Enter/Space activation for sidebar rows. The
 ;; variant-row + workspace-row + story-block headers render as `<div>`
 ;; with `on-click`; without a key handler keyboard-only users can't
 ;; activate them even with `role="button"` + `tabindex="0"`. The
@@ -455,7 +455,7 @@
         (= k "Enter") (do (.preventDefault evt) (f))
         (= k " ")     (do (.preventDefault evt) (f))))))
 
-;; rf2-ba86n.4 — keyboard movement across the sidebar nav (spec/018 §7.1 +
+;; Keyboard movement across the sidebar nav (spec/018 §7.1 +
 ;; §3.1 — 'keyboard movement … fast across large projects'). ArrowDown /
 ;; ArrowUp move focus to the next / previous row WITHIN the sidebar; Home /
 ;; End jump to the first / last. Rows are `role="button"` `tabindex="0"`
@@ -503,7 +503,7 @@
 (defn- variant-row
   [variant-id selected? testable? status tags query body]
   (let [activate (fn []
-                   ;; rf2-hscut — symmetric escape from workspace mode.
+                   ;; Symmetric escape from workspace mode.
                    ;; Selecting a variant clears any previously-selected
                    ;; workspace so the canvas's ws-id short-circuit
                    ;; (`shell.cljs` `main-pane`) yields to the variant
@@ -518,10 +518,10 @@
                              (when selected? (:variant-row-active styles)))
          :data-test   "story-sidebar-variant-row"
          :data-variant (str variant-id)
-         ;; rf2-k3y92 — sidebar rows are clickable `<div>`s; expose them
+         ;; Sidebar rows are clickable `<div>`s; expose them
          ;; as keyboard-operable buttons (role + tabindex + Enter/Space
          ;; key handler) so keyboard-only users can navigate into and
-         ;; activate them. The visual treatment stays unchanged (the
+         ;; activate them. No row-specific visual treatment (the
          ;; focus ring is the global Story `:focus-visible` 2px amber
          ;; outline scoped to `[data-rf-story-root]`).
          :role         "button"
@@ -530,7 +530,7 @@
          :aria-label   (str "Open variant " (name variant-id))
          :on-key-down  (on-row-key-down activate)
          :on-click     (fn [_] (activate))}
-   ;; rf2-p0wur — per-row glyph affordance. Testable variants keep the
+   ;; Per-row glyph affordance. Testable variants carry the
    ;; status dot (it carries pass/fail/running colour); non-testable
    ;; variants get a refined variant glyph so every row carries an
    ;; iconographic prefix at a uniform indent.
@@ -538,11 +538,11 @@
      [status-dot status]
      [:span {:style (:variant-glyph styles)}
       [rf.story.theme.glyphs/variant-glyph 10]])
-   ;; rf2-yngai — wrap label so matched substrings render with the
+   ;; Wrap label so matched substrings render with the
    ;; amber-tint highlight when a search query is in flight.
    (into [:span] (highlighted-label (str "/" (name variant-id)) query))
    [tag-badges tags]]
-   ;; rf2-ba86n.4 — the five-axis signal strip, on its own dense line
+   ;; The five-axis signal strip, on its own dense line
    ;; below the variant id so a long signal set never overflows the row
    ;; (spec/018 §7.1 + §10). Each axis is a distinct chip group.
    [signal-chips body status]]))
@@ -552,15 +552,15 @@
   `{:story-id ... :variants [[variant-id body] ...]}` (the shape
   produced by `rf.story.ui.state/group-variants-by-story`).
 
-  rf2-p0wur: story rows lead with an amber diamond glyph + carry an
+  Story rows lead with an amber diamond glyph + carry an
   inter-story spacer.
-  rf2-yngai: story labels carry the amber-tint match highlight when
+  Story labels carry the amber-tint match highlight when
   a search query is in flight.
-  rf2-8j7wg (audit C-4): the story header row is itself clickable —
+  The story header row is itself clickable —
   it opens the rollup docs page that aggregates every variant's docs
   sections. Mirrors Storybook's `Component.docs` parent-level page.
 
-  rf2-ba86n.4: a story whose variant count exceeds `default-variant-cap`
+  A story whose variant count exceeds `default-variant-cap`
   is BOUNDED — only the first `cap` rows render, with a '+N more'
   expander that flips the per-story `expanded-stories` slot. Keeps the
   sidebar scannable at design-system / matrix scale (spec/018 §10) without
@@ -597,7 +597,7 @@
              tags      (:tags body)]
          ^{:key vid}
          [variant-row vid (= vid selected-variant) testable? status tags query body]))
-     ;; rf2-ba86n.4 — the bounding expander. `role="button"` + Enter/Space
+     ;; The bounding expander. `role="button"` + Enter/Space
      ;; so keyboard-only users can reveal the elided rows.
      (when (pos? hidden)
        (let [reveal (fn [] (swap! expanded-stories conj story-id))]
@@ -626,7 +626,7 @@
   grid actually renders: the cell vector `rf.story.ui.workspace/resolve-layout`
   produces for the same workspace. A `:variants-grid` enumerates its anchor
   story's variants from the registry (`:for`, or the `Workspace.<path>` id)
-  and carries no `:variants` slot, so counting that slot read 0 for a grid
+  and carries no `:variants` slot, so counting that slot would read 0 for a grid
   rendering five cells. Lets the sidebar render a compact 'GRID · N' header
   so a generated / matrix grid reads as one group rather than loose
   siblings. Public so the test corpus can exercise the projection."
@@ -644,7 +644,7 @@
                                  (rf.story.ui.state/select-variant nil)))))
         grouping (workspace-grid-grouping workspace-id body)]
   [:<>
-   ;; rf2-ba86n.4 — variants-grid grouping affordance (spec/018 §7.1). A
+   ;; Variants-grid grouping affordance (spec/018 §7.1). A
    ;; grid workspace leads with a compact group header naming its layout +
    ;; cell count so a matrix reads as one scannable group.
    (when grouping
@@ -657,7 +657,7 @@
                           (when selected? (:workspace-row-active styles)))
          :data-test   "story-sidebar-workspace-row"
          :data-workspace (str workspace-id)
-         ;; rf2-k3y92 — keyboard-operable button semantics. See
+         ;; Keyboard-operable button semantics. See
          ;; `variant-row` for the parallel role/tabindex/key-handler
          ;; pattern.
          :role         "button"
@@ -670,16 +670,17 @@
     [rf.story.theme.glyphs/workspace-glyph 12]]
    [:span (str workspace-id)]]]))
 
-;; ---- chrome-level test widget (rf2-q0irb) -------------------------------
+;; ---- chrome-level test widget -------------------------------------------
 
 (defn run-opts-for-variant
   "Build the `run-variant` opts map for `vid` from the current shell
   state, threading the per-variant cell-overrides through so a Run-all
   reproduces the same effective-args as the canvas / docs / share /
-  workspace surfaces (rf2-zq6sn).
+  workspace surfaces.
 
-  The cell-overrides slot is `{variant-id → override-map}` (state.cljc
-  §49); each variant must look up its OWN entry — passing a single
+  The cell-overrides slot is `{variant-id → override-map}` (the
+  `:cell-overrides` entry in `re-frame.story.ui.state`'s ns docstring);
+  each variant must look up its OWN entry — passing a single
   blanket map (or `nil`) for every variant drops the per-variant
   controls the user set in the controls panel."
   [shell vid]
@@ -692,9 +693,9 @@
   into the shell-state `[:tests :runs]` slot. Marks `:running` up front,
   records pass/fail/skip counts on resolve, and clears the slot on
   rejection. Shared between the chrome widget's 'Run all' button and
-  the watch-mode auto-re-run (rf2-z1h0f).
+  the watch-mode auto-re-run.
 
-  Per rf2-zq6sn each variant's run threads its OWN cell-overrides
+  Each variant's run threads its OWN cell-overrides
   entry from shell state — same lookup the canvas / pane / share-url
   paths perform. The shell-state snapshot is taken once per variant
   so concurrent runs don't race against a swap-state! between the
@@ -704,14 +705,14 @@
   (let [opts (run-opts-for-variant (rf.story.ui.state/get-state) vid)]
     (-> (rf.story.runtime/run-variant vid opts)
         (rf.story.async/then  (fn [result]
-                       ;; `rf.story.ui.state/aggregate-summary` is the canonical fold
-                       ;; (rf2-khmon); it lives in shell-state so both
+                       ;; `rf.story.ui.state/aggregate-summary` is the canonical fold;
+                       ;; it lives in shell-state so both
                        ;; this widget AND the `:test` mode pane share one
                        ;; impl without a require cycle.
                        ;; The run-level `:status` rides with the counts, as
                        ;; the Tests pane's `store-result!` threads it: a thrown
                        ;; fx, a tape-floor failure or a `:cannot-run` refusal
-                       ;; the counts alone read as green (rf2-3x7nj.28.1).
+                       ;; the counts alone read as green.
                        (let [summary (-> (rf.story.ui.state/aggregate-summary
                                            (:assertions result))
                                          (assoc :elapsed-ms (:elapsed-ms result)
@@ -739,7 +740,7 @@
     (run-one-test! vid)))
 
 (defn watch-rerun!
-  "Public entry point for the watch-mode detector (rf2-z1h0f). Drives
+  "Public entry point for the watch-mode detector. Drives
   `run-variant` for the given seq of variant-ids whose watch hash
   drifted since the last observation. Shares the same per-variant
   pipeline as 'Run all' — marks running, folds the result into
@@ -747,7 +748,7 @@
   transit through `:running` to the new `:pass` / `:fail` exactly as
   if the user had clicked the button.
 
-  Called from `re-frame.story.ui.shell/detect-and-tick!` when watch
+  Called from `re-frame.story.ui.shell/detect-watch-drift!` when watch
   mode is on and a drift is detected."
   [variant-ids]
   (doseq [vid variant-ids]
@@ -755,7 +756,7 @@
 
 (defn set-watch-mode!
   "Set the chrome-level watch-mode flag, seeding the drift baseline when
-  turning ON (rf2-asp2op). On toggle-ON we compute the CURRENT testable
+  turning ON. On toggle-ON we compute the CURRENT testable
   snapshot hashes (`rf.story.ui.watch/compute-testable-content-hashes`) and record
   them into `[:tests :content-hashes]` BEFORE flipping `[:tests
   :watch-mode?]` — so the first `detect-watch-drift!` tick diffs a real
@@ -784,19 +785,19 @@
   counts don't mislead.
 
   Renders nothing when no variants are testable — the widget is the
-  Vitest-reporter parity (rf2-q0irb) per spec/009 §Foundational
+  Vitest-reporter parity per spec/009 §Foundational
   status; a Story project with zero `:test` variants has nothing for
   it to report.
 
-  Per rf2-z1h0f the widget also carries an eye-icon watch-mode toggle
+  The widget also carries an eye-icon watch-mode toggle
   beneath the count chips. When on, the shell auto-re-runs testable
   variants whose watch hash drifted since the last observation
   (the detection signal is wired in `re-frame.story.ui.shell`).
 
-  HOT PATH (rf2-dtj61): `testable-variant-ids` is the seq the parent
+  HOT PATH: `testable-variant-ids` is the seq the parent
   sidebar already derives for its per-variant status dots. Callers
   may thread the precomputed seq through as `variant-ids` to avoid a
-  second registry walk; the no-arg form keeps the canonical surface
+  second registry walk; the `[shell registry]` form is the canonical surface
   for tests and standalone consumers."
   ([shell registry]
    (test-widget shell registry (rf.story.ui.state/testable-variant-ids
@@ -841,9 +842,9 @@
                          (when-not any-run?
                            (run-all-tests! variant-ids)))}
          (if any-run? "Running…" "Run all")]
-        ;; rf2-z1h0f — watch-mode toggle. Eye glyph reads on/off; the
+        ;; Watch-mode toggle. Eye glyph reads on/off; the
         ;; chip's aria-pressed reflects the boolean. `set-watch-mode!`
-        ;; seeds `[:tests :content-hashes]` on toggle-ON (rf2-asp2op) so
+        ;; seeds `[:tests :content-hashes]` on toggle-ON so
         ;; the first detector tick doesn't fire a spurious re-run for
         ;; every variant.
         [:div {:style (:watch-row styles)}
@@ -864,7 +865,7 @@
           (if watch-on? "● watching" "○ watch")]]])])))
 
 (defn- search-input
-  "rf2-yngai — search-as-you-type input row. Filters the tree in-place
+  "Search-as-you-type input row. Filters the tree in-place
   on every keystroke. Esc clears the query AND blurs the input."
   [query-ratom]
   [:div {:style     (:search-row styles)
@@ -892,7 +893,7 @@
 
 (defn captured-artifacts-section
   "Render the bounded, collapsed 'Captured artifacts' affordance
-  (rf2-ba86n.13, spec/021 §3). Anonymous run artifacts (generated /
+  (spec/021 §3). Anonymous run artifacts (generated /
   replayed failures captured into `rf.story.ui.promotion/captured-atom`) surface here
   as ONE collapsible section — NOT a permanent nav row per artifact — so a
   matrix of captured failures never floods the sidebar (spec/018 §10).
@@ -973,19 +974,19 @@
   "Top-level sidebar component. Reads the registry snapshot + shell
   state, builds the filtered tree, and renders.
 
-  Per rf2-xc65 the sidebar renders as a `<nav>` landmark.
-  Per rf2-q0irb carries per-variant status dots + chrome test widget.
-  Per rf2-yngai carries a search-as-you-type input above the tree
-  (ephemeral local state; not persisted across reloads).
-  Per rf2-ba86n.4 carries the five-axis per-variant signal chips,
+  The sidebar renders as a `<nav>` landmark.
+  It carries per-variant status dots + chrome test widget;
+  a search-as-you-type input above the tree
+  (ephemeral local state; not persisted across reloads); and
+  the five-axis per-variant signal chips,
   keyboard movement (Arrow/Home/End) across rows, large-list bounding
   with a '+N more' expander, and variants-grid grouping on workspaces."
   ([] (sidebar nil))
   ([opts]
    (let [query-ratom      (r/atom "")
-         ;; rf2-ba86n.4 — ephemeral per-story 'show all' set (not persisted).
+         ;; Ephemeral per-story 'show all' set (not persisted).
          expanded-stories (r/atom #{})
-         ;; rf2-ba86n.13 — ephemeral 'Captured artifacts' section toggles.
+         ;; Ephemeral 'Captured artifacts' section toggles.
          captured-open?   (r/atom false)
          captured-more?   (r/atom false)]
      (fn [opts]
@@ -1012,16 +1013,16 @@
                 :data-test   "story-sidebar"
                 :aria-label  "Stories and workspaces"
                 :tab-index   "0"
-                ;; rf2-ba86n.4 — Arrow/Home/End movement across the rows.
+                ;; Arrow/Home/End movement across the rows.
                 :on-key-down nav-key-down}
           [:div {:style (:tree styles)}
-           ;; rf2-vxpq1 — sidebar landmarks the two top-level sections
+           ;; The sidebar landmarks the two top-level sections
            ;; ("Stories" / "Workspaces") with `role="heading"` +
-           ;; `aria-level="2"`. The visible `<div>` keeps its existing
-           ;; styling unchanged; the role + level expose the section
-           ;; structure to AT users navigating by heading. Pure
-           ;; visual hiccup: no `<h2>` rewrite (would shift layout
-           ;; via UA stylesheet defaults), no test-id change.
+           ;; `aria-level="2"`. The visible `<div>` carries its own
+           ;; styling; the role + level expose the section
+           ;; structure to AT users navigating by heading. A `<div>`
+           ;; rather than an `<h2>`, which would shift layout
+           ;; via UA stylesheet defaults.
            [:div {:style       (:header styles)
                   :role        "heading"
                   :aria-level  "2"}
@@ -1052,7 +1053,7 @@
                 expanded-stories (boolean searching?)]))
            (when (seq workspaces)
              [:div
-              ;; rf2-vxpq1 — matching heading semantics on the
+              ;; Matching heading semantics on the
               ;; Workspaces section so AT users can land on either
               ;; section via heading navigation.
               [:div {:style       (:section styles)
@@ -1068,7 +1069,7 @@
               (for [[wid body] (sort-by key workspaces)]
                 ^{:key wid}
                 [workspace-row wid (= wid sel-ws) body])])
-           ;; rf2-ba86n.13 — bounded, collapsed 'Captured artifacts'
+           ;; Bounded, collapsed 'Captured artifacts'
            ;; affordance. Self-elides when nothing is captured; never a
            ;; permanent nav row per artifact (spec/021 §3 + spec/018 §10).
            [captured-artifacts-section captured-open? captured-more?]]
