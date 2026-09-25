@@ -694,8 +694,8 @@ function selfTest() {
 // The fixtures above prove the guard catches the RECORDED faults. This
 // produces them again from scratch, in plain node, and prices the three
 // factors a plan reversal moves together. It needs a nursery big enough
-// that a window is not truncated by a scavenge — the same flags `b8_run`
-// gives Chromium — and it says so rather than reporting a truncated
+// that a window is not truncated by a scavenge — the semi-space flags the
+// usage line at the top gives — and it says so rather than reporting a truncated
 // window as data.
 
 function liveReproduction(opts = {}) {
