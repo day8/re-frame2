@@ -39,7 +39,7 @@
       (is (= (pr-str payload) (content-text result))
           ":content[0].text is the pr-str EDN of the payload")
       (is (some? (j/get result :structuredContent))
-          "the :structuredContent slot is present (rf2-hj3pi)")
+          "the :structuredContent slot is present")
       ;; The structured slot should be a JS object whose shape mirrors
       ;; the input. Keywords lose their `:` prefix in the JSON-coercible
       ;; projection but KEEP their namespace (`:rf/x` → "rf/x"); plain
@@ -67,7 +67,7 @@
       (is (= (pr-str payload) (content-text result))
           ":content[0].text is the pr-str EDN of the error payload")
       (is (some? (j/get result :structuredContent))
-          ":structuredContent slot is present on error envelopes too (rf2-hj3pi)")
+          ":structuredContent slot is present on error envelopes too")
       (is (= false (j/get-in result [:structuredContent :ok?]))
           ":ok? false round-trips"))))
 
@@ -76,7 +76,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cache-hit-result-emits-both-slots
-  (testing "cache-hit-result carries both wire slots (rf2-hj3pi)"
+  (testing "cache-hit-result carries both wire slots"
     (let [entry  {:hash 12345 :unchanged-since 1700000000000}
           result (cache/cache-hit-result entry "snapshot" :result-hash)
           text   (content-text result)]
@@ -95,13 +95,13 @@
   ;; routes through `wire/result` so SDK-friendly hosts reading
   ;; structuredContent see the fully-qualified `"rf.mcp/cache-hit"`
   ;; token rather than a namespace-truncated `"cache-hit"` key.
-  (testing "the :rf.mcp/cache-hit marker KEY survives namespace-faithfully (rf2-or8s29)"
+  (testing "the :rf.mcp/cache-hit marker KEY survives namespace-faithfully"
     (let [entry  {:hash 12345 :unchanged-since 1700000000000}
           result (cache/cache-hit-result entry "snapshot" :result-hash)]
       (is (some? (j/get-in result [:structuredContent "rf.mcp/cache-hit"]))
           "the marker serialises to the fully-qualified \"rf.mcp/cache-hit\" key")
       (is (nil? (j/get-in result [:structuredContent "cache-hit"]))
-          "the namespace-truncated \"cache-hit\" key must NOT appear (the lossy old shape)"))))
+          "the namespace-truncated \"cache-hit\" key must NOT appear (the namespace-lossy shape)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; structuredContent is NEVER null.
@@ -118,7 +118,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ok-text-nil-payload-never-emits-null-structured-content
-  (testing "wire/ok-text with a nil payload emits a non-null structured record (rf2-r5erl)"
+  (testing "wire/ok-text with a nil payload emits a non-null structured record"
     (let [result (wire/ok-text nil)]
       (is (some? (j/get result :structuredContent))
           ":structuredContent must NOT be null — the SDK outputSchema check rejects null")
@@ -130,7 +130,7 @@
           "the EDN text slot still carries the verbatim nil for the cljs round-trip"))))
 
 (deftest err-text-nil-payload-never-emits-null-structured-content
-  (testing "wire/err-text with a nil payload emits a non-null structured record (rf2-r5erl)"
+  (testing "wire/err-text with a nil payload emits a non-null structured record"
     (let [result (wire/err-text nil)]
       (is (true? (j/get result :isError)))
       (is (some? (j/get result :structuredContent)))
@@ -138,7 +138,7 @@
           ":structuredContent must be a record even on the error path"))))
 
 (deftest ok-text-scalar-payload-wraps-to-a-record
-  (testing "a non-map scalar payload still projects to an object structuredContent (rf2-r5erl)"
+  (testing "a non-map scalar payload still projects to an object structuredContent"
     ;; clj->js of a bare scalar (number / string / bool) is a JS
     ;; primitive — also not a record. The total-function backstop wraps
     ;; it so the slot is always object-typed.
@@ -163,7 +163,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest namespaced-keyword-map-key-keeps-namespace-in-structured-slot
-  (testing "a namespaced map KEY survives to the structured slot as ns/name (rf2-t2n04)"
+  (testing "a namespaced map KEY survives to the structured slot as ns/name"
     (let [payload {:rf/runtime {:loaded? true} :step 3}
           result  (wire/ok-text payload)]
       ;; The structured slot key must be the fully-qualified token, NOT
@@ -171,7 +171,7 @@
       (is (some? (j/get-in result [:structuredContent "rf/runtime"]))
           ":rf/runtime serialises to the \"rf/runtime\" key, not \"runtime\"")
       (is (nil? (j/get-in result [:structuredContent "runtime"]))
-          "the name-only \"runtime\" key must NOT appear (the lossy old shape)")
+          "the name-only \"runtime\" key must NOT appear (the namespace-lossy shape)")
       (is (= true (j/get-in result [:structuredContent "rf/runtime" "loaded?"]))
           "nested values under the namespaced key still round-trip")
       ;; A plain (un-namespaced) key keeps its bare name.
@@ -182,7 +182,7 @@
           "the EDN text slot carries the verbatim namespace-faithful EDN"))))
 
 (deftest namespaced-keyword-values-keep-namespace-in-structured-slot
-  (testing "namespaced keyword VALUES (e.g. machine-ids) keep their namespace (rf2-t2n04)"
+  (testing "namespaced keyword VALUES (e.g. machine-ids) keep their namespace"
     ;; clj->js's :keyword-fn applies to KEYS only; keyword values go
     ;; through `name`. This pins the value path too.
     (let [payload {:machine-ids [:door/main :traffic/light :quiz/scorer]
@@ -197,7 +197,7 @@
           "EDN text slot unchanged — the canonical round-trip"))))
 
 (deftest namespaced-keyword-round-trips-through-the-structured-slot
-  (testing "reading the structured-slot token back yields the original keyword (rf2-t2n04)"
+  (testing "reading the structured-slot token back yields the original keyword"
     ;; The whole point: an agent that reads the structured slot can
     ;; reconstruct the exact key it must thread back into get-path.
     (doseq [kw [:rf/runtime :door/open :examples/step-deck]]
