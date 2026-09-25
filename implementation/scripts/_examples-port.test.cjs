@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Tests for `examples/scripts/examples-port.cjs` — the adapter-smoke
- * orchestrator's port resolver (rf2-0u6ce / rf2-ot0lv).
+ * orchestrator's port resolver.
  *
  * The shared bind-probe / forward-scan mechanism (port-resolver.cjs) is
  * covered transitively by _story-feature-load-port.test.cjs; examples-port is
@@ -9,16 +9,14 @@
  * examples-SPECIFIC policy: the DEFAULT_PORT (8050, the examples-owned 805x
  * band), the strict env parser bound to EXAMPLES_PORT, and the actionable
  * port-clash message. This mirrors the story-feature-load-port test against
- * those examples-specific surfaces (rf2-ewnznu).
+ * those examples-specific surfaces.
  *
- * The port-clash assertions below used to pin the shadow-cljs.edn bands the
- * message transcribed — 8765 / 8030-8034 / 8040-8043 — noting in this very
- * comment that they "could drift". They did: the map grew 8035, 8044-8045 and
- * 8060-8061, and because the pins matched the message rather than the map,
- * this suite stayed green BECAUSE the message was stale (rf2-5mk4u). They now
- * pin the properties that make the message useful, and require that it names
- * no port at all beyond the one under test — a pin that cannot go stale,
- * because it has nothing to keep in step with.
+ * The port-clash assertions below pin the properties that make the message
+ * useful, and require that it names no port at all beyond the one under
+ * test — a pin that cannot go stale, because it has nothing to keep in step
+ * with. Pinning the shadow-cljs.edn bands the message transcribed would match
+ * the message rather than the map, so as the map grew the suite would stay
+ * green BECAUSE the message had gone stale.
  *
  * Standalone node-runnable suite (no test framework), matching
  * _story-feature-load-port.test.cjs. Discovered by `npm run test:scripts`.
@@ -99,7 +97,7 @@ test('explicit occupied EXAMPLES_PORT throws an actionable message that points a
         // What makes this message worth raising: the likely CAUSE, both
         // AUTHORITIES a reader can look the live answer up in, and the two
         // REMEDIES. These are properties of the diagnostic, not of the port
-        // map, so they stay true however the map grows (rf2-5mk4u).
+        // map, so they stay true however the map grows.
         assert.match(err.message, /shadow-cljs watch/, 'must name the likely cause');
         assert.match(err.message, /:dev-http/, 'must name the claiming map');
         assert.match(
@@ -124,10 +122,9 @@ test('explicit occupied EXAMPLES_PORT throws an actionable message that points a
           'must give the second remedy',
         );
 
-        // And it must transcribe NO port from that map. The predecessor of
-        // this assertion pinned 8765 / 8030-8034 / 8040-8043 against the
-        // message, so when the map grew the suite went on certifying the
-        // stale wording. Pinning the ABSENCE of an enumeration has nothing
+        // And it must transcribe NO port from that map. Pinning a transcribed
+        // port list against the message would go on certifying stale wording
+        // as the map grows. Pinning the ABSENCE of an enumeration has nothing
         // to keep in step with, so it cannot fail that way: the only
         // multi-digit run the message may carry is the port under test.
         const numbers = [...new Set(err.message.match(/\d{4,}/g) || [])];
@@ -135,7 +132,7 @@ test('explicit occupied EXAMPLES_PORT throws an actionable message that points a
           numbers,
           [String(port)],
           `the message must name no port but the one under test — a ` +
-            `transcribed :dev-http list goes stale in silence (rf2-5mk4u). ` +
+            `transcribed :dev-http list goes stale in silence. ` +
             `Point at implementation/shadow-cljs.edn instead. Got: ${numbers}`,
         );
         return true;
