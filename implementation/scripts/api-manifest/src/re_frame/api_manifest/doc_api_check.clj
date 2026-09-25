@@ -27,20 +27,14 @@
                           (spec/Conventions.md §Require-alias dialect), used in
                           the Story API reference (`docs/story/api/**`).
 
-  The retired leaf alias `(story/<var>` is no longer extracted: no scanned page
-  uses it since those pages moved to `rf.story` (rf2-0ae7o.9), and the dialect
-  reserves bare leaf aliases for application namespaces. The check learned
-  `rf.story` before the pages switched, so the reference count held across the
-  move. A page written under `story/` is now outside the check, like any other
-  alias below.
+  The leaf alias `(story/<var>` is not extracted: no scanned page uses it, and
+  the dialect reserves bare leaf aliases for application namespaces. A page
+  written under `story/` is outside the check, like any other alias below.
 
   ALIAS SCOPE — narrower than it looks, and NOT established as contractual.
   Only those two aliases are extracted, so a call written under any other
   sub-namespace alias (`(rf.machines/…`, `(rf.http/…`, `(rf.routing/…`) is
-  outside this check entirely. Measured 2026-09-07 and offered as a dated
-  snapshot rather than an invariant: the narrowness is not load-bearing today
-  — every such call site in `docs/api/` resolves against the manifest
-  bare-name set, so widening the anchor would not redden the gate at this tip.
+  outside this check entirely.
 
   RESOLUTION LATITUDE. A reference resolves when its bare var name is carried
   by ANY manifest row — `check!` below builds exactly that: a BARE-NAME SET
@@ -48,7 +42,7 @@
   API reference legitimately names vars across several public namespaces
   (`re-frame.core`, `re-frame.story`, `re-frame.machines`, …) under the `rf`
   alias, and a REMOVED var has no manifest row in ANY namespace, so it is
-  still caught. (The keystone + api-md-check already pin namespace-exact
+  still caught. (The manifest drift-check + api-md-check pin namespace-exact
   classification; this projection only asks `does this name still exist as a
   public surface?`.)
 
@@ -68,12 +62,11 @@
   scanned files — `spec/Privacy.md` is the EP-0015 privacy surface, so a
   reintroduced retired `:rf.egress/*` profile keyword goes RED here too.
 
-  PAGE + MEMBER COVERAGE (rf2-e5692s). The call-position discipline above
+  PAGE + MEMBER COVERAGE. The call-position discipline above
   catches a docs/api/ reference to a REMOVED surface, but it cannot catch the
   opposite drift: a public var the manifest carries that NO page documents
   (docs/api/README.md promises one page per public namespace and an entry per
-  eligible var, yet nothing enforced it — `re-frame.ui.test`'s testing surface
-  and four `re-frame.ui` vars had no page/member entry). `check-coverage!`
+  eligible var). `check-coverage!`
   reconciles the manifest AGAINST the corpus: every manifest var at an
   ELIGIBLE tier (`:front-porch` / `:advanced` / `:adapter` / `:testing`, per
   the README completeness clause) must have a `docs/api/<namespace>.md` page
@@ -83,13 +76,13 @@
   facade-pointer `#### \\`reg-machine\\`` on the owning/facade page all count.
   Deleting an eligible namespace's page (PAGE-MISSING) or a member's heading
   (MEMBER-MISSING) turns this RED. The `:doc-api-coverage-exempt` sidecar key
-  (a set of `[namespace var]` pairs, empty/absent today) is the explicit escape
+  (a set of `[namespace var]` pairs) is the explicit escape
   hatch for a var intentionally documented only as a facade pointer elsewhere."
   (:require [clojure.string :as str]
             [re-frame.api-manifest.gen :as rf.api-manifest.gen]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
-;; The reference trees scanned. Each is an EXPECTED surface (it exists today
+;; The reference trees scanned. Each is an EXPECTED surface (it exists
 ;; and is owned), so it uses `require-markdown-files` — a moved / renamed
 ;; tree fails loudly rather than turning the gate into a vacuous green.
 ;;
@@ -103,12 +96,11 @@
 (def ^:private privacy-file-segs ["spec" "Privacy.md"])
 
 (def ^:private min-references
-  "Non-vacuous floor (rf2-utvst-style) — the aggregate floor across all three
+  "Non-vacuous floor — the aggregate floor across all three
    trees (`spec/Privacy.md`, `docs/api/`, `docs/story/api/`), which together
    carry several hundred call-position references, the bulk of them in
    `docs/api/`. No per-tree count is stated here on purpose: a figure in a
-   docstring goes stale silently, and the one this replaced had drifted far
-   enough to contradict its own total. The floor sits far below the live
+   docstring goes stale silently. The floor sits far below the live
    count, so it trips only on a near-total collapse (a tree moved/renamed, the
    `(alias/<var>` extraction broke, the alias convention changed) — never on
    ordinary content churn. To re-measure, run the check and read the count it
@@ -116,8 +108,8 @@
   20)
 
 (defn reconcile
-  "Pure reconciler (extracted so the file-scoped allowlist contract is
-   unit-testable with synthetic inputs). Returns the seq of problem maps for
+  "Pure reconciler, so the file-scoped allowlist contract is
+   unit-testable with synthetic inputs. Returns the seq of problem maps for
    the supplied call-position references.
 
    `references`  — `[{:var :line :raw :file} ...]` (`:file` repo-relative).
@@ -159,7 +151,7 @@
     (assoc ref :file (rf.api-manifest.projection/repo-relative file))))
 
 ;; ---------------------------------------------------------------------------
-;; Page + member coverage (rf2-e5692s).
+;; Page + member coverage.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private eligible-tiers
@@ -169,11 +161,11 @@
   #{:front-porch :advanced :adapter :testing})
 
 (def ^:private coverage-min-rows
-  "Non-vacuous floor (rf2-utvst-style) for the coverage reconciler. The manifest
-   carries ~180 eligible-tier rows today; this floor sits well below that, so it
-   trips ONLY if the committed manifest itself collapsed (which the primary
-   `gen --check` also catches) — never on ordinary corpus churn. Below the floor
-   the coverage check refuses a vacuous OK."
+  "Non-vacuous floor for the coverage reconciler. It sits below the manifest's
+   live eligible-tier row count (the check reports it), so it trips ONLY if the
+   committed manifest itself collapsed (which the primary `gen --check` also
+   catches) — never on ordinary corpus churn. Below the floor the coverage
+   check refuses a vacuous OK."
   100)
 
 (defn- member-heading-names
@@ -203,8 +195,8 @@
           {} namespaces))
 
 (defn coverage-problems
-  "Pure coverage reconciler (extracted so the page/member contract is
-   unit-testable with synthetic inputs). Returns the seq of problem maps.
+  "Pure coverage reconciler, so the page/member contract is
+   unit-testable with synthetic inputs. Returns the seq of problem maps.
 
    `eligible-rows` — `[{:namespace :var} ...]` (already filtered to eligible tiers).
    `members`       — `{namespace-str -> #{covered-var-name}}`; a namespace absent
@@ -291,7 +283,7 @@
         ;; removed surface has no row in ANY namespace, so it is still caught.
         manifest-vars (set (map :var rows))
         scoped-allow  (or (:doc-api-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar)) {})
-        ;; Directory trees — fail loud if a tree moves/renames (rf2-utvst).
+        ;; Directory trees — fail loud if a tree moves/renames.
         dir-files     (mapcat (fn [[label segs]]
                                 (rf.api-manifest.projection/require-markdown-files
                                   label (apply rf.api-manifest.projection/repo-file segs)))
@@ -319,11 +311,11 @@
         kw-problems   (rf.api-manifest.projection/keyword-drift-problems-over-files files)
         problems      (concat var-problems kw-problems)
         ;; (1) Call-position reference discipline + keyword-drift over the
-        ;; reference trees (the original rf2-vzupmg contract).
+        ;; reference trees.
         refs-ok       (rf.api-manifest.projection/report-with-floor!
                         "spec/Privacy.md + docs/api/ + docs/story/api/"
                         (count references) min-references problems)
-        ;; (2) Page + member coverage of the manifest by docs/api/ (rf2-e5692s).
+        ;; (2) Page + member coverage of the manifest by docs/api/.
         ;; Both reports print; the check is RED if EITHER fails.
         coverage-ok   (check-coverage!)]
     (and refs-ok coverage-ok)))
