@@ -80,20 +80,20 @@
 
     ;; THE ASSERTION: B's row is untouched by A's rollback.
     (is (= [42] (rf.flows.registry/get-frame-flow-last-inputs :b :flow-x))
-        "B's last-inputs row survives A's throwing-flow rollback (rf2-94ol5)")
+        "B's last-inputs row survives A's throwing-flow rollback")
     (is (= [42] (get-in (rf.flows/last-inputs-snapshot) [:flow-x :b]))
         "the aggregated snapshot still shows B's row")))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Single-frame rollback still works — atomicity within ONE frame is
-;;    unchanged by the per-frame restructure.
+;; 2. Single-frame rollback — atomicity within ONE frame holds under the
+;;    per-frame containers.
 ;;
 ;; A prior successful flow's advance on the SAME frame must be rolled back
 ;; when a later flow on that frame throws (so it re-attempts next drain).
 ;; This is the per-frame mirror of
 ;; flows_trace_test.clj/failed-flow-rolls-back-last-inputs-so-prior-flows-retry;
-;; pinned here so the structural change doesn't silently regress the
-;; same-frame atomicity contract it preserves.
+;; pinned here so the per-frame container layout cannot silently regress
+;; the same-frame atomicity contract.
 ;; ---------------------------------------------------------------------------
 
 (deftest single-frame-rollback-still-reverts-prior-flow-advance
@@ -205,7 +205,7 @@
                    "first recompute); every later same-input drain must "
                    "dirty-check-skip. Got " (.get b-output-calls)
                    " — a value > 1 means frame A's throwing-flow rollback "
-                   "clobbered B's dirty-check row (rf2-94ol5 regression)."))
+                   "clobbered B's dirty-check row."))
 
           ;; Secondary: exactly one :rf.flow/computed trace for B.
           (is (= 1 (.get b-computed))
