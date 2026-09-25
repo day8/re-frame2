@@ -4,12 +4,11 @@
 
   The flow path validation (`valid-path?` → `re-frame.path/segment?`) and the
   output-path overlap relation (`topo/output-paths-overlap?` →
-  `re-frame.path/overlap?`) are CLJC, but the existing path-semantics tests
-  (`flows_test.clj`, `flows_path_overlap_test.clj`) are JVM-ONLY `.clj`. The
-  one CLJS flow test (`flows_trace_emit_elision_prod_test.cljs`) is a
-  prod-elision probe, NOT path semantics — so a host-sensitive divergence in
-  the flow path boundary (e.g. a raw `#js {}` object or a JS function reaching
-  the CLJS `segment?` discrimination) would be invisible to the CLJS suite.
+  `re-frame.path/overlap?`) are CLJC, but the other path-semantics tests
+  (`flows_test.clj`, `flows_path_overlap_test.clj`) are JVM-ONLY `.clj` — so
+  without this file a host-sensitive divergence in the flow path boundary
+  (e.g. a raw `#js {}` object or a JS function reaching the CLJS `segment?`
+  discrimination) would be invisible to the CLJS suite.
 
   This file is `*-cljs-test.cljc` so the shadow-cljs `:node-test` build
   (ns-regexp `cljs-test$`) discovers it AND the cognitect JVM runner runs it
@@ -35,7 +34,7 @@
 
 (defn- reg-flow-throws
   "Register a flow and return the thrown ExceptionInfo (or nil).
-  rf2-bqstzr — the 3-slot grammar: id is slot 1, :derive is the value slot,
+  The 3-slot grammar: id is slot 1, :derive is the value slot,
   the remaining reflection keys are the metadata middle slot."
   [flow]
   (try
@@ -57,7 +56,7 @@
     (is (false? (rf.flows.topo/output-paths-overlap? [:a] [:b]))       "unrelated are disjoint")))
 
 ;; ===========================================================================
-;; 1b. topo-sort self-cycle rejection (pure data, host-portable) — rf2-j538f7.6
+;; 1b. topo-sort self-cycle rejection (pure data, host-portable)
 ;;
 ;; A flow whose own :inputs overlap its own :output-path depends on itself:
 ;; that is a single-node dependency cycle and MUST be rejected at registration
@@ -130,7 +129,7 @@
 
 (deftest reg-flow-rejects-self-cycle-on-this-host
   (testing "reg-flow rejects a self-referential flow at registration with
-            :rf.error/flow-cycle and installs nothing (rf2-j538f7.6)"
+            :rf.error/flow-cycle and installs nothing"
     (let [ex (reg-flow-throws {:id :probe/self :inputs [[:x]] :derive inc :output-path [:x]})]
       (is (some? ex) "the self-cyclic registration throws")
       (is (= :rf.error/flow-cycle (error-id ex)) "structured :rf.error/flow-cycle")
@@ -140,7 +139,7 @@
 (deftest reg-flow-runtime-input-overlapping-app-db-output-is-not-a-self-cycle-on-this-host
   (testing "a runtime-qualified input [:rf.db/runtime :x] whose partition-relative
             suffix matches the app-db :output-path [:x] is a DIFFERENT partition,
-            not a self-cycle — it registers cleanly (rf2-j538f7.6, Spec 013)"
+            not a self-cycle — it registers cleanly (Spec 013)"
     (is (some? (rf/reg-flow :probe/runtime {:inputs [[:rf.db/runtime :x]] :output-path [:x]} identity))
         "the runtime-input flow registers (its input reads runtime-db, its output writes app-db)")
     (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/runtime)
@@ -170,7 +169,7 @@
         (rf/clear :flow flow-id)))))
 
 ;; ===========================================================================
-;; 3. reg-flow REJECTS host / composite segments (CLJS host — the gap)
+;; 3. reg-flow REJECTS host / composite segments (CLJS host — the JVM suite's blind spot)
 ;; ===========================================================================
 
 (deftest reg-flow-rejects-host-and-composite-segments-on-cljs
