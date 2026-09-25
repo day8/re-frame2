@@ -1,16 +1,16 @@
 (ns day8.re-frame2-xray.views.edn-inspector-fresco-boundary-dom-cljs-test
   "THE SHARED VALUE WIDGET, AS A FRESCO BOUNDARY, read off a real React
-  commit (rf2-k97c.3).
+  commit.
 
-  `edn-inspector-view` is the head a migrated panel writes. It is a real
+  `edn-inspector-view` is the head a Fresco panel writes. It is a real
   React function component whose three app-db reads go through Fresco's
   own shipped collector, rather than an `rf/reg-view` whose reads are
   tracked by whichever reaction machinery the installed substrate adapter
   supplies. This file is the behavioural evidence for that head.
 
-  ## The mount is the SHAPE STEP 2 WILL USE, not a contrivance
+  ## The mount is a Fresco panel's own shape, not a contrivance
 
-  A migrated panel is a Fresco boundary that the still-`reg-view` shell
+  A Fresco panel is a boundary that the `reg-view` shell
   mounts through `as-component` with an EMPTY props map, and the widget
   sits INSIDE that panel's body as an ordinary Fresco head. [[HostPanel]]
   is exactly that, in miniature: the value lives on the Fresco side and
@@ -34,21 +34,20 @@
         per-mount store entry (the ResizeObserver, the width debounce and
         the projection cache)
     W5  TWO panels mounted at once under one logical `:mount-id` are
-        independent, and one's unmount leaves the other whole (rf2-d2aj)
+        independent, and one's unmount leaves the other whole
     W6  a leaf TYPE CHANGE renders through the codec — the R7 branch is
         on this boundary's render path and Fresco grades every head it
-        emits (rf2-osas / rf2-qhoj)
+        emits
 
-  W4 is the row this widget needed and `module_view` did not. That panel
-  holds no per-mount mutable state; this one holds three pieces of it, and
-  they used to live in a form-2 closure that was collected with the mount.
-  A Fresco boundary has no such closure, so they moved to a module-level
-  store with an EXPLICIT release — which is precisely the change that
-  passes its happy path and leaks on unmount.
+  W4 is the row this widget needs and `module_view` does not. That panel
+  holds no per-mount mutable state; this one holds three pieces of it. A
+  Fresco boundary has no form-2 closure to collect them with the mount,
+  so they live in a module-level store with an EXPLICIT release — which
+  is precisely the shape that passes its happy path and leaks on unmount.
 
-  ## Instrument notes inherited from the first migrated panel
+  ## Instrument notes
 
-  Two facts each made a live panel read as dead there, and both apply
+  Two facts can each make a live panel read as dead, and both apply
   here. A Fresco boundary is NOT in Reagent's render queue, so the
   adapter's `:flush-render!` slot commits nothing of its update — mount is
   committed with React's own `flushSync` and everything after it is a
@@ -85,7 +84,7 @@
   `ei/edn-inspector-view`. Named once here because five rows key off it: it
   is the width-slot key, the container testid and half the expansion key.
 
-  It is NOT the store key (rf2-d2aj). That is the LIFECYCLE KEY — this name
+  It is NOT the store key. That is the LIFECYCLE KEY — this name
   qualified by the frame the mount renders under — because this name is
   logical and W5 mounts two panels that both present it."
   "edn-inspector-boundary-test")
@@ -99,11 +98,11 @@
   "One nested container, because the row W2 drives is a TOGGLE: `:a` has to
   be a container for it to have an expanded state at all.
 
-  AND IT IS DELIBERATELY TOO WIDE TO INLINE. The first draft used
-  `{:a {:b 1 :c 2}}` and W2's deaf control failed against a DOM reading
+  AND IT IS DELIBERATELY TOO WIDE TO INLINE. With `{:a {:b 1 :c 2}}`,
+  W2's deaf control would fail against a DOM reading
   `{:a {:b 1, :c 2}}` — the whole value on one line, with no `[:a]`
-  container node in it at all. Nothing was broken: the widget's
-  width-aware heuristic had simply done its job. A mount renders
+  container node in it at all — with nothing broken: the widget's
+  width-aware heuristic simply does its job. A mount renders
   depth-driven on its FIRST pass, because no measurement has arrived yet;
   the container `:ref` then measures, the width reaches the slot, and the
   next render inlines anything whose `pr-str` fits the measured column.
@@ -122,10 +121,10 @@
    ;; toggle has somewhere to move to.
    :default-expanded-depth 8})
 
-;; ---- the host panel: the shape step 2 will use ----------------------------
+;; ---- the host panel: a Fresco panel's shape -------------------------------
 
 (rf.fresco/defview HostPanel
-  "A migrated panel, in miniature. Holds the value on the Fresco side and
+  "A Fresco panel, in miniature. Holds the value on the Fresco side and
   renders the widget as an ordinary Fresco head — no props crossing, so
   the value arrives as the Clojure value it is."
   [_props]
@@ -197,7 +196,7 @@
   nil)
 
 (defn- mount-host!
-  "Mount the host panel the way the shell mounts a migrated one: the
+  "Mount the host panel the way the shell mounts a Fresco panel: the
   `as-component` bridge as a Reagent hiccup head inside a
   `frame-provider` scoping `frame`. Committed synchronously — React 19's
   `root.render` is otherwise async and the first assertion would read an
@@ -254,7 +253,7 @@
   "What the per-mount store holds for this widget's mount UNDER `frame-id`.
 
   The store's key is the LIFECYCLE KEY — the logical `mount-id` qualified by
-  the frame the mount renders under (rf2-d2aj) — because everything the entry
+  the frame the mount renders under — because everything the entry
   holds is frame-relative: the dispatcher is bound to one frame and the width
   it writes lands in that frame's app-db."
   [frame-id]
@@ -266,7 +265,7 @@
   Reads the LOGICAL id, which is what keys the slot and what the renderer
   reads a width back under — deliberately not the lifecycle key, so this
   probe is unaffected by how the store is keyed and stays a witness to the
-  measurement rather than to the fix."
+  measurement rather than to the keying."
   [frame-id]
   (get-in (rf/app-db-value frame-id) [ei/widths-slot mount-id]))
 
@@ -275,10 +274,10 @@
 ;; ===========================================================================
 
 (deftest w1-widget-paints-and-its-read-lands-in-the-named-frame
-  (testing "rf2-k97c.3 — the boundary commits real DOM, and its
+  (testing "the boundary commits real DOM, and its
             `rf.fresco/sub` on the expansion slot resolves against the frame
             the enclosing `frame-provider` named rather than the ambient
-            one. Epic criteria 1 and 4."
+            one."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_ (setup!)
@@ -297,7 +296,7 @@
               "the nested container painted EXPANDED, which is what W2's
                toggle has to move")
 
-          ;; ---- criterion 4: the read is where the tree said it would be ---
+          ;; ---- the read is where the tree said it would be ---------------
           (is (pos? (ref-count-of :rf/xray expansion-q))
               (str "the widget's expansion read holds a reference in "
                    ":rf/xray's sub-cache — the frame the frame-provider "
@@ -318,10 +317,10 @@
 ;; ===========================================================================
 
 (deftest w2-widget-updates-on-a-real-dependency-change
-  (testing "rf2-k97c.3 — a toggle written into the expansion slot reaches the
-            committed DOM, and a write the widget does NOT read does not.
-            Epic criterion 2, with the control that makes the update mean
-            liveness rather than a commit that had simply not happened yet."
+  (testing "a toggle written into the expansion slot reaches the
+            committed DOM, and a write the widget does NOT read does not —
+            the control that makes the update mean liveness rather than a
+            commit that had simply not happened yet."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
@@ -344,8 +343,8 @@
                 (fn [_]
                   ;; The width having ARRIVED is itself evidence, and worth
                   ;; banking rather than merely waiting for: the ResizeObserver
-                  ;; is one of the three pieces of per-mount state that moved
-                  ;; out of the form-2 closure for this migration, and this is
+                  ;; is one of the three pieces of per-mount state the
+                  ;; module-level store holds, and this is
                   ;; the whole loop working through the boundary — observer
                   ;; fires, `capture-frame`'s dispatcher writes the slot, the
                   ;; boundary's `rf.fresco/sub` sees it, React commits.
@@ -358,8 +357,8 @@
                                         [ei/widths-slot mount-id])
                                 0))
                       "the mount measured itself and the width reached the slot
-                       — the ResizeObserver survived the move out of the form-2
-                       closure and dispatches into the boundary's own frame")
+                       — the ResizeObserver held in the per-mount store
+                       dispatches into the boundary's own frame")
                   (is (= "1" (a-expanded container))
                       "and the node is still expanded once the measurement has
                        landed — this value is too wide to inline at any column")
@@ -409,9 +408,9 @@
 ;; ===========================================================================
 
 (deftest w3-the-boundarys-render-emits-no-view-trace
-  (testing "rf2-k97c.3 / rf2-tqlmq — rendering the widget contributes NOTHING
+  (testing "rendering the widget contributes NOTHING
             to the substrate's view-trace stream, even mounted INSIDE an
-            application frame. Epic criterion 5, structural rather than the
+            application frame. The absence is structural rather than the
             `:rf/xray` frame gate: a Fresco boundary is not a substrate view
             render, so there is no event to gate. The control is an ordinary
             `reg-view` in the same root, frame and commit."
@@ -465,18 +464,18 @@
   (zero? (ref-count-of :rf/xray expansion-q)))
 
 (deftest w4-unmount-releases-the-read-and-the-per-mount-store
-  (testing "rf2-k97c.3 — unmounting releases the subscription reference
+  (testing "unmounting releases the subscription reference
             completely AND drops everything the per-mount store held for this
             mount; remounting returns to the same reference count rather than
-            a higher one. Epic criterion 6.
+            a higher one.
 
             THE STORE HALF IS THE ADVERSARIAL ONE, and it is why this row is
-            longer than the panel template's. The widget's ResizeObserver, its
-            width debounce and its Editscript projection cache used to live in
-            a form-2 closure that was collected with the mount. A Fresco
-            boundary has no such closure, so they live in a module-level map
+            longer than the panel template's. A Fresco boundary has no form-2
+            closure to collect the widget's ResizeObserver, its width
+            debounce and its Editscript projection cache with the mount, so
+            they live in a module-level map
             with an explicit release keyed on React calling the container
-            `:ref` with nil. A port that got the rendering right and the
+            `:ref` with nil. An implementation that got the rendering right and the
             release wrong would pass every other row in this file: the DOM
             would be correct, the subscription would be released by the
             collector, and the observer would go on observing a detached node
@@ -557,12 +556,12 @@
             (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
-;; W5 — TWO PANELS AT ONCE, one logical mount-id between them (rf2-d2aj)
+;; W5 — TWO PANELS AT ONCE, one logical mount-id between them
 ;; ===========================================================================
 ;;
 ;; Every row above mounts ONE panel, so none of them can see this and none of
-;; them is wrong: the widget's per-mount state was correct for a mount that
-;; had the page to itself. The case the tool actually presents is two of them
+;; them is wrong: per-mount state keyed on the logical name alone is correct
+;; for a mount that has the page to itself. The case the tool actually presents is two of them
 ;; standing at the same time under the same logical name — the panel gallery
 ;; renders twelve variants of a panel side by side, each wrapped in its own
 ;; `frame-provider`, and each embedded panel is another. A `:mount-id` is a
@@ -570,7 +569,7 @@
 ;; `app-db-state/top`.
 ;;
 ;; The widths are the load-bearing probe here and are read through the
-;; LOGICAL id, which no part of the repair touched: they witness that each
+;; LOGICAL id, which the store's keying does not touch: they witness that each
 ;; panel MEASURED ITSELF INTO ITS OWN FRAME, which is the behaviour, rather
 ;; than witnessing how the store happens to be keyed. Two deliberately
 ;; different column widths, so "independent" is a distinguishable claim and
@@ -621,30 +620,26 @@
   — how many panels are on screen — rather than on the widget nested inside
   one.
 
-  The first draft counted the widget's container testid instead and read 4
-  for 2, which is worth keeping written down because the cause outlived the
-  draft: `testid-for` composed the SAME string for the widget's outer
-  container and for its root render-node at path `[]`, so one mount answered
-  that selector twice. `container-node` above never noticed, because
-  `querySelector` takes the first match — a count was the first instrument
-  here that had to care. Repaired under rf2-o7p7 (the node testid's path
-  separator is now unconditional, so the root node's name ends at the
-  separator and the container keeps its own), which is why `container-node`
-  can now be relied on to mean the container rather than whichever of the
-  two came first."
+  The node testid's path separator is unconditional, so the root
+  render-node's name ends at the separator and the widget's outer container
+  keeps its own testid. A `testid-for` that composed the SAME string for
+  both would make one mount answer the container selector twice — invisible
+  to `container-node` above, because `querySelector` takes the first match,
+  but not to a count. That separation is why `container-node` can be relied
+  on to mean the container rather than whichever of the two comes first."
   [container]
   (.-length (.querySelectorAll
               container "[data-testid=\"rf-xray-host-panel\"]")))
 
 (deftest w5-two-simultaneous-panels-are-independent
-  (testing "rf2-d2aj — two panels rendering the same stable `:mount-id` at the
+  (testing "two panels rendering the same stable `:mount-id` at the
             same time, each under its own frame, measure independently, hold
             their own observers, and survive each other's unmount.
 
-            The regression this row exists for was invisible to every other
+            The failure this row exists for is invisible to every other
             row in this file AND to a fully green CI: the panels both PAINT,
             the DOM is correct, and the damage is that the second one never
-            measured and the first one's state went out with the second one's
+            measures and the first one's state goes out with the second one's
             unmount. Nothing on screen says so."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
@@ -661,9 +656,9 @@
                   ;; ---- the store holds TWO live mounts, not one ----------
                   (is (= (+ before 2) (ei/mount-state-count))
                       (str "two panels on screen, two entries in the per-mount "
-                           "store. ONE entry here is the defect: the second "
-                           "panel's ref was memoised onto the first's identity, "
-                           "so it never installed an observer of its own. Held "
+                           "store. ONE entry here is the failure: the second "
+                           "panel's ref memoised onto the first's identity, "
+                           "so it never installs an observer of its own. Held "
                            (- (ei/mount-state-count) before) " for 2 mounts"))
                   (is (contains? (held-in :rf/xray) :observer)
                       "the first panel holds its own ResizeObserver")
@@ -703,7 +698,7 @@
                   (is (contains? (held-in :rf/xray) :observer)
                       (str "THE SURVIVOR IS WHOLE: the panel still on screen "
                            "still holds its own observer. Sharing one entry "
-                           "disconnected it here — an observer torn down under "
+                           "would disconnect it here — an observer torn down under "
                            "a node still in the document, which no rendering "
                            "assertion can see. Held: "
                            (pr-str (held-in :rf/xray))))
@@ -719,26 +714,21 @@
                        (done)))))))))
 
 ;; ===========================================================================
-;; W6 — A LEAF TYPE CHANGE, RENDERED THROUGH THE CODEC (rf2-osas / rf2-qhoj)
+;; W6 — A LEAF TYPE CHANGE, RENDERED THROUGH THE CODEC
 ;; ===========================================================================
 ;;
-;; rf2-qhoj was a P1 whose repair was one token wide, and every suite in this
-;; tree stayed green straight through the defect. This row is the coverage
-;; deliberately withheld from that fix so the one-token repair could land
-;; clean.
-;;
-;; ## What the defect was, and why the codec is the whole point
+;; ## Why the codec is the whole point
 ;;
 ;; The R7 type-change suffix renders the PRIOR side with the widget's `mini`
 ;; renderer, which is a plain function. Under Reagent a plain function in
 ;; hiccup head position IS a component and renders happily; under Fresco it
 ;; is a loud error by design (HD-016, `:rf.error/fresco-bad-head`). That
 ;; branch sits on `ei/edn-inspector-view`'s render path with no error
-;; boundary above it, so the throw escaped the boundary and React unmounted
-;; the entire Xray root — which presents as a panel that never appeared
-;; rather than as an error.
+;; boundary above it, so a `mini` head would throw out of the boundary and
+;; React would unmount the entire Xray root — which presents as a panel
+;; that never appeared rather than as an error.
 ;;
-;; ## Why three tiers of existing coverage all missed it
+;; ## Why no other tier of coverage reaches it
 ;;
 ;;   - the smoke-tier scenario clicks the app-db tab on `/counter/`, where
 ;;     the diff is number → number and structurally cannot reach a leaf type
@@ -748,22 +738,22 @@
 ;;   - W1–W5 above DO render through the codec, but pass no `:before`, so the
 ;;     widget is never in diff mode.
 ;;
-;; This row is the intersection nobody occupied: diff mode AND the codec, in
-;; one real mount.
+;; This row is the intersection no other row occupies: diff mode AND the
+;; codec, in one real mount.
 ;;
 ;; ## The witness, and why it is not literally `nil` → `"a string"`
 ;;
 ;; `engine/type-change?` is set for a CONTAINER KIND FLIP only — the diff
 ;; engine's own `yucxn-number-to-string-is-not-type-change` row pins that a
-;; scalar → scalar replacement is not one. The incident's nil → 20 KiB string
-;; reached the branch because the framework's size walk had ALREADY elided
-;; that string into the `{:rf.size/large-elided …}` sentinel, which is a MAP.
+;; scalar → scalar replacement is not one. A nil → 20 KiB string reaches
+;; the branch because the framework's size walk elides that string into
+;; the `{:rf.size/large-elided …}` sentinel, which is a MAP.
 ;;
 ;; So the two classifiers disagree about that value on purpose, and the
 ;; disagreement is exactly what keeps this branch reachable: the diff engine
 ;; reads the sentinel as a container (nil → container is R7), while the
 ;; inspector reads it as `:sentinel-large` and therefore renders it as a
-;; LEAF. Reproducing the incident means reproducing that PAIR, not the
+;; LEAF. Reaching the branch means reproducing that PAIR, not the
 ;; pre-elision string.
 
 (def ^:private type-change-mount-id
@@ -794,10 +784,10 @@
         :reason :rf.size/over-budget}}})
 
 (rf.fresco/defview TypeChangeHostPanel
-  "The same migrated-panel shape as [[HostPanel]], in diff mode. The value
+  "The same Fresco-panel shape as [[HostPanel]], in diff mode. The value
   and its prior side both live on the Fresco side and reach the widget as
-  ordinary Clojure arguments — the ns docstring's crossing note applies here
-  unchanged, and a diff pair is exactly the sort of value that could not
+  ordinary Clojure arguments — the ns docstring's crossing note applies
+  here too, and a diff pair is exactly the sort of value that could not
   survive a Reagent prop conversion."
   [_props]
   [:div {:data-testid "rf-xray-type-change-host-panel"}
@@ -825,15 +815,15 @@
   (some-> node (.querySelector "[data-testid=\"rf-xray-edn-inspector-mini\"]")))
 
 (deftest w6-a-leaf-type-change-renders-through-the-fresco-codec
-  (testing "rf2-osas / rf2-qhoj — a leaf whose type changed renders its R7
+  (testing "a leaf whose type changed renders its R7
             prior-value suffix through Fresco's codec. The prior side is
             produced by CALLING the `mini` renderer; handing that plain
             function to the codec as a hiccup head instead is HD-016, and the
             throw takes the whole root down with it.
 
             Read the assertions in order: the first two are the regression —
-            under the defect there is no DOM here at all, because React
-            unmounted the root — and the last three are what makes the green
+            with a `mini` head there is no DOM here at all, because React
+            unmounts the root — and the last three are what makes the green
             mean something, that the type-change branch is the one that ran
             and that `mini` contributed a RENDERED CHILD rather than a head."
     (if-not (browser?)
