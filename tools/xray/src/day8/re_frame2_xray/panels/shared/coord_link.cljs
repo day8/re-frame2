@@ -2,25 +2,24 @@
   "Shared `coord-link` — the canonical 'open in editor' LABEL-as-link
   affordance, companion to `coord-chip` (the icon-only chip).
 
-  ## Why this exists (rf2-vw5pi)
+  ## Why this exists
 
   Two shapes of panel-side click-to-source affordance live in the Xray
   panels:
 
   - **icon-only** — a glyph appended after an id (`:counter/value ↗`).
-    The canonical home is `panels/shared/coord_chip.cljs` (rf2-xjgdk).
+    The canonical home is `panels/shared/coord_chip.cljs`.
   - **label-as-link** — the verb / label TEXT itself is the hyperlink,
-    with the `external-link` glyph appended (`reg-event ↗`). Before
-    rf2-vw5pi this shape was hand-rolled ~7 times across
-    `panels/epoch/view.cljs` (the HANDLER verb-link, the DISPATCH
-    source label, the COEFFECT / FLOW verb ids, the machine cascade
-    verb-link, the machine state-path affordance) plus the schema-
-    violation action button — each re-inlining the same
-    `[:button {:on-click (rf/dispatch [:rf.xray/open-in-editor …])} …]`
-    boilerplate + its own `clickable?` / plain-fallback branch.
+    with the `external-link` glyph appended (`reg-event ↗`). This shape
+    recurs across `panels/epoch/view.cljs` (the HANDLER verb-link, the
+    DISPATCH source label, the COEFFECT / FLOW verb ids, the machine
+    cascade verb-link, the machine state-path affordance) plus the
+    schema-violation action button.
 
   `coord-link` folds the button + dispatch + nil-when-no-`:file`
-  fallback into one place, mirroring `coord-chip`. The per-site coord
+  fallback into one place, mirroring `coord-chip`, so no call-site
+  re-inlines the dispatch boilerplate or its own `clickable?` /
+  plain-fallback branch. The per-site coord
   RESOLVERS (`sub-coord`, `view-coord`, `machine-state-path-coord`, …)
   stay where they are — they are legitimately per-site; only the
   button + dispatch + fallback RENDERING is shared.
@@ -28,7 +27,7 @@
   ## What this is NOT
 
   `open_in_editor/open-chip` is a SEPARATE surface (an `<a href>`
-  anchor for the static page, rf2-evgf5 / rf2-g5q8d) and is excluded
+  anchor for the static page) and is excluded
   by design. `coord-link` (like `coord-chip`) dispatches via the trace
   bus so the click is observable as a first-class operation on the
   `:rf/xray` frame; the `:rf.xray/open-in-editor` reg-event →
@@ -44,15 +43,15 @@
 
 (defn default-dispatch
   "Fallback dispatcher for the shared open-in-editor affordances when a
-  call-site supplies no captured `dispatch-fn` (rf2-r0o63). Pins to the
+  call-site supplies no captured `dispatch-fn`. Pins to the
   PRODUCTION singleton shell frame (`defaults/default-frame-id`) rather
   than the ambient `:rf/default` resolution — the open-in-editor
   event-fx is frame-agnostic, but a host frame whose flows throw on
   every event (the deliberate-throw testbed) would entangle the
   dispatch, and the editor-bridge expects it on Xray's frame. NOT a
   bare `{:frame :rf/xray}` literal — the frame is the named
-  `default-frame-id` Var, so the singleton guard passes; migrated panel
-  call-sites override with the captured instance dispatcher.
+  `default-frame-id` Var, so the singleton guard passes; panel
+  call-sites that capture an instance dispatcher override it.
 
   Calls the owning-ns `re-frame.router/dispatch!` directly (not the
   `rf/dispatch` macro) — this fn's OWN definition site would otherwise be
@@ -68,11 +67,10 @@
   side click-to-source affordance routes through (coord-chip,
   coord-link, and the SVG-node clicks in the Reactive panel).
 
-  `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
-  the surrounding `reg-view` body so the open-in-editor event lands on
+  `dispatch-fn` is the frame-aware dispatcher captured by
+  the surrounding view body so the open-in-editor event lands on
   the instance frame; defaults to `default-dispatch` (the production
-  singleton frame) for call-sites the rf2-nesy9 sweep hasn't yet
-  threaded a captured dispatcher through."
+  singleton frame) for call-sites that pass no captured dispatcher."
   ([coord e] (open-in-editor! coord e default-dispatch))
   ([coord e dispatch-fn]
    (when e (.stopPropagation e))
@@ -81,8 +79,7 @@
 
 (defn- coord->title
   "`open <file>:<line> in editor` title string for the affordance's
-  tooltip + aria-label. Mirrors the verbatim shape every hand-rolled
-  site produced before consolidation."
+  tooltip + aria-label."
   [coord]
   (str "open " (:file coord)
        (when (:line coord) (str ":" (:line coord)))
@@ -127,8 +124,8 @@
                           the label text alone is the link (an inline
                           underlined `schema check` style link inside
                           a prose sentence). Defaults true.
-    - `:dispatch-fn`    — (rf2-r0o63) the frame-aware dispatcher
-                          captured by the surrounding `reg-view` body so
+    - `:dispatch-fn`    — the frame-aware dispatcher
+                          captured by the surrounding view body so
                           the open-in-editor click lands on the instance
                           frame. Defaults to `default-dispatch`."
   ([coord label testid]
