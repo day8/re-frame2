@@ -10,17 +10,16 @@
   command-palette `Snapshot app-db` verb — JS console + system clipboard
   (`palette/events.cljs`).
 
-  The universal `⎘` copy-value affordance that once rode every value
-  inspector was RETIRED on 2026-09-04 (rf2-6r9j.24) — unreachable since the
-  rf2-oqa60 rebuild, and out of contract under the `spec/021` §10.5 B.9 lock.
-  This namespace stays the MUST-use gesture any FUTURE affordance inherits,
-  so its fail-closed arms are kept and pinned by tests rather than deleted
-  with it. Static Machines' `Copy Mermaid` also writes to the clipboard but
+  Value inspectors carry no universal copy-value affordance — it is out of
+  contract under the `spec/021` §10.5 B.9 lock. This namespace is the
+  MUST-use gesture any FUTURE value-egress affordance inherits, so its
+  fail-closed arms are pinned by tests beyond what the one live caller
+  exercises. Static Machines' `Copy Mermaid` also writes to the clipboard but
   is NOT a value-egress site — `mermaid/emit` is value-free by contract, so
   that text rides `:rf.xray.fx/copy-to-clipboard` directly.
 
-  Programmer/AI inspection of a running app is NOT this namespace's job and
-  never was: that seam is `re-frame2-pair.runtime` plus
+  Programmer/AI inspection of a running app is NOT this namespace's job:
+  that seam is `re-frame2-pair.runtime` plus
   `tools/re-frame2-pair-mcp/`, which reads the framework's instrumentation
   directly. Xray owns the human panel; Pair owns the agent runtime.
 
@@ -28,22 +27,20 @@
   `re-frame.core/project-egress` takes NO default boundary — a caller must
   know to name one — and the UNSAFE call (`pr-str` the raw value you
   already hold) is shorter. Baking the boundary here makes the shortest
-  call the safe one (rf2-rcogp)."
+  call the safe one."
   (:require [re-frame.core :as rf]))
 
 (defn egress-value
   "Project `value` for an off-box sink (console, clipboard) through the
   framework's egress door with the off-box BOUNDARY baked in.
 
-  Named boundary (rf2-kuky.88): `:rf.egress/off-box-observability`. That
-  is the profile whose `:rf.egress/*` floor is the one this fn used to
-  hand-roll — sensitive redacts, large elides, NO structural digests — so
-  the migration is output-identical. It is deliberately NOT
+  Named boundary: `:rf.egress/off-box-observability`, the profile whose
+  `:rf.egress/*` floor is sensitive redacts, large elides, NO structural
+  digests. It is deliberately NOT
   `:rf.egress/off-box-tool`, which names the MCP / AI tool wire rather than
-  a human sink. Neither profile turns `:rf.egress/include-digests?` on
-  (rf2-3x7nj.32.6); whether an Xray clipboard payload should carry digests
-  is a separate policy question owned by rf2-elrh, not a side effect of
-  naming a boundary. A frame-declared sensitive slot egresses as `:rf/redacted`
+  a human sink. Neither profile turns `:rf.egress/include-digests?` on;
+  whether an Xray clipboard payload should carry digests is a separate
+  policy question, not a side effect of naming a boundary. A frame-declared sensitive slot egresses as `:rf/redacted`
   and a large slot as the `:rf.size/large-elided` marker. Xray's panel
   affordances expose no opt-in argument — the snapshot path is ALWAYS the
   redacted, size-elided projection, and any future affordance inherits
@@ -51,8 +48,7 @@
 
   A caller MAY still overlay an explicit `:rf.egress/*` inclusion; per
   EP-0015 §10 the explicit key wins over the profile floor. The opts are
-  read in the `:rf.egress/*` spelling — the ONE egress vocabulary
-  (rf2-kuky.6).
+  read in the `:rf.egress/*` spelling — the ONE egress vocabulary.
 
   Optional `:path` — the ABSOLUTE app-db path the value sits at. The
   framework's `:sensitive` / `:large` declarations (EP-0025 commit-plane
@@ -68,11 +64,9 @@
   its (normally empty) declaration registry and ships the value RAW. Passing
   the inspected frame — even when it is `nil` or has since been destroyed —
   routes the nil/dead case to the frameless arm, which redacts the
-  whole value to `:rf/redacted` (rf2-7htk7). The key is forwarded VERBATIM:
+  whole value to `:rf/redacted`. The key is forwarded VERBATIM:
   `project-egress` reads its `:frame` opt by PRESENCE, so an explicit nil
-  is believed. This ns once minted a host object to stand in for that nil,
-  because the walker read nil as absence; the request is now sayable and the
-  sentinel is gone (rf2-kuky.5). The contract — no live caller today, and
+  is believed. The contract — no live caller today, and
   the shape any future panel affordance MUST take:
 
       (egress/egress-value v {:frame observed})   ; nil / dead ⇒ :rf/redacted
@@ -95,8 +89,7 @@
        (contains? opts :frame) (assoc :frame (:frame opts))
        ;; EP-0015 §10 — an explicit `:rf.egress/*` inclusion the caller
        ;; passes OVERLAYS the profile floor (the override wins). Absent,
-       ;; the profile's own false stands, which is the floor this fn
-       ;; hand-rolled before rf2-kuky.88.
+       ;; the profile's own false stands.
        (contains? opts :rf.egress/include-sensitive?)
        (assoc :rf.egress/include-sensitive? (:rf.egress/include-sensitive? opts))
        (contains? opts :rf.egress/include-large?)
