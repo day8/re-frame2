@@ -2042,10 +2042,10 @@
   ;; :source-paths but nothing under examples/ or implementation/
   ;; :requires anything under testbeds/. The same contract that
   ;; firewalls tools/ from production builds (tools/README.md) applies
-  ;; here in reverse: testbed namespaces are visible to the
-  ;; bundle-isolation grep as a denylist token so a future regression
-  ;; that accidentally :requires a testbed from production code surfaces
-  ;; on CI.
+  ;; here in reverse. No gate enforces it:
+  ;; implementation/scripts/check-bundle-isolation.cjs carries no testbed
+  ;; token, so a production :require of a testbed namespace would not
+  ;; surface on CI.
   ;; ============================================================================
 
   ;; Deliberate-throw testbed (the throw-from-each-layer
