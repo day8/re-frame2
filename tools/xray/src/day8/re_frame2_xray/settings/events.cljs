@@ -109,7 +109,7 @@
         (and (= section :general) (= key :panel-width-px))
         (effects/apply-panel-width! value)
 
-        ;; Density radio writes the resolved px into
+        ;; A density change writes the resolved px into
         ;; `--rf-xray-font-size` so the whole `theme/tokens/type-scale`
         ;; rescales in lockstep (every entry is
         ;; `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`).
