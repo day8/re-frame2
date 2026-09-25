@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.fresco-advisor
-  "The cause-aware hot-view advisor (rf2-hic-037) — rank, classify,
-  recommend, and REFUSE.
+  "The cause-aware hot-view advisor — rank, classify, recommend, and
+  REFUSE.
 
   Spec SN §10 names this the differentiating feature: *ranks
   time/frequency/read churn/fan-out, then classifies computation,
@@ -24,7 +24,7 @@
   | DOM layout / paint | — | no |
 
   The three unavailable rows are not an oversight to be closed later.
-  Boundary self time was **killed as a decision**
+  Boundary self time is **ruled out by design**
   (`lanes/left-field-ideas.md` §Capability receipts): Chrome clamps its
   timer to a 0.1 ms grain while the quantity is single-digit microseconds,
   so a per-attempt interval reads either zero or one whole tick and *a
@@ -58,7 +58,7 @@
   can produce selects a native rung.
 
   The table is real, not a stub: hand it `:lowering` and it answers rung 3
-  with its steps. That arm is unreachable from [[classify]] today and its
+  with its steps. That arm is unreachable from [[classify]] and its
   test says so out loud, because a refusal that came from an empty table
   would be indistinguishable from one that came from the evidence — and
   only the second is a finding.
@@ -151,7 +151,7 @@
 ;; The recompute predicate is `hh/sub-recompute?` and lives in the shared
 ;; algebra rather than here, because `fresco-causal`'s link-2 roster asks
 ;; the same question of the same events and the two answers must be one
-;; answer (rf2-hic-037, audit #8027). `:rf.sub/skip` is a memo hit — the
+;; answer. `:rf.sub/skip` is a memo hit — the
 ;; cell answered without running, so it is not work and must not be summed
 ;; into a duration. It is counted separately because it is the single most
 ;; informative topology signal there is: a read whose considerations are
@@ -169,15 +169,14 @@
   it last.
 
   **The OPERATION is classified before the identity, and that ordering is
-  the whole correctness of this fold** (rf2-hic-037, merged-PR audit
-  #8063). It was inverted: `(nil? sid)` was the first branch, so it ran
-  ahead of `hh/sub-recompute?` and every untagged `:subs` event became an
-  unnamed RUN — an untagged `:rf.sub/skip` and an untagged
-  `:rf.sub/dispose` alike were reported as work that happened, while
-  `fresco-causal`'s link 2 (which filters on operation first) reported
-  no recompute for the same window. One event, two public answers, and
-  the shared predicate was bypassed on exactly the path where identity is
-  absent. What an event IS does not depend on whether it carried a tag,
+  the whole correctness of this fold.** With `(nil? sid)` as the first
+  branch it would run ahead of `hh/sub-recompute?` and every untagged
+  `:subs` event would become an unnamed RUN — an untagged `:rf.sub/skip`
+  and an untagged `:rf.sub/dispose` alike would be reported as work that
+  happened, while `fresco-causal`'s link 2 (which filters on operation
+  first) reports no recompute for the same window. One event, two public
+  answers, and the shared predicate bypassed on exactly the path where
+  identity is absent. What an event IS does not depend on whether it carried a tag,
   so the tag cannot be the outer question. Identity loss is handled
   INSIDE each operation arm, where it means something different in each:
   a run that joins to nothing is uncorrelated WORK, a skip that joins to
@@ -190,12 +189,12 @@
         (let [sid (get-in ev [:tags :rf.sub/id])
               k   [frame-id sid]]
           (cond
-            ;; RUN — the body ran. `:rf.sub/create` used to be read here
-            ;; too and is a REGISTRATION, not a run (rf2-y8doi.26): it
-            ;; carries no `:rf.sub/elapsed-ms` because nothing was timed,
-            ;; so it landed as an UNTIMED RUN and a `reg-sub` inside a
-            ;; handler scope pushed a quiet boundary to `:host-opaque`,
-            ;; whose remedy is another tool entirely.
+            ;; RUN — the body ran. `:rf.sub/create` is a REGISTRATION,
+            ;; not a run: it carries no `:rf.sub/elapsed-ms` because
+            ;; nothing was timed, so reading it here would land it as an
+            ;; UNTIMED RUN and a `reg-sub` inside a handler scope would
+            ;; push a quiet boundary to `:host-opaque`, whose remedy is
+            ;; another tool entirely.
             (hh/sub-recompute? ev)
             (if (nil? sid)
               ;; Work with no registration id joins to no subscription. It
@@ -291,14 +290,14 @@
      :unnamed-runs  unnamed
      :unnamed-loss  (when (pos? unnamed)
                       {:reason :uncorrelated :dropped unnamed})
-     ;; And its counterpart, which used to be counted as a run. A skip
-     ;; whose tag is absent is uncorrelated in the SAME way and a
-     ;; different fact: the memo held and the cell it held for is what
-     ;; joins to nothing. It is a second field rather than a second number
-     ;; in the first, because a reader deciding what to do next needs to
-     ;; know whether the untagged half of this window was work or was the
-     ;; absence of work — which is the very distinction the fold above
-     ;; collapsed (audit #8063). `fresco-causal`'s link 2 states the same
+     ;; And its counterpart. A skip whose tag is absent is uncorrelated in
+     ;; the SAME way and a different fact: the memo held and the cell it
+     ;; held for is what joins to nothing. It is a second field rather than
+     ;; a second number in the first, because a reader deciding what to do
+     ;; next needs to know whether the untagged half of this window was
+     ;; work or was the absence of work — which is the very distinction a
+     ;; fold that asked about identity first would collapse (see
+     ;; `fold-bundle`). `fresco-causal`'s link 2 states the same
      ;; pair as a `:skipped :count` its `:sub-ids` cannot account for.
      :unnamed-skips unnamed-sk
      :unnamed-skip-loss (when (pos? unnamed-sk)
@@ -322,7 +321,7 @@
   work of EVERY cell of that registration in that frame. A boundary
   reading two cells of one sub — `[:todo/by-id 1]` and `[:todo/by-id 2]`
   — yields two `:reads` rows that collapse to ONE pair, and looking that
-  single entry up once per row charged it twice: a doubled `:runs`, a
+  single entry up once per row would charge it twice: a doubled `:runs`, a
   doubled `:elapsed-ms`, and therefore a doubled sort key on the one axis
   the roster is ordered by.
 
@@ -351,17 +350,17 @@
 (defn- fan-out-index
   "`{[frame-id sub-id query] fan-out}` from the attribution envelope.
 
-  **The key is the CELL, not the registration** (rf2-y8doi.26). It was
-  `[frame-id sub-id]`, which summed every parameterization of one sub into
-  one bucket — so a boundary reading `[:todo/by-id 1]` alone was charged
-  the reader population of `[:todo/by-id 2]`, `…3` and every other row on
-  the page. On a per-row list that is *fan-out N* printed on every advisor
-  row, and `docs/core/fresco/16-diagnostics.md` teaches a reader to hunt
-  exactly that signature: the defect did not inflate a number, it
-  FABRICATED the evidence a developer is told to act on.
+  **The key is the CELL, not the registration.** Keyed on
+  `[frame-id sub-id]` it would sum every parameterization of one sub into
+  one bucket — so a boundary reading `[:todo/by-id 1]` alone would be
+  charged the reader population of `[:todo/by-id 2]`, `…3` and every
+  other row on the page. On a per-row list that is *fan-out N* printed on
+  every advisor row, and `docs/core/fresco/16-diagnostics.md` teaches a
+  reader to hunt exactly that signature: such a key would not inflate a
+  number, it would FABRICATE the evidence a developer is told to act on.
 
-  Still SUMMED within a key, and that is now the narrow claim it always
-  should have been: a boundary reading several cells is exposed to each
+  SUMMED within a key, and that is a narrow claim: a boundary reading
+  several cells is exposed to each
   one's reader population, so [[fan-out-edges]] hands this index one
   lookup per cell and the sum happens across the boundary's OWN cells.
   Summing inside a key is for the one case the producer genuinely folds —
@@ -454,7 +453,7 @@
                 ;; suspect because whole-set reconciliation can become
                 ;; proportional to the current read count, OR two views'
                 ;; orders of one set, OR an egress policy eliding a query.
-                ;; The key name is kept for the arm it selects; the
+                ;; The key is named for the arm it selects; the
                 ;; ambiguity is stated where the finding is worded, in
                 ;; [[classify]], which is where a reader meets it.
                 :oscillating? (and (number? (:read-orders row))
@@ -496,7 +495,7 @@
   [{:class     :lowering
     :label     "Hiccup lowering"
     :authority "the User-Timing `:render` measures Fresco emits under `re-frame.performance/enabled?` — an independently gated, observer-first channel that is off by default"
-    :why       "Fresco publishes no per-boundary lowering clock. Boundary self time was killed as a decision, not deferred: the 0.1 ms timer grain is coarser than the quantity, so a ranking built on it orders noise."}
+    :why       "Fresco publishes no per-boundary lowering clock. Boundary self time is ruled out by design, not deferred: the 0.1 ms timer grain is coarser than the quantity, so a ranking built on it orders noise."}
    {:class     :react
     :label     "React reconciliation and commit"
     :authority "the React DevTools Profiler"
@@ -525,12 +524,12 @@
   `:host-opaque` rows say *the answer is real and lives in another tool*
   — a change of instrument.
 
-  **The `:memo-hits-only` row is the one that was wrong** (rf2-hic-037,
-  audit #8027). `searched?` was derived from recompute runs alone, so a
-  window holding nothing but tagged `:rf.sub/skip` events fell through to
-  `:cap` and told the reader to enlarge a window that had already
-  retained the answer — sending them to fix the instrument instead of the
-  code. A skip is not a recompute and is still not nothing: Spec 009
+  **The `:memo-hits-only` row is the one that is easy to get wrong.**
+  Deriving `searched?` from recompute runs alone would let a window
+  holding nothing but tagged `:rf.sub/skip` events fall through to `:cap`
+  and tell the reader to enlarge a window that already retained the
+  answer — sending them to fix the instrument instead of the code. A skip
+  is not a recompute and is not nothing either: Spec 009
   emits one only when the cell was CONSIDERED, so a retained skip is
   positive evidence, and the remedy has to be the one that follows from
   it. It is classified as observed activity WITHOUT reclassifying the
@@ -544,7 +543,7 @@
         hot-ms      (or (:elapsed-ms hottest) 0.0)
         memo-hits   (:memo-hits frequency 0)
         ;; SEARCHED is about recomputes and CONSIDERED is about activity of
-        ;; any kind. They are two questions and were one predicate.
+        ;; any kind. They are two questions, not one predicate.
         searched?   (pos? (:runs frequency))
         considered? (or searched? (pos? memo-hits))
         observed    (cond searched?   :recomputes
@@ -580,17 +579,17 @@
       ;; three different situations — a set that really oscillates, two
       ;; declared views holding their own orders of the same set, or an
       ;; elided-argument projection collapsing distinct raw sets — and
-      ;; only the first is what rung 2 addresses. This arm used to state
-      ;; the first as fact and route there, which is a recommendation of
-      ;; topology surgery on a signal the producer documents as ambiguous.
+      ;; only the first is what rung 2 addresses. Stating the first as
+      ;; fact and routing there would recommend topology surgery on a
+      ;; signal the producer documents as ambiguous.
       ;;
-      ;; It keeps the arm and keeps rung 2 — the remedy for all three is to
-      ;; look at the read set, and the other candidates for this window are
+      ;; So the arm routes to rung 2 — the remedy for all three is to look
+      ;; at the read set, and the other candidates for this window are
       ;; strictly worse advice — but it stamps the `:uncorrelated` loss and
-      ;; names the three. The panel already renders a classification's loss
-      ;; as a chip beside the sentence, so the qualification reaches the
-      ;; page rather than only the data. No schema bump: `:loss` is a field
-      ;; every classification already carries (rf2-y8doi.26, option B).
+      ;; names the three. The panel renders a classification's loss as a
+      ;; chip beside the sentence, so the qualification reaches the page
+      ;; rather than only the data. `:loss` is a field every classification
+      ;; carries.
       (:oscillating? read-churn)
       {:owner :read-topology
        :basis :derivation
@@ -640,8 +639,8 @@
       ;; window RETAINED this boundary's reads being considered, and the
       ;; memo answered every time — which is a finding about the read
       ;; topology, not a gap in the window. Routing this to the `:cap` arm
-      ;; below told the reader to enlarge a window that had already held
-      ;; the answer (audit #8027).
+      ;; below would tell the reader to enlarge a window that already holds
+      ;; the answer.
       considered?
       {:owner      :unattributed
        :basis      :host-opaque
@@ -681,7 +680,7 @@
   "`lanes/hot-path-architecture.md` §Xray-guided workflow, verbatim in
   substance and numbered as it is there.
 
-  Kept as data so a route can attach the steps that actually apply to it
+  Held as data so a route can attach the steps that actually apply to it
   rather than printing the whole loop at a reader who needs three of it."
   {1 "Name a slow interaction and reproduce it with a stable script."
    2 "Correlate event, changed reads, invalidated boundaries, body work, commit, and paint."
@@ -839,7 +838,8 @@
         att     (attributable timing edges)
         ;; TWO edge derivations, one per join — see [[fan-out-edges]] for
         ;; why the finest identity differs between the ring and the cell
-        ;; table. Reusing `edges` here was the whole of the fan-out defect.
+        ;; table. Reusing `edges` here would look the cell-keyed index up
+        ;; by `[frame-id sub-id]` pair, which matches no key.
         fan     (reduce + 0 (map #(get fan-idx % 0) (fan-out-edges row)))
         ax      (axes row att fan)
         cls     (classify ax att)]
