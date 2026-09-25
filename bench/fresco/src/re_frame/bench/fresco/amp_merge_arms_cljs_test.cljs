@@ -1,22 +1,22 @@
 (ns re-frame.bench.fresco.amp-merge-arms-cljs-test
-  "THE CLIFF THE `:&` LADDER FELL OFF, AND THE PAIRS THAT DO NOT (rf2-v5oto).
+  "THE ARRAY-MAP CLIFF, AND THE `:&` LADDER PAIRS THAT STAY OFF IT.
 
   `amp_merge_clock_app`'s decomposition ladder prices the codec's
   `merge-caller` cleanly and the AUTHOR's share only as a SUM, and the
   reason is not statistical. One helper cannot omit a key for three
   fields out of four without an `assoc`, so `field-explicit` writes
-  `:class` unconditionally and both of `rf2-z143r`'s rungs carry a
-  `:class nil` passenger — which would be a single map entry if a map
-  entry were a smooth cost. It is not:
+  `:class` unconditionally and the ladder's `:helper` and `:no-dissoc`
+  arms both carry a `:class nil` passenger — which would be a single map
+  entry if a map entry were a smooth cost. It is not:
   `cljs.core/PersistentArrayMap`'s `HASHMAP-THRESHOLD` is EIGHT, and the
   entry that would make nine promotes the whole map to a
-  `PersistentHashMap`. Rungs (1) and (3) were therefore comparing two
-  map REPRESENTATIONS, not two maps.
+  `PersistentHashMap`. Rungs (1) and (3) therefore compare two map
+  REPRESENTATIONS, not two maps.
 
-  `rf2-v5oto` repairs that with two arms whose pairs stay on one side of
-  the cliff. This file is what stops the repair rotting: a rung whose
-  arms drift back across the boundary reads as a number rather than as a
-  fault, which is the class of defect the whole lane exists to refuse.
+  Rungs (1') and (3') split the author's share with two arms whose pairs
+  stay on one side of the cliff. This file is what stops them rotting: a
+  rung whose arms drift across the boundary reads as a number rather than
+  as a fault, which is the class of defect the whole lane exists to refuse.
 
   ## What is checked mechanically and what is checked by reading
 
@@ -73,9 +73,9 @@
    :data-testid "editor-description"})
 
 (def ^:private classless-remainder+nil-class
-  "The same field as `rf2-z143r`'s two rungs write it: one helper cannot
-  omit a key for three fields out of four, so the key is written and the
-  value is nil. THE PASSENGER, spelled out."
+  "The same field as the `:helper` and `:no-dissoc` arms write it: one
+  helper cannot omit a key for three fields out of four, so the key is
+  written and the value is nil. THE PASSENGER, spelled out."
   {:class nil
    :type "text" :name "description" :placeholder "What's this article about?"
    :data-testid "editor-description"})
@@ -160,7 +160,7 @@
       (is (instance? PersistentArrayMap lean)))
     (testing "no `:class` key reaches the element at all"
       (is (not (contains? lean :class))
-          "the passenger is absent, which is the whole of the repair"))
+          "the passenger is absent, which is the whole point of this arm"))
     (testing "and the codec meets that map by identity — there is no `:&` here"
       (is (identical? lean (rf.bench.fresco.front.codec/merge-caller lean))))))
 
@@ -201,7 +201,7 @@
         (is (instance? representation lean))))))
 
 ;; ---------------------------------------------------------------------------
-;; Anti-vacuity — the defect rf2-v5oto repairs, asserted rather than described
+;; Anti-vacuity — the cliff rungs (1) and (3) cross, asserted rather than described
 ;; ---------------------------------------------------------------------------
 
 (deftest the-old-rungs-crossed-the-cliff
@@ -225,5 +225,5 @@
       (is (= 9 (count old)))
       (is (instance? PersistentHashMap old))
       (is (not= (type merged) (type old))
-          (str "rung (3)'s two arms were a map REPRESENTATION apart on 300 of "
-               "the page's 400 fields, which is why it read NEGATIVE")))))
+          (str "rung (3)'s two arms are a map REPRESENTATION apart on 300 of "
+               "the page's 400 fields, which is why it reads NEGATIVE")))))
