@@ -18,10 +18,14 @@
      from the buffer (default posture); the bottom rail surfaces a
      `[● REDACTED N]` hint.
 
-  2. **Schema-installed redaction** — per-slot `{:sensitive? true}`
-     metadata is the path-level privacy surface. This event payload is
-     intentionally modeled with handler metadata because it is not an
-     app-db path-scoped write.
+  2. **Path-level redaction rides the commit-plane effect** — a
+     handler returning `:sensitive [[…path]]` alongside `:db` classifies
+     an app-db path sensitive (EP-0025). A schema's per-slot
+     `{:sensitive? true}` prop is not a route into that registry: it
+     redacts only that schema's own validation-failure traces (see the
+     SCHEMAS block below). This event payload is intentionally modeled
+     with handler metadata because it is not an app-db path-scoped
+     write.
 
   3. **`:large` classified app-db slot** — the `:user/avatar-pdf`
      slot is classified durable-large on the testbed's `:rf/default`
@@ -127,7 +131,7 @@
 ;; ============================================================================
 ;;
 ;; Handler metadata is the cross-cutting escape hatch for event payloads
-;; that cannot be represented as schema-sensitive app-db slots.
+;; that cannot be represented as classified-sensitive app-db paths.
 
 (rf/reg-event :auth/sign-in
   ;; Registration metadata — the registrar copies `:sensitive? true`
