@@ -1,29 +1,25 @@
 (ns re-frame.bench.fresco.jsfb-uix-app
   "THE DONOR ARM — js-framework-benchmark's app in UIx, reading re-frame2
-  subscriptions (rf2-rguy1).
+  subscriptions.
 
-  ## Why a third arm, added after the first two had already run
+  ## Why a third arm
 
-  The `rf2-8nqsl` audit (PR #7357) reported that the programme's published
-  **bulk-broad `0.6291×`** row does not survive a clock that looks past
-  the `flushSync` boundary: on the same samples it reads `1.0509×`,
-  parity, and a claimed 37% win becomes no win. The follow-up asked this
-  bead to point at bulk broad, because two independent instruments that
-  see the whole operation agreeing would settle the row.
+  The programme's published **bulk-broad `0.6291×`** row is contested by a
+  clock that looks past the `flushSync` boundary, and two independent
+  instruments that see the whole operation agreeing would settle it.
 
-  **The audit's own clock was `taskNet`, and `taskNet` is FRAME-ONLY**
-  (`rf2-yd52q`) — the subtraction of `DevToolsCommandDuration` removes the
-  operation's own script — so its `1.0509×` is struck rather than kept as
-  the second reading. That is why this arm still matters: it drives
-  through the Input domain rather than `page.evaluate`, so it was never
-  exposed to that fault, and it is the independent instrument the
-  follow-up asked for. Nothing in this lane is called by the bare
-  adjective *frame-inclusive*; a window is named by what it measures.
+  **The `taskNet` clock that reads it as `1.0509×` is FRAME-ONLY** — the
+  subtraction of `DevToolsCommandDuration` removes the operation's own
+  script — so that `1.0509×` is struck rather than kept as the second
+  reading. That is why this arm matters: it drives through the Input
+  domain rather than `page.evaluate`, so it is not exposed to that fault,
+  and it is the independent instrument the row needs. Nothing in this
+  lane is called by the bare adjective *frame-inclusive*; a window is
+  named by what it measures.
 
-  **That row is `UIx / Reagent`, not `Fresco / Reagent`.** Every clock
-  figure the programme published before `rf2-0qj9w` is about the DONORS —
-  the converged page's `M1` mount `1.0150×` and bulk-broad `0.6291×` are
-  UIx against Reagent, and the candidate appears in neither. A run with
+  **That row is `UIx / Reagent`, not `Fresco / Reagent`.** The converged
+  page's `M1` mount `1.0150×` and bulk-broad `0.6291×` are about the
+  DONORS — UIx against Reagent — and the candidate appears in neither. A run with
   only a Reagent arm and a Fresco arm cannot speak to it, however many
   instruments it uses, and reporting one as though it could would be the
   same class of error as comparing two ratios taken on different
@@ -43,9 +39,7 @@
   number taken here is comparable to those.
 
   The model, the events and the subscriptions are `jsfb-model`'s, shared
-  with both other arms. The DOM is gated identical across all three.
-
-  Owner: rf2-rguy1."
+  with both other arms. The DOM is gated identical across all three."
   (:require [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.jsfb-model :as rf.bench.fresco.jsfb-model]
             [re-frame.core :as rf]
