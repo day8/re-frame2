@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.views.resizable-table-drag-cljs-test
-  "rf2-65015d — column-drag pointer teardown.
+  "Column-drag pointer teardown.
 
   The resizable-table header gutter attaches window-level
   pointermove/up/cancel listeners on pointerdown. A missed pointerup
@@ -84,7 +84,7 @@
           "one teardown clears the state — the prior drag left no orphan"))))
 
 (deftest pointerup-commits-and-tears-down
-  (testing "the ordinary pointerup path still commits once + clears"
+  (testing "the ordinary pointerup path commits once + clears"
     (let [d  (atom [])
           df (fn [ev] (swap! d conj ev))]
       (rt/on-pointer-down df :tbl :a :b (stub-pointer-event 100 :a 120 :b 80))
@@ -94,12 +94,12 @@
       (is (= 1 (count (filter #(= :rf.xray.column-widths/resize-pair-commit (first %)) @d)))
           "exactly one commit per drag (one localStorage write, not one per pixel)"))))
 
-;; ---- the gutter's own window (rf2-3x7nj.25.5) ---------------------------
+;; ---- the gutter's own window --------------------------------------------
 
 (deftest drag-binds-the-gutters-own-window
-  (testing "rf2-3x7nj.25.5 — in the pop-out, `js/window` is the OPENER,
-            whose listeners the pop-out's pointer events never reach, so
-            the Trace table's gutters could not be dragged there. The drag
+  (testing "in the pop-out, `js/window` is the OPENER, whose listeners
+            the pop-out's pointer events never reach, so binding there
+            would leave the Trace table's gutters undraggable. The drag
             must bind to the gutter's OWN window (its document's
             `defaultView`), and detach from that same one."
     (popout-document/with-opener-globals
