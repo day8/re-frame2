@@ -1463,7 +1463,7 @@
         ;; can also be control-driven.
         frag-sub-ovr (reduce (fn [m l] (merge m (:sub-overrides l))) {} frag-layers)
         ;; The RAW merged overrides BEFORE `[:arg key]` substitution — carried
-        ;; on the plan (`[:world :render :sub-overrides-raw]`) so the render
+        ;; on the plan (`[:render-raw :sub-overrides]`) so the render
         ;; path (`render-variant`) can RE-resolve the
         ;; placeholders against the POST-control effective args (a control
         ;; that drives an override value, e.g. `{[:login/error] [:arg
