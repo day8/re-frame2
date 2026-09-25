@@ -42,8 +42,8 @@
 ;; (`api-md-check`), a strict `[namespace var]` set (`xray-spec-check`) — and
 ;; those are DISTINCT contracts, not four spellings of one. Bare-name latitude
 ;; is sound where a surface names vars across several public namespaces under
-;; one alias; it is unsound for the Xray panel symbols, where ten namespaces
-;; carry the same `:var "Panel"`. Consolidating them would trade a real
+;; one alias; it is unsound for the Xray panel symbols, where every panel
+;; namespace carries the same `:var "Panel"`. Consolidating them would trade a real
 ;; guarantee for a shared helper.
 
 (defn rows-in-ns
