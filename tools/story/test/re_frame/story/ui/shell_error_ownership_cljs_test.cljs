@@ -1,40 +1,33 @@
 (ns re-frame.story.ui.shell-error-ownership-cljs-test
-  "rf2-8yyd / rf2-kuky.18 — a mounted Story shell OWNS the refusals its own
-  frames produce, so `re-frame.error-emit`'s untooled-dev console fallback
-  stays quiet while Story runs its deliberately-failing variants.
+  "A mounted Story shell OWNS the refusals its own frames produce, so
+  `re-frame.error-emit`'s untooled-dev console fallback stays quiet while
+  Story runs its deliberately-failing variants.
 
-  The fallback (rf2-fu75) prints a promoted `:rf.error/*` record to
-  `console.error` when NOTHING ROUTED IT. Story's testbeds run failing
-  scenarios on purpose (`failing-event-throws`, `failing-play`,
-  `failing-fx-stub-miss`, `deliberately-failing`), so every one of those
-  printed a console line; 227 of them redded the Story feature-load browser
-  gate, which treats a console error as fatal.
+  The fallback prints a promoted `:rf.error/*` record to `console.error`
+  when NOTHING ROUTED IT. Story's testbeds run failing scenarios on purpose
+  (`failing-event-throws`, `failing-play`, `failing-fx-stub-miss`,
+  `deliberately-failing`), so without that ownership every one of those
+  would print a console line and red the Story feature-load browser gate,
+  which treats a console error as fatal.
 
-  ## What changed, and why the assertions moved with it
+  ## How Story owns them, and what the assertions pin
 
-  rf2-8yyd bought the silence by registering `(fn [_record] nil)` on the
-  corpus-wide `:errors` LISTENER registry — a no-op listener whose whole
-  payload was the registration, because the fallback keyed on that registry
-  being empty. That worked and was honest against the contract as written,
-  but it silenced the console for EVERY frame on the page, Story's and the
-  host app's alike: a claim on a door nobody reads, to change behaviour on a
-  door nobody registered.
-
-  rf2-kuky.18 re-keyed the fallback on \"nothing routed THIS record\", which
-  gives Story a frame-scoped way to own its own errors and only its own:
-  every Story-allocated frame declares `{:sink :rf.story/errors}` on its
+  The fallback keys on \"nothing routed THIS record\", which gives Story a
+  frame-scoped way to own its own errors and only its own: every
+  Story-allocated frame declares `{:sink :rf.story/errors}` on its
   `[:observability :errors]` policy, and the mounted shell registers the
   concrete sink. So these assertions pin the SINK REGISTRY
-  (`re-frame.observability/sinks`) and the frame policy, where they used to
-  pin the listener registry — the precise things the mechanism now consults.
-  Narrowing the claim to a different id, a different stream, or a
-  `goog.DEBUG` branch the fallback does not read would fail here rather than
-  in a twelve-minute browser gate.
+  (`re-frame.observability/sinks`) and the frame policy — the precise
+  things the mechanism consults. Narrowing the claim to a different id, a
+  different stream, or a `goog.DEBUG` branch the fallback does not read
+  would fail here rather than in a twelve-minute browser gate.
 
-  The host-app row below is no longer merely \"our release does not drop
-  theirs\": a host app's frames are untouched BY CONSTRUCTION, because they
-  declare no policy and Story registers nothing on their behalf. That is the
-  property the page-wide claim could not express at all.
+  Registering a no-op `(fn [_record] nil)` on the corpus-wide `:errors`
+  LISTENER registry would also quiet the console, but for EVERY frame on
+  the page, Story's and the host app's alike. Under the sink policy a host
+  app's frames are untouched BY CONSTRUCTION, because they declare no
+  policy and Story registers nothing on their behalf; the host-app row
+  below pins that.
 
   What this namespace does NOT do is assert that a console error stops
   appearing — that is the browser gate's job
@@ -53,11 +46,11 @@
 
 ;; The registry the fallback's arm (b) resolves a frame's declared sink id
 ;; against. Private in `observability` because it is not an app-facing
-;; surface; read here because it is the precise thing this fix moved onto.
+;; surface; read here because it is the precise thing the mechanism consults.
 (def ^:private sinks @#'rf.observability/sinks)
 
-;; The corpus-wide listener registry — arm (a). Read only to prove Story no
-;; longer touches it at all, which is the whole point of the change.
+;; The corpus-wide listener registry — arm (a). Read only to prove Story does
+;; not touch it at all: a Story listener there would quiet the whole page.
 (def ^:private listeners @#'rf.error-emit/listeners)
 
 (def ^:private variant-frame-config @#'rf.story.frames/variant-frame-config)
@@ -101,10 +94,10 @@
     (is (nil? (get @sinks rf.story.config/error-sink-id)))))
 
 (deftest story-never-touches-the-corpus-wide-listener-registry
-  (testing "the claim is frame-scoped policy now, not a page-wide listener.
+  (testing "the claim is frame-scoped policy, not a page-wide listener.
             Mounting must leave the `:errors` LISTENER registry exactly as it
             found it — that registry is the host app's, and Story taking it
-            was what silenced frames Story never mounted (rf2-kuky.18)"
+            would silence frames Story never mounted"
     (is (empty? @listeners))
     (register-sink!)
     (is (empty? @listeners)
