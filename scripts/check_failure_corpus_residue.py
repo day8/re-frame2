@@ -5,35 +5,34 @@ The framework's *failure corpus* — the errors concept page
 (`docs/core/errors.md`) and the failure testbeds
 (`testbeds/schema_violation`, `testbeds/drain_depth_trigger`, …) — is a
 TEACHING corpus for the error catalogue in Spec 009 §Error event catalogue.
-Spec 009 already binds the *catalogue rows* to the feature specs by a co-edit
+Spec 009 binds the *catalogue rows* to the feature specs by a co-edit
 invariant (009 §Error event catalogue: "every `:rf.<area>/<category>` event
 MUST land as a row in this catalogue in the same PR as the owning Spec
-change"). But nothing bound the corpus: when a category was retired or
-re-semantics'd, the teaching examples could — and did — keep asserting the
-RETIRED shape, so the repo's own failure teaching taught behaviour the runtime
-no longer produces (rf2-2oqj59):
+change"). The corpus needs the same binding: when a category is retired or
+re-semantics'd, a teaching example that keeps asserting the RETIRED shape
+makes the repo's own failure teaching teach behaviour the runtime does not
+produce. The retirements this gate pins:
 
-  * `testbeds/drain_depth_trigger` taught whole-drain ATOMIC ROLLBACK
-    (`:depth-reached` reads back to 0). Retired by rf2-nj6p7 / rf2-u6jsj:
-    the atomicity unit is the EVENT, not the drain — per-event durability,
-    NO whole-drain rollback, `:rollback? false`, `:depth-reached` reads back
-    to the ceiling. (Spec 002 §Drain versus event — the epoch unit.)
+  * Whole-drain ATOMIC ROLLBACK (`:depth-reached` reading back to 0) is
+    retired: the atomicity unit is the EVENT, not the drain — per-event
+    durability, NO whole-drain rollback, `:rollback? false`, `:depth-reached`
+    reads back to the ceiling. (Spec 002 §Drain versus event — the epoch
+    unit.)
 
-  * `testbeds/schema_violation` Button C taught `:where :cofx` schema-
-    validation (skip-handler, queue-continues). Retired by rf2-nkf4l3: a
-    recordable coeffect failing its `reg-cofx` `:schema` is the separate,
-    HALTING `:rf.error/cofx-value-invalid` hard error — it THROWS and does
-    NOT emit `:rf.error/schema-validation-failure` at all. There is no
-    `:where :cofx` member of the schema-validation `:where` enum. (Spec 010
+  * `:where :cofx` schema-validation (skip-handler, queue-continues) is
+    retired: a recordable coeffect failing its `reg-cofx` `:schema` is the
+    separate, HALTING `:rf.error/cofx-value-invalid` hard error — it THROWS
+    and does NOT emit `:rf.error/schema-validation-failure` at all. There is
+    no `:where :cofx` member of the schema-validation `:where` enum. (Spec 010
     §Validation order step 2.)
 
-This gate is the mechanical half of widening that co-edit invariant to the
-corpus: a grep-able advisory scan that fires when a KNOWN-RETIRED failure
-spelling reappears as LIVE teaching in the corpus. It does not (and cannot)
-prove every future retirement is followed through — that is the reviewer's
-job under the co-edit invariant documented in errors.md §"This page is bound
-to the catalogue". It DOES pin the retirements already made so they cannot
-silently regress.
+This gate is the mechanical half of that co-edit invariant for the corpus: a
+grep-able advisory scan that fires when a KNOWN-RETIRED failure spelling
+reappears as LIVE teaching in the corpus. It does not (and cannot) prove
+every future retirement is followed through — that is the reviewer's job
+under the co-edit invariant documented in errors.md §"This page is bound to
+the catalogue". It DOES pin the retirements above so they cannot silently
+regress.
 
 THE ONE MECHANICAL SPELLING: `:where :cofx`
 
@@ -116,7 +115,7 @@ _EXCLUDE_DIR_NAMES = frozenset({
 # Retired-spelling patterns
 # --------------------------------------------------------------------------
 #
-# `:where :cofx` — the retired schema-validation `:where` surface (rf2-nkf4l3).
+# `:where :cofx` — the retired schema-validation `:where` surface.
 # Whitespace-tolerant between the two keywords; `\b`-style trailing guards
 # forbid `:cofx/x` / `:cofxs`. The leading `:where` anchor is what scopes this
 # to the schema-validation surface (a bare `:cofx` is a legitimate data key —
@@ -190,7 +189,7 @@ def _code_fence_lines(text: str) -> list[tuple[int, str]]:
 # --------------------------------------------------------------------------
 #
 # Testbed source names the retired spelling in docstrings + `;;` comments
-# describing the retirement (the Button-C section comment). Those are
+# describing the retirement. Those are
 # documentation, not live code. We mask both, length-preserving, tracking
 # multi-line strings. (Same shape as scripts/check_retired_spellings.py.)
 
@@ -307,7 +306,7 @@ def scan(repo_root: Path) -> list[Finding]:
 
 _FIX_HINTS = {
     ":where :cofx": (
-        "`:where :cofx` was RETIRED in EP-0017 (rf2-nkf4l3). A recordable "
+        "`:where :cofx` is RETIRED (EP-0017). A recordable "
         "coeffect (`:rf.cofx/requires`) whose value fails its `reg-cofx` "
         "`:schema` is NOT a `:where :cofx` schema-validation trace — it is the "
         "separate, HALTING `:rf.error/cofx-value-invalid` hard error, which "
@@ -324,7 +323,7 @@ _FIX_HINTS = {
 def _report(findings: list[Finding], repo_root: Path) -> None:
     sys.stderr.write(
         f"\n{len(findings)} live retired-failure-spelling hit(s) found in the "
-        "failure corpus (rf2-2oqj59 §co-edit invariant):\n\n"
+        "failure corpus (co-edit invariant):\n\n"
     )
     for f in findings:
         try:
@@ -412,10 +411,8 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     Positive fixtures plant a LIVE `:where :cofx` inside a markdown code fence
     or in live testbed source, and the assertion is EXACT — the count must be
-    the one declared, not merely non-zero. (The docstring advertised `>= 1`
-    long after the code stopped doing it; `>= 1` is the fail-open shape
-    rf2-e1xx0 removed, and prose describing it is an invitation to put it
-    back — rf2-57vnc.) Negative fixtures exercise the
+    the one declared, not merely non-zero, because `>= 1` would be a
+    fail-open shape. Negative fixtures exercise the
     counterparts that MUST stay green: removed-context prose, an inline code
     span, a `;` comment in a fence, a source docstring / `;` comment mention,
     the bare `:cofx` data-key (no `:where` head), and the rewritten

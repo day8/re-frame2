@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # scripts/git-hooks/lib/check-stale-mcp-binary.sh
 #
-# Detection helper for the post-merge stale-MCP-binary warning (rf2-6jj3r).
+# Detection helper for the post-merge stale-MCP-binary warning.
 # Reads a list of newline-separated changed file paths on stdin and prints
 # a warning to stderr if any path falls inside an MCP-binary source surface
 # whose compiled artefact under `out/` is gitignored and rebuilt locally.
@@ -67,7 +67,7 @@ check_stale_mcp_binary() {
         seen_labels="$seen_labels $label"
         printf '\n' >&2
         printf '====================================================================\n' >&2
-        printf '  %s: source changed — local binary is now stale (rf2-6jj3r)\n' "$label" >&2
+        printf '  %s: source changed — local binary is now stale\n' "$label" >&2
         printf '====================================================================\n' >&2
         printf '\n' >&2
         printf '  The compiled MCP binary under tools/re-frame2-pair-mcp/out/ is\n' >&2

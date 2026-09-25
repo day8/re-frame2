@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """Egress-walker residue guardrail — one `project-egress` door for tool code.
 
-The normative rule this gate enforces is the rf2-kuky.9 ruling (option A),
-executed across four stages by rf2-kuky.88 / .90 / .92 / .93: **`rf/project-egress`
-is the ONLY projection door on the re-frame2 facade.** The leaf walker
+The normative rule this gate enforces: **`rf/project-egress` is the ONLY
+projection door on the re-frame2 facade.** The leaf walker
 `re-frame.elision/elide-wire-value` is a framework-internal mechanism BEHIND that
-door — it has no `re-frame.core` re-export and no public-API manifest row
-(rf2-kuky.90 removed both).
+door — it has no `re-frame.core` re-export and no public-API manifest row.
 
-WHY A GATE AND NOT JUST A DELETION. The walker reads no `:rf.egress/profile`. A
-tool that reaches it directly therefore has to hand-assemble the `:rf.egress/*`
-floor a named boundary already carries — and gets NO error if it assembles a
-weaker one, because an all-false floor is a legitimate walker argument. That is
-the fail-open shape stage 1 (rf2-kuky.88) migrated every tool off. Deleting the
-facade export closes the `rf/` spelling; this gate closes the other three, which
-still resolve because the walker stays public at its home namespace for the
-framework's own emit-time chokepoints.
+WHY A GATE AND NOT ONLY A MISSING EXPORT. The walker reads no
+`:rf.egress/profile`. A tool that reaches it directly therefore has to
+hand-assemble the `:rf.egress/*` floor a named boundary already carries — and
+gets NO error if it assembles a weaker one, because an all-false floor is a
+legitimate walker argument. That is a fail-open shape. The missing facade export
+closes the `rf/` spelling; this gate closes the other three, which resolve
+because the walker stays public at its home namespace for the framework's own
+emit-time chokepoints.
 
 THE SURFACE — tool and preload SOURCE, nothing else.
 
@@ -31,7 +29,7 @@ as the mechanism it is. Scanning any of those would fire on correct content.
 
 WHAT COUNTS AS RESIDUE — CALL POSITION, NOT THE NAME.
 
-Naming the walker in a docstring or comment is fine and often right: four
+Naming the walker in a docstring or comment is fine and often right: several
 `tools/*/src` files describe the framework's internal walk that way, spelled at
 the home namespace. What this gate refuses is a CALL — an open paren, then
 READER WHITESPACE ONLY, then the symbol, optionally namespace-qualified and
@@ -52,11 +50,10 @@ form, so all of them are residue:
     ( ;; project the slot                     <- a comment, then a newline
       rf.elision/elide-wire-value v opts)
 
-The earlier revision of this gate required the symbol IMMEDIATELY after the
-paren and searched one line at a time, so all three of those passed while the
-tight spelling was refused (rf2-kuky.90, merged-PR audit #9491). A gate whose
-own fixtures all use one spelling cannot see that it only checks one spelling;
-that is why every variant above now has a fixture of its own.
+A gate that required the symbol IMMEDIATELY after the paren and searched one
+line at a time would pass all three of those while refusing the tight spelling.
+A gate whose own fixtures all use one spelling cannot see that it only checks
+one spelling; that is why every variant above has a fixture of its own.
 
 STRING LITERALS ARE SCANNED ON PURPOSE. The pair-MCP servers ship walks as
 RENDERED EVAL FORMS — source text assembled into a string and evaluated in the
@@ -65,18 +62,17 @@ the gate makes no attempt to skip strings, and a `;` comment carrying a
 copy-pasteable call is refused for the same reason: in a shipped tool source
 tree it reads as the recommended shape.
 
-WHAT STILL DOES NOT FIRE, AND WHY THE WIDENING ABOVE KEEPS IT THAT WAY. A
+WHAT DOES NOT FIRE, AND WHY READER WHITESPACE KEEPS IT THAT WAY. A
 back-ticked mention inside a paren — ``(`re-frame.elision/elide-wire-value`)``,
-a shape that occurs live in `tools/xray/src` today — is prose, not a call. A
+a shape that occurs in `tools/xray/src` — is prose, not a call. A
 backtick is NOT reader whitespace, so it breaks the call head wherever it sits:
 tight against the paren, or behind a space or a newline. Likewise a mention
 inside a skipped `;` comment is consumed WITH that comment — the comment is
 skipped as one unit, up to and including its newline — so naming the walker in
 a comment inside an open form does not read as calling it.
 
-Neither this gate nor its fixtures are a Clojure reader, and completing them was
-never a request for one (audit #9491's own words). Reader-equivalent formatting
-of an ordinary call is the surface; deliberate obfuscation is not.
+Neither this gate nor its fixtures are a Clojure reader. Reader-equivalent
+formatting of an ordinary call is the surface; deliberate obfuscation is not.
 """
 
 from __future__ import annotations
@@ -187,7 +183,7 @@ def run_scan(paths: list[Path], verbose: bool = False) -> int:
         sys.stderr.write(f"  {rel}:{n}: {line}\n")
     sys.stderr.write(
         "\n`re-frame.elision/elide-wire-value` is a framework-internal mechanism, "
-        "not a door (rf2-kuky.9 ruling A).\n"
+        "not a door.\n"
         "Project through the one facade door with a NAMED boundary instead:\n\n"
         "    (rf/project-egress v {:rf.egress/profile :rf.egress/off-box-tool\n"
         "                          :frame frame-id})\n\n"
@@ -203,9 +199,8 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     Each case pins the LINE NUMBERS, not just the count. A count alone cannot
     tell a pattern that found the right five things from one that found four
-    plus a false positive — and this gate has already shipped once with its
-    fixtures and its pattern sharing a blind spot (audit #9491), so the cheap
-    extra discrimination is worth having.
+    plus a false positive — and a gate's fixtures and its pattern can share a
+    blind spot, so the cheap extra discrimination is worth having.
     """
     cases = [
         # the tight-call control: callee hard against the paren

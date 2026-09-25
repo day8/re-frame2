@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""EDN well-formedness gate for the conformance corpus (rf2-x91a).
+"""EDN well-formedness gate for the conformance corpus.
 
 The invariant this gate enforces:
 
     Every file under `spec/conformance/fixtures/` is a well-formed EDN file
     holding EXACTLY ONE top-level form, with nothing after it — and it is
-    PLAIN EDN: no auto-resolved `::name` keyword outside a string (rf2-vc2a).
+    PLAIN EDN: no auto-resolved `::name` keyword outside a string.
 
-The defect this prevents (rf2-5mr6): both fixture loaders read a fixture with
+The defect this prevents: both fixture loaders read a fixture with
 `clojure.edn/read-string` over the whole file. `read-string` returns the FIRST
 form and IGNORES everything after it, silently. So a fixture whose expectation
 block is closed one brace early still loads, still runs, and still reports as
-PASSING — while every assertion that fell outside the block is discarded. That
-is what `routing-not-found.edn` did: one extra `}` at line 46, two
-`:trace-emissions` assertions never executed, green for however long it sat
-there.
+PASSING — while every assertion that fell outside the block is discarded.
 
 EVERY HALF OF THE CHECK IS LOAD-BEARING, and none alone is enough:
 
@@ -26,18 +23,18 @@ EVERY HALF OF THE CHECK IS LOAD-BEARING, and none alone is enough:
   * A DEPTH-ONLY balance check — one counter for all three delimiter kinds —
     misses a mismatched pair, because the two errors cancel: `{:a [1 2)}`
     ends at depth 0, never goes negative, and holds one top-level "form",
-    yet is not EDN at all. That was this gate's own false green (rf2-x91a).
+    yet is not EDN at all.
 
 So this scans for four things: each closer matching the delimiter kind it
 closes, bracket depth that never goes negative, a final depth of zero, and
 exactly one top-level form.
 
 And one more, which is about portability rather than about what the
-reference loaders silently discard (rf2-vc2a): no `::` outside a string or
+reference loaders silently discard: no `::` outside a string or
 comment. `::name` is Clojure reader syntax, not EDN — `clojure.edn` itself
 rejects it — so a port's spec-conformant EDN reader throws on such a fixture.
-The reference loaders used to paper over six `::after-elapsed` tokens with a
-regex rewrite, which a port cannot know to replicate. A `::` INSIDE a string
+A regex rewrite in the reference loaders would hide such tokens, and a port
+cannot know to replicate it. A `::` INSIDE a string
 (the CEDN byte strings carry `"k::answer"`) is ordinary EDN and passes.
 
 WHY A SCANNER AND NOT A PARSER. Python has no EDN reader in the stdlib, and
@@ -51,8 +48,7 @@ correctly, which is the whole job.
 This is a corpus scanner, not a loader change, and it catches one thing a
 loader change could not: a fixture whose capabilities are out of claim is
 SKIPPED by the runner, so a defect inside it is invisible to any check that
-runs at load time. Making the loaders themselves refuse trailing text remains
-worthwhile and is tracked separately.
+runs at load time.
 
 Exit code:
     0  no defects
@@ -64,8 +60,6 @@ Usage:
     python scripts/check_conformance_fixture_edn.py --verbose
     python scripts/check_conformance_fixture_edn.py --ci          # terse; CI-shaped
     python scripts/check_conformance_fixture_edn.py --self-test   # built-in fixtures
-
-rf2-x91a.
 """
 
 from __future__ import annotations
@@ -156,7 +150,7 @@ def scan_edn(text: str) -> Scan:
 
     Balance is tracked with an opener STACK, not an aggregate depth counter.
     A counter is blind to `{:a [1 2)}`: the `)` and the `}` each move it by
-    one, so the two errors cancel and the file scans clean (rf2-x91a). The
+    one, so the two errors cancel and the file scans clean. The
     stack knows which delimiter each closer is closing, so it does not.
     """
     s = Scan()
@@ -164,7 +158,8 @@ def scan_edn(text: str) -> Scan:
     stack: list[tuple[str, int]] = []
     # Kept alongside the stack so the reported depth stays a signed number:
     # the stack bottoms out at empty, but depth goes NEGATIVE on a closer
-    # with nothing open, which is the rf2-5mr6 signature.
+    # with nothing open, which is the signature of a form closed one brace
+    # early.
     depth = 0
     line = 1
     in_string = False
@@ -228,7 +223,7 @@ def scan_edn(text: str) -> Scan:
 
         if ch == ":" and text.startswith("::", i):
             # Outside a string, comment or char literal — all consumed above —
-            # `::` is never EDN (rf2-vc2a). Record the first, whole token.
+            # `::` is never EDN. Record the first, whole token.
             if s.auto_resolved_keyword is None:
                 j = i + 2
                 while j < n and text[j] not in _WS + "\n;\"" + _OPEN + _CLOSE:
@@ -318,7 +313,7 @@ def _defect_reason(s: Scan) -> str | None:
             f"auto-resolved keyword `{token}` at line {token_line} — `::name` "
             f"is Clojure reader syntax, not EDN, so a conforming EDN reader "
             f"(clojure.edn included) rejects it. Write the keyword fully "
-            f"qualified, e.g. `:rf.machine.timer/after-elapsed` (rf2-vc2a)"
+            f"qualified, e.g. `:rf.machine.timer/after-elapsed`"
         )
     return None
 
@@ -361,9 +356,9 @@ def check(fixtures_root: Path, verbose: bool = False, ci: bool = False) -> tuple
             "nothing after it. Both loaders use clojure.edn/read-string, which "
             "returns the first form and ignores the rest — so a fixture in this "
             "state loads, runs and reports as PASSING while the assertions "
-            "outside the first form are never executed. (rf2-x91a, rf2-5mr6)\n"
+            "outside the first form are never executed.\n"
             "It must also be PLAIN EDN — every keyword fully qualified — so a "
-            "port's EDN reader loads it with no resolver or rewrite. (rf2-vc2a)\n"
+            "port's EDN reader loads it with no resolver or rewrite.\n"
         )
     elif verbose:
         sys.stderr.write(
@@ -388,7 +383,7 @@ _GOOD = """;; a conformance fixture
   {:operation :rf.event/run-start}]}
 """
 
-# rf2-5mr6 exactly: one closing brace too many, so the top-level form ends
+# One closing brace too many, so the top-level form ends
 # early and the assertions after it fall outside it.
 _EXTRA_BRACE = """;; a conformance fixture
 {:kind :routing
@@ -414,7 +409,7 @@ _TRICKY_BUT_VALID = """;; brackets in }} comments {{ are ignored
  :note "trailing ; is not a comment inside a string"}
 """
 
-# The rf2-x91a false green, reduced to its smallest form. Aggregate depth
+# The depth-only false green, reduced to its smallest form. Aggregate depth
 # ends at 0, never goes negative, and counts one top-level form — so a
 # depth-only scanner calls this well-formed EDN. It is not EDN at all.
 _MISMATCHED_PAIR = """{:a [1 2)}
@@ -444,7 +439,7 @@ _ONLY_COMMENTS = """;; nothing but commentary
 ;; and more of it
 """
 
-# rf2-vc2a exactly: structurally perfect, one form, and still not EDN — the
+# Structurally perfect, one form, and still not EDN — the
 # bare `::after-elapsed` token is Clojure reader syntax. Every aggregate
 # number is the clean file's, so only the `::` rule can red this.
 _AUTO_RESOLVED_KEYWORD = """;; a conformance fixture
@@ -528,7 +523,7 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     # A defect COUNT of 1 on the mismatched cases is not enough: if they were
     # caught by the depth rule instead, they would not discriminate an
-    # opener stack from the aggregate counter that shipped the false green.
+    # opener stack from an aggregate depth counter, which scans them clean.
     # Assert the reason, and assert the aggregate numbers are the clean
     # file's, so a regression to depth-only counting fails here.
     for name, text in (
@@ -583,7 +578,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Verify every conformance fixture is one well-formed EDN form with "
-            "nothing after it (rf2-x91a)."
+            "nothing after it."
         ),
     )
     parser.add_argument(

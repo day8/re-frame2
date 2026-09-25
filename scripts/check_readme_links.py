@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate links in every README.md — and in every repo-root markdown file.
 
-Companion gate to `scripts/check_doc_slugs.py` (rf2-br5u7).  Where
+Companion gate to `scripts/check_doc_slugs.py`.  Where
 `check_doc_slugs.py` covers the published docs corpus (docs/, spec/,
 migration/, skills/, tools/*/spec/), this script covers the README.md
 files that live alongside source code — adapters/, examples/,
@@ -9,25 +9,22 @@ testbeds/, tools/, etc.  These READMEs are read on GitHub and in the
 local working tree but are **not** copied into the MkDocs site, so
 they need their own anchor-correctness gate.
 
-REPO-ROOT MARKDOWN IS THE SAME SURFACE (rf2-znup0).  `AGENTS.md`,
-`CHANGELOG.md`, `CLAUDE.md`, `SKILL-REDIRECT.md` and `TESTING.md` sit
-beside the root `README.md` this gate has always walked, appear nowhere
-in `mkdocs.yml`, and are therefore rendered by GitHub exactly as the
-READMEs are — yet `check_doc_slugs.py`'s roster (DEFAULT_ROOTS +
-`tools/*/spec`) never opened them, so they had no link gate of any kind.
-A mutation carrying a broken relative link AND a broken in-page anchor
-was appended to `TESTING.md` and the docs gate still exited 0.
+REPO-ROOT MARKDOWN IS THE SAME SURFACE.  `AGENTS.md`, `CHANGELOG.md`,
+`CLAUDE.md`, `SKILL-REDIRECT.md` and `TESTING.md` sit beside the root
+`README.md` this gate walks, appear nowhere in `mkdocs.yml`, and are
+therefore rendered by GitHub exactly as the READMEs are — and
+`check_doc_slugs.py`'s roster (DEFAULT_ROOTS + `tools/*/spec`) never
+opens them, so without this gate they would have no link gate of any kind.
 
-They belong HERE rather than in the docs gate for three reasons, and the
-choice changes no finding on today's tree — it is decided on renderer
-authority and scheduling, not on findings:
+They belong HERE rather than in the docs gate for three reasons, decided on
+renderer authority and scheduling, not on findings:
 
     * RENDERER.  The docs gate models MkDocs' `_N` duplicate-heading
       suffix; this one models GitHub's `-N`, and the two deliberately
-      disagree because their renderers do (rf2-zzt2r).  Root markdown
+      disagree because their renderers do.  Root markdown
       renders on GitHub, so `-N` is the rule that actually resolves in a
       browser.
-    * NO DOUBLE-COVERAGE.  The root `README.md` is already in this gate's
+    * NO DOUBLE-COVERAGE.  The root `README.md` is in this gate's
       roster.  Adding root markdown to the docs gate instead would cover
       that one file twice, under two conflicting duplicate-suffix rules.
     * SCHEDULING.  `verify-readme-links` runs `--ci` on EVERY pull request
@@ -35,24 +32,23 @@ authority and scheduling, not on findings:
       guard), where the docs gate is documentation-surface-gated.  Root
       markdown gets the stronger of the two lanes for free.
 
-NON-README MARKDOWN BESIDE SOURCE IS THE SAME SURFACE AGAIN (rf2-i4nb2), and
-for the same three reasons.  `implementation/SECURITY.md` is cited from the root
-`README.md`, carries 36 relative targets including cross-file anchors into
-`spec/`, renders on GitHub — and was covered by NOTHING.  It is not a README, so
-`_iter_readmes` never saw it; it has a `/` in its path, so `_iter_root_markdown`
-dropped it; it is outside DEFAULT_ROOTS, so the docs gate never opened it.  A
-broken target planted in it returned exit 0 from BOTH gates.  Eight documents
-sat in that hole, the two `tools/mcp-conformance/` vocabularies among them,
-which `spec/Conventions.md` and `spec/Tool-Pair.md` cite normatively.
+NON-README MARKDOWN BESIDE SOURCE IS THE SAME SURFACE AGAIN, for the same
+three reasons.  `implementation/SECURITY.md` is cited from the root
+`README.md`, carries relative targets including cross-file anchors into
+`spec/`, and renders on GitHub.  It is not a README, so `_iter_readmes` never
+sees it; it has a `/` in its path, so `_iter_root_markdown` drops it; it is
+outside DEFAULT_ROOTS, so the docs gate never opens it.  The two
+`tools/mcp-conformance/` vocabularies, which `spec/Conventions.md` and
+`spec/Tool-Pair.md` cite normatively, are the same shape.
 
-`_iter_source_markdown` closes it and needs NO new exclusion to do so: the
-existing `_is_excluded` already refuses the gate fixture trees, the docs-gate
+`_iter_source_markdown` covers them and needs NO new exclusion to do so: the
+existing `_is_excluded` refuses the gate fixture trees, the docs-gate
 roots and `tools/*/spec/`.  What it must NOT take, and why, is written on that
 function; the self-test asserts each refusal rather than only the membership.
 
 All three rosters are GIT-TRACKED, so an untracked scratch file dropped anywhere
 in the tree cannot red the gate on an author's machine while CI, running on a
-clean clone, stays green (the rf2-k30r7 lesson).  The root roster is
+clean clone, stays green.  The root roster is
 additionally NON-RECURSIVE (see `_iter_root_markdown`), so it cannot grow into
 `implementation/`, `tools/`, `node_modules` or any generated tree.
 
@@ -63,8 +59,8 @@ What this validates per file:
     * BROKEN ANCHOR   — target file exists but the #anchor isn't a real
                         slug as **GitHub** would emit it.  These READMEs
                         are rendered by GitHub, so GitHub's heading
-                        slugger is the authority here — NOT MkDocs'
-                        (rf2-zzt2r).  Two rules make up a heading id:
+                        slugger is the authority here — NOT MkDocs'.
+                        Two rules make up a heading id:
 
                           base slug — the visible heading title, cased
                             down, punctuation dropped, spaces hyphenated.
@@ -102,19 +98,11 @@ What this skips (deliberate scope cuts):
       are covered by the docs gate.  No double-coverage.
     * Markdown BELOW the repo root that is not a README.md — from the
       ROOT roster only, which is deliberately non-recursive.  It is not
-      skipped by the gate: `_iter_source_markdown` walks it (rf2-i4nb2),
-      minus whatever `_is_excluded` refuses.
-    * `.claude/commands/*.md` — the mayor-loop command files.  This gate
-      once carried a fourth arm resolving path-shaped REFERENCES in them
-      (rf2-1yy75 / rf2-2eivg), because those files were EXECUTED rather
-      than rendered and a renamed method doc or script broke them
-      silently.  PR #8635 deleted all seven; the roster went empty, and
-      an arm that passes because it has no inputs is coverage for
-      nothing — so it was removed rather than left wearing a vacuous
-      green (rf2-tg4ho).  Should `.claude/` ever carry tracked markdown
-      again, `_iter_source_markdown` takes it as ordinary beside-source
-      markdown; the reference resolver is gone, and re-adding it needs
-      the original case remade.
+      skipped by the gate: `_iter_source_markdown` walks it, minus
+      whatever `_is_excluded` refuses.
+    * Path-shaped REFERENCES in executed (rather than rendered) markdown.
+      There is no such arm: tracked markdown under `.claude/`, if any,
+      is ordinary beside-source markdown to `_iter_source_markdown`.
 
 CLI:
     --verbose       print progress + per-finding detail
@@ -141,17 +129,16 @@ import urllib.request
 from pathlib import Path
 from typing import Iterable
 
-# Reuse the docs-gate's BASE slugifier and inline-extraction helpers
-# (rf2-br5u7).  This is a deliberate direct import rather than a
+# Reuse the docs-gate's BASE slugifier and inline-extraction helpers.
+# This is a deliberate direct import rather than a
 # separately-factored helper module: the imported symbols are the
 # base-slug source of truth, and routing them via a third file would
 # dilute that.
 #
 # Sharing SLUGIFY across two different renderers is a measured decision,
-# not an assumption (rf2-zzt2r).  pymdownx's slugify and GitHub's
-# slugger were diffed over every heading in the in-scope README corpus:
-# 545 headings, 0 divergences.  One divergence class is known and
-# currently unexercised by any live README — heading text shaped like an
+# not an assumption: pymdownx's slugify and GitHub's slugger agree on every
+# heading in the in-scope README corpus.  One divergence class is known and
+# unexercised by any live README — heading text shaped like an
 # HTML tag: pymdownx strips `<name>` entirely, GitHub escapes it and
 # keeps `name`.  The `mkdocs_slug_anchor_ok` /
 # `github_slug_anchor_broken` fixtures pin that gap so it stays visible;
@@ -160,10 +147,10 @@ from typing import Iterable
 #
 # What is NOT shared is the duplicate-heading suffix — see `_slug_index`.
 #
-# `_extract_links` is imported rather than reimplemented (rf2-vpc4c). It used
-# to be a verbatim copy here, which meant this gate inherited the same
-# line-wrap blindness — a link whose `](target#anchor)` fell on the following
-# line was never validated in EITHER corpus. One extractor, one fix.
+# `_extract_links` is imported rather than reimplemented: a copy here would
+# drift from the original, and a fix to one — such as seeing a link whose
+# `](target#anchor)` falls on the following line — would reach only one
+# corpus. One extractor, one fix.
 try:
     from check_doc_slugs import (
         SLUGIFY,
@@ -284,8 +271,8 @@ def _iter_readmes(repo_root: Path) -> Iterable[Path]:
 def _git_ls_files(repo_root: Path, pathspec: str) -> list[str]:
     """Return the sorted tracked paths under `repo_root` matching `pathspec`.
 
-    Git tracking, not a filesystem walk — the roster discipline both rosters in
-    this gate depend on (rf2-k30r7 / rf2-znup0).  Note that git pathspecs are
+    Git tracking, not a filesystem walk — the roster discipline the rosters in
+    this gate depend on.  Note that git pathspecs are
     fnmatch WITHOUT FNM_PATHNAME, so `*` crosses `/`: `*.md` matches markdown at
     every depth, and callers that want a bounded roster must say so themselves.
 
@@ -306,9 +293,9 @@ def _git_ls_files(repo_root: Path, pathspec: str) -> list[str]:
 
 
 def _iter_root_markdown(repo_root: Path) -> Iterable[Path]:
-    """Yield every GIT-TRACKED markdown file sitting AT the repo root (rf2-znup0).
+    """Yield every GIT-TRACKED markdown file sitting AT the repo root.
 
-    Two properties make this roster safe to add, and both are structural
+    Two properties make this roster safe, and both are structural
     rather than a list somebody has to maintain:
 
     NON-RECURSIVE.  `git ls-files` pathspecs use fnmatch without
@@ -319,15 +306,13 @@ def _iter_root_markdown(repo_root: Path) -> Iterable[Path]:
     the repository on GitHub.  The roster cannot grow silently: a new
     directory is invisible to it by construction, while a genuinely new root
     document (the next `TESTING.md`) is picked up the moment it is tracked —
-    which is the failure this closes, so an explicit six-name list would just
-    re-open it one file later.
+    where an explicit list of names would leave it ungated until somebody
+    remembered to add it.
 
     GIT-TRACKED, NOT A FILESYSTEM WALK.  A `.glob("*.md")` would scan an
     author's untracked scratch notes, so a stray root `PLAN.md` with a
     speculative link could red the gate on one machine while CI — which runs
-    on a clean clone — stayed green.  That is the rf2-k30r7 defect, recorded
-    against this gate's sibling; the roster is Git tracking so it cannot
-    recur here.
+    on a clean clone — stays green.
 
     `git ls-files` is scoped to (and reports relative to) `repo_root`, so the
     self-tests point this at a fixture subtree unchanged.
@@ -343,36 +328,34 @@ def _iter_root_markdown(repo_root: Path) -> Iterable[Path]:
 
 
 def _iter_source_markdown(repo_root: Path) -> Iterable[Path]:
-    """Yield every GIT-TRACKED non-README markdown file beside source (rf2-i4nb2).
+    """Yield every GIT-TRACKED non-README markdown file beside source.
 
-    THE GAP THIS CLOSES.  `implementation/SECURITY.md` is cited from the repo
-    root `README.md` and carries 36 relative targets, several of them cross-file
-    anchors into `spec/`.  It was covered by NOTHING: not by `check_doc_slugs.py`
-    (outside DEFAULT_ROOTS), and not here either, because `_iter_readmes` wants
-    the name `README.md` and `_iter_root_markdown` drops anything with a `/` in
-    it.  A broken target planted in it returned exit 0 from both gates.  Seven
-    more documents sat in the same hole -- `examples/TESTING.md`,
-    `implementation/adapters/TESTING.md`, the mutually-linked reagent-slim
-    design trio, and the two `tools/mcp-conformance/` vocabularies that
-    `spec/Conventions.md` and `spec/Tool-Pair.md` cite normatively.
+    WHAT THIS COVERS.  `implementation/SECURITY.md` is cited from the repo
+    root `README.md` and carries relative targets, several of them cross-file
+    anchors into `spec/`.  Neither other gate would reach it: not
+    `check_doc_slugs.py` (outside DEFAULT_ROOTS), and not the other two
+    rosters here, because `_iter_readmes` wants the name `README.md` and
+    `_iter_root_markdown` drops anything with a `/` in it.  The same holds for
+    `examples/TESTING.md`, `implementation/adapters/TESTING.md`, the
+    mutually-linked reagent-slim design trio, and the two
+    `tools/mcp-conformance/` vocabularies that `spec/Conventions.md` and
+    `spec/Tool-Pair.md` cite normatively.
 
-    NO NEW EXCLUSION WAS NEEDED, which is the measurement that settled the
-    scope.  `_is_excluded` already drops everything a wider roster must not
-    take: `_test_fixtures` (137 files of deliberately-broken markdown that exist
-    to be flagged -- covering them would red this gate permanently), the
-    docs-gate roots, and `tools/*/spec/` -- which is what keeps the four
-    `tools/*/spec/findings/` design records out.  Those four were measured, not
-    assumed: they carry 33 stale relative targets between them (`../spec/…` from
-    inside `tools/xray/spec/findings/` resolves to `tools/xray/spec/spec/…`),
-    exactly the link rot that `check_doc_slugs.py`'s `findings` exclusion --
-    "excludes exploratory work" -- exists to leave alone.
+    IT NEEDS NO EXCLUSION OF ITS OWN.  `_is_excluded` drops everything a
+    wider roster must not take: `_test_fixtures` (deliberately-broken markdown
+    that exists to be flagged -- covering it would red this gate permanently),
+    the docs-gate roots, and `tools/*/spec/` -- which is what keeps the
+    `tools/*/spec/findings/` design records out.  Those carry stale relative
+    targets (`../spec/…` from inside `tools/xray/spec/findings/` resolves to
+    `tools/xray/spec/spec/…`), exactly the link rot that
+    `check_doc_slugs.py`'s `findings` exclusion -- "excludes exploratory
+    work" -- exists to leave alone.
 
-    The one addition this roster makes beyond the eight is
-    `.../_shared/README_with_ssr.md`, a template payload whose sibling
-    `.../root/README.md` this gate ALREADY walks under the same `_MUSTACHE_RE`
-    guard.  Taking it is the consistent answer, and it is clean today.
+    It also takes `.../_shared/README_with_ssr.md`, a template payload whose
+    sibling `.../root/README.md` this gate walks under the same `_MUSTACHE_RE`
+    guard; taking it is the consistent answer.
 
-    GIT-TRACKED, NOT A FILESYSTEM WALK, for the rf2-k30r7 reason `_iter_root_markdown`
+    GIT-TRACKED, NOT A FILESYSTEM WALK, for the reason `_iter_root_markdown`
     records: an author's untracked scratch note must not red a gate that CI runs
     on a clean clone.
     """
@@ -393,8 +376,8 @@ def _iter_source_markdown(repo_root: Path) -> Iterable[Path]:
 def _iter_scanned(repo_root: Path) -> Iterable[Path]:
     """Yield every file this gate validates for links and anchors.
 
-    Three rosters: the README corpus, repo-root markdown (rf2-znup0) and
-    non-README markdown beside source (rf2-i4nb2).  Deduplicated by resolved
+    Three rosters: the README corpus, repo-root markdown and
+    non-README markdown beside source.  Deduplicated by resolved
     path, because the repo-root `README.md` is a member of the first two.
     """
     seen: set[Path] = set()
@@ -423,7 +406,7 @@ def _github_dedupe(slug: str, occurrences: dict[str, int]) -> str:
     SECOND occurrence), and `occurrences` is mutated across calls — pass
     one dict per document.  Note this is MkDocs' `_N` rule with a
     different separator AND a different collision walk; do not collapse
-    the two (rf2-zzt2r).
+    the two.
 
     The `while` loop is load-bearing, not defensive: a document with
     `## Errors`, `## Errors`, `## Errors-1` renders ids `errors`,
@@ -445,7 +428,7 @@ def _slug_index(path: Path) -> set[str]:
     note above: measured identical to GitHub's on this corpus).  The
     DUPLICATE-heading rule is GitHub's and diverges from the docs gate's
     on purpose — READMEs are rendered by GitHub, so `-N` is what actually
-    resolves in a browser (rf2-zzt2r).
+    resolves in a browser.
 
     Inline HTML anchors are indexed but deliberately kept OUT of the
     duplicate bookkeeping: GitHub's slugger only ever sees heading text,
@@ -470,7 +453,7 @@ def _slug_index(path: Path) -> set[str]:
         # renderers the brace suffix is ordinary heading TEXT: "## One {#dup}"
         # shows the visible title "One {#dup}" and mints the id "one-dup", not
         # "dup".  Slugify the full visible title; no explicit-id special case
-        # (rf2-w6ltl, mirroring rf2-ru0wg in check_doc_slugs.py).
+        # (mirroring check_doc_slugs.py).
         slug = SLUGIFY(title, SLUG_SEP)
         if not slug:
             continue
@@ -535,17 +518,17 @@ def _head_check(url: str, timeout: float = 5.0) -> tuple[bool, str]:
         return False, f"{type(exc).__name__}: {exc}"
 
 
-# rf2-dnx3r — the redirect table's bare-URL bullets.
+# The redirect table's bare-URL bullets.
 #
 # `SKILL-REDIRECT.md` is the canonical pointer table for this repo's AI
 # skills: the skills stay free of hardcoded URLs and cite its bullets by
 # LABEL, so every URL they reach is written once, here. The bullets are bare
 # URLs after an arrow — the format the file documents for itself — and the
 # shared extractor reads INLINE and REFERENCE links only, so it yields
-# literally nothing for this file. Its rows were therefore validated by no
-# gate at all, which is how the `[setup]` row pointed at a 404 for a quarter.
+# literally nothing for this file. Without this reader its rows would be
+# validated by no gate at all, and a dead row would point at a 404 unnoticed.
 #
-# The fix is this narrow reader, not a wider `_extract_links`: bare URLs are
+# The answer is this narrow reader, not a wider `_extract_links`: bare URLs are
 # not links in any renderer, and teaching the shared extractor to treat them
 # as such would change what BOTH gates see in every file they read. Nor is it
 # a reshape of the table into `[URL](URL)`, which would break the format the
@@ -566,9 +549,9 @@ def _redirect_table_site_urls(repo_root: Path, path: Path) -> Iterable[tuple[int
     """Yield `(line_no, url)` for the table's own-site bullets only.
 
     Deliberately narrow in two directions. Only THIS project's site URLs are
-    yielded, so the table's `github.com` rows reach nothing new — in
-    particular `--check-external` probes exactly the set it probed before,
-    because a row this reader skips can never arrive at the HEAD-probe branch.
+    yielded, so the table's `github.com` rows reach nothing — in particular
+    `--check-external` probes none of them, because a row this reader skips
+    can never arrive at the HEAD-probe branch.
     And fences are stripped, so a bullet quoted as a sample stays a sample.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -633,10 +616,10 @@ def check(
                 continue
 
             # This project's own published-site URLs, resolved offline to the
-            # source page MkDocs builds them from (rf2-dnx3r).  Checked BEFORE
-            # the external guard below, which skipped them wholesale — the
-            # repo's front page carried seven dead ones for 86 days.  Inert
-            # unless `mkdocs.yml` names a `site_url`.
+            # source page MkDocs builds them from.  Checked BEFORE the
+            # external guard below, which would skip them wholesale and let
+            # dead ones on the repo's front page go unseen.  Inert unless
+            # `mkdocs.yml` names a `site_url`.
             site_path = _site_url_path(repo_root, dest)
             if site_path is not None:
                 for problem in _site_url_problems(repo_root, site_path):
@@ -696,7 +679,7 @@ def check(
     if site_url_broken:
         sys.stderr.write(
             f"\n{len(site_url_broken)} broken project-site URL(s) in README / "
-            "repo-root markdown (rf2-dnx3r):\n\n"
+            "repo-root markdown:\n\n"
         )
         for src, line_no, dest, problem in site_url_broken:
             rel = src.relative_to(repo_root)
@@ -746,7 +729,7 @@ def check(
             "and spaces hyphenated, and repeated headings disambiguated with "
             "`-1`, `-2`, ... on the second and later occurrences.  GitHub's "
             "`-N` suffix is NOT MkDocs' `_N` suffix — `#errors_1` is a "
-            "docs-corpus anchor and will not resolve in a README (rf2-zzt2r).\n"
+            "docs-corpus anchor and will not resolve in a README.\n"
         )
 
     if broken_external:
@@ -778,7 +761,7 @@ def _display_target(target: Path, repo_root: Path) -> str:
 
 
 # --------------------------------------------------------------------------
-# Self-tests (rf2-br5u7) — fixture-driven sanity checks parallel to the
+# Self-tests — fixture-driven sanity checks parallel to the
 # check_doc_slugs.py fixtures.  Each fixture is a self-contained mini-repo
 # (mkdocs.yml + at least one README.md).
 # --------------------------------------------------------------------------
@@ -793,48 +776,49 @@ def _run_self_tests(verbose: bool = False) -> int:
         # (fixture-dir, expected-finding-count)
         ("valid_readme",                     0),  # baseline: clean README
         ("broken_internal_link",             1),  # missing target file
-        # Known base-slug gap (rf2-zzt2r): heading text shaped like an HTML
+        # Known base-slug gap: heading text shaped like an HTML
         # tag is the one measured divergence between the shared SLUGIFY and
         # GitHub's slugger, and no live README heading exercises it.  These
         # two pin the CURRENT behaviour so the gap stays visible rather than
         # silently drifting; they are not an endorsement of the MkDocs rule.
         ("mkdocs_slug_anchor_ok",            0),  # `<name>` stripped (shared SLUGIFY)
         ("github_slug_anchor_broken",        1),  # `<name>` kept — GitHub's real shape
-        ("mustache_placeholder_ignored",     0),  # rf2-br5u7 false-positive guard
-        # GitHub duplicate-heading rule — `-N` from the second occurrence
-        # (rf2-zzt2r).  Positive, wrong-separator negative, out-of-range
+        ("mustache_placeholder_ignored",     0),  # false-positive guard
+        # GitHub duplicate-heading rule — `-N` from the second occurrence.
+        # Positive, wrong-separator negative, out-of-range
         # negative, and the collision re-bump.
         ("github_dup_suffix_ok",             0),  # errors / errors-1 / errors-2
         ("mkdocs_dup_suffix_broken",         1),  # `#errors_1` is MkDocs', not GitHub's
         ("dup_suffix_out_of_range_broken",   1),  # `#errors-2` with only two headings
         ("github_dup_collision_bump_ok",     0),  # `## Errors-1` after two `## Errors`
         ("inline_code_link_ignored",         0),  # fence + inline-code guard
-        # rf2-skpf — the shared extractor's block bound and multiline
+        # The shared extractor's block bound and multiline
         # code-span mask reach this gate too. Expects 1, not 0: the finding is
         # a REAL broken wrapped link, so the count moves if a phantom is
         # invented (up) or if wrapped links stop being seen (down).
         ("block_bound_link_ignored",         1),
         ("external_link_skipped_by_default", 0),  # off without --check-external
-        ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT (rf2-w6ltl)
+        ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT
         ("explicit_id_brace_not_a_target",   1),  # ...so the brace id resolves nowhere
-        # rf2-znup0 — repo-root markdown that is NOT a README. Neither fixture
+        # Repo-root markdown that is NOT a README. Neither fixture
         # contains a README.md at all, so every finding (and every non-finding)
         # comes from the root roster and nothing else. Both directions:
         ("root_markdown_ok",                 0),  # correct root links stay silent
         ("root_markdown_broken_link",        2),  # broken target + broken anchor
-        # rf2-dnx3r — this project's own published site URLs, resolved offline
+        # This project's own published site URLs, resolved offline
         # against the source tree by the resolver in `check_doc_slugs.py`.
-        # Root markdown is THIS gate's surface (rf2-znup0), and the repo's
-        # front page cites the published site, so the docs gate's copy of the
-        # arm cannot reach the file where the class actually bit.
-        # rf2-co91r added the third row: a DOTTED page basename, which is what
+        # Root markdown is THIS gate's surface, and the repo's front page
+        # cites the published site, so the docs gate's copy of the arm cannot
+        # reach the file where the class bites.
+        # The third row is a DOTTED page basename, which is what
         # every `docs/api/re-frame.*.md` page has. It resolves, so the count
         # does not move — and rises to 2 the moment a dot in the final segment
         # is read as a file extension before route candidates are tried.
         ("site_url_in_root_markdown",        1),  # two live links, one dead
         # The redirect table writes bare URLs after an arrow, which the shared
-        # extractor does not and should not read as links — so the table's
-        # rows were seen by no gate at all. Both directions, and the
+        # extractor does not and should not read as links — so without the
+        # bullet reader the table's rows reach no gate at all. Both
+        # directions, and the
         # `github.com` row in each pins that a non-site URL stays external.
         ("redirect_table_ok",                0),
         ("redirect_table_broken",            1),
@@ -866,13 +850,13 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
-    # rf2-dnx3r — the blind spot the bullet reader exists for, asserted
+    # The blind spot the bullet reader exists for, asserted
     # directly rather than only through the two fixtures' counts.
     #
     # The shared extractor yields NOTHING for a redirect table: its rows are
     # bare URLs after an arrow, and bare URLs are not links. That is why the
-    # table's site URLs were read by no gate at all, and why a reader had to
-    # be written rather than a call added. Pinned here so that the day the
+    # table's site URLs need a reader of their own rather than a call to the
+    # extractor. Pinned here so that the day the
     # extractor learns bare URLs, this goes red and tells whoever did it that
     # `_redirect_table_site_urls` has become redundant — rather than leaving
     # the table quietly graded twice.
@@ -885,13 +869,13 @@ def _run_self_tests(verbose: bool = False) -> int:
         sys.stderr.write(
             "self-test FAIL: the shared extractor now yields "
             f"{len(extracted)} link(s) for a redirect table; the bare-URL "
-            "reader may be redundant (rf2-dnx3r)\n"
+            "reader may be redundant\n"
         )
         failures += 1
     elif len(read_by_reader) != 2:
         sys.stderr.write(
             "self-test FAIL: the redirect-table reader yielded "
-            f"{len(read_by_reader)} site URL(s), expected 2 (rf2-dnx3r)\n"
+            f"{len(read_by_reader)} site URL(s), expected 2\n"
         )
         failures += 1
     elif verbose:
@@ -901,7 +885,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             "leaving the github.com row external\n"
         )
 
-    # rf2-znup0 — the root roster's two structural properties, asserted
+    # The root roster's two structural properties, asserted
     # directly rather than only through a fixture's aggregate count.
     #
     # NON-RECURSIVE. `git ls-files -- '*.md'` matches at EVERY depth (git
@@ -912,7 +896,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     # while never entering the roster itself.
     #
     # GIT-TRACKED. An untracked scratch document at the repo root must be
-    # invisible. The tooth is causal in both directions, mirroring rf2-k30r7:
+    # invisible. The tooth is causal in both directions:
     # the same file is first proven poisonous when the roster does reach it,
     # then proven absent from the tracked roster — a filesystem walk passes the
     # first half and fails the second.
@@ -990,7 +974,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             "gate while tracked root markdown stays covered\n"
         )
 
-    # rf2-i4nb2 — the beside-source roster, asserted against the real tree.
+    # The beside-source roster, asserted against the real tree.
     # Membership is only half of it: what makes this roster safe is what it
     # REFUSES, and each refusal below is a measured one rather than a taste.
     live_root = Path(__file__).resolve().parent.parent
@@ -998,16 +982,16 @@ def _run_self_tests(verbose: bool = False) -> int:
         p.relative_to(live_root).as_posix() for p in _iter_source_markdown(live_root)
     }
     must_hold = (
-        # The originating instance: cited from the root README, 36 relative
-        # targets, and no gate opened it before this roster existed.
+        # The anchor instance: cited from the root README, carrying relative
+        # targets, and reached by no other roster.
         ("implementation/SECURITY.md" in source_roster,
          "the beside-source roster lost implementation/SECURITY.md"),
         # Fixture trees are deliberately-broken markdown. Covering them reds the
         # gate on a correct tree, permanently.
         (not any(p.startswith("scripts/_test_fixtures/") for p in source_roster),
          "a gate fixture reached the beside-source roster"),
-        # Exploratory design records: 33 stale targets between the four of them,
-        # left alone on the same standing decision that excludes `ai/`.
+        # Exploratory design records carry stale targets, and are left alone
+        # on the same standing decision that excludes `ai/`.
         (not any("/findings/" in p for p in source_roster),
          "an exploratory findings/ document reached the beside-source roster"),
         # Rosters must stay disjoint: the other two own these.
@@ -1029,7 +1013,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     # ... and the same causality tooth the two rosters above carry: an untracked
     # scratch note beside source must be poisonous to a walk and absent from the
     # tracked roster. CI runs on a clean clone; an author's scratch must not red
-    # it here (rf2-k30r7).
+    # it here.
     src_scratch = live_root / "implementation" / "i4nb2_untracked_scratch.md"
     try:
         src_scratch.write_text(
@@ -1083,9 +1067,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         # The constant counts the five PASS lines emitted after the fixture
         # loop: the redirect-table extractor, the root roster, the untracked
         # root scratch, the beside-source roster and the beside-source
-        # scratch. It read 4 — one short — from the block rf2-dnx3r added
-        # without bumping it, so this total undercounted the PASS lines on
-        # screen (rf2-co91r). Keep it equal to the PASS-line count:
+        # scratch. Keep it equal to the PASS-line count when adding a block:
         # `--self-test --verbose | grep -c 'self-test PASS'`.
         sys.stderr.write(f"all {len(cases) + 5} self-tests passed.\n")
     return 0
@@ -1102,7 +1084,7 @@ class _DevNull:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate links in every README.md in the repo (rf2-br5u7). "
+            "Validate links in every README.md in the repo. "
             "Companion gate to check_doc_slugs.py — covers READMEs that "
             "live alongside source code, NOT in the docs/spec/migration "
             "trees the docs gate already validates."

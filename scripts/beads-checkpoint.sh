@@ -4,62 +4,49 @@
 # PRIMARY implementation; scripts/beads-checkpoint.ps1 is the Windows
 # PowerShell sibling with an identical contract.
 #
-# THE FAULT THIS EXISTS TO STOP (rf2-51uz1)
+# THE FAULT THIS EXISTS TO STOP
 #
-#   CLAUDE.md mandates `git checkout HEAD -- .beads` before every pull, and it
-#   is right to: an uncommitted `.beads/issues.jsonl` makes `git pull` abort,
-#   silently freezing HEAD at a stale base. But the JSONL is a full-database
-#   EXPORT. If a `bd close` or `bd create` happened after the last
-#   export-commit, that checkout reverts the export to its pre-close state —
-#   and a checkpoint that then commits (or re-imports) the working file writes
-#   the revert back over the database. The close simply evaporates. The
-#   doctrine that prevents one fault performs the other.
+#   CLAUDE.md requires `git checkout HEAD -- .beads` before every update, and
+#   rightly: an uncommitted `.beads/issues.jsonl` makes the update abort,
+#   freezing HEAD at a stale base. But the JSONL is a full-database EXPORT. If
+#   a `bd close` or `bd create` happened after the last export-commit, that
+#   checkout reverts the export to its pre-close state — and a checkpoint that
+#   then commits (or re-imports) the working file writes the revert back over
+#   the database. The close simply evaporates, so the rule that prevents one
+#   fault would perform the other.
 #
-#   OBSERVED, not hypothetical: rf2-5e8zv was reopened exactly this way, and
-#   commit e80786e007 on main records three more closes reverted by re-import
-#   and re-closed by hand.
+# SO IT EXPORTS FIRST. A checkpoint asks the Dolt database what the tracker
+# says (`bd export`) instead of trusting whatever is sitting in the working
+# tree. A reverted file can then never be committed over newer database state,
+# because the file is regenerated before it is read.
 #
-# THE FIX, IN TWO WORDS: EXPORT FIRST. A checkpoint asks the Dolt database what
-# the tracker says (`bd export`) instead of trusting whatever is sitting in the
-# working tree. A reverted file can then never be committed over newer database
-# state, because the file is regenerated before it is read.
-#
-# THE SECOND FAULT (rf2-rjqtj): EXPORT FIRST IS NOT ENOUGH ON ITS OWN.
+# EXPORTING FIRST IS NOT ENOUGH ON ITS OWN.
 #
 #   Exporting first is right when the database is strictly ahead of Git. It is
 #   wrong when Git is ahead in places — and Git can be, because a second writer
-#   exists: the merged-PR audit commits issue rows straight to Git, and a `git
-#   pull` brings other checkouts' rows in the same way. When both sides move,
-#   they can diverge at the SAME ROW COUNT, one row for one row. The row-count
-#   floor below then sees 1938 == 1938 and waves the export through, and the
-#   commit deletes the Git-only rows and reverts the newer Git statuses.
+#   exists: the merged-PR audit commits issue rows straight to Git, and an
+#   update brings other checkouts' rows in the same way. When both sides move,
+#   they can diverge at the SAME ROW COUNT, one row for one row. A row-count
+#   floor alone would wave that export through, and the commit would delete the
+#   Git-only rows and revert the newer Git statuses.
 #
-#   OBSERVED, not hypothetical: commit 667c744dc875 dropped rf2-3jw04,
-#   rf2-jv36i and rf2-lhdp0 and reverted rf2-2rtt6.52/.63 exactly this way.
-#
-#   So the export is now compared to HEAD by issue id, `updated_at` and
-#   `status` before it is allowed to overwrite anything — see `git_only_facts`.
+#   So the export is compared to HEAD by issue id, `updated_at` and `status`
+#   before it is allowed to overwrite anything — see `git_only_facts`.
 #   EQUAL COUNTS ARE NOT EQUALITY.
 #
-# THE THIRD BLIND SPOT (rf2-cve7): BOTH GUARDS ABOVE ONLY SEE ISSUES.
+# BOTH GUARDS ABOVE ONLY SEE ISSUES.
 #
 #   The floor counts rows, which the issue rows dominate, and the divergence
-#   guard reads `"_type":"issue"` and skips everything else. So the memory rows
-#   — the `bd remember` store — are unguarded by construction.
+#   guard reads `"_type":"issue"` and skips everything else, so they leave the
+#   memory rows — the `bd remember` store — unguarded. `bd stats` reports
+#   ISSUES ONLY, so it cannot see a memory loss either.
 #
-#   OBSERVED, not hypothetical: on 2026-09-08, 210 memory keys vanished from
-#   the live store (1167 -> 957) and nothing said a word. `bd stats` reports
-#   ISSUES ONLY and read a healthy 1099 straight through it; the export was
-#   90.8% of HEAD's rows, over the floor. Two substantive memories went with the
-#   retention cull that took the other 204, including a standing operator
-#   preference, and both had to be recovered by hand from an older checkpoint.
-#
-#   `memory_facts` now reconciles the two populations against HEAD by KEY SET.
+#   `memory_facts` reconciles the two populations against HEAD by KEY SET.
 #   Unlike the two guards above it WARNS AND DOES NOT REFUSE — see the call site
 #   for why that constraint is deliberate. It has two arms and they get two
-#   headlines (rf2-q88t): the loss banner when a KEY has gone, and a short note
-#   when only the row-count SUM is off, which is a well-formedness artefact and
-#   not a deletion.
+#   headlines: the loss banner when a KEY has gone, and a short note when only
+#   the row-count SUM is off, which is a well-formedness artefact and not a
+#   deletion.
 #
 # USAGE
 #
@@ -69,7 +56,7 @@
 #       run it BEFORE `git checkout HEAD -- .beads` and the pull, never after.
 #       The commit carries the rows that changed and nothing else: `bd export`
 #       does not fix the order of the memory rows, so the file is written in
-#       minimal-diff order first (rf2-51uz1.1, `minimal_diff_rewrite` below).
+#       minimal-diff order first (`minimal_diff_rewrite` below).
 #
 #   sh scripts/beads-checkpoint.sh --pre-pull
 #       Ask whether clearing `.beads` would discard tracker state that HEAD
@@ -78,7 +65,7 @@
 #
 # WHAT IT DELIBERATELY DOES NOT DO: pull, push, import, or touch any beads path
 # other than `.beads/issues.jsonl`. `.beads/metadata.json` is database-derived
-# too, but the mayor pre-commit boundary (rf2-ydl2p) permits only the tracker
+# too, but the mayor pre-commit boundary permits only the tracker
 # and MEMORY.md, so committing it here would be refused; it stays a manual
 # call. This is an operator helper, not a gate: nothing in CI runs it.
 #
@@ -121,7 +108,7 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 cd "$REPO_ROOT"
 
 # ---------------------------------------------------------------------------
-# The tracker database is the MAYOR checkout's to commit (rf2-ia8o7). Derive
+# The tracker database is the MAYOR checkout's to commit. Derive
 # the primary worktree the same way the pre-commit guard does, and reuse its
 # library so there is one rule in one place. If the library is missing (a
 # partial checkout), skip the check rather than refuse — the pre-commit hook
@@ -129,8 +116,8 @@ cd "$REPO_ROOT"
 #
 # Only the COMMITTING arm is gated. --pre-pull is a read-only question —
 # "would clearing `.beads` discard tracker state?" — that every worktree
-# legitimately asks before its own pull, and it must keep answering from
-# worker worktrees (rf2-fifk0).
+# legitimately asks before its own update, so it answers from worker
+# worktrees too.
 # ---------------------------------------------------------------------------
 BOUNDARY_LIB="$REPO_ROOT/scripts/git-hooks/lib/check-beads-boundary.sh"
 if [ "$MODE" = "checkpoint" ] && [ -f "$BOUNDARY_LIB" ]; then
@@ -165,8 +152,7 @@ rows() {
 # to HEAD. Empty file if the path does not exist there (a first-ever checkpoint,
 # or an unborn branch).
 #
-# THE REF ARGUMENT IS THE FIX (rf2-cve7, merged-PR audit of #9524), not an
-# ergonomic flourish. The caller below prints a commit oid as a RECOVERY
+# THE REF ARGUMENT IS LOAD-BEARING, not an ergonomic flourish. The caller below prints a commit oid as a RECOVERY
 # REFERENCE, and a helper that re-resolves `HEAD` for itself makes that oid a
 # SEPARATE READ of a moving branch: a commit landing in the shared checkout
 # between the two reads leaves the guard comparing commit A's bytes while
@@ -182,13 +168,11 @@ head_copy() {
 # emit every row HEAD already carries in HEAD's order first, and only then the
 # rows that are genuinely new, in export order.
 #
-# WHY (rf2-51uz1.1). `same_content` below already stops a reorder-ONLY export
-# from becoming a commit. It does nothing for the normal case: one real row
-# changed, so the checkpoint commits — and the raw export carries every
-# unrelated memory reorder along with it. Measured on the first real checkpoint
-# after this helper landed: 211 additions / 208 deletions staged, of which 200
-# added rows were byte-identical to 200 removed rows. Pure relocation. Eleven
-# added and eight removed lines were the actual tracker change, buried.
+# WHY. `same_content` below stops a reorder-ONLY export from becoming a
+# commit. It does nothing for the normal case: one real row changed, so the
+# checkpoint commits — and the raw export would carry every unrelated memory
+# reorder along with it, burying a handful of real row changes under a few
+# hundred relocated ones.
 #
 # The output is the export's row MULTISET exactly — no row is invented, dropped
 # or edited, so `bd import` sees the same database either way. Only the line
@@ -217,9 +201,9 @@ minimal_diff_rewrite() {
 # regardless of order.
 #
 # Order matters here because `bd export` does not fix the order of the trailing
-# `_type":"memory"` rows: two exports of an unchanged database differ by
-# reordering alone (measured: 2396 issue rows byte-identical, 222 memory rows
-# reordered). Comparing sorted forms keeps a checkpoint from committing a
+# `_type":"memory"` rows: two exports of an unchanged database can differ by
+# reordering alone, the issue rows byte-identical and the memory rows
+# shuffled. Comparing sorted forms keeps a checkpoint from committing a
 # few-hundred-line diff that says nothing, while still noticing a memory that
 # was added, removed or edited.
 #
@@ -241,8 +225,8 @@ same_content() {
 # repair the database to REMEDY_PATH. No output means the export is a safe
 # superset of HEAD and the checkpoint may proceed.
 #
-# THE FAULT THIS EXISTS TO STOP (rf2-rjqtj): see the second fault at the top of
-# this file. Row counts are a floor, not an equality test.
+# THE FAULT THIS EXISTS TO STOP: see EXPORTING FIRST IS NOT ENOUGH ON ITS OWN
+# at the top of this file. Row counts are a floor, not an equality test.
 #
 # Three classes, all of them "Git knows something Dolt does not":
 #
@@ -258,27 +242,28 @@ same_content() {
 # is the normal forward motion of a checkpoint and is deliberately not reported.
 #
 # WHY `status` AND `updated_at`, NOT JUST THE ID SET: an id-set comparison
-# proves presence, nothing more. Confirmed in the field: an interrupted Dolt
-# generational GC reverted a bead's close and five note appends while every id
-# stayed intact. Presence is not state.
+# proves presence, nothing more: an interrupted Dolt generational GC can revert
+# a bead's close and its note appends while every id stays intact. Presence is
+# not state.
 #
 # THE ID IS THE STABLE BEAD ID (`rf2-…`), NEVER A ROW UUID. `bd` regenerates row
-# and comment UUIDs on re-import, so a UUID-keyed diff reports phantom losses —
-# it flagged three beads that existed and were closed. `"id":"` occurs up to
+# and comment UUIDs on re-import, so a UUID-keyed diff would report phantom
+# losses for beads that exist and are closed. `"id":"` occurs up to
 # eight times in a single row because every comment carries one; only the FIRST
 # occurrence is the bead's, because `bd export` writes `_type` and `id` at the
 # front of the row. A row whose id cannot be read is REPORTED rather than
-# skipped: a guard that silently stops guarding is the bug being fixed here.
+# skipped: a guard that silently stopped guarding would be the very failure it
+# exists to catch.
 #
 # Rows are compared only when both sides carry a non-empty `updated_at`. Without
 # timestamps there is no basis on which to call either side newer, and inventing
 # one would turn every ordinary close into a refusal.
 #
 # REMEDY_PATH receives the GONE and REVERT rows exactly as HEAD holds them, so
-# `bd import` of that file is the whole recovery — the bead's own verified,
-# bounded mechanism: it created the three missing ids, updated exactly the two
-# newer Git rows, skipped the stale ones, and preserved every newer Dolt row and
-# cursor. AMBIG rows are deliberately left out; an import cannot adjudicate them.
+# `bd import` of that file is the whole recovery: it creates the missing ids,
+# updates exactly the newer Git rows, skips the stale ones, and leaves every
+# newer Dolt row and cursor alone. AMBIG rows are deliberately left out; an
+# import cannot adjudicate them.
 #
 # REMEDY_PATH reaches awk through the ENVIRONMENT, not through `-v`: awk
 # processes escape sequences in a `-v` value, so a Windows-shaped TMPDIR
@@ -352,23 +337,22 @@ git_only_facts() {
 # file carries rows that are neither an issue nor a memory. Prints NOTHING when
 # both populations reconcile, which is every ordinary checkpoint.
 #
-# THE FAULT THIS EXISTS TO STOP (rf2-cve7). On 2026-09-08, 210 memory keys
-# vanished from the live store (1167 -> 957) and NO INSTRUMENT SAID A WORD.
-# `bd stats` read a healthy `Total Issues: 1099` straight through it, because it
-# reports ISSUES ONLY, and every guard above inherited the same blind spot:
+# THE FAULT THIS EXISTS TO STOP: memory keys vanishing from the live store with
+# NO INSTRUMENT SAYING A WORD. `bd stats` reports ISSUES ONLY, so it reads a
+# healthy total straight through such a loss, and every guard above shares the
+# same blind spot:
 #
 #   * the row-count floor is dominated by issue rows, so a memory-only deletion
-#     slides under it. Measured on the real event: 2073 rows against HEAD's
-#     2283 is 90.8% — over the 90% floor, so it waves the export through.
+#     slides under it: a couple of hundred lost keys can leave the export over
+#     the 90% floor, which waves it through.
 #   * `git_only_facts` reads `"_type":"issue"` rows and skips every other line,
 #     so memories are outside its remit by construction.
 #
-# WHY THIS IS NOT THE "SUM TO THE ROW COUNT" CHECK THE BEAD ASKED FOR, and the
-# distinction is the whole point rather than a quibble. Counting the two
-# populations and checking they sum to the file's row count is an INTERNAL
-# WELL-FORMEDNESS identity: it holds trivially whenever every row is one of the
-# two known types, so it is SILENT ON BOTH SIDES of the event it was proposed to
-# catch — 1116 + 1167 == 2283 before, 1116 + 957 == 2073 after. A population
+# WHY A "SUM TO THE ROW COUNT" CHECK IS NOT ENOUGH, and the distinction is the
+# whole point rather than a quibble. Counting the two populations and checking
+# they sum to the file's row count is an INTERNAL WELL-FORMEDNESS identity: it
+# holds trivially whenever every row is one of the two known types, so it is
+# SILENT ON BOTH SIDES of a memory deletion. A population
 # that shrinks is only visible against a BASELINE, and HEAD's committed export
 # is exactly that baseline, already in hand for the guards above. So the sum is
 # kept (it catches a row of an unknown `_type`, which is cheap to notice and
@@ -382,32 +366,26 @@ git_only_facts() {
 # memory row as exactly `_type`, `key`, `value`, so the FIRST `"key":"` is the
 # row's own; a later one inside `value` is JSON-escaped (`\"key\":\"`) and
 # cannot match. This is the same identity-field discipline `git_only_facts`
-# documents for `"id":"` — and the bead recorded the cost of ignoring it: a
-# `git grep -F` for a deleted key "found" it in a commit that does not carry the
-# memory at all, because it matched the BEAD'S OWN PROSE naming the key.
+# documents for `"id":"`, and ignoring it is costly: a `git grep -F` for a
+# deleted key "finds" it in a commit that does not carry the memory at all,
+# by matching bead prose that merely names the key.
 #
 # (FNR == NR is sound here for the same reason it is in `git_only_facts`: the
 # caller has already refused a zero-row export, so file 1 is never empty.)
 #
 # THE EXIT STATUS SAYS WHICH ARM FIRED, SO THE CALLER CAN HEAD THE TWO
-# DIFFERENTLY (rf2-q88t). The split above is a real one — the sum is
-# well-formedness, the key set is loss — and for one release both answers came
-# out under ONE message, the loss banner. So an ordinary checkpoint whose export
-# carried a TRAILING BLANK LINE printed `MEMORY RECONCILIATION FAILED`, the
-# 210-key incident and four paragraphs of deletion recovery, over a key set that
-# had already reconciled 1063 against 1063 and named no missing key at all.
-# Measured 2026-09-10 in the mayor checkout. A guard that cries wolf on a
-# formatting artefact is worth less than one that stays quiet, and this one is
-# guarding a real incident, so the split now reaches the OUTPUT:
+# DIFFERENTLY. The split above is a real one — the sum is well-formedness, the
+# key set is loss — and under ONE message an ordinary checkpoint whose export
+# carried a TRAILING BLANK LINE would print `MEMORY RECONCILIATION FAILED` and
+# paragraphs of deletion recovery over a key set that reconciled completely and
+# named no missing key at all. A guard that cries wolf on a formatting artefact
+# is worth less than one that stays quiet, so the split reaches the OUTPUT:
 #
 #   0  both populations reconcile — nothing is printed, which is every
 #      ordinary checkpoint
 #   1  the SUM is short and the KEY SET is intact — well-formedness only, and
 #      NOT a deletion
 #   2  the KEY SET is short — a real loss, whatever the sum says
-#
-# No new detector and no new state stand behind that: both answers were already
-# computed a few lines apart, and only the message was single.
 memory_facts() {
   awk -v cap=10 '
     function jval(line, key,   pfx, re) {
@@ -494,10 +472,10 @@ if [ "$MODE" = "pre-pull" ]; then
   printf '\n[re-frame2] the working tracker export is AHEAD of HEAD.\n' >&2
   printf '  working %s rows, HEAD %s rows, in %s\n\n' "$work_rows" "$head_rows" "$TRACKER" >&2
   printf '  `git checkout HEAD -- .beads` here would revert it, and the next\n' >&2
-  printf '  checkpoint would write that revert back over the database — the\n' >&2
-  printf '  rf2-51uz1 fault, which has silently reopened closed beads before.\n\n' >&2
-  # The third step is a fetch-then-rebase pair, not `git pull --rebase`
-  # (rf2-9m1n4): a pull rebases onto FETCH_HEAD, a scratch file any concurrent
+  printf '  checkpoint would write that revert back over the database, which\n' >&2
+  printf '  silently reopens closed beads.\n\n' >&2
+  # The third step is a fetch-then-rebase pair, not `git pull --rebase`:
+  # a pull rebases onto FETCH_HEAD, a scratch file any concurrent
   # git process in the same checkout rewrites, so naming remote and branch
   # constrains only the fetch half. See CLAUDE.md's Beads durability section.
   # The .ps1 sibling prints the same pair in PowerShell's own checked idiom,
@@ -520,11 +498,9 @@ TMP_EXPORT=$(mktemp "${TMPDIR:-/tmp}/rf2-bdchk-export-XXXXXX")
 # Redirect rather than `bd export -o`: a shell redirection needs no path
 # translation, so this works identically under Git Bash and on Unix.
 #
-# --include-memories is load-bearing (rf2-fifk0). bd v1.1.2 made the bare
-# export EXCLUDE the `bd remember` memory rows that v1.0.3 always carried, so
-# a flagless checkpoint would silently drop every one of them — caught only
-# because the shrink floor below refused the memory-less export against HEAD.
-# The tracker commits whole: issues AND memories.
+# --include-memories is load-bearing: from bd v1.1.2 the bare export EXCLUDES
+# the `bd remember` memory rows, so a flagless checkpoint would silently drop
+# every one of them. The tracker commits whole: issues AND memories.
 bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
   || die "bd export failed; leaving $TRACKER untouched."
 
@@ -532,7 +508,7 @@ bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
 # tracker-at-HEAD below goes through this one oid, so the bytes this checkpoint
 # compares against and the oid it prints are the same object by construction.
 #
-# WHY IT IS PRINTED AT ALL (rf2-cve7, merged-PR audit of #9520). The memory
+# WHY IT IS PRINTED AT ALL. The memory
 # warning below prints it as a RECOVERY REFERENCE, and this script COMMITS the
 # fresh export a hundred lines later. Printing `HEAD` there is worse than
 # useless: by the time an operator reads the warning and pastes the command,
@@ -541,18 +517,18 @@ bd export --include-memories > "$TMP_EXPORT" 2>/dev/null \
 # content-addressed and immutable, so it keeps naming this exact tree after the
 # checkpoint commits and after any number of later commits land on top.
 #
-# WHY IT IS RESOLVED BEFORE THE COPY, AND PASSED IN (rf2-cve7, merged-PR audit
-# of #9524). The first version of this captured the oid immediately AFTER
-# `head_copy "$TMP_HEAD"`, on the reasoning that adjacent statements cannot
-# drift. They can: those were two separate reads of a moving branch, and this is
-# the mayor's SHARED checkout, where a second checkpoint or an ordinary commit
-# can land in the gap. When one does, the guard compares commit A's bytes and
-# prints commit B's oid — and B never contained the values the message tells the
-# operator to recover, so the printed lookup exits 0 and prints nothing. That is
-# the same reassuring failure the #9520 fix set out to remove, reached one step
-# further along. Moving the `rev-parse` up while leaving `head_copy` reading
-# `HEAD` for itself would REVERSE that race, not close it — both reads have to
-# come from this one oid, which is why it is an argument and not a comment.
+# WHY IT IS RESOLVED BEFORE THE COPY, AND PASSED IN. Capturing the oid
+# immediately AFTER `head_copy "$TMP_HEAD"` would rest on the reasoning that
+# adjacent statements cannot drift. They can: those would be two separate reads
+# of a moving branch, and this is the mayor's SHARED checkout, where a second
+# checkpoint or an ordinary commit can land in the gap. When one does, the
+# guard compares commit A's bytes and prints commit B's oid — and B never
+# contained the values the message tells the operator to recover, so the
+# printed lookup exits 0 and prints nothing: the same reassuring failure as
+# printing `HEAD`, one step further along. Resolving the oid first while
+# leaving `head_copy` reading `HEAD` for itself would REVERSE that race, not
+# close it — both reads have to come from this one oid, which is why it is an
+# argument and not a comment.
 #
 # Empty on an unborn branch (a first-ever checkpoint), where there is no
 # baseline to recover from and the recovery paragraph is skipped; `head_copy`
@@ -566,10 +542,9 @@ head_copy "$TMP_HEAD" "${BASELINE_COMMIT:-HEAD}"
 export_rows=$(rows "$TMP_EXPORT")
 head_rows=$(rows "$TMP_HEAD")
 
-# TRUNCATION GUARD. A `git add` that catches the JSONL mid-rewrite has landed
-# an empty export on main before (incident 2026-06-10, commit 7aea52459), and
-# an export that loses a tenth of the tracker is a bug, not a checkpoint.
-# Refuse and say so; a genuine mass delete is rare enough to commit by hand.
+# TRUNCATION GUARD. An empty export, or one that loses a tenth of the tracker,
+# is a bug, not a checkpoint. Refuse and say so; a genuine mass delete is rare
+# enough to commit by hand.
 [ "$export_rows" -gt 0 ] \
   || die "bd export produced 0 rows; refusing to checkpoint. $TRACKER is untouched."
 if [ "$head_rows" -gt 0 ] && [ $((export_rows * 10)) -lt $((head_rows * 9)) ]; then
@@ -580,9 +555,9 @@ if [ "$head_rows" -gt 0 ] && [ $((export_rows * 10)) -lt $((head_rows * 9)) ]; t
   exit 1
 fi
 
-# DIVERGENCE GUARD (rf2-rjqtj). The floor above answers "is the export big
+# DIVERGENCE GUARD. The floor above answers "is the export big
 # enough?". It cannot answer "does the export still contain what HEAD contains?"
-# — and at equal counts it has already said yes to an export that did not.
+# — and at equal counts it passes an export that does not.
 # Nothing has been written yet, so a refusal here leaves the tracker exactly as
 # it was found.
 REMEDY="${TMPDIR:-/tmp}/rf2-beads-git-only-$$.jsonl"
@@ -593,8 +568,8 @@ if [ -n "$FACTS" ]; then
   printf '  export %s rows, HEAD %s rows.' "$export_rows" "$head_rows" >&2
   if [ "$export_rows" = "$head_rows" ]; then
     printf ' EQUAL COUNTS ARE NOT EQUALITY:\n' >&2
-    printf '  commit 667c744dc875 passed this floor at 1938 == 1938 and still deleted three\n' >&2
-    printf '  issues and reverted two closes, because Git and Dolt had diverged one for one.\n' >&2
+    printf '  when Git and Dolt diverge one row for one row, an export passes this floor\n' >&2
+    printf '  at an equal count and still deletes issues and reverts closes.\n' >&2
   else
     printf '\n' >&2
   fi
@@ -619,7 +594,7 @@ if [ -n "$FACTS" ]; then
 fi
 rm -f "$REMEDY"
 
-# MEMORY RECONCILIATION (rf2-cve7). Every guard above is blind to the memory
+# MEMORY RECONCILIATION. Every guard above is blind to the memory
 # rows: the floor is diluted by the issue rows and the divergence guard reads
 # only `"_type":"issue"`. This one counts the two populations separately and
 # names the keys HEAD holds that the export does not.
@@ -627,20 +602,18 @@ rm -f "$REMEDY"
 # IT WARNS. IT DOES NOT REFUSE, and that is a deliberate design constraint
 # rather than an unfinished one. This is the single shared tool the mayor runs
 # several times an hour, and a false positive that aborted it would halt the
-# whole dispatch loop — which is precisely why the reconciliation sat unbuilt as
-# "a ruling and not a dispatch" while 210 keys went missing in silence. A
-# warning delivers the entire value of the guard (the event becomes one loud
-# block instead of nothing at all) with that risk removed. There is deliberately
+# whole dispatch loop. A warning delivers the entire value of the guard (a loss
+# becomes one loud block instead of nothing at all) with that risk removed.
+# There is deliberately
 # no --strict mode, no override flag and no config key: the whole deliverable is
 # one unmissable warning, and a knob would be machinery guarding a warning.
 #
 # It also runs AFTER the divergence guard on purpose, so it speaks only when the
 # checkpoint is genuinely about to commit and can say so truthfully.
 #
-# TWO ARMS, TWO HEADLINES (rf2-q88t). `memory_facts` reports which of its two
-# detectors fired, and the loss narrative below — the 210-key incident, the
-# spelled-out recovery oid, the `git log -S` hunt — is correct for a LOSS and
-# for nothing else. A short, differently-headed note carries the other case, so
+# TWO ARMS, TWO HEADLINES. `memory_facts` reports which of its two
+# detectors fired, and the loss narrative below — the spelled-out recovery
+# oid, the `git log -S` hunt — is correct for a LOSS and for nothing else. A short, differently-headed note carries the other case, so
 # `MEMORY RECONCILIATION FAILED` stays a string that means what it says.
 #
 # `|| MEMORY_VERDICT=$?` rather than a bare capture: `set -e` is on, and a
@@ -649,16 +622,16 @@ rm -f "$REMEDY"
 MEMORY_VERDICT=0
 MEMORY_FACTS=$(memory_facts "$TMP_EXPORT" "$TMP_HEAD") || MEMORY_VERDICT=$?
 # The body has to be non-empty for either headline. GNU awk also exits 2 on a
-# fatal error, which is the loss code, so an awk that died stays silent exactly
-# as it does today rather than printing a loss banner with no facts under it.
+# fatal error, which is the loss code, so an awk that died stays silent rather
+# than printing a loss banner with no facts under it.
 if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
   printf '\n' >&2
-  printf 'beads-checkpoint: ***** MEMORY RECONCILIATION FAILED (rf2-cve7) *****\n' >&2
+  printf 'beads-checkpoint: ***** MEMORY RECONCILIATION FAILED *****\n' >&2
   printf '  The tracker'"'"'s `bd remember` rows do not reconcile against HEAD.\n\n' >&2
   printf '%s\n' "$MEMORY_FACTS" >&2
   printf '\n  `bd stats` reports ISSUES ONLY, and the row-count floor above is dominated\n' >&2
-  printf '  by issue rows, so a memory-only deletion passes both in silence. That is\n' >&2
-  printf '  exactly how 210 keys disappeared on 2026-09-08 with nothing on screen.\n' >&2
+  printf '  by issue rows, so a memory-only deletion passes both in silence. This\n' >&2
+  printf '  warning is the only thing on screen that reports it.\n' >&2
   printf '\n  THIS IS A WARNING, NOT A REFUSAL — the checkpoint continues and commits\n' >&2
   printf '  the export. The database is the source of truth, and this may well be a\n' >&2
   printf '  deliberate `bd forget` or a retention cull. If it is NOT, the rows are not\n' >&2
@@ -680,10 +653,10 @@ if [ -n "$MEMORY_FACTS" ] && [ "$MEMORY_VERDICT" -eq 2 ]; then
     printf '  there is no baseline to recover from. The database is the only copy.\n' >&2
   fi
   printf '\n  Select on `.key`. A bare grep for the key matches rows that merely MENTION\n' >&2
-  printf '  it — bead prose naming a deleted key has already been mistaken for the\n' >&2
-  printf '  memory itself (rf2-cve7, CLAUDE.md instrument item (f)).\n\n' >&2
+  printf '  it — bead prose naming a deleted key is easily mistaken for the\n' >&2
+  printf '  memory itself (CLAUDE.md instrument item (f)).\n\n' >&2
 elif [ -n "$MEMORY_FACTS" ]; then
-  # WELL-FORMEDNESS ONLY (rf2-q88t). The key set reconciled, so nothing is
+  # WELL-FORMEDNESS ONLY. The key set reconciled, so nothing is
   # missing and none of the recovery narrative above applies. Say what fired,
   # give the two-second check, and get out of the operator's way.
   printf '\n' >&2
@@ -691,7 +664,7 @@ elif [ -n "$MEMORY_FACTS" ]; then
   printf '  The loss detector is the KEY-SET comparison against HEAD, it ran, and it\n' >&2
   printf '  found nothing missing: every `bd remember` key HEAD carries is present in\n' >&2
   printf '  the fresh export. What fired is the other arm — the two populations do not\n' >&2
-  printf '  account for every row of the file (rf2-cve7, rf2-q88t).\n\n' >&2
+  printf '  account for every row of the file.\n\n' >&2
   printf '%s\n' "$MEMORY_FACTS" >&2
   printf '\n  A row that is neither an issue nor a memory is USUALLY A BLANK LINE. The\n' >&2
   printf '  count above names the side that carries it — the tracker this checkpoint is\n' >&2
@@ -710,7 +683,7 @@ fi
 # The export is trustworthy — it is now the working tracker. From here on the
 # working file cannot be a stale revert, whatever it was a moment ago.
 #
-# It is written in MINIMAL-DIFF order (rf2-51uz1.1) rather than raw export
+# It is written in MINIMAL-DIFF order rather than raw export
 # order, so the staged ledger shows the rows that changed and nothing else. The
 # row-count check is the safety net: the rewrite must reproduce the export's
 # rows exactly, and if it ever does not, the raw export wins. Losing a row to a

@@ -6,7 +6,7 @@
 ;; impossible to miss.  Over-consuming blanks live code and reports a confident
 ;; clean run over it — the gate goes green by going blind.
 ;;
-;; It is not hypothetical.  Every code-position `#_` in the tree today is a
+;; It is not hypothetical.  The usual code-position `#_` in this tree is a
 ;; clj-kondo suppression — `#_:clj-kondo/ignore` or `#_{:clj-kondo/ignore
 ;; [...]}` — sitting IMMEDIATELY BEFORE live code, which is precisely the shape
 ;; a greedy discard pass eats two forms of.  Both requires below are LIVE and

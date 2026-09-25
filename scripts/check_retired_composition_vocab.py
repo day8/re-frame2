@@ -2,8 +2,8 @@
 """Retired composition-vocabulary guardrail — the `image -> frame -> event stream` rule.
 
 The normative rule this gate enforces is recorded in
-spec/Conventions.md §"Retired composition vocabulary — the hard rule"
-(rf2-6sefiu.1). In one line: the EP-0013 app/realm/module construction-and-install
+spec/Conventions.md §"Retired composition vocabulary — the hard rule".
+In one line: the EP-0013 app/realm/module construction-and-install
 model is RETIRED — removed from the public facade by EP-0023 (image-loaded
 frames) and DELETED IN FULL by EP-0024 (unified frame identity) — and the ONLY
 place its vocabulary may appear is HISTORICAL discussion under `docs/EP/**`. The
@@ -21,8 +21,9 @@ install + inspection family — `rf/install!`, `rf/reinstall!`, `rf/realm`,
 `rf/dispose-realm!`, `rf/installed-app`, `rf/realm-ids`, `rf/frame-realm`,
 `rf/app-registrations`, `rf/app-owns`, `rf/app-requires`, `rf/module`,
 `rf/app` — onto the public `rf/image` + `rf/make-frame` (re-construction folds
-image hot-reload in, rf2-lxwpob) + `rf/destroy-frame!` model. EP-0024 then DELETED the substrate that carried
-the realm machinery, so there is no retained-internal realm surface to read.
+image hot-reload in) + `rf/destroy-frame!` model. EP-0024 deletes the substrate
+that carried the realm machinery, so there is no retained-internal realm surface
+to read.
 
 So a retired composition spelling is legitimate ONLY where the SUBJECT is the
 retirement itself — the `EP-*` design/supersession docs. It is DRIFT anywhere it
@@ -55,18 +56,17 @@ THE MINIMAL ALLOWLIST (historical surface ONLY — `docs/EP/**`)
 
 A retired symbol inside a code fence is correct ONLY on the surfaces whose
 SUBJECT IS the retired vocabulary — the `EP-*` design/supersession docs, which
-carry worked examples of the old construction as the thing-being-retired. After
-the EP-0024 atomic substrate deletion (#4811) there is NO retained-internal
-realm machinery, so the migration/implementor/tooling skills NO LONGER carry the
-retired surface as live examples — they were rewritten onto the image/frame
-model and now scan clean WITHOUT an allowlist entry. The allowlist was therefore
-TIGHTENED to the rule (rf2-6sefiu.1): it is now the `docs/EP/` prefix (plus the
-`EP-*.md` basename glob for EP docs under spec/) and nothing else.
+carry worked examples of the old construction as the thing-being-retired.
+EP-0024 deletes the realm machinery outright, so no skill — migration,
+implementor or tooling — has a live use for the retired surface, and each scans
+clean WITHOUT an allowlist entry. The allowlist is therefore the `docs/EP/`
+prefix (plus the `EP-*.md` basename glob for EP docs under spec/) and nothing
+else.
 
 The allowlist is a FILE allowlist, not a pattern allowlist: it does not widen
 what counts as the retired vocabulary, it only exempts the EP historical record.
 Every other doc — the whole teaching surface, the public API reference, the spec
-meta-docs (including spec/Conventions.md, which now HOLDS the hard rule), the
+meta-docs (including spec/Conventions.md, which HOLDS the hard rule), the
 skills, the migration guidance — must be clean. A future stale example anywhere
 outside `docs/EP/**` FAILS without the allowlist being touched. WIDENING the
 allowlist to relegitimise a non-EP surface is a rule violation, not a fix —
@@ -74,32 +74,31 @@ rewrite the surface onto `image -> frame -> event stream` instead.
 
 NOTE — this is a DOC-SURFACE gate: it keeps the public TEACHING surface clean —
 a retired spelling reappearing as live, copy-pasteable API inside markdown
-fenced code. (The earlier manifest-data facade-hygiene gate was retired with the
-atomic re-frame.realm/migration removal, rf2-udl74a — its disposition source
-(re-frame.migration/migration-map) and the superseded EP-0013 facade names it
-tracked no longer exist.) Keep this guard deliberately small and modular.
+fenced code. Keep this guard deliberately small and modular.
 
 SCAN SURFACE
 
-`docs/core`, `spec`, and `skills` markdown (`.md`). Generated
+`docs/core`, `docs/api`, `docs/EP`, `spec` and `skills` markdown (`.md`), plus
+every `tools/<tool>/spec` tree discovered at runtime. Generated
 mirrors (`docs/spec/` — CI does `rm -rf docs/spec && cp -r spec docs/spec`)
 and vendor/build dirs are excluded; the tracked `spec/` source is the
 authoritative copy. `docs/EP` rides under `docs/` but is allowlisted as a whole
 (the EP docs ARE the retirement record).
 
-ROOT-SUPPORT COVERAGE (rf2-2c8zq6)
+ROOT-SUPPORT COVERAGE
 
-The dir-tree scan above reaches docs/spec/skills markdown only. The root
-support surfaces a reader sees FIRST — README.md, TESTING.md, CHANGELOG.md,
-SKILL-REDIRECT.md, AGENTS.md, CLAUDE.md — plus the JVM gate scripts whose
-comments explain what each tier protects (scripts/test-*.sh) are scanned too
+The dir-tree scan above reaches docs/spec/skills/tool-spec markdown only. The
+root support surfaces a reader sees FIRST — README.md, TESTING.md, CHANGELOG.md,
+SKILL-REDIRECT.md, AGENTS.md, CLAUDE.md — plus the gate scripts whose comments
+explain what each tier protects (`_ROOT_SUPPORT_SCRIPTS`) are scanned too
 (`_ROOT_SUPPORT_PROSE_FILES`). On those files the SYMBOL families still fire on
 any fenced Clojure, and a third PROSE-architecture family
 (`retired-architecture-prose`) fires on two distinctive multi-word phrases —
-`event[- ]program` and `realm[- ]routing` — wherever they teach the previous
-model rather than discuss its removal. A removed-context marker on the same
-line (`retired`, `removed`, `no longer`, `no realm-routing`, …) suppresses the
-hit, mirroring the symbol rules' prose/comment tolerance. The phrase set is
+`event[- ]program` and `realm[- ]routing` — wherever they teach the retired
+model rather than discuss its removal. A removed-context marker on the line or
+an immediate neighbour (`retired`, `removed`, `no longer`, `no realm-routing`,
+…) suppresses the hit, mirroring the symbol rules' prose/comment tolerance.
+The phrase set is
 kept TINY on purpose: bare `program` / `app` / `realm` words are far too noisy.
 
 Exit code:
@@ -127,29 +126,28 @@ from typing import Iterable, NamedTuple
 # `docs/core`-sibling tree, but every EP doc is allowlisted below.)
 DEFAULT_SCAN_DIRS = ("docs/core", "docs/api", "docs/EP", "spec", "skills")
 
-# rf2-lq99wc — the per-tool spec trees (`tools/<tool>/spec/`) are a teaching
-# surface too: the Xray / Pair-MCP / Story tool specs document the host model a
-# tool reads, and the rf2-6sefiu.5 audit found a deleted-substrate-as-live class
-# there is exactly what the expanded guard now gates. The tool set varies, so
-# the dirs are DISCOVERED at runtime by globbing `tools/*/spec` under the repo
-# root (see `_tool_spec_scan_dirs`) and unioned into the default scan. (Tool
-# specs are NOT mirrored into the staged docs site, so they are not double-
-# counted by the docs/spec exclusion.)
+# The per-tool spec trees (`tools/<tool>/spec/`) are a teaching surface too: the
+# Xray / Pair-MCP / Story tool specs document the host model a tool reads, so a
+# deleted-substrate-as-live claim there is drift like anywhere else. The tool
+# set varies, so the dirs are DISCOVERED at runtime by globbing `tools/*/spec`
+# under the repo root (see `_tool_spec_scan_dirs`) and unioned into the default
+# scan. (Tool specs are NOT mirrored into the staged docs site, so they are not
+# double-counted by the docs/spec exclusion.)
 _TOOL_SPEC_GLOB = "tools/*/spec"
 
 # A repo-relative path under any `tools/<tool>/spec/` tree — the panel-convention
-# surface where bare `install!` / `reinstall!` is exempted (rf2-7gmtz5).
+# surface where bare `install!` / `reinstall!` is exempted.
 _TOOL_SPEC_REL_RE = re.compile(r"^tools/[^/]+/spec/")
 
 _DOC_SUFFIXES = (".md",)
 
-# rf2-2c8zq6 — root-support surfaces the dir-tree scan above DOES NOT reach.
-# These are the first support files a reader/maintainer sees (the root README,
-# the testing matrix, the changelog, the skill redirect, the AI-agent
-# instruction files) plus the JVM gate scripts whose comments explain what each
-# tier protects. The dir scan covers docs/spec/skills markdown only, so without
-# this list a retired ARCHITECTURE phrase ("the event program", "preserved
-# realm-routing") can drift back onto root support without a CI failure.
+# Root-support surfaces the dir-tree scan above DOES NOT reach. These are the
+# first support files a reader/maintainer sees (the root README, the testing
+# matrix, the changelog, the skill redirect, the AI-agent instruction files)
+# plus the gate scripts whose comments explain what each tier protects. The dir
+# scan covers docs/spec/skills/tool-spec markdown only, so without this list a
+# retired ARCHITECTURE phrase ("the event program", "preserved realm-routing")
+# could reach root support without a CI failure.
 #
 # The prose-architecture family (`_PROSE_PATTERN`) runs over these files; the
 # symbol families ALSO run over the markdown ones (they carry fenced Clojure).
@@ -166,8 +164,7 @@ _ROOT_SUPPORT_MARKDOWN = (
 
 # Root support SCRIPTS whose comments explain the gates. Non-markdown, so only
 # the prose-architecture family runs (line-by-line; a shell comment is the
-# "prose" surface). The JVM gate scripts are where 2f1x2x found the stale
-# "preserved realm-routing" claim.
+# "prose" surface).
 _ROOT_SUPPORT_SCRIPTS = (
     "scripts/test-jvm-implementation.sh",
     "scripts/test-jvm-tools.sh",
@@ -202,23 +199,19 @@ _EXCLUDE_REL_PREFIXES = ("docs/spec/",)
 # Narrow allowlist — historical surface ONLY (file-scoped)
 # --------------------------------------------------------------------------
 #
-# THE HARD RULE (rf2-6sefiu.1, recorded normatively in
+# THE HARD RULE (recorded normatively in
 # spec/Conventions.md §Retired composition vocabulary — the hard rule):
 # the ONLY place the retired realm/app/module composition vocabulary may appear
 # is HISTORICAL DISCUSSION, and the only historical surface is `docs/EP/**`
 # (plus EP-* docs that live under spec/, handled by the basename glob below).
 #
-# Post-EP-0024 (the atomic substrate deletion, #4811) there is NO retained-
-# internal realm machinery left to read, so the migration skill, the
-# implementor skill, and the Pair/Xray tooling skills NO LONGER carry the
-# retired surface as live fenced examples — they were rewritten onto the
-# image/frame model, and the guard now confirms they scan clean WITHOUT an
-# allowlist entry. The earlier per-skill allowlist entries were therefore
-# de-listed under this bead (rf2-6sefiu.1): they were stale exemptions for a
-# substrate that no longer exists. spec/Conventions.md was de-listed too — it
-# is now the home of the hard rule itself and is held to the clean public-surface
-# bar like any other teaching doc (its retired mentions are prose / inline
-# spans, which the gate never scans).
+# EP-0024 deletes the realm machinery outright, so the migration skill, the
+# implementor skill, and the Pair/Xray tooling skills carry no retired surface
+# as live fenced examples, and each scans clean WITHOUT an allowlist entry. A
+# per-skill entry would exempt a substrate that does not exist.
+# spec/Conventions.md is not allowlisted either: it is the home of the hard rule
+# itself and is held to the clean public-surface bar like any other teaching doc
+# (its retired mentions are prose / inline spans, which the gate never scans).
 #
 # KEEP THIS MINIMAL — the allowlist is the `docs/EP/` prefix and nothing else.
 # Widening it to relegitimise a non-EP surface is a RULE VIOLATION, not a fix:
@@ -292,17 +285,17 @@ _STRONG_SYMBOLS = (
     "frame-realm",
 )
 
-# rf2-lq99wc / rf2-7gmtz5 — `install!` / `reinstall!` are the only two strong
-# symbols whose BARE spelling collides with a LIVE, sanctioned convention: the
-# Xray / Story tools name each panel's registration entry point `install!`
+# `install!` / `reinstall!` are the only two strong symbols whose BARE spelling
+# collides with a LIVE, sanctioned convention: the Xray / Story tools name each
+# panel's registration entry point `install!`
 # (`(defn install! [] (subs/install!) (events/install!) nil)` — dozens of live
 # source files; the tool specs document the convention). NONE of those are the
-# retired EP-0013 `rf/install!` facade constructor (verified: zero co-occur with
-# realm/app-value). So on the TOOL-SPEC surface (`tools/*/spec`) a bare
-# install!/reinstall! is the panel convention, not drift, and is exempted there.
-# The REALM-SPECIFIC retired symbols below still fire EVERYWHERE (incl. tool
-# specs) — they have no live-convention collision. (On the framework doc surface
-# bare install!/reinstall! still fires: there it reads as the retired verb.)
+# retired EP-0013 `rf/install!` facade constructor. So on the TOOL-SPEC surface
+# (`tools/*/spec`) a bare install!/reinstall! is the panel convention, not
+# drift, and is exempted there. The REALM-SPECIFIC retired symbols fire
+# EVERYWHERE (incl. tool specs) — they have no live-convention collision. (On
+# the framework doc surface bare install!/reinstall! fires too: there it reads
+# as the retired verb.)
 _TOOL_CONVENTION_SYMBOLS = frozenset({"install!", "reinstall!"})
 
 # Build one alternation. The optional namespace qualifier is CAPTURED so the
@@ -328,13 +321,12 @@ _STRONG_RE = re.compile(
 #     `install!` is not a reserved word; an app may name its own fn that. This is
 #     the live-and-legitimate case the qualifier filter protects.
 #
-# (The realm machinery itself — the `re-frame.realm/` / `re-frame.frame/`
-# substrate — was DELETED IN FULL by EP-0024 (#4811), so there is no longer an
-# internal `re-frame.realm/realm-ids` read to exempt; only an app's own
-# off-facade hook survives as a non-`rf/` qualified match.)
+# (EP-0024 deletes the realm machinery in full, so there is no internal
+# `re-frame.realm/realm-ids` read to exempt; an app's own off-facade hook is
+# the non-`rf/` qualified match that matters.)
 #
 # So a strong-symbol match is drift ONLY when its captured `ns` qualifier is
-# empty (bare) or exactly `rf/` (the facade). A bare `install!` is still caught
+# empty (bare) or exactly `rf/` (the facade). A bare `install!` is caught
 # because the dangerous reintroduction `[(rf/install! ...)]` is the common shape
 # AND a bare `(install! ...)` on the public teaching surface reads as the
 # retired verb; an app's setup hook is always namespace-qualified (it lives in
@@ -348,8 +340,8 @@ def _strong_hits(line: str, tool_spec_surface: bool = False) -> str | None:
 
     Returns the SYMBOL rather than a bare True so a finding can say which of the
     nine roster entries produced it, and the self-test can hold each entry to
-    owning a fixture (rf2-57vnc). Still truthy/falsy, so every caller that only
-    asks "did it hit?" reads the same answer it always did.
+    owning a fixture. It is truthy/falsy, so a caller that only asks "did it
+    hit?" can treat it as a boolean.
 
     A match qualified by any namespace OTHER than `rf/` (e.g. the internal
     `re-frame.realm/`, or an app's own `counter/`) names a different symbol
@@ -358,8 +350,8 @@ def _strong_hits(line: str, tool_spec_surface: bool = False) -> str | None:
     On the TOOL-SPEC surface (`tool_spec_surface=True`) the panel-convention
     symbols `install!` / `reinstall!` (`_TOOL_CONVENTION_SYMBOLS`) are exempted —
     there they are the Xray/Story per-panel registration entry point, not the
-    retired `rf/install!` facade constructor (rf2-7gmtz5). The realm-specific
-    retired symbols still fire everywhere.
+    retired `rf/install!` facade constructor. The realm-specific retired symbols
+    fire everywhere.
     """
     for m in _STRONG_RE.finditer(line):
         ns = m.group("ns") or ""
@@ -379,8 +371,8 @@ def _strong_hits(line: str, tool_spec_surface: bool = False) -> str | None:
 #     deliberately require the `(` so a bare `rf/realm` mentioned as a value
 #     does not fire; the retired API reintroduction is always a call.
 #     The three nouns are a NAMED roster so a finding says which one fired and
-#     the self-test can hold each to owning a fixture (rf2-57vnc) — `rf/app` had
-#     none, and deleting it from the alternation changed nothing.
+#     the self-test can hold each to owning a fixture — without one, a noun
+#     could be deleted from the alternation and nothing would notice.
 _RETIRED_FACADE_NOUNS: tuple[str, ...] = ("app", "module", "realm")
 _RETIRED_FACADE_CALL_RE = re.compile(
     r"\(\s*rf/(?P<noun>" + "|".join(_RETIRED_FACADE_NOUNS)
@@ -394,10 +386,10 @@ def _facade_noun_hits(line: str) -> str | None:
     m = _RETIRED_FACADE_CALL_RE.search(line)
     return f"rf/{m.group('noun')}" if m else None
 
-# (c) Retired ARCHITECTURE-TEACHING prose phrases (rf2-2c8zq6). The root-support
-#     surfaces (README, TESTING, the JVM gate comments) drifted not by planting
-#     a retired SYMBOL in a code fence but by teaching the previous model in
-#     PROSE: an app's event stream described as "the event program", a JVM gate
+# (c) Retired ARCHITECTURE-TEACHING prose phrases. The root-support surfaces
+#     (README, TESTING, the gate-script comments) would drift not by planting a
+#     retired SYMBOL in a code fence but by teaching the retired model in
+#     PROSE: an app's event stream described as "the event program", a gate
 #     comment claiming "realm-routing" is a preserved contract. The canonical
 #     public model is image -> frame -> event stream, so these two distinctive
 #     multi-word phrases read as live architecture vocabulary wherever they are
@@ -406,9 +398,10 @@ def _facade_noun_hits(line: str) -> str | None:
 #     Scope is DELIBERATELY two phrases only — `event[- ]program` and
 #     `realm[- ]routing`. They are multi-word and architecture-specific, so the
 #     false-positive surface is tiny (unlike a bare `program`, `app`, or `realm`
-#     word). A removed-context marker on the same line (`retired`, `removed`,
-#     `no longer`, `collapsed`, `superseded`, `deprecated`, `no <phrase>`, …)
-#     SUPPRESSES the hit: a sentence that says "this tier carries no
+#     word). A removed-context marker on the line or an immediate neighbour
+#     (`retired`, `removed`, `no longer`, `collapsed`, `superseded`,
+#     `deprecated`, `no <phrase>`, …) SUPPRESSES the hit: a sentence that says
+#     "this tier carries no
 #     realm-routing section" or "the event-program field was renamed" is
 #     discussing the removal, not teaching the model — exactly the same
 #     removed-context exemption the symbol rules grant prose + masked comments.
@@ -423,8 +416,8 @@ _RETIRED_PROSE_RE = re.compile(
 # never fire there either).
 #
 # The base set covers the architecture-prose family (event-program / realm-
-# routing). The `gone` / `deleted` / `there is no` / bare `no` markers are added
-# (rf2-lq99wc) so the deleted-substrate families below — which fire on a CLAIM
+# routing). The `gone` / `deleted` / `there is no` / bare `no` markers are there
+# so the deleted-substrate families below — which fire on a CLAIM
 # that the deleted realm/app-value/migration substrate is retained/live — stay
 # GREEN wherever the sentence is DISCUSSING the deletion ("the realm machinery
 # was deleted in full", "there is no `re-frame.realm` namespace", "no installed-
@@ -471,15 +464,15 @@ def _prose_hits(line: str, context: str = "") -> str | None:
     return m.group(0).lower().replace(" ", "-")
 
 
-# (d) DELETED-SUBSTRATE-AS-LIVE prose families (rf2-lq99wc). The
-#     architecture-prose family (c) only fires on two phrases (`event-program`
-#     / `realm-routing`) and only over the root-support surfaces, so it MISSED a
-#     whole residue class the rf2-6sefiu.5 audit surfaced on the teaching
-#     surface (spec/API.md, the tool specs, the api-manifest): prose that
-#     RE-LEGITIMIZES the deleted EP-0013 realm/app-value/migration substrate as
-#     still-present internal machinery. EP-0024 DELETED that substrate in full
-#     (#4811) — there is no `re-frame.realm` namespace, no installed-app value,
-#     no migration-map, no realm-scoped reader. Two distinctive shapes:
+# (d) DELETED-SUBSTRATE-AS-LIVE prose families. The architecture-prose family
+#     (c) only fires on two phrases (`event-program` / `realm-routing`) and only
+#     over the root-support surfaces, so it cannot see a whole residue class on
+#     the teaching surface (spec/API.md, the tool specs, the api-manifest):
+#     prose that RE-LEGITIMIZES the deleted EP-0013 realm/app-value/migration
+#     substrate as still-present internal machinery. EP-0024 deletes that
+#     substrate in full — there is no `re-frame.realm` namespace, no
+#     installed-app value, no migration-map, no realm-scoped reader. Two
+#     distinctive shapes:
 #
 #       (d1) "retained-internal" / "retained as internal substrate" / "realm
 #            machinery … retained" / "realm-scoped readers … remain" — a CLAIM
@@ -492,20 +485,20 @@ def _prose_hits(line: str, context: str = "") -> str | None:
 #
 #       (d2) a DELETED-NAMESPACE read named as a CURRENT seam:
 #            `re-frame.realm/<sym>`, `re-frame.app-value/<sym>`, or
-#            `re-frame.migration/migration-map`. These namespaces no longer
+#            `re-frame.migration/migration-map`. These namespaces do not
 #            exist, so naming one as a live read/import is drift. (The LIVE
 #            internal namespaces a tool legitimately reads — `re-frame.registrar`
 #            / `re-frame.frame` / `re-frame.live-frame` / `re-frame.image` —
 #            are NOT in this set and never fire.)
 #
-#     BOTH are suppressed by the (extended) removed-context window: a sentence
+#     BOTH are suppressed by the removed-context window: a sentence
 #     that says the substrate "was deleted in full", "there is no
 #     `re-frame.realm` namespace", "no `re-frame.realm/installed-app` seam", or
 #     "is **gone** with the substrate it read" is DISCUSSING the deletion, not
 #     teaching a live seam — exactly the same removed-context tolerance the
 #     symbol + architecture-prose families grant. Unlike the architecture-prose
 #     family these run over the FULL doc surface (not just root-support),
-#     because the residue the audit found lives in spec/ + the tool specs.
+#     because the residue they target sits in spec/ + the tool specs.
 #
 #     NOTE (d2 does NOT mask inline `code spans`): a deleted namespace named in
 #     an inline span AS A LIVE SEAM ("the realm-scoped readers
@@ -520,8 +513,8 @@ def _prose_hits(line: str, context: str = "") -> str | None:
 #      noun on the same line so the EP-0018 reg-event-ctx "retained internally"
 #      note (no realm adjacency) stays green.
 #      Each alternative is NAMED so a finding says which claim shape fired and
-#      the self-test can hold each to owning a fixture (rf2-57vnc): the single
-#      positive matched only the first two, leaving three shapes unexercised.
+#      the self-test can hold each to owning a fixture: a single positive that
+#      matched only the first two would leave three shapes unexercised.
 _RETAINED_CLAIM_FORMS: tuple[tuple[str, str], ...] = (
     ("retained-internal",
      r"retained[- ]internal"),
@@ -552,13 +545,12 @@ _SUBSTRATE_NOUN_RE = re.compile(
     re.IGNORECASE,
 )
 
-# (d2) A DELETED-NAMESPACE read. These namespaces were removed in full by
-#      EP-0024; naming one as a live seam is drift. `re-frame.migration/` is
-#      scoped to `migration-map` specifically (the disposition source the
-#      retired manifest-hygiene gate tracked) to keep the family tight.
-#      Named per namespace, same reason as the rosters above (rf2-57vnc): only
-#      `re-frame.realm/` was ever planted, so the other two could be deleted
-#      from the alternation without a single fixture noticing.
+# (d2) A DELETED-NAMESPACE read. EP-0024 removes these namespaces in full;
+#      naming one as a live seam is drift. `re-frame.migration/` is scoped to
+#      `migration-map` specifically to keep the family tight.
+#      Named per namespace, same reason as the rosters above: with one planted
+#      namespace, the other two could be deleted from the alternation without a
+#      single fixture noticing.
 _DELETED_NS_READS: tuple[tuple[str, str], ...] = (
     ("re-frame.realm/",     r"re-frame\.realm/[\w.+!?<>=-]+"),
     ("re-frame.app-value/", r"re-frame\.app-value/[\w.+!?<>=-]+"),
@@ -615,10 +607,9 @@ def _deleted_ns_read_hits(line: str, context: str = "") -> str | None:
 
 
 # Each family is a (kind, predicate) pair where the predicate maps a
-# (masked-line, tool_spec_surface) pair to the ROSTER ENTRY it matched, or None.
-# It used to answer a bare True, which is why four of the nine strong symbols and
-# `rf/app` could sit in their rosters with no fixture at all: a finding could
-# only ever say that SOMETHING in the family fired (rf2-57vnc). The strong family
+# (masked-line, tool_spec_surface) pair to the ROSTER ENTRY it matched, or None
+# — never a bare True, which would only ever say that SOMETHING in the family
+# fired and so let a roster entry sit with no fixture at all. The strong family
 # uses `_strong_hits` (capture + internal-namespace filter + the tool-spec
 # install!-convention exemption); the facade-noun family is a plain regex search
 # (surface-independent). The prose family (`_prose_hits`) runs over PROSE lines
@@ -637,11 +628,11 @@ _RETIRED_PATTERNS = (
 # the deleted-substrate families below run over the FULL doc surface.
 _PROSE_PATTERN = ("retired-architecture-prose", _prose_hits)
 
-# The deleted-substrate families (rf2-lq99wc) — each a (kind, context-predicate)
-# pair. They take the (line, context) signature so the removed-context window
-# can read the immediate neighbours (prose wraps across lines). They run over
-# the PROSE of EVERY scanned file (not just root-support), because the residue
-# the rf2-6sefiu.5 audit found lives on the spec + tool-spec teaching surface.
+# The deleted-substrate families — each a (kind, context-predicate) pair. They
+# take the (line, context) signature so the removed-context window can read the
+# immediate neighbours (prose wraps across lines). They run over the PROSE of
+# EVERY scanned file (not just root-support), because the residue they target
+# sits on the spec + tool-spec teaching surface.
 # Note: these consume the RAW prose line (inline spans NOT masked) — a deleted
 # namespace named as a live seam inside an inline span IS the residue.
 _DELETED_SUBSTRATE_PATTERNS = (
@@ -655,11 +646,10 @@ class Finding(NamedTuple):
     line: int
     kind: str
     snippet: str
-    # WHICH roster entry within the family fired. Four of the nine strong
-    # symbols, `rf/app`, two of the three deleted namespaces and three of the
-    # five retained-claim shapes had no fixture, and nothing could have said so:
-    # every finding in a family carried the same `kind` (rf2-57vnc). `_report`
-    # is unchanged — this exists for the self-test's roster-coverage assertion.
+    # WHICH roster entry within the family fired. Every finding in a family
+    # carries the same `kind`, so without this nothing could say that a roster
+    # entry had no fixture. `_report` does not read it — it exists for the
+    # self-test's roster-coverage assertion.
     detail: str = ""
 
 
@@ -675,7 +665,7 @@ class Finding(NamedTuple):
 # and at least as many marks. Masking is length-preserving so 1-based line
 # numbers and reported snippets line up with the raw source.
 #
-# (Shape copied from scripts/check_inject_cofx_residue.py — the sibling EP-0017
+# (Same shape as scripts/check_inject_cofx_residue.py — the sibling EP-0017
 # residue gate — so the two doc-surface vocabulary gates stay consistent.)
 
 _FENCE_RE = re.compile(r"^(\s*)(`{3,}|~{3,})")
@@ -792,7 +782,7 @@ def _tool_spec_scan_dirs(repo_root: Path) -> list[str]:
     Returns repo-relative forward-slash dir strings for every existing
     `tools/<tool>/spec/` directory, sorted. Empty if `tools/` is absent (a
     consumer repo need not carry the dev tools). Unioned into the default scan
-    so tool-spec drift is gated (rf2-lq99wc).
+    so tool-spec drift is gated.
     """
     if not (repo_root / "tools").is_dir():
         return []
@@ -833,19 +823,20 @@ def _iter_doc_files(scan_root: Path, repo_root: Path) -> Iterable[Path]:
 def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
     """Return live retired-vocabulary findings in `text` (already attributed).
 
-    Allowlisted files (the historical / internal / migration surface) are
-    skipped entirely — a worked example of the retired surface is correct
-    there. For every other file the SYMBOL families scan the masked fenced-code
-    lines; on the root-support surfaces the PROSE-architecture family also
-    scans the prose lines (`_prose_lines`) for a retired architecture phrase.
+    Allowlisted files (the `docs/EP/**` historical record) are skipped
+    entirely — a worked example of the retired surface is correct there. For
+    every other file the SYMBOL families scan the masked fenced-code lines and
+    the deleted-substrate families scan the prose; on the root-support surfaces
+    the PROSE-architecture family also scans the prose lines (`_prose_lines`)
+    for a retired architecture phrase.
     """
     if _is_allowlisted(rel_posix):
         return []
     findings: list[Finding] = []
     raw = text.splitlines()
     # The tool-spec surface (`tools/*/spec/...`) exempts the bare install!/
-    # reinstall! panel convention (rf2-7gmtz5); the realm-specific symbols still
-    # fire there. `_TOOL_SPEC_REL_RE` matches the discovered scan dirs.
+    # reinstall! panel convention; the realm-specific symbols fire there too.
+    # `_TOOL_SPEC_REL_RE` matches the discovered scan dirs.
     tool_spec_surface = bool(_TOOL_SPEC_REL_RE.match(rel_posix))
     for line_no, masked in _code_fence_lines(text):
         for kind, predicate in _RETIRED_PATTERNS:
@@ -856,10 +847,10 @@ def _scan_text(path: Path, text: str, rel_posix: str) -> list[Finding]:
                     Finding(path, line_no, f"live-retired:{kind}", snippet,
                             detail=entry)
                 )
-    # The deleted-substrate prose families (rf2-lq99wc) run over the prose of
-    # EVERY scanned file — markdown OR a non-markdown root-support script (whose
-    # whole body is the prose surface). The residue the audit found lives on the
-    # spec + tool-spec teaching surface, not just root-support.
+    # The deleted-substrate prose families run over the prose of EVERY scanned
+    # file — markdown OR a non-markdown root-support script (whose whole body is
+    # the prose surface). The residue they target sits on the spec + tool-spec
+    # teaching surface, not just root-support.
     findings.extend(_scan_deleted_substrate_prose(path, text))
     if rel_posix in _ROOT_SUPPORT_PROSE_FILES:
         findings.extend(_scan_root_support_prose(path, text, rel_posix))
@@ -1013,7 +1004,7 @@ _FIX_HINTS = {
         "A prose CLAIM that the deleted EP-0013 realm / app-value / module "
         "substrate is 'retained internal substrate' / 'retained internally' / "
         "that the realm machinery or realm-scoped readers 'remain' as a live "
-        "internal seam. EP-0024 DELETED that substrate IN FULL (#4811): there "
+        "internal seam. EP-0024 DELETED that substrate IN FULL: there "
         "is no `re-frame.realm` namespace, no installed-app value, no realm-"
         "scoped reader. Frame resolution routes through the process registrar "
         "(`re-frame.registrar` / `re-frame.frame` / `re-frame.image`), not a "
@@ -1120,7 +1111,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     # The default scan = the doc-surface dirs UNION the discovered per-tool spec
-    # trees (rf2-lq99wc). An explicit --scan-dir is a targeted run and uses
+    # trees. An explicit --scan-dir is a targeted run and uses
     # exactly what was passed (tool specs are not auto-added there).
     if args.scan_dir:
         scan_dirs = list(args.scan_dir)
@@ -1137,8 +1128,8 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"scanning {n} markdown file(s) under {d}...\n")
         all_findings.extend(scan(scan_root, repo_root=repo_root))
 
-    # rf2-2c8zq6 — the root-support surfaces (README/TESTING/CHANGELOG/the JVM
-    # gate scripts, …) are individual files outside any scan dir. Cover them on
+    # The root-support surfaces (README/TESTING/CHANGELOG/the gate scripts, …)
+    # are individual files outside any scan dir. Cover them on
     # the DEFAULT invocation (an explicit --scan-dir is a targeted run and skips
     # them so the override stays predictable).
     if not args.scan_dir:
@@ -1197,18 +1188,16 @@ def _run_self_tests(verbose: bool = False) -> int:
     dedicated allowlist case scans a positive fixture AS IF it were an EP doc
     and asserts it does NOT fire.
 
-    A second block (rf2-2c8zq6) exercises the root-support PROSE-architecture
+    A second block exercises the root-support PROSE-architecture
     family: it scans the prose fixtures AS IF they were a root-support file
     (rel_posix=README.md) so the prose family activates, asserting the live
     "event program" / "realm-routing" teaching FIRES and every removed-context
     / inline-span / in-fence counterpart stays GREEN.
 
-    The counts were already exact, and every fixture single-token — the hole was
-    one level down (rf2-57vnc): nothing obliged a ROSTER ENTRY to own a fixture,
-    so `realm-ids`, `app-registrations`, `app-requires`, `frame-realm`,
-    `rf/app`, two of the three deleted namespaces and three of the five
-    retained-claim shapes could each be deleted from their alternation without a
-    single case noticing. The coverage assertions at the end close that.
+    Exact counts over single-token fixtures do not by themselves oblige a
+    ROSTER ENTRY to own a fixture, so an entry could be deleted from its
+    alternation without a single case noticing. The coverage assertions at the
+    end close that.
     """
     failures = 0
     covered: set[str] = set()
@@ -1269,8 +1258,8 @@ def _run_self_tests(verbose: bool = False) -> int:
          frozenset({_SYMBOL + "app-owns"})),
         ("positive/live_installed_app_read.md",
          frozenset({_SYMBOL + "installed-app"})),
-        # The four strong symbols that had no fixture at all, one per fenced
-        # line, each attributed to itself.
+        # The other four strong symbols, one per fenced line, each attributed
+        # to itself.
         ("positive/live_remaining_strong_symbols.md", frozenset({
             _SYMBOL + "realm-ids",
             _SYMBOL + "app-registrations",
@@ -1281,7 +1270,6 @@ def _run_self_tests(verbose: bool = False) -> int:
          frozenset({_FACADE + "rf/realm"})),
         ("positive/live_rf_module_call.md",
          frozenset({_FACADE + "rf/module"})),
-        # `rf/app` was in the alternation and in no fixture.
         ("positive/live_rf_app_call.md",
          frozenset({_FACADE + "rf/app"})),
         # --- negatives: removed-context / sanctioned forms must stay GREEN ---
@@ -1290,10 +1278,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/masked_clj_comment_in_fence.md",    frozenset()),
         ("negative/app_db_sanctioned.md",              frozenset()),
         ("negative/rewritten_image_frame_teaching.md", frozenset()),
-        # Non-facade namespace-qualified symbols: the internal substrate read
-        # (`re-frame.realm/realm-ids`, `re-frame.realm/installed-app`) AND an
-        # app's own `counter/install!` setup hook — all share a bare name with
-        # a retired facade symbol but are different symbols. Must stay GREEN.
+        # Non-facade namespace-qualified symbols: live internal namespace reads
+        # (`re-frame.registrar/`, `re-frame.frame/`) AND an app's own
+        # `counter/install!` setup hook, which shares a bare name with a
+        # retired facade symbol but is a different symbol. Must stay GREEN.
         ("negative/internal_substrate_ns_reads.md",    frozenset()),
     ]
     for fixture, expected in cases:
@@ -1328,7 +1316,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         )
         failures += 1
 
-    # rf2-2c8zq6 — the root-support PROSE-architecture family. Scanned AS IF the
+    # The root-support PROSE-architecture family. Scanned AS IF the
     # fixture were a root-support file (rel_posix=README.md) so the prose family
     # activates (it is gated to `_ROOT_SUPPORT_PROSE_FILES`).
     _PROSE = "retired-architecture-prose:"
@@ -1347,10 +1335,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         # rel_posix=README.md makes _scan_text run the prose-architecture family.
         run_case(fixture, "README.md", expected, label="prose")
 
-    # rf2-lq99wc — the DELETED-SUBSTRATE families (retained-internal claim +
+    # The DELETED-SUBSTRATE families (retained-internal claim +
     # deleted-namespace read). These run over the prose of EVERY scanned file in
     # `_scan_text`, so a plain non-allowlisted rel_posix activates them. The
-    # positives plant the audit-found residue class (a "retained internal
+    # positives plant the residue class (a "retained internal
     # substrate" claim; a `re-frame.realm/...` live read); the negatives prove
     # the removed-context window keeps the legitimate deletion-discussion shapes
     # (spec/Conventions.md / the Xray specs / the api-manifest) GREEN, and that
@@ -1365,15 +1353,15 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/live_retained_internal_substrate.md",
          frozenset({_CLAIM + "retained-internal+retained-as-internal-substrate"
                     "+substrate-noun-retained"})),
-        # The two claim shapes that had no fixture: verb-first, and survival
-        # phrased as continuity.
+        # The other two claim shapes: verb-first, and survival phrased as
+        # continuity.
         ("positive/live_retained_substrate_noun_claim.md",
          frozenset({_CLAIM + "retained-substrate-noun"})),
         ("positive/live_realm_readers_remain_claim.md",
          frozenset({_CLAIM + "realm-readers-remain"})),
         ("positive/live_deleted_namespace_read.md",
          frozenset({_NSREAD + "re-frame.realm/"})),
-        # The two deleted namespaces that had no fixture.
+        # The other two deleted namespaces.
         ("positive/live_deleted_app_value_ns_read.md",
          frozenset({_NSREAD + "re-frame.app-value/"})),
         ("positive/live_deleted_migration_map_read.md",
@@ -1381,7 +1369,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         # --- negatives: removed-context / different-subject stay GREEN ---
         ("negative/removed_context_deleted_substrate.md", frozenset()),
         ("negative/reg_event_ctx_retained_internally.md", frozenset()),
-        # the pre-existing internal-substrate fixture reads the LIVE namespaces
+        # the internal-substrate fixture reads the LIVE namespaces
         # (`re-frame.registrar/` / `re-frame.frame/`), NOT a deleted one.
         ("negative/internal_substrate_ns_reads.md",       frozenset()),
     ]
@@ -1389,10 +1377,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         # A plain non-allowlisted rel_posix runs the deleted-substrate families.
         run_case(fixture, fixture, expected, label="deleted-substrate")
 
-    # rf2-7gmtz5 — the TOOL-SPEC install!-convention exemption. Scanned AS IF the
+    # The TOOL-SPEC install!-convention exemption. Scanned AS IF the
     # fixture lived under `tools/xray/spec/` so `_scan_text` lights the
     # tool_spec_surface flag: a bare `install!` / `reinstall!` panel convention
-    # stays GREEN, but a realm-specific retired symbol still FIRES there.
+    # stays GREEN, but a realm-specific retired symbol FIRES there.
     tool_spec_cases: list[tuple[str, frozenset[str]]] = [
         ("negative/tool_panel_install_convention.md",   frozenset()),
         ("positive/tool_spec_realm_symbol_fires.md",
@@ -1407,11 +1395,11 @@ def _run_self_tests(verbose: bool = False) -> int:
     # ROSTER COVERAGE — a roster entry without a fixture is a hard failure.
     # ----------------------------------------------------------------------
     #
-    # This is the assertion the four families were missing (rf2-57vnc). Every
-    # case above already asserted an exact count over a single-token fixture;
-    # what nothing asserted was that each entry in each alternation had a case
-    # AT ALL. Deleting `realm-ids`, `frame-realm`, `rf/app` or two thirds of the
-    # deleted-namespace alternation left the whole self-test green.
+    # The cases above assert an exact count over single-token fixtures, which
+    # does not show that each entry in each alternation has a case AT ALL:
+    # without this block, deleting `realm-ids`, `frame-realm`, `rf/app` or two
+    # thirds of the deleted-namespace alternation would leave the whole
+    # self-test green.
     #
     # `covered` is accumulated from the witnesses the fixtures actually
     # produced, and the joined multi-match details are split so a line matching

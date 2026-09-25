@@ -7,35 +7,34 @@
 # never touch beads segments).
 #
 # Installs (one marker BLOCK each; a hook may carry several):
-#   - post-merge  (rf2-6jj3r) MCP-staleness advisory warning.
-#   - post-merge  (rf2-zt65l) hook-install staleness advisory: re-runs this
+#   - post-merge  MCP-staleness advisory warning.
+#   - post-merge  hook-install staleness advisory: re-runs this
 #                 script's own --check after every pull, so a change under
 #                 scripts/git-hooks/ cannot sit uninstalled unnoticed. Covers
 #                 the pulls that merge or fast-forward.
-#   - post-rewrite (rf2-zt65l) the same advisory on the REBASE path. A rebase
-#                 never invokes post-merge, so `git pull --rebase` with a
-#                 local commit — the completion path AGENTS.md and CLAUDE.md
-#                 mandate — used to land hook drift in silence.
-#   - pre-commit  (rf2-ydl2p) refuses commits in the MAYOR checkout that
+#   - post-rewrite the same advisory on the REBASE path. A rebase
+#                 never invokes post-merge, so without this block a rebase
+#                 with a local commit — the completion path AGENTS.md and
+#                 CLAUDE.md mandate — would land hook drift in silence.
+#   - pre-commit  refuses commits in the MAYOR checkout that
 #                 touch worker-tracked surfaces. Activation gated by a
 #                 marker file at `<git-common-dir>/mayor-marker`, which
 #                 this installer also drops (it lives in the mayor's git
 #                 dir, so worker worktrees — which share hooks but not
 #                 their per-worktree git dir — see a no-op hook).
-#   - pre-commit  (rf2-ia8o7) refuses commits in a WORKER worktree that
+#   - pre-commit  refuses commits in a WORKER worktree that
 #                 touch the beads DATABASE. The mirror image of the block
 #                 above; it derives the primary worktree from
 #                 `git worktree list` rather than a marker file.
-#   - pre-commit  (rf2-or8te) refuses a commit from ANY worktree that would
+#   - pre-commit  refuses a commit from ANY worktree that would
 #                 empty `.beads/issues.jsonl` or lose more than a tenth of
-#                 it. Neither of the two blocks above could see the failure:
-#                 an empty export reached main twice from the MAYOR
-#                 checkout, by plain `git add`, where they no-op.
-#   - commit-msg  (rf2-2e8f) refuses a commit MESSAGE carrying AI attribution
+#                 it. Neither of the two blocks above can see that failure:
+#                 an empty export committed from the MAYOR checkout by
+#                 plain `git add` passes both.
+#   - commit-msg  refuses a commit MESSAGE carrying AI attribution
 #                 (`Co-Authored-By:` naming the assistant, `Claude-Session:`,
 #                 a generated-with marker). Every block above grades staged
-#                 PATHS; the message is a surface none of them can see, and
-#                 three such commits reached main while nothing checked.
+#                 PATHS; the message is a surface none of them can see.
 #
 # Usage:
 #   scripts/install-git-hooks.sh           # install/refresh
@@ -59,7 +58,7 @@ HOOKS_DIR="$COMMON_DIR/hooks"
 mkdir -p "$HOOKS_DIR"
 
 # Block registry. The unit of installation is a marker BLOCK, not a hook —
-# `pre-commit` carries two of them (rf2-ia8o7). `block_spec <block-id>`
+# `pre-commit` carries several of them. `block_spec <block-id>`
 # echoes `HOOK<TAB>BEGIN<TAB>END`; consumers split on TAB.
 block_spec() {
   case "$1" in
@@ -192,18 +191,18 @@ install_block() {
 
 install_mayor_marker() {
   # Always drop the marker into <common-dir>/mayor-marker. The marker is
-  # the activation gate for the pre-commit hook (rf2-ydl2p). It lives in
+  # the activation gate for the pre-commit hook. It lives in
   # the mayor's per-worktree git dir (== common dir for the primary
   # worktree); worker worktrees have their own per-worktree git dir at
   # <common>/worktrees/<name> and therefore see no marker -> hook no-ops.
   marker_path="$COMMON_DIR/mayor-marker"
   # KEEP THIS TEXT BYTE-IDENTICAL TO THE .ps1 SIBLING, and name neither
   # installer in it. The two installers write to the same file and both check
-  # it, so a version that named itself made the OTHER one report
+  # it, so a version that named itself would make the OTHER one report
   # "mayor-marker content drifted" on a perfectly good install — and the
-  # post-merge advisory runs the .sh --check, so one .ps1 run was enough to
-  # make it fire on every pull for ever. An advisory that always fires is one
-  # nobody reads, which is the whole of rf2-zt65l.
+  # post-merge advisory runs the .sh --check, so one .ps1 run would be enough
+  # to make it fire on every pull for ever. An advisory that always fires is
+  # one nobody reads.
   marker_content='re-frame2 mayor checkout marker (rf2-ydl2p).
 Presence of this file in <git-dir> activates the pre-commit hook that
 refuses commits to worker-tracked surfaces. Managed by

@@ -1,17 +1,17 @@
 (ns fixture.transparent-heads-crossed)
 
-;; NEGATIVE (rf2-n6ijg) — one case per `_TRANSPARENT_HEADS` entry, each placing
+;; NEGATIVE — one case per `_TRANSPARENT_HEADS` entry, each placing
 ;; that head between a conformant `let`-bound message and the `throw` it guards.
 ;; Every one must stay GREEN: a head that introduces no bindings cannot change
 ;; what the message symbol means, which is the whole claim the roster makes.
 ;; Zero findings expected.
 ;;
 ;; Delete any head below from `_TRANSPARENT_HEADS` and its case fires, because
-;; the crossing then falls through to the fail-closed default. Thirteen of the
-;; nineteen entries had no case in either direction before this file; the
-;; pre-existing `bypass_let_bound_guarded.cljc` reaches six of them
-;; (do/if/when/cond/try/finally) as a side effect of the shapes it was written
-;; for, and keeps doing so — this file is the roster's own home.
+;; the crossing then falls through to the fail-closed default. The sibling
+;; `bypass_let_bound_guarded.cljc` also reaches six of the entries
+;; (do/if/when/cond/try/finally) as a side effect of the shapes it is written
+;; for, but this file is the roster's own home, with one case per
+;; entry.
 ;;
 ;; The bodies are minimal by design: each `defn` exists to place one head
 ;; between the binding and the throw. Several of the entries — `not` and the

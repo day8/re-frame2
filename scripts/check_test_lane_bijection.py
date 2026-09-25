@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Build-file <-> lane-selector bijection for every test lane in the repo.
 
-WHY THIS EXISTS (rf2-4hc9p).  The per-lane test-count floor (rf2-qqzmf) makes a
-lane that ran ZERO tests go red.  It cannot see a lane that ran SOME of what it
-should: nine `.cljc` suites once sat on the `:node-test` build's classpath with
-namespaces ending `-test` instead of `-cljs-test`, so the `cljs-test$` selector
-skipped every one of them while the lane still reported thousands of passing
-tests and exited 0 (rf2-ezbzvm).  A floor cannot catch that, and neither can a
-calibrated per-lane number -- the collapse hides inside the headroom.
+WHY THIS EXISTS.  The per-lane test-count floor makes a lane that ran ZERO
+tests go red.  It cannot see a lane that ran SOME of what it should: a `.cljc`
+suite on the `:node-test` build's classpath whose namespace ends `-test`
+instead of `-cljs-test` is skipped by the `cljs-test$` selector while the lane
+still reports thousands of passing tests and exits 0.  A floor cannot catch
+that, and neither can a calibrated per-lane number -- the collapse hides inside
+the headroom.
 
 What CAN catch it is a bijection.  Every file that defines a test and sits on a
 lane's classpath should be reachable by some lane's selector, and every lane's
@@ -45,7 +45,7 @@ decided by reading the enclosing forms, not by the column the form starts in:
   * `(deftest ...)`, bare or namespace-qualified (`cljs.test/deftest`);
   * the same, inside a reader conditional (`#?(:cljs (deftest ...))`) and/or a
     `do` -- both are transparent to the reader, so what they wrap IS top level.
-    Column 0 was the original test, and it could not see either shape;
+    A column-0 test cannot see either shape;
   * a call to a macro whose expansion emits deftests.  The roster of such
     macros is DERIVED, not listed: any `(defmacro NAME ...)` in the scanned
     tree whose body contains a `deftest` form makes a top-level `(NAME ...)`
@@ -57,13 +57,13 @@ test files discuss `deftest` in prose at length.  Masking is not enough on its
 own: a form can be spelled in full, in code, and still never be evaluated.  A
 reader DISCARD (`#_(deftest ...)`) and a QUOTE (`'(deftest ...)`,
 `` `(deftest ...) ``) both produce data, so neither defines a test, and reading
-either as one invents a test file and fires a false B1/B2 -- the same way the
-retired column-0 prose scan did.  Both are skipped, and everything nested
+either as one invents a test file and fires a false B1/B2 -- the same way a
+column-0 prose scan would.  Both are skipped, and everything nested
 inside them with them.
 
 CLASSIFIED BY THE DECLARED NAMESPACE.  A lane selector is applied by the
 runner to the namespace the file DECLARES, so this gate reads `(ns ...)` rather
-than deriving a name from the file path.  Deriving it was a second false green:
+than deriving a name from the file path.  Deriving it would be a second false green:
 editing only the declared suffix moves the file out of a lane's selector while
 a path-derived name goes on matching, so the lane silently sheds the file and
 the gate goes on reporting it covered.
@@ -74,7 +74,7 @@ THE FIVE RULES
       load it (`.clj` -> JVM lanes, `.cljs` -> CLJS lanes, `.cljc` -> either).
       A file selected by nothing runs nowhere, in any lane, ever.
 
-  B2  DUAL-RUNTIME SYMMETRY -- the nine-file class.  A `.cljc` test file under
+  B2  DUAL-RUNTIME SYMMETRY.  A `.cljc` test file under
       a test root the CLJS build OWNS must be selected by a CLJS lane.  A
       `.cljc` file is cross-runtime by construction and the repo's convention
       is that its `.cljc` tests run in both runtimes; being JVM-discovered is
@@ -88,18 +88,17 @@ THE FIVE RULES
       `:source-paths` entry that stays inside the shadow-cljs project is a tree
       the CLJS build owns, while a `../`-escaping entry is a foreign tree
       borrowed onto the classpath, whose lane is defined by its own `deps.edn`
-      elsewhere.  Borrowed trees are held by B1 only.  (Today that line falls
-      between `implementation/**` and `tools/**`; the `tools/{story,xray,
-      machines-viz}` test trees carry `.cljc` suites that no CLJS lane selects
-      and are tracked separately -- see rf2-odlm3.)
+      elsewhere.  Borrowed trees are held by B1 only.  (That line falls
+      between `implementation/**`, which the CLJS build owns, and the
+      `tools/**` trees it borrows.)
 
   B3  PHANTOM PATH.  Every root a lane declares must exist.  A renamed or
       deleted directory silently empties the lane that pointed at it, and the
       lane stays green on whatever is left.
 
   B4  EMPTY SELECTOR.  A lane's selector must reach at least one test file --
-      the static half of the rf2-qqzmf floor, catching a typo'd regex before a
-      compile rather than after.  Inverted for a lane that declares itself a
+      the static half of the per-lane test-count floor, catching a typo'd
+      regex before a compile rather than after.  Inverted for a lane that declares itself a
       classpath probe with `--probe` in its own `:test` alias: that lane must
       reach ZERO, and gaining a test makes it red and tells it to drop the
       flag.  Same declaration, same teeth, one tier earlier than the runner's
@@ -115,8 +114,7 @@ THE FIVE RULES
       coverage.  It does NOT decide that the Clojure reader can read the form
       -- a file with a stray unescaped quote in its ns docstring matches the
       regex, passes B5, and is invisible to `cognitect.test-runner`'s
-      discovery all the same (measured 2026-07-29: this gate reported PASS
-      while the core lane ran eight tests fewer, rf2-vruo9).  Reading the form
+      discovery all the same.  Reading the form
       needs a reader, so that check lives where one already is: the JVM lanes
       pass through `re-frame.test-quiet.runner`, which refuses to start when
       any file in a discovery directory will not reach it as its own
@@ -186,19 +184,15 @@ NON_EXECUTABLE_HEAD = "#_"
 #:     quoted deftest;
 #:   * the PRIME SUFFIX on a symbol -- `db'`, `tags'`, `ring'`.  A `'` closing
 #:     a symbol is part of that symbol, not a reader macro, so `(do tags'
-#:     (deftest t ...))` must keep its deftest.  Measured 2026-07-26: 352 such
-#:     runs across `.clj`/`.cljc`/`.cljs`, every one of them nested inside a
-#:     binding vector where the walk cannot see it, so the universe is the same
-#:     1694 files either way -- a latent false GREEN, not a live one.
+#:     (deftest t ...))` must keep its deftest.
 #:
 #: Both are handled by the same lookbehind, which rejects a quote preceded by
 #: any symbol constituent (a `\` among them) while still allowing one preceded
 #: by another prefix in the run (`''(...)`).
 #:
 #: BOUND: a run consumes ONE following form.  `#_#_ (a) (b)` discards two, and
-#: only `(a)` is seen as data here.  There is no such run in the tree (measured
-#: 2026-07-26: two `#_`-prefixed forms in all of `.clj`/`.cljc`/`.cljs`, no
-#: multi-discard anywhere), and a run that consumes a non-delimited form
+#: only `(a)` is seen as data here.  No lane root carries such a run, and a
+#: run that consumes a non-delimited form
 #: (`#_ignored (deftest ...)`) is already exact, because the run only matches
 #: when a delimiter follows it -- METADATA is the one non-delimited form it may
 #: cross, because metadata is not the form the run consumes, it is part of it.
@@ -301,9 +295,9 @@ def deftest_emitting_macros(masked_texts) -> set:
 
 
 def defines_tests(masked: str, macro_names) -> bool:
-    """One rule and no column heuristic.  A `(deftest` in column 0 was measured
-    against the walk and saved 0.05s over the whole tree, which does not buy a
-    second way to be wrong."""
+    """One rule and no column heuristic.  A column-0 `(deftest` shortcut saves
+    a fraction of a second over the whole tree against the walk, which does not
+    buy a second way to be wrong."""
     for head in top_level_heads(masked):
         if DEFTEST_HEAD.match(head):
             return True
@@ -756,7 +750,7 @@ def check(lanes, files, repo: Path):
 
     # B5 -- no declared namespace, so no selector can be applied at all.
     # Whether the declaration READS is a different question, settled by a
-    # reader in `re-frame.test-quiet.runner` (rf2-vruo9); see B5 above.
+    # reader in `re-frame.test-quiet.runner`; see B5 above.
     for test_file in ordered:
         if test_file.ns is None:
             failures.append(
@@ -957,9 +951,9 @@ def run_self_test() -> int:
          probe_flag=' "--probe"', expect="B4 probe lane gained coverage")
 
     # The recogniser mutations.  Each plants a test file in one of the shapes
-    # the pre-repair column-0 scan could not see, under a namespace no selector
-    # reaches.  Seeing the shape is what makes B1 fire; not seeing it was a
-    # silent pass.
+    # a column-0 scan cannot see, under a namespace no selector
+    # reaches.  Seeing the shape is what makes B1 fire; not seeing it would be
+    # a silent pass.
     files = dict(GREEN_FILES)
     files["implementation/core/test/app/rc_helper.cljc"] = (
         "(ns app.rc-helper)\n#?(:cljs\n   (deftest t (is true)))\n")

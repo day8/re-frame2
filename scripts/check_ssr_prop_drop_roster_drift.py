@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rf2-7ntc — SSR prop-drop roster drift gate.
+"""SSR prop-drop roster drift gate.
 
 `strip-prop?` in `implementation/ssr/src/re_frame/ssr/html_helpers.cljc` is the
 SINGLE realisation point for which props are dropped at SSR static-markup
@@ -11,21 +11,13 @@ Same shape as `scripts/check_keyword_catalogue_drift.py` (which is itself the
 api-manifest pattern applied to keywords): read a roster out of live source,
 require the enumerating documents to carry it.
 
-WHY THIS GATE EXISTS — THE MEASURED RECURRENCE
-----------------------------------------------
-Four documents enumerate the roster. THREE went stale:
-
-  * `spec/011-SSR.md`             — short from 2026-05-15 to 2026-05-27, ~3.5
-                                    months (rf2-2fes)
-  * `spec/Security.md`            — the same classes missing (rf2-twyh)
-  * the `attr-string` docstring   — written 2026-05-21, short SIX DAYS later
-                                    when the JSX class landed 400 lines above
-                                    it IN THE SAME FILE (rf2-twyh)
-  * `strip-prop?`'s own docstring — the only one that stayed correct
-
-The repairs are done. This gate exists to stop the RECURRENCE, and the reason it
-clears the bar an ordinary prose-drift gate would not is WHAT the roster is: the
-names are `__proto__` / `constructor` / `prototype` and
+WHY THIS GATE EXISTS
+--------------------
+A new name class landing in `strip-prop?` does not move the prose that
+enumerates the roster — not even a docstring in the same file, a few hundred
+lines away — and a short roster reads exactly like a complete one. The reason
+this clears the bar an ordinary prose-drift gate would not is WHAT the roster
+is: the names are `__proto__` / `constructor` / `prototype` and
 `dangerouslySetInnerHTML`, and one of the two graded pages is
 `spec/Security.md`. A short roster there is a security document understating a
 security control.
@@ -39,8 +31,7 @@ gate's only configuration.
 The name sets are DERIVED, not listed here: the `(contains? <set> …)` arms of
 `strip-prop?`'s own body name them, and each named set's `def ^:private <set>
 #{…}` form supplies its members. So a fifth name set landing in `strip-prop?`
-is graded on arrival rather than silently ignored — which is precisely how the
-`attr-string` gloss went short six days after it was written. There is no
+is graded on arrival rather than silently ignored. There is no
 roster in this script to go stale; if the source shape moves, the parse fails
 CLOSED (exit 2) rather than grading a subset in silence.
 
@@ -52,9 +43,9 @@ here and PINNED by the self-tests rather than left as a claim.
   1. IT GRADES FOUR OF THE SIX CLASSES. `strip-prop?` is a six-arm `or`: four
      `contains?` calls against literal name sets, plus `(event-handler-name? nm)`
      — a regex plus an allowlist, not an enumerable roster — and `(fn? v)`, a
-     type predicate with no name at all. The two unnamed classes are exactly the
-     two that were NEVER stale, so this gate covers the part that drifts. But a
-     green is not "the enumeration is complete".
+     type predicate with no name at all. The two unnamed classes are stated as
+     rules rather than listed as names, so this gate covers the part that
+     drifts: the name lists. But a green is not "the enumeration is complete".
 
   2. WHOLE-FILE MATCHING MEANS A GREEN IS A FLOOR, NOT A CEILING. A green says
      "no literal name is WHOLLY ABSENT from the page", and nothing stronger. It
@@ -66,11 +57,11 @@ here and PINNED by the self-tests rather than left as a claim.
      survives elsewhere reads here as PRESENT.
 
      That contamination is why this gate is NOT section-scoped, rather than an
-     argument for scoping it (ruled 2026-09-11). Contamination makes the check
-     UNDER-REPORT; it can never invent a failure. So the whole-file form is
-     sound in one direction — it cannot cry wolf — and at the pre-repair
-     revision it went RED ON BOTH PAGES, which is the whole question, because
-     those are the two drifts that actually happened. Section scoping buys the
+     argument for scoping it. Contamination makes the check UNDER-REPORT; it
+     can never invent a failure. So the whole-file form is sound in one
+     direction — it cannot cry wolf — and the names no unrelated text carries
+     (`__proto__`, the JSX props, `dangerouslySetInnerHTML`) still go RED when
+     a page drops them. Section scoping buys the
      remaining names at the price of a heading-range parser that must track
      where the roster lives on each page: a second thing that can go stale,
      added to a gate whose entire purpose is catching staleness.
@@ -80,21 +71,13 @@ here and PINNED by the self-tests rather than left as a claim.
 
 WHY A WORD MATCH ON THE BARE NAME, AND NOT THE `:keyword` SPELLING
 ------------------------------------------------------------------
-Measured at trunk, both pages CORRECT: requiring a leading `:` reports
-`__proto__`, `constructor` and `prototype` missing from BOTH pages — they are
-JS property names and both pages spell them bare. A colon-requiring gate would
-therefore cry wolf on two conformant documents on day one, which is the one
-thing this gate must never do. The set members are bare JS/React property
+Both pages spell `__proto__`, `constructor` and `prototype` bare — they are JS
+property names — so requiring a leading `:` would report them missing from two
+conformant documents, and crying wolf is the one thing this gate must never
+do. The set members are bare JS/React property
 names, so the bare name is what is matched; the boundary is
 `[A-Za-z0-9_]`, so `` `:key` `` and `` `:ref` `` satisfy `key` / `ref` while
 `keyword` and `prefer` do not.
-
-MEASURED, on the two pages this gate grades:
-
-  at a0e482433 (pre-repair)   011 RED  — missing the three JSX names +
-                                         dangerouslySetInnerHTML
-                              Security RED — those four + children
-  at trunk (both repaired)    011 GREEN, Security GREEN — 0 missing
 
 DELIBERATELY OUT OF SCOPE
 -------------------------
@@ -102,15 +85,15 @@ DELIBERATELY OUT OF SCOPE
     it names `:key`/`:ref`/`:children`/`:dangerouslySetInnerHTML` but says
     "reserved prototype-pollution keys" and "JSX source-coord props" in prose,
     which is the right register for a downstream gloss — and that allowance is
-    itself a roster that can go stale. rf2-twyh has already relabelled it a
-    GLOSS naming `strip-prop?` as the single realisation point.
-  * Any COUNT or structural invariant. Two CORRECT documents already disagree
-    on the count: merged 011 has five list items for six classes because it
+    itself a roster that can go stale. It labels itself a GLOSS naming
+    `strip-prop?` as the single realisation point.
+  * Any COUNT or structural invariant. Two CORRECT documents disagree on the
+    count: 011 has five list items for six classes because it
     groups `on*` and function-valued props into one entry, while
     `spec/Security.md` says "six classes". Both are right. Legitimate grouping
     differences mean only the literal-NAME test is sound.
   * The CLJS-side / conformance-fixture cross-check of the same four name sets.
-    Needs its own bead.
+    That is a separate check.
 
 Exit code:
     0  no drift (every literal name appears on every enumerating page)
@@ -175,10 +158,9 @@ class RosterParseError(RuntimeError):
     """The roster could not be read out of live source.
 
     This gate's population IS the parse, so a parse that finds nothing is not a
-    clean run — it is a check that did not run. The sibling keyword gate learnt
-    the same lesson under rf2-66czz, where a renamed heading made the checker
-    exit 0 having verified nothing. So the parser fails CLOSED: a gate that can
-    fail to RUN must exit non-zero when it does not run.
+    clean run — it is a check that did not run, and a renamed source form would
+    otherwise exit 0 having verified nothing. So the parser fails CLOSED: a gate
+    that can fail to RUN must exit non-zero when it does not run.
 
     Every message below names the ONE edit that silences it, because the honest
     fix for a deliberate refactor of `strip-prop?` is to update this script in
@@ -195,12 +177,10 @@ def name_set_vars(source_text: str) -> list[str]:
     """The name-set vars `strip-prop?` reads, in body order and de-duplicated.
 
     DERIVED FROM THE BODY rather than listed in this script, so a fifth name
-    set is graded on arrival. That matters here specifically: the recurrence
-    this gate exists to stop is a NEW CLASS landing and the enumerations not
-    following — the `attr-string` gloss went short six days after it was
-    written, when the JSX class landed 400 lines above it in the same file. A
-    hardcoded four-name list in this script would have gone stale the same way,
-    silently, and a gate that quietly stops covering is the defect it is
+    set is graded on arrival. That matters here specifically: the drift this
+    gate exists to stop is a NEW CLASS landing and the enumerations not
+    following, and a hardcoded four-name list in this script would go stale the
+    same way, silently — a gate that quietly stops covering is the defect it is
     supposed to catch.
 
     The two unnamed arms — `(event-handler-name? nm)` and `(fn? v)` — carry no
@@ -267,7 +247,7 @@ def roster(source_text: str) -> dict[str, list[str]]:
 def _word_re(name: str) -> re.Pattern[str]:
     """`name` as a WORD, with `[A-Za-z0-9_]` as the word class.
 
-    Chosen over both alternatives on measurement (module docstring §Why a word
+    Chosen over both alternatives (module docstring §Why a word
     match): a bare SUBSTRING lets `prefer` answer for `ref` and `keyword` for
     `key`, while requiring the `:keyword` spelling cries wolf on `__proto__` /
     `constructor` / `prototype`, which both pages correctly spell bare. The
@@ -315,9 +295,9 @@ _FIX = (
     "  and on spec/Security.md that is a security document understating a\n"
     "  security control. Two honest fixes, and no third:\n"
     "    * the class is REAL and the page is STALE — add the name to that page's\n"
-    "      roster, in the SAME PR as the source change that introduced it. This\n"
-    "      is the drift rf2-2fes / rf2-twyh repaired and the recurrence this\n"
-    "      gate exists to stop.\n"
+    "      roster, in the SAME PR as the source change that introduced it.\n"
+    "      This is the drift this gate exists to stop: the page falling\n"
+    "      behind the source.\n"
     "    * the class was REMOVED from `strip-prop?` — then it is not in the\n"
     "      derived roster either, so this check cannot be what is red. Re-read\n"
     "      the finding.\n"
@@ -345,7 +325,7 @@ def report(findings: dict[str, list[str]]) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "rf2-7ntc: fail when a spec page that enumerates the SSR prop-drop "
+            "Fail when a spec page that enumerates the SSR prop-drop "
             "roster is missing a literal name `strip-prop?` actually drops."
         ),
     )
@@ -517,7 +497,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     #
     # Each shape below is a way the roster can be LOST. A gate whose population
     # can silently collapse to zero is a gate that can fail to RUN while
-    # exiting 0 — the rf2-66czz shape, one gate over.
+    # exiting 0.
     def parse_raises(text: str) -> bool:
         try:
             roster(text)
@@ -568,15 +548,14 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("page: a conformant page passes",
            missing_from_page(conformant_page, every_name) == [])
 
-    # The rf2-2fes drift, reproduced: the JSX class landed and the page did not
-    # follow. This is the shape that was live on spec/011-SSR.md for ~3.5
-    # months, and it must be RED.
+    # The stale shape: the JSX class lands in the source and the page does not
+    # follow. It must be RED.
     stale_page = (
         conformant_page
         .replace("`:_jsxFileName`, `:_jsxLineNumber`, `:_jsxColumnNumber`", "…")
         .replace("(`:children`, `:dangerouslySetInnerHTML`)", "(`:children`)")
     )
-    expect("page: the rf2-2fes stale shape FIRES, naming exactly what is missing",
+    expect("page: the stale JSX-class shape FIRES, naming exactly what is missing",
            missing_from_page(stale_page, every_name)
            == ["_jsxColumnNumber", "_jsxFileName", "_jsxLineNumber",
                "dangerouslySetInnerHTML"])

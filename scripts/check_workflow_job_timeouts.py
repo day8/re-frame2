@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assert that every job in `.github/workflows/` carries a job-level `timeout-minutes`.
 
-WHY THIS EXISTS (rf2-rsn1e).  A job with no `timeout-minutes` inherits GitHub
+WHY THIS EXISTS.  A job with no `timeout-minutes` inherits GitHub
 Actions' 360-minute default.  A wedged runner then produces a check that never
 TERMINATES — not a red check, no check at all for six hours.  That is a
 different and worse thing than a failure: this project's merge loop reads CI
@@ -9,13 +9,11 @@ verdicts to decide what to merge, and a verdict that never arrives gives it
 nothing to read and no remedy but a hand cancel.  The cap is a circuit breaker,
 not a performance budget; it converts a hang into a legible failure.
 
-WHY A RATCHET RATHER THAN REVIEW.  Because review demonstrably did not hold it.
-rf2-km7iq's structural census found 89 of 117 jobs uncapped — uncapped was the
-house MAJORITY at 76%, accreted one job at a time over a long period, and it
-was noticed only because a single run wedged for 49 minutes and somebody
-happened to be watching.  A convention three quarters of whose instances
-violate it is not a convention; the next detection would have been the next
-49-minute hang.  This closes it at the cheapest possible point: on arrival.
+WHY A RATCHET RATHER THAN REVIEW.  An uncapped job looks like nothing in
+review; the omission shows only when a run wedges and somebody happens to be
+watching.  So a convention held by review alone erodes one job at a time until
+uncapped is the house majority, and the next detection is the next hang.  This
+closes it at the cheapest possible point: on arrival.
 
 WHY IT PARSES RATHER THAN GREPS — THE WHOLE POINT OF THE FILE.  A
 `timeout-minutes` under a STEP is not a job cap.  It bounds one step and leaves
@@ -23,18 +21,17 @@ the job free to hang in any other, so a job carrying only a step-level key is
 exactly as unprotected as one carrying none.  The two are indistinguishable to
 a line-oriented search: both produce a `timeout-minutes:` hit inside the job's
 text block, differing only in indentation, which is not a fact a grep can
-reason about.  This tree currently holds four real step-level keys across three
-jobs (Playwright installs and one MCP conformance run), so the confusion is
-live here and not hypothetical.  Reading the parsed document makes the
+reason about.  This tree carries real step-level keys (Playwright installs, MCP
+conformance runs), so the confusion is live here and not hypothetical.
+Reading the parsed document makes the
 distinction structural: a job cap is a key on the job mapping, a step cap is a
 key on an element of its `steps` sequence, and nothing has to infer one from
 the other.
 
 WHAT IT DOES NOT DO.  It does not judge the VALUE.  Any cap is accepted, and no
 opinion is offered about whether a number is too generous or too tight — that
-is a per-job measurement question (see rf2-xenc6, which raised exactly one cap
-on exactly that evidence) and folding it in here would turn a mechanical
-one-bit check into a heuristic that argues with its reader.  Presence only:
+is a per-job measurement question, and folding it in here would turn a
+mechanical one-bit check into a heuristic that argues with its reader.  Presence only:
 one bit per job, exactly one correct answer, nothing to tune.
 
 WHY IT IS NOT FOLDED INTO check_workflow_yaml.py.  Two reasons, and the second
@@ -48,17 +45,16 @@ this repo's own `check_gate_scheduling.py` exists to catch.  So this is a
 sibling of that script, wired into test.yml's `verify-readme-links` job, which
 installs `requirements.txt` and therefore has PyYAML.  It is NOT in the
 always-on `Repo invariant checks` job (`verify-skill-mcp-drift`) alongside the
-rest of the family: that job installs no pip packages, and both of this
-checker's steps exited 3 there on their first run — the exit-3 contract below
-turning a misplacement into one visible failure rather than a silent green.
-test.yml's own comment on the two steps records the move at length.
+rest of the family: that job installs no pip packages, so both of this
+checker's steps would exit 3 there — the exit-3 contract below turns a
+misplacement into one visible failure rather than a silent green.
 
 EXEMPTION: REUSABLE-WORKFLOW CALLS.  A job whose body is a job-level `uses:`
 calls a reusable workflow, and GitHub REJECTS `timeout-minutes` on it outright
 — the cap belongs to the called workflow's own jobs.  Requiring the key there
-would demand invalid YAML.  There are none in this tree today, so that arm is
-covered by the self-test rather than by the live sweep; it is here so the first
-one to land is not greeted with an impossible instruction.
+would demand invalid YAML.  The self-test covers that arm, since the live sweep
+need not meet such a job; it is here so a reusable-workflow call is not greeted
+with an impossible instruction.
 
 Usage (from anywhere — the root is derived from this file's location, or given):
     python scripts/check_workflow_job_timeouts.py [--repo-root DIR] [--verbose]
@@ -134,12 +130,12 @@ def audit_document(doc) -> tuple[list[tuple[str, str]], int]:
 
 
 # ---------------------------------------------------------------------------
-# Self-test.  A live sweep over a tree that is currently clean cannot tell the
+# Self-test.  A live sweep over a clean tree cannot tell the
 # difference between "every job is capped" and "the checker has stopped
 # looking" — and this repo has a named defect class for exactly that: a control
-# built so it cannot meet the case it exists to catch.  A scanner here once
-# missed every forbidden import after the first, because its permanent test
-# planted the forbidden import as the first and only entry.
+# built so it cannot meet the case it exists to catch.  A scanner whose
+# permanent test plants the forbidden entry first and alone would miss every
+# forbidden entry after the first.
 #
 # So the negative controls below include the two shapes that specifically defeat
 # a naive implementation: a step-level cap masquerading as a job cap (which a

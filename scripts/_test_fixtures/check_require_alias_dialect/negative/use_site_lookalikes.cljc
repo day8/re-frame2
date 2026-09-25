@@ -1,11 +1,11 @@
 (ns fixtures.use-site-lookalikes
   "NEGATIVE fixture: every USE-SITE shape that a textual ratchet mistakes for
   an alias edge. The gate reads LIBSPECS, never use sites, so all of this must
-  be silent (0 findings) — and the machines sweep is the reason it is pinned:
-  a first pass there treated the colon as a word boundary and silently rewrote
-  42 late-bind keys into new keyword VALUES, with nothing failing, because a
-  renamed late-bind key is only read back by another renamed site in the same
-  file. The control that caught it counted `:rf.machines/` going 0 -> 42.
+  be silent (0 findings). A pass that treated the colon as a word boundary
+  would silently rewrite late-bind keys into new keyword VALUES, with
+  nothing failing, because a renamed late-bind key is only read back by
+  another renamed site in the same file; a count of `:rf.machines/` moving
+  off zero is what would catch it.
 
   Represented below: literal single-colon keywords whose first segment
   collides with a live alias; auto-resolved double-colon keywords; a

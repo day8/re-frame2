@@ -1,7 +1,7 @@
 ;;;; FIXTURE (check_egress_walker_residue) — every shape the gate must LEAVE ALONE.
 ;;;; Zero findings expected. Not compiled; not on any classpath.
 ;;;;
-;;;; Each of these occurs live in `tools/*/src` today. A gate that fired on any
+;;;; Each of these shapes occurs live in `tools/*/src`. A gate that fired on any
 ;;;; of them would be refusing correct content — naming the mechanism is not
 ;;;; calling it.
 
@@ -25,8 +25,8 @@
                         :frame             frame-id}))
 
 ;; prose naming the walker with no paren at all: re-frame.elision/elide-wire-value
-;; is the mechanism behind the door, and rf/elide-wire-value was its retired
-;; facade spelling (rf2-kuky.90).
+;; is the mechanism behind the door, and rf/elide-wire-value is its retired
+;; facade spelling.
 
 ;; a different var out of the same namespace, in call position — must not fire
 (defn classify [db effects]
@@ -37,9 +37,9 @@
   (elide-wire-values-report v))
 
 ;;;; ---------------------------------------------------------------------------
-;;;; The three below discriminate the WIDENING (rf2-kuky.90, merged-PR audit
-;;;; #9491). The gate now skips reader whitespace, newlines and `;` comments
-;;;; between the paren and the callee, so these shapes newly reach the callee
+;;;; The three below discriminate the gate's call-head skipping. The gate
+;;;; skips reader whitespace, newlines and `;` comments
+;;;; between the paren and the callee, so these shapes reach the callee
 ;;;; position. They must still not fire.
 
 ;; A back-ticked mention behind a SPACE, and the same mention with its parens

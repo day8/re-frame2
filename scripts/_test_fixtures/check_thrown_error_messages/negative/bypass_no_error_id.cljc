@@ -1,7 +1,7 @@
 (ns fixture.negative.bypass-no-error-id
-  "NEGATIVE fixture (rf2-krrv87 gate widen): a raw ex-info whose ex-data does
+  "NEGATIVE fixture: a raw ex-info whose ex-data does
   NOT carry :rf.error/id. It is not a framework thrown-error at all (a plain
-  application / internal ex-info), so the widened builder-bypass rule MUST
+  application / internal ex-info), so the builder-bypass rule MUST
   NOT fire — the rule is scoped to framework errors (the :rf.error/id slot).")
 
 (defn boom [x]

@@ -1,25 +1,21 @@
 #!/usr/bin/env sh
 # scripts/check-ai-tracking-ratchet.sh
 #
-# Tracked-`ai/` RATCHET (rf2-lsp1i, fixed by rf2-ow7dz).
+# Tracked-`ai/` RATCHET.
 #
-# Mike ruled (2026-07-18): "nothing under /ai should be tracked" is the END
-# STATE, and THAT END STATE IS REACHED: `git ls-files ai/` returns nothing.
-# There is no remaining roster to schedule out and no milestone left to wait
-# on, so this gate's whole remaining job is to prevent REGROWTH — it holds a
-# set that is now empty at empty. rf2-4lv73 (#6368) states that policy as
-# prose in CLAUDE.md and .gitignore.
+# "Nothing under /ai should be tracked" is the END STATE, and THAT END STATE
+# IS REACHED: `git ls-files ai/` returns nothing. So this gate's whole job is
+# to prevent REGROWTH — it holds a set that is empty at empty. CLAUDE.md and
+# .gitignore state that policy as prose.
 #
 # PROSE DOES NOT STOP A FORCE-ADD. This script is the mechanism.
 #
-# WHY IT EXISTS — a realised failure, not a hypothetical. On 2026-07-18 a
-# force-added ai/decisions/ dossier carried a literal personal worktree path
-# into CI. scripts/check-no-hardcoded-paths.sh then failed ON MAIN, and
-# because CI evaluates the PR *merge commit*, every open PR went red for
-# about an hour. Cost: six worker dispatches. Four workers independently
-# named the tracking as the root cause. This gate is the upstream lock for
-# that leak class: it fires at the moment of the force-add, on the PR that
-# does it, instead of downstream on everyone else's branch.
+# WHY IT EXISTS. A force-added ai/ file can carry a literal personal worktree
+# path into CI, where scripts/check-no-hardcoded-paths.sh then fails ON MAIN,
+# and because CI evaluates the PR *merge commit*, every open PR goes red with
+# it. This gate is the upstream lock for that leak class: it fires at the
+# moment of the force-add, on the PR that does it, instead of downstream on
+# everyone else's branch.
 #
 # THE RULE — a SET comparison against the last accepted state:
 #
@@ -27,15 +23,14 @@
 #         =>  FAIL, naming every path in that difference
 #     otherwise                                        =>  PASS
 #
-# WHY A SET AND NOT A COUNT (rf2-ow7dz). The first cut of this gate compared
-# COUNTS against a committed snapshot file. That is a static ceiling, not a
-# ratchet, and it leaked in three ways once the count had fallen: a later
-# increase back toward the stale ceiling passed; an equal-count replacement
-# (remove one, add one) passed and admitted a brand-new path invisibly; and
-# after the set reached zero the stale ceiling still permitted additions
-# indefinitely. A set difference has none of those holes — it does not care
-# what the counts are, only whether a path is tracked now that was not
-# tracked before.
+# WHY A SET AND NOT A COUNT. Comparing COUNTS against a committed snapshot
+# file would be a static ceiling, not a ratchet, and it would leak in three
+# ways once the count had fallen: a later increase back toward the stale
+# ceiling would pass; an equal-count replacement (remove one, add one) would
+# pass and admit a brand-new path invisibly; and at zero the stale ceiling
+# would still permit additions indefinitely. A set difference has none of
+# those holes — it does not care what the counts are, only whether a path is
+# tracked now that was not tracked before.
 #
 # A DECREASE MUST PASS, and does: removals only ever shrink the current set,
 # so the difference stays empty. A removal is never blocked by this gate.
@@ -43,15 +38,13 @@
 # THE BASELINE TIGHTENS AUTOMATICALLY, with no maintenance step. BASE is
 # read from git, not from a file, so the instant a removal is accepted the
 # smaller set IS the baseline for everything that follows. There is nothing
-# to refresh and nothing that can go stale. The last tracked ai/ file has
-# now gone, so BASE is empty and the gate has settled into its final form:
-# any addition fails.
+# to refresh and nothing that can go stale. With nothing tracked under ai/,
+# BASE is empty, so any addition fails.
 #
-# NOT AN ALLOWLIST — and this file enumerates nothing. Mike ruled that
-# CLAUDE.md states policy and that `git ls-files ai/` is the roster, never a
-# list in a file. Reading BASE from git honours that literally: the previous
-# snapshot file was the last remaining list-in-a-file, and it is gone. No
-# tree is named here, blessed here, or excluded here.
+# NOT AN ALLOWLIST — and this file enumerates nothing. CLAUDE.md states
+# policy and `git ls-files ai/` is the roster, never a list in a file.
+# Reading BASE from git honours that literally. No tree is named here,
+# blessed here, or excluded here.
 #
 # THERE IS NO IN-BAND ESCAPE HATCH, by choice. A count ceiling could be
 # raised by editing a file; a git-derived base cannot, which is exactly what
@@ -63,34 +56,34 @@
 #
 # BASE resolution. The base is read from AI_RATCHET_BASE_REF, defaulting to
 # `HEAD^` only when it is unset or empty. CI sets it to the EVENT's accepted
-# base (rf2-7hq4l) and never lets the default stand in for a push:
+# base and never lets the default stand in for a push:
 #   * pull_request: github.event.pull_request.base.sha, the base-branch tip.
-#     This equals the merge commit's first parent, so HEAD^ was already sound
-#     here; the workflow passes it explicitly so both shapes share one rule.
+#     This equals the merge commit's first parent, so HEAD^ would be sound
+#     here too; the workflow passes it explicitly so both shapes share one rule.
 #   * push to main: github.event.before, the tip main pointed at before the
 #     push. HEAD^ is NOT that tip on a MULTI-COMMIT push — it is the push's own
 #     second-to-last commit — so a path first tracked in an earlier commit of
 #     the push and retained at the tip would sit on both sides of a HEAD^ diff
 #     and escape. Comparing against the accepted base names it instead.
-# `HEAD^` stays the default for LOCAL and manual runs, where the parent is a
+# `HEAD^` is the default for LOCAL and manual runs, where the parent is a
 # sensible base and there is no event to consult. If the base cannot be
 # resolved (root commit, or an over-shallow clone) the gate FAILS rather than
 # passing: a guard that cannot see its base must not certify anything.
 #
-# THE BASE IS PEELED TO `^{commit}`, AND THAT IS LOAD-BEARING (rf2-uol6). The
-# first cut resolved it with `git rev-parse --verify --quiet "$base_ref"`, which
-# looks fail-closed and is not: for a FULL 40-hex sha git echoes the string back
-# with exit 0 WITHOUT consulting the object store, so an absent base passed the
-# guard. `git ls-tree` on it then failed — into a pipeline, whose POSIX status is
-# the LAST command's (`sort`, exit 0), so `set -e` never fired either. Both
-# leaks composed into a false green: an empty base list, an empty diff, and
-# "END STATE reached" printed over a base that was never read. Peeling forces
-# the lookup, and the ls-tree below is run UNPIPED with its status checked.
+# THE BASE IS PEELED TO `^{commit}`, AND THAT IS LOAD-BEARING. A bare
+# `git rev-parse --verify --quiet "$base_ref"` looks fail-closed and is not: for
+# a FULL 40-hex sha git echoes the string back with exit 0 WITHOUT consulting
+# the object store, so an absent base would pass the guard. `git ls-tree` on it
+# would then fail — and piped, whose POSIX status is the LAST command's
+# (`sort`, exit 0), `set -e` would never fire either. Both leaks compose into a
+# false green: an empty base list, an empty diff, and "END STATE reached"
+# printed over a base that was never read. Peeling forces the lookup, and the
+# ls-tree below is run UNPIPED with its status checked.
 #
 # That is what makes a SHALLOW CI checkout safe. portability.yml checks out with
 # fetch-depth: 2 (holding HEAD^ for the manual-dispatch fallback) and fetches the
 # accepted base as a single `--depth=1` commit when it is deeper — the gate needs
-# the base's TREE, never its ancestry. A fetch that misses the base now reds.
+# the base's TREE, never its ancestry. A fetch that misses the base reds.
 #
 # Cross-platform: POSIX sh. No bashisms (`[[`, arrays, `<<<`, process
 # substitution). Runs identically on the ubuntu-latest CI runner, on macOS,
@@ -143,9 +136,9 @@ removed_list=$(mktemp)
 # Its reachability analysis models the EXIT trap as the script's fall-through
 # ending, and every path here ends in an explicit `exit`, so it concludes the
 # body is dead. Removing it would leak four temp files per run. Both codes
-# are listed because the diagnostic was renumbered: pre-0.10 shellcheck (what
-# the ubuntu runner ships) reports SC2317 on the `rm`, 0.10+ reports SC2329
-# on the function. Listing both keeps this lint-clean on either version.
+# are listed because the diagnostic differs by version: pre-0.10 shellcheck
+# (what the ubuntu runner ships) reports SC2317 on the `rm`, 0.10+ reports
+# SC2329 on the function. Listing both keeps this lint-clean on either version.
 # shellcheck disable=SC2317,SC2329
 cleanup() {
   rm -f "$current_list" "$base_list" "$base_raw" "$added_list" "$removed_list"
@@ -192,9 +185,9 @@ if [ -s "$added_list" ]; then
     printf '  ADDED: %s\n' "$p" >&2
   done < "$added_list"
   printf '\n' >&2
-  printf 'Nothing under /ai/ should be tracked (Mike, 2026-07-18) — that is the\n' >&2
-  printf 'END STATE, and the set is only allowed to shrink on the way there.\n' >&2
-  printf 'A force-added ai/ file has already taken every open PR red once.\n' >&2
+  printf 'Nothing under /ai/ should be tracked — that is the END STATE, and\n' >&2
+  printf 'the set is only allowed to shrink.\n' >&2
+  printf 'A force-added ai/ file can take every open PR red.\n' >&2
   printf '\n' >&2
   printf 'This fires on ANY newly tracked ai/ path, whatever the totals do —\n' >&2
   printf 'including a swap that leaves the count unchanged, and including an\n' >&2
@@ -203,13 +196,12 @@ if [ -s "$added_list" ]; then
   printf 'To fix: git rm --cached <path> on the file(s) above. They stay on\n' >&2
   printf 'disk; /ai/ is gitignored. If the addition is genuinely intended it\n' >&2
   printf 'is a policy exception for Mike, not a gate to edit around.\n' >&2
-  printf 'See beads rf2-lsp1i and rf2-ow7dz.\n' >&2
+  printf 'See the header of scripts/check-ai-tracking-ratchet.sh.\n' >&2
   exit 1
 fi
 
-# PASS. A decrease was the expected direction of travel and the set has now
-# reached zero, so this arm is a leftover-transition path rather than a
-# routine one. Nothing to refresh: the next run reads its base from git and
+# PASS on a decrease. With nothing tracked under ai/, this arm is not a
+# routine path. Nothing to refresh: the next run reads its base from git and
 # is already tight against this smaller set.
 if [ -s "$removed_list" ]; then
   printf 'ai/ tracking ratchet OK: tracked files under ai/ FELL from %s to %s.\n' \

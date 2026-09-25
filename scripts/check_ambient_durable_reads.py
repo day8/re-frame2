@@ -43,7 +43,7 @@ WHY A BARE-SYMBOL GREP IS WRONG (the "conservative" caveat)
 `interop/now-ms` alone fires on 100+ legitimate framework sites — trace `:time`
 stamps, `(when interop/debug-enabled? (interop/now-ms))` perf probes, timer
 deadlines, freshness DECISION reads (which read the live clock to DECIDE
-staleness without WRITING it durably — rf2-95b0lc), and the sanctioned
+staleness without WRITING it durably), and the sanctioned
 transport-boundary `:completed-at` causal read. A gate that fired on all of
 those would be noise and would be turned off. So this gate, like
 `check_retired_spellings.py`, scopes to the exact violating SHAPE rather than
@@ -70,9 +70,9 @@ durable-id keys (`:id`, `:entry-id`, `:request-id`, `:instance-id`,
 thread the value from the reply/dispatch token's flat `:rf.cofx` recordable-
 coeffect map — `(:rf/time-ms (:rf.cofx envelope))` for durable wall-clock time,
 or a supplied uuid/random recordable coeffect declared via `:rf.cofx/requires`
-— never to read the host here. (EP-0017 retired the `:rf.world/inputs` envelope
-in favour of the flat `:rf.cofx` map, with no alias; see docs/spec/002-Frames.md
-§Recordable coeffects.)
+— never to read the host here. (There is no `:rf.world/inputs` envelope and no
+alias for one: the flat `:rf.cofx` map carries the recordable coeffects; see
+spec/002-Frames.md §Recordable coeffects.)
 
 
 WHY SCOPE BY NAMESPACE TOO (defence against false positives)
@@ -98,15 +98,15 @@ the sanctioned sites the spec calls out:
      (effect-side crypto, rider c), or an explicit `#_:rf.world/ambient-ok`
      reader-discard escape (the conscious-allowlist marker for a deliberate
      diagnostic read in a durable-write file — documented so a future author can
-     opt out with a reviewed annotation rather than silently). The old generic
-     `interop/debug-enabled?` perf-probe window allowlist was REMOVED (rf2-
-     nftz2s §3): a debug probe being NEAR a durable write is not a structural
-     guarantee the write itself is diagnostic, so it let a real durable
+     opt out with a reviewed annotation rather than silently). There is no
+     `interop/debug-enabled?` perf-probe window allowlist: a debug probe being
+     NEAR a durable write is not a structural guarantee the write itself is
+     diagnostic, so such a window would let a real durable
      `:updated-at (now-ms)` slip past CI. A genuine diagnostic read in a
-     durable-write file now uses the explicit per-site `#_:rf.world/ambient-ok`
+     durable-write file uses the explicit per-site `#_:rf.world/ambient-ok`
      escape, not ambient proximity to a debug flag.
 
-The gate is line-local on the field-key match but consults a small +/-3-line
+The gate is line-local on the field-key match but consults a small +/-6-line
 window for the form-allowlist wrappers (mirrors the SSR-redirect window in
 `check_retired_spellings.py`). It does NOT do dataflow: a value bound to a name
 far from the durable key (`(let [t (interop/now-ms)] {:loaded-at t})`) is the
@@ -128,9 +128,9 @@ The gate scans SOURCE trees. Generated and vendored copies are out of scope —
 a durable-write source file copied into a build cache (`out/`, `.shadow-cljs/`,
 `node_modules/`, `target/`, `.cpcache/`) is not a durable-write namespace, it is
 an artefact OF one, and the genuine violation is still flagged at its real
-authored path. That is the ruling on rf2-mjfj9, and it is what the eight
-sibling shared-walk checkers already assume; `_EXCLUDE_DIR_NAMES` below makes
-it explicit here rather than leaving it to the `endswith` accident.
+authored path. The sibling shared-walk checkers assume the same;
+`_EXCLUDE_DIR_NAMES` below makes it explicit here rather than leaving it to
+the `endswith` suffix match.
 
 Exit code:
     0  no ambient durable read in any durable-write namespace
@@ -199,9 +199,8 @@ DURABLE_WRITE_SUFFIXES: tuple[str, ...] = (
 _SOURCE_SUFFIXES = (".clj", ".cljc", ".cljs")
 
 # Directory names whose contents are generated or vendored, never authored
-# durable-write source. Matches the roster the eight sibling shared-walk
-# checkers carry. See the module docstring's SCAN SURFACE note for the scope
-# ruling (rf2-mjfj9) that put it here.
+# durable-write source. Matches the roster the sibling shared-walk checkers
+# carry. See the module docstring's SCAN SURFACE note for the scope it sets.
 _EXCLUDE_DIR_NAMES = frozenset({
     "node_modules",
     "target",
@@ -251,38 +250,35 @@ _DURABLE_ID_KEYS = (
 #            (.-prop js/location)  (.-prop js/navigator)  (js/matchMedia ...)
 #            (some-> (.-localStorage js/globalThis) (.getItem ...))  + twin
 # Each entry is NAMED so a finding can say which read form produced it and the
-# self-test can hold the roster to owning a fixture (rf2-g1xpb). The names are
-# the roster's identity.
+# self-test can hold the roster to owning a fixture. The names are the
+# roster's identity.
 #
-# WHY THE CALL-WRAPPED BROWSER FORMS ARE ENUMERATED (rf2-vcjpx)
+# WHY THE CALL-WRAPPED BROWSER FORMS ARE ENUMERATED
 #
 # `_VIOLATION_RE` anchors the read at the START of the durable key's value, so
 # only a read sitting IMMEDIATELY in value position matches. The clock and
-# random families already carry a roster entry per call spelling — `(.now
-# js/Date …)`, `(.getRandomValues js/crypto …)`, `(.matchMedia …)` — but the six
-# browser host-fact entries carried only their bare-symbol spelling. That made
-# them reachable only as `:restored-at js/localStorage`, which nobody writes;
+# random families carry a roster entry per call spelling — `(.now js/Date …)`,
+# `(.getRandomValues js/crypto …)`, `(.matchMedia …)` — and the browser host
+# facts need the same. With only their bare-symbol spelling they would be
+# reachable only as `:restored-at js/localStorage`, which nobody writes, while
 # the getter form `:restored-at (.getItem js/localStorage "session")` — which is
-# how the fact is actually read, and the same EP-0010 defect — produced ZERO
-# findings. A roster naming `localStorage` while missing `.getItem` is the
-# advertised-but-hollow class (rf2-rr6do / rf2-bml5u), so the getter, property
-# and callable spellings are enumerated here as their own entries, each ANCHORED
-# at value-form start exactly like `.now js/Date`.
+# how the fact is actually read, and the same EP-0010 defect — would produce
+# ZERO findings. A roster naming `localStorage` while missing `.getItem`
+# advertises coverage it does not have, so the getter, property and callable
+# spellings are enumerated here as their own entries, each ANCHORED at
+# value-form start exactly like `.now js/Date`.
 #
 # ENUMERATED, deliberately — NOT "an ambient read anywhere inside the value
-# form". Free-form value matching was REJECTED (this bead's own false-positive
-# caution): it would fire on a legitimately threaded value that merely mentions
+# form", which would fire on a legitimately threaded value that merely mentions
 # a host symbol somewhere in its form. Each pattern below names a complete read
 # whose result IS the host fact, so there is no threading it can mistake.
 _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     # clock
     # BOTH alias spellings of `re-frame.interop`, and the bare symbol. An
-    # artefact migrated to the spec/Conventions.md §Require-alias dialect calls
-    # the clock `(rf.interop/now-ms)`, and a pattern that knew only the bare
-    # leaf `interop/` went BLIND on it — fail-open, since this gate forbids a
-    # shape. Measured on implementation/resources (rf2-6r9j.209): a planted
-    # `:restored-at (rf.interop/epoch-now-ms)` in resources/ssr.cljc scored 0
-    # findings while the identical `(interop/epoch-now-ms)` scored 1.
+    # artefact on the spec/Conventions.md §Require-alias dialect calls the
+    # clock `(rf.interop/now-ms)`, and a pattern that knew only the bare leaf
+    # `interop/` would be BLIND on it — fail-open, since this gate forbids a
+    # shape.
     ("now-ms",       r"\(\s*(?:(?:rf\.)?interop/)?(?:epoch-)?now-ms\b[^)]*\)"),
     ("js/Date.now",  r"\(\s*js/Date\.now\b[^)]*\)"),
     (".now js/Date", r"\(\s*\.now\s+js/Date\b[^)]*\)"),
@@ -301,10 +297,10 @@ _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     ("js/sessionStorage", r"js/sessionStorage\b"),
     (".matchMedia",       r"\(\s*\.matchMedia\b"),
     ("js/matchMedia",     r"js/matchMedia\b"),
-    # browser / host facts — the CALL-WRAPPED spellings that actually read them
-    # (rf2-vcjpx). A line matching one of these also matches the bare entry it
-    # wraps, so it honestly witnesses BOTH — the same double attribution
-    # `(rand-nth …)` has against `rand`.
+    # browser / host facts — the CALL-WRAPPED spellings that actually read them.
+    # A line matching one of these also matches the bare entry it wraps, so it
+    # honestly witnesses BOTH — the same double attribution `(rand-nth …)` has
+    # against `rand`.
     (".getItem js/localStorage",
      r"\(\s*\.getItem\s+js/localStorage\b"),
     (".getItem js/sessionStorage",
@@ -312,7 +308,7 @@ _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     (".-prop js/location",   r"\(\s*\.-\w+\s+js/location\b"),
     (".-prop js/navigator",  r"\(\s*\.-\w+\s+js/navigator\b"),
     ("(js/matchMedia ...)",  r"\(\s*js/matchMedia\b"),
-    # This repo's own authoring idiom for a storage read — established at
+    # This repo's own authoring idiom for a storage read — as written in
     # implementation/core/src/re_frame/cofx.cljc and examples/core/todomvc/db.cljs
     # (both correctly OUTSIDE the scan surface: an ambient cofx supplier and an
     # example, neither a durable-write namespace). Anchored from `(some->` so it
@@ -376,20 +372,19 @@ _AMBIENT_READ_LEADING_RE = re.compile(
 #   - #_:rf.world/ambient-ok -> the explicit conscious-allowlist reader-discard
 #       escape for a reviewed deliberate diagnostic read in a durable-write file
 #
-# DELIBERATELY NOT a wrapper (rf2-nftz2s §3): `interop/debug-enabled?`. The old
-# generic debug-window allowlist exempted ANY durable field←ambient pair merely
-# because a `(when interop/debug-enabled? ...)` perf probe sat within +/-6 lines
-# — so a REAL durable `:updated-at (interop/now-ms)` write slipped past CI just
-# by being NEAR an unrelated debug probe (a genuine false negative, not a
-# contrived one). A debug perf probe is not a STRUCTURAL guarantee that the
-# nearby durable write is itself diagnostic. The replacements: (a) `trace/emit!`
-# still exempts a genuine trace payload structurally; (b) a deliberate
-# diagnostic read in a durable-write file that is NOT inside a trace payload
-# annotates the EXACT site with the reviewed `#_:rf.world/ambient-ok` reader-
-# discard escape — an explicit per-site opt-out, not an ambient proximity
-# heuristic. A perf-probe's own `(when interop/debug-enabled? (now-ms))` elapsed
-# read writes no durable field key, so it never matched the violating shape and
-# needs no window exemption.
+# DELIBERATELY NOT a wrapper: `interop/debug-enabled?`. A debug-window
+# allowlist would exempt ANY durable field←ambient pair merely because a
+# `(when interop/debug-enabled? ...)` perf probe sat within +/-6 lines — so a
+# REAL durable `:updated-at (interop/now-ms)` write would slip past CI just by
+# being NEAR an unrelated debug probe. A debug perf probe is not a STRUCTURAL
+# guarantee that the nearby durable write is itself diagnostic. Instead:
+# (a) `trace/emit!` exempts a genuine trace payload structurally; (b) a
+# deliberate diagnostic read in a durable-write file that is NOT inside a trace
+# payload annotates the EXACT site with the reviewed `#_:rf.world/ambient-ok`
+# reader-discard escape — an explicit per-site opt-out, not an ambient
+# proximity heuristic. A perf-probe's own `(when interop/debug-enabled?
+# (now-ms))` elapsed read writes no durable field key, so it never matches the
+# violating shape and needs no window exemption.
 _ALLOWLIST_WINDOW_RE = re.compile(
     r"trace/emit!|getRandomValues|#_:rf\.world/ambient-ok"
 )
@@ -410,11 +405,10 @@ class Finding(NamedTuple):
     kind: str
     snippet: str
     # WHICH durable key and WHICH ambient read form fired. The reported `kind`
-    # is one constant for every finding, so without these a fixture can only
-    # ever prove that SOMETHING matched — which is how 19 of the 26 keys and 12
-    # of the 16 read forms went unexercised (rf2-g1xpb). Attribution costs
-    # nothing on the live path: it is read off the match already made, and
-    # `_report` is unchanged.
+    # is one constant for every finding, so without these a fixture could only
+    # ever prove that SOMETHING matched, leaving individual keys and read forms
+    # unexercised. Attribution costs nothing on the live path: it is read off
+    # the match already made, and `_report` does not print it.
     key: str = ""
     reads: frozenset[str] = frozenset()
 
@@ -511,24 +505,21 @@ def _iter_durable_write_files(
     self-test fixtures ARE the durable-write surface for the purposes of the
     test, so a fixture file is scanned regardless of its path.
 
-    PRUNED, not filtered-after (rf2-mjfj9; method proven by rf2-76c76 in the
-    three sibling gates it shipped). `_EXCLUDE_DIR_NAMES` is dropped from
+    PRUNED, not filtered-after. `_EXCLUDE_DIR_NAMES` is dropped from
     `os.walk`'s dirnames IN PLACE, so a built checkout never descends into
-    `.shadow-cljs` (35.4k entries), `node_modules` (3.4k), `out` or `target`.
-    This gate scans the WHOLE repo root — `rglob("*")` enumerated ~48k entries
-    to reach 18 allow-listed files, 7.0s of its 8.4s wall clock on a built
-    tree.
+    `.shadow-cljs`, `node_modules`, `out` or `target`. This gate scans the
+    WHOLE repo root, and walking every entry of a built tree to reach the
+    allow-listed files would dominate its wall clock.
 
-    Unlike the three gates rf2-76c76 shipped, the prune here is NOT a pure
-    no-op: this gate had no exclusion roster, so it reached a durable-write
-    source file COPIED into a build cache (the suffix allow-list is matched
-    with `endswith`, which matches the tail of a nested path). Dropping those
-    is a deliberate scope decision, ruled on rf2-mjfj9 — see the module
-    docstring. On the real tree it drops 0 of 18 files.
+    The prune is also a scope decision, not a pure speed-up: the suffix
+    allow-list is matched with `endswith`, which matches the tail of a nested
+    path, so without it a durable-write source file COPIED into a build cache
+    would be scanned. Dropping those is deliberate — see the module docstring.
+    On the real tree it drops none of the allow-listed files.
 
-    The surviving sequence is ordered IDENTICALLY: the collected matches go
-    through ONE GLOBAL `sorted()`, reproducing `sorted(rglob("*"))`'s whole-
-    subtree ordering rather than os.walk's directory-grouped order.
+    The collected matches go through ONE GLOBAL `sorted()`, giving the
+    whole-subtree ordering `sorted(rglob("*"))` would rather than os.walk's
+    directory-grouped order.
     """
     if scan_root.is_file():
         if scan_root.suffix in _SOURCE_SUFFIXES:
@@ -771,7 +762,7 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         frozenset({"loaded-at<-now-ms"}),
     # The same plant in the canonical dotted alias dialect. Its own fixture,
     # not a second line in the one above, so the bare-leaf and dotted spellings
-    # can each die alone and be named when they do (rf2-6r9j.209).
+    # can each die alone and be named when they do.
     "positive/dotted_alias_now_ms_into_loaded_at.cljc":
         frozenset({"loaded-at<-now-ms"}),
     "positive/date_now_into_started_at.cljc":
@@ -790,9 +781,8 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         frozenset({"updated-at<-now-ms"}),
     # Written out, NOT derived from `_DURABLE_TIMESTAMP_KEYS`. A comprehension
     # over the roster shrinks in lockstep when a roster entry is deleted, so the
-    # fixture would keep passing having stopped testing that entry — the exact
-    # self-blindness this bead is about. Verified by deleting `deadline-at`:
-    # derived expectations stayed green, these red naming it.
+    # fixture would keep passing having stopped testing that entry. Written
+    # out, deleting `deadline-at` from the roster reds this fixture naming it.
     "positive/every_durable_timestamp_key.cljc": frozenset({
         "started-at<-now-ms", "deadline-at<-now-ms", "loaded-at<-now-ms",
         "stale-at<-now-ms", "invalidated-at<-now-ms", "settled-at<-now-ms",
@@ -823,7 +813,7 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         "instance-id<-js/sessionStorage",
         "instance-id<-.matchMedia",
         "instance-id<-js/matchMedia",
-        # browser host facts, call-wrapped (rf2-vcjpx). Each of these lines
+        # browser host facts, call-wrapped. Each of these lines
         # ALSO witnesses the bare entry whose text it contains — listed above,
         # and named again here so deleting either roster entry reds this
         # fixture by name (the rand/rand-nth double-attribution precedent).
@@ -846,15 +836,15 @@ _NEGATIVE_FIXTURES: tuple[str, ...] = (
     "negative/trace_diagnostic_timestamp.cljc",
     # a perf probe gated on debug-enabled? (its reads bind locals + write no
     # durable key; the durable :updated-at threads the causal token) — green on
-    # its own merits, NOT via a debug-proximity allowlist (rf2-nftz2s §3)
+    # its own merits, NOT via a debug-proximity allowlist
     "negative/debug_enabled_perf_probe.cljc",
     # the browser-host-fact counterpart: storage / location / navigator /
     # media-query facts threaded off the token's :rf.cofx, with the getter
-    # spellings confined to ambient cofx suppliers (rf2-vcjpx)
+    # spellings confined to ambient cofx suppliers
     "negative/threaded_host_fact.cljc",
     # the conscious #_:rf.world/ambient-ok escape
     "negative/ambient_ok_escape.cljc",
-    # ... and the same escape over a call-wrapped getter read (rf2-vcjpx)
+    # ... and the same escape over a call-wrapped getter read
     "negative/ambient_ok_getter_escape.cljc",
     # the symbol in a docstring / `;;` comment
     "negative/now_ms_in_docstring.cljc",
@@ -873,18 +863,17 @@ _SCOPE_FIXTURE_TEXT = (
 
 
 def _run_scope_self_test(verbose: bool = False) -> int:
-    """Prove BOTH halves of the rf2-mjfj9 scope ruling, per roster entry.
+    """Prove BOTH halves of the scan scope, per roster entry.
 
     The authored durable-write path is scanned; a byte-identical copy of it
     nested in a build cache is not. Both halves matter: dropping the first
     would make the gate toothless, and the second is the scope narrowing the
-    prune introduced, so it is asserted rather than assumed.
+    prune makes, so it is asserted rather than assumed.
 
     Built in a temp tree because the real repo contains no cache-nested copy to
-    assert against — which is precisely why the old `endswith`-only reach went
-    unnoticed for so long. Every `_EXCLUDE_DIR_NAMES` entry is exercised, so a
-    roster entry can never be added without a witness (the hole rf2-g1xpb
-    closed for the key rosters, held here for the directory roster).
+    assert against, so the real tree cannot show an `endswith`-only reach.
+    Every `_EXCLUDE_DIR_NAMES` entry is exercised, so a roster entry can never
+    be added without a witness, as the key rosters require too.
     """
     suffix = DURABLE_WRITE_SUFFIXES[0]
     with tempfile.TemporaryDirectory() as tmp:
@@ -903,7 +892,7 @@ def _run_scope_self_test(verbose: bool = False) -> int:
     if flagged != [authored]:
         sys.stderr.write(
             "self-test FAIL: scope — the gate must flag the AUTHORED durable-"
-            "write path and no cache-nested copy of it (rf2-mjfj9).\n"
+            "write path and no cache-nested copy of it.\n"
             f"      expected exactly: {authored}\n"
             f"      got {len(flagged)} path(s): "
             f"{', '.join(str(p) for p in flagged) or '(none)'}\n"
@@ -926,20 +915,20 @@ def _run_self_tests(verbose: bool = False) -> int:
     hide the fixtures (the fixture IS the durable-write surface under test).
 
     Five assertions, each closing a different way for the gate to go quietly
-    toothless (the shape `check_retired_image_keys` arrived at, rf2-e1xx0):
+    toothless (the shape `check_retired_image_keys` uses too):
 
       1. Per positive fixture, the witness set must match EXACTLY, and the
          finding COUNT must equal it — so a dead detector reds by NAME rather
          than being masked by a sibling witness in the same file, and two
          witnesses collapsing onto one line cannot hide inside a set.
       2. Every negative fixture stays green.
-      3. Every durable key in `_ALL_DURABLE_KEYS` owns a witness. Nineteen of
-         the twenty-six did not, so widening the roster carried no obligation
-         and a key added with a typo'd spelling was green forever (rf2-g1xpb).
+      3. Every durable key in `_ALL_DURABLE_KEYS` owns a witness. Without it,
+         widening the roster would carry no obligation and a key added with a
+         typo'd spelling would be green forever.
       4. Every read form in `_AMBIENT_READ_FORMS` owns a witness, except the
          declared-unexercisable pair — and a declared entry that DOES get
          covered fails too, so the exemption cannot go stale.
-      5. SCOPE (rf2-mjfj9): the authored durable-write path is scanned and a
+      5. SCOPE: the authored durable-write path is scanned and a
          cache-nested copy of it is not — see `_run_scope_self_test`.
     """
     failures = 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Conventions §Require-alias dialect — the repo-wide require-alias ratchet (rf2-ydpr).
+"""Conventions §Require-alias dialect — the repo-wide require-alias ratchet.
 
 `spec/Conventions.md` §Require-alias dialect fixes ONE canonical alias per
 framework namespace:
@@ -11,33 +11,27 @@ and reserves the BARE leaf form (`:as routing`, `:as machines`) for application
 namespaces, so an app's own `myapp.routing` never has to be disambiguated
 against the framework's.
 
-Three artefact sweeps migrated the tree to that dialect — core and routing in
-PR #9103, machines in PR #9114, resources in PR #9129 — and each of their beads
-asked for a CI ratchet that neither of them built, because `scripts/` and
-`.github/workflows/` are hot-zone and the ratchet has to be ONE repo-wide
-instrument. PER-ARTEFACT IS THE DEFECT, not a smaller version of the fix:
-rf2-6r9j.161 fenced core and rf2-6r9j.167 fenced routing, and machines went
-unowned between them precisely because nothing looked at the whole tree. So
-this checker reads EVERY git-tracked `.clj` / `.cljs` / `.cljc` in the
-repository and requires every surface it finds to be NAMED in the baseline —
-a new top-level tree cannot go unowned the way machines did (see
-`_assert_every_surface_is_owned`).
+The ratchet is ONE repo-wide instrument, because PER-ARTEFACT IS THE DEFECT,
+not a smaller version of the fix: fences drawn per artefact leave whatever
+lies between them unowned, since nothing looks at the whole tree. So this
+checker reads EVERY git-tracked `.clj` / `.cljs` / `.cljc` in the repository
+and requires every surface it finds to be NAMED in the baseline — a new
+top-level tree cannot go unowned (see `_assert_every_surface_is_owned`).
 
 
 WHY SYNTAX-AWARE AND NOT GREP
 
-Five textual traps, four of them measured on the machines sweep and one on the
-core sweep, each of which a line-oriented regex ratchet gets wrong:
+Six textual traps, each of which a line-oriented regex ratchet gets wrong:
 
   (1) A LITERAL SINGLE-COLON KEYWORD IS NOT AN ALIAS REFERENCE, AND A
-      DOUBLE-COLON ONE IS.  machines carries 179 sites of the shape
+      DOUBLE-COLON ONE IS.  Sites of the shape
       `:machines/rearm-after-hydration!`, `:router/dispatch!`,
       `:frame/destroyed` — late-bind keys, trace channels and frame ids whose
-      first segment collides with a live alias — against 7 auto-resolved
-      `::result/...` sites, which DO move with the alias.  A first pass on that
-      sweep treated the colon as a word boundary and rewrote 42 late-bind keys
-      into new keyword values; nothing failed, because a renamed late-bind key
-      is only read back by another renamed site in the same file.
+      first segment collides with a live alias — sit beside auto-resolved
+      `::result/...` sites, which DO move with the alias.  Treating the colon
+      as a word boundary rewrites late-bind keys into new keyword values, and
+      nothing fails, because a renamed late-bind key is only read back by
+      another renamed site in the same file.
 
       This checker sidesteps the whole family by construction: it reads the
       LIBSPEC, never the use site.  An `::alias/key` moves with its libspec and
@@ -56,37 +50,32 @@ core sweep, each of which a line-oriented regex ratchet gets wrong:
       single bracket is scanned.
 
   (4) MULTI-LINE REQUIRE VECTORS DEFEAT ANY SINGLE-LINE REGEX, AND THE MISS IS
-      SILENT.  `parallel.cljc` opened `[re-frame.machines.result :as result`
-      and closed the vector on the NEXT line; a regex anchored on the closing
-      bracket skipped that libspec and, with it, 116 use sites — while
-      reporting a clean run.  Core carries 39 such libspecs, all already
-      canonical, which is exactly why a line-oriented census would have
-      reported a clean run there too.  So libspec vectors are found by
-      BALANCED-BRACKET scan over reader-masked text, never by line.
+      SILENT.  A libspec that opens `[re-frame.machines.result :as result`
+      and closes the vector on the NEXT line is skipped by a regex anchored on
+      the closing bracket — and with it every use site — while the run
+      reports clean.  Such libspecs are common, so libspec vectors are found
+      by BALANCED-BRACKET scan over reader-masked text, never by line.
 
   (5) A RUNTIME `(require ...)` IS A REQUIRE EDGE AND clj-kondo DOES NOT SEE
-      IT.  The core sweep's residue after 312 files was ONE edge, and it
-      survived because it is not an `(ns ... (:require ...))` edge at all: it
-      is a top-level `(require '[re-frame.late-bind.directory :as directory])`.
+      IT.  A top-level `(require '[re-frame.late-bind.directory :as
+      directory])` is not an `(ns ... (:require ...))` edge at all, and
       clj-kondo's namespace-usage analysis does not report runtime require
-      forms, which is why that bead's clj-kondo census read 1616 where a
-      textual scan of the same tree read 1617 — THE ONE-EDGE DELTA IS THAT
-      EDGE.  A ratchet built on the ns form alone reproduces the exact miss it
-      exists to prevent, so `(require ...)` / `(require-macros ...)` forms are
-      in the scan surface, they carry their own positive fixture, and the
+      forms, so a census built on either misses it.  A ratchet built on the
+      ns form alone reproduces the exact miss it exists to prevent, so
+      `(require ...)` / `(require-macros ...)` forms are in the scan
+      surface, they carry their own positive fixture, and the
       self-test proves that fixture goes GREEN when the runtime context is
       withheld (`_selftest_runtime_context_is_load_bearing`).
 
   (6) A `#_` DISCARDED LIBSPEC IS NOT A REQUIRE EDGE.  The reader throws the
-      next form away, so `#_[re-frame.machines :as machines]` binds nothing —
-      but the mask, which called itself reader-level, did not consume the
-      discard and reported that alias as a live violation (the #9135
-      merged-PR audit).  On a REQUIRED repo-wide gate that is a latent
-      trunk-red: `#_` is live vocabulary here, and one ordinary edit putting
-      one in front of a framework require blocks every open PR.  The discard
-      is now a pass of its own over the masked text (`_blank_discards`), and
-      it is the one trap here whose two failure directions are NOT symmetric
-      — see the comment above that function.
+      next form away, so `#_[re-frame.machines :as machines]` binds nothing,
+      and a reader-level mask that does not consume the discard reports that
+      alias as a live violation.  On a REQUIRED repo-wide gate that is a
+      latent trunk-red: `#_` is live vocabulary here, and one ordinary edit
+      putting one in front of a framework require would block every open PR.
+      The discard is a pass of its own over the masked text
+      (`_blank_discards`), and it is the one trap here whose two failure
+      directions are NOT symmetric — see the comment above that function.
 
 
 THE EXEMPTION IS DERIVED, NEVER LISTED
@@ -99,26 +88,22 @@ reader-arm shape —
        :cljs [re-frame.adapter.reagent      :as substrate])
 
 — where the shared name IS the point: per-arm dotted tails would give the
-single use site two names.  Measured across the tree: machines 1 file, routing
-8, resources 12 files / 24 edges (all one alias `substrate`), core ZERO.  A
-path allowlist would go stale on the first rename and would have carried a
-wrong entry from the day it was written (rf2-j5or's notes say "core one"; the
-core sweep refuted it).  This predicate cannot rot.
+single use site two names.  A path allowlist would go stale on the first
+rename; this predicate cannot rot.
 
 
 DEDUP: ONE EDGE PER (file, namespace, alias)
 
 A `.cljc` that binds the same alias to the same namespace in both reader arms
-is ONE edge, not two.  That is the dedup the artefact beads' own clj-kondo
-censuses applied, and the reason a naive count read 841 on machines where the
-bead read 835.
+is ONE edge, not two.  That is the dedup a clj-kondo namespace-usage census
+applies, so the two counts agree where a naive count would read high.
 
 
 SHAPE: A PER-SURFACE FLOOR, NOT A ZERO GATE
 
 `scripts/require-alias-baseline.edn` maps each surface to the number of
 violating edges it is allowed to carry.  Migrated surfaces sit at 0 and can
-never regress; unmigrated ones ratchet DOWN as beads land (a surface below its
+never regress; unmigrated ones ratchet DOWN as migrations land (a surface below its
 floor is reported so the floor can be lowered, and `--write-baseline`
 regenerates the file).  Same shape as `scripts/check-ai-tracking-ratchet.sh`,
 which is the in-repo precedent.
@@ -134,10 +119,9 @@ half the file, is at `plan_baseline`.
 IT CANNOT REPORT A CONFIDENT ZERO OVER A CORPUS IT CANNOT SEE
 
 An instrument that answers "nothing here" gives the same answer when it is
-misused, and a misused one raises no error — this repo has measured exactly
-that (a surface classifier handed revisions where it expects file paths
-reported every surface as unaffected, which is indistinguishable from a
-genuinely unaffected change).  So RECOGNISING NOTHING IS A DIFFERENT OUTCOME
+misused, and a misused one raises no error (a surface classifier handed
+revisions where it expects file paths reports every surface as unaffected,
+which is indistinguishable from a genuinely unaffected change).  So RECOGNISING NOTHING IS A DIFFERENT OUTCOME
 FROM FINDING NOTHING here, and it exits 2 rather than 0.  `assert_usable`
 enforces, in order:
 
@@ -210,7 +194,7 @@ _OPTION_KEYWORDS_WITH_VALUES = frozenset({
 
 # The two contexts in which a libspec vector is a REQUIRE EDGE.  Both are
 # load-bearing: see trap (5) in the module docstring for why dropping
-# "require" reproduces the core sweep's one-edge miss.
+# "require" misses the runtime require edges.
 CONTEXT_NS = "ns"
 CONTEXT_REQUIRE = "require"
 ALL_CONTEXTS = (CONTEXT_NS, CONTEXT_REQUIRE)
@@ -298,8 +282,8 @@ def mask_source(text: str) -> str:
                 j += 1
             # Blank the CONTENTS but keep both delimiters. A string is still an
             # atom of the form it sits in, and dropping the quotes would delete
-            # the token entirely — which is how the baseline reader below lost
-            # its surface KEYS and started pairing floors with floors.
+            # the token entirely — the baseline reader below would lose its
+            # surface KEYS and pair floors with floors.
             blank(i + 1, max(i + 1, min(j, n) - 1))
             i = min(j, n)
             continue
@@ -337,14 +321,14 @@ def balanced_end(masked: str, start: int) -> int:
 # --------------------------------------------------------------------------
 #
 # `#_` THROWS THE NEXT FORM AWAY, so a discarded libspec is not a require edge.
-# The mask above was called reader-level while not consuming it, which made
+# A reader-level mask that did not consume it would make
 #
 #     (ns x (:require #_[re-frame.machines :as machines] [re-frame.core :as rf]))
 #
 # report `machines` as a live violation on code the reader never sees.  The
 # gate is REQUIRED and repo-wide, so that is a latent trunk-red: `#_` is live
 # vocabulary here and one ordinary edit puts it in front of a framework
-# require, at which point the gate blocks every open PR.
+# require, at which point the gate would block every open PR.
 #
 # TWO DIRECTIONS, AND THEY ARE NOT SYMMETRIC.  Consuming too LITTLE is a false
 # RED — loud, blocking, and impossible to miss.  Consuming too MUCH blanks live
@@ -353,10 +337,10 @@ def balanced_end(masked: str, start: int) -> int:
 # than guessing whenever it cannot delimit a form, and an undelimitable discard
 # is left in place: the failure that survives is the visible one.
 #
-# Over-consumption is not hypothetical.  Every one of the 11 code-position
-# discards in the tree today is a clj-kondo suppression — `#_:clj-kondo/ignore`
-# or `#_{:clj-kondo/ignore [...]}` — sitting IMMEDIATELY BEFORE live code, so a
-# pass that ate the following form as well would blank eleven live forms.  The
+# Over-consumption is not hypothetical.  The code-position discards in the
+# tree are clj-kondo suppressions — `#_:clj-kondo/ignore` or
+# `#_{:clj-kondo/ignore [...]}` — sitting IMMEDIATELY BEFORE live code, so a
+# pass that ate the following form as well would blank a live form each.  The
 # `positive/discard_consumes_exactly_one_form.cljc` fixture pins exactly that.
 
 def _skip_reader_space(masked: str, i: int) -> int:
@@ -625,7 +609,7 @@ def _parse_libspec(
         if tok.text in ("#?", "#?@"):
             # A reader conditional SPLICING options into the libspec itself —
             # `[re-frame.trace :as rf.trace #?@(:cljs [:include-macros true])]`
-            # is the live shape, 26 sites in implementation/core alone. The
+            # is a live shape, common in implementation/core. The
             # spliced arms carry option pairs, so they are stepped over — but
             # only once they are shown to bind no alias. A conditional `:as`
             # would give one namespace two aliases by host, which is a shape
@@ -726,7 +710,8 @@ def surface_of(rel_path: str) -> str:
 
     `implementation/` is split one level deeper because that is where the
     artefact boundary lives — and because a single `implementation` bucket is
-    exactly the granularity at which machines hid between core and routing.
+    exactly the granularity at which one artefact hides between its
+    neighbours.
     """
     parts = rel_path.split("/")
     if parts[0] == "implementation" and len(parts) > 2:
@@ -810,13 +795,10 @@ def parse_baseline(text: str) -> Baseline:
 # What `--write-baseline` is allowed to write
 # --------------------------------------------------------------------------
 #
-# THE WRITER USED TO REWRITE EVERY FLOOR TO THE CURRENT COUNT AND EXIT 0.  So
-# where a surface had REGRESSED above its floor, the repair command this file's
-# own header advertises silently RAISED that floor and blessed the regression —
-# the gate went green by moving the goalposts.  Reached twice independently:
-# the #9144 merged-PR audit read it out of the code, and #9144's own worker hit
-# it in practice and had to diff the output and hand-apply only the downward
-# moves.  #9142's worker then declined to run the command at all.
+# A WRITER THAT REWRITES EVERY FLOOR TO THE CURRENT COUNT AND EXITS 0 BLESSES
+# REGRESSIONS.  Where a surface has REGRESSED above its floor, the repair
+# command this file's own header advertises would silently RAISE that floor —
+# the gate would go green by moving the goalposts.
 #
 # THE TWO KEYS RATCHET IN OPPOSITE DIRECTIONS, AND THIS IS THE TRAP.  It reads
 # as one rule — "floors may only fall" — and that rule is exactly WRONG for
@@ -827,11 +809,9 @@ def parse_baseline(text: str) -> Baseline:
 #
 #   * `:min-edges` IS NOT A RATCHET FLOOR.  It is the anti-blindness guard,
 #     checked `total < min_edges -> fail`, so LOWERING it loosens the gate —
-#     the inverse.  It may only RISE.  The old writer recomputed it as
-#     `int(len(edges) * 0.9)` unconditionally, which is a LOWERING every time
-#     the corpus shrinks: #9144 measured it wanting to move 9692 -> 9691 and
-#     held it by hand for this reason, and #9142's worker reproduced the same
-#     arithmetic independently.
+#     the inverse.  It may only RISE.  Recomputing it as
+#     `int(len(edges) * 0.9)` unconditionally would LOWER it every time the
+#     corpus shrinks.
 #
 # Anyone applying the surface rule to `:min-edges` quietly gives up the
 # protection that stops this checker reporting a confident zero over a corpus
@@ -920,17 +900,17 @@ def plan_baseline(
 def render_baseline(min_edges: int, surfaces: dict[str, int]) -> str:
     width = max((len(s) for s in surfaces), default=0) + 2
     lines = [
-        ";; Require-alias dialect baseline (rf2-ydpr) — regenerate with",
+        ";; Require-alias dialect baseline — regenerate with",
         ";;     python scripts/check_require_alias_dialect.py --write-baseline",
         ";;",
         ";; `:surfaces` maps each surface to the number of NON-CANONICAL,",
         ";; non-exempt re-frame require edges it is allowed to carry. A surface",
         ";; at 0 can never regress; a surface above 0 ratchets DOWN as its",
-        ";; migration bead lands, and the gate reports any surface now BELOW its",
+        ";; migration lands, and the gate reports any surface now BELOW its",
         ";; floor so the number can be lowered. Every surface that contributes a",
         ";; .clj/.cljs/.cljc file must appear here even at 0 — an unnamed surface",
-        ";; is an error, which is the anti-unowned rule that per-artefact",
-        ";; ratchets did not have.",
+        ";; is an error: the anti-unowned rule, which a per-artefact ratchet",
+        ";; cannot enforce.",
         ";;",
         ";; `:min-edges` is a floor on the TOTAL re-frame require edges the scan",
         ";; observes. It is not a style rule: it is what stops the checker",
@@ -1065,8 +1045,8 @@ def assert_usable(
             "surface(s) carrying re-frame require edges that the baseline does "
             "NOT name: " + ", ".join(unowned)
             + ". Add each to " + BASELINE_REL + " (--write-baseline). An "
-            "unnamed surface is exactly how machines went unowned between the "
-            "core and routing sweeps."
+            "unnamed surface is owned by no ratchet, so a regression in it "
+            "would go unseen."
         )
     return problems
 
@@ -1342,9 +1322,9 @@ def main(argv: list[str]) -> int:
 # --------------------------------------------------------------------------
 #
 # A CHECKER WHOSE SUBJECT IS ABSENCE IS GREEN WHEN IT STOPS FIRING.  That is
-# the defect class this repo keeps finding in its own instruments, and the
-# reason lint.yml already carries a fixture-witness step for fresco's kondo
-# export.  So every rule here is exercised in BOTH directions against real
+# a defect class instruments here are prone to, and the reason lint.yml
+# carries a fixture-witness step for fresco's kondo export.  So every rule
+# here is exercised in BOTH directions against real
 # files on disk under `scripts/_test_fixtures/check_require_alias_dialect/`:
 # each `positive/` fixture must be NAMED, each `negative/` fixture must be
 # silent, and the two controls below prove the two halves of the scan surface
@@ -1429,15 +1409,15 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
         expect(f"negative/{name} parses cleanly", not bad, f"{bad}")
 
     # ---- control 1: the RUNTIME REQUIRE context is load-bearing ------------
-    # The core sweep's residue after 312 files was a top-level
-    # `(require '[re-frame.late-bind.directory :as directory])` that clj-kondo
-    # cannot report.  A ratchet built on the ns form alone reads this fixture
-    # GREEN, which is the miss this control exists to make visible.
+    # A top-level `(require '[re-frame.late-bind.directory :as directory])` is
+    # an edge clj-kondo cannot report.  A ratchet built on the ns form alone
+    # reads this fixture GREEN, which is the miss this control exists to make
+    # visible.
     rel, text = _fixture_text(repo_root, "positive", "runtime_require.cljc")
     ns_only_edges, _ = read_file(rel, text, contexts=(CONTEXT_NS,))
     expect(
         "control: runtime_require.cljc goes GREEN when the runtime context is "
-        "withheld (so scanning ns forms alone would reproduce the core miss)",
+        "withheld (so scanning ns forms alone would miss runtime requires)",
         not violations_of(ns_only_edges),
         f"{[v.alias for v in violations_of(ns_only_edges)]}",
     )
@@ -1612,8 +1592,8 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
 
     # `:min-edges` IS THE INVERSE CASE. It is checked `total < min_edges ->
     # fail`, so LOWERING it loosens the gate. A monotonicity rule written as
-    # "floors may only fall" is exactly wrong here, which is what #9144 hit
-    # when the writer wanted to move it 9692 -> 9691.
+    # "floors may only fall" is exactly wrong here: it would let a shrinking
+    # corpus lower the floor by one edge at a time.
     shrunk = plan_baseline({"tools": 10}, {"tools", "implementation/core"}, 1000, prev)
     expect("control: :min-edges is NOT LOWERED when the corpus shrinks "
            "(lowering it loosens the anti-blindness guard — the inverse of a floor)",

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # scripts/git-hooks/lib/check-hook-install-staleness.sh
 #
-# One advisory, one home (rf2-zt65l). The hooks in `<git-common-dir>/hooks`
+# One advisory, one home. The hooks in `<git-common-dir>/hooks`
 # are COPIES of `scripts/git-hooks/*`; a pull updates the sources and leaves
 # the copies behind. This library asks the installer whether the copies are
 # current and, when they are not, prints the repair command.
@@ -14,15 +14,12 @@
 #                 shortcut there rather than running rebase).
 #
 #   post-rewrite  pulls that REBASE — `git pull --rebase` with a local commit
-#                 to replay. A rebase NEVER invokes post-merge, so while the
-#                 advisory lived only in post-merge it was silent on exactly
-#                 the completion path AGENTS.md and CLAUDE.md mandate for
-#                 every worker. That is the rf2-zt65l audit reopen (PR #6921):
-#                 reproduced in two throwaway clones, `git pull --rebase`
-#                 landed hook drift with zero output while the `--no-rebase`
-#                 control printed the warning.
+#                 to replay. A rebase NEVER invokes post-merge, so an advisory
+#                 living only in post-merge would be silent on exactly the
+#                 completion path AGENTS.md and CLAUDE.md mandate for every
+#                 worker.
 #
-# Measured on git 2.53: a diverged `--rebase` pull fires `post-rewrite rebase`
+# On git 2.53: a diverged `--rebase` pull fires `post-rewrite rebase`
 # and not `post-merge`; a `--rebase` pull with nothing to replay fires
 # `post-merge`. Between the two, every pull that lands a change is covered.
 # `scripts/git-hooks/test-pre-commit.sh` layer 7 drives real pulls of both

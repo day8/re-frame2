@@ -1,12 +1,12 @@
 (ns fixture.bypass-let-bound-no-token)
 
-;; POSITIVE (rf2-u3otj) — the let-binding resolution must not become a way to
+;; POSITIVE — the let-binding resolution must not become a way to
 ;; PASS. Every throw below is a genuine builder bypass and must still be
 ;; reported. Six findings expected.
 
 ;; 1. A `let`-bound message with NO token at all. Resolution finds the bound
 ;;    form and re-tests it — the bound form fails the rule on its own text, so
-;;    the site fires exactly as it did before.
+;;    the site fires exactly as an inline bare message does.
 (defn bound-but-bare
   [what]
   (let [msg (str "something went wrong with " what)]

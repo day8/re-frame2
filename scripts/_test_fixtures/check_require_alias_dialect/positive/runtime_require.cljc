@@ -1,12 +1,12 @@
 (ns fixtures.runtime-require
-  "POSITIVE fixture for the RUNTIME REQUIRE surface — the shape the core sweep
-  missed across 312 files.
+  "POSITIVE fixture for the RUNTIME REQUIRE surface — a shape a census over
+  `ns` forms alone misses.
 
   This is NOT an `(ns ... (:require ...))` edge. It is a top-level runtime
   `(require '[...])`, which clj-kondo's namespace-usage analysis does not
-  report at all: that bead's clj-kondo census read 1616 where a textual scan
-  of the same tree read 1617, and the one-edge delta WAS an edge of this
-  shape. A ratchet built on the ns form alone reads this file green.
+  report at all, so a census built on that analysis is one edge short for
+  every such require. A ratchet built on the ns form alone reads this file
+  green.
 
   The self-test proves both directions on this file — `read_file` with the
   runtime context withheld finds nothing, and with it finds the bare

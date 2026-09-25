@@ -9,7 +9,7 @@
   (reg-sub id (assoc meta :inputs [q1 qn]) f).")
 
 ;; Historical note: this sub used to be written `:<- [:cart/items]` before
-;; rf2-kuky.50 deleted the arrow grammar. It declares `:inputs` now.
+;; the arrow grammar was deleted. It declares `:inputs` now.
 (rf/reg-sub :cart/total
   {:inputs [[:cart/items]]}
   (fn [[items] _] (reduce + (map :price items))))

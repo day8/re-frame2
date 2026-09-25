@@ -1,8 +1,8 @@
 ;; POSITIVE fixture (rule g) — the retired adapter keyword.
 ;;
-;; The adapter value became `:rf.adapter/fresco`. Unlike the retired
-;; `:rf.adapter/ui` and `:rf.adapter/freehand`, it is NOT reserved afterwards,
-;; so nothing defensively refuses the old value at runtime — which is exactly
+;; The adapter value is `:rf.adapter/fresco`. Unlike the reserved
+;; `:rf.adapter/ui` and `:rf.adapter/freehand`, the retired value is NOT
+;; reserved, so nothing defensively refuses it at runtime — which is exactly
 ;; why the static ratchet has to.
 ;;
 ;; The header does not spell the retired keyword, for the reason given in

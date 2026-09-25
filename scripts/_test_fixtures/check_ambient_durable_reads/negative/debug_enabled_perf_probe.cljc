@@ -6,12 +6,12 @@
   durable `:updated-at` here is threaded from the reply token's causal
   `:rf.cofx` `:rf/time-ms` (the CORRECT pattern), NOT a fresh ambient read.
 
-  rf2-nftz2s §3: the generic `interop/debug-enabled?` window allowlist was
-  REMOVED — a debug probe being merely NEAR a durable write no longer exempts
-  that write. This fixture must stay GREEN (0 findings) on its own merits: the
+  There is no generic `interop/debug-enabled?` window allowlist — a debug
+  probe being merely NEAR a durable write does not exempt that write. This
+  fixture must stay GREEN (0 findings) on its own merits: the
   probe reads write no durable key, and the durable `:updated-at` reads the
-  causal token. A regression that re-wrote `:updated-at (interop/now-ms)` here
-  (the old false negative) would now correctly FLAG."
+  causal token. Re-writing `:updated-at (interop/now-ms)` here
+  would correctly FLAG."
   (:require [re-frame.interop :as interop]))
 
 (defn reduce-with-probe

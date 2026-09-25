@@ -1,5 +1,5 @@
 (ns re-frame.fixture
-  "THE ORACLE FIXTURE for the where-sym rule (rf2-z5lv).
+  "THE ORACLE FIXTURE for the where-sym rule.
 
   Not a live namespace. It exists so the self-test can grade where-syms
   against a public-var set it CONTROLS, rather than against the real tree
@@ -30,10 +30,10 @@
 ;; ---- PUBLIC: `^:no-doc`, WHICH IS THE WHOLE MANIFEST-ORACLE REFUTATION ----
 ;;
 ;; `spec/api-manifest.edn` rows DOCUMENTED publics, so a `^:no-doc` var is
-;; fully resolvable and carries no row. On trunk `re-frame.core` ships eleven
-;; of them (`reset-frame!` and `reload-images!` among them), and a
-;; manifest-only oracle reported both as dead doors. Pinned here so the
-;; refutation cannot be quietly undone.
+;; fully resolvable and carries no row. `re-frame.core` ships such vars
+;; (`reset-frame!` and `reload-images!` among them), and a
+;; manifest-only oracle would report them as dead doors. Pinned here so a
+;; manifest-only oracle cannot pass unnoticed.
 (def ^:no-doc no-doc-public 2)
 
 ;; ---- PUBLIC on ONE PLATFORM ONLY -----------------------------------------
@@ -48,9 +48,9 @@
 ;; ---- PUBLIC through a var-defining macro that does not begin `def` --------
 ;;
 ;; `_EXTRA_DEF_HEADS`. Both of these are real shapes: `reg-view` defines the
-;; component var (eleven Xray namespaces row one), and `import-fn` interns a
-;; re-export (`re-frame.ssr.ring` ships five). The manifest control caught the
-;; parser missing both.
+;; component var (Xray namespaces use it), and `import-fn` interns a
+;; re-export (`re-frame.ssr.ring` uses it). A parser that knows only `def`
+;; heads misses both.
 (rf/reg-view Panel
   [:div "panel"])
 
@@ -82,14 +82,14 @@
 
 (defmethod foreign-multi :b [_] :b)
 
-;; ---- INACTIVE DEFINITIONS: must NOT be reachable (audit #9501) ------------
+;; ---- INACTIVE DEFINITIONS: must NOT be reachable -------------------------
 ;;
-;; `comment` shipped in `_TRANSPARENT_DEF_WRAPPERS` beside `do`, and
-;; `_top_level_forms` walked straight through `#_` and `'`. None of the four
-;; forms below interns anything — `(comment ...)` evaluates to nil, `#_`
-;; discards, and a quoted or syntax-quoted list is data — yet each contributed
-;; its name to the derived public set, so a where-sym naming a var that exists
-;; only inside one resolved as a live door.
+;; None of the four forms below interns anything — `(comment ...)` evaluates
+;; to nil, `#_` discards, and a quoted or syntax-quoted list is data — so
+;; none may contribute its name to the derived public set. A walker that
+;; treated `comment` as transparent like `do`, or walked straight through
+;; `#_` and `'`, would resolve a where-sym naming a var that exists
+;; only inside one as a live door.
 ;;
 ;; THE MANIFEST CONTROL CANNOT REACH THIS. `oracle_problems` is a SUBSET test:
 ;; it detects public names MISSING from the derived set, never EXTRA fictitious
@@ -104,11 +104,11 @@
 
 `(defn ghost-syntax-quoted [] nil)
 
-;; ---- LIVE `do`: THE VALID EXIT-0 CONTROL FOR THAT REPAIR ------------------
+;; ---- LIVE `do`: THE VALID EXIT-0 CONTROL FOR THE INERT SET ----------------
 ;;
 ;; `do` IS transparent — it evaluates its body, so the `def` inside really does
 ;; intern, and `rf/frame-root`-style exports depend on the walk descending.
-;; Dropping `comment` must not cost this, and the walk must carry the reader
+;; Excluding `comment` must not cost this, and the walk must carry the reader
 ;; prefixes DOWN with it: the discarded sibling below is defined nowhere else.
 
 (do
@@ -117,19 +117,19 @@
 
 ;; ---- COMPOSED READER PREFIXES: THE PREFIX IS THE ONLY THING DOING THE WORK -
 ;;
-;; Audit #9511's residual on the repair above. `_reader_inert_at` decided
-;; inertness from the ONE character before the `(`, so `#_#?(...)` and
-;; `'#?(...)` reached that `(` after a `?` and were walked as LIVE, and a
-;; STACKED `#_#_ a b` skipped only the first form though the reader discards
-;; both. Reader-conditionals are why that matters more than the shapes it
-;; replaced: `#?` is ordinary `.cljc` and this tree is full of it.
+;; A predicate deciding inertness from the ONE character before the `(`
+;; would walk `#_#?(...)` and `'#?(...)` as LIVE, because they reach that
+;; `(` after a `?`, and would skip only the first form of a STACKED
+;; `#_#_ a b` though the reader discards both. Reader-conditionals are why
+;; that matters: `#?` is ordinary `.cljc` and this tree is full of it, so
+;; every composed prefix below must read as inert.
 ;;
 ;; EVERY SHAPE HERE IS ADVERSARIAL AGAINST THE PREDICATE THAT READS IT. Strip
 ;; the prefix and each form defines its var for real, so nothing BUT the prefix
 ;; can be making it inert — `conditional-defined-public` below is that live
 ;; twin, body for body. A fixture whose inertness has a second cause proves
-;; nothing about the predicate, which is exactly how every comma fixture came
-;; back green under a sabotage plant that reverted `_is_clj_ws`.
+;; nothing about the predicate, because it stays green even when the
+;; predicate is broken.
 
 #_#?(:clj  (defn ghost-discarded-conditional [] nil)
      :cljs (defn ghost-discarded-conditional [] nil))
@@ -141,8 +141,8 @@
 
 #_#?@(:clj [(defn ghost-discarded-splice [] nil)])
 
-;; A STACKED DISCARD NEUTRALISES BOTH FORMS. The first was already unreachable
-;; by look-back; the SECOND is the residual — nothing stands between it and the
+;; A STACKED DISCARD NEUTRALISES BOTH FORMS. The first is unreachable
+;; by look-back; the SECOND is the hard case — nothing stands between it and the
 ;; form the first discard consumed, so there is no prefix behind it to see.
 
 #_#_ (def ghost-stacked-first 1)
@@ -160,23 +160,23 @@
 
 ;; ---- SPLICING READER-CONDITIONALS: THE POSITION IS THE WHOLE RULE ---------
 ;;
-;; Audit #9515's residual on the repair above, and it points the OTHER WAY.
+;; This case points the OTHER WAY from the composed prefixes above.
 ;; `#?@` means opposite things in the two places it can stand: at file top
 ;; level there is no collection to splice into, so it is a reader ERROR and
-;; interns nothing; inside a collection it is ordinary legal Clojure. The
-;; composed-prefix repair consumed it in BOTH, so the legal splice below was
-;; discarded as though it were the illegal one and `splice-in-do-public` went
+;; interns nothing; inside a collection it is ordinary legal Clojure. A
+;; prefix pass that consumed it in BOTH would discard the legal splice below
+;; as though it were the illegal one, and `splice-in-do-public` would go
 ;; MISSING from the derived set — a FALSE RED, where a where-sym naming a var
 ;; that genuinely exists reds a correct PR. Every other case in this file
-;; tests green-should-be-red, which is exactly why none of them saw it.
+;; tests green-should-be-red, so none of them can see it.
 ;;
 ;; THE ENCLOSING COLLECTION IS THE ONLY THING MAKING THESE LEGAL, which is the
 ;; adversarial property the composed-prefix cases have one direction along:
 ;; strip the `do` from the first and what is left is a top-level `#?@` that
-;; interns nothing. So a repair that loses the top-level/inside-a-collection
+;; interns nothing. So a walker that loses the top-level/inside-a-collection
 ;; distinction cannot satisfy this file and the positive one at the same time.
 ;;
-;; BOTH RUNTIMES WERE ASKED, AND THEY DISAGREE ON ONE ROW ON PURPOSE. JVM
+;; THE TWO RUNTIMES DISAGREE ON ONE ROW, ON PURPOSE. JVM
 ;; `load-file` + `ns-publics` interns the first two; a `:cljs`-feature reader
 ;; oracle interns all three, and it is the ONLY one that sees
 ;; `splice-cljs-only-public`. A JVM-only oracle would call that door dead —
@@ -192,7 +192,7 @@
 (do #?@(:cljs [(defn splice-cljs-only-public [] :live)]))
 
 ;; The DISCARDED twin, body for body — `#_` neutralises the whole `do`, splice
-;; and all, so this name must stay absent however far the splice repair goes.
+;; and all, so this name must stay absent however deep the splice walk goes.
 
 #_(do #?@(:clj  [(defn ghost-splice-discarded [] nil)]
           :cljs [(defn ghost-splice-discarded [] nil)]))

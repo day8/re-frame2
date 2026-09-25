@@ -1,6 +1,6 @@
 (ns fixture.bypass-let-bound-shadowed)
 
-;; POSITIVE (rf2-u3otj, the #7045 audit) — an OUTER `let` binds a perfectly
+;; POSITIVE — an OUTER `let` binds a perfectly
 ;; conformant `msg`, and a binder BETWEEN it and the `ex-info` shadows the name.
 ;; The symbol thrown is the SHADOW, which carries no token, so every site below
 ;; is a genuine builder bypass. A resolver that searches enclosing `let`s only
@@ -13,7 +13,7 @@
 ;; next. So the resolution proves its scope by crossing only forms it recognises
 ;; as introducing nothing, and fails closed on the rest.
 
-;; 1. THE AUDIT WITNESS — a nested `fn` PARAMETER shadows the outer binding.
+;; 1. A nested `fn` PARAMETER shadows the outer binding.
 (defn make-thrower
   []
   (let [msg (str "outer conformant [:rf.error/outer]")]
@@ -92,7 +92,7 @@
        (throw (ex-info msg {:rf.error/id :rf.error/arity-shadow
                             :where       'rf/arity-shadow}))))))
 
-;; 10. THE #7064 AUDIT WITNESS — an `fn` SELF-REFERENCE NAME, single arity. The
+;; 10. An `fn` SELF-REFERENCE NAME, single arity. The
 ;;     parameter vector `[x]` is spotless; the shadow is the name `fn` binds to
 ;;     the function itself, which sits BEFORE the vector. A proof that reads
 ;;     only the vector greens this.

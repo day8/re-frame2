@@ -8,9 +8,9 @@
 #
 # Deploys every skills/<name>/ directory into ~/.claude/skills/<name> BY LINK,
 # not by copy, so the active skill Claude Code loads is the SAME directory as
-# the repo source - edits in either are reflected in the other. This kills the
-# stale-copy drift (rf2-901lr): a one-shot copy froze ~10 days behind the repo
-# and Claude Code loaded the stale skill.
+# the repo source - edits in either are reflected in the other. A one-shot copy
+# would drift instead: it freezes while the repo moves on, and Claude Code
+# loads the stale skill.
 #
 # Link primitive: a directory JUNCTION via `New-Item -ItemType Junction`. A
 # junction needs NO admin / Developer Mode (a Windows *symlink* does); Claude
@@ -59,12 +59,12 @@ if (-not (Test-Path -LiteralPath $skillsSrc)) {
 # directory compares equal to every other spelling of it. ReparsePoint dirs
 # expose .Target (the junction destination).
 #
-# ANCESTORS COUNT, not just the final directory (rf2-7bwh1). A junction to the
+# ANCESTORS COUNT, not just the final directory. A junction to the
 # repository PARENT leaves <alias>/skills looking like an ordinary directory
 # carrying its own FullName, so a resolver that inspects only the leaf hands
-# back two different spellings for ONE directory. The source guard below then
-# passes, -Force deletes skills/<name>, and New-Item fails because the source
-# it was about to link has just been removed.
+# back two different spellings for ONE directory. The source guard below would
+# then pass, -Force would delete skills/<name>, and New-Item would fail because
+# the source it was about to link had just been removed.
 #
 # So walk the WHOLE path: rewrite the deepest reparse point on it, then start
 # again, because a junction's target can itself live under another junction.
@@ -130,7 +130,7 @@ if (-not (Test-Path -LiteralPath $Target)) {
     }
 }
 
-# Link whatever skills/<name> dirs exist (audit ALL of skills/, per the bead).
+# Link whatever skills/<name> dirs exist (ALL of skills/).
 # Each skill is self-contained.
 $entries = Get-ChildItem -LiteralPath $skillsSrc -Directory
 foreach ($entry in $entries) {

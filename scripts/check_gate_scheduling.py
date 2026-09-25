@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """Every gate command must have a scheduled home, or say why it does not.
 
-rf2-6ckzl remedy clause 4 / rf2-eegpw.  `implementation/package.json` is where
-a gate is DEFINED; a workflow is where it RUNS.  Nothing held those two in
-step, and the gap is invisible from either side: `npm run test:perf-bundle`
-existed, did real work, and appeared in NO workflow, so the perf-bundle
-positive control was never once executed by CI.  It was found only because
-somebody happened to go looking.  That is the class this checker closes — not
-one gate, the class.
+`implementation/package.json` is where a gate is DEFINED; a workflow is where
+it RUNS.  Nothing else holds those two in step, and the gap is invisible from
+either side: a `test:*` script can exist, do real work and appear in NO
+workflow, so CI never once executes it.  That is the class this checker
+closes — not one gate, the class.
 
-It is the same defect shape as the classifier hole beside it (rf2-6ckzl) and
-the silent nightly above it (rf2-6sg25): something reports success over a case
-it never exercised.  A gate that runs nowhere reports nothing, and a
-`package.json` full of `test:*` entries reads, to anyone auditing coverage, as
-if it does.
+It is a familiar defect shape: something reports success over a case it never
+exercised.  A gate that runs nowhere reports nothing, and a `package.json`
+full of `test:*` entries reads, to anyone auditing coverage, as if it does.
 
 THE RULE, NOT A LIST
 --------------------
@@ -29,28 +25,25 @@ must either
       premise this script then CHECKS.
 
 A script that is neither is a hard failure.  Adding a gate to `package.json`
-and forgetting to schedule it therefore cannot be silent any more, which is the
-whole point: the next `test:perf-bundle` is caught on arrival rather than on
-the next audit.
+and forgetting to schedule it therefore cannot be silent, which is the whole
+point: an unscheduled gate is caught on arrival rather than on the next audit.
 
 WHY THE DISPOSITIONS ARE CHECKED RATHER THAN BELIEVED
 -----------------------------------------------------
-A reason is a claim about the world, and claims rot — the sibling guard
-`implementation/scripts/_rigorous-local-inventory.test.cjs` learnt this the
-hard way (a pin reading "never in the nightly sweep" stayed in the file for six
-weeks after a commit put it there).  So `covered-by` names the covering script
-and this checker asserts THAT one is scheduled; `ci-runs-it-directly` names a
-literal some workflow's `run:` value must still contain.  Only `not-a-gate` is a
-bare declaration, because "this produces records rather than a verdict" is not a
-fact about the CI graph.
+A reason is a claim about the world, and claims rot — a pin reading "never in
+the nightly sweep" can stay in a file long after a commit puts the gate
+there.  So `covered-by` names the covering script and this checker asserts
+THAT one is scheduled; `ci-runs-it-directly` names a literal some workflow's
+`run:` value must contain.  Only `not-a-gate` is a bare declaration, because
+"this produces records rather than a verdict" is not a fact about the CI graph.
 
-A CHECKED CLAIM MUST READ EXECUTABLE TEXT (rf2-6ckzl, audit of PR #7542)
------------------------------------------------------------------------
-Both of those checks originally matched against the raw workflow YAML, comments
-and all, which made the checker vulnerable to precisely the failure it exists to
-catch: a `run:` line deleted while the paragraph describing it stayed put left
-the gate reading as scheduled.  Reachability is now derived from `run:` values
-only — see `run_commands` below for what counts and why.
+A CHECKED CLAIM MUST READ EXECUTABLE TEXT
+----------------------------------------
+Matching against the raw workflow YAML, comments and all, would make the
+checker vulnerable to precisely the failure it exists to catch: a `run:` line
+deleted while the paragraph describing it stays put would leave the gate
+reading as scheduled.  So reachability is derived from `run:` values only —
+see `run_commands` below for what counts and why.
 
 `unscheduled` is the honest kind: a gate that genuinely runs nowhere, named,
 with the bead that will give it a home.  It is deliberately NOT an error, and
@@ -58,18 +51,16 @@ deliberately NOT stale-checked when the gate later gains a scheduled home:
 that transition is the hole CLOSING, and reddening main for it would punish the
 fix.  Deleting the entry afterwards is tidy-up, not an obligation.
 
-WHY IT LIVES IN `scripts/` AND RUNS PER-PR (rf2-k78o2)
-------------------------------------------------------
-It landed in `expensive-tests.yml` only because `test.yml` was fenced off by an
-open PR at the time.  A ~0.3s pure-Python static check belongs on the PR
-critical path: a PR that adds an unscheduled gate should learn so in three
-minutes, not in twenty-four hours.  The move to `scripts/` (and to an
-underscore name) is not cosmetic — `check_ci_reproduce_commands.py` and
-`check_fast_pr_gap.py` both discover checkers by the literal
-`python scripts/check_<name>.py` run shape, so a `.github/scripts/` script with
-a hyphenated name is invisible to both: its failure would be reported with a
-reproduce command that does not exist, and the fast-PR gap map would never
-count it.
+WHY IT LIVES IN `scripts/` AND RUNS PER-PR
+------------------------------------------
+A ~0.3s pure-Python static check belongs on the PR critical path: a PR that
+adds an unscheduled gate should learn so in minutes, not in a nightly.  Its
+home in `scripts/` (and its underscore name) is not cosmetic —
+`check_ci_reproduce_commands.py` and `check_fast_pr_gap.py` both discover
+checkers by the literal `python scripts/check_<name>.py` run shape, so a
+`.github/scripts/` script with a hyphenated name is invisible to both: its
+failure would be reported with a reproduce command that does not exist, and
+the fast-PR gap map would never count it.
 
 Usage:
   check_gate_scheduling.py [--repo-root DIR] [--verbose]
@@ -86,63 +77,52 @@ import sys
 
 NPM_RUN_RE = re.compile(r"npm run (?:--silent )?([A-Za-z0-9:._-]+)")
 
-# WHICH NAME FAMILIES ARE ASKED THE QUESTION, AND WHY `build:` JOINED THEM
-# (rf2-rbdc).
+# WHICH NAME FAMILIES ARE ASKED THE QUESTION, AND WHY `build:` IS ONE OF THEM.
 #
 # The prefix set approximates "renders a verdict something depends on", and it
-# is deliberately wrong in both directions: `bench:fresco` is in scope by its
-# name and declared `not-a-gate` below, because a benchmark produces records
-# rather than a verdict. The prefix decides what gets ASKED; `DISPOSITIONS`
-# holds the answers.
+# is deliberately loose: a `bench:` script is in scope by its name even though
+# a benchmark produces records rather than a verdict, and is then declared
+# `not-a-gate`. The prefix decides what gets ASKED; `DISPOSITIONS` holds the
+# answers.
 #
-# `build:` was outside the question entirely until rf2-rbdc, and the omission
-# cost precisely what this checker exists to prevent. rf2-hic-008 added the
-# `:fresco-release` build id — the artefact's only `:advanced` compile, so the
-# only place Closure renaming, externs inference and DCE-sensitive interop are
-# decided at all — and correctly stopped there, leaving it with no npm script
-# and no job. Nothing complained, because nothing could: a `build:` script was
-# unreportable no matter how load-bearing. It took a human audit (rf2-qy1j) to
-# notice, which is how `test:perf-bundle` was found too. A `shadow-cljs
-# release` exits non-zero on a Closure error, so a `build:` script is a compile
-# gate wearing a different name, and the widening costs two declarations below.
+# `build:` is asked because a `shadow-cljs release` exits non-zero on a Closure
+# error, so a `build:` script is a compile gate wearing a different name — and
+# it can be load-bearing: `build:fresco-release` is the artefact's only
+# `:advanced` compile, so the only place Closure renaming, externs inference
+# and DCE-sensitive interop are decided at all. Outside the question, such a
+# script could run nowhere with nothing able to complain.
 #
 # WHAT MAKES SOMEONE REVISIT THIS WHEN THE NEXT FAMILY APPEARS: nothing does,
 # and saying so plainly beats leaving it to be rediscovered. The decision
 # procedure is the paragraph above — a family belongs here as soon as ONE of
 # its scripts renders a verdict something depends on. The tempting mechanical
 # fix, scanning every script and declaring the NON-gate families instead, is
-# rejected for the reason this widening demonstrates: `build:` holds three
-# scheduled gates and two local aliases, so a family-level claim is the coarser
-# one. It would move the same judgement up a level while reading as though it
-# had been automated, which is this repo's most familiar defect wearing a new
-# hat.
+# rejected: a family can mix scheduled gates with local aliases, so a
+# family-level claim is the coarser one. It would move the same judgement up a
+# level while reading as though it had been automated.
 GATE_PREFIXES = ("test:", "bench:", "build:")
 
-# REACHABILITY IS AN EXECUTION FACT, SO IT IS READ OFF EXECUTABLE TEXT ONLY
-# (rf2-6ckzl, audit follow-up on PR #7542).
+# REACHABILITY IS AN EXECUTION FACT, SO IT IS READ OFF EXECUTABLE TEXT ONLY.
 #
-# The first cut of this checker matched `npm run <script>` and each
-# `ci-runs-it-directly` probe against the RAW concatenated workflow YAML. That
-# corpus is mostly prose: `.github/workflows/test.yml` carries paragraph-long
-# comments above nearly every job, and those comments name the commands they
-# explain. So a line like
+# Matching `npm run <script>` and each `ci-runs-it-directly` probe against the
+# RAW concatenated workflow YAML would read a corpus that is mostly prose:
+# `.github/workflows/test.yml` carries paragraph-long comments above nearly
+# every job, and those comments name the commands they explain. So a line like
 #
-#     # historic: this job used to `npm run test:orphan` before rf2-xxxxx
+#     # this job runs `npm run test:orphan`
 #
-# was enough to mark `test:orphan` scheduled, and a probe named only in a
-# comment satisfied its own premise. That is the checker committing the exact
+# would mark `test:orphan` scheduled, and a probe named only in a comment
+# would satisfy its own premise. That is the checker committing the exact
 # defect it exists to catch — reporting success over a case nothing exercises —
 # and it fails in the worst direction: an edit that DELETES a `run:` line while
 # leaving the paragraph that describes it keeps the gate green, which is the
 # most likely way for a gate to lose its home in the first place.
 #
-# So the corpus is now the `run:` VALUES: the inline form, and the body of a
+# So the corpus is the `run:` VALUES: the inline form, and the body of a
 # block scalar (`run: |`, `run: >`, and their chomping/indentation variants),
 # which is where every multi-line CI command lives. Nothing else in the YAML
 # counts — not `name:`, not `if:`, not `with:`, and not a comment at any
-# indentation. Measured on the live tree the scheduled set is IDENTICAL either
-# way (38 scripts), so no real gate was leaning on prose; what changes is that
-# it can no longer start to.
+# indentation.
 #
 # `run:` is also a MAPPING key under `defaults:` / `jobs.<id>.defaults:`, where
 # its children are `shell:` and `working-directory:` rather than a command. A
@@ -160,9 +140,8 @@ _BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?\d*\s*(?:#.*)?$")
 _SHELL_COMMENT_RE = re.compile(r"^\s*#")
 
 # A `ci-runs-it-directly` probe must match a COMPLETE command token, not merely
-# a prefix of a longer one. Found the hard way while re-pointing
-# `test:mcp-conformance` (rf2-6ckzl): the probe `npm run test:re-frame2-pair`
-# was still satisfied after its own step was deleted, because the sibling step
+# a prefix of a longer one: the probe `npm run test:re-frame2-pair` would
+# still be satisfied after its own step was deleted, because the sibling step
 # `npm run test:re-frame2-pair-live-overflow` contains it as a prefix. A premise
 # confirmed by a DIFFERENT command than the one it names is the same defect as a
 # premise confirmed by a comment, one size down. The lookahead rejects any
@@ -253,123 +232,38 @@ DISPOSITIONS: dict[str, dict] = {
                "end-to-end MCP-client conformance run, which test.yml's "
                "`mcp-conformance-re-frame2-pair` job executes from "
                "tools/mcp-conformance/ (so it never reaches implementation/'s "
-               "package.json and never enters the closure). The probe was "
-               "`mcp-conformance-re-frame2-pair` — the JOB ID — until rf2-6ckzl "
-               "found it satisfied by prose alone: that string appears in five "
-               "workflow comments and a cache key, and in no `run:` value at "
-               "all, so the premise was being confirmed by the job's own "
-               "explanatory text rather than by anything CI executes",
+               "package.json and never enters the closure). The probe is a "
+               "command rather than the JOB ID "
+               "`mcp-conformance-re-frame2-pair`, which appears in workflow "
+               "comments and a cache key but in no `run:` value, so it would be "
+               "confirmed by the job's own explanatory text rather than by "
+               "anything CI executes",
     },
-    # The two `build:` aliases (rf2-rbdc, the widening above). Both are the
-    # COMPILE HALF of a gate that already runs, kept as a one-word local
-    # command for producing the bundle without paying for the verdict — which
-    # is a debugging convenience, not a second gate. `covered-by` is therefore
-    # the honest kind rather than `not-a-gate`: these do render a verdict (a
-    # Closure error exits non-zero), it is simply already rendered elsewhere,
-    # and pinning the cover means the day that gate leaves CI these go red
-    # instead of quietly becoming the only thing compiling those build ids.
-    # The other two — `build:fresco-release` (test.yml's `cljs` job) and
-    # `build:machines-viz-viewer` (test.yml) — are scheduled and need no entry.
-    # `test:fresco-lint` (rf2-hic-022) was declared `unscheduled` here for
-    # exactly one commit, and its entry is DELETED rather than kept: the
-    # fixture witness now runs as a step of lint.yml's required `clj-kondo`
-    # job, which already installs the pinned binary the gate needs. The hole
-    # it named was load-bearing — the job loaded the export's hooks but never
-    # ran the positive fixtures, so a check could stop FIRING with CI still
-    # green — and a declared hole that outlives its gate's schedule is the
-    # same class of lie as an undeclared one, told the other way round.
-    #
-    # `test:xray-manual-epoch` (rf2-zwgx, filed by rf2-kuky.82 AMEND 2(c)) was
-    # the last declared hole, and it is DELETED.  The manual-only
-    # epoch-delivery witness landed with no CI home because
-    # `.github/workflows/**` was fenced to a peer worker on the tick that
-    # built it — the same fence the two fresco entries below hit — and
-    # rf2-zwgx landed the missing half: a step of test.yml's `cljs` job.
-    # No classifier arm and no job of its own, because every input that can
-    # change `:node-test-xray-manual-epoch`'s output
-    # (tools/xray/{src,test}/**.{cljs,cljc}, implementation/shadow-cljs.edn)
-    # already arms `cljs_node_test`, which is what lights that job.
-    #
-    # WHAT THE rf2-zwgx ENTRY KNEW, kept because the choice of home rests on
-    # it: this gate is NOT `covered-by: test:cljs`, even though it does ride
-    # that lane.  `:node-test-xray-manual-epoch` selects the same single
+    # `test:xray-manual-epoch` runs as a step of test.yml's `cljs` job rather
+    # than being declared `covered-by: test:cljs`, even though it rides that
+    # lane.  `:node-test-xray-manual-epoch` selects the same single
     # `-cljs-test$` namespace the consolidated build already runs, so on the
-    # rule the `test:security` / `test:testbed-support` siblings above use it
+    # rule the `test:security` / `test:testbed-support` entries above use it
     # would read as a strict subset — and that reading would be exactly wrong.
     # The teeth are the DEPENDENCY GRAPH, not the assertions: the gate proves
     # `install.cljs`'s bare `[re-frame.epoch]` require is what loads the epoch
     # producer on the manual `core/init!` startup path, and the consolidated
     # bundle also loads `day8.re-frame2-xray.preload`, which carries the
     # identical anchor.  So `test:cljs` runs the assertions and cannot fail
-    # them in either world.  Claiming cover would have been a premise that
-    # reads true and grades nothing — the class this checker exists to refuse.
+    # them in either world.  Claiming cover would be a premise that reads true
+    # and grades nothing — the class this checker exists to refuse.
     #
-    # DO NOT WRITE A COUNT HERE.  The sentence that stood at this spot twice
-    # said no holes remained while one sat beneath it, and then said ONE
-    # REMAINS until this deletion.  Read the SUMMARY LINE this script prints
+    # DO NOT WRITE A COUNT HERE.  Read the SUMMARY LINE this script prints
     # (`N of them known holes with beads`) rather than any prose here: a
     # checker asserting its own completeness in prose is the failure mode, not
     # the check.
     #
-    # `test:fresco-hmr` (rf2-hic-015) was the entry before that, and it is
-    # DELETED too.  The Fresco HMR gate — the only surface in the repo that
-    # drives a REAL hot reload, 36 reloads and 105 checks per engine through
-    # `shadow-cljs watch` in Chromium, Firefox and WebKit — landed green under
-    # rf2-vsgq and ran nowhere, because rf2-vsgq's fence stopped at the browser
-    # test tree.  It declared itself here rather than go silently unrun.
-    # rf2-hic-015 landed the missing half: the required `cljs-fresco-hmr` job,
-    # its `fresco_hmr` classifier arm, and the matching
-    # _changed-surfaces.test.cjs rows.
-    #
-    # TWO THINGS THE DELETED ENTRY KNEW, kept because the job now depends on
-    # both.  It needs a `shadow-cljs watch` and shadow's own `:dev-http` on
-    # port 8061, not the http-server every other browser gate uses, because a
-    # compiled bundle cannot hot-reload itself.  And its Playwright install
-    # must run `working-directory: implementation` AFTER `npm ci` — a bare
-    # `npx playwright install` resolves a newer Playwright than the repo pins
-    # and prunes the pinned WebKit out of the shared cache, leaving a green
-    # job that never launched one of the three engines.
-    #
-    # Its `bead:` field also named rf2-erjv, which was closed and whose actual
-    # scope was the codemod reverse-edge arm.  The reference was simply wrong;
-    # the fix is this deletion, not a reopening.
-    #
-    # Before that the last one was `test:fresco-controlled`
-    # (rf2-hic-016): the Fresco three-engine controlled-input gate, declared
-    # `unscheduled` rather than left silently unrun because the PR that built
-    # it was fenced out of .github/workflows/** while rf2-8a6s held that
-    # surface.  rf2-ga8m landed the missing half — the `cljs-fresco-
-    # controlled` job, its `fresco_controlled` classifier arm, and the
-    # matching _changed-surfaces.test.cjs rows — so the entry is DELETED.
-    # That deletion is the point: a declared hole that outlives its gate's
-    # schedule is the same class of lie as an undeclared one, told in the
-    # other direction, and this checker would keep asserting the gate runs
-    # nowhere while it ran on every fresco PR.
-    #
-    # The four this checker found on arrival all have homes: `test:perf-bundle` went
-    # per-PR as `cljs-perf-bundle` (rf2-eegpw / #7530), `test:ui-warm-watch` +
-    # `test:cljs-perf-emit-nightly` went into the nightly browser/bundle sweep,
-    # and `test:schemas-bundle` went per-PR as `cljs-schemas-bundle`.  Their
-    # entries are deleted, which is what a closed hole looks like.
-    #
-    # The schemas one is worth remembering, because it is the only one that was
-    # red rather than merely unrun, and because of what the red turned out to
-    # be.  rf2-a9oic ran it before scheduling it — per the rule that a gate
-    # wired without a green run hands the alerting a false positive on its
-    # debut — and it came back RED at 124.9 KB against a 100 KB ceiling.  That
-    # looked like a 25% bundle regression.  It was not one: measurement
-    # (rf2-kybsf) showed the schemas surface had grown 1.0 KB in three months
-    # and `cljs.core` + `re-frame.core` 43.8 KB, and that the ceiling had never
-    # been derived from the probe it guarded.  The gate was asserting an
-    # ABSOLUTE size while Spec 010 §Bundle cost budgets a MARGINAL one, so it
-    # fired at the schemas artefact for growth outside it.
-    #
-    # It was NOT threshold-bumped — narrowing a gate to make it pass is the one
-    # move this audit exists to prevent — and it was not wired red either.  It
-    # was left declared until rf2-v4o7e made it assert the quantity the spec
-    # actually budgets: the two-sided gzipped margin between a core-only
-    # control build and the schemas probe.  A gate earns a schedule by
-    # asserting something true, not by being given a number it can clear.
+    # A declared hole that outlives its gate's schedule is the same class of
+    # lie as an undeclared one, told the other way round.  And a gate earns a
+    # schedule by asserting something true, not by being given a number it can
+    # clear: a gate that comes back red before it is wired is neither
+    # threshold-bumped nor wired red, but left declared until it asserts the
+    # quantity its spec budgets.
 }
 
 KINDS = {"covered-by", "ci-runs-it-directly", "not-a-gate", "unscheduled"}
@@ -538,9 +432,8 @@ def self_test(verbose: bool) -> int:
               "test:orphan": {"kind": "not-a-gate", "why": "x"},
               "bench:thing": {"kind": "not-a-gate", "why": "x"}})))
 
-    # `build:` IS asked the question, since rf2-rbdc — a `shadow-cljs release`
-    # that no workflow reaches is the `test:perf-bundle` shape one prefix over,
-    # and it was unreportable here until that bead.
+    # `build:` IS asked the question — a `shadow-cljs release` that no
+    # workflow reaches is an unscheduled gate one prefix over.
     build_orphan = audit({**scripts, "build:orphan": "shadow-cljs release orphan"},
                          wf, {"test:orphan": {"kind": "not-a-gate", "why": "x"},
                               "bench:thing": {"kind": "not-a-gate", "why": "x"}})
@@ -594,9 +487,9 @@ def self_test(verbose: bool) -> int:
         "bench:thing": {"kind": "not-a-gate", "why": "x"}})
     check("an unknown kind FAILS", any("unknown kind" in p for p in bad_kind))
 
-    # THE PROSE MUTATIONS (rf2-6ckzl, audit of PR #7542). Each pair below
-    # deletes the executable invocation and leaves the sentence that describes
-    # it — the shape of a real workflow edit, and the shape that used to pass.
+    # THE PROSE MUTATIONS. Each pair below deletes the executable invocation
+    # and leaves the sentence that describes it — the shape of a real workflow
+    # edit, and the shape a raw-text reader would pass.
     declared = {"bench:thing": {"kind": "not-a-gate", "why": "x"}}
 
     commented_out = ("      # rf2-xxxxx retired this step; it used to "

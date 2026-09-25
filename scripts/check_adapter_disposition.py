@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Authority guard: the current re-frame2 ADAPTER DISPOSITION (Mike, 2026-07-17).
+"""Authority guard: the re-frame2 ADAPTER DISPOSITION.
 
-The ruling, whose source of record is
+The disposition, whose source of record is
 `docs/EP/EP-0030-the-compiled-view-substrate-program.md` §Resolved Decisions:
 
   * `re-frame.ui` is a **new, EXPERIMENTAL** view substrate offered **alongside**
@@ -11,12 +11,11 @@ The ruling, whose source of record is
     supported adapters** — not frozen, not scheduled for removal.
   * **Only Helix is removed**, behind the S7 soak gates.
 
-This supersedes an earlier ("frozen compatibility adapters" / "reagent-slim
-removed" / "only taught view layer") shape that was ratified 2026-07-11 and
-reframed 2026-07-17. That superseded shape had propagated into planning,
-implementor, source-comment, and synthesis authorities; a worker dispatched from
-any of them would have removed or downgraded a supported surface. This guard
-exists so the superseded statuses cannot silently return. Owner: rf2-vxgfnd.290.
+The superseded shape ("frozen compatibility adapters" / "reagent-slim removed" /
+"only taught view layer") reads as an instruction to remove or downgrade a
+supported surface, so a worker dispatched from an authority stating it would do
+exactly that. This guard exists so the superseded statuses cannot silently
+return.
 
 SCOPE — deliberately narrow. This is NOT a general prose parser and NOT a corpus
 sweep. It scans a CLOSED roster of files that are ACTIVE dispatchable authorities
@@ -25,8 +24,8 @@ sweep. It scans a CLOSED roster of files that are ACTIVE dispatchable authoritie
 lifecycle/technical realizations, is out of scope by construction.
 
 TWO CLASSES of superseded shape are matched. The first asserts an adapter STATUS
-("frozen compatibility adapters", "reagent-slim is deleted"). The second, added by
-rf2-cwhsh, asserts an OPERATIONAL INSTRUCTION that only made sense under that
+("frozen compatibility adapters", "reagent-slim is deleted"). The second
+asserts an OPERATIONAL INSTRUCTION that only makes sense under that
 status — deleting an example, template, or CI surface belonging to a RETAINED
 adapter ("`substrates/` deletion", "template collapse", "three named causal
 suites"). The second class is the dangerous one precisely because it can name no
@@ -54,13 +53,11 @@ HTML comment regions (`<!-- ... -->`) are blanked before the scan, so guidance
 prose inside a comment cannot trip the rule.
 
 POSITIVE ASSERTION — EP-0030, as the source of record, must actually STATE the
-current ruling. Deleting the ruling from EP-0030 while leaving every other file
+current disposition. Deleting it from EP-0030 while leaving every other file
 merely silent would otherwise pass; `EP0030_REQUIRED` prevents that.
 
-`.github/workflows/release.yml` joined the roster with rf2-nojiwy's W9 pass, which
-corrected its stale header phrase ("the compiled-view substrate that replaces the
-adapter trio") to the experimental/alongside framing. Workflow comments are
-dispatchable authority for the release surface, so the file stays scanned.
+`.github/workflows/release.yml` is on the roster because workflow comments are
+dispatchable authority for the release surface.
 
 Exit code:
     0  no superseded adapter status on an active authority
@@ -80,14 +77,9 @@ from pathlib import Path
 # --- The closed roster of ACTIVE dispatchable authorities ---------------------
 ACTIVE_AUTHORITIES = (
     "docs/EP/EP-0030-the-compiled-view-substrate-program.md",
-    # `spec/004D-Freehand-Compiled-Grammar.md` was on this roster until rf2-0yp7w.11
-    # deleted it with its artefact (`day8/re-frame2-ui`, removed by the R2b/R3b cuts).
-    # `spec/004-Views.md` followed it under rf2-h89ri, which ruled the deletion of
-    # that Spec and the S3/S4/S5 view-conformance profiles once the Freehand
-    # substrate they described was removed. THERE IS NO SPEC-TIER AUTHORITY ON THIS
-    # ROSTER ANY MORE, and that is the ruled state rather than an omission: `spec/`
-    # carries no view contract, so it carries no adapter-disposition prose either.
-    # A replacement is graduated under rf2-ps7ia, not assumed here.
+    # THERE IS NO SPEC-TIER AUTHORITY ON THIS ROSTER, and that is deliberate
+    # rather than an omission: `spec/` carries no view contract, so it carries no
+    # adapter-disposition prose either.
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",
@@ -97,7 +89,7 @@ ACTIVE_AUTHORITIES = (
 EP0030_REL = "docs/EP/EP-0030-the-compiled-view-substrate-program.md"
 
 # --- The closed set of superseded-status sentence shapes ----------------------
-# Each entry: (compiled regex, human explanation of what the current ruling says).
+# Each entry: (compiled regex, human explanation of what the current disposition says).
 SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"frozen\s+compat(?:ibility)?\s+(?:adapter|tier|Reagent)", re.I),
@@ -158,11 +150,11 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     # --- Superseded OPERATIONAL instructions ---------------------------------
     # Every pattern above matches an assertion about an adapter's STATUS. These
-    # match an ACTION that only made sense under the superseded status: deleting
+    # match an ACTION that only makes sense under the superseded status: deleting
     # an example, template, or CI surface that belongs to a RETAINED adapter.
-    # rf2-cwhsh found this class false-green — a stale dispatchable instruction
-    # can name no adapter at all ("template collapse", "three named causal
-    # suites") and still send a worker to remove first-class coverage.
+    # A status-only guard reads this class green — a stale dispatchable
+    # instruction can name no adapter at all ("template collapse", "three named
+    # causal suites") and still send a worker to remove first-class coverage.
     (
         re.compile(
             r"`?substrates/`?\s+delet(?:ion|ed)"
@@ -201,7 +193,7 @@ SUPERSESSION_MARKERS = (
     "read it as",
     "predates this ruling",
     "reconciled 20",
-    # Negations — the line states the CURRENT ruling by denying the old shape.
+    # Negations — the line states the CURRENT disposition by denying the old shape.
     "not the only",
     "not a mandated",
     "not frozen",
@@ -278,10 +270,9 @@ def scan_text(text: str, rel: str) -> list[str]:
     EXCEPT inside a Markdown TABLE, where each row is a complete, self-contained
     claim and the hard-wrap rationale does not apply. A table row is therefore
     exempted only by a marker on its OWN line. Without this, one row's marker
-    silently neutralizes its neighbours — which is exactly how the stale W8/W12
-    rows of `11-adoption-workstreams.md` stayed invisible (rf2-cwhsh): W8 was
-    shielded by the *unrelated* "superseded attempts" in the W7b row above it,
-    and W12 by the correctly-reconciled W13 row below it.
+    would silently neutralize its neighbours: a stale row would be shielded by
+    an *unrelated* "superseded attempts" in the row above it, or by a
+    correctly-reconciled row below it (self-test cases G1 and G2).
     """
     problems: list[str] = []
     lines = _blank_html_comments(text).splitlines()
@@ -299,7 +290,7 @@ def scan_text(text: str, rel: str) -> list[str]:
                 problems.append(
                     f"ADAPTER-DISPOSITION-DRIFT: {rel}:{lineno} asserts a SUPERSEDED "
                     f"adapter status ({match.group(0)!r}) — {explanation}. "
-                    "Current ruling: EP-0030 §Resolved Decisions (2026-07-17). "
+                    "Current disposition: EP-0030 §Resolved Decisions. "
                     "If this line is RECORDING the superseded shape rather than "
                     "asserting it, mark it (e.g. 'superseded', 'formerly', 'VOID')."
                 )
@@ -308,7 +299,7 @@ def scan_text(text: str, rel: str) -> list[str]:
 
 
 def ep0030_problems(text: str | None) -> list[str]:
-    """Positive assertions: the source of record must state the current ruling."""
+    """Positive assertions: the source of record must state the current disposition."""
     if text is None:
         return []
     problems: list[str] = []
@@ -316,7 +307,7 @@ def ep0030_problems(text: str | None) -> list[str]:
         if not pattern.search(text):
             problems.append(
                 f"ADAPTER-DISPOSITION-SOURCE-OF-RECORD: {EP0030_REL} — {explanation}. "
-                "The ruling must remain stated at its source of record, not merely "
+                "The disposition must be stated at its source of record, not merely "
                 "implied by other files' silence."
             )
     return problems
@@ -410,7 +401,7 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=True, label="A10 family freezes WITH stock Reagent",
     )
 
-    # Current-ruling prose must NOT trip.
+    # Current-disposition prose must NOT trip.
     expect(
         "Reagent, UIx, and reagent-slim live on as first-class, actively-supported "
         "adapters; only Helix is removed.",
@@ -461,7 +452,7 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=True, label="C7 distant disclaimer does NOT exempt (window is +/-1)",
     )
 
-    # Superseded OPERATIONAL instructions (rf2-cwhsh) must be caught.
+    # Superseded OPERATIONAL instructions must be caught.
     expect(
         "examples migration with the `substrates/` deletion (W4)",
         dirty=True, label="E1 substrates/ deletion",
@@ -485,7 +476,7 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=True, label="E5 template collapse",
     )
 
-    # The corrected instructions must NOT trip.
+    # The current instructions must NOT trip.
     expect(
         "examples gain `re-frame.ui` variants while `substrates/` is retained "
         "minus its Helix arm (W4)",

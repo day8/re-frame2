@@ -8,41 +8,39 @@
 #
 # Same behaviour: idempotent install of the re-frame2-managed segments
 # of the repo's git hooks, plus the mayor-marker file that gates the
-# pre-commit hook (rf2-ydl2p). The hook scripts themselves are POSIX sh
+# pre-commit hook. The hook scripts themselves are POSIX sh
 # (Git on Windows ships a `sh.exe` from the Git Bash bundle that runs
 # hooks); this installer just stages them into <gitdir>/hooks.
 #
 # Installs (one marker BLOCK each; a hook may carry several):
-#   - post-merge       (rf2-6jj3r) MCP-staleness advisory warning.
-#   - post-merge       (rf2-zt65l) hook-install staleness advisory: re-runs
+#   - post-merge       MCP-staleness advisory warning.
+#   - post-merge       hook-install staleness advisory: re-runs
 #                       the installer's own --check after every pull, so a
 #                       change under scripts/git-hooks/ cannot sit
 #                       uninstalled unnoticed. Covers the pulls that merge
 #                       or fast-forward.
-#   - post-rewrite     (rf2-zt65l) the same advisory on the REBASE path. A
-#                       rebase never invokes post-merge, so `git pull
-#                       --rebase` with a local commit - the completion path
-#                       AGENTS.md and CLAUDE.md mandate - used to land hook
-#                       drift in silence.
-#   - pre-commit       (rf2-ydl2p) refuses commits in the MAYOR checkout
+#   - post-rewrite     the same advisory on the REBASE path. A
+#                       rebase never invokes post-merge, so without this
+#                       block a rebase with a local commit - the completion
+#                       path AGENTS.md and CLAUDE.md mandate - would land
+#                       hook drift in silence.
+#   - pre-commit       refuses commits in the MAYOR checkout
 #                       that touch worker-tracked surfaces.
-#   - pre-commit       (rf2-ia8o7) refuses commits in a WORKER worktree
+#   - pre-commit       refuses commits in a WORKER worktree
 #                       that touch the beads DATABASE. Mirror image of the
 #                       block above; derives the primary worktree from
 #                       `git worktree list` rather than a marker file.
-#   - pre-commit       (rf2-or8te) refuses a commit from ANY worktree that
+#   - pre-commit       refuses a commit from ANY worktree that
 #                       would empty `.beads/issues.jsonl` or lose more than
-#                       a tenth of it. Neither block above could see that
-#                       failure: an empty export reached main twice from
-#                       the MAYOR checkout, by plain `git add`, where they
-#                       no-op.
-#   - commit-msg       (rf2-2e8f) refuses a commit MESSAGE carrying AI
+#                       a tenth of it. Neither block above can see that
+#                       failure: an empty export committed from the MAYOR
+#                       checkout by plain `git add` passes both.
+#   - commit-msg       refuses a commit MESSAGE carrying AI
 #                       attribution (`Co-Authored-By:` naming the assistant,
 #                       `Claude-Session:`, a generated-with marker). Every
 #                       block above grades staged PATHS; the message is a
-#                       surface none of them can see, and three such commits
-#                       reached main while nothing checked.
-#   - mayor-marker     (rf2-ydl2p) sentinel at <common-dir>/mayor-marker;
+#                       surface none of them can see.
+#   - mayor-marker     sentinel at <common-dir>/mayor-marker;
 #                       hook activation gate. Worker worktrees have a
 #                       distinct per-worktree git dir, so they never see
 #                       this marker and the pre-commit hook no-ops there.
@@ -69,7 +67,7 @@ $hooksDir = Join-Path $commonDir 'hooks'
 New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
 
 # Block registry. The unit of installation is a marker BLOCK, not a hook -
-# 'pre-commit' carries two of them (rf2-ia8o7). Keys are block ids; values
+# 'pre-commit' carries several of them. Keys are block ids; values
 # are @(HOOK, BEGIN, END).
 $hookBlocks = @{
     'mcp-staleness' = @(
@@ -118,10 +116,10 @@ function Get-MarkerBlock {
     # Read as explicit UTF-8 and split line endings ourselves. Get-Content
     # decodes with the system ANSI codepage on Windows PowerShell 5.x, which
     # mangles any non-ASCII byte in the source hook (the comments carry
-    # em-dashes). The installer then writes the block back as UTF-8, so the
-    # ANSI-misread source no longer round-trips equal to the UTF-8 install and
-    # -Check falsely reports the block out of date even on a fresh, correct
-    # install (rf2-ujhpf). Reading both sides as UTF-8 and normalising line
+    # em-dashes). The installer then writes the block back as UTF-8, so an
+    # ANSI-misread source would not round-trip equal to the UTF-8 install and
+    # -Check would falsely report the block out of date even on a fresh,
+    # correct install. Reading both sides as UTF-8 and normalising line
     # endings makes the comparison encoding- and eol-agnostic without
     # weakening drift detection.
     $text  = [System.IO.File]::ReadAllText($Path, (New-Object System.Text.UTF8Encoding $false))
@@ -179,12 +177,11 @@ function Install-Block {
     # interpreter the documented `powershell -File` invocation uses - decodes
     # with the system ANSI codepage. This file is read back and rewritten every
     # time a SECOND block is appended to the same hook, so an ANSI read there
-    # silently re-encoded the FIRST block's em-dashes as mojibake. Measured on
-    # origin/main: after one `install-git-hooks.ps1` run the installed
-    # post-merge carried a C3 A2 sequence where the source had E2 80 94, and
-    # BOTH installers' checks then reported "block out of date" on a fresh,
-    # correct install - for ever, since re-installing reproduced it. Same root
-    # cause as rf2-ujhpf, one read further along.
+    # would silently re-encode the FIRST block's em-dashes as mojibake (a C3 A2
+    # sequence where the source has E2 80 94), and BOTH installers' checks would
+    # then report "block out of date" on a fresh, correct install - for ever,
+    # since re-installing reproduces it. Same root cause as Get-MarkerBlock's
+    # UTF-8 read, one read further along.
     $existing = [System.IO.File]::ReadAllText($dst, (New-Object System.Text.UTF8Encoding $false))
     if ($existing -match [regex]::Escape($beginMark)) {
         $existingBlock = Get-MarkerBlock -Path $dst -BeginMark $beginMark -EndMark $endMark
@@ -222,18 +219,17 @@ function Install-Block {
 
 function Install-MayorMarker {
     # Drops <common-dir>/mayor-marker. The marker is the activation gate
-    # for the pre-commit hook (rf2-ydl2p). It lives in the mayor's
+    # for the pre-commit hook. It lives in the mayor's
     # per-worktree git dir (== common dir for the primary worktree);
     # worker worktrees have a distinct per-worktree git dir at
     # <common>/worktrees/<name>/ and therefore see no marker -> hook no-ops.
     $markerPath = Join-Path $commonDir 'mayor-marker'
     # KEEP THIS TEXT BYTE-IDENTICAL TO THE .sh SIBLING, and name neither
     # installer in it. Both installers write this one file and both check it, so
-    # a version that named itself made the OTHER one report "mayor-marker
+    # a version that named itself would make the OTHER one report "mayor-marker
     # content drifted" on a perfectly good install - and the post-merge advisory
-    # runs the .sh --check, so one .ps1 run was enough to make it fire on every
-    # pull for ever. An advisory that always fires is one nobody reads, which is
-    # the whole of rf2-zt65l.
+    # runs the .sh --check, so one .ps1 run would be enough to make it fire on
+    # every pull for ever. An advisory that always fires is one nobody reads.
     $markerContent = @"
 re-frame2 mayor checkout marker (rf2-ydl2p).
 Presence of this file in <git-dir> activates the pre-commit hook that
@@ -255,8 +251,8 @@ hook's POV).
     }
 
     # Explicit UTF-8 here too, for the same reason as Install-Block above. The
-    # marker text is ASCII today, so this is consistency rather than a bug fix -
-    # but the next person to reword it should not have to rediscover why.
+    # marker text is ASCII, so this is consistency - it keeps a future non-ASCII
+    # rewording from reintroducing the ANSI misread.
     $current = [System.IO.File]::ReadAllText($markerPath, (New-Object System.Text.UTF8Encoding $false))
     $currentNorm = ($current -replace "`r`n","`n")
     if ($currentNorm -eq $expected) {

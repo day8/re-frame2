@@ -1,36 +1,31 @@
 #!/usr/bin/env python3
 """Run CI's clj-kondo gate LOCALLY — same version, same paths, same flags.
 
-WHY THIS EXISTS (rf2-x1mz).  A worker edited
-`implementation/fresco/src/re_frame/fresco/impl/overlay.cljs`, ran the local
-spine, got green, pushed, and CI's `clj-kondo` job went red.  No local gate in
-this repo could have caught it, for TWO INDEPENDENT REASONS — either one
-sufficient on its own:
+WHY THIS EXISTS.  Without it, a change can pass every local lane and still turn
+CI's `clj-kondo` job red, for TWO INDEPENDENT REASONS — either one sufficient
+on its own:
 
-  1. VERSION SKEW.  The only local lane that ran clj-kondo at all
-     (`implementation/fresco/scripts/check_lint_export.py`) resolved the
-     binary off `PATH`, whatever version that happened to be.  Measured on the
-     exact defect: clj-kondo 2025.10.23 reports `errors: 0, exit 0`; the pinned
-     2026.04.15 reports `Expected: array, received: function` and exits 3.  And
-     the pin is not merely absent from that machine — it is UNOBTAINABLE the
-     usual way: the npm distribution of clj-kondo stops at 2025.10.23, so
-     "install the pin" is not advice a developer can follow.  Hence the
-     provisioning half below.
+  1. VERSION SKEW.  A lane that resolves the binary off `PATH` runs whatever
+     version that happens to be, and versions disagree on real defects: on an
+     `aset` against a function, clj-kondo 2025.10.23 reports
+     `errors: 0, exit 0` while the pinned 2026.04.15 reports
+     `Expected: array, received: function` and exits 3.  And the pin is
+     UNOBTAINABLE the usual way: the npm distribution of clj-kondo stops at
+     2025.10.23, so "install the pin" is not advice a developer can follow.
+     Hence the provisioning half below.
 
-  2. PATH COVERAGE.  That lane's `--lint` targets are two fixture files and
-     `fresco/testbed`.  It never linted `fresco/src/`, so the file was
-     outside every local lane REGARDLESS of version — and even had it been
-     inside, that gate reads only findings in the `re-frame.fresco/*`
-     namespace, so a built-in kondo ERROR like this one is invisible to it.
+  2. PATH COVERAGE.  A lane whose `--lint` targets are a hand-picked subset of
+     CI's misses every file outside that subset REGARDLESS of version, and a
+     lane that reads only its own namespace's findings cannot see a built-in
+     kondo ERROR at all.  Hence the targets here are read from CI (below).
 
-WHAT THE DEFECT COST, so the stakes are concrete rather than stylistic: two
-`(aset f "displayName" "...")` calls stamping a React displayName onto a
+WHAT SUCH A DEFECT COSTS, so the stakes are concrete rather than stylistic: an
+`(aset f "displayName" "...")` call stamping a React displayName onto a
 FUNCTION with the ARRAY accessor.  With `:checked-arrays` off (the repo
 default) `aset`'s 3-arity emits character-identical output to `unchecked-set`,
-so the shipped consequence was none; with `:checked-arrays :error` it THROWS,
-and because these are top-level `def` forms the throw lands at NAMESPACE
-INITIALIZATION — turning on a standard hardening flag would take the whole
-overlay module out at load time.
+so nothing visible happens; with `:checked-arrays :error` it THROWS, and in a
+top-level `def` form the throw lands at NAMESPACE INITIALIZATION — turning on
+a standard hardening flag would take the whole module out at load time.
 
 NOTHING ABOUT THE GATE IS RESTATED HERE.  The version pin, the flags and the
 `--lint` target list are all READ from the `Run clj-kondo` step of
@@ -44,7 +39,7 @@ including in its decision about whether the lane is armed at all.
 A SKEWED BINARY IS NOT A FALLBACK.  If the pin cannot be provisioned this
 script exits 2 and says what went unchecked; it never runs a different version
 and reports a verdict.  A green from the wrong version is precisely the false
-assurance that produced rf2-x1mz, and the spine's caller turns exit 2 into a
+assurance this script exists to remove, and the spine's caller turns exit 2 into a
 LOUD SKIP rather than a pass.
 
     python scripts/lint_kondo.py                  provision + run the gate
@@ -142,7 +137,7 @@ def gate(workflow: Path = LINT_WORKFLOW):
         raise GateUnreadable(
             "no clj-kondo version pin in the `%s` job (looked for a release "
             "URL of the form `.../clj-kondo/releases/download/v<pin>/...`); "
-            "running an unpinned binary proves nothing, which is rf2-x1mz"
+            "running an unpinned binary proves nothing"
             % KONDO_JOB)
     if not argv or argv[0] != "clj-kondo":
         raise GateUnreadable(
@@ -256,7 +251,7 @@ def resolved(pin: str, quiet: bool = False) -> Path:
     A CI runner has installed the pin to `/usr/local/bin` before this script
     runs, and a developer may have it too; downloading a second copy of a
     binary already present would be waste with no gain.  The version is
-    CHECKED rather than assumed — that check is the whole bead.
+    CHECKED rather than assumed — that check is the whole point.
     """
     found = (shutil.which("clj-kondo.cmd") or shutil.which("clj-kondo.bat")
              or shutil.which("clj-kondo"))
@@ -289,8 +284,8 @@ def arms(paths, roots) -> bool:
     for raw in paths:
         p = str(raw).replace("\\", "/")
         # `./x` and `x` are the same path; `lstrip` is the wrong tool for that
-        # trim — it eats every leading `.` and `/`, which silently turned
-        # `.clj-kondo/config.edn` into `clj-kondo/config.edn` and stopped the
+        # trim — it eats every leading `.` and `/`, which would silently turn
+        # `.clj-kondo/config.edn` into `clj-kondo/config.edn` and stop the
         # shared config arming anything.
         while p.startswith("./"):
             p = p[2:]
@@ -393,8 +388,8 @@ def self_test() -> int:
     # --- the gate's RED, on a planted defect -------------------------------
     #
     # The claim under test is not "clj-kondo works" but "THIS runner, at THIS
-    # pin, over the roots THIS workflow names, reports a defect in a file that
-    # was outside every local lane before it existed". So the plant goes into
+    # pin, over the roots THIS workflow names, reports a defect in a real source
+    # file". So the plant goes into
     # a real source tree under a real `--lint` root, and is restored from the
     # bytes read before it — never from a diff, which cannot tell an exact
     # restore from a patch that never applied.
@@ -470,7 +465,7 @@ def main(argv=None) -> int:
         exe = resolved(pin, quiet=args.print_binary)
     except RuntimeError as exc:
         print("clj-kondo %s is NOT AVAILABLE: %s" % (pin, exc), file=sys.stderr)
-        print("A DIFFERENT VERSION IS NOT A FALLBACK (rf2-x1mz): 2025.10.23 "
+        print("A DIFFERENT VERSION IS NOT A FALLBACK: 2025.10.23 "
               "reports 0 errors on a line 2026.04.15 fails, so a pass from one "
               "is not a pass from the other. Nothing was linted.",
               file=sys.stderr)

@@ -187,7 +187,7 @@ class InstallerTests(unittest.TestCase):
         # <alias>/skills is an ordinary directory carrying its own path, so a
         # guard that inspects only the final directory passes, --force deletes
         # the maintained skill, and the link step then fails with the source
-        # already gone (rf2-7bwh1). Both Windows entrypoints share this guard.
+        # already gone. Both Windows entrypoints share this guard.
         for index, command in enumerate(self.commands):
             with self.subTest(installer=command[0]):
                 # Put the source back first. Should a regression let the

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Eval-packaging-consistency gate: docs stance vs package.json `files` (rf2-ngw0wl).
+"""Eval-packaging-consistency gate: docs stance vs package.json `files`.
 
-Follow-up from rf2-myge8z (PR #3653), which reconciled
-`skills/re-frame2-pair-retro`'s eval-fixture docs to match its package
-(`evals/` excluded) and asked for a lightweight gate so that drift cannot
-recur unnoticed.
+A skill's eval-fixture docs and its package can drift apart — the docs saying
+`evals/` ships while the `files` array excludes it, or the reverse — and this
+lightweight gate keeps that drift from going unnoticed.
 
 WHY *AGREEMENT*, NOT "documented evals must ship"
 -------------------------------------------------
@@ -22,8 +21,8 @@ would fail every deliberate-EXCLUDE skill. The correct generic invariant is
 PACKAGE/DOCS AGREEMENT: for each packaged skill that has an `evals/` dir on
 disk, the skill's prose (its `evals/README.md`, or the directory-contents block
 in its top-level `README.md`) and its `package.json` `files` array must not
-CONTRADICT each other on whether `evals/` ships. This catches the rf2-myge8z
-drift class generically without forcing one repo-wide policy.
+CONTRADICT each other on whether `evals/` ships. This catches the drift class
+generically without forcing one repo-wide policy.
 
 WHAT THIS GATE CHECKS
 ---------------------
@@ -45,8 +44,8 @@ Then it fails on a CONTRADICTION only:
 
 SILENCE IS NOT A CONTRADICTION. A skill whose prose says nothing about the
 packaging stance passes either way — the gate catches contradictions, not the
-absence of a documented stance (a stance-documentation gate is a separate
-concern this bead did not ask for).
+absence of a documented stance (a stance-documentation gate would be a
+separate concern).
 
 Doc-stance detection is scoped to the skill's OWN stance. A skill that compares
 itself to siblings ("the re-frame2-improver / re-frame2-xray siblings make the
@@ -70,8 +69,6 @@ Usage:
     python scripts/check_skill_eval_packaging.py --verbose
     python scripts/check_skill_eval_packaging.py --ci          # CI-shaped
     python scripts/check_skill_eval_packaging.py --self-test    # built-in fixtures
-
-rf2-ngw0wl.
 """
 
 from __future__ import annotations
@@ -447,7 +444,7 @@ def main(argv: Iterable[str]) -> int:
         description=(
             "Verify each packaged skill's eval-packaging stance (its "
             "evals/README.md or README.md prose) agrees with its package.json "
-            "`files` array on whether evals/ ships (rf2-ngw0wl)."
+            "`files` array on whether evals/ ships."
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -497,7 +494,7 @@ def main(argv: Iterable[str]) -> int:
             "\nThe invariant is PACKAGE/DOCS AGREEMENT — both INCLUDE and "
             "EXCLUDE are valid as long as the skill's docs (evals/README.md or "
             "the README directory-contents block) and its package.json `files` "
-            "array agree. (rf2-ngw0wl)",
+            "array agree.",
             file=sys.stderr,
         )
         return 1

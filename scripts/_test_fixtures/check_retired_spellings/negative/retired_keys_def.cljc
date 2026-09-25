@@ -10,7 +10,7 @@
 ;; The redirect fx (:rf.server/redirect / :rf.server/safe-redirect) writes a
 ;; Location header; the retired :url / :to keys must be rejected.
 (def ^:private retired-redirect-target-keys
-  "Redirect-target spellings retired in favour of :location (rf2-vngir).
+  "Redirect-target spellings retired in favour of :location.
   Detected on a :rf.server/redirect / :rf.server/safe-redirect args map."
   [:url :to])
 

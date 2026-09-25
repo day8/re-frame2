@@ -1,4 +1,4 @@
-;; Thrown-error where-sym baseline (rf2-z5lv) — regenerate with
+;; Thrown-error where-sym baseline — regenerate with
 ;;     python scripts/check_thrown_error_messages.py --write-where-sym-baseline
 ;;
 ;; A thrown error's `where-sym` names WHERE the failure happened so an

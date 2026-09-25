@@ -1,5 +1,5 @@
 (ns fixture.negative.bypass-marker-exempt
-  "NEGATIVE fixture (rf2-krrv87 gate widen): a DELIBERATE, documented
+  "NEGATIVE fixture: a DELIBERATE, documented
   builder-bypass that opts out via the `rf2:builder-bypass-ok` marker comment
   (the conformance-DSL :throw / :count ops pin their message downstream as
   :exception-message, so it stays bare prose without the token by design).

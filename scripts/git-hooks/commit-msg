@@ -3,17 +3,15 @@
 #
 # ONE marker block.
 #
-#   rf2-2e8f — refuses a commit message carrying AI ATTRIBUTION: a
-#              `Co-Authored-By:` whose address is the assistant's, a
-#              `Claude-Session:` trailer, a generated-with marker, or a bare
-#              session URL.
+#   commit attribution guard — refuses a commit message carrying AI
+#              ATTRIBUTION: a `Co-Authored-By:` whose address is the
+#              assistant's, a `Claude-Session:` trailer, a generated-with
+#              marker, or a bare session URL.
 #
-# WHY A HOOK AT ALL. CLAUDE.md > Git Conventions has forbidden these since the
-# project began, and three commits carrying them still reached main —
-# 04230d0d33, e1b07cf184, e71c404c9b — because the agent harness injects a
-# session-level reminder telling agents to add exactly those trailers, and
-# NOTHING CHECKED. Two instruction sources contradicting, a tie broken at
-# random, and a silent trunk. This block makes the local half loud; the CI arm
+# WHY A HOOK AT ALL. CLAUDE.md > Git Conventions forbids these, but the agent
+# harness injects a session-level reminder telling agents to add exactly those
+# trailers. Two instruction sources contradicting, a tie broken at random, and
+# — unchecked — a silent trunk. This block makes the local half loud; the CI arm
 # (scripts/check-commit-attribution.sh) catches the case where nobody ran the
 # installer.
 #

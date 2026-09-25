@@ -8,14 +8,14 @@ decisions (L1–L11), file structure, cardinal rules, and verification posture;
 `spec/inputs.md` owns the canonical inputs and update procedure. The
 `spec/authoring-prompt.md` launcher orchestrates a reauthoring pass by
 *pointing at* those two files — it must not carry a second, drift-prone copy of
-the tree, the rules, or the locks. This guard protects the regressions below,
-each one the existing automated guards did not catch (the no-bead-id guard was
-scoped to `skills/re-frame2-implementor` only):
+the tree, the rules, or the locks. This guard refuses the drift shapes below,
+none of which another automated guard catches in this skill (the sibling
+no-bead-id arms cover other skills' leaves):
 
-  1. **Bead-id leaks in user-facing leaves.** Two leaves carried
-     `EP-0008 (rf2-hhutya)` — an internal `bd` tracker id. The skill's own
+  1. **Bead-id leaks in user-facing leaves.** A leaf citing an EP beside its
+     tracker id — `EP-0008 (rf2-XXXX)` — leaks an internal `bd` id. The skill's own
      design locks this out (`spec/design.md` L10 — the normative source; the
-     `spec/authoring-prompt.md` launcher references it but no longer restates
+     `spec/authoring-prompt.md` launcher references it and does not restate
      it): `SKILL.md` + `references/` + `patterns/` + `decision-trees/`
      carry NO `rf2-XXXX` ids. Bead ids are monorepo-internal workflow noise; a
      consumer app author has no `bd` and no bead corpus, so a leaked id is
@@ -31,15 +31,11 @@ scoped to `skills/re-frame2-implementor` only):
      AGENT runs the project's own declared noninteractive compile / test / lint
      gate after it edits and reports the exact command and result; it hands the
      gate to the programmer only when the gate is interactive, needs a live
-     runtime, does not exist, or the user said not to. Until 2026-08-31 this
-     rule enforced the INVERSE — the Q14 lock, an authoring-only skill whose
-     author ran every gate, with a `Bash(clojure -M:test)` grant and a "run the
-     gate before declaring done" instruction as the drift shapes. Q14 was
-     unlocked by the rf2-g9k0g surface review (the skill's own §1 goal said the
-     output should compile and pass tests while the posture forbade the agent
-     from finding out; the family baseline already trusts the explicit invoker
-     with these commands), and the rule flipped in the same change. What it
-     now refuses is a slide BACK to the hand-off: (2a) `SKILL.md`'s frontmatter
+     runtime, does not exist, or the user said not to. The skill's own §1 goal
+     is output that compiles and passes tests, which a posture forbidding the
+     agent from finding out cannot serve, and the family baseline trusts the
+     explicit invoker with these commands. What the rule refuses is a slide to
+     the hand-off posture (design.md's Q14): (2a) `SKILL.md`'s frontmatter
      must keep the routine gate-running wildcards the published-skill baseline
      blesses (`Bash(clojure *)` / `Bash(npm *)` / `Bash(shadow-cljs *)`); (2b)
      no user-facing leaf may tell the agent to hand a runnable gate to the
@@ -49,16 +45,16 @@ scoped to `skills/re-frame2-implementor` only):
      second normative source. It MUST point at both canonical files
      (`design.md` AND `inputs.md`) so a reauthoring session reads the design
      before writing, and it MUST NOT regrow the copied file-structure tree or
-     the copied locks/cardinal-rules block — the exact duplication that drifted
-     (the launcher had over-generalised the runtime `*` suffixes and still
-     named a default frame, both contradicting current design). This guard
+     the copied locks/cardinal-rules block — a second copy drifts from the one
+     design.md maintains, and the launcher's copy would contradict the design
+     it points at. This guard
      fails if the launcher stops citing a canonical file or grows a box-drawing
      tree / a "Locks to preserve verbatim" (or "Cardinal rules to bake in")
-     block back.
+     block.
 
-  4. **The machine-registration footgun.** The state-machine leaf and the API
-     cheatsheet taught the bare `(reg-event id meta (make-machine-handler spec))`
-     route as if it were a normal way to author a machine. That direct path does
+  4. **The machine-registration footgun.** A leaf teaching the bare
+     `(reg-event id meta (make-machine-handler spec))` route as if it were a
+     normal way to author a machine teaches a footgun. That direct path does
      NOT stamp the `:rf/machine?` / `:rf/machine` registration metadata or the
      per-element source coordinates that machine introspection, `(machine-meta
      id)`, visualisers, and Xray resolve through, and a `[:schemas :data]`-
@@ -67,21 +63,19 @@ scoped to `skills/re-frame2-implementor` only):
      registers the machine AS an event handler and stamps that metadata. This
      guard rejects a POSITIVE fenced recipe that co-locates `reg-event` and
      `make-machine-handler`, while ALLOWING an inline (non-fenced) implementation
-     warning that names the shape — so the retained advanced-note mention on
+     warning that names the shape — so the advanced-note mention on
      `reg-machine.md` / `api-cheatsheet.md` stays legal, but a copy-pasteable
-     footgun recipe cannot reappear in any user-facing leaf.
+     footgun recipe fails the build in any user-facing leaf.
 
-  5. **The retired Managed-HTTP reply contract.** The runtime retired the
-     co-located reply default pre-alpha (`rf2-et4c1s` / PR #5449): every
-     `:rf.http/managed` fx-form request must now address its reply with at
+  5. **The co-located Managed-HTTP reply.** There is no co-located reply
+     default: every
+     `:rf.http/managed` fx-form request must address its reply with at
      least one of `:reply-to` / `:on-success` / `:on-failure`, and omitting all
      three throws `:rf.error/http-no-reply-target` at fx-call time — a
-     targetless canonical recipe cannot even start a request. The skill's
-     primary HTTP example had drifted to teach exactly that removed shape
-     (`rf2-j538f7.35` / PR #5603 repaired the leaf prose). This guard makes the
-     retired teaching a build failure so it cannot re-enter: (5a) a fenced
+     targetless canonical recipe cannot even start a request. This guard makes
+     teaching the targetless shape a build failure: (5a) a fenced
      fx-form `[:rf.http/managed …]` recipe that carries a `:request` but no
-     reply target; (5b) reading the removed co-located key `(:rf/reply …)`; and
+     reply target; (5b) reading the nonexistent co-located key `(:rf/reply …)`; and
      (5c) bare `:work/id` asserted as a TRANSIENT reply field (whose spelling is
      `:rf.reply/work-id` — bare `:work/id` is the durable ledger / machine-
      `:data` / correlation identity). The machine-form `:spawn {:machine-id
@@ -89,27 +83,27 @@ scoped to `skills/re-frame2-implementor` only):
      `:reply-to`), the `[:rf.http/managed-abort …]` dispatch, and legitimate
      durable-ledger `:work/id` prose are deliberately allowed.
 
-  6. **UIx/Helix hooks stateful-component guidance, causally exact (rf2-gq9bg;
-     follow-up to rf2-adm10).** The hooks adapters (UIx / Helix) bridge a
+  6. **UIx/Helix hooks stateful-component guidance, causally exact.** The
+     hooks adapters (UIx / Helix) bridge a
      stateful component with an ordinary `defui` / `defnc` plus the adapter's
      `use-sub` (read subs) and `use-frame` (carry the frame) hooks — NOT
      the Reagent `reg-view` macro, a render-time / bare no-arg `capture-frame`,
      or a `:contextType`. `use-frame` is `capture-frame` in hook position,
      reading the surrounding frame-provider / frame-root through React context;
      `reg-view*` on these adapters is optional registry addressing, never the
-     frame wiring. The earlier guard was not causally exact: (6a) checked only
-     WHOLE-FILE presence of `use-frame` / `use-sub`, so a token-only
+     frame wiring. Simpler checks are not causally exact: a WHOLE-FILE presence
+     check for `use-frame` / `use-sub` passes a token-only
      semantic reversal ("Do not use use-frame or use-sub; use reg-view
-     instead.") passed; (6b) was a line rule suppressed by ANY broad negation
-     cue, so "UIx is not special: reg-view* gives it :contextType." passed on
-     the stray far "not" while the valid comparison "UIx/Helix differ from
-     Reagent's :contextType mechanism." was falsely rejected. The rewrite is
+     instead."), and a line rule suppressed by ANY broad negation
+     cue passes "UIx is not special: reg-view* gives it :contextType." on
+     the stray far "not" while falsely rejecting the valid comparison
+     "UIx/Helix differ from Reagent's :contextType mechanism." So the rule is
      SENTENCE-scoped (a bounded recipe-sentence carve, NOT a general prose
      parser — a mixed Reagent+hooks line is checked per sentence): (6a) each
      authoritative leaf (`patterns/stateful-components.md`, `references/
-     fundamentals/frames.md`, and — rf2-05kex — `references/fundamentals/
-     views.md`, whose per-adapter recipe table had drifted while its own
-     paragraph stayed lawful) MUST carry a COHERENT recipe sentence naming an
+     fundamentals/frames.md`, and `references/fundamentals/
+     views.md`, whose per-adapter recipe table can drift while its own
+     paragraph stays lawful) MUST carry a COHERENT recipe sentence naming an
      ordinary `defui`/`defnc`, `use-sub`, AND `use-frame` together; (6b)
      no hooks-recipe sentence may carry a residue shape — a `:contextType`
      ATTRIBUTED to a hooks adapter (fires even under a stray far "not"; a
@@ -117,7 +111,7 @@ scoped to `skills/re-frame2-implementor` only):
      `:contextType`" stay green), a token-only semantic reversal, a positive
      `reg-view` MACRO registration (bare, not `reg-view*`), or a bare no-arg
      `capture-frame` used as the frame-carry (the negated "cannot" warnings
-     stay green). (6c — rf2-szw6c) A leaf-wide coherence floor cannot force a
+     stay green). (6c) A leaf-wide coherence floor cannot force a
      TABLE CELL right while the leaf's adjacent paragraph stays right, and it
      reaches only the leaves this skill globs. So the three concrete recipe
      blocks a programmer or a model actually copies are additionally anchored
@@ -131,41 +125,41 @@ scoped to `skills/re-frame2-implementor` only):
      006 lawfully carries bead ids and Reagent-owned `:contextType` prose that
      the leaf-wide rules would reject).
 
-  7. **The form-action pattern's two fail-open shapes, in copyable code.** The
-     skill's `patterns/form-action.md` shipped
-     `(and server? (not= (:csrf-token form-params) active-token))` as its
-     canonical CSRF arm — the exact shape `spec/Pattern-FormAction.md` lists as
+  7. **The form-action pattern's two fail-open shapes, in copyable code.** A
+     canonical CSRF arm of
+     `(and server? (not= (:csrf-token form-params) active-token))` is the
+     exact shape `spec/Pattern-FormAction.md` lists as
      an anti-pattern, because it fails **open** on a request with no session
      (`active-token` is nil, a token-less POST supplies nil, nil = nil, and the
-     rejection arm never fires). It also typed the draft, the event `:schema`
-     and the handler's validation call with one token-requiring schema, which
-     400s every hydrated-client submission in the release build. Rules 1-6 all
-     exited 0 over both. Rule 7 checks the two invariants inside code fences, at
+     rejection arm never fires). Typing the draft, the event `:schema`
+     and the handler's validation call with one token-requiring schema
+     400s every hydrated-client submission in the release build. Rules 1-6
+     would exit 0 over both. Rule 7 checks the two invariants inside code fences, at
      BOTH ends of the projection — the skill leaves and the spec page.
 
-  8. **The JVM `with-frame` thunk "function form" (rf2-jwmkq).** The testing
-     leaf told JVM authors to use `(rf/with-frame frame-id (fn [] ...))` as a
-     "function form". No such function exists: `with-frame` is the same
-     body-splicing macro on JVM and CLJS, so the fn literal is a legal body
+  8. **The JVM `with-frame` thunk "function form".** There is no `with-frame`
+     function form: `with-frame` is the same
+     body-splicing macro on JVM and CLJS, so a fn literal handed to it as
+     `(rf/with-frame frame-id (fn [] ...))` is a legal body
      expression that the macro evaluates and returns UNINVOKED — in a
      `use-fixtures` wrapper this silently skips every test body ("Ran 0 tests
      containing 0 assertions.", zero failures, exit 0). Rule 8 rejects a fn
      literal (or `#(...)` reader lambda) in `with-frame`'s DIRECT body-head
      position, scanned over the whole body — fenced and inline alike, because
-     the original defect was an inline POSITIVE instruction a fence-only rule
-     exits 0 over, and a lawful warning never needs the full compound shape
-     (it quotes the bare fn literal, as the repaired leaf does). Ordinary fn
+     the defect reads naturally as an inline POSITIVE instruction a fence-only
+     rule exits 0 over, and a lawful warning never needs the full compound
+     shape (it quotes the bare fn literal, as the testing leaf does). Ordinary fn
      literals nested deeper in the body (a `reg-sub` handler, an event fn)
      never match, and `with-new-frame` is a different head token, out of
      scope — Rule 9a is what covers it.
 
-  9. **The canonical per-test frame recipe (rf2-u429).** The
-     `references/fundamentals/frames.md` "Canonical mini-example" — the
-     block a programmer or a model copies into a consumer test suite —
-     carried TWO independent copy-oriented faults at once, and Rules 1-8
-     exited 0 over both. (9a) It called `(with-new-frame ...)`
-     UNQUALIFIED while every surrounding form used the `[re-frame.core
-     :as rf]` alias and nothing was `:refer`-ed. The macro lives on
+  9. **The canonical per-test frame recipe.** The
+     `references/fundamentals/frames.md` "Canonical mini-example" is the
+     block a programmer or a model copies into a consumer test suite, and
+     TWO independent copy-oriented faults in it would pass Rules 1-8.
+     (9a) Calling `(with-new-frame ...)`
+     UNQUALIFIED where every surrounding form uses the `[re-frame.core
+     :as rf]` alias and nothing is `:refer`-ed. The macro lives on
      `re-frame.core`, whose CLJS branch self-`:require-macros` it — so it
      is reachable as `rf/with-new-frame` and NOT bare, in any ordinary
      consumer namespace. That is the standing generic-consumer rule in
@@ -175,7 +169,7 @@ scoped to `skills/re-frame2-implementor` only):
      emitted call swallows the whole macro body into the undefined
      function's argument list, and the block throws a TypeError at run
      time having asserted nothing (the Rule 8 silent-skip class, reached
-     through the other frame macro). (9b) Its assertion computed
+     through the other frame macro). (9b) An assertion computing
      `:auth.login/state` from `(rf/app-db-value f)`. That sub derives
      from `[:rf/machine :auth.login/flow]`, a `reg-runtime-sub` whose
      source is RUNTIME-db, while `app-db-value` returns the app-db
@@ -189,27 +183,27 @@ scoped to `skills/re-frame2-implementor` only):
      additionally anchors the canonical block itself so the recipe cannot
      be reworded out of existence unnoticed. 9a's exemption for a fence
      that declares the macro ITSELF reads the actual import, not the
-     token `:refer` — the first cut skipped any fence in which that token
-     appeared at all, which meant an unrelated `(:require [cljs.test
+     token `:refer` — skipping any fence in which that token appears at
+     all would wave through an unrelated `(:require [cljs.test
      :refer [is]])`, a `:refer-macros` of something else, or a comment
-     mentioning `:refer` waved the whole block through. That is the
-     ordinary test-namespace header, so the guard was fail-open on nearly
-     every realistic instance of the defect (rf2-u429 post-merge audit).
+     mentioning `:refer`. That is the ordinary test-namespace header, so
+     such a guard would be fail-open on nearly every realistic instance of
+     the defect.
 
- 10. **The retired `:events` / `:errors` listener streams (rf2-81nz).** The
-     router and four leaves still taught `rf/register-listener!` on `:events` /
-     `:errors` as the production shipper wiring, while
-     `production-observability.md` said the streams were retired. The runtime
-     vocabulary is `#{:trace :epoch}`; any other stream throws
+ 10. **The `:events` / `:errors` listener streams.** There are no
+     `:events` / `:errors` listener streams: the runtime vocabulary is
+     `#{:trace :epoch}`, and any other stream throws
      `:rf.error/unknown-listener-stream`, naming `register-observability-sink!`.
+     A leaf teaching `rf/register-listener!` on `:events` / `:errors` as the
+     production shipper wiring contradicts `production-observability.md`.
      `skills-check` cannot see this, because `register-listener!` is a real var
      and only the stream argument is wrong. Rule 10 refuses `register-listener!`
      followed by `:events` / `:errors` on one line, UNLESS the word "retired"
      follows within a short window, which is how a retirement statement reads.
 
 WHAT THIS GUARD IS, AND IS NOT (read before trusting a green run):
-    Rules 1-6 are *retrospective token patterns*. Each encodes one regression
-    somebody already found, checked against a leaf's own text. Nothing in this
+    Rules 1-6 are *retrospective token patterns*. Each encodes one known
+    regression shape, checked against a leaf's own text. Nothing in this
     script relates a `patterns/*.md` leaf to the `spec/Pattern-*.md` page it
     projects — there is no notion of an upstream here at all — so the general
     class "the spec page moved and the leaf did not" is invisible BY
@@ -301,8 +295,8 @@ def _gate_grant_re(family: str) -> re.Pattern[str]:
     return re.compile(rf"^\s*-\s*Bash\(\s*{re.escape(family)}\s", re.MULTILINE)
 
 
-# 2b — body prose that hands a RUNNABLE gate back to the author: the retired
-#      Q14 wording ("the author runs the tests / suite / compiler / app",
+# 2b — body prose that hands a RUNNABLE gate back to the author: the Q14
+#      hand-off wording ("the author runs the tests / suite / compiler / app",
 #      "gate named for the author", "name it for the author", "hand off the
 #      gate"). A hand-off for a gate that is interactive, needs a live runtime,
 #      or does not exist is lawful and spelled differently ("hand off only
@@ -322,7 +316,7 @@ HANDOFF_RESIDUE_RE = re.compile(
 #     `:rf.error/machine-schema-requires-reg-machine` on a `[:schemas :data]`
 #     spec. Scanned per-FENCED-BLOCK (the two tokens land on different lines of
 #     one block), so an inline single-backtick warning that names the shape in
-#     prose — the retained advanced-note mention — is allowed; only a
+#     prose — the advanced-note mention — is allowed; only a
 #     copy-pasteable positive recipe is rejected.
 FENCE_RE = re.compile(r"^\s*```")
 
@@ -379,8 +373,7 @@ def machine_handler_recipe_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
-# --- Rule 5: no retired Managed-HTTP reply-contract teaching (rf2-723lgn,
-#     follow-up to rf2-j538f7.35 / PR #5603).
+# --- Rule 5: no co-located Managed-HTTP reply-contract teaching.
 #
 # 5a — a targetless fx-form `:rf.http/managed` REQUEST recipe. The fx form
 #      `:fx [[:rf.http/managed {:request …}]]` MUST address its reply with at
@@ -397,19 +390,19 @@ HTTP_REQUEST_RE = re.compile(r":request\b")
 HTTP_REPLY_TARGET_RE = re.compile(r":reply-to\b|:on-success\b|:on-failure\b")
 MANAGED_HTTP_TARGETLESS_MSG = (
     "HTTP-TARGETLESS-RECIPE: this fenced fx-form `:rf.http/managed` recipe "
-    "supplies a `:request` but names NO reply target. The current contract "
+    "supplies a `:request` but names NO reply target. The contract "
     "REQUIRES at least one of `:reply-to` / `:on-success` / `:on-failure`; "
     "omitting all three throws :rf.error/http-no-reply-target at fx-call time, "
     "so the recipe cannot start a request — there is no co-located default that "
-    "routes the reply back to the originating event (retired pre-alpha, "
-    "rf2-et4c1s / PR #5449). Add an explicit reply target. (The machine-form "
+    "routes the reply back to the originating event. Add an explicit reply "
+    "target. (The machine-form "
     "`:spawn {:machine-id :rf.http/managed …}` dispatches back to its parent "
     "and is the allowed exception — it is not matched here.)"
 )
 
-# 5b — reading the RETIRED co-located reply key `(:rf/reply …)`. The current
+# 5b — reading a co-located reply key `(:rf/reply …)`. The
 #      contract has no implicit reply routed back to the originating event, so a
-#      handler that reads `:rf/reply` teaches the removed recipe. The negative
+#      handler that reads `:rf/reply` teaches a recipe that cannot work. The negative
 #      lookahead excludes the internal descriptor `:rf/reply-to`; the transient
 #      `:rf.reply/work-id` is a different token and never matches.
 RF_REPLY_READ_RE = re.compile(r":rf/reply(?![-\w])")
@@ -431,15 +424,15 @@ WORKID_ALLOW_RE = re.compile(
 
 
 def reply_contract_problems(line: str) -> list[str]:
-    """Rule 5b/5c — retired Managed-HTTP reply-contract teaching on a single
-    line: reading the removed `:rf/reply` co-located key, or spelling bare
+    """Rule 5b/5c — co-located Managed-HTTP reply-contract teaching on a single
+    line: reading the nonexistent `:rf/reply` co-located key, or spelling bare
     `:work/id` on a transient reply map. (5a is a cross-line fenced-block shape,
     scanned separately in `managed_http_recipe_problems`.)"""
     problems: list[str] = []
     if RF_REPLY_READ_RE.search(line):
         problems.append(
-            "HTTP-REPLY-CO-LOCATED: `:rf/reply` is the RETIRED co-located reply "
-            "key. The current Managed HTTP contract routes replies to an EXPLICIT "
+            "HTTP-REPLY-CO-LOCATED: there is no co-located `:rf/reply` reply "
+            "key. The Managed HTTP contract routes replies to an EXPLICIT "
             "target (`:reply-to` / `:on-success` / `:on-failure`), not back to "
             "the originating event, and omitting a target throws "
             ":rf.error/http-no-reply-target. Don't read `:rf/reply` — branch on "
@@ -464,7 +457,7 @@ def reply_contract_problems(line: str) -> list[str]:
 def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
     """Rule 5a — a fenced code block whose fx-form `[:rf.http/managed …]`
     invocation carries a `:request` args map but names no reply target is the
-    retired targetless canonical recipe. Returns (opening-fence-lineno, message)
+    targetless canonical recipe. Returns (opening-fence-lineno, message)
     tuples. Scanned per-FENCED-BLOCK (the tokens span lines of one block); the
     machine-form `:machine-id :rf.http/managed` spawn and the
     `[:rf.http/managed-abort …]` dispatch are deliberately not matched."""
@@ -479,8 +472,7 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
-# --- Rule 6: UIx/Helix hooks stateful-component recipe guidance, causally exact
-#     (rf2-gq9bg — follow-up to the rf2-adm10 repair).
+# --- Rule 6: UIx/Helix hooks stateful-component recipe guidance, causally exact.
 #     The hooks adapters (UIx / Helix) bridge a stateful component with an
 #     ordinary `defui` / `defnc` plus the adapter's `use-sub` (read subs)
 #     and `use-frame` (carry the frame) hooks — NOT the Reagent `reg-view` macro,
@@ -490,14 +482,14 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 #     `capture-frame` in a plain hooks component cannot); `reg-view*` on these
 #     adapters is optional registry addressing, never the frame wiring.
 #
-#     The previous guard was NOT causally exact. Rule 6a checked only WHOLE-FILE
-#     presence of `use-frame` / `use-sub`, so a token-only semantic reversal
-#     ("Do not use use-frame or use-sub; use reg-view instead.") passed —
-#     both tokens are present. Rule 6b was a line rule that suppressed ANY line
-#     carrying a broad negation cue, so "UIx is not special: reg-view* gives it
-#     :contextType." passed on the stray far-away "not", while the valid
-#     comparison "UIx/Helix differ from Reagent's :contextType mechanism." was
-#     falsely REJECTED. This rewrite is SENTENCE-scoped (a bounded recipe-sentence
+#     Simpler checks are NOT causally exact. A WHOLE-FILE presence check for
+#     `use-frame` / `use-sub` passes a token-only semantic reversal
+#     ("Do not use use-frame or use-sub; use reg-view instead.") — both
+#     tokens are present. A line rule that suppresses ANY line carrying a
+#     broad negation cue passes "UIx is not special: reg-view* gives it
+#     :contextType." on the stray far-away "not", while falsely REJECTING the
+#     valid comparison "UIx/Helix differ from Reagent's :contextType mechanism."
+#     So the rule is SENTENCE-scoped (a bounded recipe-sentence
 #     carve — NOT a general prose parser): a mixed Reagent+hooks physical line is
 #     checked per sentence, so a `:contextType` attributed to the Reagent wrapper
 #     never bleeds into the hooks sentence, and a far-away negation cannot mask a
@@ -505,8 +497,8 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 #
 #     6a — COHERENCE FLOOR. Each authoritative hooks-guidance leaf (patterns/
 #          stateful-components.md, references/fundamentals/frames.md, and
-#          references/fundamentals/views.md — the per-adapter recipe table leaf,
-#          anchored under rf2-05kex after its table row drifted) MUST carry
+#          references/fundamentals/views.md — the per-adapter recipe table
+#          leaf) MUST carry
 #          at least one COHERENT recipe sentence naming an ordinary `defui` /
 #          `defnc`, `use-sub`, AND `use-frame` together — proving the
 #          relationship, not just the scattered presence of two tokens.
@@ -528,11 +520,11 @@ def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
 HOOKS_LEAF_REQUIRED = (
     ("patterns", "stateful-components.md"),
     ("references", "fundamentals", "frames.md"),
-    # rf2-05kex — the views leaf carries the per-adapter recipe table. Its table
-    # row had drifted (an ordinary hooks view classified as `reg-view*` on a
-    # `defui` / `defnc`) while its own paragraph taught the lawful ordinary
-    # `defui`/`defnc` + `use-sub` + `use-frame` recipe — a contradiction the
-    # coherence floor missed because it did not anchor this leaf. Anchor it.
+    # The views leaf carries the per-adapter recipe table. A table row can
+    # drift (an ordinary hooks view classified as `reg-view*` on a
+    # `defui` / `defnc`) while its own paragraph teaches the lawful ordinary
+    # `defui`/`defnc` + `use-sub` + `use-frame` recipe, so the coherence
+    # floor anchors this leaf too.
     ("references", "fundamentals", "views.md"),
 )
 HOOKS_ADAPTER_RE = re.compile(r"\b(?:UIx|Helix)\b")
@@ -563,14 +555,13 @@ def _hooks_sentences(text: str):
 
 # 6b(i) — `:contextType` attributed to a hooks adapter.
 #
-# ATTRIBUTION SCOPE, not proximity (rf2-xlxrl). The retired
-# CONTEXTTYPE_REAGENT_OWNED_RE suppressed the whole sentence whenever "Reagent"
-# appeared within ~40 chars of the token (both directions, plus a comparison-cue
-# arm). That is mere adjacency: it pardoned an unlawful attribution sitting next
-# to a lawful Reagent mention ("`reg-view*` gives the component a
-# `:contextType`; the `reg-view` macro stays Reagent-flavoured") while, at
-# natural prose distances, failing to protect the corpus's own per-adapter
-# house style. It is deleted. 6b(i) now carves the sentence into CLAUSES and
+# ATTRIBUTION SCOPE, not proximity. Suppressing the whole sentence whenever
+# "Reagent" appears within ~40 chars of the token (both directions, plus a
+# comparison-cue arm) is mere adjacency: it would pardon an unlawful
+# attribution sitting next to a lawful Reagent mention ("`reg-view*` gives the
+# component a `:contextType`; the `reg-view` macro stays Reagent-flavoured")
+# while, at natural prose distances, failing to protect the corpus's own
+# per-adapter house style. So 6b(i) carves the sentence into CLAUSES and
 # asks who each clause attributes the token TO.
 CONTEXTTYPE_RE = re.compile(r":contextType\b")
 # Strong clause separators: `;`, em dash, and the contrast connectives. NOT `:`
@@ -581,7 +572,7 @@ CLAUSE_SPLIT_RE = re.compile(
     re.IGNORECASE,
 )
 REAGENT_RE = re.compile(r"\bReagent\b")
-# The one Reagent-ownership allowance that survives: the possessive / compound
+# The one Reagent-ownership allowance: the possessive / compound
 # bound TIGHTLY to the token, so the owner is named at the token itself. This
 # keeps "UIx components never get Reagent's `:contextType`." green, where the
 # 8-char negation window below cannot reach.
@@ -597,7 +588,7 @@ CONTEXTTYPE_NEGATED_RE = re.compile(
     r"|no\s+need\s+(?:for|of)?)\b[^.\n]{0,8}:contextType",
     re.IGNORECASE,
 )
-# A positive attribution verb governs the `:contextType` (the retired "reg-view*
+# A positive attribution verb governs the `:contextType` (the false "reg-view*
 # gives UIx a :contextType" teaching).
 CONTEXTTYPE_ATTRIB_RE = re.compile(
     r"\b(?:gives?|giving|grants?|granting|provides?|providing"
@@ -776,13 +767,13 @@ def hooks_leaf_incoherent(text: str) -> bool:
     return _coherent_recipe_sentence(text) is None
 
 
-# --- Rule 6c (rf2-szw6c): BOUNDED BLOCK anchors on the three concrete recipe
+# --- Rule 6c: BOUNDED BLOCK anchors on the three concrete recipe
 #     blocks. Rule 6a is a leaf-wide floor, so it is satisfied by ANY coherent
 #     sentence in the leaf: the views leaf's per-adapter TABLE can regress to
-#     the retired "required `reg-view*` on a `defui`/`defnc`" cell while its own
-#     adjacent paragraph stays lawful and the floor still passes. And two of the
+#     the false "required `reg-view*` on a `defui`/`defnc`" cell while its own
+#     adjacent paragraph stays lawful and the floor passes. And two of the
 #     bounded authorities (the setup skill's greenfield warning, the Spec 006
-#     paragraph) are not in `scanned_files()` at all, so no rule reached them.
+#     paragraph) are not in `scanned_files()` at all, so no other rule reaches them.
 #
 #     Each anchor names ONE block by a stable lead-in and checks it in place:
 #       * the block MUST itself be a coherent recipe (ordinary `defui`/`defnc` +
@@ -798,8 +789,8 @@ HOOKS_ANCHORED_BLOCKS = (
         "the per-adapter table's UIx ordinary-view row",
         re.compile(r"^\|\s*\*\*UIx\*\*\s*\|"),
     ),
-    # (The per-adapter table's Helix row was retired with the S7 Helix removal
-    # — only Helix left the roster; the UIx row above stays anchored.)
+    # (The per-adapter table has no Helix row: Helix is not on the adapter
+    # roster.)
     (
         ("skills", "re-frame2-setup", "references", "first-counter.md"),
         "the 'Reagent only' greenfield warning",
@@ -808,8 +799,8 @@ HOOKS_ANCHORED_BLOCKS = (
     (
         ("spec", "006-ReactiveSubstrate.md"),
         "the canonical UIx hooks paragraph under the adapter inventory",
-        # Tolerates both the pre-S7 "The UIx and Helix rows ..." spelling and
-        # the post-Helix-removal "The UIx row(s) ..." rewording.
+        # Matches "The UIx row(s) ..." and the "The UIx and Helix rows ..."
+        # spelling alike.
         re.compile(r"^The UIx (?:and Helix )?rows?\b"),
     ),
 )
@@ -843,7 +834,7 @@ def anchored_block_problems(label: str, block: str) -> list[str]:
     problems: list[str] = []
     if _coherent_recipe_sentence(block) is None:
         problems.append(
-            f"HOOKS-BLOCK-INCOHERENT: {label} no longer states the hooks recipe "
+            f"HOOKS-BLOCK-INCOHERENT: {label} does not state the hooks recipe "
             "in place — an ordinary `defui` / `defnc` that reads subs with "
             "`use-sub` and carries the frame with `use-frame`. This block "
             "is a bounded authority: it is the concrete recipe a programmer or "
@@ -859,7 +850,7 @@ def anchored_block_problems(label: str, block: str) -> list[str]:
     return problems
 
 
-# --- Rule 7 (rf2-1iclq): the form-action pattern's two FAIL-OPEN shapes,
+# --- Rule 7: the form-action pattern's two FAIL-OPEN shapes,
 #     checked inside code fences at BOTH ends of the projection.
 #
 #     Rules 1-6 are retrospective token patterns over a leaf's own text, and
@@ -937,16 +928,15 @@ CSRF_REQUIRED_IN_SCHEMA_MSG = (
 # props map at all, or one that does not mark the entry `:optional`.
 #
 # THE REGEX ALONE CANNOT SAY THE OCCURRENCE IS A MALLI `:map` ENTRY, and 7b
-# must establish that before it judges the entry required (rf2-zkpxu). A
+# must establish that before it judges the entry required. A
 # bracketed `:csrf-token` is also how a CLASSIFICATION PATH is written — the
 # supported `:sensitive [[:csrf-token]]` registration metadata (Spec 015
 # §Registration-owned transient classification), which is how a form action
 # keeps the submitted token out of ordinary event-observation traces. That is
-# the RECOMMENDED shape, and this regex read it as a required field: adding it
-# to the canonical recipe turned the guard red on the very page the message
-# points the reader at, while the recipe's own event schema marked the token
-# `{:optional true}` two lines above. `_csrf_entry_has_child` below is the
-# missing half.
+# the RECOMMENDED shape, and read by this regex alone as a required field it
+# would turn the guard red on the very page the message points the reader at,
+# where the recipe's own event schema marks the token `{:optional true}`.
+# `_csrf_entry_has_child` below is the other half.
 CSRF_SCHEMA_ENTRY_RE = re.compile(r"\[:csrf-token\b[ \t]*(\{[^}]*\})?")
 
 
@@ -984,9 +974,9 @@ def _enclosing_form(code: str, idx: int) -> str:
     Scoping the presence limb to THIS form rather than to the whole fence is
     what makes the rule honest. The worked handler's fence also contains
     `(some? explanation)` for the unrelated validation arm, so a block-wide
-    search for a presence limb would have been satisfied by it and the guard
-    would have exited 0 over the very defect it exists to catch — fail-open by
-    construction, which is the shape of bug this rule was written for."""
+    search for a presence limb would be satisfied by it and the guard
+    would exit 0 over the very defect it exists to catch — fail-open by
+    construction, which is the shape of bug this rule exists for."""
     depth = 0
     start = None
     for i in range(idx - 1, -1, -1):
@@ -1024,8 +1014,8 @@ def _csrf_entry_has_child(code: str, end: int) -> bool:
 
     Nothing rule 7b exists to catch escapes through here, because a required
     entry ALWAYS has a child: `[:csrf-token :string]` and
-    `[:csrf-token [:string {:min 1}]]` both return True and are judged exactly
-    as before. The narrow thing this does not establish is that the child is a
+    `[:csrf-token [:string {:min 1}]]` both return True and are judged as map
+    entries. The narrow thing this does not establish is that the child is a
     SCHEMA rather than a further path segment (`[[:csrf-token :value]]`), which
     would need a reader rather than a bounded scan; a top-level token key has
     no interior to address, so that shape does not occur here.
@@ -1053,7 +1043,7 @@ def csrf_fence_problems(text: str) -> list[tuple[int, str]]:
                 break
         # 7b — `:csrf-token` declared as a required map entry. Establish that
         # the occurrence IS an entry first: a bracket carrying no child is a
-        # classification PATH, not a schema entry (rf2-zkpxu). The scan
+        # classification PATH, not a schema entry. The scan
         # CONTINUES past a skipped path rather than breaking, so a real
         # required entry later in the same fence is still caught.
         for m in CSRF_SCHEMA_ENTRY_RE.finditer(code):
@@ -1065,19 +1055,18 @@ def csrf_fence_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
-# --- Rule 8: the JVM `with-frame` thunk "function form" (rf2-jwmkq).
+# --- Rule 8: the JVM `with-frame` thunk "function form".
 #     `rf/with-frame` is the same body-splicing macro on JVM and CLJS (there
 #     is no function twin): it binds the frame and splices `~@body`, so a fn
-#     literal supplied AS the body is evaluated and returned UNINVOKED. The
-#     testing leaf taught exactly that shape to JVM authors, and a
-#     `use-fixtures` wrapper written from it silently skipped every test body
-#     — "Ran 0 tests containing 0 assertions.", zero failures, exit 0. The
+#     literal supplied AS the body is evaluated and returned UNINVOKED. A
+#     `use-fixtures` wrapper written in that shape silently skips every test
+#     body — "Ran 0 tests containing 0 assertions.", zero failures, exit 0. The
 #     regex matches a fn literal (or `#(...)` reader lambda) in `with-frame`'s
 #     DIRECT body-head position only: ordinary fn literals nested deeper in
 #     the body (a `reg-sub` handler, an event fn) sit behind a different head
 #     token and never match, and `with-new-frame`'s binding-vector form is a
 #     different macro name that never matches. Scanned over the WHOLE body —
-#     fenced and inline alike — because the original defect was an inline
+#     fenced and inline alike — because the defect reads naturally as an inline
 #     positive instruction ("On JVM use the ... function form"), which a
 #     fence-only rule exits 0 over; a lawful warning quotes the bare fn
 #     literal, never the full compound shape, so no negation carve is needed.
@@ -1086,8 +1075,8 @@ WITHFRAME_THUNK_RE = re.compile(
 )
 WITHFRAME_THUNK_MSG = (
     "WITHFRAME-THUNK-RECIPE: a fn literal (or `#(...)` reader lambda) sits in "
-    "`with-frame`'s direct body-head position — the retired JVM \"function "
-    "form\" teaching. `rf/with-frame` is the same body-splicing MACRO on JVM "
+    "`with-frame`'s direct body-head position — a JVM \"function "
+    "form\" that does not exist. `rf/with-frame` is the same body-splicing MACRO on JVM "
     "and CLJS (there is no function twin): it evaluates the fn literal and "
     "returns it UNINVOKED, so a clojure.test fixture written this way "
     "silently skips every test body (\"Ran 0 tests containing 0 "
@@ -1109,7 +1098,7 @@ def withframe_thunk_problems(text: str) -> list[tuple[int, str]]:
         problems.append((lineno, WITHFRAME_THUNK_MSG))
     return problems
 
-# --- Rule 9: the canonical per-test frame recipe (rf2-u429). Two independent
+# --- Rule 9: the canonical per-test frame recipe. Two independent
 #     copy-oriented faults in ONE fenced block, each of which a reader
 #     reproduces by copying rather than by reasoning.
 #
@@ -1141,17 +1130,17 @@ def withframe_thunk_problems(text: str) -> list[tuple[int, str]]:
 #          code. A fence is what a reader copies. A block that establishes its
 #          own `:refer` is left alone - that is a lawful, if unusual, import.
 #
-#          THE EXEMPTION IS THE EXACT REFER, NOT THE TOKEN `:refer` (rf2-u429
-#          post-merge audit). The first cut tested the fence for `:refer\b`
-#          anywhere and skipped the WHOLE block on a hit, which made the guard
-#          fail open on the three commonest shapes in this corpus: an unrelated
+#          THE EXEMPTION IS THE EXACT REFER, NOT THE TOKEN `:refer`. Testing
+#          the fence for `:refer\b` anywhere and skipping the WHOLE block on a
+#          hit would make the guard fail open on the three commonest shapes in
+#          this corpus: an unrelated
 #          refer on another namespace - `(:require [cljs.test :refer [is]])`
 #          beside a plain `[re-frame.core :as rf]` is the ordinary test-ns
-#          header, so nearly every realistic fence carrying the defect was
-#          waved through; a `:refer-macros` of something else (the hyphen makes
-#          a word boundary, so `\b` matched); and a COMMENT that merely
+#          header, so nearly every realistic fence carrying the defect would
+#          be waved through; a `:refer-macros` of something else (the hyphen
+#          makes a word boundary, so `\b` matches); and a COMMENT that merely
 #          mentions `:refer`. None of those declares the macro. The exemption
-#          now requires what actually makes the bare spelling resolve: a
+#          requires what actually makes the bare spelling resolve: a
 #          `re-frame.core` require whose own `:refer` / `:refer-macros` vector
 #          names THAT macro. Line comments are stripped before the import is
 #          read, so a mention in a comment cannot grant it.
@@ -1182,7 +1171,7 @@ FENCED_FRAME_MACRO_RE = re.compile(r"\((with-new-frame|with-frame)[\s\[]")
 # A block that establishes its own refer is lawfully using the bare spelling -
 # but only a `re-frame.core` require whose `:refer` / `:refer-macros` vector
 # names THAT macro does so. A bare `:refer` token anywhere in the fence does
-# not: see the rf2-u429 audit paragraph in the Rule 9a header above.
+# not: see the exemption paragraph in the Rule 9a header above.
 REFRAME_CORE_REQUIRE_HEAD_RE = re.compile(r"\[\s*re-frame\.core\b")
 REFER_VECTOR_RE = re.compile(r":refer(?:-macros)?\s*\[([^\]]*)\]")
 # Stripped before the import is read so a comment mentioning `:refer` cannot
@@ -1305,7 +1294,7 @@ CANONICAL_FRAME_LEAF = (
     "skills", "re-frame2", "references", "fundamentals", "frames.md")
 CANONICAL_BLOCK_HEADING_RE = re.compile(
     r"(?im)^#{2,3}\s+Canonical mini-example\s*$")
-# What that block must state IN PLACE, each the repair of one rf2-u429 fault.
+# What that block must state IN PLACE, each the correct form of one Rule 9 fault.
 CANONICAL_BLOCK_REQUIRED = (
     ("rf/with-new-frame",
      "the frame macro alias-qualified (a bare `with-new-frame` is an "
@@ -1339,7 +1328,7 @@ def canonical_frame_block_problems(block: str) -> list[str]:
         if token not in block:
             problems.append(
                 "CANONICAL-FRAME-RECIPE-INCOMPLETE: the canonical per-test "
-                f"frame block no longer shows `{token}` - {why}. This block is "
+                f"frame block does not show `{token}` - {why}. This block is "
                 "a bounded authority: it is the recipe copied verbatim into "
                 "consumer test suites, so restore the spelling here rather "
                 "than relying on the surrounding prose."
@@ -1359,8 +1348,8 @@ INPUTS_REF_RE = re.compile(r"\binputs\.md\b")
 # A regrown file-structure tree: box-drawing branch glyphs (├── / └── / │) —
 # the only reason they appear in this prose is a copied directory listing.
 TREE_REGROWTH_RE = re.compile(r"[├└]──")
-# A regrown normative block: the copied "Locks to preserve verbatim" or
-# "Cardinal rules to bake in" heading/label the launcher used to carry.
+# A regrown normative block: the "Locks to preserve verbatim" or
+# "Cardinal rules to bake in" heading/label a copied block carries.
 LOCKS_REGROWTH_RE = re.compile(
     r"(?im)^\s*[>*#\s-]*\**\s*(?:locks to preserve verbatim"
     r"|cardinal rules to bake in)\b"
@@ -1374,14 +1363,14 @@ def launcher_problems(text: str) -> list[str]:
     problems: list[str] = []
     if not DESIGN_REF_RE.search(text):
         problems.append(
-            "LAUNCHER-CANONICAL: spec/authoring-prompt.md no longer points at "
+            "LAUNCHER-CANONICAL: spec/authoring-prompt.md does not point at "
             "spec/design.md — the normative source for the locked decisions "
             "(L1–L11), the file structure, and the cardinal rules. A "
             "reauthoring session must be told to read design.md first."
         )
     if not INPUTS_REF_RE.search(text):
         problems.append(
-            "LAUNCHER-CANONICAL: spec/authoring-prompt.md no longer points at "
+            "LAUNCHER-CANONICAL: spec/authoring-prompt.md does not point at "
             "spec/inputs.md — the normative source for the canonical inputs and "
             "the §6 update procedure. Cite it in the ordered reads."
         )
@@ -1424,7 +1413,7 @@ def posture_problems(line: str) -> list[str]:
     if HANDOFF_RESIDUE_RE.search(line):
         problems.append(
             "VERIFY-POSTURE-HANDOFF: this line hands a runnable gate back to the "
-            "author — the retired Q14 posture. Per spec/design.md L3 the agent "
+            "author. Per spec/design.md L3 the agent "
             "RUNS the project's declared noninteractive gate after it edits and "
             "reports the exact command and result; it hands off only a gate that "
             "is interactive, needs a live runtime (re-frame2-pair), does not "
@@ -1433,9 +1422,10 @@ def posture_problems(line: str) -> list[str]:
     return problems
 
 
-# --- Rule 10: the retired `:events` / `:errors` listener streams. The stream
-# may sit bare, in its own code span, or after "on" (all three shipped). A
-# retirement statement is exempt when "retired" follows within the window.
+# --- Rule 10: `register-listener!` has no `:events` / `:errors` stream. The
+# stream may sit bare, in its own code span, or after "on" (all three are real
+# prose shapes). A retirement statement is exempt when "retired" follows within
+# the window.
 RETIRED_LISTENER_RE = re.compile(
     r"register-listener!`?\s+(?:on\s+)?`?:(?:events|errors)\b"
 )
@@ -1449,8 +1439,8 @@ def retired_listener_problems(line: str) -> list[str]:
         if re.search(r"retired", tail, re.IGNORECASE):
             continue
         problems.append(
-            "RETIRED-LISTENER-STREAM: `register-listener!` on `:events` / "
-            "`:errors` is retired. The stream vocabulary is `:trace` / `:epoch` "
+            "RETIRED-LISTENER-STREAM: `register-listener!` has no `:events` / "
+            "`:errors` stream. The stream vocabulary is `:trace` / `:epoch` "
             "(dev-only), and any other stream throws "
             "`:rf.error/unknown-listener-stream`. Production observation is "
             "`rf/register-observability-sink!` against a frame `:observability` "
@@ -1468,7 +1458,7 @@ def gate_grant_problems(text: str) -> list[str]:
     for family in GATE_GRANT_FAMILIES:
         if not _gate_grant_re(family).search(text):
             problems.append(
-                f"VERIFY-POSTURE-GRANT: SKILL.md's allowed-tools no longer carries "
+                f"VERIFY-POSTURE-GRANT: SKILL.md's allowed-tools does not carry "
                 f"a `Bash({family} *)` entry. Per spec/design.md L3 the agent runs "
                 "the project's declared gate itself, which needs the routine "
                 "wildcards skills/README.md §Published-skill allowed-tools "
@@ -1554,7 +1544,7 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         if hooks_leaf_incoherent(_slurp(leaf)):
             problems.append(
                 f"{rel}: HOOKS-RECIPE-INCOHERENT: this authoritative UIx/Helix "
-                "stateful-component leaf no longer carries a single coherent "
+                "stateful-component leaf does not carry a single coherent "
                 "recipe sentence naming an ordinary `defui`/`defnc`, "
                 "`use-sub`, AND `use-frame` together. The hooks adapters "
                 "read subs with `use-sub` and carry the frame with the "
@@ -1581,7 +1571,7 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             problems.append(
                 f"{rel}: HOOKS-BLOCK-ANCHOR-MISSING: {label} is a bounded "
                 "hooks-recipe authority, and its anchor "
-                f"(/{anchor_re.pattern}/) no longer matches any line. If the "
+                f"(/{anchor_re.pattern}/) matches no line. If the "
                 "block legitimately moved or was reworded, re-point the anchor "
                 "in HOOKS_ANCHORED_BLOCKS in the same change — don't leave the "
                 "recipe unguarded."
@@ -1676,14 +1666,14 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "re-frame2-drift: no bead-id leaks, the gate-running grants are "
                 "in the front-matter with no author-hand-off residue in the "
                 "leaves, no bare reg-event + make-machine-handler recipe, "
-                "no retired Managed-HTTP reply-contract teaching, the UIx/Helix "
+                "no co-located Managed-HTTP reply-contract teaching, the UIx/Helix "
                 "hooks leaves each carry a coherent defui/defnc + use-sub + "
                 "use-frame recipe with no residue shape (no :contextType "
                 "attribution, semantic reversal, reg-view-macro registration, or "
                 "bare no-arg capture-frame carry), the bounded recipe blocks "
-                "(the views per-adapter UIx/Helix rows, the setup skill's "
-                "'Reagent only' warning, and the Spec 006 UIx/Helix paragraph) "
-                "each still state that recipe in place, no code fence carries "
+                "(the views per-adapter UIx row, the setup skill's "
+                "'Reagent only' warning, and the Spec 006 UIx paragraph) "
+                "each state that recipe in place, no code fence carries "
                 "a fail-open CSRF compare or a required `:csrf-token` field "
                 "(leaves and spec page alike), no `with-frame` recipe parks a "
                 "fn literal in the macro's body-head position (the JVM thunk "
@@ -1692,7 +1682,7 @@ def run(*, verbose: bool, ci: bool) -> int:
                 "calls a bare `with-new-frame` / `with-frame` (an undeclared "
                 "var in a consumer namespace) or hands `app-db-value` to "
                 "`compute-sub` for a runtime-db-backed graph, the canonical "
-                "per-test frame block still states `rf/with-new-frame` + "
+                "per-test frame block states `rf/with-new-frame` + "
                 "`rf/frame-state-value` in place, and the launcher points at "
                 "design.md + inputs.md without regrowing the tree / locks. "
                 "NOTE: this guard is a catalogue of known regressions, not a "
@@ -1710,7 +1700,7 @@ def run(*, verbose: bool, ci: bool) -> int:
         "the grants stay in the front-matter), author machines with reg-machine (not a "
         "bare reg-event + make-machine-handler recipe), address every Managed-"
         "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
-        "retired co-located `:rf/reply` default), keep each UIx/Helix hooks "
+        "co-located `:rf/reply` default exists), keep each UIx/Helix hooks "
         "stateful-component leaf carrying a coherent defui/defnc + use-sub "
         "+ use-frame recipe (never a reg-view-macro / bare-capture-frame / "
         ":contextType-attribution / semantic-reversal residue), keep each "
@@ -1752,7 +1742,7 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # --- Rule 1: bead-id leak. LEAK fixtures (the exact finding-1 shapes).
+    # --- Rule 1: bead-id leak. LEAK fixtures.
     expect(
         beadid_problems,
         "EP-0008 (rf2-hhutya) promoted the production-reachable SSR error categories.",
@@ -1763,7 +1753,7 @@ def _self_test() -> int:
         "the dual-partition recompute trigger is a SILENT regression (rf2-d3fb7.1).",
         dirty=True, label="A2 bead id with .N sub-task suffix",
     )
-    # CLEAN fixtures — the corrected public-evidence wording must NOT flag.
+    # CLEAN fixtures — public-evidence wording must NOT flag.
     expect(
         beadid_problems,
         "EP-0008 promoted the production-reachable SSR error categories.",
@@ -1780,8 +1770,8 @@ def _self_test() -> int:
         dirty=False, label="B3 public PR ref is not a bead id",
     )
 
-    # --- Rule 10: the retired `:events` / `:errors` listener streams. DIRTY
-    # fixtures are the shipped pre-fix shapes (rf2-81nz).
+    # --- Rule 10: `register-listener!` on `:events` / `:errors`. DIRTY
+    # fixtures are real prose shapes of the defect.
     expect(
         retired_listener_problems,
         "`production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md`",
@@ -1830,7 +1820,7 @@ def _self_test() -> int:
     expect(
         gate_grant_problems,
         "allowed-tools:\n  - Read\n  - Edit\n  - Write\n  - Grep\n  - Glob\n",
-        dirty=True, label="C4 the retired Q14 front-matter (no Bash at all)",
+        dirty=True, label="C4 a front-matter with no Bash grant at all",
     )
     # A grant for one family does not stand in for another: `npx` is not `npm`.
     expect(
@@ -1839,8 +1829,8 @@ def _self_test() -> int:
         dirty=True, label="C5 npm grant dropped (npx does not cover it)",
     )
 
-    # --- Rule 2b: author-hand-off residue. DRIFT fixtures — the exact retired
-    #     Q14 wording the leaves carried.
+    # --- Rule 2b: author-hand-off residue. DRIFT fixtures — the Q14
+    #     hand-off wording.
     expect(
         posture_problems,
         "This skill writes the code; the author runs the tests, the compiler, the app.",
@@ -1947,7 +1937,7 @@ def _self_test() -> int:
         machine_handler_recipe_problems, dirty_recipe_alias,
         dirty=True, label="H2 aliased machines/make-machine-handler recipe",
     )
-    # CLEAN — the corrected reg-machine recipe.
+    # CLEAN — the reg-machine recipe.
     clean_recipe = (
         "Author it with reg-machine:\n\n"
         "```clojure\n"
@@ -1982,7 +1972,7 @@ def _self_test() -> int:
         dirty=False, label="I3 fenced plain reg-event (no machine handler)",
     )
 
-    # --- Rule 5a: targetless fx-form :rf.http/managed recipe (rf2-723lgn).
+    # --- Rule 5a: targetless fx-form :rf.http/managed recipe.
     #     `managed_http_recipe_problems` takes the WHOLE body (the tokens span
     #     lines of one fenced block), so these fixtures are multi-line prose
     #     with fences.
@@ -1998,7 +1988,7 @@ def _self_test() -> int:
         managed_http_recipe_problems, dirty_targetless_http,
         dirty=True, label="J1 fx-form :rf.http/managed request with no reply target",
     )
-    # CLEAN — the corrected fx recipe with an explicit reply target.
+    # CLEAN — the fx recipe with an explicit reply target.
     clean_http_reply_to = (
         "```clojure\n"
         "{:fx [[:rf.http/managed {:request {:url \"/x\"} :reply-to [:article/replied]}]]}\n"
@@ -2040,13 +2030,13 @@ def _self_test() -> int:
         dirty=False, label="K4 :rf.http/managed-abort dispatch (no request)",
     )
 
-    # --- Rule 5b: reading the retired co-located `:rf/reply` key. DRIFT fixture.
+    # --- Rule 5b: reading a co-located `:rf/reply` key. DRIFT fixture.
     expect(
         reply_contract_problems,
         "(rf/reg-event :article/load (fn [_ [_ msg]] (when-let [r (:rf/reply msg)] r)))",
-        dirty=True, label="L1 reads the retired co-located :rf/reply key",
+        dirty=True, label="L1 reads a co-located :rf/reply key",
     )
-    # CLEAN — the current explicit-target contract and the INTERNAL descriptor.
+    # CLEAN — the explicit-target contract and the INTERNAL descriptor.
     expect(
         reply_contract_problems,
         "The request names `:reply-to [:article/replied]`; the handler branches on `(:status reply)`.",
@@ -2055,7 +2045,7 @@ def _self_test() -> int:
     expect(
         reply_contract_problems,
         "The public `:reply-to` normalizes to the internal `:rf/reply-to` descriptor.",
-        dirty=False, label="M2 internal :rf/reply-to descriptor is not the retired :rf/reply",
+        dirty=False, label="M2 internal :rf/reply-to descriptor is not the :rf/reply key",
     )
 
     # --- Rule 5c: bare :work/id on a transient reply map. DRIFT fixture.
@@ -2081,12 +2071,10 @@ def _self_test() -> int:
         dirty=False, label="O3 durable-ledger :work/id prose (no reply-map context)",
     )
 
-    # --- Rule 6 (rf2-gq9bg): causally-exact hooks-recipe guard. The three probes
-    #     the previous whole-file / broad-negation guard mis-classified, plus
-    #     legitimate corrected wording, then mutations against the REAL blocks.
-    #
-    #     S1/S2 were false NEGATIVES (accepted) and S3 a false POSITIVE (rejected)
-    #     under the old guard; they are now classified correctly.
+    # --- Rule 6: causally-exact hooks-recipe guard. The three probes a
+    #     whole-file / broad-negation guard mis-classifies (S1/S2 as false
+    #     NEGATIVES, S3 as a false POSITIVE), plus legitimate wording, then
+    #     mutations against the REAL blocks.
     expect(
         hooks_sentence_problems,
         "Do not use use-frame or use-sub; use reg-view instead.",
@@ -2102,7 +2090,7 @@ def _self_test() -> int:
         "UIx/Helix differ from Reagent's :contextType mechanism.",
         dirty=False, label="S3 valid Reagent :contextType comparison stays green",
     )
-    # CLEAN — the corrected wording the leaves actually use.
+    # CLEAN — wording of the kind the leaves use.
     expect(
         hooks_sentence_problems,
         "The hooks adapters (UIx / Helix) read the frame via `use-sub` / `use-frame` and need no `:contextType`.",
@@ -2119,23 +2107,22 @@ def _self_test() -> int:
         dirty=False, label="S6 lawful mixed recipe (reg-view* + Reagent capture) stays green",
     )
 
-    # --- Rule 6b(i) ATTRIBUTION SCOPE (rf2-xlxrl). The retired proximity
-    #     suppression pardoned an unlawful attribution merely for sitting near
-    #     the word "Reagent" (S7/S8 — the rf2-szw6c false negative, BOTH
-    #     directions, green on main) while flagging the corpus's own per-adapter
-    #     house style (S12 — red on main). Clause carving judges each clause by
-    #     the subject IT names, so both defects invert.
+    # --- Rule 6b(i) ATTRIBUTION SCOPE. Proximity suppression would pardon an
+    #     unlawful attribution merely for sitting near the word "Reagent"
+    #     (S7/S8, BOTH directions) while flagging the corpus's own per-adapter
+    #     house style (S12). Clause carving judges each clause by the subject
+    #     IT names, so S7/S8 are red and S12 is green.
     expect(
         hooks_sentence_problems,
         "On UIx / Helix, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
         dirty=True,
-        label="S7 attribution hiding beside a lawful Reagent clause (szw6c false negative)",
+        label="S7 attribution hiding beside a lawful Reagent clause (proximity false negative)",
     )
     expect(
         hooks_sentence_problems,
         "The macro stays Reagent-flavoured; UIx gets a `:contextType` too.",
         dirty=True,
-        label="S8 same hole, Reagent clause first (szw6c false negative)",
+        label="S8 same hole, Reagent clause first (proximity false negative)",
     )
     # The ambiguity branch: a clause that attributes the token but names NEITHER
     # adapter, inside a sentence that names a hooks adapter. Load-bearing — the
@@ -2146,7 +2133,7 @@ def _self_test() -> int:
         dirty=True,
         label="S9 ownerless attribution in a hooks sentence (ambiguity branch)",
     )
-    # LAWFUL shapes the repaired scope must accept — each is a real prose idiom,
+    # LAWFUL shapes the clause scope must accept — each is a real prose idiom,
     # not a contrivance. S10 needs the token-adjacent possessive allowance (the
     # 8-char negation window cannot reach across "get Reagent's").
     expect(
@@ -2163,7 +2150,7 @@ def _self_test() -> int:
         hooks_sentence_problems,
         "On Reagent register it via `reg-view*`, which gives the class a `:contextType`; on UIx / Helix carry the frame with `use-frame`.",
         dirty=False,
-        label="S12 per-adapter semicolon HOUSE STYLE (false positive on main) is green",
+        label="S12 per-adapter semicolon HOUSE STYLE is green",
     )
     # A colon introduces an elaboration of the SAME subject, so it is not a
     # clause boundary — S2 above must stay red. Its period variant is the
@@ -2184,12 +2171,12 @@ def _self_test() -> int:
     def _leaf_scan(text: str) -> list[str]:
         return [p for _l, s in _hooks_sentences(text) for p in hooks_sentence_problems(s)]
 
-    # The szw6c false negative must also be caught by the real leaf scan (the
+    # The proximity false negative must also be caught by the real leaf scan (the
     # sentence carve must not hand the attribution away before 6b(i) sees it).
     expect(
         _leaf_scan,
         "On UIx / Helix, `reg-view*` gives the component a `:contextType`; the `reg-view` macro stays Reagent-flavoured.",
-        dirty=True, label="S14 szw6c false negative caught at leaf-scan scope",
+        dirty=True, label="S14 proximity false negative caught at leaf-scan scope",
     )
     # ACCEPTED BOUNDARY, pinned so a future reader knows it is a decision and
     # not an oversight: once the sentence carve splits at `. ` + capital, the
@@ -2239,12 +2226,12 @@ def _self_test() -> int:
             print(f"SELF-TEST FAIL (T coherence floor not load-bearing): {rel}")
             failures += 1
 
-    # --- Rule 6c (rf2-szw6c): the bounded block anchors. Every mutation below
+    # --- Rule 6c: the bounded block anchors. Every mutation below
     #     is a REAL-TEXT REPLACEMENT inside the shipped block — the drift shape
     #     an edit to that exact recipe would produce — not a free-floating bad
     #     sentence appended after it. Each must fail the block on its own.
     block_mutations = (
-        # The retired "required `reg-view*`" recipe: the block names `reg-view*`
+        # The false "required `reg-view*`" recipe: the block names `reg-view*`
         # where the two hooks belong. It carries no Rule 6b residue (`reg-view*`
         # is the lawful spelling), so ONLY the block-scoped coherence floor
         # catches it — the regression this rule exists for.
@@ -2323,7 +2310,7 @@ def _self_test() -> int:
             print(f"SELF-TEST FAIL ({lawful_label}): expected green, got {got}")
             failures += 1
 
-    # --- Rule 7 (rf2-1iclq): the form-action fail-open shapes in code fences.
+    # --- Rule 7: the form-action fail-open shapes in code fences.
     #     `csrf_fence_problems` takes the WHOLE body (a fence spans lines), so
     #     these fixtures carry their own fences.
     def _fence(*lines: str) -> str:
@@ -2393,12 +2380,12 @@ def _self_test() -> int:
                "[:string {:min 1}]]))"),
         dirty=False, label="X4 fenced `{:optional true}` envelope entry",
     )
-    # 7b, rf2-zkpxu — a bracketed `:csrf-token` with NO CHILD is a
+    # 7b — a bracketed `:csrf-token` with NO CHILD is a
     # classification PATH, not a map entry. `:sensitive [[:csrf-token]]` is the
     # SUPPORTED registration metadata that keeps the submitted token out of
-    # ordinary event-observation traces (Spec 015), and this rule read it as a
-    # required field — so the canonical recipe could not carry the very advice
-    # the CSRF section gives.
+    # ordinary event-observation traces (Spec 015); read as a required field,
+    # the canonical recipe could not carry the very advice the CSRF section
+    # gives.
     expect(
         csrf_fence_problems,
         _fence("(rf/reg-event :cart/add-item",
@@ -2433,9 +2420,8 @@ def _self_test() -> int:
     )
 
     # --- Rule 7 against the REAL corpus, with mutations. A guard that cannot be
-    #     made to fail is worthless — that was the whole finding behind this
-    #     rule (the shipped leaf carried the fail-open compare and every existing
-    #     rule exited 0 over it). So: the shipped files must be green, and each
+    #     made to fail is worthless, and a leaf carrying the fail-open compare
+    #     would pass Rules 1-6. So: the shipped files must be green, and each
     #     reintroduction of the defect must be caught.
     for parts in (
         ("skills", "re-frame2", "patterns", "form-action.md"),
@@ -2453,16 +2439,16 @@ def _self_test() -> int:
                   f"{csrf_fence_problems(shipped)}")
             failures += 1
         mutations = (
-            # The exact drift the shipped leaf carried before this rule existed.
+            # The fail-open compare, reintroduced.
             ("fail-open compare",
              "(and server? (not (and (some? active-token)",
              "(and server? (not= (:csrf-token form-params) active-token)) #_("),
             ("required token field",
              "[:csrf-token {:optional true :sensitive? true} [:string {:min 1}]]",
              "[:csrf-token [:string {:min 1}]]"),
-            # rf2-zkpxu: the event's STRUCTURAL tripwire entry, one line above
-            # the classification path the skip now lets through — so the skip
-            # is proved not to have shadowed the entry beside it.
+            # The event's STRUCTURAL tripwire entry, one line above
+            # the classification path the skip lets through — so the skip
+            # is proved not to shadow the entry beside it.
             ("required token in the event tripwire",
              "[:csrf-token {:optional true :sensitive? true} :any]",
              "[:csrf-token :any]"),
@@ -2478,10 +2464,9 @@ def _self_test() -> int:
                       f"{rel}")
                 failures += 1
 
-    # rf2-zkpxu — the canonical recipe must actually CARRY the classification
+    # The canonical recipe must actually CARRY the classification
     # path in a fence, or the "shipped file green" reading above is vacuous:
-    # it would be green because nothing exercises the skip, which is exactly
-    # the state this bead found the page in.
+    # it would be green because nothing exercises the skip.
     # Read it through the rule's OWN view of a fence — `_code_only` blanks
     # comments and strings — because the page names the same metadata in prose
     # too, and a raw substring test would be satisfied by that prose while the
@@ -2493,22 +2478,22 @@ def _self_test() -> int:
                             for _, b in fenced_blocks(_recipe))
         if not _fenced_paths:
             print("SELF-TEST FAIL (Y classification-path anchor gone): "
-                  "spec/Pattern-FormAction.md no longer carries a fenced "
+                  "spec/Pattern-FormAction.md does not carry a fenced "
                   "`:sensitive [[:csrf-token]]` registration path, so rule "
                   "7b's map-entry test is unexercised against the real "
                   "corpus — re-point this anchor in the same change")
             failures += 1
 
-    # --- Rule 8: the JVM with-frame thunk "function form" (rf2-jwmkq).
+    # --- Rule 8: the JVM with-frame thunk "function form".
     #     `withframe_thunk_problems` takes the WHOLE body (the shape spans
     #     lines inside a fence) and scans fenced and inline text alike — the
-    #     original defect was an inline positive instruction.
+    #     defect reads naturally as an inline positive instruction.
     expect(
         withframe_thunk_problems,
         "On CLJS reach the macro via `rf/with-frame` after `(:require "
         "[re-frame.core :as rf])`. On JVM use the `(rf/with-frame frame-id "
         "(fn [] ...))` function form.",
-        dirty=True, label="Z1 the exact shipped inline positive instruction",
+        dirty=True, label="Z1 an inline positive instruction",
     )
     expect(
         withframe_thunk_problems,
@@ -2534,7 +2519,7 @@ def _self_test() -> int:
         "    (rf/with-frame :app/test\n"
         "      (test-fn))))\n"
         "```\n",
-        dirty=False, label="Z4 corrected fixture — (test-fn) invoked in the body",
+        dirty=False, label="Z4 correct fixture — (test-fn) invoked in the body",
     )
     expect(
         withframe_thunk_problems,
@@ -2571,7 +2556,7 @@ def _self_test() -> int:
 
     # --- Rule 8 against the REAL corpus, with the reintroduction mutation:
     #     the shipped testing leaf must be green, and mutating ONLY its fixture
-    #     back to the thunk form must be caught (rf2-jwmkq acceptance 4).
+    #     to the thunk form must be caught.
     target = REPO_ROOT.joinpath(
         "skills", "re-frame2", "references", "cross-cutting", "testing.md")
     if not target.is_file():
@@ -2588,7 +2573,7 @@ def _self_test() -> int:
         new = "(rf/with-frame :app/test\n      (fn [] (test-fn)))"
         if old not in shipped:
             print("SELF-TEST FAIL (Z thunk mutation was a no-op): the shipped "
-                  "fixture no longer carries the anchored (test-fn) body — "
+                  "fixture does not carry the anchored (test-fn) body — "
                   "re-point the Rule 8 mutation anchor in the same change")
             failures += 1
         elif not withframe_thunk_problems(shipped.replace(old, new)):
@@ -2603,7 +2588,7 @@ def _self_test() -> int:
         "(with-new-frame [f (rf/make-frame {})]\n"
         "  (rf/dispatch-sync [:go] {:frame f}))\n"
         "```\n",
-        dirty=True, label="AA1 the exact shipped bare with-new-frame head",
+        dirty=True, label="AA1 a bare with-new-frame head",
     )
     expect(
         unqualified_frame_macro_problems,
@@ -2639,12 +2624,11 @@ def _self_test() -> int:
         "```\n",
         dirty=False, label="AA6 block establishing its own :refer is lawful",
     )
-    # AA7-AA10: the exemption is the EXACT refer, not the token `:refer`
-    # (rf2-u429 post-merge audit). Each of these three shapes carries `:refer`
-    # somewhere in the fence and declares the macro NOWHERE, and each was
-    # accepted before the audit repair - AA7 being the ordinary test-namespace
-    # header, so it waved through nearly every realistic instance of the
-    # defect.
+    # AA7-AA10: the exemption is the EXACT refer, not the token `:refer`.
+    # Each of these shapes carries `:refer` somewhere in the fence and
+    # declares the macro NOWHERE, and a token-level exemption would accept
+    # each - AA7 being the ordinary test-namespace header, so it would wave
+    # through nearly every realistic instance of the defect.
     expect(
         unqualified_frame_macro_problems,
         "```clojure\n"
@@ -2713,7 +2697,7 @@ def _self_test() -> int:
         "(assert (= :authed (rf/compute-sub [:auth.login/state] "
         "(rf/app-db-value f))))\n"
         "```\n",
-        dirty=True, label="AB1 the exact shipped app-db-value machine assertion",
+        dirty=True, label="AB1 an app-db-value machine assertion",
     )
     expect(
         compute_sub_partition_problems,
@@ -2773,8 +2757,8 @@ def _self_test() -> int:
 
     # --- Rule 9 against the REAL corpus, with both reintroduction
     #     mutations: the shipped frames leaf must be green, its canonical
-    #     block must still be locatable, and restoring EITHER exact bad
-    #     shape must be caught (rf2-u429 acceptance 4/5).
+    #     block must be locatable, and reintroducing EITHER bad
+    #     shape must be caught.
     frames_leaf = REPO_ROOT.joinpath(*CANONICAL_FRAME_LEAF)
     if not frames_leaf.is_file():
         print("SELF-TEST FAIL (AD real frames leaf missing): "
@@ -2804,7 +2788,7 @@ def _self_test() -> int:
         new = "(with-new-frame [f (rf/make-frame"
         if old not in shipped:
             print("SELF-TEST FAIL (AD 9a mutation was a no-op): the shipped "
-                  "canonical block no longer carries the anchored "
+                  "canonical block does not carry the anchored "
                   "rf/with-new-frame head — re-point the mutation anchor "
                   "in the same change")
             failures += 1
@@ -2817,7 +2801,7 @@ def _self_test() -> int:
         new = "(rf/compute-sub [:auth.login/state] (rf/app-db-value f))"
         if old not in shipped:
             print("SELF-TEST FAIL (AD 9b mutation was a no-op): the shipped "
-                  "canonical block no longer carries the anchored "
+                  "canonical block does not carry the anchored "
                   "frame-state-value assertion — re-point the mutation "
                   "anchor in the same change")
             failures += 1

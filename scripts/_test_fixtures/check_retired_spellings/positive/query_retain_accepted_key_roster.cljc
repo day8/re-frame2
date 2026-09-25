@@ -1,6 +1,6 @@
 (ns fixture.positive.query-retain-accepted-key-roster
   "POSITIVE fixture: the retired :query-retain key back in the accepted
-  route-metadata key roster (EP-0037 R5, rf2-jlmgt). Mirrors
+  route-metadata key roster (EP-0037 R5). Mirrors
   re-frame.routing.registry's `reserved-route-keys` set — reinstating the key
   there is what would let `reg-route` accept it again as a bare key.")
 

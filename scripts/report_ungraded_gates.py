@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""Which path-gated CI surfaces have not been armed on trunk, and for how long?
 
-rf2-5dihy.  A REPORT, not a gate.  It exits 0 on every answer it can compute and
+A REPORT, not a gate.  It exits 0 on every answer it can compute and
 is deliberately unwireable into CI: there is no failing exit status to key on.
 (`--self-test` is the one mode that can fail -- see Exit codes at the foot.)
 
@@ -15,12 +15,6 @@ that graded nothing.  The cost lands on the next PR whose diff happens to arm th
 gate: it goes red, its own diff is innocent, and it inherits the blame for a
 regression that landed days earlier.
 
-That is not hypothetical.  The Story static-export gate
-(`test.yml` -> `Story/Xray browser gates (PR-smoke)` -> the `story_static_gate`
-step) last actually executed on trunk at `a2173cdcf5`, 2026-09-18.  A regression
-landed at `58bd56635b` on 2026-09-20, and the first thing to notice was PR
-#10139, whose entire diff is two lines inside comments.
-
 WHAT IT ASKS, AND WHAT IT DOES NOT
 ----------------------------------
 It asks the SCHEDULING question -- *was this surface armed?* -- and nothing else.
@@ -32,7 +26,7 @@ genuinely different questions, and scheduling is the one nothing could answer:
     its own step result), and `.github/scripts/nightly_failure_alert.py`
     maintains a single tracking issue naming the FAILING STEPS and counting the
     consecutive red runs.  That surface works; consult it first.
-  * "Which gates have not GRADED TRUNK, and for how long?" had no home at all.
+  * "Which gates have not GRADED TRUNK, and for how long?" has no other home.
     The nightly cannot answer it, because on the nightly nothing is skipped --
     "ungraded" is a property of the PR/push-time filtered matrix alone.
 
@@ -68,12 +62,11 @@ A SURFACE IS NOT A JOB -- READ THE CONDITION, NOT THE NAME
 -----------------------------------------------------------
 This reports SURFACES.  A job or step is gated on a boolean COMBINATION of them,
 so "surface X unarmed for three days" does NOT by itself mean the job whose name
-resembles X did not run.  Measured on trunk push `765c370308`: `ssr_node` read
-false, yet `Node implementation/ssr-node (bounded SSR service suite)` ran and
-passed -- because its condition is
-`implementation_jvm == 'true' || ssr_node == 'true'` and the other disjunct was
-true.  The prediction was right; reading the job name as the surface would have
-made it look wrong.
+resembles X did not run.  `JVM->Node->JVM crossing (ssr-ring clojure
+-M:crossing-test)`, for one, is gated on
+`implementation_jvm == 'true' || ssr_node == 'true'`, so it runs on a push where
+`ssr_node` reads false whenever the other disjunct is true.  The prediction is
+right; reading the job name as the surface would make it look wrong.
 
 So map a reported surface to the steps whose `if:` actually NAMES it:
 
@@ -83,8 +76,8 @@ A step gated on that surface ALONE is ungraded for exactly as long as this
 report says.  A step gated on a disjunction is ungraded only while every
 disjunct is unarmed.
 
-EVERY ROW IS A CANDIDATE, NEVER AN OBSERVATION (rf2-xbig3)
------------------------------------------------------------
+EVERY ROW IS A CANDIDATE, NEVER AN OBSERVATION
+-----------------------------------------------
 CI classifies a PUSH -- the range `github.event.before..github.sha`, which
 `test.yml` passes as CHANGED_SURFACES_BASE_REF.  This walks COMMITS and
 classifies each one's own parent diff.  On a multi-commit push those are
@@ -93,41 +86,40 @@ AND ENDED, so this script cannot answer the one CI asks.  Every row is therefore
 an INFERENCE about a commit -- `commit` in the BASIS column -- and never an
 observation of a push.
 
-An earlier version of this docstring claimed the two differ only in the safe
-direction: "a commit's own diff is a subset of its push's diff, so a surface the
-push armed can read unarmed here ... a false alarm, not a false all-clear."
-THAT CLAIM IS FALSE, AND IT IS BACKWARDS.  Changes that CANCEL within one push
-leave the push diff while remaining in both parents' diffs.  The counterexample
-`--self-test` now builds and runs:
+It is tempting to reason that the two differ only in the safe direction: "a
+commit's own diff is a subset of its push's diff, so a surface the push armed
+can read unarmed here ... a false alarm, not a false all-clear."  THAT CLAIM IS
+FALSE, AND IT IS BACKWARDS.  Changes that CANCEL within one push leave the push
+diff while remaining in both parents' diffs.  The counterexample `--self-test`
+builds and runs:
 
     baseline   contains implementation/scripts/check-story-static.cjs
     A          edits it
     B          restores it byte-for-byte, and changes bench/fresco/... only
 
 The push diff `baseline..B` is the bench path alone, which arms nothing, so CI
-did NOT schedule `story_static_gate`.  Both A's and B's parent diffs contain the
-gate file and arm it.  The pre-fix report printed B as LAST ARMED / COMMITS AGO
-0 with no caveat, rendered identically to a genuine single-commit arming -- a
+does NOT schedule `story_static_gate`.  Both A's and B's parent diffs contain the
+gate file and arm it.  Unflagged, B would print as LAST ARMED / COMMITS AGO 0
+with no caveat, rendered identically to a genuine single-commit arming -- a
 FALSE ALL-CLEAR, inside the report written to expose exactly such a gap.
 
 THE UNCERTAINTY RUNS BOTH WAYS, BY TWO DIFFERENT MECHANISMS
 ------------------------------------------------------------
 Toward a FALSE ALL-CLEAR (over-crediting) -- the commit/push mismatch above, and
-it runs ONLY this way, which is why the old claim was not merely unproven:
+it runs ONLY this way:
 
     A file appears in an aggregate diff only if some commit in the range
     touched it, so the push's file set is a SUBSET of the union of its commits'
     file sets -- the containment is the other way round.  The classifier only
-    ever turns surfaces ON as it walks paths (measured: 211 `=true` assignments
-    and no disarming assignment after its init block; classify(A + B) ==
-    classify(A) | classify(B) on 45 of 45 path pairs), so it is monotone.
+    ever turns surfaces ON as it walks paths (after its init block every
+    assignment is `=true`, so classify(A + B) == classify(A) | classify(B)),
+    so it is monotone.
     Monotone over a superset: every surface a push armed is armed by at least
     one of that push's own commits, and the walk credits the newest such commit.
     It cannot MISS a push's arming.  It can, and does, credit arming the push
     never had.
 
-Toward a FALSE ALARM (over-reporting staleness) -- two other mechanisms, which
-the old text folded into the first and so mislabelled:
+Toward a FALSE ALARM (over-reporting staleness) -- two other mechanisms:
 
   * `paths-ignore` modelling.  `TESTING.md` is a `mark_all` trigger, so a
     TESTING.md-only push would otherwise be credited with arming every surface
@@ -156,31 +148,26 @@ Two things, both offline and both cheap:
     not proof the credit is right -- the real push may be deeper than
     `--probe-depth`.
 
-    A flag should be RARE, so treat one as worth reading rather than as noise.
-    Swept over the 250 trunk commits to 2026-09-21: 105 of them arm at least one
-    surface, 414 (commit, surface) credits in all, and 0 lost a surface at k=2.
-    That is a statement about this trunk's shape, not about the defect -- the
-    counterexample is synthetic, and the bead filing it alleges no live
-    occurrence either.
+    A flag should be RARE -- the counterexample is a synthetic push shape -- so
+    treat one as worth reading rather than as noise.
 
 WHY THERE IS NO `push` BASIS: PUSH BOUNDARIES ARE NOT IN A CHECKOUT
 --------------------------------------------------------------------
-The tempting source is `git reflog show origin/main`, and it does not work.
-Measured 2026-09-21:
+The tempting source is `git reflog show origin/main`, and it does not work:
 
-  * Its entries are FETCH boundaries, not push boundaries.  2 of 39 steps
-    spanned more than one trunk commit, both labelled `fetch origin main:
-    fast-forward` -- one fetch coalescing several remote pushes, which is the
-    same aggregation error again, now wearing an authoritative label.
-  * A FRESH CLONE HAS NONE.  A clone of a 4-commit trunk reported 0
-    `origin/main` reflog entries.  That is what CI's `actions/checkout` and
+  * Its entries are FETCH boundaries, not push boundaries.  One
+    `fetch origin main: fast-forward` step can span several trunk commits --
+    one fetch coalescing several remote pushes, which is the same aggregation
+    error again, now wearing an authoritative label.
+  * A FRESH CLONE HAS NONE.  A new clone carries no `origin/main` reflog
+    entries.  That is what CI's `actions/checkout` and
     every other maintainer has, so a reflog-based report would credit nothing
     and call every surface unarmed -- a different wrong answer, not a right one.
   * It is per-clone local state under the git COMMON dir, shared between one
     clone's worktrees and present in no other clone.  It is also pruned.
 
 The honest sources are the Actions event payload (`github.event.before`) and the
-API, and this item asks for neither: the report's whole value is that it is
+API, and this report uses neither: its whole value is that it is
 free, offline and read-only.  If you DO know a push's boundaries you do not need
 this script -- ask the classifier the same thing CI asks it:
 
@@ -189,11 +176,11 @@ this script -- ask the classifier the same thing CI asks it:
 
 Treat every reported gap, and every reported arming, as a QUESTION.
 
-MEASURED AGAINST GROUND TRUTH (2026-09-21, three cases, both directions)
-------------------------------------------------------------------------
+GROUND-TRUTH PINS (three cases, both directions)
+------------------------------------------------
 Each row is the classifier's prediction for `story_static_gate` beside the
 step-level conclusion the GitHub jobs API reports for that trunk push's run.
-A one-directional check would not have been a control: it takes a TRUE and a
+A one-directional check would not be a control: it takes a TRUE and a
 FALSE to show the instrument discriminates rather than answering one way.
 
     a4e90ebaee  predicted false  ->  step "skipped"   (run 35546132986)
@@ -209,7 +196,7 @@ per-STEP and not merely per-job.
 are historical facts about immutable commits and settled runs, so the pin cannot
 rot; what it catches is the classifier's arming rules moving out from under this
 script.  They pin the SINGLE-COMMIT case and establish nothing whatever about
-push-boundary equivalence -- all three passed alongside the counterexample above,
+push-boundary equivalence -- all three pass alongside the counterexample above,
 which is why `--self-test` also builds that counterexample as a fixture (case 4)
 and asserts both halves of it, plus a direct single-commit positive control.
 
@@ -435,7 +422,8 @@ def cancellation_depth(root: Path, shell: str, sha: str, surface: str, max_depth
     cancelled against a neighbour, so CI -- which classifies the whole push --
     never scheduled the surface.  It does not refute a push of ONE commit, where
     the commit's own diff IS the push diff, so a hit is a doubt with a shape
-    rather than a verdict.  See the docstring section on rf2-xbig3.
+    rather than a verdict.  See the module docstring's EVERY ROW IS A
+    CANDIDATE section.
     """
     for k in range(2, max_depth + 1):
         armed = aggregate_arms(root, shell, sha, k, memo)
@@ -524,8 +512,9 @@ def _fx_write(repo: str, rel: str, content: str) -> None:
 
 
 def build_cancellation_fixture(root: Path) -> "tuple[str, str, str, str, str]":
-    """An isolated repo reproducing rf2-xbig3: an edit and its byte-for-byte
-    restoration inside one push, plus an unrelated surviving change.
+    """An isolated repo reproducing the push-boundary counterexample: an edit
+    and its byte-for-byte restoration inside one push, plus an unrelated
+    surviving change.
 
     Carries the LIVE classifier and the LIVE test.yml, so the case tracks this
     repository rather than a snapshot of it.  Offline, stdlib only.
@@ -567,13 +556,13 @@ def _fx_diff_files(repo: str, lo: str, hi: str) -> "list[str]":
 
 
 def run_cancellation_case(root: Path, shell: str) -> int:
-    """rf2-xbig3 regression: an edit cancelled inside one push must not be
+    """Push-boundary regression: an edit cancelled inside one push must not be
     reported as confirmed arming, and a genuine single-commit arming must not be
     flagged.  BOTH halves are the test -- a fix that flagged every row would
     satisfy the first and fail the second.
     """
     surface = "story_static_gate"
-    print("  CASE 4 -- edit-and-restore inside one push (rf2-xbig3)")
+    print("  CASE 4 -- edit-and-restore inside one push")
     try:
         repo, baseline, a, b, d = build_cancellation_fixture(root)
     except (OSError, RuntimeError) as exc:
@@ -613,8 +602,8 @@ def run_cancellation_case(root: Path, shell: str) -> int:
         checks.append(("walk credits B as the candidate", credited == b,
                        "credited=%s" % (credited[:10] if credited else None)))
 
-        # THE REGRESSION. Pre-fix this row printed LAST ARMED / COMMITS AGO 0
-        # with no caveat, rendered identically to a real arming.
+        # THE REGRESSION. Unflagged, this row would print LAST ARMED / COMMITS
+        # AGO 0 with no caveat, rendered identically to a real arming.
         memo: "dict[tuple[str, int], dict[str, bool] | None]" = {}
         k = cancellation_depth(fx, shell, b, surface, 8, memo) if credited else None
         checks.append(("candidate B is flagged aggregation-fragile at k=2", k == 2,
@@ -647,7 +636,7 @@ def run_self_test(root: Path, shell: str) -> int:
     print("SELF-TEST -- three settled trunk pushes, predictions vs the CI record")
     print("(see the module docstring for the step-level conclusions these pin)")
     print("These pin the SINGLE-COMMIT case only. Case 4 below pins the push-boundary")
-    print("counterexample they cannot see -- all three passed alongside it.\n")
+    print("counterexample they cannot see -- all three pass alongside it.\n")
     bad = 0
     for rev, surface, expected, evidence in SELF_TEST_CASES:
         probe = subprocess.run(
@@ -675,16 +664,16 @@ def run_self_test(root: Path, shell: str) -> int:
         print("That does not make this script wrong -- re-confirm against the jobs API")
         print("(command in the module docstring) and update the pins to what it says.")
     else:
-        print("All predictions still agree with the recorded CI behaviour.")
+        print("All predictions agree with the recorded CI behaviour.")
 
     print()
     regressions = run_cancellation_case(root, shell)
     print()
     if regressions:
-        print("CASE 4 FAILED (%d checks). The push-boundary correction has regressed:"
+        print("CASE 4 FAILED (%d checks). The push-boundary check is broken:"
               % regressions)
-        print("a commit-level candidate is again being reported as confirmed arming, or")
-        print("a genuine single-commit arming is being flagged. See rf2-xbig3.")
+        print("a commit-level candidate is being reported as confirmed arming, or")
+        print("a genuine single-commit arming is being flagged. See the module docstring.")
     else:
         print("CASE 4 passes: the cancelled edit is flagged, the genuine arming is not.")
     print()

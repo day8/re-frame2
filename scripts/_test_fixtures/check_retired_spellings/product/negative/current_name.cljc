@@ -2,8 +2,8 @@
 ;;
 ;; Nothing here may fire. The rule carries no token boundary and no shape
 ;; scoping, so this fixture is what says the needle cannot over-fire on the
-;; name that replaced it, on the alias that deliberately did NOT change, or on
-;; the Picasso derivation the superseded rationale turned on.
+;; current name, on its `h` alias, or on
+;; the word Picasso.
 ;;
 ;; The self-test also scans these same bytes attributed to a path under a
 ;; retired directory name, where it must report exactly one finding — the PATH

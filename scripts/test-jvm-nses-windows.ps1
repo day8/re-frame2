@@ -1,18 +1,17 @@
-# scripts/test-jvm-nses-windows.ps1 - Windows-safe per-namespace JVM sharding fallback (rf2-c3hffe).
+# scripts/test-jvm-nses-windows.ps1 - Windows-safe per-namespace JVM sharding fallback.
 #
 # WHAT. The cross-spec core JVM suite (`cd implementation/core && clojure
 # -M:test`) runs every test namespace in ONE JVM. On a Windows host where a
-# stranded lock-holder is contending for a worktree file lock (rf2-c3hffe),
+# stranded lock-holder is contending for a worktree file lock,
 # that single run can deadlock with NO indication of WHICH namespace's setup
 # touched the locked file. This script SHARDS the suite: it runs each test
 # namespace in its OWN bounded `clojure -M:test -n <ns>` invocation, so a
 # hang is attributed to a specific namespace ("namespace X held the lock")
 # instead of hanging the whole suite forever.
 #
-# This is the bead's disposition item 4 (sharding fallback) realised as a
-# script; it composes with scripts/test-core-jvm-windows.ps1 (item 2, the
-# full-suite bounded runner) - use THIS when the full runner times out and
-# you need to localise the offender.
+# It composes with scripts/test-core-jvm-windows.ps1 (the full-suite
+# bounded runner) - use THIS when the full runner times out and you need to
+# localise the offender.
 #
 # NAMESPACE FILTERING. The core `:test` alias delegates to
 # cognitect.test-runner, which forwards `-n <namespace>` (run one ns) and
@@ -35,8 +34,8 @@
 #
 # CROSS-PLATFORM NOTE. Windows-local helper. On Mac/Linux the suite does not
 # deadlock; to shard there, `cd implementation/core && clojure -M:test -n
-# <ns>` (or `-r <regex>`) directly under GNU `timeout` (TESTING.md
-# section: Windows-local test policy).
+# <ns>` (or `-r <regex>`) directly under GNU `timeout` (TESTING.md,
+# "Windows-local policy").
 
 param(
   [int]$PerNsTimeoutSeconds = 180,
@@ -154,7 +153,7 @@ function Invoke-NamespaceTest([string]$ns) {
   return @{ Ns = $ns; Status = 'fail' }
 }
 
-Write-Info "rf2-c3hffe per-namespace JVM sharding fallback"
+Write-Info "per-namespace JVM sharding fallback"
 Write-Info "  dir:         $CoreDir"
 Write-Info "  namespaces:  $($allNses.Count)"
 Write-Info "  per-ns cap:  ${PerNsTimeoutSeconds}s"
@@ -179,7 +178,7 @@ Write-Host "  failed:  $($failed.Count)"
 Write-Host "  timeout: $($timedOut.Count)"
 if ($timedOut.Count -gt 0) {
   Write-Host ""
-  Write-Host "  TIMED-OUT namespaces (these held a lock / hung - the rf2-c3hffe symptom):"
+  Write-Host "  TIMED-OUT namespaces (these held a lock / hung - the Windows file-lock deadlock symptom):"
   foreach ($ns in $timedOut) { Write-Host "    $ns" }
   Write-Host "  -> reap stale holders (scripts/reap-stale-test-processes.ps1) and retry,"
   Write-Host "     or inspect what file these namespaces' setup touches."

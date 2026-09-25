@@ -6,8 +6,8 @@ content just as it does for child items.  A paragraph indented two columns
 under `- parent` has not merely lost a level — it has left the list item
 altogether: the `<ul>` CLOSES, the paragraph renders after it, and a new
 list starts below.  The bullet list VISIBLY SPLITS with body prose stranded
-between the halves, which makes this the most reader-facing markdown fault
-measured in this corpus (rf2-luch, rf2-6ml6, rf2-jzv2).
+between the halves, which makes this one of the most reader-facing markdown
+faults.
 
     - parent                     <ul>
                           -->    <li>parent</li>
@@ -17,12 +17,10 @@ measured in this corpus (rf2-luch, rf2-6ml6, rf2-jzv2).
                                  <li>sibling</li>
                                  </ul>
 
-THIS IS AN INSTRUMENT, NOT A GATE, AND THAT IS DELIBERATE.  It is wired
-into no CI job and into no local spine.  Whether this class becomes a
-permanent gate obligation is rf2-jzv2's open half and an unmade decision;
-see WIRING THIS AS A GATE at the bottom of this docstring for what the
-decision costs and what the count would have to reach first.  Run it on
-demand:
+IT RUNS AS A GATE.  `test.yml`'s `verify-readme-links` job runs the
+self-test and then the corpus scan, and the fast-PR spine runs both in its
+classifier-gated documentation tier; see WHERE IT RUNS at the bottom of
+this docstring for what that costs.  Run it on demand:
 
     python scripts/check_escaped_continuations.py            # whole corpus
     python scripts/check_escaped_continuations.py <paths>    # named files
@@ -33,14 +31,14 @@ demand:
         1  at least one
         2  invocation / setup error
 
-WHY `check_flattened_lists.py` CANNOT ANSWER THIS, which is the finding the
-bead was filed on.  That gate detects a nested list ITEM that renders flat.
+WHY `check_flattened_lists.py` CANNOT ANSWER THIS.  That gate detects a
+nested list ITEM that renders flat.
 Its `collect_items` matches only list markers, and `_pair_defect` grades
 consecutive ITEM pairs, requiring `cur_at.root == prev_at.root`.  An
 escaped continuation SPLITS the root list in two, so the pair is never
 compared: this class MASKS flattened nesting from that gate rather than
-being reported by it.  It reads 0 on this class before any repair and 0
-after.  The two instruments are complementary, and the repair needs both —
+being reported by it.  It reads 0 on this class whether or not the class
+is present.  The two instruments are complementary, and a repair needs both —
 moving a body to its content column moves the sub-lists inside it, which
 can leave a child short of a four-column step, and that IS the other
 gate's class.
@@ -54,22 +52,20 @@ item it is indented under) and, from the render, where both of them landed:
     ESCAPED  <=>  cand.depth < owner.depth        (it left an inner list)
               OR  cand is outside every `li`      (it left the list)
 
-FLAGGING ONLY THE DEPTH COMPARISON READS 57 WHERE THE TRUE ANSWER IS 84
-(measured by `methodcont-a` on the pre-#9620 `docs/api` surface; re-derived
-here — see the `docs/api` control in the self-test notes).  The missing 27
-are cascades: an EARLIER escape has already closed the list, so the marker
-below it becomes a lazy continuation of the escaped paragraph and renders
-as literal text.  Owner and candidate then BOTH read depth 0 and the
-comparison is between two zeros — it cannot fire.  A detector built on the
-comparison alone ships reading 68% of its class and reports a clean tree
-while a third of it stands: green by a path the fault walks straight past.
+FLAGGING ONLY THE DEPTH COMPARISON MISSES THE CASCADES: an EARLIER escape
+has already closed the list, so the marker below it becomes a lazy
+continuation of the escaped paragraph and renders as literal text.  Owner
+and candidate then BOTH read depth 0 and the comparison is between two
+zeros — it cannot fire.  A detector built on the comparison alone reads
+only part of its class and reports a clean tree while the rest stands:
+green by a path the fault walks straight past.
 
 BOTH HALVES ARE LOAD-BEARING IN THE OTHER DIRECTION TOO.  The second half
 alone would miss a continuation that escapes a CHILD item while remaining
 inside its GRANDPARENT's `li` — it is inside an `li`, just not the right
 one — which is exactly what a bare `in_li` test gets wrong.
 
-=== THREE PROBE TRAPS, ALL PAID FOR BEFORE THIS FILE EXISTED ===
+=== THREE PROBE TRAPS ===
 
 1.  THE OBVIOUS MARKER PROBE IS WRONG IN BOTH DIRECTIONS.  Asking "does
     the text land in an `<li>` or a `<p>`?" reports healthy LOOSE items as
@@ -111,15 +107,13 @@ it cannot emit that advice directly.  It is exposed one step further out: a
 false marker can become a false OWNER, and the indented line below it is
 then flagged with repair advice that would indent prose under prose.
 
-HOW THIS FILE HANDLES IT, and what was rejected.  A source-side screen on
-the structural tell (a wrapped-prose false positive is a SINGLETON: no
-colon lead-in above, no sibling markers around, where a genuine swallowed
-marker travels in company) works well on a hand-checked slice but does not
-survive contact with this corpus: built here and run over all 291 files it
-flagged 175 owners, and every sampled one was an ordinary
-`- **Description**:` bullet whose siblings merely sat further away than the
-window, because items here are hard-wrapped over many lines.  A screen with
-that false-positive rate is worse than none, so THERE IS NO SCREEN.
+HOW THIS FILE HANDLES IT.  A source-side screen on the structural tell (a
+wrapped-prose false positive is a SINGLETON: no colon lead-in above, no
+sibling markers around, where a genuine swallowed marker travels in
+company) would flag ordinary `- **Description**:` bullets whose siblings
+merely sit further away than the window, because items here are
+hard-wrapped over many lines.  A screen with that false-positive rate is
+worse than none, so THERE IS NO SCREEN.
 
 What there is instead is exact and render-derived rather than guessed:
 every site whose OWNER also renders outside every `li` is marked in the
@@ -131,20 +125,20 @@ Read those before repairing them; reindent the rest.
 
 === WHAT THIS DETECTOR DOES NOT SEE AT ALL: AN ESCAPED FENCE ===
 
-`spec/012-Routing.md`'s "Mechanism" renders as TWO `<ol>`s, its steps 3 and
-4 restarting at 1, because step 2's fence sits at THREE columns where
-python-markdown wants four while step 3's is correctly at four.  That is
-this class's mechanism exactly — a continuation block short of its item's
-content column, closing the list — but with a FENCE as the block.
+A numbered step whose fence sits at THREE columns, where python-markdown
+wants four, splits its list into TWO `<ol>`s, the later steps restarting
+at 1.  That is this class's mechanism exactly — a continuation block short
+of its item's content column, closing the list — but with a FENCE as the
+block.
 
 IT IS INVISIBLE HERE, AND STRUCTURALLY SO.  Candidates are enumerated from
 `_strip_fences`, which blanks a fenced block INCLUDING ITS OPENING AND
 CLOSING LINES, so there is no line left to mark.  Inherited deliberately:
-that scanner is the corpus's much-corrected notion of "code, not prose",
-and unblanking fences here to reach their openers would make every
-list-shaped line inside a code sample a candidate.  Measured — this file
-reads 0 escaped continuations on `spec/012-Routing.md` while that split
-`<ol>` stands.  A fence probe wants its own instrument (mark the opener
+that scanner is the corpus's shared notion of "code, not prose", and
+unblanking fences here to reach their openers would make every list-shaped
+line inside a code sample a candidate.  So this file reads 0 escaped
+continuations on a list split by a fence, and the self-test pins that
+non-detection.  A fence probe wants its own instrument (mark the opener
 only, ask which `li` the resulting `<pre>` lands in); it is not a widening
 of this one.
 
@@ -172,34 +166,26 @@ the lowercased slug form and its joining hyphen as well.
 
 === UNITS.  READ THIS BEFORE QUOTING A NUMBER FROM THIS TOOL ===
 
-THIS CORPUS HAS HAD THREE SEPARATE UNIT CONFUSIONS RECORDED AGAINST IT —
-16 LINES CALLED A FLOOR AGAINST 450 BLOCKS, "450 blocks" that was a line
-count, and 19 indented table blocks carried forward as a repair backlog.
-So this tool prints LINES and BLOCKS and TABLES as three separate figures
+LINES, BLOCKS AND TABLE ROWS ARE EASY TO CONFUSE ON THIS CORPUS, and a
+figure quoted in the wrong unit is off by an order of magnitude.  So this
+tool prints LINES and BLOCKS and TABLES as three separate figures
 and never a single headline number.  A hard-wrapped paragraph is one block
 and many lines; the two are an order of magnitude apart on this corpus.
 Quote the unit with the number, and the tip sha with both.
 
-=== WIRING THIS AS A GATE — THE INPUT TO THE OPEN DECISION, NOT THE
-    DECISION ===
-
-What it would cost, measured rather than estimated (figures in the PR that
-introduced this file):
+=== WHERE IT RUNS, AND WHAT IT COSTS ===
 
   * A renderer round trip per file, two renders each, the same shape as
-    `check_flattened_lists.py` — which is why that gate needs
-    `requirements.txt` and cannot sit with the pure-stdlib checkers.  The
-    two together roughly double that job's wall time.
-  * Somewhere to run: `test.yml`'s `verify-readme-links` job already runs
-    the sibling gate as two steps and carries no changed-files guard, so
-    the natural wiring is two more steps there and no classifier surface.
-  * A count of ZERO first.  A gate cannot land red, and the residue is not
-    all repairable by reindentation: where a `- item` sits directly under a
-    bold paragraph with no blank line between, the MARKER is itself a lazy
-    continuation and renders as plain text, so there is no `li` for the
-    continuation to be inside and no reindent changes that.  The fix is a
-    blank line, which is prose rather than whitespace.  Those sites need a
-    prose decision before any gate can be green.
+    `check_flattened_lists.py` — which is why both gates need
+    `requirements.txt` and cannot sit with the pure-stdlib checkers.
+  * `test.yml`'s `verify-readme-links` job runs it beside that sibling
+    gate, as two steps, with no changed-files guard and no classifier
+    surface.
+  * Not every site is repairable by reindentation: where a `- item` sits
+    directly under a bold paragraph with no blank line between, the MARKER
+    is itself a lazy continuation and renders as plain text, so there is no
+    `li` for the continuation to be inside and no reindent changes that.
+    The fix is a blank line, which is prose rather than whitespace.
 """
 
 from __future__ import annotations
@@ -216,8 +202,8 @@ if _HERE not in sys.path:
 
 # Imported, never reimplemented.  The renderer must be the one the sibling
 # gate uses or the two counts describe different documents; the fence
-# scanner carries a long history of corrections this file would otherwise
-# repeat; and the corpus enumerator already knows that `git ls-files A -- B`
+# scanner encodes corrections this file would otherwise have to repeat; and
+# the corpus enumerator already knows that `git ls-files A -- B`
 # unions its pathspecs rather than intersecting them.
 from check_flattened_lists import (  # noqa: E402
     DEFAULT_ROOTS,
@@ -240,8 +226,8 @@ _SENTINEL_STEM = "ZqxCONTPROBE"
 
 # Indent plus any run of blockquote markers.  Stripped before the table
 # tests below, because a table inside a blockquote is still a table and its
-# rows still lose a surplus cell — `spec/012-Routing.md:1090` is exactly
-# that, and treating it as prose made the whole file unmeasurable.
+# rows still lose a surplus cell — `spec/012-Routing.md`'s Mechanism section
+# has one, and treating it as prose would make the whole file unmeasurable.
 _QUOTE_PREFIX_RE = re.compile(r"^[ \t]*(?:>[ \t]*)*")
 
 # A row of a pipe table, written with the leading and trailing bars this
@@ -608,11 +594,10 @@ _CASES = [
     ),
     # --- the "outside every li" disjunct: the cascade the depth test misses
     #
-    # Reduced from the real shape at `docs/api/re-frame.core.md:765` before
-    # #9620 — the `- **On Fresco**` item.  An earlier escape closes the list,
-    # so the marker below it cannot interrupt that paragraph and is swallowed
-    # into it as literal text; its own continuation is then at depth 0 under
-    # an owner at depth 0, and the comparison is between two zeros.
+    # An earlier escape closes the list, so the marker below it cannot
+    # interrupt that paragraph and is swallowed into it as literal text; its
+    # own continuation is then at depth 0 under an owner at depth 0, and the
+    # comparison is between two zeros.
     (
         "a cascade, where an earlier escape swallows the marker below it",
         "- alpha\n\n  escaped paragraph\n- beta\n  lazy line of beta\n",
@@ -761,8 +746,8 @@ def self_test() -> int:
     # A DOCUMENTED NON-DETECTION, pinned so it cannot become an accident.
     # A fence short of its item's content column closes the list exactly as a
     # paragraph does, but `_strip_fences` blanks the fence INCLUDING its
-    # opener, so no line survives to mark.  spec/012-Routing.md carries the
-    # real instance.  See WHAT THIS DETECTOR DOES NOT SEE AT ALL.
+    # opener, so no line survives to mark.  See WHAT THIS DETECTOR DOES NOT
+    # SEE AT ALL.
     checks += 1
     escaped_fence = "1. one\n\n   ```text\n   sample\n   ```\n\n2. two\n"
     if len(analyse(escaped_fence, md)[0]) == 0 and "<ol>" in _render(md, escaped_fence):

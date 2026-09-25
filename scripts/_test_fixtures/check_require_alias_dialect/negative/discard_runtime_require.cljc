@@ -1,6 +1,6 @@
 ;; NEGATIVE FIXTURE — a `#_` DISCARDED RUNTIME REQUIRE IS NOT A REQUIRE EDGE.
 ;;
-;; Trap (5) put runtime `(require ...)` forms into the scan surface, and trap
+;; Trap (5) puts runtime `(require ...)` forms into the scan surface, and trap
 ;; (6) has to reach them too: a discard in front of a whole require form, and a
 ;; discard of one libspec inside a LIVE one, are different spans and only the
 ;; second leaves the enclosing form standing.

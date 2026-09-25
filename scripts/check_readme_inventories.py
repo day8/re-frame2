@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
 """Ratchet README inventory claims against their source of truth.
 
-The README cross-link sweep (rf2-27ptt) and its precursor count-fix beads
-(rf2-0iaxe / rf2-9tn8t / rf2-cjh9v) kept finding the same defect *by hand*:
-a README's layout-map / directory-tree block had silently fallen out of
-sync with the dirs actually on disk, or a "N <noun>" prose claim no longer
-matched the enumerated list it introduces.  Examples caught manually:
+A README's layout-map / directory-tree block can silently fall out of sync
+with the dirs actually on disk, and a "N <noun>" prose claim can stop
+matching the enumerated list it introduces — omitted testbeds or artefact
+dirs, a tool count that disagrees with the tool table, per-category counts
+that do not sum to the claimed total.
 
-  * testbeds/README.md + the top-level layout map omitted the three SSR
-    testbeds (ssr_basic / ssr_hydration_mismatch / ssr_multi_frame).
-  * implementation/README.md layout omitted ssr-ring / test-quiet / security.
-  * tools/re-frame2-pair-mcp/README.md prose said 25/23 tools; the
-    Tool-surface table had 24 rows for a 28-tool registry.
-  * tools/story-mcp/README.md per-category "at a glance" said Docs (9)
-    (omitting explain-variant); the four category counts summed to 19,
-    not the claimed 20.
-
-This script generalises those into three automated checks, driven by small
+This script catches that drift with three automated checks, driven by small
 registries (`LAYOUT_CHECKS` / `COUNT_CHECKS` / `NAME_SET_CHECKS` below) so it
 stays maintainable rather than a pile of special-cases:
 
@@ -37,14 +28,12 @@ stays maintainable rather than a pile of special-cases:
      a name list held OUTSIDE that README — for pair-mcp, the `tools/list`
      contract snapshot at `test/fixtures/tool-names.json`.
 
-     Check 2 alone cannot see the defect this file was written for.  Its
-     source of truth is the README's OWN table, so a table that has fallen
-     behind its registry while the prose agrees with the table is invisible
-     to it: both numbers match, and both are wrong.  That is exactly how the
-     pair-mcp table drifted twice (24 rows for a 28-tool registry, then 30
-     for 33; rf2-664t7 measured the second).  Check 3 closes it by naming an
-     external source of truth, and it reports WHICH names are missing rather
-     than only that a count differs.
+     Check 2 alone cannot see a table that has fallen behind its registry.
+     Its source of truth is the README's OWN table, so while the prose
+     agrees with the table the defect is invisible to it: both numbers
+     match, and both are wrong.  Check 3 closes that by naming an external
+     source of truth, and it reports WHICH names are missing rather than
+     only that a count differs.
 
 Exit code:
     0  no violations
@@ -149,8 +138,8 @@ def _layout_top_level_dirs(block: FencedBlock) -> set[str]:
     "Top-level" = the shallowest tier at which the layout enumerates the base
     directory's immediate children.  This deliberately ignores deeper
     file/sub-dir listing so the bijection is robust against inner tree detail
-    churning — the historical drift was always at the artefact-dir tier,
-    never the leaf files.
+    churning — the drift that matters is at the artefact-dir tier, not the
+    leaf files.
 
     Two stylistic forms appear in this corpus, handled uniformly via a
     computed *tier*:
@@ -234,23 +223,23 @@ def _layout_top_level_dirs(block: FencedBlock) -> set[str]:
 
 # Gitignored build-artifact directory names that may appear on disk after a
 # local `npm install` + CLJS build but are NOT part of the documented layout
-# map (rf2-wv7d7z).  The bijection must skip these or every post-build local
-# fast-pr run fails the README-inventory check ("node_modules missing from
-# README") — a false failure CI dodged only by running the check before
+# map.  The bijection must skip these or every post-build local fast-pr run
+# would fail the README-inventory check ("node_modules missing from README") —
+# a false failure CI would avoid only by running the check before
 # `npm install`, which is fragile job-ordering luck.
 #
 # These mirror the gitignored entries in the repo-root and per-artefact
 # `.gitignore` files (`/node_modules/`, `/out/`, `/target/`, `/classes/`).
-# Dotdir build state (`.cpcache/`, `.shadow-cljs/`) is already excluded by the
+# Dotdir build state (`.cpcache/`, `.shadow-cljs/`) is excluded by the
 # leading-dot filter in `_disk_dirs`, so only the non-dot names need listing.
 #
 # An explicit, deterministic skip-set is used rather than shelling out to
 # `git check-ignore`: the latter reads the *working-tree* `.gitignore` files,
 # which on Windows checkouts carry CRLF line terminators that defeat git's
 # pattern match (the trailing `\r` becomes part of the pattern) — exactly the
-# environment-dependent fragility this fix exists to remove.  The set is tiny,
-# toolchain-bound, and keeps the script stdlib-only / no-shell-out (its
-# original portability promise).
+# environment-dependent fragility the skip-set exists to avoid.  The set is
+# tiny, toolchain-bound, and keeps the script stdlib-only / no-shell-out (its
+# portability promise).
 _GITIGNORED_BUILD_DIRS = frozenset({
     "node_modules",  # npm install
     "out",           # shadow-cljs / cljs build output
@@ -266,8 +255,7 @@ def _disk_dirs(base: Path) -> set[str]:
     Dotfiles (``.cpcache`` / ``.shadow-cljs`` / …) are skipped by the
     leading-dot filter; gitignored build-output dirs that have no leading dot
     (``node_modules`` / ``out`` / …) are skipped via ``_GITIGNORED_BUILD_DIRS``
-    so the layout-map bijection holds regardless of local build state
-    (rf2-wv7d7z).
+    so the layout-map bijection holds regardless of local build state.
     """
     if not base.is_dir():
         return set()
@@ -474,9 +462,9 @@ LAYOUT_CHECKS: tuple[LayoutCheck, ...] = (
         section="Layout",
         base_dir="skills/reagent-migration",
         # The layout is declared LOCKED (spec/design.md §4) and tests/fixture/
-        # is run by a required CI job; rf2-ueyfn found it omitted by hand.
+        # is run by a required CI job, so an omission from the map matters.
         # No ignore set: every immediate dir is documented, and .claude-plugin/
-        # is a dot-dir that the map parser and _disk_dirs both drop (rf2-6vlds).
+        # is a dot-dir that the map parser and _disk_dirs both drop.
     ),
     LayoutCheck(
         readme="skills/reagent-migration/spec/design.md",
@@ -515,13 +503,13 @@ COUNT_CHECKS: tuple[CountCheck, ...] = (
     ),
     # pair-mcp — prose '33 ... ops' vs Tool-surface table rows.  The numeral
     # group admits BOTH forms this module's docstring promises: a digit run
-    # and an English number word.  It was word-only (``[a-z\-]+``) until
-    # rf2-664t7, which is narrower than ``parse_numeral`` accepts and than
-    # the contract advertises — so when the GDS restyle rewrote 'thirty' to a
-    # digit (rf2-aw1ez) the count did not become wrong, it became UNREADABLE,
-    # and the check reported 'claim pattern not found' rather than a
-    # mismatch.  Widening here is not loosening the gate: the count is still
-    # compared, and ``parse_numeral`` still rejects a non-numeral.
+    # and an English number word.  A word-only group (``[a-z\-]+``) would be
+    # narrower than ``parse_numeral`` accepts and than the contract
+    # advertises — rewriting 'thirty' to a digit would leave the count not
+    # wrong but UNREADABLE, and the check would report 'claim pattern not
+    # found' rather than a mismatch.  Admitting both is not loosening the
+    # gate: the count is still compared, and ``parse_numeral`` still rejects a
+    # non-numeral.
     CountCheck(
         readme="tools/re-frame2-pair-mcp/README.md",
         label="prose tool count vs Tool-surface table",
@@ -538,10 +526,8 @@ class NameSetCheck:
     The COUNT check above compares a prose claim against the README's own
     table, so a table that has fallen behind its registry is INVISIBLE to
     it — prose and table agree with each other while both under-list the
-    source of truth.  That is exactly how the pair-mcp table drifted twice
-    (24 rows for a 28-tool registry, then 30 for 33; rf2-664t7), and this
-    check is what closes it: the table is compared against a name list
-    OUTSIDE the README.
+    source of truth.  This check closes that: the table is compared against
+    a name list OUTSIDE the README.
     """
 
     readme: str           # repo-relative README path
@@ -557,9 +543,9 @@ NAME_SET_CHECKS: tuple[NameSetCheck, ...] = (
     #
     # WHY THIS FIXTURE AND NOT registry.cljs.  `tool-names.json` is the
     # canonical `tools/list` snapshot shared by the stdio round-trip test
-    # and the cross-server MCP conformance harness (rf2-drke0), and
+    # and the cross-server MCP conformance harness, and
     # `test/stdio-roundtrip.js` asserts it equals the names a LIVE
-    # `tools/list` returns.  So it already tracks `registry/tools` under
+    # `tools/list` returns.  So it tracks `registry/tools` under
     # test, and gating on it keeps this script stdlib-only and free of any
     # coupling to ClojureScript source layout — no regex over `.cljs`.
     NameSetCheck(
@@ -746,7 +732,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Ratchet README layout-map <-> disk bijection and 'N <noun>' "
-            "count-numeral claims (rf2-198k3)."
+            "count-numeral claims."
         ),
     )
     parser.add_argument(
@@ -790,7 +776,7 @@ def main(argv: list[str]) -> int:
             "\nFix: update the README's layout map / count claim to match the "
             "source of truth (the dirs on disk, or the enumerated list it "
             "introduces).  This guard exists so that drift turns CI red "
-            "instead of being found by hand (rf2-198k3).\n"
+            "instead of being found by hand.\n"
         )
         return 1
 
@@ -800,12 +786,11 @@ def main(argv: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Self-tests (rf2-198k3) — pure-function unit checks, no external fixtures.
+# Self-tests — pure-function unit checks, no external fixtures.
 #
 # The full-tree run (`check`) is itself the integration test (it must pass on
-# the hand-fixed tree and go red on a deliberate drift — see the bead's
-# teeth-proof).  These unit self-tests pin the parsing primitives so a future
-# refactor can't silently weaken them.
+# a tree in sync and go red on a deliberate drift).  These unit self-tests pin
+# the parsing primitives so a future refactor can't silently weaken them.
 # ---------------------------------------------------------------------------
 
 def _run_self_tests(verbose: bool = False) -> int:
@@ -831,9 +816,9 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("twenty", parse_numeral("twenty"), 20)
 
     # The pair-mcp claim pattern must admit BOTH numeral forms the module
-    # docstring promises (rf2-664t7).  It was word-only, so the GDS restyle's
-    # digit rewrite made the count unreadable rather than wrong (rf2-aw1ez) —
-    # the check reported 'claim pattern not found' and stopped comparing.
+    # docstring promises.  A word-only pattern would leave a digit rewrite
+    # unreadable rather than wrong — the check would report 'claim pattern
+    # not found' and stop comparing.
     _pair_claim = next(c.claim_re for c in COUNT_CHECKS
                        if c.readme.endswith("re-frame2-pair-mcp/README.md"))
 
@@ -847,13 +832,13 @@ def _run_self_tests(verbose: bool = False) -> int:
            _claim("exposes the 33 re-frame2-pair ops"), "33")
     expect("pair-claim-wraps-newline",
            _claim("exposes the 33\nre-frame2-pair ops"), "33")
-    # Widened, not loosened: a non-numeral still reaches parse_numeral and is
+    # Wide, not loose: a non-numeral still reaches parse_numeral and is
     # still rejected there, so the gate keeps its teeth.
     expect("pair-claim-non-numeral-rejected",
            parse_numeral(_claim("exposes the many re-frame2-pair ops") or ""),
            None)
 
-    # first-column name extraction backing the NameSetCheck (rf2-664t7)
+    # first-column name extraction backing the NameSetCheck
     named = [
         "| MCP tool | What |",
         "|---|---|",
@@ -895,7 +880,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     ])
     expect("layout-dirs-glyph", _layout_top_level_dirs(blk3), {"spec", "src"})
 
-    # Nested glyph rows are NOT immediate children (rf2-6vlds).  A leading
+    # Nested glyph rows are NOT immediate children.  A leading
     # "│" is a continuation column — i.e. indent — so "│   └── fixture/"
     # sits one tier below "├── tests/" rather than beside it.  Without that,
     # every hand-drawn tree that shows one level of inner detail reports its
@@ -914,7 +899,7 @@ def _run_self_tests(verbose: bool = False) -> int:
            {"references", "tests", "spec"})
 
     # Dot-named map entries are dropped at the return, mirroring the
-    # leading-dot filter in ``_disk_dirs`` (rf2-6vlds).  Otherwise
+    # leading-dot filter in ``_disk_dirs``.  Otherwise
     # ".claude-plugin/" — which every skill layout tree lists, because the
     # family convention requires the file — reads as a phantom non-existent
     # dir, since the disk scan never yields it.
@@ -956,7 +941,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         expect("section-block-count", len(blocks), 1)
 
     # _disk_dirs skips gitignored build artefacts + dotdirs but keeps real
-    # source dirs (rf2-wv7d7z): a post-build local tree carries node_modules/
+    # source dirs: a post-build local tree carries node_modules/
     # out/ .shadow-cljs/ .cpcache/ alongside the documented source dirs, and
     # only the latter must show up in the bijection.
     import tempfile
@@ -972,13 +957,13 @@ def _run_self_tests(verbose: bool = False) -> int:
                _disk_dirs(base), {"core", "adapters"})
 
     # Layout check end-to-end against a real temp tree, on the nested-glyph
-    # shape the skill layouts use (rf2-6vlds).  This is the row that stops a
-    # future editor reaching for ``ignore={"fixture"}`` when a nested row
-    # reds: ``ignore`` is subtracted from the DISK side too (see
-    # ``_run_layout_check``), so that spelling papers over the parser defect
-    # AND silently accepts an undocumented immediate ``fixture/``.  The fix
-    # belongs in the parser, and this case goes red if it is ever moved back
-    # into the registry.
+    # shape the skill layouts use.  This is the row that stops a future
+    # editor reaching for ``ignore={"fixture"}`` when a nested row reds:
+    # ``ignore`` is subtracted from the DISK side too (see
+    # ``_run_layout_check``), so that spelling papers over a parser defect
+    # AND silently accepts an undocumented immediate ``fixture/``.  Nesting
+    # belongs in the parser, and this case goes red if it is ever handled in
+    # the registry instead.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         skill = root / "skills" / "x"
@@ -997,7 +982,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         expect("layout-e2e-undocumented-dir-named",
                vs and "omits on-disk dir(s): fixture" in vs[0].message, True)
 
-    # NameSetCheck end-to-end (rf2-664t7) — the regression this check exists
+    # NameSetCheck end-to-end — the regression this check exists
     # for is a table that under-lists its registry while the PROSE agrees
     # with the table, which the count check cannot see by construction.
     with tempfile.TemporaryDirectory() as tmp:

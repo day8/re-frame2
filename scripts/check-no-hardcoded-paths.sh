@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
 # scripts/check-no-hardcoded-paths.sh
 #
-# Portability gate (rf2-1ppe4, child of the rf2-v6wyb portability EPIC).
+# Portability gate.
 #
-# Root-cause LOCK for the portability scrub (rf2-q4sah, #2509): fail CI on
-# any tracked file that reintroduces environment-specific hardcoding —
+# Fails CI on any tracked file that carries environment-specific
+# hardcoding —
 #
 #   (1) the literal token `miket` (the maintainer's home-dir / username),
 #       ANYWHERE in a tracked file; and
@@ -14,10 +14,10 @@
 #       the explicit PERSONAL_NAMES list below.
 #
 # It deliberately does NOT key on Windows path SHAPE (drive letters,
-# backslashes) — those are legitimate cross-platform test coverage. The
-# scrub re-rooted every such fixture onto the sanctioned NEUTRAL
-# placeholders (`me` / `my-app` / `myapp` / `proj` / `u`), which carry no
-# personal name and therefore never match. The gate keys purely on the
+# backslashes) — those are legitimate cross-platform test coverage. Such
+# fixtures use the sanctioned NEUTRAL placeholders (`me` / `my-app` /
+# `myapp` / `proj` / `u`), which carry no personal name and therefore never
+# match. The gate keys purely on the
 # PERSONAL name token, so neutral placeholders pass by construction.
 #
 # Cross-platform: POSIX sh. Runs identically on the Linux CI runner, on
@@ -29,7 +29,7 @@
 # `docs/spec` + `docs/migration` copies) are excluded for free because
 # `git grep` never sees them. The one tracked tree we skip explicitly is
 # `.beads/` — the issue-tracker data legitimately records bead prose that
-# mentions `miket` (e.g. this bead's own description).
+# can mention `miket`.
 #
 # Exit: 0 = clean; 1 = at least one violation (per-hit message printed).
 
@@ -52,14 +52,14 @@ PERSONAL_NAMES="mike miket"
 # is a reviewed list, not a silent skip. Matched verbatim against the
 # repo-relative, forward-slashed paths `git grep` emits.
 #
-# PERMANENT — redaction test fixtures (see bead rf2-1ppe4 NOTES). They MUST
+# PERMANENT — redaction test fixtures. They MUST
 # carry user-named paths to prove the scrubbing/redaction logic actually
 # redacts them; replacing the names with placeholders would defeat the test.
 #     - tools/machines-viz/test/day8/re_frame2_machines_viz/share_cljs_test.cljs
 #
-# (The local worktree-guard + git-hook tooling was de-personalised by
-# rf2-lalk6 — marker/env-derived root detection, no maintainer paths — so it
-# is no longer allowlisted and is gated like any other tracked file.)
+# (The local worktree-guard and git-hook tooling derive their roots from
+# markers and the environment and carry no maintainer paths, so they are not
+# allowlisted and are gated like any other tracked file.)
 #
 # THIS script itself is allowlisted: it names `mike`/`miket` in the
 # PERSONAL_NAMES list and in this comment by necessity.
@@ -140,7 +140,7 @@ if [ "$violations" -ne 0 ]; then
   printf 'Use the neutral placeholders instead (me / my-app / myapp / proj / u),\n' >&2
   printf 'or — if the path is a deliberate redaction fixture or local guard tool —\n' >&2
   printf 'add it to the explicit ALLOWLIST in scripts/check-no-hardcoded-paths.sh\n' >&2
-  printf 'with a justification. See bead rf2-1ppe4.\n' >&2
+  printf 'with a justification.\n' >&2
   exit 1
 fi
 

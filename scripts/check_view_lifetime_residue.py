@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """View-lifetime residue ratchet — zero tolerance for the excised reservation term.
 
-The re-frame2 excision epic (rf2-5e8zv) removed the view-lifetime reservation
-term IN FULL: the view-lifetime binding is deleted, the observation surface
-returns a HANDLE, and the Resources surface pins liveness with an OWNER. This
-ratchet is the mechanism that keeps it gone — prose does not stop a
-reintroduction. (This module deliberately never spells the retired token; it is
+There is no view-lifetime reservation term in re-frame2: there is no
+view-lifetime binding, the observation surface returns a HANDLE, and the
+Resources surface pins liveness with an OWNER. This ratchet is the mechanism
+that keeps the term out — prose does not stop a reintroduction. (This module
+deliberately never spells the retired token; it is
 constructed at runtime from `_STEM` so the guard is not its own violation.)
 
 It scans every git-tracked file's CONTENT and PATH for the retired vocabulary in
@@ -13,7 +13,7 @@ every lexical form: natural-language singular/plural/past/gerund, and
 identifier / path forms (snake, camel, kebab). There is NO baseline, NO ceiling,
 and NO allowlist for product files: the permitted count is exactly ZERO. Only
 `.beads/**` is excluded — bead history is issue-tracker state, not product, and
-records the excision it drove. Git history is outside the worktree scan.
+legitimately names the term. Git history is outside the worktree scan.
 
 The forbidden stem is CONSTRUCTED from fragments (see `_STEM`) so this guard's
 own source never spells the retired word — the ratchet is therefore NOT its own
@@ -22,7 +22,7 @@ likewise construct every example from `_STEM`.
 
 Ordinary words that merely END in the stem — "release", "please", "displease"
 and their inflections — are NOT flagged: the stem only counts when it is not the
-tail of one of those. The survivors of the excision — "handle", "owner",
+tail of one of those. The live vocabulary around it — "handle", "owner",
 "route", "machine", "ssr", "app-event" — are different words and never match.
 
 Exit code:
@@ -51,8 +51,8 @@ _STEM = "l" + "eas"
 # case-insensitively, that is NOT the tail of "re<stem>e" or "p<stem>e"
 # (release / please / displease and their inflections). The exclusion is a
 # fixed-width negative lookbehind on the two / one character(s) that precede the
-# stem, so a genuine occurrence sharing a line with the survivor word "release"
-# is still caught (the earlier line-level filters missed exactly that). No
+# stem, so a genuine occurrence sharing a line with the word "release" is
+# caught (a line-level filter would miss exactly that). No
 # trailing word boundary, so identifier forms are caught too: snake
 # `<stem>_id`, camel `<stem>Id` and `view<Stem>`, kebab `<stem>-manager`.
 _PATTERN = re.compile(
@@ -124,9 +124,9 @@ def _report(hits: Iterable[tuple[str, int | None, str]]) -> None:
         where = f"{rel}:{line_no}" if line_no is not None else f"{rel} (path)"
         sys.stderr.write(f"  {where}\n      {text}\n")
     sys.stderr.write(
-        "\nThe view-lifetime concept was excised in full (rf2-5e8zv): the "
+        "\nThere is no view-lifetime concept: the "
         "observation surface returns a HANDLE and Resources pin liveness with "
-        "an OWNER. Reword to the surviving vocabulary; do not reintroduce the "
+        "an OWNER. Reword to that live vocabulary; do not reintroduce the "
         "retired term. Only .beads/** is exempt.\n"
     )
 

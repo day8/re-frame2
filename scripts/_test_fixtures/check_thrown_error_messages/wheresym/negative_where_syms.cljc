@@ -1,5 +1,5 @@
 (ns wheresym.negative-where-syms
-  "NEGATIVE where-sym fixtures (rf2-z5lv): every one of these must stay GREEN.
+  "NEGATIVE where-sym fixtures: every one of these must stay GREEN.
 
   A gate that only proves it FIRES is half a gate. These pin the other half —
   and specifically the three ways this rule could go wrong in the expensive
@@ -97,9 +97,9 @@
 
 (defn char-literal-then-a-real-call [c]
   ;; REGRESSION PIN. `\"` outside a string is the character `"`, not a
-  ;; delimiter. Read as a delimiter it swallows the rest of the file — measured
-  ;; on `re-frame.ssr.html-helpers`, where it took both real where-syms with it
-  ;; and the scan reported zero. The call below must still be SEEN (and must
+  ;; delimiter. Read as a delimiter it would swallow the rest of the file,
+  ;; taking every real where-sym after it with it, and the scan would
+  ;; report zero. The call below must still be SEEN (and must
   ;; resolve, so this fixture stays green): if the mask desynchronises here, the
   ;; positive fixture's later sites are the ones that go quiet.
   (when (= c \")
@@ -123,11 +123,11 @@
     "the where-sym is the top-level one"
     {:extra {:sym 'rf.fixture/ghost-nested}}))
 
-;; ---- `do` IS transparent: the valid exit-0 control for the oracle repair --
+;; ---- `do` IS transparent: the valid exit-0 control for the oracle ---------
 ;;
-;; Audit #9501 removed `comment` from the transparent-wrapper set. `do` really
+;; `comment` is not in the transparent-wrapper set, but `do` is: `do` really
 ;; does evaluate its body, so the `def` inside interns and this door is live.
-;; Green here is what says the repair cut only the inactive forms.
+;; Green here is what says only the inactive forms are cut.
 
 (defn do-defined-var-resolves []
   (rf.error/throw-error!
@@ -138,8 +138,8 @@
 ;; ---- commas are reader whitespace, and correct code uses them ------------
 ;;
 ;; The resolving twins of the positive fixture's comma sites. GREEN HERE IS
-;; ONLY HALF THE EVIDENCE — a detector blind to commas is green too, which is
-;; exactly how the defect shipped — so the self-test pins these as OBSERVED at
+;; ONLY HALF THE EVIDENCE — a detector blind to commas is green too — so
+;; the self-test pins these as OBSERVED at
 ;; their lines rather than merely unreported.
 
 (defn comma-tight-on-the-head-resolves []
@@ -168,8 +168,8 @@
 ;; ---- commas as the SOLE separator, naming live vars ----------------------
 ;;
 ;; The resolving twins of positive section (6). Pinned as OBSERVED, because
-;; the spelling they exercise is the one a green sabotage plant proved the
-;; earlier comma fixtures did not reach.
+;; the spelling they exercise is one the comma fixtures above do not
+;; reach.
 
 (defn commas-as-sole-separator-resolves []
   (rf.error/throw-error! :rf.error/ok-twenty,'rf.fixture/known-public,"no whitespace anywhere in the argument list"))
@@ -192,13 +192,13 @@
     'rf.fixture/conditional-defined-public
     "`#?(:clj (defn conditional-defined-public ...))` interns the var"))
 
-;; ---- LIVE SPLICING CONDITIONALS: the false-RED direction (audit #9515) ----
+;; ---- LIVE SPLICING CONDITIONALS: the false-RED direction -----------------
 ;;
-;; `(do #?@(:clj [(defn ...)]))` is legal Clojure and interns its var, but the
-;; composed-prefix repair consumed `#?@` wherever it met one — including
+;; `(do #?@(:clj [(defn ...)]))` is legal Clojure and interns its var. A
+;; prefix pass that consumed `#?@` wherever it met one — including
 ;; inside a `do` body, which `_public_names_defined_by` walks by re-entering
-;; the same walker. All three doors below went dead in the oracle, so these
-;; three correct calls reddened.
+;; the same walker — would kill all three doors below in the oracle, and
+;; these three correct calls would redden.
 ;;
 ;; PINNED AS OBSERVED, and here that matters more than anywhere else in this
 ;; file: these are the sites a FALSE RED fires on, so the regression they
@@ -226,14 +226,14 @@
 
 ;; ---- FORM 3 AND FORM 2: THE TWO NON-VAR SPELLINGS THAT ARE STILL PLACES ---
 ;;
-;; rf2-uewm. A where-sym does not have to name a VAR; it has to name a place a
+;; A where-sym does not have to name a VAR; it has to name a place a
 ;; reader can land on. Two further spellings do, and both must stay green:
 ;;
 ;;   * a REAL NAMESPACE SPELLED IN FULL. `re-frame.fixture` exists, so it is a
 ;;     place; its require-alias spelling `rf.fixture` FIRES in the positive
 ;;     fixture. Pinned OBSERVED below, because green here alone is also what a
 ;;     detector that skips every slash-free symbol looks like - which is
-;;     exactly the state this rule replaced.
+;;     exactly the blindness this rule exists to avoid.
 ;;   * a RESERVED PUBLIC EVENT ID. These are not vars and never will be, so the
 ;;     public-var oracle would call them dead doors for ever. The sanctioned
 ;;     set is closed at two members, each citing the Conventions row that

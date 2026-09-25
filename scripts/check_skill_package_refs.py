@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""In-package link-resolution gate for packaged skills (rf2-deo2zp).
+"""In-package link-resolution gate for packaged skills.
 
 re-frame2's published skills (the ones carrying a `package.json` +
 `.claude-plugin/plugin.json`) each ship a self-contained package under a
-TWO-PROMISE package boundary (rf2-nvbz):
+TWO-PROMISE package boundary:
 
     1. Anything a skill's normal operation must READ ships inside the package
        (its `package.json` `files` allow-list) and is linked package-relative,
@@ -16,53 +16,50 @@ TWO-PROMISE package boundary (rf2-nvbz):
        an absolute repository URL — `https://github.com/day8/re-frame2/blob/
        main/<path>[#anchor]` for a file, `tree/main/<path>` for a directory.
 
-(The former sibling `skills/shared/` protocol layer — and the link-only
-distribution caveat + guard arm that defended it, rf2-f14su — was retired under
-rf2-fqjys: each consumer now owns its instructions locally.)
+(There is no shared `skills/shared/` protocol layer: each consumer owns its
+instructions locally.)
 
 The two invariants this gate enforces:
 
-    a. In-package link resolution (rf2-deo2zp). For every packaged skill,
+    a. In-package link resolution. For every packaged skill,
        every INTRA-package relative link from a shipped doc MUST resolve to a
        file the `files` allow-list ships.
 
-    b. No escape (rf2-nvbz). NO relative link in a shipped doc may resolve
+    b. No escape. NO relative link in a shipped doc may resolve
        OUTSIDE its package at all.
 
 "Shipped doc" is DERIVED from that same allow-list rather than from a roster of
-directory names (rf2-pp72). The docs a packaged install can resolve links inside
+directory names. The docs a packaged install can resolve links inside
 are exactly the markdown files the tarball contains, so `patterns/`,
-`decision-trees/` and a top-level `examples-map.md` are scanned on the day
-`files` starts shipping them — there is no second list to keep in step, which is
-what let the roster fall behind the allow-list in the first place. A doc `files`
+`decision-trees/` and a top-level `examples-map.md` are scanned whenever
+`files` ships them — there is no second list to keep in step, and a second
+list would fall behind the allow-list. A doc `files`
 omits is not in the tarball at all, so its links cannot break a packaged install
 and it is correctly out of scope.
 
-"Intra-package" is decided by where a link RESOLVES, not by how it is spelled
-(rf2-kgw8z). A `../` from a nested doc usually lands back inside the package —
-`references/README.md` -> `../spec/design.md` is the reported case, and
-`references/x.md` -> `../SKILL.md` is the common one — so treating the literal
-`../` prefix as "escapes the package" left those links unexamined. Resolution
-still decides which invariant a link answers to now that both are enforced:
-re-entry is invariant (a)'s allow-list question, a genuine escape is invariant
-(b), and neither can be read off the spelling.
+"Intra-package" is decided by where a link RESOLVES, not by how it is spelled.
+A `../` from a nested doc usually lands back inside the package —
+`references/README.md` -> `../spec/design.md` and `references/x.md` ->
+`../SKILL.md` both do — so treating the literal `../` prefix as "escapes the
+package" would leave those links unexamined. Resolution also decides which
+invariant a link answers to: re-entry is invariant (a)'s allow-list question, a
+genuine escape is invariant (b), and neither can be read off the spelling.
 
 The defect invariant (a) prevents: a shipped doc links to a sibling support doc
 (`docs/LOCAL_DEV.md`, `STATUS.md`, `RELEASING.md`, ...) that the `files`
 allow-list omits, so a packaged install resolves the link to a missing file at
 exactly the point a user is configuring the skill.
 
-The defect invariant (b) prevents (rf2-nvbz): a link that genuinely RESOLVES
+The defect invariant (b) prevents: a link that genuinely RESOLVES
 outside the package is correct for a reader standing in the monorepo and dead
 for everyone else — each skill publishes as its OWN package with its own name
 and `repository.directory`, so an installed one has no sibling skill beside it
-and no `spec/` above it. Those links used to be OUT OF SCOPE here, on the
-reasoning that they point at the monorepo rather than the tarball, while
-`check_doc_slugs.py` passed them because their targets do exist in the repo —
-so 427 of them accumulated in the seam between the two gates with the tree
-green throughout. They now take the absolute-URL spelling, and
-`check_doc_slugs.py` unwraps this repo's own `blob/main` / `tree/main` URLs so
-that spelling keeps the rename-safety the relative one had.
+and no `spec/` above it. `check_doc_slugs.py` passes such a link because its
+target does exist in the repo, so without invariant (b) escaping links would
+accumulate in the seam between the two gates with the tree green throughout.
+They take the absolute-URL spelling instead, and `check_doc_slugs.py` unwraps
+this repo's own `blob/main` / `tree/main` URLs so that spelling keeps the
+rename-safety a relative link has.
 
 npm always ships `package.json`, the README, and LICENSE/LICENCE regardless of
 `files`.
@@ -82,8 +79,6 @@ Usage:
     python scripts/check_skill_package_refs.py --verbose
     python scripts/check_skill_package_refs.py --ci          # terse; CI-shaped
     python scripts/check_skill_package_refs.py --self-test    # built-in fixtures
-
-rf2-deo2zp.
 """
 
 from __future__ import annotations
@@ -123,13 +118,8 @@ def _iter_packaged_skills(skills_root: Path) -> Iterable[Path]:
 # optional `#anchor` and any surrounding angle-brackets later.
 _MD_LINK_RE = re.compile(r"\]\(\s*<?([^)>\s]+)>?\s*\)")
 
-# Inline markers (case-insensitive) that flag a link as a DELIBERATE
-# monorepo-only / repo-maintenance reference — a file the skill intentionally
-# omits from its published package and tells the reader to reach from a clone.
-# When the linking line carries one of these, an unshipped target is expected,
-# not a defect.
-# The spelling a shipped doc must use to cite anything outside its package
-# (rf2-nvbz). Deliberate TWINS of `GH_BLOB_BASE` in mkdocs_hooks.py, which
+# The spelling a shipped doc must use to cite anything outside its package.
+# Deliberate TWINS of `GH_BLOB_BASE` in mkdocs_hooks.py, which
 # rewrites out-of-context references to GitHub URLs for the same reason; the
 # hook is a MkDocs plugin and is not imported here. If the repository moves,
 # these change with it.
@@ -149,6 +139,11 @@ def _repo_display(resolved: Path) -> str:
         return resolved.as_posix()
 
 
+# Inline markers (case-insensitive) that flag a link as a DELIBERATE
+# monorepo-only / repo-maintenance reference — a file the skill intentionally
+# omits from its published package and tells the reader to reach from a clone.
+# When the linking line carries one of these, an unshipped target is expected,
+# not a defect.
 _MONOREPO_ONLY_MARKERS = (
     "not in the published package",
     "deliberately not in the published",
@@ -203,13 +198,13 @@ def _shipped_docs_with_links(skill_dir: Path, allow: list[str]) -> Iterable[Path
 
     Every markdown file the `files` allow-list ships — decided by the same
     [[_is_shipped]] predicate the link TARGETS are checked against, so the two
-    halves of the invariant cannot drift apart (rf2-pp72).
+    halves of the invariant cannot drift apart.
 
-    This replaced a hardcoded SKILL.md / README.md / references/**.md roster
-    that had already fallen behind: `skills/re-frame2` ships `patterns/`,
-    `decision-trees/` and `examples-map.md`, and `skills/re-frame2-pair` ships
-    `docs/` and `STATUS.md`, none of which the roster named — so a link from
-    any of them to an unshipped path was invisible here.
+    A hardcoded SKILL.md / README.md / references/**.md roster would fall
+    behind: `skills/re-frame2` ships `patterns/`, `decision-trees/` and
+    `examples-map.md`, and `skills/re-frame2-pair` ships `docs/` and
+    `STATUS.md`, none of which such a roster names — so a link from any of
+    them to an unshipped path would be invisible here.
     """
     for md in sorted(skill_dir.rglob("*.md")):
         if _is_shipped(md.relative_to(skill_dir).as_posix(), allow):
@@ -239,18 +234,18 @@ def _broken_package_links(skill_dir: Path) -> list[str]:
                     continue
                 # Resolve relative to the linking doc's directory, then make it
                 # package-root-relative. Scope is decided by where a link
-                # RESOLVES, never by how it is spelled (rf2-kgw8z): a `../`
+                # RESOLVES, never by how it is spelled: a `../`
                 # from a nested doc very often lands back INSIDE the package
-                # — `references/README.md` -> `../spec/design.md` is the
-                # reported case — and skipping on the literal prefix left
-                # every such link unexamined, which is the allow-list question
+                # — as `references/README.md` -> `../spec/design.md` does —
+                # and skipping on the literal prefix would leave every such
+                # link unexamined, though each is the allow-list question
                 # this gate exists to answer.
                 resolved = (doc.parent / target).resolve()
                 try:
                     rel_target = resolved.relative_to(skill_dir.resolve())
                 except ValueError:
                     # Genuinely escapes the package. Under the two-promise rule
-                    # (rf2-nvbz) that is now a finding rather than out of scope:
+                    # that is a finding:
                     # the link resolves for a reader who happens to be standing
                     # in the monorepo and resolves nowhere for a packaged
                     # install, which has no sibling skill and no spec/ above it.
@@ -310,7 +305,7 @@ def check(skills_root: Path, verbose: bool = False, ci: bool = False) -> int:
             "path INSIDE the package that the allow-list does not ship, so a "
             "packaged install resolves it to a missing file. Add the target to "
             "`files`, or mark the linking line as a deliberate monorepo-only "
-            "reference. (rf2-deo2zp)\n"
+            "reference.\n"
             "  * `resolves OUTSIDE the package` — a shipped doc reaches out of "
             "its own package by a relative link, which resolves only for a "
             "reader standing in the monorepo. Spell it as an absolute repo URL "
@@ -320,7 +315,7 @@ def check(skills_root: Path, verbose: bool = False, ci: bool = False) -> int:
             "route the read through the pinned checkout the skill names). The "
             "monorepo-only marker does not apply here: it excuses an unshipped "
             "IN-package path, and an escape has a spelling that works for "
-            "every reader. (rf2-nvbz)\n"
+            "every reader.\n"
         )
     elif verbose:
         sys.stderr.write(
@@ -371,13 +366,13 @@ def _make_skill(
         _write(d / "docs" / "SETUP.md", "# setup\n")
     _write(d / "SKILL.md", skill_body)
     # references/lens.md sits one level down, so a `../` link from it resolves
-    # back INSIDE the package — the rf2-kgw8z shape.
+    # back INSIDE the package — the re-entry shape.
     ref_body = "# refs\n"
     if ref_link is not None:
         ref_body += f"See [design]({ref_link}){suffix}.\n"
     _write(d / "references" / "lens.md", ref_body)
-    # patterns/example.md is the rf2-pp72 shape: a doc the old hardcoded
-    # roster never scanned, shipped or not.
+    # patterns/example.md exercises the derived scan surface: a doc a
+    # hardcoded SKILL/README/references roster would never scan, shipped or not.
     if pattern_link is not None:
         _write(
             d / "patterns" / "example.md",
@@ -426,10 +421,9 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             0,
         ),
-        # rf2-nvbz — a link RESOLVING outside the package is a FINDING. It is
+        # A link RESOLVING outside the package is a FINDING. It is
         # correct for a reader standing in the monorepo and dead for a packaged
-        # install, which carries no sibling skill and no spec/ above it. This
-        # case expected 0 until the two-promise rule landed.            -> 1
+        # install, which carries no sibling skill and no spec/ above it.  -> 1
         (
             "bad_parent_escape",
             dict(
@@ -439,7 +433,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             1,
         ),
-        # rf2-nvbz — an absolute repo URL is the sanctioned spelling for the
+        # An absolute repo URL is the sanctioned spelling for the
         # same citation, and carries no allow-list question at all.      -> 0
         (
             "ok_parent_escape_as_repo_url",
@@ -453,7 +447,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             0,
         ),
-        # rf2-nvbz — the monorepo-only MARKER does not excuse an escaping link.
+        # The monorepo-only MARKER does not excuse an escaping link.
         # The marker says "this in-package path is deliberately unshipped"; an
         # escape has a spelling that works for every reader, so there is
         # nothing to excuse.                                             -> 1
@@ -467,10 +461,10 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             1,
         ),
-        # rf2-kgw8z — a `../` link from a NESTED doc that resolves back INSIDE
+        # A `../` link from a NESTED doc that resolves back INSIDE
         # the package, at a path `files` omits. Spelled like an escape, but it
-        # is an intra-package link and is exactly the reported improver case
-        # (references/README.md -> ../spec/design.md).                  -> 1
+        # is an intra-package link, the shape of the improver skill's
+        # references/README.md -> ../spec/design.md.                     -> 1
         (
             "bad_parent_reentry_unshipped",
             dict(
@@ -514,11 +508,11 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             0,
         ),
-        # rf2-pp72 — THE WIDENING CASE. A shipped `patterns/` doc links to a
-        # path `files` omits. Under the old hardcoded SKILL/README/references
-        # roster this doc was never opened, so the finding was invisible and
-        # this case returned 0. It is the negative fixture proving the scan
-        # surface is genuinely derived from the allow-list.        -> 1
+        # THE WIDENING CASE. A shipped `patterns/` doc links to a
+        # path `files` omits. A hardcoded SKILL/README/references roster
+        # would never open this doc, so the finding would be invisible and
+        # this case would return 0. It is the negative fixture proving the
+        # scan surface is genuinely derived from the allow-list.   -> 1
         (
             "bad_patterns_doc_unshipped_link",
             dict(
@@ -611,8 +605,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Verify every packaged skill's shipped docs resolve their "
-            "intra-package links against the package.json `files` allow-list "
-            "(rf2-deo2zp)."
+            "intra-package links against the package.json `files` "
+            "allow-list."
         ),
     )
     parser.add_argument(

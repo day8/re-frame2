@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Name the REQUIRED checks that `scripts/test-fast-pr.sh` does not run (rf2-13zre).
+"""Name the REQUIRED checks that `scripts/test-fast-pr.sh` does not run.
 
-WHY THIS EXISTS.  A worker runs the fast-PR spine, reads `PASS fast PR spine`,
-opens its PR, and CI goes red on a check the spine never ran.  It happened three
-times on 2026-08-04, each time on a DIFFERENT check, each time costing a round
-trip -- and each discovery taught nobody, because nothing wrote it down.
+WHY THIS EXISTS.  A worker who runs the fast-PR spine, reads `PASS fast PR
+spine` and opens its PR can see CI go red on a check the spine never ran --
+a round trip per check, and a discovery that teaches nobody unless something
+writes it down.
 
 The spine's own PASS line already enumerates the tiers it SKIPPED by diff
 classification, and its header names the broad families it has no tier for.
@@ -12,18 +12,13 @@ Neither can see the class that actually ambushed people:
 
     A REQUIRED CHECK CAN BE A **STEP INSIDE A JOB THE SPINE BELIEVES IT COVERS.**
 
-The sharpest instance was the EP-0036 donor-boundary check.  It was the last step
-of test.yml's `jvm-freehand` job, so it reported under the display name
-"JVM freehand (clojure -M:test)" -- and it was not a test at all, it was a
-`git grep` for `re-frame.ui` over `implementation/freehand`.  The spine ran that
-job's `clojure -M:test` and nothing else, so the tier was not skipped, the step
-was not a suite, and a worker reading the red went looking for a failing test
-that did not exist.  That job was deleted with the Freehand tree (rf2-0yp7w.6);
-the CLASS outlived it, and the witness this gate's self-test pins in its place is
-the `cljs` job's Fresco `:advanced` release build, which the spine's `cljs` lane
-matches through its node-test run and never builds.  Job-granularity comparison
-cannot see either.  This gate compares at STEP granularity, and it names the
-CHECK rather than the job.
+The witness this gate's self-test pins is the `cljs` job's Fresco `:advanced`
+release build.  It reports under the display name "CLJS (shadow-cljs
+:node-test)", and the spine's `cljs` lane matches that job through its
+node-test run and never builds the bundle -- so the tier is not skipped, the
+step is not a suite, and a worker reading its red goes looking for a failing
+test that does not exist.  Job-granularity comparison cannot see it.  This gate
+compares at STEP granularity, and it names the CHECK rather than the job.
 
 HOW IT DECIDES, and why the failure direction is the safe one.
 
@@ -39,8 +34,8 @@ HOW IT DECIDES, and why the failure direction is the safe one.
     anything else is a gate, not setup -- misreading a gate as setup would HIDE
     it, so the setup patterns are anchored and whole-body.
 
-  * COVERAGE is decided by `SPINE_LANES` below: eleven command signatures, one
-    per lane the spine actually has.  Everything a signature does not match is
+  * COVERAGE is decided by `SPINE_LANES` below: command signatures, one per
+    lane the spine actually has.  Everything a signature does not match is
     reported as unrun.  That is the safe direction by construction: a new CI job
     or a new step inside an existing one is reported as UNRUN until somebody
     teaches this file otherwise, and the failure mode of being wrong is a worker
@@ -49,10 +44,9 @@ HOW IT DECIDES, and why the failure direction is the safe one.
   * The python-checker lane needs no signature maintenance at all.  Both sides
     invoke `python scripts/check_*.py` in an identical parseable shape, so the
     spine's own source is read and the set difference derived.  That difference
-    is where most of the gap turned out to live: CI's `Repo invariant checks` job
-    runs 37 checkers and `verify-readme-links` another 11, of which the spine
-    runs a subset -- THIRTEEN required checker scripts had no local lane at all,
-    every one of them cheap pure-Python, none of them named anywhere.
+    is where most of the gap lives: CI's `Repo invariant checks` and
+    `verify-readme-links` jobs run checkers of which the spine runs a subset,
+    every one of them cheap pure-Python.
 
   * REPRODUCE COMMANDS ARE READ FROM THE STEP, never written here -- the same
     discipline `check_ci_reproduce_commands.py` enforces for the invariant job's
@@ -60,9 +54,8 @@ HOW IT DECIDES, and why the failure direction is the safe one.
     interpolates a `${{ }}` expression, so each step's `run:` body IS the local
     command.  The clj-kondo version pin is derived the same way, from that job's
     own installer step: prose would go stale on the next bump, and a local
-    clj-kondo of a different version PROVES NOTHING (the 2025.10.23 binary
-    installed on this project's Windows checkout reports 0 errors on the line CI
-    fails at 2026.04.15, and 10 different errors CI does not).
+    clj-kondo of a different version PROVES NOTHING, because versions disagree
+    about which findings are errors.
 
 THE DRIFT RATCHETS (`--check`, the default).  There are TWO, one per hand-written
 constant, because the two constants rot in OPPOSITE directions.
@@ -70,19 +63,17 @@ constant, because the two constants rot in OPPOSITE directions.
   * A signature in `SPINE_LANES` that stops matching any required gate step is a
     FAILURE: it means the spine still claims a lane for a check CI renamed, moved
     or deleted, and the claim is now false.  That is the anti-staleness mechanism
-    for coverage -- a hand-written list of gaps would rot silently, and this
-    territory changed twice on the day the bead was filed.
+    for coverage -- a hand-written list of gaps would rot silently.
 
   * An entry in `SETUP_PATTERNS` that stops matching its call sites is the same
-    rot with the opposite blast radius, and until rf2-2yorx nothing caught it.
-    Toolchain installation gets re-classified as a required GATE, so this map
-    GROWS entries telling a reader to run `npx playwright install` locally as
-    though it were a check -- and no exit code moves.  Measured by planting:
-    reverting the Playwright entry to its pre-`timeout` form took the headline
-    from 96 to 106 while `--check` went on printing 'fast-PR gap map clean'.
-    `SETUP_CANARIES` below is the ratchet for that direction, and it watches the
-    CLASSIFICATION rather than the pattern -- see the comment on that constant
-    for why a per-pattern "matches at least one step" floor does not work here.
+    rot with the opposite blast radius.  Toolchain installation gets
+    re-classified as a required GATE, so this map GROWS entries telling a reader
+    to run `npx playwright install` locally as though it were a check -- and the
+    headline count moves while `--check` goes on printing 'fast-PR gap map
+    clean'.  `SETUP_CANARIES` below is the ratchet for that direction, and it
+    watches the CLASSIFICATION rather than the pattern -- see the comment on
+    that constant for why a per-pattern "matches at least one step" floor does
+    not work here.
 
 MODES.
 
@@ -137,22 +128,22 @@ MIN_SPINE_CHECKERS = 10
 SETUP_PATTERNS = (
     # Long flags only, no package argument and no chaining: `npm install
     # --no-audit --no-fund` is how two required jobs install their deps, while
-    # `npm install some-package && npm run build` must stay a GATE.  The bare
-    # `^npm install$` this replaces missed both flag-bearing call sites, which
-    # rf2-2yorx's canary ratchet found reported as unrun required checks.
+    # `npm install some-package && npm run build` must stay a GATE.  A bare
+    # `^npm install$` would miss both flag-bearing call sites and report them
+    # as unrun required checks.
     r"^npm (?:ci|install)(?: --[a-z][a-z-]*)*$",
     r"^pip install\b",
     # Written both bare and quoted across the workflows
     # (`"$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"`), so the
     # trailing quote is optional -- a missed quote here re-reports the Clojure
-    # installer as an unrun gate in all twenty-three JVM jobs.
+    # installer as an unrun gate in every JVM job.
     r"install-clojure-cli\.sh[\"']?$",
-    # The `timeout` prefix is OPTIONAL and its shape is pinned tight (rf2-mul6w).
-    # Fourteen of the seventeen Playwright installs carry an in-command deadline
+    # The `timeout` prefix is OPTIONAL and its shape is pinned tight.
+    # Most of the Playwright installs carry an in-command deadline
     # -- `timeout -k 10 720 npx playwright install ...` -- because a step the
     # RUNNER guillotines is killed rather than failed, so its `|| <handler>` arm
     # never runs and the checks page carries no verdict at all.  Without this
-    # optional group those fourteen bodies stop matching, drop out of the setup
+    # optional group those bodies stop matching, drop out of the setup
     # set, and get reported as UNRUN GATES: a fail-open in the very map the merge
     # criterion consults.  Keep the group narrow -- a literal `timeout`, an
     # optional `-k <secs>`, one numeric deadline -- so it can admit nothing but
@@ -162,8 +153,8 @@ SETUP_PATTERNS = (
     r"^apt-get\b",
     # The clj-kondo installer step (lint.yml). It fetches the pinned release
     # archive straight from the GitHub release rather than by way of upstream's
-    # `install-clj-kondo` script (rf2-rkl9: the script re-downloads the archive
-    # with a bare un-retried `curl -sL`, which is the hop that actually flakes).
+    # `install-clj-kondo` script (the script re-downloads the archive with a
+    # bare un-retried `curl -sL`, which is the hop that flakes).
     r"^curl .*clj-kondo/releases/download/",
     r"^unzip .*clj-kondo",
     r"^sudo install .*/clj-kondo$",
@@ -173,16 +164,15 @@ _SETUP_RE = tuple(re.compile(p) for p in SETUP_PATTERNS)
 
 
 # ---------------------------------------------------------------------------
-# THE SETUP RATCHET (rf2-2yorx).  A witness for SETUP_PATTERNS drift, standing on
-# the far side of the classification it watches.
+# THE SETUP RATCHET.  A witness for SETUP_PATTERNS drift, standing on the far
+# side of the classification it watches.
 #
 # WHY NOT A FLOOR ON THE PATTERNS THEMSELVES.  The obvious guard -- "every
-# SETUP_PATTERNS entry must match at least one required step" -- was measured
-# against the known-WRONG answer and does not catch it.  Three of the thirteen
-# required Playwright installs are still written bare, so the pre-`timeout`
-# pattern goes on matching those three; a floor of one stays GREEN while the
-# other ten silently become gates.  A guard tested only on the passing case is
-# not a guard.
+# SETUP_PATTERNS entry must match at least one required step" -- does not
+# catch the known-WRONG answer.  Some required Playwright installs are written
+# bare, so a pre-`timeout` pattern goes on matching those; a floor of one stays
+# GREEN while the rest silently become gates.  A guard tested only on the
+# passing case is not a guard.
 #
 # WHAT THIS CHECKS INSTEAD.  A required GATE step whose EVERY line is nothing but
 # toolchain installation was misclassified, whatever the reason -- a pattern that
@@ -215,8 +205,8 @@ def misclassified_setup(step: "Step") -> list[str]:
     """The canaries hit by a step whose every line is nothing but installation.
 
     Empty for any body that mixes installation with something else, which is the
-    direction this file has always guarded: hiding a gate inside a setup step is
-    worse than over-reporting one.
+    direction this file guards: hiding a gate inside a setup step is worse than
+    over-reporting one.
     """
     lines = [ln.strip() for ln in join_continuations(step.run or "") if ln.strip()]
     if not lines:
@@ -238,11 +228,10 @@ def misclassified_setup(step: "Step") -> list[str]:
 # command lines joined with " ; ", whitespace collapsed).  `working_dir` may be
 # the sentinel "@impl-roster", meaning "the job's working-directory is an
 # artefact on scripts/test-jvm-implementation.sh" -- that one rule covers every
-# per-artefact JVM job without naming any of them, and it is what made
-# `jvm-freehand`'s SECOND gate step fall out of the derivation as unrun rather
-# than having to be remembered.  That job went with the Freehand tree
-# (rf2-0yp7w.6) and this rule needed no edit, which is the point of it: the
-# roster is READ, never counted here.
+# per-artefact JVM job without naming any of them, so a non-suite step in such a
+# job falls out of the derivation as unrun rather than having to be remembered,
+# and adding or removing an artefact needs no edit here: the roster is READ,
+# never counted here.
 # ---------------------------------------------------------------------------
 class Lane:
     def __init__(self, key: str, command: str, why: str, working_dir: str | None = None):
@@ -281,7 +270,7 @@ SPINE_LANES = (
     ),
     # Its self-test arm is a SEPARATE required step of the same job, so it needs
     # its own signature -- the live lane's `$`-anchored pattern cannot match it,
-    # which is why it sat in this report until rf2-ejm7m gave it a lane.
+    # so without this lane it would be reported as unrun.
     Lane(
         "version-lockstep-self-test",
         r"^\./\.github/scripts/verify-version-lockstep\.sh --self-test$",
@@ -297,26 +286,21 @@ SPINE_LANES = (
         r"^npm run test:scripts$",
         "spine node tier: 'implementation JS harness self-tests' -- the one discovery command, as CI runs it",
     ),
-    # rf2-m3iin -- ANCHORED ON THE WRAPPER, and the working directory is half
-    # the signature.  This lane used to read
-    # `^npx shadow-cljs compile node-test ; node out/node-test\.js$` while
-    # DESCRIBING itself as "spine node tier: `npm run test:cljs`", and the two
-    # are not the same check: both compile `:node-test` and run the same
-    # bundle, but only `npm run test:cljs` goes through
+    # ANCHORED ON THE WRAPPER, and the working directory is half the
+    # signature.  `npx shadow-cljs compile node-test ; node out/node-test.js`
+    # is not the same check as `npm run test:cljs`: both compile `:node-test`
+    # and run the same bundle, but only `npm run test:cljs` goes through
     # `implementation/scripts/compile-node-test.cjs`, which reds on shadow's
-    # warning tally.  So this file -- whose whole job is to notice when the
-    # spine's claim about a CI check has gone false -- was itself asserting the
-    # false half: the spine REFUSED trees the required `cljs` job merged green
-    # (a bare `"` in a deftest docstring; rf2-4a6ei).  A lane signature is a
-    # claim that the spine runs what CI runs, so it must name the command whose
-    # VERDICT the spine reproduces, not merely one that compiles the same build.
+    # warning tally.  A lane signature is a claim that the spine runs what CI
+    # runs, so it must name the command whose VERDICT the spine reproduces, not
+    # merely one that compiles the same build.
     #
     # `working_dir` is not decoration here.  test.yml's `jvm-tools-mcp-base` job
     # also runs a step spelled exactly `npm run test:cljs`, from tools/mcp-base,
     # where that name resolves to a DIFFERENT script
     # (`shadow-cljs compile cljs-test && node out/cljs-test.js`) which the spine
     # does not run at all.  Unscoped, this signature would credit that step too
-    # and re-open this very defect one job over -- an npm script name is only
+    # and make the same false claim one job over -- an npm script name is only
     # unique within its own package.
     Lane(
         "cljs-node-test",
@@ -337,15 +321,15 @@ SPINE_LANES = (
     Lane(
         "fresco-compile",
         r"^npm run test:fresco-compile$",
-        "spine node tier: 'fresco bench-lane compile'",
+        "spine node tier: 'fresco modules compile'",
     ),
     Lane(
         "fresco-invariants",
         r"^npm run test:fresco-invariants$",
         "spine node tier: 'fresco invariants gate'",
     ),
-    # rf2-x1mz — the lint gate itself, which had NO local lane at all until
-    # `scripts/lint_kondo.py` landed.  The signature is deliberately anchored
+    # The lint gate itself, run locally through `scripts/lint_kondo.py`.  The
+    # signature is deliberately anchored
     # on the flags rather than the `--lint` roots: the roots are read out of
     # this very step at run time, so pinning them here would put a second copy
     # of the target list in the file whose whole job is to notice second copies
@@ -357,27 +341,22 @@ SPINE_LANES = (
         "`python scripts/lint_kondo.py` provisions the pinned binary and runs "
         "THIS step's command, read from this file",
     ),
-    # The fixture witness runs as a step of the same job.  It has had a spine
-    # lane in fact since rf2-hic-022 but not in this map, and the omission was
-    # accidentally telling the truth: the gate resolved clj-kondo off PATH, so
-    # the local run proved nothing CI's did (rf2-x1mz measured 2025.10.23 at
-    # `errors: 0` where the pin exits 3).  It now resolves through
-    # `lint_kondo.py` too, which is what makes this lane an honest claim rather
-    # than the over-report it would have been a commit earlier.
+    # The fixture witness runs as a step of the same job.  Locally it resolves
+    # clj-kondo through `lint_kondo.py` at lint.yml's pin, which is what makes
+    # this lane an honest claim: a clj-kondo resolved off PATH would prove
+    # nothing CI's run does.
     Lane(
         "fresco-lint-export",
         r"^npm run test:fresco-lint$",
         "spine node tier: 'fresco lint export gate', at lint.yml's pin",
         working_dir="implementation",
     ),
-    # rf2-r5iy7 — the guide-sample gate's own unconditional job: `docs/core/fresco/**`
-    # is HALF this checker's input and arms no classifier output whatsoever (all
-    # thirty-two measure false), so the npm chain alone left every guide-only
-    # PR running it nowhere.  The spine covers both homes through the chain, so
-    # the job's two steps are not a local gap; without this lane they would be
-    # reported as one, which is the same lie in the opposite direction.  (The
-    # budget-ledger, facade-inventory and naming-census lanes that stood beside
-    # this one retired with their checkers and jobs on 2026-08-30, rf2-6c12m.8.)
+    # The guide-sample gate's own unconditional job: `docs/core/fresco/**` is
+    # HALF this checker's input and arms no classifier output whatsoever, so
+    # the npm chain alone would leave every guide-only PR running it nowhere in
+    # CI.  The spine covers both homes through the chain, so the job's two
+    # steps are not a local gap; without this lane they would be reported as
+    # one, which is the same lie in the opposite direction.
     Lane(
         "fresco-guide-samples",
         r"^python implementation/fresco/scripts/check_guide_samples\.py"
@@ -406,12 +385,11 @@ _PY_CHECKER_RE = re.compile(r"^python scripts/(check_[A-Za-z0-9_]+)\.py\b(.*)$")
 _SPINE_CHECKER_RE = re.compile(
     r'python\s+"\$spine_root/scripts/(check_[A-Za-z0-9_]+)\.py"(.*)$'
 )
-# The clj-kondo pin, read off the release URL the installer step fetches. The
-# pin used to be read from `install-clj-kondo --version <pin>`, but that script
-# re-downloads the archive over an un-retried `curl -sL` and reds the lint gate
-# on a transient network fault (rf2-rkl9), so lint.yml now fetches the archive
-# itself. The release URL carries the same pin and is a tighter anchor: nothing
-# else in any workflow can match it.
+# The clj-kondo pin, read off the release URL the installer step fetches.
+# lint.yml fetches the archive itself rather than through `install-clj-kondo`,
+# whose un-retried `curl -sL` would red the lint gate on a transient network
+# fault. The release URL carries the pin and is a tight anchor: nothing else in
+# any workflow can match it.
 _KONDO_PIN_RE = re.compile(r"clj-kondo/releases/download/v([^/\s]+)/")
 
 
@@ -435,10 +413,8 @@ _BLOCK_RE = re.compile(r"^[|>][-+0-9]*$")
 
 # `${{ github.workspace }}` IS the repo root, so a step declaring it needs no
 # `cd` at all -- and printing the raw expression as a local command would be
-# useless. It is the one workflow expression ever seen to reach a required gate
-# step's location -- the EP-0036 donor grep used it, and that step went with the
-# Freehand tree (rf2-0yp7w.6), so no required gate step declares it today. The
-# handling stays because the shape is what a future one would reuse; no required
+# useless. No required gate step declares it, but it is the shape a step
+# escaping its job's default directory would use, so it is handled; no required
 # gate step's `run:` body interpolates an expression at all.
 _WORKSPACE_RE = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}$")
 
@@ -451,10 +427,8 @@ class Step:
         # A step that declares its own `working-directory` has OVERRIDDEN the
         # job default; record that, so the job-default backfill below cannot
         # quietly put the default back after `${{ github.workspace }}` resolved
-        # to "the repo root". That is exactly the shape the EP-0036 donor grep
-        # used to escape `jvm-freehand`'s `implementation/freehand` default,
-        # kept after that job's deletion because the shape, not the job, is what
-        # this handling is for.
+        # to "the repo root" -- the shape a step uses to escape its job's
+        # default directory.
         self.declared_wd = working_directory is not None
         if working_directory and _WORKSPACE_RE.match(working_directory.strip("'\"")):
             working_directory = None
@@ -764,7 +738,7 @@ class GapMap:
                     f"in SPINE_LANES -- or the parser broke."
                 )
 
-        # The other rot direction: setup re-classified as a gate (rf2-2yorx).
+        # The other rot direction: setup re-classified as a gate.
         for path, job in self.required:
             for step in job.gate_steps:
                 hits = misclassified_setup(step)
@@ -777,7 +751,7 @@ class GapMap:
                     f"recognises this call site any more, so the gap map now lists an "
                     f"installer as a check the spine does not run, and tells a reader "
                     f"to reproduce it locally. That inflation moves no exit code on "
-                    f"its own -- this is the ratchet that makes it move (rf2-2yorx). "
+                    f"its own -- this is the ratchet that makes it move. "
                     f"Re-anchor the SETUP_PATTERNS entry to this call site."
                 )
 
@@ -1135,7 +1109,7 @@ def run_self_tests(verbose: bool) -> int:
     # the kondo pin are legitimately absent -- ignore those problems here.
     fixture_partial = {j.job_id: [s.name for s in u] for j, u in gap.partial}
     check(
-        "THE ITEM-3 CLASS: a non-test step inside a covered JVM job is reported",
+        "THE STEP-IN-COVERED-JOB CLASS: a non-test step inside a covered JVM job is reported",
         fixture_partial.get("jvm-thing") == ["Assert no dependency on the donor"],
     )
     check(
@@ -1211,7 +1185,7 @@ def run_self_tests(verbose: bool) -> int:
         any("expected at least" in p and SPINE in p for p in empty.problems),
     )
 
-    # THE SETUP RATCHET (rf2-2yorx), the other rot direction.  Its unit shape
+    # THE SETUP RATCHET, the other rot direction.  Its unit shape
     # first: the whole-body rule is what keeps it off correct maps.
     def _step(body: str) -> Step:
         return parse_workflow(
@@ -1237,12 +1211,10 @@ def run_self_tests(verbose: bool) -> int:
 
     # ... and then against the answer that is known WRONG.  The fixture has no
     # Playwright call sites, so the corpus has to be the REAL workflows: revert
-    # the Playwright entry to its pre-`timeout` form -- exactly the drift measured
-    # under rf2-mul6w, which took the headline 96 -> 106 at exit 0 -- and require
-    # the ratchet to red.  A guard exercised only on the passing case is untested,
-    # and the per-pattern floor this replaced passes that case while failing this
-    # one: three call sites are still written bare, so the reverted pattern goes
-    # on matching them.
+    # the Playwright entry to its pre-`timeout` form and require the ratchet to
+    # red.  A guard exercised only on the passing case is untested, and a
+    # per-pattern floor passes that case while failing this one: some call
+    # sites are written bare, so the reverted pattern goes on matching them.
     global SETUP_PATTERNS, _SETUP_RE
     _live_patterns, _live_res = SETUP_PATTERNS, _SETUP_RE
     try:
@@ -1257,7 +1229,7 @@ def run_self_tests(verbose: bool) -> int:
 
     _drift_problems = [p for p in drifted.problems if "toolchain installation" in p]
     check(
-        "THE MEASURED FAIL-OPEN: the pre-`timeout` Playwright pattern now REDS",
+        "THE FAIL-OPEN: the pre-`timeout` Playwright pattern REDS",
         len(_drift_problems) > 0
         and all("npx playwright install" in p for p in _drift_problems),
     )
@@ -1278,9 +1250,8 @@ def run_self_tests(verbose: bool) -> int:
     check("the kondo pin regex reads a real pin off the release URL",
           _pin is not None and _pin.group(1) == "2026.04.15")
 
-    # `${{ github.workspace }}` is the repo root -- the EP-0036 donor grep
-    # declares it, and echoing the raw expression as a `cd` target would print a
-    # command nobody can run.
+    # `${{ github.workspace }}` is the repo root, and echoing the raw expression
+    # as a `cd` target would print a command nobody can run.
     ws = parse_workflow(
         "jobs:\n  a:\n    steps:\n      - name: g\n"
         "        working-directory: ${{ github.workspace }}\n"
@@ -1290,7 +1261,7 @@ def run_self_tests(verbose: bool) -> int:
     check("`${{ github.workspace }}` resolves to the repo root, not a literal cd",
           ws.working_directory is None
           and _repro(ws, "") == ["$ git grep -n foo"])
-    # ... and the job default must not be put back over it (the EP-0036 shape).
+    # ... and the job default must not be put back over it.
     ws_override = parse_workflow(
         "jobs:\n  a:\n    defaults:\n      run:\n"
         "        working-directory: implementation/freehand\n"
@@ -1317,16 +1288,14 @@ def run_self_tests(verbose: bool) -> int:
         ),
     )
     check("real repo: >= 60 required jobs discovered", len(real.required) >= 60)
-    check("real repo: at least one PARTIAL job (the item-3 class)", len(real.partial) >= 1)
+    check("real repo: at least one PARTIAL job (step-in-covered-job class)", len(real.partial) >= 1)
     check(
-        # The item-3 class needs a NAMED witness, not merely a non-empty count:
-        # one step, inside a job the spine DOES run, that the spine does not.
-        # This was the EP-0036 donor `git grep` inside `jvm-freehand` until
-        # rf2-0yp7w.6 deleted that job with the Freehand tree. The `cljs` job's
-        # Fresco `:advanced` release build is the same shape and stands in its
-        # place: `test-fast-pr.sh` matches the `cljs` lane through its node-test
+        # The step-in-covered-job class needs a NAMED witness, not merely a
+        # non-empty count: one step, inside a job the spine DOES run, that the
+        # spine does not. The `cljs` job's Fresco `:advanced` release build is
+        # one: `test-fast-pr.sh` matches the `cljs` lane through its node-test
         # run and never builds that bundle.
-        "real repo: an unrun STEP inside a spine-run job is reported (item-3 class)",
+        "real repo: an unrun STEP inside a spine-run job is reported (step-in-covered-job class)",
         any(
             job.job_id == "cljs"
             and any("build:fresco-release" in s.command for s in uncovered)

@@ -76,8 +76,8 @@ _ALLOWED_TYPES = {"standards-track", "process"}
 # from process/active.
 _TYPE_REQUIRED_FROM_EP = 6
 
-# EP-0030 introduced the current PEP-shaped preamble. Earlier EPs remain
-# historical records rather than a metadata-retrofit project.
+# EP-0030 and later carry the PEP-shaped preamble. Earlier EPs are historical
+# records and are not retrofitted with it.
 _LIFECYCLE_METADATA_REQUIRED_FROM_EP = 30
 
 # A README `## Index` table body row.  The table is:

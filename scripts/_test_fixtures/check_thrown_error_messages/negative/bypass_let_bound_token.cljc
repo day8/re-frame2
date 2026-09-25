@@ -1,6 +1,6 @@
 (ns fixture.bypass-let-bound-token)
 
-;; NEGATIVE (rf2-u3otj) — a CONFORMANT message that is `let`-bound before it is
+;; NEGATIVE — a CONFORMANT message that is `let`-bound before it is
 ;; thrown. The runtime message is a human sentence plus the trailing
 ;; `[:rf.error/…]` token, exactly as Spec 009 §The thrown-error shape requires;
 ;; only the `ex-info` call site spells it as the symbol `msg`. This is the shape

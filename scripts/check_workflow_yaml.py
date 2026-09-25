@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 """Assert that every file under `.github/workflows/` is well-formed YAML.
 
-WHY THIS EXISTS (rf2-cb7hs).  Four scripts in this repo READ the workflow files
+WHY THIS EXISTS.  Four scripts in this repo READ the workflow files
 — `check_gate_scheduling.py`, `check_fast_pr_gap.py`, `check_jvm_lane_rosters.py`
 and `check_ci_reproduce_commands.py` — and every one of them is a hand-rolled
-line reader.  Measured, not assumed: with an unmatched quote planted on line 1
-of `.github/workflows/test.yml`, PyYAML refuses the file and ALL FOUR still
-exit 0.  `check_gate_scheduling.py` cannot see the class at all, because it
-strips comments by design (rf2-6ckzl).  `actionlint` appears nowhere in the
-tracked tree.  So until this file landed, nothing at any tier asserted that a
-workflow even PARSED.
+line reader, so a file PyYAML refuses (an unmatched quote on line 1 of
+`.github/workflows/test.yml`, say) leaves ALL FOUR exiting 0.
+`check_gate_scheduling.py` cannot see the class at all, because it strips
+comments by design.  `actionlint` appears nowhere in the tracked tree.  None of
+those readers asserts that a workflow even PARSES.
 
 WHAT IT IS NOT.  It is not `actionlint`, and it deliberately does not validate
 the GitHub Actions grammar — no job wiring, no `needs:` graph, no `if:`
 conditions, no schema.  Those are separate claims with separate costs; this one
 answers exactly one question, in milliseconds: is the file YAML?
 
-It is also not a SAFETY gate, and the bead says so plainly.  A workflow that
+It is also not a SAFETY gate.  A workflow that
 fails to parse does not run, so the PR's rollup comes back short of the required
 band and the merge criterion refuses it.  What this buys is the round trip: a
 local error naming the file and the line, instead of a push, a CI wait, and a
 confusing partial rollup.
 
-WHY IT HAS NO CI HOME, AND WHY THAT IS NOT A HOLE (rf2-ni5sg).  This script is
+WHY IT HAS NO CI HOME, AND WHY THAT IS NOT A HOLE.  This script is
 scheduled only from `scripts/test-fast-pr.sh`, the local pre-checkin spine,
 which is skippable by construction — normally the "gate that runs nowhere"
 shape.  It is not one here, because the CLAIM has a scheduled home even though
@@ -31,17 +30,16 @@ the SCRIPT does not.  `scripts/check_workflow_job_timeouts.py` walks the same
 parse-error arm RETURNS 2 rather than skipping — deliberately, so an unparseable
 file cannot pass vacuously there.  It runs unconditionally on every PR from
 `test.yml`'s `verify-readme-links`, which is in `all-required-passed`'s
-`needs:`.  Verified in CI rather than locally, on main run 32105342995, where
-that step reported success: PyYAML imported on the runner (or it would have
-exited 3) and every workflow file parsed.  So CI already refuses a malformed
-workflow, and a second CI parse of the same files, asserting a strict subset of
-the same claim, would buy nothing but a second thing to keep in step.  What is
-left here is the round trip above — a line number, and every broken file rather
-than the first — which is why this stays a spine lane instead of being deleted.
+`needs:`, and that job installs requirements.txt, which brings PyYAML in
+through mkdocs.  So CI refuses a malformed workflow, and a second CI parse of
+the same files, asserting a strict subset of the same claim, would buy nothing
+but a second thing to keep in step.  What this script adds is the round trip
+above — a line number, and every broken file rather than the first — which is
+why it is a spine lane rather than nothing.
 
 That arm is therefore LOAD-BEARING BEYOND ITS OWN CHARTER: narrowing it to a
 skip would silently remove the only CI-side assertion that the workflows parse,
-and would reopen rf2-ni5sg without touching this file.  `test.yml`'s comment on
+without touching this file.  `test.yml`'s comment on
 those two steps says so at the wiring, which is where somebody about to narrow
 it would be reading.
 

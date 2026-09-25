@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""JVM artefact roster <-> test.yml required-job bijection (rf2-as6bg).
+"""JVM artefact roster <-> test.yml required-job bijection.
 
-WHY THIS EXISTS.  Every JVM artefact in this repo is supposed to be reachable
-two ways: from a developer's machine, via one of the two roster scripts
+WHY THIS EXISTS.  Every JVM artefact in this repo must be reachable two ways: from a developer's machine, via one of the two roster scripts
 
     scripts/test-jvm-implementation.sh      the implementation/ artefacts
     scripts/test-jvm-tools.sh               the tools/ artefacts
@@ -12,16 +11,13 @@ and at PR time, via a job in `.github/workflows/test.yml` that runs
 `all-required-passed` aggregator's `needs:` (a job absent from that list is
 advisory, whatever its own gate says).
 
-Nothing asserted that the two agreed, and they twice did not.  `tools/xray`,
-`tools/machines-viz`, `tools/story`, ... were on the local roster while
-`tools/machines-viz` and `tools/testbed-support` had no CI job at all — 632 +
-32 tests whose only lane was somebody remembering to run the script
-(rf2-as6bg).  Conversely `tools/template` had a CI job and sat on no roster, so
-a template-only change had no local JVM lane.  Both directions were repaired by
-hand; neither repair left anything behind that would notice the next one.
+Nothing else asserts that the two agree, and they drift in both directions:
+an artefact on a local roster with no CI job has somebody remembering to run
+the script as its only lane, and an artefact with a CI job on no roster gives
+a change to it no local JVM lane.
 
-The test-lane bijection gate (`check_test_lane_bijection.py`, rf2-4hc9p) cannot
-see this class.  Its universe is files on a lane's classpath, and it READS the
+The test-lane bijection gate (`check_test_lane_bijection.py`) cannot see this
+class.  Its universe is files on a lane's classpath, and it READS the
 rosters to discover the JVM lanes — so an artefact missing from a roster is not
 a violation to it, it is simply not a lane.  The blind spot is structural: the
 gate that finds orphan FILES takes the roster as ground truth, so the roster is
@@ -47,14 +43,13 @@ script would be the staleness class the gate exists to catch.  The only listed
 thing is the baseline below, and every entry in it names the bead that clears
 it.
 
-THE BASELINE, now EMPTY (rf2-ftmh0).  Two drifts predated this gate, both
-outside the fence of the change that added it, and both were recorded rather
-than fixed so the gate could land ahead of its companion work — the same
-pattern as `check_skill_mcp_drift.py`'s `_BASELINE`.  Both are now repaired on
-main, so the rule the gate states is unqualified: every roster entry is
-required in CI and every required JVM job is rostered, with no exceptions.
-Re-populating `BASELINE` suppresses a real violation, so an entry must name the
-bead that clears it and be trimmed when that bead lands.
+THE BASELINE is EMPTY, so the rule the gate states is unqualified: every
+roster entry is required in CI and every required JVM job is rostered, with no
+exceptions.  It follows the pattern of `check_skill_mcp_drift.py`'s
+`_BASELINE` — a drift outside a change's fence recorded rather than fixed, so
+a gate can land ahead of its companion work — and re-populating it suppresses
+a real violation, so an entry must name the bead that clears it and be
+trimmed when that bead lands.
 """
 
 from __future__ import annotations
@@ -76,15 +71,10 @@ JVM_RUNNER = "clojure -M:test"
 
 # artefact path -> why it is not yet a violation.  Trim on resolution.
 #
-# EMPTY, and meant to stay that way (rf2-ftmh0).  The two entries this gate
-# shipped with are both fixed on main: `implementation/adapters/test-react` now
-# has the required `jvm-adapters-test-react` job, and
-# `implementation/freehand/scaffold-smoke` is on
-# `scripts/test-jvm-implementation.sh`.  Adding an entry back is a deliberate
-# act -- it suppresses a real violation -- so it must name the bead that clears
-# it and be trimmed when that bead lands.  A baseline that never empties has
-# become a permanent exemption, which is the failure mode the repo already
-# fought over the Tags-column suppression set (rf2-zk1xu).
+# EMPTY, and meant to stay that way.  Adding an entry is a deliberate act --
+# it suppresses a real violation -- so it must name the bead that clears it
+# and be trimmed when that bead lands.  A baseline that never empties has
+# become a permanent exemption.
 BASELINE: dict[str, str] = {}
 
 ARRAY_OPEN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\(\s*$")
@@ -181,12 +171,11 @@ def runs_jvm_tests(body: list[str]) -> bool:
     """Does this job body actually INVOKE the JVM runner?
 
     Prose is excluded, and it has to be: a `#` comment block sits between two
-    jobs and parses as a tail of the FIRST one, so the comment introducing the
-    tools section ("... (clojure -M:test) and out-of-consolidated-tree ...")
-    read as the preceding browser-smoke job running the JVM runner in
-    `implementation/`.  `name:` is excluded for the same reason -- every one of
-    these jobs is titled `JVM <artefact> (clojure -M:test)`, so a title alone
-    would be evidence of nothing.  What is left is `run:`, in both its
+    jobs and parses as a tail of the FIRST one, so a comment introducing the
+    next section that mentions `clojure -M:test` would read as the preceding
+    job running the JVM runner.  `name:` is excluded for the same reason --
+    every one of these jobs is titled `JVM <artefact> (clojure -M:test)`, so a
+    title alone would be evidence of nothing.  What is left is `run:`, in both its
     single-line and block forms.
     """
     for line in body:

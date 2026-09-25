@@ -1,16 +1,15 @@
-# scripts/reap-stale-test-processes.ps1 - guarded stale test/dev process reaper (rf2-c3hffe).
+# scripts/reap-stale-test-processes.ps1 - guarded stale test/dev process reaper.
 #
 # WHAT. Inspects live java/node/clojure processes and identifies STALE
 # repo/worktree TEST/DEV processes that are orphaned lock-holders - the
-# class the rf2-c3hffe investigation found holding worktree file locks for
-# hours/days and deadlocking the cross-spec core JVM suite on Windows
-# (e.g. a 27h-old stranded serve-and-run-xray-feature-gate http-server; an
-# orphaned `shadow-cljs watch` whose launching process is gone).
+# class that holds worktree file locks for hours or days and deadlocks the
+# cross-spec core JVM suite on Windows (e.g. a stranded
+# serve-and-run-xray-feature-gate http-server; an orphaned
+# `shadow-cljs watch` whose launching process is gone).
 #
 # DRY-RUN BY DEFAULT. With no flags it ONLY PRINTS what it WOULD kill and
 # WHY - it kills NOTHING. Pass -Execute to actually tree-kill the
-# identified stale processes. This is the safe-by-default posture the bead
-# requires (disposition item 3b).
+# identified stale processes.
 #
 # SAFETY - WHAT IT WILL NEVER KILL.
 #   * Codex (any command line containing 'codex' / '@openai/codex').
@@ -40,10 +39,10 @@
 #   pwsh -File scripts/reap-stale-test-processes.ps1 -Execute   # actually kill
 #   pwsh -File scripts/reap-stale-test-processes.ps1 -Verbose   # also show protected/skipped procs + reason
 #
-# Pairs with the known Windows-worktree-lock cleanup pattern: a worktree's
-# node_modules may be junctioned into the mayor tree, so when you also want
-# to `git worktree remove` a stale worktree, `cmd /c rmdir` the junction
-# BEFORE removing the worktree (reference: junction-safe worktree cleanup).
+# Pairs with the junction-safe worktree cleanup: a worktree's node_modules
+# may be junctioned into the mayor tree, so remove a stale worktree only
+# through scripts/remove-worker-worktree.sh (or its .ps1 sibling), which
+# unlinks the junction BEFORE removing the worktree.
 #
 # CROSS-PLATFORM NOTE. Windows-local helper (the lock-deadlock is
 # Windows-only). On Mac/Linux orphaned children are reaped by the
@@ -136,7 +135,7 @@ function Get-ReapVerdict([string]$cmd, $parentStaleReason, [bool]$isSelf) {
 
 # --- self-test ------------------------------------------------------------
 # Deterministic classification proof (no live processes). Mirrors the real
-# snapshot classes observed in the rf2-c3hffe investigation: live MCP
+# process classes a live snapshot carries: live MCP
 # servers, Codex, a live worker's shadow JVM, an orphaned worktree
 # http-server, an orphaned shadow watch, and a '*.old'-parented stale JVM.
 if ($SelfTest) {
@@ -217,8 +216,8 @@ function Get-ParentStaleReason([Microsoft.Management.Infrastructure.CimInstance]
   # A parent that is itself one of OUR candidate test/dev servers is treated
   # as transitively stale only if IT is stale; otherwise a live parent
   # protects the child. We do not chase the whole chain here - the direct
-  # parent's liveness is the gate (matches the bead's "parent is gone or is
-  # a *.old replaced process").
+  # parent's liveness is the gate ("parent is gone or is a *.old replaced
+  # process").
   return $null
 }
 
@@ -260,7 +259,7 @@ foreach ($p in $relevant) {
 $mode = "DRY-RUN (no processes will be killed; pass -Execute to kill)"
 if ($Execute) { $mode = "EXECUTE (stale processes WILL be tree-killed)" }
 
-Write-Host "=============== rf2-c3hffe stale test/dev process reaper ==============="
+Write-Host "=============== re-frame2 stale test/dev process reaper ================"
 Write-Host "Mode: $mode"
 Write-Host ""
 

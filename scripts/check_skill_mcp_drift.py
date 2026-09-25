@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp + rf2-yiccf + rf2-4kyg6).
+"""Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue.
 
 Five axes of cross-check.
 
-**MCP axis** (rf2-flzdp): every (mcp-server, consumer-skill) pair declared
+**MCP axis**: every (mcp-server, consumer-skill) pair declared
 in `MAPPINGS` below. For each pair, builds two sets:
 
   - SERVER tool names — extracted from the MCP server's source (the Clojure
@@ -22,23 +22,23 @@ Then reports two drift directions:
   - MISSING-IN-SERVER — skill allow-lists a tool the server doesn't expose
     (any more, or yet). Always a failure — the skill is referencing a phantom.
 
-**Bash axis** (rf2-yiccf): every rule in `BASH_RULES` is a small contract
+**Bash axis**: every rule in `BASH_RULES` is a small contract
 between a SKILL.md body pattern and a required `Bash(...)` allow-list
 entry. When the body matches the pattern, the allow-list must carry an
 entry matching the required shape (with `*` as a wildcard). Catches the
 class of silent-breakage where a skill body instructs the agent to run a
-command the allow-list doesn't permit (e.g. rf2-scpaa: re-frame-migration
-cardinal rule 7 instructs the agent to file GitHub issues but lacks
+command the allow-list doesn't permit (e.g. re-frame2-implementor's body
+spells out `gh issue create`, so its allow-list must carry
 `Bash(gh issue *)`).
 
   - MISSING-BASH-ALLOW — body fires the rule's pattern but no allow-list
     entry matches the required shape.
 
-**Title-safety axis** (rf2-4kyg6 finding 1): the all-current-consumers
+**Title-safety axis**: the all-current-consumers
 backstop for the gh-issue shell-safety contract. `TITLE_SAFETY_RULES` lists
-every gh-issue-writing consumer; each owns its filing recipe locally (the
-former `skills/shared/issue-filing.md` single-source leaf was retired under
-rf2-fqjys) and must carry the local body+title clauses so its recipe cannot
+every gh-issue-writing consumer; each owns its filing recipe locally (there
+is no shared single-source recipe leaf) and must carry the local body+title
+clauses so its recipe cannot
 drift from the title half of the contract (no `--title-file`, restricted
 safe alphabet, never-paste-evidence-into-`--title`).
 
@@ -46,7 +46,7 @@ safe alphabet, never-paste-evidence-into-`--title`).
     clauses, and is not under a tracked per-rule `allowance_bead`
     follow-up allowance.
 
-**Doc-coverage axis** (rf2-l2y4n): the MCP axis proves a tool is
+**Doc-coverage axis**: the MCP axis proves a tool is
 allow-listed, not that anyone can find out what it DOES. For each rule in
 `DOC_COVERAGE_RULES`, the descriptor manifest's tool-name set must equal the
 set of names appearing as a first-column code span in a markdown table row of
@@ -54,10 +54,10 @@ the named reference — the skill's transport index, whose `Semantics home`
 column routes onward to the per-tool prose.
 
   - MISSING-DOC-ROW — the server exposes a tool with no row (shipped,
-    counted, allow-listed, undocumented — the rf2-l2y4n defect).
-  - STALE-DOC-ROW — a row names a tool the server no longer exposes.
+    counted, allow-listed, undocumented).
+  - STALE-DOC-ROW — a row names a tool the server does not expose.
 
-**Single-host axis** (rf2-p1keh): the MCP axis asks "does this skill's
+**Single-host axis**: the MCP axis asks "does this skill's
 allow-list match THIS server's catalogue?", one mapping at a time — so an
 entry from a server nobody declared a mapping for is invisible to all of
 them. Each rule in `SINGLE_HOST_RULES` names a skill whose MCP permissions
@@ -69,8 +69,8 @@ must ALL carry one host prefix.
     different objects and cross-host composition reads plausibly while
     describing nothing.
 
-Xray-MCP is currently spec-only (no `src/`); the script skips its entry
-gracefully rather than failing on missing files.
+A mapping marked `optional=True` is skipped, rather than failed, when its
+server source or skill file is missing.
 
 Exit code:
     0  no drift detected
@@ -84,19 +84,17 @@ Usage:
     python scripts/check_skill_mcp_drift.py --ci             # tighter output
                                                              #   (auto on under
                                                              #   GITHUB_ACTIONS)
-    python scripts/check_skill_mcp_drift.py --self-test      # title-safety-axis
-                                                             #   self-test (rf2-4kyg6)
+    python scripts/check_skill_mcp_drift.py --self-test      # prove each axis
+                                                             #   is not a no-op
     python scripts/check_skill_mcp_drift.py --show-baseline  # print current
                                                              #   shipped baseline
     python scripts/check_skill_mcp_drift.py --no-baseline    # fail on every
                                                              #   drift, current
                                                              #   or new
 
-The `_BASELINE` set lets us land this gate before rf2-aks1t completes -- the
-script remembers the current drift and only fails on new drift introduced on
-top of it. As beads close pre-existing drift, trim `_BASELINE` accordingly.
-
-rf2-flzdp.
+The `_BASELINE` set holds accepted drift: the script fails only on drift not
+in it, and warns about baseline entries that match no actual drift so they
+can be trimmed.
 """
 
 from __future__ import annotations
@@ -134,7 +132,7 @@ class Mapping:
     # Tuple of source paths to lex for `{:name "..."}` descriptor
     # literals. Multiple paths are concatenated set-wise — this lets a
     # mapping target an MCP server whose tool catalogue is split across
-    # per-category leaves (e.g. story-mcp post rf2-3ukix). All paths
+    # per-category leaves (e.g. story-mcp). All paths
     # must exist (unless `optional=True`).
     server_src: tuple[Path, ...]
     host_prefix: str
@@ -143,13 +141,11 @@ class Mapping:
     optional: bool = False  # True ⇒ missing server_src is a skip, not an error.
 
 
-# Story-mcp tool catalogue lives across four per-category leaves post
-# rf2-3ukix — dev/docs/testing/write each carry a `descriptors` vector.
-# (A fifth leaf held the recorder bridge's singleton `descriptor` map,
-# rf2-zkca8; it was deleted with `record-as-variant` under rf2-5saz7.)
-# The parent `tools.cljc` was removed in the same refactor; assembly
-# happens in `tools/registry.cljc` which only re-exports symbols (no
-# literals to lex). Enumerate the leaves directly.
+# Story-mcp's tool catalogue lives across four per-category leaves —
+# dev/docs/testing/write each carry a `descriptors` vector. There is no
+# parent `tools.cljc`; assembly happens in `tools/registry.cljc`, which
+# only re-exports symbols (no literals to lex). Enumerate the leaves
+# directly.
 _STORY_MCP_LEAVES = tuple(
     REPO_ROOT / "tools" / "story-mcp" / "src" / "re_frame" / "story_mcp" / "tools" / f"{leaf}.cljc"
     for leaf in ("dev", "docs", "testing", "write")
@@ -159,15 +155,15 @@ _STORY_MCP_LEAVES = tuple(
 MAPPINGS: list[Mapping] = [
     Mapping(
         name="re-frame2-pair-mcp <-> re-frame2-pair",
-        # Post rf2-47g8l the catalogue data lives in a dedicated
-        # `descriptors_data.cljs` leaf — the sibling `descriptors.cljs` is
-        # now a slim splicer/façade with no `{:name "..."}` literals. Point
-        # the gate at the data file.
+        # The catalogue data lives in a dedicated `descriptors_data.cljs`
+        # leaf — the sibling `descriptors.cljs` is a slim splicer/façade
+        # with no `{:name "..."}` literals. Point the gate at the data
+        # file.
         server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
         host_prefix="re-frame2-pair",
         skill_md=REPO_ROOT / "skills" / "re-frame2-pair" / "SKILL.md",
-        # rf2-230ekq: the two write-authority tools (rf2-ee38b.18),
-        # `restore-epoch` + `replace-app-db`, ARE now allow-listed — they
+        # The two write-authority tools,
+        # `restore-epoch` + `replace-app-db`, ARE allow-listed — they
         # are the canonical, audited path for named state rewrites. The
         # server's default-OFF `--allow-writes` launch gate (not the skill
         # allow-list) is the write-authority boundary: against a gate-OFF
@@ -179,15 +175,14 @@ MAPPINGS: list[Mapping] = [
         intentional_server_only=frozenset(),
     ),
     # story-mcp has ONE consumer skill: re-frame2 (authoring). There is no
-    # longer a re-frame2-pair mapping here — see the single-host axis below.
+    # re-frame2-pair mapping here — see the single-host axis below.
     #
     # The four run/assert tools (`run-variant`, `read-failures`,
     # `snapshot-identity`, `read-a11y-violations`) are consumed by NO skill
     # and stay `intentional_server_only` on this mapping. That is deliberate,
     # not an oversight: they drive story-mcp's own headless same-JVM host, and
     # an operator reaches them by launching story-mcp directly for an
-    # explicitly headless run. They were formerly allow-listed by
-    # re-frame2-pair under an "rf2-1v7tu HYBRID" split; rf2-p1keh removed that,
+    # explicitly headless run. re-frame2-pair does not allow-list them,
     # because story-mcp has no nREPL/socket/JVM-to-browser bridge and so cannot
     # see the browser tab's Story registry at all. A live pair session drives
     # variants through `eval-cljs` over `re-frame.story/*` in the attached heap
@@ -196,17 +191,16 @@ MAPPINGS: list[Mapping] = [
     # entries (the MCP server's advertised name).
     # NOTE: re-frame2-pair-retro carries NO mapping here by design. The
     # skill is transcript-shaped and fully read-only — its allowed-tools
-    # grant no MCP tool at all (the former opt-in read-only `discover-app`
-    # probe was retired with the rest of its mutation surface), so there is
-    # no skill<->server tool axis left to keep in sync.
+    # grant no MCP tool at all, so there is no skill<->server tool axis to
+    # keep in sync.
     Mapping(
         name="story-mcp <-> re-frame2",
         server_src=_STORY_MCP_LEAVES,
         host_prefix="re-frame2-story-mcp",
         skill_md=REPO_ROOT / "skills" / "re-frame2" / "SKILL.md",
         intentional_server_only=frozenset({
-            # Headless run/assert tools — no skill consumer by design
-            # (rf2-p1keh). Reached by launching story-mcp directly.
+            # Headless run/assert tools — no skill consumer by design.
+            # Reached by launching story-mcp directly.
             "run-variant",
             "read-failures",
             "snapshot-identity",
@@ -217,15 +211,15 @@ MAPPINGS: list[Mapping] = [
 
 
 # ---------------------------------------------------------------------------
-# Single-host axis (rf2-p1keh).
+# Single-host axis.
 #
 # The MCP axis above answers "does this skill's allow-list match THIS
 # server's catalogue?" — one mapping at a time. It cannot answer "does this
 # skill reach for a SECOND server at all?", because a foreign-prefix entry is
-# simply invisible to every mapping that filters on its own prefix. That is
-# the hole the HYBRID split hid in: seven `mcp__re-frame2-story-mcp__*`
-# entries sat in re-frame2-pair's frontmatter for months, each one green
-# under its own mapping.
+# simply invisible to every mapping that filters on its own prefix. Without
+# this axis, foreign `mcp__re-frame2-story-mcp__*` entries could sit in
+# re-frame2-pair's frontmatter indefinitely, each one green under its own
+# mapping.
 #
 # A rule here declares that one skill's MCP permissions must all carry a
 # single host prefix. For a skill whose whole contract is ONE attached
@@ -343,10 +337,10 @@ def check_single_host_rules(
                 ))
     return drift, info
 
-# Pre-existing drift the gate accepts as the shipped baseline. Entries are
+# Drift the gate accepts as the shipped baseline. Entries are
 # `(mapping-name, direction, tool-name)`. `direction` is one of
-# "missing-in-skill" / "missing-in-server". As follow-up beads fix each
-# entry, drop it from this list — the gate then catches any regression.
+# "missing-in-skill" / "missing-in-server". Drop an entry once its drift is
+# fixed — the gate then catches any regression.
 #
 # Entries are keyed by mapping-name (not host_prefix) so renames in MAPPINGS
 # above stay self-consistent.
@@ -385,8 +379,8 @@ _TOOL_NAME_CHARS = r"a-zA-Z0-9_./>!?*-"
 # Matches `{:name "..."` to be safer against an unrelated `:name "..."`
 # appearing in a docstring elsewhere. The actual descriptors always open
 # with `{` immediately before `:name`. The `<` char is deliberately not in
-# the class so the docstring example `{:name "<dash-separated-name>"` --
-# present in tools/story-mcp/src/.../tools.cljc -- does not match.
+# the class so a docstring example such as `{:name "<dash-separated-name>"`
+# does not match.
 STRICT_NAME_RE = re.compile(rf"\{{[^}}]*?:name\s+\"([{_TOOL_NAME_CHARS}]+)\"")
 
 
@@ -398,7 +392,7 @@ def extract_server_tools(paths: tuple[Path, ...]) -> set[str]:
     is missing (caller handles `optional=True` skip).
 
     Multi-path support exists for servers whose tool catalogue is
-    split across per-category leaves (e.g. story-mcp post rf2-3ukix —
+    split across per-category leaves (e.g. story-mcp —
     dev/docs/testing/write each own a `descriptors` def).
     """
     tools: set[str] = set()
@@ -545,17 +539,16 @@ def _parse_allowed_tools(frontmatter: str, host_prefix: str) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Bash-allow-list drift detection (rf2-yiccf).
+# Bash-allow-list drift detection.
 #
 # Companion to the MCP-axis cross-check above: the same skill files also
 # declare `Bash(...)` allow-list entries that must agree with what the
 # SKILL.md body actually instructs the agent to do. Bash-prefix drift is
 # invisible to the MCP-axis gate but causes silent breakage at the agent
-# host's permission boundary (e.g. rf2-scpaa: re-frame-migration cardinal
-# rule 7 says "file a GitHub issue" but the allow-list lacks `Bash(gh
-# issue ...)`).
+# host's permission boundary (e.g. a body that says "file a GitHub issue"
+# is unrunnable without a `Bash(gh issue ...)` allow-list entry).
 #
-# v0 shape per the bead: a hand-curated `BASH_RULES` table of
+# The shape: a hand-curated `BASH_RULES` table of
 # (body-pattern, required-allow-list-pattern) per skill. The script lexes
 # the SKILL.md body, and when a body pattern fires, checks the skill's
 # `Bash(...)` allow-list for any entry that matches the required pattern.
@@ -602,7 +595,7 @@ def _allow_pattern(required: str) -> re.Pattern[str]:
 
 
 BASH_RULES: list[BashRule] = [
-    # rf2-scpaa: re-frame-migration cardinal rule 7 instructs the agent to
+    # re-frame-migration cardinal rule 7 instructs the agent to
     # file GitHub issues against day8/re-frame2; allow-list must permit
     # the create surface. `gh issue list` and `gh issue view` are
     # adjacent read-only surfaces the skill body also leans on; we gate on
@@ -619,7 +612,7 @@ BASH_RULES: list[BashRule] = [
         required_allow="gh issue *",
         description="re-frame-migration body instructs the agent to file GitHub issues; allow-list must permit Bash(gh issue *)",
     ),
-    # rf2-pd4is8: the migration-corpus pin check (cardinal rule 5 +
+    # The migration-corpus pin check (cardinal rule 5 +
     # references/setup.md §Pin the migration corpus) is a load-bearing,
     # read-only provenance step the skill runs ITSELF. SKILL.md cardinal
     # rule 5 spells out the two `git -C <path> rev-parse` / `remote
@@ -639,7 +632,7 @@ BASH_RULES: list[BashRule] = [
         required_allow="git -C * remote get-url *",
         description="re-frame-migration body runs the corpus-pin `git -C … remote get-url` provenance check; allow-list must permit Bash(git -C * remote get-url *)",
     ),
-    # rf2-fvvzxi: re-frame2-implementor cardinal rules 8–9 instruct the agent
+    # re-frame2-implementor cardinal rules 8–9 instruct the agent
     # to file GitHub issues against day8/re-frame2 for spec gaps; SKILL.md
     # body spells out `gh issue create` (and `gh issue list` for the
     # search-before-filing dedupe), so the allow-list must permit the issue
@@ -654,7 +647,7 @@ BASH_RULES: list[BashRule] = [
         required_allow="gh issue *",
         description="re-frame2-implementor body instructs the agent to file/search GitHub issues; allow-list must permit Bash(gh issue *)",
     ),
-    # rf2-fvvzxi: re-frame2-implementor cardinal rule 1 (Phase 1 spec-pin
+    # re-frame2-implementor cardinal rule 1 (Phase 1 spec-pin
     # preamble) instructs the agent to verify the pinned `day8/re-frame2`
     # checkout with `git -C <path-to-re-frame2> rev-parse HEAD` /
     # `remote get-url origin` BEFORE reading the spec — a load-bearing,
@@ -662,7 +655,7 @@ BASH_RULES: list[BashRule] = [
     # migration rules above guard). Unlike migration, the implementor states
     # the commands in references/cardinal-rules.md (§1) rather than SKILL.md,
     # so `body_md` points the body scan at that leaf while the allow-list is
-    # still read from SKILL.md's frontmatter. Scoped narrowly to the two
+    # read from SKILL.md's frontmatter. Scoped narrowly to the two
     # read-only sub-surfaces; commits + the port's own build/test runner stay
     # engineer-owned (per references/output-format.md §Discipline — they vary
     # per host and run under the engineer's session permissions, not the
@@ -692,11 +685,11 @@ BASH_RULES: list[BashRule] = [
 
 # ---------------------------------------------------------------------------
 # Title-safety axis — all-current-consumers backstop for the gh-issue
-# shell-safety contract (rf2-4kyg6 finding 1).
+# shell-safety contract.
 #
-# Every gh-issue-writing consumer owns its filing recipe locally (the former
-# `skills/shared/issue-filing.md` single-source leaf was retired under
-# rf2-fqjys). A local recipe can silently drift from the *title* half of the
+# Every gh-issue-writing consumer owns its filing recipe locally (there is no
+# shared single-source recipe leaf). A local recipe can silently drift from
+# the *title* half of the
 # contract (no `--title-file`, restricted safe alphabet,
 # never-paste-evidence-into-`--title`, reviewer pass for the title arg) —
 # `gh issue create` has no `--title-file` flag, so the body-file trick
@@ -710,15 +703,15 @@ BASH_RULES: list[BashRule] = [
 # The per-rule `allowance_bead` field is the escape hatch for a consumer
 # that is being updated under a tracked follow-up bead but cannot be
 # edited in the same change (e.g. a concurrent worker holds the file). An
-# allowance keeps the gate green now and is removed by the named
-# follow-up, which tightens the gate to enforce the clauses. KEEP IT
+# allowance keeps the gate green until the named follow-up removes it,
+# which tightens the gate to enforce the clauses. KEEP IT
 # NARROW — every allowance must name a bead.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class TitleSafetyRule:
-    """One all-consumers title-safety backstop check (rf2-4kyg6).
+    """One all-consumers title-safety backstop check.
 
     `consumer`         — short human label for the gh-issue-writing skill.
     `docs`             — tuple of doc paths that together carry the
@@ -733,7 +726,7 @@ class TitleSafetyRule:
                          (`gh issue list --search` + the
                          author-the-keywords-never-paste shell-safety
                          note), so the dedupe hardening cannot silently
-                         drop out of its recipe (rf2-ij6ulc).
+                         drop out of its recipe.
     """
     consumer: str
     docs: tuple[Path, ...]
@@ -758,7 +751,7 @@ _TITLE_SAFE_MARKERS: tuple[tuple[str, ...], ...] = (
     ("into `--title`", "into --title"),
 )
 
-# Search-before-filing clause markers (rf2-ij6ulc). A deliberately-local
+# Search-before-filing clause markers. A deliberately-local
 # consumer (`require_search=True`) must carry BOTH: the dedupe command
 # (`gh issue list` with `--search`) and the author-the-keywords-never-paste
 # shell-safety note (`--search` is an inline argument, no `--search-file`).
@@ -782,8 +775,8 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
     # copy-pasteable draft in the conversation — so there is no filing
     # surface for the title-safety backstop to enforce.
     # re-frame-migration — carries its filing recipe locally in
-    # references/issue-filing.md (rf2-fqjys retired the shared leaf it
-    # previously linked); proven by its local body+title+search clauses.
+    # references/issue-filing.md; proven by its local body+title+search
+    # clauses.
     TitleSafetyRule(
         consumer="re-frame-migration",
         docs=(
@@ -796,15 +789,13 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
     # references/cardinal-rules.md §8. That local recipe carries BOTH the
     # body-safety clauses and the title-safety clauses (no `--title-file`,
     # restricted safe alphabet, never-paste-evidence-into-`--title`, reviewer
-    # pass for the title arg), added under rf2-57b5t0 — the rf2-4kyg6
-    # finding-1 gap is closed. The follow-up allowance that kept the gate
-    # green while rf2-708nm held cardinal-rules.md has been removed, so this
-    # consumer is enforced with no allowance.
+    # pass for the title arg), so this consumer is enforced with no
+    # allowance.
     # The local recipe also carries the search-before-filing (dedupe) clause
     # — `gh issue list --search` + the author-the-keywords-never-paste
-    # shell-safety note — added under rf2-ij6ulc. `require_search` pins it: a
-    # future edit that drops the dedupe clause from the local recipe fires
-    # `missing-search-clause` drift.
+    # shell-safety note. `require_search` pins it: an edit that drops the
+    # dedupe clause from the local recipe fires `missing-search-clause`
+    # drift.
     TitleSafetyRule(
         consumer="re-frame2-implementor",
         docs=(
@@ -819,7 +810,7 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
 def check_title_safety_rules(
     rules: Iterable[TitleSafetyRule],
 ) -> tuple[list[Drift], list[str]]:
-    """Run the all-consumers title-safety backstop (rf2-4kyg6 finding 1).
+    """Run the all-consumers title-safety backstop.
 
     For each consumer, the union of its doc texts must carry both the
     body-safety and the title-safety clauses (plus the search clause when
@@ -838,7 +829,7 @@ def check_title_safety_rules(
             )
         text = "\n".join(p.read_text(encoding="utf-8") for p in rule.docs)
 
-        # rf2-ij6ulc: the search-before-filing (dedupe) check runs FIRST, so
+        # The search-before-filing (dedupe) check runs FIRST, so
         # a missing dedupe clause is named specifically rather than folded
         # into the generic body+title drift below.
         if rule.require_search and not _all_markers_present(
@@ -893,31 +884,29 @@ def check_title_safety_rules(
 
 
 # ---------------------------------------------------------------------------
-# Body-path-identity axis (rf2-2zkrz).
+# Body-path-identity axis.
 #
 # The title-safety axis above proves a filing recipe SAYS `--body-file`. It
 # says nothing about whether the path handed to `--body-file` can ever name
-# the file `Write` created — and for a year it could not. Both recipes gave
-# the temp path only as a shell expression
-# (`${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md` on POSIX,
-# `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md` on Windows), and:
+# the file `Write` created. A recipe that gives the temp path only as a
+# shell expression (`${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md` on
+# POSIX, `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md` on Windows)
+# cannot, because:
 #
 #   - `Write` is not a shell. It stores `file_path` literally, so the
-#     expression became part of the FILENAME rather than being replaced.
+#     expression would become part of the FILENAME rather than being replaced.
 #   - Even in a shell, `$$`/`$RANDOM`/`NewGuid` re-roll on every evaluation,
-#     so the `gh` step named a DIFFERENT file than the `Write` step. Measured
-#     on the fixing branch: three evaluations of the one POSIX expression
-#     produced three distinct paths, and the Windows expression is not even
-#     parseable by the `Bash(gh issue *)` shell the skills grant (syntax
-#     error near `)`).
+#     so the `gh` step would name a DIFFERENT file than the `Write` step, and
+#     the Windows expression is not parseable by the `Bash(gh issue *)` shell
+#     the skills grant.
 #
 # So the invariant is path IDENTITY as concrete strings, and it is
 # structural, not prose: every `--body-file` ARGUMENT in a filing recipe must
 # be one concrete absolute path carrying no expansion syntax, and that exact
 # string must also appear elsewhere in the recipe — the `Write` example it is
 # supposed to reuse. Prose that merely NAMES `${TMPDIR:-/tmp}` or `$RANDOM`
-# is untouched: warning the agent off those tokens is the fix, not the defect,
-# so the ban is scoped to the argument position alone.
+# is not flagged: warning the agent off those tokens is correct, so the ban
+# is scoped to the argument position alone.
 #
 # The `--body-file` mentions that carry no value (a bare `` `--body-file` ``
 # in running prose) are not argument usages and do not match. A recipe with
@@ -1079,18 +1068,13 @@ class _LiteralPathHost:
 
 
 # ---------------------------------------------------------------------------
-# Doc-coverage axis — every server tool must have a documented semantic home
-# (rf2-l2y4n).
+# Doc-coverage axis — every server tool must have a documented semantic home.
 #
 # The MCP axis above proves a tool is ALLOW-LISTED; it says nothing about
-# whether a human or agent can find out what the tool DOES. rf2-l2y4n is the
-# defect that gap admits: PR #6184 allow-listed the five S3 view-inspection
-# tools and reconciled the prose tool COUNT to 35, so every existing gate
-# stayed green while the five S3 view tools (`explain-render` and the four
-# `read-view-*` / `read-mounted-views` reads it shipped beside, since replaced
-# by the Fresco evidence door under rf2-n3mb)
-# appeared nowhere but the SKILL.md frontmatter — no arg shape, no semantics,
-# no workflow.
+# whether a human or agent can find out what the tool DOES. Without this
+# axis a tool could be allow-listed and included in the prose tool COUNT
+# while appearing nowhere but the SKILL.md frontmatter — no arg shape, no
+# semantics, no workflow — and every other gate would stay green.
 #
 # The check is deliberately ONE structural comparison, not a prose reader:
 # the descriptor manifest's tool-name set must equal the set of tool names
@@ -1102,10 +1086,10 @@ class _LiteralPathHost:
 #
 # Both directions fail:
 #
-#   - MISSING-DOC-ROW — the server exposes a tool with no row. This is the
-#     rf2-l2y4n defect: shipped, counted, allow-listed, undocumented.
-#   - STALE-DOC-ROW  — a row names a tool the server no longer exposes. The
-#     row outlived its tool and now documents a phantom.
+#   - MISSING-DOC-ROW — the server exposes a tool with no row: shipped,
+#     counted, allow-listed, undocumented.
+#   - STALE-DOC-ROW  — a row names a tool the server does not expose, so the
+#     row documents a phantom.
 #
 # What it deliberately does NOT do: read prose, count tools, judge a row's
 # CONTENT, or generate documentation. A row whose prose is wrong is a review
@@ -1156,7 +1140,7 @@ def extract_documented_tools(path: Path) -> set[str]:
 def check_doc_coverage_rules(
     rules: Iterable[DocCoverageRule],
 ) -> tuple[list[Drift], list[str]]:
-    """Run the doc-coverage axis (rf2-l2y4n). Returns (drift, info-messages)."""
+    """Run the doc-coverage axis. Returns (drift, info-messages)."""
     info: list[str] = []
     drift: list[Drift] = []
     for rule in rules:
@@ -1209,7 +1193,7 @@ class Drift:
                 f"tool from a SECOND MCP server. This skill is single-host: "
                 f"every MCP entry must carry the `mcp__{expected}__` prefix. "
                 f"{rationale}. Remove the entry (and any procedure that calls "
-                f"it) rather than widening the rule. (rf2-p1keh)"
+                f"it) rather than widening the rule."
             )
         if self.direction == "missing-title-safety":
             return (
@@ -1220,7 +1204,7 @@ class Drift:
                 f"half (`--body-file`, never interpolate) and the title half "
                 f"(no `--title-file`, restricted safe alphabet, never paste "
                 f"evidence into `--title`). Add the clauses to the consumer's "
-                f"local recipe. (rf2-4kyg6)"
+                f"local recipe."
             )
         if self.direction == "missing-body-path":
             return (
@@ -1229,8 +1213,8 @@ class Drift:
                 f"its filing recipe. A recipe that never demonstrates the "
                 f"flag with a value cannot demonstrate path identity — and a "
                 f"zero-match census is not a check that passed. Show the "
-                f"`gh issue create ... --body-file '<concrete path>'` call. "
-                f"(rf2-2zkrz)"
+                f"`gh issue create ... --body-file '<concrete path>'` "
+                f"call."
             )
         if self.direction == "expression-body-path":
             return (
@@ -1243,7 +1227,7 @@ class Drift:
                 f"would address two different files and filing would die on "
                 f"a missing body. Substitute the temp directory and the "
                 f"nonce BEFORE either tool call and show the resulting "
-                f"string. (rf2-2zkrz)"
+                f"string."
             )
         if self.direction == "unpaired-body-path":
             return (
@@ -1252,7 +1236,7 @@ class Drift:
                 f"appears nowhere else in the recipe — so nothing shows "
                 f"`Write` being given the same path. Path identity is the "
                 f"invariant: `Write.file_path` and `--body-file` must be one "
-                f"string used twice. (rf2-2zkrz)"
+                f"string used twice."
             )
         if self.direction == "missing-path-example":
             return (
@@ -1260,8 +1244,8 @@ class Drift:
                 f"{self.tool} worked temp path. Both host shapes need an "
                 f"already-substituted example (a POSIX `/tmp/...` and a "
                 f"Windows `C:\\...\\Temp\\...`), because an agent cannot "
-                f"derive one from an expression it has no shell to run. "
-                f"(rf2-2zkrz)"
+                f"derive one from an expression it has no shell to "
+                f"run."
             )
         if self.direction == "missing-doc-row":
             return (
@@ -1270,15 +1254,15 @@ class Drift:
                 f"that is shipped, counted, and allow-listed but undocumented "
                 f"leaves callers with no arg shape, semantics, or workflow. "
                 f"Add a row (name | arg signature | semantics home) to the "
-                f"transport index, and its semantics to the home it points at. "
-                f"(rf2-l2y4n)"
+                f"transport index, and its semantics to the home it "
+                f"points at."
             )
         if self.direction == "stale-doc-row":
             return (
                 f"{self.mapping_name}: the reference documents a tool "
                 f"'{self.tool}' the MCP server does not expose. The row "
-                f"outlived its tool — remove it, or restore the tool. "
-                f"(rf2-l2y4n)"
+                f"outlived its tool — remove it, or restore the "
+                f"tool."
             )
         if self.direction == "missing-search-clause":
             return (
@@ -1288,7 +1272,7 @@ class Drift:
                 f"--search \"<keywords>\"` AND the shell-safety note that "
                 f"`--search` is an inline argument (no `--search-file`) whose "
                 f"keywords are agent-authored, never pasted from evidence. Add "
-                f"the clause to the local recipe. (rf2-ij6ulc)"
+                f"the clause to the local recipe."
             )
         assert mapping is not None
         if self.direction == "missing-in-skill":
@@ -1436,13 +1420,13 @@ def _emit_error(msg: str, ci: bool) -> None:
 
 
 def _run_self_test(ci: bool) -> int:
-    """Self-test the title-safety backstop (rf2-4kyg6 finding 1).
+    """Self-test the title-safety, doc-coverage, body-path-identity and
+    single-host axes.
 
-    Guards against the axis silently degrading into a no-op. Every shipped
-    consumer satisfies the contract via its own local clauses (the former
-    shared-leaf link branch was retired with `skills/shared/` under
-    rf2-fqjys), so the non-vacuousness proof uses synthetic fixtures rather
-    than toggling a live allowance:
+    Guards against an axis silently degrading into a no-op. Every shipped
+    title-safety consumer satisfies the contract via its own local clauses,
+    so the title-safety proof uses synthetic fixtures rather than toggling
+    a live allowance:
 
       1. With the shipped `TITLE_SAFETY_RULES`, the axis produces NO drift
          (all consumers satisfied; no allowances remain).
@@ -1453,8 +1437,9 @@ def _run_self_test(ci: bool) -> int:
          stay green — proving the clause proof is the live path every
          shipped recipe travels.
       4. The shipped implementor consumer specifically must be GREEN via
-         its local clauses with no allowance present — the exact tightening
-         rf2-57b5t0 lands.
+         its local clauses with no allowance present.
+
+    The other axes' proofs are described where they run.
 
     Returns 0 on pass, 1 on a broken invariant.
     """
@@ -1472,8 +1457,8 @@ def _run_self_test(ci: bool) -> int:
     if any(r.allowance_bead for r in TITLE_SAFETY_RULES):
         leftover = [r.consumer for r in TITLE_SAFETY_RULES if r.allowance_bead]
         failures.append(
-            "a TITLE_SAFETY_RULES entry still carries an allowance_bead "
-            f"({leftover}); rf2-57b5t0 removes the implementor allowance and "
+            "a TITLE_SAFETY_RULES entry carries an allowance_bead "
+            f"({leftover}); every consumer is enforced locally and "
             "no consumer should rely on one."
         )
 
@@ -1529,7 +1514,7 @@ def _run_self_test(ci: bool) -> int:
                 "the clause proof is broken."
             )
 
-        # (3b) Synthetic SEARCH-NEGATIVE (rf2-ij6ulc): body+title clauses but
+        # (3b) Synthetic SEARCH-NEGATIVE: body+title clauses but
         #      NO search-before-filing clause, require_search=True -> MUST fire
         #      missing-search-clause (and NOT missing-title-safety).
         search_neg_drift, _ = check_title_safety_rules(
@@ -1547,10 +1532,10 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "a require_search consumer carrying body+title clauses but NO "
                 "search-before-filing clause did NOT fire missing-search-clause "
-                "drift -- the search-clause check is a no-op (rf2-ij6ulc)."
+                "drift -- the search-clause check is a no-op."
             )
 
-        # (3c) Synthetic SEARCH-POSITIVE (rf2-ij6ulc): body+title+search clauses,
+        # (3c) Synthetic SEARCH-POSITIVE: body+title+search clauses,
         #      require_search=True -> MUST stay green.
         search_pos = td_path / "local-clauses-with-search.md"
         search_pos.write_text(
@@ -1574,33 +1559,33 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "a require_search consumer carrying body+title+search clauses "
                 "was flagged -- the search-clause branch "
-                "is broken (rf2-ij6ulc)."
+                "is broken."
             )
 
     # (4) Shipped implementor specifically: GREEN via local clauses, no
-    #     allowance. This is the exact state rf2-57b5t0 lands.
+    #     allowance.
     impl_rule = next(
         (r for r in TITLE_SAFETY_RULES if r.consumer == "re-frame2-implementor"),
         None,
     )
     if impl_rule is None:
         failures.append(
-            "re-frame2-implementor is no longer in TITLE_SAFETY_RULES -- the "
+            "re-frame2-implementor is not in TITLE_SAFETY_RULES -- the "
             "consumer must stay enforced, not dropped."
         )
     else:
         if impl_rule.allowance_bead is not None:
             failures.append(
-                "re-frame2-implementor still carries an allowance_bead -- "
-                "rf2-57b5t0 removes it so the local clauses enforce the rule."
+                "re-frame2-implementor carries an allowance_bead -- "
+                "remove it so the local clauses enforce the rule."
             )
-        # rf2-ij6ulc: the implementor must carry the search-before-filing
+        # The implementor must carry the search-before-filing
         # clause locally — require_search pins it.
         if not impl_rule.require_search:
             failures.append(
-                "re-frame2-implementor no longer carries require_search=True -- "
+                "re-frame2-implementor does not carry require_search=True -- "
                 "its local recipe must keep enforcing the search-before-filing "
-                "(dedupe) clause (rf2-ij6ulc)."
+                "(dedupe) clause."
             )
         impl_drift, _ = check_title_safety_rules([impl_rule])
         if [
@@ -1610,7 +1595,7 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "re-frame2-implementor fired missing-title-safety drift with "
                 "no allowance -- its local recipe is missing the body or title "
-                "clauses (rf2-57b5t0 must add them)."
+                "clauses."
             )
         if [
             d for d in impl_drift
@@ -1620,12 +1605,12 @@ def _run_self_test(ci: bool) -> int:
                 "re-frame2-implementor fired missing-search-clause drift -- its "
                 "local recipe must carry the search-before-filing (dedupe) "
                 "clause: `gh issue list --search` + the author-the-keywords-"
-                "never-paste shell-safety note (rf2-ij6ulc)."
+                "never-paste shell-safety note."
             )
 
-    # (6) Doc-coverage axis (rf2-l2y4n) — prove it is not vacuous. The shipped
+    # (6) Doc-coverage axis — prove it is not vacuous. The shipped
     #     rules must be green; a doc missing one server tool's row MUST fire
-    #     missing-doc-row; a doc naming a tool the server dropped MUST fire
+    #     missing-doc-row; a doc naming a tool the server lacks MUST fire
     #     stale-doc-row. The fixtures use a synthetic two-tool descriptor in
     #     their own temp dir, so the proof depends on neither the live roster's
     #     size nor the title-safety fixtures above.
@@ -1665,11 +1650,11 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "a synthetic doc covering every server tool fired drift "
                 f"({[d.direction for d in covered_drift]}) -- the doc-coverage "
-                "row extraction is broken (rf2-l2y4n)."
+                "row extraction is broken."
             )
 
-        # NEGATIVE: drop one row, leave the prose tool COUNT intact -- exactly
-        # the rf2-l2y4n shape (counted + allow-listed + undocumented).
+        # NEGATIVE: drop one row, leave the prose tool COUNT intact -- the
+        # counted + allow-listed + undocumented shape.
         undocumented = doc_td_path / "undocumented.md"
         undocumented.write_text(
             "The server exposes **2 tools**, all allow-listed.\n\n"
@@ -1690,7 +1675,7 @@ def _run_self_test(ci: bool) -> int:
                 "a synthetic doc missing one server tool's row did NOT fire "
                 "missing-doc-row drift -- the doc-coverage axis is a no-op, "
                 "and a shipped+counted+allow-listed tool can stay "
-                "undocumented (rf2-l2y4n)."
+                "undocumented."
             )
 
         # NEGATIVE: a row naming a tool the server does not expose.
@@ -1713,11 +1698,11 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "a synthetic doc row naming a tool the server does not expose "
                 "did NOT fire stale-doc-row drift -- a row can outlive its "
-                "tool (rf2-l2y4n)."
+                "tool."
             )
 
     # -----------------------------------------------------------------
-    # (5) Body-path-identity axis (rf2-2zkrz).
+    # (5) Body-path-identity axis.
     # -----------------------------------------------------------------
 
     # (5a) Shipped recipes: no path-identity drift.
@@ -1769,16 +1754,16 @@ def _run_self_test(ci: bool) -> int:
                     f"argument ({path!r})."
                 )
 
-    # (5c) BEHAVIOURAL CONTROL: the pre-fix recipe must FAIL this harness, or
-    #      the harness proves nothing. Two ways the old text broke, both real:
-    #      the expression reached `Write` literally, and the nonce re-rolled
+    # (5c) BEHAVIOURAL CONTROL: an expression-path recipe must FAIL this
+    #      harness, or the harness proves nothing. It fails two ways: the
+    #      expression reaches `Write` literally, and the nonce re-rolls
     #      before the `gh` step.
     ctrl = _LiteralPathHost()
     ctrl.write("${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md", _NASTY_BODY)
     try:
         ctrl.gh_issue_create("/tmp/re-frame2-issue-2984-24950.md")
         failures.append(
-            "CONTROL DID NOT BITE: the pre-fix expression passed literally to "
+            "CONTROL DID NOT BITE: a nonce expression passed literally to "
             "`Write` was still found by an expanded `--body-file` path. The "
             "literal-path harness is not modelling `Write` correctly."
         )
@@ -1821,12 +1806,12 @@ def _run_self_test(ci: bool) -> int:
             "'/tmp/re-frame2-issue-7f3a9c.md'\n"
         )
         for label, recipe, want in (
-            # The exact pre-fix text this bead was filed against.
+            # A shell expression in the argument position.
             ("synthetic-expression-path",
              good.replace("'/tmp/re-frame2-issue-7f3a9c.md'",
                           "\"${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md\""),
              "expression-body-path"),
-            # The other pre-fix half: a prose placeholder, not a value.
+            # A prose placeholder, not a value.
             ("synthetic-placeholder-path",
              good.replace("'/tmp/re-frame2-issue-7f3a9c.md'",
                           "\"<the exact path from step 2>\""),
@@ -1853,17 +1838,17 @@ def _run_self_test(ci: bool) -> int:
                 failures.append(
                     f"a synthetic recipe that should fire {want} did NOT -- "
                     f"the body-path-identity axis is a no-op for {label} "
-                    f"(rf2-2zkrz)."
+                    f"input."
                 )
 
         if _bp("synthetic-concrete-path", good):
             failures.append(
                 "a synthetic recipe handing `--body-file` one concrete, "
                 "reused path with both host shapes shown was flagged -- the "
-                "body-path-identity green path is broken (rf2-2zkrz)."
+                "body-path-identity green path is broken."
             )
 
-    # (6) SINGLE-HOST AXIS (rf2-p1keh). Three checks, because the axis has
+    # (6) SINGLE-HOST AXIS. Three checks, because the axis has
     #     exactly one way to fail silently: if the entry regex stops matching,
     #     every skill reads as single-host and the gate is a no-op that never
     #     says so. So prove the shipped rules green, prove a controlled
@@ -1906,8 +1891,8 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "a synthetic single-host skill carrying one "
                 "mcp__re-frame2-story-mcp__ entry did NOT fire "
-                "foreign-mcp-host -- the single-host axis is a no-op "
-                "(rf2-p1keh)."
+                "foreign-mcp-host -- the single-host axis is a "
+                "no-op."
             )
 
         # Positive: the same frontmatter without the foreign entry is green,
@@ -1922,7 +1907,7 @@ def _run_self_test(ci: bool) -> int:
             failures.append(
                 "a synthetic single-host skill with only "
                 "mcp__re-frame2-pair__ entries was flagged -- the "
-                "single-host green path is broken (rf2-p1keh)."
+                "single-host green path is broken."
             )
         seen = extract_skill_mcp_hosts(good)
         if seen.get("re-frame2-pair") != {"discover-app", "eval-cljs"}:
@@ -1930,7 +1915,7 @@ def _run_self_test(ci: bool) -> int:
                 "the single-host extractor read "
                 f"{seen!r} from a synthetic allow-list holding exactly two "
                 "mcp__re-frame2-pair__ entries -- the axis' green is "
-                "vacuous, not earned (rf2-p1keh)."
+                "vacuous, not earned."
             )
 
     if failures:
@@ -1946,7 +1931,7 @@ def _run_self_test(ci: bool) -> int:
           "shipped rules green; synthetic covered stays green; missing row and "
           "phantom row both fire. body-path-identity: shipped recipes green; "
           "both host shapes survive a literal-path Write -> gh --body-file "
-          "handoff byte-for-byte; the pre-fix expression and a regenerated "
+          "handoff byte-for-byte; a nonce expression and a regenerated "
           "nonce both fail that handoff; expression / placeholder / unpaired / "
           "absent / POSIX-only recipes all fire. single-host: shipped rules "
           "green; a reintroduced foreign-server entry fires; the own-host "
@@ -1967,11 +1952,11 @@ def main(argv: Iterable[str]) -> int:
     parser.add_argument("--show-baseline", action="store_true",
                         help="Print the current accepted baseline and exit.")
     parser.add_argument("--self-test", action="store_true",
-                        help="Run the title-safety (rf2-4kyg6) + doc-coverage (rf2-l2y4n) "
-                             "self-tests and exit. Proves the all-consumers backstop fires "
-                             "when an allowance is removed, that link-presence consumers "
-                             "stay green, and that the doc-coverage axis fires on both a "
-                             "missing row and a phantom row.")
+                        help="Run the title-safety, doc-coverage, body-path-identity and "
+                             "single-host self-tests and exit. Proves each axis fires on "
+                             "a synthetic defect and stays green on a synthetic "
+                             "conforming input, and that the shipped rules are "
+                             "green.")
     args = parser.parse_args(list(argv))
 
     ci = args.ci or _is_ci()
@@ -2003,7 +1988,7 @@ def main(argv: Iterable[str]) -> int:
         for d in drift:
             all_drift.append((mapping, d))
 
-    # Bash-axis cross-checks (rf2-yiccf). These piggyback on the same drift
+    # Bash-axis cross-checks. These piggyback on the same drift
     # accumulator but carry mapping=None — Drift.message handles the
     # missing-bash-allow direction without a Mapping object.
     bash_drift, bash_info = check_bash_rules(BASH_RULES)
@@ -2011,7 +1996,7 @@ def main(argv: Iterable[str]) -> int:
     for d in bash_drift:
         all_drift.append((None, d))
 
-    # Title-safety axis (rf2-4kyg6 finding 1) — all-current-consumers
+    # Title-safety axis — all-current-consumers
     # backstop for the gh-issue shell-safety contract. Same
     # accumulator, mapping=None; Drift.message handles the
     # missing-title-safety direction.
@@ -2025,7 +2010,7 @@ def main(argv: Iterable[str]) -> int:
     for d in title_drift:
         all_drift.append((None, d))
 
-    # Body-path-identity axis (rf2-2zkrz) — the `--body-file` argument must be
+    # Body-path-identity axis — the `--body-file` argument must be
     # ONE concrete path the recipe also shows `Write` being handed. Same
     # consumers as the title-safety axis, same accumulator, mapping=None.
     try:
@@ -2038,7 +2023,7 @@ def main(argv: Iterable[str]) -> int:
     for d in path_drift:
         all_drift.append((None, d))
 
-    # Single-host axis (rf2-p1keh) — a single-runtime skill's MCP permissions
+    # Single-host axis — a single-runtime skill's MCP permissions
     # must all carry one host prefix. Invisible to the MCP axis above, which
     # filters each mapping to its own prefix. Same accumulator, mapping=None.
     try:
@@ -2051,7 +2036,7 @@ def main(argv: Iterable[str]) -> int:
     for d in host_drift:
         all_drift.append((None, d))
 
-    # Doc-coverage axis (rf2-l2y4n) — every server tool must have a table row
+    # Doc-coverage axis — every server tool must have a table row
     # in the reference that routes to its semantics home. Same accumulator,
     # mapping=None; Drift.message handles both directions.
     try:
@@ -2088,8 +2073,8 @@ def main(argv: Iterable[str]) -> int:
         print(f"Drift detected ({len(new_drift)} finding{'' if len(new_drift) == 1 else 's'}):", file=sys.stderr)
         for m, d in new_drift:
             _emit_error(d.message(m), ci)
-        # The baseline can be stale: entries in _BASELINE that no longer
-        # reflect actual drift (because the underlying gap was fixed) are
+        # The baseline can be stale: entries in _BASELINE that match no
+        # actual drift (because the underlying gap is fixed) are
         # surfaced as a warning so the maintainer trims them. Stale baseline
         # entries don't fail the build.
         _warn_stale_baseline(all_drift, args.no_baseline, ci)
@@ -2098,7 +2083,7 @@ def main(argv: Iterable[str]) -> int:
     if saw_setup_error:
         return 2
 
-    # Silent-on-success (rf2-try1x): emit the success line only under
+    # Silent-on-success: emit the success line only under
     # --verbose. Green CI runs and local invocations otherwise produce
     # no stdout — the exit code is the success signal.
     if args.verbose:

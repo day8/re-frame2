@@ -2,19 +2,11 @@
 """Eval-docs drift gate: a packaged skill's `evals/README.md` vs its `evals.json`.
 
 The eval harness README of a skill carries a human-readable coverage table, a
-total eval count, and one or more per-axis tallies (per-dimension, and — for
-the two-kind improver harness — per-kind). Those are hand-maintained prose
-that silently fell behind the JSON before:
-
-  * `skills/re-frame2/evals` (rf2-r2xswa): a seventh eval
-    (`recipe-correctness-story-recorder-sensitive-login`) landed in `evals.json`
-    while the README still said "Six evals … two evals per dimension".
-  * `skills/re-frame2-improver/evals` (rf2-xw7ra9): the corpus grew to 26
-    total / 10 behavioural, but the top README / spec / authoring-prompt prose
-    still said "9 behavioural fixtures", silently dropping the false-positive
-    guard added by eval 26 (`behav-neg-diagnostic-time-read`). The original
-    gate was hard-coded to `skills/re-frame2/evals`, so it never saw the
-    improver drift.
+total eval count, and one or more per-axis tallies (per-dimension, per-kind,
+or over a boolean field). Those are hand-maintained prose that silently falls
+behind the JSON: an eval lands in `evals.json` while the README still states
+the old total and the old per-dimension tally, or a tally keeps the old number
+and silently drops a newly added guard.
 
 A stale coverage table makes the validation story less trustworthy than the
 skill it guards: a maintainer can miss an eval, misread the dimension balance,
@@ -33,7 +25,7 @@ and asserts the README agrees on three axes:
                          lacks (set equality), and each table row's id matches
                          the JSON id for that name.
   A3  TALLIES          — every tally axis the target declares (per-dimension,
-                         and per-kind for the improver) states, in README
+                         per-kind, or a boolean field) states, in README
                          prose, the same counts the JSON produces. Counts are
                          read as number-words OR digits.
 
@@ -50,20 +42,20 @@ doc-table targets):
 
 Each target declares its own conventions (which evals appear in the table, how
 its total-count sentence reads, which tally axes it asserts), so harnesses with
-different README shapes are all gated correctly. The `re-frame2` target keeps
-its original single-axis (per-dimension) semantics verbatim; the `re-frame2-xray`
+different README shapes are all gated correctly. The `re-frame2` target uses
+single-axis (per-dimension) semantics; the `re-frame2-xray`
 target tabulates only its Layer-2 answer-quality evals (those carrying
 `expectations[]`) and tallies a boolean `should_trigger` axis rendered to prose
 (positives / negatives).
 
-The `re-frame2-improver` harness is intentionally NOT a doc-table target
-(rf2-hpq96d): its `evals/README.md` no longer carries a coverage table, total
-count, or per-axis tallies — `evals.json` is that skill's sole fixture
-inventory, so there is no coverage prose that could drift against the JSON.
-Its evals.json is still covered corpus-wide by the A4 identity-uniqueness
-invariant below. The gate keeps the multi-axis (per-kind + per-behavioural-
-dimension) machinery a two-kind harness needs — exercised by the self-test — so
-the capability is retained should another harness adopt that README shape.
+The `re-frame2-improver` harness is intentionally NOT a doc-table target: its
+`evals/README.md` carries no coverage table, total count, or per-axis
+tallies — `evals.json` is that skill's sole fixture inventory, so there is no
+coverage prose that could drift against the JSON. Its evals.json is covered
+corpus-wide by the A4 identity-uniqueness invariant below. The gate carries
+the multi-axis (per-kind + per-behavioural-dimension) machinery a two-kind
+harness needs — exercised by the self-test — for any harness with that README
+shape.
 
 The gate is pure-Python-stdlib (no PyYAML / Node) to stay fast and
 CI-portable, mirroring the sibling `scripts/check_skill_*.py` gates. It does
@@ -80,8 +72,6 @@ Usage:
     python scripts/check_skill_eval_docs.py --verbose
     python scripts/check_skill_eval_docs.py --ci          # CI-shaped
     python scripts/check_skill_eval_docs.py --self-test    # built-in fixtures
-
-rf2-r2xswa (finding 3); generalised under rf2-xw7ra9.
 """
 
 from __future__ import annotations
@@ -198,7 +188,6 @@ class Target:
 # The `re-frame2` authoring harness: a single coverage table over ALL evals,
 # the "<N> evals, covering …" total sentence, and a per-`dimension` tally
 # ("four recipe-correctness … two each for discovery and routing-correctness").
-# This reproduces the original hard-coded semantics verbatim.
 _REFRAME2 = Target(
     slug="re-frame2",
     total_count_re=re.compile(r"\b([A-Za-z]+|\d+)\s+evals,\s+covering"),
@@ -206,20 +195,20 @@ _REFRAME2 = Target(
     tally_axes=(TallyAxis(field_name="dimension", label="dimension"),),
 )
 
-# NOTE: `re-frame2-improver` is deliberately absent from TARGETS (rf2-hpq96d).
-# Its evals/README.md no longer carries a coverage table / total count / tally
-# prose — evals.json is that skill's sole fixture inventory — so there is
-# nothing for a doc-table target to cross-check. Its evals.json is still gated
-# corpus-wide by the A4 identity-uniqueness pass. The two-kind / two-axis shape
-# it used to exercise is retained in the self-test (`_run_self_test`) so the
-# multi-axis machinery stays covered for any future harness that adopts it.
+# NOTE: `re-frame2-improver` is deliberately absent from TARGETS. Its
+# evals/README.md carries no coverage table / total count / tally prose —
+# evals.json is that skill's sole fixture inventory — so there is nothing for
+# a doc-table target to cross-check. Its evals.json is gated corpus-wide by
+# the A4 identity-uniqueness pass. The self-test (`_run_self_test`) defines
+# the two-kind / two-axis shape inline so the multi-axis machinery stays
+# covered.
 
 # The `re-frame2-xray` tour harness: a single "<N> evals, covering …" total
 # sentence (the `re-frame2` shape), a coverage table that individually tabulates
 # only the Layer-2 answer-quality entries (those carrying `expectations[]`; the
 # trigger-only positives and the negatives are listed in collapsed multi-id
 # rows the parser intentionally ignores), and a per-`should_trigger` tally
-# (21 positives / 8 negatives). The boolean axis is rendered to prose via
+# (positives / negatives). The boolean axis is rendered to prose via
 # `value_label` (`True`→"positive", `False`→"negative").
 _XRAY = Target(
     slug="re-frame2-xray",
@@ -261,8 +250,8 @@ def load_evals(path: Path) -> list[dict]:
 # the earlier, or a report keyed by name merges two distinct cases — and hides
 # the intended scenario distinction from a human reading the corpus. A
 # duplicate `id` breaks the same identity contract. Neither the README↔JSON
-# drift axes (A1–A3) nor the schema runner currently catch this; this gate
-# closes it generically for EVERY skill that ships an evals.json, not only the
+# drift axes (A1–A3) nor the schema runner catch this; this gate catches it
+# generically for EVERY skill that ships an evals.json, not only the
 # doc-table TARGETS above.
 
 
@@ -402,7 +391,7 @@ def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]
 def _cross_check(evals: list[dict], text: str, target: Target) -> list[str]:
     """Core cross-check of an in-memory (evals, README text) pair against a
     target's conventions. Used by `check_target` (live files), `check` (the
-    back-compat single-target entry), and the self-test (synthetic fixtures).
+    single-target entry), and the self-test (synthetic fixtures).
     """
     findings: list[str] = []
 
@@ -468,9 +457,9 @@ def check_target(target: Target) -> list[str]:
     return _cross_check(evals, text, target)
 
 
-# Back-compat shim: the original single-target entry point, kept so any
-# external caller importing `check(json, readme)` still works. Uses the
-# `re-frame2` conventions (single coverage table, per-dimension tally).
+# Single-target entry point, `check(json, readme)`, for a caller that holds
+# the two paths directly (the self-test uses it). Uses the `re-frame2`
+# conventions (single coverage table, per-dimension tally).
 def check(evals_json: Path, readme: Path) -> list[str]:
     """Single-target cross-check using the `re-frame2` conventions."""
     evals = load_evals(evals_json)
@@ -565,10 +554,8 @@ def _run_self_test() -> int:
     )
 
     # The two-kind / two-axis shape (per-kind + per-behavioural-dimension over a
-    # behavioural-only coverage table). No live target uses it today — the
-    # re-frame2-improver harness dropped its coverage table (rf2-hpq96d) — but
-    # the machinery is retained, so the self-test defines the shape inline to
-    # keep it exercised.
+    # behavioural-only coverage table). No live target uses it, so the
+    # self-test defines the shape inline to keep the machinery exercised.
     improver_target = Target(
         slug="<self-test-two-axis>",
         total_count_re=re.compile(r"\b([A-Za-z][A-Za-z-]*|\d+)\s+evals[:,]"),
@@ -590,7 +577,7 @@ def _run_self_test() -> int:
 
     improver_cases: list[tuple[str, dict, str, bool]] = [
         ("clean improver", improver_json, improver_readme, True),
-        # Stale total count (the rf2-xw7ra9 regression class: "9 behavioural").
+        # Stale total count.
         ("bad total", improver_json,
          improver_readme.replace("Four evals", "Five evals"), False),
         # Stale per-kind tally (claim 1 behavioural when there are 2).
@@ -744,8 +731,8 @@ def main(argv: Iterable[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Verify every packaged skill's evals/README.md coverage table, "
-            "total count, and per-axis tallies agree with its evals.json "
-            "(rf2-r2xswa; generalised rf2-xw7ra9)."
+            "total count, and per-axis tallies agree with its "
+            "evals.json."
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -809,7 +796,7 @@ def main(argv: Iterable[str]) -> int:
         print(
             "\nFix: update the named skill's evals/README.md (coverage table, "
             "the total-eval-count sentence, and the per-axis breakdowns) to "
-            "match its evals/evals.json. (rf2-r2xswa / rf2-xw7ra9)",
+            "match its evals/evals.json.",
             file=sys.stderr,
         )
         return 1

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Foundation-order drift guard: re-frame2-implementor skill must keep Spec 015
-inside the core-complete gate (rf2-708nm).
+inside the core-complete gate.
 
 The `re-frame2-implementor` skill walks a port author through Phase 2 in
 dependency order, and several entry points encode that order as a literal
@@ -14,16 +14,16 @@ Spec 015 (Data Classification) is **v1-required** (`spec/015-Data-Classification
 opens "Status: Drafting. **v1-required.**") and `spec/API.md` exposes the
 frame-owned `:sensitive` / `:large` classification surface plus the `project-egress`
 record-level boundary primitive and `register-observability-sink!` as v1 API (EP-0015
-frame-owned egress policy; the earlier imperative `add-marks` / `set-marks` path
-API is removed from the public facade). It rides the 009 emission boundary, so it
+frame-owned egress policy; there is no imperative `add-marks` / `set-marks` path
+API on the public facade). It rides the 009 emission boundary, so it
 MUST sit inside the foundation cluster — ahead of the `:core/*` gate, NOT among the
-optional EPs. rf2-708nm was exactly this drift: SKILL.md and phase-2-impl-order.md
-had been updated to `001 -> 002 -> 006 -> 004 -> 009 -> 015 -> gate`, but several
-other entry points still read `001 -> 002 -> 006 -> 004 -> 009 -> optional`,
-placing the first `:core/*` gate BEFORE Data Classification. A fresh session
-using the kickoff prompt — or a maintainer reading the stale leaf — could ship or
-declare "v1-core-complete" without the required privacy/large-payload elision
-surface, leaking marked data through observability.
+optional EPs. The drift this guards against: some entry points read
+`001 -> 002 -> 006 -> 004 -> 009 -> 015 -> gate` while others read
+`001 -> 002 -> 006 -> 004 -> 009 -> optional`, placing the first `:core/*` gate
+BEFORE Data Classification. A fresh session using the kickoff prompt — or a
+maintainer reading the stale leaf — could then ship or declare
+"v1-core-complete" without the required privacy/large-payload elision surface,
+leaking marked data through observability.
 
 This guard makes that class of drift a build failure. It scans the user-facing
 implementor docs (SKILL.md, README.md, references/*.md) plus the skill-internal
@@ -52,7 +52,7 @@ Section *headings* for a single EP (e.g. "## EP 009 — Instrumentation",
 (`spec/009-Instrumentation.md`, `Implementor-Checklist/#...`) are NOT boundary
 statements — they name one EP, not the cluster order — and are excluded.
 
-Second scan — the **required-foundation gate** (rf2-j538f7.36, rf2-k2r1).
+Second scan — the **required-foundation gate**.
 Ordering 015 correctly is necessary but not sufficient: the FIRST conformance
 gate must also run the separately-tagged fixtures of every other v1-required
 family, not `:core/*` alone. Those families are `:core/*`, `:identity/*`,
@@ -65,26 +65,23 @@ behavioral false-green: a port could ship with broken CEDN-1 identity, no flow
 substrate at all, or leaking classified values and still declare
 "v1-core-complete".
 
-`:flow/*` joined that set in rf2-k2r1, which is the drift this scan's
-cross-check was rebuilt for. The skill had inferred that flows, managed HTTP
-and resources were "skill-local optional" capabilities because the checklist
-numbered only Q1-Q7; the checklist then grew Q8 (Managed HTTP) and Q9
-(Resources) and made Flows a NON-gated Required row precisely so a port could
-not opt out of Spec 013. The skill never consumed that change, so a minimum
-port put `:flow/*` on `known-skipped`, kept both gates green over the smaller
-claim, and reported itself v1-complete with no flow substrate.
+`:flow/*` is in that set because the checklist makes Flows a NON-gated
+Required row, so a port cannot opt out of Spec 013. A skill that treats flows
+as a "skill-local optional" capability lets a minimum port put `:flow/*` on
+`known-skipped`, keep both gates green over the smaller claim, and report
+itself v1-complete with no flow substrate.
 
 **The cross-check is deliberately two-sided, because a one-sided one cannot see
 that class of drift.** Checking the constant against the SKILL's own capability
 leaf (`references/conformance.md`) proves only that the skill and this guard
-agree — which they did, both omitting `:flow/*`, all the way through the
-false-green. So the required roots are ALSO derived from the NORMATIVE owner:
+agree — and both can omit `:flow/*` together, through the whole false-green.
+So the required roots are ALSO derived from the NORMATIVE owner:
 `spec/Implementor-Checklist.md` Part 3's family table, whose "always run" rows
 are the contract. The derived set must equal this guard's constant exactly, in
 both directions, and a derivation that matches zero rows is a SETUP failure
 rather than a vacuous pass.
 
-Third scan — the **EP-006 live sub-cache witness** (rf2-3758j). The corpus's two
+Third scan — the **EP-006 live sub-cache witness**. The corpus's two
 `:identity/cedn1` cache-key fixtures call the canonical-identity primitive
 directly: they prove the cache-KEY prerequisite, never live cache wiring, and
 the corpus subscribes each query once (the owning Spec's
@@ -116,8 +113,6 @@ Usage:
     python scripts/check_skill_implementor_order.py --self-test   # built-in
                                                                   #   pass/fail
                                                                   #   fixtures
-
-rf2-708nm.
 """
 
 from __future__ import annotations
@@ -177,7 +172,7 @@ CITATION_RE = re.compile(
 EP_009_RE = re.compile(r"(?<!\d)009(?!\d)")
 EP_015_RE = re.compile(r"(?<!\d)015(?!\d)")
 DATA_CLASS_RE = re.compile(r"data classification", re.IGNORECASE)
-# EP 013 (Flows) is v1-required too (rf2-k2r1) and closes the foundation
+# EP 013 (Flows) is v1-required too and closes the foundation
 # cluster. Unlike 015 there is no prose alias accepted here: the sequences are
 # numeric, so a bare `013` (citations already scrubbed above) is the token.
 EP_013_RE = re.compile(r"(?<!\d)013(?!\d)")
@@ -210,14 +205,14 @@ EP_HEADING_RE = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# Required-foundation gate scan (rf2-j538f7.36).
+# Required-foundation gate scan.
 # ---------------------------------------------------------------------------
 
-# Two owners, deliberately (rf2-k2r1). The skill's capability leaf is where a
+# Two owners, deliberately. The skill's capability leaf is where a
 # port author READS the family set; `spec/Implementor-Checklist.md` Part 3 is
 # where the project DECIDES it. Cross-checking the constant against the skill
-# alone proves only that the skill and this guard agree — the exact state that
-# let `:flow/*` go missing from both. So the constant is checked against the
+# alone proves only that the skill and this guard agree — and a family can go
+# missing from both at once. So the constant is checked against the
 # skill leaf (it must still teach every required root) AND derived from the
 # normative table (which arbitrates what the set actually is).
 OWNER_FILE = SKILL_DIR / "references" / "conformance.md"
@@ -260,7 +255,7 @@ GATE_SCOPE_CUE_RE = re.compile(
 
 
 # ---------------------------------------------------------------------------
-# EP-006 live sub-cache witness scan (rf2-3758j).
+# EP-006 live sub-cache witness scan.
 # ---------------------------------------------------------------------------
 
 # The completion surfaces that must carry the witness requirement: the
@@ -274,7 +269,7 @@ WITNESS_REQUIRED_FILES = [
     SKILL_DIR / "references" / "conformance.md",
 ]
 
-# A line REFERENCES the witness when it names it. The pre-fix drift shape —
+# A line REFERENCES the witness when it names it. The misnomer shape —
 # calling the :identity/cedn1 fixtures themselves "sub-cache fixtures" — does
 # NOT match: the witness term is "live sub-cache witness".
 WITNESS_REF_RE = re.compile(r"live sub-cache witness", re.IGNORECASE)
@@ -438,8 +433,8 @@ def find_witness_drift() -> tuple[list[str], int]:
     Every completion surface must reference the EP-006 live sub-cache witness,
     and the owner's definition must keep its observable elements (see
     WITNESS_ELEMENT_RES). Removing the requirement — or hollowing the
-    definition — restores the rf2-3758j false-green, where a reference-keyed
-    host reports v1 completion off canonical-identity fixtures alone."""
+    definition — reopens the false-green where a reference-keyed host
+    reports v1 completion off canonical-identity fixtures alone."""
     problems: list[str] = []
     referenced = 0
     for path in WITNESS_REQUIRED_FILES:
@@ -489,7 +484,7 @@ def derive_normative_always_run() -> tuple[set[str], list[str]]:
     """Derive the always-run (v1-required) family roots from the NORMATIVE
     owner — spec/Implementor-Checklist.md Part 3's family table — rather than
     from the skill. This is the half of the cross-check a stale skill cannot
-    satisfy by agreeing with a stale constant (rf2-k2r1).
+    satisfy by agreeing with a stale constant.
 
     Returns (roots, SETUP problems). A parse that matches zero rows is a
     problem, never an empty-and-green answer: the table's shape changing must
@@ -525,9 +520,9 @@ def verify_owner_declares_required_roots() -> list[str]:
 
     Side 2 — the NORMATIVE owner (spec/Implementor-Checklist.md Part 3) must
     agree with the constant EXACTLY, in both directions. Side 1 alone is
-    circular: through the whole rf2-k2r1 false-green the skill and this guard
-    agreed with each other that there were three required families, while the
-    checklist and conformance README said `:flow/*` could not be declined.
+    circular: the skill and this guard can agree with each other that there
+    are three required families while the checklist and conformance README
+    say `:flow/*` cannot be declined.
 
     Returns SETUP problems (empty when constant, skill and spec agree)."""
     problems: list[str] = []
@@ -671,7 +666,7 @@ def _self_test() -> int:
                 )
                 failures += 1
 
-    # FAIL fixtures — these are the rf2-708nm drift shapes; each is a boundary
+    # FAIL fixtures — these are the order-drift shapes; each is a boundary
     # statement that OMITS 015 (so the guard must flag them).
     expect(
         "3. Implement in dependency order: 001 -> 002 -> 006 -> 004 -> 009 -> optional.",
@@ -690,7 +685,7 @@ def _self_test() -> int:
         boundary=True, has015=False, label="D decision-record required-core row",
     )
 
-    # PASS fixtures — boundary statements that DO carry 015 (the corrected shapes).
+    # PASS fixtures — boundary statements that DO carry 015 (the conforming shapes).
     expect(
         "001 → 002 → 006 → 004 → 009 → 015 → 013, then optional EPs per Phase 1 scope",
         boundary=True, has015=True, has013=True, label="E corrected SKILL arrow run",
@@ -704,10 +699,9 @@ def _self_test() -> int:
         boundary=True, has015=True, has013=True, label="G prose name instead of number",
     )
 
-    # rf2-k2r1 FAIL fixtures — 015 is correctly ordered but 013 (Flows, equally
-    # v1-required) has fallen out of the sequence back among the optional EPs.
-    # This is the exact pre-fix shape: the order reads complete, and the port
-    # ships no flow substrate.
+    # FAIL fixtures — 015 is correctly ordered but 013 (Flows, equally
+    # v1-required) is missing from the sequence, back among the optional EPs:
+    # the order reads complete, and the port ships no flow substrate.
     expect(
         "001 → 002 → 006 → views → 009 → 015 are the foundation; optional EPs sit downstream.",
         boundary=True, has015=True, has013=False,
@@ -750,7 +744,7 @@ def _self_test() -> int:
         boundary=False, has015=False, label="L impl-tour file map (no boundary cue)",
     )
 
-    # -- Required-foundation gate scan (rf2-j538f7.36) --------------------
+    # -- Required-foundation gate scan -------------------------------------
     def expect_gate(line: str, *, gate: bool, all_roots: bool, label: str) -> None:
         nonlocal failures
         got_gate = line_states_gate_scope(line)
@@ -769,7 +763,7 @@ def _self_test() -> int:
             failures += 1
 
     # FAIL fixtures — gate-1 scope statements that name :core/* alone (the
-    # rf2-j538f7.36 false-green shapes); the gate scan must flag each.
+    # false-green shapes); the gate scan must flag each.
     expect_gate(
         "Acceptance gate 1 — running the `:core/*` conformance fixtures — sits at the end.",
         gate=True, all_roots=False, label="M core-only cardinal-rule gate",
@@ -778,7 +772,7 @@ def _self_test() -> int:
         "The `:core/*` conformance corpus at `spec/conformance/` is the acceptance test.",
         gate=True, all_roots=False, label="N core-only README acceptance corpus",
     )
-    # The exact miss the old order-only guard let through: EP 015 correctly
+    # The miss an order-only guard lets through: EP 015 correctly
     # ORDERED, yet the gate runs :core/* + :data-classification/* only — the
     # separately-tagged :identity/* (EP-0012) family is absent from gate 1.
     ordered_but_no_identity = (
@@ -794,24 +788,23 @@ def _self_test() -> int:
         gate=True, all_roots=False, label="P classification family absent",
     )
 
-    # rf2-k2r1 — the before/after pair. The three-family statement was the
-    # CORRECT shape until Spec 013 joined the required set; it is now a
+    # The three-family / four-family pair. A three-family statement is a
     # false-green (a port with no flow substrate clears it), so the gate scan
-    # must flag it. Restoring `:flow/*` returns green.
+    # must flag it. Adding `:flow/*` returns green.
     expect_gate(
         "Acceptance gate 1 — the required-foundation gate: run every fixture "
         "applicable to `:core/*` + `:identity/*` + `:data-classification/*`.",
         gate=True, all_roots=False,
-        label="Q1 three-family gate is now incomplete (:flow/* absent)",
+        label="Q1 three-family gate is incomplete (:flow/* absent)",
     )
     expect_gate(
         "Acceptance gate 1 — the required-foundation gate: run every fixture "
         "applicable to `:core/*` + `:identity/*` + `:flow/*` + "
         "`:data-classification/*`.",
-        gate=True, all_roots=True, label="Q2 corrected four-family gate",
+        gate=True, all_roots=True, label="Q2 four-family gate",
     )
-    # The flavour the bead actually produced: flows conceded in prose while the
-    # gate statement still runs the old three families.
+    # Flows conceded in prose while the gate statement runs only three
+    # families.
     expect_gate(
         "Acceptance gate 1 green: every fixture applicable to `:core/*` + "
         "`:identity/*` + `:data-classification/*` at the pin (flows claimed "
@@ -836,7 +829,7 @@ def _self_test() -> int:
         gate=False, all_roots=False, label="T gate-2 line (gate-1 cue absent)",
     )
 
-    # -- EP-006 live sub-cache witness scan (rf2-3758j) --------------------
+    # -- EP-006 live sub-cache witness scan --------------------------------
     def expect_witness_ref(line: str, *, ref: bool, label: str) -> None:
         nonlocal failures
         got = bool(WITNESS_REF_RE.search(line))
@@ -860,8 +853,8 @@ def _self_test() -> int:
             failures += 1
 
     # Witness REFERENCES — the completion-surface shapes must match; the
-    # pre-fix drift shape (calling the fixtures themselves "sub-cache
-    # fixtures") shares the sub-cache token and must NOT.
+    # misnomer shape (calling the fixtures themselves "sub-cache fixtures")
+    # shares the sub-cache token and must NOT.
     expect_witness_ref(
         "- [ ] EP-006 live sub-cache witness green "
         "([`references/phase-2-impl-order.md`](...)) — required whenever ...",
@@ -873,7 +866,7 @@ def _self_test() -> int:
     )
     expect_witness_ref(
         "`:core/sub`, plus the `:identity/cedn1` sub-cache fixtures",
-        ref=False, label="W pre-fix fixture misnomer is not a witness reference",
+        ref=False, label="W fixture misnomer is not a witness reference",
     )
     expect_witness_ref(
         "each frame holds one sub-cache, keyed by the query vector",
@@ -938,7 +931,7 @@ def _self_test() -> int:
         present=False, label="AC3 never-below prose is not the element",
     )
 
-    # -- Normative required-root derivation (rf2-k2r1) ---------------------
+    # -- Normative required-root derivation --------------------------------
     # These read spec/Implementor-Checklist.md, because the derivation IS the
     # unit under test: the point of the two-sided cross-check is that the
     # constant is answerable from the spec rather than from the skill.
@@ -956,7 +949,7 @@ def _self_test() -> int:
     if normative and ":flow/*" not in normative:
         print(
             "SELF-TEST FAIL (AF): spec/Implementor-Checklist.md no longer marks "
-            ":flow/* as always-run — rf2-k2r1's premise has moved; re-read the "
+            ":flow/* as always-run — the four-family premise has moved; re-read the "
             "family table before relaxing the skill."
         )
         failures += 1

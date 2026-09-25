@@ -7,7 +7,7 @@
 // directory rename on main cannot rename a path inside an older commit, and the
 // restore resolves that exact string. The three table rows are the other half:
 // they ARE the retired spellings, being translated to the current ones on the
-// way in, so the left column cannot be spelled any other way (rf2-d1nr.2).
+// way in, so the left column cannot be spelled any other way.
 //
 // Both constructs are exempt AT THAT PATH and only there: the self-test scans
 // these same bytes attributed to a second path and expects all four to fire,
