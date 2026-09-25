@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.frame-switcher-cljs-test
-  "CLJS coverage for the hardened L1 frame-switcher slot (rf2-iwwou).
+  "CLJS coverage for the L1 frame-switcher slot.
 
   Verifies the public contract documented in `frame_switcher.cljs`:
 
@@ -11,8 +11,7 @@
   3. Event `:rf.xray/select-frame` writes through the spine + fires
      the persistence fx.
   4. EDN round-trip (`->edn` / `<-edn`) survives malformed inputs.
-  5. Hydration restores the persisted frame at install-time.
-  6. The Cmd-K palette's `:palette/select-frame` verb dispatches
+  5. The Cmd-K palette's `:palette/select-frame` verb dispatches
      through the canonical `:rf.xray/select-frame` event — the
      ribbon, the palette, and any future frame-aware feature share
      one write path."
@@ -31,8 +30,7 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
-  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; `make-xray-runtime-fixture` at the `:all` reset
   ;; tier — install (== preload's alias) + registry + mount sentinels + the
   ;; trace-collector rings; `:post-reset` carries this suite's tail.
   (xray-test-support/make-xray-runtime-fixture
@@ -66,10 +64,8 @@
 
 (deftest distinct-frames-excludes-internal-frames-unconditionally
   (testing "spec/018 §8 I1 — `:rf/xray` and the other tool frames are
-            filtered out of the picker option list. rf2-y8doi.27 made
-            this UNCONDITIONAL: the power-user re-include arity went
-            with the setting that was supposed to drive it, which had
-            lost its UI and could no longer be written."
+            filtered out of the picker option list UNCONDITIONALLY:
+            there is no re-include arity and no setting to drive one."
     (let [cascades [{:dispatch-id 1 :frame :rf/default}
                     {:dispatch-id 2 :frame :rf/xray}
                     {:dispatch-id 3 :frame :app/main}
@@ -198,7 +194,7 @@
       (is (= :rf/cart-frame (get-in (xray-db) [:focus :frame]))
           "the spine's :focus :frame slot lands on the picked frame")
       (is (= :rf/cart-frame (:target-frame (xray-db)))
-          "the spine's :target-frame slot follows (rf2-ug1r6)"))))
+          "the spine's :target-frame slot follows"))))
 
 (deftest select-frame-fires-persistence-fx
   (testing "the canonical event-fx fires the `:rf.xray.frame-switcher/
@@ -208,7 +204,7 @@
     (let [persisted (atom nil)]
       ;; Swap the fx with a counting stub so we don't touch
       ;; localStorage in the test runtime (Node has no jsdom).
-      ;; rf2-h1vqa4: route through the frame's :fx-overrides seam (fn-value
+      ;; Route through the frame's :fx-overrides seam (fn-value
       ;; form) instead of re-registering the xray-owned fx id — a cross-ns
       ;; re-registration fails the frame's default-image assembly loud.
       (rf/make-frame {:id :rf/xray
@@ -221,7 +217,7 @@
           "the persist fx fired with the new frame id"))))
 
 ;; -------------------------------------------------------------------------
-;; (5) Cmd-K palette routes through the canonical contract (rf2-iwwou)
+;; (5) Cmd-K palette routes through the canonical contract
 ;; -------------------------------------------------------------------------
 ;;
 ;; The palette's `:palette/select-frame` verb MUST dispatch the canonical
@@ -240,7 +236,7 @@
     (setup!)
     (rf/make-frame {:id :rf/cart-frame})
     (let [persisted (atom nil)]
-      ;; rf2-h1vqa4: route through the frame's :fx-overrides seam (fn-value
+      ;; Route through the frame's :fx-overrides seam (fn-value
       ;; form) instead of re-registering the xray-owned fx id — a cross-ns
       ;; re-registration fails the frame's default-image assembly loud.
       (rf/make-frame {:id :rf/xray
@@ -269,18 +265,17 @@
 ;; (6) View — frame-switcher-view reads the contract
 ;; -------------------------------------------------------------------------
 
-;; The private expand-tree / find-by-testid copies were semantically identical
-;; to `re-frame.test-helpers`; tests call `rf.test-helpers/find-by-testid` directly
-;; (rf2-vj80u8 — no Xray walker facade). `hiccup-seq` (depth-first nodes over
-;; the expanded tree) is not exposed by test-helpers, so it is kept as a thin
-;; wrapper over `rf.test-helpers/expand-tree` for the `:option`-node filter below.
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade. `hiccup-seq` (depth-first nodes over the expanded tree) is
+;; not exposed by test-helpers, so it is a thin wrapper over
+;; `rf.test-helpers/expand-tree` for the `:option`-node filter below.
 (defn- hiccup-seq [tree]
   (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
 (deftest view-renders-frame-dropdown-button-always
-  (testing "rf2-pjjwh — the Figma chrome ribbon ALWAYS shows a frame
+  (testing "the Figma chrome ribbon ALWAYS shows a frame
             dropdown button whose face shows the CURRENTLY-SELECTED frame
-            value (live). rf2-ad7zx.14 — with a SINGLE frame the overlaid
+            value (live). With a SINGLE frame the overlaid
             <select> is ENABLED (a native select with one option opens +
             shows it; it is not inert) and lists that lone frame as its
             only option, carrying its `✓`."
@@ -297,12 +292,12 @@
         (is (some? button) "the Frame dropdown button always renders")
         (is (some? label) "the frame label renders")
         (is (= ":app/main" (last label))
-            "the button face shows the currently-selected frame value (rf2-pjjwh)")
+            "the button face shows the currently-selected frame value")
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-chevron"))
             "the `▾` chevron renders, marking it a dropdown")
         (is (some? picker) "the native <select> overlay is present for a11y")
         (is (not (:disabled (second picker)))
-            "rf2-ad7zx.14 — single-frame: the overlaid select is ENABLED so
+            "single-frame: the overlaid select is ENABLED so
              clicking it opens a 1-entry dropdown (not inert)")
         (is (nil? (:multiple (second picker)))
             "strictly single-select — no :multiple attribute even with one frame")
@@ -316,7 +311,7 @@
 (deftest view-renders-dropdown-when-multiple-frames
   (testing "the view renders a strictly-single-select <select> overlay
             when multiple distinct frames are present; the visible
-            affordance's face shows the active frame value (rf2-pjjwh)"
+            affordance's face shows the active frame value"
     (dispatch-trace 1 :app/main)
     (dispatch-trace 2 :app/admin)
     (setup!)
@@ -331,12 +326,12 @@
             "strictly single-select — no :multiple attribute")
         (is (not (:disabled (second picker)))
             "multi-frame — the select is enabled so the popup opens")
-        ;; rf2-pjjwh — the button face shows the active frame value (the
+        ;; The button face shows the active frame value (the
         ;; head-frame default is the most recent event's frame, :app/admin).
         (is (string? (last label))
             "the button face shows a concrete frame value, not a placeholder")
         (is (not= "Frame" (last label))
-            "the button no longer shows the static `Frame` placeholder")))))
+            "the button face is not the static `Frame` placeholder")))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Storage-key plumbing — per-instance isolation
@@ -363,26 +358,22 @@
         "nil resets to the canonical default")))
 
 ;; -------------------------------------------------------------------------
-;; (7) Realm grouping REMOVED (rf2-70owfr)
+;; No realm grouping
 ;; -------------------------------------------------------------------------
 ;;
-;; The picker's realm `<optgroup>` grouping (`group-frames-by-realm` /
-;; `multi-realm?` / the `:rf.xray/available-frame-realm-groups` sub) was removed
-;; with the afdlyr realm-substrate collapse — a single default realm never
-;; produced more than one group, so the grouping never branched away from the
-;; flat option list. The picker renders the flat list directly; the public
-;; partition is image -> frame (EP-0023).
+;; There is no realm `<optgroup>` grouping: the picker renders the flat option
+;; list directly, and the public partition is image -> frame (EP-0023).
 
 ;; -------------------------------------------------------------------------
-;; (8) rf2-v8bule — stale view-scope frame reconciles to an available frame
+;; (8) A pinned view-scope frame that leaves the stream keeps a matching option
 ;; -------------------------------------------------------------------------
 ;;
-;; An explicitly-picked (or host-seeded) view-scope frame used to win
-;; forever, with no membership check against `:rf.xray/available-frames`.
-;; Once that frame left the stream (buffer cleared / frame destroyed) the
-;; controlled `<select>` carried a value with NO matching `<option>`
-;; (React "value not in options" warning + blank render + an unpickable
-;; label). `:rf.xray/view-scope-frame` now clamps to availability.
+;; An explicitly-picked (or host-seeded) view-scope frame can leave the
+;; stream (buffer cleared / frame destroyed). `:rf.xray/view-scope-frame`
+;; keeps the pin rather than retargeting it, and the picker surfaces the
+;; pinned frame as its own `<option>`. Without that option the controlled
+;; `<select>` would carry a value with NO matching `<option>` (React "value
+;; not in options" warning + blank render + an unpickable label).
 
 (defn- current-frame []
   (rf/with-frame :rf/xray
@@ -407,13 +398,12 @@
        :option-values (set (map (fn [o] (:value (second o))) options))})))
 
 (deftest stale-pin-still-has-a-matching-select-option
-  (testing "rf2-v8bule — when the pinned view-scope frame leaves the stream
+  (testing "when the pinned view-scope frame leaves the stream
             (buffer cleared / frame destroyed) the controlled <select>'s
             value STILL matches a rendered <option>: the pinned frame is
             surfaced as its own option, so there is no React 'value not in
-            options' mismatch. The scope itself is preserved (rf2-4vp5j
-            empty-scope), so current-frame keeps the pin — it is NOT
-            silently retargeted."
+            options' mismatch. The empty scope itself is preserved, so
+            current-frame keeps the pin — it is NOT silently retargeted."
     ;; Two frames in the stream; the user pins the OLDER one (:app/admin).
     (dispatch-trace 1 :app/main)
     (dispatch-trace 2 :app/admin)
@@ -427,7 +417,7 @@
     (is (= [:app/main] (available-frames))
         ":app/admin is gone from the available (pickable) set")
     (is (= :app/admin (current-frame))
-        "the empty scope survives — the pin is NOT retargeted (rf2-4vp5j)")
+        "the empty scope survives — the pin is NOT retargeted")
     (let [{:keys [value option-values]} (picker-value+options)]
       (is (contains? option-values value)
           "the controlled <select> value matches a rendered option — no mismatch")
@@ -436,7 +426,7 @@
           "the still-available frame is offered so the user can re-scope"))))
 
 (deftest pinned-frame-with-empty-stream-has-matching-option
-  (testing "rf2-v8bule — with the pinned frame gone AND no frames left, the
+  (testing "with the pinned frame gone AND no frames left, the
             disabled control still carries a value that matches its sole
             (pinned) option — no orphan value, no React warning"
     (dispatch-trace 1 :app/admin)
@@ -456,7 +446,7 @@
           "the pinned frame is the sole option"))))
 
 (deftest no-pick-empty-stream-renders-clean-empty-select
-  (testing "rf2-v8bule — with no pick and no frames, the select carries the
+  (testing "with no pick and no frames, the select carries the
             empty value and renders no options (value \"\" with zero
             options is React's clean 'nothing selected' — no mismatch)"
     (setup!)  ;; no cascades seeded
@@ -466,7 +456,7 @@
       (is (empty? option-values) "no options"))))
 
 (deftest available-pick-adds-no-synthetic-option
-  (testing "rf2-v8bule — the surfaced option is added ONLY when the active
+  (testing "the surfaced option is added ONLY when the active
             frame is not available; in the normal case (the pick IS
             available) the option set is exactly the available frames — no
             synthetic duplicate"
