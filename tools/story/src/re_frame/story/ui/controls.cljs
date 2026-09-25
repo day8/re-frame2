@@ -81,14 +81,14 @@
             [re-frame.story.ui.view-state      :as rf.story.ui.view-state]))
 
 ;; Styles live in `re-frame.story.ui.controls-styles` (pure-data leaf,
-;; no Reagent dep). Required as `styles` above so the in-file call
-;; sites (`(:wrap styles)` etc.) stay textually identical.
+;; no Reagent dep), referred as `styles` above for the in-file call
+;; sites (`(:wrap styles)` etc.).
 
 ;; ---- pure: Malli-schema introspection -----------------------------------
 ;;
 ;; Canonical helpers live in `re-frame.story.malli-schema` (a pure
-;; leaf ns shared with `schema-validation`). Aliased privately here so
-;; in-file call sites stay textually identical.
+;; leaf ns shared with `schema-validation`), aliased privately here for
+;; the in-file call sites.
 
 (def ^:private properties?      rf.story.malli-schema/properties?)
 (def ^:private schema-op        rf.story.malli-schema/schema-op)
