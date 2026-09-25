@@ -5,20 +5,20 @@
 //   - initialize handshake
 //   - tools/list (expects the full tool catalogue — asserted against the
 //     fixtures/tool-names.json snapshot below, which is the single source
-//     consumers parse; the catalogue spans the original six bash-shim
-//     mirrors plus the mega-op reads, the registrar/recorder/
-//     operating-frame/view-plane/orientation additions, and the
-//     get-re-frame2-pair-instructions onboarding text. Canonical count +
-//     listing: spec/003-Tool-Catalogue.md)
+//     consumers parse; the catalogue spans the core reads and writes, the
+//     mega-op reads, the registrar/recorder/operating-frame/view-plane/
+//     orientation tools, and the get-re-frame2-pair-instructions
+//     onboarding text. Canonical count + listing:
+//     spec/003-Tool-Catalogue.md)
 //   - tools/call eval-cljs against an absent nREPL — eval-cljs is ON by
-//     default post-rf2-a0z0h, so this test simply expects the graceful
+//     default, so this test simply expects the graceful
 //     :nrepl-port-not-found degraded envelope. The disabled-gate envelope
 //     (`--no-eval` opt-out) is exercised by the conformance
 //     `:eval-cljs/disabled-via-no-eval` fixture.
 //   - tools/call snapshot against an absent nREPL (same degraded mode —
-//     proves the new tool is wired into the dispatch table)
+//     proves the tool is wired into the dispatch table)
 //   - tools/call get-path against an absent nREPL (same degraded mode —
-//     proves the new tool is wired into the dispatch table)
+//     proves the tool is wired into the dispatch table)
 //
 // A separate live-nrepl script (documented in test/README.md) covers the
 // connected-to-shadow-cljs case.
@@ -32,8 +32,8 @@ const path = require('node:path');
 
 const SERVER = path.join(__dirname, '..', 'out', 'server.js');
 
-// Canonical tool-name list (rf2-drke0, mirrors story-mcp's rf2-36upq TE7)
-// — single source of truth shared with the cross-server conformance
+// Canonical tool-name list (the same pattern story-mcp uses) — single
+// source of truth shared with the cross-server conformance
 // harness (`tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs`). Both
 // consumers parse this JSON; a drift in the registry surfaces in one
 // place rather than two (or three).
@@ -47,11 +47,11 @@ function run() {
     const env = { ...process.env, SHADOW_CLJS_NREPL_PORT: '' };
     delete env.SHADOW_CLJS_NREPL_PORT;
     // Boot from a tmp dir so port-file probing misses.
-    // eval-cljs is ON by default post-rf2-a0z0h — no opt-in flag needed.
+    // eval-cljs is ON by default — no opt-in flag needed.
     // The roundtrip relies on eval-cljs to surface the no-nREPL
     // degraded envelope.
     // Pin --http-port to a port that is always closed (port 1, IANA-
-    // reserved) so the rf2-umoz2 shadow HTTP probe gets a deterministic
+    // reserved) so the shadow HTTP probe gets a deterministic
     // ECONNREFUSED rather than picking up shadow if it happens to be
     // running on the test host at 9630.
     const child = spawn(process.execPath, [SERVER, '--http-port', '1'], {
@@ -73,8 +73,8 @@ function run() {
     // Resolves on first match; rejects on timeout or child exit. 25ms
     // is fast enough that a healthy boot adds no perceptible latency,
     // and the 5s ceiling covers a slow CI runner without masking a
-    // genuine hang. Replaces the historical bare 250ms `setTimeout`
-    // wait (rf2-llzzt) which raced on slow CI / under valgrind.
+    // genuine hang. A bare fixed `setTimeout` wait would race on slow
+    // CI / under valgrind.
     const waitForStderr = (pattern, { timeoutMs = 5000, intervalMs = 25 } = {}) =>
       new Promise((res, rej) => {
         const deadline = Date.now() + timeoutMs;
@@ -114,7 +114,7 @@ function run() {
           // + roots_discovery.cljs); a real MCP client (Claude Code)
           // answers it, but a minimal client that stays silent leaves the
           // server blocked on the SDK's 60s roots/list timeout — which
-          // hung this harness (rf2-6ss40u). We reply as a capable client
+          // would hang this harness. We reply as a capable client
           // with no open workspace roots: the empty list yields no shadow
           // candidates, so discovery falls through to the HTTP-probe / cwd
           // steps and reaches the degraded :nrepl-port-not-found envelope
@@ -171,7 +171,7 @@ function run() {
       notify('notifications/initialized', {});
 
       // 2. tools/list — confirm catalogue matches the canonical fixture
-      // at `test/fixtures/tool-names.json` (rf2-drke0). The fixture is
+      // at `test/fixtures/tool-names.json`. The fixture is
       // the single source of truth shared with the cross-server
       // conformance harness (`tools/mcp-conformance/test/
       // end-to-end-re-frame2-pair.cjs`) — a registry change updates one file,
@@ -186,8 +186,8 @@ function run() {
       // 2b. Verify the snapshot descriptor carries the documented input
       // schema (frames + include + path + build), so accidental future
       // renames break the test instead of silently shipping a broken
-      // contract. `path` joined the schema under rf2-tygdv (path-based
-      // slicing for the :app-db slice).
+      // contract. `path` is the path-based slicing arg for the :app-db
+      // slice.
       const snapDesc = (list.result?.tools || []).find((t) => t.name === 'snapshot');
       if (!snapDesc) throw new Error('snapshot descriptor missing from tools/list');
       const props = snapDesc.inputSchema?.properties || {};
@@ -198,7 +198,7 @@ function run() {
       }
       console.log('OK   snapshot descriptor -> frames/include/path/build');
 
-      // 2d. Verify the get-path descriptor (rf2-tygdv + rf2-lbm21).
+      // 2d. Verify the get-path descriptor.
       // Inputs: `path` (singular) OR `paths` (plural batch read); both
       // optional at the schema level — the tool enforces "exactly one"
       // at call time (neither -> :missing-path; both ->
@@ -224,7 +224,7 @@ function run() {
       }
       console.log('OK   tools/call eval-cljs (no nREPL) -> degraded isError');
 
-      // 3b. tools/call snapshot — same degraded path. Proves the new
+      // 3b. tools/call snapshot — same degraded path. Proves the
       // tool is wired into the dispatch table (would surface
       // :unknown-tool otherwise).
       const snapResp = await call('tools/call', {
@@ -238,7 +238,7 @@ function run() {
       console.log('OK   tools/call snapshot (no nREPL) -> degraded isError');
 
       // 3b'. tools/call get-path — same degraded path. Proves the
-      // rf2-tygdv tool is wired into the dispatch table.
+      // tool is wired into the dispatch table.
       const gpResp = await call('tools/call', {
         name: 'get-path',
         arguments: { path: '[:user :email]' },
@@ -250,7 +250,7 @@ function run() {
       console.log('OK   tools/call get-path (no nREPL) -> degraded isError');
 
       // 4. tools/call unknown — expect isError with :unknown-tool, even
-      // with NO nREPL port (rf2-4mc6q1). The server's pre-connection guard
+      // with NO nREPL port. The server's pre-connection guard
       // (`tools/refuse-unknown-tool`) rejects an unregistered name BEFORE
       // `ensure-connection!`, so a typo / removed alias is diagnosed as
       // :unknown-tool rather than masked behind :nrepl-port-not-found. The
