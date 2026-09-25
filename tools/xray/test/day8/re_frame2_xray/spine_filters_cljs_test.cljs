@@ -1,12 +1,13 @@
 (ns day8.re-frame2-xray.spine-filters-cljs-test
-  "Per-event-id mute filter tests (rf2-ikuwt). Covers:
+  "Per-event-id mute filter tests. Covers:
 
     1. Pure helpers (filter-event-bundles, mute / unmute / clear reducers).
     2. EDN round-trip (<-edn / ->edn).
-    3. save! / load! localStorage round-trip.
+    3. load! on an empty slot.
     4. Event handler wiring (mute-event-id / unmute-event-id /
-       clear-muted-event-ids + persist fx).
-    5. Hydration on install (localStorage value lifts into the slot).
+       clear-muted-event-ids + persist fx) — the real-storage rows live
+       in `spine-filters-dom-cljs-test`, see (3) below.
+    5. Hydration on install with nothing in localStorage.
     6. Filtered-cascades composition — muting an event-id strips
        matching cascades from `:rf.xray/filtered-event-bundles`.
     7. Row context menu state (open / close).
@@ -26,10 +27,9 @@
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` carries the
-  ;; raw-mute-slate tail.
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + the `:all`
+  ;; tier, which resets the trace-collector rings); `:post-reset` carries
+  ;; the raw-mute-slate tail.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn [] (spine-filters/clear-raw!))}))
 
@@ -57,9 +57,8 @@
                   :rf.trace/dispatch-id id}})
 
 ;; ---- hiccup helpers -----------------------------------------------------
-;; The private expand-tree / hiccup-seq / find-by-testid copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` directly — there is no
+;; Xray walker facade.
 
 ;; -------------------------------------------------------------------------
 ;; (1) Pure helpers
@@ -136,18 +135,17 @@
 ;; (3) save! / load round-trip
 ;; -------------------------------------------------------------------------
 
-;; The real-storage rows that lived here — `save-and-load-round-trip`,
+;; The real-storage rows — `save-and-load-round-trip`,
 ;; `mute-event-id-event-writes-slot-and-persists`,
 ;; `unmute-event-id-event-clears-slot`,
 ;; `clear-muted-event-ids-drops-every-entry` and
-;; `hydrate-lifts-localstorage-into-slot` — moved to
-;; `day8.re-frame2-xray.spine-filters-dom-cljs-test` under rf2-r51p.
-;; Each was wrapped in `(when (and (exists? js/window) (.-localStorage
-;; js/window)) ...)`, which is FALSE under `:node-test`, while
-;; `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` never loaded this
-;; file at all — so they executed in NEITHER lane. Their new home ends
-;; `-dom-cljs-test`, which BOTH builds select, so the rows now run for
-;; real in the browser and stay inert on node behind `ls/available?`.
+;; `hydrate-lifts-localstorage-into-slot` — live in
+;; `day8.re-frame2-xray.spine-filters-dom-cljs-test`. They need a real
+;; `js/window.localStorage`, which `:node-test` lacks, and
+;; `:browser-test`'s `.*-dom-cljs-test$` `:ns-regexp` does not load this
+;; file, so here they would execute in NEITHER lane. A namespace ending
+;; `-dom-cljs-test` is selected by BOTH builds, so the rows run for real
+;; in the browser and stay inert on node behind `ls/available?`.
 
 (deftest load-when-slot-empty-returns-empty-set
   (spine-filters/clear-raw!)
@@ -156,6 +154,9 @@
 ;; -------------------------------------------------------------------------
 ;; (4) Event handler wiring + persist fx
 ;; -------------------------------------------------------------------------
+;;
+;; Covered by the real-storage rows in `spine-filters-dom-cljs-test` —
+;; see the note under (3).
 
 ;; -------------------------------------------------------------------------
 ;; (5) Hydration
@@ -211,9 +212,9 @@
 ;; (7) Row context menu open / close state
 ;; -------------------------------------------------------------------------
 ;;
-;; THE TWO NODE-LANE DOORS (rf2-k97c.3). Since the migration the row
-;; context menu and the mute manager are FRESCO BOUNDARIES behind
-;; `as-component` bridges, so `spine-filters/RowContextMenu` and
+;; THE TWO NODE-LANE DOORS. The row context menu and the mute manager
+;; are FRESCO BOUNDARIES behind `as-component` bridges, so
+;; `spine-filters/RowContextMenu` and
 ;; `/Modal` answer interop vectors rather than trees to walk, and
 ;; `dynamic-shell-tree/shell-view-tree` — which composes the shell's
 ;; hiccup — necessarily stops at them. The shipped markup is the pair of
@@ -221,11 +222,11 @@
 ;; reads exactly, same query vectors in the same order, so every row
 ;; asserts on the hiccup the boundary itself would build.
 ;;
-;; This is the same substitution `modals-aria-cljs-test` already makes
-;; for `panels.cancellation-cascade/popover-tree`, which crossed to a
-;; boundary earlier in this bead. Rows that assert on the SHELL (the L2
-;; event rows, the L1 ribbon indicator) still walk the shell tree — the
-;; ribbon indicator is a plain fn the ribbon CALLS, so it never left.
+;; This is the same substitution `modals-aria-cljs-test` makes for
+;; `panels.cancellation-cascade/popover-tree`. Rows that assert on the
+;; SHELL (the L2 event rows, the L1 ribbon indicator) walk the shell tree
+;; — the ribbon indicator is a plain fn the ribbon CALLS, so it is part
+;; of that tree.
 
 ;; THE DISPATCH THE DOORS PASS IS A WRAPPING FN, NOT THE BARE `rf/dispatch`,
 ;; and that is load-bearing for `end-to-end-mute-from-context-menu`.
@@ -413,7 +414,7 @@
           (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
           (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
               "muted row dropped from L2"))
-        ;; rf2-k97c.3 — asserted through the door rather than the shell
+        ;; Asserted through the door rather than the shell
         ;; tree. The boundary's own gate is what answers nil here, so this
         ;; row grades the close; looked for in the shell tree it would be
         ;; absent whatever the slot held, and pass vacuously.
