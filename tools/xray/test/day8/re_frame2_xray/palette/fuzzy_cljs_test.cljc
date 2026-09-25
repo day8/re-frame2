@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.palette.fuzzy-cljs-test
-  "Tests for the palette's fuzzy subsequence scorer (rf2-wm7z4).
+  "Tests for the palette's fuzzy subsequence scorer.
 
   Pure-data CLJC: every assertion runs equally under JVM clojure.test
   and the cljs node-test runtime. The scorer is the perceived-
@@ -65,25 +65,24 @@
            the start of Editable"))))
 
 (deftest camel-boundary-credited-on-both-runtimes
-  ;; rf2-odlm3 REGRESSION PIN for a bug that shipped and ran in production.
-  ;;
-  ;; `upper?` / `lower?` read a character's code unit, and they used to do it
-  ;; with `(int ch)`. That is the code point on the JVM, but `cljs.core/int` is
-  ;; `(bit-or x 0)`, and JavaScript coerces a non-numeric string to 0 — and
+  ;; `upper?` / `lower?` read a character's code unit through `char-code`,
+  ;; and that read must work on both hosts. `(int ch)` would not: it is the
+  ;; code point on the JVM, but `cljs.core/int` is `(bit-or x 0)`, and
+  ;; JavaScript coerces a non-numeric string to 0 — and
   ;; `(nth some-string idx)` yields a one-character STRING under CLJS. Both
-  ;; predicates therefore answered false for EVERY character in the browser,
+  ;; predicates would then answer false for EVERY character in the browser,
   ;; which is the only place the palette runs, so both bonuses that depend on
-  ;; them went dead: `word-start?`'s camelCase branch and the explicit
-  ;; camel-boundary bonus in the scoring loop. Separator word-starts were
+  ;; them would go dead: `word-start?`'s camelCase branch and the explicit
+  ;; camel-boundary bonus in the scoring loop. Separator word-starts would be
   ;; unaffected — `\- `\_ and friends compare fine as one-character strings —
-  ;; which is exactly why nothing else in this file noticed.
+  ;; which is exactly why no other row in this file would notice.
   ;;
   ;; The two candidates below are the SAME LENGTH, the query matches at the
   ;; SAME TWO INDICES in both, and neither contains a separator. Prefix, gap,
   ;; run and word-start-by-separator contributions are therefore identical, and
   ;; the camelCase boundary is the only thing that can separate the scores.
   ;; This cannot be satisfied by the separator path, and it fails on any host
-  ;; where `char-code` regresses.
+  ;; where `char-code` misreads a character.
   (testing "a camelCase boundary outscores the same match with no boundary"
     (is (> (fuzzy/score "openTimeTravel" "tt")
            (fuzzy/score "opentimetravel" "tt")))))
@@ -122,10 +121,10 @@
         "empty query → match")))
 
 (deftest gap-penalty-anchored-at-index-0
-  ;; rf2-pwxhj — a prefix-anchored match (first matched char at
-  ;; candidate index 0) must STILL accrue the -1/char internal-gap
-  ;; penalty. Pre-fix the `(pos? last-match-idx)` guard let an
-  ;; index-0-anchored match escape every gap penalty entirely.
+  ;; A prefix-anchored match (first matched char at candidate index 0)
+  ;; must STILL accrue the -1/char internal-gap penalty; a
+  ;; `(pos? last-match-idx)` guard would let an index-0-anchored match
+  ;; escape every gap penalty entirely.
   ;; Gap chars are plain letters (`x`), NOT separators — a separator
   ;; ('_', '-', …) would hand the following matched char a word-start
   ;; bonus and mask the gap penalty under test.
@@ -142,9 +141,9 @@
           "a@0 prefix+word-start (21), then -1 per 'x' (×3), then d non-run (+1)"))))
 
 (deftest gap-penalty-first-char-after-match-not-skipped
-  ;; rf2-pwxhj — the FIRST unmatched char immediately after a match
-  ;; must be penalised. Pre-fix the `gap-since-match?` latch was set one
-  ;; iteration too late, so the first gap char after any match escaped.
+  ;; The FIRST unmatched char immediately after a match must be
+  ;; penalised; a `gap-since-match?` latch set one iteration too late
+  ;; would let the first gap char after any match escape.
   (testing "query 'bd' vs 'xbxxd' penalises BOTH gap chars after b@1"
     (let [tight (fuzzy/score "xbd"    "bd")    ;; b@1, d@2 run — no gap
           gappy (fuzzy/score "xbxxd"  "bd")]   ;; b@1, gaps at 2,3, d@4
