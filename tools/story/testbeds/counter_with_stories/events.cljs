@@ -89,11 +89,10 @@
 ;; self-contained: the variant references views + events from this
 ;; slice only, and the stories namespace's requires
 ;; (`counter-with-stories.events` + `.views`) register every handler
-;; the variant dispatches. The card no longer relies on `core.cljs`
-;; happening to require `elision-demo` at live-app boot (which is the
-;; only place `:auth/sign-in` lives) — that hidden cross-namespace
-;; load-order coupling is exactly what a reference testbed should
-;; exclude.
+;; the variant dispatches. The card does not rely on `core.cljs`
+;; happening to require `elision-demo` at live-app boot (the only
+;; place `:auth/sign-in` lives) — a hidden cross-namespace load-order
+;; coupling a reference testbed should exclude.
 ;;
 ;; `:sensitive? true` is the whole-handler privacy escape hatch
 ;; (Spec 009 §`:sensitive?`): the registrar copies the flag into the
