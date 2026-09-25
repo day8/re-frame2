@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """Tell somebody when the nightly reds — and stop talking once they know.
 
-rf2-6sg25.  `.github/workflows/expensive-tests.yml` is the system of record for
-every gate deliberately kept off the PR critical path (TESTING.md says so), and
-until this script existed it had NO notification of any kind: the only way to
-learn it was red was to open the Actions tab.  Measured over the thirty runs
-ending 2026-08-04, eighteen were red, and 2026-07-09 through 2026-07-21 was
-THIRTEEN CONSECUTIVE RED NIGHTS.  Nobody was told.  A gate that catches,
-reports to nobody, and is believed anyway is the same fail-open shape as an
-instrument that never fires — one tier up.
+`.github/workflows/expensive-tests.yml` is the system of record for every gate
+deliberately kept off the PR critical path (TESTING.md says so), and it has no
+notification of its own: without this script the only way to learn it is red is
+to open the Actions tab.  Over one measured window of thirty runs, eighteen
+were red, thirteen of them CONSECUTIVE.  A gate that catches, reports to
+nobody, and is believed anyway is the same fail-open shape as an instrument
+that never fires — one tier up.
 
-THE THRESHOLD, AND HOW IT WAS ARRIVED AT
-----------------------------------------
-An alert that fires every red night would have sent eighteen notifications in
-thirty nights, and would have been muted inside a week; a muted alert is the
-original fail-open in a new suit.  So the rules below were not chosen and then
-justified — each one was measured against that real history with `--replay 30`,
-and the ones that did not pay for themselves were dropped.
+THE THRESHOLD, AND THE MEASUREMENT BEHIND IT
+--------------------------------------------
+An alert that fires every red night would send eighteen notifications in those
+thirty nights, and would be muted inside a week; a muted alert is the original
+fail-open in a new suit.  So each rule below is measured against that real
+history with `--replay 30`, and each earns its place by cutting notifications
+that carry no news.
 
   1. FIRST RED OPENS A TRACKING ISSUE.  Loud.  (18 -> 18 so far.)
 
@@ -25,19 +24,20 @@ and the ones that did not pay for themselves were dropped.
      that actually went red.  Same set as last night -> the body's counter and
      run link are edited in place, and GitHub sends nothing for a body edit.
      A signature that SHRINKS is good news and is silent too.  This is what
-     collapses the 13-night outage: it cost three notifications, and all three
-     were a genuinely new step joining the failure — never a restatement.
+     collapses a 13-night outage: in the replay it costs three notifications,
+     each a genuinely new step joining the failure — never a restatement.
      (18 -> 14.)
 
   3. RECOVERY CLOSES THE ISSUE ONLY AFTER `--close-after` CONSECUTIVE GREENS,
-     DEFAULT 3.  Rule 2 alone was not enough, and the replay is what showed it:
-     the Xray feature-matrix flake (rf2-7jevo) fails one night, passes the next,
-     fails again — so closing on the first green meant reopening two nights
-     later, and every flap cost a close AND an open.  That is where ten of the
-     remaining fourteen notifications came from.  Three is read off the same
-     data: the green runs between two flake failures were runs of 1 and 2, and
-     every genuine recovery ran 3 or more green.  So 3 is the smallest K that
-     sits above the flake and below the recoveries.  (14 -> 8.)
+     DEFAULT 3.  Rule 2 alone is not enough, as the replay shows: an
+     intermittent gate (the Xray feature matrix, in that history) fails one
+     night, passes the next, fails again — so closing on the first green would
+     reopen two nights later, and every flap would cost a close AND an open.
+     That accounts for ten of the remaining fourteen notifications.  Three is
+     read off the same data: the green runs between two flake failures are
+     runs of 1 and 2, and every genuine recovery runs 3 or more green.  So 3 is
+     the smallest K that sits above the flake and below the recoveries.
+     (14 -> 8.)
 
 Net: eighteen red nights, EIGHT notifications, and not one of them a
 restatement of something already reported.  Re-measure with `--replay` before
@@ -64,7 +64,7 @@ and is argued there.  `--self-test` pins every clause, in both directions.
 
 THE CHANNEL IS ONE FUNCTION
 ---------------------------
-rf2-6sg25 left the channel to Mike deliberately.  A GitHub issue is what this
+The channel is deliberately replaceable.  A GitHub issue is what this
 implements because it needs no secret beyond the run's own `GITHUB_TOKEN`, it
 dedupes naturally (one open issue, edited in place), it carries the state this
 script needs so nothing external has to be kept in step with it, and assigning
@@ -107,8 +107,8 @@ FAILED = ("failure", "timed_out")
 # point: everything absent from both tuples is read as green, so a conclusion
 # that means "we never found out" has to be named here or it silently becomes
 # "we found out it was fine".  `cancelled` and `startup_failure` are the two
-# that occur here; the list is a statement of the rule, not a patch for the
-# first one that bit.
+# that occur here; the list is a statement of the rule, not a patch for one
+# observed case.
 #
 # `skipped` is deliberately NOT in either tuple, and that is the load-bearing
 # exclusion.  A skipped job is the ordinary consequence of a `needs:`
@@ -218,8 +218,8 @@ def render_body(signature: list[str], detail: dict, run_url: str, close_after: i
         "",
         "---",
         "",
-        "Opened, edited and closed by `.github/scripts/nightly_failure_alert.py` "
-        "(rf2-6sg25). It is edited in place — which notifies nobody — while the "
+        "Opened, edited and closed by `.github/scripts/nightly_failure_alert.py`. "
+        "It is edited in place — which notifies nobody — while the "
         "same steps keep failing, and comments only when a step that was not "
         "failing starts to. Run `python .github/scripts/nightly_failure_alert.py "
         "--repo <owner/name> --replay 30` to see what it would have sent over the "
@@ -311,15 +311,14 @@ def fetch_open_issues(repo: str) -> list[dict]:
     """Every open tracking issue, oldest first.
 
     Deliberately NOT `?labels=nightly-red`. That index is EVENTUALLY
-    CONSISTENT, and the first live exercise of this script found out how: two
-    invocations three seconds apart both read "no tracking issue" and both
-    opened one (#7537 and #7538), because the label-filtered list had not
-    caught up with the first create. The consequence is not cosmetic — two
-    issues, and the streak and signature state on them diverges — so the
-    unfiltered list is the read and the label is matched here.
+    CONSISTENT: two invocations three seconds apart can both read "no tracking
+    issue" and both open one, because the label-filtered list has not caught up
+    with the first create. The consequence is not cosmetic — two issues, and
+    the streak and signature state on them diverges — so the unfiltered list is
+    the read and the label is matched here.
 
-    Measured honestly: the unfiltered list lags too, by a comparable few
-    seconds, so this narrows the window rather than closing it. Two runs of
+    The unfiltered list lags too, by a comparable few seconds, so this narrows
+    the window rather than closing it. Two runs of
     this workflow are a day apart (cron) or minutes apart at the very closest
     (the post-merge canary), both orders of magnitude beyond that window, so a
     lock is not worth building. `collapse_duplicates` below is the net for
@@ -363,7 +362,7 @@ def ensure_label(repo: str) -> None:
     # 422 == the label already exists, which IS the desired end state.
     gh(["api", "-X", "POST", f"repos/{repo}/labels",
         "-f", f"name={LABEL}", "-f", "color=b60205",
-        "-f", "description=The nightly expensive-tests workflow is failing (rf2-6sg25)"],
+        "-f", "description=The nightly expensive-tests workflow is failing"],
        check=False)
 
 
@@ -429,7 +428,7 @@ def run_live(repo: str, run_id: str, assignee: str | None, dry_run: bool,
 def run_replay(repo: str, limit: int, close_after: int) -> int:
     """Walk the real run history oldest-first and report what this script WOULD
     have sent, beside what a naive per-run alert would have sent.  This is the
-    evidence the thresholds were chosen against, not an illustration of them."""
+    evidence the thresholds are measured against, not an illustration of them."""
     out = gh(["run", "list", "--workflow", "expensive-tests.yml", "--limit", str(limit),
               "--json", "databaseId,createdAt"])
     runs = list(reversed(json.loads(out)))
@@ -511,8 +510,7 @@ def self_test(verbose: bool) -> int:
     check("a STARTUP_FAILURE job is red too (the rule is not cancellation-specific)",
           startup == [f"Gates{SEP}(job startup_failure, no verdict)"], repr(startup))
 
-    # THE DIRECTION THAT IS NOT THE BUG, and the more expensive mistake of the
-    # two: classifying `skipped` would red the nightly on ordinary nights and
+    # THE OTHER DIRECTION, and the more expensive mistake of the two: classifying `skipped` would red the nightly on ordinary nights and
     # get the whole alert muted.  A skipped job is the normal consequence of a
     # `needs:` dependency that did not succeed — already reported by the job
     # that actually failed.
@@ -570,7 +568,7 @@ def self_test(verbose: bool) -> int:
     check("green + no issue                  -> none, silent",
           nothing[0] == "none" and not nothing[1]["notifies"])
 
-    # --- flap damping: the rule the replay forced ----------------------------
+    # --- flap damping: the rule the replay justifies -------------------------
     g1 = decide([], iss)
     check("green 1 of 3 + open issue         -> hold, silent",
           g1[0] == "hold" and not g1[1]["notifies"])
@@ -587,12 +585,12 @@ def self_test(verbose: bool) -> int:
           back[0] == "touch" and not back[1]["notifies"], repr(back))
 
     # --- a cancelled night is not a green night ------------------------------
-    # Before this rule existed, `derive_signature` returned [] for a cancelled
-    # run and `decide([])` read that as green.  Two consequences, and they are
+    # Without this rule, `derive_signature` would return [] for a cancelled run
+    # and `decide([])` would read that as green.  Two consequences, and they are
     # asserted SEPARATELY because they fail independently: a cancelled run
-    # recorded no incident at all, and — the dangerous one — three of them in a
-    # row closed an open tracking issue, marking a system of record recovered
-    # that was never observed to recover.
+    # would record no incident at all, and — the dangerous one — three of them
+    # in a row would close an open tracking issue, marking a system of record
+    # recovered that was never observed to recover.
     cancelled_sig = derive_signature(
         [job("Gates", "cancelled", [("Gate x", "cancelled"), ("Gate y", "skipped")])])
     check("a cancelled run has a signature at all (it is not green)",
@@ -609,9 +607,8 @@ def self_test(verbose: bool) -> int:
     check("...it reads as a changed failure, LOUD (the run never gave a verdict)",
           after_cancel[0] == "change" and after_cancel[1]["notifies"], repr(after_cancel))
 
-    # DIRECTION 2: it cannot close an open nightly-red issue.  The exact
-    # sequence that closed it before: one real red, then `close_after`
-    # cancellations.
+    # DIRECTION 2: it cannot close an open nightly-red issue.  The sequence
+    # that would close it: one real red, then `close_after` cancellations.
     iss_c, actions = issue_after(decide(sig, None), sig), []
     for _ in range(CLOSE_AFTER_DEFAULT + 1):
         a = decide(cancelled_sig, iss_c)
@@ -642,7 +639,7 @@ def self_test(verbose: bool) -> int:
         iss3 = None if a[0] == "close" else issue_after(a, sig if red_night else [])
     check("a six-run 50% flake == 1 notification (not six)", loud == 1, f"got {loud}")
 
-    # --- the duplicate hazard the first live run exposed ----------------------
+    # --- the duplicate hazard of an eventually consistent label index --------
     labelled = {"labels": [{"name": LABEL}]}
     unlabelled = {"labels": [{"name": "bug"}]}
     listing = [
