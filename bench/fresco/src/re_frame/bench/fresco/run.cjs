@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 // THE FRESCO P0 LANE DRIVER — build, serve, run, print, judge.
-// EP-0038 / HD-017; built by rf2-2rtt6.2 for rf2-2rtt6.2/.3/.4/.5.
+// EP-0038 / HD-017.
 //
 // ONE driver for the whole P0 lane. Every arm rides it by naming its own
-// entry, so a sibling arm needs no new build id, no new driver, and NO
-// EDIT TO `implementation/shadow-cljs.edn` — which is the point, because
-// HD-017 makes a build-id touch a hot-zone, sequenced dispatch and four
-// arms would otherwise be four of them.
+// entry, so a sibling arm needs no new build id, no new driver and no edit
+// to the lane's `shadow-cljs.edn` (HD-017: one build id for the lane).
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+//   node bench/fresco/src/re_frame/bench/fresco/run.cjs
 //
 //   FRESCO_INIT_FN=re-frame.bench.fresco.my-arm-app/-main \
 //   FRESCO_OUT_DIR=out/fresco-my-arm \
 //   FRESCO_PORT=8131 \
-//     node implementation/fresco/test/re_frame/bench/fresco/run.cjs
+//     node bench/fresco/src/re_frame/bench/fresco/run.cjs
 //
-// With every variable unset this file is byte-for-byte the published
-// rf2-2rtt6.2 instrument.
+// With every variable unset it drives the default arm, `p0-reagent-app`.
 //
 // EXIT CODES — the arm-order guard owns 2, and it is not the arm's to
 // move:
@@ -28,8 +25,7 @@
 //   2  THE ARM-ORDER GUARD REFUSED. A figure whose value depends on where
 //      in the plan it was measured is not a figure. The repair is the
 //      ARM — more warm-up, fewer arms per round, a longer window — never
-//      the guard's tolerance. Four workers have hit this on the
-//      predecessor harnesses and every one of them repaired the arm.
+//      the guard's tolerance.
 //
 // A Chromium `pageerror` is FATAL here for the same reason it is fatal in
 // every adjacent runner: a benchmark that threw and kept going publishes
@@ -41,15 +37,15 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-// The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
+// The directory's ONE navigation, with its ceiling named.
 // `page.goto` with no `timeout:` takes Playwright's 30s default — a second
 // budget this driver's own 20-minute sentinel cannot reach, whose failure
 // line reads exactly like the bench timeout it is not.
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
+// One build id, N programs, so nothing may cache between them.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // The lane's ONE build door. shadow-cljs exits 0 on warnings, so a status
-// check is not a gate (rf2-2rtt6.73).
+// check is not a gate.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
@@ -75,16 +71,16 @@ function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[fresco] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[fresco] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error(`[fresco] building :advanced bundle — ${INIT_FN} -> ${OUT_DIR}`);
   // `lane_build.cjs` owns the spawn form (shadow's own `cli/runner.js` under
   // THIS node binary, never the `.cmd` shim — a shim needs `shell: true`, a
   // shell concatenates argv, and a concatenated argv is the other way the
   // config-merge EDN gets torn in half) AND the verdict. It exits 1 on a
-  // build that merely warned, which the old `r.status !== 0` could not: a
-  // renamed def left two `:undeclared-var` uses, and this driver printed a
-  // full table and exited 0 (rf2-2rtt6.73).
+  // build that merely warned, which a bare `r.status !== 0` cannot: a
+  // renamed def leaves two `:undeclared-var` uses under an exit-0 build, and
+  // this driver would print a full table and exit 0.
   shadowBuild({
     project: PROJECT,
     mode: 'release',
@@ -122,8 +118,8 @@ async function run() {
   const page = await browser.newPage();
 
   // Tracked SEPARATELY from the console buffer, and fatal on its own. A
-  // green summary that ignored an uncaught pageerror is the recorded
-  // rf2-mwx08 class: the suite measured a page that had already thrown.
+  // green summary that ignored an uncaught pageerror would be a suite
+  // measuring a page that had already thrown.
   const pageErrors = [];
   page.on('pageerror', (e) => {
     pageErrors.push(e.message);
