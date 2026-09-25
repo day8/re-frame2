@@ -68,7 +68,7 @@
   anything else — an unquoted list is a call and an unquoted symbol is a
   name lookup, so neither yields the datum it was printed from. Reading
   the emitted `db` argument through this is the difference between
-  pinning printed SYNTAX and pinning what evaluation yields (rf2-olqo)."
+  pinning printed SYNTAX and pinning what evaluation yields."
   [form]
   (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
     (second form)
@@ -180,16 +180,16 @@
                      ;; called. Reading the arg back as syntax (`(seq?
                      ;; (second parsed))`) could not tell those two apart —
                      ;; both print `(println :pwn)` — which is why this
-                     ;; reads it through `quoted-datum` (rf2-olqo).
+                     ;; reads it through `quoted-datum`.
                      (is (seq? datum))
                      (is (= '(println :pwn) datum)))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; rf2-olqo — the `db` value is EXTERNAL EDN, so printing it is not
-;; quoting it. These three arms are the ones the `pr-str` path failed:
-;; each carries a value that PRINTS the same as it did before and
-;; EVALUATES to something else.
+;; The `db` value is EXTERNAL EDN, so printing it is not quoting it.
+;; These three arms are the ones a `pr-str` path would fail: each carries
+;; a value that PRINTS the same either way and EVALUATES to something
+;; else.
 ;; ---------------------------------------------------------------------------
 
 (deftest db-keeps-nested-lists-as-lists
@@ -305,7 +305,7 @@
                   (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:bad :shape}"})))))
           (.then (fn [r]
-                   (is (err? r) "soft-failure rides as an isError result (rf2-or8s29)")
+                   (is (err? r) "soft-failure rides as an isError result")
                    (let [edn (read-result-text r)]
                      (is (= false (:ok? edn)))
                      (is (= :reset-rejected (:reason edn))))
@@ -325,7 +325,7 @@
                   (replace-app-db/replace-app-db-tool (fresh-conn)
                                                       #js {:db "{:counter 0}"})))))
           (.then (fn [r]
-                   (is (err? r) "unexpected-shape fallback rides as isError (rf2-or8s29)")
+                   (is (err? r) "unexpected-shape fallback rides as isError")
                    (let [edn (read-result-text r)]
                      (is (= false (:ok? edn)))
                      (is (= :unexpected-shape (:reason edn)))
