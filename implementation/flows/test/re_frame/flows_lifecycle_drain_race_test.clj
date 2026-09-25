@@ -1,5 +1,5 @@
 (ns re-frame.flows-lifecycle-drain-race-test
-  "JVM regression coverage for the two flow-lifecycle vs drain interleaving
+  "JVM coverage for the two flow-lifecycle vs drain interleaving
   races.
 
   Both surfaces are window races between a flow LIFECYCLE op (`clear-flow` /
@@ -22,8 +22,8 @@
     SURFACE 2 (re-registration skips recompute). A same-frame `reg-flow`
     REPLACEMENT publishes the new flow into `flows` (visible to a drain) in
     the `swap!`, then drops the stale `last-inputs` row DIRECTLY via the
-    private `drop-frame-flow-last-inputs!` (rf2-en00bk single-store — the former
-    `registrar/register!` → `invalidate-flow-on-replace!` indirection is gone).
+    private `drop-frame-flow-last-inputs!` (single-store — the drop is direct,
+    not routed through the registrar).
     A drain interleaving after the new flow was visible but before
     `last-inputs` was dropped would see the new flow with the OLD input cache
     and skip recompute on `=`-equal inputs, keeping the stale output (violating
@@ -107,8 +107,8 @@
       (alter-var-root vacate-var
                       (constantly
                         ;; Variadic so the patch tolerates both the bare 2-arity
-                        ;; and the rf2-vxgfnd.155 exact-incarnation 3-arity
-                        ;; (`[frame-id owner-token path]`) clear-flow now calls.
+                        ;; and the exact-incarnation 3-arity
+                        ;; (`[frame-id owner-token path]`) clear-flow calls.
                         (fn [frame-id & args]
                           ;; Real work first (vacate, THEN the registry removal
                           ;; clear-flow does next), then park in the window
@@ -150,17 +150,17 @@
         (finally
           (alter-var-root vacate-var (constantly orig-vacate))))
 
-      ;; --- The load-bearing post-conditions (bead acceptance) -----------
+      ;; --- The load-bearing post-conditions ----------------------------
       (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :doubled))
           "registry row gone: clear-flow removed :doubled from the per-frame registry")
       (is (not (contains? (rf.flows/last-inputs-snapshot) :doubled))
           "last-inputs row gone: clear-flow dropped the dirty-check row")
       (is (not (contains? (rf/app-db-value :rf/default) :out))
           (str "output path ABSENT after clear-flow returned — the racing "
-               "drain did NOT re-commit the vacated :out. Pre-fix it would "
-               "hold the stale value " (:out (rf/app-db-value :rf/default))))
+               "drain did NOT re-commit the vacated :out. A racing drain in the "
+               "window would hold the stale value " (:out (rf/app-db-value :rf/default))))
       (is (nil? (rf.registrar/lookup :flow :doubled))
-          "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
+          "the :flow registrar slot is RESERVED-but-empty throughout (single-store)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Surface 2 — a re-registration must re-evaluate on the next drain even when
@@ -170,9 +170,8 @@
 (deftest re-registration-recomputes-when-a-drain-races-the-invalidate-window
   ;; Pause the `reg-flow` REPLACEMENT after it has published the new flow into
   ;; `flows` but BEFORE the DIRECT `drop-frame-flow-last-inputs!` drops the stale
-  ;; `last-inputs` row (rf2-en00bk single-store: the invalidation is no longer
-  ;; routed through `registrar/register!` — it is a direct frame-scoped drop
-  ;; inside the serialized `reg-flow` thunk). Dispatch an UNRELATED event on
+  ;; `last-inputs` row (single-store: the invalidation is a direct
+  ;; frame-scoped drop inside the serialized `reg-flow` thunk). Dispatch an UNRELATED event on
   ;; another thread, then resume and assert the first post-replacement drain
   ;; materialises the NEW output.
   ;;
@@ -209,7 +208,8 @@
                       (await! release "reg-flow release")
                       (orig-drop frame-id flow-id))]
         (let [;; Thread A: re-register :scaled as :out = 100 × :n. Publishes
-              ;; the new flow, then parks at register! under the drain-lock.
+              ;; the new flow, then parks at the last-inputs drop under the
+              ;; drain-lock.
               replacer
               (future
                 (rf/reg-flow :scaled {:frame :rf/default :inputs [[:n]] :output-path [:out]} (fn [n] (* 100 (or n 0)))))
@@ -239,7 +239,7 @@
           (is (not= ::timeout (deref racer 30000 ::timeout))
               "the racing unrelated dispatch completed within 30s")))
 
-      ;; --- The load-bearing post-condition (bead acceptance) ------------
+      ;; --- The load-bearing post-condition -----------------------------
       ;; The first post-replacement drain (the unrelated event) MUST have
       ;; materialised the NEW output. Inputs were =-equal across the
       ;; replacement, so a recompute only happens if the stale last-inputs
@@ -247,7 +247,7 @@
       ;; which the serialization guarantees.
       (is (= 500 (:out (rf/app-db-value :rf/default)))
           (str "first post-replacement drain materialised the NEW output "
-               "(100 × 5 = 500). Pre-fix the =-equal-inputs skip kept the "
+               "(100 × 5 = 500). An =-equal-inputs skip would keep the "
                "stale 10. Got " (:out (rf/app-db-value :rf/default))))
       (is (:touched (rf/app-db-value :rf/default))
           "the unrelated event's own write also landed"))))
@@ -306,7 +306,7 @@
       ;; deferred commit publishes that value, so the old-path value cannot be
       ;; resurrected by the handler's returned db. The `:out-a absent`
       ;; assertion below holding with a plain handler is the load-bearing
-      ;; regression proof — a reentrant DIRECT vacate write would be clobbered
+      ;; proof — a reentrant DIRECT vacate write would be clobbered
       ;; by this deferred commit.
       (rf/reg-event :replace-scaled
                        (fn [{:keys [db]} _]
@@ -338,21 +338,21 @@
           (is (not= ::timeout (deref clearer 30000 ::timeout))
               "clear-flow completed within 30s")))
 
-      ;; --- The load-bearing post-conditions (bead acceptance) -----------
+      ;; --- The load-bearing post-conditions ----------------------------
       (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :scaled))
           "registry row gone: clear-flow removed :scaled")
       (is (not (contains? (rf.flows/last-inputs-snapshot) :scaled))
           "last-inputs row gone")
       (is (nil? (rf.registrar/lookup :flow :scaled))
-          "the :flow registrar slot is RESERVED-but-empty throughout (rf2-en00bk single-store)")
+          "the :flow registrar slot is RESERVED-but-empty throughout (single-store)")
       ;; THE LOAD-BEARING ASSERT: clear-flow vacated the REPLACEMENT's live
       ;; path (:out-b), not the stale pre-lock :out-a. A stale pre-lock read
       ;; would leave :out-b lingering (500) after the flow was removed from
       ;; the registry.
       (is (not (contains? (rf/app-db-value :rf/default) :out-b))
           (str ":out-b ABSENT — clear-flow read the LIVE flow under the lock "
-               "and vacated the replacement's new path. Pre-fix it vacated the "
-               "stale pre-lock :out-a and left :out-b = "
+               "and vacated the replacement's new path. A stale pre-lock read "
+               "vacates :out-a and leaves :out-b = "
                (:out-b (rf/app-db-value :rf/default)) " in app-db."))
       (is (not (contains? (rf/app-db-value :rf/default) :out-a))
           ":out-a also absent (the replacement vacated it on the path change)"))))
@@ -400,8 +400,8 @@
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :out-a))
           (str ":out-a ABSENT — the in-drain :output-path move vacated the old path "
-               "through the deferred commit. Pre-fix the direct vacate was "
-               "clobbered by the handler's returned :db and :out-a resurrected "
+               "through the deferred commit. A direct vacate would be "
+               "clobbered by the handler's returned :db; :out-a is present "
                "as " (:out-a db) "."))
       (is (= 500 (:out-b db))
           ":out-b = 100 × :n = 500 — the moved flow materialised on its new path")
@@ -433,23 +433,23 @@
 
 ;; ---------------------------------------------------------------------------
 ;; An IN-DRAIN `clear-flow` must NOT resurrect the cleared output through the
-;; deferred `:db` commit (rf2-2qd9wp) — the exact same-shaped hazard as
+;; deferred `:db` commit — the exact same-shaped hazard as
 ;; `reg-flow`'s in-drain `:output-path` move above, but on the deregistration
-;; path. Two companion bugs, two tests:
+;; path. Two companion halves, two tests:
 ;;
 ;;   1. `clear-flow-in-drain-does-not-resurrect-cleared-output` — clears ONE
 ;;      of TWO flows registered on the frame, so `flow-map` is still
-;;      NON-EMPTY afterwards. Isolates the `clear-flow` fix: it must record
+;;      NON-EMPTY afterwards. Isolates `clear-flow`'s half: it must record
 ;;      the abandoned path (`record-abandoned-output-path!`) instead of
 ;;      vacating app-db directly when `frame/in-drain?` is true, mirroring
 ;;      `reg-flow`'s in-drain branch.
 ;;
 ;;   2. `clear-flow-in-drain-last-flow-on-frame-does-not-resurrect-cleared-
 ;;      output` — clears the frame's ONLY flow, so `flow-map` is EMPTY
-;;      afterwards. Exercises the companion bug: `run-flows-on-db` must drain
+;;      afterwards. Exercises the companion half: `run-flows-on-db` must drain
 ;;      the pending abandoned path and vacate it from the pending `:db`
-;;      BEFORE its empty-`flow-map` early return, or the recorded path from
-;;      fix #1 is never applied and the deferred commit resurrects it anyway.
+;;      BEFORE its empty-`flow-map` early return, or the path recorded by
+;;      (1) is never applied and the deferred commit resurrects it anyway.
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-flow-in-drain-does-not-resurrect-cleared-output
@@ -479,9 +479,9 @@
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :out-a))
           (str ":out-a ABSENT — the in-drain clear-flow vacated the cleared "
-               "output through the deferred commit. Pre-fix the direct "
-               "vacate write was clobbered by the handler's returned :db "
-               "and :out-a resurrected as " (:out-a db) "."))
+               "output through the deferred commit. A direct "
+               "vacate write would be clobbered by the handler's returned :db; "
+               ":out-a is present as " (:out-a db) "."))
       (is (= 35 (:out-kept db))
           ":out-kept (the sibling flow, never cleared) is untouched")
       (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :scaled))
@@ -491,11 +491,11 @@
 
 (deftest clear-flow-in-drain-last-flow-on-frame-does-not-resurrect-cleared-output
   ;; An in-drain `clear-flow` clears the frame's ONLY flow — `flow-map` is
-  ;; EMPTY on the SAME drain's `run-flows-on-db` call. Pre-fix, the
-  ;; empty-`flow-map` early return skipped draining the abandoned path
-  ;; `clear-flow` had just recorded, so it was never vacated from the pending
-  ;; `:db` and the deferred commit resurrected it — even with fix #1 (above)
-  ;; alone applied.
+  ;; EMPTY on the SAME drain's `run-flows-on-db` call. An empty-`flow-map`
+  ;; early return that skipped draining the abandoned path `clear-flow` had
+  ;; just recorded would never vacate it from the pending `:db`, and the
+  ;; deferred commit would resurrect it — even with the recording half
+  ;; (above) in place.
   (testing "in-drain clear-flow of the frame's LAST flow still vacates through the deferred commit"
     (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
     (rf/reg-flow :solo {:inputs [[:n]] :output-path [:out-solo]} (fn [n] (* 2 (or n 0))))
@@ -515,8 +515,8 @@
       (is (not (contains? db :out-solo))
           (str ":out-solo ABSENT — the in-drain clear-flow of the frame's "
                "LAST flow still vacated through the deferred commit (the "
-               "empty-flow-map drain BEFORE the early return). Pre-fix it "
-               "resurrected as " (:out-solo db) "."))
+               "empty-flow-map drain BEFORE the early return); it is "
+               "present as " (:out-solo db) "."))
       (is (not (contains? (rf.flows/flows-snapshot) :rf/default))
           "the per-frame flows entry is pruned entirely — clearing the last flow drops the frame key")
       (is (empty? (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
