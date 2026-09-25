@@ -12,23 +12,24 @@
   > the counts are zero.
 
   The re-frame2-pair-mcp impl centralises this rule at `wire/with-indicators`
-  — four tool emit sites (`snapshot`, `get-path`, `trace-window`,
-  `watch-epochs`) route their envelope-tail through
-  it. The MUST-level contract lives in one `cond->` form; this
-  conformance suite pins that contract so a future regression at
-  the choke-point — or at any caller that bypasses it — fails
-  loudly.
+  — the tree-walking tool emit sites (`snapshot`, `get-path`,
+  `trace-window`, `watch-epochs`, `read-sub`, `dispatch-dry-run`) route
+  their envelope-tail through it. The MUST-level contract lives in one
+  `cond->` form; this conformance suite pins that contract so a
+  regression at the choke-point — or at a pinned caller that bypasses
+  it — fails loudly.
 
   ## What's pinned
 
   - **The choke-point**: `with-indicators` itself omits when zero,
     emits when non-zero, treats nil as zero, and never confuses
     the two slots.
-  - **The five emit sites**: each of the five tool source files
-    that walks a tree-typed payload references `with-indicators`.
-    A new tool that walks a payload but bypasses the helper would
-    only be caught by hand-review today; this test makes the bypass
-    a build failure."
+  - **The pinned emit sites**: each of the four tool source files
+    named below (`snapshot`, `get_path`, `trace_window`,
+    `watch_epochs`) references `with-indicators`, so a bypass in
+    any of them is a build failure. A NEW tool that walks a payload
+    needs its own row here, or only hand-review would catch a
+    bypass."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
@@ -115,9 +116,9 @@
 ;; Per-emit-site choke-point check.
 ;;
 ;; Each tool that walks a tree-typed payload MUST route its
-;; envelope-tail through `wire/with-indicators`. Today the five sites
-;; all use the helper; if a future tool adds a tree-walk and bypasses
-;; the helper, the omit-when-zero rule could regress silently. Grep
+;; envelope-tail through `wire/with-indicators`. The sites pinned here
+;; all use the helper; a tool that adds a tree-walk and bypasses the
+;; helper would let the omit-when-zero rule regress silently. Grep
 ;; each source file for the literal `with-indicators` reference.
 ;; ---------------------------------------------------------------------------
 
