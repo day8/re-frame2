@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.topo.arms
-  "THE FOUR TOPOLOGY ARMS — one table, cut four ways (rf2-hic-036).
+  "THE FOUR TOPOLOGY ARMS — one table, cut four ways.
 
   The markup is written **once**, in [[row-markup]], and every arm calls
   it. That is the tournament's fairness guarantee and it is the same
