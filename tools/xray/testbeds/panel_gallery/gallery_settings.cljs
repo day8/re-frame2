@@ -1,13 +1,12 @@
 (ns panel-gallery.gallery-settings
-  "Story coverage for the **Settings popup modal** (rf2-durls redo of
-  the rf2-mpn8m gallery against the de-singletoned shell + four-bucket
-  Story model).
+  "Story coverage for the **Settings popup modal**, built against the
+  per-frame shell + the four-bucket Story model.
 
   Each variant renders the full Xray 4-layer chrome via
   `:panel-gallery.chrome/Shell` and opens the Settings popup
   pre-positioned on a tab with pre-populated settings state.
 
-  ## Frame discipline (de-singletoned shell — rf2-1w07r)
+  ## Frame discipline
 
   The chrome's `shell-view` takes a `:frame-id` opt; the `chrome-shell`
   wrapper threads the Story per-variant frame (`(rf/current-frame-id)`)
@@ -15,13 +14,7 @@
   variant's frame. Story's runtime dispatches every `:setup` step into
   that same variant frame, so a variant seeds its chrome + opens the
   popup with the CANONICAL Xray events directly — no `:rf/xray` literal,
-  no re-dispatch indirection. Cells in the grid are fully isolated.
-
-  (Pre rf2-1w07r the shell hardcoded `[frame-provider {:frame :rf/xray}]`,
-  so the gallery routed its seeds through a testbed-local
-  `:panel-gallery.chrome/seed!` event's `:after-seeds` lane to land
-  writes on the shared `:rf/xray` frame. The parameterized shell retires
-  that workaround.)"
+  no re-dispatch indirection. Cells in the grid are fully isolated."
   (:require [re-frame.story :as rf.story]
             [panel-gallery.fixtures :as fixtures]
             [panel-gallery.panel-views :as panel-views]))
@@ -60,19 +53,17 @@
     {:axis :feature
      :doc  "Xray Settings popup modal — 4-tab strip (General /
             Keybindings / Buffer / Diff) per
-            spec/007-UX-IA.md §Settings popup (rf2-ttnst expansion of
-            the original 3-tab strip from rf2-9poxq). Telemetry tab
-            was removed earlier per rf2-jh9ws (no endpoint exists);
-            Theme tab retired per rf2-ou3pn — the ribbon's sun/moon
-            icon is now the canonical light/dark affordance; Filters
-            tab retired per rf2-wknb3 — full pill management lives in
-            the ribbon + per-pill edit popup + mute manager."})
+            spec/007-UX-IA.md §Settings popup. There is no Telemetry
+            tab (no endpoint exists), no Theme tab (the ribbon's
+            sun/moon icon is the canonical light/dark affordance) and
+            no Filters tab (full pill management lives in the ribbon +
+            per-pill edit popup + mute manager)."})
 
   (rf.story/reg-story :story.xray.settings-popup
     {:doc        "Visual gallery of the Xray Settings popup modal.
                  Each variant opens the popup pre-positioned on a
                  different tab with different pre-populated values, in
-                 its own isolated frame (the de-singletoned shell)."
+                 its own isolated frame (the per-frame shell)."
      :component  :panel-gallery.chrome/Shell
      :tags       #{:dev :feature/xray-settings-popup}
      :substrates #{:reagent}})
@@ -97,23 +88,20 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; (Filters tab variant retired per rf2-wknb3 — the popup no
-  ;; longer carries a Filters tab. Full pill management lives in
-  ;; the top-ribbon pill strip + per-pill edit popup + mute manager
-  ;; modal; the settings tab was a discoverability pointer whose
-  ;; only button dispatched an unregistered event.)
+  ;; (There is no Filters tab variant: the popup carries no Filters
+  ;; tab. Full pill management lives in the top-ribbon pill strip +
+  ;; per-pill edit popup + mute manager modal.)
 
-  ;; (Theme tab variant retired per rf2-ou3pn — the popup no longer
-  ;; carries a Theme tab. The light/dark cycle is driven by the
-  ;; top-ribbon sun/moon icon, which already has its own Story
-  ;; coverage under the chrome gallery.)
+  ;; (There is no Theme tab variant: the popup carries no Theme tab.
+  ;; The light/dark cycle is driven by the top-ribbon sun/moon icon,
+  ;; which has its own Story coverage under the chrome gallery.)
 
-  ;; ----- 2. Keybindings tab — read-only chord catalogue (rf2-ttnst).
+  ;; ----- 2. Keybindings tab — read-only chord catalogue.
   (rf.story/reg-variant :story.xray.settings-popup/keybindings
-    {:doc        "Settings popup open on Keybindings tab. v1 is
+    {:doc        "Settings popup open on Keybindings tab. It is
                  READ-ONLY — a chord catalogue mirroring spec/007-
                  UX-IA.md §Keyboard plus a master 'Handle keys?'
-                 toggle. Rebind UI lands in v1.1."
+                 toggle; there is no rebind UI."
      :setup      (settings-setup
                    {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
@@ -121,18 +109,16 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 3. Buffer tab — cascades-retained knob + destructive Clear
-  ;; (rf2-ttnst; rf2-pu9sb consolidation; rf2-5u03ig trim).
+  ;; ----- 3. Buffer tab — cascades-retained knob + destructive Clear.
   (rf.story/reg-variant :story.xray.settings-popup/buffer
     {:doc        "Settings popup open on Buffer tab. A single
                  `cascades-retained` numeric input (writes through to
-                 `(rf/configure! {:trace-buffer {:events-retained N}})`
-                 per rf2-5u03ig) plus a destructive 'Clear buffer now'
+                 `(rf/configure! {:trace-buffer {:events-retained N}})`)
+                 plus a destructive 'Clear buffer now'
                  button. Clicking Clear opens a confirmation modal
                  (Cancel / Clear). The epoch-history slider lives in
-                 General (relocated back from Buffer 2026-05-27); the
-                 inert inspector-collapse-threshold input was removed
-                 (rf2-5u03ig)."
+                 General; there is no inspector-collapse-threshold
+                 input."
      :setup      (settings-setup
                    {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
@@ -140,11 +126,11 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; ----- 4. Diff tab — opt-in fn-ref-changes toggle (rf2-i39w2).
+  ;; ----- 4. Diff tab — opt-in fn-ref-changes toggle.
   (rf.story/reg-variant :story.xray.settings-popup/diff
     {:doc        "Settings popup open on Diff tab. The opt-in
                  :highlight-fn-ref-changes? toggle for the hiccup-diff
-                 micro-engine (rf2-i39w2 Phase 3)."
+                 micro-engine."
      :setup      (settings-setup
                    {:trace-buffer (fixtures/cascades 3)
                     :selected-tab :epoch
@@ -152,20 +138,20 @@
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
 
-  ;; (Telemetry tab removed per rf2-jh9ws — no endpoint exists,
-  ;; chrome must not pretend; section + variant deleted.)
+  ;; (There is no Telemetry tab: no endpoint exists, so the chrome
+  ;; does not pretend to have one.)
 
   ;; ----- workspace ---------------------------------------------------
   ;;
   ;; `:variants-grid` — each cell mounts the shell in its own variant
-  ;; frame (the de-singletoned shell threads the per-cell frame), so the
+  ;; frame (the per-frame shell threads the per-cell frame), so the
   ;; four popups render side-by-side with no shared-state bleed.
   (rf.story/reg-workspace :Workspace.xray.settings-popup/all
     {:doc      "All Settings popup variants (General / Keybindings /
                 Buffer / Diff) in one grid, each in its own isolated
-                frame. The Theme tab retired per rf2-ou3pn — the
+                frame. There is no Theme tab — the
                 ribbon's sun/moon icon is the canonical light/dark
-                affordance. The Filters tab retired per rf2-wknb3 —
+                affordance — and no Filters tab —
                 full pill management lives in the ribbon strip +
                 per-pill edit popup + mute manager modal."
      :layout   :variants-grid
