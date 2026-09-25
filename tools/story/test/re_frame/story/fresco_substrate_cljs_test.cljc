@@ -1,35 +1,33 @@
 (ns re-frame.story.fresco-substrate-cljs-test
-  "rf2-2dbpd — `:fresco` on Story's AUTHORING-LAYER axis, proved on the
+  "`:fresco` on Story's AUTHORING-LAYER axis, proved on the
   paths that carry a substrate keyword through data rather than through a
   render.
 
   ## What this namespace is the witness for
 
-  `re-frame.story.schemas/SubstrateSet` was `[:set [:enum :reagent :uix]]`
-  — the ONE closed substrate enum in the repository — so a variant
-  declaring `:substrates #{:fresco}` could not be REGISTERED, let alone
-  rendered: `registrar/validate-shape!` threw `:rf.error/variant-shape`
-  before any renderer was consulted. Widening it is one line; the rows
-  below are what say the widen actually reaches the four places a
-  substrate keyword has to survive to be worth anything.
+  `re-frame.story.schemas/SubstrateSet` is the ONE closed substrate enum
+  in the repository, and it admits `:fresco`. Without that member a
+  variant declaring `:substrates #{:fresco}` could not be REGISTERED, let
+  alone rendered: `registrar/validate-shape!` would throw
+  `:rf.error/variant-shape` before any renderer was consulted. The rows
+  below say the member reaches the four places a substrate keyword has to
+  survive to be worth anything.
 
   1. **Registration** — the closed shape accepts it, on the variant body
-     and on the story body, and STILL refuses an unknown member. A widen
-     that quietly opened the enum would pass every other row here.
+     and on the story body, and STILL refuses an unknown member. An enum
+     that quietly opened would pass every other row here.
   2. **Plan compilation** — `rf.story.plan/variant-plan` folds it to
      `[:world :substrates]`, which is where `canonical/render-host-scope`
-     reads the declared set (rf2-3afns).
+     reads the declared set.
   3. **The EDN / MCP read path** — `rf.story/variant->edn` is what the MCP
      `list-variants` / read tools relay to an agent, and a keyword that
      did not round-trip would strand the agent on a story it can see and
      cannot describe.
-  4. **Snapshot identity** — two fresco views must be two baselines. The
-     ruling asks for this by name because it is the one that could
-     silently collapse: `fingerprint.cljc` folds every FUNCTION to the
-     `:rf/opaque-fn` sentinel, so had `:component` been widened to accept
-     a component VALUE (rf2-1gy4e's rejected option (a)) two distinct
-     fresco views would have hashed identically. It stayed a keyword, and
-     these rows are what says so.
+  4. **Snapshot identity** — two fresco views must be two baselines. This
+     is the one that could silently collapse: `fingerprint.cljc` folds
+     every FUNCTION to the `:rf/opaque-fn` sentinel, so were `:component`
+     to accept a component VALUE, two distinct fresco views would hash
+     identically. It is a keyword, and these rows are what says so.
 
   ## Both arms, deliberately
 
@@ -37,9 +35,9 @@
   from `tools/story`) and the shadow `:node-test` build (`npm run
   test:cljs`, whose `cljs-test$` regex matches) each run every row. Every
   claim here is about DATA — schema, plan, EDN, hash — so neither arm
-  needs a renderer, and nothing here requires `re-frame.fresco`: that is
-  what keeps `tools/story/deps.edn` untouched, per rf2-1gy4e's placement
-  ruling. The renderer itself is proved in
+  needs a renderer, and nothing here requires `re-frame.fresco`, so
+  `tools/story/deps.edn` carries no fresco coordinate for it. The renderer
+  itself is proved in
   `re-frame.story.ui.fresco-substrate-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
@@ -63,46 +61,44 @@
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
 ;; ===========================================================================
-;; 1 · the enum — widened, and still CLOSED
+;; 1 · the enum — admits :fresco, and is CLOSED
 ;; ===========================================================================
 
 (deftest substrate-set-admits-fresco
-  (testing "rf2-2dbpd — `#{:fresco}` is a legal substrate set. Before the
-            widen this was the whole blocker: the schema rejected it, so
-            no fresco variant could be registered at all."
+  (testing "`#{:fresco}` is a legal substrate set — were the schema to
+            reject it, no fresco variant could be registered at all."
     (is (m/validate rf.story.schemas/SubstrateSet #{:fresco}))
     (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :fresco}))
     (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :uix :fresco})))
 
-  (testing "and the members that were already legal still are — the widen
-            is additive, not a replacement"
+  (testing "and :reagent, :uix and the empty set are legal beside it"
     (is (m/validate rf.story.schemas/SubstrateSet #{:reagent}))
     (is (m/validate rf.story.schemas/SubstrateSet #{:uix}))
     (is (m/validate rf.story.schemas/SubstrateSet #{})))
 
-  (testing "the enum is still CLOSED, which is the half a widen can lose
+  (testing "the enum is CLOSED, which is the half a widening can lose
             with nothing going red to say so. `:reagent-slim` is the
             reserved member the docstring names as NOT YET admitted, and
             `:helix` is an authoring layer Story does not carry at all; if
-            either row ever passes, the widen has become an opening and
+            either row ever passes, the enum has become an opening and
             `SubstrateSet` validates nothing."
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent-slim})))
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:helix})))
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent :helix})))
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:fresco :typo})))
     (is (not (m/validate rf.story.schemas/SubstrateSet [:fresco]))
-        "a VECTOR is not a set — the slot's shape is unchanged too")))
+        "a VECTOR is not a set — the slot's shape is a set")))
 
 ;; ===========================================================================
 ;; 2 · registration — the closed body shapes take it, on both bodies
 ;; ===========================================================================
 
 (deftest a-fresco-variant-registers
-  (testing "rf2-2dbpd — `reg-variant*` validates the body against
+  (testing "`reg-variant*` validates the body against
             `VariantBody` and throws `:rf.error/variant-shape` on a miss
-            (`re-frame.story.registrar/validate-shape!`). Pre-widen THIS
-            call threw; the registration landing is the user-visible half
-            of the enum change."
+            (`re-frame.story.registrar/validate-shape!`); the registration
+            landing is the user-visible half of the enum admitting
+            `:fresco`."
     (rf.story/reg-story* :story.hic {:doc "fresco authoring-layer fixture"})
     (rf.story/reg-variant* :story.hic/card
       {:doc        "A variant whose subject is a fresco boundary."
@@ -112,7 +108,7 @@
 
   (testing "and the STORY body takes it too — `StoryBody` is closed
             independently of `VariantBody`, so a whole story can declare
-            the authoring layer once. (Since rf2-sc5g0 that story-level
+            the authoring layer once. (That story-level
             declaration reaches the compiled plan too, so the canvas and
             `render-variant` read the same set; see the plan row below.)"
     (rf.story/reg-story* :story.hic-all
@@ -138,25 +134,20 @@
 ;; 3 · plan compilation — `[:world :substrates]` is where the host reads it
 ;; ===========================================================================
 ;;
-;; MEASURED WHILE WRITING THESE ROWS and filed rather than fixed here (both
-;; files were outside rf2-2dbpd's fence): the plan folded `:substrates` from
-;; the VARIANT and its `:extends` chain and NOT from the parent story, so a
-;; substrate declared ONLY at story level reached the canvas — which reads it
-;; through `multi-substrate/resolve-substrate-set`, story-body included — and
-;; did NOT reach `canonical/render-host-scope`, which reads
-;; `[:world :substrates]` and fell back to the `:reagent` host default.
-;;
-;; FIXED under rf2-sc5g0: `rf.story.plan/variant-plan` now folds the parent story's
-;; `:substrates` (and `:component`, which had the same asymmetry and no
-;; renderer-side fallback at all) with the canvas's own variant-then-story
-;; precedence. The witness is
+;; `rf.story.plan/variant-plan` folds `:substrates` (and `:component`) from
+;; the VARIANT, its `:extends` chain AND the parent story, with the canvas's
+;; own variant-then-story precedence. So a substrate declared ONLY at story
+;; level reaches `canonical/render-host-scope`, which reads
+;; `[:world :substrates]`, exactly as it reaches the canvas through
+;; `multi-substrate/resolve-substrate-set`; a story-blind fold would leave
+;; the host on its `:reagent` default. The witness for that fold is
 ;; `re-frame.story.story-scope-world-keys-cljs-test`; the rows below stay
 ;; scoped to what a FRESCO declaration carries.
 
 (deftest the-plan-carries-the-fresco-declaration
-  (testing "rf2-3afns routed `canonical/render-host-scope` at the COMPILED
-            PLAN's `[:world :substrates]` instead of a literal `:reagent`,
-            so that slot is the one a fresco variant has to reach. It is
+  (testing "`canonical/render-host-scope` reads the COMPILED PLAN's
+            `[:world :substrates]`, not a literal `:reagent`, so that slot
+            is the one a fresco variant has to reach. It is
             folded by `rf.story.plan/variant-plan`, already `:extends`-merged."
     (rf.story/reg-story* :story.hicplan {:doc "fixture"})
     (rf.story/reg-variant* :story.hicplan/v
@@ -200,9 +191,8 @@
       (let [edn (rf.story/variant->edn :story.hicedn/v)]
         (is (= #{:fresco} (:substrates edn)))
         (is (= :my.app.views/article-card (:component edn))
-            "and `:component` is still a KEYWORD — the whole reason
-             rf2-1gy4e ruled fresco-side registration rather than
-             widening `:component` to accept a value")
+            "and `:component` is a KEYWORD — a fresco view is registered
+             fresco-side, never passed to `:component` as a value")
         (is (= body (select-keys edn (keys body)))
             "the body round-trips verbatim; `:source` is the registrar's
              own stamp and is the only addition")))))
@@ -212,13 +202,12 @@
 ;; ===========================================================================
 
 (deftest two-fresco-view-ids-are-two-identities
-  (testing "rf2-1gy4e's decisive ground for ruling against a component
-            VALUE in `:component`: `fingerprint.cljc` canonicalises every
-            fn to the `:rf/opaque-fn` sentinel, so two distinct fresco
-            heads would have been INDISTINGUISHABLE to snapshot identity —
+  (testing "`:component` takes a keyword, never a component VALUE:
+            `fingerprint.cljc` canonicalises every fn to the
+            `:rf/opaque-fn` sentinel, so two distinct fresco heads passed
+            as values would be INDISTINGUISHABLE to snapshot identity —
             one visual-regression baseline for two views. Naming them with
-            keywords is what keeps them apart, and this is the row that
-            would have caught it."
+            keywords is what keeps them apart, and this row pins it."
     (rf.story/reg-story* :story.hicid {:doc "fixture"})
     (rf.story/reg-variant* :story.hicid/card
       {:doc "one" :component :my.app.views/article-card :substrates #{:fresco}})
