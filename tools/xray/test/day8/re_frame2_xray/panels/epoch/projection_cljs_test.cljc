@@ -682,7 +682,7 @@
             thread the row's `:duration-ms` through to the step map.
             A flattening that built each step with only `:id` +
             `:value` would drop the duration — even with the reader
-            stamping the canonical tag, the cascade'"'"'s COEFFECT
+            stamping the canonical tag, the cascade's COEFFECT
             step would render nil and never cross the long-step
             threshold."
     (let [rec   (record [(dispatched-ev [:cart/load] :ui nil)
@@ -866,9 +866,9 @@
 
 (deftest handler-row-machine-transition-no-action-test
   (testing "a real macrostep that fires NO `:rf.machine/action-ran`
-            (an entry-cascade-only / pure-state-move transition — the
-            framework does NOT emit `action-ran` for `:entry` actions) is
-            STILL a machine cascade. The substrate's
+            (a pure state move: no `:exit`, transition `:action` or
+            `:entry` action is declared along it, so no action runs to
+            emit one) is STILL a machine cascade. The substrate's
             `:rf.machine/transition` summary rides the macrostep
             UNCONDITIONALLY (commit-or-finalize · lifecycle_fx ·
             registration.cljc), so `:rf.machine/transition` is the
