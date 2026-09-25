@@ -1,7 +1,6 @@
 (ns panel-gallery.gallery-views
-  "Story coverage for the **Reactive tab** of the Xray chrome
-  (rf2-wyvf2 · spec/021 §3 · renamed from Views per §11.5; render-cause
-  refresh rf2-bhi3t).
+  "Story coverage for the **Reactive tab** of the Xray chrome, labelled
+  Views in the tab strip (spec/021 §3).
 
   The Reactive tab body is the `reactive-panel/Panel` view. It reads
   `:rf.xray/reactive-data`, a composite over the spine's
@@ -28,7 +27,7 @@
                         evidence the §3.4 'unchanged subs' disclosure reads.
     - `:event`        — the trigger event (the cascade's seed).
 
-  ## Render-cause chips (rf2-bhi3t)
+  ## Render-cause chips
 
   A view re-renders for exactly one of two reasons — a SUBSCRIPTION it
   derefs changed value, or its PROPS changed (the orthogonal
@@ -139,8 +138,8 @@
 
 (defn- dense-cascade-buffer
   "Mid-load: 4 subs ran (2 changed) · 2 memo-hit skips · 3 views
-  re-rendered. The view nodes exercise the full render-cause taxonomy
-  (rf2-bhi3t): two `← :sub-id` causes + one `← props` re-render."
+  re-rendered. The view nodes exercise the full render-cause taxonomy:
+  two `← :sub-id` causes + one `← props` re-render."
   []
   (record
     {:event [:checkout/submit {:id 42}]
@@ -160,12 +159,12 @@
       (rendered-ev :cart.banner/StateBanner [:StateBanner 0] false
                    [[:cart/state]] 0.7 :cart/state)
       ;; A re-render whose own derefed subs ALL held value — the cause
-      ;; is the props channel, so the node reads `← props` (rf2-bhi3t).
+      ;; is the props channel, so the node reads `← props`.
       (rendered-ev :cart.totals/TotalsRow [:TotalsRow 0] false
                    [[:cart/total]] 0.5)]}))
 
 (defn- render-cause-buffer
-  "Pins all three render-cause states side-by-side (rf2-bhi3t):
+  "Pins all three render-cause states side-by-side:
    - a MOUNT (no cause; the `(mounted)` label conveys the first render)
    - a SUBSCRIPTION-driven re-render (`← :route/current`)
    - a PROPS-driven re-render (`← props` — its derefed sub held value)."
@@ -222,8 +221,8 @@
   (rf.story/reg-tag :feature/xray-reactive
     {:axis :feature
      :doc  "Xray Reactive tab — sub-cascade + view-re-render
-            visualisation per spec/021 §3 (rf2-wyvf2); per-view
-            render-cause attribution (rf2-bhi3t)."})
+            visualisation per spec/021 §3, with per-view
+            render-cause attribution."})
 
   (rf.story/reg-story :story.xray.reactive
     {:doc        "Visual gallery of the Xray Reactive tab under
@@ -256,15 +255,15 @@
   (rf.story/reg-variant :story.xray.reactive/dense
     {:doc        "Mid-load: 4 subs ran (2 changed) · 2 memo-hit skips ·
                  3 views re-rendered. The view nodes exercise the full
-                 render-cause taxonomy (rf2-bhi3t) — two `← :sub-id`
+                 render-cause taxonomy — two `← :sub-id`
                  causes + one `← props` re-render."
      :setup     [[:rf.xray/sync-epoch-history (dense-cascade-buffer)]]
      :tags       #{:dev :state/medium}
      :substrates #{:reagent}})
 
-  ;; ----- render-cause chips (rf2-bhi3t) ------------------------------
+  ;; ----- render-cause chips ------------------------------------------
   (rf.story/reg-variant :story.xray.reactive/render-cause
-    {:doc        "All three render-cause states side-by-side (rf2-bhi3t):
+    {:doc        "All three render-cause states side-by-side:
                  a MOUNT (no cause — the `(mounted)` label), a
                  SUBSCRIPTION-driven re-render (`← :route/current`), and
                  a PROPS-driven re-render (`← props`, its derefed sub
@@ -295,7 +294,7 @@
   (rf.story/reg-workspace :Workspace.xray.reactive/all
     {:doc      "All six Reactive tab variants in one auto-grid — empty /
                 sparse / dense / render-cause / teardown / silent. The
-                render-cause + dense variants pin the rf2-bhi3t per-view
+                render-cause + dense variants pin the per-view
                 cause chips (← :sub-id / ← props)."
      :layout   :variants-grid
      :for      :story.xray.reactive
