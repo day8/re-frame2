@@ -125,9 +125,9 @@
 ;;   -----              -----------                       ---------
 ;;   args               :cell-overrides + :active-modes   rf.story.args/resolve-args → :args
 ;;   transient-controls in-flight :cell-overrides          folds into :args (no 2nd slot)
-;;   sub-overrides      — (View State group is TARGET)     reg-variant :sub-overrides
-;;   db-seed            — (fidelity rung not wired)        reg-variant :setup/:db
-;;   route              — (route sub not consumed)         —
+;;   sub-overrides      — (View State pins nothing live)   reg-variant :sub-overrides
+;;   db-seed            — (no live app-db capture)         reg-variant :setup/:db
+;;   route              — (no live route capture)          — (no variant body slot)
 ;;   network            — (no live Network controls)       reg-variant :network
 ;;   fx-overrides       — (no live Effects controls)       reg-variant :fx-overrides
 ;;   viewport           shell :viewport (CHROME-WIDE)      — (chrome-wide, not a body slot)
@@ -221,20 +221,20 @@
        (declared :sub-overrides (slice-labels :sub-overrides) sub-ovr
                  "No live View-State controls yet — the source's declared :sub-overrides carry forward via :extends, captured-as-declared (not a live projection).")
        (not-wired :sub-overrides (slice-labels :sub-overrides)
-                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable (rf2-7pgiz)."))
+                  "No live View-State controls and none declared on the source — sub-overrides are not yet projectable."))
 
-     ;; db-seed: the schema-checked app-db seed fidelity rung is not wired.
-     ;; The closest declared analogue on the source body is
-     ;; `:setup` (real setup events) — surfaced as captured-as-declared so
-     ;; the report is honest about what carries forward via :extends.
+     ;; db-seed: no control captures the live app-db. This row reads the
+     ;; source body's `:setup` (real setup events), not a declared
+     ;; `:db-seed`, and surfaces it as captured-as-declared so the report
+     ;; is honest about what carries forward via :extends.
      (if (some? setup)
        (declared :db-seed (slice-labels :db-seed) setup
-                 "DB-seed fidelity rung not wired (rf2-blw1q) — the source's declared :setup events carry forward via :extends, captured-as-declared.")
+                 "No live app-db capture — the source's declared :setup events carry forward via :extends, captured-as-declared.")
        (not-wired :db-seed (slice-labels :db-seed)
-                  "DB-seed fidelity rung not wired (rf2-blw1q) and no :setup declared — not yet projectable."))
+                  "No live app-db capture and no :setup declared on the source — app-db state is not captured."))
 
      (not-wired :route (slice-labels :route)
-                "Route sub-override is not consumed yet (rf2-7pgiz) — route state is not captured.")
+                "No live route capture and no route slot on a variant body — route state is not captured.")
 
      (if (some? network)
        (declared :network (slice-labels :network) network
