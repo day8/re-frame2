@@ -1,14 +1,14 @@
 (ns re-frame.story.ui.subject-text-reset-dom-cljs-test
-  "DOM-mount acceptance for rf2-w72ij: Story's chrome text styles stop at the
-  subject boundary, and the chrome keeps them.
+  "DOM-mount acceptance: Story's chrome text styles stop at the subject
+  boundary, and the chrome keeps them.
 
   The shell, the canvas wrap and each workspace cell set Story's
   `:text-primary` colour and chrome fonts for their own parts. Colour and font
-  are inherited, so before this change a subject that set no colour of its own
-  rendered in Story's warm off-white: the login testbed card, a white card
-  whose heading sets no colour, read 1.19:1. The testbed carried a colour line
-  to hide that, and this change removes it, so these tests mount the real card
-  WITHOUT it and read what the browser computes.
+  are inherited, so without a reset at the boundary a subject that set no
+  colour of its own would render in Story's warm off-white: the login testbed
+  card, a white card whose heading sets no colour, would read 1.19:1. The
+  testbed card carries no colour line to hide that, so these tests mount the
+  real card and read what the browser computes.
 
   What is asserted, at both subject sites (the canvas single pane and a
   workspace cell):
@@ -26,8 +26,8 @@
   `rf.story.ui.multi-substrate/subject-root-style`, the heading reads
   `:text-primary` and the colour assertions go red.
 
-  The grain backdrop's half of the item (the overlay may not sit in the
-  subject's grading path) is witnessed by the last test, which needs no DOM.
+  The grain backdrop's half (the overlay may not sit in the subject's
+  grading path) is witnessed by the last test, which needs no DOM.
 
   The fixture mirrors `login-form.stories-cljs-test` and
   `promotion-row-dom-cljs-test`: the source-store baseline is captured once at
@@ -184,9 +184,9 @@
 ;; ---- the canvas single pane ----------------------------------------------
 
 (deftest canvas-subject-reads-browser-default-text-styles
-  (testing "rf2-w72ij: in the canvas, the login card heading (no colour of
-            its own, the testbed's colour line removed) reads the browser
-            default, while the canvas chrome keeps its tokens"
+  (testing "in the canvas, the login card heading (no colour of its own)
+            reads the browser default, while the canvas chrome keeps its
+            tokens"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (async done
@@ -230,7 +230,7 @@
 (def ^:private variant-cell @#'rf.story.ui.workspace/variant-cell)
 
 (deftest workspace-cell-subject-reads-browser-default-text-styles
-  (testing "rf2-w72ij: inside a workspace cell, the login card heading reads
+  (testing "inside a workspace cell, the login card heading reads
             the browser default, while the cell and its title keep their
             tokens"
     (if-not (browser?)
@@ -264,7 +264,7 @@
 ;; ---- the grain backdrop ----------------------------------------------------
 
 (deftest grain-backdrop-is-a-sibling-layer-not-an-ancestor-pseudo
-  (testing "rf2-w72ij: axe leaves a text node's contrast ungraded when ANY
+  (testing "axe leaves a text node's contrast ungraded when ANY
             ancestor carries a positioned background pseudo, and the shell
             root is every subject's ancestor — so the grain styles its own
             layer and no pseudo-element at all"
