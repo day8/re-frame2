@@ -17,8 +17,9 @@
 
   The runner is manual-step only: the operator presses Step (or a per-row
   RUN button) to drive ONE step at a time and reads its `:watch` note
-  while the panels render. There is no auto-advance and no timer, and the
-  runner does NOT pin Xray focus — the operator focuses each epoch.
+  while the panels render. There is no auto-advance and no timer; the
+  runner's epoch listener pins Xray focus onto each step's epoch (see
+  `runner.core`).
 
   Both panels render their CLJS values THROUGH the edn-inspector
   (`day8.re-frame2-xray.views.edn-inspector`) — the single value renderer
@@ -76,8 +77,7 @@
 
   ## Test surface, not tutorial
 
-  Per `feedback_testbeds_are_test_surfaces`: no deliberate bugs, no teaching
-  layers, no anti-pattern demos. Each step writes a clean, correct
+  No deliberate bugs, no teaching layers, no anti-pattern demos. Each step writes a clean, correct
   inspector-stressing shape; the `:watch` notes are guidance, not lessons.
 
   ## Test-free + self-contained
