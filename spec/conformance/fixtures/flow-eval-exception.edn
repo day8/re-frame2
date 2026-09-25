@@ -1,5 +1,5 @@
 ;; Conformance fixture: flow/eval-exception
-;; Per Spec 013 §Failure semantics — atomicity contract (Mike 2026-05-24):
+;; Per Spec 013 §Failure semantics — atomicity contract:
 ;; a flow throw is a PRE-INSTALL throw, so it aborts the WHOLE event.
 ;;
 ;;   1. NO partial commit — the pending :db effect (the handler's write
@@ -12,7 +12,7 @@
 ;;      as `:rf.error/flow-eval-exception` on BOTH the dev-only trace
 ;;      surface AND the always-on error-emit substrate (per Spec 013
 ;;      §Resolved decisions §`:rf.error/flow-eval-exception` rides the
-;;      always-on error substrate, rf2-0q0du).
+;;      always-on error substrate).
 ;;
 ;; The `:db` install is the single, deferred, all-or-nothing commit
 ;; boundary; ANY pre-install throw (cofx / handler / interceptor :after /
@@ -28,7 +28,7 @@
 {:fixture/id           :flow/eval-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace :flow/basic :flow/trace}
- :fixture/doc          "A flow's :derive throws. Per the atomicity contract (Spec 013 §Failure semantics, rf2-u0zz5) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate, rf2-0q0du). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
+ :fixture/doc          "A flow's :derive throws. Per the atomicity contract (Spec 013 §Failure semantics) the event ABORTS: the pending :db effect is discarded (app-db unchanged), NO :rf.event/db-changed is emitted, and :fx does not run. The runtime fires the per-flow :rf.flow/failed trace and surfaces the cascade-level :rf.error/flow-eval-exception on the always-on production error-emit substrate (Resolved decisions §:rf.error/flow-eval-exception rides the always-on error substrate). The failing handler's :fx [[:dispatch [:should-not-fire]]] entry MUST NOT run."
 
  :fixture/registry
  {:event {:flow/init       {:doc "Seed :token to a non-string vector — first drain computes :tries without throwing."}
@@ -59,9 +59,9 @@
 
  ;; First dispatch drives a successful flow eval — :token is the seeded
  ;; vector [1 2 3]; :tries computes (count [1 2 3]) = 3 and writes.
- ;; Conformance runners register flows AFTER the on-create cascade
- ;; (per the comment at run-fixture's `realise-flows!` call site;
- ;; rf2-wbtjn), so the on-create drain itself doesn't trigger :tries.
+ ;; Conformance runners register flows AFTER the :initial-events cascade
+ ;; (per the comment at run-fixture's `realise-flows!` call site), so
+ ;; the :initial-events drain itself doesn't trigger :tries.
  ;; A bare no-op dispatch is enough to fire the drain on which :tries
  ;; first-evals — we use :flow/init again because re-dispatching it is
  ;; deterministic and re-seeds the same vector.
@@ -97,7 +97,7 @@
     :tags      {:frame :rf/default}}]
 
   ;; Atomicity contract: the aborted :flow/bad-input drain emits NO
-  ;; :rf.event/db-changed — the install never happened (rf2-u0zz5).
+  ;; :rf.event/db-changed — the install never happened.
   ;; (The first clean :flow/init drain DID emit db-changed; this matcher
   ;; targets the :flow/bad-input event specifically via the :event-id tag
   ;; so it cannot false-match the earlier successful install.)
@@ -107,7 +107,7 @@
 
   ;; Production-survivable always-on substrate (Spec 013 §Resolved
   ;; decisions §`:rf.error/flow-eval-exception` rides the always-on
-  ;; error substrate, rf2-0q0du / rf2-hrt5c). The runner registers a
+  ;; error substrate). The runner registers a
   ;; corpus-wide error-emit listener at fixture-start; this matcher
   ;; asserts the listener captured the cascade-level record.
   :error-emit-records
