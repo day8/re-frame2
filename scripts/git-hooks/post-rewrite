@@ -3,12 +3,13 @@
 #
 # One advisory block, about the pull path post-merge cannot see:
 #
-#   rf2-zt65l — `git pull --rebase` with a commit of your own performs a REAL
-#               rebase, and a rebase never invokes post-merge. So a pull that
-#               landed changes under scripts/git-hooks/ used to say nothing at
-#               all on exactly the completion path AGENTS.md and CLAUDE.md
-#               mandate for every worker. `post-rewrite` is git's hook for
-#               that path (argument `rebase`).
+#   hook-install staleness, rebase path — `git pull --rebase` with a commit of
+#               your own performs a REAL rebase, and a rebase never invokes
+#               post-merge, so post-merge alone would say nothing about a pull
+#               that lands changes under scripts/git-hooks/ on exactly the
+#               completion path AGENTS.md and CLAUDE.md mandate for every
+#               worker. `post-rewrite` is git's hook for that path (argument
+#               `rebase`).
 #
 # Installed by scripts/install-git-hooks.sh (POSIX) or .ps1 (Windows).
 # Source of truth: scripts/git-hooks/post-rewrite.
