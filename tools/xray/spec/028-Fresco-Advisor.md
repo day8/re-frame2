@@ -46,7 +46,7 @@ event ids are the same three.
 
 The three unavailable rows are not an oversight awaiting a later bead.
 
-- **Boundary self time was KILLED as a decision** (`lanes/left-field-ideas.md`
+- **Boundary self time is ruled out by design** (`lanes/left-field-ideas.md`
   §Capability receipts, from the `rf2-hic-081` spike). Chrome clamps its timer to
   a 0.1 ms grain while the quantity is single-digit microseconds, so a
   per-attempt interval reads either zero or one whole tick and *a ranking built
