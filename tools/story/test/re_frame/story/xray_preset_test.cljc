@@ -1,9 +1,9 @@
 (ns re-frame.story.xray-preset-test
-  "Tests for per-story Xray preset (rf2-q9kv5).
+  "Tests for per-story Xray preset.
 
   Scope: the PURE data surface only — `merge-preset` deep-merge
-  semantics and `resolve-preset` story+variant resolution. Both run on
-  JVM and CLJS.
+  semantics, `resolve-preset` story+variant resolution, `lower-filters`
+  and the closed preset map. All run on JVM and CLJS.
 
   CLJS-only side-effect coverage (the mount / config / keybinding
   bridges) lives in `re-frame.story.xray-preset-cljs-test`, because
@@ -96,7 +96,7 @@
       (is (= :trace                              (:panel p)))
       (is (= {:in [:keep/x] :out [:drop/y]}      (:filters p))))))
 
-;; ---- pure: lower-filters (rf2-q5pd6) -------------------------------------
+;; ---- pure: lower-filters -------------------------------------------------
 ;;
 ;; The Story→Xray wire boundary. Story's schema accepts bare event-id
 ;; keywords; Xray's matcher reads a bare keyword as the `:never` kind.
@@ -136,12 +136,12 @@
     (is (nil? (rf.story.xray-preset/lower-filters nil)))
     (is (nil? (rf.story.xray-preset/lower-filters [:app/noise])))))
 
-;; ---- the preset map is closed (rf2-6spbt) ---------------------------------
+;; ---- the preset map is closed --------------------------------------------
 ;;
 ;; `:open?`, `:panel` and `:filters` are the whole preset. A slot the
-;; schema does not declare, a `:focus` left over from the retired
-;; pre-focus slot or a typo'd `:pannel`, rejects at registration, naming
-;; the key and where it sits, instead of registering and doing nothing.
+;; schema does not declare, such as `:focus` or a typo'd `:pannel`,
+;; rejects at registration, naming the key and where it sits, instead of
+;; registering and doing nothing.
 
 (defn- shape-error
   "Call `f` and return the thrown ex-data, or nil when it did not throw."
@@ -179,12 +179,7 @@
 ;; CLJS-only `deftest` placed here therefore runs on NO host — it is
 ;; dead code that reads as coverage.
 ;;
-;; rf2-r8trk found three such tests here and moved them to the live
-;; sibling `re-frame.story.xray-preset-cljs-test`. One of them had been
-;; asserting `(false? (xray-config-available?))` under the comment "this
-;; test assumes Xray is NOT on the classpath" — a claim that was false
-;; even then, and that nothing could catch because the test never ran.
-;;
-;; Keep this file to the pure `.cljc` surface (merge / resolve), which
-;; genuinely runs on both hosts. Anything CLJS-only belongs in the
-;; `-cljs-test` sibling.
+;; Keep this file to the pure `.cljc` surface (merge / resolve / lower /
+;; the closed preset map), which genuinely runs on both hosts. Anything
+;; CLJS-only belongs in the live sibling
+;; `re-frame.story.xray-preset-cljs-test`.
