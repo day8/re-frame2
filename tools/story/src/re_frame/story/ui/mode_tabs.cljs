@@ -34,9 +34,9 @@
 
   ## Visual style
 
-  Matches the render-shell chrome: `#b0b0b0` inactive foreground, white
-  active foreground, `#1e1e1e` active background. Reuses the shape of the
-  tab-bar/tab/tab-active styles defined in `re-frame.story.ui.shell`."
+  Matches the render-shell chrome through the `theme.colors` tokens:
+  `:text-secondary` inactive foreground, white active foreground,
+  `:bg-canvas` active background."
   (:require [re-frame.story.local-storage :refer [safe-local-storage]]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack mono-stack]]
@@ -108,8 +108,8 @@
 
 ;; ---- styling -------------------------------------------------------------
 ;;
-;; Same visual register as the render-shell chrome — `#b0b0b0` is the
-;; standard inactive foreground.
+;; Same visual register as the render-shell chrome — `:text-secondary`
+;; is the standard inactive foreground.
 
 (def ^:private styles
   {:strip       {:display          "flex"
@@ -125,7 +125,6 @@
    ;; ("Removing a style property during rerender (borderBottom) when a
    ;; conflicting property is set (border) can lead to styling bugs").
    ;; Spell every side longhand so React reconciles a stable set of keys.
-   ;; Same shape as the trace.cljs border styling.
    :tab         {:padding             "6px 14px"
                  :cursor              "pointer"
                  :color               (:text-secondary rf.story.theme.colors/tokens)
@@ -191,6 +190,5 @@
 ;; Docs is implemented in `re-frame.story.ui.docs`; Tests in
 ;; `re-frame.story.ui.test-mode.view` (pure/state/view). The shell routes
 ;; the `:docs` / `:test` cases directly at these dedicated panes. The
-;; `:placeholder` style entry below stays in the styles map in case a
-;; future pane needs an empty-state shape, but no placeholder fn is
-;; registered.
+;; styles map above carries a `:placeholder` empty-state shape, but no
+;; placeholder fn is registered.
