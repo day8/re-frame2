@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # scripts/git-hooks/lib/check-mayor-commit-boundary.sh
 #
-# Library for the mayor pre-commit hook (rf2-ydl2p). Inspects a list of
+# Library for the mayor pre-commit hook. Inspects a list of
 # staged paths (newline-separated on stdin) and prints a refusal block to
 # stderr if any of them sit outside the small allow-list of "mayor may
 # commit" surfaces. Exit code:
@@ -17,14 +17,12 @@
 # Cross-platform: POSIX sh; runs under Git Bash on Windows, macOS, Linux.
 # No bashisms (`[[`, arrays, `<<<`). Tested under `sh`, `bash`, `dash`.
 #
-# Discovery context: rf2-oswhk (#2136), worker acb252dc, 2026-05-25 — an
-# initial commit attempt via PowerShell landed on the mayor checkout's
-# local main because PowerShell `cwd` defaulted to the implementation
-# directory rather than tracking a prior `cd`. Worker noticed + recovered,
-# but the bogus commit could have carried real source diffs.
+# Why: a tool call whose working directory leaks into the mayor checkout
+# (PowerShell's `cwd` not tracking a prior `cd`, for one) lands its commit
+# on the mayor checkout's local main, carrying whatever source diff it staged.
 #
-# Edit-time guard: scripts/assert-worker-worktree.ps1 (existing).
-# Commit-time guard: this library + scripts/git-hooks/pre-commit (rf2-ydl2p).
+# Edit-time guard: scripts/assert-worker-worktree.ps1.
+# Commit-time guard: this library + scripts/git-hooks/pre-commit.
 
 # ----------------------------------------------------------------------------
 # Permitted surfaces in mayor commits.
