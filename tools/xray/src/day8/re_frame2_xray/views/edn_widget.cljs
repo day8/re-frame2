@@ -166,13 +166,13 @@
 ;;      lightweight ~140-LoC source-text lexer that emits per-token
 ;;      colour classifications mapped onto the theme tokens. The palette
 ;;      splits so keywords paint on `:syntax-keyword`
-;;      (red family), strings on `:syntax-string` (blue family),
-;;      numbers on `:syntax-number` (cool-blue), and builtins on
+;;      (magenta), strings on `:syntax-string` (green),
+;;      numbers on `:syntax-number` (orange), and builtins on
 ;;      `:accent` (chrome blue, macro-call emphasis) — each visually
-;;      distinct, both light and dark, mirroring the Figma authority's
-;;      `.syntax-*` CSS classes. Keeping the highlighter in-bundle as a
-;;      Clojure-mode subset avoids the cost of a JS-side highlight.js
-;;      dep on the dev classpath.
+;;      distinct, both light and dark, sharing the One Dark-derived
+;;      `:syntax-*` family with the edn-inspector widget. Keeping the
+;;      highlighter in-bundle as a Clojure-mode subset avoids the cost
+;;      of a JS-side highlight.js dep on the dev classpath.
 ;;
 ;;   3. **String-literal unescape** — `unescape-string-tokens` turns the
 ;;      `\n` escape in each string token back into a real line break, so
@@ -259,11 +259,11 @@
   ## Palette
 
   Each token type maps to a dedicated `:syntax-*` token from
-  `theme/tokens.cljc` so the rendered hues match the Figma authority's
-  `.syntax-*` CSS block exactly (keyword red / string blue / number
-  cool-blue) in BOTH the light and dark theme. Keywords and builtins
-  resolve to DIFFERENT hues — keyword on `:syntax-keyword` (red family,
-  per Figma), builtin on `:accent` (the chrome blue, reading as
+  `theme/tokens.cljc` so the rendered hues match the edn-inspector's
+  value rendering (keyword magenta / string green / number
+  orange) in BOTH the light and dark theme. Keywords and builtins
+  resolve to DIFFERENT hues — keyword on `:syntax-keyword` (magenta),
+  builtin on `:accent` (the chrome blue, reading as
   macro-call emphasis) — so a `:foo` keyword and a `reg-event`
   builtin paint distinctly against a real editor.
 
@@ -271,9 +271,9 @@
   plain symbols carry no special colour."
   [tok-type]
   (case tok-type
-    :keyword  :syntax-keyword          ; Figma .syntax-keyword (red family)
-    :string   :syntax-string           ; Figma .syntax-string  (blue family)
-    :number   :syntax-number           ; Figma .syntax-number  (cool-blue)
+    :keyword  :syntax-keyword          ; magenta
+    :string   :syntax-string           ; green
+    :number   :syntax-number           ; orange
     :comment  :text-tertiary
     :symbol   :text-primary
     :paren    :text-tertiary
