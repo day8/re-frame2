@@ -274,7 +274,7 @@ total_count="$(printf '%s\n' "$all_nses" | grep -c . || true)"
 printf '==> implementation/epoch under the REAL production gate\n'
 printf '    jvm property : -Dre-frame.debug=false (implementation/epoch/deps.edn, :prod-gate :jvm-opts)\n'
 printf '    posture pin  : re-frame.epoch-prod-gate-lane-pin-test (red if the property did not arrive)\n'
-printf '    namespaces   : %s of %s (%s excluded — epoch is OFF under this gate; see the header + rf2-t7qh8)\n' \
+printf '    namespaces   : %s of %s (%s excluded — epoch is OFF under this gate; see the header)\n' \
   "$runnable_count" "$total_count" "$excluded_count"
 
 if [ "${1:-}" = "--plan" ]; then
@@ -303,7 +303,7 @@ if ! clojure -M:test:prod-gate "${args[@]}"; then
   printf 'repro: bash scripts/test-epoch-prod-gate.sh\n' >&2
   printf 'A namespace that is green in `clojure -M:test` and red here is asserting\n' >&2
   printf 'epoch DEV BEHAVIOUR, which under this gate does not happen at all, or it\n' >&2
-  printf 'is a genuine production defect (rf2-9c2jf was the latter). Decide which\n' >&2
+  printf 'is a genuine production defect. Decide which\n' >&2
   printf 'before touching the known_red roster, and say which in its comment.\n' >&2
   exit 1
 fi
