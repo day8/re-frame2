@@ -1,20 +1,21 @@
 #!/usr/bin/env sh
 # scripts/git-hooks/test-pre-commit.sh
 #
-# Smoke + library tests for the pre-commit hook's TWO marker blocks:
-# the mayor commit boundary (rf2-ydl2p) and the worker beads boundary
-# (rf2-ia8o7). They are mirror images, so one harness covers both.
+# Smoke + library tests for the pre-commit hook's TWO boundary marker blocks:
+# the mayor commit boundary and the worker beads boundary. They are mirror
+# images, so one harness covers both.
 #
-# The harness has since grown to cover the whole local-durability surface those
-# two blocks belong to — TEN layers. Layers 1-4 are the pre-commit hook
-# itself; 5 is the CI arm that shares its classifier; 6-7 are the installer
-# that puts the hooks on disk and the advisory that notices when they go stale;
-# 8 is the checkpoint helper on the other side of the same boundary; 9 is the
-# truncation floor the hook grew after that helper's guard was routed around
-# twice; 10 is the commit-msg guard, the first block here to grade the message
-# rather than the staged paths. It keeps its name because
-# `.github/workflows/test.yml` runs it by name, unconditionally, on every pull
-# request — which is also why layer 10's guard reaches CI without a new job.
+# The harness covers the whole local-durability surface those two blocks
+# belong to — TEN layers. Layers 1-4 are the pre-commit hook itself; 5 is the
+# CI arm that shares its classifier; 6-7 are the installer that puts the hooks
+# on disk and the advisory that notices when they go stale; 8 is the
+# checkpoint helper on the other side of the same boundary; 9 is the
+# truncation floor the hook repeats because a plain `git add` routes around
+# that helper's guard; 10 is the commit-msg guard, the one block here that
+# grades the message rather than the staged paths. The file stays named for
+# the pre-commit hook because `.github/workflows/test.yml` runs it by name,
+# unconditionally, on every pull request — which is also why layer 10's guard
+# reaches CI without a new job.
 #
 #   1. Library unit tests — invoke
 #      scripts/git-hooks/lib/check-mayor-commit-boundary.sh directly with
@@ -22,8 +23,7 @@
 #
 #   2. End-to-end smoke — build a throwaway git repo + worktree pair in
 #      $TMPDIR, install the hook + marker as the installer would, and
-#      drive `git commit` on each side to verify the four acceptance
-#      scenarios from rf2-ydl2p:
+#      drive `git commit` on each side to verify four scenarios:
 #
 #        (a) mayor commit with only .beads/issues.jsonl staged -> passes
 #        (b) mayor commit with tools/xray/foo.cljs staged       -> refused
@@ -34,7 +34,7 @@
 #      path classifier, same synthetic-stdin technique.
 #
 #   4. End-to-end smoke for the beads boundary, reusing the layer-2
-#      sandbox, covering the rf2-ia8o7 acceptance scenarios:
+#      sandbox, covering four scenarios:
 #
 #        (e) worker commit staging .beads/issues.jsonl -> REFUSED, and the
 #            message names the file
@@ -46,38 +46,35 @@
 #            checkpoint flow)
 #
 #   5. The CI arm (scripts/check-beads-pr-boundary.sh) on DIVERGED history —
-#      the branch-point selection it depends on (rf2-5z20y).
+#      the branch-point selection it depends on.
 #
 #   6. The INSTALLER, end to end: install, worktree inheritance, the bite, and
-#      drift detection (rf2-zt65l).
+#      drift detection.
 #
 #   7. The staleness advisory on REAL pulls of both shapes — rebasing
 #      (post-rewrite) and merging (post-merge). Layer 6 invokes the hook by
-#      hand; this layer runs `git pull` and is the regression net for the
-#      rf2-zt65l audit reopen.
+#      hand; this layer runs `git pull`, because a rebasing pull never reaches
+#      post-merge.
 #
-#   8. The checkpoint helper (scripts/beads-checkpoint.sh, rf2-51uz1), driven
-#      against a stub `bd`: a close that lives only in the database survives the
+#   8. The checkpoint helper (scripts/beads-checkpoint.sh), driven against a
+#      stub `bd`: a close that lives only in the database survives the
 #      pre-pull checkout, a broken export commits nothing, and a memory reorder
-#      is not a commit — nor does one ride along with a real change
-#      (rf2-51uz1.1), while the >1/10 shrink guard still refuses. 8m-8p add the
-#      memory reconciliation (rf2-cve7): a memory-only deletion is invisible to
-#      every guard above it, so it now WARNS — loudly, by key, and without
-#      refusing the checkpoint.
+#      is not a commit — nor does one ride along with a real change — while
+#      the >1/10 shrink guard refuses. 8m-8p cover the memory reconciliation:
+#      a memory-only deletion is invisible to every guard above it, so it
+#      WARNS — loudly, by key, and without refusing the checkpoint.
 #
-#   9. The TRUNCATION FLOOR in the hook (rf2-or8te) — layer 8's guard repeated
-#      where no committer can route around it. Layer 8 proves the checkpoint
-#      helper refuses an empty export; twice that was not enough, because the
-#      commit that emptied the tracker was a plain `git add` from the MAYOR
-#      checkout and never went through the helper. Driven in the layer-2
-#      sandbox's PRIMARY worktree, which is where both incidents happened.
+#   9. The TRUNCATION FLOOR in the hook — layer 8's guard repeated where no
+#      committer can route around it. Layer 8 proves the checkpoint helper
+#      refuses an empty export, but a plain `git add` from the MAYOR checkout
+#      never goes through the helper. Driven in the layer-2 sandbox's PRIMARY
+#      worktree, which is where that `git add` happens.
 #
-#  10. The AI-ATTRIBUTION guard (rf2-2e8f) — the commit MESSAGE, the one
-#      surface no layer above can see. Library units in BOTH directions, the
-#      `commit-msg` hook driven by real `git commit`s, and the CI arm's RANGE:
-#      an offending commit on the BASE must not red a clean branch, because
-#      three such commits are already on main and whether to rewrite them is
-#      an unmade operator call.
+#  10. The AI-ATTRIBUTION guard — the commit MESSAGE, the one surface no layer
+#      above can see. Library units in BOTH directions, the `commit-msg` hook
+#      driven by real `git commit`s, and the CI arm's RANGE: an offending
+#      commit on the BASE must not red a clean branch, because three such
+#      commits are on main and trunk history is not rewritten.
 #
 # Usage:
 #   sh scripts/git-hooks/test-pre-commit.sh
@@ -128,13 +125,11 @@ run_lib() {
     # choice. This helper exists to CAPTURE a non-zero return, so errexit
     # would kill the subshell before `echo "EXIT=$?"` ever ran. Callers wrap
     # the capture in `|| true`, and bash extends that "errexit suspended"
-    # state into the command substitution — which is why every refusal case
-    # passed under Git Bash for as long as this harness only ever ran locally
-    # on Windows. dash does not extend it, so on the ubuntu runner (`sh` is
-    # dash) the subshell died at the refusal and `$out` came back EMPTY: ten
-    # silent failures, all of them the exit-1 cases. Suspending errexit here
-    # makes both shells agree (rf2-3mh2f wired this harness into CI, which is
-    # how a Linux-only break in the guard's own tests finally surfaced).
+    # state into the command substitution, so every refusal case passes under
+    # Git Bash either way. dash does not extend it, so on the ubuntu runner
+    # (`sh` is dash) the subshell would die at the refusal and `$out` would
+    # come back EMPTY — a silent failure for every exit-1 case. Suspending
+    # errexit here makes both shells agree.
     set +e
     . "$LIB"
     check_mayor_commit_boundary
@@ -385,7 +380,7 @@ fi
 rm -f "$rc_d"
 
 # ----------------------------------------------------------------------------
-# Layer 3: check-beads-boundary.sh library tests (rf2-ia8o7).
+# Layer 3: check-beads-boundary.sh library tests.
 # ----------------------------------------------------------------------------
 
 printf '\n[3] check-beads-boundary.sh library tests\n'
@@ -425,7 +420,7 @@ case "$out" in
   *) fail "paths outside .beads/ -> wrong exit: $out"; cat "$BERR" >&2 ;;
 esac
 
-# 3c: the incident path -> refused, and the message NAMES the file.
+# 3c: the tracker export -> refused, and the message NAMES the file.
 out=$(printf '.beads/issues.jsonl\n' | run_beads_lib commit 2>"$BERR") || true
 case "$out" in
   *EXIT=1*)
@@ -472,8 +467,8 @@ case "$out" in
   *) fail ".beads/PRIME.md alone -> wrongly refused: $out"; cat "$BERR" >&2 ;;
 esac
 
-# ...and the widening is EXACT: neighbours that merely look like it stay
-# refused, so the new arm cannot be a `.beads/PRIME*` or `.beads/*.md` hole.
+# ...and the arm is EXACT: neighbours that merely look like it stay refused,
+# so the PRIME.md arm cannot be a `.beads/PRIME*` or `.beads/*.md` hole.
 for p in .beads/PRIME.md.bak .beads/PRIME.jsonl .beads/prime/export.jsonl .beads/NOTES.md; do
   out=$(printf '%s\n' "$p" | run_beads_lib commit 2>"$BERR") || true
   case "$out" in
@@ -525,11 +520,10 @@ case "$out" in
   *) fail "ci context -> wrong exit: $out" ;;
 esac
 
-# 3h: REGRESSION GUARD. An earlier draft told the operator to run
-# `git update-index --skip-worktree .beads/issues.jsonl`. Measured, that
-# hides the edit from `git status` yet still aborts `git pull` — a frozen
-# HEAD with nothing on screen to explain it. The remedy must never say it
-# again, in either context.
+# 3h: the remedy never recommends
+# `git update-index --skip-worktree .beads/issues.jsonl`. That hides the edit
+# from `git status` yet still aborts `git pull` — a frozen HEAD with nothing
+# on screen to explain it — so neither context may suggest it.
 skipwt_clean=1
 for ctx in commit ci; do
   printf '.beads/issues.jsonl\n' | run_beads_lib "$ctx" 2>"$BERR" >/dev/null || true
@@ -543,9 +537,9 @@ done
 rm -f "$BERR"
 
 # ----------------------------------------------------------------------------
-# Layer 4: end-to-end smoke for the beads boundary (rf2-ia8o7).
+# Layer 4: end-to-end smoke for the beads boundary.
 #
-# Reuses the layer-2 sandbox. The hook now carries BOTH marker blocks, so
+# Reuses the layer-2 sandbox. The hook carries BOTH marker blocks, so
 # these scenarios also prove the two guards coexist without interfering.
 # ----------------------------------------------------------------------------
 
@@ -624,23 +618,24 @@ rm -f "$rc_h"
 rm -f /tmp/rf2-pc-smoke.err
 
 # ----------------------------------------------------------------------------
-# Layer 5: the CI arm, on DIVERGED HISTORY (rf2-5z20y).
+# Layer 5: the CI arm, on DIVERGED HISTORY.
 #
 # scripts/check-beads-pr-boundary.sh is the pull-request half of the guard.
-# Its defect was not in WHAT it classifies — the layer-3 tests cover that —
-# but in WHICH PATHS it hands the classifier. It used a two-endpoint
-# `git diff "$BASE" HEAD`, which reports every path where the two trees
-# differ, including paths only the BASE moved.
+# What this layer grades is not WHAT it classifies — the layer-3 tests cover
+# that — but WHICH PATHS it hands the classifier. A two-endpoint
+# `git diff "$BASE" HEAD` reports every path where the two trees differ,
+# including paths only the BASE moved.
 #
 # In this repository the mayor checkpoints `.beads/issues.jsonl` to main on
-# essentially every loop tick, so a branch that forked before the last
-# checkpoint got told it had committed tracker contamination it never
-# touched — a false RED with the wrong remedy, on most open branches.
+# essentially every loop tick, so under that selection a branch that forked
+# before the last checkpoint would be told it had committed tracker
+# contamination it never touched — a false RED with the wrong remedy, on most
+# open branches.
 #
 # Endpoint-only good/bad fixtures CANNOT see this: both endpoints are
 # individually well-formed. Only the SEQUENCE exposes it — fork, advance the
 # base with a beads-only commit, then assert. Layer 5 is that sequence, and
-# it fails under the two-endpoint implementation.
+# it fails under a two-endpoint implementation.
 # ----------------------------------------------------------------------------
 
 printf '\n[5] CI arm on diverged history (rf2-5z20y)\n'
@@ -692,7 +687,7 @@ CIERR=$(mktemp "${TMPDIR:-/tmp}/rf2-beads-ci-err-XXXXXX")
   git add -A
   git commit -q -m 'worker: real work + bd auto-staged tracker snapshot'
 
-  # An EXACT rename out of the protected tree (rf2-ajbgq). Content is
+  # An EXACT rename out of the protected tree. Content is
   # untouched, so git scores it R100 and `--name-only` reports the
   # destination alone — the deleted `.beads/issues.jsonl` endpoint simply is
   # not in the guard's input.
@@ -716,7 +711,7 @@ run_ci_guard() {
        >/dev/null 2>"$CIERR" ) && echo "EXIT=0" || echo "EXIT=$?"
 }
 
-# 5a: THE REGRESSION. The clean branch never touched the tracker; the BASE
+# 5a: THE FALSE-RED CASE. The clean branch never touched the tracker; the BASE
 # did, after the fork. Two-endpoint selection reds this. Branch-delta
 # selection passes it.
 out=$(run_ci_guard worker/clean origin/main)
@@ -748,11 +743,11 @@ case "$out" in
     ;;
 esac
 
-# 5f: RENAME ENDPOINTS (rf2-ajbgq). A rename presents as a delete plus an add,
-# but git's default rename detection collapses the pair and `--name-only`
-# prints only the destination. An exact rename OUT of `.beads/` therefore
-# reached the classifier as an ordinary top-level file — permitted — while
-# merging the PR deletes the tracker database from its canonical location.
+# 5f: RENAME ENDPOINTS. A rename presents as a delete plus an add, but git's
+# default rename detection collapses the pair and `--name-only` prints only
+# the destination. An exact rename OUT of `.beads/` would therefore reach the
+# classifier as an ordinary top-level file — permitted — while merging the PR
+# deletes the tracker database from its canonical location.
 #
 # Pin the premise first: if git ever stops scoring this R100 the fixture would
 # pass for the wrong reason, and a guard test that cannot fail is not a test.
@@ -818,8 +813,8 @@ case "$out" in
     ;;
 esac
 
-# 5d: a missing base ref still fails closed (unchanged behaviour, re-pinned
-# here so the merge-base work cannot quietly swallow it).
+# 5d: a missing base ref fails closed too, pinned here so the merge-base
+# resolution cannot quietly swallow it.
 out=$( ( cd "$CIBOX" && git checkout -q worker/clean \
          && GITHUB_EVENT_NAME=pull_request sh scripts/check-beads-pr-boundary.sh \
             >/dev/null 2>"$CIERR" ) && echo "EXIT=0" || echo "EXIT=$?")
@@ -849,14 +844,14 @@ rm -rf "$CIBOX"
 rm -f "$CIERR"
 
 # ----------------------------------------------------------------------------
-# Layer 6: the INSTALLER, end to end (rf2-zt65l).
+# Layer 6: the INSTALLER, end to end.
 #
 # Layers 2 and 4 stage the hook by hand, deliberately, so that they test hook
-# BEHAVIOUR rather than installation. That left the installer itself with no
-# coverage — and rf2-zt65l is precisely an installation failure. The source
-# hook grew the beads-boundary block on 2026-07-22; nobody re-ran the
-# installer; every checkout kept running a 2026-06-01 copy that lacked the
-# guard. For seven weeks the boundary was documented, tested, and absent.
+# BEHAVIOUR rather than installation, which leaves the installer to this
+# layer. Installation fails in its own way: the installed hooks are copies,
+# so a source hook that gains a block guards nothing until the installer runs
+# again, and every checkout goes on believing it is guarded — the boundary
+# documented, tested, and absent.
 #
 # So this layer drives `scripts/install-git-hooks.sh` for real and asserts the
 # property the whole exercise is about: after one install a checkout is
@@ -884,8 +879,8 @@ INSTALLER="$REPO_ROOT/scripts/install-git-hooks.sh"
   # tracked, at the paths the installer and the hooks resolve against.
   cp "$INSTALLER" scripts/
   # The .ps1 sibling too: case 6k checks that the two installers certify each
-  # other's work, which is the property that broke when the mayor-marker text
-  # named whichever installer had written it.
+  # other's work, which fails if the mayor-marker text names whichever
+  # installer wrote it.
   [ -f "$REPO_ROOT/scripts/install-git-hooks.ps1" ] \
     && cp "$REPO_ROOT/scripts/install-git-hooks.ps1" scripts/
   for h in post-merge post-rewrite pre-commit commit-msg; do
@@ -917,8 +912,8 @@ case "$out" in
   *) fail "(6b) --check rejected a fresh install ($out)"; cat "$IERR" >&2 ;;
 esac
 
-# 6c: every source block reached disk. The bead's failure mode was an
-# install that looked fine because SOME blocks were present.
+# 6c: every source block reached disk. An install can look fine because SOME
+# blocks are present.
 installed_ok=1
 for spec in \
   "pre-commit:# --- BEGIN re-frame2 mayor commit boundary (rf2-ydl2p) ---" \
@@ -976,8 +971,8 @@ case "$out" in
   *) fail "(6f) FALSE POSITIVE: an ordinary source commit was refused ($out)"; cat "$IERR" >&2 ;;
 esac
 
-# 6g: DRIFT IS DETECTED. Reproduce rf2-zt65l exactly — strip the beads block
-# from the installed hook, leaving the others intact, as a stale copy would.
+# 6g: DRIFT IS DETECTED. Strip the beads block from the installed hook,
+# leaving the others intact, as a stale copy would.
 sed '/# --- BEGIN re-frame2 worker beads boundary (rf2-ia8o7) ---/,/# --- END re-frame2 worker beads boundary (rf2-ia8o7) ---/d' \
   "$IREPO/.git/hooks/pre-commit" > "$IBOX/pre-commit.stale"
 cp "$IBOX/pre-commit.stale" "$IREPO/.git/hooks/pre-commit"
@@ -996,8 +991,7 @@ case "$out" in
     ;;
 esac
 
-# 6h: and the post-merge advisory SAYS so, unprompted, on the next pull —
-# the arm that would have caught this bead's seven-week gap.
+# 6h: and the post-merge advisory SAYS so, unprompted, on the next pull.
 out=$(run_in_repo "$IREPO" sh .git/hooks/post-merge)
 if grep -q 'install-git-hooks.sh' "$IERR"; then
   pass "(6h) post-merge advisory reports the stale install and names the repair"
@@ -1029,10 +1023,11 @@ else
 fi
 
 # 6k: THE TWO INSTALLERS AGREE. They write to one hooks directory and one
-# mayor-marker, and each certifies what the other wrote. When the marker text
-# named the installer that wrote it, running the .ps1 once made the .sh --check
-# report "mayor-marker content drifted" for ever — and the post-merge advisory
-# runs the .sh --check, so the whole apparatus degraded into a permanent nag.
+# mayor-marker, and each certifies what the other wrote. If the marker text
+# named the installer that wrote it, running the .ps1 once would make the .sh
+# --check report "mayor-marker content drifted" for ever — and the post-merge
+# advisory runs the .sh --check, so the whole apparatus would degrade into a
+# permanent nag.
 # Skipped, not failed, where no PowerShell is installed: the .sh installer is
 # the primary and must not need one.
 PWSH=""
@@ -1058,21 +1053,18 @@ git -C "$IREPO" worktree remove --force "$IWORKER" >/dev/null 2>&1 || true
 rm -rf "$IBOX"
 
 # ----------------------------------------------------------------------------
-# Layer 7: the advisory on the REAL pull paths — rebase AND merge (rf2-zt65l).
+# Layer 7: the advisory on the REAL pull paths — rebase AND merge.
 #
 # Layer 6 invokes `.git/hooks/post-merge` by hand. That proves the advisory
-# TEXT is right and says nothing about whether git ever runs it, which is where
-# the bead's audit reopen (PR #6921) found the hole:
+# TEXT is right and says nothing about whether git ever runs it:
 #
 #   `git pull --rebase` with a commit of your own performs a REAL rebase, and a
-#   rebase never invokes post-merge. Reproduced in two throwaway clones: the
-#   `--rebase` pull that landed hook drift printed NOTHING; the `--no-rebase`
-#   control printed the repair warning. `git pull --rebase` is the completion
-#   path AGENTS.md and CLAUDE.md mandate for every worker, so the advisory was
-#   silent on the one path everybody takes.
+#   rebase never invokes post-merge. `git pull --rebase` is the completion path
+#   AGENTS.md and CLAUDE.md mandate for every worker, so a post-merge-only
+#   advisory would be silent on the one path everybody takes.
 #
-# git's hook for that path is `post-rewrite` (argument `rebase`). Measured on
-# git 2.53: diverged `--rebase` fires post-rewrite and NOT post-merge; a
+# git's hook for that path is `post-rewrite` (argument `rebase`). On git
+# 2.53: diverged `--rebase` fires post-rewrite and NOT post-merge; a
 # `--rebase` pull with no local commit fast-forwards through git's merge
 # shortcut and fires post-merge. Between the two hooks, every pull that lands a
 # change is covered — and this layer drives real `git pull`s to prove it,
@@ -1140,7 +1132,7 @@ local_commit() {
   # --rebase` do a real rebase instead of a fast-forward.
   #
   # `--no-verify` deliberately: the installer also dropped a mayor-marker in
-  # this clone, so the rf2-ydl2p pre-commit block correctly treats it as a
+  # this clone, so the mayor-commit-boundary block correctly treats it as a
   # mayor checkout and refuses ordinary source paths. That boundary is layer
   # 2's subject; here it is just scaffolding in the way, and bypassing it keeps
   # this layer measuring the one thing it is about — whether a pull that lands
@@ -1162,7 +1154,7 @@ case "$out" in
   *) fail "(7a) --check rejected the clone's fresh install ($out)"; cat "$RERR" >&2 ;;
 esac
 
-# The audit's exact shape: one local commit, then a pull that lands hook drift.
+# The rebasing shape: one local commit, then a pull that lands hook drift.
 local_commit mine
 drift_upstream_hook_source rf2-drift-one
 out=$(run_in_clone git pull --rebase origin main)
@@ -1170,7 +1162,7 @@ pull_err_rebase=$(cat "$RERR" 2>/dev/null || true)
 
 # 7b: it really was a REBASE — the local commit was replayed on top of the
 # upstream commit. If this ever fast-forwards instead, 7c stops testing the
-# path the bead is about, so assert it rather than assume it.
+# path this layer is about, so assert it rather than assume it.
 rebase_ok=0
 if [ "$out" = "EXIT=0" ] \
    && [ "$(git -C "$RCL" log -1 --format=%s 2>/dev/null)" = "local: mine" ] \
@@ -1182,8 +1174,8 @@ else
   printf '%s\n' "$pull_err_rebase" >&2
 fi
 
-# 7c: THE AUDIT FINDING. That completed rebase must report the drift it just
-# landed. Before the post-rewrite arm existed this printed nothing at all.
+# 7c: THE REBASE PATH. That completed rebase must report the drift it just
+# landed; without the post-rewrite arm it would print nothing at all.
 if [ "$rebase_ok" = "1" ]; then
   case "$pull_err_rebase" in
     *install-git-hooks.sh*)
@@ -1196,7 +1188,7 @@ fi
 
 # 7d: NO NAG. Repair, then take another rebasing pull that touches no hook
 # source: the advisory must stay quiet. An advisory that fires on ordinary work
-# gets muted, and a muted advisory is the bead all over again.
+# gets muted, and a muted advisory is no advisory.
 out=$(run_in_clone sh scripts/install-git-hooks.sh)
 case "$out" in
   EXIT=0) : ;;
@@ -1218,9 +1210,9 @@ case "$(cat "$RERR" 2>/dev/null || true)" in
     fi ;;
 esac
 
-# 7e: the MERGE path still works. The rebase arm is an addition, not a
-# migration: `git pull` without --rebase, and `git pull --ff-only`, still go
-# through post-merge, and this is the control the audit used.
+# 7e: the MERGE path works too: `git pull` without --rebase, and
+# `git pull --ff-only`, go through post-merge. This is the rebase case's
+# control.
 drift_upstream_hook_source rf2-drift-two
 local_commit mine-third
 out=$(run_in_clone git pull --no-rebase --no-edit origin main)
@@ -1235,7 +1227,7 @@ esac
 rm -rf "$RBOX"
 
 # ----------------------------------------------------------------------------
-# Layer 8: the checkpoint helper (rf2-51uz1).
+# Layer 8: the checkpoint helper.
 #
 # The guards above stop the tracker database leaving the mayor checkout. This
 # layer covers the other half of the same durability surface: what the mayor
@@ -1245,33 +1237,32 @@ rm -rf "$RBOX"
 # uncommitted export makes the pull abort and freezes HEAD at a stale base. But
 # a `bd close` after the last export-commit lives only in the database and in
 # the working file, so the checkout reverts it, and a checkpoint that commits
-# the working file writes that revert back. The close evaporates: rf2-5e8zv was
-# reopened exactly this way, and commit e80786e007 records three more.
+# the working file writes that revert back. The close evaporates.
 #
 # `scripts/beads-checkpoint.sh` re-exports from the database instead of
 # trusting the working file, which makes the revert unreachable. The cases
 # below drive it against a stub `bd` so the assertions are hermetic and the
 # real tracker is never touched.
 #
-# WHAT THE COMMIT CARRIES is the second axis (rf2-51uz1.1). `bd export` does not
+# WHAT THE COMMIT CARRIES is the second axis. `bd export` does not
 # fix the order of the memory rows, so a checkpoint that copies the raw export
 # buries the rows that changed under a few hundred relocation lines. 8f pins the
 # reorder-ONLY export producing no commit at all; 8h pins the normal case — one
 # real edit commits exactly that edit — and 8i pins the shrink guard that the
 # ordering work must not cost.
 #
-# WHETHER THE MEMORIES RIDE AT ALL is the third (rf2-fifk0). bd v1.1.2 made the
-# bare `bd export` EXCLUDE the `bd remember` rows that v1.0.3 always carried,
-# so the stub models that contract and 8a asserts the committed tracker still
-# carries its memories — a checkpoint that loses --include-memories fails here
-# before it can silently drop every memory on main.
+# WHETHER THE MEMORIES RIDE AT ALL is the third. From bd v1.1.2 a bare
+# `bd export` EXCLUDES the `bd remember` rows, so the stub models that contract
+# and 8a asserts the committed tracker carries its memories — a checkpoint
+# that loses --include-memories fails here before it can silently drop every
+# memory on main.
 #
-# WHETHER ANY OF THEM WENT MISSING is the fourth (rf2-cve7). 8a proves the
-# memories ride; nothing proved they were all still there. The row floor is
-# dominated by issue rows and the divergence guard reads issue rows only, so a
-# memory-only deletion is invisible to both — 210 keys went that way on
-# 2026-09-08 with `bd stats` reporting a healthy issue count throughout. 8m-8p
-# pin the reconciliation, and 8p pins that it stays quiet the rest of the time.
+# WHETHER ANY OF THEM WENT MISSING is the fourth. 8a proves the memories ride,
+# not that they are all there. The row floor is dominated by issue rows and
+# the divergence guard reads issue rows only, so a memory-only deletion is
+# invisible to both, while `bd stats` reports a healthy issue count
+# throughout. 8m-8p pin the reconciliation, and 8p pins that it stays quiet
+# the rest of the time.
 # ----------------------------------------------------------------------------
 
 printf '\n[8] checkpoint helper: export from the database, never the working file\n'
@@ -1296,7 +1287,7 @@ cat > "$CBIN/bd" <<EOF
 #!/usr/bin/env sh
 # Stub bd for the layer-8 checkpoint tests. Prints the "database" on stdout
 # the way \`bd export\` does under bd v1.1.2: memory rows ride ONLY behind
-# --include-memories (rf2-fifk0 — a bare export silently drops every one).
+# --include-memories (a bare export silently drops every one).
 # Fails when told to.
 if [ -f "$CBOX/bd-fails" ]; then
   printf 'stub bd: export failed\n' >&2
@@ -1320,8 +1311,8 @@ chmod +x "$CBIN/bd"
   printf '{"_type":"memory","key":"m2","value":"two"}\n'
 } > "$CBOX/head.jsonl"
 
-# The database, one `bd close rf2-b` later. This is the row whose survival the
-# bead's acceptance criterion is about.
+# The database, one `bd close rf2-b` later. This is the row whose survival 8a
+# is about.
 {
   printf '{"_type":"issue","id":"rf2-a","status":"open"}\n'
   printf '{"_type":"issue","id":"rf2-b","status":"closed"}\n'
@@ -1349,7 +1340,7 @@ run_checkpoint() {
       >"$COUT" 2>"$CERR" ) && echo "EXIT=0" || echo "EXIT=$?"
 }
 
-# 8a: THE ACCEPTANCE. A close that exists only in the database must survive the
+# 8a: THE CORE CASE. A close that exists only in the database must survive the
 # standard pre-pull cleanup. Revert the working file exactly as CLAUDE.md's
 # `git checkout HEAD -- .beads` does, then checkpoint: the commit must carry the
 # close, because it came from the database and not from the reverted file.
@@ -1366,10 +1357,10 @@ case "$out" in
         fail "(8a) the close EVAPORATED: the checkpoint committed the reverted file"
         printf '%s\n' "$committed" >&2 ;;
     esac
-    # The memories must ride the same commit (rf2-fifk0). The stub models bd
-    # v1.1.2, where only `bd export --include-memories` carries them — a
-    # checkpoint that goes back to the bare export commits an issues-only
-    # tracker here and this assertion catches it.
+    # The memories must ride the same commit. The stub models bd v1.1.2,
+    # where only `bd export --include-memories` carries them — a checkpoint
+    # that runs the bare export commits an issues-only tracker here and this
+    # assertion catches it.
     if [ "$(printf '%s\n' "$committed" | grep -c '"_type":"memory"')" = "2" ]; then
       pass "(8a) and both memory rows survive: the export runs --include-memories"
     else
@@ -1427,8 +1418,8 @@ case "$out" in
     fi ;;
 esac
 
-# 8e: AN EMPTY EXPORT IS REFUSED. A `git add` that caught the JSONL mid-rewrite
-# put an empty tracker on main once already (2026-06-10, commit 7aea52459).
+# 8e: AN EMPTY EXPORT IS REFUSED. A `git add` that catches the JSONL
+# mid-rewrite stages an empty tracker, and the helper must never commit one.
 before=$(git -C "$CREPO" rev-parse HEAD)
 : > "$CBOX/db.jsonl"
 out=$(run_checkpoint "$CREPO")
@@ -1446,8 +1437,7 @@ esac
 
 # 8f: NO CHURN COMMIT. `bd export` does not fix the order of the memory rows,
 # so a reorder is not a change. If it committed one, every heartbeat would
-# produce a few hundred lines of diff that mean nothing — and this repo has
-# already learned what committed churn does to a merge queue.
+# produce a few hundred lines of diff that mean nothing.
 before=$(git -C "$CREPO" rev-parse HEAD)
 {
   git -C "$CREPO" show HEAD:.beads/issues.jsonl | grep '"_type":"issue"'
@@ -1484,7 +1474,7 @@ case "$out" in
     fi ;;
 esac
 
-# The READ-ONLY arm is not gated (rf2-fifk0): any worktree may ask whether
+# The READ-ONLY arm is not gated: any worktree may ask whether
 # clearing `.beads` is safe before its own pull. The COMMIT is the mayor's;
 # the question is everyone's. The fresh worktree matches its HEAD, so the
 # answer here is a silent yes.
@@ -1498,11 +1488,11 @@ case "$out" in
 esac
 git -C "$CREPO" worktree remove --force "$CWORKER" >/dev/null 2>&1 || true
 
-# 8h: A REAL CHANGE COMMITS THE REAL CHANGE ONLY (rf2-51uz1.1). 8f covers the
-# reorder-ONLY export. The case that actually bit was the NORMAL one: a genuine
-# row edit makes the checkpoint commit, and the raw export then carried every
-# unrelated memory reorder along with it — 200 of 211 staged additions were
-# byte-identical to removed lines, so the eleven that mattered were invisible.
+# 8h: A REAL CHANGE COMMITS THE REAL CHANGE ONLY. 8f covers the reorder-ONLY
+# export; this is the NORMAL case: a genuine row edit makes the checkpoint
+# commit, and the raw export would carry every unrelated memory reorder along
+# with it, burying the few rows that matter under lines byte-identical to
+# removed ones.
 #
 # Here rf2-a closes (the one real edit) while the four untouched memories are
 # shuffled. The commit must show the two rf2-a lines and NOTHING else: no
@@ -1570,10 +1560,10 @@ case "$out" in
   *) fail "(8h) checkpoint failed on a real edit + reordered memories ($out)"; cat "$CERR" >&2 ;;
 esac
 
-# 8i: THE SHRINK GUARD STILL BITES. Not a new behaviour — a regression net for
-# the one it would be tempting to relax while making 8h pass. It fired for real
-# on a deliberate `bd gc` (2642 -> 2372 rows) and correctly refused, sending the
-# operator to a hand commit. A cosmetic-ordering change must not cost that.
+# 8i: THE SHRINK GUARD BITES. A regression net for the guard it would be
+# tempting to relax while making 8h pass: a >1/10 shrink — a deliberate
+# `bd gc` among them — is refused, sending the operator to a hand commit. A
+# cosmetic-ordering change must not cost that.
 before=$(git -C "$CREPO" rev-parse HEAD)
 printf '{"_type":"issue","id":"rf2-a","status":"closed"}\n' > "$CBOX/db.jsonl"
 out=$(run_checkpoint "$CREPO")
@@ -1591,7 +1581,7 @@ case "$out" in
 esac
 
 # ----------------------------------------------------------------------------
-# 8j-8l: EQUAL COUNTS ARE NOT EQUALITY (rf2-rjqtj).
+# 8j-8l: EQUAL COUNTS ARE NOT EQUALITY.
 #
 # 8i's floor answers "is the export big enough?". It cannot answer "does the
 # export still contain what HEAD contains?" — and there is a second writer that
@@ -1600,10 +1590,7 @@ esac
 # sides move they diverge one row for one row, the count does not budge, and
 # the floor waves through an export that deletes the Git-only rows.
 #
-# OBSERVED: commit 667c744dc875 passed at 1938 == 1938 and still dropped
-# rf2-3jw04, rf2-jv36i and rf2-lhdp0 and reverted rf2-2rtt6.52/.63.
-#
-# The fixture is the bead's own acceptance, and every row below is load-bearing:
+# Every row of the fixture below is load-bearing:
 #
 #   rf2-a   unchanged on both sides
 #   rf2-b   NEWER ON GIT   — closed at 03:00; the export still has it open
@@ -1638,11 +1625,11 @@ esac
   git commit -q -m 'seed: HEAD and the database have diverged at equal row count'
 ) >/dev/null 2>&1
 
-# 8j: THE ACCEPTANCE. Equal counts, disjoint one-for-one substitution, one
+# 8j: THE CORE CASE. Equal counts, disjoint one-for-one substitution, one
 # newer state on each side. The only safe answer is to refuse and name what
 # would be lost — with the FIELDS, because an id-set comparison proves presence
-# and nothing more (an interrupted Dolt GC reverted a close in the field while
-# every id stayed intact).
+# and nothing more (an interrupted Dolt GC can revert a close while every id
+# stays intact).
 cp -f "$CBOX/db-diverged.jsonl" "$CBOX/db.jsonl"
 before=$(git -C "$CREPO" rev-parse HEAD)
 out=$(run_checkpoint "$CREPO")
@@ -1678,8 +1665,7 @@ esac
 
 # 8j-remedy: a refusal nobody can act on gets bypassed. The message names a file
 # holding exactly the Git-only and Git-newer rows, so `bd import` of it is the
-# whole recovery — the bead's own verified mechanism, and the reason this guard
-# does not need a sync service.
+# whole recovery, which is why this guard needs no sync service.
 remedy=$(sed -n 's/^ *bd import \(.*\)$/\1/p' "$CERR" | head -1)
 if [ -n "$remedy" ] && [ -s "$remedy" ]; then
   if [ "$(awk 'END{print NR}' "$remedy")" = "2" ] \
@@ -1696,7 +1682,7 @@ if [ -n "$remedy" ]; then rm -f "$remedy"; fi
 
 # 8k: AND THE RECOVERY COMPLETES. The operator runs that import, so the database
 # becomes the UNION. The next checkpoint must commit, and the committed tracker
-# must carry ALL FOUR facts — the bead's "neither fact may be lost", end to end.
+# must carry ALL FOUR facts: neither side's facts may be lost, end to end.
 {
   printf '{"_type":"issue","id":"rf2-a","status":"open","updated_at":"2026-08-01T00:00:00Z"}\n'
   printf '{"_type":"issue","id":"rf2-b","status":"closed","updated_at":"2026-08-02T03:00:00Z"}\n'
@@ -1733,8 +1719,7 @@ esac
 
 # 8l: THE AMBIGUOUS ROW. Same `updated_at`, different `status`: neither side is
 # newer, so neither may be chosen automatically — and no import can adjudicate a
-# tie, so none is offered. This is the class the field data insisted on: an
-# id-set comparison would call it clean.
+# tie, so none is offered. An id-set comparison would call it clean.
 sed 's/"id":"rf2-c","status":"closed"/"id":"rf2-c","status":"open"/' \
   "$CBOX/db.jsonl" > "$CBOX/db-ambig.jsonl"
 cp -f "$CBOX/db-ambig.jsonl" "$CBOX/db.jsonl"
@@ -1758,36 +1743,32 @@ case "$out" in
 esac
 
 # ----------------------------------------------------------------------------
-# 8m-8p: THE MEMORY POPULATION IS RECONCILED, AND THE GUARD WARNS (rf2-cve7).
+# 8m-8p: THE MEMORY POPULATION IS RECONCILED, AND THE GUARD WARNS.
 #
 # Every guard above is blind to the `bd remember` rows. 8i's floor counts ROWS,
 # which the issue rows dominate, so a memory-only deletion is diluted under it;
-# 8j-8l read `"_type":"issue"` and skip every other line by construction.
+# 8j-8l read `"_type":"issue"` and skip every other line by construction. And
+# `bd stats` reports ISSUES ONLY, so it reads a healthy count straight through
+# a memory cull. Nothing else would say a word.
 #
-# OBSERVED: on 2026-09-08, 210 memory keys vanished from the live store
-# (1167 -> 957) and NOTHING said a word. `bd stats` reports ISSUES ONLY and read
-# a healthy 1099 straight through the event, and the export was 90.8% of HEAD's
-# rows — comfortably over the floor 8i pins.
-#
-# THE FIXTURE MODELS THAT ARITHMETIC RATHER THAN JUST THE SYMPTOM: 20 issues and
+# THE FIXTURE MODELS THE ARITHMETIC RATHER THAN JUST THE SYMPTOM: 20 issues and
 # 10 memories at HEAD (30 rows), against an export that has lost 2 memories
 # (28 rows). 28*10 = 280 is NOT less than 30*9 = 270, so 8i's floor is silent
-# here — the deletion slides under it exactly as the real one did. If a future
-# change ever made the floor catch this, 8m would still pass for the WRONG
-# reason, so 8n pins the floor's silence separately.
+# here — the deletion slides under it. If a change ever made the floor catch
+# this, 8m would pass for the WRONG reason, so 8n pins the floor's silence
+# separately.
 #
 # AND THE GUARD MUST NOT REFUSE. This is the one shared tool the mayor runs
 # several times an hour; a false positive that aborted it would halt the whole
-# dispatch loop, which is why the reconciliation went unbuilt while the keys
-# went missing. 8m therefore asserts BOTH halves — it warns, AND it commits.
+# dispatch loop. 8m therefore asserts BOTH halves — it warns, AND it commits.
 # 8p is the no-false-positive case, and it matters more than the rest: a warning
 # that fires on ordinary forward motion is one the loop learns to scroll past.
 #
 # AND THE WARNING'S RECOVERY COMMAND MUST RECOVER. 8m's second half runs the
 # emitted lookup AFTER the checkpoint has committed, because that is the only
-# moment that grades what the operator experiences — and the first version of
-# this warning failed exactly there, printing a `HEAD` reference that the
-# checkpoint's own commit invalidated a few lines later.
+# moment that grades what the operator experiences: a `HEAD` reference in the
+# warning would be invalidated by the checkpoint's own commit a few lines
+# later.
 # ----------------------------------------------------------------------------
 {
   awk 'BEGIN{for(i=1;i<=20;i++) printf "{\"_type\":\"issue\",\"id\":\"rf2-m%02d\",\"status\":\"open\",\"updated_at\":\"2026-09-01T00:00:00Z\"}\n", i}'
@@ -1818,7 +1799,7 @@ else
   fail "(8n) the fixture does NOT model the event: $export_rows/$head_rows rows would trip the floor"
 fi
 
-# 8m: THE ACCEPTANCE. A memory-only deletion must produce a loud, NAMED warning
+# 8m: THE CORE CASE. A memory-only deletion must produce a loud, NAMED warning
 # and must still checkpoint. Both halves are load-bearing.
 cp -f "$CBOX/db-mem-culled.jsonl" "$CBOX/db.jsonl"
 before=$(git -C "$CREPO" rev-parse HEAD)
@@ -1857,16 +1838,14 @@ case "$out" in
      cat "$CERR" >&2 ;;
 esac
 
-# 8m, second half: THE PRINTED RECOVERY COMMAND MUST ACTUALLY RECOVER (rf2-cve7,
-# merged-PR audit of #9520).
+# 8m, second half: THE PRINTED RECOVERY COMMAND MUST ACTUALLY RECOVER.
 #
-# The warning above is correct and fires correctly. Its recovery instruction was
-# not: it printed `git show HEAD:.beads/issues.jsonl`, and the checkpoint COMMITS
-# the export a few lines after printing it. By the time an operator reads the
-# message and pastes the command, `HEAD` IS the commit that removed the rows, so
-# the lookup exits 0 and prints NOTHING — the worst available failure shape for a
-# recovery instruction, because success and total failure are the same exit code
-# and the same empty output.
+# The checkpoint COMMITS the export a few lines after printing the warning, so a
+# recovery instruction reading `git show HEAD:.beads/issues.jsonl` would fail:
+# by the time an operator reads the message and pastes the command, `HEAD` IS
+# the commit that removed the rows, so the lookup exits 0 and prints NOTHING —
+# the worst available failure shape for a recovery instruction, because success
+# and total failure are the same exit code and the same empty output.
 #
 # So the assertions below run the emitted command AFTER the checkpoint has
 # committed, which is the only moment that grades what the operator experiences.
@@ -1911,7 +1890,7 @@ else
 fi
 
 # The control, and it is the whole reason the assertion above is meaningful:
-# the command the script USED to print returns nothing at this exact point.
+# the `HEAD` form of the lookup returns nothing at this exact point.
 head_recovered=$(mem_value_at HEAD mem-key-03)
 if [ -z "$head_recovered" ]; then
   pass "(8m) while the same lookup against \`HEAD\` recovers nothing — the defect this pins"
@@ -1936,31 +1915,28 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 8m, third arm: A CONCURRENT COMMIT BETWEEN THE CAPTURE AND THE COPY
-# (rf2-cve7, merged-PR audit of #9524).
+# 8m, third arm: A CONCURRENT COMMIT BETWEEN THE CAPTURE AND THE COPY.
 #
 # The arm above proves the printed reference is IMMUTABLE. It cannot prove it is
 # the RIGHT object, because in a quiet repo every reading of `HEAD` returns the
 # same oid, so a script that reads it twice looks identical to one that reads it
-# once. The first fix did read it twice — `head_copy` ran its own
-# `git show HEAD:`, and the `rev-parse` fifteen lines later was a SECOND read —
-# and its comment asserted that adjacency made them one snapshot. It does not.
-# This is the mayor's SHARED checkout: a second checkpoint or an ordinary commit
-# lands in that gap, and then the guard compares commit A's bytes while printing
-# commit B's oid. B never carried the values the message tells the operator to
-# recover, so the printed lookup exits 0 and prints nothing — the SAME
-# reassuring failure the #9520 fix removed, one step further along.
+# once. Two reads are not one snapshot, however adjacent: this is the mayor's
+# SHARED checkout, a second checkpoint or an ordinary commit can land in the
+# gap, and then the guard compares commit A's bytes while printing commit B's
+# oid. B never carried the values the message tells the operator to recover, so
+# the printed lookup exits 0 and prints nothing — the SAME reassuring failure as
+# the `HEAD` form above, one step further along.
 #
 # THE SEAM. A `git` shim ahead of the real one on the child's PATH, firing ONCE,
 # immediately after the checkpoint's FIRST read of the tracker at HEAD —
 # whichever of the two reads that turns out to be. Keying it on "the first of the
-# pair" is what lets ONE fixture grade BOTH shapes: the fixed script resolves the
-# oid first and copies through it, the defective one copied the bytes first and
-# resolved after, and the concurrent commit lands between the pair either way.
+# pair" is what lets ONE fixture grade BOTH shapes: a script that resolves the
+# oid first and copies through it, and one that copies the bytes first and
+# resolves after, both have the concurrent commit land between the pair.
 # The script under test is NOT modified — a permanent case that patched its own
 # subject would drift away from it.
 #
-# THE FIXTURE, which is the audit's own:
+# THE FIXTURE:
 #   A  the baseline commit          30 rows = 20 issues + 10 memories
 #   B  the concurrent commit        28 rows, mem-key-03 and mem-key-07 culled
 #   E  this checkpoint's export     29 rows, B's rows plus a new mem-key-11
@@ -2094,7 +2070,7 @@ else
 fi
 
 # THE NEGATIVE CONTROL, and it is the racer rather than `HEAD`: this is the oid
-# the two-reads shape printed, and it recovers nothing. A pass above that also
+# a two-reads shape would print, and it recovers nothing. A pass above that also
 # passed here would mean the fixture had stopped modelling the defect.
 race_b_recovered=$(mem_value_at "${race_b:-HEAD}" mem-key-03)
 race_head_recovered=$(mem_value_at HEAD mem-key-03)
@@ -2114,7 +2090,7 @@ fi
 ) >/dev/null 2>&1
 
 # 8o: A ROW OF AN UNKNOWN `_type` IS REPORTED. This is the "two populations sum
-# to the row count" half of the bead. It cannot detect the deletion above — the
+# to the row count" check. It cannot detect the deletion above — the
 # identity holds trivially whenever every row is one of the two known types, so
 # it is silent on both sides of a cull — but it does catch a row that is neither,
 # which nothing else here would notice.
@@ -2144,10 +2120,10 @@ esac
 # issue closes, a memory is ADDED, the rest are shuffled the way `bd export`
 # shuffles them on every invocation — must commit without a murmur.
 #
-# HEAD IS RE-SEEDED FIRST, and the reason is worth keeping: 8o's checkpoint
-# COMMITTED its unknown-`_type` row, so HEAD carried it into this case and the
-# guard truthfully reported it — a red that looked like a false positive and was
-# not one. A no-false-positive case has to start from a clean baseline or it
+# HEAD IS RE-SEEDED FIRST: 8o's checkpoint COMMITS its unknown-`_type` row, so
+# without the re-seed HEAD would carry it into this case and the guard would
+# truthfully report it — a red that looks like a false positive and is not
+# one. A no-false-positive case has to start from a clean baseline or it
 # grades the previous case's leftovers.
 (
   cd "$CREPO"
@@ -2185,22 +2161,17 @@ rm -rf "$CBOX"
 fi
 
 # ----------------------------------------------------------------------------
-# Layer 9: the truncation floor in the pre-commit hook (rf2-or8te).
+# Layer 9: the truncation floor in the pre-commit hook.
 #
-# Layer 8 proves the CHECKPOINT HELPER refuses an empty export. It has refused
-# one since 2026-06-10. Twice, that was not enough, because the commit that
-# emptied the tracker never went through the helper:
+# Layer 8 proves the CHECKPOINT HELPER refuses an empty export, but a commit
+# that never goes through the helper is out of its reach: a plain `git add`
+# from the MAYOR checkout — the one place the worker-beads-boundary block
+# deliberately no-ops, because committing the tracker there is the intended
+# flow. So the floor also lives in the hook, and this layer drives it from the
+# PRIMARY worktree of the layer-2 sandbox: the same checkout, the same
+# guard-blind path, the same `git add`.
 #
-#     2026-06-10  7aea52459   7172 rows deleted
-#     2026-07-26  4d8042d80d  2573 rows deleted
-#
-# Both were a plain `git add` from the MAYOR checkout — the one place the
-# rf2-ia8o7 block deliberately no-ops, because committing the tracker there is
-# the intended flow. So the floor now also lives in the hook, and this layer
-# drives it from the PRIMARY worktree of the layer-2 sandbox: the same
-# checkout, the same guard-blind path, the same `git add`.
-#
-# The three cases the bead names are 9a (a truncated export is refused), 9c (a
+# The three core cases are 9a (a truncated export is refused), 9c (a
 # genuine one passes) and 9d (a real mass delete gets through the named
 # escape). 9b pins that the floor is a FLOOR and not "any shrink", and 9e/9f
 # pin the two no-false-positive cases — a fresh checkout whose HEAD carries no
@@ -2220,7 +2191,7 @@ write_tracker() {
 }
 
 # stage_tracker COUNT [TAG] — write and `git add` in the mayor checkout,
-# exactly as the two incidents did. Verifies the mutation actually landed in
+# exactly as an unguarded `git add` does. Verifies the mutation actually landed in
 # the INDEX before any verdict is read: a planted edit that silently failed to
 # apply is indistinguishable from a guard that missed the defect.
 stage_tracker() {
@@ -2255,7 +2226,7 @@ if stage_tracker 200 base; then
   rm -f "$rc_s"
 fi
 
-# 9a: THE INCIDENT. An emptied export, staged with a plain `git add` in the
+# 9a: THE EMPTIED EXPORT. An emptied export, staged with a plain `git add` in the
 # primary worktree. Refused, and the message has to carry four things: the two
 # row counts, the regeneration rule, the repair, and the named escape.
 before=$(git -C "$MAYOR" rev-parse HEAD)
@@ -2346,7 +2317,7 @@ fi
 # every fresh clone meets the guard before it meets the tracker.
 #
 # The 0-row HEAD is established here rather than inherited from 9d. Sharing
-# 9d's side effect made a 9d regression cascade into a MISLEADING 9e failure:
+# 9d's side effect would let a 9d regression cascade into a MISLEADING 9e failure:
 # with HEAD left at 200 rows, a 3-row stage is a genuine shrink and refusing it
 # is correct, yet 9e would report a false positive.
 ( cd "$MAYOR" && write_tracker 0 .beads/issues.jsonl empty \
@@ -2388,37 +2359,35 @@ fi
 rm -f "$rc_t" "$TERR"
 
 # ----------------------------------------------------------------------------
-# Layer 10: the AI-ATTRIBUTION guard, both arms (rf2-2e8f).
+# Layer 10: the AI-ATTRIBUTION guard, both arms.
 #
 # Every layer above grades staged PATHS. The commit MESSAGE is a surface none
-# of them can see, and three commits carrying AI-attribution trailers reached
-# main through it — 04230d0d33, e1b07cf184, e71c404c9b — because the agent
-# harness injects a reminder telling agents to add exactly those trailers while
-# CLAUDE.md forbids them, and NOTHING CHECKED. Same shape as rf2-zt65l: a rule
-# that was documented, agreed, and unenforced.
+# of them can see, and the agent harness injects a reminder telling agents to
+# add exactly those trailers while CLAUDE.md forbids them — so, unchecked, the
+# message is how AI attribution reaches main: a rule documented, agreed, and
+# unenforced.
 #
 # THE TWO DIRECTIONS ARE BOTH LOAD-BEARING, and the second is the one that gets
 # skipped. A detector that matches NOTHING passes every "there must be none
-# here" clause silently and vacuously, and reads exactly like a clean tree —
-# PR #9307 disarmed a checker that way and nothing on screen said so. So every
-# permitted case below is paired with an offending one of the SAME SHAPE:
+# here" clause silently and vacuously, and reads exactly like a clean tree. So
+# every permitted case below is paired with an offending one of the SAME SHAPE:
 # `Co-Authored-By:` naming a colleague against one naming the assistant, an
 # indented quotation against the same line at column 0.
 #
 # AND THE RANGE IS TESTED, NOT JUST THE DETECTOR (10k). The CI arm grades the
 # branch delta, so an offending commit sitting on the BASE must not red a clean
-# branch. That is not a nicety: three such commits ARE on main, whether to
-# rewrite them is an unmade operator call, and a gate that graded all of
-# history would red every pull request in the repository for ever.
+# branch. That is not a nicety: three such commits ARE on main, trunk history
+# is not rewritten, and a gate that graded all of history would red every pull
+# request in the repository for ever.
 #
-# THE PAIRING DISCIPLINE IS WHAT THIS LAYER MEASURES, AND IT WAS ONCE SHORT.
-# The first revision paired `Co-Authored-By:` against a human named Mike, and a
-# `#`-prefixed line against the two rules a `#` exempts for FREE — so it proved
-# the detector was awake on shapes it could not have been asleep on, and missed
-# both false positives it was built to catch. Three additions close that, each
-# red before its repair: humans NAMED Claude (10b, against the address-family
-# rule), the generated-with marker under a `#` and below a scissors line (10d,
-# the `git commit -v` refusal), and the bare session URL (10a, rule 4).
+# THE PAIRING DISCIPLINE IS WHAT THIS LAYER MEASURES. A pair counts only when
+# its permitted case could have been refused: `Co-Authored-By:` naming a human
+# called Mike, or a `#`-prefixed line against the two rules a `#` exempts for
+# FREE, proves only that the detector is awake on shapes it could not be
+# asleep on. So the pairs include humans NAMED Claude (10b, against the
+# address-family rule), the generated-with marker under a `#` and below a
+# scissors line (10d, the `git commit -v` refusal), and the bare session URL
+# (10a, rule 4).
 #
 # 10p GRADES A PULL REQUEST BODY, which is the surface no git hook can reach
 # and the one the harness writes the marker and the session URL into.
@@ -2485,8 +2454,8 @@ done
 # two cases: same trailer key, same column, only the ADDRESS differs, so this
 # passing does not merely say "the detector is asleep".
 #
-# The last spelling is the prose one that already sits on main (9dd06ab77d):
-# no colon, so it is not a trailer at all and rule 2 must not reach it.
+# The last spelling is prose: no colon, so it is not a trailer at all and
+# rule 2 must not reach it.
 for t in 'Co-Authored-By: Mike Thompson <mike@example.invalid>' \
          'Co-Authored-By: Claude Martin <claude.martin@example.invalid>' \
          'Co-Authored-By: Jean-Claude Martin <jcm@example.invalid>' \
@@ -2520,13 +2489,14 @@ esac
 # 10d: git's own furniture cannot trip it — `#` comment lines from the editor
 # template, and the `+` diff body `git commit -v` appends.
 #
-# THE GENERATED-WITH MARKER IS THE CASE THAT MATTERS, and the earlier revision
-# of 10d never fed it: rules 1 and 2 are PREFIX tests, so a `#` in front of them
-# exempts them for free and testing only those two proves nothing about the one
-# rule that is a SUBSTRING test. `# <marker>` reached rule 3 and was refused —
-# and because `commit-msg` reads COMMIT_EDITMSG BEFORE git strips the comments,
-# every `git commit -v` whose diff touched CLAUDE.md, this detector or these
-# very tests was refused with `--no-verify` the only escape.
+# THE GENERATED-WITH MARKER IS THE CASE THAT MATTERS: rules 1 and 2 are PREFIX
+# tests, so a `#` in front of them exempts them for free and testing only those
+# two proves nothing about rule 3, which admits decoration in front of the
+# marker. Without the `#` exemption `# <marker>` would reach rule 3 and be
+# refused — and because `commit-msg` reads COMMIT_EDITMSG BEFORE git strips
+# the comments, every `git commit -v` whose diff touches CLAUDE.md, this
+# detector or these very tests would be refused with `--no-verify` the only
+# escape.
 out=$(printf 'feat: thing\n\n# %s\n+%s\n# %s\n' \
   "$TRAILER_COAUTHOR" "$TRAILER_SESSION" "$TRAILER_GENWITH" \
   | run_attr_lib 2>"$AERR") || true
@@ -2683,8 +2653,8 @@ esac
 
 # 10k: THE RANGE. The base carries an offending commit of its own (10h), and
 # this branch is still green — because the gate grades the branch delta, not
-# all of history. Without this the three commits already on main would red
-# every pull request in the repository, for ever.
+# all of history. Without this the three such commits on main would red every
+# pull request in the repository, for ever.
 base_offender=$(git -C "$AREPO" log base --format='%H' -1)
 if git -C "$AREPO" log -1 --format=%B "$base_offender" \
      | grep -Fq "$TRAILER_COAUTHOR"; then
@@ -2756,7 +2726,7 @@ esac
 # 10p: THE PR-BODY ARM. CLAUDE.md's rule covers "commits or PRs" and a git hook
 # cannot see a body at all, so this is the only arm that grades one. The two
 # shapes the harness writes there are the generated-with marker and the BARE
-# session URL — the exact pair edited out of #9255 and #9256 by hand.
+# session URL.
 #
 # The body arrives on STDIN as DATA. In test.yml it reaches the shell through
 # an `env:` value and is never interpolated into the script text: a PR body is
@@ -2803,21 +2773,21 @@ case "$out" in
   *) fail "(10p) FALSE POSITIVE: an empty PR body was refused ($out)"; cat "$AERR" >&2 ;;
 esac
 
-# 10q: PROSE ABOUT THE TRAILERS IS NOT A TRAILER (rf2-uo5f).
+# 10q: PROSE ABOUT THE TRAILERS IS NOT A TRAILER.
 #
-# THE BUG THIS PINS. Rule 3 was a bare SUBSTRING test and rule 4 a bare PREFIX
-# test, so a line that merely NAMED the forbidden shapes was refused as though
+# WHAT THIS PINS. A bare SUBSTRING test for rule 3 or a bare PREFIX test for
+# rule 4 would refuse a line that merely NAMES the forbidden shapes as though
 # it carried one. That is not a corner: every dispatch brief in this project
 # tells the worker to decline the trailers, and a worker naturally writes that
-# declaration into its pull request body. Measured on PR #9330, whose body line
-# 98 read, at column 0, "No Co-Authored-By: Claude and no Generated with
-# [Claude Code] trailer, ..." — the sentence in which it stated COMPLIANCE is
-# what turned the PR red. Worse, the red could not be cleared: test.yml sources
-# the body from the frozen event payload, so a re-run re-reads the old text for
-# ever and only a new event (a push, or a close/reopen) can clear it.
+# declaration into its pull request body, at column 0 — "No Co-Authored-By:
+# Claude and no Generated with [Claude Code] trailer, ..." — so the sentence
+# stating COMPLIANCE would turn the PR red. Worse, such a red cannot be cleared
+# by editing the body: test.yml sources the body from the frozen event payload,
+# so a re-run re-reads the old text for ever and only a new event (a push, or a
+# close/reopen) can clear it.
 #
-# WHAT ACTUALLY DISCRIMINATES, and why this is not the "detect a negative
-# assertion" heuristic rf2-uo5f rejected as fragile and defeatable: a REAL
+# WHAT ACTUALLY DISCRIMINATES, and why this is not a "detect a negative
+# assertion" heuristic, which is fragile and defeatable: a REAL
 # trailer is a line that IS the attribution, and prose is a line that MENTIONS
 # it. That is a structural test with no sentiment in it. `git interpret-
 # trailers` recognises a trailer only as a whole line, and GitHub links a
@@ -2830,83 +2800,76 @@ esac
 # widened until the false positive went away fails it. That pairing is the
 # whole point: a guard that stops refusing real trailers is worse than the bug.
 #
-# THE FIRST REPAIR WAS PARTIAL, AND THE CASES BELOW ARE WHY IT WAS FOUND LATE.
-# Rule 3 has two anchors — no letters before `Generated with`, and the line
-# ending on the tool's own link — and every prose case pinned by the first
-# repair cleared it on the FIRST anchor, so the second was never exercised. It
-# had been written as a substring test for `claude`/`anthropic` in the last
-# blank-separated word, which is not the documented rule and refuses an
-# ordinary sentence that merely ENDS on such a word. The merged-PR audit of
-# #9385 found it. So the pairs below now vary what the sentence ENDS on, not
-# only whether it mentions a trailer: a two-case check of this guard clears it
-# and means nothing.
+# BOTH OF RULE 3'S ANCHORS NEED EXERCISING. Rule 3 has two anchors — no
+# letters before `Generated with`, and the line ending on the tool's own link —
+# and a prose case with letters in front clears it on the FIRST anchor, so the
+# second never runs. A second anchor written as a substring test for
+# `claude`/`anthropic` in the last blank-separated word is not the documented
+# rule, and would refuse an ordinary sentence that merely ENDS on such a word.
+# So the pairs below vary what the sentence ENDS on, not only whether it
+# mentions a trailer: a two-case check of this guard clears it and means
+# nothing.
 
-# The sentence that reded #9330, and two more of the same class — one naming
-# the marker mid-sentence, one naming the session URL and then continuing.
+# The compliance sentence, and two more of the same class — one naming the
+# marker mid-sentence, one naming the session URL and then continuing.
 PROSE_COMPLIANCE='No Co-Authored-By: Claude and no Generated with [Claude Code] trailer, in the commit message or in this description.'
 PROSE_MARKER_NAMED='The harness wanted a Generated with [Claude Code] marker here; it was declined per CLAUDE.md.'
 PROSE_URL_NAMED="$TRAILER_SESSION_URL is the bare URL the harness writes, and this body does not carry one."
 
-# AND THE ONE THE FIRST REPAIR STILL REFUSED (the merged-PR audit of #9385).
+# AND THE ONE THAT REACHES THE TAIL.
 #
 # The three sentences above all clear rule 3 on its FIRST anchor — each carries
-# letters in front of `Generated with`, so the tail test never runs — and that
-# is exactly why they left the second anchor unexercised. This one starts at
-# `Generated`, so it reaches the tail; and its last blank-separated word is
-# `CLAUDE.md.`, a FILENAME carrying the substring `claude`.
+# letters in front of `Generated with`, so the tail test never runs — and so
+# they leave the second anchor unexercised. This one starts at `Generated`, so
+# it reaches the tail; and its last blank-separated word is `CLAUDE.md.`, a
+# FILENAME carrying the substring `claude`.
 #
-# Under a tail test that asked whether the last word CONTAINED `claude` or
-# `anthropic`, this line was refused: no link on it, no attribution on it, one
-# rewording away from `No Generated with [Claude Code] trailer was added.`,
-# which passed only because it ends on `added.`. The documentation — this
-# file's own 10q preamble, the detector's rule-3 comment, README.md's shape
-# table and CLAUDE.md — all promised a rule that required the line to END ON
-# THE TOOL'S OWN LINK. The code did not implement that promise; now it does,
-# and this pair is what holds it to it. The permitted case below and the
-# `MARKER_BARE_URL` refusal further down are the two directions.
+# A tail test asking whether the last word CONTAINS `claude` or `anthropic`
+# would refuse this line: no link on it, no attribution on it, one rewording
+# away from `No Generated with [Claude Code] trailer was added.`, which ends on
+# `added.`. The documented rule — this file's own 10q preamble, the detector's
+# rule-3 comment, README.md's shape table and CLAUDE.md — requires the line to
+# END ON THE TOOL'S OWN LINK, and this pair holds the code to it. The permitted
+# case below and the `MARKER_BARE_URL` refusal further down are the two
+# directions.
 PROSE_COMPLIANCE_TAIL='Generated with [Claude Code] was declined per CLAUDE.md.'
 
 # The marker written without markdown brackets — a real attribution whose tail
 # IS the tool's link. It is the control for the case above: same head (no
-# letters before `Generated with`), opposite tail, so a repair that had merely
-# stopped reading the tail at all fails here rather than passing silently.
+# letters before `Generated with`), opposite tail, so a detector that stopped
+# reading the tail at all fails here rather than passing silently.
 MARKER_BARE_URL='Generated with Claude Code https://claude.com/claude-code'
 
-# THE LINKED-POLICY CASE — the direction `MARKER_BARE_URL` was still missing a
-# partner for (the merged-PR audit of #9401, whose closing sentence is the whole
-# of what this adds: "The linked-policy case is absent from those new tests.").
+# THE LINKED-POLICY CASE — `MARKER_BARE_URL`'s partner in the permitted
+# direction.
 #
 # `MARKER_BARE_URL` is a line that ENDS ON THE TOOL'S OWN LINK and IS the
 # attribution. These two end on the same link and are prose ABOUT it: a worker
 # citing the policy by URL rather than by filename, which is the natural thing
 # to write once the rule itself lives behind a link. Nothing in either line is a
 # marker, so a guard that ever starts refusing them has widened rule 4 or
-# reached for the tail alone — and the false-positive class rf2-uo5f exists for
-# would be back, in the one wording a brief invites most.
+# reached for the tail alone — and the mention-versus-attribution false
+# positive would be back, in the one wording a brief invites most.
 #
-# THE BEHAVIOUR IS ALREADY CORRECT; ALL THIS DOES IS PIN IT. Both were measured
-# at exit 0 against the landed detector before they were written down here. That
-# is why they belong beside the refusal controls rather than in a loop of their
-# own: the value is in the PAIRING, so a future widening cannot re-admit the
-# class without a red.
+# THESE PIN BEHAVIOUR THE DETECTOR HAS, and they belong beside the refusal
+# controls rather than in a loop of their own: the value is in the PAIRING, so
+# a future widening cannot re-admit the class without a red.
 PROSE_POLICY_LINK='Trailers declined per https://claude.com/claude-code'
 PROSE_POLICY_LINK_CITED='No such trailer was added; the rule is at https://claude.com/claude-code'
 
-# AND THE THIRD ROUND: A CITATION URL IS NOT THE TOOL'S LINK (rf2-uo5f again).
+# AND A CITATION URL IS NOT THE TOOL'S LINK.
 #
 # The two above end on the tool's own host and pass on their FIRST anchor —
 # each carries letters before `Generated with`, so neither reaches the tail
-# test at all. These two do reach it, and they are the shapes the repair before
-# this one still refused: the tail test asked whether the last word CONTAINED
-# `claude` or `anthropic` once it had seen a `://`, so it read a URL's PATH as
-# though it were the host.
+# test at all. These two do reach it: a tail test asking whether the last word
+# CONTAINS `claude` or `anthropic` once it has seen a `://` reads a URL's PATH
+# as though it were the host, and would refuse both.
 #
-# Both were measured at exit 1 against the landed detector, and the second is
-# the one that shows it is nothing to do with the wording: the SAME sentence
-# citing README.md instead passed. What separated them was a filename in a
-# path — and this repository's rule file is literally called CLAUDE.md, so
-# linking the rule rather than naming it, which is the natural way to cite it,
-# was the one form refused.
+# The second shows it has nothing to do with the wording: the SAME sentence
+# citing README.md would pass. What separates them is a filename in a path —
+# and this repository's rule file is literally called CLAUDE.md, so linking
+# the rule rather than naming it, which is the natural way to cite it, would
+# be the one form refused.
 #
 # THE PAIRED CONTROL IS `MARKER_URL_PATHED` BELOW: same structure, tool's own
 # HOST, so the host test has teeth rather than having merely stopped reading.
@@ -2916,8 +2879,8 @@ PROSE_POLICY_URL_PATHED='Generated with [Claude Code] was declined per https://g
 # The mirror image of those two, and the reason the repair is a HOST test
 # rather than a removal: the tool's own host wearing a path that names
 # something else entirely. Nothing in the last word except the host says
-# "Claude Code", so a repair that reached for the path, or that dropped the
-# tail anchor to make the pair above pass, fails here.
+# "Claude Code", so a detector that reads the path, or that drops the tail
+# anchor to make the pair above pass, fails here.
 MARKER_URL_PATHED='Generated with Claude Code https://claude.com/day8/re-frame2/blob/main/README.md'
 
 for t in "$PROSE_COMPLIANCE" "$PROSE_MARKER_NAMED" "$PROSE_URL_NAMED" \
@@ -2943,8 +2906,8 @@ done
 # compliance sentences — the two that end on a filename and the two that end on
 # the tool's own LINK — now beside a trailer the body really does carry.
 # `MARKER_BARE_URL` is in the offending list because it is the shape that
-# shares a head with `PROSE_COMPLIANCE_TAIL` — a repair that widened the tail
-# hatch far enough to let the prose through would let this through with it. The
+# shares a head with `PROSE_COMPLIANCE_TAIL` — a detector whose tail hatch is
+# wide enough to let the prose through would let this through with it. The
 # linked-policy pair sharpens that: they end on the same link the marker does,
 # so a body carrying both must still be refused for the marker alone. The
 # citation pair rides along for the same reason from the other side — they end
@@ -2952,7 +2915,7 @@ done
 #
 # `MARKER_URL_PATHED` joins the offending list because it is the one shape that
 # distinguishes a HOST test from a path test: refusing it while permitting
-# `PROSE_POLICY_URL_PATHED` is the whole of the third repair.
+# `PROSE_POLICY_URL_PATHED` is what a host test does and a path test cannot.
 for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" \
          "$TRAILER_SESSION" "$MARKER_BARE_URL" "$MARKER_URL_PATHED"; do
   key=$(printf '%s' "$t" | cut -c1-32)
@@ -3006,10 +2969,9 @@ case "$out" in
 esac
 
 # The citation pair at the detector: a commit message that ends on a URL whose
-# PATH carries the word and whose HOST does not. This is the shape the previous
-# repair still refused, and the reason it went unnoticed is that both anchors
-# have to be crossed to reach it — the line has to start at `Generated`, AND
-# end on a link.
+# PATH carries the word and whose HOST does not. Reaching it takes crossing
+# both anchors — the line has to start at `Generated`, AND end on a link —
+# which is why casual cases never exercise a path-reading tail test.
 out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n' \
   "$PROSE_POLICY_URL" "$PROSE_POLICY_URL_PATHED" | run_attr_lib 2>"$AERR") || true
 case "$out" in
