@@ -1,6 +1,5 @@
 (ns re-frame.story.panels-e2e.variant-lifecycle-e2e-cljs-test
-  "Multi-frame e2e coverage for the variant 4-phase lifecycle
-  (rf2-piucm, replaces `story_feature_load.cjs` § Lifecycle phases).
+  "Multi-frame e2e coverage for the variant 4-phase lifecycle.
 
   The four phases per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`:
 
@@ -18,19 +17,17 @@
     are skipped.
   - **Loader-rejects** — the loader event throws; the runtime captures
     the exception as a `:rf.error/exception` assertion with
-    `:phase :phase-1-loaders`. Per rf2-qrk2s the canvas SHOULD render
-    despite the parked lifecycle (assertions-recorded? overrides the
+    `:phase :phase-1-loaders`. The canvas SHOULD render despite the
+    parked lifecycle (assertions-recorded? overrides the
     skeleton-gate), so we also assert `loading-phase?` flips to false
     once the rejection records.
 
-  ## What this replaces
+  ## Why a CLJS unit test
 
-  The Playwright `Lifecycle phases` scenarios drove a browser through
-  loader-success / loader-never-completes / loader-rejects, switching
-  to `test` mode and asserting the test-pane's reason text included
-  the canonical strings. This test gets the same coverage by
-  driving `rf.story/run-variant` directly + reading the result-map's
-  `:lifecycle` and `:assertions` slots — sub-second per surface."
+  Driving `rf.story/run-variant` directly and reading the result-map's
+  `:lifecycle` and `:assertions` slots covers loader-success /
+  loader-never-completes / loader-rejects without a browser or the
+  test pane's reason text — sub-second per surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -60,11 +57,10 @@
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
   ;; Re-register the machines artefact's framework-shipped `:rf/machine`
-  ;; sub after the registrar clear. EP-0001 (rf2-vzld77 / rf2-ixb0bq):
-  ;; machine snapshots are durable RUNTIME-DB state at
+  ;; sub after the registrar clear. Machine snapshots are durable
+  ;; RUNTIME-DB state (EP-0001) at
   ;; [:rf.runtime/machines :snapshots <id>], so this is a runtime-db sub
-  ;; (db-position arg is the runtime-db value) — mirror `re-frame.machines`,
-  ;; NOT the retired app-db `:rf/runtime` path.
+  ;; (db-position arg is the runtime-db value) — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -83,7 +79,7 @@
   ;; it preserves any app-db keys seeded earlier. The variant frame's
   ;; lifecycle machine snapshot at `[:rf.runtime/machines :snapshots
   ;; :rf.story.lifecycle/machine]` lives in the frame's runtime-db
-  ;; partition (EP-0001 rf2-vzld77 — durable runtime-db state, not app-db),
+  ;; partition (EP-0001 — durable runtime-db state, not app-db),
   ;; so a `:db` (app-db) effect cannot touch it regardless of assoc-vs-
   ;; replace. Same note inline at
   ;; `tools/story/testbeds/counter_with_stories/events.cljs`.
@@ -108,13 +104,13 @@
      :loaders [[:counter/initialise 5]]
      :setup  [[:counter/inc]]})
   (rf.story/reg-variant :story.counter-matrix/loader-never-completes
-    {:doc "rf2-qrk2s class — `:loaders-complete-when` returns false; the
+    {:doc "`:loaders-complete-when` returns false; the
            lifecycle parks at :loading, no events/play, a non-throwing
            `:rf.error/loader-incomplete` assertion is recorded."
      :loaders               [[:counter/loader-never-ready?]]
      :loaders-complete-when :counter/loader-never-ready?})
   (rf.story/reg-variant :story.counter-matrix/loader-rejects
-    {:doc "rf2-qrk2s class — the loader event throws; the runtime
+    {:doc "The loader event throws; the runtime
            captures the exception into the assertions vector and
            rejection records phase = :phase-1-loaders."
      :loaders [[:counter/throw-loader-rejection]]}))
@@ -142,14 +138,14 @@
 
 ;; ---- the re-registered :rf/machine sub reads the LIVE runtime-db snapshot
 ;;
-;; rf2-ixb0bq regression guard. The fixture re-registers `:rf/machine` as a
+;; Regression guard. The fixture re-registers `:rf/machine` as a
 ;; runtime-db sub (EP-0001). After a clean run the lifecycle machine's
 ;; snapshot lives at `[:rf.runtime/machines :snapshots
 ;; :rf.story.lifecycle/machine]` in the variant frame's runtime-db. We
 ;; compute the framework sub against the variant frame's `frame-state-value`
 ;; (the two-partition value `subscribe` resolves reactively) and assert it
-;; returns the LIVE `{:state :ready …}` snapshot — NOT nil. Reverting the
-;; fixture to the dead app-db `:rf/runtime` path makes this read nil → red.
+;; returns the LIVE `{:state :ready …}` snapshot — NOT nil. A fixture that
+;; registered the sub against app-db would read nil here → red.
 
 (deftest rf-machine-sub-resolves-live-runtime-db-snapshot
   (testing ":rf/machine computed against the variant frame-state resolves
@@ -164,7 +160,7 @@
                           [:rf/machine :rf.story.lifecycle/machine] fs)]
                 (is (some? snap)
                     ":rf/machine resolved a non-nil snapshot — the sub read
-                     the live runtime-db partition, not the dead app-db path")
+                     the live runtime-db partition, not app-db")
                 (is (= :ready (:state snap))
                     "the live snapshot's :state is :ready after a clean run"))
               (rf.story/destroy-variant! :story.counter-matrix/loader-success)
@@ -173,7 +169,7 @@
 ;; ---- parked: loaders-complete-when never returns true -------------------
 
 (deftest loader-never-completes-parks-at-loading
-  (testing "rf2-qrk2s — `:loaders-complete-when` returning false parks
+  (testing "`:loaders-complete-when` returning false parks
             the lifecycle at :loading with a non-throwing
             :rf.error/loader-incomplete assertion. Events + play
             were skipped — :app-db reflects the loader-side write only."
@@ -198,7 +194,7 @@
                        (:predicate incomplete))
                     "predicate slot carries the variant's
                      :loaders-complete-when keyword"))
-              (testing "rf2-qrk2s — loading-phase? still gates the
+              (testing "loading-phase? still gates the
                         skeleton false when assertions are recorded,
                         so the canvas can render the user's view"
                 (is (false? (rf.story.ui.canvas/loading-phase? :loading false true))
@@ -210,7 +206,7 @@
 ;; ---- rejected: loader event throws --------------------------------------
 
 (deftest loader-rejects-records-exception
-  (testing "rf2-qrk2s — the loader event throws; the runtime captures
+  (testing "the loader event throws; the runtime captures
             the exception into a :rf.error/exception assertion with
             :phase :phase-1-loaders + the canonical ex-data carries
             through. The lifecycle does NOT advance to :ready."
