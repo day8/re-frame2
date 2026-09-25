@@ -38,14 +38,12 @@
   or a global `rf/dispatch`. Each call-site supplies the dispatcher its
   own way:
 
-    - Flows / Interceptors / Schemas — these `search-box` call-sites
-      render INSIDE a `reg-view` body, so they render-capture
-      `(rf/current-frame-id)` and hand down a closure
-      `(fn [ev] (rf/dispatch ev {:frame frame}))`.
-    - Routes / Machines — the browse list is invoked as a plain-fn
-      Reagent component (its own render cycle can't recover the frame),
-      so the routes/machines `reg-view` threads its injected frame-aware
-      `dispatch` straight through.
+    - Flows / Interceptors / Schemas / Machines — the tab's
+      `rf.fresco/defview` boundary binds `(:dispatch (rf/capture-frame))`
+      once and threads it down to its `search-box` call-site.
+    - Routes — the browse list renders as a Reagent island that can't
+      recover the frame, so the routes `Panel` boundary threads its
+      captured frame-aware `dispatch` straight through.
 
   Either way the dispatcher is already frame-bound by the time it
   reaches here; this ns stays a pure presentational helper. The JVM
@@ -60,7 +58,7 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]))
 
-;; ---- filter-rows algebra (Cluster 2) ------------------------------------
+;; ---- filter-rows algebra ------------------------------------------------
 
 (defn filter-rows
   "Higher-order substring filter shared by the Flows / Interceptors /
@@ -91,7 +89,7 @@
     (= 1 total) (str "1 " noun)
     :else       (str total " " noun "s")))
 
-;; ---- catalogue empty states (Cluster 3) ---------------------------------
+;; ---- catalogue empty states ---------------------------------------------
 
 (def ^:private empty-state-style
   "Shared italic-prose style for the catalogue empty / no-match surfaces."
@@ -168,8 +166,8 @@
 (defn search-box
   "Render a Static-surface search box. All knobs arrive in one opts map
   so the four catalogue tabs and the Machines browse-list share one
-  component. Two layout variants (see the ns docstring) preserve each
-  call-site's exact rendered markup.
+  component. Two layout variants (see the ns docstring) render each
+  call-site's exact markup.
 
   Always-present knobs:
 
