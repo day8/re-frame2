@@ -1,7 +1,6 @@
 (ns panel-gallery.gallery-filters
-  "Story coverage for the **Auto-filter pill cluster + edit popup**
-  (rf2-durls redo of the rf2-kbrkx gallery against the de-singletoned
-  shell + four-bucket Story model).
+  "Story coverage for the **Auto-filter pill cluster + edit popup**,
+  built against the per-frame shell + the four-bucket Story model.
 
   The auto-filter feature spans two visual surfaces:
 
@@ -16,7 +15,7 @@
   `:panel-gallery.chrome/Shell` and seeds the ribbon + (optionally)
   opens the edit popup against the expected trigger shape.
 
-  ## Frame discipline (de-singletoned shell — rf2-1w07r)
+  ## Frame discipline
 
   The chrome's `shell-view` takes a `:frame-id` opt; the `chrome-shell`
   wrapper threads the Story per-variant frame (`(rf/current-frame-id)`)
