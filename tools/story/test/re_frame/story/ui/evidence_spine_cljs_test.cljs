@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.evidence-spine-cljs-test
-  "CLJS-side regression net for the evidence spine (rf2-ba86n.10,
-  spec/020 §3 + spec/021 §2).
+  "CLJS-side regression net for the evidence spine (spec/020 §3 +
+  spec/021 §2).
 
   Pairs with the host-free projection coverage in
   `re_frame/story/ui/evidence_spine_test.cljc`. This namespace pins the
@@ -13,7 +13,7 @@
     `select-beat!` / `open!` linkage drive the selected span (spec/021 §2);
   - **focus wiring** — the per-beat focus links render with the focus-panel
     vocabulary, fire `focus-beat!` → the real `day8.re-frame2-xray.core/focus!`
-    (the rf2-crtmq host-facing entry), and the no-coords graceful path
+    (the host-facing entry), and the no-coords graceful path
     renders the 'why focus is unavailable' note while STILL offering the
     panel-only links (spec/020 §3).
 
@@ -136,13 +136,13 @@
           beat (rf.test-helpers/find-by-attr tree :data-test "story-evidence-beat")]
       (is (= "true" (get (second beat) :data-selected))))))
 
-;; ---- rf2-2b3ael: per-row data-selected highlight (multi-beat) ----------
+;; ---- per-row data-selected highlight (multi-beat) -----------------------
 ;;
-;; 015-Test-Coverage.md:186 owes the fuller `data-selected` DOM assertion
-;; the retired trace-scrubber cascade rows carried: scrubbing to an epoch
-;; sets `data-selected="true"` on the producing row while NON-selected rows
-;; carry `data-selected="false"`. The scrubber panel is retired (Xray owns
-;; the ribbon), but the evidence-spine `beat-row` is Story's live
+;; 015-Test-Coverage.md's cascade-row `data-selected` highlight row asks
+;; for this DOM assertion: scrubbing to an epoch sets
+;; `data-selected="true"` on the producing row while NON-selected rows
+;; carry `data-selected="false"`. Story has no scrubber panel (Xray owns
+;; the ribbon); the evidence-spine `beat-row` is Story's live
 ;; selectable-row surface and carries exactly that `data-selected` attr,
 ;; driven by the pure `select-beat!` / `selected-beat-idx` state. The
 ;; single-beat `select-beat-highlights-the-beat` above proves the positive
@@ -169,8 +169,8 @@
 
 (deftest data-selected-true-on-producing-row-false-on-others
   (testing "scrubbing to a beat sets data-selected=true on that beat's row
-            and data-selected=false on every other beat row (rf2-2b3ael —
-            the producing-row highlight contract)"
+            and data-selected=false on every other beat row (the
+            producing-row highlight contract)"
     (reg-counter!)
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
     (seed-two-beat! :story.evidence/basic)
@@ -186,7 +186,7 @@
 
 (deftest data-selected-round-trip-moves-the-highlight
   (testing "re-selecting a different beat moves the data-selected=true marker
-            to the newly-selected row (rf2-2b3ael — the scrub round-trip)"
+            to the newly-selected row (the scrub round-trip)"
     (reg-counter!)
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
     (seed-two-beat! :story.evidence/basic)
@@ -229,7 +229,7 @@
     (is (= 0 (rf.story.ui.evidence-spine/selected-beat-idx :story.evidence/basic)))))
 
 ;; ===========================================================================
-;; focus wiring (spec/020 §2.1 — links call the rf2-crtmq focus API)
+;; focus wiring (spec/020 §2.1 — links call the Xray focus API)
 ;; ===========================================================================
 
 (deftest focus-links-render-with-focus-vocabulary
@@ -278,7 +278,7 @@
 
 (deftest focus-beat-drives-the-real-xray-focus-api
   (testing "focus-beat! builds a focus command and drives the real
-            day8.re-frame2-xray.core/focus! host-facing entry (rf2-crtmq),
+            day8.re-frame2-xray.core/focus! host-facing entry,
             returning the {:ok? true …} result with the applied dispatches +
             echoed Story provenance"
     ;; Stand up the Xray shell frame + handlers so focus! has a live target.
@@ -299,21 +299,20 @@
       (is (= 3 (:beat-idx (:source result)))))))
 
 ;; ===========================================================================
-;; STATIC EXPORT — the evidence focus boundary (rf2-n440v)
+;; STATIC EXPORT — the evidence focus boundary
 ;; ===========================================================================
 ;;
-;; A published Story static export ships NO Xray. rf2-cljo6 ruled that loss
-;; ACCEPTED rather than a gap to close: `:devtools/preloads` is a
-;; `watch`/`compile` slot that `release` ignores, so nothing registers
-;; Xray's instruction set, and rf2-y8doi.60 leaves its `reg-view` symbols
-;; undefined under `:advanced`.
+;; A published Story static export ships NO Xray, by design:
+;; `:devtools/preloads` is a `watch`/`compile` slot that `release` ignores,
+;; so nothing registers Xray's instruction set, and its `reg-view` symbols
+;; are undefined under `:advanced`.
 ;;
 ;; The evidence NARRATIVE is the publishable half and must survive intact.
 ;; The focus affordances and the focus CALLBACK must not, because both
-;; target a surface that is not in the bundle. Before rf2-n440v the spine
-;; rendered three live Xray buttons per beat in a static export and
-;; `focus-beat!` gated on `enabled?` alone, so the callback entered Xray's
-;; dispatch path with no mounted destination.
+;; target a surface that is not in the bundle. Rendering three live Xray
+;; buttons per beat in a static export, or gating `focus-beat!` on
+;; `enabled?` alone, would send the callback into Xray's dispatch path
+;; with no mounted destination.
 ;;
 ;; EVERY test below carries its DEV control in the same block, and the
 ;; control runs FIRST. The characteristic failure of a boundary like this
@@ -322,7 +321,7 @@
 ;; pass just as happily against a `focus-available?` hard-wired to false.
 
 (deftest focus-available?-is-false-only-in-a-static-export
-  (testing "rf2-n440v — the single predicate the two render sites and the
+  (testing "the single predicate the two render sites and the
             callback all consult"
     (is (true? (rf.story.ui.evidence-spine/focus-available?))
         "dev control: the node-test build offers focus affordances")
@@ -333,10 +332,10 @@
         "the redef is scoped — dev is restored afterwards")))
 
 (deftest static-export-evidence-keeps-its-narrative
-  (testing "rf2-n440v — a RETAINED Test result still renders its spans,
-            beats, strength tags and summary chips under static-mode?. The
-            ask was to remove active affordances that target an unavailable
-            surface, NOT to delete the evidence section."
+  (testing "a RETAINED Test result still renders its spans,
+            beats, strength tags and summary chips under static-mode?. Only
+            the active affordances that target an unavailable surface go,
+            NOT the evidence section."
     (reg-counter!)
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
     (seed-result! :story.evidence/basic)
@@ -354,7 +353,7 @@
             "summary chips survive")))))
 
 (deftest static-export-evidence-offers-no-active-xray-action
-  (testing "rf2-n440v — the per-beat focus row is OMITTED under static-mode?
+  (testing "the per-beat focus row is OMITTED under static-mode?
             and present in dev"
     (reg-counter!)
     (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
@@ -376,7 +375,7 @@
             "static: and no orphan 'why focus is unavailable' note left behind")))))
 
 (deftest static-export-focus-callback-cannot-dispatch-into-xray
-  (testing "rf2-n440v — even with a REAL :rf/xray frame and Xray's handlers
+  (testing "even with a REAL :rf/xray frame and Xray's handlers
             standing, focus-beat! refuses to dispatch under static-mode?.
             The callback is guarded as well as the affordance because
             `re-frame.story.ui.docs/excerpt-beat-row` reaches focus-beat!
@@ -391,7 +390,7 @@
     (let [beat {:epoch-id 100 :dispatch-id 100 :beat-idx 3 :span-idx 1}]
       ;; DEV CONTROL FIRST, through the real focus API.
       (let [dev (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)]
-        (is (map? dev) "dev control: focus-beat! still drives the real focus API")
+        (is (map? dev) "dev control: focus-beat! drives the real focus API")
         (is (true? (:ok? dev)) "dev control: the focus command applied"))
       ;; A BOUNDARY SPY, both ways — `nil` alone would not distinguish a
       ;; guard that fired from a focus! that returned nothing.
