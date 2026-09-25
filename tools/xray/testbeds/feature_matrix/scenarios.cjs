@@ -1707,7 +1707,12 @@ async function runDeepMachine(page, state) {
   // Drive the chart-render path through the test-only event surface
   // (`:rf.xray/set-epoch-history-for-test` +
   // `:rf.xray/set-focus-epoch-id-for-test`, both registered by
-  // `install-test-overrides!` in `panels/machine_inspector.cljs`).
+  // `install-test-overrides!` in `panels/machine_inspector.cljs`). This
+  // surface's build registers them: the deep-machine testbed's `run`
+  // (`testbeds/deep_machine/core.cljs`) calls
+  // `test-support/install-test-overrides!` after the Xray preload's
+  // production registration. The seed read-back below fails loudly if
+  // they ever go unregistered.
   //
   // Why a synthetic epoch rather than the host app's own traffic:
   // —————————————————————————————————————————————————————————————
