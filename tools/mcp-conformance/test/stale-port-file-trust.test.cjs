@@ -1,5 +1,5 @@
 // Regression test for the hermetic live-suite's stale nREPL port-file
-// cleanup (rf2-6i2yi4).
+// cleanup.
 //
 // Uses Node's built-in `node:test` (same posture as the sibling
 // `*.test.cjs` files in this directory — no extra dev-dependency). Runs
@@ -9,37 +9,34 @@
 // `wipeStalePortFileCandidate` against FAKE `unlink`/`statExists`/`logFn`
 // — no real file, no real Windows file lock.
 //
-// ## The bug this pins
+// ## The contract this pins
 //
-// Before this fix, `main()`'s stale-port-file wipe loop caught a BENIGN
-// unlink failure (EACCES / EBUSY — a Windows file lock from a
-// not-yet-reaped prior shadow-cljs process) and only logged it, then
-// continued. `readPortFile()` (driving the `waitUntil('nREPL port
-// file', ...)` poll right after) has NO staleness/liveness gate — it
-// trusts the first candidate that parses to a finite integer. A stale
-// port file surviving the failed unlink would therefore satisfy that
-// poll on its very FIRST check, before shadow-cljs has any chance to
-// rebind and rewrite it: best case that wastes the whole boot timeout
-// polling a dead port, worst case it connects to a stale/zombie runtime
-// from a prior run (state bleed between runs).
+// `readPortFile()` (driving the `waitUntil('nREPL port file', ...)` poll
+// right after `main()`'s stale-port-file wipe loop) has NO
+// staleness/liveness gate — it trusts the first candidate that parses to
+// a finite integer. A stale port file surviving a failed unlink would
+// therefore satisfy that poll on its very FIRST check, before shadow-cljs
+// has any chance to rebind and rewrite it: best case that wastes the
+// whole boot timeout polling a dead port, worst case it connects to a
+// stale/zombie runtime from a prior run (state bleed between runs).
 //
-// FIX: after a benign unlink failure, re-stat the candidate. If it is
-// genuinely gone (the failure raced a concurrent removal), proceed as
-// before. If it is STILL on disk, fail loud immediately rather than
-// deferring the risk to the staleness-blind read side.
+// So a BENIGN unlink failure (EACCES / EBUSY — a Windows file lock from a
+// not-yet-reaped prior shadow-cljs process) is not merely logged: the
+// wipe re-stats the candidate. If it is genuinely gone (the failure raced
+// a concurrent removal), it proceeds. If it is STILL on disk, it fails
+// loud immediately rather than deferring the risk to the staleness-blind
+// read side.
 //
 // ## What this test drives
 //
 // It requires the orchestrator as a module and exercises the exported
 // `wipeStalePortFileCandidate` against fakes:
 //
-//   1. RED-then-GREEN proof of the exact bug: a fake `unlink` that
-//      throws a benign EBUSY-shaped error while a fake `statExists`
-//      reports the file is STILL present. Asserts the call throws
-//      (fail-loud) and the thrown message names the candidate + the
-//      rf2-6i2yi4 marker. Reverting to the pre-fix behaviour (swallow +
-//      log) would make this assertion fail — the proof is red against
-//      the old code, green against the new.
+//   1. RED-then-GREEN proof: a fake `unlink` that throws a benign
+//      EBUSY-shaped error while a fake `statExists` reports the file is
+//      STILL present. Asserts the call throws (fail-loud) and the thrown
+//      message names the candidate + the `stale port-file trust` marker.
+//      A swallow-and-log wipe would make this assertion fail.
 //   2. A benign failure where the file is confirmed GONE afterward
 //      (`statExists` returns false) does NOT throw — the transient-lock
 //      happy path is unbroken.
@@ -48,7 +45,7 @@
 //   4. A containment-escape error (message carries the
 //      `symlink-escape accident-gating` marker) is FATAL even when
 //      `statExists` would report the file gone — escape detection is
-//      not weakened by this fix.
+//      not weakened by the re-stat.
 
 'use strict';
 
