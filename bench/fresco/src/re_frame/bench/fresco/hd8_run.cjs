@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // HD-008's driver — build once, serve once, run three adapters, refuse a
-// contaminated figure (rf2-2rtt6.7).
+// contaminated figure.
 //
-//   node implementation/fresco/test/re_frame/bench/fresco/hd8_run.cjs
+//   node src/re_frame/bench/fresco/hd8_run.cjs     (from bench/fresco/)
 //
 // ## What this measures, and why it comes before any API
 //
@@ -20,17 +20,14 @@
 // ## THE RULING IS NOT THIS SCRIPT'S TO ISSUE
 //
 // Per HD-013 and HD-014 the stop/continue ruling is a DELEGATED ADVISORY
-// ruling issued ONLY against the PUBLISHED P0 baseline table, recorded on
-// the standard bead rf2-2rtt6.1, and operator-overturnable. This script
-// prints measurements. It prints no verdict, and it must never learn to.
+// ruling issued ONLY against the PUBLISHED P0 baseline table, and
+// operator-overturnable. This script prints measurements. It prints no
+// verdict, and it must never learn to.
 //
 // ## The build id
 //
-// No new build id, and `implementation/shadow-cljs.edn` is not touched:
-// rf2-2rtt6.2 owns the measurement lane and any build-id addition (a
-// hot-zone, sequenced file). This rides its `:fresco-bench` with an
-// output directory and an `:init-fn` merged in at the CLI, which is the
-// seam rf2-2rtt6.2's own driver established for exactly this.
+// This rides the lane's `:fresco-bench` with an output directory and an
+// `:init-fn` merged in at the CLI, so a driver adds no build id.
 //
 // ## Exit codes
 //
@@ -43,24 +40,23 @@
 // Exit 2 is deliberately distinct from exit 1. A refusal is not a broken
 // script: it is the instrument saying that a figure it produced depends on
 // where in the plan it was measured, and that such a figure may not be
-// reported. `rf2-jr76s` published `16.1052` and `8.0027` for the SAME
-// control — a plausible, precise, wrong number — and was caught only
-// because both orders were run and disagreed with each other.
+// reported. A position-dependent figure is a plausible, precise, wrong
+// number — the same control can read `16.1052` in one order and `8.0027`
+// in the other — and only running both orders shows it.
 //
-// 3 and 4 are rf2-x6g04's repair, and they number as `hd8_clock_run.cjs`
-// already numbered the first of them (its exit 3 is the same read-back
-// refusal). Both conditions were COMPUTED AND PRINTED by this driver and
-// neither reached the exit code: it read `hardFail`, `contractFailed` and
-// the arm-order `refused`, then announced `[hd8] ok`. A run could print
+// 3 and 4 number as `hd8_clock_run.cjs` numbers the first of them (its
+// exit 3 is the same read-back refusal). Both conditions are COMPUTED AND
+// PRINTED by this driver, and a decision that read only `hardFail`,
+// `contractFailed` and the arm-order `refused` would print
 //
 //     ;;     [slim   ] reagent-slim   vs floor   UNPUBLISHED (1/78 unverified)
 //     ;;     [slim   ] YIELD CORRECTION: REFUSED (correction-changes-the-verdict)
 //
 // and exit 0 on both. The figure IS suppressed in the table either way — the
 // marker replaces it and the head-to-head pairs touching the arm are dropped
-// upstream — so no reader could copy a number out. What was missing is the
+// upstream — so no reader can copy a number out; the exit code is the
 // PROCESS's own statement, and a green exit is what a future reader banks.
-// See the note above `verdict` for the shape and for what did not change.
+// See the note above `verdict` for the shape.
 
 'use strict';
 
@@ -69,28 +65,27 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-// Both shared with the freehand bench tree, and reached the same way
-// rf2-2rtt6.2's own driver reaches `navigate`: one navigation helper and one
+// Both shared with the freehand bench tree, and reached the same way the
+// lane's own driver reaches `navigate`: one navigation helper and one
 // arm-order guard for the repository, never a second copy per lane.
 const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../implementation/core/test/re_frame/bench/navigate.cjs');
 const guard = require('../../../../../../implementation/core/test/re_frame/bench/order_guard.cjs');
 const { watchPage } = require('../../../../../../implementation/core/test/re_frame/bench/sentinel.cjs');
-// One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-// This driver is where the fault was found: run the P0 lane, then run HD-008,
-// and the page died before taking a sample.
+// One build id, N programs, so nothing may cache between them: run the P0
+// lane, then HD-008, over a shared cache and the page dies before taking a
+// sample.
 const { resetLaneBuildCache } = require('../../../../../../implementation/core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
-// lane's one build door refuses a warned build (rf2-2rtt6.73).
+// lane's one build door refuses a warned build.
 const { shadowBuild } = require('./lane_build.cjs');
 
 const PROJECT = path.resolve(__dirname, '../../../..');
 const IMPL = path.resolve(PROJECT, '../../implementation');
 const REPO = path.resolve(IMPL, '..');
-// rf2-2rtt6.2's lane, reused rather than re-minted: ONE build id serves the
-// whole programme, and HD-017 makes a new one a hot-zone edit of
-// implementation/shadow-cljs.edn that rf2-2rtt6.2 owns. `:fresco-bench` is
-// already `:advanced` with goog.DEBUG false, which is what HD-012 requires of
-// every bar-relevant figure, so this arm needs nothing of its own.
+// The lane's build id, reused rather than re-minted: ONE build id serves the
+// whole programme. `:fresco-bench` is `:advanced` with goog.DEBUG false,
+// which is what HD-012 requires of every bar-relevant figure, so this arm
+// needs nothing of its own.
 const BUILD_ID = 'fresco-bench';
 const OUT_DIR = process.env.HD8_OUT_DIR || 'out/hd8-donor';
 const INIT_FN = 're-frame.bench.fresco.hd8-app/-main';
@@ -123,10 +118,10 @@ if (RUNS.length === 0) {
 //
 // It selects ADAPTERS. Every selected run still executes the bundle's whole
 // row set, so `HD8_ONLY=slim` emits `mount-M`, `mount-U`, `write-narrow` and
-// `write-bulk` — four rows, of which a re-take needed one or two. Nothing
-// mechanically stopped the other three being read as figures beside the rows
-// published from the full three-run sweep, which is exactly the competing set
-// the comment said it prevented (rf2-b69lw, from the PR #7269 audit).
+// `write-bulk` — four rows, of which a re-take needs one or two. Nothing in
+// the selection alone stops the other three being read as figures beside the
+// rows published from the full three-run sweep, which is exactly the
+// competing set the paragraph above says must not be minted.
 //
 // So the declaration is made EXPLICIT and the default is the safe one:
 //
@@ -185,14 +180,14 @@ const TOLERANCE = Number(process.env.HD8_TOLERANCE || 0.35);
 
 // The page's own budget, for the case where the page is ALIVE and simply has
 // not finished. Six rounds of every witness across three adapters is minutes,
-// not seconds. It is no longer the budget a page ERROR is reported against —
+// not seconds. It is not the budget a page ERROR is reported against —
 // `sentinel.cjs` races this against the page dying, so a throw is reported in
-// the second it happens instead of twenty minutes later (rf2-f5roa).
+// the second it happens rather than twenty minutes later.
 const SENTINEL_TIMEOUT_MS = 20 * 60 * 1000;
 
 // `--self-test` runs every adjudicator's fixtures and exits, before anything is
 // built or launched. The guard's and the table's already ran at the head of
-// the sweep; this makes them — and the EXIT DECISION's, which is new — usable
+// the sweep; this makes them — and the EXIT DECISION's — usable
 // on their own, so an operator can see the instrument refuse in a second
 // rather than on the far side of an hour (the shape `clock_run.cjs` uses).
 const SELFTEST_ONLY = process.argv.includes('--self-test');
@@ -204,10 +199,9 @@ const SELFTEST_ONLY = process.argv.includes('--self-test');
 // the sweep it falls into is an `:advanced` release build plus three headless
 // Chromium runs whose own page budget is twenty minutes.
 //
-// It fell into exactly that until rf2-xk4is. `--self-test` was spelt without
-// its hyphen until #8616 renamed it, and that PR's merged-PR audit found the
-// retirement unsafe here: nothing validated arguments, so the retired token
-// was SILENTLY IGNORED and the driver went on to build and measure.
+// A driver that validated no arguments would ignore an unknown token
+// SILENTLY and go on to build and measure — a retired spelling of the flag
+// included.
 //
 // No alias — pre-alpha, and an alias for a spelling nothing depends on is a
 // compatibility shim. The rule is the general one rather than a list of dead
@@ -243,13 +237,13 @@ function build() {
   // The lane's cache rule, before anything reads the cache. `lane_cache.cjs`
   // carries the measurement and the rejected alternatives.
   if (resetLaneBuildCache(PROJECT, BUILD_ID)) {
-    console.error(`[hd8] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`);
+    console.error(`[hd8] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms`);
   }
   console.error('[hd8] building :advanced bundle (goog.DEBUG false) ...');
   // The hardened spawn form (shadow's own `cli/runner.js`, never the `.cmd`
   // shim — a shim needs `shell: true`, and a shell concatenates argv, which is
   // the other way the config-merge EDN gets torn in half) lives in
-  // `lane_build.cjs` now, together with the warning verdict.
+  // `lane_build.cjs`, together with the warning verdict.
   shadowBuild({
     project: PROJECT,
     mode: 'release',
@@ -300,11 +294,11 @@ async function runOne(chromium, run) {
     });
     // Watching starts BEFORE the navigation, because the fault this catches
     // most often — a contaminated Shadow cache throwing out of ReactDOM —
-    // happens during bundle execution, which is inside the navigation. The
-    // driver used to merely log it here and then wait the full twenty minutes
-    // for a sentinel the throw had already made unreachable (rf2-f5roa).
+    // happens during bundle execution, which is inside the navigation. Merely
+    // logging it here would leave the driver waiting the full twenty minutes
+    // for a sentinel the throw had already made unreachable.
     const watch = watchPage(page, `hd8:${run.id}`);
-    // `'commit'`, not `'load'` (rf2-p9fa3). `hd8-app/-main` is this bundle's
+    // `'commit'`, not `'load'`. `hd8-app/-main` is this bundle's
     // `:init-fn`, so the parity pass and every mount row run INSIDE the
     // `<script>` — `load` cannot fire until the benchmark has yielded, which
     // is exactly what the sentinel below waits for against a budget twenty
@@ -323,7 +317,7 @@ async function runOne(chromium, run) {
     const samples = await page.evaluate('window.HD8_SAMPLES || []');
     const summary = await page.evaluate('window.HD8_SUMMARY || {}');
     // The harness-microtask correction's VERDICT per write row — and, on a
-    // `:corrected` row, BOTH of its bands (rf2-b69lw). On a JS-readable
+    // `:corrected` row, BOTH of its bands. On a JS-readable
     // channel rather than only inside the EDN record, because the cross-run
     // table is what a reader copies a figure out of and a corrected row that
     // appears there looking uncorrected — or whose corrected endpoints the
@@ -331,26 +325,26 @@ async function runOne(chromium, run) {
     const correction = await page.evaluate('window.HD8_CORRECTION || {}');
     // The contract's own self-test result, on a JS-readable channel so the
     // driver can FAIL on it rather than leaving it in an EDN blob nobody
-    // parses — which is the exact fault the contract itself was filed for.
+    // parses — which is the exact fault the contract itself exists to prevent.
     const contractSelfTest = await page.evaluate(
       'window.HD8_CORRECTION_SELFTEST === undefined ? null : window.HD8_CORRECTION_SELFTEST'
     );
     // THE CLOCK'S OWN GRAIN, measured in this page rather than quoted from a
-    // comment (rf2-d2tzk). It decides which of this run's magnitudes are
+    // comment. It decides which of this run's magnitudes are
     // reportable, so it rides the same JS-readable channel as the verdicts it
     // governs instead of only the EDN blob.
     const clock = await page.evaluate('window.HD8_CLOCK || null');
     const userAgent = await page.evaluate('navigator.userAgent');
-    // THE SENTINEL'S OWN FAILURE LIST, read rather than discarded (rf2-x6g04).
+    // THE SENTINEL'S OWN FAILURE LIST, read rather than discarded.
     // `watch.race` throws on a failure that arrives while it is waiting, so
     // reaching this line means any failure arrived in the SAME TICK as the
     // sentinel or after it — which the race cannot order and therefore cannot
     // refuse. Every sibling that installs this watcher carries the same
-    // backstop (`coldmount_run.cjs` ~193, `p0_converge_run.cjs` ~236,
-    // `ime_run.cjs`, `chrome_run.cjs`, `adoption_witness_run.cjs`); this
-    // driver installed the watcher and then read nobody's failures at all, so
-    // a `pageerror` landing beside `HD8_DONE` was recorded, printed by
-    // `sentinel.cjs` itself, and consulted by nothing.
+    // backstop (`coldmount_run.cjs`, `p0_converge_run.cjs`, `ime_run.cjs`,
+    // `chrome_run.cjs`, `adoption_witness_run.cjs`); a driver that installed
+    // the watcher and read nobody's failures would leave a `pageerror`
+    // landing beside `HD8_DONE` recorded, printed by `sentinel.cjs` itself,
+    // and consulted by nothing.
     const pageErrors = watch.failures.map((f) => `${f.kind}: ${f.detail}`);
     watch.dispose();
     return {
@@ -390,7 +384,7 @@ function adjudicate(run) {
 //   below-clock-grain      a LIMIT — a window that does not exceed the clock's
 //                          own measured resolution, so the ratio taken against
 //                          it carries the grain rather than the arm. Exit 0,
-//                          and the row says so (rf2-d2tzk).
+//                          and the row says so.
 //
 // Neither prints a number: that is the whole point of a mask.
 const band = (v) =>
@@ -417,7 +411,7 @@ function crossRun(runs) {
   out.push(';; ==== identical bundle; only the installed adapter differs between runs.    ====');
   // The clock that took every figure below, stated at the head of the table it
   // governs. A ratio is only as resolved as its denominator, and a denominator
-  // is only as resolved as this number (rf2-d2tzk).
+  // is only as resolved as this number.
   for (const run of runs) {
     if (run.clock && run.clock.tick != null) {
       out.push(
@@ -450,7 +444,7 @@ function crossRun(runs) {
       // HOW MANY OF THE CLOCK'S OWN TICKS THIS ROW'S WINDOWS ARE WORTH,
       // above the figures they form. A denominator worth one tick and a
       // denominator worth ten produce the same-looking band, and only this
-      // line tells them apart (rf2-d2tzk). Printed for every write row,
+      // line tells them apart. Printed for every write row,
       // reportable or not: a reader who copies `11.000 – 13.667` needs to
       // know that its denominator moved between one tick and two.
       if (s.grain && s.grain.tick != null) {
@@ -471,20 +465,20 @@ function crossRun(runs) {
         out.push(`;;                 ${c.why}`);
       }
       // A `:corrected` verdict publishes BOTH bands, so BOTH must be in the
-      // table a reader copies from. The EDN record carried the corrected
-      // endpoints while this table printed only the unadjusted ones — a
-      // corrected row whose correction a reader cannot copy (rf2-b69lw,
-      // from the PR #7282 audit). Each line carries its own label, so a
-      // figure cannot leave the table without the name of its band.
+      // table a reader copies from. An EDN record carrying the corrected
+      // endpoints beside a table printing only the unadjusted ones is a
+      // corrected row whose correction a reader cannot copy. Each line
+      // carries its own label, so a figure cannot leave the table without
+      // the name of its band.
       const cSummary = c && c.verdict === 'corrected' ? c.summaryCorrected || {} : {};
       const cH2h = c && c.verdict === 'corrected' ? c.headToHeadCorrected || {} : {};
       // AN UNPUBLISHED ORIGINAL HAS NO CORRECTED BAND, and the table holds
       // that line itself rather than trusting the export: the correction
       // rebuilds its bands from per-round timings that are retained even for
-      // an arm whose writes failed their DOM read-back, and this table
-      // printed `1.200 – 1.300 [CORRECTED]` directly beneath `UNPUBLISHED
-      // (1/78 unverified)` for the SAME arm (rf2-b69lw, from the PR #7295
-      // audit). A failed read-back has NO publishable timing — corrected or
+      // an arm whose writes failed their DOM read-back, so trusting it would
+      // print `1.200 – 1.300 [CORRECTED]` directly beneath `UNPUBLISHED
+      // (1/78 unverified)` for the SAME arm. A failed read-back has NO
+      // publishable timing — corrected or
       // not — so the original's publication mask decides both lines. A
       // marker arriving in the corrected band itself is refused the same
       // way: `band(marker)` would print UNPUBLISHED twice, and twice is not
@@ -514,14 +508,14 @@ function crossRun(runs) {
   return out;
 }
 
-// The corrected-table fixture (rf2-b69lw, from the PR #7295 audit) — the
-// EXACT REACHABLE SHAPE, replayed through the live `crossRun` before
-// anything is measured, the same argument as `guard.selfTest()`: a refusal
-// nobody has watched fire is not a refusal, and this polarity fires only
-// when a run both fails a read-back AND resolves a yield correction, which
-// no live run can be relied on to do. The fixture's export deliberately
-// carries a numeric corrected band for the unpublished arm — the very
-// shape the pre-repair pipeline produced — so the check pins the TABLE's
+// The corrected-table fixture — the EXACT REACHABLE SHAPE, replayed through
+// the live `crossRun` before anything is measured, the same argument as
+// `guard.selfTest()`: a refusal nobody has watched fire is not a refusal,
+// and this polarity fires only when a run both fails a read-back AND
+// resolves a yield correction, which no live run can be relied on to do.
+// The fixture's export deliberately carries a numeric corrected band for the
+// unpublished arm — the shape an unmasked pipeline produces — so the check
+// pins the TABLE's
 // own refusal, independent of the CLJS-side mask upstream of it.
 function tableSelfTest() {
   const runs = [
@@ -542,7 +536,7 @@ function tableSelfTest() {
           verdict: 'corrected',
           reason: null,
           bound: 0.1,
-          why: 'fixture — the PR #7295 audit shape',
+          why: 'fixture — an unpublished original beside a corrected band',
           summaryCorrected: {
             'reagent-slim': { min: 1.2, max: 1.3, straddles1: false },
             'donor-r1': { min: 2.2, max: 2.3, straddles1: false },
@@ -568,7 +562,7 @@ function tableSelfTest() {
     },
   ];
   // THE CLOCK-GRAIN MARKER, replayed through the same live `crossRun`
-  // (rf2-d2tzk). The live shape, from the run recorded on the bead: the bulk
+  // The live shape, from a recorded run: the bulk
   // row's floor at one tick of a measured 0.1 ms grain takes the whole
   // floor-normalised column, and the head-to-head pair — arm over arm, the
   // floor cancelling exactly — is still printed as a number. A table that let
@@ -616,47 +610,44 @@ function tableSelfTest() {
 // The exit decision
 // ---------------------------------------------------------------------------
 
-// THE DRIVER COMPUTED AND PRINTED REFUSALS THAT NEVER REACHED ITS EXIT CODE
-// (rf2-x6g04). The old block read exactly three things — `hardFail`,
-// `contractFailed` and the arm-order `refused` — and then said `[hd8] ok`.
-// Three further conditions were live and unread:
+// EVERY REFUSAL THE DRIVER PRINTS REACHES ITS EXIT CODE. Besides `hardFail`,
+// `contractFailed` and the arm-order `refused`, three conditions are live,
+// and a decision that read only the first three would print them and then
+// say `[hd8] ok`:
 //
 //   * A FAILED DOM READ-BACK. `hd8_rows.cljs`'s `mask-failed-read-backs`
 //     writes `{:unpublished :failed-dom-read-back ...}` into the row's
 //     summary and the table renders `UNPUBLISHED (1/78 unverified)`. It does
 //     NOT set `HD8_ERROR` — only `hd8_app.cljs`'s `-main` catch does — so
-//     `hardFail` stayed null. Every sibling instrument treats the identical
+//     `hardFail` stays null. Every sibling instrument treats the identical
 //     condition as a hard refusal (`hd8_clock_run.cjs` exit 3,
 //     `shapes/census_clock_run.cjs` exit 3, `clock_run.cjs` exit 1,
 //     `p0_run.cjs`, `b7_run.cjs`, `reads_ladder_run.cjs`,
 //     `spine_ablation_run.cjs`).
 //
 //   * A `:refused` YIELD CORRECTION. The table prints `YIELD CORRECTION:
-//     REFUSED (correction-changes-the-verdict)` and the driver then read the
-//     verdict ONLY for `'corrected'`. On `refused` the UNADJUSTED number was
-//     printed directly beneath a line saying the correction was refused
-//     BECAUSE IT CHANGES THE VERDICT — and with no `[UNADJUSTED]` label,
-//     since that label is attached to the corrected band that a refusal
-//     never produces.
+//     REFUSED (correction-changes-the-verdict)`, and a driver that read the
+//     verdict ONLY for `'corrected'` would print the UNADJUSTED number
+//     directly beneath a line saying the correction was refused BECAUSE IT
+//     CHANGES THE VERDICT — and with no `[UNADJUSTED]` label, since that
+//     label is attached to the corrected band that a refusal never produces.
 //
-//   * A `pageerror` ARRIVING BESIDE THE SENTINEL, recorded by `watchPage`
-//     and read by nobody. Handled at its source in `runOne` above.
+//   * A `pageerror` ARRIVING BESIDE THE SENTINEL, recorded by `watchPage`.
+//     Handled at its source in `runOne` above.
 //
-// THE REPAIR IS THE ONE THIS TREE HAS MADE BEFORE (rf2-tb345, rf2-rr6do,
-// rf2-y7mw7): the decision moves into ONE pure function over a flat summary,
-// so it is checkable without a release build and a headless Chromium. See
-// `clock_exit_path.test.cjs`.
+// The decision is ONE pure function over a flat summary — the shape this
+// tree's other exit decisions take — so it is checkable without a release
+// build and a headless Chromium. See `clock_exit_path.test.cjs`.
 //
-// NOTHING THAT USED TO REFUSE NOW REFUSES DIFFERENTLY. Precedence preserves
-// every code this driver already had — a run that exited 1 still exits 1, a
-// run the arm-order guard refused still exits 2 — and the new conditions take
-// the codes below them. Each condition is INDEPENDENT: each refuses on its
-// own, and when several fire every one of them is named.
+// PRECEDENCE: a hard failure, a page error or a failed contract exits 1, the
+// arm-order guard exits 2, a failed read-back exits 3 and a refused correction
+// exits 4 — the hardest code wins. Each condition is INDEPENDENT: each refuses
+// on its own, and when several fire every one of them is named.
 //
 // No refusal suppresses output. The tables are printed before this is
-// consulted, and the marked-not-withheld rule the cross-run table follows is
-// unchanged: a refusal is about what may be QUOTED, not about throwing the
-// measurement away.
+// consulted, and the cross-run table's marked-not-withheld rule holds: a
+// refusal is about what may be QUOTED, not about throwing the measurement
+// away.
 
 /** The flat record the exit is decided on. One entry per refusable thing. */
 function summarise({ hardFail, contractFailed, orderRefused, runs } = {}) {
@@ -665,7 +656,7 @@ function summarise({ hardFail, contractFailed, orderRefused, runs } = {}) {
   // to live or it does not exist. A window beneath the clock's own grain
   // produces the same marker shape as a failed DOM read-back and must not
   // produce the same exit: nothing is broken, the instrument simply cannot
-  // resolve that magnitude, and the row publishes THAT (rf2-d2tzk). Failing
+  // resolve that magnitude, and the row publishes THAT. Failing
   // the sweep on it would also brick the driver — the bulk row's floor is one
   // commit under one clock and sits on the grain by construction, every run.
   const instrumentLimited = [];
@@ -740,12 +731,12 @@ function verdict(summary) {
     lines.push(
       '[hd8] ARM-ORDER GUARD REFUSED — at least one figure above depends on where in the ' +
         'plan it was measured, and may not be reported as measured. Repair the arm, not the ' +
-        'guard (rf2-88pie).'
+        'guard.'
     );
   }
   if (unpublished.length) {
     lines.push(
-      '[hd8] REFUSED — a write arm\'s value never reached the DOM (rf2-x6g04). Its clock ' +
+      '[hd8] REFUSED — a write arm\'s value never reached the DOM. Its clock ' +
         'readings are real milliseconds spent on a page that never changed, which is the ' +
         'cheapest possible way to be fast, so the table above carries UNPUBLISHED in place of a ' +
         'figure and this run may not be reported as a clean measurement of those arms:\n  ' +
@@ -760,10 +751,10 @@ function verdict(summary) {
     // not exceed the clock's own grain has no magnitude, so the table carries
     // NOT REPORTABLE where a ratio would be. The permanent repair is the
     // batched window the narrow row got, which changes a measured window and
-    // obliges a re-take of the row (rf2-2rtt6.7's to authorise).
+    // obliges a re-take of the row (an operator's to authorise).
     lines.push(
-      '[hd8] NO REPORTABLE MAGNITUDE — a measured window does not exceed this clock\'s own grain ' +
-        '(rf2-d2tzk), so the figures normalised by it carry the instrument rather than the arm. ' +
+      '[hd8] NO REPORTABLE MAGNITUDE — a measured window does not exceed this clock\'s own grain, ' +
+        'so the figures normalised by it carry the instrument rather than the arm. ' +
         'Everything else in this run stands, and the within-run head-to-head pairs are unaffected ' +
         '(the floor cancels out of them exactly):\n  ' +
         instrumentLimited
@@ -773,21 +764,21 @@ function verdict(summary) {
   }
   if (refusedCorrections.length) {
     lines.push(
-      '[hd8] REFUSED — the harness-microtask yield correction could not be discharged ' +
-        '(rf2-x6g04), so the figure printed for the row above is the UNADJUSTED one and the ' +
+      '[hd8] REFUSED — the harness-microtask yield correction could not be discharged, ' +
+        'so the figure printed for the row above is the UNADJUSTED one and the ' +
         'correction that would have adjusted it was refused:\n  ' +
         refusedCorrections.map((c) => `${c.run} / ${c.row}: ${c.reason}${c.why ? ` — ${c.why}` : ''}`).join('\n  ')
     );
   }
 
   // `instrumentLimited` is DELIBERATELY absent from this expression, and the
-  // deliberateness is written down because rf2-rr6do's recorded fault was
-  // exactly three refusals that printed and never reached the exit. This one
-  // is not a refusal: nothing failed, a magnitude was never available, and the
-  // run publishes that as its result. A driver that exited non-zero on it
-  // would exit non-zero on EVERY run — the bulk row's floor is one commit
-  // under one clock and sits on the grain by construction — which is a broken
-  // gate, not a strict one (rf2-d2tzk).
+  // deliberateness is written down because a refusal that prints and never
+  // reaches the exit is exactly the fault this decision exists to prevent.
+  // This one is not a refusal: nothing failed, a magnitude was never
+  // available, and the run publishes that as its result. A driver that exited
+  // non-zero on it would exit non-zero on EVERY run — the bulk row's floor is
+  // one commit under one clock and sits on the grain by construction — which
+  // is a broken gate, not a strict one.
   const code =
     s.hardFail || pageErrors.length || s.contractFailed
       ? 1
@@ -809,8 +800,8 @@ function verdict(summary) {
  *
  * The two cases that matter are the read-back and the refused correction.
  * Both are the shapes this driver actually produces — the first is the very
- * export `tableSelfTest`'s fixture replays — and until rf2-x6g04 both printed
- * their refusal into the table and then exited 0.
+ * export `tableSelfTest`'s fixture replays — and a decision that missed them
+ * would print their refusal into the table and then exit 0.
  */
 function verdictSelfTest() {
   const checks = [];
@@ -843,10 +834,10 @@ function verdictSelfTest() {
   const green = verdict(summarise({ runs: [cleanRun()] }));
   check('a run whose every figure published exits 0 and says nothing', green.code === 0 && green.lines.length === 0);
 
-  // --- (a) THE FAILED DOM READ-BACK — the case that used to be green -------
+  // --- (a) THE FAILED DOM READ-BACK ----------------------------------------
   const rb = verdict(summarise({ runs: [readBackRun()] }));
   check('a failed DOM read-back cannot exit 0', rb.code !== 0, `code ${rb.code}`);
-  check('and it exits 3, as hd8_clock_run.cjs already numbered the same refusal', rb.code === 3, `code ${rb.code}`);
+  check('and it exits 3, as hd8_clock_run.cjs numbers the same refusal', rb.code === 3, `code ${rb.code}`);
   check(
     'and the refusal NAMES the run, the row, the figure and the counts',
     /slim \/ write-narrow \/ reagent-slim vs floor: failed-dom-read-back \(1 of 78 unverified\)/.test(rb.lines.join('\n')),
@@ -889,16 +880,16 @@ function verdictSelfTest() {
   // --- (c) A pageerror BESIDE THE SENTINEL --------------------------------
   const pe = verdict(summarise({ runs: [run({ pageErrors: ['pageerror: Cannot read properties of undefined'] })] }));
   check('a page error recorded beside the sentinel cannot exit 0', pe.code !== 0, `code ${pe.code}`);
-  check('and it exits 1, the code this driver already documented for a page error', pe.code === 1, `code ${pe.code}`);
+  check('and it exits 1, the code the header documents for a page error', pe.code === 1, `code ${pe.code}`);
 
-  // --- THE GATES THAT ALREADY EXISTED ARE UNCHANGED, which is half the repair
+  // --- THE OTHER GATES, each on its own code --------------------------------
   const hf = verdict(summarise({ hardFail: 'slim: boom', runs: [] }));
-  check('a hard failure still exits 1, exactly as before', hf.code === 1 && /FAILED: slim: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
+  check('a hard failure exits 1', hf.code === 1 && /FAILED: slim: boom/.test(hf.lines[0] || ''), hf.lines.join(' | '));
   const cf = verdict(summarise({ contractFailed: 'slim: fixtures', runs: [] }));
-  check('a contract self-test failure still exits 1', cf.code === 1, `code ${cf.code}`);
+  check('a contract self-test failure exits 1', cf.code === 1, `code ${cf.code}`);
   const or = verdict(summarise({ orderRefused: true, runs: [] }));
   check(
-    'the arm-order guard still exits 2, and still says repair the arm',
+    'the arm-order guard exits 2, and says repair the arm',
     or.code === 2 && /Repair the arm, not the guard/.test(or.lines[0] || ''),
     or.lines.join(' | ')
   );
@@ -916,7 +907,7 @@ function verdictSelfTest() {
   // --- (d) A WINDOW BENEATH THE CLOCK'S GRAIN — a LIMIT, not a fault ------
   // The one condition here that must NOT reach a non-zero exit, and the
   // fixtures say so from both sides: it is stated, it exits 0, and it does not
-  // become invisible when a real refusal fires beside it (rf2-d2tzk).
+  // become invisible when a real refusal fires beside it.
   const grainRun = () =>
     run({
       summary: {
@@ -970,7 +961,7 @@ function verdictSelfTest() {
 async function main() {
   // THE ARGUMENTS BEFORE THE GUARD, and the guard is already first for the
   // reason that applies here twice over: discovering the mistake on the far
-  // side of an hour is not discovering it (rf2-xk4is).
+  // side of an hour is not discovering it.
   const unknown = unknownFlags(process.argv.slice(2));
   if (unknown.length > 0) {
     console.error(`[hd8] unknown argument${unknown.length > 1 ? 's' : ''}: ${unknown.join(' ')}`);
@@ -1010,11 +1001,11 @@ async function main() {
     process.exit(1);
   }
 
-  // AND THE EXIT DECISION ITSELF (rf2-x6g04). Every other self-test here asks
-  // whether an adjudicator can REFUSE; this one asks whether its refusal
-  // reaches the exit code, which is the fault the other two could not have
-  // caught — the table's fixture already proved the marker prints, and the
-  // driver exited 0 beneath it anyway.
+  // AND THE EXIT DECISION ITSELF. Every other self-test here asks whether an
+  // adjudicator can REFUSE; this one asks whether its refusal reaches the
+  // exit code, which is the fault the other two cannot catch — the table's
+  // fixture proves the marker prints, and a driver could still exit 0
+  // beneath it.
   const vs = verdictSelfTest();
   console.log(';; ==== HD8 EXIT-DECISION SELF-TEST ====');
   for (const c of vs.checks) {
@@ -1048,7 +1039,7 @@ async function main() {
   console.log(`;;   node        ${process.version}`);
   console.log(`;;   runs        ${RUNS.map((r) => r.id).join(', ')}${ONLY ? `  (HD8_ONLY=${ONLY})` : ''}`);
   // WHICH ROWS THIS RUN MAY PUBLISH, printed with the provenance and not left
-  // to be inferred from the absence of a warning (rf2-b69lw).
+  // to be inferred from the absence of a warning.
   console.log(
     `;;   publishes   ${
       !PARTIAL
@@ -1059,11 +1050,11 @@ async function main() {
     }`
   );
   // THE EFFECTIVE TOLERANCE, on the record beside the figures it adjudicated.
-  // It was not printed, and it does not equal `order_guard`'s own default:
+  // It does not equal `order_guard`'s own default:
   // the guard defaults to 0.10 and this driver passes 0.35, for the reason
   // above. An adjudication whose threshold a reader has to go and find in the
   // source — or, worse, that an unrecorded `HD8_TOLERANCE=` in someone's shell
-  // moved without trace — is the anonymous-ceiling defect again (rf2-f5roa).
+  // moved without trace — is the anonymous-ceiling defect again.
   console.log(
     `;;   guard tol   ${TOLERANCE}  (order_guard default 0.10; this driver's stated ` +
       `choice 0.35${process.env.HD8_TOLERANCE ? `; OVERRIDDEN by HD8_TOLERANCE=${process.env.HD8_TOLERANCE}` : ''})`
@@ -1129,9 +1120,9 @@ async function main() {
   console.log('');
   console.log(';; ==== HD8 — THE RULING IS NOT THIS INSTRUMENT\'S TO ISSUE ====');
   console.log(';;   HD-008\'s stop/continue ruling is a DELEGATED ADVISORY ruling (HD-013),');
-  console.log(';;   issued ONLY against the PUBLISHED P0 baseline table, recorded on the');
-  console.log(';;   standard bead rf2-2rtt6.1, and operator-overturnable. The P0 table is');
-  console.log(';;   being filled by rf2-2rtt6.2/.3/.4/.5 and is not published yet, and the');
+  console.log(';;   issued ONLY against the PUBLISHED P0 baseline table, and');
+  console.log(';;   operator-overturnable. The P0 table is being filled by the lane\'s P0');
+  console.log(';;   drivers and is not published yet, and the');
   console.log(';;   red-zone thresholds (= the measured UIx ratios, per witness family, on');
   console.log(';;   clock and retained heap) do not exist yet either. These are');
   console.log(';;   measurements. There is no verdict here and there must not be.');
@@ -1148,8 +1139,7 @@ async function main() {
       // The `ok` line must not claim more than the decision checked. A run can
       // be entirely green and still have had a magnitude the clock could not
       // resolve; the decision printed that above, and this line says which of
-      // the two it is rather than letting a green exit imply the stronger one
-      // (rf2-d2tzk).
+      // the two it is rather than letting a green exit imply the stronger one.
       (decision.lines.length
         ? '. NOT every figure has a reportable magnitude — see above'
         : '')
@@ -1157,7 +1147,7 @@ async function main() {
 }
 
 // `FLAGS` / `unknownFlags` are the CLI surface, exported so its pin can drive
-// it (rf2-xk4is).
+// it.
 module.exports = { FLAGS, unknownFlags, summarise, verdict, verdictSelfTest };
 
 if (require.main === module) {
