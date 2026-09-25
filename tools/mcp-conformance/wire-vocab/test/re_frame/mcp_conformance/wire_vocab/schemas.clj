@@ -520,9 +520,9 @@
     :schema   ElisionMarker
     ;; Reserved by Conventions / spec; re-frame2-pair-mcp emits it. The
     ;; `:reason` slot carries the declaration provenance (the `:source` that
-    ;; classified the path). EP-0025: the durable `:sensitive`/`:large {:app-db
-    ;; …}` frame annotation (`:frame`) and the imperative `add-marks`/`set-marks`
-    ;; API (`:marks`) are REMOVED; the surviving sources are the commit-plane
+    ;; classified the path). EP-0025: there is no durable `:sensitive`/`:large
+    ;; {:app-db …}` frame annotation (`:frame`) and no imperative
+    ;; `add-marks`/`set-marks` API (`:marks`); the sources are the commit-plane
     ;; classification effects (`:effect`, the canonical default), `reg-flow`
     ;; outputs (`:flow`), and the subsystem projection-relative declarations
     ;; (`:route` / `:machine`). Three fixtures below cover the `:effect` source
