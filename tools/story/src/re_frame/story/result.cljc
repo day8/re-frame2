@@ -25,14 +25,14 @@
   - RUN-RESULT — the top-level shape. `:status` ∈
     `#{:pass :fail :cannot-run :error}` is the verdict; the evidential
     slots (`:epoch-tape` / `:schema-violations` / `:warnings` / `:effects`
-    / `:sub-runs` / `:renders` / `:narrative`) are `.4` projections; the
+    / `:sub-runs` / `:renders` / `:narrative`) are tape projections; the
     judgement slots (`:assertions` / `:checks`) are folded from the
     accumulator; `:consumed-selectors` carries the agreement-floor's
     exactly-consumed schema-violation selector set (the single source of
     truth Test mode reads, never re-derives); `:app-db` / `:run-hash` /
     `:plan-hash` / `:runner` / `:required-runner` / `:fidelity` /
     `:elapsed-ms` round out the shape.
-  - ASSERTION-RECORD — one evaluated assertion (`.18`'s atom shape, plus a
+  - ASSERTION-RECORD — one evaluated assertion (the assertion-atom shape, plus a
     `:status`). The `:status` is derived from `:passed?` / `:skipped?` /
     `:cannot-run?` so the run aggregation reads ONE field uniformly.
   - CHECK-RECORD — a named check id grouping the assertion records its
@@ -67,7 +67,7 @@
 ;; ===========================================================================
 
 ;; The four-verdict set has ONE owner — the pure `re-frame.story.verdict`
-;; leaf (spec/017 §Run result). Re-exported here to preserve the public
+;; leaf (spec/017 §Run result). Re-exported here as the public
 ;; `re-frame.story.result/statuses` contract; the UI-state + test-mode
 ;; pure helpers consume the leaf directly (no cycle through the runtime).
 (def statuses
@@ -76,7 +76,7 @@
   rf.story.verdict/statuses)
 
 ;; ===========================================================================
-;; THE SCHEMA-BACKED CONTRACT  (API governance freeze)
+;; THE SCHEMA-BACKED CONTRACT
 ;; ===========================================================================
 ;;
 ;; The unified run-result is a FROZEN, schema-backed public contract: the ONE
@@ -114,7 +114,7 @@
   "Malli schema for ONE evaluated assertion record (spec/017 §Run result —
   Assertion record). `:status` is the frozen verdict; `:passed?` is a
   diagnostic-mirror boolean ONLY (the verdict is
-  `:status`). Open map — the `.18` atom fields and source-coords ride
+  `:status`). Open map — the assertion-atom fields and source-coords ride
   along."
   [:map {:closed false}
    [:assertion   {:optional true} :keyword]
@@ -141,7 +141,7 @@
   "Malli schema for the ONE unified run-result (spec/017 §Run result) — the
   FROZEN public contract every Story runner, Test mode, CI, `clojure.test`
   / `cljs.test`, and story-mcp consume IDENTICALLY. Open map: the verdict
-  + judgement + agreement-floor slots are pinned; the evidential `.4`
+  + judgement + agreement-floor slots are pinned; the evidential tape
   projections and the identity / timing / provenance slots are optional
   (a host without the epoch artefact omits the evidential ones; a bare
   re-read like `read-failures` omits the tape-floor slots).
@@ -170,7 +170,7 @@
    [:fidelity        {:optional true} [:maybe [:set :any]]]
    [:elapsed-ms      {:optional true} [:maybe number?]]
    [:app-db          {:optional true} :any]
-   ;; evidential `.4` projections — optional (a host without the epoch
+   ;; evidential tape projections — optional (a host without the epoch
    ;; artefact projects empty / omits these)
    [:epoch-tape        {:optional true} [:sequential :any]]
    [:narrative         {:optional true} [:sequential :any]]
@@ -199,7 +199,7 @@
   (m/explain RunResult result))
 
 ;; `record-status` — the record-normalization rule — also has ONE owner
-;; (the `re-frame.story.verdict` leaf). Re-exported here to preserve the
+;; (the `re-frame.story.verdict` leaf). Re-exported here as the
 ;; public `re-frame.story.result/record-status` contract.
 (def record-status
   "Derive the `:status` for ONE assertion record from its outcome fields
@@ -208,7 +208,7 @@
   rf.story.verdict/record-status)
 
 ;; ===========================================================================
-;; ASSERTION RECORD — the `.18` atom shape + a unified `:status`
+;; ASSERTION RECORD — the assertion-atom shape + a unified `:status`
 ;; ===========================================================================
 
 (defn assertion-record
@@ -226,10 +226,10 @@
   record emits ONLY `:source`. A record that already carries a `:status`
   is left as-is.
 
-  This is the §B5.5 'adapt the existing assertion accumulator ONLY for
-  assertion outcomes that are not already in the tape' boundary: the
-  assertion verdict is the one slot the tape does NOT carry, so it is the
-  one slot this ns adapts rather than projects."
+  The boundary: the assertion accumulator is adapted ONLY for assertion
+  outcomes the tape does not carry. The assertion verdict is the one slot
+  the tape does NOT carry, so it is the one slot this ns adapts rather
+  than projects."
   [raw]
   (let [st (record-status raw)]
     (cond-> (assoc raw :status st)
@@ -539,7 +539,7 @@
   "The number of run-owned epoch records in `epoch-tape` whose canonical
   `:event-id` equals the expectation's declared cause `event` — the
   `:observed-cause-count` diagnostic + the no-cascade premise signal
-  (rf2-x76af2.17). Pure data → data.
+  Pure data → data.
 
   Matches by EXACT keyword equality on each record's `:event-id` — the
   plain-keyword vocabulary Spec 009 stamps as `:rf.sub/cause-event-id` /
@@ -581,7 +581,7 @@
   cause (`observed-cause-count`); `reactive?` is whether the run carried
   ANY reactive evidence (a `:reactive-counts` slot); `truncated?` is whether
   the bounded `epoch-history` ring evicted the run's EARLIEST epochs
-  (`rf.story.play.evidence/run-tape-truncated?`, rf2-4u5zl4). The verdict, in precedence:
+  (`rf.story.play.evidence/run-tape-truncated?`). The verdict, in precedence:
 
   - a degenerate atom that names no `:event` → `:fail` (it asserts nothing
     measurable);
@@ -591,7 +591,7 @@
     §Causal and cascade assertions);
   - for `:rf.assert/no-cascade-rerender` ONLY, an UNOBSERVED required cause
     (`c = 0` while `:require-cause?` is not explicitly `false`) →
-    `:cannot-run` (rf2-x76af2.17) — the guard's `[0,0]` default would
+    `:cannot-run` — the guard's `[0,0]` default would
     otherwise pass vacuously the day the cause event is renamed away, an
     asymmetry with `:rf.assert/caused`'s fail-closed `{:min 1}`. The reason
     says the cause was 'not observed in the retained run tape' (NOT 'never
@@ -602,7 +602,7 @@
     states the vacuity was explicitly enabled;
   - a TRUNCATED run whose bounds would otherwise `:pass` AND whose
     expectation carries a finite upper bound (`:max`) → `:cannot-run`
-    (rf2-4u5zl4) — the ring evicted the run's earliest epochs, and the
+    — the ring evicted the run's earliest epochs, and the
     dropped effect evidence could carry additional effects that would push
     the true count ABOVE `:max` (a false GREEN: the assertion read in-bounds
     only because the failing evidence was truncated away, not because the
@@ -613,16 +613,16 @@
   - else the expectation passes iff `n` is within the `[:min :max]` bounds.
 
   A cause observed ONCE with zero matching renders (`c = 1`, `n = 0`) stays
-  `:pass` — the premise held and the guard was honoured. `:rf.assert/caused`
-  is unchanged for its default (min-only) shape: `c` rides its `:actual` as a
-  diagnostic only; its positive-claim `{:min 1}` still fails closed on
-  `n = 0` and is not truncation-gated. An explicit `:rf.assert/caused
-  {:max N}` DOES gain the truncation guard (a finite upper bound).
+  `:pass` — the premise held and the guard was honoured. For its default
+  (min-only) shape `:rf.assert/caused` has no premise gate: `c` rides its
+  `:actual` as a diagnostic only; its positive-claim `{:min 1}` fails
+  closed on `n = 0` and is not truncation-gated. An explicit
+  `:rf.assert/caused {:max N}` IS truncation-gated (a finite upper bound).
 
   The record carries the declared spec as `:expected` and the measured
   count + observed-cause-count + bounds + `:truncated?` as `:actual` so a
-  failing / refused expectation reads diagnostically. `:count` stays the
-  EFFECT count `n`; `:observed-cause-count` is the additive premise
+  failing / refused expectation reads diagnostically. `:count` is the
+  EFFECT count `n`; `:observed-cause-count` is the separate premise
   diagnostic `c`."
   [{:keys [atom id event surface min max require-cause?] :as expectation}
    n c reactive? truncated?]
@@ -640,7 +640,7 @@
                             (false? require-cause?)
                             (zero? c))
         in-bounds?     (causal-in-bounds? expectation n)
-        ;; The truncation honesty guard (rf2-4u5zl4): a would-be `:pass`
+        ;; The truncation honesty guard: a would-be `:pass`
         ;; against a finite upper bound cannot be TRUSTED when the ring
         ;; evicted the run's earliest epochs — the dropped effect evidence
         ;; could push the true count above `:max`. Only an in-bounds pass
@@ -723,7 +723,7 @@
   check (`rf.story.requirements/validate-evidence`) so the verdict is correct even
   where that check is not separately invoked).
 
-  Each record also carries `:observed-cause-count` (rf2-x76af2.17) — the
+  Each record also carries `:observed-cause-count` — the
   count of run-owned epoch records naming the cause, read off the run-sliced
   `:epoch-tape` `evidence` already carries. For
   `:rf.assert/no-cascade-rerender` that count is the required-premise signal:
@@ -731,14 +731,14 @@
   `[0,0]` default vacuously (unless the author opted out with
   `{:require-cause? false}`).
 
-  `truncated?` (rf2-4u5zl4) is the per-run epoch-tape truncation signal
+  `truncated?` is the per-run epoch-tape truncation signal
   (`rf.story.play.evidence/run-tape-truncated?`): true when the bounded `epoch-history`
   ring evicted the run's earliest epochs. When true, an otherwise in-bounds
   causal `:pass` against a finite upper bound resolves `:cannot-run` — the
   dropped effect evidence could carry effects exceeding the bound, so the
   retained tape cannot PROVE the bound held (fail closed, never a truncation
   false-green). The 2-arity defaults `truncated?` to false (a complete tape —
-  the common case, existing bounds logic stands)."
+  the common case, where the bounds alone decide)."
   ([causal-atoms evidence]
    (match-causal-expectations causal-atoms evidence false))
   ([causal-atoms evidence truncated?]
@@ -774,15 +774,15 @@
   `parts` carries:
 
   - `:epoch-tape`       — the retained `:rf/epoch-record` vector (the
-                          evidence source; `.4`'s `project-evidence` reads
+                          evidence source; `project-evidence` reads
                           it). May be empty for a host without the epoch
                           artefact — the evidential slots are then empty.
   - `:assertions`       — the RAW assertion accumulator entries (the
                           `:rf.story/assertions` slot). Normalized here into
                           unified assertion records — the ONE non-tape
-                          input (§B5.5).
+                          input.
   - `:script`           — the coerced script-step vector, for the two-level
-                          `:narrative` projection (`.4`).
+                          `:narrative` projection.
   - `:check->atoms`     — `{check-id [assertion-atom …]}`, the plan's
                           expanded checks, grouped into `:checks`.
   - `:schema-expectations` — the vector of declared `:rf.assert/schema-error`
@@ -811,7 +811,7 @@
                           upstream by the `:reactive-counts` fail-closed
                           evidence-slot check (`:cannot-run`).
   - `:epoch-truncated?` — the per-run epoch-tape truncation signal
-                          (`rf.story.play.evidence/run-tape-truncated?`, rf2-4u5zl4): true
+                          (`rf.story.play.evidence/run-tape-truncated?`): true
                           when the bounded `epoch-history` ring evicted the
                           run's earliest epochs. When true, an otherwise
                           in-bounds causal `:pass` against a finite upper
@@ -861,7 +861,7 @@
   (let [tape           (vec (or epoch-tape []))
         ;; `:attribution` (the runner / replay-recorded
         ;; per-dispatch-step settle boundaries) lights up EXACT narrative
-        ;; attribution. Absent → EVEN fallback, unchanged. The stamp rides
+        ;; attribution. Absent → EVEN fallback. The stamp rides
         ;; only the narrative projection; the `:epoch-tape` slot stays raw
         ;; and the stamp is a `:rf.story/*` key the determinism projection
         ;; strips, so the run-hash is unaffected.
@@ -870,7 +870,7 @@
         ;; The tape is projected ONCE (`project-evidence` above); the
         ;; schema-violation + effect vectors it already produced are threaded
         ;; into the schema match and the agreement floor below rather than
-        ;; re-projected from the raw tape. This reinforces the ns's stated
+        ;; re-projected from the raw tape. This is the ns's stated
         ;; "one tape, one projection, single source of truth" invariant — the
         ;; floor and the schema matcher read the SAME projected evidence the
         ;; result's slots carry, never a second derivation.
@@ -892,7 +892,7 @@
         ;; the minted records join `:assertions` and the verdict reads them
         ;; through `aggregate-status`. A run with no reactive rows is caught
         ;; upstream by the `:reactive-counts` fail-closed evidence-slot check.
-        ;; `epoch-truncated?` (rf2-4u5zl4) refuses an in-bounds finite-upper-bound
+        ;; `epoch-truncated?` refuses an in-bounds finite-upper-bound
         ;; `:pass` when the ring evicted the run's earliest epochs (a truncation
         ;; false-green) — the retained tape cannot prove the upper bound held.
         causal-match   (match-causal-expectations
@@ -921,11 +921,11 @@
         ;; verified pairing rather than re-deriving, so the floor trips on the
         ;; (N−M) genuinely-unconsumed violations.
         ;;
-        ;; The caller-supplied `consumed-selectors` escape hatch still excuses
+        ;; The caller-supplied `consumed-selectors` escape hatch also excuses
         ;; its selectors from the floor: those are pre-computed excuses that
         ;; never went through the matcher, so they are subtracted (set-keyed,
-        ;; as documented) from the matcher's multiset `:unconsumed`. The UNION
-        ;; surfaced as the result's `:consumed-selectors` is unchanged.
+        ;; as documented) from the matcher's multiset `:unconsumed`. The result's
+        ;; `:consumed-selectors` surfaces the UNION of both.
         unconsumed     (cond->> (:unconsumed schema-match)
                          (seq consumed-selectors)
                          (remove #(contains? consumed-selectors (:selector %))))
@@ -1024,9 +1024,9 @@
   A run-level `:error` verdict is the same shape one status up: a
   schema-conforming `{:status :error :assertions []}` (or an `:error` run
   whose assertions carry no `:error` record) MUST project a failing
-  run-level `:error` report. Without it the `cond` fell through to `[]`,
-  `cljs.test`/`clojure.test` tallied zero, and the most SEVERE verdict a run
-  can carry read GREEN — exactly the silent-pass class this ns exists to
+  run-level `:error` report. Without it the `cond` would fall through to
+  `[]`, `cljs.test`/`clojure.test` would tally zero, and the most SEVERE
+  verdict a run can carry would read GREEN — exactly the silent-pass class this ns exists to
   prevent. The gate mirrors `:cannot-run`'s: 'no per-assertion report
   already conveys the error' — `(not-any? #(= :error (:type %))
   per-assertion)` — so an `:error` already surfaced by an assertion record
@@ -1057,8 +1057,8 @@
           ;; A run-level :error (the most SEVERE verdict) not already carried
           ;; by an :error assertion record → emit a failing run-level :error
           ;; report. Without this branch a schema-conforming
-          ;; {:status :error :assertions []} fell through to [] and the test
-          ;; runner tallied zero — a silent GREEN on an errored run (rf2-f13zth).
+          ;; {:status :error :assertions []} would fall through to [] and the
+          ;; test runner would tally zero — a silent GREEN on an errored run.
           (and (= :error status)
                (not-any? #(= :error (:type %)) per-assertion))
           [{:type :error
