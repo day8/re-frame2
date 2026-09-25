@@ -9,19 +9,16 @@
   can still cause. This ns is the guard: every tool the routing rules
   name MUST be registered.
 
-  ## What this ns deliberately no longer guards (rf2-wyza)
+  ## What this ns deliberately does not guard
 
-  It used to also assert the REVERSE — that every registered tool
-  appeared in the prose — because the blob carried a hand-maintained
-  33-entry `## Tool catalogue` that could drift behind the registry.
-  That enumeration is retired, so its drift class is gone with it:
-  there is no longer a per-tool line here to fall out of date. The
-  routing rules name ~20 tools BY DESIGN, not all of them, and a
-  no-omissions assertion over them would forbid exactly the elision
-  that makes the section a routing index rather than a second
-  catalogue.
+  It does not assert the REVERSE — that every registered tool appears
+  in the prose. The instructions carry no per-tool enumeration, so
+  there is no per-tool line to fall out of date. The routing rules name
+  ~20 tools BY DESIGN, not all of them, and a no-omissions assertion
+  over them would forbid exactly the elision that makes the section a
+  routing index rather than a catalogue.
 
-  Nothing lost coverage in the trade. A newly-registered tool is
+  Nothing goes uncovered. A newly-registered tool is
   visible to an agent through `tools/list` (generated from
   `registry/tools`, so it cannot drift) and, on a miss, through the
   dispatcher's `:unknown-tool` hint (which folds `registry/tool-names`
