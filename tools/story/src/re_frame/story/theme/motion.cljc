@@ -7,7 +7,7 @@
   This namespace owns the timing, easing, and choreography that carry
   that motion register.
 
-  This namespace introduces:
+  This namespace carries:
 
   - Timing + easing tokens (`timing`, `easing`).
   - Pre-baked transition strings for the common chrome surfaces
@@ -180,7 +180,7 @@
 @media (prefers-reduced-motion: reduce){
   [data-rf-story-root] *,[data-rf-story-root] *::before,[data-rf-story-root] *::after{animation-duration:0.01ms !important;animation-delay:0ms !important;transition-duration:0.01ms !important;transition-delay:0ms !important}
 }
-/* rf2-ubhmn — Windows High Contrast Mode (forced-colors). Story chrome
+/* Windows High Contrast Mode (forced-colors). Story chrome
    uses inline :background + :color literals (amber focus rings, accent
    borders, status pill grounds). Under HCM the browser strips these to
    system tokens, which can collapse the visual distinction between
@@ -196,8 +196,8 @@
      * Buttons get an explicit 1px ButtonText border so the inline
        amber background → Canvas remap doesn't dissolve the boundary
      * Story-test status pills + dots keep their structural glyphs
-       (✓/✗/⊘) for state discrimination — colour is no longer the
-       primary signal under HCM. */
+       (✓/✗/⊘) for state discrimination — colour is not the primary
+       signal under HCM. */
 @media (forced-colors: active){
   /* Focus ring → Highlight. Drop the amber hex; UA honours system token. */
   [data-rf-story-root] *:focus-visible{outline-color:Highlight}
@@ -239,7 +239,7 @@
      `violations-stylesheet`) carry hex colours per impact level.
      Map them to Mark (system 'highlight' token) so violations stay
      visibly marked under HCM — impact-level differentiation is
-     preserved through outline thickness instead of hue, but Mark
+     carried by outline thickness instead of hue, and Mark
      keeps the overlay distinguishable from a normal focus ring. */
   [data-rf-a11y-violation]{outline-color:Mark}
   [data-rf-a11y-violation=\"critical\"]{outline-width:3px}
@@ -247,14 +247,14 @@
   [data-rf-a11y-violation=\"moderate\"]{outline-width:2px;outline-style:dashed}
   [data-rf-a11y-violation=\"minor\"]{outline-width:1px;outline-style:dotted}
 }
-/* rf2-846h2 — operator-controlled \"Use system colors\" opt-in. The
+/* Operator-controlled \"Use system colors\" opt-in. The
    Chrome A11y panel stamps `data-rf-force-colors=\"active\"` on the
    chrome root (`[data-rf-story-root]`) + `<html>` when the toggle is
    on (see `ui/chrome_a11y.cljs/apply-force-colors-attribute!`). The
    rules below mirror the `@media (forced-colors: active)` block
    above one-for-one so the operator can preview / live in the HCM
-   chrome on demand without flipping the OS-level switch. Additive
-   to the OS detection — both paths produce the same painted chrome.
+   chrome on demand without flipping the OS-level switch. It sits
+   beside the OS detection — both paths produce the same painted chrome.
    The selectors carry the attribute predicate on the root so the
    rules only fire under opt-in. */
 [data-rf-story-root][data-rf-force-colors=\"active\"] *:focus-visible{outline-color:Highlight}
