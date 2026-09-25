@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch-panel
-  "Epoch panel orchestrator (rf2-sc3r1) — registers the composite sub
+  "Epoch panel orchestrator — registers the composite sub
   + the per-row toggle event + the L4 tab entry. The view layer lives
   in `panels.epoch.view`; the pure-data projection lives in
   `panels.epoch.projection`.
@@ -16,12 +16,12 @@
 
   ## Tab placement
 
-  Registered against `:dynamic` mode at order 5 (between Machines (4)
-  and Routing (6)). This panel is the **canonical** \"what happened
+  Registered against `:dynamic` mode at order -1, leftmost of the
+  Dynamic tabs. This panel is the **canonical** \"what happened
   in this epoch?\" surface — it presents the full timeline as a
   delightful numbered event-bundle including the reactive trailing edge
   (SUBSCRIPTIONS + VIEWS). The Reactive tab covers a complementary
-  axis (per-sub recomputation detail across event-bundles) and remains
+  axis (per-sub recomputation detail across event-bundles) and sits
   side-by-side with this panel.
 
   ## Frame integration
@@ -51,11 +51,12 @@
 ;; the INTERCEPTORS + RECORDABLE COEFFECTS steps would silently vanish. See
 ;; spec/API.md §Public registrar query API.
 
-;; ---- authored-interceptor resolver (rf2-se9a9t / EP-0022 §11) -------------
+;; ---- authored-interceptor resolver (EP-0022 §11) --------------------------
 ;;
 ;; The pure projection cannot read the registry; it threads this resolver in
 ;; so the INTERCEPTORS step surfaces an event's AUTHORED interceptor chain
-;; (the clean, non-throwing case the exception-only step never showed).
+;; (including the clean, non-throwing case an exception-only step would not
+;; show).
 ;; Reads `(rf/handler-meta {:source :store :kind :event :id event-id})` for the authored `:interceptors`
 ;; refs and supplies a `resolve-meta-fn` reading `(rf/handler-meta
 ;; :interceptor id)` for each ref's registered descriptor. Fail-soft: any
@@ -77,7 +78,7 @@
          :resolve-meta-fn (fn [icpt-id]
                             (rf/handler-meta {:source :store :kind :interceptor :id icpt-id}))}))))
 
-;; ---- declared-recordable resolver (rf2-n9v5ga / EP-0017 §9) ---------------
+;; ---- declared-recordable resolver (EP-0017 §9) ----------------------------
 ;;
 ;; The RECORDABLE COEFFECTS lens shows the focused handler's DECLARED
 ;; RECORDABLE LEAVES (EP-0017 §9; docs/EP-0017 §661-666; spec/009 §155) —
@@ -117,8 +118,8 @@
         (:recordable? (rf/handler-meta {:source :store :kind :cofx :id cofx-id})))))
 
 (defn resolve-event-recordables
-  "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017 §9,
-  rf2-n9v5ga): the bare cofx ids of `:rf.cofx/requires` whose cofx
+  "Return the focused event's DECLARED RECORDABLE leaf id SET (EP-0017
+  §9): the bare cofx ids of `:rf.cofx/requires` whose cofx
   registration is recordable-grade. nil when the event is unregistered or
   declares no recordable requirements — the projection then falls back to
   its documented show-all behaviour. The RECORDABLE COEFFECTS lens uses this
@@ -137,7 +138,7 @@
           (when (seq recordables)
             recordables))))))
 
-;; ---- render-side egress for the record's db snapshots (rf2-y8doi.19) -----
+;; ---- render-side egress for the record's db snapshots --------------------
 ;;
 ;; THE EPOCH RECORD'S `:db-before` / `:db-after` ARE RAW APP-DB. The
 ;; framework stamps them straight off the frame — `router-transducer`'s
@@ -145,14 +146,14 @@
 ;; way, and the HANDLER step's `:db` sub-section hands BOTH to the shared
 ;; edn-inspector (`view/handler-db-diff-block`: `:value` the post-handler
 ;; db, `:before` the record's `:db-before`). Nothing between the two
-;; applied the observed frame's `:sensitive` policy, so this panel
-;; printed the WHOLE app-db — declared-sensitive slots included — for a
-;; record the App-DB tab redacts.
+;; applies the observed frame's `:sensitive` policy, so without this seam
+;; the panel would print the WHOLE app-db — declared-sensitive slots
+;; included — for a record the App-DB tab redacts.
 ;;
-;; It is the same gap rf2-y8doi.14 closed for the Trace panel, through
+;; The Trace panel closes the same gap through
 ;; the same seam (`local-render/local-render-value`, the projection the
-;; App-DB tab applies), and WIDER: the Trace panel leaked the CHANGED
-;; PATHS of a diff, this one the whole tree.
+;; App-DB tab applies); here it is WIDER: the Trace panel's exposure is
+;; the CHANGED PATHS of a diff, this one's the whole tree.
 ;;
 ;; The upstream `epoch/redact-history` ingest gate does NOT make this
 ;; redundant. That gate drops a record whole on its stamped
@@ -167,9 +168,9 @@
 ;; are projected, so a declared-sensitive leaf that CHANGED reads as
 ;; unchanged — both sides are the same `:rf/redacted` sentinel. The path
 ;; and its withheld-ness stay on screen (the inspector paints the
-;; sentinel as a first-class chip), so nothing VANISHES — which was the
-;; failure rf2-y8doi.14 met and had to engineer around, where the rows
-;; were derived FROM the diff and disappeared with it. Keeping the
+;; sentinel as a first-class chip), so nothing VANISHES — the failure the
+;; Trace panel has to engineer around, where rows derived FROM the diff
+;; would disappear with it. Keeping the
 ;; change-signal here would mean a second sentinel meaning "changed but
 ;; withheld", i.e. new vocabulary in the shared inspector, which is
 ;; outside this panel and more machinery than the residual is worth.
@@ -202,22 +203,19 @@
 ;; Re-export the view-side `Panel` so the spine + panel-registry
 ;; resolve a single name.
 ;;
-;; rf2-k97c.3 — `Panel` is now a FRESCO BOUNDARY (a React function
-;; component), not an `rf/reg-view`, so this name is no longer callable
-;; and no longer what anything MOUNTS. It is kept because it is still the
+;; `Panel` is a FRESCO BOUNDARY (a React function
+;; component), not an `rf/reg-view`, so this name is not callable
+;; and not what anything MOUNTS. It exists because it is the
 ;; canonical name for the panel's root view, which prose and the shell's
 ;; routing table refer to; everything that mounts goes through
 ;; `Panel-bridge` below.
 (def Panel view/Panel)
 
-;; rf2-k97c.3 — the same re-export for the migration bridge name, which is
+;; The same re-export for the bridge name, which is
 ;; what `panels/mount-epoch-panel!` AND the L4 tab registration below both
-;; mount through. This line predates the migration and needed no change
-;; when it landed: it is a `def` of whatever `view/Panel-bridge` is, which
-;; was a plain alias of the `reg-view` and is now the real
-;; `rf.fresco/as-component` bridge. That is the whole point of the bridge
-;; name — the migration stayed inside `panels/epoch/view.cljs` and this
-;; file's one registration line, and `panels.cljs` was never touched.
+;; mount through. It is a `def` of whatever `view/Panel-bridge` is — the
+;; `rf.fresco/as-component` bridge — so the view's substrate stays inside
+;; `panels/epoch/view.cljs` and callers name only the bridge.
 (def Panel-bridge view/Panel-bridge)
 
 ;; ---- registration --------------------------------------------------------
