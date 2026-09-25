@@ -59,9 +59,9 @@
    ;; Mirror `:rf/route-destination` (spec/Spec-Schemas.md) EXACTLY — it is what
    ;; lands here, verbatim, off the `:rf.route/entry-denied` payload. The address
    ;; branch is MINIMAL (`{:to id}` plus only the non-empty of params / query /
-   ;; fragment), so demanding all four keys made a bare `/settings` denial fail
-   ;; validation and roll the stash back; and the raw `{:url …}` escape has to be
-   ;; storable too (rf2-k85nd). The twin in realworld_http/schema.cljs is identical.
+   ;; fragment), so demanding all four keys would make a bare `/settings` denial
+   ;; fail validation and roll the stash back; and the raw `{:url …}` escape has
+   ;; to be storable too. The twin in realworld_http/schema.cljs is identical.
    [:return-to {:optional true}
     [:or
      [:map {:closed true}
