@@ -1,10 +1,10 @@
 (ns re-frame.story.registrar
   "Story's registration side-table.
 
-  Per `001-Authoring.md` §Registration macros + the no-new-registries discipline (AGENTS.md
-  `downstream-EPs-consume-foundation`), Story does not add new kinds to
-  `re-frame.registrar`'s closed kind-set (which is locked at the
-  spec/001 v1 closed list). Instead, Story owns a **side-table** keyed
+  Per `001-Authoring.md` §Registration macros, Story does not add new
+  kinds to `re-frame.registrar`'s closed kind-set (which is locked at the
+  spec/001 v1 closed list): a tool builds on the framework's registries
+  rather than adding to them. Instead, Story owns a **side-table** keyed
   by Story kind, living inside the `tools/story/` artefact and never
   reaching a production bundle (via the §6 elision contract).
 
