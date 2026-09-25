@@ -4,12 +4,11 @@
 The disposition, whose source of record is
 `docs/EP/EP-0030-the-compiled-view-substrate-program.md` §Resolved Decisions:
 
-  * `re-frame.ui` is a **new, EXPERIMENTAL** view substrate offered **alongside**
-    the existing adapters — not a mandated replacement, not the default, and not
-    the only taught view layer.
   * **Stock Reagent, reagent-slim, and UIx live on as first-class, actively-
     supported adapters** — not frozen, not scheduled for removal.
-  * **Only Helix is removed**, behind the S7 soak gates.
+  * **Only Helix is removed.**
+  * `re-frame.ui` is retired and removed from the tree, so nothing replaces,
+    outranks or defaults ahead of the adapters.
 
 The superseded shape ("frozen compatibility adapters" / "reagent-slim removed" /
 "only taught view layer") reads as an instruction to remove or downgrade a
@@ -26,9 +25,8 @@ lifecycle/technical realizations, is out of scope by construction.
 TWO CLASSES of superseded shape are matched. The first asserts an adapter STATUS
 ("frozen compatibility adapters", "reagent-slim is deleted"). The second
 asserts an OPERATIONAL INSTRUCTION that only makes sense under that
-status — deleting an example, template, or CI surface belonging to a RETAINED
-adapter ("`substrates/` deletion", "template collapse", "three named causal
-suites"). The second class is the dangerous one precisely because it can name no
+status — deleting an example or template belonging to a RETAINED adapter
+("`substrates/` deletion", "template collapse"). The second class is the dangerous one precisely because it can name no
 adapter at all, so a status-only guard reads green while a dispatchable
 instruction still sends a worker to remove first-class coverage.
 
@@ -121,11 +119,13 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"only[- ]taught\s+(?:view\s+)?layer|only\s+taught\s+(?:view\s+)?layer", re.I),
-        "`re-frame.ui` is experimental and is NOT the only taught view layer",
+        "no view layer is the only taught one — Reagent, reagent-slim, and UIx "
+        "are first-class",
     ),
     (
         re.compile(r"(?:slated\s+to\s+replace|replaces?)\s+the\s+adapter\s+trio", re.I),
-        "`re-frame.ui` replaces nothing — it is offered alongside the adapters",
+        "nothing replaces the adapters — Reagent, reagent-slim, and UIx are "
+        "first-class",
     ),
     (
         re.compile(
@@ -146,15 +146,15 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(r"defaults?\s+to\s+`?re-frame\.ui`?", re.I),
-        "`re-frame.ui` is experimental and is not the default view layer",
+        "`re-frame.ui` is retired and removed, so it is not the default view layer",
     ),
     # --- Superseded OPERATIONAL instructions ---------------------------------
     # Every pattern above matches an assertion about an adapter's STATUS. These
     # match an ACTION that only makes sense under the superseded status: deleting
-    # an example, template, or CI surface that belongs to a RETAINED adapter.
-    # A status-only guard reads this class green — a stale dispatchable
-    # instruction can name no adapter at all ("template collapse", "three named
-    # causal suites") and still send a worker to remove first-class coverage.
+    # an example or template that belongs to a RETAINED adapter. A status-only
+    # guard reads this class green — a stale dispatchable instruction can name
+    # no adapter at all ("template collapse") and still send a worker to remove
+    # first-class coverage.
     (
         re.compile(
             r"`?substrates/`?\s+delet(?:ion|ed)"
@@ -165,11 +165,6 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         "Reagent, reagent-slim, and UIx keep their example coverage (W4)",
     ),
     (
-        re.compile(r"three\s+named\s+causal\s+suites", re.I),
-        "the W9 end state is FOUR named causal suites — the new-UI conformance "
-        "suite plus the Reagent, reagent-slim, and UIx adapter suites",
-    ),
-    (
         re.compile(
             r"(?:three\s+)?substrate\s+variants?\s+collapse"
             r"|collaps\w*\s+(?:the\s+)?(?:three\s+)?substrate\s+variants?"
@@ -177,9 +172,9 @@ SUPERSEDED_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
             r"|template\s+collapse",
             re.I,
         ),
-        "collapsing the template to a single `re-frame.ui` scaffold would drop the "
-        "retained Reagent and UIx boot choices; the template's variant menu is a "
-        "product choice reserved to Mike and is not prescribed by W8/W12",
+        "collapsing the template's substrate variants would drop the retained "
+        "Reagent and UIx boot choices; the template's variant menu is a product "
+        "choice reserved to Mike",
     ),
 )
 
@@ -211,10 +206,6 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 # --- EP-0030 positive assertions ---------------------------------------------
 EP0030_REQUIRED: tuple[tuple[re.Pattern[str], str], ...] = (
-    (
-        re.compile(r"experimental", re.I),
-        "EP-0030 must state that `re-frame.ui` is EXPERIMENTAL",
-    ),
     (
         re.compile(r"first-class", re.I),
         "EP-0030 must state that the retained adapters are FIRST-CLASS",
@@ -408,9 +399,9 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=False, label="B1 current ruling is clean",
     )
     expect(
-        "`re-frame.ui` ships as a new, experimental view substrate offered alongside "
-        "the existing adapters.",
-        dirty=False, label="B2 experimental framing is clean",
+        "`re-frame.ui` is retired and removed; Reagent, UIx, and reagent-slim are "
+        "the shipped adapters.",
+        dirty=False, label="B2 re-frame.ui's retirement is clean",
     )
     expect(
         "The commit-owned two-pass realization is the React adapters' standing "
@@ -442,7 +433,7 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=False, label="C5 HTML comment is inactive text",
     )
     expect(
-        "`re-frame.ui` is an additional option, **not** a mandated replacement and\n"
+        "A new view layer is an additional option, **not** a mandated replacement and\n"
         "**not** the\nonly taught view layer: Reagent, UIx, and reagent-slim live on.",
         dirty=False, label="C6 bolded negation wrapped across lines exempts",
     )
@@ -462,10 +453,6 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=True, label="E2 deleting substrates/ (verb-first)",
     )
     expect(
-        "the CI rewrite ending at three named causal suites (W9)",
-        dirty=True, label="E3 three named causal suites",
-    )
-    expect(
         "| W8 | **Template** | Three substrate variants collapse to one "
         "`re-frame.ui` scaffold; feeds the deiym split gates. | Stage 6 |",
         dirty=True, label="E4 template variants collapse to one ui scaffold",
@@ -478,17 +465,11 @@ def _run_self_tests(*, verbose: bool = False) -> int:
 
     # The current instructions must NOT trip.
     expect(
-        "examples gain `re-frame.ui` variants while `substrates/` is retained "
-        "minus its Helix arm (W4)",
+        "`substrates/` is retained minus its Helix arm",
         dirty=False, label="F1 retained substrates/ wording is clean",
     )
     expect(
-        "the end state has four named causal suites: the new-UI conformance suite "
-        "and the Reagent, reagent-slim, and UIx adapter suites",
-        dirty=False, label="F2 four named causal suites is clean",
-    )
-    expect(
-        "| W8 | **Template** | The template gains a `re-frame.ui` scaffold and "
+        "| W8 | **Template** | The template keeps its Reagent and UIx variants and "
         "drops its Helix variant. | Stage 6 |",
         dirty=False, label="F3 corrected W8 row is clean",
     )
@@ -521,9 +502,11 @@ def _run_self_tests(*, verbose: bool = False) -> int:
     )
 
     # EP-0030 positive assertions.
+    # The disposition as it stands, and nothing about `re-frame.ui`: the
+    # source of record is complete without teaching the retired substrate.
     good_ep = (
-        "`re-frame.ui` ships as a new, experimental substrate. Reagent, UIx, and "
-        "reagent-slim live on as first-class adapters; only Helix is removed."
+        "Reagent, UIx, and reagent-slim live on as first-class adapters; only "
+        "Helix is removed."
     )
     if ep0030_problems(good_ep):
         failures += 1
@@ -532,7 +515,6 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         sys.stderr.write("self-test ok [D1 complete EP-0030 text]\n")
 
     for token, label in (
-        ("experimental", "D2 experimental removed"),
         ("first-class", "D3 first-class removed"),
         ("only Helix is removed", "D4 only-Helix clause removed"),
         ("reagent-slim", "D5 reagent-slim removed"),

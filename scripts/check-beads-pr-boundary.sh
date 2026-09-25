@@ -3,7 +3,7 @@
 #
 # CI arm of the STALE WORKER-SNAPSHOT guard. Fails a pull
 # request whose diff carries the beads DATABASE — the artefact `bd`
-# auto-stages in every checkout and that a worker branch must never ship.
+# exports, which every checkout carries and a worker branch must never ship.
 # See scripts/git-hooks/lib/check-beads-boundary.sh for the diagnosis; this
 # script only chooses WHAT to classify. Both sides share one classifier so
 # the local hook and the CI gate can never drift apart.

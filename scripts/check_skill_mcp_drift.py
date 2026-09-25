@@ -595,13 +595,14 @@ def _allow_pattern(required: str) -> re.Pattern[str]:
 
 
 BASH_RULES: list[BashRule] = [
-    # re-frame-migration cardinal rule 7 instructs the agent to
-    # file GitHub issues against day8/re-frame2; allow-list must permit
-    # the create surface. `gh issue list` and `gh issue view` are
-    # adjacent read-only surfaces the skill body also leans on; we gate on
-    # the destructive `create` because that's the rule-7 surface.
+    # re-frame-migration's filing recipe (references/issue-filing.md, routed
+    # from SKILL.md's Recipes line) instructs the agent to file GitHub issues
+    # against day8/re-frame2; allow-list must permit the create surface.
+    # `gh issue list` and `gh issue view` are adjacent read-only surfaces the
+    # recipe also leans on; we gate on the destructive `create`.
     BashRule(
         skill_md=REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",
+        body_md=REPO_ROOT / "skills" / "re-frame-migration" / "references" / "issue-filing.md",
         # Matches both the literal command and the natural-language
         # instruction shape (cardinal rules typically read "File a GitHub
         # issue against …" rather than spelling out `gh issue create`).
@@ -610,27 +611,29 @@ BASH_RULES: list[BashRule] = [
             re.IGNORECASE,
         ),
         required_allow="gh issue *",
-        description="re-frame-migration body instructs the agent to file GitHub issues; allow-list must permit Bash(gh issue *)",
+        description="re-frame-migration issue-filing.md instructs the agent to file GitHub issues; SKILL.md allow-list must permit Bash(gh issue *)",
     ),
     # The migration-corpus pin check (cardinal rule 5 +
     # references/setup.md §Pin the migration corpus) is a load-bearing,
-    # read-only provenance step the skill runs ITSELF. SKILL.md cardinal
-    # rule 5 spells out the two `git -C <path> rev-parse` / `remote
-    # get-url` commands; the allow-list must permit them, or the skill
-    # presents a provenance check it cannot run (the defect this rule
-    # catches). Scoped narrowly to the two read-only sub-surfaces — the
-    # build/test/install boundary (cardinal rule 5) stays the author's.
+    # read-only provenance step the skill runs ITSELF. setup.md spells out
+    # the two `git -C <path> rev-parse` / `remote get-url` commands; the
+    # allow-list must permit them, or the skill presents a provenance check
+    # it cannot run (the defect this rule catches). Scoped narrowly to the
+    # two read-only sub-surfaces — the build/test/install boundary (cardinal
+    # rule 5) stays the author's.
     BashRule(
         skill_md=REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",
+        body_md=REPO_ROOT / "skills" / "re-frame-migration" / "references" / "setup.md",
         body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\brev-parse\b", re.IGNORECASE),
         required_allow="git -C * rev-parse *",
-        description="re-frame-migration body runs the corpus-pin `git -C … rev-parse` provenance check; allow-list must permit Bash(git -C * rev-parse *)",
+        description="re-frame-migration setup.md runs the corpus-pin `git -C … rev-parse` provenance check; SKILL.md allow-list must permit Bash(git -C * rev-parse *)",
     ),
     BashRule(
         skill_md=REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",
+        body_md=REPO_ROOT / "skills" / "re-frame-migration" / "references" / "setup.md",
         body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\bremote\s+get-url\b", re.IGNORECASE),
         required_allow="git -C * remote get-url *",
-        description="re-frame-migration body runs the corpus-pin `git -C … remote get-url` provenance check; allow-list must permit Bash(git -C * remote get-url *)",
+        description="re-frame-migration setup.md runs the corpus-pin `git -C … remote get-url` provenance check; SKILL.md allow-list must permit Bash(git -C * remote get-url *)",
     ),
     # re-frame2-implementor cardinal rules 8–9 instruct the agent
     # to file GitHub issues against day8/re-frame2 for spec gaps; SKILL.md
@@ -652,11 +655,12 @@ BASH_RULES: list[BashRule] = [
     # checkout with `git -C <path-to-re-frame2> rev-parse HEAD` /
     # `remote get-url origin` BEFORE reading the spec — a load-bearing,
     # read-only provenance step the skill runs ITSELF (the same shape the
-    # migration rules above guard). Unlike migration, the implementor states
-    # the commands in references/cardinal-rules.md (§1) rather than SKILL.md,
-    # so `body_md` points the body scan at that leaf while the allow-list is
-    # read from SKILL.md's frontmatter. Scoped narrowly to the two
-    # read-only sub-surfaces; commits + the port's own build/test runner stay
+    # migration rules above guard). Like migration, the implementor states
+    # the commands in a reference leaf (references/cardinal-rules.md §1)
+    # rather than SKILL.md, so `body_md` points the body scan at that leaf
+    # while the allow-list is read from SKILL.md's frontmatter. Scoped
+    # narrowly to the two read-only sub-surfaces; commits + the port's own
+    # build/test runner stay
     # engineer-owned (per references/output-format.md §Discipline — they vary
     # per host and run under the engineer's session permissions, not the
     # skill's baseline allow-list).
