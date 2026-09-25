@@ -86,7 +86,7 @@ test('the fixtures are not accidentally ASCII — the escapes survived the file'
   assert.strictEqual(Buffer.byteLength(CLEF, 'utf8'), 4, 'four UTF-8 bytes');
 });
 
-test('every non-ASCII case gives a DIFFERENT answer under a code-unit count', () => {
+test('every non-ASCII case would give a DIFFERENT answer under the old code', () => {
   const discriminating = CASES.filter((c) => c.units !== c.bytes);
   assert.strictEqual(
     discriminating.length,
@@ -174,7 +174,7 @@ test('the bake CHECKS each column against the file it just wrote, and refuses', 
 
 // --- the fence: the digest rows are correct and must stay correct ----------
 
-test('sha256 hashes with an explicit utf8 encoding', () => {
+test('sha256 still hashes with an explicit utf8 encoding — untouched by this repair', () => {
   assert.match(SRC, /crypto\.createHash\('sha256'\)\.update\(s, 'utf8'\)\.digest\('hex'\)/);
   // The digest is a function of BYTES, so it is right by construction; the
   // pin is here so a future "make it consistent" pass cannot take it with them.
