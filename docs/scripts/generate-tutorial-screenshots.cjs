@@ -8,12 +8,14 @@
  * `generate-story-tutorial-screenshots.cjs`.
  *
  * Pipeline:
- *   1. The orchestrator at implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs
- *      builds + serves every example bundle on http://127.0.0.1:8040
- *      (its default port; override with EXAMPLES_PORT, and point this
- *      script at the same port via SCREENSHOT_BASE_URL).
- *      We assume the same orchestrator has already been run (or we invoke
- *      `npm run test:adapter-smokes -- --serve-only` in a future iteration).
+ *   1. The counter example (`:examples/counter`, which carries the Xray
+ *      preload) is already served by the standalone-example runner
+ *      (examples/scripts/serve-example.cjs, `npm run dev:example`). It
+ *      serves the example at the ROOT of http://127.0.0.1:8050, the
+ *      examples port resolver's default (examples/scripts/examples-port.cjs,
+ *      which this script reads). When 8050 is busy, or EXAMPLES_PORT picks
+ *      another port, the runner prints the URL it serves on; point this
+ *      script at it via SCREENSHOT_BASE_URL.
  *   2. For each declared scene, we navigate to the testbed URL, drive
  *      the UI into the target state, then call page.screenshot.
  *   3. ANNOTATIONS are data-driven. The companion file
@@ -32,10 +34,11 @@
  *
  * How to run (from repo root):
  *
- *   # one-time, builds the example bundles and serves them on :8040
- *   cd implementation && npm run test:adapter-smokes:serve-only &
+ *   # terminal A: compile the counter example once, then keep serving it on
+ *   # :8050 until Ctrl+C
+ *   cd implementation && npm run dev:example -- examples/counter --no-watch
  *
- *   # then, from repo root:
+ *   # terminal B, from repo root, once terminal A prints "is live at":
  *   node docs/scripts/generate-tutorial-screenshots.cjs
  *
  * Outputs:
@@ -59,8 +62,9 @@ const OUT_XRAY = path.join(REPO_ROOT, 'docs', 'images', 'xray');
 const ANNOTATION_SPEC = path.join(__dirname, 'tutorial-annotation-spec.json');
 
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
+const { DEFAULT_PORT } = require(path.join(REPO_ROOT, 'examples', 'scripts', 'examples-port.cjs'));
 
-const BASE_URL = process.env.SCREENSHOT_BASE_URL || 'http://127.0.0.1:8040';
+const BASE_URL = process.env.SCREENSHOT_BASE_URL || `http://127.0.0.1:${DEFAULT_PORT}`;
 const VIEWPORT = { width: 1280, height: 800 };
 
 // ---------------------------------------------------------------------------
@@ -153,7 +157,9 @@ async function resolveRegion(page, region) {
 
 // In-page annotation overlay. SVG-based — crisp anti-aliased strokes,
 // drop-shadowed labels. Single root that's torn down after each shot.
-function inPageAnnotateSvg(regions, viewport) {
+// Takes one `[regions, viewport]` array because `page.evaluate` passes a
+// single argument.
+function inPageAnnotateSvg([regions, viewport]) {
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const root = document.createElementNS(SVG_NS, 'svg');
   root.id = '__rf2-tutorial-annotations';
@@ -329,7 +335,7 @@ async function navXray(page, panelId) {
 SCENES.push({
   id: 'xray-floating-pill',
   out: path.join(OUT_XRAY, '01-floating-pill.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     // Click the counter once so the trace bus has a settled epoch — the
@@ -342,7 +348,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-shell-opened',
   out: path.join(OUT_XRAY, '02-shell-opened.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
@@ -355,7 +361,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-sidebar-panels',
   out: path.join(OUT_XRAY, '02-sidebar-panels.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await openXray(page);
@@ -365,7 +371,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-event-detail',
   out: path.join(OUT_XRAY, '02-event-detail.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
@@ -378,7 +384,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-time-travel',
   out: path.join(OUT_XRAY, '03-time-travel.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     // Drive a few events so the time-travel scrubber has history.
@@ -394,7 +400,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-trace',
   out: path.join(OUT_XRAY, '04-trace.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
@@ -408,7 +414,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-app-db-diff',
   out: path.join(OUT_XRAY, '09-app-db-diff.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
@@ -420,7 +426,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-machines',
   out: path.join(OUT_XRAY, '08-machines.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await openXray(page);
@@ -431,7 +437,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-click-to-source-dom-attribute',
   out: path.join(OUT_XRAY, '05-dom-attribute.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     // Highlight the data-rf2-source-coord attribute by adding a visual
@@ -451,7 +457,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-copilot-rail',
   out: path.join(OUT_XRAY, '10-copilot-rail.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: '+' }).click();
@@ -470,7 +476,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-schemas-empty',
   out: path.join(OUT_XRAY, '06-schema-timeline.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     // The counter example registers no schemas — the panel renders its
     // empty-state. The screenshot still illustrates the panel chrome;
@@ -485,7 +491,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-hydration-empty',
   out: path.join(OUT_XRAY, '07-hydration.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     // Counter is SPA-only — the hydration panel renders its
     // empty-state (no SSR detected). Same rationale as schemas: the
@@ -500,7 +506,7 @@ SCENES.push({
 SCENES.push({
   id: 'xray-app-db-modes',
   out: path.join(OUT_XRAY, '09-app-db-modes.png'),
-  url: '/counter/',
+  url: '/',
   before: async (page) => {
     await page.locator('span').first().waitFor({ state: 'visible' });
     // Multiple dispatches so the diff panel has several slices to
@@ -545,10 +551,10 @@ async function probeBaseUrl() {
 
   if (!(await probeBaseUrl())) {
     console.error(`Static server not reachable at ${BASE_URL}.`);
-    console.error('Run the example orchestrator first:');
-    console.error('  cd implementation && npm run test:adapter-smokes');
-    console.error('— or — start a long-running server with:');
-    console.error('  cd implementation && SCREENSHOT_SERVE_ONLY=1 npm run test:adapter-smokes');
+    console.error('Serve the counter example first, in another terminal (it keeps serving until Ctrl+C):');
+    console.error('  cd implementation && npm run dev:example -- examples/counter --no-watch');
+    console.error('If it prints a URL other than the one above, re-run this script with');
+    console.error('SCREENSHOT_BASE_URL set to that URL.');
     process.exit(2);
   }
 
@@ -574,7 +580,7 @@ async function probeBaseUrl() {
         if (r) resolved.push(r);
       }
       if (resolved.length > 0) {
-        await page.evaluate(inPageAnnotateSvg, resolved, VIEWPORT);
+        await page.evaluate(inPageAnnotateSvg, [resolved, VIEWPORT]);
       }
 
       ensureDir(path.dirname(scene.out));
