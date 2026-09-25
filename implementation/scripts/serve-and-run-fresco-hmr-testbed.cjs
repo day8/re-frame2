@@ -3,17 +3,15 @@
 
 /*
  * THE FRESCO HMR GATE — the contract witnessed through a REAL shadow
- * reload, in three engines (rf2-vsgq, closing the browser half of
- * rf2-hic-015).
+ * reload, in three engines.
  *
  *   node implementation/scripts/serve-and-run-fresco-hmr-testbed.cjs
  *   npm run test:fresco-hmr                 (from implementation/)
  *
  * ## Why this one runs `watch` when every other browser gate runs `compile`
  *
- * Because the reload IS the thing under test. The #7755 audit on
- * rf2-hic-015 accepted that bead's Node suites and named exactly what they
- * cannot reach: they call `collector/mint-view!` directly and drive the
+ * Because the reload IS the thing under test. The HMR Node suites cannot
+ * reach it: they call `collector/mint-view!` directly and drive the
  * commit and release seams by hand, so they can neither catch drift
  * between the `defview` macro and a real shadow reload, nor catch a
  * renderer that fails to run old-generation cleanup on a type replacement.
@@ -60,22 +58,21 @@
  * `:welcome` has come back. The app's mount is on a different clock
  * entirely: the devtools client only STARTS the connect, and then the
  * module's `:init-fn` runs and paints in the same task. So gating the
- * first save on the mount alone left one unprotected moment — GEN-1, on
- * whichever engine goes first — in which the recompile could land while
- * the handshake was still in flight, be pushed to nobody, and leave the
+ * first save on the mount alone would leave one unprotected moment — GEN-1,
+ * on whichever engine goes first — in which the recompile could land while
+ * the handshake is still in flight, be pushed to nobody, and leave the
  * wait to run out its ceiling underneath a perfectly healthy watch log
- * (rf2-odh3; twice in CI, chromium both times, chromium being the engine
- * that goes first and so pays for every cold path on the relay's accept
- * side). The harness makes exactly ONE save per generation, so there is
- * no second compile to rescue a push that went nowhere.
+ * (chromium goes first, and so pays for every cold path on the relay's
+ * accept side). The harness makes exactly ONE save per generation, so there
+ * is no second compile to rescue a push that went nowhere.
  *
  * The answer is a positive signal, not more time. Immediately after
  * `:hello` the client asks the relay which client is the worker for this
  * build; the relay handles one client's messages in order, and it
  * notifies the worker WHILE handling `:hello`. So that query's reply,
  * arriving back at the page, is proof the worker has already been told.
- * `driveEngine` waits for it before the first save. The save ceiling is
- * untouched, and on the failing interleaving the run now gets SHORTER,
+ * `driveEngine` waits for it before the first save. No ceiling is raised
+ * for it, and on the failing interleaving the run gets SHORTER,
  * because the save lands instead of timing out.
  *
  * ## Whose server answered
@@ -86,7 +83,7 @@
  * `BindException`, but the gate's HTTP probe answers 200 either way, and
  * every witness below would then be measuring somebody else's bundle
  * against this tree's saves. That produces the IDENTICAL red as the race
- * above, from an entirely different cause, which is how it was found.
+ * above, from an entirely different cause.
  * `waitForBuild` therefore checks that the bytes the server hands back
  * are the bytes this watch just wrote.
  *
@@ -107,17 +104,17 @@
  * run closes with. The two verdicts are separate strings, `FRESCO HMR
  * PASS` and `FRESCO HMR PARTIAL PASS`, neither a substring of the other,
  * so no skim of a log and no grep for the full-matrix verdict can mistake
- * one for the other (rf2-l92i).
+ * one for the other.
  *
  * The token means the PINNED MATRIX RAN, not merely that some comparison
  * happened, and those come apart in the middle: a two-engine run compares
  * perfectly well and still leaves an engine unrun. So the verdict's
  * discriminator is `ranFullMatrix` and the comparator's floor is
  * `comparedAcrossEngines` — one question each, because one predicate
- * answering both is how a two-engine run came to print the full token
+ * answering both would let a two-engine run print the full token
  * while WebKit never started.
  *
- * The three timeout ceilings are knobs of the same kind (rf2-qzm8).
+ * The three timeout ceilings are knobs of the same kind.
  * `FRESCO_HMR_BUILD_TIMEOUT_MS`, `FRESCO_HMR_SAVE_TIMEOUT_MS` and
  * `FRESCO_HMR_SPEC_TIMEOUT_MS` stay tunable — a slow box is real — but no
  * override passes in silence: every non-default value is announced up
@@ -134,7 +131,7 @@
  *
  * ## Coverage — what is witnessed here, and what is not
  *
- * The audit's list, and where each clause is proven:
+ * The contract's clauses, and where each is proven:
  *
  * | clause | section | what makes it visible |
  * |---|---|---|
@@ -147,7 +144,7 @@
  * | zero stale-generation registrations | `zero-stale-registrations` | reader counts AND `identical?` against the pre-save registrations |
  * | the lost-cleanup sabotage turns red | `lost-cleanup-sabotage` | React's unsubscribe swallowed at the renderer seam |
  *
- * Two more arrived with rf2-y5x6j and rf2-iq0a, and they are one fixture:
+ * Two more sections cover the `React.lazy` bridge, and they are one fixture:
  *
  * | clause | section | what makes it visible |
  * |---|---|---|
@@ -165,8 +162,9 @@
  *   shadow but not the browser's own composition range.
  * - **Selection as a RANGE across a save.** A remount destroys the node,
  *   so there is no selection to preserve and nothing to measure beyond
- *   the caret's loss; rf2-hic-016 owns range conduct across an
- *   out-of-band write, where the node survives.
+ *   the caret's loss; the controlled-input gate
+ *   (`serve-and-run-fresco-controlled-testbed.cjs`) owns range conduct
+ *   across an out-of-band write, where the node survives.
  * - **A reload that changes a `reg-sub`'s BODY.** The two-phase repair
  *   that produces — the held reaction dropped synchronously and rebuilt a
  *   macrotask later — is `hmr_registry_cljs_test`'s, measured at the
@@ -205,14 +203,14 @@ const HOT_LINE_RE = /"([A-Za-z0-9-]+)"\)(\s*);; rf2-vsgq:HOT-LINE/;
 
 // The three ceilings a run may override from the environment, held in ONE
 // table so the values the run enforces and the disclosure it prints cannot
-// drift apart (rf2-qzm8). Raising one SOFTENS the gate — a wider window can
-// admit a pass the contract's window would have refused, which is the
-// flake-hiding move rf2-odh3's bead forbids in prose — and before this
-// table a raised ceiling left no trace in the log at all, so a run that
-// passed only because someone widened a threshold read identically to one
-// that passed on merit. Now every non-default value is announced up front
-// in `main`, in the same register as the FRESCO_HMR_ENGINES narrowing
-// banner, and a raised one costs the run its full verdict in `verdictLine`.
+// drift apart. Raising one SOFTENS the gate — a wider window can
+// admit a pass the contract's window would have refused, which is a
+// flake-hiding move — and a raised ceiling that left no trace in the log
+// would make a run that passed only because someone widened a threshold
+// read identically to one that passed on merit. So every non-default value
+// is announced up front in `main`, in the same register as the
+// FRESCO_HMR_ENGINES narrowing banner, and a raised one costs the run its
+// full verdict in `verdictLine`.
 const TIMEOUT_DEFAULTS = {
   FRESCO_HMR_BUILD_TIMEOUT_MS: 300000,
   FRESCO_HMR_SAVE_TIMEOUT_MS: 90000,
@@ -251,8 +249,8 @@ const NAV_TIMEOUT_MS = 60000;
 // so a long wait here only delays a red.
 const MOUNT_TIMEOUT_MS = 60000;
 // The devtools handshake, waited out BEFORE the first save rather than
-// after it (rf2-odh3). Not a save budget and deliberately not spelled as
-// one: a slow handshake now SHORTENS the failing path, because the save
+// after it. Not a save budget and deliberately not spelled as
+// one: a slow handshake SHORTENS the failing path, because the save
 // that follows lands instead of being pushed to nobody. Same reasoning as
 // the mount ceiling — the compile is already done, so a generous ceiling
 // here only delays a red that is certain either way. Not env-tunable,
@@ -276,8 +274,8 @@ const REGISTER_DELAY_MS = parseInt(
 // that failed to load). Left unfiltered, a connect notice arriving during
 // mount would fail the gate for nothing.
 //
-// The alternative was to de-namespace the build id, and it was tried and
-// reverted: `dev-testbed.test.cjs`'s drift guard recovers a build def with
+// The alternative, de-namespacing the build id, does not work:
+// `dev-testbed.test.cjs`'s drift guard recovers a build def with
 // `/(:[a-zA-Z][\w.-]*\/[\w.-]+)\s*\{/`, and that slash is what stops the
 // pattern from matching `:modules {`, `:devtools {` and `:dev-http {`. A
 // build id without one is invisible to the guard, so every :dev-http build
@@ -297,18 +295,18 @@ const ENGINES = ONLY
 // find, and below that it correctly returns nothing. What would NOT be
 // correct is for the run to then close with the line a full run prints: a
 // PASS meaning "three engines ran and agreed" and a PASS meaning "one
-// engine ran and the comparator never ran" must not be the same words
-// (rf2-l92i). Neither token is a substring of the other, so a grep for the
+// engine ran and the comparator never ran" must not be the same words.
+// Neither token is a substring of the other, so a grep for the
 // full-matrix verdict cannot be answered by a narrowed run.
 //
 // Nor by a PARTLY narrowed one, which is the harder half. Two engines DO
-// get compared, so the comparator floor is met and the first cut of this
-// fix let `chromium,firefox` close with the full token — a fail-open that
-// survived precisely at the point PR bodies quote, with WebKit unrun. The
+// get compared, so the comparator floor is met, and a verdict keyed to that
+// floor would let `chromium,firefox` close with the full token — a
+// fail-open at precisely the point PR bodies quote, with WebKit unrun. The
 // full token is spent on the full matrix; every other engine set, compared
 // or not, closes with the narrowed one and says which engines are missing.
 //
-// A raised timeout ceiling (rf2-qzm8) closes with the same narrowed token:
+// A raised timeout ceiling closes with the same narrowed token:
 // both are runs that proved less than the contract, and the sentence after
 // the token names the knob either way, so the reader knows which to unset.
 //
@@ -479,11 +477,11 @@ async function waitForRegistration(census, engine, deadline) {
 /**
  * PROOF INSTRUMENT (`FRESCO_HMR_REGISTER_DELAY_MS`, default 0 = off).
  *
- * Forces the interleaving rf2-odh3 is about, by letting the app mount on
+ * Forces the handshake race, by letting the app mount on
  * time while shadow's devtools socket connects `delayMs` late. Against the
  * wait above the save simply happens later and lands; take the wait away
  * and the same run reds at GEN-1 with the CI signature — which is how the
- * fix is shown to bite rather than merely to have passed once.
+ * wait is shown to bite rather than merely to pass.
  *
  * Safe to ship because it can only ever make this gate HARDER: it delays a
  * connection, and every verdict below still has to be earned afterwards.
@@ -598,20 +596,19 @@ function comparedAcrossEngines(engines) {
 /**
  * Whether this run drove the PINNED matrix — every engine in `ALL_ENGINES`.
  *
- * Two different questions were once asked through `comparedAcrossEngines`
- * alone: "did a comparison happen?" and "did the pinned matrix run?". They
- * part company at exactly two engines, and the run that fell in the gap
- * closed with the full verdict: `FRESCO_HMR_ENGINES=chromium,firefox`
- * printed `FRESCO HMR PASS (chromium + firefox)`, so a grep for the token
- * this file calls the full-matrix verdict was answered by a run in which
- * WebKit — the engine likeliest to diverge, and the one every NARROWINGS
- * entry is about — never started.
+ * This and `comparedAcrossEngines` answer two different questions: "did a
+ * comparison happen?" and "did the pinned matrix run?". They part company
+ * at exactly two engines. Asked through `comparedAcrossEngines` alone,
+ * `FRESCO_HMR_ENGINES=chromium,firefox` would print
+ * `FRESCO HMR PASS (chromium + firefox)`, so a grep for the token
+ * this file calls the full-matrix verdict would be answered by a run in
+ * which WebKit — the engine likeliest to diverge — never started.
  *
  * The floor stays where it belongs: a comparison really does need two
  * engines, and `divergenceReport` really is right to be silent below that.
- * What changed is that the VERDICT now asks this question instead, because
- * the full token is documented as meaning the pinned matrix ran and must
- * therefore be earned by running it (rf2-l92i).
+ * The VERDICT asks this question instead, because the full token is
+ * documented as meaning the pinned matrix ran and must therefore be earned
+ * by running it.
  */
 function ranFullMatrix(engines, all = ALL_ENGINES) {
   return all.every((e) => engines.includes(e));
@@ -631,7 +628,7 @@ function ranFullMatrix(engines, all = ALL_ENGINES) {
  *   comparison was NOT performed. A one-engine run is strictly worse than
  *   a two-engine one and says both sentences, because it lost both the
  *   matrix and the comparator and those are different losses;
- * - a RAISED timeout ceiling (rf2-qzm8), whose sentence states that the
+ * - a RAISED timeout ceiling, whose sentence states that the
  *   pass may have needed a wider window than the contract allows.
  *
  * A LOWERED ceiling is stricter than the contract and costs nothing here —
@@ -811,7 +808,7 @@ function runMutationTeeth() {
       && /no devtools relay socket/.test(describeRelayCensus(makeRelayCensus()));
   });
 
-  // --- the delay instrument, which is how the fix is shown to bite ------
+  // --- the delay instrument, which is how the wait is shown to bite -----
   bite('the register-delay instrument is inert at its default', () => {
     const g = globalThis;
     const saved = g.WebSocket;
@@ -883,17 +880,15 @@ function runMutationTeeth() {
   //
   // The comparator going quiet below two engines is correct. A closing line
   // that does not say so is not, and these teeth are what stop the two
-  // verdicts collapsing back into one string (rf2-l92i).
+  // verdicts collapsing into one string.
   //
-  // The two-engine teeth are the ones this section was missing, and their
-  // absence is why the first cut shipped a fail-open: with only a
+  // The two-engine teeth are the ones that matter: with only a
   // one-engine and a three-engine case, `comparedAcrossEngines` and
   // `ranFullMatrix` agree on every input under test, so nothing could tell
   // the two questions apart. The middle of the range is where they differ
   // and is therefore where the teeth have to bite.
 
-  // Named for what it actually requires. It used to read "a compared run",
-  // which is the very substitution this bead is about: being compared is
+  // Named for what it actually requires: being compared is
   // not what earns the full token, having run the matrix is.
   bite('a FULL-MATRIX run prints the full verdict and names its engines', () => {
     const line = verdictLine(ALL_ENGINES, 36, []);
@@ -931,10 +926,10 @@ function runMutationTeeth() {
     && !comparedAcrossEngines(['chromium'])
     && !comparedAcrossEngines([]));
 
-  // THE TWO-ENGINE TOOTH. `FRESCO_HMR_ENGINES=chromium,firefox` shipped
-  // `FRESCO HMR PASS (chromium + firefox)` — the comparator floor was met,
-  // so the verdict that shared its predicate declared a full matrix that
-  // never ran. This is the case that must not come back.
+  // THE TWO-ENGINE TOOTH. Under `FRESCO_HMR_ENGINES=chromium,firefox` the
+  // comparator floor is met, so a verdict that shared its predicate would
+  // print `FRESCO HMR PASS (chromium + firefox)` and declare a full matrix
+  // that never ran.
   bite('a TWO-engine run does NOT print the full verdict, and names the engine that never ran', () => {
     const line = verdictLine(['chromium', 'firefox'], 36, []);
     return line.startsWith(NARROWED_VERDICT)
@@ -948,7 +943,7 @@ function runMutationTeeth() {
 
   bite('the two questions come apart at exactly two engines', () =>
     // Every engine set the verdict can see, and the pair of answers it
-    // gets. The middle row is the whole bead: compared, yet not full.
+    // gets. The middle row is the whole point: compared, yet not full.
     comparedAcrossEngines(['chromium', 'firefox', 'webkit'])
       && ranFullMatrix(['chromium', 'firefox', 'webkit'])
     && comparedAcrossEngines(['chromium', 'firefox'])
@@ -996,7 +991,7 @@ function runMutationTeeth() {
       && verdictLine(Object.keys(two), 1, []).startsWith(NARROWED_VERDICT);
   });
 
-  // --- the ceilings, which may move but not in silence (rf2-qzm8) --------
+  // --- the ceilings, which may move but not in silence ------------------
   //
   // Same defect class as the narrowed engine set: a knob that softens the
   // gate must leave a trace, or a pass bought with a wider window reads
@@ -1206,13 +1201,12 @@ async function assertOwnBundle(baseUrl, watchLog) {
 /**
  * Wait until THIS watch has completed a compile and shadow is serving it.
  *
- * Both halves are load-bearing, and the second one was learned the hard
- * way. `out/fresco-hmr-testbed/` survives between runs, so an HTTP probe
- * for `/main.js` answers 200 from the PREVIOUS run's bundle within
- * milliseconds of the server binding — the first version of this function
- * gated on that alone, and a run whose source had been fixed loaded the
- * broken bundle from the run before it and reported the bug as still
- * present. A gate that can serve stale code is a gate that can report a
+ * Both halves are load-bearing. `out/fresco-hmr-testbed/` survives between
+ * runs, so an HTTP probe for `/main.js` answers 200 from the PREVIOUS run's
+ * bundle within milliseconds of the server binding — gated on that alone,
+ * a run whose source had been fixed would load the broken bundle from the
+ * run before it and report the bug as still present. A gate that can serve
+ * stale code is a gate that can report a
  * green on code nobody compiled.
  *
  * So the pin is the watch's OWN completion line for this build id, which
@@ -1334,7 +1328,7 @@ function makeSave(page, watchLog, relay) {
         `instead reports a clean "Build completed" for this save, the code ` +
         `was compiled and NOT DELIVERED, and the relay census below says ` +
         `which half failed: a runtime that never registered was pushed to ` +
-        `nobody (rf2-odh3), while a registered runtime that took no build ` +
+        `nobody, while a registered runtime that took no build ` +
         `push has a delivery fault, and one that took the push but did not ` +
         `re-render has a reload fault in the app.\n` +
         `  relay before this save: ${relayBefore}\n` +
@@ -1391,13 +1385,11 @@ async function driveEngine(engine, baseUrl, watchLog) {
     //
     // Raced against the page's own error channel. A mount that threw is
     // known within milliseconds, and waiting out the full ceiling for it
-    // buys nothing but a slow red — measured, the first run of this gate
-    // spent five minutes discovering a `defhost` typo it had already
-    // printed.
+    // buys nothing but a slow red — five minutes to surface a `defhost`
+    // typo the page has already printed.
     //
-    // The fast-fail watches the CONSOLE rather than only `pageerror`, and
-    // that distinction is the one this gate got wrong first: shadow-cljs
-    // catches a module-eval throw and reports it through `console.error`,
+    // The fast-fail watches the CONSOLE rather than only `pageerror`:
+    // shadow-cljs catches a module-eval throw and reports it through `console.error`,
     // so a testbed that failed to load emits no uncaught error at all and
     // a `pageerror`-only race waits out the whole ceiling. Uncaught errors
     // remain the hard verdict below; a console error during MOUNT is
@@ -1419,7 +1411,7 @@ async function driveEngine(engine, baseUrl, watchLog) {
 
     // The mount proves the APP is up; it says nothing about whether the
     // watch has met this page, and the very next thing this gate does is
-    // save. rf2-odh3 — see the relay-socket section above.
+    // save — see the relay-socket section above.
     await Promise.race([
       waitForRegistration(relay, engine, Date.now() + REGISTER_TIMEOUT_MS),
       pollUntil(
@@ -1525,7 +1517,7 @@ async function main() {
     }
   }
 
-  // The ceilings get the same up-front honesty (rf2-qzm8): a run about to
+  // The ceilings get the same up-front honesty: a run about to
   // spend half an hour says NOW that it is not running under the contract's
   // windows, rather than leaving the reader to discover it — or worse, not
   // — in the closing line. A raised ceiling also costs the full verdict;
@@ -1588,9 +1580,10 @@ async function main() {
         + `engine ran, and a divergence needs two to be visible. Unset `
         + `FRESCO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
     } else if (!ranFullMatrix(ENGINES)) {
-      // Compared, but across less than the matrix — the case that used to
-      // print the full verdict. A divergence only WebKit shows is invisible
-      // to a chromium+firefox run, and the rows above look no different.
+      // Compared, but across less than the matrix — the case a
+      // comparator-keyed verdict would call full. A divergence only WebKit
+      // shows is invisible to a chromium+firefox run, and the rows above
+      // look no different.
       const missing = ALL_ENGINES.filter((e) => !ENGINES.includes(e));
       console.log(`  compared across ${ENGINES.join(' + ')} ONLY — `
         + `${missing.join(' + ')} did not run, so a divergence only `
