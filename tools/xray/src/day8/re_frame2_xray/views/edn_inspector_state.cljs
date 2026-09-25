@@ -37,7 +37,7 @@
   `views/edn-inspector`'s own `install!`, which the orchestrator
   (`registry/register-xray-handlers!`) calls — never at ns-load.
 
-  Why a fn and not four top-level forms (rf2-y8doi.16): the preload's
+  Why a fn and not four top-level forms: the preload's
   foundation block is wrapped in `(when rf.interop/debug-enabled? …)` so
   Closure folds it away under `:advanced` + `goog.DEBUG=false`, which is
   what `tools/xray/spec/API.md` §Installation API,
