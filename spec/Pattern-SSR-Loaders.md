@@ -1,18 +1,18 @@
 # Pattern — SSR Loaders (RETIRED)
 
 > **Type:** Pattern (retired)
-> **Status: RETIRED — do not implement.** This pattern was authored on two false premises and describes a render barrier that does not exist. It is kept as a stub so the historical cross-references resolve and so the retirement rationale is recorded where an implementor would look. For the shape that actually works, see [§What to use instead](#what-to-use-instead).
+> **Status: RETIRED — do not implement.** An SSR loader that fans machine work out and waits for it relies on a render barrier that does not exist. This page says why, where an implementor would look, and names the shape that works — see [§What to use instead](#what-to-use-instead).
 
 ## Why this pattern is retired
 
-The pattern taught a "fan-out-then-render" SSR loader: a boot-like state machine whose `:loading` state fans out N parallel HTTP fetches via `:spawn-all`, joins on all-complete, writes results into `app-db`, and lets the drain settle before `render-to-string`. A phase-level `:after {30000 :timed-out}` deadline was mandated as the SSR render budget's outer envelope.
+The shape in question is a "fan-out-then-render" SSR loader: a boot-like state machine whose `:loading` state fans out N parallel HTTP fetches via `:spawn-all`, joins on all-complete, writes results into `app-db`, and lets the drain settle before `render-to-string`, with a phase-level `:after {30000 :timed-out}` deadline as the SSR render budget's outer envelope.
 
-**The pattern cannot work, because the render barrier it relied on was never installed.** Two premises the original design rested on are both false:
+**The shape cannot work, because the render barrier it relies on does not exist.** Two premises it rests on are both false:
 
 1. **"The JVM transport blocks the drain thread."** It does not. The managed-HTTP JVM transport is `java.net.http.HttpClient.sendAsync` ([014-HTTPRequests](014-HTTPRequests.md)) — the fetch is dispatched off-thread and the reply lands as a later event. The drain reaches fixed point with the machine's children still in flight and renders the `:loading` skeleton, not the loaded page.
-2. **"The `:after` deadline bounds the fan-out under SSR."** It does not. `:after` **no-ops under SSR** ([005-StateMachines §SSR mode](005-StateMachines.md#ssr-mode), [011-SSR §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)): the entry action skips timer scheduling and the synthetic timer-elapsed event is never queued. The mandated server deadline is a dead remedy — it never fires. A machine that leans on it to bound async work under SSR simply hangs at `:loading` until the request-scoped frame is destroyed.
+2. **"The `:after` deadline bounds the fan-out under SSR."** It does not. `:after` **no-ops under SSR** ([005-StateMachines §SSR mode](005-StateMachines.md#ssr-mode), [011-SSR §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr)): the entry action skips timer scheduling and the synthetic timer-elapsed event is never queued. A server deadline is a dead remedy — it never fires. A machine that leans on it to bound async work under SSR simply hangs at `:loading` until the request-scoped frame is destroyed.
 
-So the only real SSR render barrier is the one the runtime actually installs — **`drain-blocking-resources!`, which drains resources and resources only** ([016-Resources §SSR and hydration](016-Resources.md#ssr-and-hydration)). Machines have no equivalent drain-until-quiescent barrier under SSR, and adding one was considered and rejected (the generalise-the-barrier option; see the ruling in the retirement bead). The consequence is a firm rule:
+So the only real SSR render barrier is the one the runtime actually installs — **`drain-blocking-resources!`, which drains resources and resources only** ([016-Resources §SSR and hydration](016-Resources.md#ssr-and-hydration)). Machines have no equivalent drain-until-quiescent barrier under SSR, and deliberately so: generalising the resources barrier to also drain machine-issued async work would be disproportionate. The consequence is a firm rule:
 
 > **Machines are synchronous-only under SSR.** Async machine work — a `:spawn` / `:spawn-all` whose children exist to drive async loads (`:rf.http/managed`, websocket protocols, polling) — is **outside the SSR allowed subset**. It is a programmer error, not a supported shape. The synchronous machine substrate (plain transitions, `:always`, `:spawn` of synchronous co-effects, hierarchical entry/exit) runs identically on both platforms; async invoke work does not. See [Cross-Spec-Interactions §4 — Machines under SSR](Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset) and [005 §SSR mode](005-StateMachines.md#ssr-mode).
 
@@ -32,8 +32,8 @@ Resources give the parallel fan-out (N blocking ensures drain together), the per
 
 ## Cross-references
 
-- [016-Resources.md §SSR and hydration](016-Resources.md#ssr-and-hydration) — the resources-only render barrier (`drain-blocking-resources!`) that replaces this pattern.
+- [016-Resources.md §SSR and hydration](016-Resources.md#ssr-and-hydration) — the resources-only render barrier (`drain-blocking-resources!`) to use instead.
 - [Cross-Spec-Interactions.md §4 — Machines under SSR (allowed-subset)](Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset) — the machines-are-synchronous-only-under-SSR rule and its conformance fixture.
 - [005-StateMachines.md §SSR mode](005-StateMachines.md#ssr-mode) — `:after` no-ops under SSR; spawn of async-invoke children is out-of-subset.
 - [011-SSR.md §`:after` is no-op under SSR](011-SSR.md#after-is-no-op-under-ssr) — the SSR-side statement of the `:after` carve-out.
-- [Pattern-FormAction.md](Pattern-FormAction.md) — the POST-path sibling; its GET-path pointer to this pattern now resolves to resources-backed loading (above).
+- [Pattern-FormAction.md](Pattern-FormAction.md) — the POST-path sibling; its GET-path pointer to this page resolves to resources-backed loading (above).
