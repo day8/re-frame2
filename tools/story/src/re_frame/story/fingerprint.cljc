@@ -3,7 +3,7 @@
 
   Per tools/story/spec/017-Testing-Story.md §Canonicalization this is the
   ONE implementation that determinism, semantic-diff, snapshot-identity,
-  `:plan-hash` / `:run-hash`, future golden-slice comparison, and the
+  `:plan-hash` / `:run-hash`, golden-slice comparison, and the
   inline-plan-to-registered-variant metamorphic relation all consume.
 
   It deliberately does NOT live in `re-frame.story.canonical` (that ns
@@ -137,7 +137,7 @@
   So are `:source`, `:elapsed-ms` and `:runner` (`run-stamp-keys`): they
   are ordinary domain keys too (a feed's source, a stopwatch, a race), so a
   recursive strip would blind every consumer to app-db and args data under
-  them (rf2-3x7nj.30.4).
+  them.
 
   This strip applies on the `canonicalize` / `canonical-hash`
   (= determinism / diff / `:run-hash`) path ONLY — the strip-free
@@ -148,10 +148,10 @@
     :epoch-id :trace-id :committed-at :schema-digest})
 
 (def ^:private variant-id-spellings
-  "The variant-id key spellings reconciled at this boundary. The shipping
-  `re-frame.story.identity` snapshot tuple wrote `:variant-id`; the
+  "The variant-id key spellings reconciled at this boundary. The
+  `re-frame.story.identity` snapshot tuple writes `:variant-id`; the
   normalized plan + run-result (spec §Artifacts / §Run result) write
-  `:variant/id`. `canonicalize` rewrites the legacy spelling to the
+  `:variant/id`. `canonicalize` rewrites the snapshot spelling to the
   normalized one so a snapshot tuple and a plan slice describing the same
   variant project identically."
   [:variant-id :variant/id])
@@ -188,7 +188,7 @@
 
 (defn- throwable->data
   "Project a thrown exception to plain data: its kind, `ex-message`,
-  `ex-data` and (recursively) `ex-cause` (rf2-3x7nj.31.3). Pure data → data.
+  `ex-data` and (recursively) `ex-cause`. Pure data → data.
 
   The object itself compares by IDENTITY, so two replays that throw the same
   error would never canonicalize `=`. The kind is `\"ex-info\"` for an
@@ -291,8 +291,8 @@
   noise), so they MUST be stripped or the determinism gate
   (`re-frame.story.determinism/assert-deterministic`) false-drifts to
   `:non-deterministic` whenever a replayed program runs a TIMED fx / cofx.
-  `:rf.event/elapsed-ms` was already stripped; `:rf.fx/elapsed-ms` and
-  `:rf.cofx/elapsed-ms` are its symmetric companions — all three are
+  `:rf.fx/elapsed-ms` and `:rf.cofx/elapsed-ms` are the symmetric
+  companions of `:rf.event/elapsed-ms` — all three are
   handler wall-clock, none is behaviour."
   #{:frame :rf.trace/dispatch-id :rf.trace/trace-id
     :rf.event/elapsed-ms :rf.fx/elapsed-ms :rf.cofx/elapsed-ms})
@@ -316,7 +316,7 @@
   frames stamp DIFFERENT `:rf/time-ms`, so the determinism gate / semantic-diff
   / `:run-hash` false-drift unless it is stripped. It is the recordable-coeffect
   analogue of the `:committed-at` wall-clock + the `:rf.event/elapsed-ms`
-  handler timing already stripped — same volatile class, one level deeper.
+  handler timing stripped above — same volatile class, one level deeper.
   Stripping it is also safe when a caller scripted `:rf/time-ms` (two equal
   runs both strip it; a difference in the surviving owner-qualified facts still
   perturbs the hash)."
@@ -416,7 +416,7 @@
   "The per-run stamps that are ALSO ordinary domain keys — `:source`,
   `:elapsed-ms`, `:runner` (a feed's source, a stopwatch, a race) — so they
   are stripped only on the carriers that stamp them (`run-stamp-carrier?`),
-  never at any depth (rf2-3x7nj.30.4)."
+  never at any depth."
   #{:source :elapsed-ms :runner})
 
 (defn- run-stamp-carrier?
@@ -467,10 +467,10 @@
               ;; trace-event `:tags` carrier; without it the `:epoch-tape`
               ;; slice false-drifts on a fresh-frame replay.
               (epoch-record? x) (-> (dissoc :frame) strip-cofx-stamps)
-              ;; rf2-3x7nj.31.3: an fx-error row points at its error trace
+              ;; An fx-error row points at its error trace
               ;; event by that event's process-global `:id`.
               (effect-row? x) (dissoc :error-trace)
-              ;; rf2-3x7nj.30.4: `:source` / `:elapsed-ms` / `:runner` only
+              ;; `:source` / `:elapsed-ms` / `:runner` only
               ;; where Story or the framework stamped them.
               (run-stamp-carrier? x) (#(apply dissoc % run-stamp-keys)))]
       (persistent!
@@ -492,7 +492,7 @@
 ;; - STRUCTURAL TYPE TAGS. Each collection is wrapped in a
 ;;   `[<type-tag> [<canon-elems> …]]` vector keyed by a reserved sentinel
 ;;   keyword, so the four collection types are mutually distinguishable
-;;   AFTER `pr-str`. Without tagging, a map `{:a 1}` flattened to the bare
+;;   AFTER `pr-str`. Without tagging, a map `{:a 1}` would flatten to the bare
 ;;   vector `[:a 1]` and a set `#{}` to `[]`, so `{}` / `#{}` / `[]` and
 ;;   `{:a 1}` / `[:a 1]` would collapse to byte-identical canonical forms
 ;;   and hash equal — a soundness hole every downstream consumer
@@ -582,7 +582,7 @@
 ;; - INTEGERS WITHIN the IEEE-754 safe-integer range (±2^53-1) pass through
 ;;   verbatim — `Long` / `BigInt` / `BigInteger` on the JVM, integer-valued
 ;;   `number` on CLJS. Their `pr-str` is host-identical, so ordinary-value
-;;   hashes are UNCHANGED (no golden rebase).
+;;   hashes are untouched by the normalisation.
 ;; - 3. LARGE INTEGERS. An integer whose magnitude EXCEEDS the
 ;;   safe-integer range (2^53-1) is NOT host-portable: JavaScript's `Number`
 ;;   cannot represent it exactly, so CLJS rounds it to the nearest double,
@@ -595,13 +595,13 @@
 ;;   `(double x)`), so the canonical form is host-stable. The deliberate cost
 ;;   is that two distinct large integers that round to the SAME double share a
 ;;   canonical form — acceptable because CLJS cannot tell them apart anyway,
-;;   and a 64-bit-id / nanoTime / BigInt riding a hashed slice now diffs
+;;   and a 64-bit-id / nanoTime / BigInt riding a hashed slice diffs
 ;;   cross-host stably rather than spuriously.
 ;; - A NUMBER WITH A FRACTIONAL VALUE, or an integer-valued double too large
 ;;   for a 64-bit integer (e.g. 1e21), canonicalises to
 ;;   `[double-tag "<16-hex IEEE-754 bits>"]`. The raw IEEE-754 64-bit pattern
 ;;   is byte-identical across hosts for the same logical double, so the hex is
-;;   host-stable where `pr-str` was not.
+;;   host-stable where `pr-str` is not.
 ;; - An INTEGER-VALUED double within 64-bit integer range (e.g. 1.0, 100.0)
 ;;   canonicalises to its INTEGER form. This is forced by CLJS: there `1.0`
 ;;   IS the integer `1` (same JS number — indistinguishable), so the only way
@@ -641,7 +641,7 @@
   exact `js/Number` representation, so CLJS rounds it to the nearest double
   and the canonical form must take the lossy IEEE-754 bit path on BOTH hosts
   to agree. Integers within ±this range `pr-str` host-identically
-  and pass through verbatim — no golden rebase."
+  and pass through verbatim."
   9007199254740991)
 
 (defn- double->bits-hex
@@ -702,7 +702,7 @@
        ;; `double->bits-hex`. So a JVM `Long` / `BigInt` / `BigInteger` of the
        ;; same logical magnitude must take the SAME lossy IEEE-754 path to
        ;; agree cross-host. Within the safe range, integers pass through
-       ;; verbatim (their `pr-str` is host-identical — no golden rebase).
+       ;; verbatim (their `pr-str` is host-identical).
        (integer? x)
        (if (<= (- max-safe-integer) x max-safe-integer)
          x
@@ -743,14 +743,13 @@
 
   The value is a STRICTLY SECONDARY sort key, never a primary one: two
   entries with DISTINCT canon-key `pr-str`s order EXACTLY as a bare
-  `(sort-by (comp pr-str key))` ordered them — the value is never consulted
-  — so an ordinary map's canonical bytes, and every golden captured from
-  them, are UNCHANGED (no rebase). It only bites when two DISTINCT keys
+  `(sort-by (comp pr-str key))` orders them — the value is never
+  consulted. It only bites when two DISTINCT keys
   canonicalise to the SAME `pr-str`: every fn folds to `:rf/opaque-fn`,
-  every `##NaN` to `:rf/nan`, and `1.0` / `1` both to `1` (rf2-8r5yzb).
-  There the bare key sort fell back to Clojure's map ITERATION order, so two
+  every `##NaN` to `:rf/nan`, and `1.0` / `1` both to `1`.
+  There a bare key sort would fall back to Clojure's map ITERATION order, so two
   `=`-equal maps built in different insertion orders (`{f1 :a f2 :b}` vs
-  `{f2 :b f1 :a}`) produced DIFFERENT canonical bytes → unequal hash → a
+  `{f2 :b f1 :a}`) would produce DIFFERENT canonical bytes → unequal hash → a
   spurious `:non-deterministic` verdict / golden mismatch, breaking the
   'equivalent values hash equal' contract. The value tiebreak makes the
   order content-derived and iteration-INDEPENDENT: two entries whose key AND
@@ -818,7 +817,7 @@
   ;; through; a fractional / special double folds to a bit-stable `:rf/double`
   ;; tag (or the `:rf/nan` sentinel); a JVM Ratio is coerced to its double so
   ;; it matches the CLJS double the same `1/3` literal reads as. Ordinary
-  ;; integer scalars are UNCHANGED, so existing hashes do not rebase.
+  ;; integer scalars pass through UNCHANGED.
   #?(:clj  java.lang.Number  :cljs number)
   (-canon [x] (canon-number x))
 
