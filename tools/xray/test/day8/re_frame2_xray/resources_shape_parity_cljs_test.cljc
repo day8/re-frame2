@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.resources-shape-parity-cljs-test
-  "Shape parity for the RESOURCES fixture family (rf2-y8doi.28).
+  "Shape parity for the RESOURCES fixture family.
 
   The Resources panel projects the cache entries and work-ledger records
   the resources runtime writes, and its suites hand-type both (the helper
@@ -14,13 +14,13 @@
   defect this family guards against is a fixture carrying a key the
   runtime never writes — a stored `:stale?` where staleness is DERIVED,
   a `:path` where the router writes `:route-id`. Every such key is caught
-  here. Equality is the stronger statement and does not hold today: the
+  here. Equality is the stronger statement and does not hold: the
   runtime writes every entry slot, nil-valued or not (`:error`,
   `:refresh-error`, `:invalidated-at`, `:current-work`, `:previous-key`,
   `:revision`), and every work record's `:work/frame`, while the hand-typed
   fixtures carry only the facts each row needs. Closing that gap means
-  building those fixtures from the constructors above, in suites outside
-  this item's reach — recorded on rf2-y8doi.28 rather than done here.
+  building those fixtures from the constructors above, in the suites that
+  own them.
 
   `.cljc` on purpose: both constructors are pure and run on both hosts."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
