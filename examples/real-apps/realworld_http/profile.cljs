@@ -275,11 +275,11 @@
           ;; only reaches :refreshing — which is tagged :data/loaded, so
           ;; render-priority keeps choosing :loaded and `profile-loaded` draws
           ;; itself over the nil profile the slice was just reset to: an empty
-          ;; h4, a "Follow " button with nobody's name on it, and (until its
-          ;; own guard landed) an "Edit Profile Settings" link offered to a
-          ;; logged-out reader. :reset takes the region to :nothing first, so
-          ;; :fetch-started lands on :loading and the reader gets the spinner
-          ;; the first load would have given them. The editor already makes
+          ;; h4 and a "Follow " button with nobody's name on it (the "Edit
+          ;; Profile Settings" link has its own guard against a logged-out
+          ;; reader, `:profile/own-profile?`). :reset takes the region to
+          ;; :nothing first, so :fetch-started lands on :loading and the
+          ;; reader gets the spinner the first load would have given them. The editor already makes
           ;; exactly this move (:editor/load-article, article_editor.cljs).
           ;;
           ;; It is the whole machine that resets, :tab region included — which
