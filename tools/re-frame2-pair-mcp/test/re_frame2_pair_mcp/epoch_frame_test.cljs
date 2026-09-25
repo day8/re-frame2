@@ -1,26 +1,26 @@
 (ns re-frame2-pair-mcp.epoch-frame-test
   "Operating-frame resolution for the two epoch-ring tools —
-  `trace-window` and `watch-epochs` (rf2-yo4s).
+  `trace-window` and `watch-epochs`.
 
   ## What this pins
 
   Both are frame-targeted, so the Tool-Pair contract makes them
   resolve explicit override -> session pin -> sole app frame -> nil,
-  and REFUSE at nil rather than read some other frame. Neither did.
-  Each emitted an implicit-frame call — `(epoch-history)` /
-  `(epochs-since id)` — whose runtime arity defaults to
-  `(current-frame)`, nil under two-plus app frames with no pin. And
-  `rf/epoch-history` answers `[]` for an unknown frame WITHOUT
-  erroring, so the ambiguity arrived as an empty ring.
+  and REFUSE at nil rather than read some other frame. An
+  implicit-frame call — `(epoch-history)` / `(epochs-since id)` —
+  would default through its runtime arity to `(current-frame)`, nil
+  under two-plus app frames with no pin. And `rf/epoch-history`
+  answers `[]` for an unknown frame WITHOUT erroring, so the ambiguity
+  would arrive as an empty ring.
 
   That empty ring is two different falsehoods depending on the tool:
 
-    - `trace-window` reports `:count 0` — \"nothing happened\" — in the
-      same voice as a genuinely quiet window. Its `:count 0` advisory
-      cannot catch it, because the advisory reads the SAME
-      implicit-frame history, so both sides come back empty together.
-    - `watch-epochs` reports `:count 0` AND `:id-aged-out? true`: the
-      caller's cursor id cannot be found in an empty history, so a
+    - `trace-window` would report `:count 0` — \"nothing happened\" —
+      in the same voice as a genuinely quiet window. Its `:count 0`
+      advisory could not catch it, because an implicit-frame advisory
+      reads the SAME history, so both sides come back empty together.
+    - `watch-epochs` would report `:count 0` AND `:id-aged-out? true`:
+      the caller's cursor id cannot be found in an empty history, so a
       LIVE cursor is declared dead and the agent is sent back to page
       one of a frame it never chose.
 
@@ -28,13 +28,14 @@
 
   A test that canned an `:ambiguous-frame` response would pass on the
   DEFECT — the tools faithfully relay whatever the runtime hands them,
-  and the relay was never the bug. So `runtime-answer` plays a live
-  runtime: it derives the operating frame FROM THE EMITTED FORM the
-  way `pure/resolve-operating-frame` would, and then answers with that
-  frame's ring, reproducing `epochs-since`'s real not-found semantics.
-  On the pre-fix form the frame is nil, the ring is `[]`, and the
-  falsehoods appear on their own — which is what makes these witnesses
-  fail on the pre-fix tree rather than merely assert the fixed shape.
+  and the relay is not where the defect lives. So `runtime-answer`
+  plays a live runtime: it derives the operating frame FROM THE
+  EMITTED FORM the way `pure/resolve-operating-frame` would, and then
+  answers with that frame's ring, reproducing `epochs-since`'s real
+  not-found semantics. On an implicit-frame form the frame is nil, the
+  ring is `[]`, and the falsehoods appear on their own — which is what
+  makes these witnesses fail on such a tree rather than merely assert
+  the correct shape.
 
   ## And what the refusal does NOT reach
 
@@ -48,8 +49,7 @@
   nothing to refuse: pin a frame, or register a second one, and the
   session resolves cleanly — to a DIFFERENT ring, in which the live
   `:after-id` is absent, so `epochs-since` calls the healthy cursor
-  aged out. Same falsehood as the original bug, reached from the other
-  side. The `## Cursor frame ownership` witnesses below drive real
+  aged out. The same falsehood, reached from the other side. The `## Cursor frame ownership` witnesses below drive real
   page-1-generated cursors through exactly those two session changes;
   the simulator answers `:frame fid` and pages at the emitted `(take
   N …)` so a page-1 cursor exists at all."
@@ -108,10 +108,10 @@
   holding `app-frames` with `pin` selected. Mirrors
   `pure/resolve-operating-frame`: override -> pin -> sole app frame ->
   nil. The override is read off the form because that is where the
-  tool puts it — from the resolve call once the fix routes it there,
-  and from the ring calls on the pre-fix shape, so this models BOTH
-  trees faithfully and the explicit-frame tiers stay real controls
-  rather than artefacts of the simulator."
+  tool puts it — on the resolve call, or on the ring calls of an
+  implicit-frame shape — so this models BOTH shapes faithfully and the
+  explicit-frame tiers stay real controls rather than artefacts of the
+  simulator."
   [form app-frames pin]
   (if-let [override (second (or (re-find #"current-frame\s+(:[^\s)]+)\)" form)
                                 (re-find #"epoch-history\s+(:[^\s)]+)\)" form)
@@ -149,15 +149,15 @@
 (defn- since-id-of
   "The `:since-id` / cursor `:after-id` the form asked `epochs-since`
   for, as it appears in the emitted source (`nil` when absent). A
-  present id rides quoted — `(quote 7)` — because it is caller data
-  (rf2-3x7nj.32.2), so the optional `(quote ` prefix is skipped."
+  present id rides quoted — `(quote 7)` — because it is caller data,
+  so the optional `(quote ` prefix is skipped."
   [form]
   (read-token (second (re-find #"epochs-since\s+(?:\(quote\s+)?(\"[^\"]*\"|[^\s()]+)" form))))
 
 (defn- after-id-of
   "`trace-window`'s cursor watermark, read off the `after-id` LET
   BINDING the tool emits (`(let [hist … after-id (quote 7) …] …)` — the
-  cursor's id is caller data, so it rides quoted, rf2-3x7nj.32.2). The
+  cursor's id is caller data, so it rides quoted). The
   later textual uses of the name are expressions (`(and after-id …)`),
   which the literal alternation cannot match, so the binding is the only
   hit."
@@ -209,7 +209,7 @@
       (ambiguous-envelope operation app-frames pin)
       ;; No guard (or an unambiguous session): the read proceeds. For a
       ;; nil frame the per-frame lookup misses and the ring is EMPTY —
-      ;; reproducing the pre-fix falsehoods exactly.
+      ;; reproducing the implicit-frame falsehoods exactly.
       (let [history (vec (get rings fid))
             limit   (limit-of form)]
         (if (= :trace-window operation)
@@ -270,7 +270,7 @@
             ([_c _b form _o] (respond form))))))
 
 ;; ---------------------------------------------------------------------------
-;; The witnesses — these fail on the pre-fix tree.
+;; The witnesses — these fail on an implicit-frame tree.
 ;; ---------------------------------------------------------------------------
 
 (deftest trace-window-ambiguous-frame-refuses-rather-than-reporting-an-empty-window
@@ -504,8 +504,9 @@
                                   (done)))))))))))
 
 (deftest trace-window-page-1-cursor-owns-the-pin-it-resolved
-  ;; Tier 2. Page 1 names no frame, so pre-fix the cursor stored nil and
-  ;; page 2 re-resolved — landing on whatever the pin said by then.
+  ;; Tier 2. Page 1 names no frame, so a cursor built from the arguments
+  ;; would store nil and page 2 would re-resolve — landing on whatever the
+  ;; pin says by then.
   (async done
     (let [session {:operation  :trace-window
                    :app-frames two-frames
@@ -623,7 +624,8 @@
 (deftest an-explicit-frame-is-the-id-the-cursor-owns
   ;; Control: tier 1 still outranks the pin, and it is the RESOLVED id
   ;; — not the raw argument — that the cursor stores. The two agree
-  ;; here, which is the point: the fix must not move an explicit target.
+  ;; here, which is the point: cursor ownership must not move an explicit
+  ;; target.
   (async done
     (stub-runtime! nil {:operation  :trace-window
                         :app-frames two-frames
@@ -637,10 +639,9 @@
                  (done))))))
 
 (deftest an-advisory-names-the-frame-its-count-came-from
-  ;; The other half of the same seam. The advisory reports `:frame`, and
-  ;; pre-fix it reported the ASKED-for nil while quoting a history count
-  ;; read from a real frame — a sentence about a frame the call never
-  ;; named.
+  ;; The other half of the same seam. The advisory reports `:frame`;
+  ;; reporting the ASKED-for nil while quoting a history count read from
+  ;; a real frame would be a sentence about a frame the call never named.
   (async done
     (let [ring (mapv epoch (range 1 10))]
       (stub-runtime! nil {:operation  :watch-epochs
@@ -657,14 +658,14 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; `:since-id` arrives as a STRING (rf2-3x7nj.32.3).
+;; `:since-id` arrives as a STRING.
 ;;
 ;; The descriptor types it `string`, and the reference runtime's epoch ids
 ;; are integers that `epochs-since` finds with `=`. Passed raw, the
-;; schema-conforming "2" never equals 2, so every resume-by-id came back
-;; as a false `:rf.mcp/cursor-stale` ("your id aged out of the ring") while
-;; the id sat in the ring. The simulator's `epochs-since*` keeps that `=`,
-;; so these fail on the pre-fix tree.
+;; schema-conforming "2" never equals 2, so every resume-by-id would come
+;; back as a false `:rf.mcp/cursor-stale` ("your id aged out of the ring")
+;; while the id sat in the ring. The simulator's `epochs-since*` keeps
+;; that `=`, so these fail on a tree that passes the id raw.
 ;; ---------------------------------------------------------------------------
 
 (deftest watch-epochs-string-since-id-resumes-against-integer-ids
