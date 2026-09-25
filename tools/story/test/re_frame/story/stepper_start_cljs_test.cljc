@@ -1,21 +1,24 @@
 (ns re-frame.story.stepper-start-cljs-test
-  "Regression net for the step-debugger's START ordering (rf2-k6y2).
+  "Pins the step-debugger's START ordering.
 
   The `:test` pane's step-debugger promises that cursor 0 IS the pre-play
   state: `009-Test-Mode.md` §Play step-debugger rows Start as
   \"re-allocate the frame + prime the substrate\", labels that position
   \"ready · N steps\", and specifies Rewind as a restore to \"the pre-play
-  epoch\". `stepper-state/begin!` used to reach that position through
-  `runtime/reset-variant`, which is a FULL run — phases 0-2 AND phase 4 —
-  so a bare `:script` (`:auto-run?` defaults to true) executed end to end
-  BEFORE cursor 0 was published. The user pressed Start, watched the whole
-  script run, and was then shown \"ready\" over a post-script app-db; the
-  first Step ran step 1 a SECOND time, and Rewind restored the post-script
-  epoch rather than the specified initial state.
+  epoch\". `stepper-state/begin!` reaches that position through
+  `runtime/prepare-variant`, which runs phases 0-2 only. Reaching it
+  through `runtime/reset-variant` instead — a FULL run, phases 0-2 AND
+  phase 4 — would execute a bare `:script` (`:auto-run?` defaults to true)
+  end to end BEFORE cursor 0 is published: the user would press Start,
+  watch the whole script run, and then be shown \"ready\" over a
+  post-script app-db; the first Step would run step 1 a SECOND time, and
+  Rewind would restore the post-script epoch rather than the specified
+  initial state.
 
-  The defect was deterministic, not a race: `reset-variant`'s promise
-  settles only after phase 4 has drained, so EVERY script step ran before
-  Start's continuation, every time — not a variable prefix.
+  That failure would be deterministic, not a race: `reset-variant`'s
+  promise settles only after phase 4 has drained, so EVERY script step
+  would run before Start's continuation, every time — not a variable
+  prefix.
 
   These tests drive the same composition `begin!` performs — the runtime
   seam, then `play/begin-stepper!`, then `play/step-once!` — against the
@@ -31,7 +34,7 @@
   branch by blocking on the promise, so those are JVM-gated.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
+  selects it; a plain `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
@@ -51,7 +54,7 @@
 ;;
 ;; app-db resets hide a re-run, but an external effect cannot be un-sent —
 ;; so this counter is the honest witness of whether Start executed script
-;; work behind the user's back (acceptance 3).
+;; work behind the user's back.
 
 (def ^:private ext-effect-count (atom 0))
 
@@ -96,8 +99,8 @@
   "Register a MUTATING default-auto-run variant: `:setup` seeds `:count` 0
   and a bare three-step `:script` increments it (each increment also issues
   the external effect). A bare `:script` omits `:auto-run?`, so
-  `runner/default-auto-run?` makes it auto-runnable — the exact shape the
-  defect needed."
+  `runner/default-auto-run?` makes it auto-runnable — the exact shape a
+  full-run Start would execute end to end."
   [vid]
   (rf.story/reg-variant vid
     {:setup  [[:counter/initialise 0]]
@@ -181,22 +184,22 @@
         (is (= 3 (count (:remaining (slot vid))))
             "and every step is pending again")))))
 
-;; ---- (4) the full-run entry points are UNCHANGED -------------------------
+;; ---- (4) the full-run entry points run the whole script ------------------
 
 (deftest reset-variant-still-runs-the-whole-script
-  (testing "`reset-variant` keeps its full-run meaning (the Re-run button) —
-            the fix narrows what START uses, not what a re-run does"
+  (testing "`reset-variant` has the full-run meaning (the Re-run button) —
+            only START uses the pre-play seam; a re-run runs the script"
     (let [vid :story.stepper/mutating]
       (reg-mutating! vid)
       (rf.story.runtime/reset-variant vid)
       (is (= 3 (count-of vid))
-          "reset-variant ran the script end to end, as before")
+          "reset-variant ran the script end to end")
       (is (= 3 @ext-effect-count)
           "and issued every script effect"))))
 
 (deftest prepare-run-and-resume-run-still-split-the-lifecycle
-  (testing "the one run owner's PREPARE / RESUME split is untouched: prepare
-            alone runs no script, resume runs it exactly once"
+  (testing "the one run owner's PREPARE / RESUME split: prepare alone runs
+            no script, resume runs it exactly once"
     (let [vid :story.stepper/mutating]
       (reg-mutating! vid)
       (rf.story.runtime/prepare-run! vid {:run-key {:variant-id vid}})
@@ -225,10 +228,9 @@
 ;;     collects the pipeline-exception trace events and `record-error!`
 ;;     projects each onto the frame's `[:rf.story/assertions]`, then the
 ;;     phase RETURNS normally. That is `run-variant`'s gather-the-full-picture
-;;     contract and it stays. But it means `prepare-ctx!` completes without
-;;     throwing over a frame whose `:setup` never ran (rf2-k6y2 post-merge
-;;     audit) — so the captured class needs its OWN check, and these tests
-;;     are it.
+;;     contract. But it means `prepare-ctx!` completes without throwing over
+;;     a frame whose `:setup` never ran — so the captured class needs its OWN
+;;     check, and these tests are it.
 
 #?(:clj
    (defn- begin-outcome
@@ -283,7 +285,7 @@
                return normally — but the frame never reached the state the
                variant's `:setup` describes. Start must take the rejection
                branch and publish NO stepper, exactly as it does for an
-               unknown variant (acceptance 3)"
+               unknown variant"
        (let [vid :story.stepper/setup-throws]
          (rf/reg-event :probe/setup-throws
            (fn [_ _] (throw (ex-info "setup handler blew up" {:probe true}))))
@@ -323,8 +325,8 @@
 
 #?(:clj
    (deftest the-full-run-path-still-gathers-the-whole-picture
-     (testing "`run-variant` is UNCHANGED by the refusal above: a captured
-               `:setup` failure still RESOLVES a result carrying the failed
+     (testing "`run-variant` is unaffected by the refusal above: a captured
+               `:setup` failure RESOLVES a result carrying the failed
                assertion rather than rejecting. The narrowing is Start's
                alone — the runner keeps reporting everything it saw"
        (let [vid :story.stepper/setup-throws-full-run]
@@ -349,17 +351,17 @@
 ;; and only bumps the suppressed counter (Spec 009 §Privacy + EP-0015,
 ;; `:rf.egress/local-redacted` is the default profile).
 ;;
-;; So a setup/loader handler whose failure is CLASSIFIED SENSITIVE produced
-;; no assertion at all, and a readiness check reading assertions saw an
-;; empty accumulator — indistinguishable from a clean preparation. Start
-;; resolved and published a cursor-0 stepper over a frame whose `:setup`
-;; never ran (the rf2-k6y2 post-merge audit of PR #9252).
+;; So a setup/loader handler whose failure is CLASSIFIED SENSITIVE produces
+;; no assertion at all, and a readiness check reading assertions would see
+;; an empty accumulator — indistinguishable from a clean preparation — and
+;; Start would publish a cursor-0 stepper over a frame whose `:setup` never
+;; ran.
 ;;
-;; The redaction is CORRECT and stays. What was wrong is reading the
-;; ABSENCE of an assertion as evidence of success, so readiness now rests on
-;; a privacy-safe fact the egress filter cannot erase — the operation
-;; keyword of a suppressed pipeline exception, recorded at the same capture
-;; boundary that drops the event.
+;; The redaction is CORRECT. Reading the ABSENCE of an assertion as
+;; evidence of success would be wrong, so readiness rests on a privacy-safe
+;; fact the egress filter cannot erase — the operation keyword of a
+;; suppressed pipeline exception, recorded at the same capture boundary
+;; that drops the event.
 ;;
 ;; The classification is REAL, not injected: the variant declares
 ;; `:sensitive {:app-db [[:auth :password]]}`, the throwing handler is
@@ -393,8 +395,7 @@
                classification emits a pipeline exception the privacy egress
                filter suppresses, so NO assertion is recorded — yet the
                preparation still failed. Start must take the rejection
-               branch on evidence the filter cannot erase (rf2-k6y2 audit
-               of PR #9252)"
+               branch on evidence the filter cannot erase"
        (let [vid :story.stepper/sensitive-setup-throws]
          (reg-sensitive-thrower! :probe/sensitive-setup-throws)
          (rf.story/reg-variant vid
