@@ -4495,7 +4495,7 @@
   ([epoch-record] (number-steps (project epoch-record nil)))
   ([epoch-record opts] (number-steps (project epoch-record opts))))
 
-;; ---- timing aggregation (rf2-nqt3d) -------------------------------------
+;; ---- timing aggregation -------------------------------------------------
 ;;
 ;; Per-step `:duration-ms` is stamped at projection time (each step row
 ;; reads its substrate-emitted duration off the matching trace event:
@@ -4508,13 +4508,12 @@
 (def long-step-threshold-ms
   "Threshold above which a single step is rendered with long-step
   warning chrome. 16ms = one display frame at 60Hz — the natural
-  marker per the bead body's `N ms` slot (worker picks; documented
-  here as the contract).
+  marker.
 
   Crossing 16ms in any single step means the cascade will visibly
   jank the next paint, so the operator wants the row chromed as
   load-bearing for perf debugging. Subtler than an `:error` glyph —
-  the spec body's posture is 'subtle, not alarmist'."
+  the posture is 'subtle, not alarmist'."
   16)
 
 (defn long-step?
@@ -4525,11 +4524,6 @@
   [step]
   (let [ms (:duration-ms step)]
     (and (number? ms) (> ms long-step-threshold-ms))))
-
-;; rf2-bhxtr — `group-lifecycle-by-phase` is DELETED. It grouped the
-;; now-removed `:lifecycle` category slot's rows by `:phase` for the
-;; pre-rf2-u69j7 per-phase view sub-sections; with the slot gone (and the
-;; cascade carrying `:phase` per-row) it had no live reader.
 
 (defn empty-pipeline?
   "True iff `(project record)` would produce zero steps (no dispatch,
@@ -4546,46 +4540,39 @@
   step's `:badge` is a member of this set, and every member is a badge
   some step can actually emit. It is the PRODUCER's inventory; the
   view's colour + label resolver is `panels.epoch.badge`'s own table,
-  which the two kept in step by hand until they forked (see the
-  rf2-y8doi.19 entry below).
+  kept in step with this set by hand.
 
-  - Original 7 (rf2-sc3r1): DISPATCH · COEFFECT · HANDLER · FLOW · FX ·
-    SUBSCRIPTIONS · VIEWS.
-  - rf2-17vxj: + SCHEMA-VIOLATIONS (warning chrome, conditional).
-  - rf2-xgeag: SCHEMA-VIOLATIONS retired (violations attach to owning
-    pipeline step inline); + SCHEMA-HOT-RELOAD for the hot-reload-only
-    standalone tail step (drift has no owning cascade step).
-  - rf2-kt6js: FX → SIDE-EFFECTS (the single :fx step became the SIDE
-    EFFECTS step with :db / :fx / other sub-steps).
-  - rf2-yz57h: + INTERCEPTOR (conditional — present only when a user
-    interceptor threw this cascade; the throwing interceptor's :before /
-    :after row carries the shared 'Exception Thrown' card).
-  - rf2-zkiu5: CHILD-DISPATCHES + APP-DB-DIFF retired (pair-debug
-    2026-05-26) — both redundant with existing steps (FX surfaces
-    dispatch-family fx; HANDLER `:db` surfaces the post-handler diff).
-  - rf2-9fyn40: + WORLD-INPUTS (EP-0010 causal provenance, conditional —
-    present only when the dispatch envelope surfaced a recordable-coeffect
-    map; sits right after DISPATCH SITE).
-  - rf2-g7tf6c (EP-0017 §9): WORLD-INPUTS → RECORDABLE-COFX — the
-    `:rf.world/inputs` vocabulary fracture is closed; the surface shows the
-    handler's DECLARED RECORDABLE LEAVES off the flat `:rf.cofx` map.
-  - rf2-y8doi.19: + INTERCEPTORS (PLURAL — the AUTHORED chain step
-    `authored-interceptors-step` emits, rf2-se9a9t / EP-0022 §11;
-    distinct from the singular exception-only INTERCEPTOR above), and
-    − SCHEMA-HOT-RELOAD, whose step rf2-7gf7v retired: nothing has
-    emitted that badge since, so the set was advertising a dead badge
-    and omitting a live one. Neither drift was visible, because
-    `badge-set-test`'s fixture declared no authored interceptors, so
-    the INTERCEPTORS step it should have caught was never projected.
+  - DISPATCH · COEFFECT · HANDLER · FLOW · SUBSCRIPTIONS · VIEWS — the
+    core cascade steps.
+  - SIDE-EFFECTS — the effect ledger step (:db / runtime-db / :fx rows);
+    it also surfaces dispatch-family fx, so there is no separate
+    child-dispatches step, and HANDLER's `:db` section surfaces the
+    post-handler diff, so there is no separate app-db-diff step.
+  - RECORDABLE-COFX (EP-0010 causal provenance, EP-0017 §9) —
+    conditional: present only when the dispatch envelope surfaced a flat
+    `:rf.cofx` map; shows the handler's DECLARED RECORDABLE LEAVES and
+    sits right after DISPATCH SITE.
+  - INTERCEPTORS (PLURAL) — the AUTHORED chain step
+    `authored-interceptors-step` emits (EP-0022 §11).
+  - INTERCEPTOR (singular) — conditional, exception-only: present only
+    when a user interceptor threw this cascade; the throwing
+    interceptor's :before / :after row carries the shared 'Exception
+    Thrown' card.
 
-  The count is 10 either way — one badge in, one out — so a count pin
-  alone cannot see this class; the fixture is what catches it.
+  Schema violations attach to their owning step inline and carry no
+  badge of their own, and hot-reload drift surfaces on the Issues panel
+  rather than as a cascade step, so neither has a badge here.
+
+  A count pin alone cannot see a badge swapped for another — one in, one
+  out leaves the count unchanged — so `badge-set-test` has to project
+  every step kind, including the authored INTERCEPTORS step, which only
+  the resolver opts reach.
 
   The view never paints a badge whose keyword is not in
   `panels.epoch.badge`'s tables, and those tables resolve unknown
   badges to `:text-tertiary` + `(name badge)` rather than nil, so a
-  badge missing HERE was never a blank pill — it was a producer the
-  authoritative inventory did not admit."
+  badge missing HERE would not be a blank pill — it would be a producer
+  the authoritative inventory does not admit."
   #{:DISPATCH :RECORDABLE-COFX :COEFFECT :INTERCEPTORS :INTERCEPTOR
     :HANDLER :FLOW :SIDE-EFFECTS :SUBSCRIPTIONS :VIEWS})
 
