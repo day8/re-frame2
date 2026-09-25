@@ -10,7 +10,7 @@
 
   The implementation reuses the
   `panels.routing-helpers/simulate-url` pure helper — the 6-rule
-  rank event-bundle lives there, JVM-portable. This ns is the view +
+  rank logic lives there, JVM-portable. This ns is the view +
   dispatch layer only.
 
   ## State slot
@@ -35,7 +35,7 @@
   `[static catch-all? total -splat -optional -reg-index]` per
   `parse-pattern` (the catch-all discriminator precedes total-length
   so the bare `/*` is demoted below all concrete routes);
-  surface it verbatim — the lens is about exposing the event-bundle, not
+  surface it verbatim — the lens is about exposing the tuple, not
   interpreting it."
   [rank]
   [:span {:style {:font-family mono-stack
@@ -161,7 +161,7 @@
                             :display        "flex"
                             :flex-direction "column"
                             :gap            "1px"}}]
-              ;; rf2-a38l — KEYED FRAGMENT rather than `^{:key …}` reader
+              ;; A KEYED FRAGMENT rather than `^{:key …}` reader
               ;; meta, which Reagent honours and Fresco's codec reads
               ;; nowhere. `candidate-row` takes its candidate
               ;; positionally, so there is no props map to hold the key.
