@@ -443,8 +443,10 @@ test('the diff cannot swallow its own failure (rf2-8oh5)', () => {
 // never failed would look identical.
 
 // LEGACY_DISPATCH_BODY, frozen — the defective dispatch body with exactly two
-// substitutions, both orthogonal to the defect and both applied identically to
-// the shipped body in `dispatchBody()` below, so the two arms differ only in
+// substitutions, both orthogonal to the defect. `dispatchBody()` below applies
+// the first to the shipped body; the second has nothing to replace there,
+// because the shipped body carries no `${{ github.sha }}` expression (the
+// structural test below asserts its absence). So the two arms differ only in
 // what they are testing:
 //
 //   `${{ steps.changed.outputs.files }}` → `$CHANGED_FILES`
