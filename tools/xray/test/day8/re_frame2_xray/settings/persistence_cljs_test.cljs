@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.settings.persistence-cljs-test
-  "CLJS tests for the Settings popup's localStorage round-trip
-  (rf2-9poxq).
+  "CLJS tests for the Settings popup's localStorage round-trip.
 
   Asserts:
   - Each setting writes through to localStorage
@@ -9,7 +8,7 @@
   - Malformed payloads degrade silently to defaults
   - `configure! :settings` seeds the live map and NEVER writes storage
   - The payload is a sparse overlay of explicit overrides, never the
-    resolved map (rf2-3x7nj.27.1)
+    resolved map
 
   Drives the in-memory atom + the localStorage shim directly so the
   test stays substrate-independent."
@@ -36,7 +35,7 @@
   live settings atom AND the `configure!` seed — and keep only storage.
   Resetting the atom alone is NOT a reload: the seed survives in
   process, so a value read back afterwards can come from the seed and
-  say nothing about storage (rf2-3x7nj.27.1)."
+  say nothing about storage."
   []
   (let [payload (storage-payload)]
     (config/reset-settings!)
@@ -46,17 +45,17 @@
 ;; ---- defaults ----------------------------------------------------------
 
 (deftest defaults-match-spec
-  (testing "default settings match the bead's locked decisions"
+  (testing "default settings match the documented defaults"
     (is (= 13     (config/get-setting :general :text-size)))
     (is (= :right-rail
               (config/get-setting :general :panel-position)))
     (is (= false  (config/get-setting :general :auto-open-on-error?)))
-    ;; rf2-3f2di B2 — theme default flipped dark → light to match the
-    ;; authoritative reference's light-by-default render.
+    ;; The theme default is :light, matching the authoritative
+    ;; reference's light-by-default render.
     (is (= :light (config/get-setting :theme nil)))
-    ;; rf2-3zyyx — epoch-history default matches the substrate's
-    ;; `re-frame.epoch.state/default-depth` so a fresh install carries
-    ;; the same ring depth Xray observed before the knob was surfaced.
+    ;; The epoch-history default matches the substrate's
+    ;; `re-frame.epoch.state/default-depth`, so a fresh install carries
+    ;; the substrate's own ring depth.
     (is (= 50 (config/get-setting :general :epoch-history)))))
 
 ;; ---- per-setting round-trip --------------------------------------------
@@ -74,9 +73,9 @@
       "reload from localStorage restores 16"))
 
 (deftest panel-position-round-trips
-  ;; rf2-czcg5 — `:popout` was dropped as a panel-position (pop-out now
-  ;; launches from the chrome ⛶ button). `:fullscreen` is the remaining
-  ;; non-default position; round-trip it through localStorage.
+  ;; `:popout` is not a panel-position (pop-out launches from the chrome
+  ;; ⛶ button). `:fullscreen` is the non-default position; round-trip it
+  ;; through localStorage.
   (config/update-setting! :general :panel-position :fullscreen)
   (is (= :fullscreen (config/get-setting :general :panel-position)))
   (reset! config/settings config/default-settings)
@@ -98,7 +97,7 @@
   (is (= :light (config/get-setting :theme nil))))
 
 (deftest epoch-history-round-trips
-  ;; rf2-3zyyx — the Epoch history slider persists the depth through
+  ;; The Epoch history slider persists the depth through
   ;; the same localStorage path every other :general knob uses; on
   ;; reload the substrate cap is restored via `apply-epoch-history!`
   ;; (separate test in effects_cljs_test).
@@ -112,11 +111,11 @@
       "reload from localStorage restores 200"))
 
 (deftest legacy-telemetry-key-is-silently-dropped
-  ;; rf2-jh9ws: settings persisted from prior sessions with a
-  ;; `:telemetry` key (the section was removed because no telemetry
-  ;; endpoint exists) must not break load. The per-section merge in
-  ;; `load-settings-from-storage!` only knows the surviving slots, so
-  ;; the legacy key falls on the floor without throwing.
+  ;; A persisted payload carrying a `:telemetry` key (there is no
+  ;; telemetry section, because no telemetry endpoint exists) must not
+  ;; break load. The per-section merge in `load-settings-from-storage!`
+  ;; only knows the defined slots, so the legacy key falls on the floor
+  ;; without throwing.
   (#'config/storage-set! config/settings-storage-key
                          (pr-str {:general   {:text-size 15}
                                   :theme     :light
@@ -134,8 +133,8 @@
 
 (deftest reset-clears-everything
   (config/update-setting! :general :text-size 18)
-  ;; rf2-3f2di B2 — flip away from the new `:light` default so reset has
-  ;; a non-default value to revert.
+  ;; Flip away from the `:light` default so reset has a non-default
+  ;; value to revert.
   (config/update-setting! :theme nil :dark)
   (config/reset-settings!)
   (is (= 13 (config/get-setting :general :text-size)))
@@ -161,9 +160,8 @@
 ;; ---- bulk configure! :settings ----------------------------------------
 
 (deftest configure-settings-bulk-replaces
-  ;; rf2-jh9ws: legacy `:telemetry` key in the bulk-config map is
-  ;; silently dropped — known slots round-trip; unknown slots fall
-  ;; on the floor.
+  ;; A legacy `:telemetry` key in the bulk-config map is silently
+  ;; dropped — known slots round-trip; unknown slots fall on the floor.
   (config/configure! {:rf.xray/settings {:general   {:text-size 15
                                                       :panel-position :fullscreen
                                                       :auto-open-on-error? true}
@@ -177,7 +175,7 @@
       "legacy :telemetry key dropped by per-section merge")
   (is (nil? (storage-payload))
       "configure! never writes storage — the seed is re-applied on every
-       boot instead (rf2-3x7nj.27.1)"))
+       boot instead"))
 
 (deftest configure-settings-partial-merges-with-defaults
   (config/configure! {:rf.xray/settings {:general {:text-size 11}}})
@@ -185,42 +183,39 @@
   ;; Other general slots keep their defaults
   (is (= :right-rail (config/get-setting :general :panel-position)))
   (is (= false (config/get-setting :general :auto-open-on-error?)))
-  ;; rf2-3f2di B2 — the theme default is now `:light`.
+  ;; The theme default is `:light`.
   (is (= :light (config/get-setting :theme nil))))
 
 ;; ---- configure! vs persisted Settings merge order -----------------------
-;; ---- (rf2-rr2yw3, rf2-y8doi.17) -----------------------------------------
 ;;
 ;; Per spec/015-Configuration.md §`configure!` vs `init!` vs persisted
 ;; Settings: `hardcoded defaults < configure! overrides < persisted
 ;; Settings overrides`.
 ;;
 ;; BOTH ORDERS ARE PINNED BELOW, and the FIRST of the two is the one
-;; production actually takes. rf2-rr2yw3 fixed the case where the host's
-;; `configure!` lands first and the preload's
-;; `load-settings-from-storage!` second, by seeding
-;; `configured-settings-seed` for the load to merge the persisted payload
-;; over. But on the documented `:devtools/preloads` install path the host
-;; CANNOT get in first: shadow-cljs loads preloads ahead of the app's
-;; `:init-fn`, and `preload.cljs`'s load-time block calls
+;; production actually takes. When the host's `configure!` lands first
+;; and the preload's `load-settings-from-storage!` second, `configure!`
+;; seeds `configured-settings-seed` for the load to merge the persisted
+;; payload over. But on the documented `:devtools/preloads` install path
+;; the host CANNOT get in first: shadow-cljs loads preloads ahead of the
+;; app's `:init-fn`, and `preload.cljs`'s load-time block calls
 ;; `load-settings-from-storage!` right there — so the real sequence is
-;; LOAD, then `configure!`, and `configure!`'s unconditional `reset!`
-;; landed squarely on top of the user's persisted values, delivering the
-;; documented order INVERTED on the only path a shipped host takes
-;; (rf2-y8doi.17). `configure!` now recomputes the same three-layer merge
-;; instead of `reset!`-ing its own seed, which is what makes the two
-;; orders agree.
+;; LOAD, then `configure!`. An unconditional `reset!` in `configure!`
+;; would land squarely on top of the user's persisted values, delivering
+;; the documented order INVERTED on the only path a shipped host takes.
+;; So `configure!` recomputes the same three-layer merge instead of
+;; `reset!`-ing its own seed, which is what makes the two orders agree.
 
 (deftest preload-order-persisted-wins-over-later-configure
-  (testing "rf2-y8doi.17 — TRUE preload order. The preload's
+  (testing "TRUE preload order. The preload's
             `load-settings-from-storage!` runs FIRST (it is a load-time
             side-effect of the preload namespace) and the host's
             `configure!` SECOND (it runs in the app's `:init-fn`). The
             user's persisted value must still win, and the host's seed
             must still supply the keys the user never persisted."
     ;; A PARTIAL persisted payload — the user has only ever changed the
-    ;; text size. Since rf2-3x7nj.27.1 that is the only shape storage
-    ;; holds: a sparse overlay of the paths the user wrote.
+    ;; text size. That is the only shape storage holds: a sparse overlay
+    ;; of the paths the user wrote.
     (#'config/storage-set! config/settings-storage-key
                            (pr-str {:general {:text-size 20}}))
     ;; 1. The preload's load-time block.
@@ -240,7 +235,7 @@
         "a key neither layer names keeps the compiled-in default")))
 
 (deftest preload-order-leaves-the-persisted-payload-intact
-  (testing "rf2-y8doi.17 — and `configure!` arriving after the load must
+  (testing "and `configure!` arriving after the load must
             not REWRITE storage either: a reload that runs only the
             preload's load (no host `configure!` that session) must
             still find the user's own value."
@@ -259,7 +254,7 @@
         "the user's persisted value survived the earlier `configure!`")))
 
 (deftest configure-settings-does-not-clobber-persisted-user-mutation
-  (testing "rf2-rr2yw3 — the OTHER order, which a host reaches by
+  (testing "the OTHER order, which a host reaches by
             ordering its own preload ahead of Xray's: a host that calls
             `configure! {:rf.xray/settings ...}` on every boot must not
             permanently overwrite a user's ALREADY-persisted
@@ -282,13 +277,11 @@
          configure!'s 15 does NOT clobber it")))
 
 (deftest configure-settings-never-writes-storage
-  (testing "rf2-3x7nj.27.1 — `configure!` on a fresh install leaves
-            storage EMPTY. The first-boot write it replaces (rf2-rr2yw3,
-            'so the posture survives a reload with no further configure!
-            call') bought nothing — the documented host re-seeds on every
-            boot — and it persisted the whole resolved map, which then sat
-            above every later seed and froze the host's posture at first
-            boot."
+  (testing "`configure!` on a fresh install leaves
+            storage EMPTY. A first-boot write would buy nothing — the
+            documented host re-seeds on every boot — and persisting the
+            whole resolved map would sit above every later seed and
+            freeze the host's posture at first boot."
     (config/configure! {:rf.xray/settings {:general {:text-size 17}}})
     (is (= 17 (config/get-setting :general :text-size))
         "precondition: the seed is live immediately")
@@ -303,15 +296,14 @@
          re-applied seed")))
 
 ;; ---- the payload is a sparse overlay of explicit overrides -------------
-;; ---- (rf2-3x7nj.27.1) ---------------------------------------------------
 ;;
-;; Before the fix `write-storage!` persisted `(pr-str @settings)` — the
-;; WHOLE resolved map, compiled-in defaults and host seed included — on
-;; every `update-setting!` AND on `configure!`'s first boot. Read back as
-;; the top layer, that made every key behave as user-set: after one panel
-;; drag (or no user action at all), no later host `configure!` value and
-;; no later Xray default reached that browser. Storage now records only
-;; the exact paths a user gesture or an `init!` opt wrote.
+;; Storage records only the exact paths a user gesture or an `init!` opt
+;; wrote. Persisting `(pr-str @settings)` — the WHOLE resolved map,
+;; compiled-in defaults and host seed included — on every
+;; `update-setting!` would, read back as the top layer, make every key
+;; behave as user-set: after one panel drag (or no user action at all),
+;; no later host `configure!` value and no later Xray default would reach
+;; that browser.
 
 (defn- two-boots!
   "Boot 1: the host configures `{:theme :dark}` and the user performs
@@ -334,9 +326,9 @@
 
 (deftest a-later-host-posture-lands-for-every-key-the-user-never-wrote
   (doseq [order [:load-first :configure-first]]
-    (testing (str "rf2-3x7nj.27.1 — " order ": one panel drag records that
+    (testing (str "order " order ": one panel drag records that
                    width, and the host's later :light / :compact still land
-                   (the whole-map payload read back :dark / :cosy)")
+                   (a whole-map payload would read back :dark / :cosy)")
       (config/reset-settings!)
       (two-boots! #(config/update-setting! :general :panel-width-px 700) order)
       (is (= :light (config/get-setting :theme nil))
@@ -347,7 +339,7 @@
           "and the width the user DID drag is kept"))))
 
 (deftest an-override-records-exactly-the-path-written
-  (testing "rf2-3x7nj.27.1 — one write on empty storage stores exactly
+  (testing "one write on empty storage stores exactly
             that one path; a second write adds its own path beside it"
     (config/update-setting! :general :panel-width-px 700)
     (is (= {:general {:panel-width-px 700}}
@@ -361,7 +353,7 @@
 
 (deftest an-explicit-choice-still-beats-a-later-host-posture
   (doseq [order [:load-first :configure-first]]
-    (testing (str "CONTROL (green before and after the fix) — " order ": a
+    (testing (str "CONTROL (holds for a whole-map payload too) — " order ": a
                    theme the user CHOSE outranks the host's later :light")
       (config/reset-settings!)
       (two-boots! #(config/update-setting! :theme nil :dark) order)
@@ -369,7 +361,7 @@
           "the user's own :dark is kept"))))
 
 (deftest a-choice-equal-to-the-default-still-pins
-  (testing "CONTROL (green before and after the fix) — the record is WHAT
+  (testing "CONTROL (holds for a whole-map payload too) — the record is WHAT
             WAS WRITTEN, not what differs from the base: a user who picks
             :light, the compiled-in default, keeps it against a later host
             :dark"
