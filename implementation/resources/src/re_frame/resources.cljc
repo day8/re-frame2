@@ -279,11 +279,13 @@
 ;; writes do. The success reply handler emits :rf.resource/schedule-timers
 ;; once an entry settles :loaded (arming the advisory stale / GC timers from
 ;; the durable :loaded-at + policy); remove / clear-scope / a fired GC emit
-;; :rf.resource/cancel-timers. Both are `:platforms #{:client}` — the runtime
-;; platform gate skips them under SSR (which uses the blocking-drain wait
-;; point + lazy client revalidation, never wall-clock background timers). Per
-;; Spec 016 §Stale and GC scheduling. Registered in the façade so a `:reload`
-;; re-wires them.
+;; :rf.resource/cancel-timers. Neither declares `:platforms`:
+;; schedule-timers skips arming under SSR through its carried `:server?` flag
+;; (SSR uses the blocking-drain wait point + lazy client revalidation, never
+;; wall-clock background timers, while a JVM client-mode runtime still arms
+;; them), and cancel-timers runs on every platform, because cancellation is
+;; never platform-gated. Per Spec 016 §Stale and GC scheduling. Registered in
+;; the façade so a `:reload` re-wires them.
 (rf.fx/reg-fx :rf.resource/schedule-timers
            rf.resources.timers/schedule-timers-meta
            rf.resources.timers/schedule-timers-handler)
