@@ -1,8 +1,8 @@
 ;; Conformance fixture: routing/fragment-change
 ;;
 ;; The :rf/route slice carries :fragment from the URL. Fragment-only changes update
-;; the slice and emit :rf.route/fragment-changed (rf2-cj9fn; pre-rename
-;; `:rf.route/fragment-changed`) but do NOT re-fire :on-match. Path changes (with or
+;; the slice and emit :rf.route/fragment-changed
+;; but do NOT re-fire :on-match. Path changes (with or
 ;; without a different fragment) DO re-fire :on-match.
 ;;
 ;; Per [012 §Fragments](../../012-Routing.md#fragments).
@@ -10,7 +10,7 @@
 {:fixture/id           :routing/fragment-change
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/fragment}
- :fixture/doc          "Fragment is part of the route slice. Fragment-only changes update :fragment without re-firing :on-match. Path changes re-fire :on-match regardless of fragment. The :rf.route/fragment-changed trace event (rf2-cj9fn) differentiates fragment-only changes from full URL changes."
+ :fixture/doc          "Fragment is part of the route slice. Fragment-only changes update :fragment without re-firing :on-match. Path changes re-fire :on-match regardless of fragment. The :rf.route/fragment-changed trace event differentiates fragment-only changes from full URL changes."
 
  :fixture/registry
  {:route
