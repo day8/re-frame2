@@ -11,8 +11,8 @@
   ## What's under test
 
     1. **trace family** — `resource-trace-op?` / `op-class` / `op-label`
-       over the closed `:rf.resource/*` enum + an in-namespace op not yet
-       enumerated; non-family ops reject.
+       over the closed `:rf.resource/*` enum + an in-namespace op outside
+       the enum; non-family ops reject.
     2. **summarize (PRIVACY)** — type + bounded size + redaction-aware
        preview; the framework sentinels (`:rf/redacted` /
        `:rf.size/large-elided`) keep their status and render no raw
@@ -35,7 +35,7 @@
        `optimistic-force-clobbers` projects the `:force`-clobber warnings.
     8. **lints** — global-scope audit, suspicious-global,
        orphaned-owner.
-    9. **on-box sensitive-resource redaction (rf2-y8doi.15)** — a
+    9. **on-box sensitive-resource redaction** — a
        trace-borne row naming a `:sensitive?` resource redacts its
        value-bearing slots; the pre-filtered projection buffer; the
        `:error` freshness arm; the fourth optimistic outcome
@@ -43,11 +43,11 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
-            ;; rf2-hgy5kf — the live `:entries` / `:rf.runtime/work-ledger` maps
-            ;; are keyed on the CEDN-1 byte `key-id` STRING (rf2-9e0tyq), with the
+            ;; The live `:entries` / `:rf.runtime/work-ledger` maps
+            ;; are keyed on the CEDN-1 byte `key-id` STRING, with the
             ;; kind-preserving scoped-key VECTOR carried on the entry's
             ;; `:resource/key`. The fixtures below model that runtime shape via
-            ;; `rf.resources.state/key-id` rather than the dead vector-keyed shape.
+            ;; `rf.resources.state/key-id` rather than keying on the vector.
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
@@ -101,13 +101,13 @@
     (is (= :gc (h/op-class :rf.resource/gc-fired)))
     (is (= :dedupe (h/op-class :rf.resource/deduped)))
     (is (= :hydration (h/op-class :rf.resource/hydrated)))
-    ;; EP-0016 D3 (slice 8) — the named-scope-resolver resolution op.
+    ;; EP-0016 D3 — the named-scope-resolver resolution op.
     (is (h/resource-trace-op? :rf.resource/scope-resolved))
     (is (= :lifecycle (h/op-class :rf.resource/scope-resolved)))
     (is (= "scope resolved" (h/op-label :rf.resource/scope-resolved)))
     (is (= "fetch started" (h/op-label :rf.resource/fetch-started))))
   (testing "the SSR / route / revalidate ops the runtime also emits are
-            enumerated (rf2-uqwbhr — align the enum with the emitted set)"
+            enumerated (the enum is aligned with the emitted set)"
     (is (= :lifecycle (h/op-class :rf.resource/revalidate-scan)))
     (is (= :lifecycle (h/op-class :rf.resource/route-plan)))
     (is (= :hydration (h/op-class :rf.resource/hydrate-clock-skew)))
@@ -132,7 +132,7 @@
     (is (= "load more skipped"  (h/op-label :rf.resource/load-more-skipped))))
   (testing "the closed enum matches the runtime-emitted set EXACTLY — no
             extra (e.g. the never-emitted `:rf.resource/ensure` event-id or
-            the folded `work-suppressed`) and none missing (rf2-uqwbhr)"
+            `work-suppressed`, which stale-suppressed covers) and none missing"
     (let [enumerated (set (keys h/trace-ops))
           ;; the authoritative runtime-emitted `:rf.resource/*` operation
           ;; set, cross-checked against implementation/resources/ emit sites
@@ -178,14 +178,14 @@
       (is (not (contains? enumerated :rf.resource/ensure))
           ":rf.resource/ensure is a dispatched event-id, NOT a trace op")
       (is (not (contains? enumerated :rf.resource/work-suppressed))
-          ":rf.resource/work-suppressed was folded into stale-suppressed")))
-  (testing "a dispatched resource EVENT-ID is still recognised as an
+          "there is no :rf.resource/work-suppressed — stale-suppressed covers it")))
+  (testing "a dispatched resource EVENT-ID is recognised as an
             in-namespace family member for colouring (the namespace fallback),
             but is NOT a member of the closed enum"
     (is (h/resource-trace-op? :rf.resource/ensure))
     (is (not (contains? (set (keys h/trace-ops)) :rf.resource/ensure)))
     (is (= :lifecycle (h/op-class :rf.resource/ensure))))
-  (testing "an in-namespace op not yet enumerated is still a family member"
+  (testing "an in-namespace op outside the enum is a family member"
     (is (h/resource-trace-op? :rf.resource/some-future-op))
     (is (= :lifecycle (h/op-class :rf.resource/some-future-op)))
     (is (= "some-future-op" (h/op-label :rf.resource/some-future-op))))
@@ -256,7 +256,7 @@
       (let [article (first (filter #(= :article/by-slug (:resource-id %)) rows))]
         (is (= [:route/article] (:declaring-routes article)))))))
 
-;; ---- (3b) project-scope-resolvers (rf2-hls77w, EP-0016 D3) --------------
+;; ---- (3b) project-scope-resolvers (EP-0016 D3) --------------------------
 
 (def ^:private scope-resolver-registrations
   "A `(rf/registrations {:source :store :kind :resource-scope})` shape — `{<scope-id> <meta>}`
@@ -305,7 +305,7 @@
 (def ^:private now 1000000)
 
 (defn- byte-keyed
-  "rf2-9e0tyq / rf2-hgy5kf — build the LIVE-shape `:entries` map: keyed on the
+  "Build the LIVE-shape `:entries` map: keyed on the
   CEDN-1 byte `rf.resources.state/key-id` of each scoped-key VECTOR, with the
   kind-preserving vector stamped on the entry's `:resource/key` (exactly as
   `rf.resources.state/empty-entry` / the runtime write it). Input is the author-friendly
@@ -354,7 +354,7 @@
         (is (:gc-eligible? orphan))
         (is (= 1 (:owner-count owned)))))))
 
-;; ---- (4b) staleness derivation — divergence pin (rf2-vyvo8) -------------
+;; ---- (4b) staleness derivation — divergence pin --------------------------
 ;;
 ;; `resources-helpers/derive-stale?` is a SECOND implementation of the
 ;; framework's `rf.resources.state/entry-stale?` (Spec 016 §Stale and GC
@@ -367,18 +367,18 @@
 ;; tripwire rather than trust.
 ;;
 ;; THIS IS THAT TRIPWIRE. It holds the two derivations to the same answer
-;; across the reachable domain, so the next change to staleness cannot move
+;; across the reachable domain, so a change to staleness cannot move
 ;; one copy without turning this red. The require edge lives in TEST code
-;; only (`re-frame.resources.state` is already required at the top of this
+;; only (`re-frame.resources.state` is required at the top of this
 ;; ns), so the pin costs the panel's production surface nothing and leaves
-;; bundle isolation exactly where it was.
+;; bundle isolation untouched.
 ;;
 ;; AND NOTE THE ONE DELIBERATE DIFFERENCE, pinned separately below: the
 ;; framework predicate is NOT nil-clock safe — `(>= nil stale-at)` throws on
 ;; the JVM — while the panel guards `now-ms`, because `project-instances`'
 ;; 1-arity passes it as nil. Replacing the panel's copy with a delegation to
-;; the framework fn would therefore be a REGRESSION, not a tidy-up, and the
-;; nil-clock pin goes red if anyone tries it.
+;; the framework fn would therefore BREAK the nil clock, not tidy it up, and
+;; the nil-clock pin goes red if anyone tries it.
 
 (def ^:private stale-pin-entries
   "Entry shapes spanning both arms of the predicate (explicit invalidation,
@@ -420,12 +420,12 @@
       (is (false? (:stale? (first time-policy)))
           "a time-policy entry with NO clock reads not-stale rather than throwing")
       (is (true? (:stale? (first invalidated)))
-          "the invalidation arm still answers with no clock"))))
+          "the invalidation arm answers even with no clock"))))
 
 ;; ---- (5) project-work-ledger -------------------------------------------
 
 (defn- byte-keyed-ledger
-  "rf2-9e0tyq / rf2-hgy5kf — build the LIVE-shape `:rf.runtime/work-ledger`
+  "Build the LIVE-shape `:rf.runtime/work-ledger`
   map: keyed on the CEDN-1 byte `rf.resources.work-ledger/work-id-id` of each record's
   `:work/id` VECTOR (exactly as `rf.resources.work-ledger/put-record` writes it). Input is
   the author-friendly seq of records (each carrying its own `:work/id`)."
@@ -452,9 +452,9 @@
       (is (= 2 (count rows)))
       (is (= [:running :completed] (mapv :status rows)))
       (is (= [false true] (mapv :terminal? rows))))
-    (testing "the displayed :work-id is the KIND-PRESERVING :work/id VECTOR
-              (rf2-hgy5kf), NOT the opaque byte map-key — read from the record"
-      ;; the live ledger map IS byte-keyed (string keys); the row must still
+    (testing "the displayed :work-id is the KIND-PRESERVING :work/id VECTOR,
+              NOT the opaque byte map-key — read from the record"
+      ;; the live ledger map IS byte-keyed (string keys); the row must
       ;; surface the kind-preserving work-id from the record's `:work/id`.
       (is (every? string? (keys ledger)))
       (let [r (first rows)]
@@ -468,8 +468,8 @@
         (is (= 5100 (:deadline-at r)))
         ;; resource-key scope/params summarized
         (is (= "vector" (get-in r [:resource/key :scope :type])))
-        ;; rf2-r1zjd0 / EP-0016 — SINGLE attempt identity: the row exposes
-        ;; exactly :work-id (= the record's :work/id); the retired :stale-key
+        ;; EP-0016 — SINGLE attempt identity: the row exposes
+        ;; exactly :work-id (= the record's :work/id); a :stale-key
         ;; synonym MUST NOT be present (Spec 016 §Ledger row retention,
         ;; spec/Managed-Effects.md — one work id, no stale-key synonym).
         (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
@@ -513,7 +513,7 @@
       ;; the cursor is egress-projected (summarized — a cursor can carry ids)
       (is (contains? live :cursor))
       (is (nil? (:page-error live))))
-    ;; rf2-byl7bk.3.4 — the per-page cursor CHAIN (the ordered record of how the
+    ;; The per-page cursor CHAIN (the ordered record of how the
     ;; accumulation advanced; NOT part of the cache key). Each element is a
     ;; cursor egress-projected the SAME way :cursor is — a summary map, never
     ;; the raw cursor.
@@ -549,9 +549,9 @@
         (is (not (contains? ordinary :cursor)))
         (is (not (contains? ordinary :page-params)))))))
 
-;; rf2-byl7bk.3.4 — page-params are cursor values; a SENSITIVE-owner feed must
+;; Page-params are cursor values; a SENSITIVE-owner feed must
 ;; redact each cursor in the chain the SAME way the live-cache scope/params /
-;; the `:cursor` are redacted on the off-box path (the rf2-3tysyj treatment).
+;; the `:cursor` are redacted on the off-box path.
 (deftest infinite-page-params-egress-redaction-test
   (let [;; an egress-fn that redacts the :params slot (mirrors the off-box
         ;; `resource-egress-fn` for a `:sensitive?` owner) and passes other
@@ -568,7 +568,7 @@
       (is (= "[redacted]" (:preview (second (:page-params live))))
           "no raw cursor value leaks off-box")
       ;; the cursor (current :next-page-param) routes through the SAME :params
-      ;; slot, so it redacts identically — page-params are not a new leak path.
+      ;; slot, so it redacts identically — page-params are not a separate leak path.
       (is (:redacted? (:cursor live))))))
 
 (deftest infinite-work-ledger-page-index-test
@@ -616,7 +616,7 @@
         (is (not (:current? (first nodes)))
             "no live inputs ⇒ no route is flagged active")))))
 
-;; ---- (6b) LIVE route/resource graph join (rf2-m5u3gt) -------------------
+;; ---- (6b) LIVE route/resource graph join --------------------------------
 ;;
 ;; EP-0003 asks the route graph to surface the CURRENT route/nav-token,
 ;; active work, and fresh/stale state — not just static declarations. The
@@ -629,7 +629,7 @@
 (def ^:private m5-routing-slice
   {:current {:route-id :route/article :nav-token m5-nav-token
              :params {:slug "welcome"} :path "/articles/welcome"}
-   ;; rf2-btdl1 — the slot is the byte-keyed {<key-id> <scoped-key>} carrier.
+   ;; The slot is the byte-keyed {<key-id> <scoped-key>} carrier.
    :resource-blocking {m5-nav-token {(rf.resources.state/key-id m5-article-key) m5-article-key}}})
 
 (deftest project-route-graph-live-test
@@ -692,13 +692,13 @@
     (is (= [] (h/routing-blocking-keys nil m5-nav-token)))
     (is (= [] (h/routing-blocking-keys {} m5-nav-token)))))
 
-;; ---- (6c) cross-nav-token blocking isolation (rf2-cduftx F2) ------------
+;; ---- (6c) cross-nav-token blocking isolation -----------------------------
 ;;
 ;; The route graph's `:blocking-live` must come from the CURRENT route's
-;; nav-token bucket ONLY (Spec 024 §Route/resource graph). The bug: the
-;; helper flattened ALL coexisting nav-token buckets, so an OLD token whose
+;; nav-token bucket ONLY (Spec 024 §Route/resource graph). A helper that
+;; flattened ALL coexisting nav-token buckets would let an OLD token whose
 ;; bucket held a key sharing the current route's resource-id falsely
-;; reported the active route as still blocked.
+;; report the active route as still blocked.
 
 (def ^:private cduftx-current-token "nav-current")
 (def ^:private cduftx-stale-token "nav-stale")
@@ -724,7 +724,7 @@
                   {:instance-rows []
                    :work-rows     []
                    :current       (h/routing-current cduftx-multi-token-slice)
-                   ;; the CORRECTED call: scoped to the current nav-token
+                   ;; the scoped call: the current nav-token only
                    :blocking-keys (h/routing-blocking-keys
                                     cduftx-multi-token-slice
                                     (:nav-token (h/routing-current cduftx-multi-token-slice)))})
@@ -734,10 +734,10 @@
       (is (= cduftx-current-token (:nav-token article-node)))
       (is (= [] (:blocking-live article-node))
           "the stale token's wait point must NOT surface on the current route")))
-  (testing "the bug repro: the all-token FLATTEN would have falsely flagged it"
+  (testing "the all-token FLATTEN would falsely flag it"
     ;; Demonstrate the difference is real — feeding the flattened keys
-    ;; (the pre-fix data path) DOES light up :blocking-live, which is the
-    ;; cross-token bleed this fix removes.
+    ;; DOES light up :blocking-live, which is the cross-token bleed the
+    ;; scoped read prevents.
     (let [nodes (h/project-route-graph
                   routes-map
                   {:instance-rows []
@@ -746,10 +746,10 @@
                    :blocking-keys (h/routing-blocking-keys cduftx-multi-token-slice)})
           article-node (first (filter #(= :route/article (:route-id %)) nodes))]
       (is (= [:article/by-slug] (:blocking-live article-node))
-          "the flatten path (pre-fix) leaks the stale token's wait point —
+          "the flatten path leaks the stale token's wait point —
            proving the scoped read is load-bearing")))
-  (testing "single-token behaviour is unchanged: a CURRENT-token wait point
-            still surfaces (rf2-m5u3gt regression intact)"
+  (testing "single-token behaviour: a CURRENT-token wait point
+            surfaces"
     (let [nodes (h/project-route-graph
                   routes-map
                   {:instance-rows []
@@ -760,7 +760,7 @@
                                     (:nav-token (h/routing-current m5-routing-slice)))})
           article-node (first (filter #(= :route/article (:route-id %)) nodes))]
       (is (= [:article/by-slug] (:blocking-live article-node))
-          "the current nav-token's own unsettled blocking resource still surfaces"))))
+          "the current nav-token's own unsettled blocking resource surfaces"))))
 
 ;; ---- (7) timeline / invalidation / cache-growth ------------------------
 
@@ -793,10 +793,10 @@
         (is (= :lifecycle (:class fs)))
         (is (= "vector" (get-in fs [:resource/key :scope :type])))))))
 
-;; rf2-byl7bk.3.5 — the four EP-0021 infinite-feed trace ops carry op-specific
+;; The four EP-0021 infinite-feed trace ops carry op-specific
 ;; page evidence (param/index/count/next/terminal/reason/page-error). The
-;; generic lifecycle projection dropped them; the `:page` detail must retain
-;; them, with cursor-bearing facts egress-projected (3.4/3tysyj).
+;; generic lifecycle projection drops them; the `:page` detail must retain
+;; them, with cursor-bearing facts egress-projected.
 (def ^:private infinite-trace-buffer
   [;; a load-more issued the next-page fetch (carries the resolved cursor +
    ;; the page index it appends at + the count so far)
@@ -907,7 +907,7 @@
         (is (= 1 (:owned-count article)))
         (is (= 1 (:gc-eligible article)))))))
 
-;; ---- (7b) EP-0016 slice-8 projections ----------------------------------
+;; ---- (7b) EP-0016 projections ------------------------------------------
 ;; scope-resolution timeline (D3), descriptor-level invalidation evidence
 ;; (D2), and the call-site :reply-to continuation dispatch (D1).
 
@@ -931,7 +931,7 @@
            :resolved-nil? true}}
    ;; a mutation settled with per-target scoped invalidation descriptors
    ;; (global + session) + a fail-closed unresolved {:from-db …} + a Rider-1
-   ;; populate-exempt key. This is a MIXED plan (rf2-fi6tda.3 finding 2): the
+   ;; populate-exempt key. This is a MIXED plan: the
    ;; GLOBAL descriptor is default (it SPARED the populated article key — that
    ;; key rides its own :exempt-keys), while the SESSION descriptor opts into
    ;; :refetch-populated? true (it spared NOTHING — empty :exempt-keys). The
@@ -1004,8 +1004,8 @@
       (let [r (first rows)]
         (is (= 1 (count (:populate-exempt r))))
         (is (= :realworld/article (get-in r [:populate-exempt 0 :resource-id])))))
-    ;; rf2-fi6tda.7 finding 1 — the per-descriptor :exempt-keys is the truthful
-    ;; mixed-plan evidence: the consumer no longer collapses observed exemption
+    ;; The per-descriptor :exempt-keys is the truthful
+    ;; mixed-plan evidence: the consumer does not collapse observed exemption
     ;; to the top-level union alone. The DEFAULT (global) descriptor SPARED the
     ;; populated article key; the :refetch-populated? OPT-IN (session) descriptor
     ;; SPARED nothing — each row carries its own summarized :exempt-keys.
@@ -1200,15 +1200,15 @@
         (is (empty? (h/orphaned-owner-lint instance-rows trace-buffer))
             "the route-owned fresh entry is not an app-kind owner")))))
 
-;; ---- (5c) rf2-o5iv — an EMPTY infinite feed is NOT has-data ---------------
+;; ---- (5c) an EMPTY infinite feed is NOT has-data -------------------------
 ;;
 ;; `rf.resources.state/has-data?` (Spec 016 §Status semantics, EP-0021 R1)
 ;; defines an infinite feed as has-data ONLY once it carries ≥1 accumulated
 ;; page: the seeded-empty page vector `[]` is a FIRST LOAD, not a refresh.
 ;; The Xray projection derives the same fact and must agree — an empty feed
-;; reporting `:has-data? true` made `resource-liveness` skip `:loading` and
-;; call a never-loaded feed `:fresh`, contradicting its own `:status :loading`
-;; / `:page-count 0` on the same row.
+;; reporting `:has-data? true` would make `resource-liveness` skip `:loading`
+;; and call a never-loaded feed `:fresh`, contradicting its own
+;; `:status :loading` / `:page-count 0` on the same row.
 
 (deftest empty-infinite-feed-has-no-data-test
   (let [empty-feed  {:resource/id     :feed/articles
@@ -1227,7 +1227,7 @@
       (is (false? (:has-data? row))
           "an infinite feed with zero accumulated pages has not loaded anything")
       (is (= :loading (:status row))
-          "the row's own status agrees — the projection no longer self-contradicts"))
+          "the row's own status agrees — the projection does not self-contradict"))
     (testing "the route/resource graph's live rollup reads FIRST LOAD, not :fresh"
       ;; the rollup is private; exercise it through the public route-graph
       ;; projection, which is how the panel reads it.
@@ -1265,7 +1265,7 @@
                                   now)))
             "a nil scalar payload is still no-data")))
     (testing "an UPSTREAM-redacted/elided payload still reads has-data
-              (rf2-tgm1xu — the sentinel replaced a real value)"
+              (the sentinel replaced a real value)"
       (doseq [sentinel [:rf/redacted :rf.size/large-elided]]
         (let [redacted {:resource/id  :article/by-slug
                         :resource/key [session-scope :article/by-slug {:slug "s"}]
@@ -1277,13 +1277,13 @@
           (is (true? (:has-data? row'))
               (str sentinel " means data WAS present — never flipped to no-data")))))))
 
-;; ---- (10) rf2-y8doi.15 — ON-BOX sensitive-resource redaction -------------
+;; ---- (10) ON-BOX sensitive-resource redaction ----------------------------
 ;;
-;; rf2-9zix0u closed the on-box leak for the §2 live-instance rows: their
-;; payload slots route through the observed frame's `:sensitive`
-;; classification before `summarize`. Every TRACE-BORNE section still printed
-;; a 120-char `pr-str` preview of the SAME resource's scope, params and cause
-;; one scroll down. A trace row has no runtime-db path, so the instance gate
+;; The §2 live-instance rows route their payload slots through the observed
+;; frame's `:sensitive` classification before `summarize`. Without a gate of
+;; its own, every TRACE-BORNE section would print a 120-char `pr-str` preview
+;; of the SAME resource's scope, params and cause one scroll down. A trace
+;; row has no runtime-db path, so the instance gate
 ;; cannot be reused; what it carries is the resource-id, which the static
 ;; registry's coarse `:sensitive?` declaration keys.
 ;;
@@ -1336,10 +1336,10 @@
         s       (row-by-id gated 1)          ; the :sensitive? resource
         ok      (row-by-id gated 2)          ; the sibling that is not
         before  (row-by-id ungated 1)]
-    (testing "BEFORE the gate the sensitive resource's scope/params printed raw"
+    (testing "WITHOUT the gate the sensitive resource's scope/params print raw"
       (is (false? (get-in before [:resource/key :scope :redacted?])))
       (is (re-find #"u-42" (get-in before [:resource/key :scope :preview]))
-          "the preview carried the user id verbatim — the screen-share leak"))
+          "the preview carries the user id verbatim — the screen-share leak"))
     (testing "the sensitive resource's value-bearing slots redact"
       (is (true? (get-in s [:resource/key :scope :redacted?])))
       (is (true? (get-in s [:resource/key :params :redacted?])))
@@ -1451,7 +1451,7 @@
                                         :article/by-slug)
                           [:outcome :redacted?]))))))
 
-;; ---- (11) rf2-y8doi.15 — the pre-filtered buffer -------------------------
+;; ---- (11) the pre-filtered buffer ---------------------------------------
 
 (deftest resource-projection-rows-test
   (let [buf (into mixed-family-buffer
@@ -1477,13 +1477,13 @@
     (testing "nil-safe"
       (is (= [] (h/resource-projection-rows nil))))))
 
-;; ---- (12) rf2-y8doi.15 — :error liveness --------------------------------
+;; ---- (12) :error liveness -----------------------------------------------
 ;;
-;; The freshness rollup could never yield `:error`: an entry at `:status
-;; :error` with no data and no live work fell through to `:idle`, so the one
-;; SSR wait point that FAILED its first load was painted as if nothing had
-;; been asked of it. `freshness-colour` in the view already carried an
-;; `:error` arm nothing could reach.
+;; The freshness rollup yields `:error` for an entry at `:status :error` with
+;; no data and no live work. Were it to fall through to `:idle`, the one SSR
+;; wait point that FAILED its first load would paint as if nothing had been
+;; asked of it, and the `:error` arm of `freshness-colour` in the view would
+;; be unreachable.
 
 (deftest resource-liveness-surfaces-error
   (let [failed-key [session-scope :article/by-slug {:slug "welcome"}]
@@ -1502,7 +1502,7 @@
                                   (:resources node)))]
     (testing "a failed blocking resource with no data and no live work reads :error"
       (is (= :error (get-in article [:live :freshness]))
-          "it read :idle before — 'nothing was asked of this route'")
+          "not :idle — 'nothing was asked of this route'")
       (is (contains? (get-in article [:live :statuses]) :error)))
     (testing "CONTROL — the same entry LOADED reads :fresh, not :error"
       (let [ok-rows [(h/instance-row
@@ -1527,13 +1527,14 @@
                                  (:resources node')))]
         (is (= :loading (get-in res' [:live :freshness])))))))
 
-;; ---- (13) rf2-y8doi.15 — the fourth optimistic outcome, :superseded ------
+;; ---- (13) the fourth optimistic outcome, :superseded -------------------
 ;;
 ;; A mutation reply that arrives for a SUPERSEDED generation emits neither
 ;; settle op — Spec 016 §Optimistic settle: "its inverse is discarded, never
-;; replayed" — so the apply row paired with nothing and read "pending
-;; (optimistic)" for ever, claiming a settled request was still in flight.
-;; The `:rf.mutation/stale-suppressed` row is already in the same buffer.
+;; replayed" — so with only the settle ops the apply row would pair with
+;; nothing and read "pending (optimistic)" for ever, claiming a settled
+;; request was still in flight. The `:rf.mutation/stale-suppressed` row in the
+;; same buffer is what settles it.
 
 (def ^:private opt-instance [:favorite "welcome"])
 (def ^:private opt-work-id [:rf.work/mutation :favorite 7])
@@ -1672,9 +1673,9 @@
       (is (= (:hint ungated) (:hint gated)))
       (is (re-find #"article/by-slug" (:hint gated)))
       (is (nil? (re-find #"u-42" (:hint gated)))
-          "no scope or params value has ever appeared in the hint"))))
+          "the hint carries no scope or params value"))))
 
-;; ---- (14) rf2-qqi7u — the optimistic joins are FRAME-SCOPED ---------------
+;; ---- (14) the optimistic joins are FRAME-SCOPED --------------------------
 ;;
 ;; Every identity these joins key on is FRAME-LOCAL, and the runtime says so
 ;; itself: a resource work-id "carries no frame identity, so two frames issuing
@@ -1685,15 +1686,16 @@
 ;; so it INHERITS the collision rather than escaping it.
 ;;
 ;; The panel feeds every trace-borne projection ONE buffer and that buffer is
-;; deliberately cross-frame. So on a multi-frame host frame B's terminal could
-;; settle frame A's apply: A read `:superseded`, or `:reconciled` wearing B's
-;; `:committed` keys, while it was still genuinely in flight — precisely the
-;; false "it finished" a network inspector exists to disprove.
+;; deliberately cross-frame. So on a multi-frame host a frame-blind join would
+;; let frame B's terminal settle frame A's apply: A would read `:superseded`,
+;; or `:reconciled` wearing B's `:committed` keys, while still genuinely in
+;; flight — precisely the false "it finished" a network inspector exists to
+;; disprove.
 ;;
-;; Every producer op in these joins stamps `:rf.frame/id`, so the fix is for
-;; the join to USE it. These tests pin BOTH directions, because only the pair
+;; Every producer op in these joins stamps `:rf.frame/id`, and the join USES
+;; it. These tests pin BOTH directions, because only the pair
 ;; discriminates: a FOREIGN frame must not settle, and the SAME frame must
-;; still settle exactly as it did before.
+;; settle exactly as a single-frame buffer does.
 
 (def ^:private frame-a :rf/default)
 (def ^:private frame-b :rf/other-frame)
@@ -1728,8 +1730,8 @@
           row (first (h/optimistic-lifecycle
                        [(in-frame opt-apply-ev frame-a) b]))]
       (is (= :pending (:outcome row)))))
-  (testing "SAME-frame supersession is unchanged — the behaviour this
-            correction had to keep"
+  (testing "SAME-frame supersession settles — the behaviour frame-scoping
+            must keep"
     (let [row (first (h/optimistic-lifecycle
                        [(in-frame opt-apply-ev frame-a)
                         (in-frame opt-suppressed-ev frame-a)]))]
@@ -1771,7 +1773,7 @@
         (is (nil? (:settled-id row)))
         (is (not (contains? row :committed))
             "the settle FACETS are read off the same index — they must not leak either")))
-    (testing "SAME-frame reconcile settles exactly as before"
+    (testing "SAME-frame reconcile settles as in a single-frame buffer"
       (let [row (first (h/optimistic-lifecycle
                          [(in-frame opt-apply-ev frame-a)
                           (in-frame reconciled frame-a)]))]
@@ -1784,7 +1786,7 @@
                           (in-frame rolled frame-b)]))]
         (is (= :pending (:outcome row)))
         (is (not (contains? row :restored)))))
-    (testing "SAME-frame rollback settles exactly as before"
+    (testing "SAME-frame rollback settles as in a single-frame buffer"
       (let [row (first (h/optimistic-lifecycle
                          [(in-frame opt-apply-ev frame-a)
                           (in-frame rolled frame-a)]))]
@@ -1794,8 +1796,9 @@
 
 (deftest optimistic-reach-lint-is-frame-scoped-rf2-qqi7u
   ;; The reach lint unions the `:affected-keys` of the `:rf.mutation/succeeded`
-  ;; settlement keyed by `[instance work-id]` — both frame-local, so frame B's
-  ;; settlement could answer for frame A's and the finding simply vanished.
+  ;; settlement keyed by `[instance work-id]` — both frame-local, so a
+  ;; frame-blind join would let frame B's settlement answer for frame A's and
+  ;; the finding would simply vanish.
   ;; That is the REASSURING direction: a lint reporting nothing reads as a
   ;; clean panel, so nothing on screen says the answer came from another frame.
   (let [reconciled {:id 40 :operation :rf.mutation/optimistic-reconciled
@@ -1824,21 +1827,22 @@
         (is (= 1 (count (:missing-keys row))))
         (is (= :article/favorite (:mutation row)))))))
 
-;; ---- (15) rf2-389dv — the reach lint's last two FRAME-LESS identities ----
+;; ---- (15) the reach lint's other two FRAME-SCOPED identities ------------
 ;;
-;; rf2-qqi7u frame-scoped this lint's `affected-by-work` join. TWO identities
-;; INSIDE THE SAME FN stayed frame-less, on the same deliberately cross-frame
-;; buffer:
+;; Besides this lint's `affected-by-work` join, TWO identities INSIDE THE
+;; SAME FN key on the same deliberately cross-frame buffer, and each carries
+;; the frame:
 ;;
-;;   - the `warned-scopes` suppression set, keyed `[mutation other-scope]`, so
-;;     a scope-mismatch warning emitted in ANOTHER frame erased a local reach
-;;     finding outright; and
-;;   - the candidate dedupe key, keyed `[mutation instance missing]`, so two
-;;     genuinely independent findings — one per frame — collapsed into one.
+;;   - the `warned-scopes` suppression set, `[frame mutation other-scope]` —
+;;     without the frame, a scope-mismatch warning emitted in ANOTHER frame
+;;     would erase a local reach finding outright; and
+;;   - the candidate dedupe key, `[frame mutation instance missing]` —
+;;     without the frame, two genuinely independent findings — one per
+;;     frame — would collapse into one.
 ;;
-;; Both fail in the REASSURING direction, which is why neither was noticed:
-;; FEWER findings reads as a cleaner panel, and nothing on screen says the
-;; answer came from another frame.
+;; Both would fail in the REASSURING direction, which is what makes them easy
+;; to miss: FEWER findings reads as a cleaner panel, and nothing on screen
+;; says the answer came from another frame.
 ;;
 ;; These cases run the buffer through the PRODUCTION family filter
 ;; (`resource-projection-rows`) rather than straight into the lint, because
@@ -1893,13 +1897,13 @@
                             (assoc (in-frame reach-reconciled frame-b) :id 60)])]
       (is (= 2 (count rows)))
       (is (= [50 60] (mapv :id rows)) "buffer order preserved, oldest first")))
-  (testing "SAME-FRAME duplicate collapsing is UNCHANGED — the behaviour this
-            correction had to keep, and the reason the fix is not just a
+  (testing "SAME-FRAME duplicates collapse — the behaviour frame-scoping
+            must keep, and the reason the frame-scoped key is not just a
             disabled dedupe"
     (let [rows (reach-lint [(in-frame reach-reconciled frame-a)
                             (assoc (in-frame reach-reconciled frame-a) :id 61)])]
       (is (= 1 (count rows)))
-      (is (= 50 (:id (first rows))) "the first row wins, exactly as before")))
+      (is (= 50 (:id (first rows))) "the first row wins")))
   (testing "the dedupe key never leaks onto a result row"
     (is (every? #(not (contains? % :dedupe-key))
                 (reach-lint [(in-frame reach-reconciled frame-a)
@@ -1909,8 +1913,8 @@
   (testing "CONTROL — with no warning in the buffer at all, frame A's reconcile
             is ONE finding"
     (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-a)])))))
-  (testing "SAME-FRAME suppression is UNCHANGED — a wrong-scope descriptor
-            still gets one diagnostic, not two"
+  (testing "SAME-FRAME suppression holds — a wrong-scope descriptor
+            gets one diagnostic, not two"
     (is (empty? (reach-lint [(in-frame reach-reconciled frame-a)
                              (in-frame reach-scope-warning frame-a)]))))
   (testing "a warning emitted in ANOTHER frame must not erase this frame's
