@@ -12,7 +12,7 @@
 ;; orthogonal to guard / action resolution and fire BEFORE the guard-ref
 ;; check, so the structural-taxonomy fixtures need no guard / action refs.
 ;;
-;; DIVERGENCE (operator-ruled, alpha-drift-confirmed vs xstate v6 alpha.3):
+;; DIVERGENCE (vs xstate v6 alpha.3):
 ;; re-frame2's :internal-events is a Clojure SET form (#{:tick}) — NOT
 ;; XState's ARRAY. A VECTOR :internal-events is the rejected array form.
 ;; A declared internal event must be a NON-reserved keyword — a reserved
