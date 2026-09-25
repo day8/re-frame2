@@ -1,6 +1,6 @@
 (ns re-frame.story.invariants-cljs-test
-  "CLJS coverage for `re-frame.story.invariants` (rf2-5x1wt.5 +
-  rf2-5x1wt.6, spec/017-Testing-Story.md §Invariant sentinels).
+  "CLJS coverage for `re-frame.story.invariants`
+  (spec/017-Testing-Story.md §Invariant sentinels).
 
   The pure surface (`first-bad-epoch`, `coerce-invariant`, `check-epoch`,
   the report-once `on-epoch!` core) is exercised on the JVM by
@@ -24,12 +24,12 @@
   (fn [test-fn]
     (rf.registrar/clear-all!)
     (reset! rf.frame/frames {})
-    ;; rf2-qj4g — COLD-START the slot: destroy, then seat. `init!` is idempotent
-    ;; only for the adapter ALREADY SEATED (rf2-kuky.1) — handed a DIFFERENT one
-    ;; it raises `:rf.error/adapter-already-installed` rather than ignoring the
-    ;; call. This ns shares the node bundle with suites that seat Reagent, UIx
-    ;; and the SSR adapter, so a bare `init!` here was a no-op whenever one of
-    ;; them ran first, and every test below ran on a substrate it never named.
+    ;; COLD-START the slot: destroy, then seat. `init!` is idempotent only
+    ;; for the adapter ALREADY SEATED — handed a DIFFERENT one it raises
+    ;; `:rf.error/adapter-already-installed` rather than ignoring the call.
+    ;; This ns shares the node bundle with suites that seat Reagent, UIx and
+    ;; the SSR adapter, so a bare `init!` here would raise whenever one of
+    ;; them ran first.
     (rf/destroy-adapter!)
     (rf/init! rf.substrate.plain-atom/adapter)
     (rf.epoch/clear-epoch-listeners!)
