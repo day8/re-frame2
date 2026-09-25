@@ -41,7 +41,7 @@
   namespace. That is a fact about the PANEL's read path, NOT about the
   Xray package: `tools/xray/deps.edn` declares `day8/re-frame2-resources`
   at top level, and the Derivation-Graph tab — a SEPARATE surface —
-  `:require`s `re-frame.resources.tooling` (rf2-1fc459).
+  `:require`s `re-frame.resources.tooling`.
   `tools/xray/spec/024-Resources-Panel.md` §Decoupling keeps the two
   apart; do not collapse them. The panel reads
   decoupled: the static registry via `(rf/registrations {:source :store :kind :resource})`, the
@@ -54,20 +54,19 @@
 
   Same contract as every Xray panel — the view is pure hiccup, no
   Reagent/UIx references. Frame isolation comes from the enclosing
-  `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`. Projection
-  algebra lives in `resources_helpers.cljc` (JVM-portable).
+  `[rf.fresco/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
+  Projection algebra lives in `resources_helpers.cljc` (JVM-portable).
 
-  ## THE VIEW IS A FRESCO BOUNDARY (rf2-k97c.3)
+  ## THE VIEW IS A FRESCO BOUNDARY
 
   [[Panel]] is an `rf.fresco/defview` — a real React function component
   minted by the re-frame-native view layer — rather than an
-  `rf/reg-view`. It follows the merged template
-  `panels/module_view.cljs`, which is increment 1 of the epic's ruled
-  design (rf2-k97c.2, Design B): Xray's views are re-authored in Fresco
-  and read through Fresco's shipped collector, so their observation no
-  longer depends on whichever view build the installed adapter happens
-  to supply. That is why Xray cannot paint on an element-shaped adapter
-  today, and why a tool-owned root cannot simply keep rendering
+  `rf/reg-view`. It follows the `panels/module_view.cljs` template:
+  Xray's views are authored in Fresco
+  and read through Fresco's shipped collector, so their observation does
+  not depend on whichever view build the installed adapter happens
+  to supply. A `reg-view` Xray could not paint on an element-shaped
+  adapter at all, which is why a tool-owned root cannot simply render
   `reg-view`s.
 
   Concretely, the ONE read below is `rf.fresco/sub`, which the collector
@@ -76,7 +75,7 @@
   `@(rf/subscribe …)` is tracked only by the INSTALLED adapter's
   reaction machinery.
 
-  ## ONE boundary, at 1,433 lines
+  ## ONE boundary, however long the file
 
   Boundary count tracks READS and head-position use, not file size. This
   panel has exactly ONE read and every section helper below is CALLED by
@@ -85,14 +84,13 @@
   and [[panel-tree]] for the split, which is `defview`'s own documented
   extract-a-helper spelling.
 
-  ## The migration bridge
+  ## The React-component bridge
 
   [[Panel-bridge]] is how the L4 registry — and the standalone
   `panels/mount-resources!` embed — mounts a boundary. IT IS NOT
-  SCAFFOLDING and it STAYS (rf2-lect, ruled option 2): the shell is a
-  Fresco tree now and the bridge stayed anyway, because the shell still
-  reaches the panel across an `as-child` seam and `panels/mount-resources!`
-  reaches it through `render-panel!`, which rf2-l1jm keeps ratom-family."
+  SCAFFOLDING: the shell is a Fresco tree, yet it reaches the panel
+  across an `as-child` seam, and `panels/mount-resources!` reaches it
+  through `render-panel!`, which is ratom-family."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -182,17 +180,16 @@
   `tools/xray/spec/007-UX-IA.md` §Performance budget) with the shared
   overflow affordance appended when the cap drops rows.
 
-  rf2-y8doi.15: every trace-derived section here rendered EVERY row with no
-  cap and no indicator, so once the trace ring filled, one invalidation storm
-  or one busy epoch mounted thousands of DOM nodes and 007's 'nothing renders
-  >200 rows at once' budget was silently unmet. The cap and the indicator are
+  Uncapped, a trace-derived section would render EVERY row with no
+  indicator, so once the trace ring filled, one invalidation storm or one
+  busy epoch would mount thousands of DOM nodes and silently miss 007's
+  'nothing renders >200 rows at once' budget. The cap and the indicator are
   the shared ones — `cap-rows` is the single source of truth for the number,
   and `overflow-row` is the affordance every other long-list panel shows —
   so a user is never left believing a truncated section is the whole story.
 
   `panel-id` keys the indicator's own testid (`rf-xray-<panel-id>-overflow-
-  indicator`); `testid` and `gap` are the body div's, unchanged from what
-  each section rendered before."
+  indicator`); `testid` and `gap` are the body div's."
   [{:keys [panel-id testid gap]} row-fn rows]
   (let [[shown over? hidden] (ch/cap-rows rows)]
     (into [:div {:data-testid testid
@@ -363,8 +360,8 @@
            [:span {:style {:color (:text-tertiary tokens)}} "cursor"]
            (summary-chip (:cursor row) (str testid "-cursor"))])
         ;; EP-0021 — the per-page cursor chain (egress-projected). The durable
-        ;; record of how the accumulation advanced, NOT part of the cache key
-        ;; (rf2-byl7bk.3.4). Rendered as an ordered, indexed run of summary
+        ;; record of how the accumulation advanced, NOT part of the cache
+        ;; key. Rendered as an ordered, indexed run of summary
         ;; chips so the page-by-page fetch sequence is inspectable.
         (when (seq (:page-params row))
           [:span {:data-testid (str testid "-page-params")
@@ -580,7 +577,7 @@
 ;; ---- §4 ROUTE / RESOURCE GRAPH -----------------------------------------
 
 (defn- freshness-colour [freshness]
-  ;; rf2-m5u3gt — the per-resource live freshness chip colour.
+  ;; The per-resource live freshness chip colour.
   (case freshness
     :fresh   (:success tokens)
     :stale   (:warning tokens)
@@ -601,7 +598,7 @@
        (str (:route-id node))]
       (when (:path node)
         [:span {:style {:color (:text-tertiary tokens)}} (:path node)])
-      ;; rf2-m5u3gt — the LIVE active-route badge.
+      ;; The LIVE active-route badge.
       (when (:current? node)
         [:span {:data-testid (str testid "-current")
                 :style {:color (:success tokens) :font-weight 600}}
@@ -609,7 +606,7 @@
       (when (:ssr-wait? node)
         [:span {:data-testid (str testid "-ssr-wait")
                 :style {:color (:warning tokens)}} "SSR wait point"])
-      ;; rf2-m5u3gt — the live unsettled blocking wait points on the active route.
+      ;; The live unsettled blocking wait points on the active route.
       (when (seq (:blocking-live node))
         [:span {:data-testid (str testid "-blocking-live")
                 :style {:color (:warning tokens)}}
@@ -626,7 +623,7 @@
               (if (:blocking? res) " [blocking]" " [non-blocking]")
               (when (:keep-previous? res) " keep-prev")
               (when (seq (:after res)) (str " after " (str/join "," (map str (:after res)))))
-              ;; rf2-m5u3gt — the per-resource live freshness chip.
+              ;; The per-resource live freshness chip.
               (when-let [live (:live res)]
                 (when (not= :none (:freshness live))
                   [:span {:style {:color (freshness-colour (:freshness live))
@@ -666,10 +663,10 @@
                    :font-weight 600 :min-width "9rem"}}
     (:label row)]
    [:span {:style {:color mode-accent}} (str (:resource-id row))]
-   ;; rf2-y8doi.15 — the SCOPED KEY's params, and the status transition. The
-   ;; projection computed both and the row dropped them, so with several
-   ;; params-keyed entries of one resource the timeline could not say WHICH
-   ;; instance the row was about, nor what the event did to its status. Xray
+   ;; The SCOPED KEY's params, and the status transition. Without them,
+   ;; with several params-keyed entries of one resource the timeline could
+   ;; not say WHICH instance the row is about, nor what the event did to its
+   ;; status. Xray
    ;; spec 024 §Lifecycle timeline lists both as rendered. The params chip is
    ;; the SAME `summary-chip` the §2 instance row uses, so a `:sensitive?`
    ;; resource reads `[redacted]` here too (the on-box gate the composite
@@ -690,9 +687,9 @@
           (label (if (some? after) after before)))]))
    ;; EP-0021 — the infinite-feed page evidence carried by the four load-more
    ;; family ops (page param / index / count / next cursor / terminal / skip
-   ;; reason / page-error). Without this the timeline shows "load more"
-   ;; happened but loses which cursor, which page index, terminal-vs-in-flight,
-   ;; and the resulting next cursor (rf2-byl7bk.3.5). Cursor-bearing facts are
+   ;; reason / page-error). Without this the timeline would show "load more"
+   ;; happened but lose which cursor, which page index, terminal-vs-in-flight,
+   ;; and the resulting next cursor. Cursor-bearing facts are
    ;; egress-projected summaries; metadata rides raw.
    (when-let [{:keys [page-param next-page-param page-index page-count
                       terminal? reason page-error]} (:page row)]
@@ -738,7 +735,7 @@
   falls back to the bare count. A broad-tag storm can match hundreds of keys;
   the point of the chips is 'which instance did this hit?', which the first
   few answer. The row always shows the full `:match-count`, so the storm is
-  never understated (rf2-y8doi.15)."
+  never understated."
   6)
 
 (defn- invalidation-row-view [row]
@@ -754,9 +751,8 @@
      [:span {:style {:color (:orange tokens) :font-weight 600}} "invalidate"]
      [:span {:style {:color (:text-primary tokens)}}
       (str/join " " (map pr-str (:tags row)))]
-     ;; rf2-y8doi.15 — the SCOPE this invalidation ran under and its CAUSE.
-     ;; The projection computed both and the row dropped them, so a
-     ;; cross-scope blast and a precisely-scoped one read identically. Both
+     ;; The SCOPE this invalidation ran under and its CAUSE. Without them a
+     ;; cross-scope blast and a precisely-scoped one would read identically. Both
      ;; are `summarize` shapes, so a `:sensitive?` resource's row reads
      ;; `[redacted]` (the composite's on-box gate).
      (when-let [scope (:scope row)]
@@ -866,7 +862,7 @@
    " " (str/join " " (map pr-str (:tags d)))
    (when (:refetch-populated? d)
      [:span {:style {:color (:info tokens)}} " refetch-populated"])
-   ;; the per-descriptor :exempt-keys (rf2-fi6tda.7) — the populated keys THIS
+   ;; the per-descriptor :exempt-keys — the populated keys THIS
    ;; pass spared. Visible per-chip so a mixed plan (one descriptor opting in,
    ;; another sparing the same key) is debuggable without the collapsed union.
    (when (seq (:exempt-keys d))
@@ -973,12 +969,11 @@
   (case outcome
     :reconciled  "reconciled (committed)"
     :rolled-back "rolled back"
-    ;; rf2-y8doi.15 — the fourth outcome. The reply arrived for a superseded
+    ;; The fourth outcome. The reply arrived for a superseded
     ;; generation, so the runtime suppressed it and emitted NO settle op; the
     ;; recorded inverse was discarded, never replayed (Spec 016 §Optimistic
-    ;; settle). This row used to read "pending (optimistic)" for ever, which
-    ;; claimed a settled request was still in flight. The label says where the
-    ;; value actually is.
+    ;; settle). "pending (optimistic)" would claim a settled request is still
+    ;; in flight; this label says where the value actually is.
     :superseded  "superseded (optimistic value left on cache)"
     :pending     "pending (optimistic)"
     (str (some-> outcome name))))
@@ -1199,13 +1194,13 @@
   resources registered AND no live instances, renders the
   silent-by-default caption.
 
-  SPLIT OUT OF [[Panel]] BY rf2-k97c.3, and the split is `defview`'s own
+  SPLIT OUT OF [[Panel]], and the split is `defview`'s own
   documented extract-a-helper spelling (`re-frame.fresco/defview`
   §\"The fn this expands to is ANONYMOUS\"), not an invention. Two things
   turn on it:
 
   * A boundary's body may only run inside a React render window, so
-    `(Panel)` is no longer a callable that answers hiccup. The panel's
+    `(Panel)` is not a callable that answers hiccup. The panel's
     section-rendering algebra is nonetheless ordinary data → data and is
     worth testing in the fast node lane rather than behind a real React
     commit. `resources_cljs_test` drives THIS fn with the value it takes
@@ -1262,25 +1257,25 @@
   "The Resources tab's root (Spec 016 §Xray and AI tooling) — the ONE
   read, and [[panel-tree]] for everything below it.
 
-  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`. Two differences
+  A FRESCO BOUNDARY, not an `rf/reg-view`. Two differences
   matter and neither is cosmetic.
 
   The READ is `rf.fresco/sub`, a plain call the collector records an
   edge for — no deref, no reaction owned by the installed adapter, and a
   re-wire that NOTIFIES when the substrate disposes the underlying
-  derived value. That is the third of the epic's three couplings, and it
-  is the one a first-paint smoke test cannot see.
+  derived value. That is the coupling a first-paint smoke test cannot
+  see.
 
   The FRAME the read resolves against comes from React context, which
   the enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context (core's
   `re-frame.adapter.context/frame-context`) — so this boundary resolves
-  `:rf/xray` identically under the Fresco root Xray owns today and under
+  `:rf/xray` identically under the Fresco root Xray owns and under
   an `rf/frame-provider` a Reagent parent writes. It never consults
   `:adapter/current-component`, which is the hook a foreign root cannot
   answer.
 
-  ONE read and ONE boundary, at 1,433 lines. Boundary count tracks reads
+  ONE read and ONE boundary. Boundary count tracks reads
   and head-position use, not file size: every section helper is CALLED,
   never used as a hiccup head, so Fresco's \"a plain function in head
   position is a loud error\" rule never meets one and there is nothing
@@ -1292,9 +1287,9 @@
   [_props]
   (panel-tree (rf.fresco/sub [:rf.xray/resources-tab-data])))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge -----------------------------------------
 ;;
-;; `shell/detail-panel` — a Fresco boundary since rf2-k97c.3 — reaches the
+;; `shell/detail-panel` — a Fresco boundary — reaches the
 ;; active tab across an `as-child` seam as the hiccup head
 ;; `[(:panel tab)]`, and `panel-registry/reg-l4-tab!`'s `:pre` requires
 ;; `:panel` to be CALLABLE — neither of which a React component is.
@@ -1306,9 +1301,9 @@
 ;; second root. So there is no second root here, no adapter-kind branch,
 ;; and no props ABI.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-resources!` reaches
-;; this bridge through `render-panel!`, which rf2-l1jm keeps ratom-family,
-;; so a Reagent parent heads it by ruling whatever the L4 registry does.
+;; NOT SCAFFOLDING. `panels/mount-resources!` reaches
+;; this bridge through `render-panel!`, which is ratom-family,
+;; so a Reagent parent heads it whatever the L4 registry does.
 ;; The chain is `[:>]` -> `as-component` -> `Panel`.
 
 (def ^:private Panel-component
@@ -1324,14 +1319,14 @@
   enclosing `rf/frame-provider` is what puts the frame in React context
   for it.
 
-  PUBLIC, where the merged `module_view.cljs` template's equivalent is
+  PUBLIC, where the `module_view.cljs` template's equivalent is
   private, and the difference is a real one rather than a slip. That
   panel is L4-only — a `reg-l4-tab!` surface with no standalone facade —
   so its bridge has exactly one consumer, in its own namespace. This
   panel is ALSO in `panel_enum` with a `mount-resources!` facade, and
   `panels/render-panel!` takes the view to mount as an ARGUMENT, so the
   embedding contract needs a name it can pass. Every panel carrying a
-  `mount-*!` facade will want the same."
+  `mount-*!` facade needs the same."
   []
   [:> Panel-component {}])
 
@@ -1340,7 +1335,7 @@
 ;; The raw values the production data subs read. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so each override
 ;; branch — `(or override (real …))` — lives in ONE place (the seam),
-;; not duplicated across production and test surfaces (rf2-e8330v).
+;; not duplicated across production and test surfaces.
 
 ;; Host-registry reads (`:resource` / `:resource-scope` / `:route`) go through
 ;; `{:source :store …}` (the SOURCE-STORE read, which never consults a
@@ -1367,21 +1362,19 @@
   (when (map? target-runtime-db)
     (get target-runtime-db h/routing-key)))
 
-;; ---- on-box payload egress (rf2-9zix0u) ----------------------------------
+;; ---- on-box payload egress ----------------------------------
 ;;
 ;; PRIVACY: the on-box Resources render must redact frame-`:sensitive` resource
-;; payloads exactly as the App-DB tab's `local-render` seam does. Before
-;; rf2-9zix0u the on-box `:rf.xray/resources-tab-data` sub called
-;; `project-instances` with NO egress-fn, so `instance-row` defaulted to
-;; identity and `summarize` `pr-str`-previewed the RAW scope / params / data /
+;; payloads exactly as the App-DB tab's `local-render` seam does. Called with
+;; NO egress-fn, `project-instances` defaults `instance-row`'s egress to
+;; identity, and `summarize` `pr-str`-previews the RAW scope / params / data /
 ;; error to the DOM — catching only literal `:rf/redacted` sentinels the
-;; framework had already elided. A LIVE `:sensitive?`-declared entry holds the
-;; real fetched value, so up to 120 chars of it rendered on-box
-;; (screen-share / recorded-session exposure). The on-box render path was the
-;; LONE `project-instances` caller omitting the egress-fn.
+;; framework has already elided. A LIVE `:sensitive?`-declared entry holds the
+;; real fetched value, so up to 120 chars of it would render on-box
+;; (screen-share / recorded-session exposure).
 
 (defn- on-box-resource-egress-fn
-  "The ON-BOX Resources payload-egress fn (rf2-9zix0u) — the resources-panel
+  "The ON-BOX Resources payload-egress fn — the resources-panel
   analog of the App-DB tab's `local-render`. Redacts each frame-declared
   `:sensitive` payload slot (scope / params / data / error / refresh-error)
   under the OBSERVED frame's classification BEFORE `summarize`, so a sensitive
@@ -1393,8 +1386,8 @@
   Each slot
   egresses at its ABSOLUTE runtime-db path (`[:rf.runtime/resources :entries
   <key-id> …]`, re-rooted by `h/resource-payload-path-suffix`) so the
-  resources registry's per-instance lowered `:sensitive?` declarations match
-  (rf2-aw9cfs). The posture is the on-box
+  resources registry's per-instance lowered `:sensitive?` declarations
+  match. The posture is the on-box
   redacted-but-locally-visible one: a sensitive slot redacts while large
   values and non-sensitive runtime-db payloads stay visible to the operator.
   `key-id` is the entry's `:entries` map key (`instance-row` passes it as the
@@ -1426,7 +1419,7 @@
     - `:rf.xray/resource-routing-slice` — the live routing-runtime subtree
       (`[:rf.runtime/routing]`) from `:rf.xray/target-frame-runtime-db`,
       backing the LIVE route/resource graph (current route + nav-token +
-      unsettled-blocking set — rf2-m5u3gt). Test override.
+      unsettled-blocking set). Test override.
     - `:rf.xray/resources-tab-data` — the view-facing composite over the
       registry + entries + ledger + route registry + trace buffer + routing
       slice; the single read the Panel subscribes. Its `:route-graph` joins
@@ -1437,7 +1430,7 @@
   The test-only override seam (five `:rf.xray/set-*-override-for-test`
   events + companion `*-override` subs) is NOT installed here —
   production registration carries no `-for-test` ids. Tests opt into it
-  via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+  via `install-test-overrides!`.
 
   Read-only: NO event registered here dispatches a `:rf.resource/*`
   event — inspection never becomes an owner (Spec 016)."
@@ -1450,7 +1443,7 @@
     (fn [[_buffer] _]
       (registered-resources-value)))
 
-  ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 / Spec 016
+  ;; Named resource-scope resolvers (EP-0016 D3 / Spec 016
   ;; §Named resource-scope resolvers). The static `:resource-scope` registry
   ;; read decoupled, exactly like `:registered-resources` above.
   (rf/reg-sub :rf.xray/registered-scope-resolvers
@@ -1468,8 +1461,8 @@
     (fn [[target-runtime-db] _]
       (resource-work-ledger-value target-runtime-db)))
 
-  ;; The routing-runtime slice backing the LIVE route/resource graph
-  ;; (rf2-m5u3gt). Reads `[:rf.runtime/routing]` off the target frame's
+  ;; The routing-runtime slice backing the LIVE route/resource graph.
+  ;; Reads `[:rf.runtime/routing]` off the target frame's
   ;; runtime-db (decoupled, like the Routing tab's current-route sub) and
   ;; surfaces the live `:current` route slice (carrying `:route-id` + `:nav-token`)
   ;; + the per-nav-token unsettled-blocking set.
@@ -1487,7 +1480,7 @@
               [:rf.xray/trace-buffer]
               [:rf.xray/resource-routing-slice]
               [:rf.xray/registered-scope-resolvers]
-              ;; rf2-9zix0u — the OBSERVED frame whose `:sensitive` / `:large`
+              ;; The OBSERVED frame whose `:sensitive` / `:large`
               ;; classification governs the on-box payload egress below (the frame Xray
               ;; is inspecting). Already an upstream dep transitively (via
               ;; `:rf.xray/resource-entries` → `:rf.xray/target-frame-runtime-db`); named
@@ -1498,34 +1491,34 @@
       (let [now-ms        (.now js/Date)
             routes-map    (rf/registrations {:source :store :kind :route})
             registry-rows (h/project-registry registrations routes-map)
-            ;; rf2-y8doi.15 — the ON-BOX gate for the TRACE-BORNE sections.
-            ;; rf2-9zix0u closed this leak for the §2 instance rows (their
-            ;; payload slots route through the observed frame's `:sensitive`
-            ;; classification), but every trace-derived section below still
-            ;; `pr-str`'d up to 120 characters of the SAME resource's scope,
-            ;; params and cause one scroll down. A trace row has no runtime-db
+            ;; The ON-BOX gate for the TRACE-BORNE sections. The §2 instance
+            ;; rows route their payload slots through the observed frame's
+            ;; `:sensitive` classification, but without this gate every
+            ;; trace-derived section below would `pr-str` up to 120
+            ;; characters of the SAME resource's scope, params and cause one
+            ;; scroll down. A trace row has no runtime-db
             ;; path, so the instance gate cannot be reused; what it does carry
             ;; is the resource-id, and the static registry carries the coarse
             ;; `:sensitive?` declaration per resource. Joining them redacts a
             ;; sensitive resource's values wherever they surface.
             sensitive-rids (h/sensitive-resource-ids registry-rows)
-            ;; rf2-y8doi.15 — filter the buffer ONCE. Every projection below
-            ;; used to re-scan the WHOLE buffer on every trace row; they now
-            ;; share one pass over the rows this panel can actually use. Each
-            ;; projection keeps its own filter, so this is a cost change only.
+            ;; Filter the buffer ONCE, so the projections below share one
+            ;; pass over the rows this panel can actually use rather than
+            ;; each re-scanning the WHOLE buffer. Each projection keeps its
+            ;; own filter, so this is a cost saving only.
             ;; The reply-envelope reads stay off the resource-family filter:
             ;; they are deliberately CROSS-FAMILY (http / route / machine /
             ;; timer), so that filter would silently narrow them. They ARE
-            ;; restricted to the observed FRAME (rf2-3x7nj.23.3): the buffer
+            ;; restricted to the observed FRAME: the buffer
             ;; merges every frame's ring, a work-id is frame-local, and the
             ;; ledger they join is the observed frame's, so another frame's
-            ;; same-id arc labelled this frame's running work.
+            ;; same-id arc would label this frame's running work.
             family-rows   (h/resource-projection-rows trace-buffer)
             frame-buffer  (reply/trace-buffer-for-frame trace-buffer observed-frame)
-            ;; rf2-9zix0u — thread the on-box egress-fn so a frame-`:sensitive`
+            ;; Thread the on-box egress-fn so a frame-`:sensitive`
             ;; resource payload redacts to `[redacted]` on the on-box render
             ;; path (screen-share safe), structurally matching the off-box MCP
-            ;; accessors. The prior no-egress call leaked raw values.
+            ;; accessors. A no-egress call would leak raw values.
             instance-rows (h/project-instances
                             entries now-ms
                             (on-box-resource-egress-fn observed-frame))
@@ -1534,22 +1527,22 @@
         {:silent?       (and (empty? registry-rows) (empty? instance-rows)
                              (empty? resolver-rows))
          :registry      registry-rows
-         ;; rf2-hls77w (EP-0016 D3): the named resource-scope resolver
+         ;; EP-0016 D3: the named resource-scope resolver
          ;; registry — id + declared inputs (paths summarized) + whole-db
          ;; cost flag. Per-resolution input VALUES + resolved scope surface
          ;; only via the egress-projected :rf.resource/scope-resolved trace.
          :scope-resolvers resolver-rows
          :instances     instance-rows
          :work          work-rows
-         ;; The UNIFORM reply-envelope reads (rf2-zqefg3.7). These read the
+         ;; The UNIFORM reply-envelope reads. These read the
          ;; canonical EP-0011 work/reply facts (`:work/id` / `:work/kind` /
          ;; reply `:status` / stale-suppression carried+current) the SAME way
          ;; for every async family — so "what is still running?" and the
          ;; stale-races view are cross-family, not resource-private. The
-         ;; resource ledger is the only family writing the ledger today; as
-         ;; HTTP / route / machine / timer families write their own ledger
-         ;; rows + emit their reply-envelope trace ops, these surfaces pick
-         ;; them up with no panel change (one vocabulary, many families).
+         ;; resources artefact is the only family writing the ledger; any
+         ;; family that writes its own ledger rows + emits its reply-envelope
+         ;; trace ops surfaces here with no panel change (one vocabulary,
+         ;; many families).
          :live-work     (reply/live-work ledger frame-buffer)
          :stale-races   (reply/races-by-work-id frame-buffer)
          :stale-tally   (reply/stale-tally-by-kind frame-buffer)
@@ -1559,10 +1552,10 @@
                             {:instance-rows instance-rows
                              :work-rows     work-rows
                              :current       current
-                             ;; rf2-cduftx F2 — scope the live wait points to
+                             ;; Scope the live wait points to
                              ;; the CURRENT route's nav-token bucket only.
                              ;; Flattening all coexisting nav-token buckets
-                             ;; let an OLD token's unsettled key bleed onto
+                             ;; would let an OLD token's unsettled key bleed onto
                              ;; the active route's `:blocking-live`, falsely
                              ;; reporting it as blocked (Spec 024 §Route/
                              ;; resource graph: per-nav-token unsettled set).
@@ -1570,19 +1563,19 @@
                                               routing-slice (:nav-token current))}))
          :timeline      (h/lifecycle-timeline family-rows nil sensitive-rids)
          :invalidations (h/invalidation-graph family-rows nil sensitive-rids)
-         ;; EP-0016 D3 (slice 8): the named-scope-resolver RESOLUTION timeline
+         ;; EP-0016 D3: the named-scope-resolver RESOLUTION timeline
          ;; — `:rf.resource/scope-resolved` rows (which resolver ran, resolved
          ;; scope summarized, fail-closed nil evidence).
          :scope-resolutions (h/scope-resolutions family-rows)
-         ;; EP-0016 D2 (slice 8): the descriptor-level invalidation evidence off
+         ;; EP-0016 D2: the descriptor-level invalidation evidence off
          ;; the mutation settlement traces (resolved scope per descriptor +
          ;; fail-closed `:unresolved` + Rider-1 `:populate-exempt`).
          :mutation-invalidations (h/mutation-invalidation-evidence family-rows sensitive-rids)
-         ;; EP-0016 D1 (slice 8): the call-site `:reply-to` continuation
+         ;; EP-0016 D1: the call-site `:reply-to` continuation
          ;; dispatch evidence (`:rf.mutation/replied` — phase 6, after cache
          ;; consequences + instance settlement).
          :continuations (h/mutation-continuations family-rows)
-         ;; EP-0019 (slice 4b): the optimistic-mutation lifecycle — each
+         ;; EP-0019: the optimistic-mutation lifecycle — each
          ;; `:rf.mutation/optimistic-applied` paired by `[frame :snapshot-id]`
          ;; with its terminal settle (`:reconciled` commit / `:rolled-back`), so
          ;; a developer SEES an optimistic apply, its snapshot, and whether it
@@ -1590,7 +1583,7 @@
          ;; `:optimistic-force-clobbers` are the loud `:force`-restored-over-a-
          ;; concurrent-write warnings.
          ;;
-         ;; rf2-qqi7u — `family-rows` is deliberately CROSS-FRAME (the pre-filter
+         ;; `family-rows` is deliberately CROSS-FRAME (the pre-filter
          ;; narrows by op family, never by frame), and every identity these
          ;; projections join on — instance, work-id, generation, snapshot-id — is
          ;; frame-local. The frame therefore belongs in the join KEY rather than
@@ -1603,12 +1596,12 @@
          :audit         {:global-audit (h/global-scope-audit registry-rows)
                          :suspicious   (h/suspicious-global-warnings registry-rows)
                          :orphans      (h/orphaned-owner-lint instance-rows family-rows)
-                         ;; rf2-ynkzj — optimistic keys the settlement never reached
+                         ;; Optimistic keys the settlement never reached
                          :optimistic-reach (h/optimistic-reach-lint family-rows sensitive-rids)}})))
 
   ;; Register the Dynamic Resources tab with the internal L4 tab registry.
-  ;; Per Mike's cohesive-sub-domain ruling (server-state earns its own L4
-  ;; tab rather than piling into App-db). Order 7 — after Routes (order 6),
+  ;; Server-state is a cohesive sub-domain, so it earns its own L4 tab
+  ;; rather than piling into App-db. Order 7 — after Routes (order 6),
   ;; keeping the two cross-feature runtime-db tabs adjacent. Display label
   ;; is the plural domain noun "Resources" (all-plural-domain-noun
   ;; convention).
@@ -1618,19 +1611,18 @@
      :mnem  "s"
      :modes #{:dynamic}
      :order 7
-     ;; rf2-k97c.3 — `Panel-bridge`, not `Panel`. `Panel` is now a React
+     ;; `Panel-bridge`, not `Panel`. `Panel` is a React
      ;; component (a Fresco boundary) and the shell mounts `:panel` as a
-     ;; Reagent hiccup head; the bridge is the one line between them and
-     ;; STAYS (rf2-lect, ruled option 2). The shell is a Fresco tree now
-     ;; and the bridge stayed anyway: the shell still reaches the panel
+     ;; Reagent hiccup head; the bridge is the one line between them. The
+     ;; shell is a Fresco tree, yet it reaches the panel
      ;; across an `as-child` seam, so `[(:panel tab)]` is a Reagent
-     ;; hiccup vector and `reg-l4-tab!`'s `:pre` still requires a
+     ;; hiccup vector and `reg-l4-tab!`'s `:pre` requires a
      ;; callable `:panel`.
      :panel Panel-bridge})
 
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam ---------------------
 
 (defn install-test-overrides!
   "Install the Resources panel's test-only override seam — the five
