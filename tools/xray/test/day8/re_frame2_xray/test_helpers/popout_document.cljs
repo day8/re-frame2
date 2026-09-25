@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.test-helpers.popout-document
-  "Two-document stubs for the node lane's pop-out rows (rf2-3x7nj.25.5,
-  rf2-3x7nj.27.2).
+  "Two-document stubs for the node lane's pop-out rows.
 
   ## Why this exists
 
@@ -18,7 +17,7 @@
   document or window it registered it on — which is exactly the edge
   under test.
 
-  Only the node lane can install the globals (rf2-higwg: in the
+  Only the node lane can install the globals (in the
   `:browser-test` build `window.document` is non-configurable and `set!`
   silently no-ops), so [[with-opener-globals]] runs its body only where
   the stub takes.")
@@ -81,8 +80,8 @@
   (every? empty? (vals @listeners)))
 
 (defn- can-stub-globals?
-  "True iff this host lets `set!` replace `js/document` (the rf2-higwg
-  probe `mount_cljs_test` also uses): write a marker, read it back,
+  "True iff this host lets `set!` replace `js/document` (the probe
+  `mount_cljs_test` also uses): write a marker, read it back,
   restore."
   []
   (let [marker (js-obj "rf2-3x7nj-marker" true)
