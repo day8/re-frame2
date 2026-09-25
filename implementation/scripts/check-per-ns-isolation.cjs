@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Per-namespace test-isolation gate (rf2-32siq3.44).
+ * Per-namespace test-isolation gate.
  *
  * THE GAP THIS CLOSES
  * -------------------
@@ -9,7 +9,7 @@
  * shares one runtime: the installed substrate adapter, the registrar, the
  * late-bind directory, machine/trace counters — all process-global state.
  *
- * EP-0023 collapse made `make-frame` allocate a RUNNABLE
+ * `make-frame` allocates a RUNNABLE
  * backing record (app-db / queue / sub-cache), which needs an installed
  * substrate adapter. A test namespace whose fixture FORGETS to install its
  * own adapter (via `make-reset-runtime-fixture {:adapter ...}` or
@@ -19,36 +19,33 @@
  * and it errors with `:rf.error/no-adapter-installed`.
  *
  * This is the shared-node-test-bundle fragility class: a fixture that
- * relies on bundle pollution passes the gate. The concrete instance
- * (`live-frame-reload-cljs-test`, 11 errors standalone yet green in CI)
- * was fixed by the sibling bead; this gate stops the CLASS from recurring.
+ * relies on bundle pollution passes the consolidated run. This gate catches
+ * the CLASS.
  *
  * THE CHECK
  * ---------
  * Run each curated runtime-construction test namespace ALONE in a fresh
  * `out/node-test.js` process (the runner's focused `--test=<ns>` selector,
- * which already rejects a no-match selector — rf2-lbo79.1). A namespace
+ * which rejects a no-match selector). A namespace
  * that relies on a sibling's leaked adapter goes RED standalone, so the
  * gate fails at the SOURCE: the self-incomplete fixture, not a victim
  * downstream.
  *
- * WHAT A STANDALONE RED MEANS — AND WHAT IT DOES NOT (rf2-v8561)
- * --------------------------------------------------------------
+ * WHAT A STANDALONE RED MEANS — AND WHAT IT DOES NOT
+ * --------------------------------------------------
  * A non-zero exit from one standalone run has THREE possible causes, and
- * for most of this gate's life it reported all three as the first one:
+ * only the first is a fixture defect:
  *
  *   1. ISOLATION — the namespace ran its tests and they failed. This is
  *      the defect the gate exists to find, and the fixture remedy applies.
  *   2. ROSTER — the selector matched nothing, because the namespace below
  *      was renamed or deleted and this list was not updated. The runner
- *      says so ("no tests matched --test= selector(s)") and exits 1. Twice
- *      already the gate answered that with the fixture remedy and a human
- *      had to work out what it really meant (`9dd9633d0b`, `d3969eb67b`).
+ *      says so ("no tests matched --test= selector(s)") and exits 1.
  *   3. ENVIRONMENT — `out/node-test.js` moved underneath the sweep. The
  *      sweep spawns one node process per namespace over tens of seconds
  *      against a bundle a CONCURRENT compile may delete and rewrite at any
  *      moment; `compile-node-test.cjs` unlinks `:output-to` before every
- *      compile precisely so a failed one leaves nothing stale (rf2-6t03c),
+ *      compile precisely so a failed one leaves nothing stale,
  *      which means a compile starting mid-sweep pulls the bundle out from
  *      under every run still to come. Nothing about a fixture is under
  *      test at that point.
@@ -61,14 +58,13 @@
  * assertions.` summary got far enough to be a verdict about the namespace,
  * and a red WITHOUT one never did. Cause 3's signature is a red suffix:
  * the sweep is green until the compile lands, and everything after it
- * fails identically. That is what was reported here — the last three
- * roster entries, consecutively, in a worktree building other things.
+ * fails identically.
  *
  * A sweep whose bundle moved is INDETERMINATE, not red: its green runs are
  * worth no more than its red ones, so the gate reports exit 2 and asks for
  * a rerun rather than naming namespaces it cannot vouch for. Refusing to
  * convert an unobserved cause into a confident accusation is the same
- * discipline the roster's own entries were written under.
+ * discipline the roster's own entries are held to.
  *
  * WHAT THIS GATE IS NOT
  * ---------------------
@@ -76,14 +72,14 @@
  * company" fixture defects. It does NOT certify test-order independence. It
  * is structurally blind to the inverse direction — green alone, red in
  * company (e.g. a wall-clock captured in a top-level `def` decaying across
- * the suite prefix, rf2-ybqse): running such a namespace alone makes the bug
+ * the suite prefix): running such a namespace alone makes the bug
  * LESS likely, not more. And it is only probabilistically sensitive to
- * intermittent races (rf2-i36h6 was red alone on just 4 of 10 runs
- * unfixed). Do NOT add run-counting, order permutation, or timing analysis
+ * intermittent races (a race can go red alone on only some of its runs).
+ * Do NOT add run-counting, order permutation, or timing analysis
  * here.
  *
- * The bar a FIX in the order-dependence family must clear is the rf2-ybqse
- * structural-unreachability standard, enforced at REVIEW time: prove the
+ * The bar a FIX in the order-dependence family must clear is
+ * structural unreachability, enforced at REVIEW time: prove the
  * failure UNREACHABLE (a measured margin, an invariant, an awaited
  * thenable) rather than merely unobserved, with a positive control that
  * fails in the consolidated run.
@@ -103,7 +99,7 @@
  *
  * Exit 0 on PASS (every listed ns green standalone, each having run a
  * non-zero number of tests), 1 on a real isolation FAIL, 2 on a setup
- * error — which now includes a stale roster and an indeterminate sweep.
+ * error — which includes a stale roster and an indeterminate sweep.
  */
 
 'use strict';
@@ -148,20 +144,15 @@ const ISOLATION_NAMESPACES = [
   're-frame.views-current-component-cljs-test',
 
   // --- 2. Shipped order-dependence regressions (red-alone signature) ---
-  // rf2-oslyz (#6367): passed only because an earlier namespace had called
-  // `init!`; alone it gave 5 `:rf.error/no-adapter-installed` errors, and in
-  // the other selection order 5 `:rf.error/image-duplicate-id`. Deleting its
-  // adapter self-install is visible ONLY here — the gate's exact design class.
+  // Without its adapter self-install this namespace passes only when an
+  // earlier namespace has called `init!`; alone it errors with
+  // `:rf.error/no-adapter-installed` (and, in the other selection order,
+  // `:rf.error/image-duplicate-id`). Deleting that self-install is visible
+  // ONLY here — the gate's exact design class.
   're-frame.story.open-in-editor-ownership-cljs-test',
-  // rf2-i36h6 (#6385) listed `re-frame.story.play.presence-real-clock-cljs-test`
-  // here: it yielded one `setTimeout 0` on the premise that a macrotask lands
-  // after React `act` settles, which it does not. That namespace drove
-  // Freehand's presence scheduler through Story's optional bridge, and both
-  // retired with the substrate (rf2-5gka, rf2-0yp7w), so the entry went with
-  // it rather than being re-pointed — no surviving namespace has the
-  // order-dependence signature it was listed for. The regression class is
-  // still real; re-list a namespace here if a presence bridge is ever written
-  // against a supported substrate.
+  // A namespace that yields one `setTimeout 0` on the premise that a macrotask
+  // lands after React `act` settles (it does not) has this red-alone
+  // signature too; list one here if such a namespace is written.
 ];
 
 const NODE_TEST_BUNDLE = 'out/node-test.js';
@@ -175,7 +166,7 @@ function compileBundle(implDir) {
   process.stderr.write('compiling node-test bundle...\n');
   // Hardened, shell-free spawn (per the script-spawn-policy gate): resolve
   // shadow-cljs's JS entry-point and run it under THIS node binary, so the OS
-  // never interprets a bare `npx` / `.cmd` shim (the rf2-33vvc command-hijack
+  // never interprets a bare `npx` / `.cmd` shim (the command-hijack
   // class on Windows).
   let runner;
   try {
@@ -214,7 +205,7 @@ function runNamespaceAlone(implDir, ns) {
 }
 
 // ---------------------------------------------------------------------------
-// Classification (rf2-v8561). Pure, so `--self-test` can pin it without a
+// Classification. Pure, so `--self-test` can pin it without a
 // compile: everything it needs is in the run's own output plus whether the
 // bundle moved. See WHAT A STANDALONE RED MEANS in the header.
 // ---------------------------------------------------------------------------
@@ -304,7 +295,7 @@ function main(argv) {
 
   if (args.has('--help') || args.has('-h')) {
     process.stdout.write(
-      'Per-namespace test-isolation gate (rf2-32siq3.44).\n\n' +
+      'Per-namespace test-isolation gate.\n\n' +
         'Usage:\n' +
         '  node scripts/check-per-ns-isolation.cjs [--compile] [--list] [--self-test]\n\n' +
         '  --compile    recompile out/node-test.js first (CI runs test:cljs ahead,\n' +
@@ -409,7 +400,7 @@ function main(argv) {
         'reds tend to arrive as a contiguous tail.\n' +
         'What to do:\n' +
         '  * Let any concurrent build finish — a compile of a :node-test-family ' +
-        'build UNLINKS out/node-test.js before it starts (rf2-6t03c), so one ' +
+        'build UNLINKS out/node-test.js before it starts, so one ' +
         'starting mid-sweep pulls the bundle out from under this gate.\n' +
         '  * Then rerun: `npm run test:cljs-isolation` (compile + sweep, ' +
         'nothing else building).\n' +
@@ -481,7 +472,7 @@ function runSelfTest() {
 
   // --- Output shapes below are TRANSCRIBED from real runs of this bundle,
   // --- not invented, so the classifier is pinned against what the runner
-  // --- actually emits (rf2-v8561).
+  // --- actually emits.
 
   // 1. GREEN — the cljs.test summary re-frame.test-quiet closes every
   //    completed run with.
@@ -493,7 +484,7 @@ function runSelfTest() {
     'the summary counts are parsed off the run (3 tests, 4 assertions)');
 
   // 2. ISOLATION — tests RAN and failed. This is the only shape that earns
-  //    the fixture remedy, and rf2-oslyz's no-adapter errors are its
+  //    the fixture remedy, and no-adapter errors are its
   //    archetype.
   const ISOLATION_OUT =
     '\nTesting re-frame.story.open-in-editor-ownership-cljs-test\n' +
@@ -512,14 +503,14 @@ function runSelfTest() {
 
   // 4. ENVIRONMENT — the bundle was gone. Verbatim from a run against a
   //    deleted `:output-to`, which is exactly what a concurrent
-  //    `compile-node-test.cjs` leaves behind while it works (rf2-6t03c).
+  //    `compile-node-test.cjs` leaves behind while it works.
   const MISSING_BUNDLE_OUT =
     'node:internal/modules/cjs/loader:1424\n  throw err;\n  ^\n\n' +
     "Error: Cannot find module 'C:\\...\\implementation\\out\\node-test.js'\n";
   assert(kindOf({ status: 1, stderr: MISSING_BUNDLE_OUT }) === 'environment',
     'a module-load crash with no test summary is ENVIRONMENT, not isolation');
 
-  // 5. THE DISCRIMINATION THE GATE EXISTS TO MAKE (rf2-v8561): the same
+  // 5. THE DISCRIMINATION THE GATE EXISTS TO MAKE: the same
   //    non-zero exit is a fixture accusation ONLY when the run got far
   //    enough to be one. Module load links EVERY test namespace, so a crash
   //    before the summary cannot single one out.
