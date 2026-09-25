@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels-mount-cljs-test
-  "Per-panel standalone-mount tests — rf2-crhr8.
+  "Per-panel standalone-mount tests.
 
   Pins the contract: every public `panels/mount-<panel>!` fn renders
   its panel in isolation. No shell, no siblings, no shell-owned
@@ -25,7 +25,7 @@
       host's lifecycle anchor.
 
   Per-panel render-correctness (the actual view body) is covered by
-  the existing `panels/<panel>_cljs_test.cljs` suites; this file
+  the `panels/<panel>_cljs_test.cljs` suites; this file
   pins the MOUNT API contract, not the view contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -50,11 +50,10 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
-  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
-  ;; which already includes the trace-collector ring reset the old init
-  ;; called a SECOND, redundant time. (`trace-collector` is still required
-  ;; for the `seed-trace-for-test!` seeding below.)
+  ;; `make-xray-runtime-fixture` is the one reset owner: plain-atom adapter
+  ;; + the default `:all` reset tier, which includes the trace-collector
+  ;; ring reset. (`trace-collector` is required for the
+  ;; `seed-trace-for-test!` seeding below.)
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- render-stub helper -------------------------------------------------
@@ -92,15 +91,13 @@
        (vector? (nth tree 2))
        (= expected-panel-view (first (nth tree 2)))))
 
-;; ---- top-level L3-tab panels (7) ---------------------------------------
+;; ---- top-level L3-tab panels (6) ---------------------------------------
 
 (deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
-  (testing "rf2-crhr8 + rf2-5gl5r — mount-epoch-panel! installs
+  (testing "mount-epoch-panel! installs
             handlers, wraps epoch-panel/Panel-bridge in `[rf/frame-provider
             {:frame :rf/xray} [Panel]]`, delegates to substrate-
-            adapter/render, and returns the adapter's unmount fn.
-            (Replaces the prior mount-event-detail! coverage; the
-            Event/Handler panel was retired alongside rf2-5gl5r.)"
+            adapter/render, and returns the adapter's unmount fn."
     (let [[capture unmount-sentinel render-stub] (make-render-stub)
           mount-point :mount-point-sentinel]
       (with-redefs [rf.substrate.adapter/render render-stub]
@@ -120,19 +117,18 @@
             ":rf/xray frame is registered as a side-effect of mount")))))
 
 (deftest mount-app-db-diff-wraps-in-frame-provider
-  ;; rf2-k97c.3 — `Panel-bridge`; see `mount-reactive-panel-…` below.
+  ;; `Panel-bridge`; see `mount-reactive-panel-…` below.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-app-db-diff! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel-bridge)))))
 
 (deftest mount-reactive-panel-wraps-in-frame-provider
-  ;; rf2-k97c.3 — the expected view is `Panel-bridge`. `Panel` is now a
-  ;; Fresco boundary (a React function component) and `render-panel!`
-  ;; builds a REAGENT tree, so the bridge is what the mount fn hands it.
-  ;; The shape this row pins — frame-provider :rf/xray wrapping the view
-  ;; — is unchanged, which is the point: the bridge takes its frame from
-  ;; the same React context the provider writes.
+  ;; The expected view is `Panel-bridge`. `Panel` is a Fresco boundary (a
+  ;; React function component) and `render-panel!` builds a REAGENT tree,
+  ;; so the bridge is what the mount fn hands it. The shape this row pins
+  ;; is frame-provider :rf/xray wrapping the view, because the bridge
+  ;; takes its frame from the same React context the provider writes.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-reactive-panel! :mount-point)
@@ -156,12 +152,6 @@
       (panels/mount-routing! :mount-point)
       (is (frame-provider-wrap? (captured-tree capture) routing/Panel)))))
 
-;; (rf2-gbz39 — `mount-issues-ribbon-wraps-in-frame-provider` removed
-;; alongside the Issues tab + its `mount-issues-ribbon!` entry. Option
-;; (c): issues surface inline in the Epoch panel + the L2 event-row
-;; pink-wash + the always-on issues ribbon signal — no standalone
-;; Issues panel mount fn to cover.)
-
 ;; ---- overlay / popup surfaces (2) --------------------------------------
 
 (deftest mount-cancellation-cascade-side-panel-wraps-SidePanel
@@ -181,10 +171,10 @@
 ;; ---- inline content surface (managed-fx) -------------------------------
 
 (deftest mount-managed-fx-wraps-ManagedFxList
-  ;; rf2-fcy5 — the expected view is `ManagedFxList-bridge`, for the reason
-  ;; `mount-reactive-panel-…` records above: `ManagedFxList` is now a Fresco
+  ;; The expected view is `ManagedFxList-bridge`, for the reason
+  ;; `mount-reactive-panel-…` records above: `ManagedFxList` is a Fresco
   ;; boundary and `render-panel!` builds a REAGENT tree. The shape this row
-  ;; pins — frame-provider :rf/xray wrapping the view — is unchanged.
+  ;; pins is frame-provider :rf/xray wrapping the view.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-managed-fx! :mount-point)
@@ -193,7 +183,7 @@
 ;; ---- full-shell mount --------------------------------------------------
 
 (deftest mount-shell-renders-shell-view-without-extra-wrapper
-  (testing "rf2-crhr8 — mount-shell! delegates the full 4-layer shell.
+  (testing "mount-shell! delegates the full 4-layer shell.
             The shell-view itself installs its own scope provider
             (`frame-provider`, per the shell docstring) so the
             mount fn renders [shell-view {:mode :inline}] directly — no
@@ -220,26 +210,26 @@
       (panels/mount-shell! :mount-point {:mode :overlay})
       (is (= :overlay (-> (captured-tree capture) second :mode))))))
 
-;; ---- rf2-lffg — the full-shell embed forwards its own-frame opt --------
+;; ---- the full-shell embed forwards its own-frame opt -------------------
 ;;
 ;; `008-Embedding-Contract.md` §Embed props inventory publishes exactly two
 ;; host-visible props on the full-shell embed, and `:frame` is one of them:
 ;; the frame the shell's frame-provider wraps — Xray's OWN frame, distinct
 ;; from the inspected host target the frame-picker chooses. `shell-view`
-;; has taken that axis as its `:frame-id` opt since rf2-lnluk de-singletoned
-;; the shell, and `two-instance-isolation-cljs-test` pins the isolation it
-;; buys at the data layer by binding the two frames directly.
+;; takes that axis as its `:frame-id` opt, and
+;; `two-instance-isolation-cljs-test` pins the isolation it buys at the
+;; data layer by binding the two frames directly.
 ;;
-;; `mount-shell!` was the one seam that never carried the option across: it
-;; read `:mode` out of `opts` and dropped `:frame` on the floor, so every
-;; embed — however many, however addressed — resolved to the default
-;; `:rf/xray` and shared one app-db. The source-level singleton guard
-;; (`frame_singleton_guard_test.clj`) cannot see this: there is no literal
-;; `:rf/xray` to find, only a caller option that is never read.
+;; `mount-shell!` carries the option across. Reading only `:mode` out of
+;; `opts` would drop `:frame` on the floor, so every embed — however many,
+;; however addressed — would resolve to the default `:rf/xray` and share
+;; one app-db. The source-level singleton guard
+;; (`frame_singleton_guard_test.clj`) cannot see that: there would be no
+;; literal `:rf/xray` to find, only a caller option that is never read.
 ;;
 ;; These deftests sit at the PUBLIC full-shell boundary — through
 ;; `mount-shell!`, never `shell-view` directly — which is precisely the
-;; surface the existing coverage stepped around.
+;; surface the data-layer isolation test steps around.
 
 (def ^:private embed-cell-a :review/xray-a)
 (def ^:private embed-cell-b :review/xray-b)
@@ -257,11 +247,11 @@
   (rf/with-frame frame-id (rf/dispatch-sync event-v)))
 
 (deftest mount-shell-forwards-the-frame-opt-as-the-shells-own-frame-id
-  (testing "rf2-lffg — two full shells mounted through `mount-shell!` into
+  (testing "two full shells mounted through `mount-shell!` into
             separate roots with DISTINCT `:frame` options each receive the
-            own frame they asked for. Pre-fix both trees carried no
-            `:frame-id` at all, so `shell-view` defaulted both to
-            `shell/default-frame-id` and the two embeds collided."
+            own frame they asked for. Without the forwarding both trees
+            would carry no `:frame-id`, so `shell-view` would default both
+            to `shell/default-frame-id` and the two embeds would collide."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-shell! :mount-a {:frame embed-cell-a})
@@ -284,9 +274,9 @@
       (is (some? (rf.frame/frame embed-cell-b))))))
 
 (deftest mount-shell-frame-opt-defaults-and-leaves-mode-intact
-  (testing "rf2-lffg — omitting `:frame` still selects the documented
+  (testing "omitting `:frame` selects the documented
             default own frame (`shell/default-frame-id`), and threading the
-            new axis does not disturb `:mode`."
+            frame axis does not disturb `:mode`."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-shell! :mount-default)
@@ -305,15 +295,15 @@
       (is (= :overlay (-> @capture (nth 2) :tree second :mode))))))
 
 (deftest mount-shell-instances-hold-independent-own-frame-state
-  (testing "rf2-lffg — the point of forwarding the option: driving tab,
+  (testing "the point of forwarding the option: driving tab,
             mode and focus in the shell mounted at one root leaves the
             shell mounted at the other root untouched. The `with-frame`
             bindings below stand in for the two `[frame-provider {:frame
             frame-id}]` scopes the mounted `shell-view`s establish — the
             same standing-in `two-instance-isolation-cljs-test` does, but
-            reached through `mount-shell!` rather than around it. Pre-fix
-            both mounts resolved to one frame and every assertion in the
-            second half of this deftest read back A's value."
+            reached through `mount-shell!` rather than around it. Were both
+            mounts to resolve to one frame, every assertion in the second
+            half of this deftest would read back A's value."
     (let [[_ _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-shell! :mount-a {:frame embed-cell-a})
@@ -340,7 +330,7 @@
 ;; ---- contract — frame opt --------------------------------------------
 
 (deftest mount-fn-honours-frame-opt-when-host-overrides-default
-  (testing "rf2-crhr8 — `opts {:frame ...}` overrides the default
+  (testing "`opts {:frame ...}` overrides the default
             `:rf/xray` frame the frame-provider wraps around. Pins
             the embedding contract (008-Embedding-Contract.md §State
             isolation) — a host can choose a different frame for the
@@ -356,31 +346,31 @@
           (is (= {:frame :my-app/cart} (second tree))
               "explicit :frame opt overrides the default :rf/xray"))))))
 
-;; ---- rf2-hg3j — the per-panel mount SEATS the frame it PROVIDES --------
+;; ---- the per-panel mount SEATS the frame it PROVIDES -------------------
 ;;
-;; The deftest above pins the WRAPPER, and the wrapper was always right. What
-;; was wrong sat one line above it: `render-panel!` called
-;; `ensure-xray-handlers-installed!` at its ZERO arity, which always seats
-;; `shell/default-frame-id`, and then anchored the provider at `opts :frame`.
-;; On an override those are two different frames, and since no panel view
-;; opens an inner provider of its own — every panel's docstring says its
-;; isolation comes from the ENCLOSING one — the panel body's whole
-;; `:rf.xray/*` surface resolved into a frame nothing had seated or seeded.
+;; The deftest above pins the WRAPPER. This one pins what sits one line
+;; above it: `render-panel!` must seat the SAME frame it anchors the
+;; provider at. Seating `shell/default-frame-id` (the ZERO arity of
+;; `ensure-xray-handlers-installed!`) while anchoring the provider at
+;; `opts :frame` would put two different frames in play on an override,
+;; and since no panel view opens an inner provider of its own — every
+;; panel's docstring says its isolation comes from the ENCLOSING one — the
+;; panel body's whole `:rf.xray/*` surface would resolve into a frame
+;; nothing had seated or seeded.
 ;;
 ;; So this row is deliberately NOT taken off the captured tree: the stubbed
 ;; `adapter/render` observes the wrapper, which passes either way. It reads
 ;; the frame REGISTRY, which the real `ensure-xray-handlers-installed!` wrote
-;; on the way past the stub. Same assertion shape rf2-lffg used for
-;; `mount-shell!`, which has threaded its resolved frame through all along.
+;; on the way past the stub — the same assertion shape the `mount-shell!`
+;; rows above use.
 
 (def ^:private panel-cell-frame :review/xray-panel-cell)
 
 (deftest mount-panel-seats-the-own-frame-it-provides
-  (testing "rf2-hg3j — a per-panel mount given an explicit `:frame` seats
-            THAT frame. Pre-fix `mount-epoch-panel!` seated
-            `shell/default-frame-id` and provided the override, so the
-            first row below read nil and the panel's subscribes landed in
-            an empty frame."
+  (testing "a per-panel mount given an explicit `:frame` seats
+            THAT frame. Seating `shell/default-frame-id` while providing
+            the override would make the first row below read nil and land
+            the panel's subscribes in an empty frame."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-point {:frame panel-cell-frame}))
@@ -394,7 +384,7 @@
           "and the seed hooks ran in it, so a panel body's `:rf.xray/*`
            subscribe resolves there rather than reading an empty frame"))))
 
-;; ---- contract — instance-id opt (rf2-2n8q) ----------------------------
+;; ---- contract — instance-id opt ---------------------------------------
 ;;
 ;; THE EVIDENCE THAT TWO NAMED MOUNTS ARE ACTUALLY SEPARATED IS NOT HERE. It
 ;; is `panels/app_db_diff_mount_instance_id_dom_cljs_test`, which mounts two
@@ -432,37 +422,35 @@
   (nth (apply (first el) (rest el)) 2))
 
 (deftest mount-app-db-diff-instance-id-reaches-the-boundary
-  (testing "rf2-2n8q — `mount-app-db-diff!`'s `:instance-id` opt reaches the
+  (testing "`mount-app-db-diff!`'s `:instance-id` opt reaches the
             Fresco boundary's props, across the real `Panel-bridge`. This is
-            the mount door onto the prop rf2-t3fz gave `Panel`: a caller that
-            MOUNTS passes opts and never props, so before this the standalone
+            the mount door onto `Panel`'s `:instance-id` prop: a caller that
+            MOUNTS passes opts and never props, so without it the standalone
             embed could not name an instance at all."
     (is (= {:instance-id "left"}
            (crossed (delivered-by {:instance-id "left"})))
         "the name the mount was given is the name the boundary is mounted with")
     (is (= {:instance-id "left"}
            (crossed (delivered-by {:instance-id :left})))
-        "rf2-4bsq — a keyword crosses too, as its TOKEN. `Panel-bridge`
+        "a keyword crosses too, as its TOKEN. `Panel-bridge`
          tokenises the prop with `instance-token` before handing it to
          `[:>]`, because Reagent would otherwise convert the value with
          `cljs.core/name` on the way to React. For `:left` the two agree on
-         \"left\", so what the boundary is mounted with is unchanged; what
-         moved is WHERE the conversion happens, and that is the whole repair
-         — see the namespaced row below")
+         \"left\"; where the conversion happens matters for a namespaced
+         keyword — see the namespaced row below")
     (is (= {:instance-id "left/panel"}
            (crossed (delivered-by {:instance-id :left/panel})))
-        "rf2-4bsq — AND A NAMESPACE SURVIVES, which is why the tokenising
-         moved. `cljs.core/name` drops it, so passed through raw
-         `:left/panel` and `:right/panel` both reached the boundary as
-         \"panel\" — two mounts this opt had deliberately named apart
-         sharing one `:mount-id`, one width slot and one `:site-id`. This is
-         the mount door onto that prop, so it is the door that has to carry
-         it")
+        "AND A NAMESPACE SURVIVES, which is why the bridge tokenises.
+         `cljs.core/name` drops it, so passed through raw, `:left/panel`
+         and `:right/panel` would both reach the boundary as \"panel\" —
+         two mounts this opt deliberately names apart sharing one
+         `:mount-id`, one width slot and one `:site-id`. This is the mount
+         door onto that prop, so it is the door that has to carry it")
     (is (= {:instance-id "right"}
            (crossed (delivered-by {:frame :my-app/cart :instance-id "right"})))
         "and it composes with `:frame` rather than replacing it"))
 
-  (testing "rf2-2n8q — the `:frame` opt is untouched by the addition."
+  (testing "the `:frame` opt is untouched by `:instance-id`."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-app-db-diff! :mount-point
@@ -471,11 +459,11 @@
             "the frame-provider still wraps the frame the host named")))))
 
 (deftest mount-fns-without-an-instance-name-deliver-exactly-what-they-did
-  (testing "rf2-2n8q — an UNNAMED app-db mount delivers the bare
-            `[Panel-bridge]` element it always delivered, not `[Panel-bridge
-            {}]`. The 0-arity is the shape the shell's `[(:panel tab)]` and
-            every standalone call site in this tree take today, and it is what
-            keeps their composed ids byte-for-byte unchanged."
+  (testing "an UNNAMED app-db mount delivers the bare
+            `[Panel-bridge]` element, not `[Panel-bridge {}]`. The 0-arity
+            is the shape the shell's `[(:panel tab)]` and every standalone
+            call site in this tree take, and it is what keeps their composed
+            ids free of any instance token."
     (is (= [app-db-diff/Panel-bridge] (delivered-by nil))
         "no opts at all")
     (is (= [app-db-diff/Panel-bridge] (delivered-by {:frame :my-app/cart}))
@@ -483,28 +471,24 @@
     (is (= {} (crossed (delivered-by nil)))
         "and the bridge's 0-arity mounts the boundary with no props"))
 
-  (testing "rf2-2n8q — `:instance-id` is SOME PANELS' opt, not the surface's.
+  (testing "`:instance-id` is SOME PANELS' opt, not the surface's.
             Only a panel whose view takes the prop may be handed a props map;
             handing one to a view that takes none is an arity error, not an
-            ignored key, so every other mount fn must keep delivering a bare
+            ignored key, so every other mount fn must deliver a bare
             element even when its caller sets the opt.
 
             A panel is picked here for being a CURRENT member of the no-prop
-            group, not for being a permanent one, so the pick MOVES as panels
-            migrate. It has moved twice:
+            group, not for being a permanent one, so the pick moves as panels
+            take the prop. `mount-trace!`, `mount-epoch-panel!` and
+            `mount-machine-inspector!` take it, asserted in
+            [[mount-trace-instance-id-reaches-the-boundary]],
+            [[mount-epoch-panel-instance-id-reaches-the-boundary]] and
+            [[mount-machine-inspector-instance-id-reaches-the-boundary]].
 
-              - rf2-pua3 moved `mount-trace!` to the first group, and the
-                trace half is asserted in
-                [[mount-trace-instance-id-reaches-the-boundary]] below;
-              - rf2-3ymg then moved `mount-epoch-panel!` AND
-                `mount-machine-inspector!`, whose halves are asserted in
-                [[mount-epoch-panel-instance-id-reaches-the-boundary]] and
-                [[mount-machine-inspector-instance-id-reaches-the-boundary]].
-
-            So the pick is now `mount-reactive-panel!`, and it is a sharper
-            witness than either predecessor: `reactive-panel/Panel-bridge` is
-            declared 0-arity ONLY, so a props map here is the arity error this
-            row names rather than a silently ignored key."
+            The pick is `mount-reactive-panel!`, a sharp witness:
+            `reactive-panel/Panel-bridge` is declared 0-arity ONLY, so a
+            props map here is the arity error this row names rather than a
+            silently ignored key."
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-reactive-panel! :mount-point {:instance-id "left"})
@@ -521,10 +505,10 @@
     (delivered-element capture)))
 
 (deftest mount-trace-instance-id-reaches-the-boundary
-  (testing "rf2-pua3 — `mount-trace!`'s `:instance-id` opt reaches the Fresco
+  (testing "`mount-trace!`'s `:instance-id` opt reaches the Fresco
             boundary's props, across the real `Panel-bridge`. This is the
-            mount door onto the prop the panel now reads: a caller that MOUNTS
-            passes opts and never props, so before this the standalone embed
+            mount door onto the prop the panel reads: a caller that MOUNTS
+            passes opts and never props, so without it the standalone embed
             could not name an instance at all.
 
             The DOM-level claim — that naming two mounts actually separates
@@ -537,9 +521,9 @@
         "the opt crosses the bridge and arrives as a prop")
     (is (= {:instance-id "left/trace"}
            (crossed (trace-delivered-by {:instance-id :left/trace})))
-        "and a KEYWORD keeps its namespace — rf2-4bsq: `[:>]` would convert it
-         with `cljs.core/name` and drop the namespace, restoring the very
-         collision this removes, so the bridge tokenises BEFORE the crossing")
+        "and a KEYWORD keeps its namespace — `[:>]` would convert it
+         with `cljs.core/name` and drop the namespace, colliding mounts the
+         opt names apart, so the bridge tokenises BEFORE the crossing")
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-trace! :mount-point
@@ -548,10 +532,10 @@
             "and it composes with `:frame` rather than replacing it — the
              frame-provider still wraps the frame the host named")))
     (is (= [trace/Panel-bridge] (trace-delivered-by nil))
-        "an UNNAMED trace mount delivers the bare `[Panel-bridge]` element it
-         always delivered, not `[Panel-bridge {}]` — the shape the shell's
-         `[(:panel tab)]` and every standalone call site in this tree take
-         today, and what keeps their composed ids byte-for-byte unchanged")
+        "an UNNAMED trace mount delivers the bare `[Panel-bridge]` element,
+         not `[Panel-bridge {}]` — the shape the shell's `[(:panel tab)]`
+         and every standalone call site in this tree take, and what keeps
+         their composed ids free of any instance token")
     (is (= [trace/Panel-bridge] (trace-delivered-by {:frame :my-app/cart}))
         "opts carrying no instance name deliver it too")
     (is (= {} (crossed (trace-delivered-by nil)))
@@ -567,10 +551,10 @@
     (delivered-element capture)))
 
 (deftest mount-epoch-panel-instance-id-reaches-the-boundary
-  (testing "rf2-3ymg — `mount-epoch-panel!`'s `:instance-id` opt reaches the
+  (testing "`mount-epoch-panel!`'s `:instance-id` opt reaches the
             Fresco boundary's props, across the real `Panel-bridge`. This is
-            the mount door onto the prop the panel now reads: a caller that
-            MOUNTS passes opts and never props, so before this the standalone
+            the mount door onto the prop the panel reads: a caller that
+            MOUNTS passes opts and never props, so without it the standalone
             embed could not name an instance at all.
 
             The DOM-level claim — that naming two mounts actually separates
@@ -583,11 +567,11 @@
         "the opt crosses the bridge and arrives as a prop")
     (is (= {:instance-id "left/epoch"}
            (crossed (epoch-delivered-by {:instance-id :left/epoch})))
-        "and a KEYWORD keeps its namespace — rf2-4bsq: `[:>]` would convert it
+        "and a KEYWORD keeps its namespace — `[:>]` would convert it
          with `cljs.core/name` and drop the namespace, so `:left/epoch` and
          `:right/epoch` would both arrive as \"epoch\" and compose one
-         `epoch/epoch/dispatch-event`, restoring the very collision this
-         removes. The bridge tokenises BEFORE the crossing for that reason")
+         `epoch/epoch/dispatch-event`, the collision naming exists to
+         prevent. The bridge tokenises BEFORE the crossing for that reason")
     (let [[capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub]
         (panels/mount-epoch-panel! :mount-point
@@ -596,10 +580,10 @@
             "and it composes with `:frame` rather than replacing it — the
              frame-provider still wraps the frame the host named")))
     (is (= [epoch-panel/Panel-bridge] (epoch-delivered-by nil))
-        "an UNNAMED epoch mount delivers the bare `[Panel-bridge]` element it
-         always delivered, not `[Panel-bridge {}]` — the shape the shell's
-         `[(:panel tab)]` and every standalone call site in this tree take
-         today, and what keeps their composed ids byte-for-byte unchanged")
+        "an UNNAMED epoch mount delivers the bare `[Panel-bridge]` element,
+         not `[Panel-bridge {}]` — the shape the shell's `[(:panel tab)]`
+         and every standalone call site in this tree take, and what keeps
+         their composed ids free of any instance token")
     (is (= [epoch-panel/Panel-bridge] (epoch-delivered-by {:frame :my-app/cart}))
         "opts carrying no instance name deliver it too")
     (is (= {} (crossed (epoch-delivered-by nil)))
@@ -619,29 +603,29 @@
     (delivered-element capture)))
 
 (deftest mount-machine-inspector-instance-id-reaches-the-boundary
-  (testing "rf2-3ymg — `mount-machine-inspector!`'s `:instance-id` opt reaches
+  (testing "`mount-machine-inspector!`'s `:instance-id` opt reaches
             the Fresco boundary's props, across the real `Panel-bridge`.
 
             THIS PANEL'S CONTRACT DIFFERS FROM EVERY SIBLING'S, which is why
             it gets its own row rather than riding on the epoch one above.
             Element 2 renders through `epoch-view/machine-cascade-mini-
-            pipeline`, the SHARED renderer the Epoch panel's handler step uses
-            (rf2-g2axio), so this panel composes ids in the EPOCH panel's id
+            pipeline`, the SHARED renderer the Epoch panel's handler step
+            uses, so this panel composes ids in the EPOCH panel's id
             namespace. `machine-inspector/instance-token` therefore NEVER
             answers nil: it names the panel itself, and a caller's token rides
             BELOW that. The rows below pin both halves of that."
     (is (= {:instance-id "machine-inspector"}
            (crossed (machine-inspector-delivered-by nil)))
         "AN UNNAMED MOUNT IS THE INTERESTING ONE — it crosses carrying this
-         panel's OWN name, not `{}`. That is the cross-panel half of rf2-3ymg
-         fixed with no caller action, because which panel is rendering is
+         panel's OWN name, not `{}`. That keeps it apart from the Epoch panel
+         with no caller action, because which panel is rendering is
          statically known and an embedder mounting one Epoch panel and one
          Machine Inspector over the same cascade cannot see the collision to
          work around it. Every sibling panel answers nil here")
     (is (= [machine-inspector/Panel-bridge] (machine-inspector-delivered-by nil))
-        "the DELIVERED element is still the bare `[Panel-bridge]` it always
-         was, though — what changed is what the bridge mounts the boundary
-         with, not what the facade hands the substrate")
+        "the DELIVERED element is the bare `[Panel-bridge]`, though — the
+         panel's own name is what the bridge mounts the boundary with, not
+         what the facade hands the substrate")
     (is (= {:instance-id "machine-inspector/left"}
            (crossed (machine-inspector-delivered-by {:instance-id "left"})))
         "a caller's name rides BELOW the panel's own, so two standalone
@@ -649,7 +633,7 @@
          with an Epoch panel named `left` either")
     (is (= {:instance-id "machine-inspector/left/machines"}
            (crossed (machine-inspector-delivered-by {:instance-id :left/machines})))
-        "and a KEYWORD keeps its namespace — rf2-4bsq, as for every other
+        "and a KEYWORD keeps its namespace, as for every other
          bridge that tokenises before the crossing")
     (is (= {:instance-id "machine-inspector/left"}
            (crossed (machine-inspector-delivered-by
@@ -668,7 +652,7 @@
 ;; ---- contract — idempotency under repeat mount ------------------------
 
 (deftest repeat-mount-is-idempotent-for-handler-registration
-  (testing "rf2-crhr8 — calling mount multiple times is safe; the
+  (testing "calling mount multiple times is safe; the
             registry's `register-xray-handlers!` sentinel collapses
             repeat installs into a single registration. The substrate
             render is called each time (each mount creates a fresh
@@ -688,17 +672,16 @@
 
 ;; ---- contract — panel mount routes through mount/ensure-xray-frame! ---
 ;;
-;; Pre-fix `ensure-xray-handlers-installed!` did `(rf/make-frame
-;; {:id :rf/xray})` directly. That registered the frame but bypassed the first-mount
-;; hook table (rf2-y1saa) — including `::seed-trace-and-target-frame`,
-;; the hook that lifts the pre-mount trace-bus buffer into Xray's
+;; `ensure-xray-handlers-installed!` routes through `mount/ensure-xray-frame!`
+;; so every panel-only mount path fires the same first-mount hook table the
+;; full-shell `open!` runs — including `::seed-trace-and-target-frame`, the
+;; hook that lifts the pre-mount trace-bus buffer into Xray's
 ;; `:trace-buffer` slot AND seeds `:target-frame` + `:epoch-history` from
-;; the head focusable cascade's frame. The result on the Story RHS: a
-;; host that dispatched events before any panel was mounted, then mounted
-;; a panel, saw empty Event + App-DB panels because the slots the panels
-;; subscribe to had never been populated. The fix routes through
-;; `mount/ensure-xray-frame!` so every panel-only mount path fires the
-;; same hook table the full-shell `open!` runs.
+;; the head focusable cascade's frame. A direct `(rf/make-frame {:id
+;; :rf/xray})` would register the frame but bypass that table, so a host
+;; that dispatched events before any panel was mounted, then mounted a
+;; panel, would see empty Event + App-DB panels on the Story RHS: the slots
+;; the panels subscribe to would never be populated.
 
 (defn- pre-mount-dispatch-event
   "Build a trace event matching the shape `event/dispatched` produces.
@@ -716,9 +699,9 @@
   (testing "Mounting a panel before the user has opened the full shell
             still runs the first-mount hook table — so the trace-bus
             atom contents land in Xray's `:trace-buffer` slot and the
-            panel renders against the host's pre-mount cascades. Pre-fix
-            the direct `(rf/make-frame {:id :rf/xray})` bypassed the hook
-            table and the slot stayed empty."
+            panel renders against the host's pre-mount cascades. A direct
+            `(rf/make-frame {:id :rf/xray})` would bypass the hook table
+            and leave the slot empty."
     (let [[_capture _ render-stub] (make-render-stub)]
       (with-redefs [rf.substrate.adapter/render render-stub
                     rf/epoch-history (fn [_] [])]
@@ -738,11 +721,10 @@
 (deftest mount-panel-seeds-target-frame-from-head-focusable-cascade
   (testing "Mounting a panel directly (without going through the full
             shell `open!`) seeds `:target-frame` from the head focusable
-            cascade's frame — matching the rf2-boyc2 contract the
-            full-shell path observes. Pre-fix only `open!` ran the seed
-            hook; panel-only mounts left `:target-frame` at
-            `defaults/default-target-frame` regardless of pre-mount
-            traffic on a non-default frame. That misalignment is the
+            cascade's frame — matching the contract the full-shell path
+            observes. A panel-only mount that skipped the seed hook would
+            leave `:target-frame` at `defaults/default-target-frame`
+            regardless of pre-mount traffic on a non-default frame — the
             empty-Xray-on-Story-RHS class of bug."
     (let [[_capture _ render-stub] (make-render-stub)
           cart-records [{:epoch-id      :e-1
@@ -770,7 +752,7 @@
                `:rf.xray/set-target-frame` reducer."))))))
 
 (deftest mount-panel-without-pre-mount-traffic-leaves-target-unselected
-  (testing "EP-0002 (rf2-bd4div) — mounting a panel with an empty trace-bus
+  (testing "mounting a panel with an empty trace-bus
             + no pre-mount cascades on any frame seeds `:target-frame` from
             `defaults/default-target-frame` = nil = UNSELECTED (the fallback
             branch in `::seed-trace-and-target-frame`). Pins the cold-start
@@ -791,11 +773,9 @@
 ;; ---- contract — every public mount fn exists --------------------------
 
 (deftest every-panel-mount-fn-is-public-and-callable
-  (testing "rf2-crhr8 — the ten per-panel mount fns + the full-
+  (testing "the nine per-panel mount fns + the full-
             shell mount fn are all present + ifn? — defensive guard
-            against accidental removal during refactor. (rf2-gbz39 —
-            `mount-issues-ribbon!` dropped alongside the removed Issues
-            tab; Option (c).)"
+            against accidental removal during refactor."
     (let [fns [["mount-epoch-panel!"                        panels/mount-epoch-panel!]
                ["mount-app-db-diff!"                        panels/mount-app-db-diff!]
                ["mount-reactive-panel!"                     panels/mount-reactive-panel!]
