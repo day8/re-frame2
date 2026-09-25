@@ -4,15 +4,14 @@
 
   The point of this fixture is to drive the App-DB Diff panel's
   projection chain against a multi-leaf nested app-db so the e2e suite
-  exercises the deep-tree diff path the Playwright scenario originally
-  carried. The fixture leaves out the Reagent view layer (which is
-  out of scope per the multi-frame e2e finding); the events + subs are
+  exercises the deep-tree diff path. The fixture leaves out the Reagent
+  view layer; the events + subs are
   bytewise-identical to the testbed.
 
   ## Bug class this catches
 
-  - rf2-70tkv panel-frozen — App-DB Diff sub stops re-firing after
-    the second host dispatch arrives; the diff would render the
+  - A frozen panel — the App-DB Diff sub stops re-firing after the
+    second host dispatch arrives, so the diff renders the
     pre-dispatch app-db forever.
   - Any regression in `:rf.xray/selected-epoch-record` that
     silently drops the `:db-before` or `:db-after` slot for
