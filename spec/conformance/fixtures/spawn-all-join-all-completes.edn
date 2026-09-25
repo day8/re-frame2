@@ -1,6 +1,6 @@
 ;; Conformance fixture: machine/spawn-all-join-all-completes
 ;;
-;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
+;; Per Spec 005 §Spawn-and-join via :spawn-all. Verify that
 ;; entering a :spawn-all-bearing state with `:join :all` emits:
 ;;   1. One :rf.machine/spawn-all-init fx that seeds the join state at
 ;;      [:rf.runtime/machines :spawned <parent> <invoke-id>]. It carries
@@ -8,7 +8,7 @@
 ;;      args of the :rf.machine/spawn fxs below, in declaration order) — so
 ;;      its invoke-level admission preflight can decide unregistered-TYPE and
 ;;      spawn-time [:schemas :data] rejection BEFORE publishing a live join
-;;      or running any child effect (rf2-7u8gen).
+;;      or running any child effect.
 ;;   2. N :rf.machine/spawn fxs (one per child), each carrying the
 ;;      runtime-stamped :rf/parent-id, :rf/spawn-all-id (the prefix-path
 ;;      of the :spawn-all-bearing state), and :rf/spawn-all-child-id
@@ -22,7 +22,7 @@
 ;; no parent registration, so :rf/parent-id is the sentinel
 ;; :rf/transition-pure.
 ;;
-;; Per rf2-gr8q the spawn-id allocator lives inside the snapshot at
+;; The spawn-id allocator lives inside the snapshot at
 ;; `:rf/spawn-counter` (a per-id-prefix integer map). A fresh fixture
 ;; snapshot starts without the slot; each child spawn bumps the slot under
 ;; its `:id-prefix`, which defaults to the child's `:machine-id` when the
@@ -64,7 +64,7 @@
      :error  {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:start]
-   ;; Per rf2-rc8wci: a :spawn-all binds the WHOLE {<child-id> <spawned-id>}
+   ;; A :spawn-all binds the WHOLE {<child-id> <spawned-id>}
    ;; map into the parent's :data under :rf/spawned, keyed by the shared
    ;; invoke-id `[:hydrating]` (XState-context parity; all N children
    ;; recorded under the one key, no clobber).
@@ -78,7 +78,7 @@
    :expect-effects
    ;; The runtime emits 1 init fx + N spawn fxs in this order. Spawn-id
    ;; allocation is deterministic via the snapshot's `:rf/spawn-counter`
-   ;; (per id-prefix) per rf2-gr8q; each spawn-id is `:<machine-id>#1`
+   ;; (per id-prefix); each spawn-id is `:<machine-id>#1`
    ;; because each child's :id-prefix defaults to its own :machine-id,
    ;; giving each its own counter slot starting from 0.
    [[:rf.machine/spawn-all-init
@@ -119,7 +119,7 @@
                       :rf/parent-id           :rf/transition-pure
                       :rf/spawn-all-id        [:hydrating]
                       :rf/spawn-all-child-id  :user}]}]
-    ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
+    ;; The runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
     ;; on :rf/spawn-all-child-id instead.
     [:rf.machine/spawn
