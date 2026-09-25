@@ -1,10 +1,9 @@
 (ns login-form.stories
   "Story variants for the login-form testbed.
 
-  Promotes the five-state login-form scenario from the Story
-  tutorial's index page (`docs/story/index.md:13-26`) to runnable
-  variants. The five states from the tutorial are exactly the
-  variants below:
+  The five-state login-form scenario of the Story tutorial
+  (`docs/story/index.md`), as runnable variants. The five states from
+  the tutorial are exactly the variants below:
 
     :story.login-form/idle             → the empty form
     :story.login-form/submitting       → first submit, request in flight
@@ -25,8 +24,8 @@
   projection is NOT observable through it. `:rf.assert/sub-equals`, by
   contrast, IS runtime-db-aware: the play-runner hands it the full
   frame-state value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`,
-  so a sub projecting a machine snapshot resolves its real value
-  (rf2-pecaxy). The machine-snapshot `:data` values (`:error` /
+  so a sub projecting a machine snapshot resolves its real value.
+  The machine-snapshot `:data` values (`:error` /
   `:attempts` / `:email`) are verified in the testbed's CLJS unit test
   (`stories_cljs_test.cljs`), which reads the variant frame's runtime-db
   directly; a `:script`-level `:rf.assert/sub-equals` over one of the
@@ -86,7 +85,7 @@
   (rf.story/reg-tag :login-form/tutorial
     {:doc "Variants the Story tutorial points at by name. The
           authenticated variant is the canonical screenshot — the
-          welcome banner that lands on `docs/story/01-first-story.md`."})
+          welcome banner."})
 
   ;; -------------------------------------------------------------------------
   ;; Modes — light + dark theme axis. The tutorial walk-through cites
@@ -181,7 +180,7 @@
   ;; -------------------------------------------------------------------------
   ;; Variant 3 — :error (server rejected creds)
   ;;
-  ;; The fx-stub still intercepts the request fx, but the variant
+  ;; The fx-stub intercepts the request fx here too, but the variant
   ;; body manually drives the failure sub-event in the same `:setup`
   ;; sequence — equivalent to the server having returned 401. The
   ;; machine transitions idle → submitting → error and lands with the
@@ -275,8 +274,7 @@
      ;; in the testbed's CLJS unit test (`stories_cljs_test.cljs`); a
      ;; `:script`-level `[:rf.assert/sub-equals [:login/email]
      ;; "ada@example.com"]` reaches it too — sub-equals resolves the
-     ;; projection sub against the full frame-state value (exercised
-     ;; under rf2-z06wh: fail / pass / fail against a seeded defect).
+     ;; projection sub against the full frame-state value.
      :script [[:assert [:rf.assert/state-is :login/flow :authenticated]]]
      :tags   #{:dev :docs :test :login-form/tutorial}
      :substrates #{:reagent}})
