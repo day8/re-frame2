@@ -229,7 +229,7 @@
     (is (= :not-a-map (:rf/default snapshot)))))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-byte assertions — the load-bearing acceptance criterion.
+;; Wire-byte assertions — the load-bearing property.
 ;; ---------------------------------------------------------------------------
 
 (defn- make-fat-snapshot
@@ -293,7 +293,7 @@
   ;; Quantify the wire-byte impact. The summary marker scales with the
   ;; top-level shape (keys + count + bytes hint), not with the
   ;; underlying payload. The shrink factor is the load-bearing
-  ;; acceptance criterion.
+  ;; property.
   (let [fat                (make-fat-snapshot)
         with-app-db-summary (update-in fat [:rf/default :app-db] summary/tree-summary)
         with-app-db-full   fat
