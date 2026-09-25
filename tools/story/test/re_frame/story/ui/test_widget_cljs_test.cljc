@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.test-widget-cljs-test
   "Tests for the chrome-level test widget + sidebar status dots
-  (rf2-q0irb — Storybook 9 Vitest-reporter parity).
+  (Storybook 9 Vitest-reporter parity).
 
   Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
   and the CLJS node-test build (shadow's `:node-test` target; ns-regexp
@@ -87,8 +87,7 @@
 
 (deftest test-summary-fixture-of-5
   (testing "summary computes correctly from a fixture of 5 variants
-            (3 pass / 1 fail / 1 pending) — the canonical case from
-            the bead description"
+            (3 pass / 1 fail / 1 pending) — the canonical case"
     (let [pass-summary {:total 1 :passed 1 :failed 0 :skipped 0
                         :all-passed? true}
           fail-summary {:total 1 :passed 0 :failed 1 :skipped 0
@@ -150,7 +149,7 @@
       (is (not (some #{:story.x/c} testable))))))
 
 (deftest testable-variant-ids-counts-declarative-expectations
-  (testing "rf2-uiihg: a :test variant whose only tests are declarative
+  (testing "a :test variant whose only tests are declarative
             :assertions or :checks is testable beside a :script control;
             empty expectation vectors and a non-:test tag still prune"
     (rf.story/reg-check :story.x/c-is-zero
@@ -171,7 +170,7 @@
              (rf.story.registrar/registrations :variant))))))
 
 (deftest testable-variant-ids-counts-inherited-and-composed-checks
-  (testing "rf2-ckpm4: a :test variant whose only tests are :checks it
+  (testing "a :test variant whose only tests are :checks it
             receives — from an :extends ancestor at any depth, or through a
             :compose of a check id — is testable, because the compiled plan
             hands those checks to the run; an :extends of a check-free
@@ -197,7 +196,7 @@
              (rf.story.registrar/registrations :variant))))))
 
 (deftest testable-variant-ids-counts-composed-fragment-script
-  (testing "rf2-dt9xf: a :test variant whose only play surface is a composed
+  (testing "a :test variant whose only play surface is a composed
             fragment's :script (bare or map form) is testable, because the
             compiled plan runs it; composing a fragment whose :script is empty
             or absent still prunes, and so does a non-:test tag"
@@ -230,7 +229,7 @@
 #?(:cljs
    (deftest status-dot-style-derives-from-descriptor
      (testing "dot-style projects each run status's paint from the ONE
-               canonical theme.status descriptor source (rf2-wh5to) —
+               canonical theme.status descriptor source —
                settled solid statuses fill with the descriptor fg,
                running fills translucent, the hollow shapes ring in the
                descriptor border colour"
@@ -356,7 +355,7 @@
          ;; aria-label round-trips for screen-reader users.
          (is (= "tests: Fail" (get (second dot-fail) :aria-label)))))))
 
-;; ---- rf2-wh5to — :cannot-run ≠ :pending THROUGH the dot -------------------
+;; ---- :cannot-run ≠ :pending THROUGH the dot -----------------------------
 
 #?(:cljs
    (deftest sidebar-dot-cannot-run-distinct-from-pending
@@ -385,15 +384,15 @@
                    (:aria-label (props dot-pending))))
          (is (= "tests: Can't run" (:title (props dot-cannot))))))))
 
-;; ---- rf2-k3y92 — status-dot is decorative img (not a live region) -------
+;; ---- status-dot is decorative img (not a live region) -----------------
 
 #?(:cljs
    (deftest sidebar-dot-uses-img-role-not-status
-     (testing "rf2-k3y92 — the status-dot is a static decoration painted
+     (testing "the status-dot is a static decoration painted
                alongside the row label, not an out-of-band update channel.
-               `role=\"status\"` adds an implicit `aria-live=\"polite\"`
-               which made every mounted dot a live region — with ~50–200
-               variant rows in a typical registry the AT noise was real.
+               `role=\"status\"` adds an implicit `aria-live=\"polite\"`,
+               which would make every mounted dot a live region — with
+               ~50–200 variant rows in a typical registry the AT noise is real.
                `role=\"img\"` keeps the `aria-label` exposed as the
                accessible name without the live-region announcement."
        (let [dot-fail (rf.story.ui.sidebar/status-dot :fail)
@@ -417,7 +416,7 @@
          (is (some? btn))
          (is (true? (get (second btn) :disabled)))))))
 
-;; ---- rf2-dtj61: 3-arity threads precomputed variant-ids ----------------
+;; ---- 3-arity threads precomputed variant-ids ---------------------------
 
 #?(:cljs
    (deftest widget-3-arity-uses-supplied-variant-ids
@@ -446,16 +445,15 @@
          (is (not (re-find #"/3" (nth headline 2))))
          (is (not (re-find #"/2" (nth headline 2))))))))
 
-;; ---- regression: per-variant cell-overrides threading (rf2-zq6sn) -------
+;; ---- per-variant cell-overrides threading ------------------------------
 
 #?(:cljs
    (deftest run-opts-threads-per-variant-cell-overrides
      (testing "the chrome widget's Run-all path (run-opts-for-variant)
                threads each variant's OWN cell-overrides entry from
                shell state — the same lookup canvas / pane / share-url
-               perform. The pre-fix bug passed `:cell-overrides nil`
-               for every variant, dropping the user's controls-panel
-               edits on a Run-all (rf2-zq6sn)."
+               perform. Passing `:cell-overrides nil` for every variant
+               would drop the user's controls-panel edits on a Run-all."
        (let [shell (-> rf.story.ui.state/default-shell-state
                        (assoc :active-modes #{:dark}
                               :substrate :reagent)
@@ -474,7 +472,7 @@
                    from sibling variants)"
            (is (nil? (:cell-overrides opts-c))))))))
 
-;; ---- rf2-o6toyw: aggregate-summary counts :error records as failures
+;; ---- aggregate-summary counts :error records as failures
 ;;
 ;; `aggregate-summary` folds each record through the single verdict owner
 ;; (`re-frame.story.verdict/record-status`, consumed by `ui.state.tests`) —
@@ -499,9 +497,8 @@
 #?(:clj
    (deftest jvm-only-summary-from-fixture
      (testing "JVM corpus exercises the pure summary helper without
-               booting Reagent — the fixture from the bead's
-               description (3 pass / 1 fail / 1 pending) lands the
-               same numbers as the CLJS path"
+               booting Reagent — the same fixture (3 pass / 1 fail /
+               1 pending) lands the same numbers as the CLJS path"
        (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
              fail {:total 1 :passed 0 :failed 1 :skipped 0 :all-passed? false}
              s    (-> rf.story.ui.state/default-shell-state
