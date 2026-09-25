@@ -75,7 +75,7 @@
    unfiltered list — plus the `limit`/`offset` pagination pair derived from
    `:page`. Every value goes through `rh/query-string`, so it's properly
    URL-encoded rather than concatenated raw — a tag or username with a
-   reserved query character no longer corrupts the request. Keeps the
+   reserved query character cannot corrupt the request. Keeps the
    resource `:request` fns short while every (filters, page) pair stays its
    own distinct cache key."
   [path filters page]
