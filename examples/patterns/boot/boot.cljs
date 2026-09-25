@@ -43,9 +43,8 @@
 
    Each child fetches via managed HTTP
    (docs/resources/glossary.md#managed-http), then hands its payload back
-   to the parent. There used to be a genuinely subtle bit here — one
-   hand-off route under `:spawn`, a different one under `:spawn-all`.
-   There isn't any more, and the absence is the thing worth noticing:
+   to the parent. The hand-off route is the same under `:spawn` and under
+   `:spawn-all`, and that sameness is the thing worth noticing:
 
    - A child completes by reaching a `:final?` state. `:output-key` names
      the `:data` slot holding its result (`:payload` on `:done`, `:error`
@@ -282,7 +281,7 @@
         ;; Each child folds its own payload straight into the parent's
         ;; :data as it reaches finality, BEFORE the join fold. Same
         ;; `:on-done` contract the single `:spawn` above uses — which is
-        ;; what retired the app-db staging slot this example used to need.
+        ;; why this example needs no app-db staging slot.
         ;; (A `:spawn-all` child may NOT declare `:on-error`; failure
         ;; control flow under a join is the block's `:on-any-failed`.)
         :on-done    (fn boot-routes-done [{:keys [data result]}]
