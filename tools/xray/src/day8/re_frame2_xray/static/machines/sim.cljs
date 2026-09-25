@@ -51,9 +51,9 @@
   payload input + Reset / Exit + guard error toast + audit trail, and its
   \"Available from current state\" list carries one `⌚` row per `:after`
   timer declared on the active path — a MANUAL timeout trigger that fires
-  the engine's own elapsed event (rf2-pzuqw; the sim keeps no clock). The
-  on-chart path REUSES the existing engine end-to-end (no new
-  transition logic): an edge click coerces the edge's fireable
+  the engine's own elapsed event (the sim keeps no clock). The
+  on-chart path REUSES the step engine end-to-end (no transition logic
+  of its own): an edge click coerces the edge's fireable
   event-id and folds ONE `step-sim` through the same
   `rf.machines/machine-transition` call the step-button drives.
 
@@ -88,7 +88,7 @@
 ;; ---- runtime hook -------------------------------------------------------
 ;;
 ;; `rf.machines/machine-transition` is the pure engine entry, owned by
-;; `re-frame.machines` (the front-porch shrink left no `rf/`
+;; `re-frame.machines` (there is no `rf/`
 ;; re-export); a host that hasn't loaded the machines artefact throws
 ;; at this call. The sim sub-mode only appears when there's at least
 ;; one registered machine — so by the time a user clicks Step, the
@@ -114,17 +114,16 @@
 
 (defn- build-sim-seed
   "Seed the sim snapshot through the ENGINE's own initial-snapshot
-  builder (rf2-y8doi.21), so the sim opens where the runtime would have
+  builder, so the sim opens where the runtime would have
   opened: a compound root descends its `:initial` chain to a leaf path,
   and a `:type :parallel` root gets its region→state map. Reading
-  `:initial` shallowly parked the sim on the compound node (every later
-  step then recording a phantom `:auth → :auth`) and returned nil for a
-  parallel root, which has no `:initial` at all.
+  `:initial` shallowly would park the sim on the compound node (every
+  later step then recording a phantom `:auth → :auth`) and return nil
+  for a parallel root, which has no `:initial` at all.
 
   `build-initial-snapshot` computes the initial STATE only — it is not
-  `apply-initial-entry-cascade`, so `:entry` actions are still NOT run
-  at bootstrap. That is the hermetic posture the rail advertises, and
-  it is unchanged by this.
+  `apply-initial-entry-cascade`, so `:entry` actions are NOT run
+  at bootstrap. That is the hermetic posture the rail advertises.
 
   Returns nil on any refusal so `sim-helpers/initial-snapshot` falls
   back to its shallow read rather than the panel failing to open —
@@ -255,8 +254,8 @@
 
   ;; On-chart edge click → step. The chart's clickable edge
   ;; hands us the raw fireable event-id; coerce it to a step event vector
-  ;; and fold it through the SAME engine path as the step-button (no new
-  ;; transition logic — `step-and-store` runs `step-sim` +
+  ;; and fold it through the SAME engine path as the step-button (no
+  ;; transition logic of its own — `step-and-store` runs `step-sim` +
   ;; `run-machine-transition`, identical to the button path). A
   ;; nil/non-keyword event-id (an inert auto edge) coerces to nil, which
   ;; `step-and-store`'s nil-`event-v` guard treats as a no-op so the
@@ -316,7 +315,7 @@
 
 (defn- sim-banner
   "Tinted banner above the side rail — the fixed SIMULATING line per
-  design §5, plus the bootstrap disclosure (rf2-00126).
+  design §5, plus the bootstrap disclosure.
 
   The second line is the VISIBLE half of the hermetic-seed contract.
   build-sim-seed seeds through the engine's initial-snapshot builder,
@@ -544,24 +543,24 @@
                   :font-size "11px"}}
    [:span {:style {:color (:text-primary tokens)}}
     (str event)]
-   ;; rf2-kmr2i / rf2-4cm3k — `format-destination`, not an inline target
-   ;; cond. A targetless / action-only candidate now lists, and it has no
+   ;; `format-destination`, not an inline target
+   ;; cond. A targetless / action-only candidate lists too, and it has no
    ;; target to print; the two row kinds share one formatter so they cannot
    ;; answer that question differently.
    [:span {:style {:color (:text-tertiary tokens)}}
     (str (sim-h/format-destination row)
          (when guard? " [guard]"))]])
 
-;; ---- `:after` timer rows (rf2-pzuqw) ------------------------------------
+;; ---- `:after` timer rows ------------------------------------------------
 ;;
 ;; One extra row kind in the SAME list, doing what the `:on` rows do. These
 ;; are MANUAL TIMEOUT TRIGGERS: the sim keeps no clock and does not advance
 ;; simulated time, so a row fires its timer's elapsed event NOW and the
-;; engine answers. A stale epoch or a declined guard reads as the existing
-;; amber "No change" and the row stays listed — no new diagnostic, no chart
-;; mode, no prop, no new registration.
+;; engine answers. A stale epoch or a declined guard reads as the rail's
+;; amber "No change" and the row stays listed — no diagnostic, chart mode,
+;; prop or registration of its own.
 ;;
-;; The click steps DIRECTLY through the existing `:sim-step` (a timer takes
+;; The click steps DIRECTLY through `:sim-step` (a timer takes
 ;; no payload) rather than filling the pending-event input, for two reasons
 ;; the `:on` rows don't have: a Spec 005 fn-valued delay key cannot
 ;; round-trip EDN, and the epoch is not something a user should read or type.
@@ -635,13 +634,12 @@
                     :font-family sans-stack
                     :font-size "11px"
                     :font-style "italic"}}
-      ;; rf2-ky034 — this used to read "No outgoing transitions declared on
-      ;; this state.", which is a positive claim about the user's DEFINITION
-      ;; rather than a neutral empty state. It was false for every parallel
-      ;; machine, and it stays overclaiming even with that fixed: the picker
+      ;; Say what was LOOKED AT and let the user draw the conclusion. "No
+      ;; outgoing transitions declared on this state." would be a positive
+      ;; claim about the user's DEFINITION rather than a neutral empty
+      ;; state, and it would overclaim: the picker
       ;; is leaf-only, so a root `:on` fallback, an `:always` or a parent's
-      ;; `:on` can all be declared and fireable while this list is empty. So
-      ;; say what was LOOKED AT and let the user draw the conclusion.
+      ;; `:on` can all be declared and fireable while this list is empty.
       (str "Nothing to fire from the current state. The picker lists :on "
            "transitions declared on the active state, and :after timers on "
            "the active path.")]
@@ -651,24 +649,24 @@
            ;; …)` call below would be attached to the source list and
            ;; lost when the call returns its fresh vector.
            ;;
-           ;; rf2-a38l — and `with-meta` on that returned vector, which
-           ;; this used to do, is only half a fix: Reagent's
+           ;; `with-meta` on that returned vector would be only half a
+           ;; fix: Reagent's
            ;; `get-react-key` does read vector meta, but Fresco's codec
            ;; takes a literal `:key` from an ATTRIBUTE MAP and reads
-           ;; Clojure metadata nowhere, so the key vanished silently
+           ;; Clojure metadata nowhere, so the key would vanish silently
            ;; under a boundary. A KEYED FRAGMENT carries it on a head
            ;; both substrates honour without touching the call.
            (concat
-             ;; rf2-ky034 — the key carries the DECLARING PATH as well as the
+             ;; The key carries the DECLARING PATH as well as the
              ;; event id. A parallel machine's regions may each declare the
              ;; same event (one broadcast handled in two places), which is the
              ;; idiomatic parallel shape rather than an exotic one, and keyed
              ;; on the event alone those two rows collide.
              ;;
-             ;; rf2-kmr2i — the ROW INDEX joins them, as the `after-` keys
-             ;; below have always carried one. One event-id at one node may
+             ;; The ROW INDEX joins them, as it does in the `after-` keys
+             ;; below. One event-id at one node may
              ;; declare a VECTOR of candidates, and since targetless ones
-             ;; now list too (`on-rows-at`), `{:go [{:target :a :guard :g}
+             ;; list too (`on-rows-at`), `{:go [{:target :a :guard :g}
              ;; {:action :bump}]}` is a pair of rows the decl-path and the
              ;; event id cannot tell apart.
              (for [[idx t] (map-indexed vector transitions)]
@@ -683,16 +681,15 @@
                 (available-after-row dispatch machine-id sim idx row)]))))])
 
 (defn- error-toast
-  "The rail's step diagnostic. Two kinds, deliberately styled apart
-  (rf2-y8doi.21): an ENGINE FAILURE is red, while a step the engine
+  "The rail's step diagnostic. Two kinds, deliberately styled apart:
+  an ENGINE FAILURE is red, while a step the engine
   simply declined is amber and headed `No change`.
 
   Spec 005 §Transition resolution is explicit that an unhandled event
   is an xstate-parity no-op rather than an error, and a declined guard
   is ordinary machine behaviour — so calling either a failure would
-  swap one falsehood for another. The user still needs to be told that
-  nothing moved, which is the whole point: before this, a rejected step
-  silently grew a phantom `#N :open → :open` row instead."
+  be false. The user still needs to be told that nothing moved,
+  rather than seeing a phantom `#N :open → :open` row."
   [{:keys [event reason info]}]
   (let [no-change? (= :rf.xray.static.machines.sim/no-change (:kind info))
         hue        (if no-change? (:yellow tokens) (:red tokens))]
@@ -757,9 +754,9 @@
            ;; below would be attached to the source list and lost when
            ;; the call returns its fresh vector.
            ;;
-           ;; rf2-a38l — and `with-meta` on that returned vector, which
-           ;; this used to do, dies at a Fresco boundary for the reason
-           ;; given at `available-transitions` above. A KEYED FRAGMENT
+           ;; `with-meta` on that returned vector would die at a Fresco
+           ;; boundary for the reason given at `available-transitions-list`
+           ;; above. A KEYED FRAGMENT
            ;; carries the key on a head both substrates honour.
            (for [[idx row] (map-indexed vector trail)]
              [:<> {:key idx} (audit-trail-row idx row)])))])
@@ -767,8 +764,8 @@
 (defn SimRail
   "The Sim sub-mode's content rail — banner + current state + event
   picker + Step / Reset / Exit + available transitions (`:on` rows plus
-  one `⌚` manual-timeout row per `:after` declared on the active path,
-  rf2-pzuqw) + audit trail. Pure hiccup (per Xray convention).
+  one `⌚` manual-timeout row per `:after` declared on the active path)
+  + audit trail. Pure hiccup (per Xray convention).
 
   Returns nil when sim is not active for the currently-selected
   machine (the caller is expected to dispatch `:sim-start` BEFORE
@@ -781,23 +778,23 @@
   `dispatch` is the frame-aware dispatcher threaded from `body` —
   fanned out to every control helper.
 
-  `sim` / `transitions` / `suggestions` are the derefed sub values
-  threaded down from the `detail` reg-view (`definition_detail`),
+  `sim` / `transitions` / `suggestions` are the sub values
+  threaded down from the `detail` boundary (`definition_detail`),
   via `body`. SimRail is a plain fn invoked as a Reagent component, so it
   renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
   frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns do not pick
   up the surrounding frame; a bare `subscribe` here throws
   `:rf.error/no-frame-context` and crashes the whole Static surface).
-  The reg-view body derefs `:sim-state` / `:sim-available-transitions` /
+  The boundary body reads `:sim-state` / `:sim-available-transitions` /
   `:sim-event-suggestions` where the frame IS in context and passes the
   values down."
   [dispatch {:keys [sim transitions suggestions]}]
   (let [machine-id (:machine-id sim)
-        ;; rf2-pzuqw — the `:after` timer rows are derived HERE rather than
-        ;; behind a new sub, for the reason the docstring above gives: the
+        ;; The `:after` timer rows are derived HERE rather than
+        ;; behind a sub, for the reason the docstring above gives: the
         ;; whole `sim` map is already threaded in, and it carries the three
         ;; inputs (`:definition`, `:snapshot`, `:audit-trail`) the pure
-        ;; helpers need. A new sub would also be a new registration, and
+        ;; helpers need. A sub would also be a registration, and
         ;; `registry_cljs_test.cljs` pins the `:rf.xray/*` set exactly.
         after-rows (sim-h/available-after-transitions
                      (:definition sim) (:snapshot sim))]
@@ -833,7 +830,7 @@
   hermetic sim engine. Stately's signature is simulating ON the chart;
   this is the binding seam that delivers it.
 
-  Reuses the EXISTING engine end-to-end — no new transition logic:
+  Reuses the step engine end-to-end — no transition logic of its own:
 
     - **Active state** — the sim snapshot's `:state`
       (`:sim-current-state`) drives `machine-canvas/Chart`'s
@@ -865,13 +862,13 @@
   Pure hiccup (Xray convention). `dispatch` is the frame-aware
   dispatcher threaded from `body`.
 
-  `current` / `last-trans` are the derefed sub values threaded down
-  from the `detail` reg-view (`definition_detail`), via
+  `current` / `last-trans` are the sub values threaded down
+  from the `detail` boundary (`definition_detail`), via
   `body`. SimChart is a plain fn invoked as a Reagent component, so it
   renders in its OWN cycle and CANNOT recover the surrounding `:rf/xray`
   frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns under non-default frames; a bare `subscribe` here
   throws `:rf.error/no-frame-context` and crashes the Static surface).
-  The reg-view body derefs `:sim-current-state` / `:sim-last-transition`
+  The boundary body reads `:sim-current-state` / `:sim-last-transition`
   where the frame IS in context and passes the values down."
   [dispatch {:keys [machine-id definition current last-trans]}]
   [:div {:data-testid "rf-xray-static-machines-sim-chart"
@@ -943,8 +940,8 @@
   surrounding `:rf/xray` frame to `rf/subscribe` itself (Spec 000 §Plain Reagent fns under non-default frames; a bare
   `subscribe` here throws `:rf.error/no-frame-context` and crashes the
   Static surface). All sim sub values — `sim` (`:sim-state`),
-  `transitions`, `suggestions`, `current`, `last-trans` — are derefed in
-  the `detail` reg-view (where the frame IS in context) and threaded down
+  `transitions`, `suggestions`, `current`, `last-trans` — are read in
+  the `detail` boundary (where the frame IS in context) and threaded down
   through `definition_detail/body` to here, then fanned out to `SimChart`
   / `SimRail` (themselves plain-fn components). This mirrors the
   browse-list frame-recovery pattern exactly."
