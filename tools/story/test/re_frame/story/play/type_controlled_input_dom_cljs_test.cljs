@@ -1,34 +1,35 @@
 (ns re-frame.story.play.type-controlled-input-dom-cljs-test
   "ACCEPTANCE test for the play runner's `:type` step against REAL
-  React-controlled inputs (rf2-7aqo).
+  React-controlled inputs.
 
-  The bug: `rf.story.play.dom/type!` assigned `node.value` directly. React
-  redefines `value` as an OWN accessor on every controlled input
+  React redefines `value` as an OWN accessor on every controlled input
   (`trackValueOnNode`); that setter records the incoming value in React's
   value tracker BEFORE forwarding to the native setter, so
   `updateValueIfChanged` afterwards reports 'value did not change' and
-  React DISCARDS both the `input` and the `change` synthetic events. The
-  DOM showed the text, the component's `on-change` never fired, and
-  `type!` returned true regardless — so a play could type an email and a
-  password and submit empty credentials.
+  React DISCARDS both the `input` and the `change` synthetic events. A
+  `type!` that assigned `node.value` directly would leave the DOM showing
+  the text while the component's `on-change` never fired, and `type!` —
+  which returns true once it has written and dispatched — would report
+  success, so a play could type an email and a password and submit empty
+  credentials.
 
-  The repair writes through the node's PROTOTYPE `value` setter, which is
-  the write a real keystroke performs: React's tracker stays stale, so it
-  synthesises the change.
+  `rf.story.play.dom/type!` therefore writes through the node's PROTOTYPE
+  `value` setter, which is the write a real keystroke performs: React's
+  tracker stays stale, so it synthesises the change.
 
   These assertions cannot be made without a real React render — a hiccup
   or pure-data test cannot observe the value tracker at all. Hence the
-  `-dom-cljs-test$` suffix (rf2-2hrj8), which opts the file into the
+  `-dom-cljs-test$` suffix, which opts the file into the
   `:browser-test` build (Playwright + Chromium, real React via
   `react-dom/client`). `:node-test` also loads it — its `cljs-test$`
   regex matches this suffix — where every test self-gates on `(browser?)`
   and exits early.
 
   `direct-assignment-is-the-regression` is the load-bearing control: it
-  performs the OLD write on an identical mounted input and asserts the
-  controlled state does NOT update. Restoring the direct assignment in
-  `type!` therefore reds the tests above it AND leaves this one green,
-  which is what pins the seam rather than merely exercising it."
+  performs a direct `node.value` write on an identical mounted input and
+  asserts the controlled state does NOT update. A `type!` that assigned
+  directly would therefore red the tests above it AND leave this one
+  green, which is what pins the seam rather than merely exercising it."
   (:require [cljs.test :refer-macros [deftest is testing]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -134,12 +135,13 @@
                 "the controlled rerender kept the typed text")
             (finally (unmount! root))))))))
 
-;; ---- 3 · the submit snapshot — the symptom the bead names ----------------
+;; ---- 3 · the submit snapshot ---------------------------------------------
 ;;
 ;; A minimal equivalent of `tools/story/testbeds/login_form/views.cljs`:
 ;; controlled email + password whose submit handler reads the RATOM, not
 ;; the raw DOM. This is the assertion that fails as "submitted empty
-;; credentials despite visibly filled inputs" under the old write.
+;; credentials despite visibly filled inputs" under a direct-assignment
+;; write.
 
 (defn- login-form [state submitted]
   (fn []
@@ -181,11 +183,12 @@
                 "the submit handler read the typed credentials off component state")
             (finally (unmount! root))))))))
 
-;; ---- 4 · the plain-DOM path is unchanged ---------------------------------
+;; ---- 4 · the plain-DOM path ----------------------------------------------
 
 (deftest type-step-still-drives-a-plain-dom-input
-  (testing "a plain (non-React) input still takes the value and still sees
-            both dispatched events — the repair keeps the plain-DOM path"
+  (testing "a plain (non-React) input takes the value and sees both
+            dispatched events — the prototype-setter write serves the
+            plain-DOM path too"
     (if-not (browser?)
       (is true ":node-test: no DOM — the browser-test runner exercises this")
       (let [input  (js/document.createElement "input")
@@ -198,23 +201,22 @@
           (is (true? (rf.story.play.dom/type! input "plain")))
           (is (= "plain" (.-value input)) "the plain input carries the value")
           (is (= [:input :change] @seen)
-              "both events still reach a plain-DOM listener")
+              "both events reach a plain-DOM listener")
           (finally (.remove input)))))))
 
 ;; ---- 5 · the regression control ------------------------------------------
 ;;
 ;; This is what makes the four tests above load-bearing rather than
-;; merely green. It performs the WRITE `type!` used to perform — a direct
-;; `(set! (.-value node) …)` followed by the same two events — on an
-;; identical mounted input, and asserts the controlled component state
-;; does NOT move. If React ever stops filtering that write, this test
-;; reds and tells us the seam changed; until then it pins exactly why the
-;; repair is necessary.
+;; merely green. It performs a direct `(set! (.-value node) …)` write
+;; followed by the same two events `type!` dispatches, on an identical
+;; mounted input, and asserts the controlled component state does NOT
+;; move. If React ever stops filtering that write, this test reds and
+;; tells us the seam changed; until then it pins exactly why `type!`
+;; writes through the prototype setter.
 
 (deftest direct-assignment-is-the-regression
-  (testing "the OLD write (direct node.value assignment) leaves the
-            controlled component's on-change unfired — the defect rf2-7aqo
-            records"
+  (testing "a direct node.value assignment leaves the controlled
+            component's on-change unfired"
     (with-browser-act
       (fn [act-fn]
         (let [state       (r/atom {:email ""})
@@ -227,8 +229,8 @@
                 (.dispatchEvent input (js/Event. "input"  #js {:bubbles true :cancelable true}))
                 (.dispatchEvent input (js/Event. "change" #js {:bubbles true :cancelable true}))))
             (is (= "" (:email @state))
-                "React's value tracker swallowed the direct assignment — this is
-                 the bug; `type!` must not write this way")
+                "React's value tracker swallowed the direct assignment —
+                 `type!` must not write this way")
             (finally (unmount! root))))))))
 
 ;; ---- 6 · the mechanism, asserted directly --------------------------------
