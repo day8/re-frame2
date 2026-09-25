@@ -1,22 +1,22 @@
 (ns re-frame.story.resolved-scenario-test
-  "rf2-fzbj.3 (rf2-gwye.5 / .6 / .7) — a REGISTERED run executes and reports
-  the scenario its compiled plan resolves, and a run's loader cleanup belongs
-  to that run.
+  "A REGISTERED run executes and reports the scenario its compiled plan
+  resolves, and a run's loader cleanup belongs to that run.
 
-  The three defects share one root. The plan compiler resolves `:extends` and
-  `:compose` into `[:world …]` (loaders, loader teardown, completion policy,
-  effective args), while registered execution and the save / share / canvas
-  readers re-read the RAW registration:
+  The plan compiler resolves `:extends` and `:compose` into `[:world …]`
+  (loaders, loader teardown, completion policy, effective args), and
+  registered execution and the args readers (facade, save snapshot,
+  explain) read that resolved world. Re-reading the RAW registration
+  instead would break three things:
 
-  1. Loaders (rf2-gwye.5) — an extends-only or compose-only variant skipped
-     its inherited / composed loaders AND their teardown, and still reported
+  1. Loaders — an extends-only or compose-only variant would skip its
+     inherited / composed loaders AND their teardown, and still report
      `:pass` / `:ready`.
-  2. Cleanup ownership (rf2-gwye.6) — teardown read the CURRENT registration,
-     so a hot reload between a run and its destroy (or re-run) ran a cleanup
-     whose setup never ran and skipped the one that did.
-  3. Effective args (rf2-gwye.7) — the facade resolver and the save snapshot
-     read the variant's own `:args`, so an inherited value was replaced by the
-     story default, and a saved variant made that replacement permanent.
+  2. Cleanup ownership — teardown reading the CURRENT registration would,
+     after a hot reload between a run and its destroy (or re-run), run a
+     cleanup whose setup never ran and skip the one that did.
+  3. Effective args — a facade resolver or save snapshot reading the
+     variant's own `:args` would replace an inherited value with the story
+     default, and a saved variant would make that replacement permanent.
 
   Every test drives `run-variant` / `destroy-variant!` and reads what the
   handlers actually saw (the `calls` atom) or the frame's app-db."
@@ -83,7 +83,7 @@
   (boolean (some #(= :rf.error/loader-incomplete (:assertion %)) (:assertions result))))
 
 ;; ===========================================================================
-;; 1 · rf2-gwye.5 — registered runs execute the RESOLVED loader world
+;; 1 · registered runs execute the RESOLVED loader world
 ;; ===========================================================================
 
 (deftest extends-only-child-runs-inherited-loaders-and-cleanup
@@ -144,13 +144,13 @@
   (is (= [:load :close :load :close] @calls)))
 
 (deftest loader-controls-direct-no-loader-and-inline
-  (testing "direct variant — unchanged"
+  (testing "direct variant (control)"
     (rf.story/reg-variant :story.rs/direct
       {:loaders [[:rs/load]] :loaders-teardown [[:rs/close]]})
     (run-it! :story.rs/direct)
     (rf.story/destroy-variant! :story.rs/direct)
     (is (= [:load :close] @calls)))
-  (testing "no-loader variant still takes the events-only fast path"
+  (testing "no-loader variant takes the events-only fast path"
     (reset! calls [])
     (rf.story/reg-variant :story.rs/plain {:setup [[:rs/setup]]})
     (let [result (run-it! :story.rs/plain)]
@@ -158,7 +158,7 @@
       (is (= :ready (:lifecycle result)))
       (is (not (loader-incomplete? result))))
     (rf.story/destroy-variant! :story.rs/plain))
-  (testing "inline plan — unchanged"
+  (testing "inline plan (control)"
     (reset! calls [])
     (rf.story.async/deref-blocking
       (rf.story.runtime/run-inline-plan
@@ -167,7 +167,7 @@
     (is (= [:load :close] @calls))))
 
 ;; ===========================================================================
-;; 2 · rf2-gwye.6 — a run's loader cleanup survives a hot reload
+;; 2 · a run's loader cleanup survives a hot reload
 ;; ===========================================================================
 
 (defn- reg-reload! [teardown]
@@ -227,8 +227,8 @@
   (is (= [:opened-a :closed-a] @calls)))
 
 ;; ===========================================================================
-;; 3 · rf2-gwye.7 — effective args agree across run, facade, save, snippet
-;;     (and, rf2-noxox, the `story/explain` a registered variant reports)
+;; 3 · effective args agree across run, facade, save, snippet
+;;     (and the `story/explain` a registered variant reports)
 ;; ===========================================================================
 
 (def ^:private inherited {:count 42 :nested {:v 7 :keep 1}})
