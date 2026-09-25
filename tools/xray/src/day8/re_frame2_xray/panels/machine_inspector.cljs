@@ -1,64 +1,59 @@
 (ns day8.re-frame2-xray.panels.machine-inspector
-  "Machine Inspector panel — collapsed Dynamic surface (rf2-y9xmf).
+  "Machine Inspector panel — the Dynamic surface.
 
-  Per Mike's 2026-05-19 redesign, the Dynamic Machines panel is
+  The Dynamic Machines panel is
   **event-driven only**:
 
     - **BLANK** when the currently focused event is not machine-related
-      (per rf2-g3ghh silent-by-default).
-    - **When the focused event triggered a machine transition** the
-      panel renders one section per machine: topology chart with
-      FROM/TO highlighting, the transition edge, guards / actions
-      results, the cancellation cascade (when present), `:after`
+      (silent-by-default).
+    - **When the focused event targeted a machine** the panel renders
+      ONE section (the Dynamic-mode single-instance rule): the SHARED
+      EVENT HANDLER mini-pipeline (microstep / guard / action rows) and
+      the topology chart with FROM/TO highlighting and the `:after`
       countdown rings overlay (when armed timers exist).
     - **prev/next** affordance walks the spine's epoch-history to the
       prior / next event for THE FOCUSED MACHINE (not the full spine).
 
-  ## What was collapsed (rf2-y9xmf)
+  ## What it does not carry
 
-  The pre-collapse panel (1362 LoC) carried five orthogonal
-  exploration surfaces piled into one Dynamic tab: a Machine picker, a
-  sub-strip (Topology / Sim / Instances / Cascade), Mode A/B/C
-  instance-tab + cluster views, the Sim ribbon UI, a Browse-all entry
-  point, an arc overlay + mini-scrubber. None of those belong in a
-  Dynamic panel whose only job is to be the lens on the focused event.
-  The collapse drops every ribbon. Sim's engine + the browse-all index
-  remain in the codebase (sibling bead rf2-r4nao re-hosts them under
-  the future Static surface); only the UI ribbons go away.
+  The Dynamic panel's only job is to be the lens on the focused event,
+  so it carries no ribbons: no Machine picker, no sub-strip (Topology /
+  Sim / Instances / Cascade), no instance-tab or cluster views, no Sim
+  ribbon, no Browse-all entry point, and no arc overlay or
+  mini-scrubber. The Sim lives on the Static surface
+  (`static/machines/sim.cljs`).
 
-  ## What stays
+  ## What it carries
 
-    - Topology renderer (ELK + layered fallback; SVG primitive in
-      `chart/{layout,svg}`).
+    - Topology chart (machines-viz `MachineChart`; xyflow + elkjs own
+      layout).
     - Transition highlighting (from-state → to-state — dashed-origin /
       bold-landing visual grammar).
-    - Per-transition guards + actions lists.
-    - Cancellation cascade inline (when the transition triggered one).
+    - The SHARED EVENT HANDLER mini-pipeline (per-transition guard and
+      action rows).
     - `:after` countdown rings overlay (when armed timers exist).
     - prev/next nav (per-machine epoch walking).
 
-  ## Hiccup, and who renders it (rf2-k97c.3)
+  ## Hiccup, and who renders it
 
-  The markup is still pure hiccup, but [[Panel]] is a `rf.fresco/defview`
+  The markup is pure hiccup, but [[Panel]] is a `rf.fresco/defview`
   boundary rather than an `rf/reg-view`, so FRESCO renders it — not the
   substrate adapter installed via `rf/init!`. [[panel-tree]] holds the
-  markup as a pure fn so the node lane can still drive it.
+  markup as a pure fn so the node lane can drive it.
 
-  The installed adapter's hiccup walk IS referenced now, and only as a
-  migration seam: one
-  `as-element` island for the topology chart, which is still an
-  `rf/reg-view` and shared with the Static surface. Every other helper in
+  The topology chart mounts through `machine-canvas/Chart-view`, a Fresco
+  head, so this panel needs no `as-element` island. Every helper in
   this file answers hiccup and is CALLED, never used as a hiccup head —
   the standard HD-016 repair, and what keeps this file to one boundary.
 
-  Frame isolation is unchanged and comes from the same place: the
+  Frame isolation comes from the
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`,
   which writes the React context a boundary reads its frame from."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The
+            ;; The snapshot-egress chokepoint (EP-0005). The
             ;; LIVE machine-snapshots sub reads the RAW runtime-db slot
-            ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 —
+            ;; `[:rf.runtime/machines :snapshots]` (EP-0001 —
             ;; machine snapshots are durable runtime-db state), which is NOT
             ;; egress-projected (it is the live frame-db value, not a trace). To
             ;; keep the panel's `:data` display honest, route each live
@@ -70,17 +65,17 @@
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
-            ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
+            ;; The SHARED EVENT HANDLER machine-cascade
             ;; mini-pipeline lives in the Epoch panel view; the Machine
             ;; tab consumes the SAME renderer + the SAME cascade
             ;; projection (no duplicate) so the two surfaces cannot
-            ;; diverge again.
+            ;; diverge.
             [day8.re-frame2-xray.panels.epoch.view :as epoch-view]
             [day8.re-frame2-xray.panels.epoch.projection :as epoch-proj]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
-            ;; rf2-kq8nac (EP-0005) — the declared-over-inferred static
-            ;; Context-shape projection. The focused-event chart surfaces
+            ;; The declared-over-inferred static
+            ;; Context-shape projection (EP-0005). The focused-event chart surfaces
             ;; the machine's declared `[:schemas :data]` Context shape (keys +
             ;; type captions) authoritatively, falling back to the
             ;; one-sample inference when no schema is declared — the SAME
@@ -90,30 +85,29 @@
             [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
-            ;; rf2-nugvv — the per-machine prev/next nav routes its focus
+            ;; The per-machine prev/next nav routes its focus
             ;; mutation through the spine's `focus-event-bundle-reducer` so the
             ;; jump stamps `:mode :retro` (and resolves the settling
-            ;; dispatch-id) — a bare `[:focus :epoch-id]` write is silently
-            ;; overridden by `compose-focus`'s LIVE+unpaused head-tracking,
-            ;; which is why the buttons were dead on the live panel.
+            ;; dispatch-id) — a bare `[:focus :epoch-id]` write would be
+            ;; silently overridden by `compose-focus`'s LIVE+unpaused
+            ;; head-tracking, leaving the buttons dead on the live panel.
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack spacing]]))
 
-;; ---- section-level layout styles (rf2-alsnz · audit F6) ----------------
+;; ---- section-level layout styles --------------------------------------
 ;;
-;; Hoisted to ns-top defs so the Panel + focused-event-section render
+;; Ns-top defs so the Panel + focused-event-section render
 ;; paths do not mint fresh `:style {...}` maps on every re-render. The
 ;; machine-inspector is event-driven (renders one focused-event-section
 ;; per cascade that transitioned a machine; BLANK otherwise), so the
 ;; allocation count per render is small relative to the per-row panels
-;; (Trace, Event-detail, Cancellation cascade — F1/F2/F4) — but the
+;; (Trace, Cancellation cascade) — but the
 ;; hoist still removes ~10–15 layout/header allocations per Panel
-;; re-render + keeps the file consistent with the rf2-qx414 / rf2-xjgdk
-;; / rf2-gjiog hoist pattern.
+;; re-render and matches the style-hoist pattern the other panels use.
 ;;
 ;; `tokens` values resolve to `var(--rf-xray-*)` CSS strings at ns load,
-;; so the active theme toggle continues to flip palette in lockstep
+;; so the active theme toggle flips palette in lockstep
 ;; without re-evaluation.
 
 (def ^:private panel-root-style
@@ -129,8 +123,7 @@
 (def ^:private panel-header-style
   "Top header strip — carries the prev/next nav on the right (the L4
   tab strip is the panel-name source-of-truth, so there is no large
-  title; rf2-6xezz. The Share affordance that also sat here was removed
-  in rf2-nugvv — Prev/Next is now the only header affordance)."
+  title; Prev/Next is the only header affordance)."
   {:padding         "16px 16px 8px 16px"
    :display         "flex"
    :align-items     "center"
@@ -138,8 +131,7 @@
    :gap             "12px"})
 
 (def ^:private panel-header-toolbar-style
-  "Right-hand affordance cluster inside the panel header (prev/next;
-  the share affordance that also lived here was removed in rf2-nugvv).
+  "Right-hand affordance cluster inside the panel header (prev/next).
   Suppressed when `:no-machines` empty-state is rendering."
   {:display     "flex"
    :align-items "center"
@@ -147,7 +139,7 @@
 
 (def ^:private focused-event-host-style
   "Wrapper around the focused-event view inside the Panel `cond`'s
-  `(seq records)` branch. rf2-zdfbm — flex column so the focused-event
+  `(seq records)` branch. Flex column so the focused-event
   view fills the host and the topology chart grows into the panel
   height."
   {:flex           1
@@ -166,9 +158,8 @@
 
 (def ^:private focused-event-section-style
   "Outer `[:section]` chrome for one per-machine focused-event
-  section. rf2-3d987 issue #1 (gap between sibling sub-panels), #8
-  (16px margin from the panel host edge), + rf2-zdfbm (flex column so
-  the topology chart can grow)."
+  section: a gap between sibling sub-panels, a 16px margin from the
+  panel host edge, and a flex column so the topology chart can grow."
   {:margin         (:gap-4 spacing)
    :border         (str "1px solid " (:border-default tokens))
    :border-radius  "4px"
@@ -180,14 +171,14 @@
    :gap            (:gap-2 spacing)})
 
 
-;; ---- live-snapshot egress redaction (rf2-kq8nac · EP-0005) --------------
+;; ---- live-snapshot egress redaction (EP-0005) ---------------------------
 ;;
 ;; The LIVE machine snapshots read straight off the runtime-db slot
-;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77) have NOT passed through the
+;; `[:rf.runtime/machines :snapshots]` (EP-0001) have NOT passed through the
 ;; snapshot-egress redactor the `re-frame.classification` trace projection (that
 ;; runs at trace-emit, on the trace stream — not on a direct frame-db
 ;; read). A machine declaring a `:sensitive?` / `:large?` slot in its
-;; `[:schemas :data]` schema (EP-0005 / rf2-w46fpt) has those slots redacted in
+;; `[:schemas :data]` schema (EP-0005) has those slots redacted in
 ;; EVERY transition / snapshot trace, but a raw frame-db read would still
 ;; surface them. `redact-live-snapshots` routes each `{:state :data}`
 ;; snapshot through the SAME `project-trace-event` chokepoint as a
@@ -203,8 +194,8 @@
   classified snapshot-path declarations in the per-frame elision registry.
   EP-0025: machine `:data` classification rides the projection-relative
   machine declaration (lowered per actor under `:source :effect`) / the
-  commit-plane classification effects — the frame `:sensitive` / `:large
-  {:app-db …}` annotation is removed. A frame that classifies no matching
+  commit-plane classification effects — there is no frame `:sensitive` /
+  `:large {:app-db …}` annotation. A frame that classifies no matching
   `:data` path leaves the snapshot unchanged. Returns the redacted snapshot
   (or the input verbatim when it is not a map, or when redaction is
   unavailable)."
@@ -233,43 +224,18 @@
                snapshots)))
 
 
-;; ---- snapshot-flat-diff styles (rf2-mndut) ------------------------------
+;; ---- what the Machine tab renders ---------------------------------------
 ;;
-;; The snapshot drill-in's `:diff` body (rf2-yqjrd) renders N rows × 4-5
-;; inline `:style {...}` maps per row inside a render loop. A 20-row diff
-;; minted 80-100 fresh map allocations per render before this hoist;
-;; combined with the per-render `engine/project` call upstream the whole
-;; sub-section thrashed. Hoist to ns-top defs so React's reconciler sees
-;; stable object identities across re-renders, with per-row glyph-colour
-;; variation riding a single `assoc` overlay on a base map (same pattern
-;; as `app-db-diff-state` flat-diff + `diff/hiccup_render`).
-;;
-;; `tokens` values resolve to `var(--rf-xray-*)` CSS strings at ns load
-;; so the light/dark theme toggle continues to flip palette in lockstep
-;; without re-evaluation (spec/007 §UX-IA).
-
-;; rf2-vv3m6 (2026-05-29) — snapshot-flat-diff-* style hoists retired
-;; alongside the snapshot drill-in's `:diff` mode body. FULL+DIFF is
-;; the single rendering; the edn-inspector widget owns its chrome.
-
-;; ---- rf2-g2axio — bespoke forensic lens + snapshot + collapse REMOVED ---
-;;
-;; The Machine tab's bespoke `focused-transition-lens` (Target Machine
-;; Instance / TRANSITION / GUARDS RUN / ACTIONS RUN) + its helpers
-;; (`safe-name`, `fn-source-line`, `dispatch-vectors-from-fx`,
-;; `lens-guard-block`, `lens-action-block`), the snapshot drill-in
-;; (`snapshot-panel-id`, `machine-id-suffix`, `snapshot-block`,
-;; `snapshot-drill-in`), and the chart-collapse chrome
-;; (`chart-collapse-toggle`, `chart-collapsed-summary`) are all GONE.
-;; The Machine tab now renders EXACTLY Prev/Next + the SHARED EVENT
+;; The Machine tab renders EXACTLY Prev/Next + the SHARED EVENT
 ;; HANDLER mini-pipeline (`epoch-view/machine-cascade-mini-pipeline` —
 ;; the SAME richer microstep-cascade renderer the Epoch panel uses, so
-;; the two surfaces cannot diverge again) + the chart (which carries its
-;; own zoom/pan/fit toolbar).
+;; the two surfaces cannot diverge) + the chart (which carries its
+;; own zoom/pan/fit toolbar). There is no bespoke forensic lens, snapshot
+;; drill-in or chart-collapse chrome.
 
 ;; ---- per-machine focused-event section ---------------------------------
 
-;; ---- per-mount inspector identity (rf2-3ymg) -----------------------------
+;; ---- per-mount inspector identity ---------------------------------------
 
 (def ^:private owner-token
   "What this panel calls itself inside the SHARED cascade renderer's id
@@ -284,14 +250,14 @@
   ## IT NEVER ANSWERS NIL, AND THAT IS THE DIFFERENCE FROM EVERY SIBLING
 
   `app-db-diff`, `managed-fx`, `trace` and the Epoch panel all answer nil
-  for an unnamed mount, so their ids stay byte-for-byte what they were.
+  for an unnamed mount, so their ids carry no qualifier.
   Those panels each own the id namespace they compose into. THIS ONE DOES
   NOT: element 2 renders through the Epoch panel's cascade renderer
-  (rf2-g2axio, deliberately — so the two surfaces cannot diverge), and that
-  renderer composes `epoch/machine-cascade-*` ids. An Epoch panel and a
-  Machine Inspector over one cascade therefore collided on the widget's
-  lifecycle key and its width slot with NEITHER caller having done anything
-  unusual, and neither could see it to work around it.
+  (deliberately — so the two surfaces cannot diverge), and that
+  renderer composes `epoch/machine-cascade-*` ids. An unqualified Machine
+  Inspector and an Epoch panel over one cascade would therefore collide on
+  the widget's lifecycle key and its width slot with NEITHER caller having
+  done anything unusual, and neither could see it to work around it.
 
   Which panel is rendering is STATICALLY KNOWN, so it is answered
   statically: unnamed, this is [[owner-token]]; named, the caller's token
@@ -301,14 +267,14 @@
 
   A KEYWORD is accepted alongside a string, and its NAMESPACE is part of
   the name: `:left/machines` tokenises to `left/machines`. `(subs (str id)
-  1)` is what preserves it; `cljs.core/name` would drop it and restore the
-  very collision this removes (rf2-4bsq) — see [[Panel-bridge]], which
+  1)` is what preserves it; `cljs.core/name` would drop it and reintroduce
+  the very collision this prevents — see [[Panel-bridge]], which
   tokenises BEFORE the Reagent crossing for exactly that reason. The fn is
   IDEMPOTENT on its own output, so the boundary's second call after the
   crossing is a no-op.
 
   It is this panel's own normaliser rather than a call into a sibling's:
-  the panels are independent surfaces, they migrate on their own
+  the panels are independent surfaces, they change on their own
   schedules, and the refusal has to name the caller's OWN panel to be
   worth reading."
   [instance-id]
@@ -329,8 +295,8 @@
       :else                            (str owner-token "/" named))))
 
 (defn- focused-event-section
-  "Render the focused machine's section (rf2-g2axio redesign). The
-  Machine tab now shows EXACTLY THREE elements: the Prev/Next nav (in
+  "Render the focused machine's section. The
+  Machine tab shows EXACTLY THREE elements: the Prev/Next nav (in
   the Panel header), the SHARED EVENT HANDLER mini-pipeline, and the
   topology chart. This section renders the latter two:
 
@@ -344,45 +310,41 @@
        KIND+PHASE badges, verb links, source bodies, outcomes /
        data-writes). It is byte-for-byte the same renderer — no second
        bespoke forensic block.
-    2. the chart — `machine-canvas/Chart` with the focused epoch's
+    2. the chart — `machine-canvas/Chart-view` with the focused epoch's
        from/to/current/fired highlights. The chart carries its own
-       zoom/pan/fit toolbar, so the bespoke collapse chrome is gone.
+       zoom/pan/fit toolbar, so there is no bespoke collapse chrome.
 
-  REMOVED (rf2-g2axio): the bespoke focused-transition lens (Target
-  Machine Instance / TRANSITION / GUARDS RUN / ACTIONS RUN), the
-  per-machine header ribbon, the list/canvas view-mode wrapper, the
-  chart-collapse toggle + summary, the snapshot drill-in, and the
-  inline cancellation-cascade block — all subsumed by the shared
-  mini-pipeline above the chart, or relocated to the chart's own
-  toolbar.
+  There is no bespoke focused-transition lens (Target Machine Instance /
+  TRANSITION / GUARDS RUN / ACTIONS RUN), per-machine header ribbon,
+  list/canvas view-mode wrapper, chart-collapse toggle + summary,
+  snapshot drill-in or inline cancellation-cascade block: the shared
+  mini-pipeline above the chart and the chart's own toolbar cover them.
 
-  rf2-k97c.3 — THE ISLAND IS GONE FROM THIS PANEL. ELEMENT 3 used to wrap
-  its chart mount in an `as-child` crossing, because `machine-canvas/Chart`
-  is an `rf/reg-view` and a `reg-view` head grades `:invalid` under
+  THIS PANEL HAS NO ISLAND. `machine-canvas/Chart`
+  is an `rf/reg-view`, and a `reg-view` head grades `:invalid` under
   Fresco's codec down the IDENTICAL arm a plain `defn` does — the codec
   reads one own property, `frescoBoundary`, which only `rf.fresco/defview`
-  sets. `machine-canvas/Chart-view` now ships that boundary beside the
+  sets. `machine-canvas/Chart-view` ships that boundary beside the
   `reg-view`, both one call to the same `machine-canvas/chart-tree`, so
-  this panel heads it directly and the `as-child` parameter is gone from
-  this fn and from the three above it.
+  this panel heads it directly and no fn here takes an `as-child`
+  parameter.
 
-  The `reg-view` survives for the two Static consumers, which reach the
+  The `reg-view` serves the two Static consumers, which reach the
   chart from inside `static/machines/definition_detail.cljs`'s own island
-  and whose only inward door would convert the props map's values. That is
-  their slice's to retire; nothing about it reaches this panel any more.
+  and whose only inward door would convert the props map's values;
+  nothing about it reaches this panel.
 
-  The ISLAND HAS NOT VANISHED, it has MOVED DOWN one level, out of this
-  panel and into `machine-canvas/chart-tree`, which crosses the
-  machines-viz chart itself. Its end condition is machines-viz shipping a
-  substrate-neutral head, which is not this tree's to schedule.
+  The island lives ONE LEVEL DOWN, in `machine-canvas/chart-tree`, which
+  crosses the machines-viz chart itself. Its end condition is
+  machines-viz shipping a substrate-neutral head, which is not this
+  tree's to schedule.
 
   ELEMENT 2 needs no island either — every head reachable through
-  `epoch-view/machine-cascade-mini-pipeline` was repaired in the same
-  commit, so that whole subtree is head-free.
+  `epoch-view/machine-cascade-mini-pipeline` is head-free.
 
-  `fit-signal` ARRIVES AS AN ARGUMENT; it used to be read here with
-  `@(rf/subscribe [:rf.xray/machine-tab-fit-signal])`. [[Panel]] reads it
-  now. HD-016 would have allowed the read to stay and donate upward, but
+  `fit-signal` ARRIVES AS AN ARGUMENT; [[Panel]] reads
+  `:rf.xray/machine-tab-fit-signal`. HD-016 would allow the read to sit
+  here and donate upward, but
   a `rf.fresco/sub` raises outside a collector window, which would make
   this fn callable only inside a real React commit — and its markup is
   ordinary data → data that the node lane drives."
@@ -392,14 +354,13 @@
     :as _record}
    fit-signal
    instance]
-  ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
-  ;; layout dance is GONE; xyflow + elkjs own positioning end-to-end
-  ;; inside `MachineChart`. The panel only computes the from/to node-ids
-  ;; for the data-attr highlight pins the tests read.
-  (let [;; rf2-nesy9 — render-time frame capture for the deferred chart
+  ;; xyflow + elkjs own positioning end-to-end inside `MachineChart`, so
+  ;; there is no host-side ELK layout here. The panel only computes the
+  ;; from/to node-ids for the data-attr highlight pins the tests read.
+  (let [;; Render-time frame capture for the deferred chart
         ;; state-click dispatch.
         frame      (rf/current-frame-id)
-        ;; rf2-skmc7 — a NO-OP suppresses the from→to highlight grammar
+        ;; A NO-OP suppresses the from→to highlight grammar
         ;; (no edge; the machine stayed put). The wrapper's highlight-id
         ;; data-attrs therefore read "" for a no-op, matching the chart
         ;; props below; the current state is surfaced via `:current-state`.
@@ -407,8 +368,8 @@
                      (chart-layout/highlight-id from-state))
         to-id      (when (and to-state (not no-op?))
                      (chart-layout/highlight-id to-state))
-        ;; rf2-6tw7t — fit-on-entry nonce (arrives as an argument since
-        ;; rf2-k97c.3). Bumped by `:rf.xray/select-tab :machines`;
+        ;; Fit-on-entry nonce (arrives as an argument). Bumped by
+        ;; `:rf.xray/select-tab :machines`;
         ;; forwarded to the chart's `:fit-signal` so the topology
         ;; re-frames whenever the operator (re-)enters the Machine tab,
         ;; even when the focused machine (hence the chart's layout-key)
@@ -421,26 +382,24 @@
       :data-machine-id (str machine-id)
       :data-from-state (str from-state)
       :data-to-state (str to-state)
-      ;; rf2-eldze / rf2-skmc7 — BIRTH + NO-OP record markers stay on the
+      ;; BIRTH + NO-OP record markers sit on the
       ;; section so tests + hosts can pin that a `:rf.machine/started` /
       ;; `:rf.machine.event/unhandled-no-op` epoch renders the topology
       ;; (initial / current state highlighted) rather than the empty state.
       :data-start (str (boolean start?))
       :data-no-op (str (boolean no-op?))
-      ;; rf2-zdfbm — the section is a flex column: the SHARED mini-pipeline
+      ;; The section is a flex column: the SHARED mini-pipeline
       ;; sits at the top (its natural height) and the chart grows into the
       ;; remaining height below it.
       :style focused-event-section-style}
      ;; ── ELEMENT 2 — the SHARED EVENT HANDLER mini-pipeline ──────────
-     ;; rf2-g2axio — the SAME renderer the Epoch panel's EVENT HANDLER
-     ;; step uses (`epoch-view/machine-cascade-mini-pipeline-for-events`),
-     ;; projecting the focused epoch's `:trace-events` into the numbered
+     ;; The SAME renderer the Epoch panel's EVENT HANDLER
+     ;; step uses (`epoch-view/machine-cascade-mini-pipeline`),
+     ;; rendering the focused epoch's projected numbered
      ;; machine-cascade (microstep / guard / action rows with KIND+PHASE
      ;; badges, verb links, source bodies, outcomes / data-writes). Single
      ;; source of truth — the Machine tab and the Epoch panel cannot
-     ;; diverge. Replaces the bespoke `focused-transition-lens` forensic
-     ;; block (Target Machine Instance / TRANSITION / GUARDS RUN /
-     ;; ACTIONS RUN) the Machine tab used to render.
+     ;; diverge.
      [:div {:data-testid "rf-xray-machine-event-handler-mini-pipeline"
             :data-machine-id (str machine-id)
             :style {:padding "10px 14px"}}
@@ -451,9 +410,9 @@
       (epoch-view/machine-cascade-mini-pipeline cascade machine-id instance)]
      ;; ── ELEMENT 3 — the topology chart ─────────────────────────────
      ;; The chart carries its OWN toolbar (zoom / pan / fit controls —
-     ;; `machine-canvas/Chart`), so the bespoke list/canvas wrapper +
-     ;; the chart-collapse toggle/summary are gone
-     ;; (rf2-g2axio). Highlights flow as reactive props off THIS focused
+     ;; `machine-canvas/Chart-view`), so there is no bespoke list/canvas
+     ;; wrapper or chart-collapse toggle/summary.
+     ;; Highlights flow as reactive props off THIS focused
      ;; epoch, so Prev/Next repaints the chart together with the
      ;; mini-pipeline above.
      (if (nil? definition)
@@ -468,17 +427,17 @@
               :data-machine-id (str machine-id)
               :data-from-highlight-id (or from-id "")
               :data-to-highlight-id (or to-id "")
-              ;; rf2-qeemm (G3) — the focused epoch's fired edge-ids on
+              ;; The focused epoch's fired edge-ids on
               ;; the canvas wrapper (sorted, space-joined) so the
               ;; JVM/hiccup suite + hosts pin the wiring without reaching
               ;; into the xyflow canvas. "" when none fired.
               :data-fired-edge-ids (str/join " " (sort (set fired-edge-ids)))
-              ;; rf2-fzrzlw — the focused epoch's guard-blocked no-op edge
+              ;; The focused epoch's guard-blocked no-op edge
               ;; ids on the canvas wrapper (sorted, space-joined) so the
               ;; JVM/hiccup suite + hosts pin the wiring without reaching
               ;; into the xyflow canvas. "" when none blocked.
               :data-guard-blocked-edge-ids (str/join " " (sort (set guard-blocked-edge-ids)))
-              ;; rf2-zdfbm — fill the section's remaining height so the
+              ;; Fill the section's remaining height so the
               ;; topology chart expands into the panel. `flex 1` +
               ;; `min-height` floor keeps xyflow's non-zero-parent-height
               ;; requirement satisfied when the panel is short.
@@ -498,13 +457,13 @@
                        ;; position-relative so the after-rings overlay can
                        ;; absolute-position itself over the chart SVG.
                        :position "relative"}}
-         ;; rf2-y3l8z — the chart wraps an interactive viewport adapter
+         ;; The chart wraps an interactive viewport adapter
          ;; (zoom/pan/fit + controls toolbar) and owns the after-rings
          ;; overlay so they stay co-located with the canvas.
          ;;
-         ;; rf2-k97c.3 — `Chart-view` is the FRESCO head of the same
+         ;; `Chart-view` is the FRESCO head of the same
          ;; `machine-canvas/chart-tree` the `reg-view` `Chart` renders, so
-         ;; this mount is an ordinary boundary head and no longer crosses an
+         ;; this mount is an ordinary boundary head and crosses no
          ;; `as-child` island. The props map reaches it BY IDENTITY, which
          ;; is why the two-heads-one-body shape was needed rather than an
          ;; `as-component` bridge: a Reagent parent's `[:>]` converts first
@@ -512,42 +471,42 @@
          [machine-canvas/Chart-view
           {:definition         definition
            :machine-id         machine-id
-           ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
+           ;; Surface the AUTHORITATIVE declared (EP-0005)
            ;; Context shape (keys + type captions) in the focused-event
            ;; chart's root Context band, with the declared-vs-inferred
            ;; indicator. When the machine declares a `[:schemas :data]` schema the
            ;; shape is read off the schema and `:context-band-inferred?`
            ;; is FALSE (the chart drops the `inferred from :data` badge and
-           ;; shows `declared` — consistent with the Static Topology view
-           ;; from rf2-3q4k5b); absent a schema it falls back to the
-           ;; one-sample inference (rf2-5tz9p's badge stays). This is the
+           ;; shows `declared` — consistent with the Static Topology
+           ;; view); absent a schema it falls back to the
+           ;; one-sample inference (the inferred badge shows). This is the
            ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
            ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
            ;; cascade rows above, never raw here.
            :context-band       (topology-view/static-context-shape definition)
            :context-band-inferred? (topology-view/static-context-inferred? definition)
-           ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
+           ;; A NO-OP has no from→to edge; suppress the
            ;; from/to highlight grammar and surface the CURRENT state via
            ;; `:current-state` instead.
            :from-highlight     (when-not no-op? from-state)
            :to-highlight       (when-not no-op? to-state)
-           ;; rf2-eldze / rf2-skmc7 — a BIRTH's initial state and a
+           ;; A BIRTH's initial state and a
            ;; NO-OP's unchanged current state both ride `:current-state`
            ;; so the chart highlights the one resting node.
            :current-state      (cond
                                  start? to-state
                                  no-op? to-state
                                  :else  nil)
-           ;; rf2-qeemm (G3) — the traversed edges paint the FIRED
+           ;; The traversed edges paint the FIRED
            ;; treatment on the live chart.
            :fired-edge-ids     fired-edge-ids
-           ;; rf2-fzrzlw — the attempted-and-rejected edges (guard-blocked
+           ;; The attempted-and-rejected edges (guard-blocked
            ;; no-op, e.g. door :door/close blocked by :may-close?) paint
            ;; the PINK guard-blocked treatment on the live chart so the
            ;; operator sees which edge the event hit + that a guard
            ;; rejected it (no transition fired, so the fired set is empty).
            :guard-blocked-edge-ids guard-blocked-edge-ids
-           ;; rf2-6tw7t — fit-on-entry nonce so re-entering the Machine
+           ;; Fit-on-entry nonce so re-entering the Machine
            ;; tab re-frames the topology.
            :fit-signal         fit-signal
            :on-state-click     (fn [path]
@@ -565,7 +524,7 @@
   the epoch history to the prior / next epoch that ALSO touched the
   focused machine. Disabled when no machine is in scope."
   [machine-id]
-  ;; rf2-nesy9 — render-time frame capture for the deferred nav clicks.
+  ;; Render-time frame capture for the deferred nav clicks.
   (let [frame (rf/current-frame-id)]
    (when machine-id
     [:div {:data-testid "rf-xray-machine-inspector-prev-next-nav"
@@ -608,41 +567,40 @@
 ;; ---- focused-event view + blank state ----------------------------------
 
 (defn- focused-event-view
-  "Top-level focused-event view (rf2-g2axio). Accepts the focused-event
+  "Top-level focused-event view. Accepts the focused-event
   `records` (pre-derefed by `Panel` from
   `:rf.xray/machine-transitions-for-focused-event`) and the focused
   epoch's `cascade` (the projected machine-cascade rows the SHARED
   mini-pipeline renders, off `:rf.xray/machine-focused-epoch-cascade`).
   Binds the panel to **exactly one** machine instance per the
-  Dynamic-mode single-instance rule (rf2-8og3k) — that record drives the
+  Dynamic-mode single-instance rule — that record drives the
   chart highlights, while the cascade rows show the WHOLE focused
   epoch's machine cascade (identical to the Epoch panel's EVENT HANDLER
   step). Returns nil when no machine transitioned in the focused event's
   cascade — the panel renders the empty-state placeholder in that case
   (see `blank-state`).
 
-  rf2-mj4jp — `record` ARRIVES AS AN ARGUMENT rather than being picked
+  `record` ARRIVES AS AN ARGUMENT rather than being picked
   here. [[panel-tree]] resolves it ONCE, through
   `h/pick-focused-transition`, and hands the same value to this view and
   to the Prev/Next nav beside it. That is deliberate and structural: the
   nav's buttons are LABELLED with their machine (\"Previous event
   touching …\"), so a nav scoped by one rule and a chart drawn by
   another would put a machine's name above a different machine's
-  topology — the rf2-y9xmf symptom, reached from a new side. One value,
-  computed once, cannot drift from itself. `records` stays only for the
+  topology. One value,
+  computed once, cannot drift from itself. `records` is here only for the
   cascade transition count the host records.
 
-  rf2-alsnz — `records` flows in as an arg so the panel reads the
-  composite once per render instead of twice.
+  `records` flows in as an arg so the panel reads the
+  composite once per render, not twice.
 
-  rf2-k97c.3 — `fit-signal` is threaded straight through to
+  `fit-signal` is threaded straight through to
   [[focused-event-section]], the only place it is used; see that fn's
-  docstring for why the nonce is an argument now. `target-frame` likewise
+  docstring for why the nonce is an argument. `target-frame` likewise
   ARRIVES AS AN ARGUMENT rather than being read here, for the same reason:
   a `rf.fresco/sub` raises outside a collector window, and this fn is
-  node-lane-driven. The `as-child` argument that sat between them is gone
-  with the island it spelled."
-  ;; rf2-un3gfo — `target-frame` (an argument since rf2-k97c.3) is the
+  node-lane-driven."
+  ;; `target-frame` is the
   ;; inspected frame id. Part of the STRUCTURAL section key below so the
   ;; L1 frame picker (which re-seeds the panel against a different
   ;; runtime) gets a clean section instance, while ordinary Prev/Next
@@ -658,24 +616,24 @@
              :data-section-count "1"
              :data-cascade-transition-count (str cascade-transition-count)
              :style focused-event-view-host-style}
-       ;; rf2-un3gfo — STRUCTURAL key (target-frame + machine-id), NOT
-       ;; per-epoch. The old key embedded `(:id)` / `(:from-state)` /
-       ;; `(:to-state)`, all of which change on every Prev/Next, so React
-       ;; remounted the whole section + the nested MachineChart on each
+       ;; STRUCTURAL key (target-frame + machine-id), NOT
+       ;; per-epoch. A key embedding `(:id)` / `(:from-state)` /
+       ;; `(:to-state)`, all of which change on every Prev/Next, would make
+       ;; React remount the whole section + the nested MachineChart on each
        ;; navigation — discarding the chart's per-instance parse/layout
-       ;; caches and re-running ELK every time (the topology flicker).
+       ;; caches and re-running ELK every time (a topology flicker).
        ;; Highlights flow as reactive props (`:from-highlight` /
        ;; `:to-highlight` / `:current-state` / `:fired-edge-ids`) and the
        ;; section's `:data-*` attrs recompute from `record` on each
        ;; ordinary re-render, so the per-epoch repaint needs no remount.
        ;; Re-fitting on navigation rides the orthogonal `:fit-signal`
-       ;; nonce (rf2-6tw7t). See `h/focused-event-section-key`.
-       ;; rf2-a38l — KEYED FRAGMENT rather than `with-meta` on the vector
+       ;; nonce. See `h/focused-event-section-key`.
+       ;; KEYED FRAGMENT rather than `with-meta` on the vector
        ;; the call returns. Reagent's `get-react-key` reads that metadata,
        ;; but Fresco's codec takes a literal `:key` from an ATTRIBUTE MAP
        ;; and reads Clojure metadata nowhere — so under a boundary this
        ;; section would keep one identity across epochs and the remount
-       ;; this key exists to force would silently stop happening.
+       ;; this key exists to force would silently never happen.
        ;; `focused-event-section` answers hiccup whose own attribute map
        ;; is not ours to write into, so the key rides the fragment.
        [:<> {:key (h/focused-event-section-key target-frame record)}
@@ -684,7 +642,7 @@
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
   cascade. Per spec/003 §Empty state — focused event does not target a
-  state machine (rf2-8og3k) the panel renders ONLY the verbatim
+  state machine the panel renders ONLY the verbatim
   placeholder text — no chart, no lens, no history ribbon, no machine
   name, no instance picker, no hint. Just the single line:
 
