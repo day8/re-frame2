@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 'use strict';
-// SELF-TEST FOR THE FRESCO LANE'S BUILD DOOR — rf2-2rtt6.73.
+// SELF-TEST FOR THE FRESCO LANE'S BUILD DOOR.
 //
-//     node fresco/test/re_frame/bench/fresco/lane_build.test.cjs
+//     node src/re_frame/bench/fresco/lane_build.test.cjs     (from bench/fresco/)
 //
 // `lane_build.cjs`'s teeth ARE its parser: the whole gate is "read shadow's
 // output and decide". A parser that quietly stops matching turns every driver
-// in the lane green again, and the failure is invisible — which is the exact
-// shape of the defect being repaired, one level up. So each refusal is pinned
+// in the lane green, and the failure is invisible — the same fail-open shape
+// the gate exists to refuse, one level up. So each refusal is pinned
 // here against REAL shadow-cljs output, ANSI codes and all.
 //
-// This is not hypothetical. The first cut of `WARNING_HEADLINE_RE` stopped at
-// the first `-` and therefore captured NOTHING from
-// `------ WARNING #1 - :undeclared-var ------`; the refusal still fired (the
-// count comes from the summary line) but it could not name the class. An empty
-// headline list is indistinguishable from a clean build to the naked eye.
+// A `WARNING_HEADLINE_RE` that stopped at the first `-` would capture NOTHING
+// from `------ WARNING #1 - :undeclared-var ------`; the refusal would still
+// fire (the count comes from the summary line) but could not name the class,
+// and an empty headline list is indistinguishable from a clean build to the
+// naked eye.
 
 const assert = require('node:assert');
 
@@ -65,7 +65,7 @@ test('a singular "1 warning" is still parsed', () => {
   assert.deepStrictEqual(completed, [{ build: ':fresco-bench', warnings: 1 }]);
 });
 
-// --- the headline extractor (the one that was silently empty) ---------------
+// --- the headline extractor (the one that can go silently empty) ------------
 
 test('names the warning CLASS, not just the count', () => {
   assert.deepStrictEqual(warningHeadlines(WARNED_OUTPUT), [
