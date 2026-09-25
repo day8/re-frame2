@@ -39,7 +39,7 @@
   (:require [day8.re-frame2-xray.filters.typed-predicates :as typed]))
 
 (defn hidden-count
-  "How many visible event-bundles the active filters / frame-pin / mutes are
+  "How many visible event-bundles the active filters / mutes are
   suppressing: `(max 0 (- raw-visible-count filtered-visible-count))`.
 
   Both counts MUST be taken over the list's visible-row set (post
@@ -69,9 +69,9 @@
 
   The frame is a view SCOPE, not a filter — it is NOT part of this
   predicate, so a frame selection alone never reads as an active
-  filter. (The `Clear Filters` button this predicate once gated was
-  retired per rf2-pjjwh; recovery is per surface — each pill's `✕`,
-  and the mute chip/manager for muted event-ids.)"
+  filter. (There is no `Clear Filters` button; recovery is per
+  surface — each pill's `✕`, and the mute chip/manager for muted
+  event-ids.)"
   [{:keys [filters muted]}]
   (boolean
     (or (pills-present? filters)
