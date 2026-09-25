@@ -1,36 +1,34 @@
 (ns day8.re-frame2-xray.panels.derivation-graph-redaction-cljs-test
   "The POSITIVE off-box egress redaction test for the Derivation-Graph panel
-  (rf2-yjarv6 — the EP-0014 testing-coverage gap the audit rf2-4j6w6v flagged
-  as the missing arm).
+  (EP-0014).
 
-  ## The gap this closes
+  ## What this pins
 
   spec/Derivations.md §Conformance 'Tool redaction' + §Redaction metadata
   require: graph inspection can summarize or redact sensitive params,
   scopes, and values WITHOUT losing graph STRUCTURE — a redacted param is
   still an edge — composing through the single shared `rf/elide-wire-value`
-  walker. Before this test the only related assertion was a weak NEGATIVE
-  ('the snapshot :value is NOT inlined'). There was NO positive test that
-  (a) a sensitive value is run through `rf/elide-wire-value` AND (b) the
-  corresponding edge / node STRUCTURE survives.
+  walker. This file is the POSITIVE test that (a) a sensitive value is run
+  through `rf/elide-wire-value` AND (b) the corresponding edge / node
+  STRUCTURE survives — a NEGATIVE ('the snapshot :value is NOT inlined')
+  alone shows neither.
 
-  ## Where the redaction lives (the tail-2 ruling)
+  ## Where the redaction lives
 
-  Per the EP-0014 tail-2 correctness ruling (rf2-6y7wnb): raw params/values
-  on the live algebra views are NOT a defect — they are correct-as-designed
-  raw-on-box projections. Redaction is an EGRESS concern owned by the FRAME
+  Under EP-0014, raw params/values on the live algebra views are
+  correct-as-designed raw-on-box projections. Redaction is an EGRESS concern owned by the FRAME
   elision policy via the shared `elide-wire-value` walker (per-frame,
   fail-closed), applied at the wire boundary where a consuming tool ships
-  the graph OFF-BOX — NOT at the registrar-derived composer. The named first
-  consumer Xray is where that egress call site is BORN
+  the graph OFF-BOX — NOT at the registrar-derived composer. The first
+  consumer, Xray, is where that egress call site lives
   (`derivation-graph-helpers/redact-graph-for-egress`), so the
   redact-without-losing-structure wiring test belongs HERE alongside the
-  consumer wiring (rf2-9ett2d).
+  consumer wiring.
 
   ## The algorithm is core-owned; this suite is the CONSUMER/WIRING pin
 
   The redaction ALGORITHM is owned by the bundle-isolated core tooling ns
-  `re-frame.derivation.egress/project-graph` (rf2-mm3y49);
+  `re-frame.derivation.egress/project-graph`;
   `derivation-graph-helpers/redact-graph-for-egress` is a thin DELEGATE to it,
   and the derivation-conformance egress arms (`g-*`) carry the COMPREHENSIVE
   algorithm coverage (no-secret-in-any-position, stable opaque identity,
@@ -52,7 +50,7 @@
        not an ambient or borrowed one; a non-sensitive value rides through.
     3. **fail-closed** — egress for an unknown / nil / frameless target
        redacts the whole value rather than ship it raw under no policy — and
-       must NOT borrow an AMBIENT dynamically-bound frame (rf2-udkj69): a nil
+       must NOT borrow an AMBIENT dynamically-bound frame: a nil
        frame-id under an ambient binding still redacts, never ships raw.
     4. **large elision** — a frame-declared `:large` value is replaced by
        the `:rf.size/large-elided` marker, again keeping structure.
@@ -156,7 +154,7 @@
            {:from [:sub [:cart/raw]] :to [:sub [:cart/items]] :role :input}]})
 
 ;; ---------------------------------------------------------------------------
-;; 1. THE POSITIVE TEST — redact value, keep edge (the missing arm).
+;; 1. THE POSITIVE TEST — redact value, keep edge.
 ;; ---------------------------------------------------------------------------
 
 (deftest redact-sensitive-value-keeps-edge-and-node-structure
@@ -250,8 +248,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 4. fail-closed — an unknown/frameless target redacts the WHOLE value
-;;    rather than ship it under no policy (the silent-leak this contract
-;;    abolishes).
+;;    rather than ship it under no policy (which would be a silent leak).
 ;; ---------------------------------------------------------------------------
 
 (deftest frameless-egress-fails-closed
@@ -271,7 +268,7 @@
 
   (testing "egress against a NIL frame fails closed EVEN WHEN an AMBIENT frame
             is bound — it must NOT borrow that ambient frame's policy and ship
-            the value raw (rf2-udkj69). We bind ambient :app/plain (no sensitive
+            the value raw. We bind ambient :app/plain (no sensitive
             decl, so a borrow WOULD ship the token raw); a nil frame-id MUST
             redact the whole value-bearing field, not resolve :app/plain."
     (rf/with-frame plain-frame
@@ -294,7 +291,7 @@
           (is (= (set (keys (:nodes live-graph))) (set (keys (:nodes r))))))))))
 
 ;; ===========================================================================
-;; 5. FOCUSED IDENTITY-PROJECTION WIRING SMOKE (rf2-mm3y49).
+;; 5. FOCUSED IDENTITY-PROJECTION WIRING SMOKE.
 ;;
 ;; Tests 1-4 are the consumer/wiring pins over the frame-policy VALUE walk (a
 ;; sensitive `:value` / `:params` field redacted under the observed frame's
@@ -307,7 +304,7 @@
 ;; core-owned identity projection through; the COMPREHENSIVE per-position +
 ;; idempotence + work-id/host-transient coverage lives in the
 ;; derivation-conformance egress arms (`g-*`), which test the same owner
-;; `re-frame.derivation.egress/project-graph` directly (rf2-mm3y49). Xray does
+;; `re-frame.derivation.egress/project-graph` directly. Xray does
 ;; not re-prove the algorithm — it proves the wiring.
 ;; ===========================================================================
 
@@ -358,8 +355,8 @@
   included: as a whole string leaf, EMBEDDED in a larger string (a CEDN-1
   token such as `v[k::rf.scope/tenant s:\"<secret>\"]` carries the raw
   value inside it), or inside the printed form of any other leaf, such as
-  a keyword or symbol built from it. The derivation-conformance
-  predicate, ported (rf2-3x7nj.20.1, rf2-413u0)."
+  a keyword or symbol built from it. It mirrors the
+  derivation-conformance predicate."
   [v]
   (boolean
     (cond
@@ -372,8 +369,7 @@
   ;; Every "no raw secret survives" assertion below is only as strong as
   ;; `contains-secret?`. A handle minted from the CEDN-1 token instead of
   ;; its digest carries the secret INSIDE a larger string, and a predicate
-  ;; matching only a leaf EQUAL to the secret let it pass — the defect
-  ;; rf2-3x7nj.20.1 fixed in derivation-conformance, ported here.
+  ;; matching only a leaf EQUAL to the secret would let it pass.
   (let [leaking [:rf.resource/opaque (rf.identity/canonical-bytes secret-scope)]]
     (is (not-any? #(= secret-token %) leaking)
         "sanity: no leaf of the leaking handle EQUALS the secret")
