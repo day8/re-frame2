@@ -16,11 +16,9 @@
 
   ## State source
 
-  The recorder UI reads `re-frame.story.recorder/state` directly — it's
-  a `clojure.core/atom` (NOT a `r/atom`), so component re-renders are
-  driven via `r/track!`-style polling against the recorder state
-  combined with the shell's existing `:hot-reload-tick` poll. v1 keeps
-  it simple: the toolbar's REC chip and the recording overlay both
+  The recorder state `re-frame.story.recorder/state` is a
+  `clojure.core/atom` (NOT a `r/atom`), which Reagent does not track.
+  So the toolbar's REC chip and the recording overlay both
   consume the recorder state through Reagent's auto-tracking by
   reading the recorder's CLJS-side mirror ratom (`ui-state`) — a thin
   `r/atom` we keep in sync with the pure atom via `add-watch`. Tests
@@ -191,7 +189,7 @@
                  :gap          "8px"}
    ;; Modal styling for the save-as-variant dialog lives in
    ;; `re-frame.story.review-dialog`; only the chip /
-   ;; overlay / picker styles remain here.
+   ;; overlay / picker styles live here.
    :btn-row     {:display "flex"
                  :gap "8px"
                  :justify-content "flex-end"}
@@ -311,9 +309,7 @@
 ;; user's 10-event capture stays intact until they close / discard.
 ;;
 ;; The dialog opens automatically when the user STOPS recording and
-;; there are captured events; it can also be reopened from the toolbar
-;; chip's secondary "snippet" affordance (v1 ships the auto-open path
-;; only — re-open is a v1.1 polish).
+;; there are captured events; there is no re-open affordance.
 ;; ---------------------------------------------------------------------------
 
 (defonce ui-dialog
@@ -773,7 +769,7 @@
   reflects the full rich recording.
 
   The snippet comes from `play-export/save-dialog-output`, whose script
-  auto-runs, so the pasted variant runs as-is (rf2-0ae7o.11); the
+  auto-runs, so the pasted variant runs as-is; the
   secondary Export dialog keeps the auto-run and auto-assert options.
 
   Reads `:entries` + `:source-id` from the dialog state itself — the
@@ -787,7 +783,7 @@
             ;; Single source of truth: the rich :entries stream (the
             ;; only one carrying DOM interactions). Fall back to the
             ;; bare :events vector only when no rich entries were
-            ;; snapshotted (legacy callers / dispatch-only recordings).
+            ;; snapshotted.
             src        (if (seq entries) entries events)
             {:keys [spec snippet]}
             (rf.story.recorder.play-export/save-dialog-output
@@ -818,8 +814,8 @@
                                     {:events    events
                                      :entries   entries
                                      :source-id source-id
-                                     ;; rf2-3x7nj.29.2 — the app-db THIS recording
-                                     ;; started from, never a later recording's.
+                                     ;; The app-db THIS recording started
+                                     ;; from, never a later recording's.
                                      :seed-db   (when (and (not (:recording? rec))
                                                            (= source-id (:variant-id rec)))
                                                   (:seed-db rec))})))
