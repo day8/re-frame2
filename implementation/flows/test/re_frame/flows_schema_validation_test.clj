@@ -5,9 +5,7 @@
   `:derive` value is validated against its optional `:schema` on every
   recompute, dev-only, via the pluggable validator seam the rest of
   Spec 010 uses (`:schemas/validate-with-registered-fn` /
-  `:schemas/explain-with-registered-fn`). Before this slice the key was
-  stored in the registrar and runtime registry but never read by any
-  code path.
+  `:schemas/explain-with-registered-fn`).
 
   The tests register a predicate-based validator via
   `set-schema-fns!` rather than depending on Malli being on the
@@ -23,10 +21,10 @@
       STILL written (observational, not a rollback).
     - an output the frame's elision registry classifies sensitive:
       `:explain` redacted whole and `:sensitive? true` stamped, while
-      `:value` stays path-precise (rf2-3x7nj.18.1).
+      `:value` stays path-precise.
     - an output the registry classifies large (and nothing sensitive):
       `:explain` replaced whole by a `:rf.size/large-elided` marker for the
-      output at its `:output-path`, and `:large? true` stamped (rf2-srvio).
+      output at its `:output-path`, and `:large? true` stamped.
     - no `:schema`: validator never consulted.
     - no validator registered: soft-pass (no error trace).
     - production gate: with `debug-enabled?` false the validation is
@@ -238,7 +236,7 @@
           "both flows' bad outputs surface, each attributed to its own id"))))
 
 ;; ---------------------------------------------------------------------------
-;; 7. rf2-6eh5h — declaration presence is KEY-presence, not value truthiness.
+;; 7. Declaration presence is KEY-presence, not value truthiness.
 ;;    A flow registered with an explicit {:schema nil} DELEGATES the exact
 ;;    nil token to the registered validator (the value is opaque per Spec
 ;;    010); only an ABSENT key skips validation (case 3 above is the
@@ -266,15 +264,15 @@
           "the value is still written — flow validation stays observational"))))
 
 ;; ---------------------------------------------------------------------------
-;; 8. rf2-3x7nj.18.1 — the frame's elision registry reaches `:explain`.
+;; 8. The frame's elision registry reaches `:explain`.
 ;;    A Malli explanation re-ships the checked value whole (`:value`, and
 ;;    every `:errors[*].:value`), and it is not path-anchored, so it cannot
-;;    be walked against `:output-path` the way `:value` is. Before this fix
-;;    only the schema-aware seam could redact it, and that seam reads
-;;    `:sensitive?` props in the SCHEMA — never the registry. So an output
-;;    the flow itself classified `:sensitive [[]]` shipped `:value
-;;    :rf/redacted` beside an `:explain` carrying the same secret raw, with
-;;    no top-level `:sensitive?` for the egress gate to drop it on.
+;;    be walked against `:output-path` the way `:value` is. The schema-aware
+;;    seam reads `:sensitive?` props in the SCHEMA — never the registry — so
+;;    were it the only redactor, an output the flow itself classified
+;;    `:sensitive [[]]` would ship `:value :rf/redacted` beside an `:explain`
+;;    carrying the same secret raw, with no top-level `:sensitive?` for the
+;;    egress gate to drop it on.
 ;;    The schemas are VECTOR Malli forms (walkable, with no `:sensitive?`
 ;;    prop), so the seam's opaque-schema fail-closed arm — which case 2
 ;;    above rides — cannot be what redacts them.
@@ -342,7 +340,7 @@
 
 (deftest schema-sensitive-slot-still-redacts-everything
   (testing "CONTROL: the schema-side :sensitive? prop redacts every
-            value-bearing slot through the schemas seam, as before"
+            value-bearing slot through the schemas seam"
     (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
     (rf/reg-flow :p2/token
                  {:inputs [[:secret]] :output-path [:auth :token]
@@ -375,12 +373,12 @@
           ":explain is the registered explainer's output, unredacted"))))
 
 ;; ---------------------------------------------------------------------------
-;; 9. rf2-srvio — the frame's elision registry reaches `:explain` on the SIZE
+;; 9. The frame's elision registry reaches `:explain` on the SIZE
 ;;    axis too. The `:value` slot rides the wire walker, so an output the
 ;;    registry classifies `:large` ships a `:rf.size/large-elided` marker
-;;    there. Before this fix `:explain` still re-shipped the whole value
+;;    there. Left alone, `:explain` would re-ship the whole value
 ;;    (Malli's `:value` and every `:errors[*].:value`), so the declared-large
-;;    blob went out anyway. `:explain` is not path-anchored, so it is replaced
+;;    blob would go out anyway. `:explain` is not path-anchored, so it is replaced
 ;;    WHOLE by a marker for the output at its `:output-path` and the trace is
 ;;    stamped `:large? true` — Spec 010's validation size-safety arm, with the
 ;;    registry rather than the schema as the classifier.
