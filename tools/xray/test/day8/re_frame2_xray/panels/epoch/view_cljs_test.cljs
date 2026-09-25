@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.panels.epoch.view-cljs-test
-  "View-layer tests for the Epoch panel cascade (rf2-sc3r1 follow-ons).
+  "View-layer tests for the Epoch panel cascade.
 
   Pure hiccup tests — each render-fn is exercised against a synthesised
   step row and walked via the framework's hiccup walker. No DOM mount;
@@ -9,7 +9,7 @@
             [clojure.string :as string]
             [reagent.core :as r]
             [re-frame.core :as rf]
-            ;; rf2-1t8fn — the producer-driven schema-violation rows below
+            ;; The producer-driven schema-violation rows below
             ;; drive a real flow, a real machine and the `:sub-overrides`
             ;; seam, and read each registration back through its own door.
             [re-frame.flows :as rf.flows]
@@ -24,15 +24,15 @@
             [day8.re-frame2-xray.theme.tokens :as tokens]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
-            ;; rf2-k97c.3 — the EDN widget's FRESCO head, identity-compared
-            ;; by `inspector-view-forms` below so the rows that used to
-            ;; assert on the widget's EXPANDED markup can assert on the
-            ;; boundary the panel emits instead.
+            ;; The EDN widget's FRESCO head, identity-compared by
+            ;; `inspector-view-forms` below so rows can assert on the
+            ;; boundary the panel emits rather than on the widget's
+            ;; EXPANDED markup.
             [day8.re-frame2-xray.views.edn-inspector :as ei]
-            ;; rf2-k97c.3 — both heads of the resizable-table widget:
-            ;; `expand-widgets` swaps the Fresco one the panel now emits for
+            ;; Both heads of the resizable-table widget:
+            ;; `expand-widgets` swaps the Fresco one the panel emits for
             ;; the Reagent one, which shares its renderer, so the cell rows
-            ;; below keep working outside a React render window.
+            ;; below work outside a React render window.
             [day8.re-frame2-xray.views.resizable-table :as rt]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.resources-helpers :as rh]
@@ -42,29 +42,28 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
-  ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
+  ;; `make-xray-runtime-fixture`:
   ;; plain-atom adapter + the default `:all` reset tier.
   (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers ------------------------------------------------------
 ;;
-;; PLAIN DESCENT — nothing is CALLED. These rows used
-;; `find-by-testid` and friends, which EXPAND function
+;; PLAIN DESCENT — nothing is CALLED. The shared
+;; `find-by-testid` and friends EXPAND function
 ;; components as they walk.
 ;;
-;; rf2-k97c.3 made that expansion UNSAFE. `ei/mini`'s 21 head uses are now
+;; That expansion is UNSAFE here. `ei/mini`'s 21 head uses are
 ;; CALLS, so that markup is already realized in the tree and a shallow walk
-;; reaches it exactly as the expanding walk did — but the fn-headed vectors
+;; reaches it exactly as an expanding walk would — but the fn-headed vectors
 ;; that REMAIN are `[ei/edn-inspector-view …]` and
 ;; `[rt/resizable-table-view …]`, both FRESCO BOUNDARIES: React function
 ;; components whose bodies may only run inside a React render window.
 ;; Applying one here runs `rf.fresco/sub` outside the collector, which
 ;; raises `:rf.error/fresco-sub-outside-render` — and because the expanding
-;; walker applies every fn head it meets, that raise took out rows asserting
-;; on nodes nowhere near the widget. So the widgets stay LEAVES, exactly as
-;; `panels/app_db_diff_cljs_test` and `static/flows/panel_cljs_test` already
-;; settled for the same reason.
+;; walker applies every fn head it meets, that raise would take out rows
+;; asserting on nodes nowhere near the widget. So the widgets stay LEAVES,
+;; exactly as in `panels/app_db_diff_cljs_test` and
+;; `static/flows/panel_cljs_test`, for the same reason.
 ;;
 ;; THE TWO WIDGET BOUNDARIES ARE EXPANDED THROUGH THEIR REAGENT SIBLINGS
 ;; instead, by `expand-widgets` below, and that is a considered choice rather
@@ -76,8 +75,7 @@
 ;;
 ;; The cost is that the expanded tree cannot say WHICH head the panel emits,
 ;; so `panel-emits-the-fresco-widget-heads-test` pins that separately, off the
-;; unexpanded tree. That claim is the HD-016 repair itself and is the one
-;; thing the old spelling could not state.
+;; unexpanded tree.
 
 (defn- expand-widgets
   "Expand `[rt/resizable-table-view props]` into the grid the widget renders,
@@ -88,8 +86,8 @@
   docstrings state that both heads hand the SAME props map to one private
   `render-table`, and differ only in how each resolves the column-width
   overrides and the dispatcher — neither of which any row here asserts on.
-  The Reagent head resolves them the way this suite always drove it, with a
-  documented nil-safe path for a test that registered no handlers.
+  The Reagent head resolves them with a documented nil-safe path for a test
+  that registered no handlers.
 
   `[ei/edn-inspector-view {:mount-id … :value v :opts o}]` is expanded the
   same way and for the same reason, through `[ei/edn-inspector v o]`. Its two
@@ -184,15 +182,14 @@
   [tree testid]
   (some-> tree (find-by-testid testid) rf.test-helpers/attrs :style))
 
-;; ---- rf2-k97c.3 — the panel emits the FRESCO widget heads ---------------
+;; ---- the panel emits the FRESCO widget heads ---------------------------
 
 (deftest panel-emits-the-fresco-widget-heads-test
-  (testing "rf2-k97c.3 — every widget this panel heads with is a FRESCO
+  (testing "every widget this panel heads with is a FRESCO
             BOUNDARY, never the widget's Reagent head.
 
-            This is the HD-016 repair itself, and it is the one claim the
-            pre-migration spelling could not make. `Panel` is an
-            `rf.fresco/defview` now, and Fresco's codec grades a head by
+            `Panel` is an `rf.fresco/defview`, and Fresco's codec grades a
+            head by
             ONE own property, `frescoBoundary`, which only
             `rf.fresco/defview` sets — so an `rf/reg-view` head grades
             `:invalid` down the IDENTICAL arm a plain `defn` does. Leaving
@@ -217,19 +214,19 @@
         (is (pos? (:inspector-fresco counts))
             "the DISPATCH step heads the EDN widget's Fresco boundary
              (control: a zero here would mean the probe found no widget
-             at all, not that the migration held)")
+             at all, not that the heads are Fresco)")
         (is (pos? (:table-fresco counts))
             "the SUBSCRIPTIONS step heads the table widget's Fresco
              boundary (control, as above)")
         (is (zero? (:inspector-reagent counts))
-            "no `ei/edn-inspector` Reagent head survives")
+            "no `ei/edn-inspector` Reagent head appears")
         (is (zero? (:table-reagent counts))
-            "no `rt/resizable-table` Reagent head survives")))))
+            "no `rt/resizable-table` Reagent head appears")))))
 
-;; ---- rf2-9jvx1 — text-duplication audit --------------------------------
+;; ---- text duplication --------------------------------------------------
 
 (deftest dispatch-source-renders-once-test
-  (testing "rf2-9jvx1 — DISPATCH header carries `from <source>` once;
+  (testing "DISPATCH header carries `from <source>` once;
             the body does NOT also render a `from` line"
     (let [tree (view/render-dispatch-step
                  {:step :dispatch :badge :DISPATCH :step-number 1
@@ -243,30 +240,28 @@
         (is (string/includes? header-text "ui"))))))
 
 (deftest handler-flavour-renders-once-test
-  (testing "rf2-9jvx1 — HANDLER header carries the flavour-verb; the
-            body's pre-rf2-9jvx1 stand-alone flavour row is removed.
-            Body's first slot is the source block (rf2-66wis), not a
-            flavour pill.
+  (testing "HANDLER header carries the flavour-verb; the body
+            carries no stand-alone flavour row. Body's first slot is the
+            source block, not a flavour pill.
 
-            Post pair-debug 2026-05-26 (commit ee9def224): the verb
-            is now the click-to-source hyperlink. The event-id is no
-            longer repeated in the HANDLER header (the DISPATCH step's
-            header already names it) — that assertion is retired."
+            The verb is the click-to-source hyperlink. The event-id is not
+            repeated in the HANDLER header (the DISPATCH step's header
+            already names it)."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :db-only :event-id :no-such/handler
                 :fx [] :machine nil}
           tree (view/render-handler-step step)
           header-text (text-of tree "rf-xray-epoch-handler-header")]
-      ;; EP-0018 — the HANDLER verb is now `reg-event` for both the db-only
+      ;; EP-0018 — the HANDLER verb is `reg-event` for both the db-only
       ;; and fx-bearing event flavours (the panel never names a retired
       ;; registrar spelling). The internal `:flavour` discriminator keyword
       ;; is behavior-based (`:db-only`, fed above) — observed effect shape,
       ;; not a registrar name.
       (is (string/includes? header-text "reg-event"))
-      ;; The body's first slot is now the source block — never a
+      ;; The body's first slot is the source block — never a
       ;; duplicate flavour pill.
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-source"))
-          "the body leads with the source block (rf2-66wis)")
+          "the body leads with the source block")
       ;; Confirm the body never carries a redundant flavour-only span.
       ;; The body text for an unknown handler resolves to the
       ;; placeholder; it MUST NOT contain the bare flavour keyword.
@@ -276,10 +271,10 @@
                  "reg-event"))
           "the source-placeholder slot MUST NOT echo the flavour pill"))))
 
-;; ---- rf2-93a7s — DISPATCH body shows the event vector ----------------
+;; ---- DISPATCH body shows the event vector ----------------------------
 
 (deftest dispatch-body-shows-event-vector-test
-  (testing "rf2-93a7s — DISPATCH body renders the dispatched event vector"
+  (testing "DISPATCH body renders the dispatched event vector"
     (let [tree (view/render-dispatch-step
                  {:step :dispatch :badge :DISPATCH :step-number 1
                   :event [:counter/inc 7] :source :ui :coord nil})
@@ -291,7 +286,7 @@
           "the event args are visible too"))))
 
 (deftest dispatch-body-omits-event-when-absent-test
-  (testing "rf2-93a7s — empty event yields no event-vector slot
+  (testing "empty event yields no event-vector slot
             (graceful-degrade rather than rendering `[]` noise)"
     (let [tree (view/render-dispatch-step
                  {:step :dispatch :badge :DISPATCH :step-number 1
@@ -300,7 +295,7 @@
           "no body row when no event vector was captured"))))
 
 (deftest dispatch-source-label-is-clickable-button-when-coord-present-test
-  (testing "rf2-80u5a — when the dispatch envelope carried a
+  (testing "when the dispatch envelope carried a
             :rf.trace/call-site coord, the `<source>` label in the
             DISPATCH header renders as a clickable button that opens
             the editor at the dispatch call-site. The button carries
@@ -320,7 +315,7 @@
             "title hints which file will open")))))
 
 (deftest dispatch-source-label-degrades-to-plain-span-when-coord-absent-test
-  (testing "rf2-80u5a — when no call-site coord is available
+  (testing "when no call-site coord is available
             (fn-form dispatch, production builds), the label
             renders as a plain `<span>` with no fake / dead
             click affordance."
@@ -334,15 +329,15 @@
       (is (nil? (:on-click (second label)))
           "no click handler on the degraded label"))))
 
-;; ---- rf2-5qp4g — DISPATCH per-source-kind enrichment ------------------
+;; ---- DISPATCH per-source-kind enrichment ------------------------------
 ;;
-;; Each closed-set substrate-internal `:source` value (rf2-ejtpd:
+;; Each closed-set substrate-internal `:source` value (
 ;; `:after-timer`, `:machine-spawn`, `:fx-dispatch`,
 ;; `:fx-dispatch-later`) renders rich chrome — delay-ms, state-path
 ;; click-to-source, spawned-actor-id, parent-epoch navigation.
 
 (deftest dispatch-source-after-timer-renders-rich-label-test
-  (testing "rf2-5qp4g — `:source :after-timer` renders the kind label,
+  (testing "`:source :after-timer` renders the kind label,
             the delay-ms chip, and the source-state-path with
             click-to-source affordance"
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
@@ -373,24 +368,22 @@
           "the state-path chip shows the path the timer fired from"))))
 
 (deftest dispatch-source-after-timer-state-path-resolves-coord-test
-  (testing "rf2-dcsw1 (iwy0c-followup) — when the `:after-timer` source
+  (testing "when the `:after-timer` source
             machine's state-node carries a co-located `:source-coords`
-            (rf2-vqja2) for the state-path, the state-path chip resolves
+            for the state-path, the state-path chip resolves
             the coord and renders as a CLICKABLE button (open-in-editor
             link), NOT the dead plain-span placeholder.
 
-            `machine-state-path-coord` previously read the NON-EXISTENT
-            `:machine` registrar kind → resolved nil → every machine
-            state-path link was dead (same latent-nil class rf2-iwy0c
-            part C fixed in `handler-source-block` / `machine-block`,
-            which read `:event` + the `:rf/machine` spec). This pins the
-            fixed path: read `:event` + the state-node's co-located
-            `:source-coords` (rf2-vqja2, supersedes the flat
-            `:rf.machine/state-coords` index of rf2-npvsx)."
+            `machine-state-path-coord` reads `:event` + the state-node's
+            co-located `:source-coords`, as `handler-source-block` /
+            `machine-block` read `:event` + the `:rf/machine` spec.
+            Reading a `:machine` registrar kind, which does not exist,
+            would resolve nil and leave every machine state-path link
+            dead."
     (rf/with-frame :rf/default
       ;; A machine is registered as a `reg-event` handler carrying
       ;; `:rf/machine? true` + the stamped spec (with co-located state-node
-      ;; `:source-coords`, rf2-vqja2) under `:rf/machine`. The view
+      ;; `:source-coords`) under `:rf/machine`. The view
       ;; navigates from the state-path to the state-node via the spec-path
       ;; shape `projection/state-spec-path-prefix` produces:
       ;; `[:active :authenticating]` → `[:states :active :states
@@ -425,7 +418,7 @@
             "the resolved chip carries the open-in-editor click handler")))))
 
 (deftest dispatch-source-after-timer-state-path-degrades-without-coord-test
-  (testing "rf2-dcsw1 — when no machine is registered for the source
+  (testing "when no machine is registered for the source
             machine-id (production elision / unregistered), the
             state-path chip DEGRADES GRACEFULLY to a plain non-clickable
             span — the link STRUCTURE lights up only once a coord is
@@ -448,7 +441,7 @@
             "no coord → plain non-clickable span (graceful degrade)")))))
 
 (deftest dispatch-source-machine-spawn-renders-rich-label-test
-  (testing "rf2-5qp4g — `:source :machine-spawn` renders the kind label
+  (testing "`:source :machine-spawn` renders the kind label
             and the spawned actor-id"
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:checkout/worker [:rf.machine.spawn/spawned]]
@@ -469,10 +462,10 @@
           "the chip shows the spawned actor's id"))))
 
 (deftest dispatch-source-fx-dispatch-renders-rich-label-test
-  (testing "rf2-5qp4g — `:source :fx-dispatch` renders the kind label
-            and the parent-epoch navigation chip. rf2-x25e0 — the
-            second arg is now the precomputed
-            `{dispatch-id → epoch-id}` index (was `epoch-history`)."
+  (testing "`:source :fx-dispatch` renders the kind label
+            and the parent-epoch navigation chip. The
+            second arg is the precomputed
+            `{dispatch-id → epoch-id}` index."
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:cart/add :apple]
                 :source :fx-dispatch
@@ -494,7 +487,7 @@
             "the chip shows the resolved parent epoch number")))))
 
 (deftest dispatch-source-fx-dispatch-later-renders-delay-chip-test
-  (testing "rf2-5qp4g — `:source :fx-dispatch-later` renders kind label,
+  (testing "`:source :fx-dispatch-later` renders kind label,
             the delay-ms chip (when stamped) AND the parent-epoch link"
     (let [step {:step :dispatch :badge :DISPATCH :step-number 1
                 :event [:checkout/retry-prompt]
@@ -517,7 +510,7 @@
           "the parent-epoch-link slot is also present"))))
 
 (deftest dispatch-source-fx-dispatch-unresolved-parent-test
-  (testing "rf2-5qp4g — when the parent-dispatch-id has no matching
+  (testing "when the parent-dispatch-id has no matching
             epoch in the buffer (root cascade or aged out), the
             parent-epoch chip degrades to a muted plain span carrying
             the unresolved dispatch-id (gives the operator something to
@@ -538,7 +531,7 @@
             "the unresolved chip is a plain span")))))
 
 (deftest dispatch-source-fx-dispatch-without-history-test
-  (testing "rf2-5qp4g — when render-dispatch-step is called without
+  (testing "when render-dispatch-step is called without
             the dispatch-id->epoch-id index (direct test callers, or
             pre-history-seed cold mount), `:fx-dispatch` still renders
             the kind label with the parent chip in unresolved form."
@@ -555,9 +548,9 @@
           "the unresolved-parent chip carries the parent-dispatch-id"))))
 
 (deftest dispatch-source-after-timer-defensive-no-enrichment-test
-  (testing "rf2-5qp4g — when `:source :after-timer` is stamped but no
+  (testing "when `:source :after-timer` is stamped but no
             enrichment payload is present (defensive — non-canonical
-            event shape, older runtime), the renderer falls through to
+            event shape), the renderer falls through to
             the vanilla `dispatch-source-label` so the bare kind name
             still renders + a coord-bearing call-site stays clickable"
     (let [tree (view/render-dispatch-step
@@ -569,7 +562,7 @@
       (is (some? label) "the source-label slot still renders"))))
 
 (deftest dispatch-source-always-renders-kind-label-test
-  (testing "rf2-5qp4g — `:source :always` (defensive: stamped on
+  (testing "`:source :always` (defensive: stamped on
             microstep traces, not DISPATCH) renders the bare kind label
             so the closed set is fully covered even if a future runtime
             emits it on a dispatch trace"
@@ -581,18 +574,15 @@
           header-text (text-of tree "rf-xray-epoch-dispatch-header")]
       (is (string/includes? (or header-text "") "from :always")))))
 
-;; ---- rf2-cq0ch — COEFFECT body --------------------------------------
+;; ---- COEFFECT body --------------------------------------------------
 
 (deftest coeffect-body-renders-labelled-value-test
-  (testing "rf2-cq0ch — a user-injected cofx renders the id + value
+  (testing "a user-injected cofx renders the id + value
             via the canonical edn-inspector. No cryptic `+[]nil` line.
 
-            Post pair-debug 2026-05-26 (commit ee9def224): the
-            projection emits ONE COEFFECT step PER injected cofx
-            (replacing the prior single step with N `:rows`).
+            The projection emits ONE COEFFECT step PER injected cofx;
             `view/render-coeffect-step` takes a single step map
-            with `:id` + `:value`; the previous `:rows`-bearing
-            shape is retired. This test pins the per-cofx render."
+            with `:id` + `:value`. This test pins the per-cofx render."
     (let [step {:step :coeffect :badge :COEFFECT :step-number 2
                 :id :session :value {:user-id 42}}
           tree (view/render-coeffect-step step)
@@ -606,11 +596,10 @@
           "the cofx value renders in the body"))))
 
 (deftest coeffect-body-renders-parameterized-request-arg-test
-  (testing "rf2-lz6gl9 — a PARAMETERIZED `[id arg]` cofx step (carrying
+  (testing "a PARAMETERIZED `[id arg]` cofx step (carrying
             `:input` from `:rf.cofx/arg`) renders the request arg on a
             DISTINCT labelled line, separate from the produced value, so a
-            reviewer reads both 'what was asked' and 'what it produced'. The
-            view previously rendered only `:id` + `:value`."
+            reviewer reads both 'what was asked' and 'what it produced'."
     (let [step {:step :coeffect :badge :COEFFECT :step-number 2
                 :id :session :value {:user-id 42} :input :auth-token}
           tree (view/render-coeffect-step step)
@@ -621,12 +610,12 @@
       (is (string/includes? (or input-text "") ":auth-token")
           "the request arg value renders distinctly")
       (is (string/includes? (or value-text "") "42")
-          "the produced value still renders separately")
+          "the produced value renders separately")
       (is (not (string/includes? (or value-text "") ":auth-token"))
           "the request arg does NOT bleed into the produced-value line"))))
 
 (deftest coeffect-body-omits-input-line-for-bare-cofx-test
-  (testing "rf2-lz6gl9 — a BARE (non-parameterized) cofx step (no `:input`)
+  (testing "a BARE (non-parameterized) cofx step (no `:input`)
             renders NO request-arg line"
     (let [step {:step :coeffect :badge :COEFFECT :step-number 2
                 :id :now :value #inst "2026-01-01"}
@@ -634,10 +623,10 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-coeffect-input-now"))
           "no :input on the step → no request-arg line rendered"))))
 
-;; ---- rf2-9fyn40 · EP-0017 §9 — RECORDABLE COEFFECTS step ----------------
+;; ---- EP-0017 §9 — RECORDABLE COEFFECTS step -----------------------------
 
 (deftest recordable-cofx-time-ms-renders-verbatim-test
-  (testing "rf2-9fyn40 · EP-0017 — :rf/time-ms is ALWAYS safe (EP-0010 Open
+  (testing "EP-0017 — :rf/time-ms is ALWAYS safe (EP-0010 Open
             Issue 4) and renders verbatim in the RECORDABLE COEFFECTS step body"
     (let [step {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
                 :time-ms 1781078400123}
@@ -650,7 +639,7 @@
           ":rf/time-ms renders verbatim"))))
 
 (deftest recordable-cofx-value-bearing-leaf-renders-summary-test
-  (testing "rf2-9fyn40 · EP-0017 — a value-bearing leaf renders the privacy
+  (testing "EP-0017 — a value-bearing leaf renders the privacy
             summary chip (preview), NOT the raw value. The leaf id rides
             verbatim (owner-qualified vocabulary)"
     (let [step {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
@@ -668,7 +657,7 @@
           "the bounded summary preview renders"))))
 
 (deftest recordable-cofx-redacted-value-renders-marker-test
-  (testing "rf2-9fyn40 · EP-0017 — a value redacted upstream (:rf/redacted
+  (testing "EP-0017 — a value redacted upstream (:rf/redacted
             sentinel) renders the [redacted] marker, NEVER the raw value
             (EP-0015 §Privacy — redact-by-default for non-:rf/time-ms leaves)"
     (let [step {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
@@ -678,7 +667,7 @@
       (is (string/includes? (or val-text "") "[redacted]")
           "the redaction marker renders, not the raw value"))))
 
-;; ---- rf2-kfh1v — SUBSCRIPTIONS rows + filter -------------------------
+;; ---- SUBSCRIPTIONS rows + filter -------------------------------------
 
 (defn- count-prefix
   [tree prefix]
@@ -687,12 +676,11 @@
 (defn- subscriptions-step
   "`render-subscriptions-step` with the cascade context `Panel` supplies.
 
-  rf2-k97c.3 — the filter mode used to be read INSIDE the step renderer.
-  `Panel` is a Fresco boundary now and reads it there, threading the VALUE
-  down the `ctx` map, so the renderer is a pure fn of its arguments and
-  stays drivable here. This helper reads the slot exactly as the boundary
-  does; the rows that exercise mode-switching keep grading the read and
-  the dispatch against ONE frame, which is what they were always about.
+  `Panel` is a Fresco boundary and reads the filter mode there, threading
+  the VALUE down the `ctx` map, so the renderer is a pure fn of its
+  arguments and stays drivable here. This helper reads the slot exactly as
+  the boundary does; the rows that exercise mode-switching grade the read
+  and the dispatch against ONE frame.
 
   Rows that only want the DEFAULT mode go on calling the 1-arity
   directly — no mode is the `:changed` default the `case` already has."
@@ -702,7 +690,7 @@
     {:subs-filter-mode @(rf/subscribe [:rf.xray.epoch/subs-filter-mode])}))
 
 (deftest sub-row-renders-sub-id-test
-  (testing "rf2-kfh1v — SUBSCRIPTIONS row leads with the sub-id /
+  (testing "SUBSCRIPTIONS row leads with the sub-id /
             sub-vec (operator can tell WHICH sub recomputed)"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -719,10 +707,9 @@
               "sub-id is visible as the leading element"))))))
 
 (deftest sub-rows-default-mode-is-changed-test
-  (testing "rf2-tzmmf — `:changed` is the default filter mode so the
-            unchanged-by-default rationale (rf2-kfh1v) carries through
-            to the new 3-button bar. Only the changed row renders;
-            the new `[all][changed][unchanged]` bar is present."
+  (testing "`:changed` is the default filter mode, so the 3-button
+            bar hides unchanged rows by default. Only the changed row
+            renders; the `[all][changed][unchanged]` bar is present."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -736,17 +723,16 @@
             "only the one changed row renders in the default `:changed` mode")
         (is (some? (find-by-testid
                      tree "rf-xray-epoch-subscriptions-filter-mode"))
-            "the new `[all][changed][unchanged]` button-bar is present")
+            "the `[all][changed][unchanged]` button-bar is present")
         (doseq [m ["all" "changed" "unchanged"]]
           (is (some? (find-by-testid
                        tree (str "rf-xray-epoch-subscriptions-filter-" m)))
               (str "the " m " button is in the bar")))))))
 
 (deftest sub-rows-supersede-old-toggle-test
-  (testing "rf2-tzmmf — the old `Show unchanged` toggle + the
-            badge-adjacent `N recomputed (...)` summary text are
-            DELETED (pre-alpha posture, no coexistence). The button-bar
-            is the new chrome."
+  (testing "there is no `Show unchanged` toggle and no
+            badge-adjacent `N recomputed (...)` summary text; the
+            button-bar is the chrome."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -757,19 +743,19 @@
             tree (view/render-subscriptions-step step)
             header (text-of tree "rf-xray-epoch-subscriptions-header")]
         (is (nil? (find-by-testid tree "rf-xray-epoch-subscriptions-toggle"))
-            "the prior `Show unchanged` toggle is gone")
+            "no `Show unchanged` toggle")
         (is (not (string/includes? header "recomputed"))
-            "the badge-adjacent `N recomputed (...)` summary text is gone")
+            "no badge-adjacent `N recomputed (...)` summary text")
         ;; "changed" appears in the button-bar label; the split-text
-        ;; we deleted was `M changed, K unchanged` — check the
-        ;; count-phrase shape is gone rather than the bare word.
+        ;; shape is `M changed, K unchanged` — check the
+        ;; count-phrase shape is absent rather than the bare word.
         (is (not (re-find #"\d+ changed" header))
-            "the `<N> changed` count phrase is gone")
+            "no `<N> changed` count phrase")
         (is (not (re-find #"\d+ unchanged" header))
-            "the `<N> unchanged` count phrase is gone")))))
+            "no `<N> unchanged` count phrase")))))
 
 (deftest sub-rows-reveal-via-all-mode-test
-  (testing "rf2-tzmmf — clicking `all` flips the filter-mode slot;
+  (testing "clicking `all` flips the filter-mode slot;
             every row renders. Clicking `unchanged` shows only
             unchanged rows."
     (epoch-orchestrator/install!)
@@ -796,7 +782,7 @@
               "`:unchanged` mode renders only the unchanged rows"))))))
 
 (deftest sub-filter-bar-anchors-to-xray-frame-test
-  (testing "rf2-tzmmf — the button-bar's click dispatches via
+  (testing "the button-bar's click dispatches via
             `with-frame :rf/xray` (matches the HANDLER `[diff][all]`
             toggle pattern) AND the read uses the 2-arity subscribe
             form. Both halves anchored to `:rf/xray` regardless of
@@ -824,10 +810,10 @@
           (is (= 2 (count-prefix tree "rf-xray-epoch-sub-row-"))
               "frame-anchored dispatch flips the :rf/xray slot the 2-arity sub reads"))))))
 
-;; ---- rf2-wpfjo — SUBSCRIPTIONS disposed sub-section -------------------
+;; ---- SUBSCRIPTIONS disposed sub-section -------------------------------
 
 (deftest disposed-subs-section-renders-when-rows-present-test
-  (testing "rf2-wpfjo — when projection carries `:disposed-rows`, the
+  (testing "when projection carries `:disposed-rows`, the
             SUBSCRIPTIONS step renders a DISPOSED sub-section listing
             each evicted sub; header reads `N recomputed (...); L disposed`"
     (epoch-orchestrator/install!)
@@ -859,11 +845,11 @@
         (is (string/includes? id0 ":cart/items")
             "evicted sub-id renders in the row")
         (is (string/includes? reason0 "no-more-derefers")
-            "the row's reason chip renders the rf2-mrnur closed-set keyword")))))
+            "the row's reason chip renders the closed-set keyword")))))
 
 (deftest disposed-subs-section-omitted-without-rows-test
-  (testing "rf2-wpfjo — when no `:disposed-rows`, no DISPOSED
-            sub-section renders; header reads the legacy `N recomputed
+  (testing "when no `:disposed-rows`, no DISPOSED
+            sub-section renders; header reads the plain `N recomputed
             (...)` shape"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -879,7 +865,7 @@
             "header omits the disposed clause")))))
 
 (deftest subscriptions-step-dispose-only-cascade-renders-test
-  (testing "rf2-wpfjo — when the cascade is dispose-only (no
+  (testing "when the cascade is dispose-only (no
             recomputes) the step still renders; the recompute table
             is absent; header reads `L disposed`"
     (epoch-orchestrator/install!)
@@ -901,20 +887,18 @@
         (is (string/includes? header "1 disposed")
             "header reads the dispose-only shape")))))
 
-;; ---- rf2-66wis — HANDLER source code block ---------------------------
+;; ---- HANDLER source code block ---------------------------------------
 
-;; ---- rf2-93436 — HANDLER :db diff sub-section (design §Section 1+2) -----
+;; ---- HANDLER :db diff sub-section (design §Section 1+2) -----------------
 
 (deftest handler-db-diff-always-renders-for-non-machine-handlers-test
-  (testing "rf2-93436 — `:db diff` sub-section is ALWAYS present
+  (testing "`:db diff` sub-section is ALWAYS present
             inside the HANDLER body for :db-only / :effectful flavours.
 
-            rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]`
-            mode toggle retired. FULL+DIFF is the single rendering, so
-            the slot always paints the `rf-xray-epoch-handler-db-full-
+            FULL+DIFF is the single rendering (there is no mode toggle),
+            so the slot always paints the `rf-xray-epoch-handler-db-full-
             with-diff` (or `…-missing` when the epoch carries no
-            db-after) descendant rather than the prior `:diff` /
-            `:full` / `:full+diff` per-mode descendants."
+            db-after) descendant."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (testing ":db-only with empty diff still renders the slot"
@@ -928,7 +912,7 @@
             ":db diff sub-section is always present even when empty")
         (is (= "full+diff"
                (-> slot second :data-rf-xray-diff-mode))
-            "FULL+DIFF is the single rendering post-rf2-vv3m6")))
+            "FULL+DIFF is the single rendering")))
     (testing ":db-only with populated diff renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
@@ -952,13 +936,12 @@
             "even an :effectful handler that returned no :db gets the sub-section")))))
 
 (deftest handler-db-no-write-renders-placeholder-not-phantom-test
-  (testing "rf2-wnvid — PHANTOM-`:db` fix. A handler that wrote NO :db
+  (testing "PHANTOM-`:db` guard. A handler that wrote NO :db
             (`:db-write?` false) renders the `— no :db` placeholder, NOT the
-            full post-cascade app-db (the pre-rf2-wnvid `:db-after`
-            fallback)."
+            full post-cascade app-db (a `:db-after` fallback)."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
-    (testing "rf2-oqi0c — handler THREW → the :db sub-section is OMITTED
+    (testing "handler THREW → the :db sub-section is OMITTED
               entirely (the inline exception card is the signal); no
               redundant '— no :db (handler threw)' line"
       (let [tree (rf/with-frame :rf/xray
@@ -988,7 +971,7 @@
             "a clean no-:db handler reads 'returned no :db'")))))
 
 (deftest handler-db-diff-suppressed-for-machine-handlers-test
-  (testing "rf2-93436 — for machine handlers the standalone `:db diff`
+  (testing "for machine handlers the standalone `:db diff`
             sub-section is suppressed (design §Section 3 §DB DIFF —
             folds into SNAPSHOT DIFF since the snapshot IS the
             db change at `[:rf.runtime/machines :snapshots <id>]` in runtime-db). Avoids the redundant
@@ -1002,13 +985,13 @@
           "no standalone :db diff under machine handlers — folded into
            SNAPSHOT DIFF per design"))))
 
-;; ---- FLOW step `:db` diff (rf2-4wywy) -----------------------------------
+;; ---- FLOW step `:db` diff -----------------------------------------------
 
 (deftest flow-step-renders-db-diff-when-snapshots-present-test
-  (testing "rf2-4wywy — when the FLOW step carries the t1 (pre-flow) +
+  (testing "when the FLOW step carries the t1 (pre-flow) +
             t2 (post-flow) db snapshots, its body renders the flow's OWN
             `:db` diff via the shared edn-inspector diff renderer
-            (`rf-xray-epoch-flow-db-diff-<id>`), NOT the legacy scalar
+            (`rf-xray-epoch-flow-db-diff-<id>`), NOT the scalar
             before→after line. This is what keeps the flow's `:derived`
             recompute SEPARATE from the HANDLER step's `:db`."
     (rf/make-frame {:id :rf/xray})
@@ -1023,7 +1006,7 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-flow-db-diff-derived"))
           "FLOW step renders a `:db` diff sub-block when snapshots present")
       (is (nil? (find-by-testid tree "rf-xray-epoch-flow-value-derived"))
-          "the legacy scalar before→after line is NOT rendered when the
+          "the scalar before→after line is NOT rendered when the
            `:db` diff is shown")
       (is (= "true"
              (-> tree (find-by-testid "rf-xray-epoch-step-flow-derived")
@@ -1031,9 +1014,9 @@
           "the step root flags `:db`-diff mode for tooling / e2e"))))
 
 (deftest flow-step-falls-back-to-scalar-when-no-snapshots-test
-  (testing "rf2-4wywy — without t1/t2 snapshots (pre-rf2-ta0y7 runtime /
-            fixture) the FLOW step falls back to the legacy
-            `[path] before → after` scalar line so older epochs still
+  (testing "without t1/t2 snapshots (a runtime or fixture
+            without them) the FLOW step falls back to the
+            `[path] before → after` scalar line so such epochs still
             render."
     (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
@@ -1050,7 +1033,7 @@
                  second :data-rf-xray-flow-db-diff))))))
 
 (deftest flow-step-db-diff-shows-only-its-own-flow-test
-  (testing "rf2-3x7nj.22.4 — with TWO flows in one epoch, each FLOW step's
+  (testing "with TWO flows in one epoch, each FLOW step's
             `:db` diff differs from its baseline ONLY at its own path. The
             snapshots are the ones a real two-flow epoch projects: `::fa`
             writes `[:fa]` from `[:a]`, `::fb` writes `[:fb]` from `[:b]`,
@@ -1080,7 +1063,7 @@
           "and the `::fb` step only `[:fb]`"))))
 
 (deftest handler-body-renders-source-placeholder-test
-  (testing "rf2-66wis — HANDLER body carries a source-code slot.
+  (testing "HANDLER body carries a source-code slot.
             When no handler-meta has been stamped the slot renders
             a clear `<source not yet captured>` placeholder rather
             than collapsing silently — operator learns where to
@@ -1097,10 +1080,10 @@
             (or (text-of tree "rf-xray-epoch-handler-source-placeholder") "")
             "<source not yet captured>")))))
 
-;; ---- rf2-6djth — VIEWS row carries view-id + subs ---------------------
+;; ---- VIEWS row carries view-id + subs ---------------------------------
 
 (deftest views-row-shows-id-and-subs-test
-  (testing "rf2-6djth — VIEWS table row shows the view-id + its
+  (testing "VIEWS table row shows the view-id + its
             consumed subs. Per-row testids are stable and the body
             text contains both halves."
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -1120,8 +1103,8 @@
           "every consumed sub renders, one per line"))))
 
 (deftest views-row-shows-mount-rerender-glyph-test
-  (testing "rf2-3b9w4 — the VIEWS row carries a mount/re-render GLYPH in
-            col-1 (replacing the retired rf2-bhi3t cause chip + duration):
+  (testing "the VIEWS row carries a mount/re-render GLYPH in
+            col-1 (no cause chip or duration):
             `+` first mount, `~` re-render. The glyph carries a
             `data-rf-view-glyph` posture attribute (mount / rerender)."
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -1144,10 +1127,10 @@
       (is (= "mount" (:data-rf-view-glyph (second g-mnt)))
           "a fresh mount reads `+` / mount")
       (is (nil? (find-by-testid tree "rf-xray-epoch-view-row-cause-0"))
-          "the rf2-bhi3t render-cause chip is RETIRED"))))
+          "there is no render-cause chip"))))
 
 (deftest views-row-colour-codes-subs-test
-  (testing "rf2-3b9w4 — col-3 colour-codes each dereffed sub by its
+  (testing "col-3 colour-codes each dereffed sub by its
             posture this epoch: GREEN :new / ORANGE :changed / GREY
             :unchanged, carried via `data-rf-sub-status`."
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -1170,7 +1153,7 @@
       (is (contains? statuses "unchanged") "unchanged sub coded grey"))))
 
 (deftest views-row-render-args-col2-diff-test
-  (testing "rf2-u3lii — col-2 'render-args (DIFF)' renders the args/props
+  (testing "col-2 'render-args (DIFF)' renders the args/props
             passed to a render. A render whose args changed (the
             projection threaded `:prev-render-args`) mounts the
             edn-inspector in DIFF mode (`data-rf-render-args-diff
@@ -1219,7 +1202,7 @@
           "the no-args placeholder text renders"))))
 
 (deftest views-row-render-args-large-arg-elided-test
-  (testing "rf2-yi0nr — a VIEWS row whose render-arg is a FAT prop (what
+  (testing "a VIEWS row whose render-arg is a FAT prop (what
             ANY real app passes) collapses to the shared edn-inspector
             `:rf.size/large-elided` chip (testid
             `rf-xray-edn-inspector-large`) — the SAME affordance the App-db
@@ -1259,7 +1242,7 @@
           "the elided cell reads the `large` chip label, not the raw value"))))
 
 (deftest views-row-graceful-degrades-when-id-absent-test
-  (testing "rf2-6djth — a row whose view-id is nil renders an
+  (testing "a row whose view-id is nil renders an
             anonymous-view placeholder rather than the bare keyword
             colon"
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -1270,10 +1253,10 @@
           "missing view-id reads as `<anonymous view>` placeholder"))))
 
 (deftest views-row-carries-pink-stripe-hover-handlers-test
-  (testing "rf2-2f962 — VIEWS row carries on-mouse-enter / on-mouse-leave
+  (testing "VIEWS row carries on-mouse-enter / on-mouse-leave
             handlers that drive the `.rf-xray-view-highlight` pink-stripe
-            class on the live `data-rf-view` DOM node (rf2-e33ad /
-            rf2-8l03l convention). The handlers are present whether or
+            class on the live `data-rf-view` DOM node. The handlers are
+            present whether or
             not view-id is non-nil — they no-op safely when the row's
             view-id is absent."
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -1288,10 +1271,10 @@
       (is (fn? (:on-mouse-leave attrs))
           "row carries an on-mouse-leave handler"))))
 
-;; ---- rf2-3b9w4 — unmounted views ride the SAME table (red strikethrough)
+;; ---- unmounted views ride the SAME table (red strikethrough)
 
 (deftest views-unmounted-rows-render-in-same-table-test
-  (testing "rf2-3b9w4 (SUPERSEDES rf2-gmw1i sub-section) — unmounted rows
+  (testing "unmounted rows
             ride in the SAME views-table as rendered rows, with a red
             strikethrough (`data-rf-view-status=unmounted` + `−` glyph)
             and the go-to-source coord-chip retained. Header reads
@@ -1313,7 +1296,7 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-views-table"))
           "there is ONE views-table; no separate unmounted table")
       (is (nil? (find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
-          "the separate UNMOUNTED table is RETIRED")
+          "there is no separate UNMOUNTED table")
       (is (= "rendered" (:data-rf-view-status (second rendered-row))))
       (is (= "unmounted" (:data-rf-view-status (second unmounted-row)))
           "the unmounted row tags `data-rf-view-status=unmounted` (red strikethrough posture)")
@@ -1325,7 +1308,7 @@
       (is (string/includes? header "1 unmounted")))))
 
 (deftest views-no-unmounts-header-shape-test
-  (testing "rf2-3b9w4 — no unmounts → header reads `N views re-rendered`
+  (testing "no unmounts → header reads `N views re-rendered`
             (no unmount tail)"
     (let [step {:step :views :badge :VIEWS :step-number 6
                 :rows [{:view-id :app.counter/Counter
@@ -1337,7 +1320,7 @@
           "header reads `1 view re-rendered` (no unmount tail)"))))
 
 (deftest views-step-unmount-only-cascade-renders-test
-  (testing "rf2-3b9w4 — unmount-only cascade (no re-renders): the single
+  (testing "unmount-only cascade (no re-renders): the single
             views-table renders the unmounted row; header reads
             `M unmounted`"
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -1353,12 +1336,11 @@
       (is (string/includes? header "1 unmounted")
           "header reads the unmount-only shape"))))
 
-;; ---- rf2-2ek7t (supersedes rf2-xgeag) — violation sub-block redesign ----
+;; ---- violation sub-block -----------------------------------------------
 ;;
-;; Pre-rf2-2ek7t the block carried discrete `:headline`, `:path`, and
-;; `:value` rows alongside the title bar. rf2-2ek7t retired those —
-;; the per-`:where` prose sentence + humanized `ei/edn-inspector`
-;; explain map subsume them. Tests now anchor on:
+;; The block carries no discrete `:headline`, `:path`, or `:value` rows
+;; beside the title bar — the per-`:where` prose sentence + humanized
+;; `ei/edn-inspector` explain map subsume them. Tests anchor on:
 ;;
 ;;   - title           → "Schema Violation Error" (mixed case)
 ;;   - recovery chip   → "Aborted" / "Skipped" / "Returned nil" /
@@ -1369,11 +1351,11 @@
 ;;   - explain block   → `<base>-explain` when humanized/raw explain
 ;;                       data is present
 ;;
-;; See `view.cljs` §SCHEMA VIOLATION sub-block (rf2-xgeag) for the
+;; See `view.cljs` §SCHEMA VIOLATION sub-block for the
 ;; live renderer.
 
 (deftest violation-block-renders-title-+-prose-test
-  (testing "rf2-2ek7t — `violation-block` renders the pink sub-block
+  (testing "`violation-block` renders the pink sub-block
             with the mixed-case title, per-:where recovery chip, prose
             paragraph carrying an inline schema-link, and the
             humanized explain map"
@@ -1405,7 +1387,7 @@
             "humanized explain map renders via `edn-inspector`")))))
 
 (deftest violation-block-recovery-chip-test
-  (testing "rf2-2ek7t — recovery chip surfaces a per-:where label when
+  (testing "recovery chip surfaces a per-:where label when
             no rollback fired"
     (let [tree (view/violation-block :fx 0
                  {:where :fx-args :failing-id :http/post
@@ -1414,7 +1396,7 @@
       (is (string/includes? recovery "Skipped")
           ":fx-args + no rollback → 'Skipped'")))
 
-  (testing "rf2-2ek7t — sub-return → 'Returned nil'"
+  (testing "sub-return → 'Returned nil'"
     (let [tree (view/violation-block :subscriptions 0
                  {:where :sub-return :failing-id :user/profile
                   :rollback? false})
@@ -1423,11 +1405,11 @@
       (is (string/includes? recovery "Returned nil")
           ":sub-return + no rollback → 'Returned nil'"))))
 
-;; ---- rf2-1t8fn — the `schema check` link opens the FAILING registration ----
+;; ---- the `schema check` link opens the FAILING registration -------------
 ;;
-;; The link used to resolve every non-`:app-db` coord under registrar kind
-;; `:schema`, which is not a registrar kind, so the lookup threw, the catch
-;; swallowed it, and the link rendered as plain text for every one of them.
+;; Resolving every non-`:app-db` coord under registrar kind `:schema`, which
+;; is not a registrar kind, would throw; the catch would swallow it, and the
+;; link would render as plain text for every one of them.
 ;;
 ;; EVERY ROW HERE IS PRODUCED, NOT TYPED. Each schema is declared on a real
 ;; registration, each violation is driven through the live framework, and
@@ -1483,7 +1465,7 @@
   (rf/reg-app-schema [:rf2-1t8fn/count] [:maybe :int])
   (rf/reg-event :rf2-1t8fn/write-db
     (fn [{:keys [db]} _] {:db (assoc db :rf2-1t8fn/count "not-an-int")}))
-  ;; rf2-tspmp — a second `:app-db` violation, failing BELOW its registered
+  ;; A second `:app-db` violation, failing BELOW its registered
   ;; root: a map schema registered at `[:rf2-tspmp/user]` failing at `:age`.
   ;; The flat write above fails AT its root, so the two are control and case.
   (rf/reg-app-schema [:rf2-tspmp/user] [:maybe [:map [:age :int]]])
@@ -1531,7 +1513,7 @@
 (deftest violation-schema-link-opens-the-failing-registration-test
   (rf/with-frame :rf/default
     (let [rows     (drive-every-schema-violation!)
-          ;; rf2-tspmp's nested row is picked out by the failing LEAF the
+          ;; The nested row is picked out by the failing LEAF the
           ;; producer stamps as `:path`, so `by-where` keeps the flat one.
           nested?  #(= [:rf2-tspmp/user :age] (:path %))
           nested   (first (filter nested? rows))
@@ -1556,11 +1538,11 @@
                     ;; a link resolving through it would open the wrong form.
                     :app-db         (rf.schemas/app-schema-meta {:frame :rf/default
                                                                  :path  [:rf2-1t8fn/count]})}]
-      (testing "rf2-1t8fn — the framework emitted one row for every surface
+      (testing "the framework emitted one row for every surface
                 driven, and no `:where` this table does not name"
         (is (= (set (keys expected)) (set (map :where rows)))
             (str "produced :where set was " (pr-str (set (map :where rows))))))
-      (testing "rf2-1t8fn — every row's `schema check` link is a BUTTON that
+      (testing "every row's `schema check` link is a BUTTON that
                 opens the registration whose schema failed"
         (doseq [[where m] expected]
           (let [link (schema-link (get by-where where))]
@@ -1572,7 +1554,7 @@
                      "plain text"))
             (is (= (open-title m) (:title (node-attrs link)))
                 (str where ": the link opens THAT registration's file:line")))))
-      (testing "rf2-tspmp — an `:app-db` failure BELOW its registered root
+      (testing "an `:app-db` failure BELOW its registered root
                 links to the registration, not to the failing leaf"
         (let [flat (get by-where :app-db)
               m    (rf.schemas/app-schema-meta {:frame :rf/default
@@ -1593,7 +1575,7 @@
               "the link resolved rather than degrading to plain text")
           (is (= (open-title m) (:title (node-attrs link)))
               "the link opens the registration's file:line")))
-      (testing "rf2-tspmp — an `:app-db` row with no `:registered-path` falls
+      (testing "an `:app-db` row with no `:registered-path` falls
                 back to `:path`; a leaf path names nothing, so the link
                 degrades to plain text and does not throw"
         (let [link (schema-link (dissoc nested :registered-path))]
@@ -1601,7 +1583,7 @@
               "no registration at the leaf: plain span")
           (is (= "schema check" (last link))
               "the label still reads inside the prose sentence")))
-      (testing "rf2-1t8fn — a violation whose registration is gone degrades
+      (testing "a violation whose registration is gone degrades
                 to plain text and does not throw"
         (rf/clear :event :rf2-1t8fn/typed-event)
         (let [link (schema-link (get by-where :event))]
@@ -1610,10 +1592,8 @@
           (is (= "schema check" (last link))
               "the label still reads inside the prose sentence"))))))
 
-;; `render-schema-hot-reload-step-test` retired here (rf2-oc6ok) — pairs
-;; with the rf2-o1l6c projection-side retire. Commit 9b96f9f6a
-;; (rf2-7gf7v) deleted both the projection's `hot-reload-step` fn AND
-;; the view's `render-schema-hot-reload-step` fn — hot-reload drift is
+;; There is no SCHEMA HOT-RELOAD pipeline step, so there is no renderer
+;; for one to test: hot-reload drift is
 ;; a dev-time event (re-registered schema invalidates existing app-db
 ;; state), not a cascade event. It surfaces exclusively via the Issues
 ;; panel which consumes `:rf.schema/violation` trace events. No tail
@@ -1622,13 +1602,13 @@
 ;; `project-attaches-app-db-violation-to-fx-db-row-test` pins down
 ;; that no tail step is appended.
 
-;; ---- rf2-j630b — SIDE EFFECTS flat per-effect ledger ------------------
-;; rf2-uffov — per-action attribution; rf2-g1mfc — per-row open-code chip;
-;; rf2-kt6js — the :fx step became the SIDE EFFECTS step; rf2-j630b — the
-;; 3-tier :db/:fx/other sub-steps became a FLAT ledger + single badge.
+;; ---- SIDE EFFECTS flat per-effect ledger ---------------------------------
+;; The :fx entries ride the SIDE EFFECTS step: a FLAT ledger + single badge
+;; rather than :db/:fx/other sub-steps, each row carrying its per-action
+;; attribution and an open-code chip.
 
 (defn- side-effects-step
-  "Build a projected SIDE EFFECTS step for the view tests (rf2-j630b) —
+  "Build a projected SIDE EFFECTS step for the view tests —
   the FLAT-ledger step the `render-side-effects-step` renderer consumes.
   `rows` is the flat `:rows` vec in execution order (mirrors
   `projection/side-effects-step`'s output shape — one row vector, no
@@ -1640,11 +1620,11 @@
     :threw threw}))
 
 (deftest side-effects-header-no-caption-test
-  (testing "rf2-j630b · rf2-9wq0v — the SIDE EFFECTS header carries no
+  (testing "the SIDE EFFECTS header carries no
             post-commit / best-effort caption and no threw-count chip; the
-            per-row ledger glyphs are the whole signal (the per-stage badge
-            glyph retired in rf2-9wq0v — the row-level AND-of-rows outcome
-            stays queryable via `proj/side-effects-badge-status`, covered
+            per-row ledger glyphs are the whole signal (there is no per-stage
+            badge glyph — the row-level AND-of-rows outcome is queryable
+            via `proj/side-effects-badge-status`, covered
             in projection tests)."
     (let [tree   (view/render-side-effects-step
                    (side-effects-step
@@ -1654,12 +1634,12 @@
                      1))
           header (text-of tree "rf-xray-epoch-side-effects-header")]
       (is (not (string/includes? header "(post-commit)"))
-          "the post-commit caption is dropped (rf2-j630b)")
+          "no post-commit caption")
       (is (not (string/includes? header "threw"))
-          "the threw-count chip is dropped — the per-row glyphs carry it"))))
+          "no threw-count chip — the per-row glyphs carry it"))))
 
 (deftest side-effects-flat-ledger-order-test
-  (testing "rf2-j630b — rows render flat in execution order: :db first,
+  (testing "rows render flat in execution order: :db first,
             then the :fx entries, then `other`. No sub-step group
             headers. Each row gets the global flat-row index for testids."
     (let [tree (view/render-side-effects-step
@@ -1674,7 +1654,7 @@
           "no :db sub-step header — the ledger is flat"))))
 
 (deftest side-effects-db-row-renders-app-db-destination-marker-test
-  (testing "rf2-j630b — the :db row's args slot is the clickable
+  (testing "the :db row's args slot is the clickable
             '→ app-db' DESTINATION marker (NOT the db diff — that lives in
             the App-db panel). Clicking it jumps to the App-db tab."
     (rf/make-frame {:id :rf/xray})
@@ -1689,7 +1669,7 @@
             "marker carries an on-click that jumps to the App-db panel")))))
 
 (deftest side-effects-skipped-row-uses-muted-en-dash-glyph-test
-  (testing "rf2-j630b — a :skipped-on-platform row leads with the muted
+  (testing "a :skipped-on-platform row leads with the muted
             en-dash 'n/a' glyph + the gated-skip hover (NOT the
             middle-dot, which is the :cancelled cascade glyph)"
     (let [tree (view/render-side-effects-step
@@ -1703,7 +1683,7 @@
           "NOT the :cancelled middle-dot"))))
 
 (deftest side-effects-fx-row-shows-attribution-chip-test
-  (testing "rf2-uffov — when an :fx ledger row carries :attributed-to,
+  (testing "when an :fx ledger row carries :attributed-to,
             the attribution chip renders alongside"
     (let [step (side-effects-step
                  [{:fx-id :http/get :status :ok
@@ -1716,14 +1696,14 @@
           "the action-id rides the chip"))))
 
 (deftest side-effects-fx-row-omits-attribution-chip-when-none-test
-  (testing "rf2-uffov — :fx ledger row without :attributed-to omits
+  (testing ":fx ledger row without :attributed-to omits
             the chip"
     (let [step (side-effects-step [{:fx-id :db :status :ok}])
           tree (view/render-side-effects-step step)]
       (is (nil? (find-by-testid tree "rf-xray-epoch-fx-row-attribution-0"))))))
 
 (deftest side-effects-fx-row-mounts-coord-chip-when-meta-resolves-test
-  (testing "rf2-g1mfc — each :fx ledger row routes its fx-id through
+  (testing "each :fx ledger row routes its fx-id through
             `coord-chip/coord-chip` to surface a click-to-source
             affordance for the `reg-fx` registration (parity with the
             SUBSCRIPTIONS / VIEWS rows + the HANDLER verb).
@@ -1747,8 +1727,7 @@
         ;; If the test harness captured a source coord the chip mounts;
         ;; otherwise the call-site still fired but produced nil (graceful
         ;; degrade per coord-chip's contract). Either branch proves the
-        ;; bug-fix is in place — pre-fix there was no chip call-site at
-        ;; all on the fx row.
+        ;; fx row reaches the chip call-site.
         (let [chip (find-by-testid tree "rf-xray-epoch-fx-row-coord-0")]
           (if meta-resolved?
             (do
@@ -1761,47 +1740,46 @@
             (is (nil? chip)
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
-;; ---- rf2-zkiu5 — retired cascade steps (APP-DB DIFF + CHILD DISPATCHES) --
+;; ---- no APP-DB DIFF or CHILD DISPATCHES cascade step ---------------------
 ;;
-;; The `view/render-app-db-diff-step` + `view/render-child-dispatches-step`
-;; renderers were deleted along with the standalone APP-DB DIFF (rf2-rrykz)
-;; + CHILD-DISPATCHES (rf2-yx1ae) projection steps. Both are redundant
-;; with existing steps — HANDLER `:db` (rf2-93436 section above) covers
-;; the post-handler diff; the FX step surfaces every dispatch-family fx
-;; entry. rf2-btt0s deleted the lingering dead code + these renderer tests.
+;; There is no standalone APP-DB DIFF or CHILD-DISPATCHES projection step,
+;; and so no renderer for either. Both would be redundant
+;; with other steps — HANDLER `:db` (the HANDLER :db diff section above)
+;; covers the post-handler diff; the SIDE EFFECTS step surfaces every
+;; dispatch-family fx entry.
 
-;; ---- rf2-u69j7 — machine handler section: time-ordered cascade ----------
+;; ---- machine handler section: time-ordered cascade ----------------------
 ;;
-;; Replaces the pre-rf2-u69j7 category-grouped layout (TRANSITION /
-;; GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF /
-;; FX) with a single time-ordered cascade view. Each row interleaves
+;; A single time-ordered cascade view, not a category-grouped layout
+;; (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION /
+;; SNAPSHOT DIFF / FX). Each row interleaves
 ;; source code (always visible) with phase + duration + outcome.
 
-;; ---- rf2-wvch — cascade rows reach React with a key ---------------------
+;; ---- cascade rows reach React with a key ---------------------------------
 ;;
 ;; `machine-cascade-view` emits its rows from a `for`, which is exactly where
-;; sibling keys matter. The key used to be written as `^{:key …}` reader
-;; metadata on the `(cascade-row-view …)` CALL FORM. `cascade-row-view` is a
-;; plain `defn-`, so that metadata rode the source list and was discarded the
-;; moment the form was evaluated — the returned vector carried none of it.
+;; sibling keys matter. A key written as `^{:key …}` reader metadata on the
+;; `(cascade-row-view …)` CALL FORM would never arrive: `cascade-row-view` is
+;; a plain `defn-`, so that metadata rides the source list and is discarded
+;; the moment the form is evaluated — the returned vector carries none of it.
 ;;
 ;; That is the STRICTLY-DEAD member of the family, and it is why this gate is
-;; not blocked on the Fresco migration: metadata on a vector LITERAL still
-;; reaches React under Reagent (it dies only at a Fresco boundary), whereas
+;; not blocked on the Fresco migration: metadata on a vector LITERAL does
+;; reach React under Reagent (it dies only at a Fresco boundary), whereas
 ;; metadata on a CALL FORM reaches React on NO substrate.
 ;;
-;; What actually carries the key — before this bead as well as after — is the
+;; What carries the key is the
 ;; attribute map of the `[:div]` `cascade-row-view` returns. All three
 ;; renderers honour that spelling: Reagent reads meta then props, and Fresco's
-;; codec reads props and Clojure metadata nowhere. Removing the dead reader
-;; meta leaves the working key the single, findable one.
+;; codec reads props and Clojure metadata nowhere. With no reader meta beside
+;; it, the working key is the single, findable one.
 ;;
-;; Measured, so nobody re-reads this as a live-bug fix: this gate PASSES
-;; against the pre-repair source with the dead meta still in place (React
-;; already received all three keys), and FAILS `[nil nil nil]` the moment the
-;; attribute-map `:key` is deleted with everything else left alone. The dead
-;; meta was never what carried — it was a decoy sitting over a working key,
-;; and a future editor deleting the props `:key` because "the key is at the
+;; A dead call-form meta beside the props `:key` does not change the verdict:
+;; this gate PASSES with one in place (React receives all three keys from
+;; the props either way), and FAILS `[nil nil nil]` the moment the
+;; attribute-map `:key` is deleted with everything else left alone. Such a
+;; meta would be a decoy sitting over the working key,
+;; and deleting the props `:key` because "the key is at the
 ;; call site" is the regression this row exists to catch.
 ;;
 ;; Asserting `(meta node)` here would be a HOLLOW GATE in BOTH directions:
@@ -1814,7 +1792,7 @@
   "Invoke a hiccup vector's fn head, substituting each widget's REAGENT
   sibling for its Fresco boundary.
 
-  rf2-k97c.3 — the same swap `expand-widgets` makes and for the same reason,
+  The same swap `expand-widgets` makes and for the same reason,
   written separately because this walker must not rebuild (see
   [[raw-children]]). Applying a boundary here calls a React function
   component outside any render, which raises on the first hook."
@@ -1832,7 +1810,7 @@
 (defn- raw-children
   "Children of a hiccup node WITHOUT rebuilding it. `expand-tree` would
   `mapv` fresh vectors and strip reader metadata, so this gate could not see
-  a meta-spelled key if one were ever re-introduced — it would read a false
+  a meta-spelled key — it would read a false
   nil and fail for the wrong reason."
   [node]
   (cond
@@ -1874,7 +1852,7 @@
     (vec (filter vector? (drop 2 rows)))))
 
 (deftest machine-cascade-rows-reach-react-with-distinct-keys
-  (testing "rf2-wvch — every row the cascade `for` emits reaches React
+  (testing "every row the cascade `for` emits reaches React
             carrying a key, and sibling keys are distinct. A lost key does
             not fail, it DEGRADES into index-based reconciliation, which
             paints identically and corrupts row identity only once the list
@@ -1892,32 +1870,32 @@
           "the key React receives is the one `cascade-row-view` stamps into
            its own attribute map, off the projection's 1..N `:step`"))))
 
-;; ---- rf2-h100 — the moved keys reach React on BOTH substrates -----------
+;; ---- attribute-map keys reach React on BOTH substrates -------------------
 ;;
-;; SIX `for` / `map-indexed` loops in this panel wrote their React key as
-;; `^{:key …}` reader metadata on a hiccup vector LITERAL. Reagent honours
-;; that spelling (`reagent.impl.template` reads meta first, the props map
-;; second), so those keys worked and moving them into the attribute map is a
-;; NO-OP on today's substrate. They stop working, silently, the moment this
+;; SIX `for` / `map-indexed` loops in this panel key their rows in the
+;; attribute map. Reagent would honour a `^{:key …}` reader-metadata key on a
+;; hiccup vector LITERAL too (`reagent.impl.template` reads meta first, the
+;; props map second), so the attribute-map spelling is a NO-OP on the Reagent
+;; substrate. A meta-spelled key stops working, silently, the moment this
 ;; panel renders under a Fresco boundary: `re-frame.fresco.impl.codec` takes a
 ;; literal `:key` from the ATTRIBUTE MAP for every head kind it accepts and
 ;; reads Clojure metadata nowhere, so every row would lose its key with no
 ;; error and no warning and React would reconcile by position.
 ;;
 ;; That is the OTHER half of the family from `machine-cascade-rows-…` above:
-;; there the meta rode a CALL form and reached React on no substrate; here it
-;; rode a vector literal and reached React on exactly one.
+;; there meta on a CALL form reaches React on no substrate; here meta on a
+;; vector literal reaches React on exactly one.
 ;;
 ;; Graded through BOTH doors, because only one of them can see the defect:
 ;;
-;;   - `react-key` (above) — today's substrate. Reagent reads meta AND props,
-;;     so it returns the same key either way. It is the half that pins the
-;;     carrier move as a no-op.
+;;   - `react-key` (above) — the Reagent substrate. Reagent reads meta AND
+;;     props, so it returns the same key either way. It is the half that pins
+;;     the attribute-map carrier as a no-op.
 ;;   - `fresco-key` — the codec's own hiccup→element door. It is the half
-;;     that goes RED on a revert to `^{:key …}`.
+;;     that goes RED on a `^{:key …}` spelling.
 ;;
 ;; Rows are taken from the RAW tree for the reason `raw-children` states: a
-;; rebuilt vector has its reader metadata stripped, so a reverted site would
+;; rebuilt vector has its reader metadata stripped, so a meta-spelled site would
 ;; read nil at BOTH doors and this gate would go red for the wrong reason
 ;; instead of showing the Reagent/Fresco SPLIT that names the actual fault.
 ;;
@@ -1929,7 +1907,7 @@
 ;; `machine-inspector-view-cljs-test`. It does not weaken the question:
 ;; `:key` is read off the node's OWN attribute map, so dropping the
 ;; subtree changes nothing about the answer. It is necessary because the
-;; codec lowers children EAGERLY and these subtrees still contain plain
+;; codec lowers children EAGERLY and these subtrees contain plain
 ;; functions in head position, which it refuses outright as HD-016
 ;; `:rf.error/fresco-bad-head`. That refusal is the Fresco MIGRATION's
 ;; business — those heads become views when the panel crosses — and
@@ -1937,7 +1915,7 @@
 ;;
 ;; `react-key` is deliberately NOT subvec'd: Reagent lowers children
 ;; lazily, so the whole node is safe there, and reading it whole is what
-;; keeps the DIAGNOSTIC SPLIT. On a revert to `^{:key …}` Reagent still
+;; keeps the DIAGNOSTIC SPLIT. On a `^{:key …}` spelling Reagent
 ;; reports the key (it honours meta on a vector literal) while Fresco
 ;; reports nil, and that disagreement names the fault exactly. Subvec'ing
 ;; both doors would drop the metadata before Reagent saw it, leaving two
@@ -1951,7 +1929,7 @@
 
 (defn- raw-nodes-where-testid
   "Every node under `tree` whose `:data-testid` satisfies `pred`, walked
-  WITHOUT rebuilding so a re-introduced reader key stays visible."
+  WITHOUT rebuilding so a reader-metadata key stays visible."
   [tree pred]
   (vec (filter (fn [node]
                  (and (vector? node)
@@ -1974,13 +1952,13 @@
         (str what ": every key reaches a FRESCO boundary — a meta-spelled key "
              "reads nil here. Got " (pr-str fresco)))
     (is (= reagent fresco)
-        (str what ": both substrates receive the SAME key — only the carrier "
-             "moved. Reagent " (pr-str reagent) " vs Fresco " (pr-str fresco)))
+        (str what ": both substrates receive the SAME key — the attribute map "
+             "carries it. Reagent " (pr-str reagent) " vs Fresco " (pr-str fresco)))
     (is (= (count rows) (count (distinct fresco)))
         (str what ": sibling keys are distinct. Got " (pr-str fresco)))))
 
 (deftest moved-keys-reach-react-on-both-substrates-test
-  (testing "rf2-h100 — RECORDABLE COEFFECTS leaf rows"
+  (testing "RECORDABLE COEFFECTS leaf rows"
     (let [tree (view/render-recordable-cofx-step
                  {:step :recordable-cofx :badge :RECORDABLE-COFX :step-number 2
                   :inputs [{:key :counter/delta :value (rh/summarize 1)}
@@ -1991,7 +1969,7 @@
           tree #(string/starts-with? % "rf-xray-epoch-recordable-cofx-row-"))
         3 "recordable-cofx leaf rows")))
 
-  (testing "rf2-h100 — per-action FX attribution chips"
+  (testing "per-action FX attribution chips"
     (let [tree (view/machine-cascade-mini-pipeline
                  [{:kind :action :step 2 :action-id :open-socket :phase :entry
                    :fx [[:http/get {:url "/u"}] [:db/write {}] [:log/info {}]]}]
@@ -2001,7 +1979,7 @@
           tree #(string/starts-with? % "rf-xray-epoch-machine-cascade-fx-2-"))
         3 "cascade fx chips")))
 
-  (testing "rf2-h100 — machine-cascade HISTORY restore/record lines"
+  (testing "machine-cascade HISTORY restore/record lines"
     (let [tree (view/machine-cascade-mini-pipeline
                  [{:kind :transition :step 2 :machine-id :ws/conn
                    :from-state [:idle] :to-state [:connected] :microsteps 1
@@ -2024,7 +2002,7 @@
           tree #(string/starts-with? % "rf-xray-epoch-machine-cascade-history-2-"))
         4 "cascade history lines")))
 
-  (testing "rf2-h100 — pipeline step bodies"
+  (testing "pipeline step bodies"
     (let [tree (view/pipeline-view
                  [{:step :dispatch :badge :DISPATCH :step-number 1
                    :event [:counter/inc] :source :ui :coord nil}
@@ -2039,7 +2017,7 @@
         3 "pipeline step bodies"))))
 
 (deftest subscriptions-filter-buttons-reach-react-on-both-substrates-test
-  (testing "rf2-h100 — the SUBSCRIPTIONS `[all][changed][unchanged]` bar.
+  (testing "the SUBSCRIPTIONS `[all][changed][unchanged]` bar.
             Its own frame setup, so it is its own row rather than a
             fifth `testing` block above."
     (epoch-orchestrator/install!)
@@ -2059,9 +2037,9 @@
 
 
 (deftest machine-handler-renders-cascade-view-test
-  (testing "rf2-u69j7 — machine handler renders the time-ordered
-            cascade view; legacy category-grouped sub-sections are
-            REPLACED (not augmented)"
+  (testing "machine handler renders the time-ordered
+            cascade view, with no category-grouped sub-sections
+            beside it"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
                 :fx []
@@ -2078,7 +2056,7 @@
                           :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
-          "the cascade view replaces the category-grouped layout")
+          "the cascade view renders in place of a category-grouped layout")
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
           "cascade rows container is rendered")
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
@@ -2086,12 +2064,12 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-2")))
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-3")))
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
-          "the LEGACY DATA REDUCTION sub-section is GONE")
+          "no DATA REDUCTION sub-section")
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff"))
-          "the LEGACY SNAPSHOT DIFF sub-section is GONE"))))
+          "no SNAPSHOT DIFF sub-section"))))
 
 (deftest machine-handler-cascade-renders-rows-in-trace-order-test
-  (testing "rf2-u69j7 — cascade rows render in the projection's
+  (testing "cascade rows render in the projection's
             step-ordinal order (substrate insertion order). Each
             row carries `data-cascade-kind` so a smoke test can
             assert the kind-sequence."
@@ -2115,7 +2093,7 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-4"))))))
 
 (deftest machine-handler-cascade-action-row-phase-chip-test
-  (testing "rf2-u69j7 — `:action` rows render a phase chip identifying
+  (testing "`:action` rows render a phase chip identifying
             which phase (`:exit / :transition / :entry / :always /
             :after-action / :initial-entry / :destroy-exit`) fired."
     (let [step {:step :handler :badge :HANDLER :step-number 3
@@ -2130,7 +2108,7 @@
           "phase chip is stamped with the row's phase keyword"))))
 
 (deftest machine-handler-cascade-action-fx-attribution-test
-  (testing "rf2-u69j7 — per-action fx attribution renders inline on
+  (testing "per-action fx attribution renders inline on
             the `:action` row (no separate FX sub-section). The same
             data the FX step's `:attributed-to` chip surfaces, but
             in the action's own row so the operator reads
@@ -2151,7 +2129,7 @@
           "first emitted fx-id is rendered as a chip"))))
 
 (deftest machine-handler-cascade-action-data-diff-test
-  (testing "rf2-5hjb5 — an `:action` row that returned a `:data` write
+  (testing "an `:action` row that returned a `:data` write
             renders the DATA Δ slot (the action's returned data, diffed
             against its input data via the edn-inspector). The slot is
             present whenever `:data-write` is present, carrying both the
@@ -2172,9 +2150,9 @@
           "DATA Δ slot renders for a data-mutating action")
       (is (some? (find-by-testid tree-m "rf-xray-epoch-machine-cascade-outcome-1"))
           "the action outcome-details block is present")
-      ;; rf2-fg3c4 — the `↳ data Δ` arrow reads LIGHT GREY (`:text-tertiary`),
+      ;; The `↳ data Δ` arrow reads LIGHT GREY (`:text-tertiary`),
       ;; the SAME token the NORMAL (non-machine) handler's `↳ :db diff` arrow
-      ;; (`sub-header-glyph-style`) uses — NOT the prior `:success` green. The
+      ;; (`sub-header-glyph-style`) uses — NOT the `:success` green. The
       ;; arrow is the first `↳` span inside the data-write subtree.
       (let [data-write-node (find-by-testid tree-m "rf-xray-epoch-machine-cascade-data-write-1")
             arrow-colour    (some-> data-write-node
@@ -2187,21 +2165,21 @@
         (is (= (:text-tertiary tokens/tokens) arrow-colour)
             "the machine EVENT HANDLER `data Δ` arrow uses the light-grey
              `:text-tertiary` token (matching the normal-handler arrow), not
-             the `:success` green (rf2-fg3c4)")
-        ;; rf2-32kyr — the redundant "data Δ" CAPTION text is GONE; the row
-        ;; reads `<arrow> <edn-inspector value>`. The arrow (`↳`) and the
-        ;; inspector value remain; only the label literal is removed.
+             the `:success` green")
+        ;; The row reads `<arrow> <edn-inspector value>`: the arrow (`↳`) and
+        ;; the inspector value, with no "data Δ" CAPTION text, which would
+        ;; be redundant beside the arrow.
         (is (some? data-write-node)
-            "rf2-32kyr — the data-delta row (arrow + edn-inspector value) still renders")
+            "the data-delta row (arrow + edn-inspector value) renders")
         (is (some #(and (vector? %) (= "↳" (last %)))
                   (tree-seq vector? seq data-write-node))
-            "rf2-32kyr — the `↳` arrow is KEPT")
+            "the `↳` arrow renders")
         (is (not (string/includes? (or (text-content data-write-node) "") "data Δ"))
-            "rf2-32kyr — the redundant `data Δ` caption text is REMOVED")
-        ;; The edn-inspector value still renders (the written `:opened-count`).
+            "no redundant `data Δ` caption text")
+        ;; The edn-inspector value renders (the written `:opened-count`).
         (is (string/includes? (or (text-content data-write-node) "") "opened-count")
-            "rf2-32kyr — the edn-inspector value is KEPT (arrow → value, no caption)")))
-    ;; A no-op exit action whose :data is unchanged still surfaces the
+            "the edn-inspector value renders (arrow → value, no caption)")))
+    ;; A no-op exit action whose :data is unchanged surfaces the
     ;; slot (the inspector renders the value with no delta).
     (let [noop {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
@@ -2217,16 +2195,16 @@
           "DATA Δ slot renders even for a no-op action (no delta shown)"))))
 
 (deftest machine-handler-cascade-step-content-aligns-to-badge-left-test
-  (testing "rf2-4b6im — ALL of a step's subsequent content (source body +
+  (testing "ALL of a step's subsequent content (source body +
             outcome details, which carries the data-delta + fx sub-lines)
             left-aligns to the BADGE left edge, NOT the `[N]` ordinal right
             edge. The badge sits one header `:gap` (6px) past the ordinal
             chip's outer width; the ordinal carries `box-sizing: border-box`
             so its rendered width is EXACTLY its declared `min-width` (21px),
             making the `padding-left` (21 + 6 = 27px) land on the badge left
-            edge. Corrects rf2-2hj0h item 3, whose 27px constant under-shot
-            because the content-box ordinal rendered ~29px wide (the bug Mike
-            observed: content hung at the ordinal right edge)."
+            edge. A content-box ordinal would render ~29px wide, so the 27px
+            constant would under-shoot and content would hang at the ordinal
+            right edge."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
                 :fx []
@@ -2257,10 +2235,10 @@
            badge left edge as the source body — one left-aligned column"))))
 
 (deftest machine-handler-cascade-transition-row-renders-states-test
-  (testing "rf2-ge6uj ISSUE 3 — the `:transition` row collapses to ONE
+  (testing "the `:transition` row is ONE
             prominent row: the verb-link carries `<from> → <to>` as the
-            focal point; the prior repetitive `transition` detail block
-            (`state <from> → <to>` line + echoed `event [...]`) is GONE."
+            focal point, with no repetitive `transition` detail block
+            (`state <from> → <to>` line + echoed `event [...]`)."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :ws/start
                 :fx []
@@ -2278,27 +2256,27 @@
       ;; The prominent verb-link IS the state change (the focal point).
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-verb-link-1"))
           "the prominent transition verb-link renders the state change")
-      ;; The repetitive detail block is REMOVED (rf2-ge6uj ISSUE 3).
+      ;; No repetitive detail block.
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-transition-1"))
-          "the redundant transition detail block is gone")
+          "no redundant transition detail block")
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-from-to-1"))
-          "the redundant `state from → to` line is gone")
+          "no redundant `state from → to` line")
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-trigger-1"))
-          "the redundant echoed `event [...]` line is gone"))))
+          "no redundant echoed `event [...]` line"))))
 
-;; ---- rf2-yueoa — the no-op renders `[TRANSITION] [NO OP] staying in {state}` --
-;; (rf2-iu3no established the collapsed verb + dropped ordinal + no outcome
-;; chip; rf2-yueoa adds the `[TRANSITION]` badge in FRONT of a `[NO OP]`
-;; qualifier — a no-op is still the transition STEP of the cascade.)
+;; ---- the no-op renders `[TRANSITION] [NO OP] staying in {state}` ---------
+;; (a collapsed verb, no ordinal and no outcome chip, with the `[TRANSITION]`
+;; badge in FRONT of a `[NO OP]` qualifier — a no-op occupies the transition
+;; STEP of the cascade.)
 
 (deftest machine-handler-cascade-no-op-row-collapses-test
-  (testing "rf2-yueoa — a SINGLE-machine genuine no-op row renders the SAME
+  (testing "a SINGLE-machine genuine no-op row renders the SAME
             `[TRANSITION]` badge a real transition uses, PLUS a `[NO OP]`
             QUALIFIER chip (NOT a bare NO-OP row), then the verb `staying in
-            {state}`: `[TRANSITION] [NO OP] staying in {state}`. The
-            unexplained leading ordinal '1' stays dropped (rf2-iu3no) and the
-            row carries NO outcome chip. RED before rf2-yueoa: a bare `[NO OP]`
-            kind pill with no `[TRANSITION]` badge."
+            {state}`: `[TRANSITION] [NO OP] staying in {state}`. The row
+            carries no leading ordinal '1' (it would be unexplained) and NO
+            outcome chip. A bare `[NO OP]` kind pill with no `[TRANSITION]`
+            badge fails it."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
                 :fx []
@@ -2311,9 +2289,9 @@
           tree (view/render-handler-step step)]
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
           "the no-op row renders")
-      ;; rf2-yueoa — the `[TRANSITION]` badge renders exactly as a real
-      ;; transition's, using the SAME kind-pill (testid + magenta hue). It is
-      ;; NOT a bare `[NO OP]` kind pill any more.
+      ;; The `[TRANSITION]` badge renders exactly as a real
+      ;; transition's, using the SAME kind-pill (testid + magenta hue), NOT a
+      ;; bare `[NO OP]` kind pill.
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-kind-transition"))
           "the no-op row carries the `[TRANSITION]` badge a real transition uses")
       (is (= "TRANSITION"
@@ -2322,19 +2300,19 @@
       (is (= (badge/cascade-kind-colour :transition)
              (:background (style-of tree "rf-xray-epoch-machine-cascade-kind-transition")))
           "the `[TRANSITION]` badge paints the SAME magenta hue a real transition does")
-      ;; rf2-yueoa — the `[NO OP]` QUALIFIER chip follows the badge (a separate
+      ;; The `[NO OP]` QUALIFIER chip follows the badge (a separate
       ;; testid from a kind pill — it is a qualifier on the transition step,
-      ;; not the row's kind). The old bare `…-kind-no-op` pill is GONE.
+      ;; not the row's kind). There is no bare `…-kind-no-op` pill.
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-kind-no-op"))
-          "no bare `[NO OP]` kind pill — the qualifier carries the NO-OP marker now")
+          "no bare `[NO OP]` kind pill — the qualifier carries the NO-OP marker")
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
           "the `[NO OP]` qualifier chip is present")
       (is (= "NO OP"
              (text-of tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
           "the qualifier reads `NO OP` (space, not hyphen)")
-      ;; The stray leading "1" ordinal is SUPPRESSED for the no-op (rf2-iu3no).
+      ;; The stray leading "1" ordinal is SUPPRESSED for the no-op.
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-ordinal-1"))
-          "the unexplained leading '1' ordinal is dropped for the no-op row")
+          "no unexplained leading '1' ordinal on the no-op row")
       ;; The verb is the consequence only: `staying in :alarming`.
       (let [verb (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1")]
         (is (= "staying in :alarming" verb)
@@ -2342,12 +2320,12 @@
         (is (not (string/includes? verb "no-op"))   "no 'no-op —' prefix")
         (is (not (string/includes? verb "received")) "no 'received [event]' echo")
         (is (not (string/includes? verb "transition")) "no ', no transition' suffix"))
-      ;; NO outcome chip — the prior `ignored` chip is gone.
+      ;; NO outcome chip — no `ignored` chip.
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ignored"))
           "no `ignored` outcome chip — the badge + qualifier + verb are the whole notice"))))
 
 (deftest machine-handler-cascade-multi-machine-no-op-keeps-name-test
-  (testing "rf2-iu3no — when >1 machine is in play (broadcast / parallel
+  (testing "when >1 machine is in play (broadcast / parallel
             regions), the no-op row keeps the machine name so the operator
             can tell WHICH machine stood pat: `[NO OP] :hvac/controller
             staying in {state}`."
@@ -2365,16 +2343,15 @@
              (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1"))
           "the multi-machine no-op verb leads with the machine name"))))
 
-;; ---- rf2-wwc3j — inline-fn / transition source-body rendering ------------
+;; ---- inline-fn / transition source-body rendering ------------------------
 
 (deftest cascade-row-renders-inline-entry-source-body-test
-  (testing "rf2-wwc3j — an inline-fn `:entry` action row renders an
+  (testing "an inline-fn `:entry` action row renders an
             always-visible source-body the same way named actions do.
             The fixture registers a machine with an inline `:entry`
             slot; the row carries the resolved fn object as :action-id
             (substrate behaviour); the view layer pulls the spec value
-            at `[:states <s> :entry]` via the rf2-wwc3j source-key
-            extension."
+            at `[:states <s> :entry]` via the row's source-key."
     (rf/with-frame :rf/default
       (let [inline-fn (fn [_ctx] {})]
         (rf/reg-event :rf2-wwc3j.view/inline-entry
@@ -2399,10 +2376,10 @@
           (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
               "inline-entry row renders")
           (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
-              "source slot is present (rf2-wwc3j inline-fn surfacing)"))))))
+              "source slot is present (inline-fn surfacing)"))))))
 
 (deftest cascade-row-renders-inline-guard-source-body-test
-  (testing "rf2-wwc3j — an inline-fn `:guard` row renders a source-body
+  (testing "an inline-fn `:guard` row renders a source-body
             slot from the spec value at `[:states <s> :on <ev> :guard]`."
     (rf/with-frame :rf/default
       (let [inline-guard (fn [_ctx] true)]
@@ -2429,18 +2406,17 @@
               "inline-guard source slot is present"))))))
 
 (deftest cascade-row-source-not-captured-links-to-machine-def-test
-  (testing "rf2-iwy0c part B — a cascade row whose source form could
+  (testing "a cascade row whose source form could
             NOT be resolved (no captured source string + no spec value
             at the source-key) renders a click-to-source LINK to the
-            machine DEFINITION (the reg-machine CALL-SITE coord,
-            part B-i) instead of the dead `<source not yet captured>`
+            machine DEFINITION (the reg-machine CALL-SITE coord)
+            rather than a dead `<source not yet captured>`
             literal. The link carries the machine id as its label.
 
             Reg-event-* macros stamp the call-site `:file`/`:line` at
             expansion time, so a machine registered here resolves the
-            call-site coord under `:event` (part B-i implemented now);
-            the defmachine-definition coord (part B-ii) DEGRADES to the
-            call-site until rf2-gwj8l stamps it."
+            call-site coord under `:event`; no defmachine-definition
+            coord is stamped, so the link resolves the call-site."
     (rf/with-frame :rf/default
       (rf/reg-event :rf2-iwy0c.view/no-source-machine
                        {:rf/machine? true
@@ -2470,17 +2446,16 @@
         ;; coord present (macro-stamped call-site) → clickable <button>,
         ;; NOT a dead <span> placeholder.
         (is (= :button (first link))
-            "the link is a clickable button (call-site coord resolved — part B-i)")
+            "the link is a clickable button (call-site coord resolved)")
         (is (some? (:on-click (rf.test-helpers/attrs link)))
             "clicking dispatches open-in-editor")))))
 
 (deftest cascade-row-source-not-captured-degrades-without-coord-test
-  (testing "rf2-iwy0c part B — when even the call-site coord is absent
+  (testing "when even the call-site coord is absent
             (production elision / unregistered machine), the machine-def
             link DEGRADES GRACEFULLY to a plain non-clickable label
             rather than a dead button — the link STRUCTURE lights up
-            once a coord (call-site today, defmachine via rf2-gwj8l
-            later) is available."
+            once a call-site coord is available."
     (rf/with-frame :rf/default
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine
@@ -2497,14 +2472,14 @@
             tree (view/render-handler-step step)
             link (find-by-testid tree "rf-xray-epoch-machine-cascade-source-missing-1")]
         (is (some? link)
-            "the source-missing slot still renders the (degraded) label")
+            "the source-missing slot renders the (degraded) label")
         (is (= :span (first link))
             "no coord → plain non-clickable span (graceful degrade)")))))
 
 (deftest cascade-transition-row-renders-logical-state-delta-test
-  (testing "rf2-iwy0c part A — a `:transition` row renders the
+  (testing "a `:transition` row renders the
             LOGICAL-STATE DELTA box (`{:state :tags}` before → after)
-            as its source body, REPLACING the rf2-wwc3j transition-map
+            as its source body, NOT the transition-map
             literal. The box reads the row's `:before` / `:after`
             snapshots (the substrate emits the full snapshot on either
             side of the `:rf.machine/transition` trace)."
@@ -2535,7 +2510,7 @@
           "the logical-state delta box renders for a state-changing transition"))))
 
 (deftest cascade-transition-row-elides-delta-on-self-transition-test
-  (testing "rf2-iwy0c part A — a SELF / internal transition where
+  (testing "a SELF / internal transition where
             neither `:state` nor `:tags` changed (only `:data` or
             `:rf/*` bookkeeping moved) ELIDES the delta box entirely —
             the box would otherwise show a no-op logical diff."
@@ -2560,18 +2535,18 @@
                           :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
-          "the transition row still renders (verb headline present)")
+          "the transition row renders (verb headline present)")
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-source-1"))
           "the delta box is elided — no logical-state change")
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-transition-delta-1"))
           "no delta box on a self/internal transition"))))
 
 (deftest cascade-transition-row-renders-parallel-state-delta-test
-  (testing "rf2-iwy0c part A — a PARALLEL machine's transition renders
+  (testing "a PARALLEL machine's transition renders
             the structured region→state map + the tag-union shift in
             the delta box (the single-region headline verb cannot
-            convey which region moved). The box scope stays `{:state
-            :tags}` — `:data` is excluded."
+            convey which region moved). The box scope is `{:state
+            :tags}` here too — `:data` is excluded."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine
                 :event-id :crossing/light
@@ -2594,7 +2569,7 @@
           "the delta box renders the structured parallel-state diff"))))
 
 (deftest cascade-timer-row-elides-source-body-test
-  (testing "rf2-wwc3j — `:timer` rows render the click-to-source coord
+  (testing "`:timer` rows render the click-to-source coord
             chip on the verb but elide the inline source-body slot
             (the parent state-node value is too verbose to render
             verbatim)."
@@ -2619,7 +2594,7 @@
             "timer rows have no inline source-body slot")))))
 
 (deftest machine-handler-cascade-empty-state-test
-  (testing "rf2-u69j7 — empty cascade (no machine cascade events fired)
+  (testing "empty cascade (no machine cascade events fired)
             renders the empty-state line rather than blowing up. This
             is defensive — production machine handlers always emit at
             least one `:rf.machine/transition`."
@@ -2633,9 +2608,9 @@
           "empty-state line renders"))))
 
 (deftest vanilla-db-only-cascade-unchanged-by-rf2-u69j7-test
-  (testing "rf2-u69j7 acceptance #4 — a vanilla `:db-only` cascade
-            renders the existing pipeline UNCHANGED (the redesign is
-            machine-specific; non-machine rendering must not regress)."
+  (testing "a vanilla `:db-only` cascade
+            renders the standard pipeline with no machine block (the
+            cascade view is machine-specific)."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :db-only :event-id :counter/inc
                 :fx [] :machine nil}
@@ -2648,7 +2623,7 @@
           "no cascade view on a non-machine handler"))))
 
 (deftest duration-chip-renders-long-step-warning-test
-  (testing "rf2-nqt3d — a step header's duration chip paints warning
+  (testing "a step header's duration chip paints warning
             chrome when over 16ms"
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
@@ -2660,7 +2635,7 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-duration"))
           "the bare-duration testid is NOT stamped on long steps")))
 
-  (testing "rf2-nqt3d — a fast step keeps the bare-duration chip"
+  (testing "a fast step keeps the bare-duration chip"
     (let [tree (view/render-handler-step
                  {:step :handler :badge :HANDLER :step-number 3
                   :flavour :db-only :event-id :rf.test.epoch.view/fast-handler
@@ -2670,7 +2645,7 @@
           "fast step keeps the standard duration testid"))))
 
 (deftest handler-body-renders-captured-source-test
-  (testing "rf2-66wis — when the registrar carries an
+  (testing "when the registrar carries an
             `:rf.handler/source`, the body renders it via the
             canonical `edn/code-block` widget"
     (rf/with-frame :rf/default
@@ -2687,20 +2662,17 @@
         (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
             "no placeholder when source IS captured")))))
 
-;; ---- rf2-ehd8v — HANDLER source `file:line + [open]` ----------------
+;; ---- HANDLER source `file:line + [open]` ---------------------------------
 ;;
-;; The dedicated `file:line + [open]` sub-header alongside the SOURCE
-;; label was retired in commit ee9def224. The HANDLER step's verb
-;; itself (e.g. `reg-event`) IS now the click-to-source hyperlink
-;; (`handler-verb-link` in view.cljs); the source-block leads with the
-;; code body directly. The positive-affordance test
-;; (`handler-source-renders-file-line-and-open-affordance-test`) is
-;; retired; the absence-of-affordance check below stays — those
-;; testids are still nil now (no affordance means nothing rendered),
-;; which is still the correct contract.
+;; There is no dedicated `file:line + [open]` sub-header alongside the
+;; SOURCE label: the HANDLER step's verb
+;; itself (e.g. `reg-event`) IS the click-to-source hyperlink
+;; (`handler-verb-link` in view.cljs), and the source-block leads with the
+;; code body directly. The absence-of-affordance check below pins that
+;; those testids are nil (no affordance means nothing rendered).
 
 (deftest handler-source-elides-affordance-when-coord-absent-test
-  (testing "rf2-ehd8v — when no handler-meta is registered for the
+  (testing "when no handler-meta is registered for the
             event-id (unregistered handler, production builds with
             goog.DEBUG=false where source-coords elide), the
             file:line text + [open] button simply do not render. No
@@ -2721,7 +2693,7 @@
         (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-open"))
             "no [open] affordance without a coord")))))
 
-;; Machine-handler path is exercised by the rf2-66wis tests above; the
+;; Machine-handler path is exercised by the handler-source tests above; the
 ;; coord-resolution is a shared helper (`coord-from-handler-meta`) so the
 ;; event-handler test above pins the affordance shape, and the machine
 ;; render-path inherits it without a separate test. Reg-machine stamps
@@ -2730,7 +2702,7 @@
 ;; lookup walks the `:machine` slot, so a tight machine-path coord test
 ;; would have to re-create both halves of that side-table dance.
 
-;; ---- rf2-8w8er (subsumes rf2-nszcv) — values route through edn-inspector
+;; ---- values route through edn-inspector ----------------------------------
 
 (defn- mini-mounts
   "Return every `[ei/mini ...]` hiccup mount under `tree`. Anchors on
@@ -2746,41 +2718,34 @@
   (find-by-testid-prefix tree "rf-xray-edn-inspector"))
 
 (deftest dispatch-event-routes-through-edn-inspector-test
-  (testing "rf2-8w8er (subsumes rf2-nszcv) — DISPATCH event vector
+  (testing "DISPATCH event vector
             renders through the canonical edn-inspector widget so the
             event-id keyword + args paint with the canonical
             syntax-token chrome (keyword magenta, number orange,
-            string green). Pre-fix the body was plain text via
-            `format/event-display`."
+            string green)."
     (let [tree (view/render-dispatch-step
                  {:step :dispatch :badge :DISPATCH :step-number 1
                   :event [:counter/inc 7 "x"] :source :ui :coord nil})]
       (is (pos? (count (ei-mounts tree)))
           "the DISPATCH body mounts at least one edn-inspector widget"))))
 
-;; rf2-vv3m6 (2026-05-29) — `handler-db-diff-values-route-through-mini-
-;; test` retired. The test pinned the prior `:diff` mode rendering
-;; (`db-diff-line` painting before / after through `ei/mini`) which
-;; required `[:rf.xray.epoch/set-db-diff-mode :diff]` to take effect.
-;; FULL+DIFF is the single rendering post-rf2-vv3m6; the HANDLER `:db`
-;; sub-section mounts edn-inspector, not mini.
+;; There is no `:diff` value mode (`db-diff-line` painting before / after
+;; through `ei/mini`): FULL+DIFF is the single rendering, and the HANDLER
+;; `:db` sub-section mounts edn-inspector, not mini.
 
 (deftest handler-fx-section-routes-through-edn-inspector-test
-  (testing "rf2-p2zy0 — HANDLER step's `:fx` section (the canonical
+  (testing "HANDLER step's `:fx` section (the canonical
             vector-of-vectors off the handler's return map) renders
-            fully expanded via the edn-inspector widget. Per Mike
-            pair-debug 2026-05-27 the per-fx-row list shape is
-            retired in favour of a single edn-inspector mount.
+            fully expanded via a single edn-inspector mount, not a
+            per-fx-row list.
 
-            rf2-qlvui — the companion `other` section (the return map
-            minus `:db` and `:fx`) is NOT covered here, because it no
-            longer exists. It went with the projection slot that fed
-            it (rf2-m2ye2, ed3755729c). The assertions that used to pin
-            it passed on an `:other-effects` fixture the projection
-            cannot produce — the fixture-versus-producer drift that kept
-            the dead path looking alive — so they are deleted rather
-            than re-pointed. `projection_cljs_test.cljc` carries the
-            regression pin that keeps the producer from returning."
+            There is no companion `other` section (the return map
+            minus `:db` and `:fx`), because the projection has no slot
+            to feed one. An assertion on an `:other-effects` fixture
+            the projection cannot produce would pass while pinning a
+            dead path — fixture-versus-producer drift — so none is
+            made here. `projection_cljs_test.cljc` pins that the
+            handler row carries no `:other-effects` slot."
     (let [tree    (view/render-handler-step
                     {:step :handler :badge :HANDLER :step-number 3
                      :flavour :effectful :event-id :do/it
@@ -2792,21 +2757,20 @@
           "the :fx section mounts when fx-vec is non-empty")
       (is (pos? (count (ei-mounts fx-sec)))
           "the :fx section mounts an edn-inspector")
-      ;; rf2-5t8y8 — sub-header carries an at-a-glance entry-count chip
-      ;; on `:fx` (was lost during the rf2-p2zy0 edn-inspector
-      ;; migration).
+      ;; The sub-header carries an at-a-glance entry-count chip
+      ;; on `:fx`.
       (is (string/includes? (text-content fx-sec) "2 entries")
           "the :fx sub-header carries the entry-count chip"))))
 
 (deftest side-effects-fx-args-route-through-edn-inspector-test
-  (testing "rf2-ef2hy — an :fx ledger row's args render through the
+  (testing "an :fx ledger row's args render through the
             edn-inspector widget with `:default-expanded-depth 1`. Top-
             level map keys are visible inline; nested maps collapse to a
             clickable chevron so the operator can drill into a complex
             args map.
 
             Sibling rendering for the HANDLER step's `:fx` section
-            (rf2-p2zy0) uses the same widget with depth 16 (full-
+            uses the same widget with depth 16 (full-
             expand). Both share the widget; per-call-site depth
             reflects each section's role."
     (let [tree (view/render-side-effects-step
@@ -2818,17 +2782,15 @@
           "the fx row's args mount an edn-inspector"))))
 
 (deftest subscriptions-row-mounts-mini-for-sub-vec-test
-  (testing "rf2-8w8er — SUBSCRIPTIONS row renders the sub-vec column
+  (testing "SUBSCRIPTIONS row renders the sub-vec column
             through `ei/mini` so the table cell lights up with
             syntax-token chrome rather than plain `pr-str`.
 
-            rf2-vv3m6 (2026-05-29) — the prior `[diff][full][full+diff]`
-            value-mode toggle retired. The before / after leaf-scalar
-            FULL+DIFF branch (rf2-fyd8u) routes `before` + `after`
+            There is no `[diff][full][full+diff]` value-mode toggle.
+            The before / after leaf-scalar
+            FULL+DIFF branch routes `before` + `after`
             through `mini` for the syntax-token chrome; the sub-vec
-            column always uses `mini`. The original three-mode triad
-            assertion (`:diff` mode mini mounts) retired with the
-            toggle."
+            column always uses `mini`."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -2846,7 +2808,7 @@
             "row mounts ≥3 mini-renders (sub-vec + before + after)")))))
 
 (deftest views-subs-read-routes-through-mini-test
-  (testing "rf2-8w8er — VIEWS row's subs-read list renders each sub-id
+  (testing "VIEWS row's subs-read list renders each sub-id
             through `ei/mini` so the consumed-subs column reads as
             syntax-highlighted tokens rather than plain `pr-str`."
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -2860,22 +2822,20 @@
       (is (>= (count (mini-mounts subs)) 2)
           "subs-read column mounts one mini per consumed sub"))))
 
-;; `app-db-diff-values-route-through-mini-test` +
-;; `child-dispatches-event-routes-through-mini-test` retired with the
-;; APP-DB DIFF + CHILD-DISPATCHES steps (rf2-zkiu5 / rf2-btt0s). HANDLER
-;; `:db` diff mini-mount coverage rides on
-;; `handler-db-diff-values-route-through-mini-test` above; dispatch-family
-;; fx coverage rides on the FX step's `ei/mini` mounts.
+;; There is no APP-DB DIFF or CHILD-DISPATCHES step to route through
+;; `ei/mini` (see the cascade-step section above). The HANDLER `:db`
+;; sub-section mounts edn-inspector, and dispatch-family fx entries render
+;; as SIDE EFFECTS ledger rows, whose args route through edn-inspector.
 
-;; ---- rf2-atqkg — pipeline-view realises step-seq inside reactive scope ---
+;; ---- pipeline-view realises step-seq inside reactive scope ---------------
 ;;
-;; Regression test for the reactive-tracking failure the bead pins: the
+;; Pins against a reactive-tracking failure: the
 ;; pipeline's `(for [[i step] …] …)` MUST be realised inside
 ;; `pipeline-view`'s return value so that any `@(rf/subscribe …)` deref
 ;; reached transitively by `render-step` (e.g. `handler-db-diff-block`'s
 ;; `:rf.xray/selected-epoch-record` read, or
 ;; `render-subscriptions-step`'s `:rf.xray.epoch/subs-filter-mode`
-;; read — rf2-tzmmf) fires while the
+;; read) fires while the
 ;; parent reg-view's reactive scope is still live. A lazy seq realised
 ;; AFTER the reg-view returns
 ;; leaves the derefs OUTSIDE that scope — Reagent doesn't watch them,
@@ -2916,11 +2876,11 @@
       (last inner))))
 
 (deftest pipeline-view-realises-step-seq-rf2-atqkg-test
-  (testing "rf2-atqkg — `pipeline-view` returns its step-seq REALISED
+  (testing "`pipeline-view` returns its step-seq REALISED
             so descendant sub derefs (e.g. handler-db-diff-block's
             `:rf.xray/selected-epoch-record` read) fire during the
             parent reg-view's reactive scope. An unrealised lazy seq
-            at this position is the rf2-atqkg bug shape (Reagent emits
+            at this position is the bug shape (Reagent emits
             the `Reactive deref not supported in lazy seq, it should
             be wrapped in doall` console warning at render time)."
     (let [steps [{:step :dispatch :badge :DISPATCH :step-number 1
@@ -2945,22 +2905,22 @@
                  (str "LazySeq, realized?=" (realized? step-seq))
                  :else (str "type=" (type step-seq))))))))
 
-;; ---- rf2-zmkqi — SUBSCRIPTIONS value cell smoke -------------------------
+;; ---- SUBSCRIPTIONS value cell smoke --------------------------------------
 
 (deftest subscriptions-full-diff-cell-renders-without-inline-style-test
-  (testing "rf2-zmkqi — the value-cell renders without crashing under
-            the single FULL+DIFF rendering. Smoke check that the post-
-            hoist ns-level style def (`subs-value-cell-fill-style`)
+  (testing "the value-cell renders without crashing under
+            the single FULL+DIFF rendering. Smoke check that the
+            ns-level style def (`subs-value-cell-fill-style`)
             lands a valid `:style` map under the wrapping div.
 
-            rf2-vv3m6 (2026-05-29) — the prior `:full` mode branch was
-            retired; FULL+DIFF is the single rendering. The container-
-            path mount uses the hoisted wrapper style."
+            There is no `:full` mode branch; FULL+DIFF is the single
+            rendering. The container-path mount uses the ns-level
+            wrapper style."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [;; Container-path rows so the wrapper div is mounted (leaf-
-            ;; scalar paths take a different shape via rf2-fyd8u).
+            ;; scalar paths take a different shape).
             step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/state :sub-vec [:counter/state]
                           :inputs nil :changed? true :first-run? false
@@ -2969,22 +2929,22 @@
             tree (view/render-subscriptions-step step)
             row  (find-by-testid tree "rf-xray-epoch-sub-row-0")]
         (is (some? row)
-            "row renders cleanly under FULL+DIFF (hoisted style applied)")))))
+            "row renders cleanly under FULL+DIFF (ns-level style applied)")))))
 
-;; ---- rf2-fyd8u — SUBSCRIPTIONS FULL+DIFF leaf-scalar annotation ---------
+;; ---- SUBSCRIPTIONS FULL+DIFF leaf-scalar annotation ----------------------
 
 (deftest subscriptions-full-diff-leaf-scalar-value-change-renders-was-annotation-test
-  (testing "rf2-fyd8u — under the single FULL+DIFF rendering, a
+  (testing "under the single FULL+DIFF rendering, a
             leaf-scalar sub with `:value-changed? true` and
             `:first-run? false` renders value + inline `← was <prev>`
             annotation. The annotation chip carries
             `:data-rf-diff-annotation \"subs-was\"`; the row-level
             wrapper carries `:data-rf-xray-subs-leaf \"changed\"`.
-            Acceptance criterion 3 — pins
+            Pins
             `0 → 1`, `\"even\" → \"odd\"`, `nil → 1779972561856`.
 
-            rf2-vv3m6 (2026-05-29) — the prior `:full+diff` dispatch
-            bootstrap is gone; FULL+DIFF is the single rendering."
+            FULL+DIFF is the single rendering, so no value mode is
+            dispatched first."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -3000,7 +2960,7 @@
               "row mounts the leaf-changed wrapper (not the container path)")
           (is (some? (find-by-attr tree :data-rf-diff-annotation "subs-was"))
               "row carries the `← was <prev>` annotation chip")
-          ;; rf2-o77z4 — the changed leaf now mirrors app-db's :modified
+          ;; The changed leaf mirrors app-db's :modified
           ;; leaf chrome: yellow stripe + wash (via the reserved
           ;; `:diff-modified-*` token family) + leading `~` glyph.
           (let [style (-> leaf second :style)]
@@ -3042,7 +3002,7 @@
               tree (view/render-subscriptions-step step)
               leaf (find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")]
           (is (some? leaf)
-              "nil-prev leaf still mounts the leaf-changed wrapper (the
+              "nil-prev leaf mounts the leaf-changed wrapper too (the
                `:first-run? false` discriminator is the gate, NOT
                `(some? before)`)")
           (let [txt (text-content leaf)]
@@ -3052,11 +3012,10 @@
                 "prev nil renders as `nil` syntax token in the annotation")))))))
 
 (deftest subscriptions-full-diff-leaf-scalar-unchanged-renders-current-value-test
-  (testing "rf2-o77z4 (Mike pair 2026-06-01) — REVERSES the prior
-            2026-05-27 'empty cell = unchanged indicator' design. An
-            UNCHANGED leaf-scalar row (`:changed? false`) now renders the
+  (testing "an UNCHANGED leaf-scalar row (`:changed? false`) renders the
             CURRENT value with NO diff chrome — no `← was` annotation, no
-            stripe / wash, no glyph. Density is handled by the
+            stripe / wash, no glyph — rather than an empty cell. Density
+            is handled by the
             all/changed/unchanged filter, so showing the value here is
             fine. The wrapper carries `:data-rf-xray-subs-leaf
             \"unchanged\"` and is NOT the changed / added wrapper."
@@ -3094,13 +3053,12 @@
               "no `← was` annotation on an unchanged row"))))))
 
 (deftest subscriptions-full-diff-leaf-scalar-first-run-renders-added-chrome-test
-  (testing "rf2-fyd8u — under the single FULL+DIFF rendering, a
+  (testing "under the single FULL+DIFF rendering, a
             leaf-scalar sub with `:value-changed? true` and
             `:first-run? true` (the run that created the cache slot —
             a freshly-mounted view deref'd a sub that wasn't cached
             this frame) renders `:added` chrome (green stripe /
-            leading `+` glyph / wash) with NO `← was` annotation.
-            Acceptance criterion 4."
+            leading `+` glyph / wash) with NO `← was` annotation."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -3127,12 +3085,12 @@
               "after value renders alongside the glyph"))))))
 
 (deftest subscriptions-full-diff-container-keeps-inspector-mount-test
-  (testing "rf2-fyd8u — for CONTAINER sub returns (map / vector / set)
-            the value-cell keeps the existing edn-inspector mount with
+  (testing "for CONTAINER sub returns (map / vector / set)
+            the value-cell keeps the edn-inspector mount with
             `:before` threaded — the inspector's R1-R8 grammar paints
             child-level annotations there. The leaf-scalar wrappers
             (`-leaf-changed-` / `-leaf-added-`) are NOT mounted on the
-            container path. Acceptance criterion 7."
+            container path."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -3156,7 +3114,7 @@
               tree (view/render-subscriptions-step step)]
           (is (nil? (find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")))
           (is (nil? (find-by-testid tree "rf-xray-epoch-subs-leaf-added-0")))))
-      (testing "first-run? on a CONTAINER → still container path
+      (testing "first-run? on a CONTAINER → container path too
                 (the `:added` chrome only applies to leaf-scalars; the
                 inspector's own R1 paints `:added` for whole-subtree
                 containers)"
@@ -3171,18 +3129,15 @@
                wrapper — inspector handles the whole-subtree :added at
                the row level"))))))
 
-;; rf2-vv3m6 (2026-05-29) — `subscriptions-diff-mode-unchanged-by-leaf-
-;; branch-test` retired. The test pinned the `:diff` and `:full` mode
-;; branches of `subs-value-cell` to verify the rf2-fyd8u leaf-scalar
-;; chrome appeared only under `:full+diff`. Those two branches retired
-;; with the mode toggle; FULL+DIFF is the single rendering, so the
+;; There are no `:diff` or `:full` mode branches of `subs-value-cell`:
+;; FULL+DIFF is the single rendering, so the
 ;; leaf-scalar chrome paints unconditionally for changed leaf-scalar
 ;; rows (covered by the two leaf-* tests above).
 
-;; ---- rf2-1cc03 — `caused by <event-id>` chrome on SUBSCRIPTIONS rows ----
+;; ---- `caused by <event-id>` chrome on SUBSCRIPTIONS rows -----------------
 
 (deftest subscriptions-row-renders-cause-event-id-chrome-test
-  (testing "rf2-1cc03 — SUBSCRIPTIONS row with `:cause-event-id` mounts a
+  (testing "SUBSCRIPTIONS row with `:cause-event-id` mounts a
             `caused by <event-id>` chrome in the sub cell, attributing
             the recompute to the dispatching cascade. The event-id
             routes through `ei/mini` so the keyword paints with the
@@ -3211,7 +3166,7 @@
              (keyword magenta) — parity with the sibling sub-id")))))
 
 (deftest subscriptions-row-omits-cause-event-id-chrome-when-absent-test
-  (testing "rf2-1cc03 — SUBSCRIPTIONS row WITHOUT `:cause-event-id`
+  (testing "SUBSCRIPTIONS row WITHOUT `:cause-event-id`
             (a sub that ran outside any in-flight cascade — the
             attribution slot is absent at the projection level)
             does NOT mount the chrome. The cell stays at the
@@ -3228,18 +3183,18 @@
         (is (nil? (find-by-testid tree "rf-xray-epoch-sub-row-cause-event-id-0"))
             "no chrome mount when `:cause-event-id` is absent
              (parity with the OMIT-vs-nil semantics on the projection)")
-        ;; the sub-id span itself still renders — the absence is only
-        ;; the secondary attribution line.
+        ;; the sub-id span itself renders — only the secondary
+        ;; attribution line is absent.
         (is (some? (find-by-testid tree "rf-xray-epoch-sub-row-0"))
-            "the row itself still mounts; only the chrome is omitted")))))
+            "the row itself mounts; only the chrome is omitted")))))
 
-;; ---- rf2-309cy — VIEWS row view-id keyword routes through ei/mini ------
+;; ---- VIEWS row view-id keyword routes through ei/mini --------------------
 
 (deftest views-row-view-id-routes-through-mini-test
-  (testing "rf2-309cy — VIEWS row's view-id keyword routes through
+  (testing "VIEWS row's view-id keyword routes through
             `ei/mini` so the cell carries the syntax-highlighted
             keyword chrome (same data-shape as the sibling subs-read
-            cell, rf2-8w8er intent). The id cell must mount at least
+            cell). The id cell must mount at least
             one mini widget alongside the view-id text."
     (let [step {:step :views :badge :VIEWS :step-number 6
                 :rows [{:view-id :app.counter/Counter
@@ -3249,14 +3204,14 @@
       (is (some? id-cell)
           "the view-id span renders")
       (is (pos? (count (mini-mounts id-cell)))
-          "the view-id cell mounts at least one ei/mini widget (no longer plain text)")
+          "the view-id cell mounts at least one ei/mini widget (not plain text)")
       (is (string/includes? (text-content id-cell) ":app.counter/Counter")
-          "the keyword text is still present (mini renders the colon + ns + name)"))))
+          "the keyword text is present (mini renders the colon + ns + name)"))))
 
 (deftest unmounted-views-row-view-id-routes-through-mini-test
-  (testing "rf2-309cy / rf2-3b9w4 — an UNMOUNTED row's view-id keyword
+  (testing "an UNMOUNTED row's view-id keyword
             routes through `ei/mini` (parity with the re-render row's
-            chrome). Post-rf2-3b9w4 the unmounted row lives in the SAME
+            chrome). The unmounted row lives in the SAME
             views-table (unified `rf-xray-epoch-view-row-id-<i>` testid),
             not a separate sub-section."
     (let [step {:step :views :badge :VIEWS :step-number 6
@@ -3272,15 +3227,13 @@
       (is (pos? (count (mini-mounts id-cell)))
           "the unmounted view-id cell mounts at least one ei/mini widget"))))
 
-;; ---- rf2-d2akf — DISPOSED sub row carries click-to-source ---------------
+;; ---- DISPOSED sub row carries click-to-source ----------------------------
 
 (deftest disposed-sub-row-mounts-coord-chip-when-meta-resolves-test
-  (testing "rf2-d2akf — the DISPOSED sub row routes through
+  (testing "the DISPOSED sub row routes through
             `coord-chip/coord-chip` to surface a click-to-source
             affordance for the reg-sub (parity with the sibling
-            unmounted-views row). Pre-fix the disposed cell had NO
-            coord-chip affordance at all — the call-site itself was
-            missing.
+            unmounted-views row).
 
             The chip's <button> mounts when `(rf/handler-meta {:source :store :kind :sub :id sub-id})` resolves a `:file` coord. CLJS macro-form
             `reg-sub` captures `:file`/`:line` at the test call-site
@@ -3305,8 +3258,8 @@
         ;; If the test harness captured a source coord, the chip
         ;; mounts. Otherwise the call-site still fired but produced
         ;; nil (graceful degrade per coord-chip's contract). Either
-        ;; way the bug-fix is in place — pre-fix there was no chip
-        ;; call-site at all. Pin both branches.
+        ;; way the disposed row reaches the chip call-site. Pin both
+        ;; branches.
         (let [chip (find-by-testid tree
                      "rf-xray-epoch-sub-disposed-row-coord-0")]
           (if meta-resolved?
@@ -3321,13 +3274,13 @@
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
 (deftest active-sub-row-mounts-coord-chip-when-meta-resolves-test
-  (testing "rf2-aesni — the ACTIVE SUBSCRIPTIONS row's sub-name cell
+  (testing "the ACTIVE SUBSCRIPTIONS row's sub-name cell
             routes through `coord-chip/coord-chip` to surface a
             functional click-to-source affordance for the reg-sub
-            (parity with the disposed-subs + views rows). Pre-fix the
-            active cell rendered a bare decorative `(icons/external-
-            link)` glyph with no coord resolution + no click handler —
-            it never dispatched `:rf.xray/open-in-editor`.
+            (parity with the disposed-subs + views rows), not a bare
+            decorative `(icons/external-link)` glyph with no coord
+            resolution + no click handler, which would never dispatch
+            `:rf.xray/open-in-editor`.
 
             The chip's <button> mounts when `(rf/handler-meta {:source :store :kind :sub :id sub-id})` resolves a `:file` coord. CLJS macro-form `reg-sub`
             captures `:file`/`:line` at the test call-site so the
@@ -3341,7 +3294,7 @@
                                             :file string?))
             ;; A parameterized sub-vec drives the LABEL but the coord
             ;; lookup must still key off `sub-id` (the registration
-            ;; keyword) — that is the rf2-aesni invariant.
+            ;; keyword) — that is the invariant this pins.
             step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :rf.aesni-fixture/items
                           :sub-vec [:rf.aesni-fixture/items 5]
@@ -3363,15 +3316,15 @@
                 "coord chip drops out cleanly when no coord is resolvable")))))))
 
 (deftest parameterized-sub-inputs-resolve-by-sub-id-test
-  (testing "rf2-87c8a — the SUBSCRIPTIONS `inputs` column resolves a
+  (testing "the SUBSCRIPTIONS `inputs` column resolves a
             row's input by the SUB-ID off `:input-signals`, NOT the
             cascade attribution the row's `:inputs` slot carries. A
             PARAMETERIZED derived sub (`[:chain-root>? 5]`, declared
-            `{:inputs [[:chain-root]]}`) ran fresh with NO cascade attribution
-            (`:inputs nil`); pre-fix the cell fell through to the
-            `app-db` fallback and mislabeled it a Level-1 reader. The
-            fix keys `:input-signals` by the sub-id (first element of
-            the query-v), so the cell reads its REAL input sub
+            `{:inputs [[:chain-root]]}`) that runs fresh with NO cascade
+            attribution (`:inputs nil`) would otherwise fall through to
+            the `app-db` fallback and be mislabeled a Level-1 reader.
+            Keying `:input-signals` by the sub-id (first element of
+            the query-v) lets the cell read its REAL input sub
             (`chain-root`) regardless of cascade state."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -3398,7 +3351,7 @@
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{;; the PARAMETERIZED instance — arg in the
                           ;; query-v, `:inputs nil` (ran with no cascade
-                          ;; attribution, the rf2-87c8a symptom).
+                          ;; attribution).
                           :sub-id  :rf.87c8a-fixture/chain-root>?
                           :sub-vec [:rf.87c8a-fixture/chain-root>? 5]
                           :inputs  nil :changed? true :before 1 :after 2}
@@ -3429,10 +3382,10 @@
              sub (chain-root), resolved by sub-id from `:input-signals`")
         (is (not (string/includes? param-inputs "app-db"))
             "the parameterized sub's INPUTS cell is NOT the `app-db`
-             fallback — the rf2-87c8a bug (a fresh-run derived sub
-             mislabeled as a Level-1 reader)")
+             fallback — that would mislabel a fresh-run derived sub
+             as a Level-1 reader")
         (is (string/includes? l1-inputs "app-db")
-            "a genuine Level-1 reader (empty `:input-signals`) still
+            "a genuine Level-1 reader (empty `:input-signals`)
              shows the `app-db` source label in its INPUTS cell")))))
 
 (defn- inputs-cell
@@ -3443,7 +3396,7 @@
       (find-by-attr :data-rf-xray-resizable-col "inputs")))
 
 (deftest parametric-cause-sub-renders-as-one-query-vector-test
-  (testing "rf2-nlraqq — a PARAMETERIZED cause-sub (`[:article/by-id :a1]`)
+  (testing "a PARAMETERIZED cause-sub (`[:article/by-id :a1]`)
             renders as ONE input query-vector in the SUBSCRIPTIONS inputs
             cell, NOT split into `:article/by-id` + `:a1` as two inputs.
 
@@ -3453,7 +3406,7 @@
             element is one whole input. The sub-id here is UNREGISTERED, so
             `sub-input-signals` returns nil and the cell falls through to
             the row's realized `:inputs` slot — exactly the cascade-
-            attributed path the bug mis-iterated."
+            attributed path an element-wise iteration would split."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -3478,14 +3431,14 @@
         (is (some? cell) "the parameterized sub's inputs cell renders")
         (is (= 1 (count minis))
             "the parameterized cause-sub renders as exactly ONE input
-             query-vector — pre-fix the unwrapped `[:article/by-id :a1]`
-             was iterated element-wise into TWO mini tokens")
+             query-vector — iterating the unwrapped `[:article/by-id :a1]`
+             element-wise would yield TWO mini tokens")
         (is (contains? titles "[:article/by-id :a1]")
             "the single input is the WHOLE query-vector `[:article/by-id :a1]`")
         (is (not (string/includes? (text-content cell) "app-db"))
             "not the Level-1 `app-db` fallback — a cascade-attributed input"))))
-  (testing "rf2-nlraqq — a multi-edge `:rf.sub/inputs` set (NOT cause-sub;
-            already a vector OF query-vectors) still renders one mini per
+  (testing "a multi-edge `:rf.sub/inputs` set (NOT cause-sub;
+            already a vector OF query-vectors) renders one mini per
             edge — the wrap is cause-sub-only and does not double-wrap"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -3503,13 +3456,13 @@
             "two realized input edges → two input query-vectors rendered")))))
 
 (deftest first-run-container-sub-renders-added-chrome-test
-  (testing "rf2-kp7bw — a first-run subscription whose value is a
+  (testing "a first-run subscription whose value is a
             CONTAINER (map / vector / set) renders the whole subtree
-            with `:added` chrome, parity with scalar first-runs. Pre-fix
-            the container branch consulted only `:before` (nil on a
-            first run), so the inspector mounted plain — no diff mode,
+            with `:added` chrome, parity with scalar first-runs. A
+            container branch consulting only `:before` (nil on a
+            first run) would mount the inspector plain — no diff mode,
             no added signal — while every scalar sibling painted
-            `:added`. The fix passes `:added? true` to the edn-inspector
+            `:added`; the branch passes `:added? true` to the edn-inspector
             (edn-inspector §10.0.13), which synthesises the prior side
             as the engine's missing-sentinel so the projection
             classifies the root op as `:added`.
@@ -3545,8 +3498,8 @@
              `::missing` keyword, which would project `:modified`)")))))
 
 (deftest first-run-empty-container-sub-still-added-test
-  (testing "rf2-kp7bw — the inverse case: a first-run sub returning an
-            EMPTY container (`{}` / `[]`) still reads `:added`. The
+  (testing "the inverse case: a first-run sub returning an
+            EMPTY container (`{}` / `[]`) reads `:added` too. The
             engine reports root `:added` for `(missing-sentinel, {})`."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -3559,17 +3512,18 @@
             tree (view/render-subscriptions-step step)
             added-nodes (find-all-by-attr tree :data-rf-diff-op "added")]
         (is (pos? (count added-nodes))
-            "a first-run EMPTY container still reads `:added`")))))
+            "a first-run EMPTY container reads `:added` too")))))
 
-;; ---- rf2-zuh3p — SUBSCRIPTIONS per-row violations attach inline ----------
+;; ---- SUBSCRIPTIONS per-row violations attach inline ----------------------
 
 (deftest subscriptions-row-violations-attach-inline-test
-  (testing "rf2-zuh3p — when a SUBSCRIPTIONS row carries a per-row
+  (testing "when a SUBSCRIPTIONS row carries a per-row
             :violations slot (the :sub-return boundary failure attached
             by the projection), the schema-violation sub-block renders
             INLINE — directly underneath its owning row, via the
             resizable-table's :row-extras slot — not pooled at the foot
-            of the step. Mirrors the FX step's `fx-row-with-violations`."
+            of the step. Mirrors the SIDE EFFECTS ledger's
+            `fx-row-with-violations`."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -3584,7 +3538,7 @@
                   :changed 1 :unchanged 0}
             tree (view/render-subscriptions-step step)
             ;; The inline-attached block uses the step-key
-            ;; `:sub-row-<sub-name>` (rf2-xgeag namer).
+            ;; `:sub-row-<sub-name>`.
             inline-block (find-by-testid
                            tree "rf-xray-epoch-violations-sub-row-preview")]
         (is (some? inline-block)
@@ -3592,10 +3546,10 @@
             sub-row-<name> step-key suffix)")))))
 
 (deftest subscriptions-step-level-violations-still-at-foot-test
-  (testing "rf2-zuh3p — step-level (non-row-attributed) violations
-            still ride at the foot of the SUBSCRIPTIONS step via the
-            `violation-blocks :subscriptions` call (parity preserved —
-            only per-row violations moved to inline)."
+  (testing "step-level (non-row-attributed) violations
+            ride at the foot of the SUBSCRIPTIONS step via the
+            `violation-blocks :subscriptions` call (only per-row
+            violations attach inline)."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
@@ -3607,22 +3561,22 @@
             tree (view/render-subscriptions-step step)
             foot (find-by-testid tree "rf-xray-epoch-violations-subscriptions")]
         (is (some? foot)
-            "step-level violations still render at the foot of the
-            SUBSCRIPTIONS step (no behaviour change for non-row
-            attribution)")))))
+            "step-level violations render at the foot of the
+            SUBSCRIPTIONS step (non-row attribution does not attach
+            inline)")))))
 
-;; ---- rf2-zn6u5 — schema-violation Malli expected/got decomposition -------
+;; ---- schema-violation Malli expected/got decomposition -------------------
 ;;
-;; rf2-plev0 — the pure `decode-malli-explain` transform + its unit tests
-;; moved to the projection layer (`projection.cljc` /
+;; The pure `decode-malli-explain` transform + its unit tests
+;; live in the projection layer (`projection.cljc` /
 ;; `projection_cljs_test.cljc`). The projection's `schema-violation-row`
-;; now stamps the decoded summary onto each row's `:decoded` slot. The
+;; stamps the decoded summary onto each row's `:decoded` slot. The
 ;; view-render tests below exercise `violation-block` against PROJECTED
 ;; rows — they stamp `:decoded` via `proj/decode-malli-explain` so the
 ;; fixture mirrors the real projected shape the view consumes.
 
 (deftest violation-block-renders-expected-got-summary-test
-  (testing "rf2-zn6u5 / rf2-plev0 — when a violation's row carries the
+  (testing "when a violation's row carries the
             projected `:decoded` summary (from a canonical Malli
             `:explain`), the sub-block paints `expected:` + `got:`
             summary lines via `ei/mini` ABOVE the full humanized
@@ -3653,7 +3607,7 @@
             "got line renders the failing value via ei/mini")))))
 
 (deftest violation-block-multi-error-paints-more-chip-test
-  (testing "rf2-zn6u5 / rf2-plev0 — multi-error explain maps surface a
+  (testing "multi-error explain maps surface a
             `(+N more)` chip below the first-error summary (read off the
             projected `:decoded` summary)."
     (let [explain {:schema [:map [:a :int] [:b :int]]
@@ -3672,9 +3626,9 @@
           "the multi-error chip reads `(+N more)` where N = errors-count - 1"))))
 
 (deftest violation-block-non-malli-skips-decoded-block-test
-  (testing "rf2-zn6u5 — when :explain is absent or non-Malli, the
+  (testing "when :explain is absent or non-Malli, the
             decomposed sub-block drops out cleanly (no row appears)
-            and the humanized explain map still renders."
+            and the humanized explain map renders."
     (let [row {:where :app-db
                :failing-id :no-explain/case
                :explain-humanized {:errors ["something"]}}
@@ -3683,16 +3637,16 @@
       (is (nil? (find-by-testid tree (str base "-decoded")))
           "decoded sub-block is omitted when no Malli explain is present")
       (is (some? (find-by-testid tree (str base "-explain")))
-          "the humanized explain still renders (unchanged behaviour)"))))
+          "the humanized explain renders"))))
 
-;; ---- rf2-ahhgn — inline exception card + per-step ✓/✗ + outcome banner ---
+;; ---- inline exception card + per-step ✓/✗ + outcome banner ---------------
 
 (deftest error-block-renders-message-and-title-test
-  (testing "rf2-ahhgn / rf2-wnvid / rf2-oqi0c / rf2-s6oqd — `error-block`
+  (testing "`error-block`
             renders the red card with the 'Exception Thrown' title + the
-            verbatim message. rf2-oqi0c — the category-reason boilerplate
-            headline is DROPPED (redundant with the position + heading);
-            rf2-s6oqd — the 'Rolled back' chip gates on `:db-rolled-back?`
+            verbatim message, with no category-reason boilerplate
+            headline (redundant with the position + heading); the
+            'Rolled back' chip gates on `:db-rolled-back?`
             (an ACTUAL rollback), not mere commit."
     (let [row  {:operation :rf.error/handler-exception
                 :message "standard-epochs / handler (intentional — exercises the handler error surface)"
@@ -3709,20 +3663,20 @@
       (is (string/includes? (text-of tree (str base "-recovery")) "Rolled back")
           ":no-recovery + db-rolled-back? → 'Rolled back' chip")
       (is (nil? (find-by-testid tree (str base "-headline")))
-          "rf2-oqi0c — the category-reason boilerplate headline is dropped")
+          "no category-reason boilerplate headline")
       (is (string/includes? (text-of tree (str base "-message"))
                             "intentional")
           "the verbatim ex-info message renders")
       (is (nil? (find-by-testid tree (str base "-source")))
-          "rf2-wnvid — the redundant jump-to-source link is dropped"))))
+          "no redundant jump-to-source link"))))
 
 (deftest error-block-styling-is-token-driven-test
-  (testing "rf2-ynvv7 / rf2-ksl5m / rf2-iizhe — the sophistication pass
-            styles the exception card from the design tokens (a very-light-
+  (testing "the exception card is
+            styled from the design tokens (a very-light-
             red `:error`-over-`:bg-2` fill, the solid `:error` left rail,
             and the `:error`-accent glyph), NOT hardcoded hex. The card
             sits in the design system like the surrounding step cards, and
-            is FLAT (no `:box-shadow` elevation — rf2-iizhe) to match the
+            is FLAT (no `:box-shadow` elevation) to match the
             flat Xray UI."
     (let [error-var (:error tokens/tokens)        ; "var(--rf-xray-error)"
           bg-2-var  (:bg-2  tokens/tokens)         ; "var(--rf-xray-bg-2)"
@@ -3740,22 +3694,22 @@
                                  first
                                  rf.test-helpers/attrs
                                  :style))]
-      ;; The card root reads a VERY-LIGHT-RED fill (rf2-ksl5m — `:error`
+      ;; The card root reads a VERY-LIGHT-RED fill (`:error`
       ;; mixed lightly over the raised `:bg-2` surface) + a token-keyed
       ;; left rail — all from tokens.
       (is (and (string/includes? (str (:background card)) error-var)
                (string/includes? (str (:background card)) bg-2-var))
           "card surface is a token-driven `:error`-over-`:bg-2` tint
-           (rf2-ksl5m — very-light-red, not the saturated rose wash)")
+           (very-light-red, not a saturated rose wash)")
       (is (string/includes? (str (:border-left card)) error-var)
           "the severity left rail is the `:error` token")
       (is (string/includes? (str (:border card)) error-var)
           "the hairline border is a `with-alpha` mix over the `:error` token")
-      ;; rf2-iizhe — the card is FLAT: NO box-shadow elevation, matching
+      ;; The card is FLAT: NO box-shadow elevation, matching
       ;; every other (flat) Xray surface. The fill + hairline + left rail
-      ;; + glyph still carry the error severity without a lift.
+      ;; + glyph carry the error severity without a lift.
       (is (nil? (:box-shadow card))
-          "the card is FLAT — no box-shadow elevation (rf2-iizhe)")
+          "the card is FLAT — no box-shadow elevation")
       ;; No hardcoded hex anywhere in the card root style (token discipline).
       (is (not (re-find #"#[0-9A-Fa-f]{3,8}" (pr-str card)))
           "no hardcoded hex in the exception-card root style")
@@ -3764,10 +3718,10 @@
           "the ✗ glyph is the `:error` accent token"))))
 
 (deftest error-block-no-spurious-rolled-back-test
-  (testing "rf2-s6oqd — a POST-COMMIT fx throw leaves the :db committed but
+  (testing "a POST-COMMIT fx throw leaves the :db committed but
             NOTHING rolled back (`:db-rolled-back?` false), so the 'Rolled
             back' chip is OMITTED even though :recovery :no-recovery was
-            stamped. (`:db-committed?` was the wrong gate — fx are
+            stamped. (`:db-committed?` would be the wrong gate — fx are
             best-effort post-commit.)"
     (let [tree (view/error-block :side-effects 0
                  {:operation :rf.error/fx-handler-exception
@@ -3778,7 +3732,7 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-error-side-effects-0-recovery"))
           "post-commit fx throw → no spurious 'Rolled back' chip")))
 
-  (testing "rf2-wnvid / rf2-s6oqd — a pre-commit handler throw also rolls
+  (testing "a pre-commit handler throw also rolls
             nothing back (`:db-rolled-back?` false) → no chip"
     (let [tree (view/error-block :handler 0
                  {:operation :rf.error/handler-exception
@@ -3789,7 +3743,7 @@
           "no rollback → no spurious 'Rolled back' chip"))))
 
 (deftest error-block-collapsible-details-test
-  (testing "rf2-wnvid — when the exception carries a stack / ex-data, the
+  (testing "when the exception carries a stack / ex-data, the
             card renders a collapsed `<details>` disclosure rather than an
             always-expanded block."
     (let [ex   (ex-info "boom" {:surface :handler-exception})
@@ -3802,15 +3756,15 @@
           "the collapsible details disclosure renders")
       (is (some? (find-by-testid tree (str base "-ex-data")))
           "ex-data is surfaced inside the disclosure")))
-  (testing "rf2-wnvid — no exception object → no details disclosure"
+  (testing "no exception object → no details disclosure"
     (let [tree (view/error-block :handler 0
                  {:operation :rf.error/handler-exception :message "boom"})]
       (is (nil? (find-by-testid tree "rf-xray-epoch-error-handler-0-details"))
           "nothing to disclose → the details element is omitted"))))
 
 (deftest error-block-drops-boilerplate-headline-test
-  (testing "rf2-oqi0c — the category-reason boilerplate headline is dropped
-            for EVERY exception kind (handler / fx / interceptor); the card
+  (testing "EVERY exception kind (handler / fx / interceptor) renders
+            without the category-reason boilerplate headline; the card
             shows ONLY the 'Exception Thrown' heading + the real message"
     (doseq [op [:rf.error/handler-exception
                 :rf.error/fx-handler-exception
@@ -3825,17 +3779,17 @@
             (str "no boilerplate headline for " op))
         (is (string/includes? (text-of tree "rf-xray-epoch-error-fx-0-message")
                               "the real ex-info message")
-            "the real message is still surfaced")))))
+            "the real message is surfaced")))))
 
 (deftest error-blocks-nil-safe-test
-  (testing "rf2-ahhgn — `error-blocks` renders nothing for empty / nil"
+  (testing "`error-blocks` renders nothing for empty / nil"
     (is (nil? (view/error-blocks :handler nil)))
     (is (nil? (view/error-blocks :handler [])))))
 
 (deftest handler-step-renders-inline-exception-test
-  (testing "rf2-ahhgn — the live button-15 shape: a handler step carrying
-            an attached exception renders the inline error card AND the
-            header's ✗ status glyph"
+  (testing "the live button-15 shape: a handler step carrying
+            an attached exception renders the inline error card, with no
+            per-stage status glyph"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :db-only :event-id :standard-epochs/throw-handler
                 :fx [] :machine nil
@@ -3851,31 +3805,31 @@
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-handler-0-message")
             "boom in handler"))
-      ;; rf2-9wq0v — the per-stage ✗ glyph retired; the inline exception
+      ;; There is no per-stage ✗ glyph; the inline exception
       ;; card under the step is the sole inline failure signal.
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-status"))
-          "no per-stage status glyph (retired rf2-9wq0v)"))))
+          "no per-stage status glyph"))))
 
 (deftest handler-step-clean-renders-no-error-card-test
-  (testing "rf2-ahhgn · rf2-9wq0v — a clean handler step renders no error
-            card and no per-stage status glyph (the glyph retired rf2-9wq0v
-            — a clean stage is silent now, not an all-tick row)"
+  (testing "a clean handler step renders no error
+            card and no per-stage status glyph (a clean stage is silent,
+            not an all-tick row)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :db-only :event-id :counter/inc
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-status"))
-          "no per-stage status glyph on a clean step (retired rf2-9wq0v)")
+          "no per-stage status glyph on a clean step")
       (is (nil? (find-by-testid tree "rf-xray-epoch-errors-handler"))
           "a clean step renders no error block"))))
 
 (deftest side-effects-renders-per-row-exception-test
-  (testing "rf2-ahhgn / rf2-kt6js / rf2-j630b — a throwing fx (button-18)
+  (testing "a throwing fx (button-18)
             surfaces its message on its OWN ledger row via
-            `fx-row-with-violations` — the per-row expand is wnvid's
+            `fx-row-with-violations` — the per-row expand is the
             shared 'Exception Thrown' card. The per-row testids use the
             GLOBAL flat-row index, so the :fx row after the :db row lands
-            at index 1 (compatible with yz57h's exception-under-step)."
+            at index 1 (compatible with the per-step exception placement)."
     (let [step (side-effects-step
                  [{:fx-id :db :status :ok}
                   {:fx-id :standard-epochs/ping :status :error
@@ -3890,21 +3844,20 @@
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-fx-row-1-0-title")
             "Exception Thrown")
-          "the per-row expand is the shared 'Exception Thrown' card (wnvid)")
+          "the per-row expand is the shared 'Exception Thrown' card")
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-fx-row-1-0-message")
             "fx threw on purpose")))))
 
-;; `outcome-banner-renders-on-error-test` retired (rf2-wnvid) — the
-;; top-of-pipeline "This event failed" banner is gone; the failure
-;; surfaces inline via the failing step's 'Exception Thrown' card (the
-;; per-stage ✗ glyph itself retired in rf2-9wq0v). The panel root still
+;; There is no top-of-pipeline "This event failed" banner: the failure
+;; surfaces inline via the failing step's 'Exception Thrown' card (and
+;; there is no per-stage ✗ glyph either). The panel root
 ;; stamps `data-rf-xray-outcome`.
 
-;; ---- rf2-yz57h — per-step exception placement + INTERCEPTOR + skipped ---
+;; ---- per-step exception placement + INTERCEPTOR + skipped ----------------
 
 (deftest coeffect-step-renders-exception-card-test
-  (testing "rf2-yz57h — a coeffect-injection exception renders the shared
+  (testing "a coeffect-injection exception renders the shared
             'Exception Thrown' card UNDER the COEFFECT step (button-19)"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -3925,19 +3878,19 @@
       (is (nil? (find-by-testid
                   tree "rf-xray-epoch-coeffect-value-throwing-cofx"))
           "no `+ [id] value` diff line — the injector threw before resolving")
-      ;; the shared 'Exception Thrown' card (wnvid) is under the COEFFECT step
+      ;; the shared 'Exception Thrown' card is under the COEFFECT step
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-coeffect-0-title")
             "Exception Thrown"))
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-coeffect-0-message")
             "cofx threw on purpose"))
-      ;; rf2-9wq0v — no per-stage glyph; the exception card is the signal.
+      ;; No per-stage glyph; the exception card is the signal.
       (is (nil? (find-by-testid tree "rf-xray-epoch-coeffect-throwing-cofx-status"))
-          "no per-stage status glyph (retired rf2-9wq0v)"))))
+          "no per-stage status glyph"))))
 
 (deftest interceptor-step-renders-row-and-exception-card-test
-  (testing "rf2-yz57h — the INTERCEPTOR step renders the throwing
+  (testing "the INTERCEPTOR step renders the throwing
             interceptor's id + phase chip + the shared 'Exception Thrown'
             card (button-17 :before)"
     (epoch-orchestrator/install!)
@@ -3963,13 +3916,13 @@
       (is (string/includes?
             (text-of tree "rf-xray-epoch-interceptor-phase-0")
             "BEFORE")
-          "the :before phase badge renders UPPERCASE (rf2-rvxem grey badge)")
-      ;; rf2-oqi0c — the "N interceptor(s) threw" summary verb is DROPPED;
-      ;; the per-row id + the inline card carry the signal. rf2-rvxem —
-      ;; the INTERCEPTOR badge now leads the inline row itself (the
-      ;; step-level `step-header` is gone), so no summary verb can exist.
+          "the :before phase badge renders UPPERCASE (grey badge)")
+      ;; There is no "N interceptor(s) threw" summary verb;
+      ;; the per-row id + the inline card carry the signal. The
+      ;; INTERCEPTOR badge leads the inline row itself (there is no
+      ;; step-level `step-header`), so no summary verb can exist.
       (is (nil? (find-by-testid tree "rf-xray-epoch-interceptor-header-verb"))
-          "no redundant 'N interceptor threw' summary verb (rf2-rvxem: no step-header)")
+          "no redundant 'N interceptor threw' summary verb (no step-header)")
       ;; the shared card under the interceptor row
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-interceptor-row-0-0-title")
@@ -3981,7 +3934,7 @@
         (is (some? badge-pill) "the INTERCEPTOR badge pill renders")
         (is (= "INTERCEPTOR" (badge/label :INTERCEPTOR))))))
 
-  (testing "rf2-yz57h — an :after interceptor row carries the :after chip"
+  (testing "an :after interceptor row carries the :after chip"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
@@ -3997,13 +3950,13 @@
             (text-of tree "rf-xray-epoch-interceptor-phase-0")
             "AFTER"))))
 
-  (testing "rf2-siheh / rf2-rvxem — the INTERCEPTOR row's go-to-source glyph
+  (testing "the INTERCEPTOR row's go-to-source glyph
             rides the shared `coord-link` (`name ↗`, ONE glyph) when the row
             carries a `:coord`: the id slot renders as a clickable
-            `<button>`. rf2-rvxem FIX 1 — the redundant standalone
-            `coord-chip` (a SECOND ↗) is GONE; `coord-link` already emits
+            `<button>`. There is no redundant standalone
+            `coord-chip` (a SECOND ↗); `coord-link` emits
             the single glyph. The interceptor value carries an explicit
-            `:source-coord` (rf2-siheh); the projection lifts it onto the row."
+            `:source-coord`; the projection lifts it onto the row."
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
@@ -4024,9 +3977,9 @@
       (is (fn? (:on-click (second id-node)))
           "the coord-link button carries the open-in-editor on-click")
       (is (nil? (find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
-          "rf2-rvxem FIX 1 — NO redundant standalone coord-chip (one glyph only)")))
+          "NO redundant standalone coord-chip (one glyph only)")))
 
-  (testing "rf2-siheh / rf2-rvxem — NO coord on the row → the id degrades to
+  (testing "NO coord on the row → the id degrades to
             a plain `<span>` (the ->interceptor* fn / framework-interceptor
             path; no clickable affordance, no glyph)"
     (epoch-orchestrator/install!)
@@ -4042,14 +3995,14 @@
                               :failing-id :app/auth :phase :before}]}))
           id-node (find-by-testid tree "rf-xray-epoch-interceptor-id-0")]
       (is (some? (find-by-testid tree "rf-xray-epoch-interceptor-row-0"))
-          "the interceptor row still renders")
+          "the interceptor row renders")
       (is (= :span (first id-node))
           "no coord → the id is a plain span (no clickable go-to-source)")
       (is (nil? (find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
           "no coord → no go-to-source glyph"))))
 
 (deftest interceptors-step-renders-authored-chain-test
-  (testing "rf2-se9a9t / EP-0022 §11 — the INTERCEPTORS step (plural) renders
+  (testing "EP-0022 §11 — the INTERCEPTORS step (plural) renders
             the AUTHORED chain: each ref's id + hook shape + coord link"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
@@ -4090,7 +4043,7 @@
             (text-of tree "rf-xray-epoch-interceptors-hook-1") "factory")
           "the :factory descriptor reports as a factory")))
 
-  (testing "rf2-se9a9t — an UNREGISTERED ref renders a MISSING badge"
+  (testing "an UNREGISTERED ref renders a MISSING badge"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
@@ -4103,7 +4056,7 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-interceptors-missing-0"))
           "the missing-ref badge renders for an unregistered ref")))
 
-  (testing "rf2-se9a9t — :interceptors is wired into render-step (the dispatcher)"
+  (testing ":interceptors is wired into render-step (the dispatcher)"
     (epoch-orchestrator/install!)
     (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
@@ -4116,7 +4069,7 @@
           "render-step dispatches :interceptors to render-interceptors-step"))))
 
 (deftest handler-skipped-renders-as-skipped-not-no-db-test
-  (testing "rf2-yz57h — a HANDLER marked :skipped (upstream :before-chain
+  (testing "a HANDLER marked :skipped (upstream :before-chain
             threw) renders the SKIPPED body, NOT the misleading
             'returned no :db' (buttons 17/19)"
     (epoch-orchestrator/install!)
@@ -4137,13 +4090,13 @@
             (text-of tree "rf-xray-epoch-handler-skipped")
             "did not run")
           "the body states the handler did not run")
-      ;; rf2-9wq0v — the SKIPPED body itself carries the 'did not run'
-      ;; signal; the per-stage ⊘ glyph retired.
+      ;; The SKIPPED body itself carries the 'did not run'
+      ;; signal; there is no per-stage ⊘ glyph.
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-status"))
-          "no per-stage status glyph (retired rf2-9wq0v)"))))
+          "no per-stage status glyph"))))
 
 (deftest side-effects-skipped-renders-as-skipped-test
-  (testing "rf2-yz57h — a SIDE EFFECTS step marked :skipped renders the
+  (testing "a SIDE EFFECTS step marked :skipped renders the
             SKIPPED body, not the ledger"
     (let [tree (view/render-side-effects-step
                  {:step :side-effects :badge :SIDE-EFFECTS :step-number 5
@@ -4151,12 +4104,12 @@
                   :status :skipped})]
       (is (some? (find-by-testid tree "rf-xray-epoch-side-effects-skipped"))
           "the SKIPPED body renders")
-      ;; rf2-9wq0v — no per-stage glyph; the SKIPPED body is the signal.
+      ;; No per-stage glyph; the SKIPPED body is the signal.
       (is (nil? (find-by-testid tree "rf-xray-epoch-side-effects-status"))
-          "no per-stage status glyph (retired rf2-9wq0v)"))))
+          "no per-stage status glyph"))))
 
 (deftest halted-depth-record-renders-the-halt-test
-  (testing "rf2-3x7nj.22.1 — a `:halted-depth` record (the event a drain-depth
+  (testing "a `:halted-depth` record (the event a drain-depth
             halt refused) renders its halt card under DISPATCH and a HANDLER
             body worded for the halt, never 'returned no :db'"
     (epoch-orchestrator/install!)
@@ -4192,7 +4145,7 @@
           "the 'no :db (returned no :db)' placeholder does NOT render"))))
 
 (deftest halted-destroy-record-renders-a-discarded-result-test
-  (testing "rf2-v6ftp — a `:halted-destroy` record whose handler destroyed its
+  (testing "a `:halted-destroy` record whose handler destroyed its
             own frame renders no card, a HANDLER that RAN, and a :db line
             saying its result was discarded, never 'returned no :db'. The
             record is the producer's shape for that case (see
@@ -4232,14 +4185,14 @@
           "the 'returned no :db' placeholder does NOT render"))))
 
 ;; ============================================================================
-;; rf2-4yrr6 — :fuse/box exception-row decluttering (parts 2-4)
+;; :fuse/box exception rows — HANDLER source, threw signal, attribution
 ;; ============================================================================
 
-;; ---- Part 2 — machine HANDLER step renders NO source block ----------------
+;; ---- machine HANDLER step renders NO source block ------------------------
 
 (deftest machine-handler-renders-no-source-block-test
-  (testing "rf2-4yrr6 — a MACHINE handler's HANDLER step renders NO source
-            block (the spec dump under the HANDLER step was noise; the
+  (testing "a MACHINE handler's HANDLER step renders NO source
+            block (a spec dump under the HANDLER step would be noise; the
             machine CASCADE below is the content and the defmachine /
             reg-machine value is reachable via the verb / machine-def
             source-links). It returns nil — NOT the '<source not yet
@@ -4260,28 +4213,27 @@
           "NO machine SPEC dump under the HANDLER step")
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
           "and NOT the '<source not yet captured>' placeholder either")
-      ;; The machine cascade IS the content — confirm it still renders.
+      ;; The machine cascade IS the content — confirm it renders.
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
           "the machine CASCADE remains the HANDLER step's content")))
-  (testing "rf2-4yrr6 — an EVENT handler (non-machine) STILL renders its
+  (testing "an EVENT handler (non-machine) DOES render its
             source block (only the machine case is suppressed)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :db-only :event-id :no-such/handler
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-source"))
-          "the event handler's source block is unaffected"))))
+          "the event handler's source block renders"))))
 
-;; ---- rf2-akvfe — EVENT HANDLER rework (supersedes the rf2-52u5n up/down block)
+;; ---- EVENT HANDLER: cascade rows, no up/down block ------------------------
 ;;
-;; The rf2-52u5n STRUCTURED-cascade view tests (the up/down `↑ exit / • action
-;; / ↓ entry` block rendered INSIDE the transition row, testids
-;; `…-machine-cascade-structured-…`) are RETIRED with `structured-cascade-body`.
-;; That block duplicated the EVENT HANDLER cascade pipeline; the tests below
-;; assert the rework: (1) the block is GONE, the entry-action's data-delta
+;; There is no STRUCTURED up/down `↑ exit / • action / ↓ entry` block INSIDE
+;; the transition row (testids `…-machine-cascade-structured-…`): it would
+;; duplicate the EVENT HANDLER cascade pipeline. The tests below
+;; assert: (1) no such block renders, and the entry-action's data-delta
 ;; survives on its own pipeline row (no-info-loss guard); (2) the structured
 ;; orientation line renders under EVENT HANDLER; (3) the cascade rows render
-;; as a nested numbered pipeline (rail behind the [N] ordinals).
+;; as a FLAT numbered stack (the [N] ordinals, no rail).
 
 (defn- machine-step-with-rows
   "Build a HANDLER step whose machine cascade carries the given `rows`
@@ -4295,9 +4247,8 @@
 
 ;; The door `[:door/push]` macrostep ( :closed ──► :open ): exit-action
 ;; :clear-hold, the TRANSITION, the entry-action :count-open whose data-delta
-;; bumps :opened-count. The pre-rf2-akvfe transition row carried an up/down
-;; structured-cascade block restating exactly this; now the per-EMIT rows ARE
-;; the canonical pipeline.
+;; bumps :opened-count. The per-EMIT rows ARE the canonical pipeline; the
+;; transition row carries no up/down structured-cascade block restating them.
 (def ^:private door-push-cascade-rows
   [{:kind :action :step 1 :phase :exit :machine-id :door/main
     :action-id :clear-hold :outcome :ok
@@ -4312,23 +4263,23 @@
     :data-before {:opened-count 0} :data-write {:opened-count 1}}])
 
 (deftest event-handler-up-down-block-removed-test
-  (testing "rf2-akvfe item 4 — the up/down structured-cascade block (the
-            `↑ exit / • action / ↓ entry` walk inside the transition row) is
-            GONE. NO `…-machine-cascade-structured-…` element renders."
+  (testing "there is no up/down structured-cascade block (the
+            `↑ exit / • action / ↓ entry` walk inside the transition row):
+            NO `…-machine-cascade-structured-…` element renders."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-structured-2"))
-          "the up/down transition block no longer renders")
-      ;; The transition row itself + its `{from}→{to}` verb still render.
+          "no up/down transition block renders")
+      ;; The transition row itself + its `{from}→{to}` verb render.
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-2"))
-          "the transition row still renders")
+          "the transition row renders")
       (is (string/includes?
             (or (text-of tree "rf-xray-epoch-machine-cascade-verb-link-2") "")
             "→")
-          "the `{from}→{to}` summary verb remains the transition headline"))))
+          "the `{from}→{to}` summary verb is the transition headline"))))
 
 (deftest event-handler-data-delta-survives-in-pipeline-test
-  (testing "rf2-akvfe no-info-loss GUARD — with the up/down block removed, the
+  (testing "no-info-loss GUARD — with no up/down block, the
             exit action (:clear-hold), the entry action (:count-open), AND the
             entry action's data-delta ({:opened-count 1}) all SURVIVE on their
             own numbered cascade rows in the EVENT HANDLER pipeline."
@@ -4354,20 +4305,20 @@
           "the data-delta {:opened-count 1} survives in the pipeline (no info lost)"))))
 
 (deftest event-handler-orientation-line-renders-test
-  (testing "rf2-akvfe item 2 + rf2-2hj0h item 4 — the structured orientation
+  (testing "the structured orientation
             line renders under EVENT HANDLER: `[TRIGGER] <vec> for [MACHINE]
             <id> in [STATE] <pre-transition-state>` — trigger vector, machine
-            id, and PRE-transition state, each code-formatted. The leading
-            'Processing' word is DROPPED (rf2-2hj0h item 4)."
+            id, and PRE-transition state, each code-formatted, with no
+            leading 'Processing' word."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
       (is (some? (find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
           "the orientation line renders")
-      ;; rf2-2hj0h item 4 — no leading "Processing" word.
+      ;; No leading "Processing" word.
       (is (not (string/includes?
                  (or (text-of tree "rf-xray-epoch-event-handler-orientation") "")
                  "Processing"))
-          "the orientation line drops the leading 'Processing' word")
+          "the orientation line carries no leading 'Processing' word")
       (is (= "[:door/push]"
              (text-of tree "rf-xray-epoch-event-handler-orientation-trigger"))
           "the TRIGGER value is the full inner trigger vector")
@@ -4377,7 +4328,7 @@
       (is (= ":closed"
              (text-of tree "rf-xray-epoch-event-handler-orientation-state"))
           "the STATE value is the PRE-transition (from) state, not the after-state")))
-  (testing "rf2-akvfe — a pure `[:rf.machine/start]` creation kick (a cascade
+  (testing "a pure `[:rf.machine/start]` creation kick (a cascade
             with only a :start row, no transition / no-op) renders NO
             orientation line (the birth rides the [START] cascade row)."
     (let [start-rows [{:kind :start :step 1 :machine-id :door/main :cause :explicit
@@ -4387,41 +4338,40 @@
           "no orientation line for a pure creation kick"))))
 
 (deftest event-handler-flat-numbered-stack-no-rail-test
-  (testing "rf2-2hj0h item 1 + 2 — the EVENT HANDLER inner cascade rows render
-            as a FLAT numbered stack: the akvfe nested-pipeline RAIL is REMOVED
-            (one of the two left vertical lines), the per-step source-body
-            left-connector is REMOVED (the other), and NO `:border-bottom`
-            horizontal line sits between steps. The [1][2][3] ordinals are
-            retained (they carry the pipeline reading)."
+  (testing "the EVENT HANDLER inner cascade rows render
+            as a FLAT numbered stack: no nested-pipeline RAIL and no per-step
+            source-body left-connector (neither left vertical line), and NO
+            `:border-bottom` horizontal line between steps. The [1][2][3]
+            ordinals carry the pipeline reading."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
-      ;; item 2 — the full-height rail is GONE.
+      ;; No full-height rail.
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
-          "the nested-pipeline vertical rail is removed")
-      ;; The flat rows host still renders.
+          "no nested-pipeline vertical rail")
+      ;; The flat rows host renders.
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
           "the flat rows host renders")
-      ;; item 1 — NO `:border-bottom` horizontal line between rows.
+      ;; NO `:border-bottom` horizontal line between rows.
       (is (nil? (:border-bottom (style-of tree "rf-xray-epoch-machine-cascade-row-1")))
           "no horizontal inter-step line (border-bottom) on a cascade row")
-      ;; item 1 — NO `:border-top` horizontal line atop the rows host.
+      ;; NO `:border-top` horizontal line atop the rows host.
       (is (nil? (:border-top (style-of tree "rf-xray-epoch-handler-machine-cascade-rows")))
           "no horizontal line atop the rows host")
-      ;; item 2 — the per-step source-body left CONNECTOR (border-left) is GONE.
+      ;; No per-step source-body left CONNECTOR (border-left).
       (is (nil? (:border-left (style-of tree "rf-xray-epoch-machine-cascade-source-1")))
           "no per-step left connector (source-body border-left)")
-      ;; The [1][2][3] ordinals are retained on each row.
+      ;; Each row carries its [1][2][3] ordinal.
       (is (= "1" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-1"))
-          "ordinal [1] retained")
+          "ordinal [1] renders")
       (is (= "2" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-2"))
-          "ordinal [2] retained")
+          "ordinal [2] renders")
       (is (= "3" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-3"))
-          "ordinal [3] retained"))))
+          "ordinal [3] renders"))))
 
-;; ---- rf2-2hj0h — merged action badge + for-state + no ok-tick -------------
+;; ---- merged action badge + for-state + no ok-tick ------------------------
 
 (deftest event-handler-merged-action-badge-test
-  (testing "rf2-2hj0h item 5 — an `:action` row renders ONE merged badge
+  (testing "an `:action` row renders ONE merged badge
             ([EXIT ACTION] / [ENTRY ACTION]) folding the ACTION kind + the
             phase, NOT a separate [ACTION] pill + [exit] phase chip."
     (let [tree (view/render-handler-step
@@ -4431,10 +4381,10 @@
              (text-of tree "rf-xray-epoch-machine-cascade-kind-action"))
           "the exit action's merged badge reads `EXIT ACTION`")
       ;; The merged badge is the SOLE phase carrier (the `…-phase-<phase>`
-      ;; testid still resolves — it now rides the merged badge node).
+      ;; testid resolves on the merged badge node).
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-phase-exit"))
-          "the exit phase testid still resolves (on the merged badge)")))
-  (testing "rf2-2hj0h item 5 — an ENTRY-phase action reads `ENTRY ACTION`."
+          "the exit phase testid resolves (on the merged badge)")))
+  (testing "an ENTRY-phase action reads `ENTRY ACTION`."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main
                    [{:kind :action :step 1 :phase :entry :machine-id :door/main
@@ -4443,7 +4393,7 @@
       (is (= "ENTRY ACTION"
              (text-of tree "rf-xray-epoch-machine-cascade-kind-action"))
           "the entry action's merged badge reads `ENTRY ACTION`")))
-  (testing "rf2-2hj0h item 5 (RESOLVED Mike 2026-06-04) — a TRANSITION-phase
+  (testing "a TRANSITION-phase
             action (the LCA action) reads `TRANSITION ACTION`; the state-change
             TRANSITION ROW (kind = :transition) keeps its own `[TRANSITION]`
             pill. Both are distinct and can co-occur."
@@ -4465,7 +4415,7 @@
           "the state-change transition row keeps its own `[TRANSITION]` pill"))))
 
 (deftest event-handler-action-for-state-test
-  (testing "rf2-2hj0h item 6 — after the merged badge the header reads
+  (testing "after the merged badge the header reads
             ` for <state> ` then the action name. The for-state value is the
             EXITED (source) state for an exit action and the ENTERED (target)
             state for an entry action (the `:source-state` / `:target-state`
@@ -4489,7 +4439,7 @@
       (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-2")
                             ":open")
           "the ENTRY action reads `for :open` (the entered / target state)")))
-  (testing "rf2-2hj0h item 6 — the ` for <state> ` clause is OMITTED (no
+  (testing "the ` for <state> ` clause is OMITTED (no
             dangling `for`) when no state was stamped on the row."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main
@@ -4499,16 +4449,16 @@
           "no ` for <state> ` clause when neither source nor target state is stamped"))))
 
 (deftest event-handler-guard-row-for-state-and-inline-outcome-test
-  (testing "rf2-h710p item B — the GUARD row drops the redundant `guard` verb
+  (testing "the GUARD row carries no redundant `guard` verb
             word (the `[GUARD]` pill already says GUARD) and fronts the
-            guard-id with the item-6 ` for <state> ` clause, so the header
+            guard-id with the ` for <state> ` clause, so the header
             reads `[GUARD] for :open :may-close?`."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main
                    [{:kind :guard :step 1 :machine-id :door/main
                      :guard-id :may-close? :outcome :pass
                      :source-state :open :target-state :closed}]))]
-      ;; B — the for-state clause carries the gated (source) state.
+      ;; The for-state clause carries the gated (source) state.
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-for-state-1"))
           "the guard row renders a ` for <state> ` clause")
       (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-1")
@@ -4517,17 +4467,17 @@
       (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-1")
                             ":open")
           "the gated state is the transition's :source-state — `for :open`")
-      ;; B — the verb is the bare guard-id (no duplicate `guard` word).
+      ;; The verb is the bare guard-id (no duplicate `guard` word).
       (let [verb (or (text-of tree "rf-xray-epoch-machine-cascade-verb-link-1") "")]
         (is (string/includes? verb ":may-close?")
             "the verb is the bare guard-id")
         (is (not (string/includes? verb "guard"))
-            "the redundant `guard` word is dropped (the `[GUARD]` pill carries it)"))
-      ;; C — the pass/fail outcome chip renders INLINE in the header (a direct
+            "no redundant `guard` word (the `[GUARD]` pill carries it)"))
+      ;; The pass/fail outcome chip renders INLINE in the header (a direct
       ;; sibling of the verb), NOT inside the right-aligned span. The
       ;; right-aligned span (`:margin-left auto`) must not contain it.
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-pass"))
-          "the meaningful guard pass/fail chip still renders (it decides the branch)")
+          "the meaningful guard pass/fail chip renders (it decides the branch)")
       (let [row    (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")
             header (first (rf.test-helpers/children row))
             ;; The right-aligned span is the header child carrying margin-left:auto.
@@ -4537,10 +4487,10 @@
         (is (some? header) "the row header renders")
         (is (some? right) "the right-aligned span (margin-left:auto) renders")
         (is (nil? (find-by-testid right "rf-xray-epoch-machine-cascade-outcome-pass"))
-            "the guard outcome chip is NOT in the right-aligned span (it moved inline)")
+            "the guard outcome chip is NOT in the right-aligned span (it renders inline)")
         (is (some? (find-by-testid header "rf-xray-epoch-machine-cascade-outcome-pass"))
             "the guard outcome chip IS in the header (inline after the verb + glyph)"))))
-  (testing "rf2-h710p item C — a FAILING guard's `fail` marker also renders
+  (testing "a FAILING guard's `fail` marker also renders
             inline (the guard fail is meaningful — it blocked the transition)."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main
@@ -4553,23 +4503,22 @@
           "the `fail` chip renders inline in the header"))))
 
 (deftest event-handler-action-no-ok-tick-test
-  (testing "rf2-2hj0h item 7 — a SUCCESSFUL `:action` row carries NO green
-            ok-tick (the prior `✓ ok` outcome chip is REMOVED — success is
-            clean). The threw chip was already gone (rf2-4yrr6); item 7 drops
-            the success tick too."
+  (testing "a SUCCESSFUL `:action` row carries NO green
+            ok-tick (no `✓ ok` outcome chip — success is clean), just as
+            a threw row carries no threw chip."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
           "no `✓ ok` outcome chip on a successful action row")
-      ;; The action row + its merged badge still render (only the tick is gone).
+      ;; The action row + its merged badge render (only the tick is absent).
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
-          "the action row still renders"))))
+          "the action row renders"))))
 
 (deftest event-handler-exception-box-test
-  (testing "rf2-2hj0h item 8 — a THROWING action renders the EXCEPTION BOX
+  (testing "a THROWING action renders the EXCEPTION BOX
             below its code (message / ex-data via the collapsible), modeled on
-            the outer pipeline's `error-block` card. Together with item 7:
-            success = clean; failure = exception box."
+            the outer pipeline's `error-block` card. Together with the
+            no-ok-tick rule: success = clean; failure = exception box."
     (let [exc  (ex-info "action blew up"
                         {:event [:fuse/short-circuit] :where :fuse-wildcard})
           tree (view/render-handler-step
@@ -4591,7 +4540,7 @@
           "the collapsible stack / ex-data disclosure renders")
       (is (some? (find-by-testid tree (str base "-ex-data")))
           "the ex-data renders inside the disclosure")))
-  (testing "rf2-2hj0h item 8 — a THROWING guard renders the exception box too."
+  (testing "a THROWING guard renders the exception box too."
     (let [exc  (ex-info "guard blew up" {:guard :is-ready?})
           tree (view/render-handler-step
                  (machine-step-with-rows :door/main
@@ -4603,7 +4552,7 @@
           "the exception box renders below the throwing guard's code")
       (is (= "guard blew up" (text-of tree (str base "-message")))
           "the box renders the guard's verbatim message")))
-  (testing "rf2-2hj0h item 8 — a CLEAN action / guard renders NO exception box."
+  (testing "a CLEAN action / guard renders NO exception box."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
@@ -4611,10 +4560,10 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-3"))
           "no exception box on a clean entry action row"))))
 
-;; ---- Part 3 — a threw ACTION row shows exactly ONE threw signal -----------
+;; ---- a threw ACTION row shows exactly ONE threw signal -------------------
 
 (deftest threw-action-row-shows-single-threw-signal-test
-  (testing "rf2-4yrr6 — a threw `:action` cascade row carries NEITHER the
+  (testing "a threw `:action` cascade row carries NEITHER the
             duplicate `:threw` outcome chip NOR the '✗ threw — <message>'
             outcome-detail line. The pink 'Exception Thrown' card + the row
             pink-wash (the issue-event? predicate) are the single threw
@@ -4639,16 +4588,16 @@
       ;; (b) NO '✗ threw — <message>' outcome-detail line.
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-threw-1"))
           "no duplicate '✗ threw — <message>' outcome-detail line")
-      ;; rf2-2hj0h item 8 — the threw signal is now the EXCEPTION BOX below
-      ;; the code (the single failure signal, paired with item 7's no-tick).
+      ;; The threw signal is the EXCEPTION BOX below
+      ;; the code (the single failure signal, paired with the no-ok-tick rule).
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
-          "the throwing action's exception box renders (rf2-2hj0h item 8)")
-      ;; The action row itself still renders (only the threw chrome is gone).
+          "the throwing action's exception box renders")
+      ;; The action row itself renders (only the threw chrome is absent).
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
-          "the action row still renders")))
-  (testing "rf2-2hj0h item 7 — a SUCCESSFUL `:action` row carries NO ok-tick
-            (success is clean — the prior `✓ ok` chip is removed; rf2-4yrr6
-            had already removed the threw chip)"
+          "the action row renders")))
+  (testing "a SUCCESSFUL `:action` row carries NO ok-tick
+            (success is clean — no `✓ ok` chip, just as a threw row carries
+            no threw chip)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
                 :fx []
@@ -4658,22 +4607,22 @@
                           :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
-          "a successful action carries NO `✓ ok` tick (rf2-2hj0h item 7)")
+          "a successful action carries NO `✓ ok` tick")
       ;; A clean action also renders NO exception box.
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
           "a clean action renders no exception box"))))
 
-;; ---- Part 4 — collapsed exception-card machine attribution ----------------
+;; ---- collapsed exception-card machine attribution ------------------------
 
 (deftest machine-action-exception-card-collapsed-attribution-test
-  (testing "rf2-4yrr6 — the EXCEPTION card's machine-attribution line is
-            collapsed to 'action <id> threw an exception'. The earlier
+  (testing "the EXCEPTION card's machine-attribution line reads
+            'action <id> threw an exception'. A
             run-on (`a :* wildcard action in machine :fuse/box (action
             :blow-fuse) threw on unhandled event [...] — fired by the :*
-            wildcard, not a named transition`) repeated ':*'/'wildcard'/
-            'unhandled'/'action' and re-stated the event right above the
+            wildcard, not a named transition`) would repeat ':*'/'wildcard'/
+            'unhandled'/'action' and re-state the event right above the
             verbatim message — confusing. The collapsed line reads cleanly;
-            the dropped detail rides the ex-data + the verbatim message."
+            the omitted detail rides the ex-data + the verbatim message."
     (let [exc  (ex-info "unhandled machine event"
                         {:event [:fuse/short-circuit] :where :fuse-wildcard})
           tree (view/error-block :handler 0
@@ -4691,19 +4640,19 @@
           "the machine-attribution line renders")
       (is (= "action :blow-fuse threw an exception" attr)
           "the attribution collapses to 'action :blow-fuse threw an exception'")
-      ;; The run-on detail is GONE — none of the repeated phrasing survives.
+      ;; No run-on detail — none of the repeated phrasing appears.
       (is (not (string/includes? attr "wildcard"))
           "no ':* wildcard' phrasing in the collapsed line")
       (is (not (string/includes? attr "unhandled"))
           "no 'unhandled event' phrasing in the collapsed line")
       (is (not (string/includes? attr "in machine"))
           "no 'in machine :fuse/box' echo (obvious from cascade context)")
-      ;; `:data-via-wildcard` STILL rides the row for downstream consumers.
+      ;; `:data-via-wildcard` rides the row for downstream consumers.
       (is (= "true"
              (-> tree (find-by-testid (str base "-machine-attribution"))
                  rf.test-helpers/attrs :data-via-wildcard))
-          "the :data-via-wildcard attribute still distinguishes a wildcard throw")))
-  (testing "rf2-4yrr6 — the collapsed wording reads cleanly for a NAMED-action
+          "the :data-via-wildcard attribute distinguishes a wildcard throw")))
+  (testing "the collapsed wording reads cleanly for a NAMED-action
             throw too (not just the :* wildcard)"
     (let [tree (view/error-block :handler 0
                  {:operation     :rf.error/machine-action-exception
@@ -4720,7 +4669,7 @@
              (-> tree (find-by-testid (str base "-machine-attribution"))
                  rf.test-helpers/attrs :data-via-wildcard))
           "named-transition throw stamps :data-via-wildcard false")))
-  (testing "rf2-4yrr6 — a non-machine exception kind renders NO
+  (testing "a non-machine exception kind renders NO
             machine-attribution line (the line is machine-specific)"
     (let [tree (view/error-block :handler 0
                  {:operation :rf.error/handler-exception
