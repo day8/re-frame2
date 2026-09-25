@@ -654,13 +654,13 @@
 ;; kept credential-free end to end. See
 ;; docs/core/how-to/keep-secrets-out-of-traces.md.
 ;;
-;; FRAMEWORK COVERAGE (rf2-6h3c02): the `:rf.event/fx` slot on the
+;; FRAMEWORK COVERAGE: the `:rf.event/fx` slot on the
 ;; `:rf.fx/do-fx` trace stamps this handler's WHOLE returned effect vector, and
-;; the central classification projector now walks each `[fx-id args]` entry
+;; the central classification projector walks each `[fx-id args]` entry
 ;; through that fx's own registration — so `:auth.session/store`'s `:sensitive
 ;; [[:token]]` redacts the `:rf.event/fx` aggregate too, mirroring the sibling
 ;; `:rf.event/db` walk (Spec 009 §Canonical per-event trace sequence). The same
-;; registration-owned redaction now also covers the always-on fx error traces
+;; registration-owned redaction also covers the always-on fx error traces
 ;; (`:rf.error/fx-handler-exception` + siblings), keyed off the slot SHAPE rather
 ;; than op `:rf.fx/handled`. No app-side classification is needed for these
 ;; framework slots — the `:auth.session/store` reg-fx above is their single owner.
