@@ -3,7 +3,7 @@
 'use strict';
 
 /*
- * Source-policy gate: NO NAVIGATION INHERITS AN ANONYMOUS CEILING (rf2-taj9b).
+ * Source-policy gate: NO NAVIGATION INHERITS AN ANONYMOUS CEILING.
  *
  * The defect
  * ----------
@@ -15,22 +15,19 @@
  * own timeout, so the fix reached for is a bigger lane timeout, which cannot
  * move it.
  *
- * Demonstrated against the exact document shape these runners serve — a page
- * whose only subresource is held 35s, so `load` cannot fire — a bare
- * navigation dies at 30013ms while a 90000ms lane budget sits unused;
+ * Against the exact document shape these runners serve — a page whose only
+ * subresource is held 35s, so `load` cannot fire — a bare navigation dies at
+ * 30s while a 90s lane budget sits unused, whereas
  * `{ waitUntil: 'commit', timeout: 90000 }` plus the lane's own poll passes at
- * 35021ms, and `{ waitUntil: 'load', timeout: 45000 }` passes at 35020ms. The
- * lane budget moves neither of the first two numbers. Raising it never could.
+ * 35s, and so does `{ waitUntil: 'load', timeout: 45000 }`. The lane budget
+ * cannot move the bare navigation's 30s.
  *
  * Why a SWEEP and not per-file assertions
  * ---------------------------------------
- * Three beads found this in three different files before anyone wrote a gate:
- * rf2-dczpv in run-browser-tests.cjs, rf2-bhjzn in run-ui-g8.cjs, rf2-taj9b in
- * thirteen more across five trees. `b10_prod_run.cjs` had ALREADY been given
- * `{ waitUntil: 'commit', timeout: 60000 }` by hand — the same ceiling, hit and
- * patched in isolation, while its four siblings kept the defect. That is a
- * CLASS, and a class needs a sweep: naming today's files would leave tomorrow's
- * navigation free to reintroduce it.
+ * The defect is a CLASS, not a site: any file that navigates can carry it, and
+ * a site patched in isolation leaves its siblings carrying it. A class needs a
+ * sweep: naming today's files would leave tomorrow's navigation free to
+ * reintroduce it.
  *
  * Why it needs a STATIC pin
  * -------------------------
@@ -45,12 +42,12 @@
  * `load` is a per-site judgement — a static export, or a re-navigation followed
  * by short locator budgets, genuinely wants a loaded document, and forcing
  * `'commit'` there would push bundle boot onto those budgets and make the lane
- * FLAKIER (see the `check-story-static.cjs` note under rf2-bhjzn, and the
- * `'load'`-keeping sites under rf2-taj9b). The rule is narrower and entirely
+ * FLAKIER (`check-story-static.cjs` is one such `'load'`-keeping site). The
+ * rule is narrower and entirely
  * mechanical: whatever event you wait for, NAME THE NUMBER.
  *
  * Nor does it decide WHERE the number comes from. A site may give the
- * navigation its own literal (`b10_prod_run.cjs`'s 60s, the two `docs/` sites)
+ * navigation its own literal (the two `docs/` sites)
  * or alias the lane's existing budget (`NAV_TIMEOUT_MS = TIMEOUT_MS` in
  * `run-browser-tests.cjs`). Both are sound. What the second gate below forbids
  * is DESCRIBING the second as the first — see its own header.
@@ -73,22 +70,18 @@ const { test, run } = createPolicyTestSuite('navigation-ceiling-policy');
 
 /*
  * Every Playwright API that accepts `{ timeout }` and silently defaults it to
- * 30s. `goBack` / `goForward` / `waitForNavigation` have no call in the repo
- * today; they are listed because they are the same defect wearing a different
- * name, and the point of a sweep is to be there first.
+ * 30s. `goBack` / `goForward` / `waitForNavigation` have no call in the repo;
+ * they are listed because they are the same defect wearing a different name,
+ * and the point of a sweep is to be there first.
  *
- * `waitForSelector` IS THAT ARGUMENT COMING BACK (rf2-vinj). It is not a
- * navigation, so the sweep did not police it, and the file's name still says
- * navigation because that is what the six original sites were. But the defect
- * this suite exists to remove was never "a navigation with no ceiling" — it is
- * "an anonymous 30s that no lane knob can reach, whose failure line reads like
- * the lane's own timeout so the fix reached for is a bigger lane timeout,
- * which cannot move it". A bare element-wait is that, exactly, and unlike the
- * three hypothetical names above it has actually cost a run: a webkit mount
- * after a re-navigation in `fresco/testbed/spec.cjs`, two lines under a
- * `goto` that carried the ceiling correctly. Three call sites were bare when
- * this was added and all three were fixed in the same change; the sweep is
- * what stops a fourth.
+ * `waitForSelector` IS THAT ARGUMENT TOO. It is not a navigation, and the
+ * file's name says navigation, but the defect this suite exists to remove is
+ * not "a navigation with no ceiling" — it is "an anonymous 30s that no lane
+ * knob can reach, whose failure line reads like the lane's own timeout so the
+ * fix reached for is a bigger lane timeout, which cannot move it". A bare
+ * element-wait is that, exactly — a webkit mount after a re-navigation in
+ * `fresco/testbed/spec.cjs`, two lines under a `goto` that carries the
+ * ceiling correctly, is the shape — so the sweep polices it too.
  *
  * The lookbehind demands a RECEIVER (`page.goto(`, `dev.goto(`), which is what
  * separates a call from the string literal `'.goto('` that a sibling policy
@@ -113,28 +106,23 @@ const PRUNED_DIRS = new Set([
 ]);
 
 /*
- * THE WAIVER TABLE IS GONE, AND THAT IS THE FIX (rf2-p9fa3, rf2-rbyyx).
+ * THERE IS NO WAIVER TABLE, and that is deliberate.
  *
- * Six sites carried the defect past the sweep's own PR because they sat behind
- * another worker's fence, so they were waived by name with `max: 1` — an upper
- * bound, chosen so that fixing one would never red the gate. All six were then
- * fixed and the rows were left standing as supposedly dead comments.
+ * A per-path waiver with an upper bound (`max: 1`, chosen so that fixing the
+ * site never reds the gate) is an open door: a sweep that compares
+ * `bare.length > waiver.max` lets a FIRST regressed bare navigation in a
+ * waived file satisfy `1 > 1 === false` and ride through green — exactly the
+ * defect the gate exists to catch, in exactly the files most likely to
+ * regress. And an empty exemption mechanism is an invitation to add a row.
  *
- * They were not dead. The sweep branched on path, compared `bare.length >
- * waiver.max` and continued, so a FIRST regressed bare navigation in a waived
- * file satisfied `1 > 1 === false` and rode through green. A waiver written to
- * be harmless once fixed had become an open door for exactly the defect the
- * gate exists to catch, in exactly the six files most likely to regress.
- *
- * So the table, the per-file budget comparison and the waiver-rot check are all
- * deleted rather than emptied: an empty exemption mechanism is an invitation to
- * add a row. The six paths are held to ZERO by the ordinary sweep above, and
- * named once below — not to re-exempt them, but to prove the sweep still
- * REACHES them. That is the one thing deleting a waiver silently loses.
+ * So there is no table and no per-file budget comparison. The paths below once
+ * carried the defect; they are held to ZERO by the ordinary sweep above, and
+ * named once — not to exempt them, but to prove the sweep still REACHES them.
+ * That is the one thing a missing waiver table does not check by itself.
  */
 const FORMERLY_WAIVED = [
-  // `docs/**` was outside the rf2-taj9b fence. Both wait on `networkidle`,
-  // which settles LATER than `load`, so the 30s default bit harder here.
+  // Both wait on `networkidle`, which settles LATER than `load`, so the 30s
+  // default bites harder here.
   { file: 'docs/scripts/generate-story-tutorial-screenshots.cjs', bead: 'rf2-rbyyx' },
   { file: 'docs/tools/playground/test/smoke.test.mjs', bead: 'rf2-rbyyx' },
 ];
@@ -144,12 +132,12 @@ const FORMERLY_WAIVED = [
 /*
  * The argument list of the call whose `(` is at `open`, by BALANCED-PAREN scan.
  *
- * Deliberately not a fixed-size window. rf2-bhjzn's first cut read a flat 300
- * characters after the call and asked whether `timeout:` appeared anywhere in
- * them — which passes `run-ui-g13.cjs`, whose bare `dev.goto(url);` is followed
- * three lines later by a `waitForFunction(..., { timeout: TIMEOUT })` that the
- * window swallows. The defect was real and that sweep read green. So this scan
- * stops at the call's own closing paren, and nothing beyond it can vouch for it.
+ * Deliberately not a fixed-size window. Reading a flat 300 characters after
+ * the call and asking whether `timeout:` appears anywhere in them passes a
+ * bare `dev.goto(url);` followed three lines later by a
+ * `waitForFunction(..., { timeout: TIMEOUT })` that the window swallows — a
+ * real defect read green. So this scan stops at the call's own closing paren,
+ * and nothing beyond it can vouch for it.
  *
  * String literals are skipped so a `(` or `)` inside a URL cannot unbalance the
  * count. Like `stripComments`, this is a residue scanner over our own
@@ -190,8 +178,8 @@ function callArgs(src, open) {
  * content". `_impl-browser-runners-verdict-policy.test.cjs` contains exactly
  * such a regex, and the shared stripper leaves its `page.goto(...)` PROSE
  * standing — which this gate would then report as a defect in a file that has
- * none. (The shared stripper is left alone: its own callers only ever ask
- * "must not contain", and widening it is their beads to make.)
+ * none. (The shared stripper suffices for its own callers, which only ever ask
+ * "must not contain".)
  *
  * Line-wise instead, and only WHOLE-line comments: a trailing `//` strip would
  * truncate the very `http://…` URLs these calls navigate to, taking the
@@ -266,35 +254,33 @@ test("every navigation passes an EXPLICIT timeout — none inherits Playwright's
       'it is not — so the fix reached for is a bigger lane budget, which ' +
       'moves nothing. Spec-side callers can use `navigate` / `reloadPage` ' +
       'from examples/scripts/spec-helpers.cjs, which require the number. ' +
-      'There is no waiver table any more (rf2-p9fa3, rf2-rbyyx): fix the call.',
+      'There is no waiver table: fix the call.',
   );
 });
 
 /*
  * Gate 2: AN ALIASED CEILING MAY NOT BE DESCRIBED AS AN INDEPENDENT ONE.
  * ---------------------------------------------------------------------
- * The first gate made every navigation name its number. Three runners named it
- * by ALIASING the budget they already had — `NAV_TIMEOUT_MS = TIMEOUT_MS` in
- * `run-browser-tests.cjs`, `NAV_TIMEOUT = TIMEOUT` in `run-ui-g8.cjs` and
- * `run-ui-g13.cjs` — and then copied their failure wording from the sites that
- * had picked a SEPARATE literal, where "raising the lane budget cannot move
- * this" is simply true. On an alias it is false: one configured value bounds
- * both phases, so raising it moves both.
+ * The first gate makes every navigation name its number. A runner may name it
+ * by ALIASING the budget it already has — `NAV_TIMEOUT_MS = TIMEOUT_MS` in
+ * `run-browser-tests.cjs` — but must not then copy its failure wording from
+ * the sites that pick a SEPARATE literal, where "raising the lane budget
+ * cannot move this" is simply true. On an alias it is false: one configured
+ * value bounds both phases, so raising it moves both.
  *
- * That is not a nitpick about prose. The whole point of naming the ceiling was
+ * That is not a nitpick about prose. The whole point of naming the ceiling is
  * to stop a CI log sending the reader to the wrong knob, and a message that
  * disclaims the knob which DOES control the failed phase sends them nowhere at
- * all — the same defect wearing the opposite hat (audits of PRs #7193, #7221,
- * #7224).
+ * all — the same defect wearing the opposite hat.
  *
- * The rule is mechanical and reads EXECUTABLE source only, so the doc-comments
- * that recount the original defect in the past tense stay legal:
+ * The rule is mechanical and reads EXECUTABLE source only, so doc-comments
+ * that describe the defect stay legal:
  *
  *   a file whose navigation ceiling is `= SOME_OTHER_CONSTANT;`
  *     - must NOT disclaim that constant ("raising X will not help", "a bigger
  *       X, which cannot touch it"), and
- *     - MUST carry the shared marker below, so all three say it identically
- *       and a fourth aliasing runner cannot invent a fifth phrasing.
+ *     - MUST carry the shared marker below, so every aliasing runner says it
+ *       identically and the next one cannot invent another phrasing.
  *
  * A site that picks its own literal is untouched by this gate: its disclaimer
  * is true, and it should keep it.
@@ -315,7 +301,7 @@ const TIMEOUT_CONST_RE = /TIMEOUT/;
 
 /*
  * A claim that some named budget is powerless over this failure. Two subject
- * cues, both drawn from wording that actually shipped: "raising X …" and "a
+ * cues, the wordings such a disclaimer takes: "raising X …" and "a
  * bigger X …". The subject must be a SCREAMING_SNAKE constant or a `${…}`
  * interpolation of one — `raising it` and `raising the bench budget` are prose
  * about something else and are none of this gate's business.
@@ -394,9 +380,7 @@ test('a runner that ALIASES its navigation ceiling says so, and never disclaims 
 
   // The gate must have something to be true ABOUT: if the aliasing runners are
   // ever renamed away, this assertion fails rather than passing vacuously over
-  // an empty set. The floor was three until rf2-0yp7w.4 retired two of them
-  // (run-ui-g8.cjs / run-ui-g13.cjs) with the re-frame.ui substrate; what the
-  // gate proves about the survivor is unchanged.
+  // an empty set.
   assert.ok(
     aliasing.length >= 1,
     `expected the aliasing runners to still alias (found ${aliasing.length}: ` +
@@ -415,25 +399,22 @@ test('a runner that ALIASES its navigation ceiling says so, and never disclaims 
     unmarked,
     [],
     `an aliasing runner must state the model verbatim — "${SHARED_BUDGET_MARKER}" ` +
-      '— so all of them say it identically and the next one cannot invent a ' +
-      'fifth phrasing of the same relationship',
+      '— so all of them say it identically and the next one cannot invent ' +
+      'another phrasing of the same relationship',
   );
 });
 
 /*
- * The successor to the deleted waiver-rot check (rf2-p9fa3, rf2-rbyyx).
+ * A REACHABILITY check for the formerly-waived paths.
  *
- * The sweep above holds these six to zero like everything else — but only if it
- * READS them, and a path that leaves the walk stops being read in silence. A
+ * The sweep above holds these paths to zero like everything else — but only if
+ * it READS them, and a path that leaves the walk stops being read in silence. A
  * rename, a move out of the scanned extensions, a new entry in `PRUNED_DIRS`:
  * each turns "this file has no bare navigation" into "this file is not
- * examined", and the two are indistinguishable in a green run. That is the
- * failure mode the waiver table used to catch by insisting its paths existed,
- * and deleting the table would otherwise take the check with it.
+ * examined", and the two are indistinguishable in a green run.
  *
- * So this asserts REACHABILITY, not exemption: the six paths carrying the
- * original defect are still inside the sweep's own file list, and still clean.
- * Zero, by name, with the bead that got them there.
+ * So this asserts REACHABILITY, not exemption: the paths that carried the
+ * defect are inside the sweep's own file list, and clean. Zero, by name.
  */
 test('the six formerly-waived paths are still inside the sweep, and still at zero (rf2-p9fa3, rf2-rbyyx)', () => {
   const scanned = new Set(scannedFiles());
@@ -468,7 +449,7 @@ test('the six formerly-waived paths are still inside the sweep, and still at zer
   assert.deepEqual(
     problems,
     [],
-    'the paths that were exempted while the sweep landed are held at zero and ' +
+    'the formerly-waived paths are held at zero and ' +
       'must stay inside the sweep that holds them',
   );
 });
