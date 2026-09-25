@@ -92,7 +92,7 @@
    unfiltered list — plus the `limit`/`offset` pagination window for `page`
    (1-indexed). Every value goes through `wh/query-string`, so it's properly
    URL-encoded rather than concatenated raw — a tag or username with a reserved
-   query character no longer corrupts the request. The API base gets prepended
+   query character cannot corrupt the request. The API base gets prepended
    later, by the request builder via `full-url`."
   [path filters page]
   (str path (wh/query-string (merge filters (wh/page->limit-offset page)))))
