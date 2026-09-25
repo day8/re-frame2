@@ -1,7 +1,7 @@
 (ns re-frame.story.invariants-test
   "Tests for `re-frame.story.invariants` — the invariant sentinel fixture
-  (rf2-5x1wt.5) and the pure first-bad-epoch utility (rf2-5x1wt.6),
-  spec/017-Testing-Story.md §Invariant sentinels.
+  and the pure first-bad-epoch utility, spec/017-Testing-Story.md
+  §Invariant sentinels.
 
   Two axes:
 
@@ -10,7 +10,7 @@
     report-once `on-epoch!` core. These run under `clojure -M:test`
     (JVM) and the node-runtime CLJS build with no runtime.
   - LIVE — the `with-invariants` fixture over a real frame + dispatch +
-    epoch listeners, exercising the bead acceptance: passing invariant
+    epoch listeners, exercising the sentinel's contract: passing invariant
     across multiple dispatches; failing invariant reports once per
     failing epoch; listener exceptions are isolated; works with fresh
     AND destroyed frames.
@@ -137,7 +137,7 @@
       (is (string? (:error v))))))
 
 ;; ===========================================================================
-;; first-bad-epoch  (pure post-hoc utility, rf2-5x1wt.6)
+;; first-bad-epoch  (pure post-hoc utility)
 ;; ===========================================================================
 
 (deftest first-bad-epoch-nil-when-holds
@@ -235,12 +235,12 @@
       (is (= 2 (count (:violations @state)))))))
 
 (deftest on-epoch-reports-once-per-frame-same-epoch-id
-  (testing "two frames with the SAME epoch-id each report once (dedup-key is per-frame, rf2-ilatz)"
+  (testing "two frames with the SAME epoch-id each report once (dedup-key is per-frame)"
     ;; `with-invariants` observes EVERY frame's epochs, so report-once must
-    ;; be keyed per-frame. Epoch-ids are globally unique today (single
-    ;; global counter), but should they ever become per-frame, two frames
-    ;; could both emit epoch-id 1 — a frame-less dedup-key would SILENTLY
-    ;; DROP the second frame's violation. This asserts both frames report.
+    ;; be keyed per-frame. Epoch-ids come from one global counter, so they
+    ;; are unique across frames; were they per-frame, two frames could both
+    ;; emit epoch-id 1 — a frame-less dedup-key would SILENTLY DROP the
+    ;; second frame's violation. This asserts both frames report.
     (let [coerced (rf.story.invariants/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
           state   (atom {:seen #{} :violations []})
           ep-a    (epoch 1 {:frame :frame/a :db-after {:n -1}})
