@@ -1,15 +1,12 @@
 (ns day8.re-frame2-xray.panels.routing
-  "Routing tab — three stacked sections (rf2-ad7zx.7, reconciled to the
-  Figma design `tools/xray/design-reference/xray_devtools_reference.cljs`
-  (the `routes-panel` component)
-  + spec/021 §7.2).
+  "Routing tab — three stacked sections, reconciled to the Figma
+  `RoutesPanel` design + spec/021 §7.2.
 
-  ## Three stacked sections (post-rf2-ad7zx.7 reshape)
+  ## Three stacked sections
 
-  The prior 'Active route tree first + This-epoch KV' shape is
-  superseded. The panel now reads top → bottom as three stacked
+  The panel reads top → bottom as three stacked
   sections, each separated from the next by a 1px hairline. Per
-  spec/021 §14.1 (rf2-6xezz) the panel carries no self-naming heading
+  spec/021 §14.1 the panel carries no self-naming heading
   and no per-panel header icon — content opens directly on the CURRENT
   ROUTE section (the L4 tab strip is the single source of panel
   identity, and the Figma `RoutesPanel` opens the same way):
@@ -63,26 +60,26 @@
   it — the overlay glyphs `◉ TO` / `◇ FROM` paint inline on the
   matching rows.
 
-  ## Focus contract (rf2-h0120 alignment)
+  ## Focus contract
 
-  The panel reads `:rf.xray/focus` per spec/018; that sub already
+  The panel reads `:rf.xray/focus` per spec/018; that sub
   auto-resolves head-fallback via `spine/compose-focus`. No inline
   head-fallback needed at this layer.
 
-  ## Pure hiccup (rf2-tijr)
+  ## Pure hiccup
 
   Same contract as every other Xray panel — the view is pure hiccup,
   no Reagent / UIx references. Frame isolation comes from the
-  enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
+  enclosing `[rf.fresco/frame-provider {:frame :rf/xray}]` in
+  `shell.cljs`.
 
-  ## THE VIEW IS A FRESCO BOUNDARY (rf2-k97c.3)
+  ## THE VIEW IS A FRESCO BOUNDARY
 
   [[PanelView]] is an `rf.fresco/defview` — a real React function
   component minted by the re-frame-native view layer — rather than an
-  `rf/reg-view`. It follows `panels/module_view.cljs`, increment 1's
-  merged template, under the epic's ruled design (rf2-k97c.2, Design
-  B): Xray's views are re-authored in Fresco and read through Fresco's
-  shipped collector, so their observation no longer depends on
+  `rf/reg-view`. It follows the `panels/module_view.cljs` template:
+  Xray's views are authored in Fresco and read through Fresco's
+  shipped collector, so their observation does not depend on
   whichever view build the installed adapter happens to supply.
 
   The one read is `rf.fresco/sub`, which the collector wires,
@@ -99,18 +96,16 @@
   bridge is a private `Panel-bridge`, because that panel is L4-only:
   its own `install!` is the sole thing that names it. This panel is one
   of the seven standalone-mountable ones, so the name `routing/Panel`
-  is read from five places this bead may not edit or would rather not
-  move — `panels.cljs`'s `render-panel!` chokepoint, the panel-gallery
-  testbed, two shell/mount test suites, and `spec/api-manifest.edn`
-  plus its curated metadata sidecar, which are hot-zone files.
+  is public — read from `panels.cljs`'s `render-panel!` chokepoint, the
+  panel-gallery testbed, shell/mount test suites, and
+  `spec/api-manifest.edn` plus its curated metadata sidecar.
 
   So the assignment is inverted rather than the mechanism: [[Panel]]
-  stays the public callable every one of those sites already holds, and
+  is the public callable every one of those sites holds, and
   it is the `rf.fresco/as-component` bridge; the boundary is the private
-  [[PanelView]] behind it. Same one door (`as-component`), and the pair
-  STAYS (rf2-lect, ruled option 2): the shell is a Fresco tree now and
-  the bridge did not collapse, because the shell still reaches the panel
-  across an `as-child` seam and `reg-l4-tab!`'s `:pre` still requires a
+  [[PanelView]] behind it. Same one door (`as-component`). The pair is
+  not scaffolding: the shell is a Fresco tree, yet it reaches the panel
+  across an `as-child` seam, and `reg-l4-tab!`'s `:pre` requires a
   callable `:panel`.
 
   ## Helpers
@@ -119,9 +114,8 @@
   `project-topology-data`, plus the lens helpers) lives in
   `routing_helpers.cljc` so the algebra runs under the JVM unit-test
   target. The hiccup projection is [[panel-tree]], a plain fn over the
-  composite's VALUE — so the panel's markup stays drivable from the
-  node lane without a React commit, which is what the pre-migration
-  `(routing/Panel)` call gave those tests."
+  composite's VALUE — so the panel's markup is drivable from the
+  node lane without a React commit."
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -186,15 +180,15 @@
 (defn- show-query?
   "True when the CURRENT ROUTE section should render its query span.
 
-  A bare `(seq query)` was the guard until rf2-8nyi2, and it THREW once
-  the query became an egress PROJECTION rather than raw frame state: a
+  A bare `(seq query)` guard would THROW, because the query is an egress
+  PROJECTION rather than raw frame state: a
   whole-value redaction substitutes the SCALAR `:rf/redacted` keyword for
-  the map, and `seq` on a keyword is an error — so the panel would have
-  died on exactly the frames whose policy had just done its job (a nil or
+  the map, and `seq` on a keyword is an error — so the panel would die
+  on exactly the frames whose policy had just done its job (a nil or
   destroyed observed frame fails closed to that sentinel).
 
-  A collection still answers `seq`, so an absent or empty query renders
-  nothing exactly as before; a non-collection sentinel renders as itself.
+  A collection answers `seq`, so an absent or empty query renders
+  nothing; a non-collection sentinel renders as itself.
   The `{:rf.size/large-elided …}` marker needs no special case — it IS a
   map, so it takes the `seq` arm."
   [query]
@@ -208,17 +202,15 @@
 
   Reads the slice's OWN keys — `{:route-id :params :query :fragment
   :transition :error :nav-token}`, written by
-  `re-frame.routing.events/merge-route-slice` (rf2-y8doi.22). It used to
-  read a `:path` the router never writes, so the matched-path span was
-  dead in production and the query, fragment and readiness never showed;
-  a route whose readiness was `:error` looked like any other. The query
+  `re-frame.routing.events/merge-route-slice`. The router writes no
+  `:path`, so there is no matched-path span. The query
   renders with `pr-str` and no sort, so its keys keep the order the
-  router's array-map gave them (rf2-c5cub).
+  router's array-map gave them.
 
   The `:query` AND `:params` this receives are already the EGRESS
   PROJECTION, not raw frame state — [[current-route-slice-value]] applies
   the observed frame's classification to both before the composite is
-  built (rf2-8nyi2 the query, rf2-6j8gd the params), so a
+  built, so a
   declared-sensitive key reads `:rf/redacted` here. That is why the query
   guard is [[show-query?]] and not `seq`: a whole-value redaction is a
   scalar. The params span needs no such guard — it renders
@@ -289,7 +281,7 @@
     - a navigation that committed `:rf.route/not-found`, or navigated? with
       no destination resolved → 'not-found' (error). Tested BEFORE
       :on-match: an unmatched URL commits under `:rf.route/not-found` WITH
-      a nav-token, so it reads :on-match too (rf2-3x7nj.23.1)."
+      a nav-token, so it reads :on-match too."
   [{:keys [phase]} navigated? to-id]
   (cond
     (and navigated? (= :rf.route/not-found to-id))
@@ -327,7 +319,7 @@
     (section-caption "Navigation this epoch" "rf-xray-routing-nav-caption")
     (if (or navigated? (some? activity))
       (let [outcome (nav-outcome activity navigated? to-id)
-            ;; rf2-3x7nj.23.1 — the focused navigation's OWN params, never
+            ;; The focused navigation's OWN params, never
             ;; the live route's: a blocked or denied navigation committed
             ;; none, and a later one's would read as this one's.
             params  (:match activity)]
@@ -425,18 +417,14 @@
   aligned spacer). The FROM/TO overlay glyph paints to the right of
   the path when the focused epoch navigated to/from this route.
 
-  The row owns its own React `:key`, in its ATTRIBUTE map. The caller
-  used to attach it as `^{:key …}` reader metadata on the CALL FORM
-  `(route-table-row entry)` — metadata on a source list, which the call
-  discards when it returns a fresh vector, so no key ever reached React
-  (the same defect `cancellation_cascade.cljs` records under rf2-ppzid
-  and works around with `with-meta`). Putting it in the attribute map
+  The row owns its own React `:key`, in its ATTRIBUTE map. `^{:key …}`
+  reader metadata on the CALL FORM `(route-table-row entry)` would be
+  metadata on a source list, which the call discards when it returns a
+  fresh vector, so no key would reach React. The attribute map
   is the one spelling BOTH substrates read: Reagent's `get-react-key`
-  and Fresco's codec head table. A portability fix rather than a Fresco
-  accommodation. `route-id` is unique across a topology by
+  and Fresco's codec head table. `route-id` is unique across a topology by
   construction — the topology is projected from a `{<route-id> <meta>}`
-  map — and a nil id degrades to the same `\"\"` the old expression
-  produced."
+  map — and a nil id degrades to `\"\"`."
   [{:keys [row depth has-children? cycle-root?]}]
   (let [{:keys [route-id path doc marker]} row
         current?  (= marker :here)
@@ -531,8 +519,8 @@
 ;; ---- empty (no routes registered) ---------------------------------------
 
 (defn- silent-state
-  "Renders when the host app has NO routes registered. Per
-  rf2-g3ghh silent-by-default: no placeholder rows, just a
+  "Renders when the host app has NO routes registered.
+  Silent-by-default: no placeholder rows, just a
   single-line caption pointing to Static Routes for browse."
   []
   [:div {:data-testid "rf-xray-routing-silent"
@@ -568,7 +556,7 @@
                                 overlay glyphs.
 
   Content starts immediately at the CURRENT ROUTE section — per spec/021
-  §14.1 (rf2-6xezz) every L4 panel scrubs its self-naming heading + the
+  §14.1 every L4 panel omits its self-naming heading + the
   per-panel header icon (the L4 tab strip is the single source of panel
   identity). This matches the Figma `RoutesPanel`, which opens
   directly on the CURRENT ROUTE section with no header chrome.
@@ -576,13 +564,12 @@
   When the host has no routes registered this renders the
   silent-by-default caption (no sections).
 
-  SEPARATED FROM THE BOUNDARY DELIBERATELY (rf2-k97c.3). The read moved
-  into [[PanelView]], leaving this a value → hiccup projection with no
+  SEPARATED FROM THE BOUNDARY DELIBERATELY. The read lives
+  in [[PanelView]], leaving this a value → hiccup projection with no
   reactive surface of its own — the same split
-  `routing_helpers.cljc` already makes for the data algebra, one layer
+  `routing_helpers.cljc` makes for the data algebra, one layer
   up. It takes NO reads, so it is drivable from the node lane by handing
-  it a composite value, which is what `(routing/Panel)` used to give
-  those tests before the panel became a React component."
+  it a composite value."
   [{:keys [silent? topology activity from-id to-id navigated? current]
     :as _data}]
   [:section {:data-testid "rf-xray-routing"
@@ -606,21 +593,21 @@
       (route-table-section topology)])])
 
 (rf.fresco/defview ^:private PanelView
-  "The Routing tab's root — a FRESCO BOUNDARY (rf2-k97c.3), not an
+  "The Routing tab's root — a FRESCO BOUNDARY, not an
   `rf/reg-view`. Reads `:rf.xray/routing-tab-data` and hands the value
   to [[panel-tree]].
 
   The READ is `rf.fresco/sub`, a plain call the collector records an
   edge for — no deref, no reaction owned by the installed adapter, and a
   re-wire that NOTIFIES when the substrate disposes the underlying
-  derived value. That is the third of the epic's three couplings, and it
-  is the one a first-paint smoke test cannot see.
+  derived value. That is the coupling a first-paint smoke test cannot
+  see.
 
   The FRAME the read resolves against comes from React context, which
   the enclosing frame boundary writes — `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context (core's
   `re-frame.adapter.context/frame-context`) — so this boundary resolves
-  `:rf/xray` identically under the Fresco root Xray owns today and under
+  `:rf/xray` identically under the Fresco root Xray owns and under
   an `rf/frame-provider` a Reagent parent writes. It never consults
   `:adapter/current-component`, the hook a foreign root cannot answer.
 
@@ -631,7 +618,7 @@
   [_props]
   (panel-tree (rf.fresco/sub [:rf.xray/routing-tab-data])))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the React-component bridge -----------------------------------------
 ;;
 ;; `panels.cljs`'s `render-panel!` and the panel-gallery testbed are
 ;; Reagent trees rendered by the installed adapter, and each mounts this
@@ -643,12 +630,11 @@
 ;; parent (UIx, Reagent or plain JavaScript) mounts UNDER THE FRAME IT IS
 ;; ALREADY IN, taking the frame from React context rather than from a
 ;; second root. So there is no second root here, no adapter-kind branch,
-;; and no props ABI — the three things the spike's Arm A needed and the
-;; ruling counted against it.
+;; and no props ABI.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-routing!` reaches
-;; [[Panel]] through `render-panel!`, which rf2-l1jm keeps ratom-family,
-;; so a Reagent parent heads it by ruling whatever the L4 registry does.
+;; NOT SCAFFOLDING. `panels/mount-routing!` reaches
+;; [[Panel]] through `render-panel!`, which is ratom-family,
+;; so a Reagent parent heads it whatever the L4 registry does.
 ;; The chain is `[:>]` -> `as-component` -> [[PanelView]].
 
 (def ^:private Panel-component
@@ -660,12 +646,12 @@
   (rf.fresco/as-component PanelView))
 
 (defn Panel
-  "The Routing tab's public callable — the one every existing mount site
-  already holds: `panels.cljs`'s `render-panel!` chokepoint (and its
+  "The Routing tab's public callable — the one every mount site
+  holds: `panels.cljs`'s `render-panel!` chokepoint (and its
   `mount-routing!` facade), `shell/detail-panel`'s tab case, the
   panel-gallery testbed, and the `reg-l4-tab!` entry below.
 
-  Since rf2-k97c.3 it is the migration bridge rather than the view:
+  It is the React-component bridge rather than the view:
   Reagent-shaped hiccup interoping to the React component
   [[PanelView]] presents as. The enclosing `rf/frame-provider` is what
   puts `:rf/xray` in React context for it — this returns no provider of
@@ -682,7 +668,7 @@
 ;; The raw values the production data subs read. Shared with the
 ;; test-override seam (`install-test-overrides!` below) so the override
 ;; branch — `(or override (real …))` — lives in ONE place (the seam),
-;; not duplicated across production and test surfaces (rf2-e8330v).
+;; not duplicated across production and test surfaces.
 
 (defn- registered-routes-value
   "The flat `{<route-id> <meta>}` map sourced from the HOST app's
@@ -702,31 +688,29 @@
 
 (defn- current-route-slice-value
   "The live route slice off the target frame's runtime-db
-  (`[:rf.runtime/routing :current]`; EP-0001 rf2-vzld77 — runtime-db
+  (`[:rf.runtime/routing :current]`; EP-0001 — runtime-db
   state, not app-db), with BOTH classification-covered projections —
   `:query` and `:params` — PROJECTED for on-box render under
   `observed-frame`'s own classification.
 
-  ## Why the projection is here (rf2-8nyi2, rf2-6j8gd)
+  ## Why the projection is here
 
-  The slice is raw frame state, and until this the panel rendered its
-  query and its params straight to the DOM with `pr-str`. A route that
-  DECLARED a key `:sensitive` — Spec 012 §Route data classification's own
-  example promotes `:token` — therefore displayed the live token under
-  the on-box `:rf.egress/local-redacted` default. The declaration was
-  made and nothing consulted it: a missed explicit data-hygiene
-  declaration, not a claim that undeclared carriers are a boundary.
+  The slice is raw frame state. Rendering its query and its params
+  straight to the DOM with `pr-str` would display a key a route
+  DECLARED `:sensitive` — Spec 012 §Route data classification's own
+  example promotes `:token` — as the live token under the on-box
+  `:rf.egress/local-redacted` default: the declaration made and nothing
+  consulting it. That is a missed explicit data-hygiene declaration,
+  not a claim that undeclared carriers are a boundary.
 
-  rf2-8nyi2 fixed the query and scoped itself to the key it was filed
-  against, recording the params residue in its own notes; rf2-6j8gd is
-  that residue. The two axes were never different in the contract —
+  The two axes are the same in the contract —
   `re-frame.routing.classification` validates any concrete path
   (`normalize-axis-paths`) and re-roots every one of them the same way
   (`apply-route-classification`), and PARAMS are the axis that cannot
   fail open, because a path capture is always keyword-keyed
   (`re-frame.routing.match`) where an unpromoted query key stays a
-  string. So a surface projecting query alone honoured half a contract,
-  and honoured the weaker half.
+  string. So a surface projecting query alone would honour half a
+  contract, and the weaker half.
 
   `local-render/local-render-route-slice` composes the route-sub arm over
   both keys, each named by the framework route read sub
@@ -769,11 +753,11 @@
       panel also reads this sub — process-global, frame-agnostic.
     - `:rf.xray/current-route-slice` — composite over the spine's
       target-frame RUNTIME-DB reading the routing slice at
-      `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route
+      `[:rf.runtime/routing :current]` (EP-0001 — the route
       slice is framework-owned runtime-db state, not app-db). Its
       `:query` and `:params` — the two keys the route classification
       contract covers — are EGRESS-PROJECTED under the OBSERVED frame's
-      own classification before it leaves this sub (rf2-8nyi2, rf2-6j8gd)
+      own classification before it leaves this sub
       — see [[current-route-slice-value]].
     - `:rf.xray/routing-tab-data` — view-facing topology-plus-overlay
       composite (focused-epoch scoped). Carries `:silent?`, `:topology`,
@@ -783,12 +767,10 @@
   for-test`, `:rf.xray/set-current-route-slice-override-for-test` + the
   companion `*-override` subs) is NOT installed here — production
   registration carries no `-for-test` ids. Tests opt into it via
-  `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+  `install-test-overrides!`.
 
-  The browse / search / Simulate-URL slots (`:rf.xray.routing/
-  query`, `:rf.xray.routing/sim-url`, `:rf.xray.routing/expanded`,
-  `:rf.xray.routing/toggle-row`, etc.) were promoted to the Static
-  Routes panel per rf2-o5f5f.3 and now live under
+  The browse / search / Simulate-URL slots belong to the Static
+  Routes panel, under
   `:rf.xray.static.routes/*` (installed by
   `static/routes/panel/install!`)."
   []
@@ -800,7 +782,7 @@
     (fn [[_buffer] _query]
       (registered-routes-value)))
 
-  ;; rf2-8nyi2 / rf2-6j8gd — `:rf.xray/observed-frame` rides as a second
+  ;; `:rf.xray/observed-frame` rides as a second
   ;; input purely so the slice's `:query` and `:params` can be projected
   ;; under the frame whose classification actually governs them. Both keys,
   ;; because a route declares projection-relative to the whole
@@ -809,14 +791,14 @@
   ;; not a resolved or ambient one: the elision registry is per-frame, so
   ;; the ambient read at a panel render (Xray's own chrome frame, which is
   ;; live and declares nothing) would ship the value raw under a borrowed
-  ;; policy. The sibling `:rf.xray/target-frame-runtime-db` already pivots
+  ;; policy. The sibling `:rf.xray/target-frame-runtime-db` pivots
   ;; on the same sub, so the two axes cannot diverge.
   (rf/reg-sub :rf.xray/current-route-slice
     {:inputs [[:rf.xray/target-frame-runtime-db] [:rf.xray/observed-frame]]}
     (fn [[target-runtime-db observed-frame] _query]
       (current-route-slice-value target-runtime-db observed-frame)))
 
-  ;; View-facing composite (topology-plus-overlay shape, rf2-3kjlo) -------
+  ;; View-facing composite (topology-plus-overlay shape) -------
 
   (rf/reg-sub :rf.xray/routing-tab-data
     {:inputs [[:rf.xray/registered-routes]
@@ -826,12 +808,12 @@
               [:rf.xray/epoch-history]
               [:rf.xray/observed-frame]]}
     (fn [[routes-map slice event-bundles focus epoch-history observed-frame] _query]
-      ;; rf2-bz7flo — pass the whole focus map so the lookup is
+      ;; Pass the whole focus map so the lookup is
       ;; frame-strict (dispatch ids collide across frames). Passing only
       ;; `(:dispatch-id focus)` could surface route overlays from a foreign
       ;; frame's same-id event-bundle while focus is on another frame.
       (let [focused-event-bundle (h/focused-event-bundle event-bundles focus)
-            ;; rf2-3x7nj.23.1 — the focused epoch's POST-STATE route slice,
+            ;; The focused epoch's POST-STATE route slice,
             ;; projected exactly as the live one is, so NAVIGATION THIS EPOCH
             ;; can show the params that navigation committed once the live
             ;; slice has moved on. The helper only takes params from it when
@@ -844,17 +826,12 @@
         (h/project-topology-data routes-map slice focused-event-bundle
                                  focused-slice))))
 
-  ;; rf2-2moh1 — register the Dynamic Routing tab with the internal L4
-  ;; tab registry. Per rf2-nrbs9 Mike's design call (2026-05-18) Routing
-  ;; earns its own L3 lens tab between Machines and Issues.
-  ;;
-  ;; rf2-mkpnb — order bumped 5 → 6 to make room for the new Machines
-  ;; Canvas tab at order 5 (sits adjacent to Machines so the two
-  ;; machine sub-domain tabs render next to each other).
+  ;; Register the Dynamic Routing tab with the internal L4 tab registry.
+  ;; Routing earns its own lens tab, ordered after Machine.
   ;; Display label is the plural domain noun "Routes" — matching the
   ;; Static Routes tab so the two tab sets share one vocabulary
-  ;; (all-plural-domain-noun convention, Mike-direction 2026-05-21).
-  ;; Internal id stays `:routing` (id is not a user contract; same
+  ;; (the all-plural-domain-noun convention).
+  ;; Internal id is `:routing` (id is not a user contract; same
   ;; posture as `:views` rendering as "Views").
   (panel-registry/reg-l4-tab!
     {:id    :routing
@@ -862,15 +839,15 @@
      :mnem  "r"
      :modes #{:dynamic}
      :order 6
-     ;; rf2-k97c.3 — still `Panel`, and deliberately so: the registry
+     ;; `Panel`, and deliberately so: the registry
      ;; requires `:panel` to be CALLABLE and the shell mounts it as a
-     ;; Reagent hiccup head, which is what the bridge now is. The
+     ;; Reagent hiccup head, which is what the bridge is. The
      ;; boundary behind it is the private `PanelView`.
      :panel Panel})
 
   nil)
 
-;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+;; ---- test-only override seam ---------------------
 
 (defn install-test-overrides!
   "Install the Routing panel's test-only override seam. Registers the
@@ -905,13 +882,13 @@
     (fn [[_buffer override] _query]
       (or override (registered-routes-value))))
 
-  ;; rf2-8nyi2 — the override rides VERBATIM, and deliberately: it is a
+  ;; The override rides VERBATIM, and deliberately: it is a
   ;; value the TEST injected, never frame state, so there is nothing for an
   ;; egress projection to protect and a fail-closed walk against the (often
   ;; absent) observed frame would redact a fixture whole. The projection
   ;; belongs to the production read, which is where the raw frame state is,
-  ;; and it stays in `current-route-slice-value` so the `(or override
-  ;; (real …))` branch is still expressed in exactly one place.
+  ;; and it lives in `current-route-slice-value` so the `(or override
+  ;; (real …))` branch is expressed in exactly one place.
   (rf/reg-sub :rf.xray/current-route-slice
     {:inputs [[:rf.xray/target-frame-runtime-db]
               [:rf.xray/current-route-slice-override]
