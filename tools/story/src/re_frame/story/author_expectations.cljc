@@ -1,7 +1,7 @@
 (ns re-frame.story.author-expectations
   "Author EXPECTATIONS onto a story — the S5 workflow where a useful story
-  becomes a regression test without a separate fixture (rf2-ba86n.12;
-  `tools/story/spec/021-Story-UI-Test-And-Evidence.md` §S5,
+  becomes a regression test without a separate fixture
+  (`tools/story/spec/021-Story-UI-Test-And-Evidence.md` §S5,
   `019-Story-UI-Controls-And-View-States.md`).
 
   ## What this flow is — and is NOT
@@ -17,10 +17,10 @@
   It is DISTINCT from its two siblings, which it MUST NOT conflate:
 
   - **save-current-state-as-variant** (`re-frame.story.save-variant`,
-    rf2-ba86n.6, spec/019 §3) captures the live canvas STATE (args
+    spec/019 §3) captures the live canvas STATE (args
     snapshot) into a new variant. It authors a state, not an expectation.
   - **generated-failure promotion** (`re-frame.story.ui.promotion`,
-    rf2-ba86n.13, spec/021 §3) turns a captured run ARTIFACT into a named
+    spec/021 §3) turns a captured run ARTIFACT into a named
     regression variant. Its source is a captured run, not a hand-authored
     expectation.
 
@@ -31,7 +31,7 @@
   ## The honesty floor — runner cost / `:cannot-run` BEFORE save
 
   Every authored expectation declares the capability tokens it needs (via
-  the EXISTING `re-frame.story.requirements` registry — this flow reads it,
+  the `re-frame.story.requirements` registry — this flow reads it,
   it does NOT redefine the runner model). So the dialog can show, for each
   expectation BEFORE it is saved:
 
@@ -54,12 +54,11 @@
   - The runner COST / `:cannot-run` decision is `re-frame.story.requirements`
     (`assertion-tokens` / `cheapest-runner` / `select-runner` /
     `unmet-assertions`). This ns reads it.
-  - The schema-kind expectation CONSUMES the existing schema-resolution
+  - The schema-kind expectation CONSUMES the schema-resolution
     surface — it folds onto `:rf.assert/path-matches` (a Malli schema at a
     path) and `:rf.assert/schema-error` (an expected boundary violation),
-    both already in the canonical vocabulary. It does NOT redefine or
-    unify the schema resolvers (that is the pending ayu6n/p5ivc/vnedo
-    decision's lane).
+    both in the canonical vocabulary. It does NOT redefine or
+    unify the schema resolvers.
 
   ## Pure / CLJS split
 
@@ -83,10 +82,10 @@
 ;; the canonical assertion id it folds onto (so the runner cost is read
 ;; from the requirement registry keyed on that id), the operand fields the
 ;; author fills, and a pure `:->atom` builder that turns the filled operand
-;; map into the canonical `[:rf.assert/* …]` atom. The acceptance criteria
-;; (rf2-ba86n.12) name five expectation surfaces — app-db, subscriptions,
+;; map into the canonical `[:rf.assert/* …]` atom. The flow serves five
+;; expectation surfaces — app-db, subscriptions,
 ;; rendered hiccup/DOM, schema behaviour, browser/a11y evidence — and each
-;; resolves to a kind below that folds onto the EXISTING vocabulary.
+;; resolves to a kind below that folds onto the canonical vocabulary.
 
 (defn- read-edn
   "Best-effort read of an EDN operand string into a value. Pure-ish (the
@@ -122,7 +121,7 @@
 
   - `:kind`     — the kind keyword (stable id the dialog + tests key on).
   - `:label`    — human label for the kind picker.
-  - `:surface`  — the acceptance-criteria surface it serves (`:app-db` /
+  - `:surface`  — the expectation surface it serves (`:app-db` /
                   `:subscriptions` / `:dom` / `:schema` / `:browser`) — so
                   the dialog can group / explain coverage.
   - `:assertion-id` — the canonical `:rf.assert/*` id it folds onto (the
@@ -230,7 +229,7 @@
   (some (fn [d] (when (= kind (:kind d)) d)) expectation-kinds))
 
 (def surface-labels
-  "Human labels for the acceptance-criteria expectation surfaces. Used by
+  "Human labels for the expectation surfaces. Used by
   the dialog's coverage hint so the author sees which surfaces their
   authored expectations span (app-db / subscriptions / DOM / schema /
   browser·a11y)."
@@ -314,8 +313,8 @@
 ;; RUNNER COST / `:cannot-run` BEFORE SAVE  (the honesty floor)
 ;; ===========================================================================
 ;;
-;; The keystone acceptance criterion: the runner cost / `:cannot-run` is
-;; visible BEFORE save. We read the EXISTING `re-frame.story.requirements`
+;; The runner cost / `:cannot-run` is
+;; visible BEFORE save. We read the `re-frame.story.requirements`
 ;; registry — `assertion-tokens` for the capability set, `cheapest-runner`
 ;; for the runner that can prove it, and the default-headless check for the
 ;; honest `:cannot-run`. No parallel cost model.
@@ -331,7 +330,7 @@
 (defn expectation-cost
   "Project the runner cost of one authored expectation `atom` (a canonical
   `[:rf.assert/* …]` vector) — the honesty-floor data the dialog shows
-  BEFORE save. Pure data → data; reads ONLY the existing requirement
+  BEFORE save. Pure data → data; reads ONLY the requirement
   registry. Returns:
 
       {:required        #{token …}      ; capability tokens the atom needs
@@ -375,7 +374,7 @@
        :required     #{token …}        ; union of every ready atom's tokens
        :cheapest-runner <kind|nil>     ; cheapest runner proving ALL ready atoms
        :cannot-run-rows [{:row :atom :cost} …]  ; rows that can't run headless
-       :surfaces     #{surface …}}     ; acceptance surfaces the draft spans
+       :surfaces     #{surface …}}     ; expectation surfaces the draft spans
 
   `:cheapest-runner` is the cheapest concrete runner whose token set is a
   superset of the WHOLE draft's required union (`rf.story.requirements/cheapest-runner`),
@@ -417,15 +416,15 @@
 ;; UI state. `:script` / `:plays` are CHILD-ONLY through `:extends` (context
 ;; flows down, verdict is local — `plan.cljc`), so the form re-declares the
 ;; source's own verbatim: the test replays the story, then checks its end
-;; state (rf2-3x7nj.29.1). `:compose` is child-only too (spec/017
-;; §`:compose`), so it rides the same way (rf2-379k7).
+;; state. `:compose` is child-only too (spec/017
+;; §`:compose`), so it rides the same way.
 
 (defn merge-assertions
   "Merge `existing` declared assertions with newly `authored` atoms,
   preserving order and dropping exact duplicates (an author re-adding an
   expectation already declared is idempotent). Pure data → vector. The
   authored atoms append after the existing ones, so re-authoring is
-  additive — the round-trip the acceptance criteria require."
+  additive and round-trips."
   [existing authored]
   (let [existing* (vec (or existing []))
         seen      (set existing*)]
