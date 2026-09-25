@@ -1,14 +1,11 @@
 (ns re-frame.story.ui.xray-embed
-  "Xray-in-Story per-panel embed surface (rf2-v1ach).
+  "Xray-in-Story per-panel embed surface.
 
-  Replaces the pre-rf2-v1ach `[data-rf-xray-host]` whole-shell mount
-  (the 320px column hosting Xray's 4-layer chrome). Per the audit
-  in `ai/findings/2026-05-19-story-design-xray-integration.md` §Part
-  B the per-panel embed is shape #3: Story's RHS hosts ONE Xray
+  Story's RHS hosts ONE Xray
   panel at a time, configurable per story via the `:xray-panel` slot
-  (default `:epoch` — post rf2-5gl5r; previously `:event-detail`),
+  (default `:epoch`),
   with a chip-row picker letting the user swap (`Epoch` / `App-db` /
-  `Views` / `Trace` / `Machines` / `Routing` / `Issues`) at runtime.
+  `Views` / `Trace` / `Machines` / `Routing`) at runtime.
 
   ## Why per-panel beats whole-shell
 
@@ -35,15 +32,13 @@
     React component to drive the mount on every panel-id change.
   - `(resolve-panel variant-id)` — pure-ish: read the resolved
     `:xray-panel` for `variant-id` (variant slot beats story
-    slot beats default `:epoch` — post rf2-5gl5r the canonical
-    default is the Epoch panel; the prior `:event-detail` default
-    pointed at the now-retired Event/Handler panel).
+    slot beats default `:epoch`).
 
   ## Frame isolation
 
   Every mount path goes through `panels/mount-<panel>!` which wraps
   the panel view in `[rf/frame-provider {:frame :rf/xray} …]` per
-  the rf2-crhr8 embedding contract — the panel's Xray-state
+  the Xray embedding contract — the panel's Xray-state
   subscribes resolve to `:rf/xray` regardless of the host's
   React-context. Story authors who want a panel observing a
   specific app frame pass `{:frame :my-app/cart}` per the contract;
@@ -64,20 +59,19 @@
             [re-frame.story.theme.motion :as rf.story.theme.motion]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [sans-stack]]
             [re-frame.story.ui.state :as rf.story.ui.state]
-            ;; rf2-q5pd6 — the panel-host flushes a parked `:filters`
+            ;; The panel-host flushes a parked `:filters`
             ;; preset right after Xray's mount registers the `:rf/xray`
             ;; frame. One-way: `xray-preset` never requires this ns.
             [re-frame.story.xray-preset :as rf.story.xray-preset]))
 
-;; ---- embed descriptor: the single mount-routing source (rf2-jf87oq) -------
+;; ---- embed descriptor: the single mount-routing source --------------------
 ;;
 ;; ONE private descriptor owns the Story→Xray embed configuration. Every
 ;; other surface in this ns — the chip-row `panel-catalog`, the valid-slot
 ;; `panel-ids` set, and the `mount-fn-for` dispatch — is DERIVED from it, so
-;; a panel is declared exactly once. Previously the panel set was spelled out
-;; four times (catalog literal, panel-ids repeat, the `mount-fn-for` case, and
-;; the non-chip `:event-spine` route), and only runtime reconciliation tests
-;; kept the copies honest.
+;; a panel is declared exactly once. Spelling the panel set out in each of
+;; those places would leave only runtime reconciliation tests keeping the
+;; copies honest.
 ;;
 ;; Each entry carries:
 ;;   :panel  — the Story slot / panel id (the `:xray-panel` slot value).
@@ -93,18 +87,16 @@
 ;;   :mount  — the Xray `mount-<panel>!` fn. Referenced directly (compile-
 ;;             time symbol resolution via the `:require` of
 ;;             `day8.re-frame2-xray.panels`) — no runtime namespace walk
-;;             (the rf2-senbl bug class; see `mount-fn-for` below).
+;;             (see the mount-fn dispatch section below).
 ;;
 ;; Chip order is the rough debugging-frequency rubric: epoch first (the
-;; default — post rf2-5gl5r supersedes the prior event-detail default),
-;; state-shape lenses next (app-db / views), trace next, then the specialised
-;; lenses (machines / routing). (rf2-gbz39 removed the `:issues` panel
-;; alongside the Xray Issues tab per Mike's Option (c) ruling; issues surface
-;; inline in the Epoch panel + the L2 event-row pink-wash + the always-on
-;; issues ribbon signal, so there is no standalone Issues panel to embed.)
+;; default), state-shape lenses next (app-db / views), trace next, then the
+;; specialised lenses (machines / routing). There is no Issues panel to
+;; embed: issues surface inline in the Epoch panel + the L2 event-row
+;; pink-wash + the always-on issues ribbon signal.
 
 (def ^:private embed-descriptor
-  "The sole Story-embed mount-routing descriptor (rf2-jf87oq). Ordered
+  "The sole Story-embed mount-routing descriptor. Ordered
   vector of panel-descriptor maps; `panel-catalog`, `panel-ids`, and
   `mount-fn-for` all derive from it. See the section comment above for the
   entry schema and the `:chip?` curated-subset contract."
@@ -114,7 +106,7 @@
    {:panel :trace    :chip? true  :label "Trace"    :title "Trace-buffer feed for the focused cascade"            :mount xray-panels/mount-trace!}
    {:panel :machines :chip? true  :label "Machines" :title "State-machine chart + arcs/rings for the focused machine" :mount xray-panels/mount-machine-inspector!}
    {:panel :routing  :chip? true  :label "Routing"  :title "Registered-routes lens + simulate-URL surface"        :mount xray-panels/mount-routing!}
-   ;; rf2-9k43e — the persistent compact L2 event list. A NON-CHIP band
+   ;; The persistent compact L2 event list. A NON-CHIP band
    ;; (`:chip? false`): mountable via `mount-fn-for` but absent from the
    ;; chip-row picker (`panel-catalog` / `panel-ids`).
    {:panel :event-spine :chip? false                                                                             :mount xray-panels/mount-event-spine!}])
@@ -125,16 +117,16 @@
   "Ordered vector of `{:panel <kw> :label <str> :title <str>}` maps for
   every Xray panel exposed in the Story RHS chip-row. DERIVED from
   `embed-descriptor` (the chip entries, in order). Pure data — JVM-portable.
-  Tests assert ordering + completeness against the rf2-crhr8 panel set."
+  Tests assert ordering + completeness against the Xray embedding
+  contract's panel set."
   (into []
         (comp (filter :chip?)
               (map #(select-keys % [:panel :label :title])))
         embed-descriptor))
 
 (def default-panel
-  "Default panel when neither story nor variant declares one. Post
-  rf2-5gl5r the canonical default is the Epoch panel (the retired
-  Event/Handler panel was the prior default)."
+  "Default panel when neither story nor variant declares one: the Epoch
+  panel."
   :epoch)
 
 (def panel-ids
@@ -157,7 +149,7 @@
         story-id     (rf.story.predicates/parent-story-id variant-id)
         story-body   (when story-id
                        (rf.story.registrar/handler-meta :story story-id))
-        ;; rf2-v1ach: the `:xray-panel` slot lives directly on the
+        ;; The `:xray-panel` slot lives directly on the
         ;; body for ergonomics (parallel to `:tags`, `:viewport`,
         ;; `:background`). Variant slot wins, then story slot, then
         ;; default.
@@ -170,20 +162,19 @@
 
 ;; ---- derived: mount-fn dispatch ------------------------------------------
 ;;
-;; rf2-senbl: previously this ns used `find-ns-obj` + `aget` to feature-
-;; detect the Xray mount fns at runtime. That walk relied on top-level
-;; def'd fns being exposed as properties of the parent namespace's JS
-;; object — shadow-cljs's namespace organisation does not guarantee
-;; that (only sub-namespace refs hang off the parent), so every lookup
-;; returned nil and the panel-host never painted. The fix: direct
-;; `:require` of `day8.re-frame2-xray.panels` + descriptor entries that
-;; name each `mount-<panel>!` fn directly. The `:mount` values in
+;; The Xray mount fns are reached by a direct `:require` of
+;; `day8.re-frame2-xray.panels`, with descriptor entries that name each
+;; `mount-<panel>!` fn directly. The `:mount` values in
 ;; `embed-descriptor` are compile-time symbol resolutions — no runtime
-;; namespace walk. Xray is on the same shadow-cljs source-path as Story
+;; namespace walk. Feature-detecting them at runtime with `find-ns-obj` +
+;; `aget` would rely on top-level def'd fns being exposed as properties of
+;; the parent namespace's JS object — shadow-cljs's namespace organisation
+;; does not guarantee that (only sub-namespace refs hang off the parent),
+;; so every lookup would return nil and the panel-host would never paint.
+;; Xray is on the same shadow-cljs source-path as Story
 ;; (see implementation/shadow-cljs.edn :source-paths); bundle-isolation
-;; still holds because the gate only forbids `implementation/` → `tools/`
-;; requires, not `tools/story` → `tools/xray` (the inverse is explicitly
-;; fine — see this fix's PR body for the dep-arrow analysis).
+;; holds because the gate only forbids `implementation/` → `tools/`
+;; requires, not `tools/story` → `tools/xray`.
 
 (def ^:private mount-fns
   "Map of panel-id → Xray `mount-<panel>!` fn, DERIVED from
@@ -195,11 +186,9 @@
   "Return the Xray `mount-<panel>!` fn for `panel-id`, or nil when
   `panel-id` is unknown. A lookup into the descriptor-derived `mount-fns`
   map — compile-time symbol resolution (the fns are `:require`d directly),
-  no runtime namespace walk. (rf2-5gl5r retired `:event-detail` in favour
-  of `:epoch`; rf2-gbz39 removed `:issues` alongside the Xray Issues tab
-  per Mike's Option (c) ruling.)
+  no runtime namespace walk.
 
-  rf2-9k43e — `:event-spine` resolves to `mount-event-spine!`, the
+  `:event-spine` resolves to `mount-event-spine!`, the
   isolated L2 event list. It is NOT a chip-row panel (it's the descriptor's
   `:chip? false` entry, absent from `panel-catalog`); the embed renders it
   as a persistent compact band ABOVE the chip-selected panel so past events
@@ -212,7 +201,7 @@
 
 (defn popout-full-shell!
   "Pop out the full Xray 4-layer shell into a second window. Uses
-  `day8.re-frame2-xray.mount/popout!` per rf2-zkfiz Q1-8. The
+  `day8.re-frame2-xray.mount/popout!`. The
   popout carries the full chrome the per-panel embed elides so
   power users have one click to the whole-shell shape.
 
@@ -232,10 +221,10 @@
                    :min-height "320px"
                    :overflow "hidden"
                    :gap "8px"}
-   ;; rf2-v1ach — chip-row picker. Sits above the mounted panel slot;
+   ;; Chip-row picker. Sits above the mounted panel slot;
    ;; the user clicks a chip to swap which panel renders. The chip-row
    ;; is Story-owned chrome but visually points at the Xray panel below.
-   ;; rf2-ba86n.3 — the chip-row's underline wears the cool Story↔Xray
+   ;; The chip-row's underline wears the cool Story↔Xray
    ;; SEAM tint (spec/018 §12.9) so the whole Xray band — section header
    ;; AND chip row — reads as the diagnostic boundary, distinct from the
    ;; warm Story-owned sections stacked above it. One quiet border; Xray
@@ -263,7 +252,7 @@
                    :border (str "1px solid " (:accent-amber-deep rf.story.theme.colors/tokens))
                    :font-weight (str (:semibold rf.story.theme.typography/weights))}
    :spacer        {:flex "1"}
-   ;; rf2-v1ach — "pop out full Xray" escape hatch. Sits at the
+   ;; The "pop out full Xray" escape hatch. Sits at the
    ;; right edge of the chip-row so the user reads it as 'leave the
    ;; embed for the full shell'. The chip wears the chevron-right /
    ;; external-link glyph so its action is iconographically obvious.
@@ -280,7 +269,7 @@
                    :align-items "center"
                    :gap "4px"
                    :transition (:chip rf.story.theme.motion/transitions)}
-   ;; rf2-v1ach — the mounted-panel slot. Xray's panel mounts into
+   ;; The mounted-panel slot. Xray's panel mounts into
    ;; this DOM element (a `<div>` with `data-rf-xray-panel-host`).
    ;; `position: relative` + `flex: 1 1 auto` so the panel
    ;; participates in normal flex flow.
@@ -292,7 +281,7 @@
                    :overflow "hidden"
                    :border-radius "4px"
                    :background (:bg-canvas rf.story.theme.colors/tokens)}
-   ;; rf2-9k43e — the compact in-place EVENT SPINE band. Sits BETWEEN
+   ;; The compact in-place EVENT SPINE band. Sits BETWEEN
    ;; the chip-row and the chip-selected panel-host so the user reads:
    ;; pick a lens (chip-row) → scan the variant's recent events (spine)
    ;; → click a past event → the panel below re-renders against that
@@ -311,7 +300,7 @@
                    :overflow "hidden"
                    :border-radius "4px"
                    :background (:bg-canvas rf.story.theme.colors/tokens)}
-   ;; rf2-9k43e — caption above the spine band so the affordance reads
+   ;; Caption above the spine band so the affordance reads
    ;; as 'this is the variant's recent-events timeline; click to focus'.
    :spine-caption {:padding "0 2px 2px"
                    :color (:text-tertiary rf.story.theme.colors/tokens)
@@ -325,7 +314,7 @@
                    :font-family sans-stack
                    :font-size (:caption rf.story.theme.typography/type-scale)
                    :font-style "italic"}
-   ;; rf2-ba86n.19 — lazy Xray-diff mounting. The disclosure toggle that
+   ;; Lazy Xray-diff mounting. The disclosure toggle that
    ;; collapses / expands the embed. Sits at the LEFT edge of the chip-row
    ;; (before the panel chips) so it reads as 'this whole band folds'. The
    ;; chevron points right when collapsed, rotates down when expanded.
@@ -343,7 +332,7 @@
                       :transition (:chip rf.story.theme.motion/transitions)
                       :transform "rotate(90deg)"}
    :disclosure-glyph-collapsed {:transform "rotate(0deg)"}
-   ;; rf2-ba86n.19 — the collapsed placeholder. Replaces the panel-host
+   ;; The collapsed placeholder. Replaces the panel-host
    ;; (and therefore the panel's expensive diff compute) while collapsed.
    ;; A single quiet line; clicking it expands.
    :collapsed-rest {:display "flex"
@@ -396,16 +385,16 @@
 
 ;; ---- React component: panel-host (drives mount on panel change) ----------
 ;;
-;; rf2-4l7t2: React 18+ throws "Attempted to synchronously unmount a root
+;; React 18+ throws "Attempted to synchronously unmount a root
 ;; while React was already rendering" whenever a Xray-owned React root is
-;; torn down inside the outer Story-Reagent render cascade. The previous
-;; shape ("React key on the panel-host slot, sync unmount in
-;; componentWillUnmount") cycled the host React class on every chip click,
-;; which fired the inner root's unmount inside the parent's chip-click
-;; re-render commit — exactly what React 18+ refuses.
+;; torn down inside the outer Story-Reagent render cascade. A React key on
+;; the panel-host slot plus a sync unmount in componentWillUnmount would
+;; cycle the host React class on every chip click, firing the inner root's
+;; unmount inside the parent's chip-click re-render commit — exactly what
+;; React 18+ refuses.
 ;;
-;; The fix is the option-(b) shape from rf2-4l7t2: one persistent host
-;; class, panel-id drives an internal swap. The lifecycle invariants:
+;; So there is one persistent host class, and panel-id drives an internal
+;; swap. The lifecycle invariants:
 ;;
 ;;   (1) The outer hiccup MUST NOT key `panel-host-component` on
 ;;       `active-panel`. The host React class stays alive across panel-id
@@ -434,10 +423,9 @@
 ;;       inside the outer render cycle.
 ;;
 ;; Pin: `tools/story/test/re_frame/story/panels_e2e/xray_embed_e2e_cljs_test.cljs`
-;; (rf2-piucm CLJS e2e — replaced the retired `xray_rhs_smoke` Playwright
-;; spec) asserts that the chip-click round-trip still flips
+;; asserts that the chip-click round-trip flips
 ;; `data-active-panel` AND paints the new panel's root — both behaviours
-;; survive because the new mount runs synchronously into the fresh child
+;; hold because the new mount runs synchronously into the fresh child
 ;; container; only the prior root's release is queued.
 
 (defn- panel-host-component
@@ -448,7 +436,7 @@
   still-mounted Xray root via microtask so the React 18+ root API never
   sees a synchronous unmount inside the parent render cycle.
 
-  Argv: `[<panel-id>]` or `[<panel-id> <opts>]`. `opts` (rf2-9k43e) lets
+  Argv: `[<panel-id>]` or `[<panel-id> <opts>]`. `opts` lets
   the SAME class serve both the chip-selected panel host AND the compact
   event-spine band:
 
@@ -460,7 +448,7 @@
   Only the panel-id participates in the mount/swap diff; the opts are
   pure presentation so a change to them never re-fires the mount.
 
-  Lifecycle invariants (rf2-4l7t2):
+  Lifecycle invariants:
 
   - The host React class persists across panel-id swaps —
     `:component-did-update` drives the in-place mount/unmount
@@ -471,10 +459,9 @@
     already owns a root.
   - Every Xray `unmount!` thunk + DOM node removal runs inside
     `js/queueMicrotask` so the React 18+ root API never sees a
-    synchronous unmount inside the outer render cycle (the source
-    of the 'Attempted to synchronously unmount a root while React
-    was already rendering' warning that previously fired 17× per
-    Story-Xray browser-gate run)."
+    synchronous unmount inside the outer render cycle (which raises
+    the 'Attempted to synchronously unmount a root while React
+    was already rendering' warning)."
   [_panel-id & _opts]
   (let [host-ref    (atom nil)
         ;; `mounted-ref` holds `{:unmount fn :container <div>}` for the
@@ -496,19 +483,19 @@
                       (release!)
                       (when-let [host @host-ref]
                         (when-let [mount-fn (mount-fn-for pid)]
-                          ;; `container` is created OUTSIDE the `try` (rf2-cmjly3
-                          ;; finding 5) so the `catch` below can reach it: if
+                          ;; `container` is created OUTSIDE the `try` so the
+                          ;; `catch` below can reach it: if
                           ;; `mount-fn` throws AFTER `.appendChild` has already
                           ;; wired the container into the host, the container
-                          ;; was never stored in `mounted-ref` (the `reset!`
+                          ;; is never stored in `mounted-ref` (the `reset!`
                           ;; that would register it never runs), so `release!`
-                          ;; would never see it either — without the explicit
-                          ;; removal below, a failed mount left an orphan `<div>`
-                          ;; (plus whatever partial DOM/listener side effects
-                          ;; `mount-fn` made before throwing) appended to the
-                          ;; host for the rest of the panel-host's lifetime, and
-                          ;; every subsequent failed mount on the same host
-                          ;; accumulated another one.
+                          ;; never sees it either — without the explicit
+                          ;; removal below, a failed mount would leave an orphan
+                          ;; `<div>` (plus whatever partial DOM/listener side
+                          ;; effects `mount-fn` made before throwing) appended
+                          ;; to the host for the rest of the panel-host's
+                          ;; lifetime, and every subsequent failed mount on the
+                          ;; same host would accumulate another one.
                           (let [container (.createElement js/document "div")]
                             (try
                               ;; Mark the container so DOM-level
@@ -540,7 +527,7 @@
                                 (reset! mounted-ref
                                         {:unmount unmount!
                                          :container container})
-                                ;; rf2-q5pd6 — `mount-fn` routes through
+                                ;; `mount-fn` routes through
                                 ;; Xray's `ensure-xray-handlers-installed!`
                                 ;; → `mount/ensure-xray-frame!`, so `:rf/xray`
                                 ;; and its handler set are live exactly here
@@ -587,7 +574,7 @@
                 :data-test (or host-test-id "story-xray-panel-host")
                 :style (or host-style (:panel-host styles))}])})))
 
-;; ---- disclosure toggle (rf2-ba86n.19) ------------------------------------
+;; ---- disclosure toggle ---------------------------------------------------
 
 (defn disclosure-toggle
   "Render the collapse/expand disclosure button for the embed. Clicking
@@ -621,7 +608,7 @@
   inspectable IN-PLACE, not only the final/focused event.
 
   The inline spine keeps recent events and epochs focusable in place;
-  Ctrl+Shift+C and `Pop out` retain the full-shell escape hatch for deep
+  Ctrl+Shift+C and `Pop out` provide the full-shell escape hatch for deep
   history. Clicking a past event
   in the spine dispatches `:rf.xray/focus-event` (the row's own
   handler — reused verbatim from the full shell), which re-binds the
@@ -665,7 +652,7 @@
 
       :else
       (let [active-panel (effective-panel shell variant-id)
-            ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When
+            ;; Lazy Xray-diff mounting (spec/018 §10). When
             ;; collapsed we DON'T render `panel-host-component`, so no
             ;; `mount-<panel>!` fires and the panel's expensive diff compute
             ;; (app-db structural diff, epoch timeline) is deferred until the
@@ -693,21 +680,21 @@
             :on-click (fn [_] (popout-full-shell!))}
            [:span "Pop out"]
            [rf.story.theme.glyphs/external-link 11]]]
-         ;; rf2-ba86n.19 — lazy Xray-diff mounting (spec/018 §10). When
+         ;; Lazy Xray-diff mounting (spec/018 §10). When
          ;; collapsed a quiet placeholder stands in for the panel-host;
          ;; crucially it does NOT render `panel-host-component`, so the
          ;; Xray mount + its expensive diff compute never fire while
          ;; collapsed. Clicking the placeholder expands. When the embed was
          ;; previously expanded, dropping the panel-host from the tree
          ;; unmounts it → its `:component-will-unmount` releases the Xray
-         ;; React root via the existing microtask path (rf2-4l7t2); no
+         ;; React root via the microtask path (see `release!`); no
          ;; teardown is duplicated here.
          ;;
-         ;; The panel-host slot (when expanded). rf2-4l7t2: NO React key on
-         ;; this slot — the host class persists across panel-id swaps so
+         ;; The panel-host slot (when expanded) carries NO React key —
+         ;; the host class persists across panel-id swaps so
          ;; `:component-did-update` handles the in-place mount round-trip.
-         ;; Keying the slot on `active-panel` (the pre-fix "belt-and-braces"
-         ;; shape) would force a full unmount/remount of the host on every
+         ;; Keying the slot on `active-panel` would force a full
+         ;; unmount/remount of the host on every
          ;; chip click, and the synchronous `.unmount` of the Xray-owned
          ;; React root would fire inside the parent's chip-click render
          ;; cycle — exactly the "Attempted to synchronously unmount a root
@@ -731,7 +718,7 @@
                            panel-catalog)
                      "Xray")
                  " panel collapsed — expand to compute diffs.")])
-         ;; rf2-9k43e — when expanded, the compact event SPINE band
+         ;; When expanded, the compact event SPINE band
          ;; renders ABOVE the chip-selected panel so the variant's recent
          ;; events are clickable in-place. Clicking a past event re-binds
          ;; `:rf.xray/focus`; the panel below (same `:rf/xray` frame)
@@ -739,6 +726,6 @@
          ;; SIBLINGS of the wrapper (not fragment-nested) so the panel-host
          ;; slot stays a direct wrapper child for the e2e hiccup walkers.
          ;; While collapsed neither the spine NOR the panel mounts —
-         ;; lazy-diff compute deferral (rf2-ba86n.19) covers both.
+         ;; lazy-diff compute deferral covers both.
          (when-not collapsed? [spine-band])
          (when-not collapsed? [panel-host-component active-panel])]))))
