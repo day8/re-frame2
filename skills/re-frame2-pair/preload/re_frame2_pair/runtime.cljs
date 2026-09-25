@@ -2147,9 +2147,8 @@
                 extras))
        ;; Return the framework's `false` on failure — the MCP
        ;; restore-epoch tool turns that into a structured envelope at
-       ;; the wire boundary. Mirrors how replace-app-db! returns a
-       ;; soft-failure envelope on the runtime side but the tool can
-       ;; elide the framework's `false`.
+       ;; the wire boundary, where `app-db-reset!` builds its
+       ;; soft-failure envelope here on the runtime side.
        false))))
 
 (defn replay-epoch
@@ -2255,8 +2254,8 @@
    or `{:ok? false :epoch-id <id> :restored? false :frame <id> :reason
    :restore-rejected}` when `rf/restore-epoch!` rejects the restore (any
    of the seven Tool-Pair time-travel failure modes: aged-out id,
-   schema/version mismatch, restore-during-drain, halted-cascade target,
-   unknown frame). Mirrors `undo-step-back`'s failure envelope — a
+   schema/version mismatch, missing handler, restore-during-drain,
+   halted-cascade target, unknown frame). Mirrors `undo-step-back`'s failure envelope — a
    rejected restore left the frame UNCHANGED and must not read as success."
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
