@@ -1,28 +1,12 @@
 (ns re-frame.story.panels-e2e.reg-variant-e2e-cljs-test
-  "Multi-frame e2e coverage for the `reg-variant` registration vocabulary
-  (rf2-8awk1 · Wave 5 of rf2-tglku, replaces the `reg-variant` count
-  probe in `story_feature_load.cjs`).
+  "Multi-frame e2e coverage for the `reg-variant` registration vocabulary.
 
-  ## What this replaces
+  ## Why a CLJS unit test (not a browser probe)
 
-  The Playwright `reg-variant` feature probe (lines 1118-1131 of
-  `story_feature_load.cjs` pre-skip) drove a browser through the four
-  canonical counter variants — `:story.counter/empty`,
-  `:story.counter/loaded`, `:story.counter/clicked-three-times`,
-  `:story.counter/save-stubbed` — and asserted the canvas's
-  `data-test=\"count\"` element rendered a specific integer for each.
-
-  Once PR #1726 (rf2-0wrud) replaced the pre-render `:play` slot with
-  `:script` (runner-event semantics) the canvas counts no longer
-  matched the pre-migration baseline. Concretely: on
-  `:story.counter/clicked-three-times` the canvas now shows `6` rather
-  than `3` because the play-script runs its three `[:counter/inc]`
-  dispatches differently. The Playwright probe asserted `3` and was
-  failing every Browser gate post-#1726.
-
-  Per Mike's testing direction (feedback_xray_story_cljs_unit_tests_
-  not_playwright) + the Wave 1-4 migration pattern (rf2-tglku epic):
-  the architectural answer is a CLJS unit test that drives
+  A browser probe reading the canvas's `data-test=\"count\"` element for
+  the four canonical counter variants races the play-script's
+  `:dispatch-sync` cascade against React commit phases, so it can read a
+  stale or double-rendered count. This test drives
   `rf.story/run-variant` directly and asserts the result-map's
   `:lifecycle` + `:app-db` slots — no DOM, no race-sensitive count
   timing.
@@ -89,7 +73,7 @@
   ;; `assoc` (not replace) is the conventional reducer shape. The lifecycle
   ;; machine snapshot under `[:rf.runtime/machines :snapshots
   ;; :rf.story.lifecycle/machine]` lives in the frame's runtime-db partition
-  ;; (EP-0001 rf2-vzld77), so a `:db` (app-db) effect cannot touch it — same
+  ;; (EP-0001), so a `:db` (app-db) effect cannot touch it — same
   ;; note as `counter_with_stories/events.cljs` and the lifecycle test.
   (rf/reg-event :counter/initialise
     (fn [{:keys [db]} [_ n]] {:db (assoc db :count (or n 0))}))
@@ -161,14 +145,14 @@
               (rf.story/destroy-variant! :story.counter/empty)
               (done)))))))
 
-;; ---- rf2-ixb0bq — the re-registered :rf/machine sub reads runtime-db -----
+;; ---- the re-registered :rf/machine sub reads runtime-db -----
 ;;
 ;; Regression guard. The fixture re-registers `:rf/machine` as a runtime-db
 ;; sub (EP-0001). After a clean run the lifecycle machine's snapshot lives at
 ;; `[:rf.runtime/machines :snapshots :rf.story.lifecycle/machine]` in the
 ;; variant frame's runtime-db; computing the framework sub against the
 ;; frame-state value resolves the LIVE `{:state :ready …}` snapshot — proving
-;; the read targets runtime-db, NOT the dead app-db `:rf/runtime` path.
+;; the read targets runtime-db.
 
 (deftest rf-machine-sub-resolves-live-runtime-db-snapshot
   (testing ":rf/machine resolves the live lifecycle snapshot off runtime-db"
@@ -205,21 +189,18 @@
 
 ;; ---- (3) :story.counter/clicked-three-times -- count 3 ------------------
 ;;
-;; This is the variant whose Playwright count assertion failed
-;; post-#1726 ("expected 3 got 6"). With the play-script body
-;; (3 × `[:dispatch-sync [:counter/inc]]` against `[:counter/initialise
-;; 0]`) the lifecycle-level contract is unambiguous: after the four
-;; phases run, `:count` is 3. The Playwright canvas was reading a
-;; stale / double-rendered count because the play-script's `:dispatch-
-;; sync` cascade interleaved with React commit phases — that's a DOM-
-;; timing artefact, not a behavioural regression.
+;; With the play-script body (3 × `[:dispatch-sync [:counter/inc]]`
+;; against `[:counter/initialise 0]`) the lifecycle-level contract is
+;; unambiguous: after the four phases run, `:count` is 3. A canvas read
+;; can see a stale / double-rendered count because the play-script's
+;; `:dispatch-sync` cascade interleaves with React commit phases — a
+;; DOM-timing artefact, not a behavioural one.
 
 (deftest clicked-three-times-runs-clean-count-3
   (testing ":story.counter/clicked-three-times reaches :ready with
             :count 3 — three play-script dispatches against an :setup
             slot that seeded :count 0. This pins the lifecycle-level
-            contract that the Playwright probe (now skipped per
-            rf2-8awk1) was trying to assert via the DOM."
+            contract at the result map rather than the DOM."
     (async done
       (-> (rf.story/run-variant :story.counter/clicked-three-times)
           (rf.story.async/then
@@ -264,9 +245,8 @@
 ;; Independent of the lifecycle: pin the `reg-variant` registration
 ;; shape itself so a regression in the side-table (e.g. dropping the
 ;; `:doc` slot, breaking variant-id round-trip) is caught here as
-;; well. The Playwright probe never asserted this — it was implicit in
-;; the fact that the canvas rendered at all — but the unit test can
-;; be explicit.
+;; well. A canvas that renders at all implies this shape only
+;; implicitly; the unit test is explicit.
 
 (deftest reg-variant-side-table-shape
   (testing "all four variants are registered with the canonical body
