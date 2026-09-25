@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.hook-ledger-dom-cljs-test
-  "THE ≤2-HOOK BUDGET, COUNTED AT REACT'S DISPATCHER (rf2-2rtt6.9).
+  "THE ≤2-HOOK BUDGET, COUNTED AT REACT'S DISPATCHER.
 
   HD-020(b): \"the ≤2 budget is fully consumed by the subscription/epoch
   hook and the frame-context hook; boundary shells use callback refs,
@@ -40,8 +40,7 @@
      ;; so the comparator's ambient `use-sub` would read the
      ;; ambient frame's app-db while the probe's `use-frame` reported the
      ;; provider's, and a parity miss would look like a rendering
-     ;; difference. Caught by the frame probe below, which is why the
-     ;; probe stays.
+     ;; difference.
      :ambient-frame nil
      :init-fn (fn [] (rf.bench.fresco.arm1.runtime/reset-runtime!))}))
 
