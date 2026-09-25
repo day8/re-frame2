@@ -321,7 +321,7 @@ SPINE_LANES = (
     Lane(
         "fresco-compile",
         r"^npm run test:fresco-compile$",
-        "spine node tier: 'fresco bench-lane compile'",
+        "spine node tier: 'fresco modules compile'",
     ),
     Lane(
         "fresco-invariants",
