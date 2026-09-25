@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels-e2e.machine-inspector-e2e-cljs-test
   "Multi-frame e2e coverage for the Machine Inspector panel
-  (rf2-7icrs, spec/017 — Machines row).
+  (spec/017 — Machines row).
 
   The Machine Inspector panel reads three cross-cutting sources:
 
@@ -13,32 +13,23 @@
        chart-render path projects out of the FOCUSED epoch's
        `:trace-events` window.
 
-  Bug class this catches:
+  Bug classes this catches:
 
-  - rf2-hwuki — `:rf.machine/transition` emit dropped the `:frame`
-    tag, which meant Xray's epoch-capture filter rejected the event
-    and the Machine Inspector panel stayed empty even after a real
-    machine transition fired. After rf2-hwuki lands (PR #1596), the
-    transition tag is present and the panel reflects machine
-    activity. Pre-#1596 this test catches the regression.
+  - A `:rf.machine/transition` emit that drops the `:frame` tag:
+    Xray's epoch-capture filter then rejects the event and the
+    Machine Inspector panel stays empty even after a real machine
+    transition fires.
 
-  - rf2-6pdr3 — the rf2-w06op machine_epochs worker found the
-    chart-render path (`:rf.xray/machine-transitions-for-focused-event`)
-    STILL appeared empty for real host-app machines and had to assert
-    machine features via the snapshot mirror instead. Investigation
-    (this bead) confirmed the framework `:frame`-tag fix (rf2-hwuki) is
-    in place and the whole emit → epoch-capture → focused-event-lens
-    chain is wired — but EVERY existing test of the lens injected
+  - A chart-render path (`:rf.xray/machine-transitions-for-focused-event`)
+    that reads empty for real host-app machines. A test that injects
     synthetic `:trace-events` via the `:rf.xray/set-epoch-history-for-test`
-    seam, so the FULL real pipeline (a real `reg-machine` transition
-    flowing through real epoch capture into the lens) was never locked.
-    The promised `machine-inspector-reflects-transition` test (named in
-    this file's original docstring) was never written. The two
-    `machine-inspector-focused-event-lens-*` tests below close that gap:
-    they drive a REAL `[:deep/main [:work/go]]` transition through the
-    real trace-bus + epoch-capture pipeline (NO injection seam) and
-    assert the focused-event lens populates with the real transition
-    record — the exact contract the chart-render path depends on."
+    seam cannot lock the FULL real pipeline (a real `reg-machine`
+    transition flowing through real epoch capture into the lens). The
+    two `machine-inspector-focused-event-lens-*` tests below drive a
+    REAL `[:deep/main [:work/go]]` transition through the real
+    trace-bus + epoch-capture pipeline (NO injection seam) and assert
+    the focused-event lens populates with the real transition record —
+    the exact contract the chart-render path depends on."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -79,19 +70,19 @@
           (is (map? data)
               ":rf.xray/machine-inspector-data did not return a map"))))))
 
-;; ---- focused-event lens populates for a REAL machine (rf2-6pdr3) ---------
+;; ---- focused-event lens populates for a REAL machine ---------------------
 ;;
 ;; The chart-render contract end-to-end: a real `reg-machine` transition
 ;; MUST surface in `:rf.xray/machine-transitions-for-focused-event` after
 ;; flowing through the REAL pipeline — trace-bus → epoch-capture (the
 ;; `:frame`-tag admission gate) → the focused epoch's `:trace-events` →
 ;; the focused-event lens. NO `:rf.xray/set-epoch-history-for-test`
-;; injection seam: this is the gap rf2-6pdr3 reported (every prior lens
-;; test injected synthetic trace events, so the real path was never locked
-;; and the rf2-w06op deck saw an empty chart for real machines).
+;; injection seam: a lens test that injects synthetic trace events cannot
+;; lock the real path, so the chart could read empty for real machines
+;; while every injected test passed.
 
 (deftest machine-inspector-focused-event-lens-populates-for-real-transition
-  (testing "rf2-6pdr3 — a REAL `[:deep/main [:work/go]]` transition flows
+  (testing "a REAL `[:deep/main [:work/go]]` transition flows
             through the real trace-bus + epoch-capture pipeline and surfaces
             in `:rf.xray/machine-transitions-for-focused-event` (NO injection
             seam). This is the chart-render path's load-bearing contract —
@@ -111,7 +102,7 @@
           (is (= 1 (count records))
               "exactly one machine transition fired in the focused cascade
                window — proves the transition trace was captured into the
-               focused epoch's :trace-events (the rf2-hwuki :frame-tag gate)")
+               focused epoch's :trace-events (the :frame-tag gate)")
           (let [rec (first records)]
             (is (= :deep/main (:machine-id rec))
                 "the focused-event record names the real host machine")
@@ -123,7 +114,7 @@
                 "the record carries the real driving event vector")))))))
 
 (deftest machine-inspector-focused-event-lens-tracks-second-real-transition
-  (testing "rf2-6pdr3 — a second real transition (`:work/reset`) re-fires the
+  (testing "a second real transition (`:work/reset`) re-fires the
             lens with the NEW cascade's transition record; proves the lens
             tracks the live focus across real cascades, not a one-shot
             capture artefact"
