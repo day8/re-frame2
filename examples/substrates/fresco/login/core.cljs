@@ -244,10 +244,7 @@
 ;;
 ;;      `frame-root` takes the `rf/make-frame` option map WHOLE, so
 ;;      `:fx-overrides` rides it like any other option and there is no separate
-;;      `rf/make-frame` call to keep in step with the mount. This example used
-;;      to make the frame first and mount to JOIN it, purely because the root
-;;      door's config could not carry `:fx-overrides`; the boundary in the tree
-;;      is what retired that detour (rf2-kuky.58).
+;;      `rf/make-frame` call to keep in step with the mount.
 ;;
 ;;   3. `rf.fresco/render!` associates the DOM node with one root view,
 ;;      through the handle allocated below. Its opts carry ROOT options only
