@@ -226,26 +226,20 @@
   "The registrations reading `sub-key` right now, as a vector THIS
   namespace owns.
 
-  The `mapv` is a defensive copy and it is load-bearing, not hygiene.
-  `runtime/cell-readers` answers `(vec (.-readers cell))`, and the
-  cell's reader list is a JS array the collector mutates IN PLACE — a
-  `.push` on acquire (collector.cljs, `acquire-cell!`) and a splice on
-  release. A ClojureScript vector built from a JS array can share that
-  array's storage, so the value `cell-readers` returns is not necessarily
-  a snapshot: hold it across a commit and it can report what the array
-  holds LATER.
+  The snapshot is `runtime/cell-readers`' own: the cell's reader list is
+  a JS array the collector mutates IN PLACE — a `.push` on acquire
+  (collector.cljs, `acquire-cell!`) and a splice on release — and
+  `cell-readers` clones it before wrapping it, so the value it returns
+  can be held across a commit and still report what it captured. The
+  `mapv` here is a second copy that snapshot makes redundant.
 
-  Measured here rather than reasoned about. Without this copy the
-  baseline captured before a save had, by the time it was compared,
-  become the post-save reader list — so `was` equalled `now` for every
-  key, `stale` equalled `count`, and the hand-over row failed while the
-  runtime was behaving correctly. That reads exactly like a leak, which
-  is the most expensive way for a test instrument to be wrong.
-
-  The reader's own docstring says the vector exists so that a CALLER
-  cannot mutate the live list, which protects the other direction;
-  nothing is claimed here about whether the runtime should also protect
-  this one."
+  The snapshot is what keeps the baseline honest. A reader list that
+  aliased the live array would turn the baseline captured before a save
+  into the post-save list by the time it was compared — `was` equal to
+  `now` for every key, `stale` equal to `count`, and the hand-over row
+  failing while the runtime behaved correctly. That reads exactly like a
+  leak, which is the most expensive way for a test instrument to be
+  wrong."
   [frame-kw query]
   (mapv identity (rf.fresco.test.runtime/cell-readers (sub-key frame-kw query))))
 
