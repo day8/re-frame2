@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/timeout-state-fire
 ;;
 ;; EP-0029 A4 — a state-level :timeout / :on-timeout. A :timeout is a
-;; DISTINCT authoring concept that LOWERS onto the existing :after timer
+;; DISTINCT authoring concept that LOWERS onto the :after timer
 ;; mechanism: the runtime desugars {:timeout "PT5S" :on-timeout {:target …}}
 ;; into {:after {5000 {:target …}}} (the resolved ms), and the whole :after
 ;; machinery (scheduling, per-decl-path epoch, cancel-on-exit) drives it.
@@ -15,7 +15,7 @@
 ;;
 ;; DIVERGENCE pinned elsewhere (machine-reg-error-timeout.edn): the duration
 ;; grammar is integer-ms OR ISO-8601 only — the XState "5s"/"10ms" shorthand
-;; is REJECTED at registration (operator-ruled).
+;; is REJECTED at registration.
 ;;
 ;; Per [005 §`:timeout` / `:on-timeout` (delayed transitions)]
 ;; (../../005-StateMachines.md#timeout--on-timeout-state--spawn) and
