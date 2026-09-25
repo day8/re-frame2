@@ -214,7 +214,7 @@
   Compiles with the ambient arg layers (`rf.story.args/run-arg-layers`: the
   global and story `:args`) like every other keyword-target reader, so a
   variant that leaves a required prop to its story compiles here as it does
-  for a run (rf2-3x7nj.28.3). No modes or cell-overrides: Docs shows the
+  for a run. No modes or cell-overrides: Docs shows the
   variant's declared shape."
   [variant-id]
   (try
@@ -929,12 +929,12 @@
          ;; `focus-beat!` focus seam. Docs LINKS to the detailed diagnostics;
          ;; it never inlines the beat tree / app-db diff.
          ;;
-         ;; rf2-n440v — and it is OMITTED from a published static export,
+         ;; It is OMITTED from a published static export,
          ;; through the same `focus-available?` predicate the spine's own
          ;; focus row consults. Docs reaches `focus-beat!` directly, so this
          ;; is a second affordance over the one seam rather than a second
-         ;; seam; the excerpt's narrative (trigger, epoch, chips) is
-         ;; untouched. See `re-frame.story.ui.evidence-spine/focus-available?`
+         ;; seam; the excerpt's narrative (trigger, epoch, chips) renders
+         ;; either way. See `re-frame.story.ui.evidence-spine/focus-available?`
          ;; and `tools/story/spec/013-Static-Build.md`.
          (when (rf.story.ui.evidence-spine/focus-available?)
            [:button {:style     (:excerpt-link styles)
