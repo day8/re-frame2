@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.reply-envelope-cljs-test
   "Pure-data tests for Xray's ONE work/reply vocabulary reading the uniform
-  reply envelope (EP-0011, rf2-zqefg3.7).
+  reply envelope (EP-0011).
 
   Dual-target naming (`.cljc` + `_cljs_test`):
     - Cognitect's test-runner (CLJ) picks it up via the default `.*-test$`
@@ -59,11 +59,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest work-id+kind-readers
-  (testing "reads the canonical :work/id (EP-0011 — the bare :work-id trace-tag
-            spelling was retired; every family emits the qualified :work/id)"
+  (testing "reads the canonical :work/id (EP-0011 — every family emits the
+            qualified :work/id; there is no bare :work-id trace-tag spelling)"
     (is (= [:rf.work/http :a 1] (re/work-id-of {:work/id [:rf.work/http :a 1]})))
     (is (nil? (re/work-id-of {:work-id [:rf.work/resource :k 4]}))
-        "the retired bare :work-id is no longer tolerated"))
+        "a bare :work-id is not read"))
   (testing "reads explicit :work/kind, tolerating bare spellings"
     (is (= :http (re/work-kind-of {:work/kind :http})))
     (is (= :resource (re/work-kind-of {:work-kind :resource})))
@@ -151,27 +151,27 @@
       (is (true? (:delivered? row))))))
 
 (deftest migrated-reply-map-reads
-  ;; rf2-6a0vyq / rf2-l7s7b7 — the reply MAP single-roots its work identity /
+  ;; The reply MAP single-roots its work identity /
   ;; operational facts under `:rf.reply/*` (Managed-Effects §The uniform reply
   ;; envelope): `:rf.reply/work-id` / `:rf.reply/work-kind` /
   ;; `:rf.reply/work-status` / `:rf.reply/cancel-reason` / `:rf.reply/stale-reason`
-  ;; (the bare `:status` / `:cancelled?` / `:stale?` / `:rf.frame/id` / timestamps
-  ;; stay). This pins the panel's reply-map reads against that MIGRATED shape —
-  ;; the reads must PREFER the `:rf.reply/*` spelling, not just tolerate the
-  ;; pre-migration bare keys the other reply-row tests still exercise.
-  (testing "work-kind-of prefers the migrated :rf.reply/work-kind"
+  ;; (`:status` / `:cancelled?` / `:stale?` / `:rf.frame/id` / timestamps are
+  ;; bare). This pins the panel's reply-map reads against that `:rf.reply/*`
+  ;; shape — the reads must PREFER the `:rf.reply/*` spelling, not just
+  ;; tolerate the bare keys the other reply-row tests exercise.
+  (testing "work-kind-of prefers the canonical :rf.reply/work-kind"
     (is (= :http (re/work-kind-of {:rf.reply/work-kind :http})))
     ;; the canonical spelling wins over a stray bare twin
     (is (= :mutation (re/work-kind-of {:rf.reply/work-kind :mutation :work/kind :resource}))))
-  (testing "resolve-work-kind: a POST-migration :mutation reply map (reusing the
+  (testing "resolve-work-kind: a :mutation reply map (reusing the
             :rf.work/resource head) resolves :mutation off :rf.reply/work-kind —
             inference alone would misclassify it as :resource"
     (is (= :mutation
            (re/resolve-work-kind
              {:rf.reply/work-kind :mutation
               :rf.reply/work-id   [:rf.work/resource [:rf.mutation :m1] 1]}))))
-  (testing "reply-row reads a fully migrated :rf.reply/* reply map — the exact
-            shape the substrate + families now emit (re-frame.reply/suppress,
+  (testing "reply-row reads a full :rf.reply/* reply map — the exact
+            shape the substrate + families emit (re-frame.reply/suppress,
             re-frame.http.reply, re-frame.resources.reply)"
     (let [ok  (re/reply-row {:status :ok :value {:title "W"}
                              :rf.reply/work-id     [:rf.work/http :article 1]
@@ -232,7 +232,7 @@
   (testing "issuance / start across families (the landed literals)"
     (is (= :issued (re/phase-of :rf.resource/work-started)))
     (is (= :issued (re/phase-of :rf.resource/fetch-started)))
-    ;; EP-0016 D1 (slice 8) — mutation issuance reuses the resource ledger.
+    ;; EP-0016 D1 — mutation issuance reuses the resource ledger.
     (is (= :issued (re/phase-of :rf.mutation/started)))
     (is (= :issued (re/phase-of :rf.machine.timer/scheduled))))
   (testing "retry / intermediate"
@@ -251,7 +251,7 @@
     (is (= :completed (re/phase-of :rf.http/failed)))
     (is (= :completed (re/phase-of :rf.resource/work-completed)))
     (is (= :completed (re/phase-of :rf.resource/succeeded)))
-    ;; EP-0016 D1 (slice 8) — mutation settlement (phase 5).
+    ;; EP-0016 D1 — mutation settlement (phase 5).
     (is (= :completed (re/phase-of :rf.mutation/succeeded)))
     (is (= :completed (re/phase-of :rf.mutation/failed)))
     (is (= :completed (re/phase-of :rf.machine/done))))
@@ -261,20 +261,20 @@
     ;; EP-0016 D1 — a stale mutation reply suppresses, never fires :reply-to.
     (is (= :stale-suppressed (re/phase-of :rf.mutation/stale-suppressed)))
     (is (= :stale-suppressed (re/phase-of :rf.reply/suppressed)))
-    ;; rf2-waawic — the machine `:after` timer stale completion is now
+    ;; The machine `:after` timer stale completion is
     ;; EXPLICITLY classified (the suffix heuristic catches `stale-suppress` /
     ;; `suppressed`, NOT `stale-after`), so a machines managed-async stale
     ;; completion is visible in the uniform reply-envelope view.
     (is (= :stale-suppressed (re/phase-of :rf.machine.timer/stale-after)))
     ;; routing emits the explicit literal too.
     (is (= :stale-suppressed (re/phase-of :rf.route.nav-token/stale-suppressed)))
-    ;; rf2-azcmd3 — HTTP supersession's superseded-attempt stale row.
+    ;; HTTP supersession's superseded-attempt stale row.
     (is (= :stale-suppressed (re/phase-of :rf.http/stale-suppressed)))
-    ;; rf2-hj4skn / rf2-ixjd48 — the `:spawn-all` join's TWO exact-attempt
-    ;; stale rows. Neither name ends in a `-completed` / `stale-suppress` /
-    ;; `suppressed` suffix (`stale-completion` / `late-completion` end in
-    ;; `-completion`), so the heuristic returned nil for both until they were
-    ;; enumerated explicitly. The producer runs the `attempt-unverified` /
+    ;; The `:spawn-all` join's TWO exact-attempt stale rows. Neither name
+    ;; ends in a `-completed` / `stale-suppress` / `suppressed` suffix
+    ;; (`stale-completion` / `late-completion` end in `-completion`), so the
+    ;; heuristic returns nil for both and they are enumerated explicitly.
+    ;; The producer runs the `attempt-unverified` /
     ;; `attempt-superseded` exact-attempt gates BEFORE the `:resolved?` check
     ;; (and `duplicate-completion` AFTER it): `stale-completion` is the
     ;; attempt-suppressed carrier — its unverified/superseded classes suppress
@@ -284,14 +284,14 @@
     ;; clears the exact-attempt fence yet arrives post-latch).
     (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/stale-completion)))
     (is (= :stale-suppressed (re/phase-of :rf.machine.spawn-all/late-completion)))
-    ;; rf2-syc7a — the single-`:spawn` analogue has the same `-completion`
+    ;; The single-`:spawn` analogue has the same `-completion`
     ;; name shape, so it is enumerated for the same reason.
     (is (= :stale-suppressed (re/phase-of :rf.machine.spawn/stale-completion))))
-  (testing "rf2-hj4skn — the NON-DECISIVE `:spawn-all` child terminal is a REAL
+  (testing "the NON-DECISIVE `:spawn-all` child terminal is a REAL
             completion (its `-completed` suffix classifies correctly) and stays
             `:completed`, NOT lowered to stale"
     (is (= :completed (re/phase-of :rf.machine.spawn-all/child-completed))))
-  (testing "rf2-hj4skn — the suffix heuristic is NOT broadened: an arbitrary
+  (testing "the suffix heuristic is NOT broadened: an arbitrary
             `*completion`-suffixed op with NO reply-envelope proof is not
             admitted as a completion (only the enumerated spawn-all stale
             literals lower)"
@@ -329,15 +329,15 @@
     :time 110 :tags {:work/id [:rf.work/http :req 1] :rf.frame/id :f}}
    {:id 4 :operation :rf.resource/work-abort-requested
     :time 120 :tags {:work/id [:rf.work/resource :k 1] :reason :superseded}}
-   ;; rf2-o6c2jr — the stale-suppressed reply row carries the work identity
-   ;; ONLY as :rf.reply/work-id (the bare :work/id duplicate was dropped).
+   ;; The stale-suppressed reply row carries the work identity
+   ;; ONLY as :rf.reply/work-id (no bare :work/id duplicate).
    {:id 5 :operation :rf.resource/stale-suppressed
     :time 130 :tags {:rf.reply/work-id [:rf.work/resource :k 1]
                      :rf.reply/carried {:work/id [:rf.work/resource :k 1] :generation 1}
                      :rf.reply/current {:work/id [:rf.work/resource :k 2] :generation 2}
                      :outcome :success}}
    ;; the canonical EP-0011 HTTP completion row, built from the reply
-   ;; envelope (carries :work/kind + :status verbatim — rf2-zqefg3.2)
+   ;; envelope (carries :work/kind + :status verbatim)
    {:id 6 :operation :rf.http/replied
     :time 140 :tags {:work/id [:rf.work/http :req 1] :work/kind :http :status :ok}}])
 
@@ -377,12 +377,12 @@
       (is (= [2 3 4 5 6] (mapv :id rows))))))
 
 (deftest production-reply-trace-vocabulary
-  (testing "rf2-o6c2jr — a machine :rf.machine/done completion row stamped with
-            the canonical :rf.reply/work-id + additive :rf.reply/* facts joins
+  (testing "a machine :rf.machine/done completion row stamped with
+            the canonical :rf.reply/work-id + the :rf.reply/* facts joins
             the uniform work/reply rows"
-    ;; the SHAPE finalize.cljc actually emits: :work/kind PLUS the additive
-    ;; :rf.reply/* facts. rf2-o6c2jr — the bare :work/id duplicate was dropped;
-    ;; the work identity rides ONLY as :rf.reply/work-id.
+    ;; the SHAPE finalize.cljc actually emits: :work/kind PLUS the
+    ;; :rf.reply/* facts. There is no bare :work/id duplicate; the work
+    ;; identity rides ONLY as :rf.reply/work-id.
     (let [row (re/work-event-row
                 {:id 10 :operation :rf.machine/done
                  :time 200 :tags {:machine-id :auth :parent-id :root :error? false
@@ -397,7 +397,7 @@
       ;; status read from :rf.reply/status; work-status from :rf.reply/work-status
       (is (= :ok (:status row)))
       (is (= :completed (:work-status row)))))
-  (testing "rf2-o6c2jr — work-id-of reads the canonical :rf.reply/work-id; a
+  (testing "work-id-of reads the canonical :rf.reply/work-id; a
             row carrying it (and no bare :work/id) joins the uniform rows"
     (let [row (re/work-event-row
                 {:id 11 :operation :rf.machine/done
@@ -408,7 +408,7 @@
       (is (= [:rf.work/machine :auth#1 [:fetch] 1] (:work-id row)))
       (is (= :machine (:work-kind row)))
       (is (= :ok (:status row)))))
-  (testing "rf2-waawic — a machine :after timer stale completion is a
+  (testing "a machine :after timer stale completion is a
             stale-suppressed row carrying carried/current gate + work-id"
     (let [row (re/work-event-row
                 {:id 12 :operation :rf.machine.timer/stale-after
@@ -425,7 +425,7 @@
       (is (= :timer (:work-kind row)))
       (is (= [:rf.work/timer [:auth :loading] 3] (:work-id row)))
       (is (= :rf.machine.timer/after-epoch-mismatch (:stale-reason row)))))
-  (testing "rf2-azcmd3 — an HTTP supersession stale row reads carried/current
+  (testing "an HTTP supersession stale row reads carried/current
             work-id correlation + the canonical join key"
     (let [row (re/work-event-row
                 {:id 13 :operation :rf.http/stale-suppressed
@@ -443,26 +443,27 @@
       (is (some? (:carried row)))
       (is (some? (:current row)))
       (is (= :rf.http/request-id-superseded (:stale-reason row)))))
-  (testing "rf2-6mfkp3 — a PRODUCTION-shaped :rf.resource/stale-suppressed row,
+  (testing "a PRODUCTION-shaped :rf.resource/stale-suppressed row,
             EXACTLY as `re-frame.resources.events/emit-resource-stale-
             suppressed!` emits it (bespoke :resource/key/:generation/:outcome
-            PLUS the additive canonical :rf.reply/* vocabulary), projects work
+            PLUS the canonical :rf.reply/* vocabulary), projects work
             id, kind, status, work-status, stale reason, and correlation —
-            the gap the synthetic mixed-trace fixture (`:outcome :success`
-            only) did not pin: a resource stale row could lose canonical
-            status / work-status / stale-reason in Xray without a failure"
+            which the synthetic mixed-trace fixture (`:outcome :success`
+            only) does not pin: without this row a resource stale row could
+            lose canonical status / work-status / stale-reason in Xray with
+            no failure"
     (let [work-id [:rf.work/resource [:s :article/by-id {:id 1}] 1]
           row (re/work-event-row
                 {:id 14 :operation :rf.resource/stale-suppressed
                  :time 240
                  :tags {;; the bespoke facts the resource family stamps
-                        ;; rf2-o6c2jr — no bare :work/id; the work identity
-                        ;; rides ONLY as the additive :rf.reply/work-id below.
+                        ;; no bare :work/id; the work identity
+                        ;; rides ONLY as the :rf.reply/work-id below.
                         :rf.frame/id  :rf/default
                         :resource/key [:s :article/by-id {:id 1}]
                         :generation   1
                         :outcome      {:reason :stale-reply}
-                        ;; the additive canonical EP-0011 reply-envelope
+                        ;; the canonical EP-0011 reply-envelope
                         ;; vocabulary (Managed-Effects §9) — the SAME shape
                         ;; the machine / HTTP families ride
                         :rf.reply/status       :stale
@@ -479,8 +480,8 @@
       (is (= :resource (:work-kind row)) "work-kind inferred from the :rf.work/resource head")
       (is (= work-id (:work-id row)) "the canonical :rf.reply/work-id join key")
       (is (= :rf/default (:frame row)) "frame attribution preserved")
-      ;; THE coverage gap: the canonical status / work-status / stale-reason
-      ;; survive the projection (read off the additive :rf.reply/* facts).
+      ;; THE point of this row: the canonical status / work-status /
+      ;; stale-reason survive the projection (read off the :rf.reply/* facts).
       (is (= :suppressed (:work-status row))
           "canonical :rf.reply/work-status survives the projection")
       (is (= :rf.resource/superseded (:stale-reason row))
@@ -540,9 +541,8 @@
   (testing "a PRODUCTION-shaped ROUTE stale-suppressed row preserves the status"
     (let [work-id [:rf.work/route :nav 3]
           row (re/work-event-row
-                ;; Routing uses the bare-key convention (rf2-o6c2jr left routing
-                ;; unchanged — its stale row carries a LONE bare :work/id, no
-                ;; :rf.reply/work-id twin).
+                ;; Routing uses the bare-key convention — its stale row
+                ;; carries a LONE bare :work/id, no :rf.reply/work-id twin.
                 {:id 52 :operation :rf.route.nav-token/stale-suppressed
                  :time 320
                  :tags {:work/id       work-id
@@ -593,9 +593,9 @@
       (is (= :stale-suppressed (:phase row)))
       (is (nil? (:status row)) "bare ledger :status :completed not misread")
       (is (nil? (:status-class row)))
-      (is (true? (:stale? row)) "still a stale-suppressed row")))
-  (testing "completed rows are unchanged — the four non-stale closed statuses
-            still project from a :completed row"
+      (is (true? (:stale? row)) "a stale-suppressed row all the same")))
+  (testing "completed rows — the four non-stale closed statuses
+            project from a :completed row"
     (doseq [[s expected-class] {:ok :success :partial :partial
                                 :error :failure :cancelled :cancellation}]
       (let [row (re/work-event-row
@@ -603,17 +603,17 @@
                    :time 360 :tags {:work/id [:rf.work/http :req 1]
                                     :rf.reply/status s}})]
         (is (= :completed (:phase row)))
-        (is (= s (:status row)) (str "completed status " s " unchanged"))
+        (is (= s (:status row)) (str "completed status " s " projects as-is"))
         (is (= expected-class (:status-class row)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (6b-spawn-all) The `:spawn-all` join's TWO exact-attempt stale-completion
-;; operations (rf2-hj4skn / rf2-ixjd48). Both lower to `:stale-suppressed` and
+;; operations. Both lower to `:stale-suppressed` and
 ;; project the canonical `:rf.reply/*` work identity / status / work-status /
 ;; stale-reason / correlation / completion time on the SAME uniform row a
 ;; resource / HTTP suppression renders. The fixtures are RUNTIME-shaped per the
-;; 009 catalogue: `:tags {:actor-id :invoke-id :child-id :kind}` (the preserved
-;; public shape) PLUS the additive `:rf.reply/*` reply-envelope facts. This is a
+;; 009 catalogue: `:tags {:actor-id :invoke-id :child-id :kind}` (the public
+;; shape) PLUS the `:rf.reply/*` reply-envelope facts. This is a
 ;; PROJECTION table (op + stale-reason -> row): the ordered exact-attempt
 ;; classification itself is proven producer-backed in the machines suite
 ;; (`join_exact_attempt_cljs_test`) and, for the Xray arc, in
@@ -648,7 +648,7 @@
           :rf.reply/completed-at completed-at}})
 
 (deftest spawn-all-stale-completions
-  (testing "rf2-hj4skn — a `stale-completion` carrier that failed the
+  (testing "a `stale-completion` carrier that failed the
             exact-attempt fence (:attempt-unverified) projects the
             full canonical reply identity on the uniform stale-suppressed row"
     (let [row (re/work-event-row
@@ -671,7 +671,7 @@
       (is (= 471 (:completed-at row)) "causal reply completion time surfaced")
       (is (some? (:correlation row)) "single-map correlation surfaced")
       (is (= "map" (:type (:correlation row))) "correlation summarized (PRIVACY)")))
-  (testing "rf2-hj4skn — the :attempt-superseded class (a carrier
+  (testing "the :attempt-superseded class (a carrier
             bound to a prior attempt / wrong actor after respawn)"
     (let [row (re/work-event-row
                 (spawn-all-stale-row
@@ -683,7 +683,7 @@
       (is (= :rf.machine.spawn-all/attempt-superseded (:stale-reason row)))
       (is (= :stale (:status row)))
       (is (= :suppressed (:work-status row)))))
-  (testing "rf2-hj4skn — the :duplicate-completion class (an
+  (testing "the :duplicate-completion class (an
             exact re-completion of an already-folded child)"
     (let [row (re/work-event-row
                 (spawn-all-stale-row
@@ -694,7 +694,7 @@
       (is (= :stale-suppressed (:phase row)))
       (is (= :rf.machine.spawn-all/duplicate-completion (:stale-reason row)))
       (is (= :stale (:status row)))))
-  (testing "rf2-hj4skn — the POST-resolution `late-completion` straggler (a
+  (testing "the POST-resolution `late-completion` straggler (a
             completion arriving after the `:resolved?` latch flipped)
             :join-resolved"
     (let [row (re/work-event-row
@@ -713,7 +713,7 @@
       (is (some? (:correlation row))))))
 
 (deftest single-spawn-stale-completion
-  (testing "rf2-syc7a — the single-`:spawn` stale row, in the 009 catalogue's
+  (testing "the single-`:spawn` stale row, in the 009 catalogue's
             tag shape (`:actor-id` / `:invoke-id` / `:kind`, no `:child-id`,
             no `:rf.reply/work-id`, the bare `:frame`), projects onto the
             uniform stale-suppressed row"
@@ -779,7 +779,7 @@
                          :completed-at 484})])
 
 (deftest spawn-all-stale-races
-  (testing "rf2-hj4skn — stale-suppressions surfaces every spawn-all stale row
+  (testing "stale-suppressions surfaces every spawn-all stale row
             (the four suppression classes), NOT the non-decisive child terminal"
     (let [sup (re/stale-suppressions spawn-all-stale-trace)]
       (is (= 4 (count sup)) "four stale rows, the :completed child terminal excluded")
@@ -788,10 +788,10 @@
                :rf.machine.spawn-all/duplicate-completion
                :rf.machine.spawn-all/join-resolved}
              (into #{} (map :stale-reason) sup)))))
-  (testing "rf2-hj4skn — the cross-surface stale tally counts the spawn-all
+  (testing "the cross-surface stale tally counts the spawn-all
             suppressions under :machine"
     (is (= {:machine 4} (re/stale-tally-by-kind spawn-all-stale-trace))))
-  (testing "rf2-hj4skn — races-by-work-id keeps the two FIXED-id superseded
+  (testing "races-by-work-id keeps the two FIXED-id superseded
             attempts DISTINCT (distinct :work/id generations never merge); the
             non-decisive child arc is a completed :ok, the stragglers :stale"
     (let [races (re/races-by-work-id spawn-all-stale-trace)
@@ -808,20 +808,20 @@
       (is (false? (:suppressed? child)) "the non-decisive child is NOT a suppression"))))
 
 ;; ---------------------------------------------------------------------------
-;; (6c) Frame attribution across families (rf2-l9vb09). Two LEGITIMATE frame
+;; (6c) Frame attribution across families. Two LEGITIMATE frame
 ;; spellings ride a managed-async reply TRACE ROW, by family:
 ;;   - resources / machines / mutations stamp the EP-0002 carried-frame stamp
 ;;     `:rf.frame/id` in `:tags` (the reply-envelope facts — Managed-Effects
 ;;     §The reply map; e.g. `re-frame.resources.events`);
 ;;   - HTTP stamps the bare `:frame` in `:tags` — the generic raw-event
 ;;     carve-out read by the contract-owned canonical reader
-;;     `re-frame.trace/trace-event-frame` ([:tags :frame], rf2-7737vq; e.g.
+;;     `re-frame.trace/trace-event-frame` ([:tags :frame]; e.g.
 ;;     `re-frame.http.transport`'s `:rf.http/stale-suppressed` emit).
 ;; `work-event-row` prefers `:rf.frame/id`, falling back to the canonical
-;; reader for the bare `[:tags :frame]`. The historical dead over-reads — bare
-;; `:frame-id` in `:tags` (rf2-shaa1 dropped it; NO emit site produces it) and
-;; a top-level `:frame` on the raw event (raw events carry frame ONLY under
-;; `:tags`) — are gone, pinned-out here.
+;; reader for the bare `[:tags :frame]`. Two reads are NOT made — bare
+;; `:frame-id` in `:tags` (NO emit site produces it) and a top-level `:frame`
+;; on the raw event (raw events carry frame ONLY under `:tags`) — and are
+;; pinned-out here.
 ;;
 ;; The reply MAP layer (`reply-row`) is UNIFORM on `:rf.frame/id` across every
 ;; family — even HTTP, whose reply BUILDER maps its internal `:frame` ctx onto
@@ -838,7 +838,7 @@
       (is (= :app/main (:frame row))
           "frame read off the EP-0002 carried-frame stamp :rf.frame/id")))
   (testing "work-event-row resolves the HTTP family's bare [:tags :frame] slot
-            via the canonical raw-event reader trace-event-frame (rf2-7737vq) —
+            via the canonical raw-event reader trace-event-frame —
             EXACTLY as re-frame.http.transport's :rf.http/stale-suppressed emits"
     (let [row (re/work-event-row
                 {:id 61 :operation :rf.http/stale-suppressed
@@ -858,7 +858,7 @@
                                   :rf.frame/id :canonical/win
                                   :frame :raw/lose}})]
       (is (= :canonical/win (:frame row)))))
-  (testing "the dead alias reads are gone — bare :frame-id in tags + a top-level
+  (testing "no dead alias is read — bare :frame-id in tags + a top-level
             :frame on the event are NOT consulted (no production row emits them)"
     (let [row (re/work-event-row
                 {:id 63 :operation :rf.resource/work-started
@@ -1008,8 +1008,8 @@
           row      (re/ledger-row [byte-key {:work/id work-id :status :running}])]
       (is (= work-id (:work-id row)) "canonical vector, not the byte key")
       (is (= :http (:work-kind row)) "kind inferred from the vector head, not the byte key")))
-  (testing "a LEGACY/nonconforming record lacking :work/id falls back to the
-            map key (existing vector-keyed behavior unchanged)"
+  (testing "a nonconforming record lacking :work/id falls back to the
+            map key (here a vector work id)"
     (let [row (re/ledger-row [[:rf.work/resource :k 2] {:status :running}])]
       (is (= [:rf.work/resource :k 2] (:work-id row)))
       (is (= :resource (:work-kind row)))))
@@ -1022,7 +1022,7 @@
       (is (= :cancel-requested (:phase (get idx [:rf.work/resource :k 2])))))))
 
 ;; ---------------------------------------------------------------------------
-;; (8b) frame scoping — a work-id is frame-LOCAL (rf2-3x7nj.23.3).
+;; (8b) frame scoping — a work-id is frame-LOCAL.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private shared-work-id
@@ -1060,7 +1060,7 @@
             latest phase"
     (is (= :completed
            (:latest-phase (first (re/live-work ledger-a two-frame-buffer))))))
-  (testing "rf2-3x7nj.23.3 — live-work over :app/a's rows labels :app/a's
+  (testing "live-work over :app/a's rows labels :app/a's
             running work with :app/a's OWN latest phase"
     (let [row (first (re/live-work ledger-a
                                    (re/trace-buffer-for-frame two-frame-buffer :app/a)))]
