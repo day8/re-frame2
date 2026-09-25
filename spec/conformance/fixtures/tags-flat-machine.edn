@@ -6,8 +6,7 @@
 ;; sub `:rf.machine/has-tag?` returns true iff the snapshot's `:tags`
 ;; contains the queried keyword.
 ;;
-;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and
-;; rf2-ee0d (Nine States Stage 1).
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags).
 
 {:fixture/id           :machine/tags-flat-machine
  :fixture/spec-version "1.0"
