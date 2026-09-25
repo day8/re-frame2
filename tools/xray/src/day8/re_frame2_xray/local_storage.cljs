@@ -2,29 +2,20 @@
   "Shared `window.localStorage` primitives — the one place Xray touches
   the browser storage API.
 
-  ## Why this exists (rf2-jkake.24, dedup sweep)
+  ## Why this exists
 
-  Seven Xray namespaces persist a slot to localStorage (frame-switcher
+  Several Xray namespaces persist a slot to localStorage (frame-switcher
   selection, column widths, command-palette recents, spine mute-set,
-  filter pills, the Static mode flag, the Static-Machines selection +
-  sub-mode map, the machine-canvas chart-collapsed map).
-  Each had carried a copy-pasted trio of private helpers:
-
-      (defn- storage-available? [] (and (exists? js/window)
-                                        (some? (.-localStorage js/window))))
-      (defn- read-raw   [k] (when (storage-available?) (try (.getItem … k)   (catch :default _ nil))))
-      (defn- write-raw! [k v] (when (storage-available?) (try (.setItem … k v) (catch :default _ nil))) nil)
-      (defn- remove-raw! [k] (when (storage-available?) (try (.removeItem … k) (catch :default _ nil))) nil)
-
-  Identical to the byte across every site — only the storage key and
-  the (de)serialisation around it varied. Folding the raw browser
-  access into this seam removes the duplication and makes the
+  the Static mode flag, the Static-Machines selection + sub-mode map,
+  the machine-canvas chart-collapsed map). Only the storage key and the
+  (de)serialisation around it vary between them, so the raw browser
+  access lives in this one seam, which makes the
   no-op-when-unavailable / swallow-throws posture a one-file
   guarantee. Call-sites keep their own key constants + serialisation +
-  public `read-raw`/`write-raw!`/`clear!` wrappers; those wrappers now
+  public `read-raw`/`write-raw!`/`clear!` wrappers; those wrappers
   delegate here.
 
-  ## Posture (unchanged from the folded copies)
+  ## Posture
 
   - **Availability guard.** Node / JVM test runtimes without a jsdom
     `window.localStorage` land in the no-op branch silently — the
@@ -50,8 +41,9 @@
   The `js/window.localStorage` PROPERTY read is itself wrapped in a
   try: a sandboxed iframe (`sandbox` without `allow-same-origin`) or a
   cross-origin / cookie-blocked context throws a `SecurityError` on
-  the property ACCESS — before any method is called. Per the :33
-  posture that access throw must never propagate into the dispatch
+  the property ACCESS — before any method is called. Per the ns
+  §Posture swallow-throws rule, that access throw must never propagate
+  into the dispatch
   chain that drove the read/write; it degrades to `false` (unavailable)
   exactly like the absent-window branch."
   []
