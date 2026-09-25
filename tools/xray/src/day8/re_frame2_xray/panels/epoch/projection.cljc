@@ -930,9 +930,9 @@
       (assoc :transition-slot (common/tag-of ev :transition-slot))
       ;; The node that DECLARES the action — `[]` for a tree root, with
       ;; `:region` inside a parallel region. `cascade-row-source-key` and
-      ;; `cascade-action-for-state` address a root's own `:entry` / `:exit`
-      ;; from it, where the surrounding transition's states would name a
-      ;; child.
+      ;; `cascade-action-for-state` address an `:entry` / `:exit` — a root's
+      ;; or a state's — from it, where the surrounding transition's states
+      ;; would name its leaf.
       (some? (common/tag-of ev :decl-path))
       (assoc :decl-path (common/tag-of ev :decl-path))
       (some? (common/tag-of ev :region))
