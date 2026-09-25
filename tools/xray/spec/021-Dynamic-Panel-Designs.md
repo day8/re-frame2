@@ -2626,8 +2626,7 @@ toggle.
 > `day8.re-frame2-xray.views.diff-mode-toggle` and its per-surface
 > sub/event/slot trios are gone (no shim; pre-alpha posture). See the
 > §9.1.5.2 lineage note for the symmetric retirement on the App-DB
-> panel, Machine Inspector snapshot drill-in, and SUBSCRIPTIONS
-> value-cells surfaces.
+> panel and SUBSCRIPTIONS value-cells surfaces.
 
 **Diff engine**: Editscript A* (`juji/editscript` 0.6.5). Replaces the
 home-grown leaf-walker classifier wholesale (10 fns retired at
@@ -2744,7 +2743,6 @@ rendering — the full data tree with inline diff annotations against
 |----------------------------------------|-------------------|
 | Epoch HANDLER step `:db`               | FULL+DIFF via edn-inspector with `:before` threaded |
 | App-DB panel                           | Section list, each section FULL+DIFF |
-| Machine Inspector snapshot drill-in    | Single edn-inspector mount, FULL+DIFF |
 | Epoch SUBSCRIPTIONS step value cells   | Per-row leaf-scalar (rf2-fyd8u) or container FULL+DIFF; a first-run container routes through `:added?` (§10.0.13) for whole-tree `:added` chrome (rf2-kp7bw). Leaf-scalar rows fork three ways on `(changed?, first-run?)` — see §9.1.5.3 |
 
 **R-rule applicability across surfaces**: all R1-R8 rules from
@@ -2801,8 +2799,8 @@ e2e specs that pre-date the retirement.
   branch). Replaced by FULL+DIFF as the single rendering.
 
 **Single canonical diff engine** (rf2-xuyac, 2026-05-27): every
-diff surface (App-DB panel · Machine Inspector snapshot · Epoch
-HANDLER `:db` · Epoch SUBSCRIPTIONS) routes through the canonical
+diff surface (App-DB panel · Epoch HANDLER `:db` · Epoch
+SUBSCRIPTIONS) routes through the canonical
 Editscript-A* engine at `day8.re-frame2-xray.diff.engine/project`
 and consumes the same `:flat-rows` channel. Same `(before, after)`
 → same `:flat-rows` → same chrome → identical R-rule application
