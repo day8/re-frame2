@@ -352,7 +352,7 @@
   `dispatch`, so this is the dispatcher the tree gets.
 
   PRIVATE; [[RowContextMenu]] in front of it is the public name the
-  shell already mounts."
+  shell mounts."
   [_props]
   (when-let [menu (rf.fresco/sub [:rf.xray/row-context-menu])]
     (let [frame (rf/current-frame-id)]
@@ -366,8 +366,10 @@
   (rf.fresco/as-component RowContextMenuView))
 
 (defn RowContextMenu
-  "The row context menu's public callable — what `shell.cljs` mounts as
-  a hiccup head at the shell-view root.
+  "The row context menu's public callable — what `shell.cljs` CALLS at
+  the shell-view root. It is called rather than headed because the
+  shell is a Fresco tree, where a plain fn in head position is a loud
+  error; the `[:> …]` it answers is a legal head.
 
   It is the `as-component` BRIDGE rather than the view:
   Reagent-shaped hiccup interoping to the React component
@@ -592,7 +594,7 @@
   THE DISPATCH IS FRAME-CARRYING, captured here at render time — see
   [[RowContextMenuView]], which says the same thing at more length.
 
-  PRIVATE; [[Modal]] in front of it is the public name the shell already
+  PRIVATE; [[Modal]] in front of it is the public name the shell
   mounts."
   [_props]
   (when (rf.fresco/sub [:rf.xray/mute-manager-open?])
@@ -608,8 +610,8 @@
   (rf.fresco/as-component ModalView))
 
 (defn Modal
-  "The mute manager modal's public callable — what `shell.cljs` mounts as
-  a hiccup head at the shell-view root.
+  "The mute manager modal's public callable — what `shell.cljs` CALLS at
+  the shell-view root, for the reason [[RowContextMenu]] gives.
 
   It is the `as-component` BRIDGE rather than the view; see
   [[RowContextMenu]], which says the same thing at more length. The
