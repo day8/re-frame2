@@ -35,9 +35,9 @@
 ;;
 ;; Deliberately NOT asserted here:
 ;;   - `:rf.warning/no-context-provider-once` — per Cross-Spec-Interactions
-;;     §9's Status, the op-type stays DESIGN-INTENT (not wired). It lights
-;;     up when the first non-React adapter that hosts provider-like,
-;;     mounted-reactive views lands; plain-atom (this fixture's conceptual
+;;     §9's Status, the op-type is DESIGN-INTENT (not wired) until a
+;;     non-React adapter hosts provider-like, mounted-reactive views;
+;;     plain-atom (this fixture's conceptual
 ;;     host) hosts no views, so the scenario the warning is FOR does not
 ;;     arise here. Asserting it would pin behaviour the reference does not
 ;;     implement.

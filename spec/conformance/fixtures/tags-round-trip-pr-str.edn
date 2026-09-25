@@ -10,8 +10,7 @@
 ;; unqualified, qualified, and dotted-namespace keywords. After a
 ;; transition, the snapshot prints to EDN and reads back =.
 ;;
-;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and
-;; rf2-ee0d (Nine States Stage 1).
+;; Per [005 §State tags](../../005-StateMachines.md#state-tags).
 
 {:fixture/id           :machine/tags-round-trip-pr-str
  :fixture/spec-version "1.0"

@@ -36,9 +36,8 @@
 ;; app-db because the rejected sync-dispatch never reached the leaf
 ;; handler.
 ;;
-;; Per rf2-60szl — substrate-edge cluster (Cross-Spec #14). The
-;; harness's `:dispatch-sync` op (added alongside this fixture to
-;; mirror the `:dispatch` op's shape) is the seam the fixture pulls.
+;; The harness's `:dispatch-sync` op (mirroring the `:dispatch` op's
+;; shape) is the seam the fixture pulls.
 
 {:fixture/id           :cross-spec/dispatch-sync-in-handler
  :fixture/spec-version "1.0"

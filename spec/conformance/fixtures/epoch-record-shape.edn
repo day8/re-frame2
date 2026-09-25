@@ -6,14 +6,14 @@
 ;; A second-host implementation that wires events / subs / fx correctly
 ;; can still fail this fixture if its epoch-history ring isn't recording
 ;; settled drains (or is recording the wrong db-snapshot pair). Per
-;; Spec 009 §Epoch history and rf2-v0jwt: the record is the load-bearing
+;; Spec 009 §Epoch history: the record is the load-bearing
 ;; observable for Tool-Pair time-travel and the conformance corpus
 ;; pinning is the contract a port must satisfy.
 
 {:fixture/id           :epoch/record-shape
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace}
- :fixture/doc          "A single drain commits one :rf/epoch-record with :event-id, :trigger-event, :outcome :ok, and the canonical :db-before / :db-after snapshot pair. The on-create cascade is its own settled drain (position 0); the user dispatch is position 1."
+ :fixture/doc          "A single drain commits one :rf/epoch-record with :event-id, :trigger-event, :outcome :ok, and the canonical :db-before / :db-after snapshot pair. The :initial-events cascade is its own settled drain (position 0); the user dispatch is position 1."
 
  :fixture/registry
  {:event {:counter/initialise {:doc "Seed the counter."}

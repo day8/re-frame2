@@ -45,7 +45,7 @@
    ;; :b's :always fires (microstep 2, → :a). And so on. After 5 microsteps the
    ;; cascade halts.
    ;;
-   ;; Per rf2-y3jv8q this runaway is a FAILED macrostep, not a benign no-op:
+   ;; This runaway is a FAILED macrostep, not a benign no-op:
    ;; the engine returns a `result/fail` carrying the depth-abort sentinel
    ;; (XState v5 THROWS on such an eventless cycle). The atomic-rollback
    ;; contract (Spec 005 §Bounded depth) is preserved by the failure surface —

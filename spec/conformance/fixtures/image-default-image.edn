@@ -12,8 +12,8 @@
 ;; SCOPE NOTE — this fixture pins the pure-assembler default path
 ;; (`re-frame.image-assembly/assemble-default`, exercised via the
 ;; `:assemble-image` op's omit-`:images` / `:default? true` branch). EP-0026
-;; ALSO rules that `make-frame {}` (omit `:images` at the frame boundary)
-;; resolves the default generation — that omit→default boundary is now WIRED at
+;; ALSO specifies that `make-frame {}` (omit `:images` at the frame boundary)
+;; resolves the default generation — that omit→default boundary is WIRED at
 ;; the frame constructor (a `make-frame {}` carries the default image generation
 ;; over the active source store). This fixture pins the underlying
 ;; default-projection assembler + the `:images []` error; the frame-boundary

@@ -19,7 +19,7 @@
 ;; Mirrors the unit-level `re-frame.projection-cljs-test/handled-event-off-box-
 ;; omits-event-args` deftest AND the runtime e2e leg in
 ;; `re-frame.observability-routing-cljs-test/handled-event-routes-projected-
-;; to-declared-sink` (rf2-t55hxg.7 / .4), lifted to the host-agnostic corpus.
+;; to-declared-sink`, lifted to the host-agnostic corpus.
 
 {:fixture/id           :data-classification/project-egress-omits-event-args-off-box
  :fixture/spec-version "1.0"

@@ -17,7 +17,7 @@
  {:event {:counter/init       {:doc "Seed."}
           :counter/set-bad    {:doc "Sets :count to a non-integer (violates schema)."}}
   :sub   {:count {:doc "Current count."}}
-  ;; Per rf2-cq1ak app-db schemas are NOT a registrar kind; the
+  ;; App-db schemas are NOT a registrar kind; the
   ;; `:app-schemas` fixture key carries `path → schema` for the
   ;; runner's `reg-app-schema` realisation step.
   :app-schemas
@@ -34,7 +34,7 @@
  [[:counter/set-bad]]
 
  :fixture/expect
- ;; Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko — validate before
+ ;; Per Spec 010 §Per-step recovery row 4 (validate before
  ;; install): recovery is :no-recovery AND the candidate :db is REJECTED
  ;; before it installs (app-db keeps its pre-handler value; no
  ;; :rf.event/db-changed fires). The trace tag carries :rollback? true —

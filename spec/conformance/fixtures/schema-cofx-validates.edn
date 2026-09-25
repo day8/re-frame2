@@ -6,10 +6,9 @@
 ;; well-formed recordable value flows through to the handler; a malformed
 ;; value (supplied/replayed or generated) emits :rf.error/cofx-value-invalid
 ;; and THROWS — the handler is NOT invoked (recovery: :no-recovery). This is
-;; the EP-0017 recordable-cofx schema path that REPLACES the retired
-;; ctx-mutating `inject-cofx` injection-time validation (the old
-;; :rf.error/schema-validation-failure :where :cofx shape is gone with
-;; `inject-cofx`).
+;; the EP-0017 recordable-cofx schema path; there is no ctx-mutating
+;; `inject-cofx` injection-time validation and no
+;; :rf.error/schema-validation-failure :where :cofx shape.
 ;;
 ;; This fixture pairs with reg-cofx's `{:recordable? true :schema …}`
 ;; metadata (Spec 010 §Where schemas attach §On every reg-*). The recordable
@@ -27,7 +26,7 @@
 {:fixture/id           :schemas/cofx-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :schemas/runtime :schemas/cofx}
- :fixture/doc          "A reg-cofx RECORDABLE registration with a :schema validates the value the handler takes delivery of via :rf.cofx/requires. A well-formed recordable value flows through to the handler; a malformed value emits :rf.error/cofx-value-invalid and the handler is NOT invoked (EP-0017 §5, the recordable-cofx :schema path that replaces the retired inject-cofx injection-time validation)."
+ :fixture/doc          "A reg-cofx RECORDABLE registration with a :schema validates the value the handler takes delivery of via :rf.cofx/requires. A well-formed recordable value flows through to the handler; a malformed value emits :rf.error/cofx-value-invalid and the handler is NOT invoked (EP-0017 §5, the recordable-cofx :schema path)."
  :fixture/dynamic-host-only? true
 
  :fixture/registry

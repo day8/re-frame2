@@ -1,6 +1,6 @@
 ;; Conformance fixture: ep-0037/replan-same-token
 ;;
-;; rf2-y8jjk — [:rf.route/replan-resources {:cause <edn>}] reruns the ACTIVE
+;; [:rf.route/replan-resources {:cause <edn>}] reruns the ACTIVE
 ;; route's effective parent-to-leaf resource plan under its UNCHANGED nav-token,
 ;; without navigating. After a full activation of /account/a (a leaf under a
 ;; parent shell — both reads BLOCKING, both in flight because the managed-HTTP
@@ -23,7 +23,7 @@
 {:fixture/id           :ep-0037/replan-same-token
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
- :fixture/doc          "rf2-y8jjk: [:rf.route/replan-resources {:cause [:test/replan]}] reruns the active route's composed branch plan under the UNCHANGED nav-token — every identity kept (adopted, no second request), the route untouched (same id, same token \"nav-1\", :loading, no error), and the route-plan row discriminated by :plan-cause :replan with the caller cause under :replan-cause."
+ :fixture/doc          "[:rf.route/replan-resources {:cause [:test/replan]}] reruns the active route's composed branch plan under the UNCHANGED nav-token — every identity kept (adopted, no second request), the route untouched (same id, same token \"nav-1\", :loading, no error), and the route-plan row discriminated by :plan-cause :replan with the caller cause under :replan-cause."
 
  :fixture/registry
  {:route

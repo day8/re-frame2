@@ -9,7 +9,7 @@
 ;;   [id metadata body]   ;; explicit metadata map
 ;;
 ;; Every inline registration carries a BODY. A 1-tuple `[id]`, an empty tuple
-;; `[]`, a 4+-tuple, a non-vector, and — deliberately reversing EP-0023 — a
+;; `[]`, a 4+-tuple, a non-vector, and a
 ;; metadata-only `[id metadata]` tuple are ALL INVALID (fail loud at `rf/image`
 ;; with :rf.error/invalid-image). EP-0026 standardizes inline grammar for EXACTLY
 ;; four kinds with a concrete parser + a published lowering hook — `:reg-event`,
@@ -70,9 +70,9 @@
    :images [{:id :i :registrations {:reg-bogus [[:x :body]]}}]
    :expect-error :rf.error/invalid-image}
 
-  ;; (4) A metadata-only [id metadata] 2-tuple is INVALID (EP-0026 reverses
-  ;; EP-0023): a 2-tuple's second slot is the handler BODY, not metadata — a map
-  ;; in the body slot is the retired metadata-only form.
+  ;; (4) A metadata-only [id metadata] 2-tuple is INVALID: a 2-tuple's second
+  ;; slot is the handler BODY, not metadata — a map in the body slot is the
+  ;; invalid metadata-only form.
   {:call :assemble-image
    :pool []
    :images [{:id :m :registrations {:reg-fx [[:my/fx {:doc "meta only"}]]}}]
@@ -92,8 +92,8 @@
    :expect-error :rf.error/invalid-image}
 
   ;; (7) An inline `:reg-sub` may DECLARE ITS DEPENDENCIES. The inline tuple
-  ;; carries one body and no argument positions, so a derived sub used to be
-  ;; inexpressible inline; `:inputs` lives in the metadata map, which the
+  ;; carries one body and no argument positions, so a derived sub cannot take
+  ;; its inputs positionally; `:inputs` lives in the metadata map, which the
   ;; 3-tuple already carries, so a `:static` (literal) and a `:parametric`
   ;; (producer fn) inline sub both lower through the SAME seam the public
   ;; `reg-sub` uses. Here the literal form — it resolves with its inline

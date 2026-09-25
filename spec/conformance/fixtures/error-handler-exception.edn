@@ -5,24 +5,24 @@
 ;; (:no-recovery by default — the failing handler's effects are
 ;; suppressed).
 ;;
-;; Per Spec 010 §Per-step recovery row 3 and rf2-v0jwt: "cascade halts"
+;; Per Spec 010 §Per-step recovery row 3: "cascade halts"
 ;; means the failing handler's :db / flows / :fx do NOT apply (the
 ;; interceptor chain captured the exception before :effects were
 ;; populated), but the DRAIN itself continues with the next queued
 ;; event. The downstream :should-not-fire dispatch (a separate
 ;; cascade) drains normally. The drain reaches empty queue cleanly so
 ;; the epoch record's :outcome is :ok — handler-exception does NOT
-;; commit a halted-cascade record under the current runtime.
+;; commit a halted-cascade record.
 
 {:fixture/id           :error/handler-exception
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :core/trace}
- :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event; the failing handler's effects are suppressed but the drain continues. Per rf2-v0jwt the drain settles with :outcome :ok — handler-exception is NOT a drain-halt and does not commit a :halted-* epoch record under the current runtime."
+ :fixture/doc          "An event handler throws. The runtime emits a structured :rf.error/handler-exception trace event; the failing handler's effects are suppressed but the drain continues. The drain settles with :outcome :ok — handler-exception is NOT a drain-halt and does not commit a :halted-* epoch record."
 
  :fixture/registry
  {:event {:counter/initialise {:doc "Seed."}
           :will-throw          {:doc "Always throws."}
-          :should-not-fire     {:doc "Dispatched after :will-throw — should NOT execute because cascade halts."}}
+          :should-not-fire     {:doc "Dispatched after :will-throw as its own cascade — runs, because the drain continues past the failing handler."}}
   :sub   {:fired-events {:doc "Track which events ran for the assertion."}}}
 
  :fixture/handlers
@@ -35,8 +35,8 @@
  {:initial-events [[:counter/initialise]]}
 
  :fixture/dispatches
- ;; Simulate a handler that, on success, dispatches :should-not-fire.
- ;; Since :will-throw throws, :should-not-fire must never run.
+ ;; :will-throw throws, so its own effects are suppressed; :should-not-fire
+ ;; is a separate dispatch and still runs.
  [[:will-throw]
   [:should-not-fire]]                                  ;; this is its own dispatch; should-not-fire being "after the cascade" is the test
 
@@ -60,12 +60,12 @@
    {:operation :rf.event/run-start
     :tags     {:rf.trace/event-id :should-not-fire}}]
 
-  ;; Per rf2-v0jwt: each dispatch is its own drain (dispatch-sync runs
+  ;; Each dispatch is its own drain (dispatch-sync runs
   ;; to settle). All three drains settle cleanly — :outcome :ok. The
   ;; :will-throw drain DOES surface in epoch-history (the cascade ran,
   ;; the error trace landed in :trace-events) but the drain itself did
   ;; NOT halt — handler-exception is per-event recovery, not a
-  ;; drain-halt under the current runtime.
+  ;; drain-halt.
   ;; Three :ok records — :initial-events [[:counter/initialise]] fires a
   ;; synchronous drain at make-frame time (pos 0), then the fixture's
   ;; two dispatches (:will-throw, :should-not-fire) each run as

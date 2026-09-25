@@ -8,7 +8,7 @@
 ;; navigation projects the diff: :kept 1 (the parent :acct/viewer, adopted),
 ;; :ensured 1 (the added leaf :acct/b), :removed 1 (the departed leaf :acct/a).
 ;;
-;; rf2-dlkou (the rf2-9sluz ruling) — the row also names WHICH identity took each
+;; The row also names WHICH identity took each
 ;; path, so one trace answers the question without diffing two consecutive rows,
 ;; and :identities carries the planner's grouped plan order (parent-most first).
 ;;

@@ -1,4 +1,4 @@
-;; Conformance fixture: derivation-graph/algebra-full (EP-0014, rf2-djofbh)
+;; Conformance fixture: derivation-graph/algebra-full (EP-0014)
 ;;
 ;; The host-agnostic corpus pin for the FULL EP-0014 derivation/process
 ;; ALGEBRA GRAPH — the broad `:derivation/algebra-graph` capability claim
@@ -7,14 +7,10 @@
 ;; (`derivation-graph-algebra.edn`) proves ONLY the subs+machines slice and
 ;; claims the narrow `:derivation/algebra-graph-subs-machines` capability; a
 ;; host claiming the BROAD `:derivation/algebra-graph` must prove the whole
-;; surface, which is exactly what this fixture pins (rf2-djofbh — the
-;; portable corpus was overclaiming the broad capability while only
-;; exercising subs+machines/static).
+;; surface, which is exactly what this fixture pins.
 ;;
-;; What it ADDS over the subset fixture, so the broad claim no longer
-;; overclaims (rf2-djofbh acceptance — "exercise flows, resources, routes,
-;; route-owned resource activation, static and live graph modes, and the
-;; resource authority/local-storage split"):
+;; What it ADDS over the subset fixture, so the broad claim does not
+;; overclaim:
 ;;
 ;;   - FLOWS           — a `reg-flow` lowers to a `:derivation` node that is
 ;;                       MATERIALIZED (app-db / after-event / frame); the
@@ -39,7 +35,7 @@
 ;;   - LIVE MODE       — a second `:derivation-graph` call with `:mode :live`
 ;;                       asserts the live graph carries the `:mode :live` +
 ;;                       `:frame :rf/default` shape (via `:expect-graph`, the
-;;                       graph-level submap check — rf2-ska8zk) and STILL
+;;                       graph-level submap check) and STILL
 ;;                       lowers the registered subscription / machine / route
 ;;                       nodes (the live view does not re-classify the
 ;;                       registered facts). The
@@ -69,7 +65,7 @@
  :fixture/capabilities #{:core/sub :fsm/flat :flow/basic :rf.http/managed
                          :routing/match-url :routing/blocking
                          :derivation/algebra-graph}
- :fixture/doc          "The FULL cross-family derivation/process algebra graph: reg-sub → ephemeral :derivation, reg-flow → materialized app-db :derivation, reg-resource → :process (runtime-db storage + external :authority — the issue-2 split), reg-route → the :rf/route slice :process, reg-machine → :process refined :machine-process. Pins the static :input (a sub's declared inputs), :param (route-owned resource activation), and :selector (machine → selector sub) edges, the resource authority/local-storage split, AND the live-graph mode/frame shape (the graph-level :expect-graph {:mode :live :frame :rf/default} check — rf2-ska8zk; the static call pins :expect-graph {:mode :static}). The broad :derivation/algebra-graph claim the portable corpus formerly overclaimed with only subs+machines/static (rf2-djofbh)."
+ :fixture/doc          "The FULL cross-family derivation/process algebra graph: reg-sub → ephemeral :derivation, reg-flow → materialized app-db :derivation, reg-resource → :process (runtime-db storage + external :authority — the issue-2 split), reg-route → the :rf/route slice :process, reg-machine → :process refined :machine-process. Pins the static :input (a sub's declared inputs) and :param (route-owned resource activation) edges, the resource authority/local-storage split, AND the live-graph mode/frame shape (the graph-level :expect-graph {:mode :live :frame :rf/default} check; the static call pins :expect-graph {:mode :static}). This is the broad :derivation/algebra-graph claim; the subs+machines/static subset is derivation-graph-algebra.edn."
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
@@ -131,7 +127,7 @@
   {:call :derivation-graph
    :mode :static
 
-   ;; GRAPH-LEVEL shape (rf2-ska8zk): the static composer carries top-level
+   ;; GRAPH-LEVEL shape: the static composer carries top-level
    ;; `:mode :static` and NO `:frame` (the static graph is frame-agnostic).
    ;; `:expect-graph` is a submap match against the whole graph map.
    :expect-graph {:mode :static}
@@ -214,9 +210,9 @@
   {:call :derivation-graph
    :mode :live
 
-   ;; GRAPH-LEVEL shape (rf2-ska8zk): the LIVE composer carries top-level
+   ;; GRAPH-LEVEL shape: the LIVE composer carries top-level
    ;; `:mode :live` AND `:frame :rf/default` (the corpus single-frame scope).
-   ;; This is the false-positive guard the bead names — a port returning the
+   ;; This is the false-positive guard — a port returning the
    ;; right live machine node while dropping/misreporting the live mode or
    ;; frame must FAIL here, not pass. `:expect-graph` is a submap match
    ;; against the whole graph map.

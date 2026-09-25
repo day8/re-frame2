@@ -3,7 +3,7 @@
 ;; Complements route-navigation-blocked: this fixture drives the full
 ;; pending-nav protocol — block, then *cancel*. After cancel, the slot
 ;; clears and the original route remains active (no URL change). The
-;; canonical "continue" path is covered by the older fixture; this one
+;; canonical "continue" path is covered by route-navigation-blocked; this one
 ;; locks down the cancel branch so both arms are conformance-checked.
 ;;
 ;; Per [012 §Navigation blocking — pending-nav protocol]
@@ -54,7 +54,7 @@
  {:final-app-db {:editor {:dirty? true}}
 
   ;; Original route is still active; no slice change. Pending-nav cleared.
-  ;; EP-0001 (rf2-vzld77): the route slice + pending-nav are durable routing
+  ;; EP-0001: the route slice + pending-nav are durable routing
   ;; runtime-db state.
   :final-runtime-db {:rf.runtime/routing {:current {:route-id :editor/article :params {:id "A"}
                                           :query {} :fragment nil

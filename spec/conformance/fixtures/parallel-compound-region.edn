@@ -7,8 +7,7 @@
 ;; transitions.
 ;;
 ;; Per [005 §Parallel regions](../../005-StateMachines.md#parallel-regions),
-;; [§Snapshot shape](../../005-StateMachines.md#snapshot-shape), and
-;; rf2-l67o (Nine States Stage 2).
+;; and [§Snapshot shape](../../005-StateMachines.md#snapshot-shape).
 
 {:fixture/id           :machine/parallel-compound-region
  :fixture/spec-version "1.0"

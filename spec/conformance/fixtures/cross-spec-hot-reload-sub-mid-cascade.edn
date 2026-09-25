@@ -42,10 +42,9 @@
 ;; ran. The `:rf.registry/handler-replaced` trace pins the registrar-
 ;; level contract.
 ;;
-;; Per rf2-qei5a — substrate-edge cluster (Cross-Spec #18). The
-;; harness's `{:reg-sub <id> :body <body>}` dispatch step (added
-;; alongside this fixture to mirror the `{:destroy-frame ...}` shape)
-;; is the seam the fixture pulls.
+;; The harness's `{:reg-sub <id> :body <body>}` dispatch step
+;; (mirroring the `{:destroy-frame ...}` shape) is the seam the fixture
+;; pulls.
 
 {:fixture/id           :cross-spec/hot-reload-sub-mid-cascade
  :fixture/spec-version "1.0"

@@ -24,7 +24,7 @@
 ;; records through `route-handled-event!` / `route-error!` to a frame-declared
 ;; sink (`register-observability-sink!`), fail-closed on an unresolved frame, with
 ;; sibling-sink isolation — is pinned end-to-end by the dual-runtime CLJC test
-;; `re-frame.observability-routing-cljs-test` (rf2-t55hxg.7 / .4), which runs
+;; `re-frame.observability-routing-cljs-test`, which runs
 ;; under BOTH `npm run test:cljs` and the JVM `clojure -M:test`. The corpus
 ;; cannot capture a sink fan-out host-neutrally (no render/side-effect-capture
 ;; harness), so it pins the projection the sink consumes; the wiring test pins
@@ -82,7 +82,7 @@
                        :event-id :auth/login
                        :event    [:auth/login {:auth {:token :rf/redacted}}]}}
 
-  ;; 3. rf2-kuky.65 — the producer's COMPONENT ATTRIBUTION on an error record.
+  ;; 3. The producer's COMPONENT ATTRIBUTION on an error record.
     ;; The structural identifiers (:failing-id here; :flow-id / :where on the
     ;; flow-eval category are the same class) are SUMMARY slots: they pass the
     ;; projector unchanged, which is what makes the attribution SURVIVE

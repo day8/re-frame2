@@ -73,7 +73,7 @@
   ;; Step 5: an EXACT no-op runs neither guard and creates no state.
   [:rf.route/handle-url-change "/"]
 
-  ;; Step 6: the retired set-valued policy key is now an unknown request key.
+  ;; Step 6: the retired set-valued policy key is an unknown request key.
   [:rf.route/navigate {:to :account/settings :bypass-guards? #{:enter}}]
 
   ;; Step 7: :bypass-leave? is LEAVE-only — it never opens the entry gate.

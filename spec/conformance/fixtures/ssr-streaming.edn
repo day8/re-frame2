@@ -1,7 +1,7 @@
 ;; Conformance fixture: ssr/streaming
 ;;
 ;; Pins the wire-shape contract for `:rf/suspense-boundary` streaming
-;; SSR. Per Spec 011 §Streaming SSR (rf2-ojakd / rf2-olb64 (a)).
+;; SSR. Per Spec 011 §Streaming SSR.
 ;;
 ;; Specs that meet: [011-SSR §Streaming SSR](../../011-SSR.md#streaming-ssr).
 ;;
@@ -26,7 +26,7 @@
                          :ssr/suspense-boundary
                          :ssr/hydration-payload
                          :ssr/chunked-response}
- :fixture/doc          "Pins :rf/suspense-boundary streaming wire shape: shell-with-template-fallbacks → N resolved-subtree chunks (FIFO over registration order, one <template …suspense-resolved> + one <script …suspense-hydrate>) → final __rf_payload <script> → closing shell suffix. Per Spec 011 §Streaming SSR (rf2-ojakd / rf2-olb64 (a))."
+ :fixture/doc          "Pins :rf/suspense-boundary streaming wire shape: shell-with-template-fallbacks → N resolved-subtree chunks (FIFO over registration order, one <template …suspense-resolved> + one <script …suspense-hydrate>) → final __rf_payload <script> → closing shell suffix. Per Spec 011 §Streaming SSR."
 
  :fixture/registry
  {:view {:streaming.test/article-list
@@ -131,10 +131,10 @@
 
   ;; Step 4 — build the final canonical __rf_payload. Pin the four
   ;; required keys' presence and the version stamp; the actual
-  ;; render-hash value is pinned by `:ssr/render-to-string` and the
+  ;; render-hash value is pinned by `:ssr/render-tree-hash` and the
   ;; hash-parity fixture corpus.
   ;;
-  ;; rf2-gtgf9 / rf2-pffil: payload policy is explicit + fail-closed,
+  ;; Payload policy is explicit + fail-closed,
   ;; carried by a single `:payload` opt. The conformance fixture opts in
   ;; to whole-app-db (`:payload :rf.ssr.payload/whole-app-db`) so the
   ;; expected-keys set below covers the full canonical shape rather than
@@ -185,7 +185,7 @@
    :must-include ["</body>"
                   "</html>"]}]
 
- ;; Failure-mode invariant — pinned in a sibling fixture if needed;
+ ;; Failure-mode invariant — stated here, not pinned by a fixture;
  ;; the primary fixture above pins the happy path. A continuation
  ;; throw produces the same wire order but with the failed
  ;; continuation's resolved-chunk carrying both

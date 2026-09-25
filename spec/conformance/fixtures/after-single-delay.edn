@@ -50,7 +50,7 @@
    :snapshot     {:state :idle :data {}}
    :event        [:fetch]
    :expect-next-snapshot {:state :loading :data {:rf/after-epoch {[:loading] 1} :entered? true}}
-   ;; Per rf2-3y3y, entry to an :after-bearing state emits a
+   ;; Entry to an :after-bearing state emits a
    ;; :rf.machine/after-schedule fx so the runtime layer can install
    ;; the host-clock timer (interop/set-timeout!) and the subscription
    ;; watcher (for :delay-source :sub).
@@ -87,7 +87,7 @@
    ;; the harness supplies it as the dispatched event.
    :event        [:rf.machine.timer/after-elapsed 5000 1 [:loading]]
    :expect-next-snapshot {:state :timeout :data {:rf/after-epoch {[:loading] 2} :entered? true}}
-   ;; Per rf2-3y3y, exiting an :after-bearing state emits a
+   ;; Exiting an :after-bearing state emits a
    ;; :rf.machine/after-cancel fx so the runtime layer releases the
    ;; host-clock timer handle (and any subscription watcher).
    :expect-effects [[:rf.machine/after-cancel

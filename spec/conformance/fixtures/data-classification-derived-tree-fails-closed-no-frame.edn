@@ -1,13 +1,13 @@
 ;; Conformance fixture: data-classification/derived-tree-fails-closed-no-frame
 ;;
 ;; Per Spec 015 §project-egress (the `:rf.observe/derived-tree` note) +
-;; §Direct reads and fail-closed frame resolution, and EP-0025 / rf2-vl0jur
-;; (ruled by Mike 2026-06-23): a `:rf.observe/derived-tree` record projected with
+;; §Direct reads and fail-closed frame resolution, and EP-0025: a
+;; `:rf.observe/derived-tree` record projected with
 ;; NO live governing frame FAILS CLOSED. The EP-0025 fail-open is scoped to a
 ;; re-keyed VALUE under a LIVE frame; an unresolvable / absent frame is the same
 ;; silent-leak risk every direct read carries off-box, so the whole tree redacts
-;; to `:rf/redacted` rather than ship raw. This pins the rf2-vl0jur reconciliation
-;; so a future port cannot re-absorb the retired raw-tree carve-out (a derived
+;; to `:rf/redacted` rather than ship raw. This pins the rule so a port cannot
+;; carve out a raw derived tree (a derived
 ;; tree must never ship raw on no live frame — it would leak any re-keyed secret
 ;; copied into the tree off-box).
 ;;
@@ -31,7 +31,7 @@
 {:fixture/id           :data-classification/derived-tree-fails-closed-no-frame
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:data-classification/classification-effects}
- :fixture/doc          "project-egress of a :rf.observe/derived-tree record with NO live frame fails closed — the whole tree redacts to :rf/redacted (rf2-vl0jur; the EP-0025 fail-open is scoped to a re-keyed value under a LIVE frame, not an unresolvable frame; the raw-tree carve-out is retired)."
+ :fixture/doc          "project-egress of a :rf.observe/derived-tree record with NO live frame fails closed — the whole tree redacts to :rf/redacted (the EP-0025 fail-open is scoped to a re-keyed value under a LIVE frame, not an unresolvable frame; there is no raw-tree carve-out)."
 
  :fixture/calls
  ;; NO :frame key — the runner projects with *current-frame* bound to nil, so

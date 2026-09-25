@@ -9,8 +9,7 @@
   (`:schemas/extract-sensitive-paths-from-schema` /
   `:schemas/extract-large-paths-from-schema`) the resource `:params-schema`
   validation-failure-trace surface (`re-frame.resources.classification`, which
-  binds `(:params-schema spec)`) and the app-schema elision path consume —
-  never a body-private walker. The resource `:data-schema` is NOT among them:
+  binds `(:params-schema spec)`) also consumes — never a body-private walker. The resource `:data-schema` is NOT among them:
   it is a statically reflected shape fact with no runtime validation consumer.
 
   Three rules pin the contract:

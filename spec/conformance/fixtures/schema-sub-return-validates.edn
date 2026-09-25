@@ -10,8 +10,7 @@
 ;; This capability — :schemas/sub-return — is finer-grained than the
 ;; baseline :schemas/runtime. Ports that have wired sub-return validation
 ;; declare :schemas/sub-return alongside :schemas/runtime; ports that
-;; haven't are skipped on this fixture. The runtime gap is tracked as
-;; rf2-wcam.
+;; haven't are skipped on this fixture.
 ;;
 ;; Dynamic-host only.
 

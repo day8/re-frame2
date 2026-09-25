@@ -8,8 +8,8 @@
 ;;      whose args carry the user-declared :machine-id, :data and :start
 ;;      keys — AND the runtime-supplied :rf/parent-id + :rf/invoke-id used
 ;;      by the runtime spawn-registry slot at
-;;      [:rf.runtime/machines :spawned <parent-id> <invoke-id>] (per rf2-t07u Option A
-;;      revised — the runtime tracks the spawn-id itself).
+;;      [:rf.runtime/machines :spawned <parent-id> <invoke-id>] (the runtime
+;;      tracks the spawn-id itself).
 ;;   2. The transition reducer binds the assigned actor id into the
 ;;      parent's :data under the reserved per-invoke map :rf/spawned
 ;;      (XState-context parity) — the one id-recording story.
@@ -20,9 +20,7 @@
 ;;      currently bound there.
 ;;
 ;; Per [005 §Declarative :spawn (sugar over spawn)]
-;; (../../005-StateMachines.md#declarative-spawn) and
-;; rf2-t07u (Option A revised; "Spawn-id tracking moved from :data :pending
-;; to runtime-owned [:rf.runtime/machines :spawned ...]").
+;; (../../005-StateMachines.md#declarative-spawn).
 ;;
 ;; The fixture exercises the desugared shape directly via
 ;; :machine-transition calls — the :rf.machine/spawn / :rf.machine/destroy
@@ -36,7 +34,7 @@
 ;; no parent registration, so :rf/parent-id is the sentinel
 ;; :rf/transition-pure.
 ;;
-;; Per rf2-gr8q the spawn-id allocator lives inside the snapshot at
+;; The spawn-id allocator lives inside the snapshot at
 ;; `:rf/spawn-counter` (a per-id-prefix integer map). A fresh fixture
 ;; snapshot starts without the slot; the first spawn bumps the slot under
 ;; its `:id-prefix`, which defaults to the child's `:machine-id` when the
@@ -79,7 +77,7 @@
    :snapshot     {:state :idle :data {:credentials {:user "alice" :pass "secret"}}}
    :event        [:submit]
    ;; After the transition, :authenticating's auto-spawn entry has run.
-   ;; Per rf2-rc8wci the RUNTIME binds the
+   ;; The RUNTIME binds the
    ;; assigned actor id into the parent's :data under the reserved per-invoke
    ;; map :rf/spawned (XState-context parity) — {[:authenticating] :http/post#1};
    ;; the parent's USER-domain :data is untouched.
@@ -91,7 +89,7 @@
                           :data              {:credentials {:user "alice" :pass "secret"}
                                               :rf/spawned  {[:authenticating] :http/post#1}}
                           :rf/spawn-counter  {:http/post 1}
-                          ;; rf2-3x7nj.9.3 — the entry's spawn attempt token.
+                          ;; The entry's spawn attempt token.
                           :rf/spawn-attempts {[:authenticating] 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :data          {:url "/api/login"
@@ -128,7 +126,7 @@
                   :data  {:pending :http/post#1}}
    :event        [:auth/failed]
    :expect-next-snapshot {:state :idle :data {:pending :http/post#1}}
-   ;; Per rf2-t07u (Option A revised): destroy fx no longer carries the
+   ;; The destroy fx does not carry the
    ;; actor-id directly. The fx handler reads [:rf.runtime/machines :spawned <parent-id>
    ;; <invoke-id>] from the frame's app-db at call time and tears down
    ;; whatever spawned id is currently bound there.

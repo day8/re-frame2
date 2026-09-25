@@ -1,8 +1,7 @@
 ;; Conformance fixture: routing/query-parse-edges
 ;;
 ;; Pins the three query-string parse edges that two URLSearchParams-reasonable
-;; ports would otherwise diverge on corpus-green (rf2-5u1r6a, folding the
-;; second-implementor finding-3 rider): duplicate keys, a bare key with no
+;; ports would otherwise diverge on corpus-green: duplicate keys, a bare key with no
 ;; `=`, and a value carrying an embedded `=`. Mirrors routing-plus-decode.edn's
 ;; structure — pure match-url calls, string-keyed :query (the route declares
 ;; no :query vocabulary, so the keyword-interning DoS closure keeps every key

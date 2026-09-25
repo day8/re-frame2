@@ -62,11 +62,6 @@
  :fixture/expect
  ;; After :wizard/leave, :step-2 retains :foo / :bar; :result is gone
  ;; (clear-flow dissoc-in's the leaf at the flow's :output-path).
- ;;
- ;; NOTE: rf2-aqt7 — clear-flow with a single-element :output-path (e.g. [:area])
- ;; currently leaves the key in app-db (off-by-one in update-in
- ;; (butlast path)). This fixture uses a two-element :output-path
- ;; ([:step-2 :result]) which exercises the working code path.
  {:final-app-db
   {:step-2 {:foo 5 :bar 4}}
 
@@ -79,8 +74,6 @@
   ;; cannot: it is a SUBMAP matcher, so it is blind to a stale `:result`
   ;; the clear failed to vacate, and blind to whether the registering
   ;; dispatch computed anything at all. Two recomputes says both — one on
-  ;; :wizard/enter (the settle) and one on :wizard/bump-foo. Under the
-  ;; superseded next-drain behaviour :wizard/enter computed nothing and
-  ;; this read 1.
+  ;; :wizard/enter (the settle) and one on :wizard/bump-foo.
   :flow-recompute-counts
   {:step-2/computed 2}}}

@@ -1,6 +1,6 @@
 ;; Conformance fixture: machine/spawn-tracked-without-data-pending
 ;;
-;; Per rf2-t07u (Option A revised): the runtime tracks each declarative-
+;; The runtime tracks each declarative-
 ;; `:spawn` spawn-id at the reserved app-db slot
 ;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` so the matching destroy cascade
 ;; can locate the spawned id WITHOUT depending on the user having stashed
@@ -24,18 +24,17 @@
 ;;      spawn_registry_test.clj).
 ;;
 ;; Critically, the parent's `:data` does NOT need to record the spawned
-;; id under any particular slot — pre-rf2-t07u this configuration silently
-;; leaked the spawned actor on state-exit (the runtime had no
-;; `:data :pending` to read); after rf2-t07u the destroy cascade works
-;; correctly.
+;; id under any particular slot — a destroy cascade that read a
+;; `:data :pending` slot would silently leak the spawned actor on
+;; state-exit in this configuration.
 ;;
 ;; Per [005 §Declarative :spawn (sugar over spawn) §Desugaring rules]
-;; (../../005-StateMachines.md#desugaring-rules) and rf2-t07u.
+;; (../../005-StateMachines.md#desugaring-rules).
 
 {:fixture/id           :machine/spawn-tracked-without-data-pending
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn}
- :fixture/doc          "rf2-t07u (Option A revised) — the runtime tracks each declarative-:spawn spawn-id at [:rf.runtime/machines :spawned <parent-id> <invoke-id>]. The destroy fx resolves the actor on state-exit because the runtime no longer reads :data :pending."
+ :fixture/doc          "The runtime tracks each declarative-:spawn spawn-id at [:rf.runtime/machines :spawned <parent-id> <invoke-id>]. The destroy fx resolves the actor on state-exit because the runtime does not read :data :pending."
 
  :fixture/registry
  {:machine
@@ -67,15 +66,15 @@
    :snapshot     {:state :idle :data {}}
    :event        [:submit]
    ;; The parent's USER-domain :data is unchanged — there is no user
-   ;; write. Per rf2-rc8wci the RUNTIME binds the assigned actor id into
+   ;; write. The RUNTIME binds the assigned actor id into
    ;; the parent's :data under the reserved per-invoke map :rf/spawned
-   ;; (XState-context parity) — {[:authenticating] :http/post#1}. Per rf2-gr8q the spawn-id allocator
+   ;; (XState-context parity) — {[:authenticating] :http/post#1}. The spawn-id allocator
    ;; advances the snapshot's `:rf/spawn-counter` slot — visible at top
    ;; level alongside `:data`.
    :expect-next-snapshot {:state            :authenticating
                           :data             {:rf/spawned {[:authenticating] :http/post#1}}
                           :rf/spawn-counter {:http/post 1}
-                          ;; rf2-3x7nj.9.3 — the entry's spawn attempt token.
+                          ;; The entry's spawn attempt token.
                           :rf/spawn-attempts {[:authenticating] 1}}
    :expect-effects       [[:rf.machine/spawn {:machine-id    :http/post
                                               :id-prefix     :http/post

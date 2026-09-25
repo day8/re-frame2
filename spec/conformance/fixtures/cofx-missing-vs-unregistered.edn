@@ -1,6 +1,6 @@
 ;; Conformance fixture: cofx/missing-vs-unregistered
 ;;
-;; EP-0017 Slice-A contract — the TWO DISTINCT cofx delivery errors are NOT
+;; EP-0017 contract — the TWO DISTINCT cofx delivery errors are NOT
 ;; conflated (Spec 002 §Satisfaction algorithm + Spec 009 §Error catalogue).
 ;; A port must surface a different `:rf.error/id` for each:
 ;;
@@ -17,7 +17,7 @@
 ;; `ex-info` whose `:rf.error/id` ex-data slot equals the expected id (mirrors
 ;; the Mode-B `:reg-machine` / `:path-instantiate` `:expect-error` convention).
 ;; A port that conflated the two ids — or threw a generic error, or did not
-;; throw — FAILS; current core PASSES.
+;; throw — FAILS.
 ;;
 ;; Each handler reads its declared coeffect via `[:cofx-key …]` so the realised
 ;; handler is the event-fx shape (the only kind that may declare

@@ -13,7 +13,7 @@
 ;; runtime-db keys). The client hydrates and continues from the server's
 ;; settled state.
 ;;
-;; Behaviour (EP-0001 rf2-vzld77 / rf2-30kzz2): machine snapshots are
+;; Behaviour (EP-0001): machine snapshots are
 ;; runtime-db partition state, so the server emits them in the payload's
 ;; :rf/runtime-db slice and the reference :rf/hydrate handler installs them
 ;; into the runtime-db partition. After :rf/hydrate, dispatching events /
@@ -30,16 +30,16 @@
 {:fixture/id           :cross-spec/ssr-hydrate-with-machines
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:ssr/hydration :core/event-handler :core/sub}
- :fixture/doc          "Cross-Spec #5 Hydration with machine snapshots. The hydration payload's :rf/app-db carries machine snapshots at the conventional [:rf.runtime/machines :snapshots <id>] location. After :rf/hydrate seeds app-db, subsequent dispatches and subs read the server's settled snapshot — no separate machine-state channel."
+ :fixture/doc          "Cross-Spec #5 Hydration with machine snapshots. The hydration payload's :rf/runtime-db carries machine snapshots at the conventional [:rf.runtime/machines :snapshots <id>] location. After :rf/hydrate installs it into the runtime-db partition, subsequent dispatches and subs read the server's settled snapshot — no separate machine-state channel."
 
  :fixture/registry
- {:event {:rf/hydrate    {:doc "Standard hydrate: replace app-db with payload's :rf/app-db."}
+ {:event {:rf/hydrate    {:doc "Standard hydrate: install the payload's :rf/app-db into app-db and its :rf/runtime-db into the runtime-db partition."}
           :auth/poll-status {:doc "Reads the hydrated machine snapshot's state and stashes it for assertion."}}
   :sub   {:auth-state {:doc "Returns the hydrated machine snapshot's :state."}
           :auth-user  {:doc "Returns the hydrated machine snapshot's :data.:user."}}}
 
  :fixture/handlers
- {:event {;; EP-0001 (rf2-vzld77): hydration installs BOTH partitions — the
+ {:event {;; EP-0001: hydration installs BOTH partitions — the
           ;; payload's `:rf/app-db` slice into app-db AND its `:rf/runtime-db`
           ;; slice (the durable machine snapshots) into the runtime-db
           ;; partition (via `:set-runtime`).
@@ -57,7 +57,7 @@
  :fixture/frame-config {:initial-events []}
 
  :fixture/dispatches
- ;; EP-0001 (rf2-vzld77): the server-settled durable runtime state (the
+ ;; EP-0001: the server-settled durable runtime state (the
  ;; machine snapshot) rides the payload's `:rf/runtime-db` slice — the
  ;; reference `:rf/hydrate` handler installs it into the runtime-db partition
  ;; so the framework `:rf/machine` subs see the hydrated state. The `:rf/app-db`

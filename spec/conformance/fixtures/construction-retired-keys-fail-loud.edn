@@ -1,9 +1,9 @@
 ;; Conformance fixture: construction/retired-keys-fail-loud
-;; EP-0027 §Retirement — the legacy construction keys :on-create and :initial-db
+;; EP-0027 §Retirement — the construction keys :on-create and :initial-db
 ;; are RETIRED. Supplying either to make-frame fails loud with a stable
 ;; discriminator (:rf.error/on-create-retired / :rf.error/initial-db-retired),
 ;; never a silent ignore. A conformant host must reject them with the SAME id so
-;; a port can't silently accept the old shape. A well-formed :initial-events
+;; a port can't silently accept them. A well-formed :initial-events
 ;; config is the must-NOT-throw control.
 
 {:fixture/id           :construction/retired-keys-fail-loud
@@ -34,7 +34,7 @@
    :expect-error :rf.error/initial-db-retired}
 
   ;; Control: a well-formed :initial-events config must NOT throw (no
-  ;; :expect-error) — proves the retirement guards reject the LEGACY keys
+  ;; :expect-error) — proves the retirement guards reject the RETIRED keys
   ;; specifically, not all construction.
   {:call :make-frame
    :frame-id :ctor/ok

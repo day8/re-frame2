@@ -12,13 +12,13 @@
 ;; — the pre-action `app-db` slice at `[:rf.runtime/machines :snapshots <id>]` remains.
 ;; `:rf.error/machine-action-exception` traces with `:tags` carrying
 ;; `:actor-id` (the LIVE actor INSTANCE — a singleton's registration id
-;; here; rf2-yyvtk5), `:action-id`, `:state-path`, `:transition`, `:event`,
+;; here), `:action-id`, `:state-path`, `:transition`, `:event`,
 ;; `:exception-message`, and `:reason`. The generic
 ;; `:rf.error/handler-exception` does NOT also fire — the machine layer
 ;; catches the throw before it can bubble out as a handler exception.
 ;;
-;; Pinned by rf2-msd4 (conformance runner :reg-machine + :throw op for
-;; machine-action bodies).
+;; Driven by the conformance runner's :reg-machine op and its :throw op for
+;; machine-action bodies.
 
 {:fixture/id           :cross-spec/machine-action-throws
  :fixture/spec-version "1.0"
@@ -70,7 +70,7 @@
                 :reason            "Machine action threw."}
     :recovery  :no-recovery}]
 
-  ;; Per rf2-v0jwt: the machine action threw, the machine handler caught
+  ;; The machine action threw, the machine handler caught
   ;; the throw and halted the cascade at the machine layer — `:db` was
   ;; suppressed. But the DRAIN itself continued to empty queue (no
   ;; downstream events), so the epoch record's :outcome is :ok.

@@ -1,6 +1,6 @@
 ;; Conformance fixture: machine/spawn-all-join-any-fails-cancels
 ;;
-;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
+;; Per Spec 005 §Spawn-and-join via :spawn-all. Verify that
 ;; exiting a :spawn-all-bearing state emits a single
 ;;   [:rf.machine/destroy {:rf/parent-id ... :rf/invoke-id ... :rf/spawn-all true}]
 ;; fx that the destroy-fx handler resolves by reading the join-state map

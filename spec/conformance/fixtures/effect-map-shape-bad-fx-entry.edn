@@ -1,7 +1,7 @@
 ;; Conformance fixture: effect-map-shape/bad-fx-entry
 ;; Spec 009 §:rf.error/effect-map-shape CASE (c) — bad :fx ENTRY.
 ;;
-;; This is the PRECISE rf2-18kwf truncation case. A reg-event-fx handler
+;; This is the PRECISE truncation case. A reg-event-fx handler
 ;; returns {:fx [[:shape/good {}] :oops [:shape/good2 {}]]} — the :fx vector
 ;; is well-shaped at the top level, but one individual ENTRY (:oops, a bare
 ;; keyword) is NOT a [fx-id args] tuple. Per Spec-Schemas §:rf/effect-map
@@ -10,7 +10,7 @@
 ;; :value :oops), that entry is DROPPED, and the SIBLING entries on both
 ;; sides STILL RUN (recovery :logged-and-skipped).
 ;;
-;; The teeth — exactly the rf2-18kwf bug: a lenient do-fx walk guarded with
+;; The teeth: a lenient do-fx walk guarded with
 ;; `(when (and (vector? pair) (seq pair)) …)` would SILENTLY drop the :oops
 ;; entry with NO diagnostic — the handler appears to fire its effects but
 ;; the typo'd entry vanishes without trace. A PORT replicating that lenient
@@ -18,14 +18,14 @@
 ;; exact bug. This fixture requires the trace AND requires both well-shaped
 ;; siblings to run, so the lenient port FAILS (missing trace).
 ;;
-;; THE CONTROL FOR THE ENVELOPE CASES (rf2-04tx). Cases (a) and (b) REFUSE
+;; THE CONTROL FOR THE ENVELOPE CASES. Cases (a) and (b) REFUSE
 ;; the event outright — a malformed envelope is a pre-commit validity question
 ;; and is therefore transactional. Case (c) is a row on the POST-commit,
-;; best-effort do-fx plane, so it keeps per-entry :logged-and-skipped recovery:
+;; best-effort do-fx plane, so it has per-entry :logged-and-skipped recovery:
 ;; the bad entry is dropped and its siblings still run. This fixture is what
-;; proves the refusal did not swallow that distinction and turn the whole
-;; category into an abort. Its channel DID move with the rest of the category:
-;; the emission now rides the always-on error-emit axis, not the dev trace
+;; proves the refusal does not swallow that distinction and turn the whole
+;; category into an abort. Its channel is the rest of the category's:
+;; the emission rides the always-on error-emit axis, not the dev trace
 ;; alone.
 ;;
 ;; Authored via the :return-raw DSL op. Grounded against the reference
@@ -34,7 +34,7 @@
 {:fixture/id           :effect-map-shape/bad-fx-entry
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
- :fixture/doc          "A reg-event-fx handler returns {:fx [[:shape/good {}] :oops [:shape/good2 {}]]}. The bare-keyword :oops entry is proactively policed: one :rf.error/effect-map-shape trace (:offending-key :fx, :value :oops, :logged-and-skipped), that entry dropped, BOTH sibling entries still run (the rf2-18kwf truncation case)."
+ :fixture/doc          "A reg-event-fx handler returns {:fx [[:shape/good {}] :oops [:shape/good2 {}]]}. The bare-keyword :oops entry is proactively policed: one :rf.error/effect-map-shape trace (:offending-key :fx, :value :oops, :logged-and-skipped), that entry dropped, BOTH sibling entries still run (the truncation case)."
 
  :fixture/registry
  {:event {:shape/init {:doc "Seed [:good-ran?] / [:good2-ran?] false."}

@@ -8,7 +8,7 @@
 ;;     composition (rf/image contract: anonymous images are valid only for local
 ;;     tests/examples that do NOT compose). An anonymous image in a composition
 ;;     would leave a cross-image shadow with a nil loser/winner — a degenerate
-;;     `{:image nil :shadowed-by nil}` report entry (rf2-x76af2.30).
+;;     `{:image nil :shadowed-by nil}` report entry.
 ;; Both conditions fail loud with :rf.error/image-duplicate-image-id. A SINGLE
 ;; anonymous image still assembles (there is no second image, so no shadow to
 ;; name — the local-test / default-image case).
@@ -20,7 +20,7 @@
 {:fixture/id           :image/duplicate-image-id
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/image}
- :fixture/doc          "EP-0026 image-id uniqueness: in a MULTI-image :images composition every image must be nameable by a distinct :id — two images sharing an :id, OR an anonymous image (no :id, un-nameable in the shadow report), fail loud with :rf.error/image-duplicate-image-id (rf2-x76af2.30). A SINGLE anonymous image still assembles (no second image, so no shadow to name)."
+ :fixture/doc          "EP-0026 image-id uniqueness: in a MULTI-image :images composition every image must be nameable by a distinct :id — two images sharing an :id, OR an anonymous image (no :id, un-nameable in the shadow report), fail loud with :rf.error/image-duplicate-image-id. A SINGLE anonymous image still assembles (no second image, so no shadow to name)."
 
  :fixture/registry {}
  :fixture/handlers {}
@@ -35,7 +35,7 @@
    :expect-error :rf.error/image-duplicate-image-id}
 
   ;; (2) Two ANONYMOUS images (no :id) in one composition — fail loud too: an
-  ;; un-nameable image cannot participate in composition (rf2-x76af2.30). Even
+  ;; un-nameable image cannot participate in composition. Even
   ;; with disjoint [kind id]s the anonymous images are rejected at the boundary,
   ;; so the shadow report never carries a degenerate {:image nil :shadowed-by nil}
   ;; entry.

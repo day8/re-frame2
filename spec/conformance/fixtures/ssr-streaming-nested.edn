@@ -2,8 +2,7 @@
 ;;
 ;; Pins the NESTED-boundary chunk-ordering contract for
 ;; `:rf/suspense-boundary` streaming SSR. Per Spec 011 §Streaming SSR
-;; §Boundary nesting and recursion (rf2-sgvn6 / rf2-b1v8v —
-;; the deferred rf2-v3eg3 finding-2).
+;; §Boundary nesting and recursion.
 ;;
 ;; Specs that meet:
 ;; [011-SSR §Boundary nesting and recursion](../../011-SSR.md#boundary-nesting-and-recursion),
@@ -33,7 +32,7 @@
                          :ssr/suspense-boundary
                          :ssr/hydration-payload
                          :ssr/chunked-response}
- :fixture/doc          "Pins NESTED :rf/suspense-boundary streaming wire shape: the inner boundary registers DURING the outer continuation render (not at shell-walk time) and its resolved chunk streams at the FIFO tail, AFTER the outer resolved chunk. The outer resolves cleanly (NOT failed) — the streaming walker recognises the buried inner marker instead of throwing through the non-streaming emitter. Per Spec 011 §Boundary nesting and recursion (rf2-sgvn6 / rf2-b1v8v)."
+ :fixture/doc          "Pins NESTED :rf/suspense-boundary streaming wire shape: the inner boundary registers DURING the outer continuation render (not at shell-walk time) and its resolved chunk streams at the FIFO tail, AFTER the outer resolved chunk. The outer resolves cleanly (NOT failed) — the streaming walker recognises the buried inner marker instead of throwing through the non-streaming emitter. Per Spec 011 §Boundary nesting and recursion."
 
  :fixture/registry
  {:view {:streaming-nested.test/inner-section

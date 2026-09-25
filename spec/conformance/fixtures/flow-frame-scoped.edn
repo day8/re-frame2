@@ -142,9 +142,8 @@
   ;;   settling drains are frame-scoped for the same reason: a settle is an
   ;;   ordinary event on the dispatching frame, so it can no more reach a
   ;;   sibling than any other event can.
-  ;; The recompute aggregator currently keys by :flow-id only (not
+  ;; The recompute aggregator keys by :flow-id only (not
   ;; [:frame :flow-id]); both frames' :compute fire twice each, so the
-  ;; total is 4. Under the superseded next-drain behaviour this read 2 —
-  ;; each frame's registration computed nothing on its own dispatch.
+  ;; total is 4.
   :flow-recompute-counts
   {:compute 4}}}

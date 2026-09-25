@@ -1,12 +1,12 @@
 ;; Conformance fixture: machine/history-deep-restores-leaf-path
 ;;
-;; First-class DEEP history (rf2-mle6e). A `{:type :history :deep? true}`
+;; First-class DEEP history. A `{:type :history :deep? true}`
 ;; pseudo-state under a compound's `:states` records that compound's FULL
 ;; active leaf path on the compound's EXIT (into the revertible `:rf/history`
 ;; snapshot slot, keyed by the compound's declaration path) and restores the
 ;; EXACT recorded leaf on re-entry — NOT the compound's `:initial`.
 ;;
-;; Per the XState v5 / W3C SCXML exit-set rule (rf2-9eidiv) only a compound
+;; Per the XState v5 / W3C SCXML exit-set rule only a compound
 ;; that is GENUINELY EXITED records history. Here the deep-history owner is
 ;; `:playing`: `:stop` exits the whole `:playing` subtree to its sibling
 ;; `:stopped`, recording `:playing`'s last-active leaf under [:player :playing];

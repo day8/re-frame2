@@ -16,11 +16,11 @@
 ;;      INSIDE do-fx's `(doseq [pair fx-vec])` AFTER the :db commit — app-db
 ;;      mutated, no structured trace, the drain's downstream events abandoned.
 ;;      A conformant impl emits the error and does NOT throw.
-;;   2. The refusal must be TRANSACTIONAL (rf2-04tx). A port that keeps the
-;;      old behaviour — drop the malformed :fx, commit the :db anyway — passes
+;;   2. The refusal must be TRANSACTIONAL. A port that drops the malformed
+;;      :fx and commits the :db anyway passes
 ;;      the no-throw half and fails on :final-app-db, because a handler whose
 ;;      effect silently vanished while its state write landed is precisely the
-;;      partial-success disguise the refusal exists to end.
+;;      partial-success disguise the refusal exists to prevent.
 ;;
 ;; The malformed map is authored via the :return-raw DSL op. Grounded against
 ;; the reference carrier re-frame.events/effect-map-defect.

@@ -2,13 +2,13 @@
 ;;
 ;; EP-0029 A4 — a SPAWN-LEVEL `:timeout` / `:on-timeout`. Like the state-level
 ;; timeout (machine-timeout-state-fire.edn), a spawn-level timeout is a DISTINCT
-;; authoring concept that LOWERS onto the existing `:after` timer mechanism: the
+;; authoring concept that LOWERS onto the `:after` timer mechanism: the
 ;; runtime desugars `{:spawn {:machine-id … :timeout "PT10S" :on-timeout {:target …}}}`
 ;; into the SPAWN-bearing state's `{:after {10000 {:target …}}}` (the resolved
 ;; ms) — the timeout is anchored to the state's ENTRY (when the child is
 ;; spawned), and the whole `:after` machinery (scheduling, per-decl-path epoch,
 ;; cancel-on-exit) drives it. The spawn spec keeps its `:machine-id` / `:data` /
-;; `:start` but the `:timeout` / `:on-timeout` keys are dropped (they moved onto
+;; `:start` but the `:timeout` / `:on-timeout` keys are dropped (they lower onto
 ;; the state `:after`).
 ;;
 ;; This fixture pins the spawn-level timeout end-to-end via the
@@ -28,7 +28,7 @@
 ;;
 ;; DIVERGENCE pinned elsewhere (machine-reg-error-timeout.edn): the duration
 ;; grammar is integer-ms OR ISO-8601 only — the XState "5s"/"10ms" shorthand is
-;; REJECTED at registration (operator-ruled).
+;; REJECTED at registration.
 ;;
 ;; Per [005 §`:timeout` / `:on-timeout` (delayed transitions)]
 ;; (../../005-StateMachines.md#timeout--on-timeout-state--spawn) and
@@ -70,7 +70,7 @@
                           :data             {:rf/spawned     {[:loading] :fetch/user#1}
                                              :rf/after-epoch {[:loading] 1}}
                           :rf/spawn-counter {:fetch/user 1}
-                          ;; rf2-3x7nj.9.3 — the entry's spawn attempt token.
+                          ;; The entry's spawn attempt token.
                           :rf/spawn-attempts {[:loading] 1}}
    :expect-effects [[:rf.machine/spawn
                      {:machine-id    :fetch/user

@@ -6,22 +6,22 @@
 ;; :int, :boolean, and the enum-bounded keyword form `[:enum :a :b ...]`.
 ;; Strings and unknown types pass through.
 ;;
-;; Per rf2-3k3o7 + rf2-qot6ii a bare (unbounded) `:keyword` slot is both an
+;; A bare (unbounded) `:keyword` slot is both an
 ;; unbounded keyword-interning DoS site (the URL chooses what gets interned;
 ;; each intern is an allocation plus an insert into the process-global
 ;; keyword table, and the keyword lives as long as something references it,
 ;; so the cost is churn and retention rather than a permanent leak) AND
 ;; has no round-trippable URL form, so it is REJECTED fail-loud at
-;; reg-route (rf2-qot6ii) — never coerced here. Authors who want a
+;; reg-route — never coerced here. Authors who want a
 ;; keyword-typed slot declare an `[:enum :a :b ...]` allowlist — the
 ;; bounded keyword universe that both interns and round-trips.
 ;;
-;; Per rf2-oyw04 :int coercion is STRICT and host-IDENTICAL: a value
+;; :int coercion is STRICT and host-IDENTICAL: a value
 ;; coerces to a number only when the WHOLE string is an integer literal
 ;; (`^-?\d+$`); partial-numeric / radix-prefixed / whitespace-padded input
 ;; (`12abc`, `0x10`, ` 12`) stays a string on EVERY host. This closes a
-;; Spec 011 hydration-mismatch hazard where `Long/parseLong` (strict, JVM)
-;; and `js/parseInt` (lenient, CLJS) disagreed on partial-numeric input.
+;; Spec 011 hydration-mismatch hazard: `Long/parseLong` (strict, JVM)
+;; and `js/parseInt` (lenient, CLJS) disagree on partial-numeric input.
 ;; The non-coerced string then fails the :int-typed slot, surfacing
 ;; :validation-failed? true via the layered :query validator.
 ;;
@@ -31,7 +31,7 @@
 {:fixture/id           :routing/query-string-coercion
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url}
- :fixture/doc          "Per-key coercion of query-string values via the route's :query schema. :int parses to a number, an `[:enum :a :b ...]` allowlist interns matching values to keywords (bounded universe — the rf2-3k3o7 keyword-DoS guard), :boolean true/false strings become booleans, :string passes through. :query-defaults populate keys absent from the URL. Optional schema keys without a value also pass through."
+ :fixture/doc          "Per-key coercion of query-string values via the route's :query schema. :int parses to a number, an `[:enum :a :b ...]` allowlist interns matching values to keywords (bounded universe — the keyword-DoS guard), :boolean true/false strings become booleans, :string passes through. :query-defaults populate keys absent from the URL. Optional schema keys without a value also pass through."
 
  :fixture/registry
  {:route
@@ -40,7 +40,7 @@
     :query          [:map
                      [:q :string]
                      [:page  {:optional true} :int]
-                     ;; rf2-3k3o7: bounded keyword universe.
+                     ;; Bounded keyword universe.
                      [:tag   {:optional true} [:enum :lang :clojure :design]]
                      [:draft? {:optional true} :boolean]]
     :query-defaults {:page 1}}}}
@@ -71,7 +71,7 @@
             :validation-failed? false}}
 
   ;; :int over a non-integer string: coerce-query-value passes through
-  ;; on parse failure; rf2-ug2m1 layered validation then catches the
+  ;; on parse failure; layered validation then catches the
   ;; mismatch against the route's :query schema and surfaces
   ;; :validation-failed? true with a :validation-error explanation.
   ;; Apps that want a soft fallback unregister the validator (Spec 010
@@ -83,7 +83,7 @@
             :fragment nil
             :validation-failed? true}}
 
-  ;; rf2-oyw04 — cross-host :int coercion must be STRICT and IDENTICAL on
+  ;; Cross-host :int coercion must be STRICT and IDENTICAL on
   ;; every host. A clean integer literal coerces to a number.
   {:call :match-url :url "/articles?q=p&page=12"
    :expect {:route-id :route/articles
@@ -92,9 +92,9 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; rf2-oyw04 — the cross-host hazard case. Partial-numeric input
-  ;; (`12abc`) must produce the SAME output server- and client-side. The
-  ;; predecessor diverged: `Long/parseLong "12abc"` threw -> string "12abc"
+  ;; The cross-host hazard case. Partial-numeric input
+  ;; (`12abc`) must produce the SAME output server- and client-side. Naive
+  ;; parsing diverges: `Long/parseLong "12abc"` throws -> string "12abc"
   ;; (JVM) while `js/parseInt "12abc" 10` -> number 12 (CLJS), a Spec 011
   ;; hydration-mismatch class violating Spec 012's "same handler both
   ;; sides" + Spec 000 Goal 2. The canonical semantics: coerce only when
@@ -103,8 +103,8 @@
   ;; :int-typed :page slot, surfacing :validation-failed? true — exactly
   ;; like the `not-a-number` case above. Both the JVM
   ;; (conformance_test.clj) and CLJS (conformance_corpus_cljs_test.cljs)
-  ;; harnesses run this call, so a host that re-introduced the asymmetry
-  ;; fails the corpus.
+  ;; harnesses run this call, so a host with the asymmetry fails the
+  ;; corpus.
   {:call :match-url :url "/articles?q=p&page=12abc"
    :expect {:route-id :route/articles
             :params   {}
@@ -115,7 +115,7 @@
   ;; route-url's 3-arity emits the query string in DETERMINISTIC CANONICAL
   ;; KEY ORDER (by CEDN-1 key bytes), NOT the caller's input/source order —
   ;; `:page` precedes `:q` regardless of how the query map is spelled
-  ;; (EP-0012, rf2-wgutc2; Conventions §The :rf/path algebra: "query keys are
+  ;; (EP-0012; Conventions §The :rf/path algebra: "query keys are
   ;; emitted in deterministic canonical order"). Two callers passing the same
   ;; query map in different key orders build the byte-identical URL.
   {:call :route-url :route-id :route/articles :params {}

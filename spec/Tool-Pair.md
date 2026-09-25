@@ -413,7 +413,7 @@ With the annotation in place, a pair tool can take a click position, read the ne
 
 The DOM-attribute annotation above maps clicked DOM nodes to view registration call sites. A complementary surface maps state-machine spec elements (guards / actions / transitions / state-nodes) back to their source positions.
 
-Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), the `reg-machine` macro walks its literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action entry, plus a reference-site `:source-coords` onto each map node (state-node / transition map) inside the `:states` tree:
+Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), the `reg-machine` macro walks its literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action entry, plus a reference-site `:source-coords` onto the spec root, each parallel region body, and each map node (state-node / transition map) inside a `:states` tree:
 
 ```clojure
 ;; Per-element definition coord + source — co-located on the entry:

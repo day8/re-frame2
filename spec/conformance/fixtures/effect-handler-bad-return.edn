@@ -11,8 +11,8 @@
 ;; nil remains the documented LEGAL no-op — a handler returning nil does NOT
 ;; trigger this trace (the control dispatch below proves it).
 ;;
-;; The teeth: a lenient PORT that silently no-ops ANY non-map return (the
-;; pre-rf2-k3bj behaviour) ships GREEN against the rest of the corpus — the
+;; The teeth: a lenient PORT that silently no-ops ANY non-map return
+;; ships GREEN against the rest of the corpus — the
 ;; vector return just vanishes with no diagnostic, and a porter never learns
 ;; their handler returned the wrong shape. This fixture REQUIRES the trace,
 ;; so the lenient (silent) port FAILS here; and it requires the nil control
@@ -68,7 +68,7 @@
    ;; trace-emissions matcher tolerates extra actual traces; the contract
    ;; this fixture pins is that the bad-return trace above fired exactly
    ;; for the vector return. (A second bad-return trace for :bad-ret/nil-ctrl
-   ;; would be a regression — caught by the host-side events_test
+   ;; would be wrong — caught by the host-side events_test
    ;; `reg-event-fx-nil-return-stays-silent` counterpart.)
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :bad-ret/nil-ctrl}}]
 

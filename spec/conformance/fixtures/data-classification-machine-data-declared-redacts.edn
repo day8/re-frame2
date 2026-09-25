@@ -4,7 +4,7 @@
 ;; fixture table, and Spec 005 §Privacy — redacting machine `:data` at trace
 ;; egress.
 ;;
-;; EP-0025 (final): a machine declares its durable `:data` classification
+;; EP-0025: a machine declares its durable `:data` classification
 ;; PROJECTION-RELATIVE on its `reg-machine` spec — a `:sensitive` (and/or
 ;; `:large`) vector of snapshot-relative `:data`-rooted `:rf/path` vectors. The
 ;; runtime LOWERS each declaration PER ACTOR INSTANCE at spawn / first-boot
@@ -17,15 +17,13 @@
 ;; XState's `context` shape, covering every generated instance with zero
 ;; per-instance author code.
 ;;
-;; This REPLACES the earlier frame-declared-absolute-path shape (the superseded
-;; rf2-398kql "frame-declared paths are the sole machine :data mechanism"
-;; disposition that EP-0025 §subsystems reversed). The fixture's machine spec
-;; now carries the classification directly (`:sensitive [[:data :token]]`); no
+;; The fixture's machine spec carries the classification directly
+;; (`:sensitive [[:data :token]]`); no frame-declared absolute path and no
 ;; `:fixture/classification-effects` op is needed — the machine lifecycle lowers
 ;; it at boot.
 ;;
 ;; The machine's `[:schemas :data]` schema carries NO `:sensitive?` prop
-;; (validation-only, EP-0025 reverses the EP-0005 schema→classification bridge);
+;; (validation-only; per EP-0025 there is no schema→classification bridge);
 ;; the classification is entirely the machine's projection-relative declaration.
 ;;
 ;; The redaction is a TRACE-EGRESS concern: the committed runtime-db snapshot
@@ -41,7 +39,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :core/event-handler :core/trace
                          :data-classification/classification-effects}
- :fixture/doc          "A reg-machine declaring :sensitive [[:data :token]] PROJECTION-RELATIVE (lowered per actor instance at spawn, :source :machine), after a transition whose action writes a secret token into :data, projects :rf/redacted at [:data :token] in the :rf.machine/transition and :rf.machine/snapshot-updated trace :after snapshot; an unmarked sibling slot (:retries) rides egress verbatim. The committed runtime-db snapshot carries the raw value — redaction is trace-egress only. EP-0025: the machine definition declares its own classification (the [:schemas :data] schema validates but no longer classifies); no frame annotation, no author-side absolute runtime path."
+ :fixture/doc          "A reg-machine declaring :sensitive [[:data :token]] PROJECTION-RELATIVE (lowered per actor instance at spawn, :source :machine), after a transition whose action writes a secret token into :data, projects :rf/redacted at [:data :token] in the :rf.machine/transition and :rf.machine/snapshot-updated trace :after snapshot; an unmarked sibling slot (:retries) rides egress verbatim. The committed runtime-db snapshot carries the raw value — redaction is trace-egress only. EP-0025: the machine definition declares its own classification (the [:schemas :data] schema validates but does not classify); no frame annotation, no author-side absolute runtime path."
 
  :fixture/registry
  {:event {:dc/auth {:doc "Machine-as-event-handler; durable :data classified by the machine's own projection-relative declaration."}}

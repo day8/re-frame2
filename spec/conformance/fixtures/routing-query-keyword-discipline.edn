@@ -1,28 +1,27 @@
 ;; Conformance fixture: routing/query-keyword-discipline
 ;;
-;; Per Spec 012 §Query strings and fragments and the rf2-tfgdv security
-;; review. URL-derived query keys + values must NOT extend the
+;; Per Spec 012 §Query strings and fragments. URL-derived query keys +
+;; values must NOT extend the
 ;; process-global keyword table on behalf of attacker-influenced input
 ;; unless the route metadata authorises the extension.
 ;;
 ;; The two enforcement edges:
 ;;
-;;   1. **Declared vocabulary** (rf2-3k3o7 + rf2-5ifai). Only query keys
+;;   1. **Declared vocabulary**. Only query keys
 ;;      named by the route's `:query` schema or `:query-defaults` are
 ;;      promoted to keyword keys. Unknown keys keep
-;;      their string form. The rf2-5ifai cut also removed the legacy
-;;      no-schema "keyword-all" fallback -- a route that declares NO
-;;      vocabulary now keeps every URL key as a string. Authors who want
-;;      keyword keys declare them. (Pre-alpha -- no back-compat shim.)
-;;      EP-0037 R5 retired the third source, `:query-retain`: a key that was
-;;      keyword-promoted solely because a retain declaration named it now
-;;      stays a STRING until the route declares it in `:query` /
-;;      `:query-defaults`. The `/migrated` route below is that migration.
+;;      their string form, and there is no no-schema "keyword-all"
+;;      fallback -- a route that declares NO
+;;      vocabulary keeps every URL key as a string. Authors who want
+;;      keyword keys declare them.
+;;      `:query-retain` is not a vocabulary source (EP-0037 R5): a key a
+;;      retain declaration names stays a STRING until the route declares it
+;;      in `:query` / `:query-defaults`, as the `/migrated` route below does.
 ;;
-;;   2. **Enum-only keyword values** (rf2-3k3o7 + rf2-qot6ii). Only
+;;   2. **Enum-only keyword values**. Only
 ;;      `[:enum :a :b ...]` allowlists gate the string->keyword intern. A
-;;      bare (unbounded) `:keyword` slot is now REJECTED fail-loud at
-;;      `reg-route` (rf2-qot6ii): it has no round-trippable URL form
+;;      bare (unbounded) `:keyword` slot is REJECTED fail-loud at
+;;      `reg-route`: it has no round-trippable URL form
 ;;      (route-url host-stringifies `:asc` -> `%3Aasc` but match-url keeps
 ;;      the segment a string, which then fails the route's own `:keyword`
 ;;      schema), so it can never reach match-url in the first place. That
@@ -32,15 +31,15 @@
 ;; Together these close the "intern keywords chosen by user-controlled
 ;; URLs" surface AT THE SOURCE: a hostile URL of N-unique
 ;; undeclared keys interns zero keywords, so the routing side needs no
-;; per-URL key cap (rf2-x0ngkv removed the redundant `default-max-decoded-
-;; keys` ceiling). This differs from `:rf.http`, which genuinely
+;; per-URL key cap (there is no `default-max-decoded-keys` ceiling). This
+;; differs from `:rf.http`, which genuinely
 ;; keywordizes JSON object keys against a schema and so carries an
-;; explicit `:rf.http/max-decoded-keys` cap (rf2-wu1n5).
+;; explicit `:rf.http/max-decoded-keys` cap.
 
 {:fixture/id           :routing/query-keyword-discipline
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url}
- :fixture/doc          "Routes that declare no `:query` vocabulary keep every URL query key as a string (the rf2-5ifai cut of the legacy keyword-all fallback). Routes that declare a `:query` schema keyword only the declared keys; unknown keys stay as strings. A bare (unbounded) `:keyword` slot is rejected at reg-route (rf2-qot6ii — no round-trippable URL form); only `[:enum ...]` allowlists gate the keyword intern (rf2-3k3o7)."
+ :fixture/doc          "Routes that declare no `:query` vocabulary keep every URL query key as a string (there is no keyword-all fallback). Routes that declare a `:query` schema keyword only the declared keys; unknown keys stay as strings. A bare (unbounded) `:keyword` slot is rejected at reg-route (no round-trippable URL form); only `[:enum ...]` allowlists gate the keyword intern."
 
  :fixture/registry
  {:route
@@ -52,7 +51,7 @@
                      :query [:map [:q :string] [:page {:optional true} :int]]}
 
    ;; A bare (unbounded) `:keyword` slot is rejected at reg-route
-   ;; (rf2-qot6ii — no round-trippable URL form), so it cannot be
+   ;; (no round-trippable URL form), so it cannot be
    ;; registered here; the `[:enum ...]` slot below is the DoS-safe keyword
    ;; path. The reg-route reject is pinned by the routing unit tests.
 
@@ -64,17 +63,15 @@
    :route/defaults  {:path           "/defaults"
                      :query-defaults {:page 1 :sort "asc"}}
 
-   ;; EP-0037 R5 migration: `:theme` used to be keyword-promoted by a
-   ;; `:query-retain #{:theme}` declaration. With retain retired, keeping the
-   ;; keyword key means DECLARING it -- the explicit migration the EP requires
-   ;; instead of preserving keyword promotion as hidden residue.
+   ;; EP-0037 R5: a `:query-retain #{:theme}` declaration would not
+   ;; keyword-promote `:theme`; keeping the keyword key means DECLARING it,
+   ;; so keyword promotion never rides as hidden residue.
    :route/migrated  {:path  "/migrated"
                      :query [:map [:theme {:optional true} :string]]}}}
 
  :fixture/calls
  ;; --- Bare route, no declared vocabulary --------------------------------
- ;; rf2-5ifai: pre-cut, every URL key was promoted to a keyword. Post-cut
- ;; every key stays a string -- the route declared no keyword vocabulary.
+ ;; Every key stays a string -- the route declares no keyword vocabulary.
  [{:call :match-url :url "/bare?foo=1&bar=2"
    :expect {:route-id :route/bare
             :params   {}
@@ -90,7 +87,7 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; --- Bare `:keyword` type-form: rejected at reg-route (rf2-qot6ii) --
+  ;; --- Bare `:keyword` type-form: rejected at reg-route --------------
   ;; A bare (unbounded) `:keyword` slot has no round-trippable URL form, so
   ;; it is rejected fail-loud at reg-route and never reaches match-url. That
   ;; reject is pinned by the routing unit tests (routing_enum_prism +
@@ -106,7 +103,7 @@
             :fragment nil
             :validation-failed? false}}
   ;; Out-of-allowlist -> stays a string (validation-failed? handled by
-  ;; rf2-ug2m1 layered validation; this fixture pins the keyword-discipline
+  ;; layered validation; this fixture pins the keyword-discipline
   ;; bit, validation-failed? appears in the routing-query-string-coercion
   ;; fixture).
   {:call :match-url :url "/enum-kw?sort=hostile"
@@ -124,7 +121,7 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; --- EP-0037 R5: the migrated declaration keeps the keyword key -----
+  ;; --- EP-0037 R5: the declaration keeps the keyword key -------------
   ;; `:theme` is keyword'd because the route DECLARES it, not because an
   ;; ambient retain slot named it; `surprise` is undeclared and stays a string.
   {:call :match-url :url "/migrated?theme=dark&surprise=x"

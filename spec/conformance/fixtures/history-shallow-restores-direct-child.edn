@@ -1,6 +1,6 @@
 ;; Conformance fixture: machine/history-shallow-restores-direct-child
 ;;
-;; First-class SHALLOW history (rf2-mle6e). A `{:type :history}` pseudo-state
+;; First-class SHALLOW history. A `{:type :history}` pseudo-state
 ;; (no `:deep?`, or `:deep? false`) records only the compound's DIRECT CHILD
 ;; on exit; on re-entry the runtime restores that child then CASCADES through
 ;; the child's OWN `:initial` chain — so a deep leaf at exit restores only to
@@ -8,7 +8,7 @@
 ;; with `history-deep-restores-leaf-path` (identical exit leaf, different
 ;; restore).
 ;;
-;; Per the XState v5 / W3C SCXML exit-set rule (rf2-9eidiv) only a GENUINELY
+;; Per the XState v5 / W3C SCXML exit-set rule only a GENUINELY
 ;; EXITED compound records, and a SHALLOW recording of the direct child
 ;; `:playing` requires the OWNING compound `:player` to be exited. This uses
 ;; the SCXML test388 external-sibling shape: `:eject` exits the whole `:player`

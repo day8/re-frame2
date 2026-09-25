@@ -1,15 +1,11 @@
 ;; Conformance fixture: machine/hierarchical-wildcard-precedence
 ;;
 ;; Per-level transition resolution with wildcards. Verifies the rule that
-;; was clarified for rf2-fhb9: at each level, an explicit-event match beats
+;; at each level, an explicit-event match beats
 ;; `:*`; only if neither matches does the runtime walk up to the parent. So
 ;; a leaf's `:*` SHADOWS a parent's explicit handler for the same event,
 ;; because the leaf level's `:*` lookup happens before the runtime walks
 ;; up to the parent.
-;;
-;; This fixture pins the divergence point between the (now reworded)
-;; §Wildcard transitions list at L213 and the canonical §Transition
-;; resolution list at L877. Per rf2-fhb9 / rf2-goxn audit finding #9.
 ;;
 ;; Per [005 §Wildcard transitions]
 ;; (../../005-StateMachines.md#wildcard-transitions) and

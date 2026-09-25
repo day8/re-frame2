@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/reg-error-final-state-shape
 ;;
 ;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
-;; and rf2-gn80 §`:final?` constraints. A `:final?` state-node's shape is
+;; and 005 §`:final?` constraints. A `:final?` state-node's shape is
 ;; constrained at registration:
 ;;
 ;;   - A `:final?` state MUST NOT be compound (no `:states`, no `:initial`)
@@ -66,9 +66,9 @@
   ;; entry uses the canonical co-located REGISTERED-ENTRY shape `{:fn ...}`
   ;; that the resolver (`chase-ref`) unwraps — the same shape a real
   ;; `reg-machine` stamps. The validator confirms the ref RESOLVES; it does
-  ;; not invoke the body (rf2-ylpnn — the validator now follows the full
-  ;; resolution chain rather than testing first-key membership, so a
-  ;; dangling `:log :identity` indirection would be rejected here).
+  ;; not invoke the body (the validator follows the full resolution chain
+  ;; rather than testing first-key membership, so a dangling `:log
+  ;; :identity` indirection would be rejected here).
   {:call       :reg-machine
    :definition {:initial :running
                 :actions {:log {:fn :rf.conformance/noop-action}}

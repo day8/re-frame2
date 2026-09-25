@@ -3,20 +3,20 @@
 ;; EP-0026 §Image Keys / §Backwards Compatibility / §Capability Removal
 ;; (../../docs/EP/EP-0026-image-api-simplification.md): the public image value
 ;; accepts EXACTLY three top-level source keys — `:id`, `:select-ns`,
-;; `:registrations`. The EP-0023 keys `:include-ns`, `:exclude-ns`, `:replace`,
+;; `:registrations`. The keys `:include-ns`, `:exclude-ns`, `:replace`,
 ;; `:replace-standard`, and `:rf.image/requires` are RETIRED: a spec carrying one
 ;; fails loud at `rf/image` construction with :rf.error/invalid-image (they MUST
 ;; NOT be accepted as aliases and MUST NOT be ignored — so a stale example cannot
 ;; keep working by accident).
 ;;
-;; The capability removal is SURGICAL: exactly three image-capability surfaces
-;; are retired — `:rf.image/requires` (the image key, pinned here), `make-frame
-;; :capabilities` (no longer an image-selection key — an ordinary config key), and
-;; `:rf.gen/requires` (no longer on a sealed generation, pinned here). The word
-;; "capability" is reused across the repo (`:rf.capability/*` host-service
-;; vocabulary, conformance capability ids, tool capability flags) and NONE of
-;; those are touched — the control below proves a `:rf.capability/*`-named
-;; registration still assembles fine (the vocab is untouched).
+;; There is no image-capability surface, and the absence is SURGICAL: exactly
+;; three keys are retired — `:rf.image/requires` (the image key, pinned here),
+;; `make-frame :capabilities` (an ordinary config key, not an image-selection
+;; key), and `:rf.gen/requires` (absent from a sealed generation, pinned here).
+;; The word "capability" is reused across the repo (`:rf.capability/*`
+;; host-service vocabulary, conformance capability ids, tool capability flags)
+;; and NONE of those is affected — the control below proves a
+;; `:rf.capability/*`-named registration assembles fine.
 ;;
 ;; Mode-B `:assemble-image` call op. Each retired-key call carries `:expect-error
 ;; :rf.error/invalid-image` (Spec 009 §The thrown-error shape — `case` on
@@ -25,7 +25,7 @@
 {:fixture/id           :image/retired-keys
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/image}
- :fixture/doc          "EP-0026 retired image keys: :include-ns / :exclude-ns / :replace / :replace-standard / :rf.image/requires all fail loud at rf/image with :rf.error/invalid-image (never accepted as aliases, never ignored). Capability removal is surgical: :rf.gen/requires is absent from a sealed generation, and an unrelated :rf.capability/* registration still assembles fine."
+ :fixture/doc          "EP-0026 retired image keys: :include-ns / :exclude-ns / :replace / :replace-standard / :rf.image/requires all fail loud at rf/image with :rf.error/invalid-image (never accepted as aliases, never ignored). The absence of image capabilities is surgical: :rf.gen/requires is absent from a sealed generation, and an unrelated :rf.capability/* registration assembles fine."
 
  :fixture/registry {}
  :fixture/handlers {}
@@ -57,8 +57,8 @@
    :images [{:id :x :replace-standard {[:fx :rf.nav/push-url] {:standard true}}}]
    :expect-error :rf.error/invalid-image}
 
-  ;; (5) :rf.image/requires is RETIRED — image-declared host capabilities are
-  ;; removed end-to-end (the first of the three image-capability surfaces).
+  ;; (5) :rf.image/requires is RETIRED — there are no image-declared host
+  ;; capabilities (the first of the three image-capability surfaces).
   {:call :assemble-image
    :pool []
    :images [{:id :x :rf.image/requires #{:rf.capability/http}}]
@@ -66,8 +66,8 @@
 
   ;; (6) :rf.gen/requires (the third image-capability surface) is RETIRED — a
   ;; sealed generation carries NO :rf.gen/requires. (The :make-frame
-  ;; :capabilities surface — the second — is no longer an image-selection key;
-  ;; it now flows to make-frame as ordinary record-config.) A clean image
+  ;; :capabilities surface — the second — is not an image-selection key;
+  ;; it flows to make-frame as ordinary record-config.) A clean image
   ;; assembles to a generation whose kinds are present but with no requires slot.
   {:call :assemble-image
    :pool [{:rf.provenance/ns "app.core" :kind :event :id :app/boot :handler-fn :boot}]
@@ -76,7 +76,7 @@
    :expect-gen-absent [:rf.gen/requires]}
 
   ;; (7) SURGICAL-REMOVAL CONTROL: the `:rf.capability/*` host-service vocabulary
-  ;; is UNTOUCHED. A registration whose id is in the `:rf.capability/*` namespace
+  ;; is UNAFFECTED. A registration whose id is in the `:rf.capability/*` namespace
   ;; is an ordinary registration — it selects + assembles cleanly (only the three
   ;; image-capability KEYS above are retired, never the bare string "capability").
   {:call :assemble-image

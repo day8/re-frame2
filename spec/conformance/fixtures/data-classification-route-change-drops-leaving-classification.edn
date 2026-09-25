@@ -2,8 +2,8 @@
 ;;
 ;; Per Spec 015 §Tests (the route-* row) + Spec 012 §Route data classification
 ;; and EP-0025 §Subsystem matrix (reg-route row) — the SINGLETON-DROP invariant
-;; that has NO machine analogue and therefore no other conformance coverage
-;; (rf2-v9l8eg). A route is effectively a SINGLETON current-route: only one
+;; that has NO machine analogue and therefore no other conformance coverage.
+;; A route is effectively a SINGLETON current-route: only one
 ;; route is active in a frame at a time, so route activation REPLACES the whole
 ;; :source :route declaration set. A route change to a route that declares NO
 ;; classification clears the leaving route's route-sourced entries entirely —
@@ -18,8 +18,8 @@
 ;; leak forward (the no-leak failure mode), the token would still redact.
 ;;
 ;; Pairs with data-classification-route-query-declared-redacts.edn, which pins
-;; the redact-while-active leg; together they cover both acceptance criteria of
-;; rf2-v9l8eg (redact at egress + singleton drop / no-leak).
+;; the redact-while-active leg; together they cover both legs of the route
+;; arm (redact at egress + singleton drop / no-leak).
 ;;
 ;; Capability :data-classification/classification-effects (claimed by BOTH the
 ;; JVM and CLJS conformance corpus runners) + :routing/match-url +

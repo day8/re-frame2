@@ -13,8 +13,8 @@
 ;; NOT the guard's discriminator), so the op CAPTURES the thrown `:rf.error/id`
 ;; and writes it into app-db at `[:guard-id]` — making the construction-guard
 ;; discriminator a pure-data `:final-app-db` observable. (`:rf/no-error` would
-;; be written if the construction did NOT throw — a regression that re-enabled
-;; mid-cascade construction.)
+;; be written if the construction did NOT throw — mid-cascade construction
+;; allowed.)
 
 {:fixture/id           :construction/in-handler-guard
  :fixture/spec-version "1.0"

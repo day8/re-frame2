@@ -1,10 +1,10 @@
 ;; Conformance fixture: data-classification/epoch-export-projects-no-storage-mutation
 ;;
 ;; Per Spec 015 §Tests (the `epoch-export-projects-no-storage-mutation.edn`
-;; row) and EP-0015 §15 + open-issue 6 (RULED) — epoch redaction is a
+;; row) and EP-0015 §15 + open-issue 6 — epoch redaction is a
 ;; PROJECTION-SIDE concern. Off-box epoch EXPORT projects via `project-egress`,
-;; but the STORED epoch record is UNMUTATED. Storage-side redaction was
-;; REMOVED: post-EP-0010 epoch records are causal replay material, so mutating
+;; but the STORED epoch record is UNMUTATED. There is no storage-side
+;; redaction: epoch records are causal replay material, so mutating
 ;; them at rest would corrupt the replay contract. The replay-faithful-under-
 ;; redaction property therefore holds BY CONSTRUCTION — the ring carries the
 ;; raw value regardless of any classification.
@@ -14,14 +14,13 @@
 ;; epoch record's `:db-after` carries the RAW token (NOT `:rf/redacted`). The
 ;; trace-egress projection redacts the SAME event's t1 pending-db snapshot
 ;; (asserted below as the egress counterpart), but the durable epoch ring is
-;; untouched — the two surfaces diverge exactly as the disposition requires:
+;; untouched — the two surfaces diverge exactly as EP-0015 §15 requires:
 ;; egress redacts, storage stays raw.
 ;;
 ;; The restore/replay-faithfulness leg (a redacted-frame epoch replays the RAW
 ;; value through `restore-epoch`) is pinned by the unit test
-;; `re-frame.epoch-privacy-test/listener-fan-out-delivers-raw-record`
-;; (rf2-t55hxg.9; the redact-fn suites that formerly carried it were retired
-;; with the hook under rf2-kuky.7), the per-artefact counterpart to this
+;; `re-frame.epoch-privacy-test/listener-fan-out-delivers-raw-record`,
+;; the per-artefact counterpart to this
 ;; storage-invariant corpus pin.
 ;;
 ;; Harness note: `:fixture/classification-effects` declares the sensitive path;
@@ -32,7 +31,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/trace
                          :data-classification/classification-effects}
- :fixture/doc          "With [:auth :token] declared frame-sensitive, the committed epoch record's :db-after carries the RAW token — storage-side redaction was removed (EP-0015 §15 / open-issue 6), so the ring is replay-faithful by construction. The SAME event's t1 pending-db trace egress redacts the token: egress redacts, durable storage stays raw."
+ :fixture/doc          "With [:auth :token] declared frame-sensitive, the committed epoch record's :db-after carries the RAW token — there is no storage-side redaction (EP-0015 §15 / open-issue 6), so the ring is replay-faithful by construction. The SAME event's t1 pending-db trace egress redacts the token: egress redacts, durable storage stays raw."
 
  :fixture/registry
  {:event {:dc/login {:doc "Writes a secret token into a frame-sensitive app-db path."}}}
@@ -41,7 +40,7 @@
  {:event {:dc/login [[:set [:auth :token] "super-secret"]]}}
 
  ;; Declare [:auth :token] sensitive — the trace egress redacts it; the epoch
- ;; ring must NOT (storage-side redaction was removed).
+ ;; ring must NOT (there is no storage-side redaction).
  :fixture/classification-effects
  [{:sensitive [[:auth :token]]}]
 
@@ -55,7 +54,7 @@
  {:final-app-db {:auth {:token "super-secret"}}
 
   ;; STORAGE invariant: the epoch ring's :db-after carries the RAW token —
-  ;; NOT :rf/redacted. The record is replay-faithful (disposition 6).
+  ;; NOT :rf/redacted. The record is replay-faithful (EP-0015 open-issue 6).
   :epoch-records
   [{:frame  :rf/default
     :record {:event-id      :dc/login

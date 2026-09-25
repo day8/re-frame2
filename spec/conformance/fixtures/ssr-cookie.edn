@@ -14,7 +14,7 @@
           :auth/establish       {:doc       "Set the session cookie after auth succeeds."
                                  :platforms #{:server}}}
   ;; :rf.server/set-cookie is registered by the runtime (re-frame.ssr,
-  ;; per Spec 011 §HTTP response contract / rf2-8pif). Not declared
+  ;; per Spec 011 §HTTP response contract). Not declared
   ;; here so the harness doesn't shadow it with a no-op stub.
   }
 
@@ -33,7 +33,7 @@
  :fixture/dispatches []
 
  :fixture/expect
- ;; Submap match. Per rf2-jbcmt the :rf/response accumulator lives in a
+ ;; Submap match. The :rf/response accumulator lives in a
  ;; framework-private side-channel atom (re-frame.ssr/response-slots),
  ;; NOT in app-db — so the fixture pins the cookie shape via
  ;; :ssr/request-result rather than :final-app-db.

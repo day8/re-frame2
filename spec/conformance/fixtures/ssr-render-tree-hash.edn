@@ -2,9 +2,9 @@
 ;; Pure render-tree → structural-hash. JVM-runnable; no React or DOM.
 ;;
 ;; Pins the CANONICAL-TRAVERSAL contract Spec 011 §Hydration-mismatch
-;; detection promises (011:386): "Conformance fixtures pin the
-;; canonical-traversal output for a small render-tree corpus so a port
-;; can verify its serialiser." The traversal IS pattern-level — the hash
+;; detection promises: this fixture "pins the canonical-traversal output
+;; for a small render-tree corpus so a port can verify its serialiser."
+;; The traversal IS pattern-level — the hash
 ;; VALUE is a per-host commitment (a port may pick a different hash), so
 ;; the fixture pins BOTH:
 ;;

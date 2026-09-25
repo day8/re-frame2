@@ -21,7 +21,7 @@
  ;; route-url and emits :rf.nav/push-url, which is exactly what
  ;; :effects-routed asserts.
  ;;
- ;; Per rf2-xak8u: no :sub override for :rf/route either — the
+ ;; No :sub override for :rf/route either — the
  ;; framework's :rf/route sub reads the slice at
  ;; [:rf.runtime/routing :current] directly — no projection — and
  ;; that is what consumers see. A fixture-DSL `[[:get [:rf/route]]]` body would
@@ -47,10 +47,10 @@
  ;; tolerates the additional keys; the :sub-values check is exact, so
  ;; the expected slice mirrors what the :rf/route sub publishes.
  ;;
- ;; Per rf2-xak8u (Option-A): the :rf/route layer-1 sub projects the
+ ;; The :rf/route layer-1 sub projects the
  ;; slice keys only. The nav-token / pending-nav counters are NOT
- ;; runtime-db state — they live in a host-side transient cache
- ;; (rf2-oosjmh) — so :final-runtime-db carries only :current and
+ ;; runtime-db state — they live in a host-side transient cache,
+ ;; so :final-runtime-db carries only :current and
  ;; :sub-values asserts the slice-only shape.
  {:final-runtime-db {:rf.runtime/routing {:current {:route-id :route/article-detail :params {:id "intro"}}}}
 

@@ -8,8 +8,7 @@
 ;; selects EVERY enabled regional `:always` against ONE frozen whole-machine
 ;; snapshot, applies that preselected set in region-declaration order, and
 ;; repeats to quiescence — a single macrostep converging across all regions.
-;; This supersedes the rejected region-local drain model (PR #5801): the
-;; parent does NOT settle one region's `:always` before a sibling's event
+;; The parent does NOT settle one region's `:always` before a sibling's event
 ;; action has applied, and declaration order never changes which set is
 ;; selected.
 ;;
@@ -22,7 +21,7 @@
 ;;   Calls 2 & 3 — PARENT-OWNED ROUND (the load-bearing distinction). Both
 ;;   regions handle the same event `:go`, each writing its own shared-`:data`
 ;;   flag (`:a?` / `:b?`); each region's `:mid` `:always` is guarded on BOTH
-;;   flags. Under the ratified engine the event set applies to BOTH regions
+;;   flags. The event set applies to BOTH regions
 ;;   FIRST (both flags set), so the first frozen `:always` round selects both
 ;;   regions and both reach `:resolved` in the same macrostep. Call 2 declares
 ;;   the regions `[:a :b]`, Call 3 declares them `[:b :a]`; both converge to
@@ -35,8 +34,8 @@
 ;;   guard sees only its own flag), producing `{:a :mid :b :resolved}` for
 ;;   Call 2 and `{:a :resolved :b :mid}` for Call 3. Both discriminating
 ;;   calls therefore REDDEN under region-local draining while Call 1 (region-
-;;   scoped target, shared by both models) stays green. The vacuous single-
-;;   region predecessor passed under either model; these do not.
+;;   scoped target, shared by both models) stays green. A single-region
+;;   version would pass under either model; these do not.
 
 {:fixture/id           :machine/parallel-always-cascade-per-region
  :fixture/spec-version "1.0"
@@ -113,7 +112,7 @@
    :expect-effects       []}
 
   ;; Call 3 — parent-owned round, declaration order [:b :a]. Identical machine,
-  ;; regions declared in the reverse order. The ratified engine is declaration-
+  ;; regions declared in the reverse order. The engine is declaration-
   ;; order invariant, so this converges to the SAME
   ;; {:a :resolved :b :resolved} / {:a? true :b? true} as Call 2. A region-
   ;; local drain reverses the strand → {:a :resolved :b :mid}.

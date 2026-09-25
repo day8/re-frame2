@@ -1,6 +1,6 @@
 ;; Conformance fixture: cofx/envelope-preserved
 ;;
-;; EP-0017 Slice-A contract — the `:rf.cofx` envelope is delivered into the
+;; EP-0017 contract — the `:rf.cofx` envelope is delivered into the
 ;; event context. Per Spec 002 §4 (Event context) + EP-0017 §5, the flat
 ;; recordable-coeffect map the dispatch envelope carries under `:rf.cofx`
 ;; (one fact per owner-qualified key; always carrying `:rf/time-ms`, the one

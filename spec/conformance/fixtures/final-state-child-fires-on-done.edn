@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/final-state-child-fires-on-done
 ;;
-;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
-;; and rf2-gn80. A child machine spawned by a parent's `:spawn` declares
+;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key).
+;; A child machine spawned by a parent's `:spawn` declares
 ;; a leaf with `:final? true`. When the child enters that leaf:
 ;;
 ;;   1. The runtime extracts `result` from the child's `:data` slot

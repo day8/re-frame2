@@ -1,7 +1,7 @@
 ;; Conformance fixture: machine/final-state-singleton-auto-destroys
 ;;
-;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key)
-;; and rf2-gn80 (Final states). A leaf state declares `:final? true`;
+;; Per [005 §Final states](../../005-StateMachines.md#final-states-final--on-done--output-key).
+;; A leaf state declares `:final? true`;
 ;; entering it terminates the machine. For a SINGLETON (non-spawned,
 ;; non-invoked) machine, the auto-destroy fires synchronously per D7
 ;; ("final means final"). Footgun note for skill docs: apps wanting a
@@ -15,7 +15,7 @@
 ;; destroy semantics observe the auto-destroy via the surrounding
 ;; runtime; the pure call here verifies the transition's state-shape.
 ;;
-;; Per rf2-gn80 D1: `:final?` is a first-class state-node key (NOT
+;; Per 005 §Final states D1: `:final?` is a first-class state-node key (NOT
 ;; stashed under `:meta`). Per D3: `:output-key` is a designated `:data`
 ;; slot, optional — when absent the parent's `:on-done` receives nil.
 

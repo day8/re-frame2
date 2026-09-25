@@ -1,6 +1,6 @@
 ;; Conformance fixture: ep-0037/replan-bad-request
 ;;
-;; rf2-y8jjk — [:rf.route/replan-resources {:cause <edn>}] carries ONE closed
+;; [:rf.route/replan-resources {:cause <edn>}] carries ONE closed
 ;; payload map whose :cause is REQUIRED and non-nil, and replans the ACTIVE
 ;; route. A malformed event, or a dispatch with no active route slice, is
 ;; rejected BEFORE any planning with :rf.error/replan-bad-request — no ensures,
@@ -21,7 +21,7 @@
 {:fixture/id           :ep-0037/replan-bad-request
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url :core/event-handler}
- :fixture/doc          "rf2-y8jjk: [:rf.route/replan-resources] rejects BEFORE planning with :rf.error/replan-bad-request — :no-active-route (no slice yet), :bad-event-arity, :not-a-map, :unknown-key (a :to address is not a replan payload), :missing-cause (absent, then nil) — dispatches no ensures, and leaves the live route (:route/home :idle) untouched."
+ :fixture/doc          "[:rf.route/replan-resources] rejects BEFORE planning with :rf.error/replan-bad-request — :no-active-route (no slice yet), :bad-event-arity, :not-a-map, :unknown-key (a :to address is not a replan payload), :missing-cause (absent, then nil) — dispatches no ensures, and leaves the live route (:route/home :idle) untouched."
 
  :fixture/registry
  {:route

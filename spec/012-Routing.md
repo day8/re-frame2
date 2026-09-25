@@ -2008,11 +2008,11 @@ The pure **`:encode` is not skipped.** The `route-link` href render (consult poi
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all seven items are design candidates that do not block v1. Only **one** carries a tracking bead and so qualifies as **`:post-v1 tracked`** — the declarative `:on-leave` hook (`rf2-uu19xv`). The other **six** are **post-v1, untracked notes** — none carries a tracking bead (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`); each records the concrete "deferred until …" condition that files its bead when it fires. Route-plan prefetch is settled and lives under [§Resolved decisions](#resolved-decisions).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all seven items are design candidates that do not block v1. Only **one** is **`:post-v1 tracked`** — the declarative `:on-leave` hook, deferred until the condition its section names. The other **six** are **post-v1, untracked notes**; each records the concrete "deferred until …" condition that files its bead when it fires. Route-plan prefetch is settled and lives under [§Resolved decisions](#resolved-decisions).
 
 ### Declarative `:on-leave` route hook (post-v1)
 
-`:can-enter` is the first-class mirror of `:can-leave`. A route-owned **`:on-leave`** hook — a declarative "run these events when this route is left" slot, the imperative sibling of `:on-match` (which runs on *entry*) — is its leave-side companion, **deliberately deferred** (`rf2-uu19xv`): the leave-side teardown story is covered by two sufficient surfaces —
+`:can-enter` is the first-class mirror of `:can-leave`. A route-owned **`:on-leave`** hook — a declarative "run these events when this route is left" slot, the imperative sibling of `:on-match` (which runs on *entry*) — is its leave-side companion, **deliberately deferred**: the leave-side teardown story is covered by two sufficient surfaces —
 
 - **Machine `:exit` actions and frame teardown.** A route that owns machine-shaped resources tears them down through the machine's `:exit` cascade, which fires on every exit path including the frame's destruction (per [005 §Cooperative cancellation](005-StateMachines.md) and [Cross-Spec-Interactions §Routing × Machines](Cross-Spec-Interactions.md#routing--machines)). 10+ machine examples already teach this shape; a route `:on-leave` would duplicate it for the machine case.
 - **Route-owned resources release declaratively.** A route's `:resources` plan releases its owners on route change (per [016 §Route integration](016-Resources.md)) — the leaving route's `[:route prev-id prev-nav-token]` owner is dropped automatically, no `:on-leave` needed.

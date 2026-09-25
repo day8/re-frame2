@@ -24,7 +24,7 @@
 ;; (schema-first walker) and
 ;; `re-frame.projection-cljs-test/path-walker-nested-large-over-sensitive-
 ;; descendant-redacts` (path walker) deftests, lifted to the host-agnostic
-;; corpus through the runtime's emit-time projection chokepoint. rf2-izlr7f.
+;; corpus through the runtime's emit-time projection chokepoint.
 ;;
 ;; Harness note: `:fixture/classification-effects` declares `[:a]` :large and
 ;; `[:a :b]` :sensitive via two ordered ops. Capability

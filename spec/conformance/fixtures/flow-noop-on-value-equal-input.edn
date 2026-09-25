@@ -47,7 +47,7 @@
   ;; drains do not trigger their flow's :derive. The harness verifies
   ;; the recompute count via instrumentation. v1 dispatch sequence:
   ;;
-  ;;   on-create [:doubled/init]    — sets :n 5;   flow first-fires → :doubled 10
+  ;;   :initial-events [:doubled/init] — sets :n 5; flow first-fires → :doubled 10
   ;;   [:doubled/replace-n 5]       — :n stays 5;  flow no-op (=-equal inputs)
   ;;   [:doubled/replace-n 7]       — :n now 7;    flow fires → :doubled 14
   ;;

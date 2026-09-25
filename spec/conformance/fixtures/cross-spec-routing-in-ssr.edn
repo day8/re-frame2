@@ -40,7 +40,7 @@
   ;; built-in registration.
   }
 
- ;; Per rf2-xak8u: no :sub override for :rf/route — the framework's
+ ;; No :sub override for :rf/route — the framework's
  ;; :rf/route sub reads the slice at [:rf.runtime/routing :current]
  ;; directly — no projection — and that is what consumers see. A fixture-DSL `[[:get [:rf/route]]]` body would return the
  ;; full container (including the internal counters), so we let the
@@ -63,10 +63,10 @@
  {:final-runtime-db {:rf.runtime/routing {:current {:route-id     :route/article-detail
               :params {:id "intro"}}}}
 
-  ;; Per rf2-xak8u (Option-A): the :rf/route layer-1 sub projects the
+  ;; The :rf/route layer-1 sub projects the
   ;; slice keys only. The nav-token / pending-nav counters are NOT
   ;; runtime-db state — they live in a host-side transient cache
-  ;; (rf2-oosjmh) — so they never surface through the sub.
+  ;; — so they never surface through the sub.
   :sub-values
   {[:rf/route] {:route-id         :route/article-detail
                 :params     {:id "intro"}

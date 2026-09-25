@@ -1,12 +1,12 @@
 ;; Conformance fixture: machine/spawn-all-any-cancels-extras
 ;;
-;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify the
+;; Per Spec 005 §Spawn-and-join via :spawn-all. Verify the
 ;; entry-side fx emission for the `:join :any` shape — fires
 ;; :on-some-complete after the first child's success finality; remaining
 ;; are cancelled by the exit cascade.
 ;;
-;; The join grammar is a CLOSED two-member enum (:all / :any — rf2-w8gxxz
-;; cut the {:n N} / {:fn pred} modes). This fixture exercises the
+;; The join grammar is a CLOSED two-member enum (:all / :any). This fixture
+;; exercises the
 ;; entry-cascade for a 5-child :spawn-all with :join :any, plus a separate
 ;; exit-cascade call to verify the corresponding teardown fx. (Live
 ;; join-resolution + selective cancellation requires the runtime's app-db
@@ -43,11 +43,11 @@
      :ready  {}}}
    :snapshot     {:state :idle :data {}}
    :event        [:start]
-   ;; Per rf2-gr8q: the in-snapshot `:rf/spawn-counter` advances once per
+   ;; The in-snapshot `:rf/spawn-counter` advances once per
    ;; child spawn — all five children share the `:worker` machine-id so
    ;; the slot lands at 5 after the entry cascade.
    ;;
-   ;; Per rf2-rc8wci: the :spawn-all binds the full {<child-id> <spawned-id>}
+   ;; The :spawn-all binds the full {<child-id> <spawned-id>}
    ;; map into the parent's :data under :rf/spawned, keyed by the shared
    ;; invoke-id `[:working]` (XState-context parity; all five children under
    ;; the one key, no clobber).
@@ -82,7 +82,7 @@
       ;; the args of the five :rf.machine/spawn fxs below. The init fx
       ;; preflights THESE, so its invoke-level admission decision (unregistered
       ;; TYPE / spawn-time [:schemas :data]) sees exactly what each per-child
-      ;; effect would run, before any live join is published (rf2-7u8gen).
+      ;; effect would run, before any live join is published.
       :child-args   [{:machine-id :worker :id-prefix :worker
                       :rf/spawned-id :worker#1
                       :rf/parent-id  :rf/transition-pure
@@ -103,7 +103,7 @@
                       :rf/spawned-id :worker#5
                       :rf/parent-id  :rf/transition-pure
                       :rf/spawn-all-id [:working] :rf/spawn-all-child-id :e}]}]
-    ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
+    ;; The runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
     ;; on :rf/spawn-all-child-id instead.
     [:rf.machine/spawn

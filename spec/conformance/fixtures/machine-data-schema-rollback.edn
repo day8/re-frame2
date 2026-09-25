@@ -1,9 +1,9 @@
 ;; Conformance fixture: machine/data-schema-rollback
 ;;
 ;; Per [005 §Schema validation](../../005-StateMachines.md#schema-validation)
-;; and EP-0029 A3 (rf2-f9nvu9). A machine may declare its data-context schema
-;; at `[:schemas :data]` on its `:schemas` map (the clean-break successor to
-;; the retired EP-0005 `:data-schema` key). Its value validates the machine's
+;; and EP-0029 A3. A machine may declare its data-context schema
+;; at `[:schemas :data]` on its `:schemas` map (there is no top-level
+;; `:data-schema` key). Its value validates the machine's
 ;; `:data` slot.
 ;;
 ;; This fixture pins the `:where :machine-data` `:phase :macrostep` boundary —
@@ -14,8 +14,7 @@
 ;; `:rf.error/schema-validation-failure` with `:where :machine-data`,
 ;; `:phase :macrostep`, the offending `:data` value, and `:rollback? true`
 ;; (the stable public transaction-REJECTED vocabulary) — and the router
-;; REJECTS the whole candidate transition BEFORE it installs (rf2-uhk9ko;
-;; the same validate-before-install mechanism as the `:where :app-db`
+;; REJECTS the whole candidate transition BEFORE it installs (the same validate-before-install mechanism as the `:where :app-db`
 ;; rejection, per [010 §Per-step recovery row 7]
 ;; (../../010-Schemas.md#per-step-recovery)). Machine snapshots are durable
 ;; runtime-db state, so the candidate walker (`validate-machine-data!`)
@@ -44,7 +43,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :core/event-handler :core/error
                          :core/trace :schemas/runtime}
- :fixture/doc          "A singleton machine declaring [:schemas :data] [:map [:n pos-int?]] starts at {:n 1} (valid). A transition action writes 0 into :n (violates pos-int?). At the macrostep boundary the runtime emits :rf.error/schema-validation-failure with :where :machine-data, :phase :macrostep, the offending {:n 0} value, and :rollback? true — and the WHOLE candidate transition is REJECTED before install (rf2-uhk9ko), so the snapshot never commits (final app-db carries no committed snapshot). The complement of the best-effort :machine-output boundary (:rollback? false)."
+ :fixture/doc          "A singleton machine declaring [:schemas :data] [:map [:n pos-int?]] starts at {:n 1} (valid). A transition action writes 0 into :n (violates pos-int?). At the macrostep boundary the runtime emits :rf.error/schema-validation-failure with :where :machine-data, :phase :macrostep, the offending {:n 0} value, and :rollback? true — and the WHOLE candidate transition is REJECTED before install, so the snapshot never commits (final app-db carries no committed snapshot). The complement of the best-effort :machine-output boundary (:rollback? false)."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
@@ -77,7 +76,7 @@
  ;; (inner-event [:go]) fires the :idle → :ran transition whose action writes
  ;; the violating 0. The macrostep produces a CANDIDATE with {:n 0}, the
  ;; candidate walker validates it against [:map [:n pos-int?]], it FAILS,
- ;; and the router REJECTS the whole transition before install (rf2-uhk9ko).
+ ;; and the router REJECTS the whole transition before install.
  [[:data/m [:rf.machine/noop]]
   [:data/m [:go]]]
 
