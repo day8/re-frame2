@@ -1,10 +1,9 @@
 // live-fresco-wire.cjs — THE LIVE WIRE WITNESS for the three Fresco
-// evidence-door tools (rf2-hic-059, #7986 merged-PR audit).
+// evidence-door tools.
 //
-// ## The gap this closes
+// ## Why a live witness
 //
-// Two suites in this tree already look at these tools and neither one runs
-// them:
+// Two suites in this tree look at these tools and neither one runs them:
 //
 //   - `fresco_tool_test.cljs` stubs `nrepl/cljs-eval-value` with canned
 //     envelopes, so it checks the emitter and the schema gate against
@@ -14,10 +13,10 @@
 //     names and on the schema literal.
 //
 // Both are valuable static seam checks and neither executes a Pair tool
-// against a Fresco provider. The claim that the privacy-projected
-// evidence surface works THROUGH the MCP plumbing was therefore
-// unwitnessed: the emitted form had never been compiled, sent, evaluated
-// in a runtime, or had its result carried back through the gate.
+// against a Fresco provider, so neither can witness the claim that the
+// privacy-projected evidence surface works THROUGH the MCP plumbing:
+// neither compiles, sends or evaluates the emitted form in a runtime, or
+// carries its result back through the gate.
 //
 // ## What one call actually traverses here
 //
@@ -44,11 +43,12 @@
 //
 // ## The application is the slice, booted by its own entry point
 //
-// The population is the `rf2-hic-025` slice application, started with its
-// own `-main` — `rf/init!`, `make-frame!`, `h/render!` — over `eval-cljs`.
-// This script registers no subscription, no event and no view, so every
-// id that appears in an answer below was written by another bead for
-// another purpose. The one thing it supplies the host page is a `<div
+// The population is the Fresco slice example application
+// (`re-frame.fresco.examples.slice`), started with its own `-main` —
+// `rf/init!`, `make-frame!`, `h/render!` — over `eval-cljs`. This script
+// registers no subscription, no event and no view, so every id that
+// appears in an answer below was written by the slice for its own
+// purposes. The one thing it supplies the host page is a `<div
 // id="app">` for the slice's root to mount into, because the page hosting
 // the runtime is not the slice's own page.
 //
@@ -68,23 +68,23 @@
 // Without step 1 the absence assertion would pass just as happily against
 // a runtime that never saw the value.
 //
-// ## The DOOR-ABSENT rung, witnessed first (rf2-t2ec)
+// ## The DOOR-ABSENT rung, witnessed first
 //
 // The tools document a degradation ladder whose first rung is an app that
 // has no evidence door — a Reagent/UIx app, or a Fresco app nothing
-// pulled the door into. This witness in its first form (rf2-hic-059)
-// found that the rung was unreachable: `cljs.core/exists?` guards a
-// missing VAR, but the call it guarded was a var reference like any
-// other, and shadow's analyzer rejects a var in a namespace the build
-// has never loaded before any of the form runs. The rung answered
+// pulled the door into. A form guarding the door with `cljs.core/exists?`
+// would leave that rung unreachable: `exists?` guards a missing VAR, but
+// the call it guards is a var reference like any other, and shadow's
+// analyzer rejects a var in a namespace the build has never loaded
+// before any of the form runs. The rung would answer
 // `:reason :rf.error/eval-cljs-compile-error` and an analyzer warning
-// where the load-the-door hint belonged. That is exactly the class of
+// where the load-the-door hint belongs. That is exactly the class of
 // divergence a static seam check cannot see — the emitted string
-// contained the branch, and the branch could not run.
+// contains the branch, and the branch cannot run.
 //
-// rf2-t2ec resolves the door at runtime instead (`find-ns-obj` on the
-// namespace, `unchecked-get` on the munged read), and THIS is where the
-// repair is proved: before anything loads the door, the three tools are
+// The tools resolve the door at runtime instead (`find-ns-obj` on the
+// namespace, `unchecked-get` on the munged read), and THIS is where that
+// is proved: before anything loads the door, the three tools are
 // called against the plain host build and must answer
 // `:evidence-tier-unavailable` with its hint. The row runs FIRST, because
 // it is the only assertion here whose population is destroyed by the rest
@@ -99,8 +99,8 @@
 // the door: `RF2_FRESCO_WIRE_URL` accepts any host, and a page hosting
 // Xray has pulled the door in. Rather than skip the row on such a host —
 // a skip and a pass being indistinguishable, which is precisely the
-// failure shape this bead is about — the script probes for the door and
-// FAILS, naming the host as the reason.
+// failure shape this witness exists to catch — the script probes for the
+// door and FAILS, naming the host as the reason.
 //
 // ## Running it
 //
@@ -417,7 +417,7 @@ async function main() {
       assert(
         r.text.includes(':reason :evidence-tier-unavailable'),
         `${read} did not reach the documented absent-door rung against a build ` +
-          `that has never loaded ${DOOR_NS}. rf2-t2ec: a form that REFERENCES a ` +
+          `that has never loaded ${DOOR_NS}. A form that REFERENCES a ` +
           'var in an unloaded namespace is rejected by shadow\'s analyzer before ' +
           'any branch of it runs, and the answer is a raw compile warning ' +
           `instead. Got: ${r.text.slice(0, 500)}`,
@@ -425,7 +425,7 @@ async function main() {
       assert(
         !r.text.includes(':rf.error/eval-cljs-compile-error'),
         `${read} answered the absent door with an analyzer compile error — the ` +
-          `exact rf2-t2ec regression: ${r.text.slice(0, 500)}`,
+          `exact unloaded-namespace var-reference hazard: ${r.text.slice(0, 500)}`,
       );
       assert(
         r.text.includes(`Load ${DOOR_NS} into the running build and retry`),
@@ -517,7 +517,7 @@ async function main() {
           `(${EXPECTED_SCHEMA}) — head was: ${r.text.slice(0, 200)}`,
       );
       // Non-empty, and about the SLICE: every id here was registered by
-      // rf2-hic-025 for another purpose.
+      // the slice for its own purposes.
       //
       // The frame id is asserted UNQUALIFIED by its key because the three
       // reads do not spell it the same way — the two rosters carry
