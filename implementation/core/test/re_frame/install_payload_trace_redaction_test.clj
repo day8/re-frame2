@@ -20,8 +20,11 @@
   What must hold:
 
     - no trace emitted while the installer runs carries a secret the payload
-      carried, and the installer's own `:rf.event/v` reads
-      `[<event-id> :rf/redacted]`;
+      carried, and every trace echoing the event vector — dispatched,
+      run-start, db-pending, db-changed, frame-state-changed, run-end — reads
+      `[<event-id> :rf/redacted]` under `:rf.event/v`;
+    - the registrar and the image standard registry carry the one
+      `:rf/install-frame-state` declaration;
     - a refused install's `:rf.observe/error` record, as the frame's `:errors`
       sink receives it, carries no secret either;
     - an ordinary event's trace still shows its payload, so the capture can
@@ -33,10 +36,12 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.image-assembly :as rf.image-assembly]
             ;; Both artefacts register an installer's collaborators at load:
             ;; machines the snapshot runtime, SSR the `:rf/hydrate` event.
             [re-frame.machines]
             [re-frame.observability :as rf.observability]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.ssr]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -71,6 +76,19 @@
   "The `:rf.event/v` of the first captured trace with `operation`."
   [traces operation]
   (some #(when (= operation (:operation %)) (get-in % [:tags :rf.event/v])) traces))
+
+(def ^:private event-v-carriers
+  "The per-event traces that echo the event vector under `:rf.event/v`."
+  [:rf.event/dispatched :rf.event/run-start :rf.event/db-pending
+   :rf.event/db-changed :rf.event/frame-state-changed :rf.event/run-end])
+
+(defn- redacted-in-every-carrier
+  "Assert every `event-v-carriers` trace in `traces` is present and reads
+  `[event-id :rf/redacted]`."
+  [traces event-id]
+  (doseq [op event-v-carriers]
+    (is (= [event-id :rf/redacted] (event-v-of traces op))
+        (str op " carries the event id and the payload redacted as a whole"))))
 
 (defn- reg-fixtures! []
   (rf/reg-machine :trc/vault
@@ -122,9 +140,7 @@
       (is (seq traces) "precondition: the install emitted traces")
       (is (not-any? #(carries? % machine-secret) traces) "no trace carries the machine secret")
       (is (not-any? #(carries? % app-secret) traces) "no trace carries the app-db secret")
-      (is (= [:rf/install-frame-state :rf/redacted]
-             (event-v-of traces :rf.event/dispatched))
-          "the event id survives; the payload is redacted as a whole")
+      (redacted-in-every-carrier traces :rf/install-frame-state)
 
       (testing "the installed state is readable in the frame"
         (is (= app-secret (get-in (rf/app-db-value :trc/dest) [:account :password])))
@@ -134,8 +150,19 @@
 
       (testing "an ordinary event's trace still shows its payload"
         (let [ordinary (captured #(rf/dispatch-sync [:trc/note {:note "visible-note"}] {:frame :trc/dest}))]
-          (is (= [:trc/note {:note "visible-note"}]
-                 (event-v-of ordinary :rf.event/dispatched))))))))
+          (doseq [op event-v-carriers]
+            (is (= [:trc/note {:note "visible-note"}] (event-v-of ordinary op))
+                (str op " shows an ordinary event's payload"))))))))
+
+(deftest the-registrar-and-the-image-standard-carry-one-declaration
+  (testing "`:rf/install-frame-state` resolves to the same `:sensitive [[]]`
+            through the registrar and through the image standard registry,
+            because both are registered from one descriptor"
+    (let [standard (some #(when (= [:event :rf/install-frame-state] [(:kind %) (:id %)]) %)
+                         (rf.image-assembly/standard-descriptors))]
+      (is (= [[]] (:sensitive (rf.registrar/handler-meta :event :rf/install-frame-state))))
+      (is (some? standard) "precondition: the install event is an image standard")
+      (is (= [[]] (:sensitive standard))))))
 
 (deftest a-refused-install-egresses-no-secret-it-carried
   (testing "a refused install's error record, as the frame's `:errors` sink
@@ -175,7 +202,6 @@
           traces  (captured #(rf/dispatch-sync [:rf/hydrate payload] {:frame :trc/client}))]
       (is (seq traces) "precondition: the hydration emitted traces")
       (is (not-any? #(carries? % wire-secret) traces) "no trace carries the permitted secret")
-      (is (= [:rf/hydrate :rf/redacted] (event-v-of traces :rf.event/dispatched))
-          "the event id survives; the payload is redacted as a whole")
+      (redacted-in-every-carrier traces :rf/hydrate)
       (is (= wire-secret (:csrf (rf/app-db-value :trc/client)))
           "the hydrated state is readable in the frame"))))
