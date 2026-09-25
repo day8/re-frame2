@@ -1,5 +1,5 @@
 (ns re-frame.bench.fresco.arm1.ambient-refusal-dom-cljs-test
-  "THE SCOPING ROW, AGAINST REAL REACT (rf2-2rtt6.122).
+  "THE SCOPING ROW, AGAINST REAL REACT.
 
   The refusal tier's one genuine risk is not that it fails to refuse — the
   node suite (`arm1/ambient_refusal_cljs_test`) settles that with the
@@ -7,7 +7,7 @@
   read succeeds one call outside a body. The risk is that it refuses TOO
   MUCH. A fence that also refused legitimate ambient use in an adapter
   island rendering under a Fresco tree would be a worse bug than the
-  silence it replaced, and it is the one claim no node test can settle,
+  silence it fences, and it is the one claim no node test can settle,
   because it is a claim about WHEN REACT CALLS A CHILD.
 
   The reasoning says it cannot happen: React renders a child fiber only
