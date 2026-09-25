@@ -712,10 +712,9 @@
       (handle-keydown event)
       (is @prevented "Esc was consumed — preventDefault called")
       (is @stopped   "Esc was consumed — stopPropagation called"))
-    ;; The dismiss dispatch is synchronous (`rf/dispatch` queues, but the
-    ;; reg-event handler lands on the next router tick); drain via dispatch-sync
-    ;; on a no-op to flush, then assert. Use dispatch-sync directly to be
-    ;; deterministic.
+    ;; The handler's own dismiss goes through `rf/dispatch`, which queues it
+    ;; for the next router tick, so the dismiss is dispatched here with
+    ;; `dispatch-sync` to keep the assertion deterministic.
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/editor-hint-dismiss]))
     (is (false? (boolean (:editor-hint-open?
