@@ -1,18 +1,19 @@
 'use strict';
-// THE POSITION / SUBSTRATE CONFOUND, READ OFF A SCHEDULE THAT BREAKS IT —
-// rf2-rs8q6.
+// THE POSITION / SUBSTRATE CONFOUND, READ OFF A SCHEDULE THAT BREAKS IT.
 //
-//     node fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs <dataset.json>...
-//     node fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs --corpus
-//     node fresco/test/re_frame/bench/fresco/alloc_position_confound.cjs --self-test
+//     node src/re_frame/bench/fresco/alloc_position_confound.cjs <dataset.json>...   (from bench/fresco/)
+//     node src/re_frame/bench/fresco/alloc_position_confound.cjs --corpus
+//     node src/re_frame/bench/fresco/alloc_position_confound.cjs --self-test
 //
 // ## WHAT THIS ADJUDICATES
 //
-// `rf2-rs8q6` established a **+748 B rider** in the floor arm's own path: over
-// 4,284 control legs the count in the 700-800 B band is ZERO, against 112 of
-// 2,322 arm legs, and 101 of those 112 sit in the FIRST arm window of a round.
-// What it could not establish is WHICH property of that window carries it,
-// because the shipped `parity` schedule gives position-0 windows two at once:
+// The dispersion record
+// (`docs/design/fresco/studio/the-dispersion-follows-the-controls-not-the-round.md`)
+// establishes a **+748 B rider** in the floor arm's own path: over 4,284 control
+// legs the count in the 700-800 B band is ZERO, against 112 of 2,322 arm legs,
+// and 101 of those 112 sit in the FIRST arm window of a round. What it cannot
+// establish is WHICH property of that window carries it, because the default
+// `parity` schedule gives position-0 windows two at once:
 //
 //   - position 0 is the first arm window after the round's THREE CONTROLS, and
 //   - position 0 REPEATS the substrate of the previous arm window, because the
@@ -24,10 +25,10 @@
 // 0 alone still follows the controls. This reader is what turns the resulting
 // records into the three-way answer the mode was pre-registered against.
 //
-// ## AND THE SECOND CONFOUND, WHICH `fixed` LEFT STANDING
+// ## AND THE SECOND CONFOUND, WHICH `fixed` LEAVES STANDING
 //
-// `fixed` answered "position, not substrate" and its record named what it could
-// not reach: position 0 is BOTH
+// `fixed` answers "position, not substrate" and its record names what it cannot
+// reach: position 0 is BOTH
 //
 //   (A) the first arm window after the round's THREE CONTROL WINDOWS, and
 //   (B) the first arm window after the ROUND-LOOP BOUNDARY.
@@ -38,10 +39,10 @@
 // intact in every round but the first. So this reader indexes arm windows on
 // the two predicates DIRECTLY, read off each round's recorded `windowOrder`,
 // rather than on the position they happen to coincide with under one schedule.
-// Position stays in the report beside them, because it is the index the earlier
-// records are stated in.
+// Position stays in the report beside them, because it is the index the
+// position-indexed records are stated in.
 //
-// ## THE UNIT, STATED FIRST BECAUSE IT HAS ALREADY MISLED A READER
+// ## THE UNIT, STATED FIRST BECAUSE IT IS EASY TO MISREAD
 //
 // `legWorstDeviation` is a **FRACTION**, not a percentage — `worst / legMedian`
 // at `p0_run.cjs`. A window reported as "3.908%" carries `0.03908` in the
@@ -54,7 +55,7 @@
 // ## THE POPULATION, AND WHY IT IS THE FALLS GATE
 //
 // Collection-carrying windows are excluded, on `falls === 0` — the same
-// restriction `rf2-rs8q6`'s own record used, and it is INDEPENDENT OF tau. A
+// restriction the dispersion record uses, and it is INDEPENDENT OF tau. A
 // window a collector ran inside under-reads by an unknown amount, so a leg
 // difference measured across it is not a difference in the work unit. Nothing
 // here reads, moves or is calibrated against tau in either direction.
@@ -95,7 +96,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const archive = require('./data_archive.cjs');
 
-// The rider's band, in BYTES, verbatim from `rf2-rs8q6`'s record: "the count in
+// The rider's band, in BYTES, verbatim from the dispersion record: "the count in
 // the 700-800 B band is ZERO [controls], against 112 of 2,322 arm legs". It is
 // a DESCRIPTION of an already-measured population and not a threshold anything
 // is adjudicated against — widening or narrowing it changes what this reader
@@ -108,12 +109,12 @@ const RIDER_HI_B = 800;
 // band is a leg that carries nothing.
 const JITTER_B = 36;
 
-// The SECONDARY cluster the position record filed rather than chased and
-// `rf2-csca8` carries: "position 1 carries a cluster of 8 of 38 windows whose
-// worst leg sits at 1,050-1,224 B". Like the rider band above this is a
-// DESCRIPTION of an already-measured population, not a threshold anything is
-// adjudicated against, and it is here only so the published 8 / 1 / 0 counts
-// are re-derivable rather than taken on trust.
+// The SECONDARY cluster the position record files rather than chases, and
+// `alloc_cluster_carrier.cjs` reads: "position 1 carries a cluster of 8 of 38
+// windows whose worst leg sits at 1,050-1,224 B". Like the rider band above
+// this is a DESCRIPTION of an already-measured population, not a threshold
+// anything is adjudicated against, and it is here only so the published
+// 8 / 1 / 0 counts are re-derivable rather than taken on trust.
 const CLUSTER_LO_B = 1050;
 const CLUSTER_HI_B = 1224;
 
@@ -152,24 +153,24 @@ function twoProportionZ(k1, n1, k2, n2) {
 
 // --- the window sequence, IN THE ORDER THE PAGE DROVE IT --------------------
 //
-// Position within the round is the whole index this bead turns on, so it is
+// Position within the round is the whole index this reader turns on, so it is
 // read off the record rather than recomputed from a parity rule — and that is
-// now load-bearing rather than tidy: under `fixed` the parity rule is WRONG,
+// load-bearing rather than tidy: under `fixed` the parity rule is WRONG,
 // and a reader that recomputed it would mis-position every window of exactly
 // the runs the mode was taken for.
 //
-// `arms` is keyed in drive order (the driver fills it in the loop), and rounds
-// taken since `rf2-rs8q6` also carry `segments`. Where both are present they
+// `arms` is keyed in drive order (the driver fills it in the loop), and a
+// round may also carry `segments`. Where both are present they
 // are CROSS-CHECKED rather than one being trusted: a disagreement means the
 // record's own two statements about its order do not match, which is a fault in
 // the record and not something to average over.
 const isControlWindow = (id) => typeof id === 'string' && id.startsWith('control/');
 
 // The window sequence ONE ROUND drove, controls included, in drive order.
-// Rounds taken since the control-slot mode record it as `windowOrder`; rounds
-// taken before it were all driven `first` — three controls, then the arms in
-// the order `arms` is keyed — so the fallback is the truth about them rather
-// than a guess.
+// A round that records it carries it as `windowOrder`; a round with no
+// `windowOrder` was driven `first` — three controls, then the arms in the
+// order `arms` is keyed — so the fallback is the truth about it rather than a
+// guess.
 //
 // AND IT IS CROSS-CHECKED against `arms` rather than trusted, for `segments`'
 // reason: a `windowOrder` whose arm entries disagree with the keys the round
@@ -191,11 +192,11 @@ function roundWindowOrder(round, keys, runId) {
 
 function windowsOf(dataset, runId) {
   const row = dataset.alloc || dataset;
-  // Records taken before this bead carry no `segOrder` field. They were all
-  // taken on the flipping schedule, which is what `parity` names, so the
-  // default is the truth about them rather than a guess.
+  // A record with no `segOrder` field was taken on the flipping schedule,
+  // which is what `parity` names, so the default is the truth about it rather
+  // than a guess.
   const segOrder = row.segOrder || 'parity';
-  // Likewise the control slot: every record taken before the mode drove its
+  // Likewise the control slot: every record with no `controlSlot` drove its
   // three controls before the round's arms, which is what `first` names.
   const controlSlot = row.controlSlot || 'first';
   const out = [];
@@ -303,8 +304,8 @@ const inCluster = (w) => {
 };
 
 // Riders, by the band above. Returns the leg ORDINALS as well as the values,
-// because `rf2-rs8q6` found the rider lands late (ordinals 3/4/5 hold 100 of
-// 112) and a reader that dropped the ordinal could not replicate that.
+// because the dispersion record finds the rider lands late (ordinals 3/4/5 hold
+// 100 of 112) and a reader that dropped the ordinal could not replicate that.
 function ridersOf(w) {
   return excesses(w)
     .map((b, ordinal) => ({ ordinal, bytes: b }))
@@ -375,7 +376,7 @@ function analyse(datasets) {
         // is SIGNED — it is the deviation FURTHEST from the cohort median in
         // either direction — so a median over the signed field mixes a window
         // that read 748 B high with one that read 40 B low and answers a
-        // different question. `rf2-rs8q6`'s published table is the magnitude:
+        // different question. The dispersion record's table is the magnitude:
         // over the same 387 committed windows the signed form gives 3.867% /
         // 0.030% and the magnitude gives 3.908% / 0.184%, which are that
         // record's two figures to the digit. The name carries both facts, since
@@ -389,8 +390,8 @@ function analyse(datasets) {
         // AND THE SIGNED FORM BESIDE IT, because the unit trap has two halves
         // and the position record publishes BOTH: over the 14 committed runs
         // the signed median reads 3.867% / 0.030% where the magnitude reads
-        // 3.908% / 0.184%. A reader that emitted only one of them left the
-        // other to be taken on trust, which is the whole of what that trap is.
+        // 3.908% / 0.184%. A reader that emitted only one of them would leave
+        // the other to be taken on trust, which is the whole of what that trap is.
         worstDeviationMedianSignedFraction: median(
           ws.map((w) => w.legWorstDeviationFraction).filter((x) => typeof x === 'number')
         ),
@@ -411,8 +412,7 @@ function analyse(datasets) {
     // The same cross-tab counting only the windows that CARRY a rider, which is
     // the position record's "all 25 position-0 rider windows repeated the
     // previous window's substrate / all 21 of them switched it". `crossTab`
-    // itself is left as the window counts it has always been, because the two
-    // fixtures below pin it.
+    // itself stays the window counts, because the two fixtures below pin it.
     const crossTabRiders = {};
     for (const w of adj.filter((x) => ridersOf(x).length > 0)) {
       const cell = `pos${w.position}/${w.repeatsSubstrate ? 'repeat' : 'switch'}`;
@@ -458,9 +458,9 @@ function analyse(datasets) {
     };
   }
 
-  // --- AND THE CONTROL-SLOT CROSS-TAB (rf2-rs8q6) --------------------------
+  // --- AND THE CONTROL-SLOT CROSS-TAB -------------------------------------
   //
-  // The 2x2 the whole second window exists to fill. Under `first` and `last`
+  // The 2x2 the control-slot mode exists to fill. Under `first` and `last`
   // two of its four cells are empty by construction, which is exactly the
   // statement that those schedules do not separate the two properties; under
   // `mid` all four are populated and the rider's cell is the answer.
@@ -521,11 +521,11 @@ function analyse(datasets) {
     };
   }
 
-  // --- PER RUN (rf2-rs8q6) --------------------------------------------------
+  // --- PER RUN --------------------------------------------------------------
   //
   // Both records publish an "It holds in every run separately" table, and the
   // control-slot record publishes a second per-run table for the pooling trap
-  // it laid — pooled by slot, position 1 looks like it carries a ~2,400 B term
+  // it describes — pooled by slot, position 1 looks like it carries a ~2,400 B term
   // under two slots and nothing under the third, and per RUN it splits 1/3,
   // 2/3, 3/3. A reader that only ever pooled could not show that.
   const cleanAll = all.filter((w) => w.falls === 0);
@@ -545,7 +545,7 @@ function analyse(datasets) {
     }
   }
 
-  // --- THE NAMED COMPARISONS, AND THEIR z (rf2-rs8q6) -----------------------
+  // --- THE NAMED COMPARISONS, AND THEIR z -----------------------------------
   //
   // Every z either record publishes, built from the cells above rather than
   // stated, so the figure and the counts it was taken on cannot drift apart.
@@ -676,7 +676,7 @@ const rateStr = (r) =>
 
 function report(a) {
   const out = [];
-  out.push('THE POSITION / SUBSTRATE CONFOUND (rf2-rs8q6)');
+  out.push('THE POSITION / SUBSTRATE CONFOUND');
   out.push(`  rider band: ${RIDER_LO_B}-${RIDER_HI_B} B over the window's own leg median`);
   out.push('  legWorstDeviation is a FRACTION and is SIGNED; the column below is its MAGNITUDE, x 100');
   out.push('');
@@ -793,8 +793,7 @@ function report(a) {
 
 // `riderAt` is a `round:position:ordinal` key, which plants one +748 B rider —
 // or a MAP of such keys to byte excesses, which plants whatever the fixture
-// needs. The string form is the whole of what the pre-existing fixtures use and
-// is unchanged by the map form.
+// needs. The string form covers every fixture that plants a single rider.
 const plantedAt = (riderAt, key) => {
   if (!riderAt) return 0;
   if (typeof riderAt === 'string') return riderAt === key ? 748 : 0;
@@ -802,10 +801,9 @@ const plantedAt = (riderAt, key) => {
 };
 
 // AND THE WINDOW'S PRIME EXCESS, which the reader medians twice over — once by
-// POSITION and once by control-slot CELL — and which no fixture could vary
-// before this. `primeAt` is a map of `round:position` keys to bytes; a window it
-// does not name carries `PRIME_EXCESS_B`, which is what every window of every
-// fixture written before it carries, so those fixtures read exactly as they did.
+// POSITION and once by control-slot CELL — and which a fixture varies through
+// `primeAt`, a map of `round:position` keys to bytes; a window it does not name
+// carries `PRIME_EXCESS_B`, as every window of a fixture passing no `primeAt` does.
 const PRIME_EXCESS_B = 6864;
 const primeExcessAt = (primeAt, key) =>
   primeAt && typeof primeAt[key] === 'number' ? primeAt[key] : PRIME_EXCESS_B;
@@ -823,8 +821,8 @@ function synthRound(round, segments, riderAt, controlLegs, primeAt) {
       // The rig's own field, and the SIGNED furthest-from-median leg rather
       // than the largest one, because that is what `p0_run.cjs` writes and
       // what the records' "worst leg" figures are. On a record whose only
-      // planted leg is a positive rider the two forms agree, so every fixture
-      // written before the map form above reads exactly as it did.
+      // planted leg is a positive rider the two forms agree, so every
+      // string-form fixture reads the same under either.
       legWorstDeviation:
         legs.map((x) => x - legMedian).reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a)) / legMedian,
       primeExcess: primeExcessAt(primeAt, `${round}:${i}`),
@@ -857,7 +855,7 @@ function synth(segOrder, rounds, riderAt, controlLegs, primeAt) {
   };
 }
 
-// AND THE SAME RECORD UNDER A CONTROL SLOT (rf2-rs8q6). `windowOrder` is built
+// AND THE SAME RECORD UNDER A CONTROL SLOT. `windowOrder` is built
 // here the way `p0_run.cjs` builds it — the three controls at the slot's index
 // among the round's arm passes — so the reader is driven over the shape the rig
 // actually emits rather than over a hand-written idea of it.
@@ -891,7 +889,7 @@ function synthSlot(controlSlot, rounds, riderAt, primeAt) {
 // pair is in the reader's canonical order, which is the order `comparisons`
 // emits them in and the order the sign follows; where a page's prose names the
 // two groups the other way round the magnitude is unchanged and only the sign's
-// reading is, which is why the pages now state the convention beside the table.
+// reading is, which is why the pages state the convention beside the table.
 const PUBLISHED_Z = [
   // docs/design/fresco/studio/the-rider-follows-the-position-not-the-substrate.md
   ['position record: `parity`, position 0 against position 1', 25, 40, 3, 49, 5.7],
@@ -979,9 +977,9 @@ function selfTest() {
     assert.deepStrictEqual(a.modes, ['parity']);
   });
 
-  // --- THE CONTROL SLOT (rf2-rs8q6) ----------------------------------------
+  // --- THE CONTROL SLOT ----------------------------------------------------
   //
-  // The reader's new index, and the claim that decides which slot was worth
+  // The reader's second index, and the claim that decides which slot is worth
   // the machine: under `first` and `last` the two properties are the same
   // predicate on all but one window, and only `mid` separates them at full n.
 
@@ -1051,12 +1049,11 @@ function selfTest() {
     assert.throws(() => analyse([{ id: 'x', data: d }]), /contradicts itself about the one sequence/);
   });
 
-  // --- THE PUBLISHED STATISTIC (rf2-rs8q6) ---------------------------------
+  // --- THE PUBLISHED STATISTIC ---------------------------------------------
   //
-  // The gap the merged-PR audits of #8545 and #8555 named twice: both records
-  // say every figure on them is re-derived by this reader, and the reader
-  // computed no z at all. These fixtures are the control that closes it. The
-  // input counts are LITERALS taken from the two records, so the pin is
+  // Both records say every figure on them is re-derived by this reader, the
+  // z-scores included, and these fixtures are the control that holds them to
+  // it. The input counts are LITERALS taken from the two records, so the pin is
   // hermetic — it needs no corpus and cannot go stale against one — and the
   // negative below is what makes it a control rather than a restatement.
 
@@ -1122,19 +1119,18 @@ function selfTest() {
     assert.ok(c.z < 0, `expected a negative z, read ${c.z}`);
   });
 
-  // --- THE OTHER PAGE-ONLY SUMMARIES (rf2-rs8q6) ---------------------------
+  // --- THE OTHER PUBLISHED SUMMARIES ---------------------------------------
   //
-  // The second audit named these beside the z-scores: the per-run tables, the
-  // modal rider terms, and the secondary cluster. The THIRD named the one they
-  // left out — the prime excess, medianed twice — and the two fixtures below
-  // are what close it.
+  // The records publish these beside the z-scores: the per-run tables, the
+  // modal rider terms, the secondary cluster, and the prime excess, medianed
+  // twice. The prime excess comes first, in the two fixtures below.
 
   ok('the prime excess is medianed by POSITION and by CELL, and the two are not the same number', () => {
-    // THE GAP THE MERGED-PR AUDIT OF #8571 MEASURED. Before this fixture both
-    // derivations were reachable only through the corpus: sabotaging either to
-    // a constant — the per-position value to 123456, the per-cell value to
-    // 654321 — left the self-test at 31/31 and exit 0. A self-test that passes
-    // over a sabotaged output is not covering it, whatever its count says.
+    // Without this fixture both derivations would be reachable only through
+    // the corpus: sabotaging either to a constant — the per-position value to
+    // 123456, the per-cell value to 654321 — would leave every other check
+    // passing and exit 0. A self-test that passes over a sabotaged output is
+    // not covering it, whatever its count says.
     //
     // What makes the fixture DISCRIMINATING is that under `last` the two
     // populations genuinely differ. Cell (A) — after the controls, opens the
@@ -1264,7 +1260,7 @@ function selfTest() {
   ok('the worst DEVIATION is reported both ways, because the record publishes both', () => {
     // The unit trap's second half: over the 14 committed runs the signed median
     // reads 3.867% / 0.030% and the magnitude 3.908% / 0.184%, and the position
-    // record states both. A reader emitting one left the other on trust.
+    // record states both. A reader emitting one would leave the other on trust.
     const a = analyse([{ id: 'u', data: synth('fixed', 1, { '0:1:0': 1100, '0:1:1': -1400 }) }]);
     const p1 = a.byMode.fixed.perPosition.find((p) => p.position === 1);
     assert.strictEqual(Number((p1.worstDeviationMedianSignedFraction * 100).toFixed(3)), -7.261);
