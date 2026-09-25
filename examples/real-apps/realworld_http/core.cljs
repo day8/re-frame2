@@ -128,7 +128,7 @@
 ;;     use; a positional arg isn't path-addressable, so the password gets a
 ;;     dedicated event whose arg-map is. The settings machine ALSO classifies
 ;;     the routed :edit-password / :submit-valid sub-events it echoes into its
-;;     own trace slots (the reg-machine OPTS `:sensitive`, rf2-ghgbqi).
+;;     own trace slots (the reg-machine OPTS `:sensitive`).
 ;;   - The SUBMIT is the credential-owning handoff: the form/settings submit
 ;;     handler reads the draft, fires the managed-HTTP request itself
 ;;     ({:user {:password …}}, classified :sensitive? true on the request
@@ -409,7 +409,7 @@
     ;; `:rf.route/entry-denied` handler DEFERS the login bounce while restore is
     ;; in flight, stashing the destination for `:auth/settle-deferred-entry` to
     ;; act on the moment `GET /user` lands (auth.cljs §THE COLD-BOOT DEEP-LINK
-    ;; WINDOW has the full sequence; rf2-k85nd is the bug that taught us).
+    ;; WINDOW has the full sequence).
     ;; No explicit `:rf.route/handle-url-change` initial event is needed.
     (rf.adapter.reagent/render! app-root
       [rf/frame-root {:id              :rf/default
