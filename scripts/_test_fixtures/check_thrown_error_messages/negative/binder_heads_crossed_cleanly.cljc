@@ -1,6 +1,6 @@
 (ns fixture.binder-heads-crossed-cleanly)
 
-;; NEGATIVE (rf2-n6ijg) — one case per `_VECTOR_BINDER_HEADS` entry, each
+;; NEGATIVE — one case per `_VECTOR_BINDER_HEADS` entry, each
 ;; crossing that head between a conformant `let`-bound message and the `throw`
 ;; WITHOUT the head's binding vector mentioning the message symbol. Every one
 ;; must stay GREEN: the crossing is provably transparent, so the outer binding
@@ -11,8 +11,8 @@
 ;; return True when the vector is clean; the SHADOWING fixtures next door prove
 ;; nothing about membership, because an unrecognised head fails closed and
 ;; refuses for exactly the same reason a recognised-but-shadowing one does.
-;; Delete any head below from the roster and its case here fires — which is what
-;; ten of the sixteen had no way of saying before.
+;; Delete any head below from the roster and its case here fires, so every
+;; head in the roster has a case that says it belongs there.
 ;;
 ;; The bodies are minimal by design: each `defn` exists to place one head
 ;; between the binding and the throw, and nothing else.

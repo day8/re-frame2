@@ -1,6 +1,6 @@
 (ns fixture.bypass-let-bound-guarded)
 
-;; NEGATIVE (rf2-u3otj, the #7045 audit) — the scope proof must not become a
+;; NEGATIVE — the scope proof must not become a
 ;; blanket refusal. A conformant `let`-bound message reaches its `throw` through
 ;; ordinary control flow in real code (`re-frame.story/configure!` guards both
 ;; of its throws with a `when`), and crossing a form that introduces nothing
@@ -41,7 +41,7 @@
 ;; An `fn` carrying a SELF-REFERENCE NAME that is NOT the message symbol, with
 ;; clean parameters. Reading the run from the head to the binding vector must
 ;; not turn every named `fn` into a refusal — only one that names the symbol
-;; shadows it (rf2-u3otj, the #7064 audit).
+;; shadows it.
 (defn self-named-other
   [reason]
   (let [msg (str reason " [:rf.error/self-named-other]")]

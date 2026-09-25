@@ -1,6 +1,6 @@
 (ns fixture.positive.str-error-kw-var
   "POSITIVE fixture: (str error-kw) as the ex-info message — the machines /
-  events helper-clone shape that centralised the regression into a builder
+  events helper-clone shape that funnels the keyword through a builder
   parameter named `error-kw`.")
 
 (defn validation-error [error-kw reason extras]

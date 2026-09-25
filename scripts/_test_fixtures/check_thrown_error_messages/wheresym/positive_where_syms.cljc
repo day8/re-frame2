@@ -1,15 +1,15 @@
 (ns wheresym.positive-where-syms
-  "POSITIVE where-sym fixtures (rf2-z5lv): every one of these must FIRE.
+  "POSITIVE where-sym fixtures: every one of these must FIRE.
 
   Two families are planted here, and they are separate on purpose.
 
-  (1) FORMATTING VARIANTS OF THE CALL HEAD. A sibling gate in this directory
-      shipped matching only calls whose callee sat tight against the paren —
-      and its self-test stayed green, because all five of its positive
-      fixtures wrote it that way. The gate and its own tests shared one blind
-      spot and agreed with each other (audit #9491). So the head is written
-      here tight, behind a space, behind a newline, behind a comment, and
-      unqualified, and the self-test pins LINE NUMBERS rather than a count:
+  (1) FORMATTING VARIANTS OF THE CALL HEAD. A gate matching only calls
+      whose callee sits tight against the paren, checked only by positive
+      fixtures written that way, stays green: the gate and its own tests
+      share one blind spot and agree with each other. So the head is
+      written here tight, behind a space, behind a newline, behind a
+      comment, and unqualified, and the self-test pins LINE NUMBERS rather
+      than a count:
       a count cannot separate `found the right ones` from `traded a real hit
       for a false positive`.
 
@@ -78,8 +78,8 @@
 
 ;; ---- (1c) the `:where` SLOT of a hand-built framework ex-data map ---------
 ;;
-;; Invisible to the builder scan, and not a corner: six of the façade-family
-;; findings on trunk are slot sites in `re-frame.conformance`. The message here
+;; Invisible to the builder scan, and not a corner: hand-built slot sites
+;; occur in `re-frame.conformance`. The message here
 ;; is deliberately CONFORMANT (it carries the token), so the only thing that
 ;; can fire is the where-sym rule.
 
@@ -127,10 +127,10 @@
 
 ;; ---- (3) A WHERE-SYM NAMING A VAR THAT EXISTS ONLY IN AN INACTIVE FORM ----
 ;;
-;; Audit #9501. The oracle fixture defines each of these names inside a
+;; The oracle fixture defines each of these names inside a
 ;; `comment`, a `#_` discard, a quote, a syntax-quote or a discard nested in a
-;; live `do` — and nowhere else. So if the oracle goes generous again, these
-;; five go GREEN and the gate is back to blessing doors that are not there.
+;; live `do` — and nowhere else. So if the oracle turns generous, these
+;; five go GREEN and the gate blesses doors that are not there.
 ;;
 ;; A subset control against the manifest cannot catch that: it detects public
 ;; names MISSING from the derived set, never EXTRA fictitious ones.
@@ -169,14 +169,14 @@
 
 ;; ---- (4) COMMAS, WHICH ARE READER WHITESPACE -----------------------------
 ;;
-;; Audit #9501, and the same class as (1): a reader-equivalent formatting the
-;; detector could not see. JVM execution of the three spellings captured
-;; IDENTICAL builder arguments, so this is valid source rather than
+;; The same class as (1): a reader-equivalent formatting a detector can
+;; miss. Executed on the JVM the three spellings pass IDENTICAL builder
+;; arguments, so this is valid source rather than
 ;; obfuscation. Every site here fires on its SYMBOL AND LINE, and its
 ;; resolving twin sits in the negative fixture — because a total count cannot
 ;; tell `found the right ones` from `traded a real hit for a false positive`.
-;; `:min-where-syms` sat at 173 against 193 observed, so twenty calls could
-;; have gone quiet underneath it without a sound.
+;; A `:min-where-syms` floor set below the observed count lets calls go
+;; quiet underneath it without a sound.
 
 (defn ghost-comma-tight-on-the-head []
   (,rf.error/throw-error!
@@ -204,14 +204,14 @@
 
 ;; ---- (5) THE `:where` SLOT AS THE MAP'S LAST ENTRY ------------------------
 ;;
-;; NOT a comma bug, and found by the control for one: `{... :where 'ns/sym}`
-;; vanished exactly as `{... :where, 'ns/sym}` did, while BOTH non-final
-;; spellings resolved. The argument splitter ran past the map's own `}` into
-;; depth -1 and handed the matcher `'ns/sym}`, which is no symbol at all. The
+;; NOT a comma case: `{... :where 'ns/sym}` is the final-entry shape. An
+;; argument splitter that runs past the map's own `}` into depth -1 hands
+;; the matcher `'ns/sym}`, which is no symbol at all, so the site
+;; vanishes while both non-final spellings resolve. The
 ;; slot fixture in (1c) above cannot catch it — it writes `:reason` AFTER
-;; `:where`, which is the shape the splitter already handled, and a fixture
-;; that only writes the shape its pattern handles is how both this gate and
-;; its sibling shipped blind.
+;; `:where` — and a fixture
+;; that only writes the shape its pattern handles leaves the gate blind to
+;; every other shape.
 
 (defn ghost-where-slot-as-last-entry []
   (throw (ex-info "hand-built payload [:rf.error/ghost-eighteen]"
@@ -220,14 +220,14 @@
 
 ;; ---- (6) COMMAS AS THE SOLE SEPARATOR ------------------------------------
 ;;
-;; THIS SECTION EXISTS BECAUSE A SABOTAGE PLANT CAME BACK GREEN. Reverting
-;; `_is_clj_ws` to Python whitespace left every case in (4) still passing:
-;; each of those writes a comma BESIDE a space or a newline, and `_clj_strip`
-;; alone recovers those, so the splitter's own notion of reader whitespace was
-;; never under test. With commas as the ONLY separator there is no whitespace
-;; to fall back on — the whole call collapses into one argument and the
-;; where-sym vanishes. The fixtures had the blind spot the pattern had, which
-;; is the failure this gate's own audit was about.
+;; THIS SECTION PUTS `_is_clj_ws` UNDER TEST. Every case in (4) writes a
+;; comma BESIDE a space or a newline, and `_clj_strip` alone recovers those,
+;; so (4) stays green even with `_is_clj_ws` reverted to Python whitespace:
+;; the splitter's own notion of reader whitespace is not tested there. With
+;; commas as the ONLY separator there is no whitespace to fall back on — the
+;; whole call collapses into one argument and the where-sym vanishes.
+;; Fixtures that share the pattern's blind spot cannot find it, which is
+;; why this spelling gets a section of its own.
 
 (defn ghost-commas-as-sole-separator []
   (rf.error/throw-error! :rf.error/ghost-nineteen,'rf.fixture/ghost-comma-five,"no whitespace anywhere in the argument list"))
@@ -238,7 +238,7 @@
 
 ;; ---- (7) COMPOSED READER PREFIXES ----------------------------------------
 ;;
-;; Audit #9511's residual. Each name below is defined in the oracle fixture
+;; Each name below is defined in the oracle fixture
 ;; behind a COMPOSED reader prefix and NOWHERE ELSE, so a walker that decides
 ;; inertness from the single character before the `(` greens every one of them:
 ;; `#_#?(...)` and `'#?(...)` reach that `(` after a `?`, and a stacked
@@ -289,10 +289,10 @@
 
 ;; ---- (8) A DISCARDED `do` AROUND A LIVE-LOOKING SPLICE -------------------
 ;;
-;; Audit #9515. The three live splicing twins in the negative fixture resolve
+;; The three live splicing twins in the negative fixture resolve
 ;; and are pinned OBSERVED there; this is the half that must FIRE. Its oracle
 ;; form is byte-identical to the first of those three but for the leading
-;; `#_`, so the discard is the only thing making it inert — a repair that
+;; `#_`, so the discard is the only thing making it inert — a walker that
 ;; descends into every `#?@` it meets greens this line.
 
 (defn ghost-in-a-discarded-splicing-do []
@@ -303,12 +303,12 @@
 
 ;; ---- (9) FORM 3 - A NAMESPACE THAT IS NOT A PLACE ------------------------
 ;;
-;; rf2-uewm widened the rule: a slash-free DOTTED where-sym names a NAMESPACE
+;; A slash-free DOTTED where-sym names a NAMESPACE
 ;; (`'re-frame.ssr.emit`), which is the honest answer to "where did this fail"
-;; when no single var owns the failure. Before that widening EVERY slash-free
-;; symbol was skipped before the namespace index was consulted, so all three
-;; sites below were as green as a correct one - the convention was not
-;; self-enforcing, it was UNCHECKED.
+;; when no single var owns the failure. A rule that skipped EVERY slash-free
+;; symbol before consulting the namespace index would leave all three
+;; sites below as green as a correct one - the convention would not be
+;; self-enforcing, it would be UNCHECKED.
 ;;
 ;; The first is the load-bearing one. `rf.fixture` is the require-ALIAS
 ;; spelling of a namespace that really does exist, as `re-frame.fixture`.
@@ -332,7 +332,7 @@
 ;; The sanctioned event-id set is CLOSED and holds exactly two members. A
 ;; sibling event in the same reserved namespace is NOT sanctioned by it - were
 ;; it a wildcard over `rf.resource/*`, every typo under that namespace would be
-;; green, which is the widening rf2-uewm refused by name.
+;; green, so the set names its members rather than a namespace.
 
 (defn ghost-unsanctioned-event-id []
   (rf.error/throw-error!
