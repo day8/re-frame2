@@ -11,7 +11,7 @@
        :expanded-checks #{<check-id>}     ; expanded check groups
        :failed-only?    <bool>            ; failed-only filter
        :play-events     <vector>          ; dispatch events of the compiled program, run opts threaded
-       :epoch-ids       <vector>          ; trailing epoch-id slice
+       :epoch-ids       <vector>          ; epoch-id per play event (`epoch-id-slice`)
        :run-opts        <map>             ; the `run-opts` the run received, for promotion capture
        :selected-step   <int|nil>}
 
@@ -36,7 +36,7 @@
   Companion namespaces:
 
   - `re-frame.story.ui.test-mode.pure`  — JVM-testable pure helpers.
-  - `re-frame.story.ui.test-mode.view`  — styles, section renderers,
+  - `re-frame.story.ui.test-mode.view`  — section renderers,
     and the top-level `test-view` component (the sole consumer of the
     helpers below)."
   (:require [reagent.core                 :as r]
@@ -64,7 +64,7 @@
   editing in the controls panel.
 
   Re-run, the scrubber and the step-debugger all take their opts here, so
-  all three compile ONE program (rf2-ad25). A script `[:arg]` fed by a mode
+  all three compile ONE program. A script `[:arg]` fed by a mode
   or an override would otherwise be scrubbed or stepped as a different
   program from the one Re-run executed."
   [variant-id]
@@ -88,7 +88,7 @@
   and reset the per-row expanded set so a fresh failure detail
   starts collapsed.
 
-  Captures the play-events vector + the trailing epoch-id slice
+  Captures the play-events vector + the per-step epoch-id slice
   against the same atom so the step-through scrubber has a stable
   read-surface that doesn't drift on a later unrelated dispatch.
 
@@ -104,9 +104,9 @@
         ;; `:dispatch-sync` step), the shape the scrubber's slot expects.
         ;; Compiled against the run's OWN opts: without them an `[:arg]` a
         ;; mode or cell override supplied differs from the event the run
-        ;; dispatched, and matches nothing on the tape below (rf2-ad25).
+        ;; dispatched, and matches nothing on the tape below.
         play-events  (rf.story.play/variant-play-events variant-id opts)
-        ;; rf2-4e545l finding 4: match against THIS run's own scoped
+        ;; Match against THIS run's own scoped
         ;; `:epoch-tape` (the result's raw `:rf/epoch-record` vector,
         ;; each carrying its `:trigger-event`) by trigger-event identity
         ;; rather than a positional trailing-N slice of the frame's WHOLE
@@ -124,7 +124,7 @@
             :epoch-ids     epoch-ids
             ;; Promotion captures THIS run, so it compiles the source with the
             ;; opts the run received, not whatever the controls hold when the
-            ;; promote button is pressed (rf2-cml0h).
+            ;; promote button is pressed.
             :run-opts      opts
             :selected-step nil})
     (let [summary (-> (rf.story.ui.state/aggregate-summary (:assertions result))
