@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.managed-fx-subs-cljs-test
   "Composite-sub test for `:rf.xray/managed-fx-for-focused-event` +
-  the `:rf.xray/focus-event` cross-link event (rf2-uyp86).
+  the `:rf.xray/focus-event` cross-link event.
 
   Uses the same test-runtime + seed-buffer pattern as
   `event_detail_cljs_test.cljs` — install Xray's handlers, allocate
@@ -11,17 +11,15 @@
             [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; rf2-90kv — the mount that composes the sub with the renderer
-            ;; is itself the defect surface, so it is the instrument. rf2-fcy5
-            ;; moved that composition into `panels/managed-fx-list-tree`, which
-            ;; the row below calls by name, so the alias is now load-bearing at
-            ;; runtime rather than only forcing the ns to load.
+            ;; The composition of the sub with the renderer,
+            ;; `panels/managed-fx-list-tree`, is the surface under test, so
+            ;; the row below calls it by name.
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
-            ;; rf2-s6m6 — the disclosure rows below close the loop between the
+            ;; The disclosure rows below close the loop between the
             ;; state this ns owns and the renderer that consumes it, so the
             ;; template and its pure helpers are the instruments.
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
@@ -30,10 +28,9 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already covers the trace-collector rings the old init
-  ;; reset a SECOND time) into one owner; `:post-reset` pins the egress
-  ;; profile + clears the suppressed-count. (`trace-collector` stays required
+  ;; `make-xray-runtime-fixture`: plain-atom + the `:all` reset tier, which
+  ;; covers the trace-collector rings; `:post-reset` pins the egress
+  ;; profile + clears the suppressed-count. (`trace-collector` is required
   ;; for the `seed-trace-for-test!` seeding below.)
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
@@ -115,8 +112,7 @@
             pivot the spine to the handler's event. The row reuses the
             spine's canonical `:rf.xray/focus-event`, so focusing a PAST
             (non-head) event pins the spine to RETRO — head-aware, per
-            spine semantics (rf2-fsqlgz collapsed the panel-local
-            wrapper onto the spine event)."
+            spine semantics."
     ;; Seed 400 then a LATER head event (500) so 400 is genuinely a
     ;; PAST event — focusing it must flip the spine to :retro.
     (seed-buffer! (concat (cascade-evs-http 400 0)
@@ -128,7 +124,7 @@
         (is (= :rf/default (:frame focus)))
         (is (= :retro (:mode focus)))))))
 
-;; ---- section disclosure state (rf2-s6m6) ---------------------------------
+;; ---- section disclosure state --------------------------------------------
 ;;
 ;; The record panel's five sections each draw a `▶`/`▼` glyph that
 ;; `theme/section/section-row` renders from `:expanded?` and nothing else —
@@ -151,13 +147,12 @@
   vectors with `mapv` and would substitute its own vectors for the ones under
   test (it strips reader metadata besides).
 
-  rf2-fcy5 — IT DESCENDS INTO MAP VALUES, and that is what keeps \"payload
-  values included\" true. A Reagent component took its value as a POSITIONAL
-  argument (`[ei/edn-inspector v opts]`), so a vectors-and-seqs walk reached
-  it; a Fresco boundary takes ONE PROPS MAP (`[ei/edn-inspector-view
-  {:value v …}]`), so the payload now sits behind a map key. Without this
-  arm the walk still returns the props map itself and simply never looks
-  inside it — an absence that reads exactly like a payload the panel failed
+  IT DESCENDS INTO MAP VALUES, and that is what keeps \"payload values
+  included\" true. A Fresco boundary takes ONE PROPS MAP
+  (`[ei/edn-inspector-view {:value v …}]`), so the payload sits behind a
+  map key, out of reach of a vectors-and-seqs walk. Without this arm the
+  walk returns the props map itself and never looks inside it — an
+  absence that reads exactly like a payload the panel failed
   to render, which is the direction that matters here, since every caller
   below asserts PRESENCE."
   [node]
@@ -214,11 +209,11 @@
         (is (false? (h/resolve-expanded? m ":flow-99-:rf.fx/reg-flow" :request)))))))
 
 (deftest toggling-puts-the-request-payload-in-the-rendered-tree
-  (testing "rf2-s6m6 end-to-end, across the two namespaces: the real event
+  (testing "end-to-end, across the two namespaces: the real event
             writes the slot, the real sub reads it back, and the renderer
-            turns that into a payload the operator can actually see. Before
-            the repair `record-panel` passed `:expanded? false` as a literal,
-            so no state anywhere could put this payload in a tree."
+            turns that into a payload the operator can actually see. A
+            `record-panel` passing `:expanded? false` as a literal would
+            leave no state anywhere that could put this payload in a tree."
     (seed-buffer! [])
     (rf/with-frame :rf/xray
       (let [req  {:method :get :url "/api/users/42"}
@@ -240,27 +235,24 @@
         (is (true? (shown?))
             "one toggle later the request payload is in the rendered tree")))))
 
-;; ---- the mount's own composition (rf2-90kv) -------------------------------
+;; ---- the mount's own composition -----------------------------------------
 ;;
 ;; `panels/ManagedFxList` is the ONLY caller of `records-list`, and it is where
-;; the composite sub's value meets the renderer. Nothing graded that seam:
+;; the composite sub's value meets the renderer.
 ;; `panels_mount_cljs_test`'s `mount-managed-fx-wraps-ManagedFxList` stubs
-;; `rf.substrate.adapter/render`, so the view's BODY never executes, and every
-;; template test calls `records-list` / `record-panel` directly with a vector
-;; already in hand. Both tiers were blind to the one line that composes them,
-;; which is how the panel came to throw before painting without a red row
-;; anywhere.
+;; `rf.substrate.adapter/render`, so the view's BODY never executes there, and
+;; every template test calls `records-list` / `record-panel` directly with a
+;; vector already in hand. Neither tier sees the one line that composes them,
+;; so a defect there would throw before painting without a red row anywhere.
 ;;
-;; rf2-fcy5 — THE INSTRUMENT MOVED, AND THE SEAM DID NOT. `ManagedFxList` is
-;; now an `rf.fresco/defview` boundary, a real React function component whose
-;; body may only run inside a React render window, so `((rf/view id))` — what
-;; this row used to drive — has no analogue. The composition it graded was
-;; therefore EXTRACTED rather than duplicated here: `panels/managed-fx-list-tree`
-;; is `defview`'s own documented extract-a-helper split, holding the
-;; `(:records focused)` line and nothing else, and the boundary is a
-;; three-argument pass-through into it. Reproducing the reads in this file
-;; instead would have made the row assert against its OWN copy of the
-;; composition, which is precisely the blindness rf2-90kv was filed about.
+;; `ManagedFxList` is an `rf.fresco/defview` boundary, a real React function
+;; component whose body may only run inside a React render window, so the node
+;; lane cannot call it for hiccup. The composition is EXTRACTED instead of
+;; duplicated here: `panels/managed-fx-list-tree` is `defview`'s own documented
+;; extract-a-helper split, holding the `(:records focused)` line and nothing
+;; else, and the boundary is a three-argument pass-through into it.
+;; Reproducing the reads in this file would make the row assert against its
+;; OWN copy of the composition, which is exactly the blindness above.
 
 (defn- cascade-evs-two-managed-fx
   "One cascade carrying TWO managed-fx invocations.
@@ -304,26 +296,27 @@
        (filter #(string/starts-with? % "rf-xray-managed-fx-record-"))))
 
 (deftest managed-fx-list-renders-one-panel-per-record
-  (testing "rf2-90kv — the composite sub answers
+  (testing "the composite sub answers
             `{:dispatch-id … :frame … :records […]}`, and `records-list` takes
-            the RECORDS VECTOR. Handing it the whole MAP made `(seq records)`
-            truthy, `(count records)` read the map's ENTRY COUNT — 3, whatever
-            the real record count — and `(for [rec records] …)` walk map
-            entries, so `(name (:status rec))` got nil and threw before the
-            panel could paint. No error boundary sits above this render path,
-            so it presented as a panel that never appears (the rf2-qhoj shape).
+            the RECORDS VECTOR. Handing it the whole MAP would make
+            `(seq records)` truthy, `(count records)` read the map's ENTRY
+            COUNT — 3, whatever the real record count — and
+            `(for [rec records] …)` walk map entries, so `(name (:status rec))`
+            would get nil and throw before the panel could paint. No error
+            boundary sits above this render path, so it would present as a
+            panel that never appears.
 
-            TWO records is what separates a pass from the bug: 2 panels against
-            the map's 3 entries. Measured against the old binding
-            `(managed-fx/records-list dispatch focused)` — it goes red by
+            TWO records is what separates a pass from that defect: 2 panels
+            against the map's 3 entries. A binding of
+            `(managed-fx/records-list dispatch focused)` goes red by
             THROWING inside `record-panel` before the count is ever read, which
             is red either way and is why the count assertion is stated over a
             tree that has to have been built at all.
 
-            rf2-fcy5 — the body is now driven through
+            The body is driven through
             `panels/managed-fx-list-tree`, which IS the composition: the
             boundary reads the two slots and passes them straight in, so
-            this row still grades the one line that meets the renderer.
+            this row grades the one line that meets the renderer.
             The WHOLE composite map is handed over, exactly as the
             boundary hands it, so the `(:records …)` extraction is inside
             the thing under test rather than performed by the test."
