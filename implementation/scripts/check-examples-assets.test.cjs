@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Tests for `examples/scripts/check-examples-assets.cjs` — the STATIC
- * examples asset-contract gate (rf2-8r0mj.2 + rf2-8r0mj.3 + rf2-emvyd).
+ * examples asset-contract gate.
  *
  * Two jobs, both with teeth:
  *
@@ -9,9 +9,7 @@
  *     reports any violation. This is what gives the always-run
  *     `test:scripts` gate its teeth: a missing/renamed _shared asset, a
  *     broken @import, or a non-exempt page dropping a required shared asset
- *     turns this gate RED in CI. (Today the real tree is clean, so the live
- *     scan passes — see the teeth-proof in the PR: break favicon.svg → RED →
- *     restore → GREEN.)
+ *     turns this gate RED in CI.
  *
  *  2. UNIT TEETH — pin the pure scan logic against synthetic in-memory
  *     fixtures so the behaviours the gate relies on (required-asset
@@ -66,7 +64,7 @@ const {
 } = scanner;
 
 // The shared examples asset/exception manifest — the single owner the scanner's
-// ALLOWLIST is now the page-opt-out projection of (rf2-phpbo8). Imported here so
+// ALLOWLIST is the page-opt-out projection of. Imported here so
 // the scanner-consumer tests can inject a SYNTHETIC manifest and pin the real
 // manifest's cross-consistency, rather than hand-writing allowlist literals.
 const manifest = require('../../examples/scripts/examples-asset-manifest.cjs');
@@ -99,8 +97,8 @@ const SYNTHETIC_MANIFEST = [
 ];
 
 // Build a STRUCTURALLY + SEMANTICALLY complete PNG (signature + IHDR + a full
-// raster IDAT + IEND) at the given dimensions, as a Buffer, for the decode teeth
-// (rf2-3fc89f.27 + rf2-j538f7.24). Uses the scanner's own pngCrc32 to write
+// raster IDAT + IEND) at the given dimensions, as a Buffer, for the decode
+// teeth. Uses the scanner's own pngCrc32 to write
 // correct chunk CRCs and deflates the WHOLE declared raster — `height` scanlines
 // of a 0/None filter tag + a width*3-byte 8-bit RGB pixel row (matching the
 // shipped og.png's truecolour encoding) — so validatePng's CRC, inflate,
@@ -138,16 +136,15 @@ function buildPng(width = OG_PNG_WIDTH, height = OG_PNG_HEIGHT) {
 }
 
 // A real, decodable 1200x630 PNG used wherever a fixture's _shared tree must scan
-// clean. The gate now validates the og.png BYTES down to the full raster geometry
-// (rf2-mon7tz + rf2-j538f7.24), so the old base64 blob — a 1200x630 header over a
-// 1-byte IDAT payload — no longer passes; buildPng() supplies a genuinely
-// complete raster instead. Stored latin1 so the synthetic io (which returns the
+// clean. The gate validates the og.png BYTES down to the full raster geometry,
+// so a 1200x630 header over a 1-byte IDAT payload fails; buildPng() supplies a
+// genuinely complete raster. Stored latin1 so the synthetic io (which returns the
 // stored value verbatim) round-trips the bytes; validatePng coerces it back to a
 // Buffer the same way.
 const VALID_OG_PNG = buildPng().toString('latin1');
 
 // An AA-safe, focus-accessible style.css that satisfies the shared contrast +
-// focus-indicator contracts (rf2-febmqu + rf2-mon7tz), for checkSharedTree
+// focus-indicator contracts, for checkSharedTree
 // fixtures whose tree must scan clean. Mirrors the shipped palette decisions.
 const GOOD_SHARED_STYLE = [
   "@import url('structure.css');",
@@ -162,8 +159,8 @@ const GOOD_SHARED_STYLE = [
   '  box-shadow: 0 0 0 3px var(--ex-accent-deep); }',
 ].join('\n');
 
-// The responsive Xray-host shell rule (rf2-y82dk9): a max-width media query
-// that stacks .rf2-testbed-shell to a column. checkSharedTree now requires it,
+// The responsive Xray-host shell rule: a max-width media query
+// that stacks .rf2-testbed-shell to a column. checkSharedTree requires it,
 // so fixtures whose structure.css must scan CLEAN append it. Declared up here
 // (not beside sharedCssIo) because the `it` helper runs each test synchronously
 // as the module evaluates — earlier tests call sharedCssIo before a const
@@ -183,7 +180,7 @@ function it(label, fn) {
   }
 }
 
-console.log('check-examples-assets tests (rf2-8r0mj.2 + rf2-8r0mj.3 + rf2-emvyd)');
+console.log('check-examples-assets tests');
 
 // ---------------------------------------------------------------------------
 // 1) LIVE GATE — the teeth in CI. Scan the real repo; any violation is RED.
@@ -199,7 +196,7 @@ it('the real examples tree exposes a non-vacuous set of host pages', () => {
   );
 });
 
-// ---- host-page enumeration includes *.index.html showcase pages (rf2-x48bp4)
+// ---- host-page enumeration includes *.index.html showcase pages
 
 it('isExampleHostPage accepts index.html AND *.index.html, not arbitrary html', () => {
   assert.ok(isExampleHostPage('index.html'));
@@ -210,14 +207,12 @@ it('isExampleHostPage accepts index.html AND *.index.html, not arbitrary html', 
   assert.ok(!isExampleHostPage('stories.html'));
 });
 
-// (The LIVE companion to the unit test above — asserting the two Story
-// showcase host pages were enumerated — went with those pages under rf2-j7w2u.
-// They were never served: the runner stages, and the watch server resolves,
-// each example's own `index.html`. The `<prefix>.index.html` shape is now
-// prospective, so its teeth are the predicate test above plus the synthetic
-// scanPage tests further down; there is no live page left to pin.)
+// (There is no LIVE companion to the unit test above: no example carries a
+// `<prefix>.index.html` page — the runner stages, and the watch server
+// resolves, each example's own `index.html` — so the shape's teeth are the
+// predicate test above plus the synthetic scanPage tests further down.)
 
-// ---- STANDALONE example projects are pruned from the walk (rf2-vxgfnd.281) --
+// ---- STANDALONE example projects are pruned from the walk ------------------
 //
 // A standalone scaffold (its own shadow-cljs.edn / package.json / deps.edn,
 // serving its own host page from resources/public/) is NOT a monorepo-staged
@@ -242,26 +237,22 @@ it('isStandaloneExampleProject is true iff the dir carries its own shadow-cljs.e
   );
 });
 
-// rf2-0yp7w.6 — the LIVE prune witness is RETIRED, on the instruction its own
-// vacuity guard carried: `examples/ui/minimal-counter` was the last standalone
-// example project (a dir bearing its own shadow-cljs.edn) and it retired with
-// the Freehand substrate it scaffolded, so the assertion has no subject and
-// could only pass 0-of-0. Its on-disk discovery walk went with it — a helper
-// whose only caller was that assertion. The PRUNE RULE itself is untouched:
-// `check-examples-assets.cjs` still drops a standalone project from the
-// gallery asset walk, and `isStandaloneExampleProject` is pinned by the unit
-// test above — so a future standalone scaffold is pruned on arrival rather
-// than needing this rule rebuilt.
+// There is no LIVE prune witness: no example project in the tree is
+// standalone (a dir bearing its own shadow-cljs.edn), so such an assertion
+// would have no subject and could only pass 0-of-0. The PRUNE RULE is live:
+// `check-examples-assets.cjs` drops a standalone project from the gallery
+// asset walk, and `isStandaloneExampleProject` is pinned by the unit test
+// above — so a future standalone scaffold is pruned on arrival.
 
-// ---- FAIL-CLOSED host-page enumeration (rf2-3fc89f.31) -------------------
+// ---- FAIL-CLOSED host-page enumeration ----------------------------------
 //
 // A directory-read failure under examples/ must FAIL CLOSED (throw, naming the
-// unreadable path) rather than silently drop that subtree — the old
-// catch-and-continue returned an ordinary smaller array that could stay above
-// the CLI floor of 10 and green an INCOMPLETE scan (measured on origin/main: a
-// synthetic EACCES on examples/core dropped 13 of 35 host pages, still >10). On
-// the OLD code listExampleIndexHtml ignored the injected io and returned an
-// array, so `assert.throws` here fails on old code — the regression teeth.
+// unreadable path) rather than silently drop that subtree — a
+// catch-and-continue would return an ordinary smaller array that can stay above
+// the CLI floor of 10 and green an INCOMPLETE scan (a synthetic EACCES on
+// examples/core drops a whole subtree of host pages and still leaves more than
+// 10). A walk that ignores the injected io returns an array, so `assert.throws`
+// here fails on it — the regression teeth.
 
 // An io that delegates to the real fs but throws EACCES for ONE subtree,
 // reproducing a torn checkout / permissions fault without touching real disk.
@@ -354,15 +345,15 @@ it('LIVE: TodoMVC is the encoded style.css opt-out (allowlist, not a regression)
   );
 });
 
-// ---- manifest projection: scanner consumer (rf2-phpbo8) ------------------
+// ---- manifest projection: scanner consumer -------------------------------
 //
-// ALLOWLIST is no longer a literal — it is the page-opt-out projection of the
+// ALLOWLIST is not a literal — it is the page-opt-out projection of the
 // single examples asset/exception manifest, the shared owner examples-staging.cjs
 // also consumes. These pin the projection against a SYNTHETIC manifest (exact
 // logic, no restated production data) plus a real-manifest cross-consistency
 // check that the very base.css/index.css TodoMVC STAGES are the same refs the
-// scanner accepts as page-local — the drift the two independent declarations
-// used to permit.
+// scanner accepts as page-local — the drift two independent declarations
+// would permit.
 
 it('LIVE: the scanner ALLOWLIST IS the real manifest page-opt-out projection (rf2-phpbo8)', () => {
   assert.deepStrictEqual(
@@ -373,7 +364,7 @@ it('LIVE: the scanner ALLOWLIST IS the real manifest page-opt-out projection (rf
 });
 
 it('LIVE: TodoMVC staged CSS destinations == the scanner-accepted page-local refs (one owner) (rf2-phpbo8)', () => {
-  // The whole point of the unification: base.css + index.css are declared ONCE
+  // The whole point of the single owner: base.css + index.css are declared ONCE
   // and appear in BOTH projections. What staging COPIES is exactly what the
   // scanner ACCEPTS as page-local — they cannot diverge.
   const staged = stagedAssetsByBuild(EXAMPLE_ASSET_MANIFEST)['examples/todomvc']
@@ -428,7 +419,7 @@ function makeIo(files) {
 const PAGE = path.join(EXAMPLES_ROOT, 'reagent', 'demo', 'index.html');
 const FAVICON = path.join(EXAMPLES_ROOT, '_shared', 'img', 'favicon.svg');
 // The shipped social-preview target is the RASTER og.png (an SVG og:image
-// renders no preview card — rf2-lr4am3); og.svg is kept only as source art.
+// renders no preview card); og.svg is kept only as source art.
 const OG = path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.png');
 const OG_SVG = path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.svg');
 const STYLE = path.join(EXAMPLES_ROOT, '_shared', 'css', 'style.css');
@@ -437,9 +428,8 @@ const SHARED_ROOT = path.join(EXAMPLES_ROOT, '_shared');
 
 // A well-formed page that links all three shared assets, plus a style.css
 // that @imports structure.css. The shared design system loads NO remote fonts
-// (rf2-byf7y removed the Google-Fonts @import; rf2-vou5mm now REJECTS any
-// re-introduced external @import) — so the clean fixture has only the local
-// structure.css import.
+// (the gate REJECTS any external @import) — so the clean fixture has only the
+// local structure.css import.
 function goodHtml() {
   return [
     '<!doctype html><html><head>',
@@ -496,14 +486,14 @@ it('isNetworkRef flags only http(s)/protocol-relative — not data:/mailto:/#fra
   assert.ok(!isNetworkRef('_shared/css/style.css'));
 });
 
-// ---- srcset + video poster refs (rf2-arkvq8) ----------------------------
+// ---- srcset + video poster refs -----------------------------------------
 //
-// Before rf2-arkvq8 the scanner only read href/src-style refs, so a `srcset`
+// A scanner reading only href/src-style refs would leave a `srcset`
 // candidate (`<img srcset="a-320.png 320w, a-640.png 640w">`) and a
-// `<video poster="still.png">` were invisible to BOTH the network policy (a
-// remote candidate/poster slipped through) and the missing-file check (a
-// broken local candidate/poster stayed green). srcset/imagesrcset candidates
-// and the poster still are now extracted for both gates.
+// `<video poster="still.png">` invisible to BOTH the network policy (a
+// remote candidate/poster slips through) and the missing-file check (a
+// broken local candidate/poster stays green). So srcset/imagesrcset
+// candidates and the poster still are extracted for both gates.
 
 it('parseSrcset returns candidate URLs, dropping width/density descriptors', () => {
   assert.deepStrictEqual(
@@ -539,10 +529,9 @@ it('parseSrcset tolerates extra whitespace and stray commas', () => {
 });
 
 // ---------------------------------------------------------------------------
-// HTML reference inventory (rf2-6a3rgx) — the SINGLE extraction pass. ONE
-// table-driven suite replaces the three former per-extractor matrices
-// (extractHtmlRefs / extractAssetRefs / extractOgImageRefs), each of which had
-// to be taught every new shape independently. Every supported shape is asserted
+// HTML reference inventory — the SINGLE extraction pass, pinned by ONE
+// table-driven suite, so a new shape is taught once rather than to a matrix per
+// extractor. Every supported shape is asserted
 // once against extractHtmlReferenceInventory's three views:
 //   - localRefs : broad on-disk-resolution candidates (generic href handling)
 //   - assets    : the tagged LOAD-TIME fetch subset (network policy input)
@@ -693,7 +682,7 @@ const INVENTORY_CASES = [
   {
     // Inert markup: a link/meta/script/img that lives ONLY inside a closed HTML
     // comment is never fetched nor exposed as metadata by the browser, so it
-    // contributes ZERO references to any of the three views (rf2-j538f7.28).
+    // contributes ZERO references to any of the three views.
     name: 'inert HTML comment — commented link/meta/script/img contribute no references (rf2-j538f7.28)',
     html: [
       '<script src="main.js"></script>',
@@ -716,7 +705,7 @@ const INVENTORY_CASES = [
   {
     // Live references immediately before and after a comment retain their order
     // and classification, and a tag following a CLOSED comment is still
-    // discovered — the strip removes only the inert span (rf2-j538f7.28).
+    // discovered — the strip removes only the inert span.
     name: 'inert HTML comment — live refs before/after keep order; post-comment tag still seen (rf2-j538f7.28)',
     html: [
       '<link rel="stylesheet" href="before.css">',
@@ -729,8 +718,7 @@ const INVENTORY_CASES = [
   },
   {
     // An UNTERMINATED `<!--` comments out the remainder of the document, so the
-    // would-be tags after it are inert rather than satisfying the gate
-    // (rf2-j538f7.28).
+    // would-be tags after it are inert rather than satisfying the gate.
     name: 'inert HTML comment — an unterminated <!-- makes the rest of the document inert (rf2-j538f7.28)',
     html: [
       '<script src="live.js"></script>',
@@ -782,7 +770,7 @@ for (const c of INVENTORY_CASES) {
 }
 
 it('TEETH: required shared refs that exist ONLY inside an HTML comment are reported missing (rf2-j538f7.28)', () => {
-  // The false-GREEN case this bead closes: a maintainer comments out the three
+  // The false-GREEN case: a maintainer comments out the three
   // required refs while debugging. The files still exist on disk (fullIo), but
   // the live page ships without its stylesheet, favicon, and social-preview —
   // so the gate must report all three missing. A commented tag is inert.
@@ -940,20 +928,20 @@ it('resolveRef maps a sibling ref relative to the page dir', () => {
   assert.strictEqual(target, path.join(path.dirname(PAGE), 'base.css'));
 });
 
-// ---- TEETH rf2-3x7nj.44.2: a loaded page-local asset must be STAGED ---------
+// ---- TEETH: a loaded page-local asset must be STAGED ----------------------
 //
 // Resolving a page-local ref in the SOURCE folder proves only that the file
 // exists there. `npm run dev:example` serves a freshly cleaned output dir that
 // holds index.html, _shared/ and the manifest's declared dests, and nothing
-// else, so an undeclared colocated stylesheet or image 404s while the gate read
-// green. The staging rule reads the tagged load-time view, so navigation refs
-// stay exempt.
+// else, so an undeclared colocated stylesheet or image 404s even though it
+// resolves in source. The staging rule reads the tagged load-time view, so
+// navigation refs stay exempt.
 
 const PAGE_DIR = path.dirname(PAGE);
 const NOTEBOOK_CSS = path.join(PAGE_DIR, 'notebook.css');
 const DIAGRAM_PNG = path.join(PAGE_DIR, 'img', 'diagram.png');
 
-// The bead's probe shape: a colocated stylesheet and a colocated image, both
+// The probe shape: a colocated stylesheet and a colocated image, both
 // linked by the page and both present beside it in source.
 function colocatedHtml(cssHref = 'notebook.css') {
   return goodHtml().replace(
@@ -1073,13 +1061,13 @@ it('TEETH: a style.css @import to a missing structure.css is reported', () => {
   );
 });
 
-// ---- TEETH: checkCssImports multi-level recursion + cycle guard (rf2-2l5mav) --
+// ---- TEETH: checkCssImports multi-level recursion + cycle guard -----------
 //
 // checkCssImports recurses into nested local .css @imports behind a `seen`-set
-// cycle guard. Neither the DEEP recursion (a broken import two levels down) nor
-// the guard (a circular a.css <-> b.css pair) was exercised — so a regression
-// that dropped the `seen` guard would infinite-loop uncaught, and a broken deep
-// import could go unreported (or double-reported). These pin both directly on
+// cycle guard. Unexercised, a regression that dropped the `seen` guard would
+// infinite-loop uncaught, and a broken deep import could go unreported (or
+// double-reported). These pin both the DEEP recursion (a broken import two
+// levels down) and the guard (a circular a.css <-> b.css pair) directly on
 // the exported checkCssImports (@import targets resolve relative to the CSS file
 // that declares them).
 
@@ -1187,17 +1175,16 @@ it('TEETH: a self-referential @import terminates via the cycle guard (bounded, n
   );
 });
 
-// ---- TEETH: external @import is REJECTED unless allowlisted (rf2-vou5mm) ---
+// ---- TEETH: external @import is REJECTED unless allowlisted ---------------
 //
-// rf2-byf7y found the scanner SKIPPED external CSS @imports, so a Google-Fonts
-// network dependency stayed green. The contract is now fail-closed: an
+// A scanner that SKIPPED external CSS @imports would keep a Google-Fonts
+// network dependency green, so the contract is fail-closed: an
 // unallowlisted external @import (http/https/protocol-relative) in any scanned
-// CSS fails the gate, while still NOT being checked on disk.
+// CSS fails the gate, while NOT being checked on disk.
 
 it('TEETH: an unallowlisted external Google-Fonts @import is REJECTED', () => {
-  // Inject a style.css with a re-introduced external @import (the exact
-  // rf2-byf7y regression) and confirm the gate fails — and never tries to
-  // resolve the remote URL on disk.
+  // Inject a style.css with an external Google-Fonts @import and confirm the
+  // gate fails — and never tries to resolve the remote URL on disk.
   const io = fullIo({
     [STYLE]: [
       "@import url('https://fonts.googleapis.com/css2?family=Inter');",
@@ -1265,7 +1252,7 @@ it('the LIVE EXTERNAL_IMPORT_ALLOWLIST is empty (no remote CSS deps shipped)', (
     Object.keys(EXTERNAL_IMPORT_ALLOWLIST),
     [],
     'the shipped example CSS must declare NO remote @import; the external ' +
-      'import allowlist is fail-closed and starts empty (rf2-vou5mm / rf2-byf7y)',
+      'import allowlist is fail-closed and starts empty',
   );
 });
 
@@ -1286,13 +1273,13 @@ it('TEETH: a data: @import is NOT treated as a network dep (not rejected)', () =
   );
 });
 
-// ---- TEETH: remote CSS url() fetches are REJECTED (rf2-o18ava) -----------
+// ---- TEETH: remote CSS url() fetches are REJECTED -------------------------
 //
-// rf2-o18ava found the gate enforced external CSS @import but SKIPPED remote
-// `url(...)` fetches — a `@font-face { src: url(https://…) }` or a
-// `background-image: url(//cdn…)` could re-introduce a third-party font/image
-// request and stay green, despite the no-remote-styling contract. The contract
-// is now fail-closed for url() too: an unallowlisted network url() in any
+// Enforcing external CSS @import alone would leave remote `url(...)` fetches
+// open — a `@font-face { src: url(https://…) }` or a
+// `background-image: url(//cdn…)` could pull in a third-party font/image
+// request and stay green, despite the no-remote-styling contract. So the
+// contract is fail-closed for url() too: an unallowlisted network url() in any
 // scanned CSS fails the gate, while data: URIs and url(#fragment) stay exempt.
 
 it('extractCssUrls extracts url() targets but SKIPS @import url() (owned by @import)', () => {
@@ -1317,8 +1304,7 @@ it('extractCssUrls extracts url() targets but SKIPS @import url() (owned by @imp
 });
 
 it('TEETH: a remote @font-face src: url(https://…) is REJECTED', () => {
-  // The exact rf2-o18ava repro: a remote web-font pulled in via url() rather
-  // than an @import. The gate must fail it (and never resolve it on disk).
+  // A remote web-font pulled in via url() rather than an @import. The gate must fail it (and never resolve it on disk).
   const io = fullIo({
     [STYLE]: [
       "@import url('structure.css');",
@@ -1373,14 +1359,14 @@ it('a data: url() and a url(#fragment) paint ref are NOT rejected (no network fe
   );
 });
 
-// ---- TEETH: missing LOCAL CSS url() assets are REJECTED (rf2-35lfqo) -----
+// ---- TEETH: missing LOCAL CSS url() assets are REJECTED -------------------
 //
-// rf2-35lfqo found the gate resolved local HTML asset refs and CSS @import
-// targets, but NEVER resolved local `url(...)` references in a CSS body — a
+// Resolving local HTML asset refs and CSS @import targets alone would leave
+// local `url(...)` references in a CSS body unchecked — a
 // broken `background-image: url('missing-local.png')` / `cursor: url(...)` /
-// `@font-face { src: url(...) }` referencing an absent file passed silently
-// (the network-url policy skipped it because it fires no network request, and
-// nothing else checked it on disk). Local CSS url() targets are now resolved
+// `@font-face { src: url(...) }` referencing an absent file would pass silently
+// (the network-url policy skips it because it fires no network request). So
+// local CSS url() targets are resolved
 // against the declaring stylesheet's directory and a missing one fails the
 // gate, while data:/url(#fragment)/network refs stay handled by their own
 // policies.
@@ -1478,11 +1464,11 @@ it('TEETH: a remote url() in the _shared tree is rejected by checkSharedTree', (
   );
 });
 
-// ---- TEETH: direct-HTML network policy (rf2-bf4vdy) ---------------------
+// ---- TEETH: direct-HTML network policy ----------------------------------
 //
-// Before rf2-bf4vdy the scanner SKIPPED every external HTML ref, so a CDN
+// A scanner that SKIPPED every external HTML ref would keep a CDN
 // <script>, a hosted stylesheet/font <link>, an external <img>, or a hosted
-// og:image stayed green. The contract is now fail-closed: an unallowlisted
+// og:image green, so the contract is fail-closed: an unallowlisted
 // asset-bearing external HTML ref (http/https/protocol-relative) fails the
 // gate, while NAVIGATION refs (anchors, #fragments, data: URIs) stay exempt.
 
@@ -1566,12 +1552,11 @@ it('an external HTML ref whose exact URL is allowlisted (with reason) scans clea
 
 it('a navigation <a href> to an external URL is NOT rejected (only assets are gated)', () => {
   // Inject the anchor at a REAL anchor point present in goodHtml() (just before
-  // </body>) so it is actually in the scanned HTML. The old injection replaced
-  // '<div id="app"></div>' — a string goodHtml() does NOT contain — so the
-  // replace was a no-op, the anchor never appeared, and the assertion was
-  // vacuous: it merely re-asserted goodHtml scans clean and would have stayed
-  // green even if scanPage regressed to gate an external <a href> as an asset
-  // (rf2-spaiyd). Guard against re-vacuating with an explicit presence check.
+  // </body>) so it is actually in the scanned HTML. Replacing a string
+  // goodHtml() does NOT contain is a no-op: the anchor never appears, and the
+  // assertion goes vacuous — it merely re-asserts goodHtml scans clean and
+  // stays green even if scanPage gates an external <a href> as an asset. The
+  // explicit presence check guards against that.
   const html = goodHtml().replace(
     '</body>',
     '<a href="https://re-frame2.org/docs">docs</a>\n</body>',
@@ -1579,7 +1564,7 @@ it('a navigation <a href> to an external URL is NOT rejected (only assets are ga
   assert.ok(
     html.includes('<a href="https://re-frame2.org/docs">'),
     'the external anchor must be present in the scanned HTML — a no-op replace ' +
-      'would leave it absent and re-vacuate this test (rf2-spaiyd)',
+      'would leave it absent and make this test vacuous',
   );
   const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
   assert.deepStrictEqual(
@@ -1594,7 +1579,7 @@ it('the LIVE EXTERNAL_HTML_REF_ALLOWLIST is empty (no remote HTML asset deps shi
     Object.keys(EXTERNAL_HTML_REF_ALLOWLIST),
     [],
     'no shipped example page may load a remote script/stylesheet/font/image; ' +
-      'the direct-HTML ref allowlist is fail-closed and starts empty (rf2-bf4vdy)',
+      'the direct-HTML ref allowlist is fail-closed and starts empty',
   );
 });
 
@@ -1621,14 +1606,12 @@ it('TEETH: an external @import in the _shared tree is rejected by checkSharedTre
   );
 });
 
-// ---- TEETH: <prefix>.index.html showcase page enforcement (rf2-x48bp4) ---
+// ---- TEETH: <prefix>.index.html showcase page enforcement ----------------
 //
-// The `<prefix>.index.html` host-page shape is PROSPECTIVE: the two Story
-// showcase pages that motivated rf2-x48bp4 (login/stories.index.html +
-// nine_states/stories.index.html) were retired under rf2-j7w2u, because nothing
-// ever served them. These tests therefore drive scanPage on SYNTHETIC
-// stories.index.html paths, which is what keeps the shape's teeth while no such
-// page exists in the tree. The negative control: a stories.index.html missing
+// The `<prefix>.index.html` host-page shape is PROSPECTIVE: no such page
+// exists in the tree. These tests therefore drive scanPage on SYNTHETIC
+// stories.index.html paths, which is what keeps the shape's teeth. The
+// negative control: a stories.index.html missing
 // style.css must fail the SAME required-asset contract as an index.html — so a
 // future showcase host page cannot land and silently drop a required asset.
 
@@ -1741,7 +1724,7 @@ it('a page allowlisted out of style.css with vendored CSS scans clean', () => {
   });
   // Build the allowlist the scanner consumes from a SYNTHETIC manifest — the
   // same projection production uses — so this pins the manifest-consuming path,
-  // not a hand-written allowlist literal (rf2-phpbo8).
+  // not a hand-written allowlist literal.
   const allowlist = pageExemptions(SYNTHETIC_MANIFEST);
   const { errors } = scanPage(io, todoPage, { allowlist });
   assert.deepStrictEqual(
@@ -1766,7 +1749,7 @@ it('TEETH: an allowlisted page still REQUIRES favicon + OG (opt-out is styleshee
   });
   // Build the allowlist the scanner consumes from a SYNTHETIC manifest — the
   // same projection production uses — so this pins the manifest-consuming path,
-  // not a hand-written allowlist literal (rf2-phpbo8).
+  // not a hand-written allowlist literal.
   const allowlist = pageExemptions(SYNTHETIC_MANIFEST);
   const { errors } = scanPage(io, todoPage, { allowlist });
   assert.ok(
@@ -1795,10 +1778,10 @@ it('TEETH: a stale exemption (page DOES reference the exempt asset) is flagged',
   );
 });
 
-// ---- TEETH: social-preview RASTER contract (rf2-lr4am3) -----------------
+// ---- TEETH: social-preview RASTER contract ------------------------------
 
 it('TEETH: an SVG og:image is flagged as a non-raster social-preview asset', () => {
-  // The exact pre-fix failure mode: the file exists, every required-asset
+  // The failure mode: the file exists, every required-asset
   // check passes, but the og:image is an SVG that scrapers will not render.
   const svgOgHtml = goodHtml().replace(
     '<meta property="og:image" content="_shared/img/og.png">',
@@ -1864,11 +1847,11 @@ it('TEETH: a missing og.png raster is reported by checkSharedTree', () => {
   );
 });
 
-// ---- TEETH: og.png raster BYTE validation (rf2-mon7tz) ------------------
+// ---- TEETH: og.png raster BYTE validation -------------------------------
 //
-// A bare "the file exists" check stayed green if og.png were replaced by
+// A bare "the file exists" check stays green if og.png is replaced by
 // non-PNG bytes or a wrong-size export — both break link-preview scrapers
-// silently. The gate now decodes the signature + IHDR dimensions.
+// silently. So the gate decodes the signature + IHDR dimensions.
 
 it('validatePng accepts a real 1200x630 PNG', () => {
   const v = validatePng(VALID_OG_PNG);
@@ -1878,7 +1861,7 @@ it('validatePng accepts a real 1200x630 PNG', () => {
 });
 
 it('TEETH: non-PNG bytes at og.png fail validatePng (signature)', () => {
-  const v = validatePng('PNGDATA'); // the old opaque placeholder is NOT a PNG
+  const v = validatePng('PNGDATA'); // an opaque placeholder is NOT a PNG
   assert.ok(!v.ok, 'opaque non-PNG bytes must fail');
   assert.ok(/signature|too short/.test(v.reason), `expected a signature failure, got: ${v.reason}`);
 });
@@ -1895,8 +1878,8 @@ it('TEETH: a wrong-dimension PNG fails validatePng', () => {
 it('TEETH: a valid signature + >=24 bytes but a non-IHDR first chunk fails validatePng (rf2-bdamni)', () => {
   // Signature (8) + chunk-length (4) + a first chunk type of 'IDAT' (4) + pad to
   // >=24 bytes. The signature and length gates pass, so this exercises the
-  // non-IHDR branch (bytes 12..16 !== 'IHDR') that valid / bad-signature /
-  // too-short / wrong-dimension cases never reached.
+  // non-IHDR branch (bytes 12..16 !== 'IHDR') that the valid / bad-signature /
+  // too-short / wrong-dimension cases do not reach.
   const notIhdr = Buffer.concat([
     PNG_SIGNATURE, // bytes 0..8 — a valid PNG signature
     Buffer.from([0, 0, 0, 13]), // bytes 8..12 — chunk length
@@ -1909,7 +1892,7 @@ it('TEETH: a valid signature + >=24 bytes but a non-IHDR first chunk fails valid
 });
 
 it('TEETH: >=24 bytes with the wrong signature fails validatePng at the signature gate (rf2-bdamni)', () => {
-  // The existing 'PNGDATA' case is only 7 bytes, so it trips the too-short gate
+  // The 'PNGDATA' case above is only 7 bytes, so it trips the too-short gate
   // and never reaches the signature check. A 24-byte non-PNG buffer exercises
   // the signature branch itself.
   const notPng = Buffer.alloc(24, 0x20).toString('latin1'); // 24 spaces
@@ -1992,14 +1975,14 @@ it('TEETH: checkSharedTree rejects a wrong-dimension og.png', () => {
   );
 });
 
-// ---- TEETH: og.png FULL STRUCTURAL DECODE (rf2-3fc89f.27) ----------------
+// ---- TEETH: og.png FULL STRUCTURAL DECODE -------------------------------
 //
-// The pre-fix validatePng read only the first 24 bytes (signature + IHDR dims),
-// so a 24-byte header prefix, a byte-flipped IDAT, or a mid-stream truncation
-// all reported ok:true — a FALSE-GREEN over a structurally-broken raster. The
-// gate now walks the ENTIRE chunk stream: bounded chunks, per-chunk CRC-32, a
+// A validatePng reading only the first 24 bytes (signature + IHDR dims) would
+// report ok:true for a 24-byte header prefix, a byte-flipped IDAT, or a
+// mid-stream truncation — a FALSE-GREEN over a structurally-broken raster. So
+// the gate walks the ENTIRE chunk stream: bounded chunks, per-chunk CRC-32, a
 // real IDAT zlib inflate, and a terminal IEND. Each fixture below isolates one
-// real corruption the old header sniff missed.
+// real corruption a header sniff misses.
 
 it('validatePng accepts a freshly-built structurally-complete PNG', () => {
   const v = validatePng(buildPng());
@@ -2018,8 +2001,8 @@ it('LIVE: the shipped og.png fully decodes (signature + chunks + CRC + IDAT infl
 });
 
 it('TEETH: a 24-byte header-only prefix is REJECTED (the pre-fix false-green)', () => {
-  // Exactly the false-green the old header-sniff let through: signature + IHDR
-  // header + dimensions and nothing else. It must now fail (chunk runs past EOF).
+  // Exactly the false-green a header sniff lets through: signature + IHDR
+  // header + dimensions and nothing else. It must fail (chunk runs past EOF).
   const headerOnly = buildPng().subarray(0, 24);
   const v = validatePng(headerOnly);
   assert.ok(!v.ok, 'a 24-byte header prefix is not a complete PNG and must fail');
@@ -2032,8 +2015,8 @@ it('TEETH: a 24-byte header-only prefix is REJECTED (the pre-fix false-green)', 
 it('TEETH: a mid-IDAT truncation is REJECTED (declared chunk length runs past EOF)', () => {
   // Cut the file INSIDE the IDAT chunk data (byte 45 is a few bytes into the
   // IDAT payload, which starts at byte 41 = sig 8 + IHDR 25 + IDAT header 8).
-  // The IDAT chunk still declares its full length, which now runs past EOF. The
-  // old header-sniff stayed green on any prefix >= 24 bytes.
+  // The IDAT chunk still declares its full length, which runs past EOF. A
+  // header sniff stays green on any prefix >= 24 bytes.
   const truncated = buildPng().subarray(0, 45);
   const v = validatePng(truncated);
   assert.ok(!v.ok, 'a mid-stream truncation must fail');
@@ -2045,8 +2028,8 @@ it('TEETH: a mid-IDAT truncation is REJECTED (declared chunk length runs past EO
 
 it('TEETH: a byte-flipped IDAT (bad CRC) is REJECTED', () => {
   // Flip a byte INSIDE the IDAT data without recomputing its CRC — the stored
-  // CRC no longer matches the computed CRC, so the chunk is corrupt. (The old
-  // sniff never read past byte 24, so a corrupt IDAT passed.)
+  // CRC no longer matches the computed CRC, so the chunk is corrupt. (A sniff
+  // that never reads past byte 24 passes a corrupt IDAT.)
   const full = buildPng();
   const corrupt = Buffer.from(full);
   // IDAT data sits after sig(8) + IHDR(25) + IDAT length(4) + 'IDAT'(4) = 41.
@@ -2076,7 +2059,7 @@ it('TEETH: checkSharedTree rejects a header-only (truncated) og.png', () => {
       '.cells-grid input { width: 56px; }\n' +
       RESPONSIVE_SHELL,
     [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
-    // A header-only prefix — the exact false-green the pre-fix gate passed.
+    // A header-only prefix — the exact false-green a header sniff passes.
     [path.join(SHARED_ROOT, 'img', 'og.png')]: buildPng().subarray(0, 24).toString('latin1'),
     [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
   });
@@ -2088,17 +2071,17 @@ it('TEETH: checkSharedTree rejects a header-only (truncated) og.png', () => {
 });
 
 // ---- TEETH: og.png RASTER SEMANTICS — zlib inflation is not PNG decoding
-// (rf2-j538f7.24) -----------------------------------------------------------
+// ---------------------------------------------------------------------------
 //
-// The full-structural-decode gate (above) still called a PNG "decodable" once
-// its IDAT merely zlib-INFLATED, so a raster with a forbidden IHDR colour type,
+// The full structural decode (above) alone calls a PNG "decodable" once its
+// IDAT merely zlib-INFLATES, so a raster with a forbidden IHDR colour type,
 // an unsupported interlace method, or an IDAT that expands to the wrong number
-// of bytes / carries an illegal per-row filter byte all passed — every social
-// preview would then serve unreadable bytes while the all-35-host gate stayed
-// green. The gate now validates the IHDR SEMANTICS + the exact scanline geometry
+// of bytes / carries an illegal per-row filter byte would pass — every social
+// preview would then serve unreadable bytes while the all-host gate stayed
+// green. So the gate validates the IHDR SEMANTICS + the exact scanline geometry
 // + the per-row filter tags. Each fixture below keeps a valid signature, bounded
 // chunks, correct CRCs, an inflatable zlib stream, and a terminal IEND —
-// isolating exactly ONE raster-semantic defect the pre-fix zlib-only check waved
+// isolating exactly ONE raster-semantic defect a zlib-only check waves
 // through.
 
 // Build a PNG with explicit IHDR fields and an explicit (already-inflated) raster
@@ -2143,7 +2126,7 @@ it('validatePng accepts buildPngWith defaults (full RGB raster)', () => {
 it('TEETH: a forbidden IHDR colour type (1) is REJECTED with an IHDR-semantic error', () => {
   // colour type 1 is not a legal PNG colour type (0/2/3/4/6). pngChunk recomputes
   // the IHDR CRC, so the envelope is valid and this isolates the SEMANTIC defect —
-  // the bead's reproduction (Pillow rejects it; the pre-fix gate returned ok:true).
+  // Pillow rejects it, while an envelope-only check returns ok:true.
   const v = validatePng(buildPngWith({ colourType: 1, raster: Buffer.from([0, 0, 0, 0]) }));
   assert.ok(!v.ok, 'a forbidden colour type must fail');
   assert.ok(/colour type 1/.test(v.reason), `expected an IHDR colour-type error, got: ${v.reason}`);
@@ -2184,7 +2167,7 @@ it('TEETH: a valid-zlib IDAT expanding to only 4 bytes over a 1200x630 IHDR is R
   // The exact false-green: a real 1200x630 truecolour IHDR, valid CRCs, a terminal
   // IEND, and an IDAT that IS a well-formed zlib stream — but one inflating to just
   // 4 bytes, nowhere near the 630 x (1 + 1200*3) = 2,268,630-byte raster. zlib-only
-  // validation passed this; the scanline-geometry check now rejects it.
+  // validation passes this; the scanline-geometry check rejects it.
   const v = validatePng(buildPngWith({ raster: Buffer.from([0, 0, 0, 0]) }));
   assert.ok(!v.ok, 'a 4-byte pixel payload for a 1200x630 raster must fail');
   assert.ok(
@@ -2227,8 +2210,8 @@ it('a complete raster with legal filter bytes (0..4) still validates', () => {
 
 it('TEETH: checkSharedTree rejects a raster-broken (zlib-valid) og.png (rf2-j538f7.24)', () => {
   // og.png: valid signature + 1200x630 IHDR + valid-CRC chunks + a valid zlib IDAT
-  // that inflates to 4 bytes + IEND. The pre-fix gate passed this; the raster
-  // geometry check now turns the gate RED end-to-end via checkSharedTree, proving
+  // that inflates to 4 bytes + IEND. A zlib-only check passes this; the raster
+  // geometry check turns the gate RED end-to-end via checkSharedTree, proving
   // the wiring has teeth (not just validatePng in isolation).
   const brokenRaster = buildPngWith({ raster: Buffer.from([0, 0, 0, 0]) }).toString('latin1');
   const io = makeIo({
@@ -2248,14 +2231,13 @@ it('TEETH: checkSharedTree rejects a raster-broken (zlib-valid) og.png (rf2-j538
   );
 });
 
-// ---- TEETH: SVG WELL-FORMEDNESS (rf2-3fc89f.27) --------------------------
+// ---- TEETH: SVG WELL-FORMEDNESS -----------------------------------------
 //
-// The pre-fix gate checked favicon.svg / og.svg only for existence and selected
-// palette literals — never XML well-formedness. Both shipped SVGs actually
-// contained an illegal '--' inside a comment (XML forbids it; strict parsers AND
-// Chrome render a <parsererror>), so the favicon could not render and the OG
-// source could not be re-exported, all while the gate stayed green. The gate now
-// validates the markup.
+// Checking favicon.svg / og.svg only for existence and selected palette
+// literals misses XML well-formedness: an illegal '--' inside a comment (XML
+// forbids it; strict parsers AND Chrome render a <parsererror>) leaves the
+// favicon unrenderable and the OG source impossible to re-export, all while
+// the gate stays green. So the gate validates the markup.
 
 it('checkSvgWellFormed accepts a well-formed SVG (prolog + comment + nesting + text)', () => {
   const svg =
@@ -2313,7 +2295,7 @@ it('TEETH: checkSharedTree reports a targeted failure for a favicon.svg with a "
       '.send-form input[type="text"] { min-width: 240px; }\n' +
       '.cells-grid input { width: 56px; }\n' +
       RESPONSIVE_SHELL,
-    // The exact pre-fix defect: a '--' sequence inside the favicon comment.
+    // The defect: a '--' sequence inside the favicon comment.
     [path.join(SHARED_ROOT, 'img', 'favicon.svg')]:
       '<svg xmlns="http://www.w3.org/2000/svg"><!-- mirror the --ex-* palette --><rect/></svg>',
     [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
@@ -2358,7 +2340,7 @@ it('LIVE: the shipped favicon.svg and og.svg are well-formed XML', () => {
   }
 });
 
-// ---- TEETH: shared palette CONTRAST contract (rf2-febmqu) ---------------
+// ---- TEETH: shared palette CONTRAST contract ----------------------------
 
 it('LIVE: the shipped --ex-* palette clears its WCAG contrast contract', () => {
   const fs = require('fs');
@@ -2385,12 +2367,12 @@ it('LIVE: the shipped --ex-* palette clears its WCAG contrast contract', () => {
 });
 
 it('TEETH: a sub-AA accent foreground in style.css fails checkSharedTree', () => {
-  // The exact rf2-febmqu regression: --ex-accent (#C8741A, 3.18:1 on paper)
+  // The regression: --ex-accent (#C8741A, 3.18:1 on paper)
   // used as a normal text foreground. Model it by making --ex-accent-deep
   // equal to the sub-AA --ex-accent value and confirm the gate fires.
   const badStyle = GOOD_SHARED_STYLE.replace(
     '--ex-accent-deep: #9C4F0E;',
-    '--ex-accent-deep: #C8741A;', // dropped back to the sub-AA amber
+    '--ex-accent-deep: #C8741A;', // the sub-AA amber
   );
   const io = makeIo({
     [path.join(SHARED_ROOT, 'css', 'style.css')]: badStyle,
@@ -2413,7 +2395,7 @@ it('contrastRatio matches a known pair (white on #9C4F0E ≈ 5.94)', () => {
   assert.ok(Math.abs(r - 5.94) < 0.05, `expected ≈5.94, got ${r.toFixed(2)}`);
 });
 
-// ---- TEETH: focus-indicator contract (rf2-mon7tz) -----------------------
+// ---- TEETH: focus-indicator contract ------------------------------------
 
 it('LIVE: the shipped style.css carries an AA-safe :focus-visible indicator', () => {
   const errors = checkSharedTree(require('fs'));
@@ -2486,23 +2468,23 @@ it('LIVE: no real example page ships an SVG (or otherwise non-raster) og:image',
   );
 });
 
-// ---- TEETH: CSS-cascade contract (rf2-gv5xd) ----------------------------
+// ---- TEETH: CSS-cascade contract ----------------------------------------
 
 // A minimal _shared/css io: style.css @imports structure.css; structure.css
 // contents are supplied per-test so we can pin the cascade check both ways.
 // (SHARED_ROOT is declared up with the other path constants.) The structure.css
 // always carries the responsive-shell rule so these cascade fixtures isolate
-// their own concern rather than tripping the rf2-y82dk9 shell contract.
+// their own concern rather than tripping the responsive-shell contract.
 function sharedCssIo(structureCss) {
   return makeIo({
-    // An AA-safe style.css so the contrast/focus contracts (rf2-febmqu +
-    // rf2-mon7tz) are satisfied — this helper pins the CSS-CASCADE contract.
+    // An AA-safe style.css so the contrast/focus contracts are satisfied —
+    // this helper pins the CSS-CASCADE contract.
     [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
     [path.join(SHARED_ROOT, 'css', 'structure.css')]:
       structureCss + '\n' + RESPONSIVE_SHELL,
     [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
     // checkSharedTree requires both the shipped raster and its source art, and
-    // now validates the og.png BYTES — supply a real 1200x630 PNG.
+    // validates the og.png BYTES — supply a real 1200x630 PNG.
     [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
     [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
   });
@@ -2548,7 +2530,7 @@ it('TEETH: dropping the compact .cells-grid input width:56px is flagged', () => 
   );
 });
 
-// ---- TEETH: responsive Xray-host shell contract (rf2-y82dk9) ------------
+// ---- TEETH: responsive Xray-host shell contract -------------------------
 //
 // The .rf2-testbed-shell is a fixed two-column flex (host flex-shrink:0 at
 // ~560px + 320px min-width) — it overflows narrow viewports. The shared shell
@@ -2615,12 +2597,13 @@ it('TEETH: the responsive stacked-shell media query scans clean', () => {
   );
 });
 
-// ---- TEETH rf2-3x7nj.44.3: a COMMENTED-OUT rule does not satisfy a contract --
+// ---- TEETH: a COMMENTED-OUT rule does not satisfy a contract ---------------
 //
 // Commenting a rule out is the other common way to remove CSS, and the browser
-// treats it as gone. The focus-ring, cells-grid and responsive-shell presence
-// checks used to read the raw text, so each passed on a commented-out rule.
-// Each fixture keeps the rule's text and only wraps it in a comment, and says
+// treats it as gone. A presence check reading the raw text would pass on a
+// commented-out rule, so the focus-ring, cells-grid and responsive-shell checks
+// read comment-stripped text. Each fixture keeps the rule's text and only wraps
+// it in a comment, and says
 // so, so a red here cannot come from a deletion.
 
 const commentOut = (rule) => `/* ${rule} */`;
@@ -2686,14 +2669,14 @@ it('a comment merely NAMING a banned rule does not trip the absence checks (rf2-
   assert.deepStrictEqual(errors, [], `a comment naming a banned rule must scan clean, got: ${errors.join(' | ')}`);
 });
 
-// ---- TEETH: OG source-art palette conformance (rf2-y82dk9) --------------
+// ---- TEETH: OG source-art palette conformance ---------------------------
 //
 // og.svg is the editable master the shipped og.png is re-exported from; its
 // colour literals mirror the --ex-* CSS tokens. The og.png byte-check is opaque
 // to colour, so a shared-palette darkening (e.g. --ex-ink-faint #8A8270 →
-// #6E6654, rf2-febmqu) can leave the source art stale and still pass. A retired
+// #6E6654) can leave the source art stale and still pass. A retired
 // /sub-AA literal used as a PAINT value in og.svg turns the gate RED — while a
-// doc comment that NAMES the retired value (the migration note) does not.
+// doc comment that NAMES the retired value does not.
 
 // A full _shared tree with an overridable og.svg, so og.svg-only contracts can
 // be pinned in isolation. structure.css carries the responsive rule + cascade
@@ -2746,8 +2729,8 @@ it('TEETH: the retired colour as a stroke / stop-color is also flagged', () => {
 });
 
 it('a doc COMMENT naming the retired colour (migration note) does NOT trip the gate', () => {
-  // The source-art header documents the #8A8270 → #6E6654 migration by naming
-  // the retired value — that is prose, not a live paint, so it must scan clean.
+  // A doc comment naming the retired value is prose, not a live paint, so it
+  // must scan clean.
   const docSvg =
     '<svg xmlns="http://www.w3.org/2000/svg">' +
     `<!-- faint ink ${AA_SAFE_INK_FAINT}: the old ${RETIRED_INK_FAINT} was sub-AA -->` +
@@ -2780,18 +2763,18 @@ it('the build-output main.js is never resolved on disk', () => {
   );
 });
 
-// ---- TEETH rf2-y1kbf: the BOOT-SCRIPT contract --------------------------
+// ---- TEETH: the BOOT-SCRIPT contract ------------------------------------
 //
-// Before rf2-y1kbf the gate proved every host was DRESSED (favicon + OG card +
-// stylesheet) but never that it could RUN. BUILD_OUTPUTS exempted main.js from
-// on-disk RESOLUTION — correctly, it is shadow-cljs output rather than repo
-// source — and that exemption made its ABSENCE unobservable: deleting the one
-// `<script src="main.js">` from any host left the live scan green (measured
-// errors=[] on an ordinary, a Story-auxiliary, and an SSR host) while the staged
-// page could not boot, render, or hydrate. Nothing else catches it: the compile
-// gate builds shadow-cljs definitions and never consumes their HTML, and the
-// headless wrappers require namespaces directly. The exemption now covers
-// resolution ONLY — the reference itself is required.
+// Proving every host DRESSED (favicon + OG card + stylesheet) does not prove
+// it can RUN. BUILD_OUTPUTS exempts main.js from on-disk RESOLUTION —
+// correctly, it is shadow-cljs output rather than repo source — and an
+// exemption that also covered the reference would make its ABSENCE
+// unobservable: deleting the one `<script src="main.js">` from any host would
+// leave the live scan green while the staged page could not boot, render, or
+// hydrate. Nothing else catches it: the compile gate builds shadow-cljs
+// definitions and never consumes their HTML, and the headless wrappers require
+// namespaces directly. So the exemption covers resolution ONLY — the reference
+// itself is required.
 
 // The full `<script … src=main.js …></script>` ELEMENT, in the three HTML5
 // quoting forms. A fresh RegExp per call: a shared /g literal carries lastIndex
@@ -2809,8 +2792,7 @@ const relOf = (abs) => path.relative(scanner.REPO_ROOT, abs).split(path.sep).joi
 
 // goodHtml() with its live boot script replaced by `markup` — '' for a deleted
 // script, or an impostor reference that must NOT satisfy the contract. The
-// presence assertion guards against a no-op replace re-vacuating the test the
-// way rf2-spaiyd's external-anchor case once was.
+// presence assertion guards against a no-op replace leaving the test vacuous.
 function bootScriptReplacedBy(markup) {
   const html = goodHtml();
   const live = '<script src="main.js"></script>';
@@ -2820,7 +2802,7 @@ function bootScriptReplacedBy(markup) {
 
 it('TEETH rf2-y1kbf: an otherwise-valid page with NO boot script is REJECTED, naming page + main.js', () => {
   // Every shared asset is present and resolves; the ONLY defect is the deleted
-  // entrypoint — the exact false green this bead closes.
+  // entrypoint — the exact false green this contract catches.
   const { errors, relIndex } = scanPage(fullIo({ [PAGE]: bootScriptReplacedBy('') }), PAGE);
   const boot = errors.filter((e) => BOOT_ERROR.test(e));
   assert.strictEqual(
@@ -2842,7 +2824,7 @@ it('TEETH rf2-y1kbf: an otherwise-valid page with NO boot script is REJECTED, na
 // impostor below is a shape that names main.js while fetching no script:
 // navigation refs never reach `assets` at all, a preload/icon <link> is tagged
 // as a link rather than a script, prose is not a tag, and commented markup is
-// stripped before extraction (rf2-j538f7.28).
+// stripped before extraction.
 for (const [name, impostor] of [
   ['a preload <link> naming main.js', '<link rel="preload" as="script" href="main.js">'],
   ['a modulepreload <link> naming main.js', '<link rel="modulepreload" href="main.js">'],
@@ -2869,7 +2851,7 @@ for (const [name, impostor] of [
 }
 
 // The canonical live forms all satisfy it, including HTML5 unquoted values
-// (rf2-3dzb6h) and the scanner's existing ?query/#hash normalisation — a
+// and the scanner's ?query/#hash normalisation — a
 // cache-busted `main.js?v=2` is the same entrypoint.
 for (const [name, live] of [
   ['double-quoted', '<script src="main.js"></script>'],
@@ -2915,9 +2897,8 @@ it('rf2-y1kbf: loadsBuildEntrypoint reads the TAGGED inventory, not the raw HTML
 // silently ordinary-hosts-only.
 function hostShape(rel) {
   const segments = rel.split('/');
-  // An auxiliary showcase host is `<prefix>.index.html`. PROSPECTIVE since
-  // rf2-j7w2u retired the two Story showcase pages: the classifier still names
-  // the shape, but no host in the tree has it today.
+  // An auxiliary showcase host is `<prefix>.index.html`. PROSPECTIVE: the
+  // classifier names the shape, but no host in the tree has it.
   if (segments[segments.length - 1] !== 'index.html') return 'story-auxiliary';
   // A baked SSR/hydration host lives under an `ssr` tree.
   if (segments.includes('ssr')) return 'ssr';
@@ -2925,11 +2906,11 @@ function hostShape(rel) {
 }
 
 // The shapes the LIVE sweeps below must actually find, so neither degrades into
-// a single-shape sweep. `story-auxiliary` is deliberately NOT here: rf2-j7w2u
-// retired the only two pages that carried it, so requiring it would fail on a
+// a single-shape sweep. `story-auxiliary` is deliberately NOT here: no page in
+// the tree carries it, so requiring it would fail on a
 // tree that is correct. The shape keeps its teeth on SYNTHETIC paths (the
 // scanPage TEETH tests above) and on the `isExampleHostPage` unit test; add it
-// back here the moment a real `<prefix>.index.html` host lands.
+// here the moment a real `<prefix>.index.html` host lands.
 const HOST_SHAPES = ['ordinary', 'ssr'];
 
 it('LIVE rf2-y1kbf: EVERY enumerated host loads the compiled main.js entrypoint', () => {
@@ -2948,7 +2929,7 @@ it('LIVE rf2-y1kbf: EVERY enumerated host loads the compiled main.js entrypoint'
     `every staged host must load its entrypoint; these do not:\n` +
       unbootable.map((p) => `    - ${p}`).join('\n'),
   );
-  // ...and the sweep above actually covered all three advertised host shapes.
+  // ...and the sweep above actually covered every shape in HOST_SHAPES.
   const shapes = new Set(realIndexes.map((abs) => hostShape(relOf(abs))));
   for (const shape of HOST_SHAPES) {
     assert.ok(
@@ -2960,7 +2941,7 @@ it('LIVE rf2-y1kbf: EVERY enumerated host loads the compiled main.js entrypoint'
 });
 
 // An io that delegates to the real fs but serves ONE real host page with a
-// mutated body — the read-only repro from the bead. Nothing on disk is touched.
+// mutated body — a read-only repro. Nothing on disk is touched.
 function mutatedPageIo(pageAbsPath, mutatedHtml) {
   const realFs = require('fs');
   const target = path.resolve(pageAbsPath);
@@ -2974,8 +2955,8 @@ function mutatedPageIo(pageAbsPath, mutatedHtml) {
 it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns the PRODUCTION scan RED (every live host shape)', () => {
   // THE non-vacuity control. It runs the production scanner over the real tree
   // with exactly one byte-range removed from one real page, so it fails against
-  // the pre-fix implementation (which returned errors=[] for all three shapes)
-  // and can only pass once the boot-script contract exists.
+  // an implementation without the boot-script contract (which returns
+  // errors=[] for every shape) and can only pass with it.
   const firstOfShape = new Map();
   for (const abs of realIndexes) {
     const shape = hostShape(relOf(abs));
@@ -3021,7 +3002,7 @@ it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns th
     assert.ok(
       errors.some((e) => BOOT_ERROR.test(e) && e.includes(rel)),
       `${rel} (${shape}): a real host with its boot script deleted must fail ` +
-        `the gate, got: ${errors.length === 0 ? '(no errors — the pre-fix false green)' : errors.join(' | ')}`,
+        `the gate, got: ${errors.length === 0 ? '(no errors — the boot-script false green)' : errors.join(' | ')}`,
     );
     // RED for THIS reason only: every other contract still holds, so the
     // control isolates the boot-script invariant rather than riding a
@@ -3034,12 +3015,12 @@ it('TEETH rf2-y1kbf: deleting a REAL host\'s live boot script IN MEMORY turns th
   }
 });
 
-// ---- rf2-cnu7qy: og:image content-BEFORE-property order -------------------
+// ---- og:image content-BEFORE-property order ------------------------------
 //
 // HTML attribute order is insignificant, so a `content`-first og:image meta is
-// valid. The old ordered regex only saw property-first metas, so a content-first
-// SVG/remote card was INVISIBLE to the raster contract, disk resolution, and the
-// network policy.
+// valid. An ordered regex sees only property-first metas, so a content-first
+// SVG/remote card would be INVISIBLE to the raster contract, disk resolution,
+// and the network policy.
 
 it('TEETH rf2-cnu7qy: a content-first REMOTE og:image is REJECTED (was invisible)', () => {
   const html = goodHtml().replace(
@@ -3067,11 +3048,12 @@ it('TEETH rf2-cnu7qy: a content-first SVG og:image trips the raster contract', (
   );
 });
 
-// ---- rf2-3dzb6h: unquoted HTML attribute values ---------------------------
+// ---- unquoted HTML attribute values --------------------------------------
 //
-// HTML5 permits unquoted attribute values. The old quoted-only regexes missed
+// HTML5 permits unquoted attribute values. Quoted-only regexes miss
 // `<script src=main.js>` / `<link href=//cdn…>`, so an unquoted forbidden remote
-// dep shipped green and an unquoted broken local ref was never resolved on disk.
+// dep would ship green and an unquoted broken local ref would never be resolved
+// on disk.
 
 it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible)', () => {
   const html = goodHtml().replace(
@@ -3087,15 +3069,15 @@ it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible
   );
 });
 
-// ---- rf2-lvw3z9: CSS block comments stripped before extraction ------------
+// ---- CSS block comments stripped before extraction -----------------------
 //
-// Commented-out CSS is inert. The extractors used to read a commented @import /
-// url() as live, turning the gate RED on a maintainer's debug comment — and
-// inconsistently with the og.svg check in the same file, which strips comments.
+// Commented-out CSS is inert. Reading a commented @import / url() as live would
+// turn the gate RED on a maintainer's debug comment — and be inconsistent with
+// the og.svg check in the same file, which strips comments.
 
 // A checkSharedTree fixture whose style.css is under test; the rest of the tree
 // is valid so the ONLY thing that can turn it RED is the style.css itself.
-// Shared by the CSS-comment (rf2-lvw3z9) and contrast-token (rf2-nrieg0) teeth.
+// Shared by the CSS-comment and contrast-token teeth.
 const paletteIo = (styleCss) =>
   makeIo({
     [path.join(SHARED_ROOT, 'css', 'style.css')]: styleCss,
@@ -3130,12 +3112,12 @@ it('TEETH rf2-lvw3z9: a commented-out remote @import does NOT false-fail the gat
   );
 });
 
-// ---- rf2-nrieg0: WCAG contrast on non-hex --ex-* tokens -------------------
+// ---- WCAG contrast on non-hex --ex-* tokens -------------------------------
 //
-// parseExTokens only read #hex, and the contrast loop silently `continue`d on a
-// non-hex token, disabling the WCAG gate under an rgb()/hsl() palette refactor.
-// Now rgb()/hsl() are parsed (and checked); a genuinely-opaque form (var()) is
-// fail-loud rather than silently skipped.
+// A parseExTokens reading only #hex, with a contrast loop that silently
+// `continue`s on a non-hex token, would disable the WCAG gate under an
+// rgb()/hsl() palette refactor. So rgb()/hsl() are parsed (and checked); a
+// genuinely-opaque form (var()) is fail-loud rather than silently skipped.
 
 it('rf2-nrieg0: colorToHex normalises #hex / rgb() / hsl(), null for var()', () => {
   assert.strictEqual(colorToHex('#C8741A'), '#C8741A');
@@ -3168,13 +3150,13 @@ it('rf2-nrieg0: parseExTokens now captures rgb()/hsl() tokens (was hex-only)', (
     ':root{--ex-bg:#F7F3EC; --ex-accent-deep: rgb(156,79,14); --ex-warn: hsl(43,79%,43%);}',
   );
   assert.strictEqual(tokens['--ex-bg'], '#F7F3EC');
-  assert.strictEqual(tokens['--ex-accent-deep'], '#9c4f0e'); // was DROPPED before
+  assert.strictEqual(tokens['--ex-accent-deep'], '#9c4f0e'); // captured, not dropped
   assert.ok(tokens['--ex-warn'], 'an hsl() token must be captured, not dropped');
 });
 
 it('TEETH rf2-nrieg0: a sub-AA rgb() accent foreground now FAILS (was skipped)', () => {
-  // The sub-AA amber #C8741A expressed as rgb() — previously invisible to the
-  // gate (silent `continue`), now parsed and caught.
+  // The sub-AA amber #C8741A expressed as rgb() — parsed and caught rather
+  // than skipped by a silent `continue`.
   const badStyle = GOOD_SHARED_STYLE.replace(
     '--ex-accent-deep: #9C4F0E;',
     '--ex-accent-deep: rgb(200,116,26);',
