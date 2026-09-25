@@ -14,8 +14,10 @@
   in `re-frame.story-help-dom-cljs-test`, which BOTH lanes load
   (rf2-r51p)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.story.ui.help :as rf.story.ui.help]
-            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]))
+            [re-frame.story.ui.keybindings :as rf.story.ui.keybindings]
+            [re-frame.story.ui.xray-embed :as rf.story.ui.xray-embed]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -74,6 +76,35 @@
                   (fn [] ["a" "f" "s" "t" "z"])]
       (is (contains? (table-strings) "z")
           "the table was built from shortcut-keys"))))
+
+;; ---- the inspectors list -------------------------------------------------
+
+(defn- inspectors-text
+  "Every string in the list that follows the `Inspectors (right)` heading,
+  joined with spaces, or nil when no such heading is found."
+  []
+  (let [children (vec (rest (rf.story.ui.help/help-content)))
+        heading? (fn [x] (and (vector? x) (= "Inspectors (right)" (last x))))
+        idx      (first (keep-indexed (fn [i x] (when (heading? x) i)) children))]
+    (when idx
+      (->> (tree-seq sequential? seq (get children (inc idx)))
+           (filter string?)
+           (str/join " ")))))
+
+(deftest inspectors-list-names-every-xray-lens
+  (testing "each Xray panel the RHS chip row offers is named in the help"
+    (is (some? (inspectors-text)) "control: the inspectors list is found")
+    (is (seq rf.story.ui.xray-embed/panel-catalog) "control: the chip row offers panels")
+    (doseq [{:keys [label]} rf.story.ui.xray-embed/panel-catalog]
+      (is (str/includes? (str (inspectors-text)) label)
+          (str "chip-row panel " (pr-str label) " is in the inspectors list")))))
+
+(deftest inspectors-list-names-no-panel-that-does-not-ship
+  (testing "Story's RHS has no time-travel or notes panel, so the help names neither"
+    (is (some? (inspectors-text)) "control: the inspectors list is found")
+    (doseq [absent ["time-travel" "notes"]]
+      (is (not (str/includes? (str/lower-case (str (inspectors-text))) absent))
+          (str (pr-str absent) " is not in the inspectors list")))))
 
 (deftest help-content-is-hiccup
   (testing "help-content returns a hiccup vector rooted at :div"
