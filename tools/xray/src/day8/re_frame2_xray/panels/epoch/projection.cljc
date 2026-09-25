@@ -1249,7 +1249,7 @@
       (vec (mapcat (fn [s] [:states s]) v)))))
 
 (defn state-node-source-coords
-  "Resolve the reference-site `:source-coords` for a `:states`-tree
+  "Resolve the reference-site `:source-coords` for a cascade row's
   spec-path on a co-located machine `spec`.
 
   Each MAP node inside `:states` (state-node, transition map)
@@ -1261,19 +1261,28 @@
   click-to-source lands the operator on that node's source line), mirroring
   the keyword-reference fallback rule.
 
+  The machine root's own `:entry` / `:exit` keys (`[:entry]` / `[:exit]`)
+  resolve against the root's `:source-coords` directly. Every other walk
+  stops below the root: a `[:states …]` key that no node on its path
+  resolves returns nil, because the root's coord would send a state's row to
+  the whole machine form.
+
   Returns the coord map (`{:ns :file :line :column}`) or nil when no node on
   the path carries a coord (production builds, fn-form machines, a path that
   doesn't resolve to a map)."
   [spec spec-path]
   (when (and (map? spec) (vector? spec-path) (seq spec-path))
-    (loop [path (vec spec-path)]
-      (when (seq path)
-        (let [node (get-in spec path)]
-          (if (and (map? node) (map? (:source-coords node)))
-            (:source-coords node)
-            ;; Walk up to the parent spec-path and retry — an inline-fn
-            ;; slot's enclosing transition map / state-node carries the coord.
-            (recur (pop path))))))))
+    (if (contains? #{[:entry] [:exit]} spec-path)
+      (let [c (:source-coords spec)]
+        (when (map? c) c))
+      (loop [path (vec spec-path)]
+        (when (seq path)
+          (let [node (get-in spec path)]
+            (if (and (map? node) (map? (:source-coords node)))
+              (:source-coords node)
+              ;; Walk up to the parent spec-path and retry — an inline-fn
+              ;; slot's enclosing transition map / state-node carries the coord.
+              (recur (pop path)))))))))
 
 (defn- event-id-of
   "Lift the event-id (first element of the event vector) off a transition
