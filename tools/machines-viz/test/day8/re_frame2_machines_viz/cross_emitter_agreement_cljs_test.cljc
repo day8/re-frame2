@@ -973,7 +973,7 @@
                         :working {}
                         :loaded  {:final? true}}}
              (scxml/scxml->spec out))
-          "the export still reads back through our importer, spawn omitted")))
+          "the export reads back through our importer, spawn omitted")))
   (testing "chart and Mermaid draw the same arrows for every transition shape"
     (doseq [[label on-done] {:keyword    :b
                              :path       [:b]

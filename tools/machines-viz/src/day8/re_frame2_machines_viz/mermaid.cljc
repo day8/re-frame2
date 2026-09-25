@@ -298,8 +298,8 @@
   "Emit a `note right of <state>` for every state with one or
   more INTERNAL (action-only, target-less) `:on` / `:after` / `:always` /
   `:spawn :on-error` / `:spawn :on-done` candidates. Walks the state tree
-  the same way `collect-edges` does so a nested state's internal transitions are covered
-  too. Returns a flat seq of note lines. The chart self-anchors these
+  the same way `collect-edges` does so a nested state's internal transitions
+  are covered too. Returns a flat seq of note lines. The chart self-anchors these
   candidates (`:internal? true`) and SCXML emits them as target-less
   `<transition>`s, so the three emitters agree."
   [root-path states]
