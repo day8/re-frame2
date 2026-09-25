@@ -265,8 +265,8 @@
      intended play (e.g. the second play of a multi-play variant whose
      `:auto-run?` defaults to false).
 
-     The same fresh 'Run play' the toolbar dropdown offers
-     (rf2-3x7nj.30.3): the one run owner resets the variant to its declared
+     The same fresh 'Run play' the toolbar dropdown offers:
+     the one run owner resets the variant to its declared
      start and runs that play (`rf.story.runtime/rerun!`). The reset clears
      the OTHER plays' run-states, so read each play's state right after
      triggering it — as the CI runner does."
