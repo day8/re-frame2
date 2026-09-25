@@ -12,10 +12,10 @@
 
   ## Composition order
 
-  Per `002-Runtime.md` §Decorator composition order + rf2-835ey the runtime walks
+  Per `002-Runtime.md` §Decorator composition order the runtime walks
   `(concat global-decorators story-decorators variant-decorators)` in
   declared order and groups by `:kind`. Global decorators are the
-  Storybook-`preview.ts`-parity layer (Finding F-1 — every variant
+  Storybook-`preview.ts`-parity layer (every variant
   inherits the project-wide stack):
 
   - `:hiccup` decorators — outermost wraps innermost. The first
@@ -36,7 +36,7 @@
   Unknown decorator-ids surface as an entry in the returned `:errors`
   vector; a run whose stack carries any REFUSES before a phase runs, with
   an `:rf.error/story-decorator-unresolved` `:error` assertion naming them
-  (`runtime/refuse-unresolved-decorators!`, rf2-3x7nj.30.6)."
+  (`runtime/refuse-unresolved-decorators!`)."
   (:require [re-frame.story.args      :as rf.story.args]
             [re-frame.story.plan      :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]))
@@ -72,11 +72,11 @@
   plan compile so a `[:arg key]` resolvable ONLY through a mode / cell /
   global / story layer (never the variant chain) substitutes cleanly
   rather than throwing `:rf.error/story-missing-arg`. The runtime's
-  `prepare-context` already compiles WITH `:run-args` and reads
+  `prepare-context` compiles WITH `:run-args` and reads
   `[:world :decorators]` off that plan; the canvas/controls/docs paths
   flow through `resolve-decorators` → here, so they must pass the SAME
   run layers to recompile the identical plan. Absent (a bare front-door
-  call) ⇒ the variant arg layer alone, exactly as before."
+  call) ⇒ the variant arg layer alone."
   ([variant-id] (collect-decorator-refs variant-id nil))
   ([variant-id run-args]
    (or (get-in (rf.story.plan/variant-plan variant-id
@@ -93,7 +93,7 @@
   into a per-reference body so downstream classification + fx-override
   materialisation see the user-supplied data.
 
-  Currently the only `:ref-args? true` shape we recognise is
+  The only `:ref-args? true` shape we recognise is
   `:fx-override` — `[<id> <fx-id> <response>]`. Future shapes (e.g. a
   ref-args-driven `:hiccup` decorator) can plug in here without
   touching the rest of decorator resolution.
@@ -226,9 +226,9 @@
   Each `<resolved-decorator>` carries `{:id ... :args [...] :body
   <registered-body>}`. Unknown decorators land in `:errors` instead of
   their kind-vector — the runtime refuses a run on them, carrying these
-  `:rf.error/decorator-*` maps on its refusal record (rf2-3x7nj.30.6).
+  `:rf.error/decorator-*` maps on its refusal record.
 
-  Composition order (per `002-Runtime.md` §Decorator composition order + rf2-835ey global decorators):
+  Composition order (per `002-Runtime.md` §Decorator composition order):
   - `:hiccup` — outermost wraps innermost. Global decorators come first
     (outermost), story decorators second, variant decorators last
     (innermost).
@@ -240,11 +240,11 @@
   shape `rf.story.args/resolve-args` takes. v1 modes carry no decorators (per
   `001-Authoring.md` §Registration macros modes are `:args`-only, so the active modes never
   perturb the decorator REFS), but the run layers must still be threaded
-  into the plan compile (rf2-eyrpr): a `[:arg key]` resolvable ONLY
+  into the plan compile: a `[:arg key]` resolvable ONLY
   through a mode / cell / global / story layer would otherwise throw
   `:rf.error/story-missing-arg` when this front-door recompiles the plan
-  WITHOUT `:run-args` — the gap rf2-2cpoo (#3248) closed for the runtime
-  `prepare-context` path but not this canvas/controls/docs path."
+  WITHOUT `:run-args` — this canvas/controls/docs path threads them just as
+  the runtime `prepare-context` path does."
   ([variant-id]
    (resolve-decorators variant-id nil))
   ([variant-id opts]
@@ -259,8 +259,8 @@
 
   `resolve-decorators` is the registered-variant front door: it reads the
   FULL `[:world :decorators]` stack (globals + story + variant chain) off
-  the compiled plan (rf2-5fibj), then delegates here. The inline-plan
-  runtime path (rf2-5x1wt.20) and `render-variant` (via `render-inputs`'
+  the compiled plan, then delegates here. The inline-plan
+  runtime path and `render-variant` (via `render-inputs`'
   `:decorators`) call this directly with the SAME `[:world :decorators]`
   refs, so an inline plan absent from the side-table — and the live canvas
   + render-variant alike — all classify the identical stack. The decorator
