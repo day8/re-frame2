@@ -6,7 +6,7 @@
 
   Promotion is the deliberate act of curating ONE captured run artifact
   (typically a generated / replayed failure) into a NAMED regression
-  variant. It is a thin UI layer over the EXISTING
+  variant. It is a thin UI layer over the
   `re-frame.story.promotion` substrate — this ns reimplements NO promotion
   logic. It wires:
 
@@ -20,8 +20,8 @@
   the LIVE controls/canvas args snapshot; promotion's source is a CAPTURED
   ARTIFACT (a replayable run, often a failure). The two flows share the
   `review-dialog` review-then-commit skeleton but never the same entry
-  point or artifact-kind semantics (the conflation is an explicit
-  not-EPIC-ready condition per spec/021 §3).
+  point or artifact-kind semantics (spec/021 §3 keeps the two
+  apart).
 
   ## Non-destructive (spec/021 §3 — acceptance)
 
@@ -118,7 +118,7 @@
   3. The stepped program of the variant the result names
      (`rf.story.promotion/source-program`, read from the Story side-table),
      for a run whose script dispatched nothing — `:setup` preconditions and
-     `[:assert …]` checkpoints only, or no `:script` at all (rf2-vgthk).
+     `[:assert …]` checkpoints only, or no `:script` at all.
      `:setup` is not folded in: the dialog's default draft `:extends` that
      variant, which already supplies it.
 
@@ -131,9 +131,9 @@
   `[:arg]` the run substituted. They compile 3's program, and the artifact
   records them under `[:source :run-opts]` so promotion compiles the source
   with the same inputs: a required input stays capturable and an overridden
-  default stays the value that ran (rf2-cml0h). Promotion also carries them
+  default stays the value that ran. Promotion also carries them
   onto the promoted body's `:args`, so the `:setup` its default draft inherits
-  through `:extends` reads them too (rf2-rky08). `play-events` must come from
+  through `:extends` reads them too. `play-events` must come from
   the same opts, as `store-result!` compiles them. `:substrate` feeds no
   `[:arg]` and is not recorded. Without `run-opts` nothing is recorded and
   only the ambient arg layers compile in.
@@ -229,10 +229,10 @@
         ;; silently, so every slot `artifact->variant-body` can emit that
         ;; changes what the pasted variant DOES must be here:
         ;; `:network` / `:fx-overrides` are the runnable world the substrate
-        ;; lifts off the artifact (rf2-vf8es) — without them a pasted
-        ;; regression runs against real HTTP and real effects (rf2-siyxz);
-        ;; `:checks` / `:assertions` are the source expectations it carries
-        ;; (rf2-5vmog), composed checks included (rf2-6h2z3) — without them
+        ;; lifts off the artifact — without them a pasted
+        ;; regression runs against real HTTP and real effects;
+        ;; `:checks` / `:assertions` are the source expectations it carries,
+        ;; composed checks included — without them
         ;; it cannot fail.
         order      [:doc :extends :network :fx-overrides :setup :script :checks :assertions :tags :args :run-artifact]
         body-keys  (->> order
@@ -241,7 +241,7 @@
                                   [k (pr-str (get body k))])))
                         vec)]
     ;; `rf.story` — the canonical `re-frame.story` alias, so the snippet
-    ;; pastes and runs verbatim in a stories namespace (rf2-0ae7o.6).
+    ;; pastes and runs verbatim in a stories namespace.
     (rf.story.predicates/reg-variant-form "rf.story" variant-id body-keys)))
 
 ;; ===========================================================================
