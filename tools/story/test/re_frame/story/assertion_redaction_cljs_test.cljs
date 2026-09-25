@@ -1,6 +1,5 @@
 (ns re-frame.story.assertion-redaction-cljs-test
-  "Assertion-with-redaction scenario (rf2-shy6n; substrate wired by
-  rf2-ee38b.3).
+  "Assertion-with-redaction scenario.
 
   Per `tools/story/spec/015-Test-Coverage.md` §Assertion vocabulary
   scenarios, row 'Assertion-with-redaction (sensitive payload)':
@@ -11,22 +10,20 @@
   pipelines) and the contract is 'never leak the raw value to
   observation surfaces' per spec/015-Data-Classification.
 
-  ## Status: WIRED (rf2-ee38b.3); migrated to frame-owned classification
-  ## (rf2-bsk1d9).
-  ##
-  ## The assertion evaluators (`evaluate-path-equals` /
-  ## `evaluate-path-matches` / `evaluate-sub-equals` in
-  ## `tools/story/src/re_frame/story/assertions.cljc`) project the
-  ## captured value through `re-frame.elision/elide-wire-value` (keyed
-  ## on the asserted path + the variant frame) BEFORE stamping `:actual`.
-  ## Durable app-db classification is FRAME-OWNED (EP-0015): a variant
-  ## declares its sensitive paths via the `:sensitive` slot on its body
-  ## (`:sensitive {:app-db [[:auth :token]]}`) and the runtime threads
-  ## them onto the variant's `make-frame` config — there is no public
-  ## post-creation `add-marks` / `set-marks` mutation. A sensitive path
-  ## records `:rf/redacted` instead of the raw value; a non-sensitive path
-  ## passes through unchanged. rf2-006y9b extends the same projection to
-  ## `:expected` / `:payload` / `:reason`."
+  The assertion evaluators (`evaluate-path-equals` /
+  `evaluate-path-matches` / `evaluate-sub-equals` in
+  `tools/story/src/re_frame/story/assertions.cljc`) project the
+  captured value through `re-frame.elision/elide-wire-value` (keyed
+  on the asserted path + the variant frame) BEFORE stamping `:actual`.
+  Durable app-db classification is FRAME-OWNED (EP-0015): a variant
+  declares its sensitive paths via the `:sensitive` slot on its body
+  (`:sensitive {:app-db [[:auth :token]]}`) and the runtime applies
+  them as EP-0025 commit-plane classification effects into the variant
+  frame's elision registry right after `make-frame` — there is no
+  public post-creation `add-marks` / `set-marks` mutation. A sensitive
+  path records `:rf/redacted` instead of the raw value; a
+  non-sensitive path passes through unchanged. The same projection
+  covers `:expected` / `:payload` / `:reason`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -48,9 +45,8 @@
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
   ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001 (rf2-vzld77 / rf2-ixb0bq): a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>], NOT the retired app-db
-  ;; `:rf/runtime` path — mirror `re-frame.machines`.
+  ;; EP-0001: a runtime-db sub reading
+  ;; [:rf.runtime/machines :snapshots <id>] — mirror `re-frame.machines`.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -63,20 +59,21 @@
 (use-fixtures :each {:before reset-all!})
 
 ;; ===========================================================================
-;; rf2-ee38b.3 / rf2-bsk1d9 — assertion-with-redaction (frame-owned)
+;; Assertion-with-redaction (frame-owned)
 ;;
 ;;   A variant declares its sensitive app-db paths at registration via the
 ;;   EP-0015 frame-owned `:sensitive` slot on its body
-;;   (`:sensitive {:app-db [[:auth :token]]}`). The runtime threads that onto
-;;   the variant's `make-frame` config, so the classification is installed as
-;;   part of frame creation — a single `run-variant` is enough; there is NO
-;;   public post-creation `add-marks` / `set-marks` mutation. An assertion
-;;   against that path records `:rf/redacted` in `:actual` (rf2-ee38b.3) and
-;;   in `:expected` / `:payload` / `:reason` (rf2-006y9b), NOT the raw token.
+;;   (`:sensitive {:app-db [[:auth :token]]}`). The runtime applies that as
+;;   commit-plane classification effects into the variant frame's elision
+;;   registry right after `make-frame`, before the setup runs — a single
+;;   `run-variant` is enough; there is NO public post-creation `add-marks` /
+;;   `set-marks` mutation. An assertion against that path records
+;;   `:rf/redacted` in `:actual` and in `:expected` / `:payload` / `:reason`,
+;;   NOT the raw token.
 ;; ===========================================================================
 
 (deftest assertion-path-equals-redacts-sensitive-actual
-  (testing "rf2-bsk1d9: a frame-owned :sensitive declaration drives
+  (testing "a frame-owned :sensitive declaration drives
             :rf.assert/path-equals to record :rf/redacted (not the raw token)"
     (rf/reg-event :auth/login
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-12345")}))
@@ -98,7 +95,7 @@
                 ;; the raw value before projection.
                 (is (true? (:passed? pe))
                     "redaction does not change the pass/fail outcome")
-                ;; rf2-006y9b — :expected / :payload / :reason MUST NOT carry
+                ;; :expected / :payload / :reason MUST NOT carry
                 ;; the raw secret either (the whole record egresses to the
                 ;; test pane / MCP / log sinks).
                 (is (= :rf/redacted (:expected pe))
@@ -111,7 +108,7 @@
               (done)))))))
 
 (deftest assertion-path-equals-sentinel-expected-passes
-  (testing "rf2-006y9b: an author who pins the documented :rf/redacted
+  (testing "an author who pins the documented :rf/redacted
             sentinel as :expected against a frame-owned sensitive path gets a
             PASSING assertion (the sentinel contract), with no raw value anywhere"
     (rf/reg-event :auth/login2
@@ -136,7 +133,7 @@
               (done)))))))
 
 (deftest assertion-path-equals-non-sensitive-passes-value-through
-  (testing "rf2-ee38b.3: a NON-sensitive path records the raw value
+  (testing "a NON-sensitive path records the raw value
             unchanged (redaction only fires on marked paths)"
     (rf/reg-event :ui/set-label (fn [{:keys [db]} _] {:db (assoc db :label "hello")}))
     (rf.story/reg-variant :story.redaction.plain/probe
@@ -154,7 +151,7 @@
               (done)))))))
 
 (deftest assertion-sub-equals-redacts-on-path-bearing-sub-vec
-  (testing "rf2-bsk1d9: :rf.assert/sub-equals redacts :actual + :expected when
+  (testing ":rf.assert/sub-equals redacts :actual + :expected when
             the sub-vec carries the app-db path as its args (the projection
             keys on (rest sub-vec)) and that path is frame-owned sensitive.
             A parameterised sub [:sub/id :user :ssn] → args path [:user :ssn];
@@ -163,8 +160,8 @@
 
             Note: a bare sub-id whose args carry NO app-db path (e.g.
             [:user/ssn]) cannot be auto-redacted at the assertion layer —
-            full sub-marker propagation (spec/015 §Derived sensitivity) is a
-            sub-engine feature tracked separately. The assertion layer
+            classification does not propagate through a sub's derivation
+            (spec/015 §No propagation, no taint). The assertion layer
             redacts what its path-key reaches."
     (rf/reg-event :session/save-pii
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :ssn] "123-45-6789")}))
@@ -185,7 +182,7 @@
                 (is (= :rf/redacted (:actual se))
                     "sub-equals :actual redacts the sensitive value")
                 (is (= :rf/redacted (:expected se))
-                    "sub-equals :expected is projected too (rf2-006y9b)")
+                    "sub-equals :expected is projected too")
                 (is (true? (:passed? se))
                     "redaction does not change the pass/fail outcome"))
               (rf.story/destroy-variant! :story.redaction.sub-equals/probe)
