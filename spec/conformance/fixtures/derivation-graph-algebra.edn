@@ -1,16 +1,15 @@
-;; Conformance fixture: derivation-graph/algebra-subs-machines (EP-0014,
-;; rf2-k0meap.3; capability split rf2-djofbh)
+;; Conformance fixture: derivation-graph/algebra-subs-machines (EP-0014)
 ;;
 ;; The host-agnostic corpus pin for the EP-0014 derivation/process ALGEBRA
 ;; GRAPH (spec/Derivations.md §Graph inspection + §Conformance; EP-0014
 ;; §Validation / Conformance — "Source lowering", "Static graph", "Storage
-;; classification"). Before this fixture the EP-0014 graph laws were pinned
-;; ONLY by implementation-local CLJS/JVM tests (the per-family algebra-view
-;; suites + the composer test); the shared corpus had NO derivation/algebra
-;; graph operator, so a future PORT could pass the whole corpus while missing
-;; the lowering / node-edge shape / storage classification the EP names.
+;; classification"). Without a corpus graph operator the EP-0014 graph laws
+;; would be pinned ONLY by implementation-local CLJS/JVM tests (the
+;; per-family algebra-view suites + the composer test), so a PORT could pass
+;; the whole corpus while missing the lowering / node-edge shape / storage
+;; classification the EP names.
 ;;
-;; SCOPE — the SUBS+MACHINES SUBSET (rf2-djofbh). This fixture proves the
+;; SCOPE — the SUBS+MACHINES SUBSET. This fixture proves the
 ;; subscription `:derivation` member and the machine `:process` member ONLY,
 ;; over the STATIC graph. It deliberately does NOT exercise flows, resources,
 ;; routes, route-owned resource activation, the live graph, or the resource
