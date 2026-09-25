@@ -1,6 +1,5 @@
 (ns day8.re-frame2-xray.static.shell-cljs-test
-  "CLJS wiring + render tests for Xray's Static surface scaffold
-  (rf2-o5f5f.1).
+  "CLJS wiring + render tests for Xray's Static surface scaffold.
 
   ## What's under test
 
@@ -16,10 +15,7 @@
 
     3. Static shell renders the 3-layer chrome (ribbon · tab-bar ·
        detail panel) with 5 sub-tabs (Machines / Routes / Schemas /
-       Flows / Interceptors — rf2-b2fif dropped the Views + Events
-       sub-tabs). Placeholder cards are only rendered for tabs
-       without a real panel installed yet — see `filled-static-tab-
-       ids` below.
+       Flows / Interceptors), each mounting a real panel.
 
     4. `:rf.xray.static/select-tab` flips the Static-scoped tab
        slot (does NOT clobber the Dynamic `:rf.xray/selected-tab`).
@@ -27,8 +23,8 @@
     5. Sub-tab routing — clicking a Static tab swaps the detail
        panel; an unknown tab id is rejected by the event handler.
 
-    6. The mode pill renders as a two-segment radio with the active
-       segment carrying `aria-checked='true'`.
+    6. The mode control renders as a native `<select>` whose `:value`
+       and `data-active-mode` track the active mode.
 
   ## Pure hiccup walk
 
@@ -53,9 +49,8 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
-  ;; `:all` tier, which already resets the trace-collector rings the old
-  ;; init reset a SECOND time) into one owner; `:post-reset` carries the
+  ;; `make-xray-runtime-fixture` owns the reset (plain-atom + `:all` tier,
+  ;; which resets the trace-collector rings too); `:post-reset` carries the
   ;; suppressed-count + static-persistence slate.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
@@ -64,9 +59,8 @@
 
 ;; ---- hiccup walker (mirrors shell_cljs_test) ----------------------------
 
-;; The private expand-tree / hiccup-seq / find-by-testid copies were
-;; semantically identical to `re-frame.test-helpers`; tests call
-;; `rf.test-helpers/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
+;; walker facade.
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -139,17 +133,17 @@
     (is (= :dynamic (static-persistence/<-raw (static-persistence/->raw :dynamic))))
     (is (= :static  (static-persistence/<-raw (static-persistence/->raw :static))))))
 
-;; The three real-storage rows that lived here — `persistence-load-
-;; default-empty-slot`, `persistence-save-and-load-round-trip` and
-;; `persistence-fx-installed-by-set-mode` — moved to
-;; `day8.re-frame2-xray.static.shell-dom-cljs-test` under rf2-r51p.
-;; Each was wrapped in `(when (and (exists? js/window) (.-localStorage
-;; js/window)) ...)`, which is FALSE under `:node-test` (no jsdom in
-;; any dependency list), while `:browser-test`'s `.*-dom-cljs-test$`
-;; `:ns-regexp` never loaded this file at all — so they executed in
-;; NEITHER lane. Their new home ends `-dom-cljs-test`, which BOTH
-;; builds select, so the rows now run for real in the browser and stay
-;; inert on node behind `ls/available?`.
+;; The three real-storage rows — `persistence-load-default-empty-slot`,
+;; `persistence-save-and-load-round-trip` and
+;; `persistence-fx-installed-by-set-mode` — live in
+;; `day8.re-frame2-xray.static.shell-dom-cljs-test`. Here, wrapped in
+;; `(when (and (exists? js/window) (.-localStorage js/window)) ...)`,
+;; they would execute in NEITHER lane: the guard is FALSE under
+;; `:node-test` (no jsdom in any dependency list), and `:browser-test`'s
+;; `.*-dom-cljs-test$` `:ns-regexp` never loads this file at all. A
+;; namespace ending `-dom-cljs-test` is selected by BOTH builds, so the
+;; rows run for real in the browser and stay inert on node behind
+;; `ls/available?`.
 
 ;; -------------------------------------------------------------------------
 ;; (3) Static surface — 3-layer chrome render
@@ -209,14 +203,12 @@
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-static-tab-ids
-  ;; rf2-uhsqb added :flows; rf2-o5f5f.6 added :interceptors.
-  ;; rf2-b2fif removed :views + :events (info already in source code).
+  ;; There is no :views or :events tab: that information is in the
+  ;; source code.
   [:machines :routes :schemas :flows :interceptors])
 
 (deftest static-tab-bar-renders-five-tabs
-  (testing "Static L3 tab bar renders 5 sub-tabs per parent-epic
-            rf2-o5f5f sub-bead list + rf2-uhsqb Flows + rf2-o5f5f.6
-            Interceptors − rf2-b2fif Views + Events drop
+  (testing "Static L3 tab bar renders 5 sub-tabs
             (Machines / Routes / Schemas / Flows / Interceptors)"
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -248,24 +240,23 @@
                    (:aria-selected attrs))
                 (str "tab " tab-id " aria-selected matches the active tab"))))))))
 
-;; rf2-sdqsla — the rf2-o5f5f placeholder roll-out is complete: every
-;; Static sub-tab (:machines :routes :schemas :flows :interceptors) ships
-;; a real panel, so `placeholder-card` was removed from the shell. The
-;; per-tab `*-mounts-live-panel` tests below assert each real panel mounts;
-;; there is no longer an unfilled-tab placeholder path to cover.
+;; Every Static sub-tab (:machines :routes :schemas :flows :interceptors)
+;; ships a real panel, and the shell has no `placeholder-card`. The per-tab
+;; `*-mounts-live-panel` tests assert each real panel mounts; there is no
+;; unfilled-tab placeholder path to cover.
 
 (deftest static-machines-mounts-live-panel
-  (testing "rf2-o5f5f.2 — the :machines sub-tab mounts the live Static
+  (testing "the :machines sub-tab mounts the live Static
             Machines panel.
 
-            RE-AUTHORED ONE LEVEL UP BY rf2-k97c.3. `static.machines.
-            panel/panel` is now an `rf.fresco/defview` behind an
-            `as-component` bridge, so this hiccup walk reaches the
-            bridge's `[:>]` interop head and stops — `rf-xray-static-
+            The row asserts ONE LEVEL UP from the panel's own testid.
+            `static.machines.panel/panel` is an `rf.fresco/defview`
+            behind an `as-component` bridge, so this hiccup walk reaches
+            the bridge's `[:>]` interop head and stops — `rf-xray-static-
             machines-panel` is committed by React, not present in the
-            tree. Asserting the testid here would from now on be
-            asserting the walker's reach rather than the mount, which is
-            the hollow-gate shape. What the shell owes is that the slot
+            tree. Asserting the testid here would be asserting the
+            walker's reach rather than the mount, which is the
+            hollow-gate shape. What the shell owes is that the slot
             mounts the REGISTRY's `:panel` and that no placeholder
             renders; the boundary's own first paint is W1 in
             `static/machines/panel_fresco_boundary_dom_cljs_test`."
@@ -300,7 +291,7 @@
 (deftest static-select-tab-rejects-unknown-ids
   (testing ":rf.xray.static/select-tab ignores ids not in the
             inventory — guards against typos / drift between the
-            sibling beads and this scaffold"
+            tab panels and this scaffold"
     (xray-setup!)
     (frame-dispatch [:rf.xray.static/select-tab :machines])
     (frame-dispatch [:rf.xray.static/select-tab :not-a-tab])
@@ -323,12 +314,11 @@
 ;; -------------------------------------------------------------------------
 
 (deftest static-ribbon-has-no-left-edge-stripe
-  (testing "rf2-y8doi.30 — the Static ribbon must NOT paint a left-edge
-            accent stripe. Mike removed the identical 2-px blue
-            `border-left` from the DYNAMIC ribbon on sight (rf2-4yemd,
-            'not in the Figma authority'; pinned by
+  (testing "the Static ribbon must NOT paint a left-edge
+            accent stripe. The DYNAMIC ribbon paints none — a 2-px blue
+            `border-left` is not in the Figma authority, pinned by
             `chrome-ribbon-has-no-left-edge-stripe` in the Dynamic shell
-            suite), and the Static ribbon mirrors that ribbon — so the
+            suite — and the Static ribbon mirrors that ribbon, so the
             two surfaces must agree. This is the Static mirror of that
             pin."
     (xray-setup!)
@@ -344,23 +334,16 @@
         (is (nil? (:border-left style))
             "Static ribbon root has no :border-left in its inline style")))))
 
-;; rf2-y8doi.30 — `stripe-token-single-blue-accent-both-modes` was
-;; DELETED here along with the four `stripe-*` helpers it exercised. It
-;; pinned that both modes resolve to the same single `:accent`, which
-;; was true and is now moot: the ribbon paints no left-edge stripe at
-;; all, and the row above pins THAT.
-
 ;; -------------------------------------------------------------------------
-;; (7) Mode dropdown — compact single-select (rf2-4vp5j reshape)
+;; (7) Mode dropdown — compact single-select
 ;; -------------------------------------------------------------------------
 ;;
-;; rf2-4vp5j replaced the two-button radio pill with a compact `<select>`
-;; dropdown — mode is an occasional-use control. (rf2-y8doi.30 struck the
-;; clause that said "the accent stripe carries the mode signal": no
-;; ribbon paints that stripe, so the dropdown's own `data-active-mode`
-;; and the chrome silhouette are what carry it.) Both `<option>` testids
-;; + the `data-active-mode` attribute remain so the inventory +
-;; active-mode are assertable.
+;; The mode control is a compact `<select>` dropdown rather than a radio
+;; pill — mode is an occasional-use control. No ribbon paints an accent
+;; stripe, so the dropdown's own `data-active-mode` and the chrome
+;; silhouette carry the mode signal. Both `<option>` testids + the
+;; `data-active-mode` attribute make the inventory + active-mode
+;; assertable.
 
 (deftest mode-dropdown-renders-both-options
   (testing "mode control is a single-select dropdown with Dynamic +
@@ -403,23 +386,17 @@
 
 (deftest surface-composer-renders-static-when-mode-static
   (testing "with mode :static, the composer renders the Static surface
-            (per rf2-8l3uk — Static mode is unconditionally available).
+            (Static mode is unconditionally available).
 
-            RE-AUTHORED TWICE BY rf2-k97c.3, and it is back where it
-            started. #9644 made `static-shell/surface` a `defview` behind
-            an `as-component` bridge, so the walk stopped at the
-            bridge's `[:>]` head and the row could only assert that the
-            Static arm mounted exactly `surface-bridge`. The Dynamic
-            composer is a BOUNDARY now, so it heads
-            `[static-shell/surface {}]` DIRECTLY and that bridge is
-            deleted — and the node lane's door
+            The Dynamic composer is a BOUNDARY, so it heads
+            `[static-shell/surface {}]` DIRECTLY, and the node lane's door
             (`test-helpers.dynamic-shell-tree`) composes the Static arm
             from `test-helpers.static-shell-tree`, which drives the
             shell's own `*-tree` fns. So `rf-xray-static-surface` is
-            reachable again, and reaching it is not hollow: the testid,
+            reachable, and reaching it is not hollow: the testid,
             the flex column and the `data-rf-xray-mode` attribute all
             come from `static-shell/surface-tree`, the shipped
-            definition. The Static surface's own first PAINT is still
+            definition. The Static surface's own first PAINT is
             W1 in `static/shell_fresco_boundary_dom_cljs_test`."
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :static])
@@ -434,7 +411,7 @@
 
 (deftest surface-composer-renders-dynamic-when-mode-dynamic
   (testing "with mode :dynamic, the composer renders the Dynamic chrome
-            (per rf2-8l3uk — Static mode is unconditionally available)"
+            (Static mode is unconditionally available)"
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :dynamic])
     (rf/with-frame :rf/xray
@@ -445,9 +422,9 @@
             "Static surface does NOT mount")))))
 
 (deftest ribbon-always-mounts-mode-pill
-  (testing "the Dynamic ribbon ALWAYS mounts the mode pill (per
-            rf2-8l3uk — the `:rf.xray/static-mode?` feature gate was
-            removed; Static mode is unconditionally available)"
+  (testing "the Dynamic ribbon ALWAYS mounts the mode pill (there is
+            no `:rf.xray/static-mode?` feature gate; Static mode is
+            unconditionally available)"
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/ribbon-tree)]
@@ -485,12 +462,10 @@
             is mode-INDEPENDENT and persists across mode toggles even
             though the registrar itself is process-global.
 
-            rf2-k97c.3 — driven through the Static shell's own tree
-            composer rather than through `shell/surface-composer`, whose
-            walk now stops at the Fresco bridge. The claim is unchanged
-            and the ribbon under test is the shipped one; only the door
-            onto it moved. `surface-composer-renders-static-when-mode-
-            static` above is what still pins the composer's Static arm."
+            Driven through the Static shell's own tree composer, so the
+            ribbon under test is the shipped one.
+            `surface-composer-renders-static-when-mode-static` above is
+            what pins the composer's Static arm."
     (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
@@ -508,7 +483,7 @@
             canonical order"
     (is (= [:machines :routes :schemas :flows :interceptors]
            (mapv :id (static-shell/tabs)))
-        "5 tabs in canonical order (rf2-b2fif dropped :views + :events)")
+        "5 tabs in canonical order")
     (doseq [{:keys [id label mnem panel]} (static-shell/tabs)]
       (is (keyword? id) (str "id is keyword for " id))
       (is (string? label) (str "label is a string for " id))
