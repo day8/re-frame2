@@ -1,17 +1,16 @@
 (ns re-frame.story.ui.test-mode.visual-a11y-view
-  "The `:test` mode pane's VISUAL + A11Y check-results section (rf2-ba86n.15,
-  tools/story/spec/021-Story-UI-Test-And-Evidence.md §4 — visual and a11y
-  checks). Unblocked by #2484, which wired the structural-a11y executor into
-  the run path so the run path now produces `:rf.assert/a11y-structural`
-  verdicts + browser-tier visual results in the unified
-  `re-frame.story.result` run-result.
+  "The `:test` mode pane's VISUAL + A11Y check-results section
+  (tools/story/spec/021-Story-UI-Test-And-Evidence.md §4 — visual and a11y
+  checks). The run path produces `:rf.assert/a11y-structural` verdicts +
+  browser-tier visual results in the unified `re-frame.story.result`
+  run-result.
 
   ## What this presents (spec/021 §4)
 
   Visual / a11y checks are runner-tiered assertions on the SAME run-result
   model (`re-frame.story.play.browser` — \"a finding is an assertion record
   like any other; no new run-result slot\"). The generic assertions table
-  (`view/rows-section`) already lists every record, but it renders a
+  (`view/rows-section`) lists every record, but it renders a
   browser-tier finding as a raw `:actual` EDN blob. This dedicated component
   presents those findings READABLY:
 
@@ -32,7 +31,7 @@
 
   The rows come from `re-frame.story.ui.test-mode.pure/browser-result-rows`,
   which READS the browser-tier records off the unified run-result's
-  `:assertions` slot — the SAME source Test mode + docs already project
+  `:assertions` slot — the SAME source Test mode + docs project
   (`re-frame.story.assertions/browser-assertion-ids` selects them). No
   parallel result vocabulary, no second accumulator.
 
@@ -114,7 +113,7 @@
 ;; (✖) rather than the shared `theme.status` descriptor's `!`, so a browser-
 ;; tier executor error reads as a hard failure-of-the-check (not a soft
 ;; warning) inline in the result row. Colour + the other three glyphs derive
-;; from the shared status vocabulary (rf2-8fr3yd dedup).
+;; from the shared status vocabulary.
 (def ^:private error-glyph "✖")
 
 (def ^:private kind-title
@@ -151,7 +150,7 @@
   the executor's detail line, and (axe) the impact level. Never a raw EDN
   blob.
 
-  Per rf2-ffu8t the axe tier now carries a real `:selector` (recovered from
+  The axe tier carries a real `:selector` (recovered from
   the violation's `:nodes` → `:target`); when present the locus is tagged
   `data-selector` so the result UI exposes the source link the spec/021 §4
   MUST requires. A structural finding has no selector (the `:hiccup` tier
@@ -159,13 +158,11 @@
   so it surfaces only its hiccup-tag locus, honestly."
   [findings]
   [:ul {:style (:findings styles) :data-test "story-va-findings"}
-   ;; The key rides in the `:li`'s own ATTRIBUTE MAP (rf2-32ib), not on
-   ;; reader metadata. Metadata on a vector LITERAL is read by Reagent, so
-   ;; unlike the call-form site in `visual-a11y-section` this one is not
-   ;; dead today — it is LATENT, dying if/when Story's view layer renders
-   ;; through a Fresco boundary, whose codec reads `:key` from props and
-   ;; Clojure metadata nowhere. The attrs map satisfies both renderers, and
-   ;; the key expression is unchanged.
+   ;; The key rides in the `:li`'s own ATTRIBUTE MAP, not on reader
+   ;; metadata. Reagent reads metadata on a vector LITERAL, but a key there
+   ;; would be lost wherever Story's view layer renders through a Fresco
+   ;; boundary, whose codec reads `:key` from props and Clojure metadata
+   ;; nowhere. The attrs map satisfies both renderers.
    (for [[i {:keys [finding locus detail impact rule selector]}] (map-indexed vector findings)]
      [:li {:key         (str rule "#" i)
            :style       (:finding-row styles)
@@ -212,8 +209,8 @@
   "One visual-snapshot check card. On `:cannot-run` (the headless / no-pixel
   runner) shows the refusal honestly; otherwise presents the captured
   screenshot/snapshot identity (the reused `content-hash` regression key)
-  and any baseline it diffed against. A real pixel-diff image lands with the
-  `:pixels` browser runner; the identity is the regression artifact today."
+  and any baseline it diffed against. The identity, not a pixel-diff
+  image, is the regression artifact."
   [{:keys [status reason snapshot baseline]}]
   [:div {:style       (:card styles)
          :data-test   "story-va-card"
@@ -252,20 +249,19 @@
       [:div {:style     (:section styles)
              :data-test "story-test-visual-a11y-section"}
        [:div {:style (:section-h styles)} "Visual & accessibility"]
-       ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata
-       ;; (rf2-32ib). `^{:key …}` here sat on the `(if …)` CALL FORM, and
-       ;; Clojure metadata on a call form is discarded the moment the form
-       ;; evaluates — the vector the `if` returns carries none of it. So no
-       ;; key reached React on ANY substrate, and neither card supplies one
-       ;; by another route (both root at a `[:div]` whose attrs map has no
-       ;; `:key`). A lost key does not fail: it degrades silently into
-       ;; index-based reconciliation, which paints identically and corrupts
-       ;; card identity only once the row seq changes shape.
+       ;; THE KEY RIDES ON A KEYED FRAGMENT, not on reader metadata.
+       ;; `^{:key …}` on the `(if …)` CALL FORM would be discarded the
+       ;; moment the form evaluates — Clojure metadata on a call form never
+       ;; reaches the vector the `if` returns. So no key would reach React
+       ;; on ANY substrate, and neither card supplies one by another route
+       ;; (both root at a `[:div]` whose attrs map has no `:key`). A lost
+       ;; key does not fail: it degrades silently into index-based
+       ;; reconciliation, which paints identically and corrupts card
+       ;; identity only once the row seq changes shape.
        ;;
        ;; The fragment carries the key without adding a DOM node, and both
        ;; renderers honour it — Reagent reads meta then props, Fresco's
-       ;; codec reads props and Clojure metadata nowhere. The key
-       ;; EXPRESSION is unchanged.
+       ;; codec reads props and Clojure metadata nowhere.
        (for [[i {:keys [kind] :as row}] (map-indexed vector rows)]
          [:<> {:key (str kind "#" i)}
           (if (= kind :visual)
