@@ -1,9 +1,8 @@
 (ns login-form.events
   "Login-form testbed events — five-state login flow.
 
-  The Story tutorial's index page opens with a five-state login-form
-  scenario (`docs/story/index.md:13-26`) and never delivers code for
-  it. This testbed promotes the scenario to a runnable variant set.
+  The Story tutorial (`docs/story/index.md`) is built on this testbed:
+  its five-state login-form scenario is this runnable variant set.
 
   The five states from the tutorial's index page:
 
@@ -97,7 +96,7 @@
     ;; credentials" to "Invalid credentials (attempt 2)" — the
     ;; visible difference between :error and :submitting-retry
     ;; once the retry lands.
-    ;; rf2-ibksxg — the classified failure map rides under :error on the
+    ;; The classified failure map rides under :error on the
     ;; canonical reply.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
