@@ -1,13 +1,12 @@
 (ns re-frame.bench.fresco.hd8-app
-  "HD-008's `:advanced` entry — the composed donor arm's published run
-  (rf2-2rtt6.7).
+  "HD-008's `:advanced` entry — the composed donor arm's published run.
 
   One bundle, three runs. `?adapter=uix|reagent|slim` picks which adapter
   `rf/init!` installs, because Spec 006 allows exactly one per process and
   the two Reagent paths need the ratom spine while the frontier arm and
   both donor rungs ride React hooks. Everything else — the arms, the
   witnesses, the parity gate, both clocks — is
-  [[re-frame.bench.fresco.hd8-rows]]'s, unchanged, so the method is one
+  [[re-frame.bench.fresco.hd8-rows]]'s, used as they are, so the method is one
   thing a reader checks once.
 
   ## Why the numbers come from here and not from a test namespace
@@ -28,9 +27,8 @@
   the positive control, then the lowering correctness check, then the
   clocks. Nothing is published from a run whose gates did not pass.
 
-  Built and driven by
-  `implementation/fresco/test/re_frame/bench/fresco/hd8_run.cjs`, on
-  rf2-2rtt6.2's `:fresco-bench` build id.
+  Built and driven by `hd8_run.cjs` beside this file, on the lane's
+  `:fresco-bench` build id.
 
   Normative owner: `docs/design/fresco/decisions.md` HD-008."
   (:require [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -102,8 +100,7 @@
                        ;; not set are absent rather than zero: a failed
                        ;; read-back carries its counts, a window beneath the
                        ;; clock's grain carries the arms, the measured tick
-                       ;; and how many ticks the worst of them was worth
-                       ;; (rf2-d2tzk).
+                       ;; and how many ticks the worst of them was worth.
                        (cond-> {"unpublished" (name (:unpublished v))}
                          (:unverified v)   (assoc "unverified" (:unverified v))
                          (:of v)           (assoc "of" (:of v))
@@ -131,12 +128,12 @@
                ;; blob nobody parses — the same argument that put the yield
                ;; correction's verdict on this channel. A reader who copies a
                ;; ratio out of the table gets the resolution of its
-               ;; denominator on the line above it (rf2-d2tzk).
+               ;; denominator on the line above it.
                ;; The WORST round per arm and the grain it is measured
                ;; against — the two numbers the table prints. The per-round
                ;; series stays in the EDN record: exporting a figure nothing
                ;; reads is how a driver ends up with three refusals it
-               ;; computes and never consults (rf2-rr6do).
+               ;; computes and never consults.
                "grain" (when-let [g (:grain r)]
                          (clj->js {"tick"  (:tick g)
                                    "worst" (into {} (map (fn [[k v]] [(name k) v])) (:worst g))}))})
@@ -156,18 +153,17 @@
   A corrected row that appears in the table looking uncorrected is the
   exact fault this contract exists to prevent, and the table is what a
   reader copies a figure out of. That argument covers the ENDPOINTS too:
-  this export used to carry the verdict and not the corrected bands, so a
-  `:corrected` run announced that both bands publish while the copyable
-  table could print only the unadjusted one (rf2-b69lw, from the PR #7282
-  audit).
+  an export carrying the verdict and not the corrected bands would let a
+  `:corrected` run announce that both bands publish while the copyable
+  table could print only the unadjusted one.
 
   The corrected bands arrive here already wearing the original row's
   publication mask (`hd8-rows`'s `inherit-publication-mask`): an arm the
   DOM read-back unpublished carries its `:unpublished` marker in the
   corrected summary too, and [[pack-bands]] exports the marker exactly as
   it does for the unadjusted band — one reader, one shape, no numeric
-  band for a figure the read-back refused (rf2-b69lw, from the PR #7295
-  audit). The driver's table holds the same line from its own side."
+  band for a figure the read-back refused. The driver's table holds the
+  same line from its own side."
   [row-name v]
   (let [acc (or (.-HD8_CORRECTION js/window) #js {})
         o   #js {"verdict" (name (:verdict v))
@@ -212,12 +208,11 @@
         _        (install! which)
         arm-ids  (get rf.bench.fresco.hd8-rows/arm-ids-for which)
         write-ids (get rf.bench.fresco.hd8-rows/write-arm-ids-for which)
-        ;; THE CLOCK'S OWN GRAIN, taken in the run it governs. Every page in
-        ;; this studio asserted "Chrome clamps performance.now() to 100 µs"
-        ;; and then reasoned against that constant; the write rows' floor is
-        ;; a single commit and sits ON it, so the number decides whether
-        ;; those rows have a magnitude at all and is measured rather than
-        ;; quoted (rf2-d2tzk).
+        ;; THE CLOCK'S OWN GRAIN, taken in the run it governs. The write
+        ;; rows' floor is a single commit and sits ON the grain, so the
+        ;; number decides whether those rows have a magnitude at all and is
+        ;; measured rather than quoted as a constant ("Chrome clamps
+        ;; performance.now() to 100 µs").
         clock    (rf.bench.fresco.hd8-rows/clock-resolution! clock-resolution-samples)]
     (rf.bench.fresco.lane/leave-act-environment!)
     (doseq [id arm-ids] (rf.bench.fresco.hd8-rows/ensure-frame! id))
@@ -254,15 +249,12 @@
                              (pr-str (remove :ok (:checks st))))
                         {:checks (:checks st)}))))
 
-    ;; ---- gate 0b: RETIRED WITH `:donor-fh` (rf2-m4rpa) ---------------------
-    ;; `codecs-differ?` was fatal here, before anything was measured: it kept
-    ;; a `donor-fh / donor-r1` reading of 1.0 from being ambiguous between
-    ;; *the codecs cost the same* and *the arm ran one codec twice*. Retiring
-    ;; the fourth arm left it with no subject — there is ONE codec door now,
-    ;; and a single door cannot be the same code twice. It is NOT re-pointed
-    ;; at a surviving pair; the closing section of
-    ;; [[re-frame.bench.fresco.hd8-witnesses]] states the absence and gives
-    ;; the argument. `parity-can-fail?` below remains the anti-vacuity gate.
+    ;; ---- no codec-identity gate -------------------------------------------
+    ;; There is ONE codec door, and a single door cannot be the same code
+    ;; twice, so no gate asks whether two arms ran one codec; the closing
+    ;; section of [[re-frame.bench.fresco.hd8-witnesses]] states the absence
+    ;; and gives the argument. `parity-can-fail?` below is the anti-vacuity
+    ;; gate.
 
     ;; ---- the fairness gate, before any clock ------------------------------
     (let [problems (rf.bench.fresco.hd8-rows/parity-problems arm-ids)]
@@ -285,12 +277,11 @@
             ;; ---- the positive control, then the lowering check -------------
             (let [pc (record! :positive-control (rf.bench.fresco.hd8-rows/positive-control! 3 control-sampling))]
               (if-not (:within? pc)
-                ;; FAIL CLOSED. This used to `console.warn` and then measure
-                ;; everything anyway, so a run whose instrument could not see
-                ;; a change its own arithmetic PREDICTS still published a full
-                ;; clock table and still exited 0 — and the warning sat in a
-                ;; console log nobody reads beside numbers that looked fine
-                ;; (rf2-f5roa, from the PR #7263 audit). A control is the row
+                ;; FAIL CLOSED. A `console.warn` followed by measuring
+                ;; everything anyway would let a run whose instrument cannot
+                ;; see a change its own arithmetic PREDICTS publish a full
+                ;; clock table and exit 0 — with the warning in a console log
+                ;; nobody reads beside numbers that look fine. A control is the row
                 ;; that separates `this arm is cheap` from `the instrument is
                 ;; not running`; if it misses, nothing measured after it is a
                 ;; measurement, so nothing after it runs.
@@ -332,16 +323,15 @@
                               ;; not swallowed until the end: an arm whose
                               ;; unmount failed leaves its watches and its
                               ;; caches standing, and the next row is then
-                              ;; measured on a page that is carrying them
-                              ;; (rf2-f5roa, from the PR #7263 audit).
+                              ;; measured on a page that is carrying them.
                               (rf.bench.fresco.hd8-rows/assert-teardown-clean! (str "mount-" (name (:id wit)))))
                             ;; The harness microtask, priced before the write rows
                             ;; and outside every one of their windows. A
                             ;; microtask-scheduled arm's window does not contain
-                            ;; that turn and its rivals' do (rf2-b69lw), so the
-                            ;; size of the asymmetry is published beside the rows
-                            ;; — and, since this bead, ADJUDICATED against them
-                            ;; rather than left beside them as an observation.
+                            ;; that turn and its rivals' do, so the size of the
+                            ;; asymmetry is published beside the rows — and
+                            ;; ADJUDICATED against them rather than left beside
+                            ;; them as an observation.
                             (let [yc* (volatile! nil)]
                               (-> (rf.bench.fresco.hd8-rows/yield-cost! write-sampling)
                                   (.then (fn [yc]
@@ -360,15 +350,13 @@
                                         (record-row! :write-bulk bulk)
                                         (rf.bench.fresco.hd8-rows/assert-teardown-clean! "write-bulk")
                                         ;; ---- THE CORRECTION-OR-REFUSAL CONTRACT ----
-                                        ;; The asymmetry between the two window shapes
-                                        ;; used to be recorded here and nothing else:
-                                        ;; the run exited 0 and emitted unadjusted
-                                        ;; ratios over a slim run whose aggregate had
-                                        ;; read nonzero, while the studio record said
-                                        ;; any nonzero reading owes the reader a
-                                        ;; subtraction (rf2-b69lw, from the PR #7269
-                                        ;; audit). It is adjudicated now, and a row
-                                        ;; whose correction cannot be discharged FAILS
+                                        ;; Recording the asymmetry between the two
+                                        ;; window shapes and nothing else would let
+                                        ;; the run exit 0 with unadjusted ratios over
+                                        ;; a slim run whose aggregate reads nonzero,
+                                        ;; while any nonzero reading owes the reader
+                                        ;; a subtraction. So it is adjudicated here,
+                                        ;; and a row whose correction cannot be discharged FAILS
                                         ;; the run — the same fail-closed path the
                                         ;; positive control takes, for the same reason:
                                         ;; a figure the instrument cannot stand behind
