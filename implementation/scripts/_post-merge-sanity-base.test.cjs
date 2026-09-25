@@ -3,24 +3,23 @@
 'use strict';
 
 /*
- * Teeth for the base resolution in `.github/workflows/post-merge-workflow-sanity.yml`
- * (rf2-8oh5).
+ * Teeth for the base resolution in `.github/workflows/post-merge-workflow-sanity.yml`.
  *
- * THE DEFECT. That workflow applied the rf2-7hq4l remedy correctly — it
- * resolves its diff base from `github.event.before`, the tip `main` pointed at
- * BEFORE the push, rather than from `HEAD^`, which on a multi-commit push is
- * only that same push's second-to-last commit. But it checked out at
- * `fetch-depth: 2`, which holds HEAD and HEAD^ and nothing else. On a push of
- * two or more commits the accepted base is not in the clone at all, so:
+ * THE DEFECT. That workflow resolves its diff base from `github.event.before`,
+ * the tip `main` pointed at BEFORE the push, rather than from `HEAD^`, which on
+ * a multi-commit push is only that same push's second-to-last commit. A
+ * checkout at `fetch-depth: 2` holds HEAD and HEAD^ and nothing else, so on a
+ * push of two or more commits the accepted base is not in the clone at all.
+ * With a step body like:
  *
  *     changed=$(git diff --name-only "$before" HEAD -- '.github/workflows/*.yml' \
  *       | xargs -n1 -I{} basename {} || true)
  *
- * `git diff` failed, the `|| true` swallowed it — and `pipefail` with it — and
- * the step reported "No workflow files changed in this push." and exited 0.
- * The canary whose whole job is to dispatch the workflows a push edited
- * dispatched nothing, silently, on exactly the multi-commit pushes rf2-34yg
- * measured as routine here.
+ * `git diff` fails, the `|| true` swallows it — and `pipefail` with it — and
+ * the step reports "No workflow files changed in this push." and exits 0.
+ * The canary whose whole job is to dispatch the workflows a push edited would
+ * dispatch nothing, silently, on exactly the multi-commit pushes that are
+ * routine here.
  *
  * WHY THIS FILE EXISTS. The defect is invisible to any test that runs on a
  * single-commit push, and invisible to any test that hands the step a base it
@@ -31,16 +30,17 @@
  * invariant that the accepted base is genuinely absent from the clone before it
  * runs anything. Without that invariant the whole file would pass vacuously.
  *
- * ARM 1 IS THE CONTROL AND IT IS THE POINT. It runs the PRE-FIX step body,
- * frozen as a string constant here, against the same fixture, and asserts the
- * old bug: exit 0, "No workflow files changed in this push.", empty output —
+ * ARM 1 IS THE CONTROL AND IT IS THE POINT. It runs LEGACY_STEP_BODY — the
+ * step body with the swallowing `|| true`, frozen as a string constant here —
+ * against the same fixture, and asserts the defect: exit 0, "No workflow
+ * files changed in this push.", empty output —
  * over a push that changed a workflow file in its first commit. ARM 2 runs the
  * REAL step body, read out of the workflow file itself so it cannot drift from
  * what CI executes, and asserts the file is found. Delete ARM 1 and ARM 2 stops
  * proving anything, because a fixture that armed trivially would look identical.
  *
  * ARM 3 is the second control, aimed at the base SELECTION rather than the
- * depth: the same fixed body with no accepted base falls to HEAD^ and misses
+ * depth: the same shipped body with no accepted base falls to HEAD^ and misses
  * the same change. So ARM 2 needs BOTH the accepted base and the fetch.
  *
  * The step body is fed to `bash` ON STDIN (`bash -s`) with the fixture checkout
@@ -111,10 +111,10 @@ function checkoutStep() {
   return step;
 }
 
-// THE PRE-FIX BODY, frozen. One deliberate difference from the shipped bytes:
-// the workflow interpolated `${{ github.event.before }}` directly into the run
-// body and this harness cannot evaluate an Actions expression, so the base is
-// read from the same PUSH_BEFORE variable the fixed step uses. That
+// LEGACY_STEP_BODY: the step body with the swallowing `|| true`, frozen. It
+// reads the base from the same PUSH_BEFORE variable the shipped step uses
+// rather than interpolating `${{ github.event.before }}` into the run body,
+// because this harness cannot evaluate an Actions expression. That
 // substitution is orthogonal to the defect — the bug is the base being
 // unreachable, not how it arrives — and it keeps both arms on one runner.
 const LEGACY_STEP_BODY = `set -euo pipefail
@@ -207,7 +207,7 @@ function withPushFixture(body) {
     );
 
     // FIXTURE INVARIANT, measured not assumed. If the accepted base were in the
-    // clone, every arm below would pass with or without the fix.
+    // clone, every arm below would pass whether or not the step fetches it.
     const probe = spawnSync('git', ['cat-file', '-e', `${acceptedBase}^{commit}`], {
       cwd: checkoutRoot,
       encoding: 'utf8',
@@ -270,20 +270,20 @@ test('ARM 1 (CONTROL): the pre-fix body reports "No workflow files changed" over
     assert.equal(
       r.status,
       0,
-      'the pre-fix body EXITED 0 — that is the defect: `|| true` swallowed the ' +
+      'LEGACY_STEP_BODY EXITED 0 — that is the defect: `|| true` swallowed the ' +
         `failed diff and the step passed. Got ${r.status}\n${r.output}`,
     );
     assert.match(
       r.output,
       /No workflow files changed in this push\./,
-      'the pre-fix body reported nothing changed; if this stops matching, ARM 2 ' +
+      'LEGACY_STEP_BODY must report nothing changed; if this stops matching, ARM 2 ' +
         'has lost its control',
     );
     assert.equal(r.files, '', 'and dispatched nothing');
   });
 });
 
-// ── ARM 2 — the fix ─────────────────────────────────────────────────────────
+// ── ARM 2 — the shipped step ────────────────────────────────────────────────
 
 test('ARM 2: the shipped step finds a workflow edited in commit 1 of a 3-commit push (rf2-8oh5)', () => {
   withPushFixture((h) => {
@@ -293,7 +293,7 @@ test('ARM 2: the shipped step finds a workflow edited in commit 1 of a 3-commit 
       r.files,
       EDITED_WORKFLOW,
       `the step must report ${EDITED_WORKFLOW}; a base outside the shallow ` +
-        `clone makes this empty (rf2-8oh5)\n${r.output}`,
+        `clone makes this empty\n${r.output}`,
     );
   });
 });
@@ -302,7 +302,7 @@ test('ARM 2: the shipped step finds a workflow edited in commit 1 of a 3-commit 
 
 test('ARM 3 (CONTROL): with no accepted base the same step falls to HEAD^ and misses it (rf2-7hq4l)', () => {
   withPushFixture((h) => {
-    // The rf2-7hq4l blind spot, kept live: HEAD^ is commit 2 of this same push,
+    // The HEAD^ blind spot, kept live: HEAD^ is commit 2 of this same push,
     // which already carries commit 1's workflow edit, so the diff is empty. ARM
     // 2 therefore needs the accepted base AND the fetch — neither alone.
     const r = h.run(identifyStep().run, '');
@@ -367,7 +367,7 @@ test('the checkout depth and the fetch-by-name travel together (rf2-8oh5)', () =
       /git fetch --no-tags --no-recurse-submodules --depth=1 origin "\$base"/,
       `the checkout is fetch-depth: ${depth}, so the accepted base — which is ` +
         'arbitrarily deeper — must be fetched BY NAME (portability.yml is the ' +
-        'worked precedent). Depth alone is the rf2-8oh5 defect.',
+        'worked precedent). Depth alone leaves the base unreachable.',
     );
   }
 });
@@ -377,7 +377,7 @@ test('the reachability check consults the object store (rf2-uol6)', () => {
     identifyStep().run,
     /git rev-parse --verify --quiet "\$base\^\{commit\}"/,
     '`git rev-parse --verify` echoes any 40-hex string back with exit 0 WITHOUT ' +
-      'consulting the object store (rf2-uol6), so peeling to ^{commit} is what ' +
+      'consulting the object store, so peeling to ^{commit} is what ' +
       'makes this a reachability check rather than a syntax check',
   );
 });
@@ -399,53 +399,50 @@ test('the accepted base arrives through env:, never interpolated into the run bo
 });
 
 test('the diff cannot swallow its own failure (rf2-8oh5)', () => {
-  // The single byte-sequence that turned a broken diff into a green "nothing
-  // changed". With it gone, `set -euo pipefail` reds any residual failure, so
+  // The single byte-sequence that turns a broken diff into a green "nothing
+  // changed". Without it, `set -euo pipefail` reds any residual failure, so
   // the whole path is fail-closed rather than fail-open.
   assert.doesNotMatch(
     identifyStep().run,
     /basename \{\}\s*\|\|\s*true/,
     '`|| true` on the diff pipeline converts a git failure into "no workflow ' +
-      'files changed" and swallows pipefail with it (rf2-8oh5)',
+      'files changed" and swallows pipefail with it',
   );
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// THE DISPATCH STEP (rf2-amh0)
+// THE DISPATCH STEP
 // ════════════════════════════════════════════════════════════════════════════
 //
-// THE DEFECT, and it is the sibling of the one above. The step whose entire
-// purpose is to dispatch passed `${{ github.sha }}` as `--ref`. The Actions
-// "create a workflow dispatch event" endpoint resolves `ref` in the REF
-// namespace, so a 40-character commit id cannot resolve and the call returns
-// HTTP 422 "No ref found for: <sha>". Then:
+// THE DEFECT, and it is the sibling of the one above. The Actions "create a
+// workflow dispatch event" endpoint resolves `ref` in the REF namespace, so a
+// step that passes `${{ github.sha }}` as `--ref` cannot dispatch: a
+// 40-character commit id does not resolve and the call returns HTTP 422
+// "No ref found for: <sha>". A body that then does:
 //
 //     gh workflow run "$f" --ref "…" || {
 //       echo "WARN: gh workflow run failed for $f (non-fatal)"
 //     }
 //
-// swallowed it, and the step exited 0. Measured across the 155 runs whose logs
-// were still readable (2026-06-08 → 2026-09-05): 26 runs reached a dispatch, 27
-// attempts, 27 HTTP 422s, ZERO successes — and all 26 runs concluded `success`.
-// A canary green for 78 days having never once dispatched anything.
+// swallows it and exits 0, so the canary stays green while never dispatching
+// anything.
 //
-// WHY THESE ARMS, ON TOP OF THE FIX ITSELF. The repair landed in 68b39d396a,
-// but nothing pinned it: the six arms above pin the base resolution and say
-// nothing about the dispatch, so re-introducing either half — the sha, or the
-// swallow — would have gone green on every gate in the repository. The live
-// acceptance this defect really wants (a real merge editing a dispatchable,
-// non-excluded workflow) cannot be manufactured without spending the nightly
-// matrix, so it stays where it is; what IS provable here, locally and cheaply,
-// is that a failing dispatch now reds the step where it used to pass. That is
+// WHY THESE ARMS. The six arms above pin the base resolution and say nothing
+// about the dispatch, so without these, re-introducing either half — the sha,
+// or the swallow — would go green on every gate in the repository. The live
+// acceptance (a real merge editing a dispatchable, non-excluded workflow)
+// cannot be manufactured without spending the nightly matrix; what IS provable
+// here, locally and cheaply, is that a failing dispatch reds the step. That is
 // this section.
 //
 // ARM D1 IS THE CONTROL AND IT IS THE POINT, exactly as ARM 1 is above. It runs
-// the PRE-FIX dispatch body, frozen as a string constant, against a `gh` that
-// fails the way the real one did, and asserts the old bug: exit 0 over an HTTP
+// LEGACY_DISPATCH_BODY — the dispatch body that passes a commit id and swallows
+// the failure, frozen as a string constant — against a `gh` that fails the way
+// the real endpoint does, and asserts the defect: exit 0 over an HTTP
 // 422. Delete ARM D1 and ARM D2 stops proving anything, because a stub that
 // never failed would look identical.
 
-// THE PRE-FIX DISPATCH BODY, frozen — the bytes of 68b39d396a^ with exactly two
+// LEGACY_DISPATCH_BODY, frozen — the defective dispatch body with exactly two
 // substitutions, both orthogonal to the defect and both applied identically to
 // the shipped body in `dispatchBody()` below, so the two arms differ only in
 // what they are testing:
@@ -489,7 +486,7 @@ done
 
 // The one Actions expression the shipped dispatch body still carries. It is
 // deliberately unquoted there — the word split is load-bearing — so it cannot
-// move to `env:` the way DISPATCH_REF did.
+// move to `env:` the way DISPATCH_REF does.
 const FILES_EXPRESSION = '${{ steps.changed.outputs.files }}';
 
 // The shipped body, with the SAME substitution D1 uses. The count is asserted
@@ -602,26 +599,26 @@ test('ARM D1 (CONTROL): the pre-fix dispatch body exits 0 over an HTTP 422 (rf2-
     assert.equal(
       r.status,
       0,
-      'the pre-fix body EXITED 0 — that is the defect: `|| { echo WARN; }` swallowed ' +
+      'LEGACY_DISPATCH_BODY EXITED 0 — that is the defect: `|| { echo WARN; }` swallowed ' +
         `the 422 and the step passed. Got ${r.status}\n${r.output}`,
     );
     assert.match(
       r.output,
       /No ref found for: 73ac28b7af/,
-      'the fixture must reproduce the measured failure; if this stops matching, ' +
+      "the fixture must reproduce the endpoint's 422; if this stops matching, " +
         'ARM D2 has lost its control',
     );
     assert.match(r.output, /WARN: gh workflow run failed/, 'and swallowed it as non-fatal');
     assert.doesNotMatch(
       r.output,
       /::error::/,
-      'the pre-fix body raised no annotation either — the failure was invisible ' +
+      'LEGACY_DISPATCH_BODY raises no annotation either — the failure is invisible ' +
         'without opening the log',
     );
   });
 });
 
-// ── ARM D2 — the fix: a failed dispatch REDS ────────────────────────────────
+// ── ARM D2 — a failed dispatch REDS ─────────────────────────────────────────
 
 test('ARM D2: the shipped dispatch step reds when the dispatch fails (rf2-amh0)', () => {
   withDispatchFixture((h) => {
@@ -634,7 +631,7 @@ test('ARM D2: the shipped dispatch step reds when the dispatch fails (rf2-amh0)'
       r.status,
       0,
       'a canary that cannot dispatch must FAIL. A green meaning "we tried" reads to ' +
-        `every reader as "it ran", and is how this survived 78 days\n${r.output}`,
+        `every reader as "it ran"\n${r.output}`,
     );
     assert.match(
       r.output,
@@ -649,7 +646,7 @@ test('ARM D2: the shipped dispatch step reds when the dispatch fails (rf2-amh0)'
   });
 });
 
-// ── ARM D3 — the fix: the ref is a BRANCH NAME, and success is provable ─────
+// ── ARM D3 — the ref is a BRANCH NAME, and success is provable ──────────────
 
 test('ARM D3: a successful dispatch forwards the branch ref verbatim and says so (rf2-amh0)', () => {
   withDispatchFixture((h) => {
@@ -659,7 +656,7 @@ test('ARM D3: a successful dispatch forwards the branch ref verbatim and says so
       r.ghCalls,
       ['workflow run expensive-tests.yml --ref main'],
       'exactly one dispatch, at the ref it was given — a BRANCH name. `--ref` ' +
-        'resolves in the ref namespace, so a commit id 422s and always did',
+        'resolves in the ref namespace, so a commit id 422s',
     );
     assert.match(
       r.output,
@@ -705,21 +702,21 @@ test('the dispatch ref is a BRANCH ref, through env:, and never a commit id (rf2
     '${{ github.ref_name }}',
     'the ref must be github.ref_name — the branch this event is on. `main` as a ' +
       'literal would be wrong under workflow_dispatch, and github.sha cannot ' +
-      'resolve in the ref namespace at all (rf2-amh0)',
+      'resolve in the ref namespace at all',
   );
   // MATCH THE EXPRESSION, NOT THE WORD. A bare `github.sha` is not the defect —
   // the step's own comment names it to explain why it is wrong, and names it
   // UNWRAPPED on purpose, because Actions substitutes expressions everywhere in
   // a `run:` body, comments included. A test that grepped for the word would
-  // fail on the documentation of the fix. What can never come back is the
+  // fail on the step's own documentation. What can never come back is the
   // EXPRESSION, in the run body or in any env value.
   const whole = `${JSON.stringify(step.env)}\n${step.run}`;
   assert.doesNotMatch(
     whole,
     /\$\{\{[^}]*github\.sha[^}]*\}\}/,
     'a 40-character commit id is not a ref: the dispatch endpoint resolves `ref` ' +
-      'in the ref namespace and returns HTTP 422 "No ref found for: <sha>". The ' +
-      'merge commit was never dispatchable (rf2-amh0)',
+      'in the ref namespace and returns HTTP 422 "No ref found for: <sha>". A ' +
+      'merge commit id is not dispatchable',
   );
   assert.match(
     step.run,
@@ -729,14 +726,14 @@ test('the dispatch ref is a BRANCH ref, through env:, and never a commit id (rf2
 });
 
 test('the dispatch cannot swallow its own failure (rf2-amh0)', () => {
-  // The byte-sequence that turned 27 consecutive HTTP 422s into 26 green runs.
+  // The byte-sequence that turns a failed dispatch into a green run.
   assert.doesNotMatch(
     dispatchStep().run,
     /gh workflow run[^\n]*\|\|/,
     '`||` after `gh workflow run` converts a failed dispatch into a passing step. ' +
       'This canary GATES NOTHING, so a red costs one visible failure and blocks ' +
-      'nobody — whereas a green that means "we tried" is how a dispatcher that had ' +
-      'never once succeeded survived 78 days (rf2-amh0)',
+      'nobody — whereas a green that means "we tried" keeps a dispatcher that ' +
+      'never succeeds green indefinitely',
   );
   assert.match(
     dispatchStep().run,
