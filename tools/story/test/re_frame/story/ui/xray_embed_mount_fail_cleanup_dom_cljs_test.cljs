@@ -1,23 +1,21 @@
 (ns re-frame.story.ui.xray-embed-mount-fail-cleanup-dom-cljs-test
-  "DOM-mount regression for rf2-cmjly3 finding 5: `panel-host-component`'s
-  `do-mount!` used to leak an orphaned DOM node whenever the panel's
-  `mount-fn` threw.
+  "DOM-mount test: `panel-host-component`'s `do-mount!` must not leak an
+  orphaned DOM node when the panel's `mount-fn` throws.
 
-  ## The bug
+  ## The hazard
 
-  `do-mount!` created a child `<div>`, `.appendChild`'d it onto the host,
-  then called `(mount-fn container)`. Only AFTER that call succeeded did it
+  `do-mount!` creates a child `<div>`, `.appendChild`s it onto the host,
+  then calls `(mount-fn container)`. Only AFTER that call succeeds does it
   `reset!` `mounted-ref` to `{:unmount ... :container container}` — the
   ONLY place `release!` (called on the next panel-id swap, or on
   `:component-will-unmount`) looks to find something to tear down. If
-  `mount-fn` threw, the `catch` only logged a warning; the already-appended
-  container was never removed from the DOM and never registered in
-  `mounted-ref`, so it was never cleaned up — every failed mount left
-  behind an orphaned node (plus whatever partial DOM/listener side effects
-  the throwing `mount-fn` made before throwing), accumulating for the
-  panel-host's entire lifetime.
+  `mount-fn` throws, the already-appended container is never registered in
+  `mounted-ref`, so `release!` never cleans it up. A `catch` that only
+  logged would leave every failed mount's orphaned node behind (plus
+  whatever partial DOM/listener side effects the throwing `mount-fn` made
+  before throwing), accumulating for the panel-host's entire lifetime.
 
-  ## The fix
+  ## The cleanup
 
   `container` is created outside the `try` so the `catch` can reach it and
   explicitly remove it from the DOM when `mount-fn` throws, regardless of
@@ -72,15 +70,14 @@
     (js/document.body.appendChild node)
     node))
 
-;; ---- the regression ---------------------------------------------------
+;; ---- a failed mount leaves no orphan -----------------------------------
 
 (deftest mount-fail-does-not-leak-orphan-container
-  (testing "rf2-cmjly3 finding 5: when `mount-fn` throws inside
-            `do-mount!`, the appended child container is removed from the
-            DOM rather than orphaned — the panel-host `<div>` ends up with
-            NO children (pre-fix: one leaked `<div
-            data-rf-xray-panel-mount>` per failed mount, accumulating for
-            the panel-host's lifetime)"
+  (testing "when `mount-fn` throws inside `do-mount!`, the appended child
+            container is removed from the DOM rather than orphaned — the
+            panel-host `<div>` ends up with NO children (an orphan would be
+            one leaked `<div data-rf-xray-panel-mount>` per failed mount,
+            accumulating for the panel-host's lifetime)"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
       (with-redefs [rf.story.ui.xray-embed/mount-fn-for
@@ -106,9 +103,8 @@
               (try (.unmount root) (catch :default _ nil)))))))))
 
 (deftest mount-success-after-a-prior-failure-still-works
-  (testing "rf2-cmjly3 finding 5 — no regression: after a failed mount, a
-            subsequent panel-id swap to a WORKING mount-fn still mounts
-            normally (the cleanup does not corrupt `mounted-ref` for the
+  (testing "after a failed mount, a subsequent panel-id swap to a
+            WORKING mount-fn still mounts normally (the cleanup does not corrupt `mounted-ref` for the
             next swap). Both mount-fns are stubbed directly (rather than
             delegating to a real Xray panel mount-fn) so the test only
             exercises the panel-host's do-mount!/release! contract, not
