@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Unit test for `.github/scripts/preflight-reagent-slim-package.sh` (rf2-do3m2).
+ * Unit test for `.github/scripts/preflight-reagent-slim-package.sh`.
  *
  * That script is the LAST gate before `clojure -M:clein deploy` mutates
  * Clojars — an IRREVERSIBLE path (Clojars has no yank; recovery is
@@ -8,19 +8,19 @@
  * dependency set breaks on a CONSUMER's machine, not ours, and cannot be
  * withdrawn. So the gate's own teeth need a positive control.
  *
- * THE DEFECT THIS TEST PINS (rf2-do3m2): the pom invariants used to fire
- * only on the PRESENCE of a forbidden dependency (two `grep -q
- * "<artifactId>…"` absence checks). An empty `<dependencies/>`, an absent
- * `<dependencies>` block, or a dependency carrying an empty `<version/>`
- * therefore all printed PASSED.
+ * THE DEFECT THIS TEST PINS: pom invariants that fire only on the PRESENCE
+ * of a forbidden dependency (`grep -q "<artifactId>…"` absence checks) would
+ * print PASSED for an empty `<dependencies/>`, an absent `<dependencies>`
+ * block, or a dependency carrying an empty `<version/>`. The script checks
+ * the whole dependency set instead, so each of those FAILS.
  *
  * That is not a hypothetical shape. `clein pom` SKIPS `:local/root`
  * coordinates outright ("Skipping coordinate: {:local/root …}"), emitting a
  * pom with NO day8/re-frame2 dependency at all. The release workflow's
  * rewrite step (`:local/root` → `:mvn/version`) is the only thing standing
- * between that and a published artefact that resolves to nothing — and
- * before this change the preflight would have waved it straight through.
- * The `missing-required-core-dep` fixture below is that exact pom.
+ * between that and a published artefact that resolves to nothing, and this
+ * preflight is what catches it when that step does not take effect.
+ * The "required day8/re-frame2 dep missing" case below is that exact pom.
  *
  * Pattern mirrors `_transform-reagent-slim-ns.test.cjs` (the sibling
  * release-script test): spawn the real shell script via `bash`, assert on
@@ -49,12 +49,12 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 // Relative POSIX paths are the only form every supported Bash flavour
 // accepts unchanged (Git Bash mounts C: at /c, WSL at /mnt/c, Linux has no
 // drive letters) — see the long rationale in the sibling
-// `_transform-reagent-slim-ns.test.cjs` `runRel()` comment (rf2-6m7pn4).
+// `_transform-reagent-slim-ns.test.cjs` `runRel()` comment.
 const SCRIPT_REL = '.github/scripts/preflight-reagent-slim-package.sh';
 // Fixtures kept INSIDE the repo (not os.tmpdir()) so a repo-relative path
 // reaches them; `.scratch/` is gitignored. Lanes are process-scoped and the
 // shared root is never removed, so a concurrent suite cannot delete this
-// one's fixtures mid-run (rf2-2i1ay).
+// one's fixtures mid-run.
 const { makeScratchDir, cleanupScratchDirs } = require('./lib/scratch-fixtures.cjs');
 
 const tests = [];
@@ -198,7 +198,7 @@ function makeFixture({ pom = GENUINE_POM, jarEntries = GENUINE_JAR_ENTRIES, jars
   // `jar tf <path>` — print the fixture entry list. FIXTURE_DIR is set in
   // the stub's environment by the runner below. Reading it HERE, inside the
   // stub file, rather than in the runner's `bash -lc` string is what keeps
-  // the runner free of self-referential expansion (rf2-sefx0).
+  // the runner free of self-referential expansion.
   writeStub(path.join(binDir, 'jar'), '#!/usr/bin/env sh\ncat "$FIXTURE_DIR/jar-entries.txt"\n');
 
   return { dir, rel: relPosix(dir) };
@@ -230,7 +230,7 @@ const PRE_EXISTING_SHELL_VARS = new Set(['PWD', 'PATH']);
 // (in POSIX form, whatever the host) and runs the real script against the
 // fixture.
 //
-// PORTABILITY CONTRACT (rf2-sefx0): every `$NAME` below must name a
+// PORTABILITY CONTRACT: every `$NAME` below must name a
 // variable that ALREADY EXISTS in the shell's environment — $PWD and $PATH.
 // The command must never read back a variable it assigns itself.
 //
@@ -242,18 +242,18 @@ const PRE_EXISTING_SHELL_VARS = new Set(['PWD', 'PATH']);
 //   bash -lc 'FOO=hello; printf %s "\$FOO"'   # prints: hello
 //
 // A single-pass POSIX shell must print the literal `$FOO` there; printing
-// `hello` means an outer pass already substituted it. So in the ORIGINAL
-// form of this runner —
+// `hello` means an outer pass already substituted it. So in a runner of
+// the form —
 //
 //   FIXTURE_DIR="$PWD/<rel>"; PATH="$FIXTURE_DIR/bin:$PATH"; export …
 //
-// — that outer pass expanded `$FIXTURE_DIR`, undefined at that point, to
-// the empty string BEFORE the assignment to its left ever ran. PATH became
-// "/bin:<real PATH>", the stub `clojure`/`jar` were never found, and all 15
-// cases failed on stock Windows while passing under Git Bash. `$PWD` and
+// — that outer pass would expand `$FIXTURE_DIR`, undefined at that point, to
+// the empty string BEFORE the assignment to its left ran. PATH would become
+// "/bin:<real PATH>", the stub `clojure`/`jar` would never be found, and every
+// case would fail on stock Windows while passing under Git Bash. `$PWD` and
 // `$PATH` survive both passes precisely because they are already set.
 //
-// The fix is a single `env`-prefixed command with no self-reference. The
+// Hence a single `env`-prefixed command with no self-reference. The
 // stub `jar` reads $FIXTURE_DIR from its own environment — that read lives
 // inside the stub FILE, which the command string never expands.
 function buildCommand(rel) {
@@ -308,7 +308,7 @@ test('genuine pom + genuine jar → PASSED', () => {
   }
 });
 
-// ── The rf2-do3m2 defect: dependency-set holes ──────────────────────────
+// ── Dependency-set holes ────────────────────────────────────────────────
 
 test('empty <dependencies/> → FAILED', () => {
   try {
@@ -385,9 +385,9 @@ test('unexpected extra dependency → FAILED', () => {
   }
 });
 
-// Regression guards for the two invariants the script already named. Both
-// now fall out of the ALLOWED-set check rather than being special-cased
-// greps — but they are the historically dangerous shapes, so pin them.
+// Guards for the two shapes the script gives a dedicated hint. Both fall
+// out of the ALLOWED-set check rather than being special-cased greps — but
+// they are the most dangerous shapes, so pin them.
 test('DIRECT day8/re-frame2-reagent bridge dep → FAILED', () => {
   try {
     const pom = withExtraDependency(depBlock({ groupId: 'day8', artifactId: 're-frame2-reagent', version: '0.0.1.alpha' }));
@@ -406,7 +406,7 @@ test('DIRECT stock-reagent dep → FAILED', () => {
   }
 });
 
-// ── Jar-side invariants (pre-existing; pinned so the harness has teeth) ──
+// ── Jar-side invariants (pinned so the harness has teeth) ───────────────
 
 test('jar missing the canonical re_frame/adapter/reagent.cljs → FAILED', () => {
   try {
@@ -426,7 +426,7 @@ test('jar still carrying a reagent_slim entry → FAILED', () => {
   }
 });
 
-// ── Structural preconditions (pre-existing; exit 2 paths) ───────────────
+// ── Structural preconditions (exit 2 paths) ─────────────────────────────
 
 test('no jar produced → FAILED', () => {
   try {
@@ -453,13 +453,13 @@ test('pom absent entirely → FAILED', () => {
   }
 });
 
-// ── Shell portability (rf2-sefx0) ───────────────────────────────────────
+// ── Shell portability ───────────────────────────────────────────────────
 //
-// Regression for the WSL double-expansion defect described in
+// Guards the WSL double-expansion defect described in
 // `buildCommand`. Structural, not behavioural, and deliberately so: on Git
 // Bash and on the Ubuntu runner the `-c` string is expanded ONCE, so a
-// reintroduced self-reference would work there and this suite would stay
-// green while silently reverting to red for every contributor whose `bash`
+// self-reference would work there and this suite would stay
+// green while silently failing for every contributor whose `bash`
 // resolves to C:\Windows\System32\bash.exe. A string assertion fires on
 // every host, including the ones that cannot observe the bug.
 test('bash command references only pre-existing shell variables (rf2-sefx0)', () => {
@@ -484,7 +484,7 @@ test('bash command references only pre-existing shell variables (rf2-sefx0)', ()
       + `${notPreExisting.join(', ')}. WSL's bash.exe expands the -c string TWICE, so a `
       + `variable this command assigns itself resolves to EMPTY before the assignment runs — `
       + `dropping the fixture stubs off PATH and failing every case on stock Windows while `
-      + `passing under Git Bash (rf2-sefx0).`,
+      + `passing under Git Bash.`,
   );
 });
 
