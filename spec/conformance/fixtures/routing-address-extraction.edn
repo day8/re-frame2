@@ -87,7 +87,7 @@
  ;; and changed nothing. Submap match tolerates :transition/:nav-token/etc.
  ;; `:route/article` declares no `:query`, so `:tab` is an undeclared key and
  ;; the slice spells it as the URL string it names, whichever door set it
- ;; (012 §One spelling on every door, rf2-3x7nj.12.1).
+ ;; (012 §One spelling on every door).
  {:final-runtime-db
   {:rf.runtime/routing
    {:current {:route-id :route/article
