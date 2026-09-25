@@ -1,18 +1,18 @@
 (ns day8.re-frame2-xray.theme.var-resolution-cljs-test
-  "Pins the rf2-on4cm contract: every Xray inline `:style` site reads
+  "Pins the contract: every value an Xray inline `:style` site reads
   from `theme/tokens` resolves to a `var(--rf-xray-<key>)` CSS-variable
   reference, NOT a literal hex string.
 
   ## Why this matters
 
-  Pre-rf2-on4cm the `tokens` map was an alias for `dark-palette` — every
-  inline `:style` declaration that referenced `(:bg-1 tokens)` painted
+  Were the `tokens` map an alias for `dark-palette`, every inline
+  `:style` declaration that referenced `(:bg-1 tokens)` would paint
   the dark-palette hex regardless of the active theme class. The
-  light-theme class toggle was wired (`rf-xray-theme-light` on the
-  shell root) and the CSS-variable block was emitted, but inline styles
-  ignored both, so light mode rendered as paint-only-the-edges broken.
+  light-theme class toggle (`rf-xray-theme-light` on the shell root)
+  and the emitted CSS-variable block would both be ignored by inline
+  styles, so light mode would render as paint-only-the-edges broken.
 
-  Post rf2-on4cm `tokens` is a CSS-variable map (`{:bg-1
+  `tokens` is a CSS-variable map (`{:bg-1
   \"var(--rf-xray-bg-1)\"}`), so every inline-style call site flows
   through the theme's class scope. The active theme class on the shell
   root decides which palette's hex actually paints.
@@ -28,10 +28,7 @@
     2. **Helpers route through the var-map** — `panel-accent`,
        `accent-stripe-style`, `severity-colour`, `op-type-colour`,
        `event-status-colour` — every public colour helper returns a
-       CSS-variable string. (`theme/perf-tier`'s `tier-colour` was
-       pinned here too until rf2-6r9j.18 removed that module — it had
-       no rendering consumer left, so the guarantee went with the
-       helper rather than being dropped from a live surface.)
+       CSS-variable string.
 
     3. **Rendered hiccup carries var() references** — render small
        view fragments and walk every `:style` map: no value is a
@@ -41,12 +38,10 @@
        `\"none\"`, etc.), or a non-string (numeric padding, line-height
        multipliers).
 
-  ## Posture (test-direction memory)
+  ## Posture
 
-  Per the user's `feedback_xray_story_cljs_unit_tests_not_playwright`
-  memory: validate the visual contract via CLJS unit tests reading
-  rendered hiccup, NOT new Playwright probes. The existing browser-
-  test infra is unchanged."
+  Validate the visual contract via CLJS unit tests reading
+  rendered hiccup, NOT Playwright probes."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as string]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
@@ -59,7 +54,7 @@
 ;; ---- (1) tokens IS the var-map ------------------------------------------
 
 (deftest tokens-map-resolves-every-key-through-css-variables
-  (testing "rf2-on4cm — `tokens` is the CSS-variable surface. Every
+  (testing "`tokens` is the CSS-variable surface. Every
             entry is `\"var(--rf-xray-<key>)\"`."
     (is (seq tokens/tokens)
         "the map is non-empty (sanity guard against an empty palette)")
@@ -72,15 +67,14 @@
           (str k " value references --rf-xray-" (name k))))))
 
 (deftest tokens-map-has-no-hex-literals
-  (testing "rf2-on4cm — no entry in `tokens` is a hex literal. Guards
-            against an accidental regression to the pre-sweep
-            dark-palette alias shape."
+  (testing "no entry in `tokens` is a hex literal. Guards
+            against `tokens` degenerating into a dark-palette alias."
     (doseq [[k v] tokens/tokens]
       (is (not (re-find #"^#[0-9A-Fa-f]" v))
           (str k " (" v ") is NOT a hex literal — it's a var() reference")))))
 
 (deftest tokens-keys-match-dark-palette-keys
-  (testing "rf2-on4cm — every key in the dark palette has a matching
+  (testing "every key in the dark palette has a matching
             entry in `tokens` (the var-map covers the same surface)."
     (is (= (set (keys tokens/dark-palette))
            (set (keys tokens/tokens))))))
@@ -88,7 +82,7 @@
 ;; ---- (2) helpers route through the var-map ------------------------------
 
 (deftest css-var-helper-builds-rf-xray-prefixed-reference
-  (testing "rf2-on4cm — `tokens/css-var` is the canonical helper that
+  (testing "`tokens/css-var` is the canonical helper that
             shapes the var() reference. Pure data, JVM-portable."
     (is (= "var(--rf-xray-bg-1)" (tokens/css-var :bg-1)))
     (is (= "var(--rf-xray-text-tertiary)"
@@ -97,17 +91,15 @@
            (tokens/css-var :accent)))))
 
 (deftest panel-accent-returns-css-variable-string
-  (testing "rf2-on4cm — `panel-accent` materialises the panel accent
+  (testing "`panel-accent` materialises the panel accent
             through the var-map. Used by the 3px left-border on every
             L4 panel container.
 
             The roster is `focus/valid-panels`, which mirrors the LIVE
             registry (`panel-registry/tab-ids-for-mode :dynamic`) and
-            is pinned against it by `focus-cljs-test`. rf2-9g1ea —
-            this walk used to read the keys of a hand-listed
-            `tokens/panel-domain->token` map, which had drifted to six
-            stale ids, so 'every L4 panel' excluded four of the shipped
-            ten and included a retired one."
+            is pinned against it by `focus-cljs-test`, so 'every L4
+            panel' is the shipped roster rather than a hand-listed one
+            that can drift."
     (doseq [tab focus/valid-panels]
       (let [v (tokens/panel-accent tab)]
         (is (string? v))
@@ -115,9 +107,9 @@
             (str "panel-accent " tab " resolves to a CSS variable"))))))
 
 (deftest accent-stripe-style-border-references-css-variable
-  (testing "rf2-on4cm — the canonical 3px-left-border builder produces
+  (testing "the canonical 3px-left-border builder produces
             a border-left value that references a CSS variable, not
-            a hardcoded hex. Walks the live tab roster (rf2-9g1ea)."
+            a hardcoded hex. Walks the live tab roster."
     (doseq [tab focus/valid-panels]
       (let [border (:border-left (tokens/accent-stripe-style tab))]
         (is (string? border))
@@ -127,7 +119,7 @@
             (str tab " stripe has no hex literal in the border declaration"))))))
 
 (deftest severity-colour-returns-css-variable-string
-  (testing "rf2-on4cm — `issues-ribbon-helpers/severity-colour` is
+  (testing "`issues-ribbon-helpers/severity-colour` is
             read through tokens so the per-row severity dot resolves
             to a CSS variable."
     (doseq [severity [:error :warning :advisory]]
@@ -137,7 +129,7 @@
             (str "severity-colour " severity " resolves to a CSS variable"))))))
 
 (deftest trace-band-colour-returns-css-variable-string
-  (testing "rf2-on4cm / rf2-l2f2g — `trace-helpers/op-family-colour`
+  (testing "`trace-helpers/op-family-colour`
             returns the per-row Trace op-family 3px left-border band
             colour as a CSS variable (spec/023 §8)."
     (doseq [[op-type op] [[:rf.event :rf.event/dispatched]
@@ -153,7 +145,7 @@
             (str "op-family-colour " op-type " resolves to a CSS variable"))))))
 
 (deftest trace-outcome-colour-returns-css-variable-string
-  (testing "rf2-l2f2g — `trace-helpers/outcome-colour` tints the
+  (testing "`trace-helpers/outcome-colour` tints the
             what-happened column by outcome tier and resolves to a CSS
             variable (spec/023 §8)."
     (doseq [op [:rf.sub/run :rf.sub/skip :rf.sub/dispose :rf.error/x]]
@@ -164,7 +156,7 @@
             (str "outcome-colour " op " resolves to a CSS variable"))))))
 
 (deftest event-status-colour-returns-css-variable-string
-  (testing "rf2-on4cm — the lifecycle-status helper consumed by the
+  (testing "the lifecycle-status helper consumed by the
             L2 row + Event header + Trace timeline returns a CSS
             variable."
     (doseq [state [{:outcome :ok} {:outcome :error} {:in-flight? true}
@@ -177,8 +169,8 @@
 ;; ---- (3) with-alpha builds color-mix ------------------------------------
 
 (deftest with-alpha-composites-against-css-variable
-  (testing "rf2-on4cm — the alpha-tail-suffix idiom (`(str token \"55\")`)
-            is replaced by `tokens/with-alpha` which builds a CSS-Color-4
+  (testing "`tokens/with-alpha` stands in for the alpha-tail-suffix
+            idiom (`(str token \"55\")`): it builds a CSS-Color-4
             color-mix(...) string that composites the active theme's
             CSS variable with `transparent`."
     (doseq [k [:accent :red :green :info :yellow]
@@ -197,12 +189,12 @@
 ;; ---- (4) palette source-of-truth integrity ------------------------------
 
 (deftest dark-palette-and-light-palette-are-hex-maps
-  (testing "rf2-on4cm — `dark-palette` + `light-palette` remain the
+  (testing "`dark-palette` + `light-palette` are the
             hex source of truth (consumed by themes-css to register
-            the `--rf-xray-<key>` custom properties). They MUST stay
+            the `--rf-xray-<key>` custom properties). They MUST be
             hex maps so the CSS-variable block emits actual paint values
             and so the few raw-hex consumers (mount.cljs popout overlay,
-            config/default-accent) keep landing on real colours."
+            config/default-accent) land on real colours."
     (doseq [palette-name [:dark :light]
             :let [palette (get tokens/themes palette-name)]
             [k v] palette]
@@ -212,7 +204,7 @@
           (str palette-name " " k " (" v ") is a hex literal")))))
 
 (deftest light-and-dark-palettes-share-the-canonical-key-set
-  (testing "rf2-on4cm — every dark token has a light counterpart so
+  (testing "every dark token has a light counterpart so
             the class-toggle flip is total (no `var(--rf-xray-foo)`
             resolves to the property's default initial value because
             `:foo` was missing from the active theme's block)."
@@ -255,7 +247,7 @@
   #"#[0-9A-Fa-f]{3,8}\b")
 
 (deftest edn-inspector-rendered-hiccup-has-no-palette-hex-literals
-  (testing "rf2-on4cm — the canonical L4-panel value renderer
+  (testing "the canonical L4-panel value renderer
             (`views/edn-inspector/render-node`) emits hiccup whose
             every `:style` colour value flows through a CSS variable.
             Walk the rendered tree across a representative mix of
@@ -264,9 +256,8 @@
             palette hex literal. Guards against a regression where a
             new inline-style site is added with a hardcoded hex.
 
-            Migrated rf2-q3dzw phase 5: the legacy
-            `theme/data-inspector` is deleted; the edn-inspector
-            widget is now the single source of truth."
+            There is no `theme/data-inspector`; the edn-inspector
+            widget is the single value renderer."
     (doseq [v [{:a 1 :b 2 :c [1 2 3]}      ; map + nested vec
                [:foo :bar {:baz nil}]      ; vector with primitives + map
                #{1 2 3}                    ; set
@@ -301,9 +292,9 @@
                    "(should be a var(--rf-xray-…) reference)")))))))
 
 (deftest accent-stripe-style-output-has-no-palette-hex-literal
-  (testing "rf2-on4cm — every shipped panel's accent-stripe style map
+  (testing "every shipped panel's accent-stripe style map
             (the 3px left border on the L4 panel container) is
-            hex-free. Roster is `focus/valid-panels` (rf2-9g1ea)."
+            hex-free. Roster is `focus/valid-panels`."
     (doseq [tab focus/valid-panels]
       (let [s (tokens/accent-stripe-style tab)]
         (doseq [[k v] s]
