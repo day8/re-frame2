@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.static-shape-parity-cljs-test
-  "Shape parity for the STATIC catalogue fixture family (rf2-y8doi.28).
+  "Shape parity for the STATIC catalogue fixture family.
 
   The Static Flows, Schemas and Interceptors tabs read registries, and their
   suites feed hand-typed registries through the
@@ -62,4 +62,4 @@
       (is (= #{} (phantom-keys event chains)))
       (is (= #{} (phantom-keys (first (:interceptors event)) (mapcat :interceptors chains))))
       (is (= #{:event/kind} (phantom-keys event [{:interceptors [] :event/kind :db}]))
-          "control: the retired `:event/kind` sub-tag is caught as a phantom key"))))
+          "control: an `:event/kind` sub-tag, which the registry never carries, is caught as a phantom key"))))
