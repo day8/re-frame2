@@ -65,7 +65,7 @@
 ;; entries come and go — so instead of naming keys, you name a tag: patch every
 ;; cached entry carrying `[:article slug]`, reusing the very same tag index that
 ;; `:invalidates` matches against. One descriptor covers the viewer reads (detail
-;; plus every list, all `{:from-db :realworld/viewer}`-scoped now); a second
+;; plus every list, all `{:from-db :realworld/viewer}`-scoped); a second
 ;; covers the session feed, via the `{:from-db :realworld/session}` resolver the
 ;; feed resource itself uses. The detail stores `{:article …}` while the lists
 ;; store `{:articles […]}`, so the patch fn (`apply-fav`, below) handles both
@@ -151,7 +151,7 @@
    `:params` from the acting user's session at the call site — not from the
    decoded reply, whose `:author` here names the ARTICLE's author, not the
    person who clicked the heart. The article + list tags resolve under
-   `{:from-db :realworld/viewer}` (the reads are viewer-scoped now), the feed
+   `{:from-db :realworld/viewer}` (the reads are viewer-scoped), the feed
    under `{:from-db :realworld/session}` — one mutation reaching both scopes."
   [{:keys [slug username]}]
   [{:scope {:from-db :realworld/viewer}
