@@ -1,5 +1,5 @@
 <#
-  THE OS-LEVEL INPUT DRIVER for the scripted native-IME witness (rf2-hic-016).
+  THE OS-LEVEL INPUT DRIVER for the scripted native-IME witness.
 
   A long-lived request/response process, spoken to over stdin by
   `implementation/scripts/run-fresco-native-ime-witness.cjs`. It exists
@@ -72,28 +72,26 @@
   but see the next section for what that reading is worth, and for the one
   thing it must never be used as.
 
-  ## What `IMESTATE` is worth: the write-through finding of 2026-08-12
+  ## What `IMESTATE` is worth: the IMM32 shim's state is write-through
 
-  Two armed runs that day, and between them they emptied this verb of any
-  authority.
+  This verb carries no authority, for two reasons.
 
-  The FIRST got the whole way in — foreground seized on all three engines,
-  romaji and ESC both delivered — and still decided nothing: `IMESTATE` read
-  `langid 0x0411`, `japanese: true` and **`open: 0`** on Chromium, Firefox
-  and WebKit alike. The TSF IME had ignored `IMC_SETOPENSTATUS`, exactly as
-  the paragraph above said it might. The answer taken then was to open the
-  IME by its OWN TOGGLE — `kanji` (半角/全角, VK 0x19) through `KEYS`, the
-  door the keystrokes were demonstrably arriving by — and to require
-  `open: 1` back from `IMESTATE` before typing anything.
+  A run can get the whole way in — foreground seized on all three engines,
+  romaji and ESC both delivered — and still decide nothing: `IMESTATE` can
+  read `langid 0x0411`, `japanese: true` and **`open: 0`** on Chromium,
+  Firefox and WebKit alike, because the TSF IME can ignore
+  `IMC_SETOPENSTATUS`, exactly as the paragraph above says it might.
 
-  The SECOND run returned `open: 1`, `conversion: 9`, `native: true` on
-  Chromium — engaged, by that gate — while `compositionstart` stayed at ZERO
-  on every check and the romaji went into the box as literal ASCII. And
-  `conversion: 9` is `IME_CMODE_HIRAGANA`: the exact constant
-  `RequestJapanese` had just written. **The IMM32 shim's state is
-  WRITE-THROUGH.** `IMC_GETOPENSTATUS` handed back the bit `IMC_SETOPENSTATUS`
-  had set, on an input context the TSF service was not reading, so the gate
-  proved a value had been written and nothing else. It could not have failed.
+  And requiring `open: 1` back from `IMESTATE` — after opening the IME by
+  its OWN TOGGLE, `kanji` (半角/全角, VK 0x19) through `KEYS` — gates on
+  nothing either. `IMESTATE` can return `open: 1`, `conversion: 9`,
+  `native: true` on Chromium — engaged, by that gate — while
+  `compositionstart` stays at ZERO on every check and the romaji goes into
+  the box as literal ASCII. And `conversion: 9` is `IME_CMODE_HIRAGANA`: the
+  exact constant `RequestJapanese` writes. **The IMM32 shim's state is
+  WRITE-THROUGH.** `IMC_GETOPENSTATUS` hands back the bit `IMC_SETOPENSTATUS`
+  set, on an input context the TSF service is not reading, so such a gate
+  proves a value was written and nothing else. It cannot fail.
 
   So `IMESTATE`, `IMEON` and `IMECONV` are ATTEMPTS AND OBSERVATIONS, and the
   caller uses them as such: it prints the reading and gates on CONDUCT
@@ -101,23 +99,23 @@
   read off the page's own event stream. Nothing this driver can write to an
   input context produces one of those.
 
-  ## Why the toggle went nowhere: `MapVirtualKey` and the zero scan code
+  ## `MapVirtualKey` and the zero scan code
 
-  The same run leaves the toggle itself under suspicion, and the cause was in
-  `SendKey`. It resolved every scan code with `MapVirtualKeyW`, which maps
+  Resolving every scan code with `MapVirtualKeyW` would send the toggle
+  with a zero scan: it maps
   against the layout of the CALLING thread — this driver's, which is English.
-  `VK_KANJI` has no key on that layout, so the call answered 0, and a
-  zero-scan keystroke is one an IME may decline (the comment on `SendKey`
-  said so all along). Measured here: `MapVirtualKeyW(0x19, VK_TO_VSC)` is
-  `0x00`, and so, it turns out, is `MapVirtualKeyExW(0x19, VK_TO_VSC,
+  `VK_KANJI` has no key on that layout, so the call answers 0, and a
+  zero-scan keystroke is one an IME may decline (see the comment on
+  `SendKey`). Measured: `MapVirtualKeyW(0x19, VK_TO_VSC)` is
+  `0x00`, and so is `MapVirtualKeyExW(0x19, VK_TO_VSC,
   0x04110411)` — `VK_KANJI` is an IMM32 virtual key with no physical key
   behind it in any layout table. `ScanFor` therefore asks the target
   window's own layout first, falls back to this thread's, and puts a LITERAL
   `0x29` under the IME toggle beneath both, which is the only one of the
   three that can answer for it.
 
-  BUT THE LITERAL WAS NEVER DELIVERED AS THE KEY'S IDENTITY, and merged-PR
-  audit #7956 is right about it. `SendKey` writes `wScan` but sets neither
+  BUT THE LITERAL IS NOT DELIVERED AS THE KEY'S IDENTITY.
+  `SendKey` writes `wScan` but sets neither
   `KEYEVENTF_SCANCODE` (0x0008) nor anything else in `dwFlags` on the
   key-down. Microsoft's `KEYBDINPUT` contract is explicit — "If specified,
   wScan identifies the key and wVk is ignored" — so WITHOUT that flag the
@@ -126,14 +124,13 @@
   <https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput>
 
   So `KEYS` and `RESOLVE` report the scan this driver CALCULATED, not one it
-  can prove `SendInput` delivered. A zero is still never invisible, which is
-  what those lines were added for. The flag is deliberately NOT set now: no
+  can prove `SendInput` delivered — which is enough to keep a zero from
+  being invisible. The flag is deliberately NOT set: no
   armed run is sanctioned (see the scripted-witness doc §11), so selecting
   scan-code mode would change the identity of EVERY key this driver sends —
   romaji included — with no run permitted that could witness the change. An
   unwitnessable behaviour change to an artefact retained as a record is worse
-  than an accurate account of what it does, so the account is corrected here
-  instead.
+  than an accurate account of what it does.
 #>
 
 [CmdletBinding()]
@@ -399,7 +396,7 @@ $VK = @{
   'tab' = 0x09; 'left' = 0x25; 'up' = 0x26; 'right' = 0x27; 'down' = 0x28;
   'home' = 0x24; 'end' = 0x23; 'delete' = 0x2E;
   # The IME's own keys: 半角/全角 toggles the IME, 変換 opens conversion,
-  # F7 forces katakana. `kanji` is no longer decorative — it is what the
+  # F7 forces katakana. `kanji` is what the
   # caller's engage ladder sends, through `KEYS`, while the page is still
   # showing no `compositionstart`. The other three are here so a key plan
   # can name them, and no default plan does.
@@ -554,8 +551,8 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
           # fifth token must not leave four keystrokes already delivered.
           $vks = @($tokens | ForEach-Object { Resolve-Vk $_ })
           # Resolved against the TARGET window's layout, once, before the
-          # first key goes out — see `ScanFor`. Reported below, because the
-          # zero that stopped the IME toggle working was invisible. The
+          # first key goes out — see `ScanFor`. Reported below, because a
+          # zero scan can stop the IME toggle working and is otherwise invisible. The
           # report says what was CALCULATED and handed to `SendKey`, not what
           # arrived: absent `KEYEVENTF_SCANCODE` the key is named by `wVk`.
           $scans = @($vks | ForEach-Object { [Rf2Ime]::ScanFor($_, $h) })
