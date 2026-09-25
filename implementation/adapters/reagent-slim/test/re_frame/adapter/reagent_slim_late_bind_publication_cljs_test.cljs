@@ -59,6 +59,11 @@
     ;; owner's dispose, so it needs the owner itself and not merely the fact
     ;; that there is one. Published by the ratom family alone.
     :adapter/reactive-owner
+    ;; A read that records no dependency on the reaction being computed —
+    ;; what trace classification reads the elision registry through while a
+    ;; sub computes or a view renders. Published by the ratom family alone,
+    ;; because only their reads capture.
+    :adapter/read-container-untracked
     :adapter/after-render
     :adapter/derived-container?
     :adapter/arm-hiccup-emitter-if-unarmed!

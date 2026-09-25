@@ -4311,6 +4311,13 @@
                             that owner's dispose. Ratom family
                             only — the React-hook spine owns its
                             references through its own commit cleanup.
+      :read-container-untracked
+                          — (fn [container]) → the value `read-container`
+                            would return, recording NO dependency on the
+                            reaction currently capturing derefs. Ratom
+                            family only — see the
+                            `:adapter/read-container-untracked` routing
+                            note below.
       :after-render       — (fn [f]) → schedule post-render callback
 
   Builds the adapter map, wires the chained SSR emitter install, and
@@ -4330,7 +4337,7 @@
                      current-frame current-component as-element atom ratom? make-reaction
                      activate-reaction!
                      disposable? add-on-dispose! dispose! reactive? reactive-owner
-                     after-render]}]
+                     read-container-untracked after-render]}]
   (let [dispose-dispatch (make-ratom-dispose-dispatch disposable? dispose!)
         adapter {:kind                      kind
                  :make-state-container      (:make-state-container spine-fns)
@@ -4451,6 +4458,19 @@
     (rf.substrate.adapter/route-hook! adapter :adapter/reactive-owner
       reactive-owner
       (constantly nil))
+    ;; The untracked read `rf.substrate.adapter/read-container-untracked`
+    ;; resolves. A ratom read inside a reactive context registers the
+    ;; container on the reaction being computed, so a read the core makes
+    ;; while DESCRIBING that computation (trace classification reading the
+    ;; elision registry) would otherwise become one of its inputs. Chain-
+    ;; bottom is the `untracked-read-no-opinion` sentinel, NOT a read: a
+    ;; routed fallback is a zero-argument thunk and never sees the container,
+    ;; so the core reader answers the sentinel with `read-container` itself.
+    ;; That fallback is exact for the React-hook spine, plain-atom and
+    ;; test-react, whose reads capture nothing — so they publish nothing.
+    (rf.substrate.adapter/route-hook! adapter :adapter/read-container-untracked
+      read-container-untracked
+      (constantly rf.substrate.adapter/untracked-read-no-opinion))
     (rf.substrate.adapter/route-hook! adapter :adapter/after-render
       after-render)
     ;; The derived-container discriminator the core's

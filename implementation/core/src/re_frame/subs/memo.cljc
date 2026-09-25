@@ -196,25 +196,27 @@
   `:prev-value` and `:value` are wire-value-sensitive app data, but they
   are emitted RAW here and redacted DOWNSTREAM by the
   `re-frame.classification/project-sub-tags` chokepoint that `re-frame.trace/
-  build-event` runs for every `:rf.sub/run` event. That chokepoint projects
+  emit!` runs for every `:rf.sub/run` event. That chokepoint projects
   from the sub's own registration classification — the
   `:rf.sub/classification` carrier stamped below, else the registrar's
-  declaration for the sub-id; there is no sub-output propagation (EP-0025)
-  — NEVER by reading the frame's app-db container.
+  declaration for the sub-id; there is no sub-output propagation (EP-0025).
+  The three route read-subs (`:rf/route`, `:rf.route/query`,
+  `:rf.route/params`) are the one narrow addition: their values are also
+  projected through the route's own egress classification, which lives in
+  the frame's elision registry in runtime-db.
 
-  This is deliberate and load-bearing: calling the schema-first
-  `elision/elide-wire-value` walker here would `deref` one of the frame's
-  container projections (to read the `[:rf.runtime/elision ...]` registry
-  from the runtime-db partition) INSIDE the reaction's compute fn. On a
-  Reagent substrate that registers a spurious reactive dependency on a
-  frame container for every layer-2+ sub — breaking the glitch-free
-  `db → layer-1 → layer-2` layering (the sub would recompute on ANY
-  matching container change, not just its own input's). The
-  registration-classification projection reads only that captured
-  declaration and the process-scoped registrar, so it is reaction-safe. A
-  sub whose registration declares `:sensitive` output paths egresses those
-  paths of `:prev-value` / `:value` as `:rf/redacted`; `:value-changed?`
-  stays a plain boolean.
+  The projection runs synchronously INSIDE this reaction's compute fn, so
+  none of its reads may record a reactive dependency. A capturing read of a
+  frame container there would register a spurious dependency on it for the
+  sub being computed — breaking the glitch-free `db → layer-1 → layer-2`
+  layering (the sub would recompute on ANY change to that container, not
+  just its own input's). The registration classification is the captured
+  declaration and the process-scoped registrar, neither of them reactive;
+  the route projection reads the elision registry through
+  `re-frame.substrate.adapter/read-container-untracked`, a snapshot that
+  records no dependency. A sub whose registration declares `:sensitive`
+  output paths egresses those paths of `:prev-value` / `:value` as
+  `:rf/redacted`; `:value-changed?` stays a plain boolean.
 
   The whole attribution branch (the enriched tag map) sits inside
   `(if rf.interop/debug-enabled? ...)` so Closure DCE folds it out under
@@ -277,10 +279,10 @@
         ;; slots ride the dev gate so Closure DCEs the enriched tag map
         ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
         ;; the `re-frame.classification/project-sub-tags` chokepoint
-        ;; (run by `rf.trace/build-event`) redacts them from the sub's
-        ;; registration classification without a reactive container deref.
-        ;; See the `validate-and-trace` docstring §Privacy for why we MUST
-        ;; NOT elide here.
+        ;; (run by `rf.trace/emit!`) redacts them from the sub's
+        ;; registration classification and, for the route read-subs, the
+        ;; frame's elision registry, read untracked so this compute gains no
+        ;; input. See the `validate-and-trace` docstring §Privacy.
         (if rf.interop/debug-enabled?
           ;; `cascade?` here = REACTIVE-GRAPH propagation: true iff this
           ;; sub has upstream SUB inputs (layer-2+).
