@@ -48,7 +48,7 @@
 
   The command palette (`palette/view`) renders through this scaffold.
   Its apparent divergences all land cleanly on
-  the existing slots — no per-palette flag, no new slot:
+  the slots above — no per-palette flag, no extra slot:
 
     * always-`:fixed` (no `:rf.xray/modal-positioning` subscribe) → it
       passes the literal `:positioning :fixed`;
