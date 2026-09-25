@@ -1,22 +1,20 @@
 (ns day8.re-frame2-xray.spine-filters-fresco-boundary-dom-cljs-test
   "Real-DOM witnesses for the two shell-root SPINE-FILTER bridges —
-  `spine-filters/RowContextMenu` and `spine-filters/Modal` (rf2-3du3,
-  correcting the evidence gap merged-PR audit #9665 found in rf2-k97c.3).
+  `spine-filters/RowContextMenu` and `spine-filters/Modal`.
 
-  ## The gap this file closes
+  ## What the node lane leaves open
 
-  rf2-k97c.3 turned both surfaces into Fresco BOUNDARIES behind their
-  existing public bridge names. Their production observation and their
-  captured-frame dispatch both changed, and the mute row now has to
-  render inside a Fresco tree. But every test that moved with them drives
-  a test-owned copy of the gate and the reads, calling the pure
-  `row-context-menu-tree` / `dialog-tree` directly. Nothing mounted a
-  bridge, and nothing executed either boundary. A broken real gate or a
-  nil boundary body could therefore leave the whole node lane green.
+  Both surfaces are Fresco BOUNDARIES behind their public bridge names,
+  observing through the collector and dispatching into a captured frame,
+  and the mute row renders inside a Fresco tree. The node-lane rows
+  drive a test-owned copy of the gate and the reads, calling the pure
+  `row-context-menu-tree` / `dialog-tree` directly. They mount no bridge
+  and execute neither boundary, so a broken real gate or a nil boundary
+  body would leave the whole node lane green.
 
-  This file is the missing half, and it asks for BOTH things the audit
-  named — that the boundary MOUNTS, and that a dispatch from INSIDE it
-  REACHES the frame the tree named:
+  This file asks for BOTH things the node lane cannot — that the
+  boundary MOUNTS, and that a dispatch from INSIDE it REACHES the frame
+  the tree named:
 
     W1  RowContextMenu mounts, commits real menu DOM, and its Mute item
         — clicked outside any render scope — lands on the mounted
@@ -35,17 +33,19 @@
   `expand-tree` INVOKES a fn head, so `[x …]` and `(x …)` expand to the
   same value and the node lane is structurally blind to head legality.
   It is blind twice over here: the doors it drives pass the boundary's
-  reads in as ARGUMENTS, so the gate and the `rf.fresco/sub` calls that
-  are the actual subject of rf2-k97c.3 never run at all. Only a committed
-  DOM can answer, which is why these rows are `-dom-cljs-test`.
+  reads in as ARGUMENTS, so the gate and the `rf.fresco/sub` calls — the
+  boundaries' actual subject — never run at all. Only a committed DOM
+  can answer, which is why these rows are `-dom-cljs-test`.
 
-  ## The mount is the SHELL's mount
+  ## The mount commits the SHELL's element
 
-  `shell.cljs` mounts both bridges as plain hiccup HEADS, as siblings
-  inside the shell's `[rf/frame-provider {:frame frame-id}]` (`:3193`
-  and `:3199`). [[mount!]] does exactly that and nothing else — no
-  wrapper, no second call. Every assertion after the mount reads
-  `container.querySelector…`, i.e. the DOM React committed on its own.
+  `shell.cljs` mounts both bridges at the shell root, as siblings inside
+  the shell's frame provider, by CALLING them — each call answers
+  `[:> <component> {}]`. [[mount!]] heads them from a Reagent root
+  instead, which Reagent resolves to that identical element, and does
+  nothing else — no wrapper, no second call. Every assertion after the
+  mount reads `container.querySelector…`, i.e. the DOM React committed on
+  its own.
 
   ## Frames: two private ones, and NEVER `:rf/xray`
 
@@ -53,11 +53,10 @@
   on the page, so a control frame named `:rf/xray` could be moved by a
   neighbour between the mount and the assertion. Both frames here are
   private to this ns. That also makes the positive half a direct witness
-  for rf2-nesy9's frame-CARRYING dispatch: the boundaries captured
-  `{:frame :rf/xray}` literals before it, and under such a literal the
+  for frame-CARRYING dispatch: under a `{:frame :rf/xray}` literal the
   mounted frame below would read nothing and W1 would redden.
 
-  `shell-view`'s `:frame-id` opt (rf2-lnluk) is what makes a named
+  `shell-view`'s `:frame-id` opt is what makes a named
   non-default instance frame the production shape rather than a test
   contrivance — N shells mount side by side, each fully isolated.
 
@@ -216,8 +215,9 @@
 
 (defn- mount!
   "Mount `views` as plain hiccup HEADS, siblings inside a
-  `frame-provider` scoping `frame` — the exact shape `shell.cljs` uses at
-  `:3193` / `:3199`. Committed synchronously: React 19's `root.render` is
+  `frame-provider` scoping `frame`. `shell.cljs` CALLS the same bridges
+  instead; both forms commit the identical `[:> <component> {}]`
+  element. Committed synchronously: React 19's `root.render` is
   otherwise async and the first assertion would run against an empty
   container."
   [frame views]
@@ -282,9 +282,9 @@
   closing summary, inside ONE `cljs.test/run-block` with no try/catch. A
   bare `(.click nil)` therefore does not fail this row: it throws
   uncaught, aborts the run, and every namespace scheduled after this one
-  never executes, with no cljs.test summary at all (rf2-u0j8). Measured
-  exactly that way while sabotaging `RowContextMenuView` to build this
-  file — 25 namespaces announced, then nothing.
+  never executes, with no cljs.test summary at all. A sabotaged
+  `RowContextMenuView` shows exactly that: the runner announces its
+  namespaces, then nothing.
 
   So a disabled boundary must make these rows FAIL, never CRASH. The
   assertions below carry the diagnosis; the polls that follow a dead
@@ -330,7 +330,7 @@
 ;; ===========================================================================
 
 (deftest w1-row-context-menu-bridge-mounts-and-mutes-into-the-named-frame
-  (testing "rf2-3du3 — `spine-filters/RowContextMenu` mounted as the
+  (testing "`spine-filters/RowContextMenu` mounted as the
             shell's hiccup head commits the real menu DOM, and the Mute
             item clicked from OUTSIDE any render scope lands on the frame
             the enclosing `frame-provider` named — not on a second live
@@ -390,8 +390,8 @@
                   (is (= #{muted-id} (muted-of instance-frame))
                       (str "THE MUTE LANDED ON THE MOUNTED INSTANCE. The
                             boundary captured its frame at render time and
-                            dispatched into it (rf2-nesy9); under the
-                            `{:frame :rf/xray}` literal this replaced, this
+                            dispatched into it; under a
+                            `{:frame :rf/xray}` literal this
                             frame would still read nil. Expected "
                            (pr-str #{muted-id}) ", got "
                            (pr-str (muted-of instance-frame))))
@@ -428,7 +428,7 @@
 ;; ===========================================================================
 
 (deftest w2-modal-bridge-commits-real-rows-and-unmutes-in-place
-  (testing "rf2-3du3 — `spine-filters/Modal` mounted as the shell's
+  (testing "`spine-filters/Modal` mounted as the shell's
             hiccup head commits the real muted-row DOM through the keyed
             native fragment, and an Unmute click updates the LIVE surface
             in place from the boundary's own subscription. The deaf
@@ -462,7 +462,7 @@
           (is (some? (unmute-btn container muted-id))
               "with a live per-row Unmute affordance")
 
-          ;; ---- the NATIVE FRAGMENT KEYS (rf2-a38l), which only a real
+          ;; ---- the NATIVE FRAGMENT KEYS, which only a real
           ;;      commit can witness -----------------------------------------
           (let [kids (element-children list-el)]
             (is (= 2 (count kids))
@@ -532,7 +532,7 @@
 ;; ===========================================================================
 
 (deftest w3-unmount-releases-both-boundaries-reads-and-reopen-does-not-grow
-  (testing "rf2-3du3 — unmounting the two bridges releases ALL FOUR
+  (testing "unmounting the two bridges releases ALL FOUR
             subscription references the boundaries hold between them, and
             mounting them again returns to the SAME counts rather than
             higher ones.
