@@ -46,7 +46,7 @@ const SERVER = path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js');
 // EXACT readOnly/destructive posture + budget-hint prose so a tool
 // silently re-classified (a destructive write re-labelled readOnly — a
 // trust-boundary regression an agent host would auto-approve) turns this
-// gate RED for an unchanged tool-set. Sourced from this slice's own
+// gate RED for an unchanged tool-set. Sourced from this harness's own
 // fixture (mirrors tools/re-frame2-pair-mcp/tool-descriptors.edn).
 const EXPECTED_CLASSIFICATIONS = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 're-frame2-pair-classifications.json'), 'utf8'),
@@ -159,7 +159,7 @@ runWithWatchdog(
     assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);
     console.log(
       'OK   per-tool classification ratchet: readOnly/destructive posture + ' +
-        'budget-hint prose pinned (rf2-yi451)',
+        'budget-hint prose pinned',
     );
 
     // 3. Canonical workflow (degraded, since no nREPL is available).
@@ -217,7 +217,7 @@ runWithWatchdog(
       { name: 'read-mounted-boundaries', arguments: {} },
       { name: 'read-read-attribution', arguments: {} },
       { name: 'explain-render', arguments: {} },
-      // replay-epoch (rf2-ov144) — the one-call strict replay of a retained
+      // replay-epoch — the one-call strict replay of a retained
       // epoch. It takes dispatch's authority posture, NOT the --allow-writes
       // gate, so degraded it routes through ensure-connection! like every
       // other live-runtime tool and returns the shared :nrepl-port-not-found
@@ -239,7 +239,7 @@ runWithWatchdog(
       // (writes/refuse-pre-connection fires before ensure-connection!), so
       // they get their own assertion block below. The CLOSED-WORLD
       // tool (get-re-frame2-pair-instructions) is
-      // ALSO not here (rf2-6amhbt): it reads only server-local state (no
+      // ALSO not here: it reads only server-local state (no
       // nREPL), so the server dispatches it at the pre-connection
       // boundary — it SUCCEEDS degraded and is covered by the
       // closed-world success block below, not this degraded walk.
@@ -295,7 +295,7 @@ runWithWatchdog(
     // isError. `assertIsErrorMatchesOk` lives in `_runner.cjs` (routed
     // through the shared `structured()` dedup-decoder, not the raw wire
     // `resp.structuredContent` — see its docstring there for the
-    // dedup-envelope rationale, rf2-6i2yi4 finding 1).
+    // dedup-envelope rationale).
 
     // Call one tool and assert the shared degraded envelope. Returns the
     // SDK response so the structuredContent dual-slot check below can
@@ -322,7 +322,7 @@ runWithWatchdog(
       degradedResp[tool.name] = await assertDegraded(tool);
     }
 
-    // 3b-closed-world. Closed-world success path (rf2-6amhbt). Unlike
+    // 3b-closed-world. Closed-world success path. Unlike
     // every tool in the degraded walk above, `get-re-frame2-pair-instructions`
     // reads ONLY server-local state — inline
     // onboarding text — with NO
@@ -331,8 +331,7 @@ runWithWatchdog(
     // harness (no nREPL) it MUST SUCCEED (isError:false) rather than
     // return the shared `:nrepl-port-not-found` envelope. This pins the
     // spec/003 "answers even when the runtime is down" contract at the real
-    // MCP boundary — the exact behaviour the earlier harness mis-encoded as
-    // a degraded failure. It still routes through the SDK's
+    // MCP boundary. It still routes through the SDK's
     // CallToolResultSchema + the declared outputSchema parse, so a
     // structuredContent regression turns RED. Mirrors the analogous Story
     // closed-world block in end-to-end-story.cjs. This call also keeps
@@ -345,7 +344,7 @@ runWithWatchdog(
         throw new Error(
           'closed-world tool ' + readTool + ' MUST succeed (isError=false) ' +
             'with no nREPL — it reads server-local state and is dispatched ' +
-            'pre-connection (rf2-6amhbt); got: ' + JSON.stringify(r),
+            'pre-connection; got: ' + JSON.stringify(r),
         );
       }
       const text = r.content?.[0]?.text || '';
@@ -368,7 +367,7 @@ runWithWatchdog(
     }
     console.log(
       'OK   closed-world tool (get-re-frame2-pair-instructions)' +
-        ' -> success envelope with no nREPL (rf2-6amhbt)',
+        ' -> success envelope with no nREPL',
     );
 
     // 3c. Gated WRITE tools — pre-connection refusal. The two
@@ -394,7 +393,7 @@ runWithWatchdog(
       if (!resp.isError) {
         throw new Error(
           probe.name + ' MUST isError when booted WITHOUT --allow-writes ' +
-            '(default-OFF write gate, rf2-ee38b.18); the state-mutating ' +
+            '(default-OFF write gate); the state-mutating ' +
             'surface is reachable unauthorised. got: ' + JSON.stringify(resp),
         );
       }
@@ -412,7 +411,7 @@ runWithWatchdog(
         throw new Error(
           probe.name + ' write-gate refusal MUST NOT mention ' +
             ':nrepl-port-not-found — the gate is refused PRE-connection, not ' +
-            'after a failed discovery (rf2-wz66k7); got: ' + text.slice(0, 200),
+            'after a failed discovery; got: ' + text.slice(0, 200),
         );
       }
       console.log(
@@ -449,20 +448,20 @@ runWithWatchdog(
       if (!text.includes('unknown-tool')) {
         throw new Error(
           'unknown tool MUST diagnose as :unknown-tool even in degraded ' +
-            'mode (rf2-4mc6q1 — refused PRE-connection); got: ' + text.slice(0, 200),
+            'mode (refused PRE-connection); got: ' + text.slice(0, 200),
         );
       }
       if (text.includes('nrepl-port-not-found')) {
         throw new Error(
           'unknown tool refusal MUST NOT mention :nrepl-port-not-found — ' +
             'registry membership is a pure function of the static catalogue, ' +
-            'refused before discovery (rf2-4mc6q1); got: ' + text.slice(0, 200),
+            'refused before discovery; got: ' + text.slice(0, 200),
         );
       }
       if (!text.includes('tools/list')) {
         throw new Error(
           'unknown-tool envelope MUST carry the tools/list recovery hint ' +
-            '(rf2-tkmik); got: ' + text.slice(0, 200),
+            'for a misconfigured session; got: ' + text.slice(0, 200),
         );
       }
       console.log(
@@ -514,7 +513,7 @@ runWithWatchdog(
       assertIsErrorMatchesOk('tools/call ' + label + ' (degraded)', resp);
     }
     console.log(
-      'OK   every :ok? false envelope is isError:true (universal cross-check, rf2-87h71e)',
+      'OK   every :ok? false envelope is isError:true (universal cross-check)',
     );
 
     // 3d. structuredContent dual-slot conformance. Every
@@ -525,7 +524,7 @@ runWithWatchdog(
     // when present; assert it for one tool per category: read
     // (snapshot, list-subscriptions) and action (dispatch).
     // All the degraded responses above route
-    // through wire/err-text which now emits both slots; we spot-
+    // through wire/err-text, which emits both slots; we spot-
     // check the assembled spool here. The responses come from the
     // `degradedResp` map keyed by tool name (filled by the loop above).
     for (const label of [
@@ -543,7 +542,7 @@ runWithWatchdog(
       if (resp.structuredContent === undefined || resp.structuredContent === null) {
         throw new Error(
           'tool ' + label + " result MUST carry :structuredContent slot " +
-            "(rf2-hj3pi dual-slot conformance); got: " + JSON.stringify(resp),
+            "(dual-slot conformance); got: " + JSON.stringify(resp),
         );
       }
       // Sanity: structured slot must be a JSON object (map) — NOT an
@@ -565,7 +564,7 @@ runWithWatchdog(
       }
     }
     console.log(
-      'OK   every tool envelope carries :structuredContent (rf2-hj3pi)',
+      'OK   every tool envelope carries :structuredContent',
     );
 
     // 4. JSON-RPC error-code conformance. Asserts re-frame2-pair-mcp emits
