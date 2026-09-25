@@ -1,14 +1,14 @@
 (ns re-frame.story.tags-cljs-test
-  "Tests for the shared effective-tag resolver (rf2-n0vmq2).
+  "Tests for the shared effective-tag resolver.
 
   `re-frame.story.tags` is pure data → data, so every test runs on both the
   JVM and CLJS without a host: inheritance layers are supplied through
-  explicit `{id → body}` lookup maps. The plan regressions drive the real
+  explicit `{id → body}` lookup maps. The plan tests drive the real
   compiler (`re-frame.story.plan`) with an explicit `:lookup`; the filter
-  regression proves the snapshot projection feeds the sidebar filter.
+  test proves the snapshot projection feeds the sidebar filter.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; under its old `-test` name it ran on the JVM only (rf2-exlh)."
+  selects it; a plain `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.tags :as rf.story.tags]
             [re-frame.story.plan :as rf.story.plan]
@@ -59,7 +59,7 @@
 ;; ---- effective-tags: inheritance + markers -------------------------------
 
 (deftest effective-tags-inherited-tag-removed-by-marker
-  (testing "rf2-n0vmq2 — a child :extends a parent tagged :dev and declares
+  (testing "a child :extends a parent tagged :dev and declares
             :!dev; the inherited :dev is removed and :!dev never surfaces"
     (let [m {:story.login/base  {:tags #{:dev :test}}
              :story.login/child {:extends :story.login/base :tags #{:!dev}}}
@@ -93,7 +93,7 @@
     (testing "non-tag slots are preserved"
       (is (= :story.p/base (:extends (:story.p/child projected)))))))
 
-;; ---- sidebar filter regression (snapshot projection → filter) ------------
+;; ---- sidebar filter (snapshot projection → filter) -----------------------
 
 (deftest filter-excludes-variant-that-removed-the-tag
   (testing "no visible :!dev chip / no :dev filter hit after resolution"
@@ -109,10 +109,10 @@
       (testing ":!dev is never a visible tag on any projected body"
         (is (not-any? (fn [[_ b]] (contains? (:tags b) :!dev)) projected))))))
 
-;; ---- plan compilation regression -----------------------------------------
+;; ---- plan compilation ----------------------------------------------------
 
 (deftest plan-tags-resolve-markers-through-extends
-  (testing "rf2-n0vmq2 — plan :tags is the EFFECTIVE set (inherited :dev
+  (testing "plan :tags is the EFFECTIVE set (inherited :dev
             removed by :!dev), not the raw union"
     (let [m {:story.login/filled {:tags #{:dev :test} :setup []}
              :story.login/error  {:extends    :story.login/filled
