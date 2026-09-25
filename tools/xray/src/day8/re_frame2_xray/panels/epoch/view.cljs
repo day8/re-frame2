@@ -1720,7 +1720,7 @@
 ;; There is no HANDLER-level "cascade rolled back" banner: the :app-db
 ;; violation renders on the FX step's :db row (the implicit commit fx).
 ;; Downstream-mute treatment rides `rolled-back-mute-style` (applied in
-;; `render-pipeline-steps`).
+;; `pipeline-view`).
 
 ;; -- pipeline -------------------------------------------------------------
 
@@ -1960,7 +1960,7 @@
 
 ;; ---- per-mount inspector identity ----------------------------------------
 ;;
-;; THE THIRTEEN `ei/edn-inspector-view` HEADS BELOW EACH COMPOSE A
+;; THE `ei/edn-inspector-view` HEADS BELOW EACH COMPOSE A
 ;; `:mount-id` FROM A LOGICAL SITE, AND A LOGICAL SITE CANNOT NAME A LIVE
 ;; MOUNT. `"epoch/dispatch-event"` is a CONSTANT; the machine cascade's
 ;; three are a role plus a step ordinal. Those separate the roles WITHIN one
@@ -2000,8 +2000,8 @@
 ;;     (`machine-inspector/instance-token`) never answers nil: it names
 ;;     itself, and a caller's `:instance-id` qualifies further on top.
 ;;
-;; ONE QUALIFIER EITHER WAY, AND IT MOVES THE `:mount-id` ALONE. All
-;; thirteen sites pass a stable `:site-id` beside it, and the widget's
+;; ONE QUALIFIER EITHER WAY, AND IT MOVES THE `:mount-id` ALONE. Every
+;; site passes a stable `:site-id` beside it, and the widget's
 ;; `effective-id` is `(or site-id mount-id)` — so expansion and zoom are
 ;; keyed `[panel-id site-id path]` and DO NOT READ THE MOUNT-ID AT ALL. The
 ;; logical disclosure identity is therefore separate from the
@@ -2165,17 +2165,15 @@
           ;; path's `machine-spec-from-meta` below).
           ;;
           ;; There is no bare `:spec` alternative. `machine-meta` comes off
-          ;; a REAL `:event`
-          ;; registration, and `reg-meta/retired-bare-keys` carries
-          ;; `{:spec :schema}` (MIGRATION §M-54), so a registration
+          ;; a REAL `:event` registration, and `reg-meta/retired-bare-keys`
+          ;; carries `{:spec :schema}` (MIGRATION §M-54), so a registration
           ;; declaring bare `:spec` throws `:rf.error/retired-registration-key`
           ;; at registration time — in dev AND prod. Such a branch would be
           ;; satisfiable only by a hand-built fixture, and a fallback
-          ;; unreachable from production BY CONSTRUCTION is
-          ;; what lets a fixture written on a retired spelling stay green
-          ;; while the real path is empty. The two fallbacks below are
-          ;; reachable: neither
-          ;; `:machine-spec` (bare, legacy, NOT retired — an unknown bare key
+          ;; unreachable from production BY CONSTRUCTION is what lets a
+          ;; fixture written on a retired spelling stay green while the
+          ;; real path is empty. The two fallbacks below are reachable:
+          ;; neither `:machine-spec` (bare, legacy, NOT retired — an unknown bare key
           ;; is a dev-gated warning, so it can exist) nor the namespaced
           ;; `:rf.machine/spec` (the retired-BARE-key rule does not reach a
           ;; namespaced key) is unreachable the same way.
@@ -2388,7 +2386,7 @@
   `instance` is the mount qualifier [[Panel]] tokenised out of
   its `:instance-id` prop, or nil for the single-mount default. It reaches
   the DISPATCH step's own inspector, whose `:mount-id` is otherwise the
-  CONSTANT `\"epoch/dispatch-event\"` — the sharpest of the thirteen, since
+  CONSTANT `\"epoch/dispatch-event\"` — the sharpest of the sites, since
   two mounts of this panel collide on it even with no data in common. See
   the §per-mount inspector identity commentary above [[dispatch-body]]."
   ([step] (render-dispatch-step step nil nil))
@@ -5778,15 +5776,14 @@
       (when (seq d) d))))
 
 (defn- error-block-details
-  "Render the collapsible EXCEPTION details (rf2-wnvid) — a native
-  `<details>` disclosure carrying the stack trace + any `ex-data`,
-  collapsed by default. Replaces the pre-rf2-wnvid always-expanded
-  source link (which was REDUNDANT — the HANDLER step's verb already
-  jumps to the handler's reg-site, and on a handler throw the error
-  card's own coord was usually nil → a useless 'source unavailable'
-  link). The depth lives behind one click; the common read is the
-  headline + message above. Returns nil when neither a stack nor
-  ex-data is available (nothing to disclose)."
+  "Render the collapsible EXCEPTION details — a native `<details>`
+  disclosure carrying the stack trace + any `ex-data`, collapsed by
+  default. There is no always-expanded source link here: the HANDLER
+  step's verb already jumps to the handler's reg-site, and on a handler
+  throw the error card's own coord is usually nil, so such a link would
+  read 'source unavailable'. The depth lives behind one click; the
+  common read is the headline + message above. Returns nil when neither
+  a stack nor ex-data is available (nothing to disclose)."
   [testid-base {:keys [exception]} instance]
   (let [stack   (exception-stack exception)
         ex-data* (exception-ex-data exception)]
@@ -5813,29 +5810,29 @@
           [:pre {:style error-block-stack-style} stack]])])))
 
 (defn error-block
-  "Render one inline EXCEPTION card (rf2-ahhgn / rf2-wnvid) for a
-  projected `exception-row`. Top to bottom:
+  "Render one inline EXCEPTION card for a projected `exception-row`.
+  Top to bottom:
 
     1. Title bar: `✗` + 'Exception Thrown' + right-aligned recovery chip
        (`Rolled back`, painted ONLY when the cascade ACTUALLY rolled back
-       — `db-rolled-back?`; rf2-s6oqd drops the spurious chip on a
-       post-commit fx throw, rf2-wnvid on a pre-commit handler throw).
+       — `db-rolled-back?`; a post-commit fx throw or a pre-commit
+       handler throw carries no chip).
     2. Exception message: the verbatim `ex-info` message (monospace).
-       rf2-oqi0c — the category-reason boilerplate headline ('The event
-       handler threw.' / '…interceptor threw.') was DROPPED as redundant
+       There is no category-reason boilerplate headline ('The event
+       handler threw.' / '…interceptor threw.'): it would be redundant
        with the card position + 'Exception Thrown' heading.
     3. Collapsible details (`error-block-details`): the stack trace +
        any `ex-data`, collapsed behind a `<details>` disclosure.
 
-  rf2-wnvid — the pre-existing always-expanded jump-to-source link is
-  DROPPED: it duplicated the HANDLER step's verb link (the canonical
-  jump-to-source) and, on a handler throw where the trace carried no
-  coord, degraded to a useless 'source unavailable'. The depth that
-  matters (stack / ex-data) now rides the collapsible.
+  There is no always-expanded jump-to-source link: it would duplicate
+  the HANDLER step's verb link (the canonical jump-to-source) and, on a
+  handler throw where the trace carries no coord, degrade to a useless
+  'source unavailable'. The depth that matters (stack / ex-data) rides
+  the collapsible.
 
   `step-key` + `idx` give stable test ids. The card paints the failing
-  step's blast radius right where the work happened — the inline half of
-  rf2-ahhgn, polished by rf2-wnvid for ALL exception kinds."
+  step's blast radius right where the work happened, for ALL exception
+  kinds."
   ([step-key idx row] (error-block step-key idx row nil))
   ([step-key idx {:keys [message recovery db-rolled-back? operation
                          action-id via-wildcard?] :as row}
@@ -5843,15 +5840,14 @@
   (let [recovery-label (error-recovery-label recovery db-rolled-back?)
         testid-base    (str "rf-xray-epoch-error-"
                             (name (or step-key :unknown)) "-" idx)
-        ;; rf2-4yrr6 — machine-action-exception attribution. Name WHAT threw
-        ;; (the action) in one clean line: "action :blow-fuse threw an
-        ;; exception". The earlier wording (rf2-e7yhv) repeated ":* wildcard"
-        ;; / "unhandled" / "action" twice and re-stated the triggering event
-        ;; right above the verbatim ex-info message — a confusing run-on. The
-        ;; dropped detail is redundant: the machine is obvious from the
-        ;; cascade context, the triggering event + `:where` ride the ex-data
-        ;; (collapsible below), and the user's message renders verbatim. Reads
-        ;; cleanly for named-action throws too, not just the `:*` wildcard.
+        ;; Machine-action-exception attribution. Name WHAT threw (the
+        ;; action) in one clean line: "action :blow-fuse threw an
+        ;; exception". Nothing more is needed: the machine is obvious from
+        ;; the cascade context, the triggering event + `:where` ride the
+        ;; ex-data (collapsible below), and the user's message renders
+        ;; verbatim, so re-stating the event here would read as a run-on.
+        ;; Reads cleanly for named-action throws too, not just the `:*`
+        ;; wildcard.
         machine-attr   (when (and (= :rf.error/machine-action-exception operation)
                                   action-id)
                          (str "action " (fmt/ns-keyword action-id)
@@ -5861,7 +5857,7 @@
            :data-error-op (when (:operation row) (name (:operation row)))
            :style error-block-style}
      ;; 1. Title bar — ✗ glyph + 'Exception Thrown' + `:rf.error/id`
-     ;; category badge (rf2-vvixub) + recovery chip. Under the
+     ;; category badge + recovery chip. Under the
      ;; thrown-error human-message contract the verbatim message (below)
      ;; LEADS with a human sentence, so the machine discriminator
      ;; (`:operation` = `:rf.error/id`) surfaces HERE as a quiet metadata
@@ -5879,8 +5875,8 @@
         [:span {:data-testid (str testid-base "-recovery")
                 :style error-block-recovery-chip-style}
          recovery-label])]
-     ;; rf2-oqi0c — the category-reason boilerplate headline ('The event
-     ;; handler threw.' / '…interceptor threw.') is DROPPED: redundant with
+     ;; There is no category-reason boilerplate headline ('The event
+     ;; handler threw.' / '…interceptor threw.'): it would be redundant with
      ;; the card's position (under the failing step) + the 'Exception
      ;; Thrown' heading. The real `.getMessage` + ex-data carry the signal.
      ;; 2. Exception message (verbatim, monospace) — the punchline
@@ -5888,10 +5884,10 @@
        [:div {:data-testid (str testid-base "-message")
               :style error-block-message-style}
         message])
-     ;; 2b. rf2-4yrr6 — machine-action attribution line: "action <id> threw
-     ;; an exception" (collapsed from rf2-e7yhv's run-on). `:data-via-wildcard`
-     ;; still rides the row for downstream consumers / tests that distinguish a
-     ;; `:*` wildcard throw from a named-transition throw.
+     ;; 2b. Machine-action attribution line: "action <id> threw an
+     ;; exception". `:data-via-wildcard` rides the row for downstream
+     ;; consumers / tests that distinguish a `:*` wildcard throw from a
+     ;; named-transition throw.
      (when machine-attr
        [:div {:data-testid (str testid-base "-machine-attribution")
               :data-via-wildcard (str (boolean via-wildcard?))
@@ -5902,17 +5898,15 @@
 
 (defn error-blocks
   "Render every exception in `errors` as an inline card inside the
-  current step's body (rf2-ahhgn). `step-key` is the owning step keyword
+  current step's body. `step-key` is the owning step keyword
   (stable test ids). nil-safe — a clean step passes nil/empty and renders
   nothing.
 
-  `instance` (rf2-3ymg) qualifies the `ex-data` disclosure's inspector
+  `instance` qualifies the `ex-data` disclosure's inspector
   `:mount-id`. THE TWO-ARGUMENT ARITY MEANS `UNNAMED SINGLE MOUNT`, with the
-  same caveat [[violation-blocks]] carries: it is the pre-rf2-3ymg identity,
+  same caveat [[violation-blocks]] carries: it composes the bare ids,
   correct for a direct test call and wrong for a renderer holding an
-  instance. The INTERCEPTOR row took it while its whole chain lacked the
-  parameter, which is half of rf2-1ar7. Every call site in this file passes
-  it."
+  instance. Every call site in this file passes it."
   ([step-key errors] (error-blocks step-key errors nil))
   ([step-key errors instance]
    (when (seq errors)
@@ -5920,55 +5914,49 @@
       (map-indexed (fn [i e] (error-block step-key i e instance))
                    errors)])))
 
-;; `rolled-back-banner` retired per rf2-w8evg — the rf2-8resu
-;; redesign moved the `:where :app-db` violation from HANDLER to the
-;; FX step's `:db` row, so the standalone HANDLER-level "cascade
-;; rolled back — downstream effects skipped" banner has no caller.
-;; The downstream-mute chrome (`rolled-back-mute-style`) still
-;; applies in `render-pipeline-steps`.
+;; There is no `rolled-back-banner`: the `:where :app-db` violation
+;; renders on the FX step's `:db` row, so a standalone HANDLER-level
+;; "cascade rolled back — downstream effects skipped" banner would
+;; have no caller. The downstream-mute chrome (`rolled-back-mute-style`)
+;; applies in `pipeline-view`.
 
-;; SCHEMA HOT-RELOAD step retired per rf2-7gf7v (Mike pair-debug
-;; 2026-05-27). The standalone tail step was rendering opaque
-;; content (`schema hot-reload · :rf/default · path [:user/profile
-;; :age] · value -3`) lacking the rich context the operator
-;; needed. Hot-reload drift moves to the Issues panel where
+;; There is no SCHEMA HOT-RELOAD step. A standalone tail step could
+;; render only opaque content (`schema hot-reload · :rf/default · path
+;; [:user/profile :age] · value -3`) lacking the context the operator
+;; needs. Hot-reload drift lives in the Issues panel, where
 ;; explanatory chrome (pre/post schema, re-registration file:line,
-;; live value, etc.) has room to breathe. The
-;; `render-schema-hot-reload-step` fn + the `:schema-hot-reload`
-;; case in `render-step` are removed; the projection no longer
-;; emits the step (rf2-7gf7v / projection.cljc).
+;; live value, etc.) has room to breathe; the projection emits no
+;; such step (projection.cljc) and `render-step` has no case for it.
 
 ;; ---- step dispatcher -----------------------------------------------------
 
 (defn- render-step
   "Dispatch a step row to its renderer. Returns hiccup; nil for
   unknown step kinds (defensive — every step the projection produces
-  is in the canonical inventory; rf2-17vxj added SCHEMA-VIOLATIONS
-  later retired by rf2-xgeag in favour of inline attachment + a
-  hot-reload-only tail step; rf2-yx1ae's CHILD-DISPATCHES + rf2-rrykz's
-  APP-DB-DIFF steps were retired by rf2-zkiu5).
+  is in the canonical inventory). There is no SCHEMA-VIOLATIONS,
+  CHILD-DISPATCHES or APP-DB-DIFF step: violations attach inline to the
+  step they belong to.
 
-  `ctx` carries the cascade-level pieces a row may need (the rf2-5qp4g
-  DISPATCH `:fx-dispatch` parent-epoch link resolution index, and since
-  rf2-k97c.3 the two VALUES the HANDLER and SUBSCRIPTIONS rows used to
-  read from the substrate themselves — `:selected-epoch-record` and
-  `:subs-filter-mode`, both now read once in [[Panel]]'s boundary body).
+  `ctx` carries the cascade-level pieces a row may need (the
+  DISPATCH `:fx-dispatch` parent-epoch link resolution index, and
+  the two VALUES the HANDLER and SUBSCRIPTIONS rows need —
+  `:selected-epoch-record` and `:subs-filter-mode`, both read once in
+  [[Panel]]'s boundary body so no row reads the substrate itself).
   Most steps ignore it."
   [step ctx]
-  ;; rf2-3ymg — `:instance` rides `ctx` like every other cascade-level
+  ;; `:instance` rides `ctx` like every other cascade-level
   ;; value, and reaches the steps that mount an `ei/edn-inspector-view`.
   ;; The TWO that mount none (`:recordable-cofx`, `:interceptors`) are not
   ;; passed it, which is the honest signal that they have no per-mount
   ;; identity to qualify.
   ;;
-  ;; rf2-1ar7 — that list read THREE and named `:interceptor` among them.
-  ;; It mounts none on a CLEAN cascade, which is every cascade in which the
-  ;; step is absent altogether (it is conditional on a throw). When it IS
-  ;; present it mounts one per throwing row carrying `ex-data`, through
+  ;; `:interceptor` is passed it although it mounts none on a CLEAN
+  ;; cascade, which is every cascade in which the step is absent
+  ;; altogether (it is conditional on a throw). When it IS present it
+  ;; mounts one per throwing row carrying `ex-data`, through
   ;; `interceptor-row-view` → [[error-blocks]] → [[error-block-details]].
   ;; The reachability question is "does any path from here reach an
-  ;; inspector", not "does this renderer name one", and the two remaining
-  ;; names were re-checked against that question rather than inherited.
+  ;; inspector", not "does this renderer name one".
   (let [instance (:instance ctx)]
     (case (:step step)
       :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx) instance)
@@ -5992,7 +5980,7 @@
   off the wrapper's left edge — the rail is a single absolutely-
   positioned line spanning the whole cascade.
 
-  Per the bead body's §Layout:
+  Layout:
 
       Container: padding 21px, overflow auto, full height
       Pipeline: left margin 55px to accommodate numbered circles
@@ -6002,9 +5990,8 @@
 
   `ctx` is an optional map carrying cascade-level pieces individual
   step renderers may need (`:dispatch-id->epoch-id` — the precomputed
-  index the DISPATCH step's `:fx-dispatch` parent-epoch link reads,
-  rf2-x25e0). Defaulted to `{}` for back-compat with direct test
-  callers."
+  index the DISPATCH step's `:fx-dispatch` parent-epoch link reads).
+  Defaults to `{}` for direct test callers."
   ([steps]
    (pipeline-view steps {}))
   ([steps ctx]
@@ -6019,26 +6006,19 @@
             :aria-hidden true
             :style pipeline-rail-style}]
      ;; Steps — `doall` forces the lazy `for` to realise INSIDE the
-     ;; render pass (rf2-atqkg). READ THE REASON AS HISTORY NOW, not as a
-     ;; live hazard, and keep the `doall` anyway.
+     ;; render pass. Nothing below this line reads the substrate: the
+     ;; HANDLER and SUBSCRIPTIONS rows' reads happen in `Panel`'s
+     ;; boundary body and arrive as VALUES in `ctx`, so there is no
+     ;; read left to strand. Keep the `doall` anyway.
      ;;
-     ;; The original reason: `render-step`'s descendants
-     ;; (`handler-db-diff-block`, `render-subscriptions-step`) read the
-     ;; substrate THEMSELVES via `@(rf/subscribe …)`, and Reagent tracks
-     ;; only derefs that fire while the parent reg-view's reactive scope
-     ;; is live. A lazy seq realised after the render pass left those
-     ;; derefs outside it, so a sub-value change triggered no re-render —
-     ;; the operator clicked `[diff][all]`, the sub flipped in app-db, and
-     ;; the panel hiccup stayed stale.
-     ;;
-     ;; rf2-k97c.3 REMOVED THE HAZARD AT ITS SOURCE: those two reads were
-     ;; hoisted into `Panel`'s boundary body and now arrive as VALUES in
-     ;; `ctx`, so nothing below this line reads the substrate at all and
-     ;; there is no read left to strand. Had they instead been left to
-     ;; donate upward, the hazard would have survived the migration
-     ;; unchanged — Fresco's collector records an edge WHERE THE READ
-     ;; HAPPENS, so a read fired after this body returns is recorded into
-     ;; no window at all, which is the same staleness by the same route.
+     ;; A descendant that read the substrate itself via
+     ;; `@(rf/subscribe …)` would need it: a deref fires into a
+     ;; tracking window only while that window is open — Reagent tracks
+     ;; derefs only inside the parent reg-view's reactive scope, and
+     ;; Fresco's collector records an edge WHERE THE READ HAPPENS — so a
+     ;; lazy seq realised after this body returns records its reads into
+     ;; no window at all, and a sub-value change (the operator clicks
+     ;; a filter button, the sub flips in app-db) triggers no re-render.
      ;;
      ;; The `doall` stays because it is free, because the shape it
      ;; protects is one edit away from returning, and because
@@ -6050,7 +6030,7 @@
                 :data-testid (str "rf-xray-epoch-pipeline-step-" (:step-number step))
                 :data-step (when (:step step) (name (:step step)))
                 :data-rolled-back (str (boolean (:rolled-back? step)))
-                ;; rf2-xgeag — when an `:app-db` violation rolled back
+                ;; When an `:app-db` violation rolled back
                 ;; the cascade, every step downstream of HANDLER paints
                 ;; with mute chrome so the operator sees the blast
                 ;; radius at-a-glance.
@@ -6065,16 +6045,16 @@
   "Render the empty-state copy for a given focus status. Per the
   shared focus-resolver contract — one terse line per status.
 
-  rf2-y8doi.19 — `:no-epoch` is the pinned event bundle that settled no
+  `:no-epoch` is the pinned event bundle that settled no
   epoch. Its copy is deliberately CAUSE-NEUTRAL: at least four things
   produce the status and the resolver can tell none of them apart from
   focus alone (a dispatch refused before any handler ran; a bundle still
   mid-build; a bundle whose epoch aged out of the ring; a focus pinning
   `:ungrouped`). Naming the refusal would read as fact and be a fresh
   falsehood on the other three, so the line states only what is known.
-  Before this status existed the panel answered the head epoch's
-  cascade here — a complete, plausible pipeline for a DIFFERENT event,
-  which is worse than an empty pane by some distance."
+  Answering the head epoch's cascade here instead would show a
+  complete, plausible pipeline for a DIFFERENT event, which is worse
+  than an empty pane by some distance."
   [status]
   (let [msg (case status
               :no-focus      "No event focused. Click an event in the list to inspect its pipeline."
@@ -6086,15 +6066,12 @@
            :style empty-state-style}
      msg]))
 
-;; rf2-wnvid — the top-of-cascade outcome banner ("This event failed —
-;; see the ✗ step below.") is RETIRED (Mike pair-debug 2026-05-31). It
-;; was redundant: the failure surfaces inline in the cascade — the
-;; failing step's inline 'Exception Thrown' card sits right under the
-;; step (the per-stage ✗ glyph itself retired in rf2-9wq0v). The banner
-;; restated what the cascade already shows, pushing the actual content
-;; down. The panel root still stamps `data-rf-xray-outcome` (tools / e2e
-;; read the tool-side outcome there); the banner element + its style are
-;; gone.
+;; There is no top-of-cascade outcome banner ("This event failed —
+;; see the ✗ step below."). The failure surfaces inline in the cascade —
+;; the failing step's inline 'Exception Thrown' card sits right under
+;; the step — so a banner would restate what the cascade already shows
+;; and push the actual content down. The panel root stamps
+;; `data-rf-xray-outcome` (tools / e2e read the tool-side outcome there).
 
 ;; ---- public Panel --------------------------------------------------------
 
@@ -6105,39 +6082,36 @@
   cascade when steps are present; an empty-state when the focus carries
   no record or the record carries no trace events.
 
-  rf2-ahhgn / rf2-wnvid / rf2-9wq0v — when the cascade failed
-  (`:outcome :error`) the failure surfaces INLINE: the failing step's
-  'Exception Thrown' card sits under it (the per-stage ✗ glyph retired
-  in rf2-9wq0v). The panel root stamps `data-rf-xray-outcome` for tools /
-  e2e; the pre-rf2-wnvid top banner is retired (it merely restated the
-  inline signal).
+  When the cascade failed (`:outcome :error`) the failure surfaces
+  INLINE: the failing step's 'Exception Thrown' card sits under it. The
+  panel root stamps `data-rf-xray-outcome` for tools / e2e; there is no
+  top banner (it would merely restate the inline signal).
 
-  A FRESCO BOUNDARY (rf2-k97c.3), not an `rf/reg-view`, and the two
-  differences that matter are the epic's couplings rather than spelling.
+  A FRESCO BOUNDARY, not an `rf/reg-view`, and the two differences that
+  matter are couplings rather than spelling.
 
   The READS are `rf.fresco/sub` — plain calls the shipped collector
   records an edge for, with no deref and no reaction owned by the
-  INSTALLED adapter. That is coupling (3), and it is the one a
-  first-paint smoke test cannot see.
+  INSTALLED adapter. That is the coupling a first-paint smoke test
+  cannot see.
 
   ALL THREE OF THE PANEL'S READS ARE IN THIS BODY, and that is a choice
-  worth naming because HD-016 permits the other one. Before rf2-k97c.3
-  two of them lived in helpers deep in the cascade —
-  `handler-db-diff-block`'s selected-epoch record and
-  `render-subscriptions-step`'s filter mode. Inlining those helpers would
-  have let their reads DONATE upward into this window, which HD-016 calls
-  settled rather than contingent and which would have been correct in
-  production. They were hoisted anyway, for a reason that is about
-  TESTING rather than about correctness: a `rf.fresco/sub` raises
-  `:rf.error/fresco-sub-outside-render` when it runs outside a collector
-  window, so a helper that performs one is callable only inside a real
-  React commit — and the cascade's step-rendering algebra is ordinary
-  data → data with 2,600 lines of fast node-lane coverage over it. The
-  two values now ride the `ctx` map [[pipeline-view]] already threaded,
-  and the helpers kept a 1-arity so a direct caller needs no cascade
-  context. Every migrated panel in this tree made the same call.
+  worth naming because HD-016 permits the other one. Two of them serve
+  helpers deep in the cascade — `handler-db-diff-block`'s selected-epoch
+  record and `render-subscriptions-step`'s filter mode. Performing those
+  reads inside the inlined helpers would let them DONATE upward into this
+  window, which HD-016 calls settled rather than contingent and which
+  would be correct in production. They live here anyway, for a reason
+  that is about TESTING rather than about correctness: a `rf.fresco/sub`
+  raises `:rf.error/fresco-sub-outside-render` when it runs outside a
+  collector window, so a helper that performs one is callable only
+  inside a real React commit — and the cascade's step-rendering algebra
+  is ordinary data → data with 2,600 lines of fast node-lane coverage
+  over it. The two values ride the `ctx` map [[pipeline-view]] threads,
+  and the helpers keep a 1-arity so a direct caller needs no cascade
+  context. Every Fresco panel in this tree makes the same call.
 
-  The cost is one lost conditional: both slots are now read on every
+  The cost is one conditional: both slots are read on every
   panel render rather than only when their step happens to be present.
   Neither widens invalidation in practice — the selected-epoch record
   moves with the same focus the pipeline read already depends on, and the
@@ -6147,7 +6121,7 @@
   The FRAME each read resolves against comes from React context, which
   the enclosing frame boundary writes: `rf/frame-provider` and
   `rf.fresco/frame-provider` write the SAME context, so this boundary
-  resolves `:rf/xray` identically under the Fresco root Xray owns today
+  resolves `:rf/xray` identically under the Fresco root Xray owns
   and under an `rf/frame-provider` a Reagent parent writes. It never
   consults `:adapter/current-component`, the hook a foreign root cannot
   answer.
@@ -6155,23 +6129,22 @@
   ## Why there is no second boundary below this one
 
   Boundary count tracks reads and head-position use, not file size. At
-  5.9k lines this panel has exactly the three reads above and — since
-  rf2-k97c.3 — no plain-fn head at all: `ei/mini`'s 21 head uses are now
-  CALLS, and the widget heads are the shipped Fresco siblings
-  (`ei/edn-inspector-view` ×13, `rt/resizable-table-view` ×3), each a
-  boundary in its own right. So nothing in the interior wants a
+  over 6k lines this panel has exactly the three reads above and no
+  plain-fn head at all: every `ei/mini` use is a CALL, and the widget
+  heads are the shipped Fresco siblings (`ei/edn-inspector-view`,
+  `rt/resizable-table-view`), each a boundary in its own right. So nothing in the interior wants a
   component of its own.
 
   The argument is the ordinary one-props-map vector every `defview` takes.
 
-  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT (rf2-3ymg)
+  ## `:instance-id` — OPTIONAL, and it names ONE LIVE MOUNT
 
   This panel reads no DATA from props: everything it renders comes from the
   three subs below and from nothing else, and the L4 registry and the
   standalone embed both mount it with no props at all. The one prop it takes
   is an IDENTITY.
 
-  Each of the thirteen `ei/edn-inspector-view` heads below needs a
+  Each `ei/edn-inspector-view` head below needs a
   `:mount-id` that is unique per LIVE MOUNT, because that string is the
   widget's lifecycle key (with the frame) and its measured-width slot key.
   The logical site is unique within one panel; two mounts of THIS panel in
@@ -6188,16 +6161,16 @@
 
   A non-blank string or a keyword — and a keyword's NAMESPACE is part of
   the name, so `:left/epoch` and `:right/epoch` are two instances and not
-  one (rf2-4bsq). It must be STABLE across that instance's renders — it is
+  one. It must be STABLE across that instance's renders — it is
   an identity, not a per-render nonce — and [[instance-token]] refuses,
   loudly, the shapes that could not be. OMIT IT when only one Epoch panel
-  renders in this frame, which is every call site in this tree today: the
-  ids are then byte-for-byte what they were.
+  renders in this frame, which is every call site in this tree: the
+  ids are then the bare logical-site ids.
 
   IT QUALIFIES THE PHYSICAL IDENTITY ONLY. Expansion, zoom and every step's
   own testids are keyed by the `:site-id` and the step's own ids, and are
-  left exactly where they were, so two Epoch panels of one epoch still open
-  and close together. The §per-mount inspector identity commentary above
+  not qualified, so two Epoch panels of one epoch open and close
+  together. The §per-mount inspector identity commentary above
   [[dispatch-body]] carries the mechanism — and the SECOND collision it
   names, the one with the Machine Inspector over the cascade they share,
   which this prop is deliberately NOT the fix for.
@@ -6211,13 +6184,13 @@
   [{:keys [instance-id]}]
   (let [{:keys [status steps record outcome]}
         (rf.fresco/sub [:rf.xray/epoch-pipeline])
-        ;; rf2-y8doi.19 — the parent-epoch link is the one thing here
-        ;; that needs the epoch ring, and it used to get it by having the
-        ;; pipeline sub ship `:epoch-history` in its value, which made
-        ;; every settled host event a fresh value and a whole-panel
-        ;; re-render. It now asks a narrow sub for exactly the parent ids
-        ;; THIS cascade carries; that answer is `=`-equal across settles,
-        ;; so the propagation collapses upstream of this component.
+        ;; The parent-epoch link is the one thing here that needs the
+        ;; epoch ring, and it asks a narrow sub for exactly the parent ids
+        ;; THIS cascade carries. Having the pipeline sub ship
+        ;; `:epoch-history` in its value instead would make every settled
+        ;; host event a fresh value and a whole-panel re-render; the
+        ;; narrow answer is `=`-equal across settles, so the propagation
+        ;; collapses upstream of this component.
         ;;
         ;; Both reads are unconditional and in a fixed order, so the
         ;; boundary's hook order is stable across renders; `parents` is
@@ -6234,39 +6207,39 @@
         (= :focused status)
         (if (seq steps)
           [:<>
-           ;; rf2-x25e0 — the `{dispatch-id → epoch-id}` index, threaded
+           ;; The `{dispatch-id → epoch-id}` index, threaded
            ;; through `ctx` to the DISPATCH step's `:fx-dispatch` /
            ;; `:fx-dispatch-later` parent-epoch resolver (O(1) lookup
            ;; instead of an O(N) epoch-history scan per render).
-           ;; rf2-y8doi.19 — it arrives from the narrow sub read above
+           ;; It arrives from the narrow sub read above
            ;; rather than being rebuilt here off the whole ring.
            (pipeline-view steps
                           {:dispatch-id->epoch-id parent-epoch-index
-                           ;; rf2-3ymg — this mount's qualifier, tokenised
+                           ;; This mount's qualifier, tokenised
                            ;; ONCE here and threaded down `ctx` with the
                            ;; rest. Nil unless the caller named the mount.
                            :instance (instance-token instance-id)
-                           ;; rf2-k97c.3 — the two reads the HANDLER and
-                           ;; SUBSCRIPTIONS rows used to perform
-                           ;; THEMSELVES, hoisted here and threaded down
-                           ;; as values. See this view's docstring for
+                           ;; The two values the HANDLER and
+                           ;; SUBSCRIPTIONS rows need, read here and
+                           ;; threaded down. See this view's docstring for
                            ;; why they are not left to donate upward.
                            ;;
-                           ;; rf2-y8doi.19 — this is the pipeline's OWN
-                           ;; `:record`, no longer a second read of
+                           ;; This is the pipeline's OWN `:record`, not a
+                           ;; second read of
                            ;; `:rf.xray/selected-epoch-record`. TWO
                            ;; reasons, and the first is load-bearing:
                            ;; that sub answers the RAW record, so reading
-                           ;; it here routed straight around the egress
-                           ;; seam the pipeline sub applies to the db
-                           ;; snapshots this record is used for. And the
-                           ;; two subs did not agree: that one is
+                           ;; it here would route straight around the
+                           ;; egress seam the pipeline sub applies to the
+                           ;; db snapshots this record is used for. And
+                           ;; the two subs do not agree: that one is
                            ;; deliberately head-fallback-free, so under
                            ;; head-fallback (focus unset, history
-                           ;; non-empty) the cascade rendered the head
-                           ;; epoch while the `:db` diff beside it got
-                           ;; nil and drew no pre-image. One record for
-                           ;; one panel; the view stops re-deciding it.
+                           ;; non-empty) the cascade would render the
+                           ;; head epoch while the `:db` diff beside it
+                           ;; got nil and drew no pre-image. One record
+                           ;; for one panel; the view does not re-decide
+                           ;; it.
                            :selected-epoch-record record
                            :subs-filter-mode
                            (rf.fresco/sub [:rf.xray.epoch/subs-filter-mode])})]
@@ -6275,21 +6248,16 @@
         :else
         (empty-state-view (or status :no-focus)))]]))
 
-;; ---- the migration bridge (rf2-k97c.3) -----------------------------------
+;; ---- the Reagent bridge --------------------------------------------------
 ;;
 ;; `panels/mount-epoch-panel!` mounts this panel BY NAME (reaching it
-;; through `panels.epoch-panel`'s re-export), and RULING 1's surviving
-;; spelling puts the Fresco boundary on the natural name with a PUBLIC
-;; bridge passed by the caller — the shape `resources/Panel-bridge` already
-;; ships, and the funnel that pointed the mount facade here (PR #9654)
-;; is what let this panel's migration happen ENTIRELY INSIDE THIS FILE and
-;; `epoch_panel.cljs`'s one re-export line: `panels.cljs` was never touched.
+;; through `panels.epoch-panel`'s re-export). The Fresco boundary takes
+;; the natural name, and the caller passes a PUBLIC bridge — the shape
+;; `resources/Panel-bridge` ships.
 ;;
-;; IT IS NO LONGER A NO-OP. Until this commit `Panel-bridge` was a `def`
-;; aliasing the `reg-view` value, and nothing downstream could tell the two
-;; names apart. `Panel` is now a Fresco boundary — a React function
-;; component — and Xray's shell reaches the active tab across its L4
-;; `as-child` seam as the hiccup head
+;; THE BRIDGE IS NOT A NO-OP. `Panel` is a Fresco boundary — a React
+;; function component — and Xray's shell reaches the active tab across
+;; its L4 `as-child` seam as the hiccup head
 ;; `[(:panel tab)]`, with `panel-registry/reg-l4-tab!`'s `:pre` requiring
 ;; `:panel` to be CALLABLE. A React component is neither.
 ;;
@@ -6301,10 +6269,10 @@
 ;; ABI — and the `[rf/frame-provider {:frame :rf/xray}]` the shell already
 ;; wraps the panel in is what puts `:rf/xray` in that context.
 ;;
-;; NOT SCAFFOLDING — THE PAIR STAYS. `panels/mount-epoch-panel!` reaches
-;; this bridge (via `panels.epoch-panel`'s re-export) through
-;; `render-panel!`, which rf2-l1jm keeps ratom-family, so a Reagent parent
-;; heads it by ruling whatever the L4 registry does. The chain is `[:>]`
+;; NOT SCAFFOLDING — THE PAIR IS PERMANENT. `panels/mount-epoch-panel!`
+;; reaches this bridge (via `panels.epoch-panel`'s re-export) through
+;; `render-panel!`, which is ratom-family, so a Reagent parent heads it
+;; whatever the L4 registry does. The chain is `[:>]`
 ;; -> `as-component` -> `Panel`.
 (def ^:private Panel-component
   "The React component [[Panel]] presents as, for a non-Fresco parent.
@@ -6321,20 +6289,20 @@
 
   PUBLIC, because this panel carries a `mount-epoch-panel!` facade and
   `panels/render-panel!` takes the view to mount as an ARGUMENT — so the
-  embedding contract needs a name it can pass. That door stays
-  ratom-family (rf2-l1jm), so this name and the component above stay
-  with it.
+  embedding contract needs a name it can pass. That door is
+  ratom-family, so this name and the component above live as long as
+  it does.
 
-  rf2-3ymg — the 1-arity is how a REAGENT parent names an instance when it
+  The 1-arity is how a REAGENT parent names an instance when it
   renders two of these under one `frame-provider`:
 
       [Panel-bridge {:instance-id \"left\"}]
 
-  The 0-arity stays because that is how the shell mounts an L4 tab
+  The 0-arity is how the shell mounts an L4 tab
   (`[(:panel tab)]`) and how `render-panel!` mounts the standalone embed
   (`[panel-view]`) — one panel per frame, no instance to name.
 
-  ## The prop is TOKENISED HERE, before the crossing (rf2-4bsq)
+  ## The prop is TOKENISED HERE, before the crossing
 
   `[:>]` converts each prop VALUE before React sees it, and Reagent's
   `convert-prop-value` converts a named value with `cljs.core/name` — which
@@ -6343,7 +6311,8 @@
   had deliberately named apart would compose the same
   `epoch/epoch/dispatch-event` — one lifecycle entry, one ResizeObserver,
   one width slot, and detaching either releasing the other's. That is
-  precisely the collision rf2-3ymg repairs, restored by the crossing.
+  precisely the collision `:instance-id` exists to prevent, reintroduced
+  by the crossing.
 
   So the bridge runs [[instance-token]] — the SAME normaliser the boundary
   uses — and a STRING crosses, which Reagent preserves intact. The
