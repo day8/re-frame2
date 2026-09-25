@@ -1,7 +1,7 @@
 (ns re-frame.bench.fresco.z3vlz-slim-only
-  "RUNG 1 — reagent-slim ALONE. THE EXPERIMENT THAT SETTLES rf2-z3vlz.
+  "RUNG 1 — reagent-slim ALONE. THE DECIDING EXPERIMENT.
 
-  The bead's question is whether a SINGLE-SUBSTRATE reagent-slim bundle —
+  The question is whether a SINGLE-SUBSTRATE reagent-slim bundle —
   reagent-slim alone, no stock reagent compiled in — re-renders on a
   write. If it does, HD-008's finding is a mixed-bundle artefact (b) or a
   late-binding collision (c) and no user is affected. If it does not, it is
@@ -16,10 +16,8 @@
   `:compiled-in` manifest below is checked against the BUILD'S OWN source
   map by the driver, so the claim is verified rather than asserted.
 
-  Built and driven by
-  `implementation/fresco/test/re_frame/bench/fresco/z3vlz_run.cjs` on
-  rf2-2rtt6.2's `:fresco-bench` build id — no new build id, so
-  `implementation/shadow-cljs.edn` is untouched."
+  Built and driven by `z3vlz_run.cjs` beside this file, on the shared
+  `:fresco-bench` build id."
   (:require [re-frame.bench.fresco.z3vlz-probe :as rf.bench.fresco.z3vlz-probe]
             [re-frame.bench.fresco.z3vlz-slim-substrate :as rf.bench.fresco.z3vlz-slim-substrate]
             [re-frame.core :as rf]))
