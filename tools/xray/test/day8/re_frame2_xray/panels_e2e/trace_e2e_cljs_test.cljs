@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels-e2e.trace-e2e-cljs-test
-  "Multi-frame e2e coverage for the Trace panel (rf2-7icrs, spec/017
-  — Trace row).
+  "Multi-frame e2e coverage for the Trace panel (spec/017 — Trace
+  row).
 
   The Trace panel projects the raw trace buffer through 13 filter
   axes (per `re-frame.trace.tooling/trace-buffer` opts). At the e2e
@@ -9,7 +9,7 @@
     1. The buffer mirrors host emissions (count > 0 after one host
        dispatch — proves the trace cb is wired).
     2. The buffer carries an `:rf.event/dispatched` event with the
-       expected `:tags :event-id`.
+       expected event vector under `:tags :rf.event/v`.
     3. The `:rf.xray/trace-feed` composite sub returns a map shape
        (composes through the projection layer cleanly)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
