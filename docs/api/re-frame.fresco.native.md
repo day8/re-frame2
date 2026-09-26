@@ -1,29 +1,28 @@
 # re-frame.fresco.native
 
-The two React hooks that join a React **island** to the Fresco frame it is
-mounted in — and nothing else.
+Use these two hooks in a React island — a UIx `defui` or a plain React function
+component mounted inside a Fresco tree through `h/defhost` or `[:>]` — to read
+subscriptions and dispatch in the Fresco frame the island is mounted under.
+
+It is an optional namespace: nothing in `re-frame.fresco` requires it, so an
+application with no island carries none of it.
 
 ```clojure
 (:require [re-frame.fresco.native :as n])
 ```
 
-An island is a UIx `defui` or a raw React function component, mounted through
-`h/defhost` or `[:>]`. It requires this namespace only when it needs Fresco
-state, and nothing in `re-frame.fresco` requires it, so an application with no
-island carries none of it. React's own hooks are reached by direct `["react"]`
-interop and none are wrapped here: what React cannot supply is the frame, so the
-frame is all these two supply.
+React's own hooks are used directly through `["react"]`; this namespace wraps none
+of them and supplies only the frame. Both hooks are real React hooks, so call them
+unconditionally at the top level of the component, and both raise
+`:rf.error/no-frame-context` when rendered outside every frame.
 
-Both are **real React hooks** — top level of the component, unconditional — and
-both refuse with `:rf.error/no-frame-context` when rendered outside every frame.
-
-Both resolve the frame from the surrounding `frame-provider` / `frame-root` via
-React context, and nothing else — a `with-frame` dynamic scope around a
-synchronous render does not reach them. That is the one rule the whole React
-hook family follows: `re-frame.adapter.uix`'s `use-sub` and `use-frame` answer
-identically, so a component that moves between the two substrates resolves the
-same frame. The islands themselves are taught in
-[The native tier](../core/fresco/10-native-tier.md).
+Both read the frame from React context only — the nearest `frame-provider` or
+`frame-root` above — so a `with-frame` scope around a synchronous render does not
+reach them. The UIx adapter's [`use-sub` and
+`use-frame`](re-frame.adapter.uix.md#hooks) resolve the frame the same way, so a
+component that moves between the two substrates resolves the same frame.
+[The native tier](../core/fresco/10-native-tier.md) teaches islands and when to
+reach for one.
 
 ## The hooks
 
@@ -34,19 +33,19 @@ same frame. The islands themselves are taught in
   ```clojure
   (n/use-sub query-v)
   ```
-- **Description**: The current value of the subscription `query-v` names, read
-  under the frame this island is mounted in. The island counterpart to `h/sub` —
-  and one call per read, so two calls are **two** subscriptions where a `defview`
-  body's several `h/sub` reads are one.
-    - It hands `useSyncExternalStore` the same `subscribe` and `getSnapshot` a
-      boundary reading this key gets, so the read builds the same cell, joins the
-      same reader membership and residue census, wakes on the same commit, and
-      appears in the same `re-frame.fresco.tool` rosters Xray reads.
-    - A re-render that changed no read performs no re-subscribe; unmount releases
-      what mount acquired, StrictMode's double mount included.
-    - A commit observed through it is a **blocking** update — React's rule for an
-      external store — so nothing here is transition-aware, and it is not a door to
-      a promise-driven resource.
+- **Description**: Returns the current value of the subscription `query-v`, read in
+  the frame the island is mounted under, and re-renders the component when it
+  changes. It is the island's counterpart to `h/sub`, except that each `use-sub`
+  call is a separate subscription, where all of a `defview` body's `h/sub` reads
+  share one.
+    - It gives `useSyncExternalStore` the same `subscribe` and `getSnapshot` a Fresco
+      view reading the same query gets, so it wakes on the same commit and shows up
+      in Xray alongside the views' reads.
+    - A re-render that changes no read does not re-subscribe, and unmount releases
+      what mount acquired, including under StrictMode's double mount.
+    - An update it observes is a blocking update, as React requires for an external
+      store, so it is not transition-aware and is not a way to read a
+      promise-driven resource.
 - **Example**:
   ```clojure
   (defui ticker [{:keys [sym]}]
@@ -60,17 +59,15 @@ same frame. The islands themselves are taught in
   ```clojure
   (n/use-frame)
   ```
-- **Description**: Frame-locked operations for the frame this island is mounted
-  in — `rf/capture-frame`'s bundle,
-  `{:frame :dispatch :dispatch-sync :subscribe}`.
-    - The frame is the surrounding tree's, the one React context the boundary shell
-      reads, and no argument reaches another; for a **named** frame call
-      `(rf/capture-frame frame-id)` directly.
-    - The map is the same object on every render under one frame **incarnation**, so
-      it is safe in effect deps and safe to close over. Destroy the frame and
-      recreate it under the same id and the next render gets the successor's ops,
-      while a callback still holding the predecessor's is refused by core's
-      `:rf.error/frame-destroyed` fence.
+- **Description**: Returns the frame-locked ops map for the frame the island is
+  mounted under, `{:frame :dispatch :dispatch-sync :subscribe}` — the same map
+  `rf/capture-frame` returns.
+    - It takes no argument and always reads the surrounding tree's frame. For a
+      named frame, call `(rf/capture-frame frame-id)` directly.
+    - The map is the same object on every render while the frame stays the same, so
+      it is safe in effect deps and safe to close over. Destroy the frame and create
+      another under the same id, and the next render gets the new frame's ops; a
+      callback still holding the old ops raises `:rf.error/frame-destroyed`.
 - **Example**:
   ```clojure
   (defui col-resizer [_]
@@ -80,7 +77,5 @@ same frame. The islands themselves are taught in
 
 ## See also
 
-- [The native tier](../core/fresco/10-native-tier.md) — islands, and when to
-  reach for one
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract
-- [`re-frame.fresco`](re-frame.fresco.md) — the door, including `h/defhost`
+- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [`re-frame.fresco`](re-frame.fresco.md) — `h/defhost` and `h/sub`.

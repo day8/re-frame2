@@ -1,31 +1,18 @@
 # re-frame.test-helpers
 
-`re-frame.test-helpers` is the view-tree assertion axis of the testing surface. A view is a function that returns [hiccup](../core/glossary.md#hiccup). These helpers walk that returned data structure: they locate nodes by `:data-testid` (or any attribute), read their text, and pluck or invoke an attached event handler. The walk helpers are pure functions over hiccup data. The whole surface, single-frame fixture trio included, runs on the JVM with no JSDOM, no React, and no `act()`.
-
-This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md), the HTML-string view-test path. Use the hiccup walkers when asserting on *structure* or *handlers*. Use `render-to-string` when asserting on rendered *markup*. The runtime-state axis (registrar fixtures, `assert-path-equals`, `poll-until`) lives in [re-frame.test-support.md](re-frame.test-support.md). A test that needs both axes `:require`s both namespaces.
+Helpers for testing views without a browser. A view returns [hiccup](../core/glossary.md#hiccup), and these pure functions walk that data: they find nodes by `:data-testid` or any other attribute, read their text, and call the event handlers attached to them. That catches what state assertions miss: a view that reads the wrong path or formats a value wrongly, or a button wired to dispatch into the wrong frame.
 
 ```clojure
 (:require [re-frame.test-helpers :as th])
 ```
 
-## Tree expansion
+```clojure
+(let [tree  (counter-view {:n 5})
+      label (th/find-by-testid tree "counter-label")]
+  (is (= "Count: 5" (th/text-content label))))
+```
 
-### `expand-tree`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (expand-tree tree) → tree
-  ```
-- **Description**: Recursively expand the components inside a hiccup tree, invoking each with its args just as Reagent's renderer would. This covers function components, Form-2 fn-returning-fn components, and Form-3 class components. After expansion, every vector's first element is a keyword tag or a non-component value.
-
-    - Form-3 classes expand by calling the stashed `:reagent-render` fn directly. No React is instantiated and no lifecycle methods run. Detection keys on the class tag reagent-slim's `create-class` stamps, so a stock-Reagent `create-class` class is not recognised as Form-3. (On the JVM, class detection is a no-op.)
-    - The `find-*` and `text-content` walkers already expand internally. Call `expand-tree` directly only to re-expand a sub-tree mid-walk.
-- **Example**:
-  ```clojure
-  (th/expand-tree [parent-view {:n 5}])  ; => hiccup whose vectors all start
-                                         ;    with keyword tags
-  ```
+Everything here, the [connected view test](#a-connected-view-test) included, runs on the JVM with no DOM, no React and no `act()`. Its companion [`re-frame.test-support`](re-frame.test-support.md) holds the fixtures that reset the runtime between tests; a test that checks both state and views requires both. To assert on rendered HTML markup rather than on structure or handlers, use `render-to-string` from [re-frame.ssr](re-frame.ssr.md). [Test a view](../core/testing/views.md) walks through a complete view test.
 
 ## Reading hiccup nodes
 
@@ -36,7 +23,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (attrs node) → map
   ```
-- **Description**: Return the attrs map of a hiccup node, or `nil`.
+- **Description**: Returns the attrs map of a hiccup node, or `nil` when it has none.
 - **Example**:
   ```clojure
   (th/attrs [:div {:k 1} "child"])   ; => {:k 1}
@@ -50,7 +37,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (children node) → vector
   ```
-- **Description**: Return everything after the tag and the optional attrs map. The result is always a vector, and it is empty when the node has no children. Non-vector input returns `nil`.
+- **Description**: Returns everything after the tag and the optional attrs map. The result is always a vector, empty when the node has no children. Non-vector input returns `nil`.
 - **Example**:
   ```clojure
   (th/children [:div {:k 1} "a" "b"])  ; => ["a" "b"]
@@ -64,7 +51,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (text-content node) → string
   ```
-- **Description**: Recursively collect the string leaves under `node`, expanding nested components along the way, and join them into one string. Numbers coerce to strings and nils are skipped. When nothing matches, the result is `""`.
+- **Description**: Returns the text under `node`: every string leaf, with nested components expanded, joined into one string. Numbers become strings and `nil`s are skipped. With no text, the result is `""`.
 - **Example**:
   ```clojure
   (th/text-content [:div "Count: " [:b 5]])  ; => "Count: 5"
@@ -77,7 +64,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (extract-handler node event-key) → fn
   ```
-- **Description**: Return the value under `event-key` in `node`'s attrs map, or `nil`. Equivalent to `(get (attrs node) event-key)`.
+- **Description**: Returns the value under `event-key` in `node`'s attrs map, or `nil`. Equivalent to `(get (attrs node) event-key)`.
 - **Example**:
   ```clojure
   (let [btn (th/find-by-testid tree "counter-inc")]
@@ -86,6 +73,8 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
 
 ## Finding nodes by attribute
 
+These walk the whole tree, expanding components as they go, and work with any attribute keyword: `:data-testid`, `:id`, `:data-test`, or your own.
+
 ### `find-by-attr`
 
 - **Kind**: function
@@ -93,10 +82,9 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (find-by-attr tree attr val) → node
   ```
-- **Description**: Return the first hiccup node whose attrs map carries `attr == val`, or `nil` when nothing matches. It is generic over the attribute keyword: `:data-testid`, `:id`, `:data-test`, or anything custom.
+- **Description**: Returns the first node whose attrs map has `attr` equal to `val`, or `nil` when nothing matches.
 - **Example**:
   ```clojure
-  ;; Generic over the attribute keyword.
   (th/find-by-attr tree :data-test "submit")
   (th/find-by-attr tree :id        "login")
   ```
@@ -108,7 +96,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (find-all-by-attr tree attr val) → vector
   ```
-- **Description**: Return every matching node, in depth-first order.
+- **Description**: Returns every matching node, in depth-first order.
 - **Example**:
   ```clojure
   (th/find-all-by-attr tree :data-test "row")  ; => every matching node
@@ -121,14 +109,16 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (find-by-attr-prefix tree attr prefix) → vector
   ```
-- **Description**: Return every node whose `attr` value is a string starting with `prefix`. Non-string attr values never match.
+- **Description**: Returns every node whose `attr` value is a string starting with `prefix`. Non-string values never match.
 - **Example**:
   ```clojure
-  ;; Matches "row-1", "row-2", … — non-string attr values never match.
+  ;; Matches "row-1", "row-2", …
   (th/find-by-attr-prefix tree :data-test "row-")
   ```
 
 ## Finding nodes by testid
+
+The same three searches, keyed on `:data-testid`.
 
 ### `find-by-testid`
 
@@ -137,12 +127,10 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (find-by-testid tree test-id) → node
   ```
-- **Description**: `find-by-attr` keyed on `:data-testid`.
+- **Description**: Returns the first node whose `:data-testid` is `test-id`, or `nil`. Equivalent to `(find-by-attr tree :data-testid test-id)`.
 - **Example**:
   ```clojure
-  (let [tree  (counter-view {:n 5})
-        label (th/find-by-testid tree "counter-label")]
-    (is (= "Count: 5" (th/text-content label))))
+  (th/find-by-testid tree "counter-inc")  ; => the first matching node, or nil
   ```
 
 ### `find-all-by-testid`
@@ -152,7 +140,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (find-all-by-testid tree test-id) → vector
   ```
-- **Description**: `find-all-by-attr` keyed on `:data-testid`.
+- **Description**: Returns every node whose `:data-testid` is `test-id`, in depth-first order. Equivalent to `(find-all-by-attr tree :data-testid test-id)`.
 - **Example**:
   ```clojure
   (th/find-all-by-testid tree "cart-row")  ; => vector of every match
@@ -165,7 +153,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (find-by-testid-prefix tree prefix) → vector
   ```
-- **Description**: `find-by-attr-prefix` keyed on `:data-testid`.
+- **Description**: Returns every node whose `:data-testid` starts with `prefix`. Equivalent to `(find-by-attr-prefix tree :data-testid prefix)`.
 - **Example**:
   ```clojure
   ;; Matches "item-1", "item-2", …
@@ -181,10 +169,11 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   ```clojure
   (invoke-handler node event-key & args) → any
   ```
-- **Description**: Find the handler under `event-key` on `node`, call it with `args`, and return its value. A missing handler is treated as a test bug, so this throws:
-
-    - `:rf.error/invoke-handler-bad-node` — `node` is not a hiccup vector.
-    - `:rf.error/invoke-handler-missing` — no handler fn exists under `event-key` (including when the node has no attrs map at all).
+- **Description**: Calls the handler under `event-key` on `node` with `args` and returns its value. Use it to click a button or change an input in a test.
+    - An ordinary `dispatch` inside the handler only queues the event, so `app-db` has not changed yet when `invoke-handler` returns. Wait for the result with `re-frame.test-support/poll-until`, in the same fixture-owned frame the click dispatched into. A handler that calls `dispatch-sync` drains in place.
+    - A missing handler is treated as a test bug, so it throws:
+        - `:rf.error/invoke-handler-bad-node`: `node` is not a hiccup vector.
+        - `:rf.error/invoke-handler-missing`: there is no handler fn under `event-key`, including when the node has no attrs map.
 - **Example**:
   ```clojure
   (let [btn (th/find-by-testid tree "counter-inc")]
@@ -201,7 +190,7 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
   (testid id) → map
   (testid id extra) → map
   ```
-- **Description**: Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into that map, and `:data-testid` always wins on collision. Use it at the view call site. Pair it with `find-by-testid` at the assertion site.
+- **Description**: Returns an attrs map carrying `:data-testid id`, for use in a view; find the node again with `find-by-testid`. The 2-arity merges `extra` into the map, and `:data-testid` always wins on collision.
 - **Example**:
     ```clojure
     (rf/reg-view counter-inc-button []
@@ -210,15 +199,34 @@ This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.m
     ;; the button node => [:button {:data-testid "counter-inc" :on-click ...} "+"]
     ```
 
-    `dispatch` here is the local `rf/reg-view` injects, and that lexical binding is what the deferred `:on-click` closes over. A bare `rf/dispatch` in the callback fires after the render scope has unwound and raises `:rf.error/no-frame-context` (EP-0002 — there is no `:rf/default` floor).
+    `dispatch` here is the local that `rf/reg-view` provides, and the `:on-click` closure captures it. A bare `rf/dispatch` in the callback runs after the render scope has unwound, finds no frame in scope (there is no fallback to `:rf/default`), and raises `:rf.error/no-frame-context`.
 
-## Single-frame view test — composition recipe
+## Tree expansion
 
-A connected view (one that subscribes / dispatches) needs a frame in scope. There is **no bespoke single-frame fixture macro** — the single-frame view test composes from primitives that already exist and are adopted at scale:
+### `expand-tree`
 
-1. **`re-frame.test-support/make-reset-runtime-fixture`** — an `:adapter` (and an optional `:init-fn` that holds the `reg-event` / `reg-sub` / `reg-view` calls the test relies on) seats the ambient `:rf/default` frame and rolls the registrar back between tests.
-2. **The hiccup walkers above** — call the root view fn directly and walk the returned tree.
-3. **`re-frame.test-support/poll-until`** — for the async case (a plain `dispatch` that queues, an HTTP reply, a machine `:after`) whose settled outcome is observable in the re-rendered view.
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (expand-tree tree) → tree
+  ```
+- **Description**: Expands every component in a hiccup tree by calling it with its args, as Reagent's renderer would: function components, Form-2 components (a function returning the render function) and Form-3 class components. Afterwards, every vector starts with a keyword tag or a non-component value.
+    - The `find-*` functions and `text-content` already expand as they walk. Call `expand-tree` yourself only to re-expand a sub-tree mid-walk.
+    - A Form-3 class expands by calling its stashed `:reagent-render` function directly. No React component is created and no lifecycle methods run.
+    - Form-3 detection looks for the tag that reagent-slim's `create-class` sets, so a class from stock Reagent's `create-class` is not recognised. On the JVM there are no classes to detect.
+- **Example**:
+  ```clojure
+  (th/expand-tree [parent-view {:n 5}])  ; => hiccup whose vectors all start
+                                         ;    with keyword tags
+  ```
+
+## A connected view test
+
+A view that subscribes or dispatches needs a frame in scope. There is no dedicated single-frame fixture; combine three pieces:
+
+1. `re-frame.test-support/make-reset-runtime-fixture`, given an `:adapter` (and optionally an `:init-fn` holding the `reg-event` / `reg-sub` / `reg-view` calls the test relies on), seats the ambient `:rf/default` frame and rolls the registrar back between tests.
+2. The functions on this page: call the root view function directly and walk the tree it returns.
+3. `re-frame.test-support/poll-until`, for async work (a queued `dispatch`, an HTTP reply, a machine `:after`) whose result shows up in the re-rendered view.
 
 ```clojure
 (ns my-app.views-test
@@ -232,7 +240,7 @@ A connected view (one that subscribes / dispatches) needs a frame in scope. Ther
   (ts/make-reset-runtime-fixture {:adapter  counter/test-adapter   ;; your substrate adapter
                                   :init-fn  counter/install!}))     ;; reg-event / reg-sub
 
-;; Synchronous — dispatch-sync drains before the assertion, so walk the
+;; Synchronous: dispatch-sync drains before the assertion, so walk the
 ;; re-rendered view directly.
 (deftest counter-increments
   (rf/dispatch-sync [:counter/inc])
@@ -240,9 +248,9 @@ A connected view (one that subscribes / dispatches) needs a frame in scope. Ther
   (is (= "2" (th/text-content
                (th/find-by-testid (counter/main) "counter-display")))))
 
-;; Async — an invoked :on-click fires a plain dispatch that queues, so poll
-;; the re-rendered view until it settles (JVM shown; CLJS returns a Promise —
-;; compose with cljs.test/async, exactly as poll-until does).
+;; Async: an invoked :on-click fires a plain dispatch that queues, so poll
+;; the re-rendered view until it settles (JVM shown; on CLJS poll-until
+;; returns a Promise to compose with cljs.test/async).
 (deftest inc-button-is-wired
   (let [btn (th/find-by-testid (th/expand-tree (counter/main)) "counter-inc")]
     (th/invoke-handler btn :on-click))
@@ -252,11 +260,6 @@ A connected view (one that subscribes / dispatches) needs a frame in scope. Ther
         {:label "counter reached 1"})))
 ```
 
-See [`docs/core/testing/views.md`](../core/testing/views.md) for the worked walkthrough.
-
 ## See also
 
-- [re-frame.test-support.md](re-frame.test-support.md) — the runtime-state assertion axis: registrar fixtures, `assert-path-equals`, `poll-until`.
-- [re-frame.core.md](re-frame.core.md) — `dispatch-sync`, `with-new-frame`, `make-frame`, `app-db-value`, `compute-sub` — the production primitives these view tests drive.
-- [re-frame.ssr.md](re-frame.ssr.md) — `render-to-string`, the HTML-string view-test path that complements hiccup-walk.
-- [Test an event handler](../core/testing/event-handlers.md) and [Test a pipeline run](../core/testing/pipeline-runs.md) — the practical how-to guides for the testing surface.
+- [re-frame.core](re-frame.core.md): `dispatch-sync`, `with-new-frame`, `make-frame`, `app-db-value` and `compute-sub`, the production functions these tests drive.

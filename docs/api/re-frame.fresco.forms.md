@@ -1,29 +1,29 @@
 # re-frame.fresco.forms
 
-The optional forms module: one view that keeps an app-db **draft** in front of a
-committed value, and decides at commit time whether the commit still belongs to
-the edit the user made.
+Use this module for a text field that edits a draft and commits it on Enter or
+blur. `buffered-field` keeps the draft in `app-db` in front of the committed value,
+and at commit time decides whether the commit still belongs to the edit the user
+made.
+
+It is an optional namespace: an application that never requires it carries none of
+its code.
 
 ```clojure
 (:require [re-frame.fresco :as h]
           [re-frame.fresco.forms :as forms])
 ```
 
-Nothing new sits underneath it. The draft is an `h/reg-state` concern, the reset
-is `::h/revision`, the protocol is three ordinary events, and the field is one
-`h/defview` boundary — so the module costs no hook beyond the shell's own, and an
-application that never requires this namespace carries none of it.
-
-This page is the manifest-tracked index of the module's public vars. The prop
-table, the rejection rule and the recipes the module deliberately leaves to the
-application live in [Forms](../core/fresco/05-forms.md) and the
-[Fresco API reference](../core/fresco/api-reference.md).
+It is built from ordinary Fresco parts: the draft is an `h/reg-state` concern, the
+reset is `::h/revision`, the protocol is three ordinary events, and the field is
+one `h/defview`, so it adds no hooks beyond a view's own.
+[Forms](../core/fresco/05-forms.md) teaches the prop table, the rejection rule and
+the recipes the module leaves to the application.
 
 ## The field
 
 ### `buffered-field`
 
-- **Kind**: Var (view)
+- **Kind**: var (view)
 - **Signature**:
   ```clojure
   [forms/buffered-field {:control     address
@@ -33,20 +33,21 @@ application live in [Forms](../core/fresco/05-forms.md) and the
                          :on-cancel   event-v?
                          …attrs}]
   ```
-- **Description**: A controlled `<input>` with an app-db draft in front of the
-  committed value. `:control` is an **opaque address**, not a path; `:value` is
-  the committed value; `::h/revision` is the caller's generation counter and is
-  what a rejection is made of. `:control`, `:value`, `:on-commit`, `:on-cancel`,
-  `:key` and `::h/revision` are the field's own — every other prop reaches the `<input>`
-  unchanged, with `:type` defaulting to `"text"`.
-    - The protocol is three ordinary events in the module's own keyword namespace
-      (`::edit` on `:on-input`, `::commit` on Enter and blur alike, `::cancel` on
-      Escape), written into the field's intents rather than exported as names. A
-      test that drives the field by hand spells them through
-      `re-frame.fresco.test.forms`.
-    - It mints no refusal id of its own: a bad `:control` is `reg-state`'s
+- **Description**: Renders a controlled `<input>` whose edits go to an `app-db`
+  draft in front of the committed value.
+    - `:control` is an opaque address for the draft, not an `app-db` path; `:value`
+      is the committed value; `::h/revision` is the caller's generation counter, and
+      is what a rejection is made of.
+    - `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and `::h/revision`
+      belong to the field. Every other prop reaches the `<input>` unchanged, with
+      `:type` defaulting to `"text"`.
+    - The protocol is three events in the module's own keyword namespace: `::edit`
+      on `:on-input`, `::commit` on Enter and on blur, and `::cancel` on Escape. They
+      are written into the field rather than exported as names; a test that drives
+      the field by hand spells them through `re-frame.fresco.test.forms`.
+    - The module has no error ids of its own. A bad `:control` raises `reg-state`'s
       `:rf.error/fresco-state-bad-argument` at the field's first render, and
-      `::h/revision` on a non-text field is
+      `::h/revision` on a non-text field raises
       `:rf.error/fresco-revision-not-controlled`.
 - **Example**:
   ```clojure
@@ -62,18 +63,19 @@ application live in [Forms](../core/fresco/05-forms.md) and the
 
 ### `drafts`
 
-- **Kind**: Var
+- **Kind**: var
 - **Signature**:
   ```clojure
   forms/drafts
   ```
 - **Description**: The `h/reg-state` concern every buffered draft lives under, and
-  the address an application clears to end one — route entry, an explicit cancel,
-  a successful save reply. The value under one control is
-  `{:revision r :draft text}`; **absence means no editing session**, and it is the
-  only spelling of none, which is what makes every repeated commit idempotent. A
-  draft survives re-render, remount, virtualization and navigation on purpose, so
-  ending one is the application's call.
+  the address an application clears to end a draft: on route entry, an explicit
+  cancel, or a successful save reply.
+    - The value under one control is `{:revision r :draft text}`. Absence means no
+      editing session, and is the only way to say so, which is what makes a repeated
+      commit idempotent.
+    - A draft survives re-render, remount, virtualization and navigation, so ending
+      one is the application's call.
 - **Example**:
   ```clojure
   (dispatch [::h/clear forms/drafts [:todo 7 :title]])
@@ -81,7 +83,5 @@ application live in [Forms](../core/fresco/05-forms.md) and the
 
 ## See also
 
-- [Forms](../core/fresco/05-forms.md) — the chapter that governs the surface
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract
-- [`re-frame.fresco`](re-frame.fresco.md) — the door, including `h/reg-state`
-  and `::h/revision`
+- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [`re-frame.fresco`](re-frame.fresco.md) — `h/reg-state` and `::h/revision`.

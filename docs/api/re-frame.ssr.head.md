@@ -1,16 +1,28 @@
 # re-frame.ssr.head
 
-The `<head>` half of the SSR contract. A head-model is data derived from `app-db` — `:title`, `:meta`, `:link`, `:script`, `:json-ld`, `:html-attrs`, `:body-attrs` — never an imperative DOM API, because the server-rendered HTML must carry that metadata on first byte: crawlers and link-unfurlers do not run JS.
+Build a page's `<head>` (title, meta tags, links, scripts, JSON-LD) from app state on the server, so crawlers and link unfurlers that do not run JavaScript see it in the first response. A head model is data derived from `app-db`, with the keys `:title`, `:meta`, `:link`, `:script`, `:json-ld`, `:html-attrs` and `:body-attrs`. The Ring handler in [`re-frame.ssr.ring`](re-frame.ssr.ring.md) resolves and emits the head for each page.
 
-Ships in `day8/re-frame2-ssr` alongside [`re-frame.ssr`](re-frame.ssr.md). This is where the head surface is defined; require the namespace directly:
+Ships in the `day8/re-frame2-ssr` artefact, alongside [`re-frame.ssr`](re-frame.ssr.md).
 
 ```clojure
-(:require [re-frame.ssr.head :as head])
+(:require [re-frame.core     :as rf]
+          [re-frame.ssr.head :as head])
 ```
 
-The **registrar** is the exception: `reg-head` rides the `re-frame.core` facade as `rf/reg-head` (see [`re-frame.core`](re-frame.core.md)), because registration macros capture call-site source-coords and stay central. The **read** `head-model` and the **serialiser** `head-model->html` are both re-exported on [`re-frame.ssr`](re-frame.ssr.md) as `ssr/head-model` and `ssr/head-model->html`, so the whole read side sits beside `render-to-string`; each pair of names is one function.
+```clojure
+(rf/reg-head :head/article
+  (fn [db {:keys [params]}]
+    (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
+      {:title (str title " — Example")
+       :meta  [{:name "description" :content summary}]})))
 
-There is **no `:rf/head` subscription** — `:rf/head-model` names a data shape, not a registry entry. Reading a head is a pure read: `head-model` RETURNS the model and records it nowhere.
+;; A route selects it with {:head :head/article} in its metadata.
+;; For a request frame on that route:
+(head/head-model->html (head/head-model :app/request-17) {:wrap? true})
+;; => "<head><title>Hello — Example</title>…</head>"
+```
+
+Register heads with `rf/reg-head` on the `re-frame.core` facade; its entry is on [`re-frame.ssr`](re-frame.ssr.md#reg-head). `head-model` and `head-model->html` are also re-exported on `re-frame.ssr` as `ssr/head-model` and `ssr/head-model->html`, and each pair is the same function. There is no `:rf/head` subscription: `:rf/head-model` names a data shape, and `head-model` returns the model without recording it anywhere. [Head metadata](../ssr/head.md) shows a complete head and route.
 
 ## Reading a head
 
@@ -22,13 +34,12 @@ There is **no `:rf/head` subscription** — `:rf/head-model` names a data shape,
   (head-model frame-id) → :rf/head-model
   (head-model frame-id {:head-id id :route route}) → :rf/head-model
   ```
-- **Description**: Resolve `frame-id`'s head model and return it. Pure and JVM-runnable. One read answers the whole question, and it resolves in one pass:
-    1. The **effective route** is `:route` when the key is present — an explicit `{:route nil}` means *no route* — else the frame's active route slice from the runtime-db at `[:rf.runtime/routing :current]`.
-    2. The **head** is `:head-id` when supplied, else the effective route's `:head` metadata, else [`default-head`](#default-head). A selected-but-unregistered id raises `:rf.error/no-such-head`; a route declaring no `:head` at all falls back silently.
-    3. The head fn is evaluated against that **same** effective route, so `{:route r}` with no `:head-id` previews `r` end to end.
-
-    `frame-id` is **carried, not ambient** (EP-0002): the no-arg form was removed and a `nil` frame raises `:rf.error/no-frame-context` rather than resolving against a synthesised `:rf/default`. The carried frame selects the REGISTRATIONS as well as the data, so a head declared in one image cannot run against another image's `app-db`. Also available as `ssr/head-model` on [`re-frame.ssr`](re-frame.ssr.md); the two names are the same function.
-
+- **Description**: Returns `frame-id`'s head model. Pure and JVM-runnable. It resolves in one pass:
+    1. The effective route is `:route` when the key is present (an explicit `{:route nil}` means no route), else the frame's active route slice from `runtime-db` at `[:rf.runtime/routing :current]`.
+    2. The head is `:head-id` when supplied, else the effective route's `:head` metadata, else [`default-head`](#default-head). A selected id that is not registered raises `:rf.error/no-such-head`; a route that declares no `:head` falls back to the default without error.
+    3. The head fn runs against that same effective route, so `{:route r}` with no `:head-id` previews `r` end to end.
+    - `frame-id` is required. A `nil` frame raises `:rf.error/no-frame-context`; the head never resolves against a default frame.
+    - The frame selects the registrations as well as the data, so a head declared in one image cannot run against another image's `app-db`.
 - **Example**:
   ```clojure
   (head/head-model :app/request-17)
@@ -44,7 +55,9 @@ There is **no `:rf/head` subscription** — `:rf/head-model` names a data shape,
   ```clojure
   (default-head frame-id) → :rf/head-model
   ```
-- **Description**: The fallback model `head-model` returns when the effective route declares no `:head` (or there is no route). Carries `:title` — the frame's `:doc`, or `""` when it has none — plus the viewport `<meta>`. It deliberately carries no `<meta charset>`: charset is an envelope concern the host shell stamps, and a head model carrying one too would emit the tag twice. Plumbing a host reads only when reimplementing the default flow.
+- **Description**: Returns the model `head-model` falls back to when the effective route declares no `:head`, or there is no route. It carries `:title` (the frame's `:doc`, or `""` when it has none) and the viewport `<meta>`.
+    - It carries no `<meta charset>`: the host shell writes the charset, and a head model carrying one too would emit the tag twice.
+    - A host reads it only when reimplementing the default flow.
 - **Example**:
   ```clojure
   (head/default-head :app/request-17)
@@ -61,7 +74,10 @@ There is **no `:rf/head` subscription** — `:rf/head-model` names a data shape,
   (head-model->html head-model)
   (head-model->html head-model {:wrap? bool})
   ```
-- **Description**: Render a `:rf/head-model` to its inner-head HTML fragment in canonical order — `<title>`, then `<meta>` in declaration order, then `<link>`, then `<script>`, then JSON-LD. `:wrap?` (default `false`) wraps the fragment in `<head>…</head>`. `:html-attrs` and `:body-attrs` are deliberately NOT emitted: they belong to `<html>` and `<body>`, which the host shell stamps. The SSR pipeline calls this internally; reach for it directly only when emitting a custom HTML envelope. Also available as `ssr/head-model->html` on [`re-frame.ssr`](re-frame.ssr.md).
+- **Description**: Renders a head model to its inner-`<head>` HTML fragment. The SSR pipeline calls it for you; call it directly when you emit your own HTML envelope.
+    - Output order is fixed: `<title>`, then `<meta>` in declaration order, then `<link>`, then `<script>`, then JSON-LD.
+    - `:wrap?` (default `false`) wraps the fragment in `<head>…</head>`.
+    - `:html-attrs` and `:body-attrs` are not emitted: they belong to `<html>` and `<body>`, which the host shell writes.
 - **Example**:
   ```clojure
   (head/head-model->html (head/head-model :app/request-17) {:wrap? true})
@@ -70,6 +86,7 @@ There is **no `:rf/head` subscription** — `:rf/head-model` names a data shape,
 
 ## See also
 
-- [`re-frame.ssr`](re-frame.ssr.md) — the render, hash, hydration and error-projection surface, and the `ssr/head-model` / `ssr/head-model->html` re-exports.
-- [`re-frame.core`](re-frame.core.md) — the `rf/reg-head` registration macro.
-- [Head metadata](../ssr/head.md) — the recipe, including the separate `:rf/head-hash` channel.
+- [`re-frame.ssr`](re-frame.ssr.md) — rendering, hydration, error projection, and the `rf/reg-head` entry.
+- [`re-frame.ssr.ring`](re-frame.ssr.ring.md) — the Ring handler that resolves and emits the head for each request.
+- [`re-frame.routing`](re-frame.routing.md) — routes select a head with `:head` metadata.
+- [Head metadata](../ssr/head.md) — the guide, including the separate `:rf/head-hash` channel.

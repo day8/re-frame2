@@ -1,41 +1,41 @@
 # re-frame.fresco.overlay
 
-The optional overlay module. Two heads, and the module owns exactly one thing
-about an overlay: **the imperative call** that enters the browser's top layer.
+Use this module for popovers and modal dialogs on the browser's own top layer.
+`popover` and `modal` make the one call an attribute cannot, `showPopover` or
+`showModal`, and leave everything else to the platform.
+
+It is an optional namespace: `re-frame.fresco` does not require it, so an
+application that never requires it carries none of its code.
 
 ```clojure
 (:require [re-frame.fresco :as h]
           [re-frame.fresco.overlay :as overlay])
 ```
 
-Every other part of an overlay has an owner already. `<dialog>` owns modality —
-the page behind it goes inert, enforced by the engine rather than by a key
-handler. `popover` owns light dismiss and the auto stack. The top layer owns paint
-order, so no ancestor's `overflow`, `transform` or `z-index` can clip or out-stack
-a panel. CSS anchor positioning owns where a panel sits. What none of them owns is
-the entry: an element does not reach the top layer by having an attribute, so this
-module calls `showModal` / `showPopover` at the one moment React offers before
-paint, and calls the inverse before React takes the node away.
+The platform handles the rest of an overlay. `<dialog>` makes the page behind it
+inert, enforced by the engine rather than by a key handler. `popover` provides
+light dismiss and the auto stack. The top layer paints above everything, so no
+ancestor's `overflow`, `transform` or `z-index` can clip or out-stack a panel. CSS
+anchor positioning places the panel. What none of them does is enter the top layer:
+an element does not get there by having an attribute, so the module calls
+`showModal` / `showPopover` at the point React offers before paint, and the inverse
+before React removes the node.
 
-There is **no** portal, focus-trap loop, `document` key listener, outside-click
+There is no portal, focus-trap loop, `document` key listener, outside-click
 listener, z-index policy, scroll or resize listener, `ResizeObserver`, measurement
-of any kind, and no positioning engine. This is not a floating-UI library.
-
-This page is the manifest-tracked index of the module's public vars; the full
-option table and the focus rules are taught in
-[Overlays and focus](../core/fresco/13-overlays-and-focus.md).
-
-Both heads are legal hiccup heads, marked the way a `defview` product is — though
-neither is a Fresco *reactive* boundary: they read no subscription and hold no
-cell. On both, `:open?` false renders nothing at all — no element, no listener, no
-anchor claim — and every key that is not the head's own reaches the element
-unrenamed.
+of any kind, or positioning engine. [Overlays and
+focus](../core/fresco/13-overlays-and-focus.md) teaches the full option table and
+the focus rules.
 
 ## The heads
 
+Both are legal hiccup heads but not Fresco views: they read no subscriptions. On
+both, `:open?` false renders nothing at all — no element, no listener, no anchor
+name — and every prop that is not the head's own reaches the element unchanged.
+
 ### `popover`
 
-- **Kind**: Var (view)
+- **Kind**: var (view)
 - **Signature**:
   ```clojure
   [overlay/popover {:open?      open?
@@ -45,20 +45,19 @@ unrenamed.
                     :placement  compass-word}
    child …]
   ```
-- **Description**: An anchored, light-dismissable panel on the browser's own top
-  layer.
-    - `:anchor` is the **DOM id** of the trigger. The module gives that element a
-      generated CSS anchor name while the panel is open and puts back whatever it
-      found on the way out. An `:anchor` naming no element refuses with
-      `:rf.error/fresco-overlay-anchor-missing`; omitting it stays legal and
-      silent.
-    - `:placement` is the compass word that becomes a `position-area` against the
-      anchor. A `:placement` outside the known table is **not refused** — it is
-      passed through as a literal `position-area` value.
-    - With `:on-dismiss` the panel is a `popover="auto"` and takes its place in the
-      platform's LIFO stack; without one it is `popover="manual"` and dismisses for
-      nothing, because a dismissal with nowhere to go is how an open flag acquires a
-      second owner.
+- **Description**: Renders an anchored, light-dismissable panel on the browser's
+  top layer.
+    - `:anchor` is the DOM id of the trigger. While the panel is open, the module
+      gives that element a generated CSS anchor name, and restores whatever it found
+      when the panel closes. An `:anchor` naming no element raises
+      `:rf.error/fresco-overlay-anchor-missing`; omitting `:anchor` is legal.
+    - `:placement` is a compass word that becomes a `position-area` against the
+      anchor. A value outside the known table is passed through as a literal
+      `position-area` value rather than rejected.
+    - With `:on-dismiss`, the panel is `popover="auto"` and joins the platform's
+      LIFO stack. Without it, the panel is `popover="manual"` and nothing dismisses
+      it, because a dismissal nothing handles would leave the browser, instead of
+      your `:open?` value, deciding whether the panel is open.
 - **Example**:
   ```clojure
   [overlay/popover {:open?      (h/sub [:menu/open? id])
@@ -70,7 +69,7 @@ unrenamed.
 
 ### `modal`
 
-- **Kind**: Var (view)
+- **Kind**: var (view)
 - **Signature**:
   ```clojure
   [overlay/modal {:open?          open?
@@ -79,19 +78,19 @@ unrenamed.
                   :light-dismiss? boolean?}
    child …]
   ```
-- **Description**: A blocking dialog on the browser's own top layer, opened with
-  `showModal`.
-    - Modality is the engine's: the rest of the document is inert and `::backdrop`
-      is a real CSS selector. Focus cannot Tab out of the dialog — inertness is what
-      stops it reaching the page, and the module's own two-edge wrap is what makes
-      the last control Tab straight back to the first rather than through `<body>`.
-    - Escape dispatches `:on-dismiss`; a backdrop click does so only with
-      `:light-dismiss? true` (default false), because a destructive confirmation
-      must not go away on a stray click. Without `:on-dismiss` the dialog honours no
-      close request at all.
-    - Initial focus is **tree order** — the platform's own dialog-focusing steps
-      take the first focusable control, so order the controls rather than reaching
-      for an autofocus attribute.
+- **Description**: Renders a blocking dialog on the browser's top layer, opened
+  with `showModal`.
+    - The engine provides modality: the rest of the document is inert, and
+      `::backdrop` is a real CSS selector. Inertness keeps Tab from reaching the
+      page, and the module wraps focus at both ends, so Tab from the last control
+      goes back to the first instead of through `<body>`.
+    - Escape dispatches `:on-dismiss`. A backdrop click does so only with
+      `:light-dismiss? true` (default false), so a destructive confirmation does not
+      close on a stray click. Without `:on-dismiss`, the dialog ignores every close
+      request.
+    - Initial focus goes to the first focusable control in tree order, by the
+      platform's own dialog focusing steps, so order the controls instead of using
+      an autofocus attribute.
 - **Example**:
   ```clojure
   [overlay/modal {:open?      (h/sub [:invoice/confirm-delete? id])
@@ -104,7 +103,6 @@ unrenamed.
 
 ## See also
 
-- [Overlays and focus](../core/fresco/13-overlays-and-focus.md) — the chapter
-  that governs the surface, and the full option table
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract
-- [`re-frame.fresco`](re-frame.fresco.md) — the door
+- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [`re-frame.fresco`](re-frame.fresco.md) — `h/portal`, for containers the
+  application does not own.

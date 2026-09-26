@@ -1,51 +1,44 @@
 # re-frame.fresco.motion
 
-The optional motion module. One head, and the module owns exactly one thing about
-an animation: **retention**.
+Use this module to animate children as they enter and leave. React removes a node
+the instant its data leaves `app-db`, and a node that is gone cannot fade, so
+`presence` keeps exiting children for a stated `:timeout-ms` and applies the phase
+attributes you wrote on them. CSS declares the transition and the browser runs it.
+
+It is an optional namespace: `re-frame.fresco` does not require it, so an
+application that never requires it carries none of its code.
 
 ```clojure
 (:require [re-frame.fresco :as h]
           [re-frame.fresco.motion :as motion])
 ```
 
-Motion belongs to CSS, to the compositor and to the host. CSS declares the
-transition, the compositor interpolates it, and a native host owns the high-rate
-mechanics. Exactly one gap sits between those owners and is not one CSS can close:
-React removes a node the instant its data leaves app-db, and a node that is gone
-cannot fade. So `presence` keeps that node for a stated `:timeout-ms` and applies
-the phase the author wrote on it. That is the whole module.
-
-There is **no** easing, spring or keyframe API, no timeline or transition
-orchestrator, no `transitionend` subscription, and no gesture, drag or
-motion-value state. Those belong to the platform, and the way to reach them is
-`h/defhost`. This is not an animation system and is not on its way to becoming
-one.
-
-This page is the manifest-tracked index of the module's public vars; the marker
-keywords and the phase table are taught in
-[Motion and presence](../core/fresco/12-motion-and-presence.md).
+Retention is the whole module. There is no easing, spring or keyframe API, no
+timeline or transition orchestrator, no `transitionend` subscription, and no
+gesture, drag or motion-value state; reach those through a React component with
+`h/defhost`. [Motion and presence](../core/fresco/12-motion-and-presence.md) teaches
+the marker keywords and the phase table.
 
 ## The head
 
 ### `presence`
 
-- **Kind**: Var (view)
+- **Kind**: var (view)
 - **Signature**:
   ```clojure
   [motion/presence {:timeout-ms ms} keyed-child …]
   ```
-- **Description**: Retains exiting **keyed** children for `:timeout-ms`, merging
-  each child's own `::motion/mounting` / `::motion/unmounting` override map into
-  it while it is in that phase — into an element's attributes, or into a view's
-  props, the same map either way.
-    - It inserts **no wrapper node** and stamps no `data-*`: every child it renders
-      is the author's own node with the author's own attributes merged.
-    - `:timeout-ms` is **mandatory**. It is the retention length and the hard
-      terminal bound at once, so a child leaves on time whether or not any CSS ran.
-    - Per-frame work is zero: a transition costs one timer per outstanding deadline
-      and nothing between frames. A key that returns while it is exiting cancels —
-      it goes back to present on the node it already had, with no remount and no
-      restarted exit.
+- **Description**: Keeps exiting keyed children rendered for `:timeout-ms`, and
+  merges each child's own `::motion/mounting` or `::motion/unmounting` map into it
+  while it is in that phase: into an element's attributes, or into a view's props,
+  the same map either way.
+    - It inserts no wrapper node and adds no `data-*` attribute: every child it
+      renders is your own node with your own attributes merged.
+    - `:timeout-ms` is required. It is both the retention length and a hard upper
+      bound, so a child leaves on time whether or not any CSS ran.
+    - It does no per-frame work: a transition costs one timer per outstanding
+      deadline. A key that returns while it is exiting goes back to present on the
+      node it already had, with no remount and no restarted exit.
 - **Example**:
   ```clojure
   (h/defview toast-tray [_]
@@ -59,7 +52,5 @@ keywords and the phase table are taught in
 
 ## See also
 
-- [Motion and presence](../core/fresco/12-motion-and-presence.md) — the chapter
-  that governs the surface, and the marker keywords
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract
-- [`re-frame.fresco`](re-frame.fresco.md) — the door
+- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [`re-frame.fresco`](re-frame.fresco.md) — `h/defview` and `h/defhost`.

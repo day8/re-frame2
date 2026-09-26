@@ -1,25 +1,32 @@
 # re-frame.schemas
 
-Schema attachment, validation, and data-classification. Schemas are [Malli](https://github.com/metosin/malli) schemas attached to `app-db` paths via `reg-app-schema`. In dev builds the runtime validates every `app-db` write against the matching schemas. It also validates event, fx, and subscription values that carry a `:schema`. A mismatch emits an `:rf.error/schema-validation-failure` trace. Production builds elide validation at the call sites.
+Use schemas to catch data of the wrong shape where it is written. Attach a [Malli](https://github.com/metosin/malli) schema to an `app-db` path with `reg-app-schema`, or to an event, effect or subscription with the `:schema` key of its registration. Development builds validate every `app-db` write, event vector, fx argument and subscription value that has a schema, and emit an `:rf.error/schema-validation-failure` trace on a mismatch; production builds elide the checks.
 
-This namespace owns four surfaces:
-
-- the read-side introspection functions
-- the pluggable validator / explainer / printer seams
-- the per-slot `:sensitive?` / `:large?` schema walkers that drive failure-trace redaction
-- the test-support snapshot / restore / clear hooks
-
-The registration macros `reg-app-schema` / `reg-app-schemas` are surfaced through the `re-frame.core` facade (called as `rf/reg-app-schema`). Their full contract lives here.
+This namespace ships in the optional artefact `day8/re-frame2-schemas`. Require `re-frame.schemas` once at boot: loading it installs the default Malli validator. Without it, `rf/reg-app-schema` and `rf/reg-app-schemas` throw `:rf.error/schemas-artefact-missing`.
 
 ```clojure
-(:require [re-frame.schemas :as schemas])
+(:require [re-frame.core :as rf]
+          [re-frame.schemas :as schemas])
 ```
 
-Ships in artefact `day8/re-frame2-schemas`. Most app code touches only **Registration** and **Introspection**; the remaining sections are framework-integration and advanced surfaces. See [Validate with schemas](../core/how-to/validate-with-schemas.md) for the working guide.
+```clojure
+(rf/with-frame :rf/default
+  (rf/reg-app-schema [:user]
+    [:map [:id :uuid] [:name :string]]))
+
+(rf/reg-event :user/rename
+  {:schema [:cat [:= :user/rename] :string]}
+  (fn [{:keys [db]} [_ new-name]]
+    {:db (assoc-in db [:user :name] new-name)}))
+```
+
+Register `app-db` schemas through the `re-frame.core` facade, as `rf/reg-app-schema` and `rf/reg-app-schemas`; their full contract is on this page. Everything else here is called on `re-frame.schemas` itself.
+
+[Validate with schemas](../core/how-to/validate-with-schemas.md) teaches the model.
 
 ## Registration
 
-The registration macros live in `re-frame.core` and route through the schemas artefact at registration time. Consumers call them as `rf/reg-app-schema` / `rf/reg-app-schemas`. [re-frame.core.md](re-frame.core.md) lists them briefly; the full contract is here. `re-frame.schemas` also exports both names as plain functions for programmatic (HoF) registration. The functions carry the same contract but do not capture call-site source coords.
+`re-frame.schemas` also exports both registration names as plain functions, for programmatic registration. They behave like the macros but do not record call-site source coords.
 
 ### `reg-app-schema`
 
@@ -29,22 +36,27 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schema path schema)
   (reg-app-schema path metadata schema)
   ```
-- **Description**: Attach a Malli schema to an `app-db` path.
-    - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schemas` and `app-schema-meta` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the registration where untrusted input must be validated in production too.
-    - The schema is the **positional value slot**, uniform with the rest of the `reg-*` family. The optional middle metadata map carries the frame target under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys.
-    - The **path is the registration id**. App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table; they are NOT a registrar kind. `(app-schema-meta {:frame f :path [:user]})` looks up by the same path vector.
-    - `path` is a sequential `get-in` path of concrete segments, normalized to canonical vector form. `[]` registers a whole-`app-db` root schema. Returns the normalized path.
-    - Raises:
-        - `:rf.error/app-schema-bad-metadata` — the middle metadata arg in the 3-slot form is not a map.
-        - `:rf.error/app-schema-bad-path` — a non-sequential path, or a non-concrete segment.
-        - `:rf.error/app-schema-runtime-path` — the first segment reaches the runtime-db partition (`:rf.runtime/*`, `:rf.db/runtime`, or the legacy `:rf/runtime` root).
-        - `:rf.error/app-schemas-bad-arg` — a `:frame` target that does not resolve to a keyword frame id.
-        - `:rf.error/no-frame-context` — no `:frame` and no established frame scope.
-    - Dev-only diagnostics: re-registering a schema at a path whose live `app-db` value fails the new schema emits an `:rf.schema/violation` warning trace. Registering an opaque compiled schema the per-slot walker cannot introspect warns once per process with `:rf.warning/schema-walker-opaque`.
+- **Description**: Attaches a Malli schema to an `app-db` path. In development builds, after each event handler commits `:db`, the new `app-db` is validated against it, and a write that fails is rolled back to the pre-handler `app-db`.
+    - This is a development-build assertion. A production build still registers the schema, so `app-schemas` and `app-schema-meta` return it, but never checks it: a violating `app-db` installs with no rejection, rollback or trace. Keep invariants that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the event registration where untrusted input must be validated in production too.
+    - The schema is the last positional argument, as in the rest of the `reg-*` family. The optional middle metadata map carries the frame under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys. Without `:frame`, the schema registers against the frame in scope, for example inside `rf/with-frame`.
+    - The path is the registration id. App-db schemas are not a registrar kind: they live in the schemas artefact's per-frame table, and `(schemas/app-schema-meta {:frame f :path [:user]})` looks one up by the same path.
+    - `path` is a sequential `get-in` path of concrete segments, normalised to a vector. `[]` registers a schema for the whole `app-db`. Returns the normalised path.
+    - In development builds, re-registering a schema at a path whose live `app-db` value fails the new schema emits an `:rf.schema/violation` warning trace. Registering an opaque compiled schema that the walkers cannot inspect warns once per process with `:rf.warning/schema-walker-opaque`.
+- **Errors**:
+    - `:rf.error/app-schema-bad-metadata` — the middle argument of the three-argument form is not a map.
+    - `:rf.error/app-schema-bad-path` — the path is not sequential, or has a non-concrete segment.
+    - `:rf.error/app-schema-runtime-path` — the first segment reaches the `runtime-db` partition (`:rf.runtime/*`, `:rf.db/runtime`, or the legacy `:rf/runtime` root).
+    - `:rf.error/app-schemas-bad-arg` — `:frame` does not resolve to a keyword frame id.
+    - `:rf.error/no-frame-context` — no `:frame` and no frame in scope.
 - **Example**:
   ```clojure
-  (rf/reg-app-schema [:cells]
-    [:map [:cells/grid [:map-of :keyword :string]]])
+  (rf/with-frame :rf/default
+    (rf/reg-app-schema [:cells]
+      [:map [:cells/grid [:map-of :keyword :string]]]))
+
+  ;; naming the frame in the metadata map instead
+  (rf/reg-app-schema [:user] {:frame :rf/default :doc "The signed-in user."}
+    [:map [:id :uuid] [:name :string]])
   ```
 
 ### `reg-app-schemas`
@@ -55,30 +67,28 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})
   (reg-app-schemas {path-1 schema-1, ...} opts-or-frame-id)
   ```
-- **Description**: Bulk plural form of `reg-app-schema`.
-    - **Development-build assertion**, exactly as for the singular form: every entry registers in a production build but is never checked there.
-    - Each entry routes through the singular form and is stamped with this call's source coords.
-    - The optional second arg names the frame for every entry: an opts map (`{:frame target}`), a bare frame-id keyword, or a frame value. One frame per call.
-    - Returns the vector of paths registered, in map-iteration order. `{}` is the documented empty no-op.
-    - Every path is shape-checked before any store mutation, so a batch containing one invalid path (`:rf.error/app-schema-bad-path` / `:rf.error/app-schema-runtime-path`) registers nothing.
-    - A `nil` / non-map first arg raises `:rf.error/app-schemas-bad-batch`.
+- **Description**: Registers several `app-db` schemas in one call; each entry behaves as a `reg-app-schema` call.
+    - A development-build assertion, as for the singular form: every entry registers in a production build but is never checked there.
+    - Each entry is stamped with this call's source coords.
+    - The optional second argument names the frame for every entry: an opts map (`{:frame target}`), a frame-id keyword, or a frame value. One frame per call.
+    - Returns the vector of paths registered, in map-iteration order. `{}` registers nothing.
+    - Every path is checked before anything is stored, so a batch with one invalid path (`:rf.error/app-schema-bad-path` or `:rf.error/app-schema-runtime-path`) registers nothing.
+    - A `nil` or non-map first argument raises `:rf.error/app-schemas-bad-batch`.
 - **Example**:
   ```clojure
   (rf/reg-app-schemas
     ;; AuthState and ArticlesState are Malli schemas you define elsewhere
     {[:auth]     AuthState
-     [:articles] ArticlesState})
+     [:articles] ArticlesState}
+    {:frame :rf/default})
   ```
-
-See [re-frame.core.md](re-frame.core.md) for the `reg-*` return-value convention this registration participates in.
 
 ## Introspection
 
-The introspection surfaces live in `re-frame.schemas` and are *not* re-exported from `re-frame.core`.
+`re-frame.core` does not re-export these reads. Each takes one opts map whose `:frame` is required: a frame-id keyword or a frame value (normalised to its id), the same targets `rf/registrations` accepts. There is no default frame and no positional frame argument, because a frame value is itself a map and could not be told apart from an opts map.
 
-**One frame spelling.** Every read below takes a single opts **map** whose `:frame` is **required** and names a frame target — a frame-id keyword or a frame value (normalized to its frame id), the same targets `rf/registrations` accepts. There is no ambient default and no bare-frame-id or trailing-frame-target sugar: a live frame value is itself a map, so a type-sniffing positional argument could never be read locally. A frameless or non-map call raises `:rf.error/no-frame-context` with a message naming the `{:frame f}` spelling; a `:frame` that resolves to a non-keyword target raises `:rf.error/app-schemas-bad-arg`.
-
-Reading a frame that holds no schemas answers `{}` / `nil` / the empty-set digest rather than raising — the frame need not be live.
+- A missing or non-map argument raises `:rf.error/no-frame-context`, with a message naming the `{:frame f}` form. A `:frame` that does not resolve to a keyword raises `:rf.error/app-schemas-bad-arg`.
+- A frame with no schemas returns `{}`, `nil` or the empty-set digest rather than raising, and the frame need not be live.
 
 ### `app-schemas`
 
@@ -87,10 +97,10 @@ Reading a frame that holds no schemas answers `{}` / `nil` / the empty-set diges
   ```clojure
   (app-schemas {:frame f}) → {path registration-metadata}
   ```
-- **Description**: Return a frame's whole `{path → registration-metadata}` map, or `{}`.
-    - This is the same `{id → meta}` shape [`rf/registrations`](re-frame.core.md#registrations) answers for registrar kinds.
-    - Each value is the meta stamped at `reg-app-schema`: `:path`, `:schema`, `:frame`, source-coords (`:ns` / `:line` / `:file`), and the rest of `:rf/registration-metadata`.
-    - Project `:schema` when only the schema values are wanted.
+- **Description**: Returns every schema registered in a frame as a `{path → registration-metadata}` map, or `{}`.
+    - This is the same `{id → meta}` shape [`rf/registrations`](re-frame.core.md#registrations) returns for registrar kinds.
+    - Each value is the metadata recorded by `reg-app-schema`: `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:file`), and any other registration metadata.
+    - Map `:schema` over the values when you want only the schemas.
 - **Example**:
   ```clojure
   ;; every registration in the default frame
@@ -110,18 +120,17 @@ Reading a frame that holds no schemas answers `{}` / `nil` / the empty-set diges
   ```clojure
   (app-schema-meta {:frame f :path p}) → registration-metadata or nil
   ```
-- **Description**: Return one path's registration-metadata map in a frame, or `nil` when nothing is registered there.
-    - Contains `:path`, `:schema`, `:frame`, source-coords (`:ns` / `:line` / `:file`), and the rest of `:rf/registration-metadata`.
-    - The registered schema alone is `(:schema ...)`.
-    - Both keys are required.
+- **Description**: Returns the registration metadata for one path in a frame, or `nil` when nothing is registered there.
+    - The map contains `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:file`), and any other registration metadata. `(:schema …)` is the schema itself.
+    - Both `:frame` and `:path` are required.
 - **Example**:
   ```clojure
-  ;; the registration anchor — schema value plus source coords for click-back
+  ;; schema plus the source coords a tool uses to jump to the registration
   (schemas/app-schema-meta {:frame :rf/default :path [:user]})
   ;; => {:path [:user] :schema [:map [:id :uuid]]
   ;;     :frame :rf/default :ns "my.app.schema" :line 12 :file "..."}
 
-  ;; the schema value alone
+  ;; the schema alone
   (:schema (schemas/app-schema-meta {:frame :tenant/a :path [:articles]}))
   ```
 
@@ -132,137 +141,19 @@ Reading a frame that holds no schemas answers `{}` / `nil` / the empty-set diges
   ```clojure
   (app-schemas-digest {:frame f}) → string
   ```
-- **Description**: Return a single hash over the frame's whole schema surface.
-    - Canonical wire form: `"sha256:"` followed by the first 16 lowercase hex chars.
-    - Byte-deterministic across runtimes. The empty schema set produces a stable digest.
-    - Computed over the `{path → schema}` projection of `app-schemas`, so its bytes do not depend on the registration metadata riding alongside.
-    - SSR hydration compatibility checks use it. So do tools that want to know whether the schema corpus changed, without diffing schema-by-schema.
+- **Description**: Returns one hash over all the schemas registered in a frame, so you can tell whether the set changed without comparing schemas one by one.
+    - The format is `"sha256:"` followed by the first 16 lowercase hex characters.
+    - The bytes are the same on every runtime, and a frame with no schemas has a stable digest.
+    - It is computed over the `{path → schema}` projection of `app-schemas`, so other registration metadata does not affect it.
+    - SSR hydration uses it to check that server and client registered the same schemas.
 - **Example**:
   ```clojure
-  ;; one stable hash over the whole frame's schema surface
   (schemas/app-schemas-digest {:frame :rf/default})
   ```
 
-## Validation entry points
+## Validator bundle
 
-The four dev-time `validate-*!` functions are the locked validation sites the framework calls for you:
-
-- pre-handler (event)
-- pre-fx
-- post-commit (`app-db`)
-- post-recompute (subscription)
-
-They are public and manifested — tools and conformance tests call them directly. Ordinary app code does not: you register a `:schema` and the runtime invokes these. Every body lives inside an `interop/debug-enabled?` gate, so the whole surface is dead-code-eliminated in production. Each fn then returns `true`.
-
-On every surface, a structurally malformed registered schema (one that makes the registered validator throw) emits the distinct `:rf.error/malformed-schema` trace and returns `false` (**fail closed**), never a silent pass. That trace carries structural locator slots only — no value-bearing slots.
-
-Each fn also has a longest arity taking a trailing `continue?` predicate — the exact-owner continuation fence the runtime passes. It is consulted around the validator callbacks; once it reports false the fn stops, emits nothing further, and returns `:rf/stale-incarnation` (the dequeued event lost its exact frame incarnation, so the verdict is inert). The shorter arities supply it for you.
-
-### `validate-app-schema!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (validate-app-schema! db)                    ;; current frame
-  (validate-app-schema! db event-id)           ;; current frame, named handler
-  (validate-app-schema! db event-id frame-id)  ;; explicit frame
-  (validate-app-schema! db event-id frame-id continue?)
-  ```
-- **Description**: After a handler commits `:db`, walk every registered app-schema for the named frame and validate the post-commit `app-db`. Only the named frame's schemas are walked.
-    - Failures emit `:rf.error/schema-validation-failure` (one trace per failing entry) with the registered explainer's output attached. Value-bearing slots are redacted when the failing slot is `:sensitive?`.
-    - A malformed entry (the validator throws) emits `:rf.error/malformed-schema` for that entry, contributes `false`, and does not stop sibling schemas from validating.
-    - `event-id` (optional) names the handler whose commit prompted the failure — surfaced as `:failing-id`.
-    - Returns `true` when every registered schema conformed. Also returns `true` when no validator is registered, no schemas are registered for the frame, or the build elided validation.
-    - Returns `false` when at least one schema failed. The router consumes a `false` to roll the `:db` effect back to the pre-handler value.
-    - A hard no-op for every schema when `set-schema-fns!` has installed a `nil` `:validate`.
-
-### `validate-event!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (validate-event! event-id event handler-meta)
-  (validate-event! event-id event handler-meta frame)
-  (validate-event! event-id event handler-meta frame continue?)
-  ```
-- **Description**: Before an event handler runs, validate the event vector against any `:schema` on the handler's registration metadata.
-    - On failure, emits `:rf.error/schema-validation-failure :where :event`. The caller skips the handler (recovery `:no-recovery`).
-    - A `:sensitive?` slot anywhere in the event schema redacts the value-bearing trace slots. The common case is a `:cat` / `:catn` payload slot, such as a `:password` slot in a login schema.
-    - The optional `frame` arg stamps a `:frame` tag so the violation is captured into the in-flight epoch's `:trace-events` (read by the Xray Issues / Schema-timeline lens). The runtime passes it; direct callers may omit it.
-    - Returns `true`/`false`.
-
-### `validate-fx!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (validate-fx! fx-id event-id args fx-meta)
-  (validate-fx! fx-id event-id args fx-meta frame)
-  (validate-fx! fx-id event-id args fx-meta frame continue?)
-  ```
-- **Description**: Before an fx handler runs, validate its args against any `:schema` on the fx's registration metadata.
-    - On failure, emits `:rf.error/schema-validation-failure :where :fx-args`. Only the offending fx is skipped (recovery `:skipped`). Sibling fx in the same `:fx` vector still run, and downstream queued events still drain.
-    - The optional `frame` arg stamps a `:frame` tag for epoch capture.
-    - Returns `true`/`false`.
-
-### `validate-sub!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (validate-sub! sub-id query-v value sub-meta)
-  (validate-sub! sub-id query-v value sub-meta frame)
-  (validate-sub! sub-id query-v value sub-meta frame continue?)
-  ```
-- **Description**: After a subscription recomputes, validate its return value against any `:schema` on the sub's registration metadata.
-    - On failure, emits `:rf.error/schema-validation-failure :where :sub-return`. The caller replaces the value with the default (recovery `:replaced-with-default`).
-    - The optional `frame` arg stamps a `:frame` tag for epoch capture.
-    - Returns `true`/`false`.
-
-## Boundary validation and redaction seams
-
-These three functions are the production-side and cross-artefact seams. `validate-with-registered-fn` / `explain-with-registered-fn` are the pure check surface used by the always-on boundary check that `{:boundary? true}` turns on for a handler (see [`reg-event`](re-frame.core.md#reg-event)), which reaches them through the late-bind table. `redact-validation-tags` is the one schema-aware redactor; every validation-failure emit site outside this namespace routes through it.
-
-### `validate-with-registered-fn`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (validate-with-registered-fn schema value) → boolean
-  ```
-- **Description**: Apply the registered validator to `(schema, value)`. This is the public check seam the `:boundary? true` check uses. It runs in production, outside the `debug-enabled?` gate the `validate-*!` hot path sits behind.
-    - Returns `true` on conform.
-    - Returns `false` on fail, including when a structurally malformed schema makes the validator throw (**fail closed**).
-    - Returns `true` when no validator is registered. No-validator means no-validation, mirroring the hot path.
-    - Does NOT emit a trace (the boundary check owns the failure envelope) and does NOT consult `debug-enabled?`.
-
-### `explain-with-registered-fn`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (explain-with-registered-fn schema value) → explanation | nil
-  ```
-- **Description**: Apply the registered explainer to `(schema, value)`. Companion to `validate-with-registered-fn` for the boundary check.
-    - Returns the explanation map / data on fail.
-    - Returns `nil` when the value conforms, when no explainer is registered, or when the explainer throws. A throwing explainer degrades to `nil` because diagnostics must never change the verdict.
-
-### `redact-validation-tags`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (redact-validation-tags schema tags) → tags
-  ```
-- **Description**: The shared schema-aware redaction seam for every validation-failure trace emitted OUTSIDE this namespace. Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, flow-output validation, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit. Given the `schema` the failing value was checked against and a failure-trace `tags` map, it returns the tags with:
-    - a `:sensitive?` schema → the value-bearing slots (`:value` / `:received` / `:explain` / `:explain-humanized` / `:rf.fx/args` / `:rf.sub/query-v`) scrubbed to `:rf/redacted`, and `:sensitive? true` stamped. An opaque compiled schema the walker cannot introspect fails closed and is treated as sensitive.
-    - a `:large?` (non-sensitive) schema → those same slots elided to the `:rf.size/large-elided` marker.
-    - otherwise → the tags ride back verbatim.
-    - Off-namespace callers reach it through the `:schemas/redact-validation-tags` late-bind hook. When the schemas artefact is absent, the tags fall through verbatim. Idempotent.
-
-## Validator extension seam
-
-The default validator ships Malli's `validate` / `explain` pair (plus an EDN canonical printer for the digest). This seam lets an app swap in its own. The bundle still answers three different questions — validation correctness (`:validate`), human-readable failure messages (`:explain`), and stable canonical printing for the digest (`:print`) — but they are three KEYS of one value rather than three setters: `set-schema-fns!` installs, `schema-fns` reads, and `default-schema-fns` is the framework's own bundle.
+The default validator is Malli's `validate` / `explain` pair, plus an EDN printer that canonicalises schemas for the digest. To use a different schema library, install your own bundle: one map whose `:validate` decides whether a value is valid, `:explain` describes a failure, and `:print` gives each schema a stable canonical string for the digest. `set-schema-fns!` installs a bundle, `schema-fns` reads the installed one, and `default-schema-fns` is the framework's own.
 
 ### `set-schema-fns!`
 
@@ -271,13 +162,13 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})
   ```
-- **Description**: Install any subset of the validator / explainer / printer bundle from a single map. This is the one door onto the validator port.
-    - Each key is optional; an **absent** key leaves the existing registration in place, so a one-key call is how you swap a single fn. An **explicit `nil`** is a write: `nil` `:validate` or `:explain` disables that fn.
-    - A `nil` `:print` coerces to the default EDN canonicaliser, so the printer is never nil and the digest is never undefined.
-    - `validate-fn` is `(fn [schema value] truthy?)` — the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)` — the `malli.core/explain` shape. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and deterministic across runtimes.
-    - Last-write-wins per key; writes are not transactional.
-    - Returns the installed bundle map `{:validate … :explain … :print …}`, reflecting the live state of all three fns after the call — including keys the call did not touch. A caller wanting back just the fn it installed selects that key.
-    - This is the one-call substitute-Malli boot pattern: the three fns never drift mid-boot. It is also the restore path — hand it a value from `schema-fns` or `default-schema-fns`.
+- **Description**: Installs any subset of the validator, explainer and printer from one map. It is the only way to change them.
+    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate` or `:explain` disables that function.
+    - A `nil` `:print` falls back to the default EDN canonicaliser, so the digest always has a printer.
+    - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
+    - Last write wins per key; a call is not transactional.
+    - Returns the installed bundle `{:validate … :explain … :print …}` after the call, including keys the call did not touch. Select one key to get back the function you installed.
+    - Install all three in one call at boot so they never disagree mid-boot. The same call restores a saved bundle: pass it a value from `schema-fns` or `default-schema-fns`.
 - **Example**:
   ```clojure
   ;; install validator + explainer together (e.g. a clojure.spec or Zod port)
@@ -301,10 +192,10 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (schema-fns) → {:validate fn|nil :explain fn|nil :print fn}
   ```
-- **Description**: Read the currently-installed validator / explainer / printer as one value, in the same shape `set-schema-fns!` accepts and returns.
-    - `(set-schema-fns! (schema-fns))` is a no-op — the pair round-trips.
-    - `:validate` / `:explain` may be `nil`; `:print` is never `nil`.
-    - This is what test isolation is built from: capture, stub, and reinstate without reaching the framework-internal atoms and without a dedicated snapshot or restore verb. The registry-level counterpart for the per-frame schema store is `snapshot-schemas-by-frame`.
+- **Description**: Returns the installed validator, explainer and printer as one map, in the shape `set-schema-fns!` accepts and returns.
+    - `(set-schema-fns! (schema-fns))` changes nothing.
+    - `:validate` and `:explain` may be `nil`; `:print` never is.
+    - Tests use it to save the bundle, install a stub, and restore the saved value, as in the example. The equivalent for registered schemas is `snapshot-schemas-by-frame` / `restore-schemas-by-frame!`.
 - **Example**:
   ```clojure
   ;; capture / stub / restore is an ordinary let + finally over a value
@@ -318,41 +209,158 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
 
 ### `default-schema-fns`
 
-- **Kind**: var (bundle value)
+- **Kind**: var
 - **Signature**:
   ```clojure
   default-schema-fns → {:validate fn :explain fn :print fn}
   ```
-- **Description**: The framework's own validator bundle as a plain map carrying exactly `:validate`, `:explain` and `:print` — the state the port holds before an app installs anything.
-    - Install it to restore the framework defaults: `(set-schema-fns! default-schema-fns)`.
-    - Because the value carries the same fn objects the port was seeded with, the "still on the framework default" check behind `:rf.warning/schema-validator-unavailable` answers true again afterwards. Rebuilding an equal-but-distinct bundle by hand would not.
-    - It is the **framework** default, not "the Malli bundle": `:print` is the EDN canonicaliser rather than anything Malli supplies, and `:validate` / `:explain` soft-pass while the Malli adapter is unloaded.
+- **Description**: The framework's own bundle: the map installed before an app installs anything, with exactly `:validate`, `:explain` and `:print`.
+    - `(set-schema-fns! default-schema-fns)` restores the defaults.
+    - It holds the same function objects the bundle started with, so after restoring it the check behind `:rf.warning/schema-validator-unavailable` (is the framework default still installed?) is true again. A bundle rebuilt by hand around the same behaviour would not pass that check.
+    - It is the framework default rather than a Malli bundle: `:print` is the EDN canonicaliser, which Malli does not supply, and `:validate` / `:explain` pass everything while the Malli adapter is not loaded.
 - **Example**:
   ```clojure
   ;; restore the framework defaults after a test swapped them out
   (schemas/set-schema-fns! schemas/default-schema-fns)
   ```
 
-## Schema classification walkers
+## Framework integration
 
-The pure-data per-slot flag extractors and predicates. They walk a Malli **vector-form** EDN schema and report which slots carry `:sensitive? true` or `:large? true` per-slot props.
+Not for application code — used by adapters, tools and the test harness.
 
-Two kinds of consumers read them: the schema-validation-failure-trace redactor — which is the *only* consumer for a machine's `[:schemas :data]` schema and a resource's **required** `:params-schema` — and the transient-payload projectors, the HTTP body-privacy projector (which reads the *request's* `:decode` schema) and story-mcp's tool-egress projector.
+### Validation entry points
 
-A resource's optional `:data-schema` is in **neither** group. It has no runtime validation consumer at all: it is a statically reflected shape fact, surfaced as the resource's process-node `:schema` and through the `:rf/resource` registration projection, and runtime shape-validation of a response rides the request's `:decode` instead ([Spec 016 §Resource registration spec](../../spec/016-Resources.md#resource-registration-spec)). A `:sensitive?` prop on a `:data-schema` slot therefore redacts nothing anywhere.
+The runtime calls these four functions for you: `validate-event!` before an event handler runs, `validate-fx!` before an fx handler runs, `validate-app-schema!` after a handler commits `:db`, and `validate-sub!` after a subscription recomputes. They are public so that tools and conformance tests can call them directly; application code registers a `:schema` instead.
 
-They describe **shape**, not durable egress policy — for `app-db` or for anything else. Durable `app-db` classification is event-owned: a `reg-event` returns `:sensitive` / `:large` alongside `:db`. Durable *machine* `:data` classification is likewise not schema-driven: a machine declares projection-relative `:sensitive` / `:large` paths at the top level of its `reg-machine` spec, and the runtime lowers them per actor instance into the frame's elision registry ([Spec 015 §Subsystem projection-relative classification](../../spec/015-Data-Classification.md#subsystem-projection-relative-classification)). Putting `{:sensitive? true}` on a `[:schemas :data]` slot redacts that slot in the schema's own validation-failure trace and **nowhere else** — it will not redact the snapshot in SSR hydration, an epoch record, or the Xray Machine Inspector. A compiled / opaque `m/schema` value is treated as an opaque leaf, so register the vector form when per-slot flags need to be visible.
+- They exist in development builds only. In a production build the code is dead-code-eliminated and each function returns `true` without checking anything.
+- A malformed registered schema (one that makes the validator throw) emits `:rf.error/malformed-schema` and counts as a failure (`false`), so a broken schema never passes silently. That trace carries only locator slots, no values.
+- Each function's longest arity takes a trailing `continue?` predicate, which the runtime passes. It is checked around each validator call; once it returns false, the function stops, emits nothing more, and returns `:rf/stale-incarnation`, meaning the event's frame was destroyed or re-created while the event ran and the verdict no longer applies. The shorter arities supply the predicate themselves.
 
-### `extract-large-paths-from-schema`
+#### `validate-app-schema!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (validate-app-schema! db)                    ;; current frame
+  (validate-app-schema! db event-id)           ;; current frame, named handler
+  (validate-app-schema! db event-id frame-id)  ;; explicit frame
+  (validate-app-schema! db event-id frame-id continue?)
+  ```
+- **Description**: Validates `app-db` after a handler commits `:db`, against every schema registered for the frame. Schemas registered in other frames are ignored.
+    - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. Value-bearing slots are redacted when the failing slot is `:sensitive?`.
+    - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
+    - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
+    - Returns `true` when every schema conformed, and also when no validator or no schema is registered for the frame, or the build elided validation.
+    - Returns `false` when at least one schema failed. The router then rolls the `:db` effect back to the pre-handler value.
+    - Does nothing for any schema when `set-schema-fns!` has installed a `nil` `:validate`.
+
+#### `validate-event!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (validate-event! event-id event handler-meta)
+  (validate-event! event-id event handler-meta frame)
+  (validate-event! event-id event handler-meta frame continue?)
+  ```
+- **Description**: Validates an event vector against the `:schema` in its handler's registration metadata, before the handler runs.
+    - On failure it emits `:rf.error/schema-validation-failure` with `:where :event`, and the caller skips the handler (recovery `:no-recovery`).
+    - A `:sensitive?` slot anywhere in the event schema redacts the trace's value-bearing slots. The common case is a `:cat` / `:catn` payload slot, such as the `:password` in a login event's schema.
+    - The optional `frame` argument stamps `:frame` on the trace, so the failure is captured in the in-flight epoch's `:trace-events` (which the Xray Issues and Schema-timeline lenses read). The runtime passes it; direct callers may omit it.
+    - Returns `true` or `false`.
+
+#### `validate-fx!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (validate-fx! fx-id event-id args fx-meta)
+  (validate-fx! fx-id event-id args fx-meta frame)
+  (validate-fx! fx-id event-id args fx-meta frame continue?)
+  ```
+- **Description**: Validates an fx handler's args against the `:schema` in its registration metadata, before the fx runs.
+    - On failure it emits `:rf.error/schema-validation-failure` with `:where :fx-args`, and only that fx is skipped (recovery `:skipped`). The other fx in the same `:fx` vector still run, and queued events still drain.
+    - The optional `frame` argument stamps `:frame` on the trace for epoch capture.
+    - Returns `true` or `false`.
+
+#### `validate-sub!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (validate-sub! sub-id query-v value sub-meta)
+  (validate-sub! sub-id query-v value sub-meta frame)
+  (validate-sub! sub-id query-v value sub-meta frame continue?)
+  ```
+- **Description**: Validates a subscription's value against the `:schema` in its registration metadata, after the subscription recomputes.
+    - On failure it emits `:rf.error/schema-validation-failure` with `:where :sub-return`, and the caller replaces the value with the default (recovery `:replaced-with-default`).
+    - The optional `frame` argument stamps `:frame` on the trace for epoch capture.
+    - Returns `true` or `false`.
+
+### Boundary validation and redaction
+
+Other parts of the framework call these three functions in every build. `validate-with-registered-fn` and `explain-with-registered-fn` run the installed validator and explainer for the always-on check that `{:boundary? true}` enables on an event handler (see [`reg-event`](re-frame.core.md#reg-event)). Every validation-failure trace emitted outside this namespace is redacted by `redact-validation-tags`.
+
+#### `validate-with-registered-fn`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (validate-with-registered-fn schema value) → boolean
+  ```
+- **Description**: Validates `value` against `schema` with the installed validator. The `:boundary? true` check calls it, and it runs in production builds as well as development ones.
+    - Returns `true` when the value conforms.
+    - Returns `false` when it does not, including when a malformed schema makes the validator throw (fail closed).
+    - Returns `true` when no validator is installed: no validator means no validation, as on the development-build path.
+    - Emits no trace, because the boundary check emits the failure itself.
+
+#### `explain-with-registered-fn`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (explain-with-registered-fn schema value) → explanation | nil
+  ```
+- **Description**: Explains why `value` fails `schema`, using the installed explainer. The boundary check uses it beside `validate-with-registered-fn`.
+    - Returns the explanation when the value fails.
+    - Returns `nil` when the value conforms, when no explainer is installed, or when the explainer throws. A throwing explainer degrades to `nil` because a diagnostic must never change the verdict.
+
+#### `redact-validation-tags`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (redact-validation-tags schema tags) → tags
+  ```
+- **Description**: Redacts a validation-failure trace's `tags` map according to the `schema` the failing value was checked against.
+    - Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, flow output validation, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit.
+    - For a `:sensitive?` schema, the value-bearing slots (`:value`, `:received`, `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are replaced with `:rf/redacted`, and `:sensitive? true` is added. An opaque compiled schema that the walker cannot inspect is treated as sensitive.
+    - For a `:large?` schema that is not sensitive, the same slots are replaced with the `:rf.size/large-elided` marker.
+    - Otherwise the tags are returned unchanged.
+    - Idempotent. Callers outside the artefact reach it through the `:schemas/redact-validation-tags` late-bind hook; when the schemas artefact is absent, the tags pass through unchanged.
+
+### Schema classification walkers
+
+Pure functions that walk a Malli vector-form schema and report which slots carry `:sensitive? true` or `:large? true` props. The validation-failure redactor uses them, and so do two projectors that classify a transient payload by its schema: managed HTTP's response-body projector, which reads the request's `:decode` schema, and story-mcp's tool-egress projector.
+
+These props describe the shape of the value a schema checks. They are not a durable egress policy, for `app-db` or for anything else; [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) covers where each kind of data is classified:
+
+- Durable `app-db` classification comes from events: a `reg-event` handler returns `:sensitive` / `:large` alongside `:db`.
+- A machine's `:data` is classified by the projection-relative `:sensitive` / `:large` paths declared at the top level of its `reg-machine` spec. A `{:sensitive? true}` slot in the machine's `[:schemas :data]` schema redacts that slot in the schema's validation-failure trace only; it does not redact the snapshot in SSR hydration, an epoch record or the Xray Machine Inspector.
+- A resource's required `:params-schema` is read only by the validation-failure redactor. Its optional `:data-schema` has no runtime validation at all: it is reported as the resource's process-node `:schema` and in its `:rf/resource` registration projection, and a response's shape is validated by the request's `:decode` instead. A `:sensitive?` prop on a `:data-schema` slot therefore redacts nothing.
+
+A compiled `m/schema` value is opaque to the walkers, so register the vector form when per-slot flags need to be visible.
+
+#### `extract-large-paths-from-schema`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (extract-large-paths-from-schema schema base-path) → {path declaration}
   ```
-- **Description**: Walk a Malli schema EDN form at `base-path` and return a `{path declaration}` map for every `:large? true` slot found.
-    - Each declaration carries `:source :schema`, plus `:hint` propagated verbatim when the slot props carry one.
-    - This is the pure-data `:large?` extractor the owner-local size-elision consumers read directly. It does NOT feed the `app-db` egress registry — that registry is frame-owned.
+- **Description**: Returns a `{path declaration}` map of every `:large? true` slot in a Malli schema form, with each path prefixed by `base-path`.
+    - Each declaration carries `:source :schema`, plus the slot's `:hint` when its props carry one.
+    - Size-elision code that projects a payload by its own schema reads it directly. It does not feed the frame's `app-db` egress registry.
 - **Example**:
   ```clojure
   (schemas/extract-large-paths-from-schema
@@ -360,153 +368,156 @@ They describe **shape**, not durable egress policy — for `app-db` or for anyth
   ;; => {[:doc :blob] {:large? true :source :schema}}
   ```
 
-### `extract-sensitive-paths-from-schema`
+#### `extract-sensitive-paths-from-schema`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (extract-sensitive-paths-from-schema schema base-path) → {path declaration}
   ```
-- **Description**: As `extract-large-paths-from-schema`, for the `:sensitive? true` per-slot flag. Drives the validation-failure-trace redactor's decision about which value-bearing slots to scrub. Memoised by `(schema, base-path)`. Clear the memo for test isolation via `clear-sensitive-paths-cache!`.
+- **Description**: The `:sensitive? true` counterpart of `extract-large-paths-from-schema`. The validation-failure redactor uses it to decide which value-bearing slots to scrub. Results are memoised by `(schema, base-path)`; `clear-sensitive-paths-cache!` clears the memo between tests.
 
-### `schema-has-sensitive?`
+#### `schema-has-sensitive?`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (schema-has-sensitive? schema) → boolean
   ```
-- **Description**: `true` when the schema declares ANY slot sensitive. Two cases count: the schema's container-level props carry `:sensitive? true`, or a nested `:sensitive? true` slot lives anywhere inside it. This is the conservative whole-schema check: when any slot is sensitive, the whole trace's value-bearing slots are redacted.
+- **Description**: Returns `true` when any part of the schema is sensitive: its container-level props carry `:sensitive? true`, or a nested slot does. The redactor uses this whole-schema check, so if any slot is sensitive, all of the trace's value-bearing slots are redacted.
 - **Example**:
   ```clojure
   (schemas/schema-has-sensitive?
     [:map [:token {:sensitive? true} :string]])   ; => true
   ```
 
-### `schema-has-large?`
+#### `schema-has-large?`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (schema-has-large? schema) → boolean
   ```
-- **Description**: `true` when the schema declares ANY slot `:large? true`. The mirror of `schema-has-sensitive?` on the other per-slot flag. When `true`, the validation emit-site substitutes the `:rf.size/large-elided` size marker for the value-bearing slots. When a slot is also sensitive, sensitive wins.
+- **Description**: Returns `true` when any slot is `:large? true`; the `:large?` counterpart of `schema-has-sensitive?`. When it is `true`, the validation trace carries the `:rf.size/large-elided` marker in place of the value-bearing slots. A slot that is both sensitive and large is treated as sensitive.
 
-### `schema-sensitive-at?`
+#### `schema-sensitive-at?`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (schema-sensitive-at? schema in-path) → boolean
   ```
-- **Description**: Path-targeted sensitivity check. `true` when the slot at `in-path` is sensitive. Two cases count: an **ancestor** along the path is `:sensitive?` (the failing slot sits under a sensitive container), or a **descendant** of the slot is `:sensitive?` (the slot's value carries a sensitive child).
+- **Description**: Returns `true` when the slot at `in-path` is sensitive: either a slot along the path is `:sensitive?` (the failing slot sits inside a sensitive container), or a slot inside it is (its value holds a sensitive child).
     - `in-path` is the value-relative path Malli reports as `:in`. A `nil` or empty `in-path` is equivalent to `(or (schema-has-sensitive? schema) (schema-has-opaque-child? schema))`.
-    - Fails closed: an opaque child the walker reaches (or cannot align past) counts as sensitive.
-    - This is the leaf-precise check the `app-db` hot path uses for its narrowed `:value` slot. A non-sensitive failing leaf whose *sibling* is sensitive is therefore not over-redacted.
+    - It fails closed: an opaque child the walker reaches, or cannot align past, counts as sensitive.
+    - The `app-db` validation path uses it to redact the narrowed `:value` slot of a failure, so a non-sensitive failing leaf whose sibling is sensitive is not over-redacted.
 
-### `schema-opaque?`
+#### `schema-opaque?`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (schema-opaque? schema) → boolean
   ```
-- **Description**: `true` when `schema` is a compiled / opaque value the pure-data walker cannot introspect for per-slot flags. That means any non-vector, non-keyword form: a compiled `malli.core/schema` object, a map, a fn. A bare keyword (`:int`, `:string`, a registry ref) is NOT opaque. An explicit `[:ref …]` form IS treated as opaque by `schema-has-opaque-child?`. The redaction path fails closed on an opaque schema — it redacts as if sensitive, since Malli may honour a `:sensitive?` slot the walker cannot see. The supported way to make per-slot flags visible is registering the vector form.
+- **Description**: Returns `true` when `schema` is a value the walker cannot inspect for per-slot flags: anything that is neither a vector nor a keyword, such as a compiled `malli.core/schema` object, a map or a fn.
+    - A bare keyword (`:int`, `:string`, a registry ref) is not opaque. An explicit `[:ref …]` form is treated as opaque by `schema-has-opaque-child?`.
+    - Redaction fails closed on an opaque schema: it redacts as if the schema were sensitive, since Malli may honour a `:sensitive?` slot the walker cannot see. Register the vector form to make per-slot flags visible.
 
-### `schema-has-opaque-child?`
+#### `schema-has-opaque-child?`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (schema-has-opaque-child? schema) → boolean
   ```
-- **Description**: The recursive form of `schema-opaque?`. `true` when the root is opaque, or a vector-form schema holds an opaque value in a real child-schema position at any depth, or carries a local `:registry` or an explicit `[:ref …]` (the walker resolves neither), or uses an unclassified operator. Literal operands (`[:= 42]`, `[:enum 1 2]`, `:re` patterns, comparator bounds) are data, not children, so they never count. `redact-validation-tags` and the `:rf.warning/schema-walker-opaque` registration nudge use it, so a compiled child cannot hide inside a walkable root.
+- **Description**: The recursive form of `schema-opaque?`. Returns `true` when the root is opaque, or when a vector-form schema contains, at any depth, an opaque value in a child-schema position, a local `:registry` or an explicit `[:ref …]` (the walker resolves neither), or an operator the walker does not classify.
+    - Literal operands (`[:= 42]`, `[:enum 1 2]`, `:re` patterns, comparator bounds) are data rather than children, so they never count.
+    - `redact-validation-tags` and the `:rf.warning/schema-walker-opaque` registration warning use it, so a compiled child cannot hide inside a walkable root.
 - **Example**:
   ```clojure
   (schemas/schema-has-opaque-child? [:map [:id :int]])     ; => false
   (schemas/schema-has-opaque-child? [:ref :my.app/user])   ; => true
   ```
 
-## Test-support
+### Test support
 
-The per-frame registry and diagnostic-latch maintenance hooks. `re-frame.test-support`'s reset-runtime fixture drives the snapshot / restore / clear trio through late-bind hooks. The `clear-*` latch resetters and cache clearers let a test start each case from a clean diagnostic + cache slate. `on-frame-destroyed!` is the framework's own frame-teardown cleanup.
+These functions reset the artefact's state between tests. `re-frame.test-support`'s `make-reset-runtime-fixture` calls the snapshot, restore and clear functions for you; the latch and cache resetters let each test case start with no remembered warnings and empty caches. `on-frame-destroyed!` is called by frame teardown.
 
-### `snapshot-schemas-by-frame`
+#### `snapshot-schemas-by-frame`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (snapshot-schemas-by-frame) → snapshot
   ```
-- **Description**: Return a snapshot value of the per-frame schema registry. The registry-level counterpart to `schema-fns`; restore it with `restore-schemas-by-frame!`.
+- **Description**: Returns a snapshot of the per-frame schema registry; restore it with `restore-schemas-by-frame!`. It is the registry-level counterpart of `schema-fns`.
 
-### `restore-schemas-by-frame!`
+#### `restore-schemas-by-frame!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (restore-schemas-by-frame! snap)
   ```
-- **Description**: Reset the per-frame schema registry to a snapshot taken by `snapshot-schemas-by-frame`.
+- **Description**: Resets the per-frame schema registry to a snapshot taken by `snapshot-schemas-by-frame`.
 
-### `clear-schemas-by-frame!`
+#### `clear-schemas-by-frame!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (clear-schemas-by-frame!)
   ```
-- **Description**: Reset the per-frame schema registry to `{}`. Used by test fixtures and by the reset-runtime fixture's `:clear-app-schemas? true` path. The per-frame registry is the schemas artefact's only mutable registration state.
+- **Description**: Empties the per-frame schema registry (`{}`). Test fixtures call it, as does `make-reset-runtime-fixture` when given `:clear-app-schemas? true`. The registry is the artefact's only mutable registration state.
 
-### `on-frame-destroyed!`
+#### `on-frame-destroyed!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (on-frame-destroyed! frame-id)
   ```
-- **Description**: Drop every schema registered against a destroyed frame so a subsequent `make-frame` of the same id starts with a clean schema slate. Called from frame teardown through the `:schemas/on-frame-destroyed!` late-bind hook. Idempotent — a missing frame entry is a no-op.
+- **Description**: Removes every schema registered against a destroyed frame, so a later `make-frame` with the same id starts with no schemas. Frame teardown calls it. Idempotent: a frame with no entry is a no-op.
 
-### `clear-validator-unavailable-warned!`
+#### `clear-validator-unavailable-warned!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (clear-validator-unavailable-warned!)
   ```
-- **Description**: Reset the once-per-process `:rf.warning/schema-validator-unavailable` diagnostic latch so each test case starts from a clean slate.
+- **Description**: Resets the once-per-process `:rf.warning/schema-validator-unavailable` latch, so each test case can see the warning afresh.
 
-### `clear-walker-opaque-warned!`
+#### `clear-walker-opaque-warned!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (clear-walker-opaque-warned!)
   ```
-- **Description**: Reset the once-per-process `:rf.warning/schema-walker-opaque` diagnostic latch — the nudge emitted when a schema is registered as an opaque compiled value the walker cannot introspect.
+- **Description**: Resets the once-per-process `:rf.warning/schema-walker-opaque` latch, the warning emitted when a schema is registered as an opaque compiled value.
 
-### `clear-edn-print-cache!`
+#### `clear-edn-print-cache!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (clear-edn-print-cache!)
   ```
-- **Description**: Reset the `app-schemas-digest` printer memo. Returns `nil`.
-    - Test-support only. The memo is process-lifetime and bounded by the registered-schema cardinality (schemas register once at boot), so production never needs this.
-    - A test that registers many distinct fresh schemas clears it in fixture teardown so the cache doesn't grow unbounded across the suite.
+- **Description**: Empties the printer memo behind `app-schemas-digest`. Returns `nil`.
+    - For tests only. The memo lives for the whole process but is bounded by the number of registered schemas, which register once at boot, so production never needs to clear it.
+    - A test suite that registers many distinct fresh schemas clears it in fixture teardown so the cache does not grow across the suite.
 
-### `clear-sensitive-paths-cache!`
+#### `clear-sensitive-paths-cache!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
   (clear-sensitive-paths-cache!)
   ```
-- **Description**: Reset the `extract-sensitive-paths-from-schema` walker memo. Test-support companion to `clear-edn-print-cache!`; same bounded-cache rationale. Returns `nil`.
+- **Description**: Empties the `extract-sensitive-paths-from-schema` memo. Returns `nil`. For tests only, for the same reason as `clear-edn-print-cache!`.
 
 ## See also
 
-- [re-frame.core.md](re-frame.core.md) — the `reg-app-schema` / `reg-app-schemas` facade rows, the `:boundary? true` registration flag, and the commit-plane data-classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) that own durable `app-db` classification.
-- [Validate with schemas](../core/how-to/validate-with-schemas.md) — the working guide to schemas at `app-db` paths.
+- [re-frame.core](re-frame.core.md) — the `reg-app-schema` / `reg-app-schemas` facade entries, the `:boundary? true` registration flag, and the commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) that classify durable `app-db` paths.
 - [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — data classification, `:sensitive?`, and large values.
