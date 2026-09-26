@@ -1,59 +1,58 @@
 # re-frame.performance
 
-`re-frame.performance` is re-frame2's production timing instrumentation surface. It is separate from the dev-only trace channel. It brackets four hot paths — event dispatch, subscription recompute, fx walk, and view render — in options-bag `performance.measure` calls. Any `PerformanceObserver` (including an APM's) can read them.
-
-- Emits User-Timing measure entries named `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`. No `performance.mark` entries are allocated.
-- Delivery is observer-first. Each measure is cleared by name immediately after emit, so the buffer read by `performance.getEntriesByType("measure")` stays empty unless `retain-entries?` is on.
-- The whole surface is two compile-time flags, `enabled?` and `retain-entries?`, both **off by default**. Under `:advanced` with the defaults, Closure DCE elides every call site, so a shipped binary carries zero User-Timing instrumentation.
-- CLJS-only: the JVM is a no-op (the Performance API is browser-only).
+Measure how long events, subscriptions, effects and view renders take in a production build. With timing on, re-frame2 records each one as a User Timing measure, so browser DevTools, an APM or any `PerformanceObserver` can read it. This is separate from the trace stream, which exists only in development builds.
 
 ```clojure
 (:require [re-frame.performance :as perf])
 ```
 
-> **Note** — there is nothing to call from this namespace at runtime. You opt timing in by referencing the flags fully-qualified in your build's `:closure-defines` (see below). The `:as perf` alias is shown only for consistency with the other API docs.
+Nothing in this namespace is called at runtime, so the `:as perf` alias is shown only for consistency with the other pages. You turn timing on with two compile-time flags, named fully qualified in your build's `:closure-defines`:
 
-See [Find and fix a slow view](../core/how-to/fix-a-slow-view.md) for turning this channel on and reading the entries.
+```clojure
+;; shadow-cljs.edn — flip the compile-time gate. Default off:
+;; with the default, every measure site is removed under :advanced.
+{:builds {:app {:compiler-options
+                {:closure-defines {re-frame.performance/enabled? true}}}}}
+```
+
+- Each measure is named `rf:<kind>:<id>`: `rf:event:<event-id>`, `rf:sub:<query-id>`, `rf:fx:<fx-id>` or `rf:render:<view-id>`. A keyword id is written without its leading colon, as in `rf:event:todo/add`. No `performance.mark` entries are created.
+- Measures are delivered to observers, then cleared by name straight after they are emitted, so `performance.getEntriesByType("measure")` returns none of them unless `retain-entries?` is on.
+- Both flags are off by default. With the defaults, an `:advanced` build removes every timing call, so a shipped binary carries no User Timing code.
+- CLJS only. On the JVM both flags are constant `false` and timing does nothing, because the Performance API exists only in the browser.
+
+[Find and fix a slow view](../core/how-to/fix-a-slow-view.md) shows how to turn timing on and read the entries.
 
 ## Compile-time flags
 
 ### `enabled?`
 
-- **Kind**: Var (`^boolean`)
-- **Signature**: `goog-define`d (CLJS) / `^:const false` (JVM). Set via `:closure-defines {re-frame.performance/enabled? true}`.
-- **Description**: Gates the four `performance.measure` brackets (event dispatch / sub recompute / fx walk / view render).
-    - Emits `performance.measure(name, {start, end})` with numeric `performance.now()` timestamps. The User-Timing measure entries are named `rf:event:*`, `rf:sub:*`, `rf:fx:*`, `rf:render:*`. No `performance.mark` entries are allocated.
-    - Each measure is emitted inside a `try/finally`, so the entry lands even when the bracketed body throws (the exception still propagates).
-    - The entry is cleared by name (`performance.clearMeasures`) immediately after emit unless `retain-entries?` is on. A live `PerformanceObserver` still receives it — observer callbacks fire at `measure()` time, before the clear.
-    - **Compile-time only** — not a `(rf/configure! ...)` knob; runtime mutation has no effect. Default `false`. Under `:advanced` with the default, every bracket DCEs. CLJS-only; the JVM is a no-op.
-
-```clojure
-;; shadow-cljs.edn — flip the compile-time gate. Default off:
-;; with the default, every bracket site DCEs under :advanced.
-{:builds {:app {:compiler-options
-                {:closure-defines {re-frame.performance/enabled? true}}}}}
-```
+- **Kind**: var (compile-time `goog-define` boolean)
+- **Signature**: set with `:closure-defines {re-frame.performance/enabled? true}` (CLJS). On the JVM it is `^:const false`.
+- **Description**: Turns on the timing measures for event handling, subscription recomputes, fx handlers and view renders. Default `false`.
+    - Each measure is emitted as `performance.measure(name, {start, end})`, with numeric `performance.now()` timestamps.
+    - The measure is emitted in a `try/finally`, so it is recorded even when the measured code throws; the exception still propagates.
+    - Unless `retain-entries?` is on, the entry is cleared by name (`performance.clearMeasures`) straight after it is emitted. A live `PerformanceObserver` still receives it, because observer callbacks fire when `measure()` is called, before the clear.
+    - It is read at compile time only: it is not a `rf/configure!` option, and changing it at runtime has no effect. With the default, every measure site is removed under `:advanced`.
 
 ### `retain-entries?`
 
-- **Kind**: Compile-time flag (`goog.define` / Closure define)
-- **Signature**: Set via `:closure-defines {re-frame.performance/retain-entries? true}` (CLJS). JVM is a no-op constant.
-- **Description**: Skips the per-emit `performance.clearMeasures(name)` so measure entries persist in the host's retained User-Timing buffer. Not listed as a separate runtime-exported Var in the public api-manifest (it is consumed only by compile-time elision); document it here because it is part of the build contract for this namespace.
-    - Enables one-shot `performance.getEntriesByType("measure")` readers (DevTools / console workflows).
-    - Default `false`: each entry is delivered to any live `PerformanceObserver` at `measure()` time, then cleared. The buffer therefore does not grow across a long-running (RUM) session, and `getEntriesByType` returns no `rf:*` entries.
-    - No effect unless `enabled?` is also on.
-    - **Compile-time only** — not a `(rf/configure! ...)` knob; runtime mutation has no effect. CLJS-only; the JVM is a no-op.
-
-```clojure
-;; shadow-cljs.edn — retain entries for one-shot DevTools / console reads.
-;; Leave off for long-running sessions; read via a PerformanceObserver.
-{:builds {:app {:compiler-options
-                {:closure-defines {re-frame.performance/enabled?        true
-                                   re-frame.performance/retain-entries? true}}}}}
-```
+- **Kind**: var (compile-time `goog-define` boolean)
+- **Signature**: set with `:closure-defines {re-frame.performance/retain-entries? true}` (CLJS). On the JVM it is a constant `false`.
+- **Description**: Keeps measure entries in the browser's User Timing buffer instead of clearing each one after it is emitted. Default `false`.
+    - Turn it on for one-shot reads with `performance.getEntriesByType("measure")` from DevTools or the console.
+    - Leave it off for long-running sessions such as real-user monitoring. Each entry is then delivered to any live `PerformanceObserver` and cleared, so the buffer does not grow and `getEntriesByType` returns no `rf:*` entries.
+    - It has no effect unless `enabled?` is also on.
+    - Like `enabled?`, it is read at compile time only; changing it at runtime has no effect.
+- **Example**:
+  ```clojure
+  ;; shadow-cljs.edn — retain entries for one-shot DevTools / console reads.
+  ;; Leave off for long-running sessions; read via a PerformanceObserver.
+  {:builds {:app {:compiler-options
+                  {:closure-defines {re-frame.performance/enabled?        true
+                                     re-frame.performance/retain-entries? true}}}}}
+  ```
 
 ## See also
 
-- [Find and fix a slow view](../core/how-to/fix-a-slow-view.md) — turning this channel on and reading the entries.
-- [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) — how the perf flag composes with `goog.DEBUG` across build profiles.
-- [Observability](../core/observability.md) — where this production-survivable timing channel sits alongside the trace and error surfaces.
+- [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) — how the timing flag combines with `goog.DEBUG` across build profiles.
+- [Observability](../core/observability.md) — how production timing sits alongside the trace and error surfaces.

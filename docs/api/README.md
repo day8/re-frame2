@@ -1,144 +1,94 @@
 # The re-frame2 API
 
-This is the complete public API reference for the manifest-tracked namespaces of
-the ClojureScript implementation of re-frame2 — one page per public namespace, with
-the boundary of "manifest-tracked" set out under Completeness below. Entries use a
-consistent shape: Kind, Signature, Description (contract, including error
-ids where they are part of the surface), and an Example where a call is worth
-showing. The Example is optional — many contract-only surfaces (compile-time template
-forms, symbol-resolution vars) carry no runnable call — so its absence is not a gap.
-
-For the mental model, start with the [Core guide](../core/introduction.md). This
-corpus is deliberately terse: it states what you may call, not why the design
-chose it.
-
-## How to read these pages
-
-| Audience need | Where |
-|---|---|
-| Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
-| Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
-| Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
-| The Fresco view layer | [`re-frame.fresco`](re-frame.fresco.md) for the door's vars; [Fresco API reference](../core/fresco/api-reference.md) for the full contract and the optional modules |
-| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md) |
-| Production timing | [`re-frame.performance`](re-frame.performance.md) |
-
-Facade vs owning namespace. Many optional features re-export registration verbs
-through `re-frame.core` (for example `reg-machine`, `reg-flow`, `reg-resource`). The
-core page carries a short entry and points at the owning namespace for the full
-contract. Prefer requiring the feature namespace when you need depth; `rf/` remains
-valid for the re-export.
-
-Keyword surfaces. Events, fx, subs, and similar keyword-addressed
-registrations (`:rf.http/managed`, `:rf/machine`, …) appear as tables or sections on
-the owning page. They are not vars; the [api-manifest](../../spec/api-manifest.edn)
-tracks vars.
-
-Completeness. Public vars in the manifest with tiers `:front-porch`,
-`:advanced`, `:adapter`, or `:testing` under `re-frame.*` are expected to appear on
-these pages (or as an explicit facade pointer). Tooling and implementation tiers are
-outside that guarantee; several pages still document them where callers reach them
-(the dev-only trace and epoch reads, `re-frame.ssr.ring`, `re-frame.trace.projection`),
-but nothing requires a page to. This is enforced: the api-manifest `doc-api-check` reconciles
-every eligible manifest namespace against `docs/api/`, so an eligible namespace with
-no page — or an eligible var with no member heading (`### \`var\``, or a
-`#### \`var\`` facade-pointer entry on the owning/facade page) — turns the CI check
-red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
-(`### \`re-frame.machines/machine-transition\``).
-
-Where Fresco sits. The **door** — `re-frame.fresco` — is manifest-tracked like
-any other published namespace. It is a split-host
-`.cljc`: its three authoring macros are the `:clj` arm the JVM generator
-introspects, and its twelve runtime vars are the `:cljs` arm the analyzer probe
-reconciles, so a public added, removed or renamed on either host turns the
-api-manifest gate red. The whole tree is scanned, not the door alone:
-`implementation/fresco/src` is a roster-covered root, so every
-namespace under it is classified, and its **optional modules** — the four
-authoring modules (`.forms`, `.overlay`, `.motion`, `.native`) and the
-`.substrate` adapter — carry rows and pages
-here on the same footing as any other published surface. The `.server` SSR module
-and the `.tool` / `.evidence` reader door are rowed at the `:implementation` and
-`:tooling` tiers, which the completeness clause above puts out of scope for this
-corpus; everything else under the tree is `re-frame.fresco.impl.*` and is not a
-consumer surface.
-
-The split follows the depth, not the coverage. Read
-[`re-frame.fresco`](re-frame.fresco.md) here for the door's var index, the five
-module pages for their public vars, and the
-[Fresco API reference](../core/fresco/api-reference.md) for the full authoring
-contract and every optional module. Read this corpus for the pipeline — events,
-app-db, subscriptions, effects, the optional capabilities and the substrate
-adapters. A Fresco application uses both, because Fresco replaces the view
-notation and nothing else.
-
-## Namespaces
-
-### Facade and core dataflow
-
-| Page | Role |
-|---|---|
-| [re-frame.core](re-frame.core.md) | Registration, dispatch, subscribe, views (`reg-view`), frames, boot, interceptors, feature re-exports |
-
-### Optional capabilities
-
-| Page | Role |
-|---|---|
-| [re-frame.schemas](re-frame.schemas.md) | App / event / effect schemas |
-| [re-frame.flows](re-frame.flows.md) | Materialised derivations into app-db |
-| [Managed HTTP](re-frame.http.md) | Managed HTTP fx and interceptors |
-| [re-frame.machines](re-frame.machines.md) | State machines |
-| [re-frame.routing](re-frame.routing.md) | Router, routes, route link |
-| [re-frame.resources](re-frame.resources.md) | Resource cache, owners, mutations |
-| [re-frame.ssr](re-frame.ssr.md) | Server render, head, payloads |
-| [re-frame.ssr.head](re-frame.ssr.head.md) | `<head>` model home — `reg-head` / `head-model` / `head-model->html` |
-| [re-frame.ssr.ring](re-frame.ssr.ring.md) | Ring adapter for SSR |
-| [re-frame.epoch](re-frame.epoch.md) | Epoch history / time-travel surface |
-
-### Fresco's optional authoring modules
-
-Each is opt-in: nothing under the artefact's `src/` requires it, so a build that
-never asks for one carries none of it.
-
-| Page | Role |
-|---|---|
-| [re-frame.fresco.forms](re-frame.fresco.forms.md) | Buffered field, and the draft concern behind it |
-| [re-frame.fresco.overlay](re-frame.fresco.overlay.md) | `popover` / `modal` on the browser's top layer |
-| [re-frame.fresco.motion](re-frame.fresco.motion.md) | `presence` — retention for exiting keyed children |
-| [re-frame.fresco.native](re-frame.fresco.native.md) | The two React-island hooks, `use-sub` and `use-frame` |
-
-### Adapters, tests, tooling
-
-| Page | Role |
-|---|---|
-| [re-frame.adapter.reagent](re-frame.adapter.reagent.md) | Stock / slim Reagent substrate |
-| [re-frame.adapter.uix](re-frame.adapter.uix.md) | UIx substrate |
-| [re-frame.fresco](re-frame.fresco.md) | The Fresco view layer's door — authoring macros, reads, roots, markup |
-| [re-frame.fresco.substrate](re-frame.fresco.substrate.md) | Fresco's own substrate adapter — the value `init!` takes |
-| [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll |
-| [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
-| [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
-| [re-frame.trace.projection](re-frame.trace.projection.md) | Event-bundle projection over the dev-only trace stream |
-
-## Require patterns
+These pages record the exact public API of re-frame2's ClojureScript
+implementation: every public function, macro and var, one page per namespace,
+with its signatures, options, return values and errors. They answer "what
+exactly can I call?". To learn how to build with re-frame2, start with the
+[Core guide](../core/introduction.md) instead.
 
 ```clojure
-;; Typical app — on a Reagent / UIx substrate (both first-class and permanent)
-(:require [re-frame.core :as rf]
-          [re-frame.adapter.reagent :as reagent-adapter])
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.adapter.reagent :as reagent-adapter]))
 
 (rf/init! reagent-adapter/adapter)
-
-;; Tests
-(:require [re-frame.core :as rf]
-          [re-frame.test-support :as ts]
-          [re-frame.test-helpers :as th])
 ```
 
-## Related corpora
+Most application code needs only `re-frame.core`, required as `rf`, plus the
+adapter for its view substrate. Everything else is optional and required when
+you use it.
 
-- [Core guide](../core/introduction.md) — progressive teaching
-- [Fresco API reference](../core/fresco/api-reference.md) — the view layer's own
-  corpus: the full contract of the door and of every optional module
-- [spec/API.md](../../spec/API.md) — normative var catalogue with tiers (projection of
-  the api-manifest)
-- Feature guides under Machines, Resources, Routing, SSR, Async tabs
+## Which page
+
+| When you need to… | Page |
+|---|---|
+| Register events, subscriptions, effects and views; dispatch; create frames; boot the app | [re-frame.core](re-frame.core.md) |
+| Render with Reagent (stock or slim) | [re-frame.adapter.reagent](re-frame.adapter.reagent.md) |
+| Render with UIx | [re-frame.adapter.uix](re-frame.adapter.uix.md) |
+| Write views with Fresco, re-frame2's own view layer | [re-frame.fresco](re-frame.fresco.md), and [re-frame.fresco.substrate](re-frame.fresco.substrate.md) for its adapter |
+| Add a buffered form field, a popover or modal, exit animations, or React-island hooks to a Fresco app | [re-frame.fresco.forms](re-frame.fresco.forms.md), [re-frame.fresco.overlay](re-frame.fresco.overlay.md), [re-frame.fresco.motion](re-frame.fresco.motion.md), [re-frame.fresco.native](re-frame.fresco.native.md) |
+| Validate `app-db`, events and effects with Malli schemas | [re-frame.schemas](re-frame.schemas.md) |
+| Keep a derived value materialised in `app-db` | [re-frame.flows](re-frame.flows.md) |
+| Make HTTP requests with retries, cancellation and decoding handled for you | [Managed HTTP](re-frame.http.md) |
+| Model a workflow as a state machine | [re-frame.machines](re-frame.machines.md) |
+| Map URLs to routes and render links | [re-frame.routing](re-frame.routing.md) |
+| Cache server data that views subscribe to, and write it back with mutations | [re-frame.resources](re-frame.resources.md) |
+| Render on the server and hydrate on the client | [re-frame.ssr](re-frame.ssr.md), [re-frame.ssr.head](re-frame.ssr.head.md) for the `<head>`, [re-frame.ssr.ring](re-frame.ssr.ring.md) for the Ring handler |
+| Inspect or rewind a frame's recent history in development | [re-frame.epoch](re-frame.epoch.md) |
+| Group the dev trace stream into one record per event | [re-frame.trace.projection](re-frame.trace.projection.md) |
+| Emit User-Timing measures in production builds | [re-frame.performance](re-frame.performance.md) |
+| Isolate and reset framework state between tests | [re-frame.test-support](re-frame.test-support.md) |
+| Walk rendered hiccup in tests | [re-frame.test-helpers](re-frame.test-helpers.md) |
+
+The Fresco pages list each namespace's public vars. The full Fresco authoring
+contract lives in the [Fresco API reference](../core/fresco/api-reference.md).
+A Fresco app uses both corpora, because Fresco replaces only the view notation:
+events, subscriptions, effects and frames are the same as everywhere else.
+
+## Reading an entry
+
+Each var has an entry headed by its name:
+
+- **Kind**: function, macro, var, component or React hook; for keyword-addressed
+  surfaces, effect, event or subscription.
+- **Signature**: every public arity, with its return value.
+- **Description**: what the var does, then its rules and edge cases. Longer
+  option lists and error lists appear as their own sub-lists.
+- **Example**: a short, real call, where one is worth showing. Some entries,
+  such as compile-time flags, have none.
+
+Events, effects and subscriptions are addressed by keyword, not by var
+(`:rf.http/managed`, `[:rf/machine id]`). They are documented as entries or
+tables on the page of the namespace that registers them, with a **Payload**
+line in place of a signature.
+
+**The facade.** Optional features re-export their registration macros through
+`re-frame.core`, so you write `rf/reg-machine`, `rf/reg-flow`, `rf/reg-resource`
+and so on. The core page has a short entry for each and links to the feature's
+own page, which holds the full contract. The feature's other functions are
+called on its own namespace, for example `rf.machines/machine-transition`.
+
+**Framework integration.** Some pages end with vars that exist for adapters,
+tools and the test harness rather than for application code. They are grouped
+under their own headings, after the application-facing API.
+
+## Coverage
+
+Every public var an application can use has an entry here, and CI checks that
+against the project's API manifest: a public var added without an entry turns
+the build red. Vars meant only for tooling or the implementation are documented
+where a caller needs them, but are not guaranteed an entry.
+
+## Tests
+
+```clojure
+(ns my-app.core-test
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.test-support :as ts]
+            [re-frame.test-helpers :as th]))
+```
+
+[re-frame.test-support](re-frame.test-support.md) resets framework state
+around each test; [re-frame.test-helpers](re-frame.test-helpers.md) finds
+elements in rendered hiccup.

@@ -1,33 +1,41 @@
 # re-frame.fresco
 
-`re-frame.fresco` is the public door of Fresco, the re-frame-native view layer.
-Everything an author writes against lives here; everything below it is
-`re-frame.fresco.impl.*` and is not a consumer surface. The intended spelling is
-one alias:
+Fresco is re-frame2's own view layer, and this namespace is what you write Fresco
+views with: `defview` defines a view, `sub` reads a subscription inside it, and
+`client-root` / `render!` mount it. Events, `app-db`, subscriptions and effects
+are unchanged and stay on [`re-frame.core`](re-frame.core.md); Fresco changes only
+how views are written.
 
 ```clojure
 (:require [re-frame.fresco :as h])
 ```
 
-Fresco replaces the view notation and nothing else. Events, app-db,
-subscriptions and effects are unchanged — read [`re-frame.core`](re-frame.core.md)
-for the pipeline and this page for the authoring surface.
+```clojure
+;; Boot installs an adapter before mounting: see re-frame.fresco.substrate.
 
-This page is the manifest-tracked index of the door's public vars: Kind,
-Signature, and what the var is. The **full contract** — the four shapes an `on-*`
-prop may take, the `defhost` options table, the create / adopt (`{:hydrate? true}`)
-asymmetry of `render!`, the render discipline — lives in the [Fresco API reference](../core/fresco/api-reference.md),
-alongside the guide that teaches it. This page deliberately does not duplicate it;
-where an entry below is terse, that reference is where the depth is.
+(h/defview counter [_]
+  [:button {:on-click [:counter/inc]} (h/sub [:counter/value])])
 
-**A split-host namespace.** The door is a `.cljc` whose two arms are disjoint. The
-three authoring macros are its `#?(:clj …)` arm and are what `ns-publics` returns
-on the JVM; the twelve runtime vars are its `#?(:cljs …)` arm and exist only under
-ClojureScript. Both arms are inventoried — the JVM manifest generator owns the
-macros, the CLJS analyzer probe owns the runtime vars — so neither host can
-silently gain or lose a public.
+(defonce app-root (h/client-root))
+
+(defn ^:dev/after-load mount! []
+  (h/render! app-root
+             [h/frame-root {:id :rf/default :initial-events [[:counter/initialise]]}
+              [counter]]
+             (js/document.getElementById "app")))
+```
+
+The frame functions are core's: inside a view body, `(rf/current-frame-id)` and
+zero-arity `(rf/capture-frame)` return the rendering view's frame, and this
+namespace does not duplicate them. The [Fresco API
+reference](../core/fresco/api-reference.md) is the long-form contract: the shapes
+an `on-*` prop may take, the `defhost` options table, hydration through `render!`,
+and the render rules.
 
 ## Authoring macros
+
+The namespace is a `.cljc`: these three macros are its Clojure side, and are what
+`ns-publics` returns on the JVM. The other twelve vars exist only in ClojureScript.
 
 ### `defview`
 
@@ -36,24 +44,23 @@ silently gain or lose a public.
   ```clojure
   (h/defview name docstring? [props] body …)
   ```
-- **Description**: Mints a boundary — a real React function component, and a legal
-  hiccup head. `argv` is the ordinary one-props-map argument vector, so
-  destructuring reads as it does in any Clojure fn.
-    - The macro **reads no body**. It expands to a `def` of the minted head plus a
-      source coordinate, so a refusal raised while the body runs can name where the
-      boundary was written.
-    - The `fn` it emits is **anonymous**, so nothing it binds can shadow a helper of
-      the same name — `(h/defview todo-row [p] (todo-row-body p))` is safe at the
-      ordinary spelling.
-    - The name is also registered in re-frame's `:view` registrar under
-      `(keyword "<ns>" "<sym>")`, for **forward resolution only** — a tool holding a
-      keyword the author wrote reaches the view they meant. The entry carries
-      the minted head at `:handler-fn`, so `(rf/view id)` answers this very
-      boundary, and it rides the `debug-enabled?` gate, so a production build
-      registers nothing.
-    - Hooks do not belong in a body: a body is dynamically composed, so a hook
-      written there would make its own call order depend on a data path. Put
-      hook-intensive behaviour in a React island reached through `defhost`.
+- **Description**: Defines a view: a React function component that is also a legal
+  hiccup head, so you render it as `[todo-row {:id 7}]`. Fresco calls this
+  independently re-rendering unit a *boundary*. The argument vector takes one props
+  map, destructured as in any Clojure fn.
+    - The macro does not inspect the body. It expands to a `def` of the view plus a
+      source coordinate, so an error raised while the body runs can name where the
+      view was written.
+    - The `fn` it emits is anonymous, so it binds no name that could shadow a helper:
+      `(h/defview todo-row [p] (todo-row-body p))` is safe.
+    - The view is also registered in re-frame's `:view` registry under
+      `(keyword "<ns>" "<sym>")`, so a tool holding a keyword the author wrote can
+      find the view: the entry holds it at `:handler-fn`, and `(rf/view id)` returns
+      it. Registration happens only in debug builds; a production build registers
+      nothing.
+    - Do not call React hooks in a body. A body is composed dynamically, so a hook's
+      call order would depend on the data. Put hook-heavy behaviour in a React island
+      reached through `defhost`.
 - **Example**:
   ```clojure
   (h/defview todo-row [{:keys [id]}]
@@ -69,13 +76,12 @@ silently gain or lose a public.
   (h/defhost name docstring? component)
   (h/defhost name docstring? component opts)
   ```
-- **Description**: The interop door. Names the crossing to a foreign React
-  component once; the resulting var is a hiccup head anywhere, indistinguishable
-  from a view. Callback contracts are inferred from each prop's spelling, exactly
-  as at a native tag. `opts` carries four optional keys — `:callbacks`, `:slots`,
-  `:server`, `:fallback` — and any other key is refused. Anything written past
-  `opts` is refused rather than silently dropped
-  (`:rf.error/fresco-bad-host-declaration`).
+- **Description**: Declares a React component from outside Fresco once, so you can
+  use it anywhere as a hiccup head, exactly like a view. Callback props are inferred
+  from each prop's name, as on a native tag.
+    - `opts` takes four optional keys: `:callbacks`, `:slots`, `:server` and
+      `:fallback`. Any other key, or any form after `opts`, raises
+      `:rf.error/fresco-bad-host-declaration` instead of being dropped.
 - **Example**:
   ```clojure
   (h/defhost date-picker DatePicker)
@@ -89,12 +95,13 @@ silently gain or lose a public.
   ```clojure
   (h/event [args …] body …)
   ```
-- **Description**: The one callback form, for a position where the event itself is
-  wanted. It expands to a marked `fn` and nothing else, so the value is an ordinary
-  function. Which of two contracts it carries is selected by **position**, not by
-  the name: at an `on*`-spelled prop a returned vector is dispatched and any other
-  return ignored; at any other walked prop it is a render position, pure, whose
-  return is the render output.
+- **Description**: Creates a callback, for a prop where you need the event object or
+  other arguments. It expands to a marked `fn` and nothing else, so the value is an
+  ordinary function.
+    - The prop's position, not the name, decides what the return value means. At an
+      `on*` prop a returned vector is dispatched and any other return is ignored. At
+      any other prop Fresco walks, it is a pure render callback and its return is the
+      render output.
 - **Example**:
   ```clojure
   [:input {:on-change (h/event [e] [:draft/set (.. e -target -value)])}]
@@ -109,59 +116,60 @@ silently gain or lose a public.
   ```clojure
   (h/sub query-v)
   ```
-- **Description**: The ambient collector — read a subscription's value from
-  anywhere inside a body, including inside a `when`, a `for` or an inlined helper.
-  The edge is recorded where the read happens, so a branch not taken contributes no
-  edge. The frame doors are core's rather than duplicated here:
-  `(rf/current-frame-id)` and zero-arity `(rf/capture-frame)` are legal inside a
-  body.
+- **Description**: Returns the current value of the subscription `query-v`. Call it
+  anywhere inside a view body, including inside a `when`, a `for` or a plain helper
+  function the body calls; the view records the dependency where the read happens,
+  so a branch not taken adds none.
 
 ## Frame boundaries
 
-Two heads, one pair of opposite verbs. The frame is the **tree's** business, not
-the root door's: a boundary in the tree is what puts a frame in context for
-everything below it, and the same two heads answer for a whole-page root and for
-a subtree inside one. `rf/frame-root` and `re-frame.adapter.uix/frame-root` mount
-the same shared cores, so a Fresco boot line reads like a Reagent or UIx one.
+The frame is set in the tree, not by `render!`. `frame-root` or `frame-provider`
+puts a frame in context for everything below it, whether at the root of a page or
+around a subtree inside one. `frame-root` is the same component `rf/frame-root` and
+`re-frame.adapter.uix/frame-root` mount, and both heads write the one React context
+every adapter reads, so a Fresco tree is written like a Reagent or UIx one and a
+Fresco subtree under a UIx provider resolves the same frame.
 
 ### `frame-root`
 
-- **Kind**: Var (a legal hiccup head)
+- **Kind**: var (usable as a hiccup head)
 - **Signature**:
   ```clojure
   [h/frame-root {:id :app/main :initial-events [[:app/boot]]} child …]
   ```
-- **Description**: **ENSURE** a named frame for a subtree — creates it if absent,
-  joins it as it stands if it is already live. The opts map is the whole
-  `rf/make-frame` option map (`:id` required, plus `:doc`, `:fx-overrides`,
-  `:url-bound?` and the rest), so a frame option no longer has to detour through a
-  hand-written `make-frame` call before the mount. Ensuring runs at **commit**,
-  which is why it is the wrong verb after SSR — see `frame-provider`. A `:frame`
-  key is `:rf.error/frame-root-given-frame`, naming `frame-provider`; changing a
-  mounted boundary's `:id` or opts is `:rf.error/frame-root-reconfigured` rather
-  than a silent no-op.
+- **Description**: Creates the named frame if it is absent, or reuses it without
+  re-seeding if it is live, and provides it to the subtree.
+    - The opts map is the whole `rf/make-frame` option map: `:id` (required), plus
+      `:doc`, `:fx-overrides`, `:url-bound?` and the rest. Frame options go here
+      rather than into a separate `make-frame` call before the mount.
+    - The frame is created at commit, which is why `frame-root` is the wrong head for
+      hydrating server-rendered markup; use `frame-provider` there (see `render!`).
+    - A `:frame` key raises `:rf.error/frame-root-given-frame`, naming
+      `frame-provider`. Changing a mounted boundary's `:id` or opts raises
+      `:rf.error/frame-root-reconfigured`.
 
 ### `frame-provider`
 
-- **Kind**: Var (a legal hiccup head)
+- **Kind**: var (usable as a hiccup head)
 - **Signature**:
   ```clojure
   [h/frame-provider {:frame :app/main} child …]
   ```
-- **Description**: **SCOPE** an existing frame to a subtree — `frame-root`'s
-  sibling and its opposite verb. It creates nothing and configures nothing; it
-  fails loud when the frame is absent (`:rf.error/frame-provider-frame-absent`)
-  rather than quietly conjuring one. This is the verb after `re-frame.ssr/hydrate!`
-  and for a second root on a frame another root already ensured. An `:id` key is
-  `:rf.error/frame-provider-given-id`, naming `frame-root`.
+- **Description**: Scopes a subtree to a frame that already exists; it creates and
+  configures nothing.
+    - Use it after `re-frame.ssr/hydrate!`, and for a second root on a frame another
+      root already created.
+    - An absent frame raises `:rf.error/frame-provider-frame-absent`. An `:id` key
+      raises `:rf.error/frame-provider-given-id`, naming `frame-root`.
 
 ## Roots
 
-Three doors and one handle — the grammar every React view adapter publishes
-([Spec 006 §The client
-root](../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)).
-Every one is root-scoped: a page may hold as many roots as it likes, and no call
-here reaches a root the caller did not name.
+A browser app needs a React root that is created once, updated on every hot
+reload and released on teardown. `client-root`, `render!` and `unmount!` manage
+it, with the same names and the same create-then-update behaviour as on the
+[Reagent](re-frame.adapter.reagent.md#the-client-root) and
+[UIx](re-frame.adapter.uix.md#the-client-root) adapters. Each function acts only on
+the root whose handle you pass, so a page can hold as many roots as it needs.
 
 ### `client-root`
 
@@ -170,11 +178,13 @@ here reaches a root the caller did not name.
   ```clojure
   (h/client-root)
   ```
-- **Description**: Allocates an inert, opaque handle. No DOM work and no React
-  call at allocation, so it belongs under a `defonce` at namespace load. One
-  handle owns at most one React root at a time; the raw root is reachable through
-  nothing, and liveness is read off the package's active-root set rather than off
-  the handle.
+- **Description**: Returns a new, inert client-root handle. It does no DOM work and
+  makes no React call, so it belongs under a `defonce` at namespace load; the first
+  `render!` through the handle creates (or adopts) the React root.
+    - The handle is opaque: pass it to `render!` and `unmount!` and nothing else. The
+      raw React root is not reachable through it.
+    - A handle holds at most one React root at a time, so two roots on a page need
+      two handles.
 - **Example**:
   ```clojure
   (defonce app-root (h/client-root))
@@ -188,33 +198,32 @@ here reaches a root the caller did not name.
   (h/render! handle view container)
   (h/render! handle view container opts)
   ```
-- **Description**: The root door AND the hot-reload door. The FIRST call through a
-  handle creates the React root at `container`; every later call updates that same
-  root inside `flushSync`, so React reconciles against the tree on the page and
-  the DOM, the subscriptions and every scrap of component state survive. Answers
-  nil. `container` and `opts` are read on the first call only. `opts` carries
-  **root options only** — `:hydrate?` and `:identifier-prefix` (React's
-  `identifierPrefix`, a pass-through) — and REFUSES anything else: `:frame` /
-  `:initial-events` raise `:rf.error/fresco-frame-config-misplaced` naming the
-  head that takes them, every other key `:rf.error/fresco-unknown-root-option`.
-  The frame is spelled in the tree, on `frame-root` (ENSURE) or `frame-provider`
-  (SCOPE), and **the view is a whole root tree, boundary included** — a later
-  render that drops the head leaves the subtree with no frame in context, and
-  re-rendering with the *other* head is a React type change that remounts
-  everything this door exists to preserve.
-- **`{:hydrate? true}`**: makes the FIRST call adopt `container`'s existing
-  server-rendered DOM rather than replacing it — `hydrateRoot`, this root's own
-  adoption window, and in debug builds its own recoverable-error reporter. It
-  returns *before* adoption finishes, and it must be handed the same
-  `:identifier-prefix` the server render used. A MODE rather than a verb: a later
-  call through a live handle ignores it rather than hydrating twice. **Its tree
-  SCOPEs rather than ENSUREs, and the reason is SHAPE**: `frame-root`'s ENSURE is
-  commit-owned, so its first render emits no descendant subtree, where an adopting
-  root must render the server's element shape on its first pass.
-  `[h/frame-provider {:frame …} …]` renders its children immediately, so the
-  shapes agree. Neither hydration step creates the frame: `re-frame.ssr/hydrate!`
-  dispatches `:rf/hydrate` at a frame that must already exist, so a boot makes the
-  frame first, installs the payload second and adopts the DOM third.
+- **Description**: Renders `view` into the DOM node `container` through `handle`:
+  the first call creates the React root, and every later call updates it inside
+  `flushSync`. React reconciles against the tree on the page, so the DOM, the
+  subscriptions and component state survive a hot reload. Returns nil.
+    - `container` and `opts` are read on the first call only.
+    - `view` is the whole root tree, frame head included:
+      `[h/frame-root {:id …} …]` or `[h/frame-provider {:frame …} …]`. Render the
+      same head each time. A later render that drops it leaves the subtree with no
+      frame in context, and switching to the other head is a React type change that
+      remounts everything.
+    - `opts` takes root options only: `:hydrate?`, and `:identifier-prefix`, which is
+      passed to React as `identifierPrefix`. `:frame` or `:initial-events` raise
+      `:rf.error/fresco-frame-config-misplaced`, naming the head that takes them; any
+      other key raises `:rf.error/fresco-unknown-root-option`.
+    - `{:hydrate? true}` makes the first call adopt the server-rendered DOM already in
+      `container` (`hydrateRoot`) instead of replacing it, with its own
+      recoverable-error reporter in debug builds. It returns before adoption
+      finishes, and must be given the same `:identifier-prefix` the server render
+      used. A later call through a live handle ignores `:hydrate?`.
+    - A hydrating tree uses `frame-provider`. `frame-root` creates its frame at
+      commit, so its first render has no children, while an adopting root must
+      render the server's markup on its first pass; `frame-provider` renders its
+      children immediately, so the shapes agree.
+    - Neither hydration step creates the frame: `re-frame.ssr/hydrate!` dispatches
+      `:rf/hydrate` at a frame that must already exist. Make the frame first, install
+      the payload second, and adopt the DOM third.
 - **Example**:
   ```clojure
   (h/render! app-root
@@ -230,40 +239,53 @@ here reaches a root the caller did not name.
   ```clojure
   (h/unmount! handle)
   ```
-- **Description**: Takes this root down and returns the handle to inert; a later
-  `render!` through it mounts afresh. Idempotent. Leaves sibling roots'
-  subscriptions and frames exactly where they were, and leaves the container in
-  the document, which React empties but does not remove. Because the root sits in
-  the package's active set, `rf/destroy-adapter!` releases a still-live handle's
-  root exactly once and this door then finds nothing left to do.
+- **Description**: Unmounts the React root `handle` holds and returns the handle to
+  inert, so a later `render!` through it mounts afresh.
+    - Idempotent. Sibling roots' subscriptions and frames are untouched, and the
+      container stays in the document; React empties it but does not remove it.
+    - `rf/destroy-adapter!` also releases a still-live handle's root, exactly once,
+      after which `unmount!` does nothing.
+- **Example**:
+  ```clojure
+  (h/unmount! app-root)
+  ```
 
 ## Markup
 
 ### `error-boundary`
 
-- **Kind**: Var (React class component; a legal hiccup head)
+- **Kind**: var (React class component, usable as a hiccup head)
 - **Signature**:
   ```clojure
   [h/error-boundary {:fallback f :reset-key k :on-error e} child …]
   ```
-- **Description**: The runtime's own error boundary, named for React's term of art.
-  A React class, so React hands it a render-phase throw from anything below. It is
-  not a Fresco *reactive* boundary: it reads no subscription, holds no cell and
-  spends no hook.
+- **Description**: Catches an error thrown while rendering anything below it and
+  renders `:fallback` in place of its children. It is React's error boundary, a
+  class component, and not a Fresco view: it reads no subscriptions and uses no
+  hooks.
+    - `:fallback` is hiccup, or `(fn [error] hiccup)`.
+    - A change in `:reset-key` (compared with `=`) clears the caught error and
+      re-mounts the children.
+    - `:on-error` fires once per caught error: an event vector is dispatched with the
+      error appended, in the frame the boundary is mounted under, and a function is
+      called with the error.
 
 ### `portal`
 
-- **Kind**: Var (minted host head)
+- **Kind**: var (usable as a hiccup head)
 - **Signature**:
   ```clojure
   [h/portal {:target node :fallback markup} child …]
   ```
-- **Description**: Hiccup into `createPortal`. Three facts and nothing else: events
-  bubble through the **React** tree, so an ancestor's `:on-click` sees clicks inside
-  the portalled subtree; a changed `:target` is a remount, so keep it stable; and it
-  is client-only, so the subtree is absent from a server response and `:fallback` is
-  what takes its tree position. Anchoring, dismissal and focus conduct belong to the
-  overlay module, not here.
+- **Description**: Renders its children into the DOM node `:target`, through
+  React's `createPortal`.
+    - Events bubble through the React tree, so an ancestor's `:on-click` sees clicks
+      inside the portalled subtree.
+    - A changed `:target` is a remount, so keep it stable.
+    - It is client-only: the subtree is absent from a server response, and
+      `:fallback` takes its tree position there.
+    - Anchoring, dismissal and focus belong to
+      [`re-frame.fresco.overlay`](re-frame.fresco.overlay.md).
 
 ### `route-link`
 
@@ -272,9 +294,11 @@ here reaches a root the caller did not name.
   ```clojure
   (h/route-link {:to route :params p :query q :fragment s} child …)
   ```
-- **Description**: One real anchor, as data — href and click decision taken whole
-  from routing's late-bound seams. A plain function, not a boundary: it mints no
-  boundary and adds no hook.
+- **Description**: Returns a real `<a>` for a route, as hiccup; the `href` and the
+  click handling come from re-frame2's routing.
+    - It is a plain function, not a view: it adds no boundary and no hook.
+    - If `re-frame.routing` is not loaded, it raises
+      `:rf.error/routing-artefact-missing` at render.
 
 ### `as-element`
 
@@ -283,12 +307,15 @@ here reaches a root the caller did not name.
   ```clojure
   (h/as-element hiccup)
   ```
-- **Description**: The one explicit hiccup→ReactNode conversion, under the frame of
-  the boundary currently rendering. It exists because a declared `:render` return
-  crosses **unconverted**: a returned hiccup vector would reach React, which refuses
-  it. Also the answer at the two places a declaration cannot reach — a `[:>]` escape,
-  and past the native fence. Where the crossing *is* declared, prefer `defhost`'s
-  `:slots`, which lowers those positions for every use site at once.
+- **Description**: Converts hiccup to a React element, under the frame of the view
+  currently rendering. Use it where Fresco does not convert hiccup for you.
+    - A declared `:render` callback's return value reaches the foreign component
+      unconverted, so a hiccup vector returned there makes React throw.
+    - A `[:>]` crossing has no `:slots`, so a prop that takes an element needs one.
+    - A child handed to a native React subtree needs one, because a hiccup vector
+      is refused there.
+    - Where the crossing is declared, prefer `defhost`'s `:slots`, which converts
+      those props at every use site.
 
 ### `as-component`
 
@@ -297,12 +324,16 @@ here reaches a root the caller did not name.
   ```clojure
   (h/as-component view)
   ```
-- **Description**: The outward bridge — answers a real React component for a hiccup
-  head, so a UIx or plain-JavaScript parent mounts a minted Fresco view under the
-  frame it is already in. Declared once at top level, beside the view. The parent's
-  props arrive as the view's ordinary props map, children at `:children`, and the
-  frame comes from React context: no second root, state owner or props ABI appears
-  anywhere.
+- **Description**: Returns a real React component for a Fresco view, so a UIx or
+  plain-JavaScript parent can mount it under the frame it is already in. Define it
+  once at top level, beside the view.
+    - The parent's props arrive as the view's ordinary props map, and its children
+      at `:children`. The frame comes from React context, so no second root or state
+      owner is involved.
+- **Example**:
+  ```clojure
+  (def article-card* (h/as-component article-card))
+  ```
 
 ## Local state
 
@@ -313,29 +344,27 @@ here reaches a root the caller did not name.
   ```clojure
   (h/reg-state concern opts?)
   ```
-- **Description**: The instance-key sugar. Mints one parametric subscription and one
-  setter event under `[:ui ::concern ikey]`, and ensures the shared `::h/clear`
-  event that returns an instance to its default; answers `concern`. `concern`
-  must be a namespace-qualified keyword and `opts` carries `:default` and nothing
-  else — either fault is `:rf.error/fresco-state-bad-argument`.
+- **Description**: Registers per-instance UI state for `concern`: one parametric
+  subscription and one setter event, stored under `[:ui ::concern ikey]`, plus the
+  shared `::h/clear` event that returns an instance to its default. Returns
+  `concern`.
+    - `concern` must be a namespace-qualified keyword, and `opts` takes only
+      `:default`; either fault raises `:rf.error/fresco-state-bad-argument`.
 
-## What this door does not carry
+## Optional modules
 
-The optional modules are reached separately, so an application that never asks for
-one carries none of it — `presence` is `re-frame.fresco.motion/presence`, and
-`.forms`, `.overlay`, `.motion`, `.substrate` and the `.server` SSR module each cost
-a classpath entry and no bundle bytes until required. The door names none of them,
-and that is the point rather than an omission: one `:require` here would put the
-retention machine into every bundle that ever touched the door. Those modules, the
-test kit and the tool tier are documented in the
-[Fresco API reference](../core/fresco/api-reference.md). The modules carry
-api-manifest rows of their own — [`.forms`](re-frame.fresco.forms.md),
-[`.motion`](re-frame.fresco.motion.md), [`.native`](re-frame.fresco.native.md),
-[`.overlay`](re-frame.fresco.overlay.md) and
-[`.substrate`](re-frame.fresco.substrate.md) each have a page here — while the
-test kit carries none.
+The optional modules are separate namespaces, and this one requires none of them,
+so an app that never requires one carries none of its code. `presence`, for
+example, is `re-frame.fresco.motion/presence`, not `h/presence`.
+[`.forms`](re-frame.fresco.forms.md), [`.motion`](re-frame.fresco.motion.md),
+[`.native`](re-frame.fresco.native.md), [`.overlay`](re-frame.fresco.overlay.md)
+and [`.substrate`](re-frame.fresco.substrate.md) each have a page here; the
+`.server` SSR module, the test kit and the tool namespaces are documented in the
+[Fresco API reference](../core/fresco/api-reference.md).
 
-The marker keywords need no export. `::h/value`, `::h/prevent`, `::h/revision`,
-`::h/checked` and `::h/clear` read `:re-frame.fresco/…`, so aliasing this namespace
-as `h` resolves the auto-resolved spelling the guide teaches with no keyword changing
-value.
+## Marker keywords
+
+`::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and `::h/clear` are
+keywords in the `:re-frame.fresco` namespace, so they need no export: with this
+namespace aliased as `h`, the auto-resolved spelling the guide uses resolves to
+them.
