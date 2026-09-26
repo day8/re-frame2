@@ -15,7 +15,7 @@ Outputs are always written to `app-db`.
 
 See [Flows: derived values your handlers can read](../core/flows.md) for the conceptual companion.
 
-> **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register with `rf/reg-flow` (the conventional call site). Its inverse is the facade's kind-keyed `(rf/clear :flow id)`: `re-frame.flows` carries **no** `clear-flow` re-export (rf2-kuky.80). The introspection accessors and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
+> **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register with `rf/reg-flow` (the conventional call site). Its inverse is the facade's kind-keyed `(rf/clear :flow id)`: `re-frame.flows` carries **no** `clear-flow` re-export. The introspection accessors and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
 
 ## Registering and clearing flows
 
@@ -39,6 +39,7 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
 
     - `:rf.error/invalid-flow-metadata` — non-map metadata, or a `:derive` left inside the metadata map.
     - `:rf.error/flow-missing-id` / `:rf.error/flow-bad-id` / `:rf.error/flow-bad-inputs` / `:rf.error/flow-bad-output` / `:rf.error/flow-bad-path` / `:rf.error/flow-bad-marks` — shape validation of the id, `:inputs`, `derive-fn`, `:output-path`, and classification keys.
+    - `:rf.error/flow-reserved-output-path` — the `:output-path` is rooted at `:rf.db/runtime`, which is input-only syntax; outputs always write `app-db`.
     - `:rf.error/no-frame-context` — no surrounding scope and no `:frame` key.
     - `:rf.error/flow-frame-not-live` — the target frame is absent or destroyed.
     - `:rf.error/flow-path-overlap` — the `:output-path` stands in a prefix relationship with a same-frame sibling's.
@@ -61,7 +62,7 @@ See [Flows: derived values your handlers can read](../core/flows.md) for the con
   ```
 - **Description**: Deregister the flow from the named frame and `dissoc-in` its `:output-path` from that frame's `app-db` only. Returns `id`.
 
-    - There is **no** `clear-flow` name: it was never a `re-frame.core` facade export, and `re-frame.flows` dropped its own re-export — `:flow` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.flows.registry/clear-flow` survives as the late-bind hook target that dispatch routes to, and `:rf.fx/clear-flow` (below) survives as an fx-id keyword; neither is a public call by that name (rf2-kuky.80).
+    - There is **no** `clear-flow` name, on either `re-frame.core` or `re-frame.flows` — `:flow` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.flows.registry/clear-flow` is the late-bind hook target that dispatch routes to, and `:rf.fx/clear-flow` (below) is an fx-id keyword; neither is a public call by that name.
     - Leaf-only removal: an emptied parent map is left in place.
     - Sibling frames' state is preserved.
     - The frame resolves from the opts `:frame` key (a frame-id keyword or a live frame value), else the surrounding scope. With no scope and no `:frame`, it raises `:rf.error/no-frame-context`. The opts map is **exact** — sole key `:frame` — and a near-miss such as `{:fram :session}` raises `:rf.error/registrar-clear-bad-request` before any frame is resolved, rather than silently clearing the ambient frame's flow.
@@ -135,7 +136,7 @@ Two reserved fx-ids register or clear a flow at runtime from inside an event han
 | `[:rf.fx/reg-flow [flow-id metadata derive-fn]]` | the 3-slot triple (same shape as `reg-flow`) | v1 | Register a flow at runtime via `:fx`. The dispatching frame threads through as the `:frame` metadata key. |
 | `[:rf.fx/clear-flow id]` | flow id | v1 | Clear a registered flow at runtime via `:fx`. |
 
-The arguments mirror `reg-flow` and `(rf/clear :flow id)` exactly: the same 3-slot triple, the same flow id. `:rf.fx/clear-flow` is an fx-id **keyword**, not a var — there is no `clear-flow` fn name behind it to call directly (rf2-kuky.80). (An fx body's return value is not observable.) When the flows artefact is not on the classpath, both effects no-op.
+The arguments mirror `reg-flow` and `(rf/clear :flow id)` exactly: the same 3-slot triple, the same flow id. `:rf.fx/clear-flow` is an fx-id **keyword**, not a var — there is no `clear-flow` fn name behind it to call directly. (An fx body's return value is not observable.) When the flows artefact is not on the classpath, both effects no-op.
 
 ```clojure
 ;; Clear a runtime-registered flow from inside a handler — e.g. disengaging a
@@ -180,7 +181,7 @@ Read-only views over the per-frame flow registry. They never touch the registrat
   ```clojure
   (flows-snapshot)
   ```
-- **Description**: Return the per-frame flow registry value: `{frame-id {flow-id flow-map}}`. This is the public seam for observing the registry shape. Read it rather than dereferencing the private `flows` atom. The return value is a snapshot; observers must not mutate it.
+- **Description**: Return the per-frame flow registry value: `{frame-id {flow-id flow-map}}`. This is the public seam for observing the registry shape. Read it rather than dereferencing the private `flows-by-frame` atom. The return value is a snapshot; observers must not mutate it.
 - **Example**:
   ```clojure
   ;; Which flows are registered, and against which frames?
@@ -234,10 +235,12 @@ The flow-transform entry point the router installs, plus the test-fixture resets
 - **Signature**:
   ```clojure
   (run-flows-on-db frame-id db runtime-db)
+  (run-flows-on-db frame-id db runtime-db {:exact-owner-token token})
   ```
 - **Description**: The outermost-`:after` flow transform. It walks this frame's registered flows in topological order over the pending frame-state, dirty-checks each one, and `assoc-in`s each recomputed result into a transformed `app-db`. It returns the flow-augmented `app-db` value.
 
     - `db` is the pending `app-db` partition; `runtime-db` is the pending `runtime-db` partition (pass `nil` to resolve only bare `app-db` inputs).
+    - The 3-arity fences the pass to the current event's owner token when called inside an event, and runs unfenced otherwise; the 4-arity fences it to an explicit `:exact-owner-token` (the flows artefact's own out-of-drain settle uses it).
     - The router installs and calls this as the outermost `:after` interceptor. It fires last, against the chain's pending `:db` effect and before the `:db` install. Applications never call it.
     - Flow outputs write `app-db` only.
     - A flow evaluation throw halts the walk (downstream flows do not run), rolls back the frame's dirty-check bookkeeping, and re-raises as `:rf.error/flow-eval-exception`. The router discards the pending `:db` effect, so the event aborts with no partial commit. The ex-data names both the flow and the failing phase — `:rf.flow/failed-id`, `:rf.flow/failed-phase` (`:derive` when your `:derive` fn threw, `:output-write` when it returned and the `assoc-in` of that value at the flow's `:output-path` threw) and `:rf.flow/output-path`.

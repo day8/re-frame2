@@ -36,8 +36,8 @@ application live in [Forms](../core/fresco/05-forms.md) and the
 - **Description**: A controlled `<input>` with an app-db draft in front of the
   committed value. `:control` is an **opaque address**, not a path; `:value` is
   the committed value; `::h/revision` is the caller's generation counter and is
-  what a rejection is made of. `:value`, `:on-commit`, `:on-cancel`, `:key` and
-  `::h/revision` are the field's own — every other prop reaches the `<input>`
+  what a rejection is made of. `:control`, `:value`, `:on-commit`, `:on-cancel`,
+  `:key` and `::h/revision` are the field's own — every other prop reaches the `<input>`
   unchanged, with `:type` defaulting to `"text"`.
     - The protocol is three ordinary events in the module's own keyword namespace
       (`::edit` on `:on-input`, `::commit` on Enter and blur alike, `::cancel` on

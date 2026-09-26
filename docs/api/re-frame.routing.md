@@ -74,6 +74,8 @@ Two cross-feature bare keys are also accepted:
 - `:head` — SSR's head-metadata contract. It is always in the accepted set.
 - `:resources` — the Resources artefact's route integration, late-bound via the `:routing/extra-route-keys` hook. In an app without the Resources artefact, `:resources` is rejected like any other unknown bare key.
 
+The cross-kind registration-metadata key `:ns` is accepted bare too. It is not a routing key: it names the registration's provenance namespace for image selection, so a programmatic `reg-route` can stamp it and be `:select-ns`-selectable.
+
 Guide overview of the key groups: [Metadata map](../routing/concepts.md#the-metadata-map-in-full) (per-key catalogue is this table and the API rows below).
 
 ### Clearing a route
@@ -82,7 +84,7 @@ Guide overview of the key groups: [Metadata map](../routing/concepts.md#the-meta
   ```clojure
   (rf/clear :route id) → id
   ```
-- **Description**: Remove a registered route. Emits `:rf.route/cleared` (symmetric with `:rf.flow/cleared`) so tools subscribing to route lifecycle observe the removal. No-op when `id` was not registered. There is **no** `clear-route` name: it was never a `re-frame.core` facade export, and `re-frame.routing` dropped its own re-export — `:route` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.routing.registry/clear-route` survives as the late-bind hook target that dispatch routes to, not as a public call (rf2-kuky.80).
+- **Description**: Remove a registered route. Emits `:rf.route/cleared` (symmetric with `:rf.flow/cleared`) so tools subscribing to route lifecycle observe the removal. No-op when `id` was not registered. There is **no** `clear-route` name, on either `re-frame.core` or `re-frame.routing` — `:route` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.routing.registry/clear-route` is the late-bind hook target that dispatch routes to, not a public call.
 
 ### `reset-counters!`
 
@@ -140,7 +142,7 @@ The URL ↔ route mapping is a prism. `match-url` reads a URL into route data. `
 
     - `:rf.error/no-such-route` — `:to` route not registered.
     - `:rf.error/missing-route-param` — a required path segment's param is nil or absent.
-    - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, or the map carries non-address keys.
+    - `:rf.error/route-url-validation` — `:params` / `:query` fail the route's `:params` / `:query` schemas, the map carries non-address keys, or `:params` carries a key the route's pattern does not capture (`:reason :uncaptured-params` — it is rejected rather than dropped).
     - `:rf.error/route-url-non-edn-value` — non-EDN param/query values or a non-string fragment.
 - **Example**:
   ```clojure
@@ -168,7 +170,7 @@ This is the read-side surface over the route registry and the live route slice. 
 
 Lowering routes into the shared derivation/process-algebra node shape — so a tool can show subscriptions, flows, resources, route facts and machine selectors as one family — is **not** part of it. The static route view and the live route-slice view ship **no public accessor** (Derivations §Routes expose algebra views): they live in `re-frame.routing.tooling` and every consumer names that namespace directly — Xray and the conformance fixtures statically, `re-frame.derivation.graph` through `requiring-resolve` on the JVM.
 
-"Which routes are registered, and what is route X's spec?" has **no routing-specific accessor** (rf2-kuky.31 retired `route-ids` / `route-meta`). It is the generic registrar query API, which every tool already speaks:
+"Which routes are registered, and what is route X's spec?" has **no routing-specific accessor** (there is no `route-ids` / `route-meta`). It is the generic registrar query API, which every tool already speaks:
 
 ```clojure
 (keys (rf/registrations {:source :store :kind :route}))
@@ -367,7 +369,7 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   ```clojure
   (with-base-path strategy base) → strategy-map
   ```
-- **Description**: A STRATEGY COMBINATOR, not a third shipped strategy. Use it when an app is deployed under a sub-path — say a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`. It wraps `strategy` (either shipped strategy, or a custom one) so that `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` all account for `base`. The base is stripped off every inbound URL and re-added to every outbound one, underneath whichever address-bar form `strategy` already provides. `route-url` / `match-url` and the rest of the cascade stay path-form and base-agnostic. A blank or nil `base` returns `strategy` unchanged.
+- **Description**: A STRATEGY COMBINATOR, not a third shipped strategy. Use it when an app is deployed under a sub-path — say a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`. It wraps `strategy` (either shipped strategy, or a custom one) so that its consult points account for `base`. `:encode` re-adds the base to every outbound href, outside whichever address-bar form `strategy` already provides (`/realworld/active` for history, `/realworld#/active` for hash). `:decode` and `:install-listener!` strip it off every inbound URL (a fragment-form strategy's decode never sees the base, so its result passes through untouched). `:push!` / `:replace!` are not wrapped: the href they are handed was already encoded, base included. `route-url` / `match-url` and the rest of the cascade stay path-form and base-agnostic. A blank or nil `base` returns `strategy` unchanged.
 - **Example**:
   ```clojure
   (rf/make-frame {:id :app
@@ -379,11 +381,11 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
 
 ## Browser URL listener
 
-There is no imperative boot seam to call. The browser `popstate` / `hashchange` listener is wired automatically by the **`:url-bound?` frame LIFECYCLE** (rf2-g8pbwg). When a `:url-bound? true` frame is created (or re-registered) and resolves as the URL owner, that step installs the listener AND syncs the current URL into the owner's route slice. Destroying the frame removes the listener. The retired `install-url-listener!` / `remove-url-listener!` / `install-history-listener!` / `remove-history-listener!` exports are GONE (pre-alpha, no back-compat shim). There is nothing to call.
+There is no imperative boot seam to call. The browser `popstate` / `hashchange` listener is wired automatically by the **`:url-bound?` frame LIFECYCLE**. When a `:url-bound? true` frame is created (or re-registered) and resolves as the URL owner, that step installs the listener AND syncs the current URL into the owner's route slice. Destroying the frame removes the listener. There is no `install-url-listener!` / `remove-url-listener!` / `install-history-listener!` / `remove-history-listener!` export; there is nothing to call.
 
 - Each browser-driven change is decoded to a path-form URL by the strategy's `:decode`, then dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)`, resolved at fire time. When no frame declares `:url-bound? true`, the dispatch is skipped.
 - The listener kind (`popstate` vs `hashchange`) is resolved from the URL-owning frame's `:url-strategy` at install time. The owner (the dispatch target) is re-resolved at every fire.
-- Installation is idempotent. A re-registration that resolves as the owner tears down the prior listener before reinstalling. A losing duplicate `:url-bound? true` registration never installs.
+- Installation is idempotent. A re-registration whose owner and `:url-strategy` match the installed listener leaves it untouched; a changed owner or strategy tears the prior listener down before installing the new one. A losing duplicate `:url-bound? true` registration never installs.
 - CLJS-only. On the JVM there is nothing to install; SSR feeds the request URL via `:rf.route/handle-url-change`.
 
 ## Route links
@@ -427,7 +429,7 @@ The `:route/link` registered view renders an `<a href=...>` from a route id. It 
 
 ## Keyword surfaces
 
-The routing artefact registers a family of events, subscriptions, effects, and coeffects addressed by keyword. Loading `re-frame.routing` wires them all. It also registers internal machinery that apps and tools never dispatch or declare: the `:rf.route.internal/*` runtime events, the recordable allocation cofx (`:rf.route/nav-allocation`, `:rf.route/pending-nav-allocation`), and the `:rf.route/commit-nav-counter` fx. Those internals are omitted from the tables below.
+The routing artefact registers a family of events, subscriptions, effects, and coeffects addressed by keyword. Loading `re-frame.routing` wires them all. It also registers internal machinery that apps and tools never dispatch or declare: the recordable allocation cofx (`:rf.route/nav-allocation`, `:rf.route/pending-nav-allocation`) and the `:rf.route/commit-nav-counter` fx. Those internals are omitted from the tables below. The `:rf.route.internal/*` event namespace is reserved for runtime-fired plumbing and has no members.
 
 ### Events
 

@@ -81,6 +81,7 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate. 
 - `:infinite`, plus the infinite-only keys `:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, and `:refetch`. See [Infinite resources](#infinite-resources). (There is no `:page-data-schema` — it is a retired key that `reg-resource` hard-rejects; per-page validation rides the request's `:decode` and per-page classification rides `:sensitive` / `:large`.)
 - `:tags`
 - `:sensitive?` / `:large?` / schema-based classification
+- `:sensitive` / `:large` — projection-relative classification: a vector of paths rooted at `:data` / `:params` / `:scope` (a bare path means `:data`), e.g. `{:sensitive [[:data :ssn]]}`. A malformed declaration raises `:rf.error/resource-bad-spec`.
 
 **Not in the v1 registration surface**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, and transport extension protocols. The gate neither reads nor validates them. (Looking for interval polling? That is `:poll-interval-ms`. The load-more kind is `:infinite` — see [Infinite resources](#infinite-resources).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are not resource-registration keys. They live on `reg-mutation`.
 
@@ -109,7 +110,7 @@ See [Guide ch.27 §Scope](../resources/concepts.md).
   ```clojure
   (rf/clear :resource resource-id)
   ```
-- **Description**: Remove a registered resource. Returns `resource-id`. There is **no** `clear-resource` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:resource` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.registry/clear-resource` survives as the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call (rf2-kuky.80).
+- **Description**: Remove a registered resource. Returns `resource-id`. There is **no** `clear-resource` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:resource` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.registry/clear-resource` is the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call.
     - A **registration-lifecycle** operation, NOT cache invalidation. For data lifecycle use `:rf.resource/invalidate-tags` / `:rf.resource/remove` / `:rf.resource/clear-scope`.
     - Also disposes the resource-runtime state for the id in each affected frame. That disposal:
         - releases owner indexes
@@ -176,10 +177,11 @@ A mutation is the causal-WRITE counterpart of a resource: a named write to remot
 - `:scope` — the cache scope the invalidation / patch / populate targets.
 - `:invalidate-timing` — `:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle`. A value outside the closed enum is rejected with `:rf.error/mutation-bad-spec`.
 - `:transport`, `:doc`.
+- `:sensitive` / `:large` — projection-relative classification of the instance row, the same shape as on `reg-resource`: `[:params …]` / `[:scope …]` paths classify the instance's params / scope, and `[:data …]` or bare paths its `:result` (e.g. `{:sensitive [[:params :token]]}`). A malformed declaration raises `:rf.error/mutation-bad-spec`.
 
 > **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in. They ride the [managed-HTTP args](re-frame.http.md) your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged. It does not read or enforce a spec-level `:retry`, so there is no `reg-mutation`-level retry to arm. Reads inherit the same discipline — see [Managed HTTP reference §Retry](../async/http.md#retry-transport-retry-as-data). Re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.
 
-> **Mutation `:scope` is not fail-closed.** A resource read's `:scope` is required and fails closed. A mutation's `:scope` is optional: it resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it MUST match the scope of the resources the write changes. A write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead. It silently misses the scoped entries — stale reads, no error. Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site.
+> **Mutation `:scope` is not fail-closed.** A resource read's `:scope` is required and fails closed. A mutation's `:scope` is optional: it resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it MUST match the scope of the resources the write changes. A write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `:rf.scope/global` cache instead. It silently misses the scoped entries — stale reads, no error. Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site.
 
 **Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Invalidate after a mutation](../resources/how-to/invalidate-after-a-mutation.md) / [model § mutations](../resources/concepts.md#writes-invalidate-by-tag--causally)):
 
@@ -195,7 +197,7 @@ The inverse is runtime-recorded: the author supplies no `:rollback` registration
   ```clojure
   (rf/clear :mutation mutation-id)
   ```
-- **Description**: Remove a registered mutation. Returns `mutation-id`. A **registration-lifecycle** operation, NOT a form-error reset. For the causal runtime-instance reset use the `[:rf.mutation/clear …]` event. There is **no** `clear-mutation` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:mutation` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.mutation-registry/clear-mutation` survives as the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call (rf2-kuky.80).
+- **Description**: Remove a registered mutation. Returns `mutation-id`. A **registration-lifecycle** operation, NOT a form-error reset. For the causal runtime-instance reset use the `[:rf.mutation/clear …]` event. There is **no** `clear-mutation` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:mutation` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.mutation-registry/clear-mutation` is the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call.
 
 ```clojure
 ;; deregister a mutation (registration-lifecycle — NOT the runtime-instance reset)
@@ -245,7 +247,7 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
   ```clojure
   (rf/clear :resource-scope scope-id)
   ```
-- **Description**: Remove a registered resource-scope resolver. This is a **registration-lifecycle** removal — the registrar inverse of `reg-resource-scope`. A resolver holds no per-frame runtime state (it is a pure derivation consulted at use time), so nothing is disposed beyond the registrar entry. When the id is not registered, the call is a no-op that returns `scope-id`. There is **no** `clear-resource-scope` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:resource-scope` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.scope-registry/clear-resource-scope` survives as the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call (rf2-kuky.80).
+- **Description**: Remove a registered resource-scope resolver. This is a **registration-lifecycle** removal — the registrar inverse of `reg-resource-scope`. A resolver holds no per-frame runtime state (it is a pure derivation consulted at use time), so nothing is disposed beyond the registrar entry. When the id is not registered, the call is a no-op that returns `scope-id`. There is **no** `clear-resource-scope` name — not on `re-frame.resources` and not on the `re-frame.core` facade; `:resource-scope` is one of the kinds the one kind-keyed registrar inverse dispatches (see [`clear`](re-frame.core.md#clear)). `re-frame.resources.scope-registry/clear-resource-scope` is the late-bind hook target that dispatch routes to — artefact-internal plumbing, not a public call.
 
 ```clojure
 ;; deregister a named scope resolver (registration-lifecycle — e.g. on hot-reload / teardown)
@@ -277,7 +279,7 @@ A resource (or payload, or route) references a named resolver as `{:from-db <sco
 
 ### Reading the resolver registry
 
-There is no `scope-resolver-meta` / `scope-resolver-ids` accessor (rf2-kuky.31). The `:resource-scope` registrar kind is read the way every kind is — the generic registrar query plus the documented `:rf/resource-scope` inner-key projection:
+There is no `scope-resolver-meta` / `scope-resolver-ids` accessor. The `:resource-scope` registrar kind is read the way every kind is — the generic registrar query plus the documented `:rf/resource-scope` inner-key projection:
 
 ```clojure
 (keys (rf/registrations {:source :store :kind :resource-scope}))
@@ -385,10 +387,10 @@ A view reads the merged list and dispatches the causal `[:rf.resource/load-more 
 
 These direct functions are the tool/test projection lane, not an app-read API:
 
-- The generic registrar query plus an inner-key projection reads the **registration** (the registered spec), and `rf/registrations` enumerates the registry. There is no `resource-meta` / `mutation-meta` accessor (rf2-kuky.31).
+- The generic registrar query plus an inner-key projection reads the **registration** (the registered spec), and `rf/registrations` enumerates the registry. There is no `resource-meta` / `mutation-meta` accessor.
 - `resource-state` / `mutation-state` project **runtime state** (one live entry, one live instance) as a one-shot, non-reactive snapshot at an explicit frame; the **whole** live table is the reserved runtime-db path read off `rf/frame-state-value` ([§Enumerating the whole live table](#enumerating-the-whole-live-table)).
 
-There is no bundled read returning both the registry and the live table: `resources` and `mutations` were deleted by rf2-kuky.85, and the three reads below are the replacement.
+There is no bundled read returning both the registry and the live table: there is no `resources` / `mutations` read; use the three reads below.
 
 They serve Xray, unit tests, and SSR serialization — contexts with no reactive subscription. App views read runtime state through the passive [`:rf.resource/*` / `:rf.mutation/*` subscriptions](#resource-subscriptions-passive), never through these functions — they do not re-render on change. Registering a handler, dispatching a cause, projecting a snapshot, and subscribing are four distinct jobs; see [The model — three lanes](../resources/concepts.md#three-lanes--registering-causing-projecting).
 
@@ -396,8 +398,8 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 
 ### Reading a registered resource's spec
 
-- **Kind**: the generic registrar query plus the `:rf/resource` inner-key projection — there is no `resource-meta` accessor (rf2-kuky.31), and this read needs no artefact.
-- **Returns**: the registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords), or nil.
+- **Kind**: the generic registrar query plus the `:rf/resource` inner-key projection — there is no `resource-meta` accessor, and this read needs no artefact.
+- **Returns**: the registered resource's spec (`:params-schema`, `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`), or nil. `:gc-after-ms` reads normalized (absent → `300000`). Source coords ride the enclosing `handler-meta` map, not the `:rf/resource` projection.
 
 ```clojure
 ;; tool/test lane: read a registered resource's spec back
@@ -429,7 +431,7 @@ They serve Xray, unit tests, and SSR serialization — contexts with no reactive
 
 ### Enumerating registered resource ids
 
-There is no `resource-ids` accessor (rf2-kuky.31) — it is `keys` over the generic registry read:
+There is no `resource-ids` accessor — it is `keys` over the generic registry read:
 
 ```clojure
 (keys (rf/registrations {:source :store :kind :resource}))
@@ -438,8 +440,8 @@ There is no `resource-ids` accessor (rf2-kuky.31) — it is `keys` over the gene
 
 ### Reading a registered mutation's spec
 
-- **Kind**: the generic registrar query plus the `:rf/mutation` inner-key projection — there is no `mutation-meta` accessor (rf2-kuky.31).
-- **Returns**: the registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
+- **Kind**: the generic registrar query plus the `:rf/mutation` inner-key projection — there is no `mutation-meta` accessor.
+- **Returns**: the registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`), or nil. Source coords ride the enclosing `handler-meta` map, not the `:rf/mutation` projection.
 
 ```clojure
 (:rf/mutation (rf/handler-meta {:source :store :kind :mutation
@@ -467,7 +469,7 @@ There is no `resource-ids` accessor (rf2-kuky.31) — it is `keys` over the gene
 
 ### Enumerating registered mutation ids
 
-There is no `mutation-ids` accessor (rf2-kuky.31) — it is `keys` over the generic registry read:
+There is no `mutation-ids` accessor — it is `keys` over the generic registry read:
 
 ```clojure
 (keys (rf/registrations {:source :store :kind :mutation}))
@@ -493,8 +495,8 @@ to one target.
 ;;               :data … :error … :generation … :current-work …}
 ;;     …}
 (get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/mutations])
-;; => {<instance-id> {:mutation/id :article/save :instance/id :form/save-1
-;;                    :status … :result … :error … :generation …}
+;; => {<key-id> {:mutation/id :article/save :instance/id :form/save-1
+;;                 :status … :result … :error … :generation …}
 ;;     …}
 
 ;; 3. ONE ENTRY / ONE INSTANCE — the narrowed reads documented above.
@@ -506,8 +508,8 @@ to one target.
 **Read each table as it is keyed.** `:entries` is keyed by the entry's CEDN-1 byte `key-id`
 ([§Resource identity](../../spec/016-Resources.md#resource-identity)) — the entry's human-readable
 `[scope resource-id params]` tuple rides the row as `:resource/key`, and re-keying the table onto it can
-collapse distinct entries. `:rf.runtime/mutations` is keyed by mutation **instance** id (`:instance/id`),
-never by mutation id, so concurrent submissions of the same mutation stay distinct; re-keying onto
+collapse distinct entries. `:rf.runtime/mutations` is keyed by the CEDN-1 byte `key-id` of each mutation **instance** id (the row
+carries its own `:instance/id`), never by mutation id, so concurrent submissions of the same mutation stay distinct; re-keying onto
 `:mutation/id` collapses them.
 
 Both subtrees are allocated **lazily**: `:rf.runtime/resources` is absent until the first resource write,
@@ -518,14 +520,13 @@ indistinguishable from `get-in` of a live frame whose subtree is unallocated. At
 is live, read it as *the subtree has not been allocated*; where you do not,
 `(rf/frame-state-value :app/main)` is itself the frame-liveness read.
 
-Xray exposes the same shapes, plus:
+Xray's Resources panel exposes the same shapes, plus:
 
-- the tool accessors — `list-resources`, `list-resource-instances`, `get-resource-state`, `get-resource-history`, `list-resource-invalidations`
 - the route/resource graph
 - the work-ledger table
 - the scope audit surface — the standing enumeration of every `:rf.scope/global` resource
 
-Tool accessors prefer summaries over raw values. Params and scopes get the same privacy/size elision as data.
+Xray ships no read-only resource tool accessors (no `list-resources` / `get-resource-state` family); an out-of-process reader uses `re-frame2-pair` against the framework's own registry, runtime-db and trace surfaces. Xray's projections prefer summaries over raw values. Params and scopes get the same privacy/size elision as data.
 
 ## Keyword surfaces
 
@@ -542,12 +543,13 @@ Resource events take a **map payload**, not a positional argument vector. The re
 #### `[:rf.resource/ensure {…}]`
 
 - **Kind**: event
-- **Payload**: `{:resource :scope :params :owner :cause :keep-previous?}`
+- **Payload**: `{:resource :scope :params :owner :cause :keep-previous? :reply-to}`
 - **Description**: Ensure the resource instance is loaded.
     - `ensure` while the same scoped key is already in flight **joins** the existing work (attaches the owner, records the cause, emits a dedupe trace).
     - `ensure` of an already-`:loaded` entry still fresh-by-policy is a fresh-skip: it serves the cached value, attaches the owner, and emits `:rf.resource/cache-hit` — no fetch.
     - `:owner` changes the active-owner set; `:cause` is recorded in trace/history.
     - `:keep-previous?` on a first-loading key records a projection pointer to the prior loaded sibling key. That lets `:rf.resource/previous-data` show old data while the new key loads. The pointer is never inserted into the new entry.
+    - `:reply-to` is an optional data-only read-completion continuation target. The accepted terminal reply (success or failure) is dispatched to it once — immediately on a fresh-skip cache hit. A malformed target fails loud before anything is written.
 
 ```clojure
 [:rf.resource/ensure
@@ -561,8 +563,8 @@ Resource events take a **map payload**, not a positional argument vector. The re
 #### `[:rf.resource/refetch {…}]`
 
 - **Kind**: event
-- **Payload**: `{:resource :scope :params :owner :cause}`
-- **Description**: Force a refresh. It always starts a new generation, even when a request is already in flight. A still-in-flight prior request is marked superseded, then aborted when possible, otherwise suppressed by work-id + generation. A manual refresh is usually a `:cause`, not an `:owner`.
+- **Payload**: `{:resource :scope :params :owner :cause :reply-to}`
+- **Description**: Force a refresh. It always starts a new generation, even when a request is already in flight. A still-in-flight prior request is marked superseded, then aborted when possible, otherwise suppressed by work-id + generation. A manual refresh is usually a `:cause`, not an `:owner`. `:reply-to` behaves as for `ensure`.
 
 ```clojure
 ;; a "Refresh" button — a :cause, pointedly no :owner (the route keeps it alive)
@@ -671,7 +673,7 @@ Resource events take a **map payload**, not a positional argument vector. The re
 [:rf.resource/network-reconnected]
 ```
 
-> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/page-succeeded` / `…/page-failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/poll-fired` / `…/stale-suppressed` / `…/refetch-page` are framework-internal. They carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them. Success/failure verify frame + work id + generation before writing — the mandatory stale-suppression boundary. Of these: `:rf.resource.internal/stale-fired` is the stale-timer re-check tick (it arms the stale transition, not a fetch); `:rf.resource.internal/poll-fired` is the poll-timer re-check tick (it refetches an active-owner entry by the interval); `…/page-succeeded` / `…/page-failed` are the infinite-feed page replies; `…/refetch-page` is one leg of a multi-page refetch sweep.
+> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/page-succeeded` / `…/page-failed` / `…/stale-fired` / `…/gc-fired` / `…/poll-fired` / `…/stale-suppressed` / `…/refetch-page` are framework-internal. They carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them. Success/failure verify frame + work id + generation before writing — the mandatory stale-suppression boundary. Of these: `:rf.resource.internal/stale-fired` is the stale-timer re-check tick (it arms the stale transition, not a fetch); `:rf.resource.internal/poll-fired` is the poll-timer re-check tick (it refetches an active-owner entry by the interval); `…/page-succeeded` / `…/page-failed` are the infinite-feed page replies; `…/refetch-page` is one leg of a multi-page refetch sweep. An abort arrives on `…/failed` and settles as a cancellation, not an error (the `:rf.http/aborted` branch); there is no separate aborted reply. Two further internal events are the route planner's owner-handoff primitives, not replies: `:rf.resource.internal/adopt-owner` (attach an owner to an existing entry without a fetch) and `…/release-owner-identities` (release an owner from a subset of the entries it holds).
 
 ### Resource subscriptions (passive)
 

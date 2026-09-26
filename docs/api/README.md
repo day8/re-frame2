@@ -37,7 +37,9 @@ tracks vars.
 Completeness. Public vars in the manifest with tiers `:front-porch`,
 `:advanced`, `:adapter`, or `:testing` under `re-frame.*` are expected to appear on
 these pages (or as an explicit facade pointer). Tooling and implementation tiers are
-out of scope here. This is enforced: the api-manifest `doc-api-check` reconciles
+outside that guarantee; several pages still document them where callers reach them
+(the dev-only trace and epoch reads, `re-frame.ssr.ring`, `re-frame.trace.projection`),
+but nothing requires a page to. This is enforced: the api-manifest `doc-api-check` reconciles
 every eligible manifest namespace against `docs/api/`, so an eligible namespace with
 no page — or an eligible var with no member heading (`### \`var\``, or a
 `#### \`var\`` facade-pointer entry on the owning/facade page) — turns the CI check
@@ -45,14 +47,15 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 (`### \`re-frame.machines/machine-transition\``).
 
 Where Fresco sits. The **door** — `re-frame.fresco` — is manifest-tracked like
-any other published namespace, and has been since rf2-phm7g. It is a split-host
+any other published namespace. It is a split-host
 `.cljc`: its three authoring macros are the `:clj` arm the JVM generator
-introspects, and its eleven runtime vars are the `:cljs` arm the analyzer probe
+introspects, and its twelve runtime vars are the `:cljs` arm the analyzer probe
 reconciles, so a public added, removed or renamed on either host turns the
-api-manifest gate red. Since rf2-3ne8 the whole tree is scanned rather than the
-door alone: `implementation/fresco/src` is a roster-covered root, so every
-namespace under it is classified, and its **optional authoring modules**
-(`.forms`, `.overlay`, `.motion`, `.native`, `.substrate`) carry rows and pages
+api-manifest gate red. The whole tree is scanned, not the door alone:
+`implementation/fresco/src` is a roster-covered root, so every
+namespace under it is classified, and its **optional modules** — the four
+authoring modules (`.forms`, `.overlay`, `.motion`, `.native`) and the
+`.substrate` adapter — carry rows and pages
 here on the same footing as any other published surface. The `.server` SSR module
 and the `.tool` / `.evidence` reader door are rowed at the `:implementation` and
 `:tooling` tiers, which the completeness clause above puts out of scope for this
@@ -114,6 +117,7 @@ never asks for one carries none of it.
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
+| [re-frame.trace.projection](re-frame.trace.projection.md) | Event-bundle projection over the dev-only trace stream |
 
 ## Require patterns
 
@@ -134,8 +138,7 @@ never asks for one carries none of it.
 
 - [Core guide](../core/introduction.md) — progressive teaching
 - [Fresco API reference](../core/fresco/api-reference.md) — the view layer's own
-  corpus: the door's full contract, and the optional modules, which carry no
-  api-manifest rows
+  corpus: the full contract of the door and of every optional module
 - [spec/API.md](../../spec/API.md) — normative var catalogue with tiers (projection of
   the api-manifest)
 - Feature guides under Machines, Resources, Routing, SSR, Async tabs

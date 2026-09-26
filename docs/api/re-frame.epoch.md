@@ -100,7 +100,7 @@ Per-frame epoch snapshots, recorded on each handled event's run-to-completion in
   ```clojure
   (replace-frame-state! frame-id new-frame-state) → boolean
   ```
-- **Description**: The ONE frame-state write surface. API-shrink #3 (rf2-t3lftq) consolidated the former four-mutator family — `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` — into this single fn. Those four shared identical machinery and differed only in which partition keys they touched. `new-frame-state` is a PARTIAL frame-state map: any subset of `{:rf.db/app … :rf.db/runtime …}`. A present key replaces that partition; an ABSENT key is preserved unchanged. A db-shaped key never silently touches the other partition. Bypasses the dispatch loop. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
+- **Description**: The ONE frame-state write surface. There is no per-partition mutator (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!`): one partial-map write covers every case. `new-frame-state` is a PARTIAL frame-state map: any subset of `{:rf.db/app … :rf.db/runtime …}`. A present key replaces that partition; an ABSENT key is preserved unchanged. A db-shaped key never silently touches the other partition. Bypasses the dispatch loop. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
     - `:rf.error/replace-frame-state-bad-keys` — the map carries no recognized partition key, or an unrecognized key (checked BEFORE frame resolution)
     - `:rf.error/no-such-handler` — frame not registered
     - `:rf.epoch/replace-during-drain`
@@ -134,7 +134,7 @@ attach there. `re-frame.epoch`'s own `register-epoch-listener!` /
 seam the stream delegates to (hook targets for `:epoch/register-epoch-listener!`
 and siblings), not a second public spelling; the last of the three is
 fixture-grade teardown. There is no `rf/register-epoch-listener!` facade
-re-export — it was retired in API-shrink #4.
+re-export.
 
 What the callback receives is a property of the RECORD rather than of the verb,
 so it is stated here:
@@ -164,11 +164,11 @@ Tools that forward epoch records across a process boundary must project at the w
 
 ### The door is `rf/project-egress`
 
-**`re-frame.epoch` publishes no egress var of its own.** Record-level egress has ONE public door — [`rf/project-egress`](re-frame.core.md#project-egress) — and an epoch record reaches its projector through its stamped `:kind :rf/epoch-record`, not through a second name. The per-kind projector is a late-bind seam (`:epoch/project-record`) inside this artefact and is never public: the door names the *boundary*, `:kind` names the *record kind*. (The former `rf/projected-record` spelling was retired 2026-09-09 under rf2-bv1p, ruling rf2-kuky.9 option A; its three epoch-only opts moved onto the door.)
+**`re-frame.epoch` publishes no egress var of its own.** Record-level egress has ONE public door — [`rf/project-egress`](re-frame.core.md#project-egress) — and an epoch record reaches its projector through its stamped `:kind :rf/epoch-record`, not through a second name. The per-kind projector is a late-bind seam (`:epoch/project-record`) inside this artefact and is never public: the door names the *boundary*, `:kind` names the *record kind*. There is no `rf/projected-record`; the epoch-only opts are opts of the door.
 
 - **Signature**: `(rf/project-egress record)` / `(rf/project-egress record opts)`.
 - It routes the full-value payload slots (`:frame-state-before`, `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through the record-level egress boundary under a `:rf.egress/profile`. Sensitive paths redact to `:rf/redacted`; large paths elide to `:rf.size/large-elided` markers. The frame-state `:rf.db/runtime` partition, the structured `:effects` `:args`, and the `:trigger-event` / trace-event args all fail closed (redacted) by default. The 2-arity threads trusted-local egress `opts`; the 1-arity is the safe, fully-redacted off-box path.
-- **A kindless input is a VALUE, not a no-op.** `nil`, a non-map, or a map carrying no `:kind` stamp is not short-circuited — it falls to the door's [tree-shaped value path](re-frame.core.md#project-egress) and is projected under that path's ordinary frame-resolution and classification rules. So `(mapv rf/project-egress ring)` over a ring with holes still never throws, but what a hole egresses as is whatever those rules give it — never a guaranteed `nil`. (The retired `projected-record` door short-circuited non-map input to `nil`; the one door does not.)
+- **A kindless input is a VALUE, not a no-op.** `nil`, a non-map, or a map carrying no `:kind` stamp is not short-circuited — it falls to the door's [tree-shaped value path](re-frame.core.md#project-egress) and is projected under that path's ordinary frame-resolution and classification rules. So `(mapv rf/project-egress ring)` over a ring with holes still never throws, but what a hole egresses as is whatever those rules give it — never a guaranteed `nil`.
 - **Profiles** (the primary `:rf.egress/profile` selector — *"which boundary is this?"*):
     - `:rf.egress/off-box-observability` (the epoch arm's DEFAULT) — for hosted monitoring, log shippers, Story, and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
     - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide defaults and no digests; it differs from observability by the boundary it names. A tool reasons about an elided large slot's shape from the marker's structural indicators (`:path` / `:bytes` / `:type` / `:handle`). An unknown profile is rejected against the closed enum.
@@ -204,11 +204,11 @@ Buffer-depth knobs for the epoch ring are set through the facade, under the `:ep
 (rf/configure! {:epoch-history {:depth 20 :trace-events-keep 5}})
 ```
 
-Read the live configuration back through the facade's own read twin, `rf/current-config` — there is no `re-frame.epoch` reader (rf2-kuky.73 deleted it in favour of the one door). The epoch map arrives under the `:epoch-history` key, and is **absent entirely** when the `day8/re-frame2-epoch` artefact is not on the classpath, rather than reported as a fabricated default:
+Read the live configuration back through the facade's own read twin, `rf/current-config` — there is no `re-frame.epoch` reader. The epoch map arrives under the `:epoch-history` key, and is **absent entirely** when the `day8/re-frame2-epoch` artefact is not on the classpath, rather than reported as a fabricated default:
 
 ```clojure
 ;; Inspect the live epoch-history configuration.
-(:epoch-history (rf/current-config))     ;; => {:depth 20 :trace-events-keep 5 ...}
+(:epoch-history (rf/current-config))     ;; => {:depth 20 :trace-events-keep 5}
 ```
 
 ## Runtime hook
@@ -219,7 +219,10 @@ Read the live configuration back through the facade's own read twin, `rf/current
 - **Signature**:
   ```clojure
   (settle! frame-id frame-state-before frame-state-after committed-at)
+  (settle! frame-id frame-state-before frame-state-after committed-at settling-dispatch-id)
   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason)
+  (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id)
+  (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id {:exact-owner-token …})
   ```
 - **Description**: The hook the router calls once per dequeued event, at each event's run-to-completion boundary — not once per drain. Framework-internal: the router invokes it; application and tool code never call it directly. Per call it:
     - harvests that event's trace buffer;
@@ -228,7 +231,7 @@ Read the live configuration back through the facade's own read twin, `rf/current
     - emits `:rf.epoch/snapshotted` with an `:outcome` tag plus its consumer-facing companion `:rf.epoch/outcome` (`:ok` / `:blocked` / `:error`);
     - fans out to every registered listener.
 
-    A drain that processes a parent event and an `:fx [[:dispatch …]]` child it queued commits two records, one per event. A machine macrostep stays one epoch. `committed-at` is the committing causal token's `:rf.cofx` `:rf/time-ms`, threaded down by the router rather than read from an ambient assembly-time clock; this keeps the record replayable. The 4-arity is the clean `:ok` settle, skipped when the captured buffer is empty. The 6-arity is the drain-boundary commit with an explicit outcome (`:ok` / `:halted-depth` / `:halted-destroy`).
+    A drain that processes a parent event and an `:fx [[:dispatch …]]` child it queued commits two records, one per event. A machine macrostep stays one epoch. `committed-at` is the committing causal token's `:rf.cofx` `:rf/time-ms`, threaded down by the router rather than read from an ambient assembly-time clock; this keeps the record replayable. The 4-arity is the clean `:ok` settle. `settling-dispatch-id` scopes the harvest to that dispatch's own traces, so a rejected dispatch's error trace is dropped without consuming a queued child's marker. The 6- and 7-arities take an explicit `outcome` and `halt-reason`. The 8-arity, the one the router calls, adds `{:exact-owner-token …}`, fencing the commit to the settling event's own frame incarnation. Every arity skips an empty harvest; a depth halt whose event never ran commits through the separate `:epoch/commit-halt-record!` hook instead.
 
 ```clojure
 ;; Framework-internal — the router invokes this through the :epoch/settle! late-bind hook.

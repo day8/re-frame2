@@ -15,14 +15,14 @@ for the pipeline and this page for the authoring surface.
 
 This page is the manifest-tracked index of the door's public vars: Kind,
 Signature, and what the var is. The **full contract** — the four shapes an `on-*`
-prop may take, the `defhost` options table, the `mount!` / `hydrate!` asymmetry,
-the render discipline — lives in the [Fresco API reference](../core/fresco/api-reference.md),
+prop may take, the `defhost` options table, the create / adopt (`{:hydrate? true}`)
+asymmetry of `render!`, the render discipline — lives in the [Fresco API reference](../core/fresco/api-reference.md),
 alongside the guide that teaches it. This page deliberately does not duplicate it;
 where an entry below is terse, that reference is where the depth is.
 
 **A split-host namespace.** The door is a `.cljc` whose two arms are disjoint. The
 three authoring macros are its `#?(:clj …)` arm and are what `ns-publics` returns
-on the JVM; the eleven runtime vars are its `#?(:cljs …)` arm and exist only under
+on the JVM; the twelve runtime vars are its `#?(:cljs …)` arm and exist only under
 ClojureScript. Both arms are inventoried — the JVM manifest generator owns the
 macros, the CLJS analyzer probe owns the runtime vars — so neither host can
 silently gain or lose a public.
@@ -47,8 +47,9 @@ silently gain or lose a public.
       ordinary spelling.
     - The name is also registered in re-frame's `:view` registrar under
       `(keyword "<ns>" "<sym>")`, for **forward resolution only** — a tool holding a
-      keyword the author wrote reaches the view they meant. It carries no
-      `:handler-fn`, and rides the `debug-enabled?` gate, so a production build
+      keyword the author wrote reaches the view they meant. The entry carries
+      the minted head at `:handler-fn`, so `(rf/view id)` answers this very
+      boundary, and it rides the `debug-enabled?` gate, so a production build
       registers nothing.
     - Hooks do not belong in a body: a body is dynamically composed, so a hook
       written there would make its own call order depend on a data path. Put
@@ -313,7 +314,10 @@ here reaches a root the caller did not name.
   (h/reg-state concern opts?)
   ```
 - **Description**: The instance-key sugar. Mints one parametric subscription and one
-  setter event under `[:ui ::concern ikey]`, and nothing else.
+  setter event under `[:ui ::concern ikey]`, and ensures the shared `::h/clear`
+  event that returns an instance to its default; answers `concern`. `concern`
+  must be a namespace-qualified keyword and `opts` carries `:default` and nothing
+  else — either fault is `:rf.error/fresco-state-bad-argument`.
 
 ## What this door does not carry
 
@@ -324,8 +328,12 @@ a classpath entry and no bundle bytes until required. The door names none of the
 and that is the point rather than an omission: one `:require` here would put the
 retention machine into every bundle that ever touched the door. Those modules, the
 test kit and the tool tier are documented in the
-[Fresco API reference](../core/fresco/api-reference.md); they carry no
-api-manifest rows of their own.
+[Fresco API reference](../core/fresco/api-reference.md). The modules carry
+api-manifest rows of their own — [`.forms`](re-frame.fresco.forms.md),
+[`.motion`](re-frame.fresco.motion.md), [`.native`](re-frame.fresco.native.md),
+[`.overlay`](re-frame.fresco.overlay.md) and
+[`.substrate`](re-frame.fresco.substrate.md) each have a page here — while the
+test kit carries none.
 
 The marker keywords need no export. `::h/value`, `::h/prevent`, `::h/revision`,
 `::h/checked` and `::h/clear` read `:re-frame.fresco/…`, so aliasing this namespace

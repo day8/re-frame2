@@ -135,10 +135,8 @@ Three things hold for that head, and they are the point of using the registry ra
 > the boundary above installed; `(rf/current-frame-id)` is the imperative one,
 > and it *does* consult the dynamic-var tier first, so the two can differ inside
 > a `with-frame` around a render. That is deliberate: see the hook rule above.
-> The narrow
-> context read this namespace used to publish handed back the no-provider
-> sentinel `:rf.frame/no-provider` as if it were an answer, and was retired
-> under rf2-kuky.57.
+> There is no narrower context-read export; `use-frame` is the hook-shaped
+> read.
 
 ## Components
 
@@ -149,7 +147,7 @@ Three things hold for that head, and they are the point of using the registry ra
   ```clojure
   ($ uix-adapter/frame-provider {:frame :session} child…)   ;; SCOPE an existing frame
   ```
-- **Description**: The UIx-shaped SCOPE-only frame provider (rf2-nyea0r split — **roots ensure; providers scope**; for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Raises:
+- **Description**: The UIx-shaped SCOPE-only frame provider (**roots ensure; providers scope** — for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Raises:
     - `:rf.error/frame-provider-frame-absent` when the frame does not exist
     - `:rf.error/no-frame-context` on a nil `:frame`
     - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor a live frame value
@@ -170,7 +168,7 @@ Three things hold for that head, and they are the point of using the registry ra
   ```clojure
   ($ uix-adapter/frame-root {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
-- **Description**: The UIx-shaped ENSURE component (rf2-nyea0r split). Creates the named frame if absent, or reuses it without re-seeding if present; **never destroys the frame on unmount**. Accepts `make-frame` opts, including `:images` / `:initial-events`. `:id` must be a keyword; a missing/nil/non-keyword `:id` raises `:rf.error/frame-root-missing-id`.
+- **Description**: The UIx-shaped ENSURE component (**roots ensure; providers scope**). Creates the named frame if absent, or reuses it without re-seeding if present; **never destroys the frame on unmount**. Accepts `make-frame` opts, including `:images` / `:initial-events`. `:id` must be a keyword; a missing/nil/non-keyword `:id` raises `:rf.error/frame-root-missing-id`.
     - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), not during render — the first render emits no descendant subtree, and children render only after the frame is live. A render React discards before commit creates + seeds nothing (no ghost frame).
     - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
 
@@ -290,7 +288,7 @@ The Root these functions manage is minted by the shared React spine through `rea
 ## Notes
 
 - **Shared React Context.** The `frame-provider` in both adapters (Reagent and UIx) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not two. A mixed-substrate app therefore composes: a UIx `frame-provider` can wrap a Reagent subtree, and vice versa.
-- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element. `rf/reg-view*` is the door: registration consults the `:adapter/wrap-view` late-bind hook, which is the whole of the injection seam (this adapter published a second, redundant door onto it until rf2-kuky.57). The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
+- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element. `rf/reg-view*` is the door: registration consults the `:adapter/wrap-view` late-bind hook, which is the whole of the injection seam. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
 - **Controlled inputs use React's own implementation.** UIx can build a `<input>` two ways, and unset it chooses by asking whether Reagent happens to be on the classpath — so adding the Reagent adapter beside UIx used to change how the UIx app's inputs behaved, silently. Requiring `re-frame.adapter.uix` pins the choice to React's own path. See the note below for what that means for the caret.
 
 ## Controlled inputs and the caret
@@ -299,7 +297,7 @@ A UIx `:input` with a `:value` and an `:on-change` is a plain React controlled i
 
 **What this means when your handler refuses or rewrites a keystroke.** React converges the field inside the discrete event — the character the model refused is off the screen before `dispatchEvent` returns, with nothing re-rendered. Writing `value` moves the text cursor to the end of the field, though, so the caret lands at the end rather than where the edit was: type `z` into `"12345"` with the caret at position 2, have the model refuse it, and you get `"12345"` with the caret at 5. Every write React makes does this; it is React's own long-standing controlled-input caret jump, not something re-frame2 introduces. A model that takes the keystroke verbatim never triggers a write and never moves the caret.
 
-**What changed, and why.** UIx also ships a port of Reagent's controlled-input workaround, which makes the element uncontrolled and restores value *and* caret itself — but one animation frame later, off Reagent's `requestAnimationFrame` queue, never inside the event. Before this pin you got that one whenever Reagent was on the classpath and React's one when it wasn't. An app whose inputs behave differently because of what else is in its bundle is the worse defect, so the adapter takes in-turn convergence and a predictable, React-native path over late caret preservation. Neither implementation gives you both halves; `rf2-fki5d` is the priced route to a path that does.
+**Why this path.** UIx also ships a port of Reagent's controlled-input workaround, which makes the element uncontrolled and restores value *and* caret itself — but one animation frame later, off Reagent's `requestAnimationFrame` queue, never inside the event. Without this pin you would get that one whenever Reagent is on the classpath and React's one when it isn't. An app whose inputs behave differently because of what else is in its bundle is the worse defect, so the adapter takes in-turn convergence and a predictable, React-native path over late caret preservation. Neither implementation gives you both halves.
 
 **If you want the port instead**, ask for it explicitly — after requiring the adapter, and before you render:
 

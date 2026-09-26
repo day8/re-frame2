@@ -67,12 +67,12 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
     | Key | Meaning |
     |-----|---------|
     | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed. |
-| `:app-ns` | **Bundle co-load hygiene.** A provenance-namespace PREFIX string naming **this suite's own app** (`"realworld-http."` — the whole tree, not one ns; never a sibling's). Rows whose `:rf.provenance/ns` starts with it are captured and removed from the live registrar and the source store when the fixture is **built** — before it takes its baselines, so no suite's baseline holds them — and reinstated through `registrar/register!` before each test, after the reset and before `:init-fn`. The ordinary source-store restore takes them out again, on the exceptional path too. Omit it unless your bundle co-loads rival apps. |
-  | `:init-fn` | Zero-arg fn run after adapter install, before the test body, under the same ambient frame scope as the body. |
-  | `:clear-kinds` | Collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out). |
-  | `:clear-app-schemas?` | Boolean; clear the schemas artefact's per-frame side-table for the test's duration. |
-  | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out (for tests that create their own top-level frames). |
-  | `:async?` | Boolean, default `false`. Declares the suite **async-capable**; the return shape that delivers it is chosen per host. On CLJS you get a `cljs.test` map-form fixture `{:before … :after …}`, **required** for suites with `(async done …)` tests. On the JVM the option is inert and you always get the fn-form — `clojure.test` has no async tests, and no map-fixture support at all (it *invokes* a fixture, and a Clojure map is `IFn`, so a map fixture would silently skip every test body). |
+    | `:app-ns` | **Bundle co-load hygiene.** A provenance-namespace PREFIX string naming **this suite's own app** (`"realworld-http."` — the whole tree, not one ns; never a sibling's). Rows whose `:rf.provenance/ns` starts with it are captured and removed from the live registrar and the source store when the fixture is **built** — before it takes its baselines, so no suite's baseline holds them — and reinstated through `registrar/register!` before each test, after the reset and before `:init-fn`. The ordinary source-store restore takes them out again, on the exceptional path too. Omit it unless your bundle co-loads rival apps. |
+    | `:init-fn` | Zero-arg fn run after adapter install, before the test body, under the same ambient frame scope as the body. |
+    | `:clear-kinds` | Collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out). |
+    | `:clear-app-schemas?` | Boolean; clear the schemas artefact's per-frame side-table for the test's duration. |
+    | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out (for tests that create their own top-level frames). |
+    | `:async?` | Boolean, default `false`. Declares the suite **async-capable**; the return shape that delivers it is chosen per host. On CLJS you get a `cljs.test` map-form fixture `{:before … :after …}`, **required** for suites with `(async done …)` tests. On the JVM the option is inert and you always get the fn-form — `clojure.test` has no async tests, and no map-fixture support at all (it *invokes* a fixture, and a Clojure map is `IFn`, so a map fixture would silently skip every test body). |
 
 - **Example**:
     ```clojure
@@ -130,7 +130,7 @@ To fire several events in order, call `rf/dispatch-sync` per event — each drai
   ```
 - **Description**: Assert `(get-in db path) == expected-val` against the resolved frame's `app-db`. A mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass and `false` otherwise; the failure has already been reported either way.
 
-    `opts`: `:frame` targets a non-default frame; frame resolution is `:frame` opt → `(current-frame)` → `:rf/default`.
+    `opts`: `:frame` targets a non-default frame; frame resolution is `:frame` opt → `(current-frame)` — the fixture's ambient scope, `:rf/default` unless `:ambient-frame` names another frame. There is no `:rf/default` floor beyond that scope.
 
     This is the fn-side counterpart to the `:rf.assert/path-equals` story event-family: same name root, different runner channel.
 
