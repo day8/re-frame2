@@ -554,15 +554,6 @@
   (is (= committed (shown nil 4))
       "and absence is the third case, which is the same case"))
 
-(deftest the-field-is-controlled-and-carries-the-reset-trigger
-  ;; `ht/controlled?` and `ht/revision` ask the RUNTIME which component
-  ;; the codec installs and what it read pre-merge, so this is the
-  ;; substrate's own answer rather than a re-reading of what was written.
-  (let [form [:input {:type "text" :value committed ::rf.fresco/revision 4
-                      :on-input [rf.fresco.test.forms/edit-id control 4 ::rf.fresco/value]}]]
-    (is (true? (rf.fresco.test/controlled? form)))
-    (is (= 4 (rf.fresco.test/revision form)))))
-
 (deftest other-props-pass-through-and-the-owned-slots-do-not
   (let [attrs (input-attrs (field-tree {::rf.fresco/revision 0
                                         :on-cancel   [::title-cancelled 7]

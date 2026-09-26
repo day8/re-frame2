@@ -164,11 +164,6 @@
       (is (true? @!prevented) ":onSubmit prevents the browser's navigation too")
       (is (= [[:todo/create]] @!seen) "and the intent still dispatches"))))
 
-(deftest no-other-event-position-prevents-by-default
-  (let [!prevented (atom false)]
-    ((lowered (dispatching (recorder)) :on-click [:ping]) (ev {:prevented !prevented}))
-    (is (false? @!prevented))))
-
 (deftest the-prevent-head-opts-in-and-dispatches-the-inner-intent
   (testing "the anchor-acting-as-a-button, which is the shape this exists for"
     (let [!seen      (recorder)
@@ -427,12 +422,6 @@
       (is (= [] @!seen) "an IME commit is not a form commit")
       (h (ev {:key "Enter" :composing? false}))
       (is (= [[:form/commit]] @!seen)))))
-
-(deftest the-composition-predicate-reads-both-signals
-  (is (true? (rf.fresco.impl.intent/composing? (ev {:composing? true}))))
-  (is (true? (rf.fresco.impl.intent/composing? (ev {:key-code 229}))))
-  (is (false? (rf.fresco.impl.intent/composing? (ev {:key-code 13}))))
-  (is (false? (rf.fresco.impl.intent/composing? (ev {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The whole-map door

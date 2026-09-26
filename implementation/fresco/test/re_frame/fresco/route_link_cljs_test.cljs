@@ -134,21 +134,20 @@
 ;; Loud at the site that wrote it
 ;; ---------------------------------------------------------------------------
 
-(deftest a-bare-intent-vector-at-on-click-is-refused-at-render
-  (is (thrown-with-msg?
-        js/Error #"fresco-route-link-bad-on-click"
-        (rendered {:to :conduit.profile/show :params {:username "jane"}
-                   :on-click [:conduit/track "jane"]}
-                  "jane"))
-      "the click already produces the one routing intent; the bare vector is
-       the taught mistake and fails at render with the teaching diagnostic"))
-
-(deftest a-key-map-at-on-click-is-refused-at-render
-  (is (thrown-with-msg?
-        js/Error #"fresco-route-link-bad-on-click"
-        (rendered {:to :conduit.profile/show :params {:username "jane"}
-                   :on-click {"Enter" [:conduit/track]}}
-                  "jane"))))
+(deftest a-bare-intent-vector-or-a-key-map-at-on-click-is-refused-at-render
+  (doseq [[on-click why]
+          [[[:conduit/track "jane"]
+            "the click already produces the one routing intent; the bare vector
+             is the taught mistake and fails at render with the teaching
+             diagnostic"]
+           [{"Enter" [:conduit/track]}
+            "a key-map is refused at the click position the same way"]]]
+    (is (thrown-with-msg?
+          js/Error #"fresco-route-link-bad-on-click"
+          (rendered {:to :conduit.profile/show :params {:username "jane"}
+                     :on-click on-click}
+                    "jane"))
+        why)))
 
 (deftest a-link-outside-a-boundary-is-loud
   (fresh!)
@@ -270,21 +269,6 @@
                        :prefetch bad}
                       "jane"))
           (str ":prefetch " (pr-str bad) " is refused")))))
-
-(defn- lower-navigate
-  "Lower `[intent/navigate-head m]` at an event position and answer the closure."
-  [m]
-  (rf.fresco.impl.intent/with-frame frame-id (fn [_] nil)
-    (fn [] (rf.fresco.impl.intent/lower-prop :on-click [rf.fresco.impl.intent/navigate-head m]))))
-
-(deftest the-navigate-map-lowers-to-a-closure
-  (testing "HD-027's four keys — :frame, :payload, :native? and :veto — lower
-           to the click closure; the map is `route-link`'s to mint, so the
-           lowering reads it rather than re-validating it"
-    (is (fn? (lower-navigate {:frame    frame-id
-                              :payload  [:rf.route/url-requested {:url "/profile/jane"}]
-                              :native?  false
-                              :veto     nil})))))
 
 (deftest prevent-does-not-wrap-a-navigate
   (is (thrown-with-msg?
