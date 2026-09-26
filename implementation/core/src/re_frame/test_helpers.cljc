@@ -459,9 +459,11 @@
   drains in place — there the straight walk is enough.
 
   Poll in the SAME fixture-owned frame the click dispatched into.
-  Do not wrap the click and its settle in
-  `re-frame.core/with-new-frame`: that body returns — and destroys
-  the frame — before the queued event can drain."
+  On CLJS, do not wrap the click and its settle in
+  `re-frame.core/with-new-frame`: `poll-until` returns a promise, so
+  that body returns — and destroys the frame — before the queued event
+  can drain. On the JVM `poll-until` blocks inside the body, so the
+  frame outlives the drain."
   [node event-key & args]
   (when-not (vector? node)
     (rf.error/throw-error! :rf.error/invoke-handler-bad-node
