@@ -213,7 +213,7 @@ jobs:
         run: python scripts/check_skill_mcp_drift.py --verbose --ci
 
       # Self-test of every axis the checker grades, not only the title-safety
-      # one the step name mentions: title-safety, doc-coverage,
+      # one the step name mentions: title-safety, doc-coverage, arg-signature,
       # body-path-identity and single-host. For title-safety it proves the
       # all-consumers gh-issue title-safety backstop actually fires when a
       # consumer's follow-up allowance is removed (and that link-presence
