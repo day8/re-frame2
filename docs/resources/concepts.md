@@ -68,7 +68,7 @@ request fn in the metadata map raises `:rf.error/resource-bad-spec`.
 
 | Metadata key | Role |
 |---|---|
-| `:params-schema` | **Required.** Malli schema of params — the read's identity |
+| `:params-schema` | **Required.** Malli schema of params — the read's identity; validated once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded |
 | `:scope` | **Required.** Either `:rf.scope/global` or `{:from-db resolver-id}` |
 | `:tags` | `(fn [params data] #{…})` — facts this data is about (for invalidation) |
 | `:stale-after-ms` | Freshness window; next ensure refetches after this (absent: never stale by the clock) |
