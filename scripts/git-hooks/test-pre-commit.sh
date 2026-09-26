@@ -3339,8 +3339,10 @@ case "$out" in
     ;;
 esac
 
+# Planted with --no-verify so this grades the CI arm on its own: the hook's
+# verdict on the same message is 10s's.
 git -C "$AREPO" checkout -q -b feature/ident-prose base >/dev/null 2>&1
-out=$(attr_commit "$PROSE_IDENT_MSG")
+out=$(attr_commit "$PROSE_IDENT_MSG" --no-verify)
 case "$out" in
   EXIT=0) : ;;
   *) fail "(10t-setup) could not make the prose commit ($out)"; cat "$AERR" >&2 ;;
