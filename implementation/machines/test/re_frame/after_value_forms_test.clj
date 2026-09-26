@@ -58,48 +58,25 @@
    {:state state
     :data  (merge extra {:rf/after-epoch epoch-map})}))
 
-;; ---- (a) bare keyword target ----------------------------------------------
+;; ---- (a)-(c) single-candidate forms that transition ------------------------
 
-(deftest after-bare-keyword-target
-  (testing "a bare keyword :after value resolves to a sibling target"
-    (let [spec {:initial :idle
-                :data    {}
-                :states  {:idle    {:on {:go :loading}}
-                          :loading {:after {5000 :timeout}}
-                          :timeout {}}}
-          snap (snap-at :loading {[:loading] 1})
-          [state] (fire spec snap (after-event 5000 1 [:loading]))]
-      (is (= :timeout state)
-          "keyword :after target transitions :loading → :timeout"))))
-
-;; ---- (b) single map, no guard ---------------------------------------------
-
-(deftest after-single-map-no-guard
-  (testing "a single transition map :after value (no guard) transitions"
-    (let [spec {:initial :idle
-                :data    {}
-                :states  {:idle    {:on {:go :loading}}
-                          :loading {:after {5000 {:target :timeout}}}
-                          :timeout {}}}
-          snap (snap-at :loading {[:loading] 1})
-          [state] (fire spec snap (after-event 5000 1 [:loading]))]
-      (is (= :timeout state)
-          "single-map :after target transitions :loading → :timeout"))))
-
-;; ---- (c) single map, guard passes -----------------------------------------
-
-(deftest after-single-map-guard-passes
-  (testing "a single guarded :after map whose guard passes transitions"
-    (let [spec {:initial :idle
-                :data    {:slow? true}
-                :guards  {:slow? (fn [{:keys [data]}] (:slow? data))}
-                :states  {:idle    {:on {:go :loading}}
-                          :loading {:after {5000 {:guard :slow? :target :warn}}}
-                          :warn    {}}}
-          snap (snap-at :loading {[:loading] 1} {:slow? true})
-          [state] (fire spec snap (after-event 5000 1 [:loading]))]
-      (is (= :warn state)
-          "guard-pass single-map :after transitions :loading → :warn"))))
+(deftest after-single-candidate-forms-transition
+  (let [spec-with (fn [after-value]
+                    {:initial :idle
+                     :data    {:slow? true}
+                     :guards  {:slow? (fn [{:keys [data]}] (:slow? data))}
+                     :states  {:idle    {:on {:go :loading}}
+                               :loading {:after {5000 after-value}}
+                               :warn    {}
+                               :timeout {}}})
+        snap      (snap-at :loading {[:loading] 1} {:slow? true})]
+    (doseq [[label after-value expected]
+            [["(a) a bare keyword target" :timeout :timeout]
+             ["(b) a single transition map, no guard" {:target :timeout} :timeout]
+             ["(c) a single guarded map whose guard passes" {:guard :slow? :target :warn} :warn]]]
+      (let [[state] (fire (spec-with after-value) snap (after-event 5000 1 [:loading]))]
+        (is (= expected state)
+            (str label " transitions :loading to " expected))))))
 
 ;; ---- (d) single map, guard fails -> guard-suppressed ----------------------
 

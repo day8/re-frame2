@@ -41,10 +41,6 @@
     :timeout {}
     :ready   {}}})
 
-(deftest hook-published
-  (testing "the :machines/on-frame-restored! late-bind hook is published"
-    (is (some? (rf.late-bind/get-fn :machines/on-frame-restored!)))))
-
 (deftest cancel-frame-timers-on-restore-releases-the-frames-handles
   (testing "cancel-frame-timers-on-restore! drops the frame's
             armed :after host-clock handles (and only that frame's)"

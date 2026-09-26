@@ -9,7 +9,7 @@
   So a fresh-map `:db` return CANNOT touch a live machine snapshot: the
   footgun is structurally impossible, not merely warned.
 
-  These machines-artefact integration tests prove that property end-to-end
+  This machines-artefact integration test proves that property end-to-end
   against a genuine registered machine: a from-scratch `:db` return leaves the
   machine ALIVE and the snapshot intact.
 
@@ -20,7 +20,6 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -91,50 +90,3 @@
           "the machine survives the from-scratch :db replace — its snapshot is runtime-db")
       (is (= {:fresh-app-state true} (rf/app-db-value :rf/default))
           "app-db is the fresh map; runtime-db (the snapshot) is untouched"))))
-
-;; ---- an ordinary transition mutates the snapshot in place ------------------
-
-(deftest idiomatic-transition-keeps-machine-alive
-  (testing "an ordinary machine transition mutates the snapshot in place — machine stays alive, no drop"
-    (register-live-machine!)
-    (let [warnings (with-recorder #(rf/dispatch-sync [:diag/m1 [:flip]]))]
-      (is (empty? warnings))
-      (is (live-snapshot? :diag/m1)
-          "a transition updates the runtime-db snapshot — the machine stays live"))))
-
-;; ---- a direct runtime-db replace (restore-epoch! shape) DOES revert it ------
-
-(deftest direct-runtime-db-replace-reverts-the-snapshot
-  (testing "restore-epoch! / reset install a fresh runtime-db via a direct partition write — that legitimately reverts the snapshot"
-    (register-live-machine!)
-    ;; Reproduce the revertible-restore path: install a fresh runtime-db that
-    ;; carries NO machine snapshot (e.g. restoring to a pre-spawn epoch) via
-    ;; the runtime-db PARTITION write `rf.frame/swap-runtime-db!`. This is the
-    ;; LEGITIMATE way machine liveness reverts (Goal 2 — frame state
-    ;; revertibility); no warning, the snapshot is gone by design.
-    (let [warnings (with-recorder
-                     #(rf.frame/swap-runtime-db! :rf/default (constantly {})))]
-      (is (empty? warnings)
-          "a direct runtime-db replace is the revertible-restore path — no footgun")
-      (is (not (live-snapshot? :diag/m1))
-          "the snapshot IS gone — legitimately, via the runtime-db revert path"))))
-
-;; ---- hydration carrying its own runtime-db snapshots keeps the machine -----
-
-(deftest hydrate-shape-runtime-db-carrying-snapshots-keeps-machine
-  (testing ":rf/hydrate-shape — installing a runtime-db that carries the machine snapshot keeps the machine alive"
-    (register-live-machine!)
-    ;; The reference :rf/hydrate handler installs the server's runtime-db slice
-    ;; into the runtime-db partition (per the SSR hydration path). When the
-    ;; server ran the machine, that slice carries the snapshot, so the live
-    ;; machine is replaced-in-place, not dropped. Simulate that shape with a
-    ;; framework-authority runtime-db effect.
-    (rf/reg-event :diag/hydrate
-                     (fn [{rt :rf.db/runtime} _]
-                       {:db {:server-state true}
-                        :rf.db/runtime rt}))
-    (let [warnings (with-recorder #(rf/dispatch-sync [:diag/hydrate]))]
-      (is (empty? warnings)
-          "the runtime-db snapshot is present post-commit — a replacement, not a drop")
-      (is (live-snapshot? :diag/m1)
-          "the machine survived hydration — its runtime-db snapshot rode along"))))

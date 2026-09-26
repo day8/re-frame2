@@ -4,10 +4,9 @@
 
   `machine_after_hydration_rearm_cljs_test` pins the arm half: every live
   declaration in the installed snapshots gets a client timer. What it
-  cannot see is the other direction, because
-  every case it drives arrives at a frame with an EMPTY timer table, and its
-  idempotence case repeats the IDENTICAL snapshot — so the only cancellation
-  it can exercise is the same-key `:on-supersede`.
+  cannot see is the other direction, because every case it drives arrives
+  at a frame with an EMPTY timer table, so it exercises no cancellation at
+  all.
 
   ## The gap
 
@@ -149,9 +148,9 @@
 
 (deftest hydration-cancels-a-timer-the-replacement-no-longer-declares
   (testing "hydrating a no-`:after` state over an `:after`-bearing one
-            RELEASES the host handle the replacement dropped — the arm
-            half's idempotence test repeats the identical snapshot and so can only
-            ever exercise the same-key supersede"
+            RELEASES the host handle the replacement dropped — an identical
+            snapshot (see the retain case below) can only ever exercise the
+            same-key supersede"
     (rf/reg-machine :hydrec/changed toggling-machine)
     (let [rt-waiting (server-runtime-db :hydrec/changed toggling-machine [[:go]])
           rt-settled (server-runtime-db :hydrec/changed toggling-machine [[:go] [:settle]])

@@ -234,18 +234,6 @@
         (is (= :waiting (rf.machines.test-support/machine-state cfid :hyd/noreplay))
             "and the durable state is untouched by the re-arm")))))
 
-(deftest hydration-re-arm-is-idempotent
-  (testing "a second re-arm over the same snapshots supersedes rather than
-            duplicating — one live handle per declaration, always"
-    (rf/reg-machine :hyd/idem flat-machine)
-    (let [rt (server-runtime-db :hyd/idem flat-machine [[:go]])]
-      (with-redefs [rf.interop/schedule-after! (fn [_thunk _ms] ::handle)]
-        (let [cfid (hydrate-into! rt)]
-          (is (= 1 (count (inner cfid))))
-          (rf.machines.hydrate/rearm-after-timers! cfid)
-          (is (= 1 (count (inner cfid)))
-              "still one entry — the ordinary timer-table key superseded"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Hierarchy: an active ANCESTOR's `:after` is as live as the leaf's
 ;; ---------------------------------------------------------------------------

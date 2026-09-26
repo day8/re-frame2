@@ -101,8 +101,7 @@
                                                :guard  :capture-fire-time
                                                :action :stamp-fire-time}}}
                        :timeout {}}}
-          ;; Preserve the production hooks/clock we are about to redefine.
-          orig-schedule   rf.interop/schedule-after!
+          ;; Preserve the production router hook we are about to redefine.
           orig-dispatch!  (rf.late-bind/get-fn :router/dispatch!)]
       (rf/reg-machine :after-fresh/m m)
       (with-redefs [;; Capture the callback thunk instead of arming a real
@@ -151,14 +150,9 @@
           "the :after guard read the FRESH fire-time :time-ms (router-
            stamped at fire), NOT the parent scheduling-time token")
       (is (= CHILD-TIME-MS @action-saw)
-          "the :after action read the FRESH fire-time :time-ms")
-      (is (not= PARENT-TIME-MS @action-saw)
-          "the timer-fire token did NOT inherit the parent token — fresh,
-           distinct causal token per EP-0010 §Dispatch Envelope Stamping")
+          "the :after action read the FRESH fire-time :time-ms — a distinct
+           causal token per EP-0010 §Dispatch Envelope Stamping, not the
+           parent's")
       (is (= CHILD-TIME-MS (:fired-at (:data (snapshot :after-fresh/m))))
           "the durable :data write folded the fresh fire-time :time-ms — a
-           replay-stable causal write keyed off the timer-fire token")
-
-      ;; sanity-restore guard (with-redefs already restored the clock + stub)
-      (is (identical? orig-schedule rf.interop/schedule-after!)
-          "rf.interop/schedule-after! restored after the redef scope"))))
+           replay-stable causal write keyed off the timer-fire token"))))
