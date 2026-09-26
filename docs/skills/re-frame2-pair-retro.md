@@ -8,7 +8,7 @@ The skill reviews the current or just-finished [re-frame2-pair](re-frame2-pair.m
 
 It routes each improvement to the right owner:
 
-- **`re-frame2-pair`** — friction inside the pair tool itself: its instructions, scripts, recipes, structured results, attach and discovery, cross-platform handling.
+- **`re-frame2-pair`** — friction inside the pair tool itself: its instructions and recipes, the preload runtime, the MCP tools and their structured results, attach and discovery, cross-platform handling.
 - **`re-frame2`** — friction caused by what the framework exposes to tools: missing trace events, gaps in `epoch-history` or `restore-epoch` failure modes, missing registry queries, source-coordinate gaps, schema reflection.
 
 Both go to `day8/re-frame2`'s GitHub issues, since the repo ships the pair tool alongside the framework; the draft's title and body say which one it is.

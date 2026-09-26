@@ -34,7 +34,7 @@ A **non-React view layer** (Vue, Solid, Svelte, vanilla DOM, native UI, a termin
 
 ## Kickoff
 
-Open a fresh Claude Code session in the root of your port's repo and paste the short kickoff prompt from [`SKILL.md` §Kickoff](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md), filling in the path to your re-frame2 spec checkout and the commit or tag it is pinned to. The session loads the skill, records the port profile, and starts the loop at the foundation, reporting exact commands and results as it goes.
+Open a fresh Claude Code session in the root of your port's repo and paste the short kickoff prompt from [`SKILL.md` §Kickoff](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md#kickoff-optional-paste-ready-prompt), filling in the path to your re-frame2 spec checkout and the commit or tag it is pinned to. The session loads the skill, records the port profile, and starts the loop at the foundation, reporting exact commands and results as it goes.
 
 ## When it stops
 

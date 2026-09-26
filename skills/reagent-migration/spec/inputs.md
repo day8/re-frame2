@@ -82,10 +82,10 @@ that moved are the argument for re-measuring rather than quoting:
 
 | Stated | Reality at tip |
 |---|---|
-| an `h/fn` spelling | **fixed.** Swept to `h/event` on 2026-08-15; `docs/core/fresco/api-reference.md` carries the ledger row and no page teaches it |
+| an `h/fn` spelling | **fixed.** Swept to `h/event` on 2026-08-15; no page under `docs/core/fresco/` names it |
 | "`day8/re-frame2-fresco` is not published, and there is no date at which it will be" on the installation page | **fixed 2026-09-13 (rf2-esrp).** Never true against the lockstep inventory, which had enrolled Fresco since rf2-gra70. `00-installation.md` now says Fresco ships in the release set at core's version and resolves from source until a release, like every artefact, and still resolves it by `:local/root` |
 | key maps "valid only at `:on-key-down`/`:on-key-up`" | **not a divergence.** `lower-prop` reaches `key-map-handler` at every `event-prop?` position, but `key-map-handler` reads `.key` first and raises `:rf.error/fresco-intent-needs-the-event` where the event carries none, which is what `docs/core/fresco/03-events-as-data.md` says |
-| "binding `:value` to a contenteditable throws at the source" | **stands.** No contenteditable guard exists under `implementation/fresco/src/`, and the id `troubleshooting.md` names for it is in no source or spec row |
+| "binding `:value` to a contenteditable throws at the source" | **stands.** No contenteditable guard exists under `implementation/fresco/src/`, and the id the design corpus reserves for it, `:rf.error/fresco-contenteditable-not-controllable`, is in no source or spec row; `docs/core/fresco/04-controlled-inputs.md` says a `:value` on one passes to React untouched and raises nothing |
 
 Two structural notes. **`draft-guide/` is no longer the guide**: under rf2-0yp7w
 that corpus shipped to `docs/core/fresco/`, leaving one rewrite-audit note in

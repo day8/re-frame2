@@ -20,7 +20,7 @@ Xray is loaded into dev builds through shadow-cljs `:preloads` and opens inline,
 
 ## When to reach for it
 
-Use it when you want to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector", "Xray Frames tab", "which images loaded which frames in Xray", "Xray Fresco tab", "why did this boundary re-render".
+Use it when you want to *read* the Xray panel yourself: how to get it on screen, why it never appeared, which Dynamic tab or Static catalogue shows what you are after, or what a control around the tabs does — "open Xray", "which Xray tab shows…", "Xray Static mode", "why did this re-render in Xray".
 
 Use a different skill for:
 

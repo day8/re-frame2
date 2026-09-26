@@ -10,13 +10,13 @@ With your app running under `shadow-cljs watch`, the skill attaches to its nREPL
 2. **The trace stream** — live trace events through `rf/register-listener!`, and recent ones through `rf/trace-buffer`.
 3. **The epoch history** — an *epoch* is the record one processed event leaves. `rf/epoch-history` returns a frame's recent epochs, each with `:db-before`, `:db-after`, its trace events, and the sub runs, renders and effects the event caused.
 
-It works with apps that run several frames; an operation that changes state refuses with `:ambiguous-frame` when it is unclear which frame to act on. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it runs alongside other tools such as `re-frame-10x` v2.
+It works with apps that run several frames; when it is unclear which frame to act on, every frame-targeted operation, reads included, refuses with `:ambiguous-frame` rather than guess. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it runs alongside other tools on the same trace stream, Xray included.
 
 **REPL changes are temporary; source edits are permanent.** After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
 
 ## When to reach for it
 
-Use it when you mention a **running** re-frame2 app, or any of `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-listener!`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
+Use it when you want the agent to look at or change your **running** app, read-only included — *"what's in `app-db`?"*, *"why didn't my view update?"*, *"what did that click do?"*, *"try this handler fix"*. The question is about the live runtime, not about writing new code.
 
 Use a different skill for:
 
@@ -105,7 +105,7 @@ Every tool answers a failure with `{:ok? false :reason …}` rather than guessin
 | `:debug-disabled` | The build has `interop/debug-enabled?` false — a production build, or `goog.DEBUG` set false — so it carries no trace stream or epoch history. | Attach to a dev build. |
 | `:no-frames-registered` | No frame is up yet. `rf/init!` installs the adapter but creates no frame. | Wait for the app to boot, or have it create its frame at the root (`frame-root {:id …}` or `make-frame`). |
 | `:ambiguous-frame` | Two or more app frames and no frame chosen. | Name one — the skill pins it with `set-operating-frame`. |
-| `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | Relaunch with the flag if you want time-travel and state injection. |
+| `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | If you want time-travel and state injection, add `--allow-writes` to the server's `args` and start a fresh session. |
 
 The skill cannot reload a browser. When `discover-app`'s `:freshness` says the tab is serving old code (`:stale-build`) or no runtime is live (`:no-runtime`), it relays the URL to reload and waits for you. `:unknown` means the build's state could not be read, usually because a stale shadow-cljs JVM is still running: stop it with `npx shadow-cljs stop`, start one `watch`, reload the tab and let the skill reconnect.
 
@@ -116,6 +116,6 @@ Epoch reads that come back `[]` after the app has plainly dispatched mean `day8/
 - Source: [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
 - `SKILL.md`: [`skills/re-frame2-pair/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
 - Reference notes: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `SKILL.md` §Where the depth lives names the note for each question.
-- Tool-Pair contract: [`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
+- The trace stream, trace buffer and epoch history it reads: [Observability](../core/observability.md#tools-that-read-the-trace-stream).
 - The devtools panel for humans: [Xray](../xray/index.md).
 - Retrospective skill: [re-frame2-pair-retro](re-frame2-pair-retro.md).
