@@ -17,9 +17,7 @@ One set of registrations, mounted in two frames:
 (require '[re-frame.core :as rf])
 
 (rf/reg-event :todo/initialise
-  (fn [_ [_ first-title]]
-    {:db {:todos   {1 {:id 1 :title first-title :done? false}}
-          :showing :all}}))
+  (fn [_ _] {:db {:todos {} :showing :all}}))
 
 (rf/reg-event :todo/add
   (fn [{:keys [db]} [_ title]]
@@ -30,8 +28,9 @@ One set of registrations, mounted in two frames:
   (fn [{:keys [db]} [_ id]]
     {:db (update-in db [:todos id :done?] not)}))
 
-(rf/reg-sub :todo/all
-  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
 
 (rf/reg-view todo-list []
   [:div
@@ -45,9 +44,11 @@ One set of registrations, mounted in two frames:
 
 ;; the new idea: the SAME code in two isolated frames
 [:div {:style {:display "flex" :gap "2em"}}
- [rf/frame-root {:id :todos/work :initial-events [[:todo/initialise "Write report"]]}
+ [rf/frame-root {:id             :todos/work
+                 :initial-events [[:todo/initialise] [:todo/add "Write report"]]}
   [todo-list]]
- [rf/frame-root {:id :todos/home :initial-events [[:todo/initialise "Buy milk"]]}
+ [rf/frame-root {:id             :todos/home
+                 :initial-events [[:todo/initialise] [:todo/add "Buy milk"]]}
   [todo-list]]]
 ```
 
@@ -56,7 +57,9 @@ names a frame: its injected `dispatch` and `subscribe` use whichever frame it re
 inside, so the same view runs against two independent app-dbs.
 
 Each `frame-root` creates its frame the first time it mounts, runs its
-`:initial-events`, and makes that frame current for everything inside it.
+`:initial-events` in order, and makes that frame current for everything inside it.
+Both lists run the same `:todo/initialise` from [app-db](app-db.md#initial-state-is-an-event),
+then add a different first todo.
 
 ## What a frame is
 
@@ -165,9 +168,11 @@ replaces the current frame for its own subtree:
 ```clojure
 [rf/frame-root {:id :app}
  [:div.split
-  [rf/frame-root {:id :todos/work :initial-events [[:todo/initialise "Write report"]]}
+  [rf/frame-root {:id             :todos/work
+                  :initial-events [[:todo/initialise] [:todo/add "Write report"]]}
    [todo-list]]
-  [rf/frame-root {:id :todos/home :initial-events [[:todo/initialise "Buy milk"]]}
+  [rf/frame-root {:id             :todos/home
+                  :initial-events [[:todo/initialise] [:todo/add "Buy milk"]]}
    [todo-list]]]]
 ```
 
@@ -198,7 +203,7 @@ A view can bring its own frame:
 ```clojure
 (rf/reg-view todo-widget []
   [rf/frame-root {:id             :todos/widget
-                  :initial-events [[:todo/initialise "Try the widget"]]}
+                  :initial-events [[:todo/initialise] [:todo/add "Try the widget"]]}
    [todo-list]])
 ```
 
@@ -375,7 +380,8 @@ it accepts:
 (rf/make-frame
   {:id             :todos/work
    :doc            "The work todo list."
-   :initial-events [[:todo/initialise "Write report"]]   ;; ordered setup steps
+   :initial-events [[:todo/initialise]
+                    [:todo/add "Write report"]]  ;; ordered setup steps
    :on-destroy     [:todo/cleanup]              ;; dispatched once during teardown
    :fx-overrides   {:todo.storage/save stub-fn} ;; per-frame effect replacements
    :interceptors   [:my-app/logger]             ;; interceptor ids prepended to every event
@@ -460,7 +466,8 @@ Tests and the REPL run outside any view, so no frame is in scope, and adding
   @(rf/subscribe [:todo/all]))
 
 ;; CREATE a frame, use it, and destroy it on exit, even if the body throws:
-(rf/with-new-frame [f (rf/make-frame {:initial-events [[:todo/initialise "Buy milk"]]})]
+(rf/with-new-frame [f (rf/make-frame {:initial-events [[:todo/initialise]
+                                                        [:todo/add "Buy milk"]]})]
   (rf/dispatch-sync [:todo/add "Walk the dog"])
   (is (= 2 (count (:todos (rf/app-db-value f))))))
 ```

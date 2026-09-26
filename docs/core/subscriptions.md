@@ -10,13 +10,15 @@ that turns facts into a conclusion and re-runs only when its inputs change.
 The [app-db](app-db.md) counter shows a number. Suppose we also want to show whether
 that number is odd or even. You could store a parity flag in app-db and update it
 alongside the value, but parity follows from a fact you already have, and a stored
-copy is one more thing every handler must keep in step. Derive it instead:
+copy is one more thing every handler must keep in step. Derive it instead. The cell
+re-registers the counter without its step size, so the new subscription is the only
+thing to read:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
 (rf/reg-event :initialise
-  (fn [{:keys [db]} _] {:db (assoc db :value 5)}))
+  (fn [_ [_ start]] {:db {:value start}}))
 
 (rf/reg-event :inc
   (fn [{:keys [db]} _] {:db (update db :value inc)}))
@@ -37,7 +39,7 @@ copy is one more thing every handler must keep in step. Derive it instead:
    [:span @(subscribe [:value]) " is " (name @(subscribe [:parity]))]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 
-[rf/frame-root {:id :app :initial-events [[:initialise]]}
+[rf/frame-root {:id :app :initial-events [[:initialise 5]]}
  [parity-counter]]
 ```
 
@@ -232,7 +234,7 @@ a derivation on each branch, and one view reading both. Press **`Ctrl-Enter`**
 
 (rf/reg-event :todo/add
   (fn [{:keys [db]} [_ title]]
-    (let [id (inc (count (:todos db)))]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
       {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
 
 (rf/reg-event :todo/set-showing
