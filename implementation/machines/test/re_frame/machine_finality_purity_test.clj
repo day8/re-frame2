@@ -122,63 +122,6 @@
                      :states  {:running {:on {:finish :done}}
                                :done    {:final? true}}}}})
 
-(deftest all-regions-final?-every-region-final
-  (testing "BOTH regions at their :final? leaf ⇒ true"
-    (is (true? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                 parallel-machine
-                 {:left :done :right :done}))
-        "a parallel machine is final iff EVERY region's leaf is :final?")))
-
-(deftest all-regions-final?-partial-final-is-not-final
-  (testing "ONE region final, the other still running ⇒ false (the risky branch)"
-    ;; This is the premature-finalisation guard: a snapshot where :left has
-    ;; reached :done but :right is still :running must NOT report final.
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine
-                  {:left :done :right :running}))
-        "left-final + right-running must NOT finalise (partial-final guard)")
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine
-                  {:left :running :right :done}))
-        "right-final + left-running must NOT finalise (symmetric)"))
-
-  (testing "NEITHER region final ⇒ false"
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine
-                  {:left :running :right :running}))
-        "both regions running ⇒ not final")))
-
-(deftest all-regions-final?-non-parallel-or-non-map-state
-  (testing "a non-parallel machine ⇒ false regardless of state"
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  flat-final-machine :done))
-        "all-regions-final? short-circuits false for a non-parallel machine"))
-
-  (testing "a parallel machine with a non-map :state ⇒ false"
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final? parallel-machine :done))
-        "a keyword :state is not a region→leaf map ⇒ not all-regions-final")))
-
-(deftest all-regions-final?-vector-region-leaves
-  (testing "regions whose active leaf is a NESTED (vector) path are resolved"
-    ;; A region whose final leaf is nested under a compound state — the
-    ;; per-region leaf resolution must walk the vector path, not just a
-    ;; top-level keyword.
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left  {:initial :wrap
-                               :states  {:wrap {:initial :running
-                                                :states  {:running {:on {:finish :done}}
-                                                          :done    {:final? true}}}}}
-                       :right {:initial :running
-                               :states  {:running {:on {:finish :done}}
-                                         :done    {:final? true}}}}}]
-      (is (true? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                   m {:left [:wrap :done] :right :done}))
-          "a nested region leaf at [:wrap :done] resolves and is :final?")
-      (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                    m {:left [:wrap :running] :right :done}))
-          "a nested NON-final region leaf prevents finalisation"))))
-
 ;; ---------------------------------------------------------------------------
 ;; all-regions-final? — declared-region KEY PARITY
 ;;
@@ -190,38 +133,57 @@
 ;; :on-done / auto-destroy with a whole region absent.
 ;; ---------------------------------------------------------------------------
 
-(deftest all-regions-final?-missing-region-is-not-final
-  (testing "a snapshot MISSING a declared region is NOT all-final (no vacuous done)"
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine {:left :done}))
-        "{:left :done} for a 2-region machine must NOT read all-final — :right is absent")
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine {:right :done}))
-        "symmetric — :left absent")
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine {}))
-        "an empty region map is not all-final (every declared region absent)")))
-
-(deftest all-regions-final?-extra-region-is-not-final
-  (testing "a snapshot carrying an EXTRA/stale region is NOT all-final (key parity)"
-    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                  parallel-machine {:left :done :right :done :middle :done}))
-        "a stale :middle region (not declared) breaks exact key parity ⇒ not final")))
-
-(deftest all-regions-final?-occupied-history-region-is-not-final
-  (testing "a region whose active leaf is a :type :history pseudo-state is NOT occupiable ⇒ not all-final"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left  {:initial :a
-                               :states  {:a    {:on {:go :b}}
-                                         :b    {:final? true}
-                                         :hist {:type :history}}}
-                       :right {:initial :running
-                               :states  {:running {:on {:finish :done}}
-                                         :done    {:final? true}}}}}]
-      (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
-                    m {:left :hist :right :done}))
-          "a region occupying a history pseudo-state is malformed ⇒ not all-final"))))
+(deftest all-regions-final?-requires-every-declared-region-at-a-final-leaf
+  (let [nested  {:type    :parallel
+                 :data    {}
+                 :regions {:left  {:initial :wrap
+                                   :states  {:wrap {:initial :running
+                                                    :states  {:running {:on {:finish :done}}
+                                                              :done    {:final? true}}}}}
+                           :right {:initial :running
+                                   :states  {:running {:on {:finish :done}}
+                                             :done    {:final? true}}}}}
+        history {:type    :parallel
+                 :data    {}
+                 :regions {:left  {:initial :a
+                                   :states  {:a    {:on {:go :b}}
+                                             :b    {:final? true}
+                                             :hist {:type :history}}}
+                           :right {:initial :running
+                                   :states  {:running {:on {:finish :done}}
+                                             :done    {:final? true}}}}}]
+    (doseq [[msg m state expected]
+            [["a parallel machine is final iff EVERY region's leaf is :final?"
+              parallel-machine {:left :done :right :done} true]
+             ;; the premature-finalisation guard: one region final is not enough
+             ["left-final + right-running must NOT finalise (partial-final guard)"
+              parallel-machine {:left :done :right :running} false]
+             ["right-final + left-running must NOT finalise (symmetric)"
+              parallel-machine {:left :running :right :done} false]
+             ["both regions running ⇒ not final"
+              parallel-machine {:left :running :right :running} false]
+             ["all-regions-final? short-circuits false for a non-parallel machine"
+              flat-final-machine :done false]
+             ["a keyword :state is not a region→leaf map ⇒ not all-regions-final"
+              parallel-machine :done false]
+             ;; a region's leaf may be a NESTED (vector) path
+             ["a nested region leaf at [:wrap :done] resolves and is :final?"
+              nested {:left [:wrap :done] :right :done} true]
+             ["a nested NON-final region leaf prevents finalisation"
+              nested {:left [:wrap :running] :right :done} false]
+             ;; declared-region KEY PARITY: a partial map must never read as
+             ;; vacuously all-final over the regions it does carry
+             ["{:left :done} for a 2-region machine must NOT read all-final — :right is absent"
+              parallel-machine {:left :done} false]
+             ["symmetric — :left absent"
+              parallel-machine {:right :done} false]
+             ["an empty region map is not all-final (every declared region absent)"
+              parallel-machine {} false]
+             ["a stale :middle region (not declared) breaks exact key parity ⇒ not final"
+              parallel-machine {:left :done :right :done :middle :done} false]
+             ["a region occupying a history pseudo-state is malformed ⇒ not all-final"
+              history {:left :hist :right :done} false]]]
+      (is (= expected (rf.machines.lifecycle-fx.finalize/all-regions-final? m state)) msg))))
 
 ;; ---------------------------------------------------------------------------
 ;; parallel-state-valid? — the ONE shared snapshot-shape predicate

@@ -15,7 +15,10 @@
     4. Final-state auto-destroy (child enters `:final?`; `finalize-
        machine` runs the cascade).
 
-  For each path we assert:
+  The explicit and `:spawn-all` paths' `:exit` counts are pinned by the
+  ordered logs in `destroyed_exit_order_test`, and the `:exit` action's
+  `:fx` by `machine_exit_cascade_incarnation_fence_cljs_test`; the cases
+  here assert, per path:
     - the child's `:exit` action's side effect ran (we use an atom side
       channel since `:exit` actions are pure fns whose `:fx` we'd
       otherwise route through `do-fx` — the atom write captures `:exit`
@@ -35,33 +38,9 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   rf.machines.test-support/trace-capture-fixture)
 
-;; ---- (1) explicit [:rf.machine/destroy actor-id] -------------------------
-
-(deftest exit-fires-on-explicit-destroy
-  (testing "explicit `[:rf.machine/destroy actor-id]` fires the active leaf's :exit"
-    (let [exit-fired (atom 0)
-          ;; Define a child machine whose active state's :exit increments
-          ;; an external counter — proves the :exit action ran.
-          _ (rf/reg-machine :ne/standalone
-              {:initial :running
-               :data    {}
-               :states  {:running {:exit (fn [_] (swap! exit-fired inc) {})}}})
-          _ (rf/reg-machine :ne/destroyer
-              {:initial :armed
-               :data    {}
-               :states
-               {:armed {:on {:fire {:action (fn [_] {:fx [[:rf.machine/destroy :ne/standalone]]})}}}}})]
-      ;; Bring the standalone machine to life by dispatching ANY event
-      ;; (the first dispatch fires the bootstrap cascade).
-      (rf/dispatch-sync [:ne/standalone [:rf.machine/noop]])
-      (is (zero? @exit-fired) "no :exit yet — actor still alive")
-      (rf/dispatch-sync [:ne/destroyer [:fire]])
-      (is (= 1 @exit-fired)
-          ":exit fired exactly once during explicit destroy"))))
-
 ;; ---- (2) declarative :spawn exit-cascade destroy ------------------------
 
-(deftest exit-fires-on-invoke-exit-cascade-destroy
+(deftest exit-fires-on-spawn-exit-cascade-destroy
   (testing "parent's :spawn exit cascade fires the child's active :exit"
     (let [exit-fired   (atom 0)
           last-data    (atom nil)
@@ -90,40 +69,6 @@
       ;; full :data would couple this test to the spawn-stamp shape.
       (is (= 0 (:counter @last-data))
           "child's :exit saw its live snapshot's :data (incl :counter) before teardown"))))
-
-;; ---- (3) :spawn-all per-child teardown ----------------------------------
-
-(deftest exit-fires-on-invoke-all-children-teardown
-  (testing ":spawn-all parent exit fires every child's active :exit"
-    (let [exits  (atom [])
-          _ (rf/reg-machine :ne/ia-child
-              {:initial :working
-               :data    {}
-               :states  {:working {:on   {:done :final}
-                                   :exit (fn [_]
-                                           (swap! exits conj :working-exit)
-                                           {})}
-                         :final   {:final? true}}})
-          _ (rf/reg-machine :ne/ia-parent
-              {:initial :hydrating
-               :data    {}
-               :states
-               {:hydrating {:spawn-all
-                            {:children
-                             [{:id :a :machine-id :ne/ia-child}
-                              {:id :b :machine-id :ne/ia-child}]
-                             :join              :all
-                             :on-all-complete   [:go-done]
-                             :on-any-failed     [:ia/cancel]}
-                            :on {:go-done    :done
-                                 :ia/cancel  :idle}}
-                :done {}
-                :idle {}}})]
-      (rf/dispatch-sync [:ne/ia-parent [:rf.machine.spawn/spawned]])
-      (is (empty? @exits) "no :exit yet — children still running")
-      (rf/dispatch-sync [:ne/ia-parent [:ia/cancel]])     ;; parent → :idle cancels invoke-all
-      (is (= [:working-exit :working-exit] @exits)
-          "each child's active-state :exit fired once during the invoke-all teardown"))))
 
 ;; ---- (4) final-state auto-destroy ----------------------------------------
 
@@ -170,26 +115,6 @@
                                [:rf.runtime/machines :snapshots :ne/final-parent])
                        [:data :received]))
           ":on-done received the :output-key slot"))))
-
-;; ---- :exit fx surfaces ---------------------------------------------------
-
-(deftest exit-fx-fires-on-destroy
-  (testing ":exit-emitted :fx fires through the standard fx interpreter on destroy"
-    (let [fx-fired   (atom 0)
-          _ (rf/reg-fx :ne/test-fx (fn [_ _] (swap! fx-fired inc)))
-          _ (rf/reg-machine :ne/fx-emitter
-              {:initial :running
-               :data    {}
-               :states  {:running {:exit (fn [_] {:fx [[:ne/test-fx nil]]})}}})
-          _ (rf/reg-machine :ne/fx-killer
-              {:initial :armed
-               :data    {}
-               :states
-               {:armed {:on {:fire {:action (fn [_] {:fx [[:rf.machine/destroy :ne/fx-emitter]]})}}}}})]
-      (rf/dispatch-sync [:ne/fx-emitter [:rf.machine/noop]])
-      (rf/dispatch-sync [:ne/fx-killer [:fire]])
-      (is (= 1 @fx-fired)
-          ":exit-emitted :fx fired through the fx interpreter (the destroy path uses do-fx)"))))
 
 ;; ---- :rf.machine/action-ran attribution on the destroy path --------------
 ;;

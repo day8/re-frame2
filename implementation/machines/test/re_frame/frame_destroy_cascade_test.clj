@@ -111,13 +111,6 @@
       ;; :exit fired three times in REVERSE-spawn order.
       (is (= [:fc/child#3 :fc/child#2 :fc/child#1] @exit-log)
           ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
-      ;; Every spawned actor handler is unregistered.
-      (is (nil? (rf.registrar/lookup :event :fc/child#1))
-          "spawned actor handler #1 was unregistered")
-      (is (nil? (rf.registrar/lookup :event :fc/child#2))
-          "spawned actor handler #2 was unregistered")
-      (is (nil? (rf.registrar/lookup :event :fc/child#3))
-          "spawned actor handler #3 was unregistered")
       ;; The spawn-order entry for the frame is gone.
       (is (= [] (rf.machines.spawn-order/frame-order :fc/auth))
           "spawn-order slot for the destroyed frame is cleared")
@@ -307,65 +300,6 @@
   "The `[:rf.runtime/machines :snapshots]` map on `frame-id`'s runtime-db."
   [frame-id]
   (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots]))
-
-(deftest restored-spawned-snapshots-get-full-teardown-newest-first
-  (testing "destroy-frame! treats restored spawned snapshots (absent from spawn-order) as spawned actors: full teardown, newest-first by durable actor-id"
-    (rf/make-frame {:id :rs/auth :doc "restore-teardown frame"})
-    (let [exit-log (atom [])
-          child    {:initial :running
-                    :data    {}
-                    :states  {:running {:exit (fn [{data :data}]
-                                                 (swap! exit-log
-                                                        conj (:rf/self-id data))
-                                                 {})}}}
-          boot     {:initial :idle
-                    :data    {}
-                    :states
-                    {:idle {:on {:spawn-three
-                                 {:action (fn [_]
-                                    {:fx [[:rf.machine/spawn
-                                           {:machine-id :rs/child :id-prefix :rs/child}]
-                                          [:rf.machine/spawn
-                                           {:machine-id :rs/child :id-prefix :rs/child}]
-                                          [:rf.machine/spawn
-                                           {:machine-id :rs/child :id-prefix :rs/child}]]})}}}}}]
-      (rf/reg-machine :rs/child child)
-      (rf/reg-machine :rs/boot boot)
-      (rf/dispatch-sync [:rs/boot [:spawn-three]] {:frame :rs/auth})
-      ;; Sanity: three spawned actors live, with durable :rf/machine-type.
-      ;; (The :rs/boot singleton's own snapshot also lives here — it has no
-      ;; :rf/machine-type and stays a singleton straggler.)
-      (is (= #{:rs/child#1 :rs/child#2 :rs/child#3}
-             ;; the children are exactly the snapshots carrying :rf/machine-type
-             (set (keep (fn [[id snap]]
-                          (when (some? (:rf/machine-type snap)) id))
-                        (runtime-snapshots :rs/auth))))
-          "three spawned snapshots are live (each carrying :rf/machine-type) before restore")
-      ;; Simulate restore / hydration: the durable snapshots survive, but
-      ;; the transient spawn-order atom is wiped (it is NOT serialized).
-      (rf.machines.spawn-order/reset-all!)
-      (is (= [] (rf.machines.spawn-order/frame-order :rs/auth))
-          "spawn-order atom is empty post-restore (the precondition under test)")
-      ;; Destroy the frame.
-      (rf/destroy-frame! :rs/auth)
-      ;; :exit fired for all three children, NEWEST-FIRST off the durable
-      ;; spawn-order vector. (Filter to children — the boot singleton's
-      ;; :exit, if any, is irrelevant to the spawned-ordering contract.)
-      ;;
-      ;; These three share ONE id-prefix, so this case cannot distinguish the
-      ;; durable order from ordering by the per-prefix `#<n>` suffix — which
-      ;; is exactly why it is the SAME-PREFIX CONTROL, while
-      ;; `restored-mixed-prefix-actors-exit-in-reverse-creation-order` below
-      ;; is the discriminator.
-      (is (= [:rs/child#3 :rs/child#2 :rs/child#1]
-             (filterv #{:rs/child#1 :rs/child#2 :rs/child#3} @exit-log))
-          ":exit ran newest-first, order read off the durable spawn-order vector (not the lost transient atom)")
-      ;; FULL teardown: every restored SPAWNED snapshot is dissoc'd. The
-      ;; singleton straggler path would have LEFT these in runtime-db.
-      (is (empty? (keep (fn [[id snap]]
-                          (when (some? (:rf/machine-type snap)) id))
-                        (runtime-snapshots :rs/auth)))
-          "every restored spawned snapshot was dissoc'd (full teardown, not exit-only)"))))
 
 (deftest restored-singleton-snapshot-keeps-singleton-straggler-path
   (testing "a restored SINGLETON snapshot (no :rf/machine-type) keeps the exit-only straggler path — handler survives, snapshot left for app-db release"

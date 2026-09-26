@@ -18,10 +18,12 @@
   generator-backed or provided recordable fact gets the EP-0017 behaviour
   (generate-and-write-back in live mode; missing-required in strict/replay).
 
-  These tests pin BOTH the white-box ensure-set derivation (`ensure-set-for`)
-  and the end-to-end live behaviour (the generated value lands in the action's
-  `:data` write), for: a target-state `:entry` action, an active-state `:exit`
-  action, and a bootstrap initial-entry action."
+  These tests pin the end-to-end live behaviour (the generated value lands in
+  the action's `:data` write) for a target-state `:entry` action, an
+  active-state `:exit` action and a bootstrap initial-entry action — dispatch
+  ensures through `ensure-set-for`, so those reads cover its derivation — and
+  the white-box derivation for the one case with no end-to-end twin: a
+  transition target's `:initial` descent."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -38,36 +40,6 @@
 ;; ===========================================================================
 ;; A. white-box — ensure-set-for includes lifecycle boundary action diets
 ;; ===========================================================================
-
-(deftest ensure-set-for-includes-target-entry-action
-  (testing "white-box: ensure-set-for for [:go] at :idle includes the
-            :rf.cofx/requires of the TARGET state's named :entry action — the
-            exit→action→entry cascade will run it"
-    (rf/reg-cofx :test/entry-roll {:recordable? true} (fn [] 6))
-    (let [m  (rf.machines.cofx-attach/index-ensure-sets
-               {:initial :idle
-                :actions {:stamp-entry {:rf.cofx/requires [:test/entry-roll]
-                                        :fn (fn [_] nil)}}
-                :states  {:idle {:on {:go :active}}
-                          :active {:entry :stamp-entry}}})
-          es (rf.machines.cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
-      (is (contains? (set (map :id es)) :test/entry-roll)
-          "target-state :entry action's required fact is in the ensure-set"))))
-
-(deftest ensure-set-for-includes-active-exit-action
-  (testing "white-box: ensure-set-for for [:go] at :active includes the
-            :rf.cofx/requires of the ACTIVE state's named :exit action — it
-            runs as the first leg of the exit→action→entry cascade"
-    (rf/reg-cofx :test/exit-roll {:recordable? true} (fn [] 6))
-    (let [m  (rf.machines.cofx-attach/index-ensure-sets
-               {:initial :active
-                :actions {:stamp-exit {:rf.cofx/requires [:test/exit-roll]
-                                       :fn (fn [_] nil)}}
-                :states  {:active {:exit :stamp-exit :on {:go :idle}}
-                          :idle   {}}})
-          es (rf.machines.cofx-attach/ensure-set-for m {:state :active :data {}} [:go])]
-      (is (contains? (set (map :id es)) :test/exit-roll)
-          "active-state :exit action's required fact is in the ensure-set"))))
 
 (deftest ensure-set-for-includes-initial-descent-entry-action
   (testing "white-box: a TARGET that is compound descends through :initial; the
