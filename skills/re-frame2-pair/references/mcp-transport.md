@@ -45,7 +45,7 @@ The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win t
 
 ## Stale-binary post-merge hook
 
-When working inside the re-frame2 source repo (not a globally-installed npm release), the MCP binary lives at `tools/re-frame2-pair-mcp/out/server.js` and is rebuilt locally (`out/` is `.gitignore`d). After `git pull` brings down MCP source-side changes, the on-disk binary is stale while the running server still exec's the previous build. Symptoms are confusing (stale-fix-still-not-fixed; `:nrepl-port-not-found` after a port-discovery improvement merged).
+When working inside the re-frame2 source repo (not a globally-installed npm release), the MCP binary lives at `tools/re-frame2-pair-mcp/out/server.js` and is rebuilt locally (`out/` is `.gitignore`d). After `git pull` brings down MCP source-side changes, the on-disk binary is stale while the running server still exec's the previous build. Symptoms are confusing (stale-fix-still-not-fixed; `:rf.error/pair-mcp-nrepl-port-not-found` after a port-discovery improvement merged).
 
 Install the repo's git hooks once per clone so `git pull` warns when this happens:
 

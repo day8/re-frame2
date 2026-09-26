@@ -11,10 +11,10 @@
 //     onboarding text. Canonical count + listing:
 //     spec/003-Tool-Catalogue.md)
 //   - tools/call eval-cljs against an absent nREPL — eval-cljs is ON by
-//     default, so this test simply expects the graceful
-//     :nrepl-port-not-found degraded envelope. The disabled-gate envelope
-//     (`--no-eval` opt-out) is exercised by the conformance
-//     `:eval-cljs/disabled-via-no-eval` fixture.
+//     default, so this test simply expects the graceful degraded envelope,
+//     whose reason is :rf.error/pair-mcp-nrepl-port-not-found. The
+//     disabled-gate envelope (`--no-eval` opt-out) is exercised by the
+//     conformance `:eval-cljs/disabled-via-no-eval` fixture.
 //   - tools/call snapshot against an absent nREPL (same degraded mode —
 //     proves the tool is wired into the dispatch table)
 //   - tools/call get-path against an absent nREPL (same degraded mode —
@@ -40,6 +40,20 @@ const SERVER = path.join(__dirname, '..', 'out', 'server.js');
 const EXPECTED_TOOLS = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-names.json'), 'utf8'),
 ).names;
+
+// The reason the server reports when no nREPL port resolves, spelled as the
+// envelope's structured slot carries it (a keyword projects to its
+// colon-less qualified name).
+const NREPL_PORT_NOT_FOUND = 'rf.error/pair-mcp-nrepl-port-not-found';
+
+// True when `resp` is the degraded no-nREPL error envelope. The reason is
+// compared for equality, so any other reason fails, including the bare
+// `nrepl-port-not-found` the server reports for an error carrying no
+// `:rf.error/id`.
+function isNreplPortNotFound(resp) {
+  return Boolean(resp.result?.isError) &&
+    resp.result?.structuredContent?.reason === NREPL_PORT_NOT_FOUND;
+}
 
 function run() {
   return new Promise((resolve, reject) => {
@@ -117,8 +131,9 @@ function run() {
           // would hang this harness. We reply as a capable client
           // with no open workspace roots: the empty list yields no shadow
           // candidates, so discovery falls through to the HTTP-probe / cwd
-          // steps and reaches the degraded :nrepl-port-not-found envelope
-          // the assertions below expect.
+          // steps and reaches the degraded
+          // :rf.error/pair-mcp-nrepl-port-not-found envelope the assertions
+          // below expect.
           if (f.method === 'roots/list' && f.id != null) {
             child.stdin.write(
               JSON.stringify({ jsonrpc: '2.0', id: f.id, result: { roots: [] } }) + '\n',
@@ -218,8 +233,7 @@ function run() {
         name: 'eval-cljs',
         arguments: { form: '(+ 1 2)' },
       });
-      const text = evalResp.result?.content?.[0]?.text || '';
-      if (!evalResp.result?.isError || !text.includes('nrepl-port-not-found')) {
+      if (!isNreplPortNotFound(evalResp)) {
         throw new Error('eval-cljs degraded mode expected, got: ' + JSON.stringify(evalResp));
       }
       console.log('OK   tools/call eval-cljs (no nREPL) -> degraded isError');
@@ -231,8 +245,7 @@ function run() {
         name: 'snapshot',
         arguments: { frames: 'all' },
       });
-      const snapText = snapResp.result?.content?.[0]?.text || '';
-      if (!snapResp.result?.isError || !snapText.includes('nrepl-port-not-found')) {
+      if (!isNreplPortNotFound(snapResp)) {
         throw new Error('snapshot degraded mode expected, got: ' + JSON.stringify(snapResp));
       }
       console.log('OK   tools/call snapshot (no nREPL) -> degraded isError');
@@ -243,8 +256,7 @@ function run() {
         name: 'get-path',
         arguments: { path: '[:user :email]' },
       });
-      const gpText = gpResp.result?.content?.[0]?.text || '';
-      if (!gpResp.result?.isError || !gpText.includes('nrepl-port-not-found')) {
+      if (!isNreplPortNotFound(gpResp)) {
         throw new Error('get-path degraded mode expected, got: ' + JSON.stringify(gpResp));
       }
       console.log('OK   tools/call get-path (no nREPL) -> degraded isError');

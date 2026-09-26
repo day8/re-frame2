@@ -101,7 +101,7 @@ runs deterministically. Exercises:
   (the rename is part of the wire contract; users' MCP-host configs
   depend on it).
 - Selected app-facing calls (`eval-cljs`, `snapshot`, and `get-path`)
-  return `:reason :nrepl-port-not-found` with no app endpoint.
+  return `:reason :rf.error/pair-mcp-nrepl-port-not-found` with no app endpoint.
 - An unknown tool returns an `isError` envelope with
   `:reason :unknown-tool` before endpoint discovery.
 
