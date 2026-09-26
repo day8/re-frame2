@@ -55,9 +55,9 @@
 
   Its control is that frameless recipe. An absent client frame makes the
   seed a NO-OP rather than an error — the router drops a dispatch into a
-  frame that is not there and reports it on its own axis — so
-  `ssr/hydrate!` still answers a payload while installing nothing, which
-  is precisely why such a recipe looks green. The control asserts that
+  frame that is not there and reports it on its own axis — and
+  `ssr/hydrate!` answers nil, having installed nothing, so a boot that
+  branches on its return sees no hydration. The control asserts that
   shape directly, so §5's own green is a claim about the frame existing
   and not about `hydrate!` being called.
 
@@ -971,17 +971,15 @@
   ;; consistent with `ssr/hydrate!` seeding a frame it made itself.
   (if-not (rf.fresco.impl.mount/browser?)
     (rf.fresco.roots-frames-support/skip! "the payload script is read off a real document")
-    (let [{:keys [payload payload-script]} (rf.fresco.server/render (request))
-          remove!                          (plant-payload-script! payload-script)]
+    (let [{:keys [payload-script]} (rf.fresco.server/render (request))
+          remove!                  (plant-payload-script! payload-script)]
       (try
         (is (nil? (rf/app-db-value wire-frame))
             "premise: no client frame exists yet — this is a cold page")
         (let [applied (rf.ssr/hydrate! {:frame wire-frame})]
-          (testing "the false comfort: the read succeeded and the call
-                    answers the payload, so a boot that checks only this
-                    return value sees a hydration that worked"
-            (is (some? applied))
-            (is (= (:rf/app-db payload) (:rf/app-db applied))))
+          (testing "the call answers nil: nothing was applied, so a boot that
+                    branches on the return value sees no hydration"
+            (is (nil? applied)))
           (testing "and nothing was installed — dispatching into an absent
                     frame is a no-op, not a throw"
             (is (nil? (rf/app-db-value wire-frame)))))

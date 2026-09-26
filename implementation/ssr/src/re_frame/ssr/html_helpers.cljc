@@ -561,19 +561,6 @@
 ;;                                    &quot;<b>x</b>&quot;}"></div>
 ;;   {:meta [{:children "v" :name "a"}]}  => <meta children="v" name="a">
 ;;
-;; WHY DROPPING LOSES NOTHING, WHICH IS THE WHOLE ARGUMENT AND IS A
-;; MEASUREMENT RATHER THAN A JUDGEMENT. The obvious objection is that
-;; `dangerouslySetInnerHTML` is CONTENT, so dropping it silently discards
-;; something the author asked to render — a worse failure than a stray
-;; attribute, and a server-stricter-than-client divergence. It is not,
-;; because this emitter renders NO content for either prop: the children
-;; path never reads them, and left in they would land only in the ATTRIBUTE
-;; stream, the raw-HTML one as the escaped EDN PRINT of the `{:__html …}`
-;; map, which no browser renders as anything. The content divergence
-;; therefore does not come from dropping. Dropping strictly REDUCES the
-;; disagreement with the client — it removes the attribute half and leaves
-;; the content half where it is.
-;;
 ;; WHAT THE CLIENT DOES, established rather than assumed. The client
 ;; adapters pass both straight through to React: `reagent2.impl.template`
 ;; drops only the three prototype-pollution names, so both reach
@@ -585,16 +572,17 @@
 ;; the peer hiccup serialiser `reagent2.dom.server` strips both
 ;; from its attribute stream for exactly this reason (`emit-attribute`).
 ;;
-;; SO HONOURING THEM, RATHER THAN DROPPING, IS THE REAL REPAIR — AND IT IS
-;; NOT AN ATTRIBUTE-PATH CHANGE, WHICH IS WHY IT IS NOT DONE HERE. It
-;; belongs to the CHILDREN path (`emit/emit-element`, `streaming/
-;; walk-dom-tag`), needs React's precedence rule (variadic children beat
-;; `props.children`), and is undefined on three of this roster's four
-;; surfaces: `<meta>` / `<link>` are void and take no children at all, and
-;; the Ring host shell's `:html-attrs` / `:body-attrs` are attribute bags
-;; with no children slot. For the raw-HTML channel it would additionally
-;; mint a SECOND trusted-markup spelling, where 004B gives the tree tier
-;; exactly one: the `:html` node variant.
+;; SO THE ATTRIBUTE STREAM DROPS BOTH, AND THE CONTENT IS THE CHILDREN
+;; PATH'S BUSINESS. The two hiccup body walkers (`emit/emit-element`,
+;; `streaming/walk-dom-tag`) render `dangerouslySetInnerHTML`'s `__html` as
+;; the element's raw body (`emit/dom-element-props`), reading it under the
+;; same exact name this roster drops, so the prop that leaves the attributes
+;; is the prop rendered as content. `children` renders nothing: an
+;; element's variadic children are its content, which is React's own
+;; precedence rule. On the other surfaces this roster serves there is no
+;; body to honour either prop in — `<meta>` / `<link>` are void, and the
+;; Ring host shell's `:html-attrs` / `:body-attrs` are attribute bags — so
+;; there dropping is the whole of it.
 ;;
 ;; NOT A THROW, THOUGH 004B SAYS "REFUSED" FOR THE TREE-SPACE GRAMMAR.
 ;; That refusal is a compile/walk-time gate in a grammar that HAS a
@@ -643,12 +631,11 @@
       an element's CONTENT from, likewise consumed before the host sees
       them and likewise serialised by react-dom/server as neither. A
       SEPARATE roster from the structural slots because the reason
-      differs: those are identity, these are content, and this emitter
-      renders no content for either — left in, the raw-HTML one would reach
-      the wire only as the escaped EDN print of its `{:__html …}` map.
-      Dropping therefore removes a stray attribute without discarding
-      anything rendered; HONOURING them is a children-path change
-      and is deliberately not done here. Matched case-sensitively; see
+      differs: those are identity, these are content. Left in, the
+      raw-HTML one would reach the wire as the escaped EDN print of its
+      `{:__html …}` map. The hiccup body walkers render its `__html` as
+      the element's body instead (`emit/dom-element-props`), so dropping
+      it here removes only the attribute. Matched case-sensitively; see
       `content-channel-names`, which carries the full argument.
 
   Mirrors react-dom/server behaviour. Recognised here are exactly the

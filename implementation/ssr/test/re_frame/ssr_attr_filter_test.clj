@@ -31,10 +31,10 @@
       element's CONTENT from, likewise consumed before the host sees them
       and likewise serialised as neither, likewise case-sensitive. A
       SEPARATE roster from the structural slots: those are identity,
-      these are content. Dropping them discards nothing rendered,
-      because this emitter renders no content for either — left in, the
-      raw-HTML one would reach the wire only as the escaped EDN print of
-      its `{:__html …}` map,
+      these are content. Left in, the raw-HTML one would reach the wire as
+      the escaped EDN print of its `{:__html …}` map; the body emitters
+      render its `__html` as the element's content instead, so the drop
+      removes only the attribute,
 
   matching react-dom/server behaviour. The filter is the per-attribute
   prop-name position in the locked emitter composition order, so it runs
@@ -320,12 +320,10 @@
             reach the wire as DOM attributes: `{:children \"v\"}` would emit
             ` children=\"v\"`, and the raw-HTML channel the escaped EDN
             PRINT of its map —
-            ` dangerouslySetInnerHTML=\"{:__html &quot;<b>x</b>&quot;}\"` —
-            which is what settles the design question. This
-            emitter renders NO content for either prop, so dropping them
-            discards nothing rendered; it removes the
-            attribute half of a divergence and leaves the content half
-            where it is."
+            ` dangerouslySetInnerHTML=\"{:__html &quot;<b>x</b>&quot;}\"`.
+            The attribute stream drops both; the content is the body
+            emitters' business, and they render the raw-HTML channel's
+            `__html` as the element's body."
     (testing ":children is dropped"
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:children "v" :id "x"})))
       (is (= "" (rf.ssr.html-helpers/attr-string {:children "v"}))
@@ -382,9 +380,10 @@
             per-attribute emission point every SSR surface goes through, so a
             test demonstrating only one would not show the thing that
             justifies that location."
-    (testing "the hiccup BODY emitter (emit/render-to-string)"
+    (testing "the hiccup BODY emitter (emit/render-to-string). The raw-HTML
+              channel leaves the attributes and arrives as the element's body"
       (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:children "v"}] {})))
-      (is (= "<div></div>"
+      (is (= "<div><b>x</b></div>"
              (rf.ssr.emit/render-to-string
                [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}] {})))
       (is (= "<div id=\"a\">x</div>"
@@ -395,7 +394,7 @@
               reaches this roster through the `emit/attr-string` re-export"
       (is (= "<div></div>"
              (:shell-html (rf.ssr.streaming/render-shell [:div {:children "v"}]))))
-      (is (= "<div></div>"
+      (is (= "<div><b>x</b></div>"
              (:shell-html (rf.ssr.streaming/render-shell
                             [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}])))))
 

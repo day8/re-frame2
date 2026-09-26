@@ -401,7 +401,7 @@
         ;; The SAME class join, name/value
         ;; conversion and form-control special forms as the non-streaming
         ;; emitter, through its one shared function. No root attrs here.
-        {merged-attrs :attrs text :text select-value :select}
+        {merged-attrs :attrs text :text select-value :select inner-html :inner-html}
         (rf.ssr.emit/dom-element-props tag-name normalised-tag-name tag-attrs
                                        user-attrs nil children)
         void?                 (contains? rf.ssr.emit/void-elements
@@ -409,6 +409,11 @@
         raw-text?             (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
     (cond
       void?     (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">")
+      ;; Mirror the non-streaming emitter: `:dangerouslySetInnerHTML` is the
+      ;; element's whole body, raw, and its children are not walked.
+      (some? inner-html)
+      (str "<" tag-name (rf.ssr.emit/attr-string merged-attrs) ">" inner-html
+           "</" tag-name ">")
       ;; Mirror the non-streaming emitter: an ordinary inline
       ;; `<script>`/`<style>` with STRING content is author content, emitted
       ;; VERBATIM with only the shared closing-sequence rewrite
@@ -584,12 +589,14 @@
         :else
         (walk-dom-tag element continuation-accumulator)))
 
-    (and (vector? element) (ifn? (first element)))
+    (and (vector? element) (rf.ssr.emit/callable-head? (first element)))
     ;; Callable component head — a plain fn OR a Var reference
     ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT `fn?`,
     ;; so a bare `(fn? …)` test would leave a Var-headed component falling through
     ;; to the `(sequential? element)` / scalar arms and emitting EDN text rather
-    ;; than resolving it (the non-streaming emitter makes the same test).
+    ;; than resolving it. A collection head is `ifn?` as well and is excluded,
+    ;; so it reaches the malformed-head reject below (the non-streaming emitter
+    ;; makes the same test).
     ;; The keyword branch above (DOM tags, fragments,
     ;; `:>`, reserved `:rf/*` heads) is reached first, so the only callables
     ;; reaching here are fns and Var references. Resolve + recurse on the
