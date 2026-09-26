@@ -18,7 +18,7 @@ Skills are for handing work to an agent. To learn re-frame2 yourself, read [the 
 | Looking for the right tab or launch mode in the Xray devtools panel | [re-frame2-xray](re-frame2-xray.md) |
 | Building a new re-frame2 implementation — TypeScript, F# (Fable) or another host that compiles to JavaScript and renders through React | [re-frame2-implementor](re-frame2-implementor.md) |
 
-If a request spans more than one skill, start with the one that matches best; each skill hands off to the others. The routing rules are kept in one place, [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source) — edit routing there first.
+If a request spans more than one skill, start with the one that matches best; each skill hands off to the others. The full routing rules, including the cases this table leaves out, are in [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source).
 
 ## Install
 
@@ -29,7 +29,11 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 ```
 
-It links rather than copies — symlinks on macOS/Linux, directory junctions on Windows, no admin needed — because a copy goes stale as the repo changes and Claude Code keeps loading the old version. Running it again is safe. It will not overwrite a non-link copy unless you pass `--force` (`-Force`); `--check` (`-Check`) exits 0 when every skill is linked and current; `--target DIR` (`-Target DIR`) links somewhere other than `~/.claude/skills/`.
+It links rather than copies — symlinks on macOS/Linux, directory junctions on Windows, no admin needed — because a copy goes stale as the repo changes and Claude Code keeps loading the old version. Running it again is safe. Its options, with the PowerShell spelling in brackets:
+
+- `--force` (`-Force`) replaces a non-link copy with a link; without it, a copy is left alone.
+- `--check` (`-Check`) exits 0 when every skill is linked and current.
+- `--target DIR` (`-Target DIR`) links somewhere other than `~/.claude/skills/`.
 
 The only other route is `npx skills add` against the public repo, which installs one skill directory. Nothing is published to npm and there is no Claude Code plugin marketplace entry; the `package.json` and `.claude-plugin/plugin.json` beside each skill are packaging metadata, not install routes. The full setup is in [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy).
 

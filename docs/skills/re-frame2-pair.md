@@ -1,6 +1,6 @@
 # re-frame2-pair
 
-> Pair-program with a running re-frame2 app: inspect any frame's `app-db`, dispatch events, hot-swap handlers, walk epochs and read the trace stream, over nREPL and with no `re-frame-10x` dependency.
+> Works on your running re-frame2 app from the agent, over the app's shadow-cljs nREPL: reads any frame's `app-db`, dispatches events, hot-swaps handlers, walks epochs and reads the trace stream.
 
 ## What it does
 
@@ -12,7 +12,7 @@ With your app running under `shadow-cljs watch`, the skill attaches to its nREPL
 
 It works with apps that run several frames; when it is unclear which frame to act on, every frame-targeted operation, reads included, refuses with `:ambiguous-frame` rather than guess. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it runs alongside other tools on the same trace stream, Xray included.
 
-**REPL changes are temporary; source edits are permanent.** After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
+A change made at the REPL, such as a hot-swapped handler, is temporary: the next reload of that code replaces it, so a fix you want to keep goes into the source file. After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
 
 ## When to reach for it
 
@@ -26,24 +26,14 @@ Use a different skill for:
 - A retrospective on a pair session → [re-frame2-pair-retro](re-frame2-pair-retro.md).
 - Migrating a v1 project, including its boot smoke-test → [re-frame-migration](re-frame-migration.md).
 
-## Kickoff
-
-Once the [one-time setup](#one-time-setup) below is done, and with `shadow-cljs watch` running and the app open in a browser tab, ask about the running app in your own words:
-
-> *What's in `app-db` under `:cart`?*
-
-The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids. Only then does it read the sub, path or slice you asked about.
-
-With one build running there is nothing to pass. With several, `discover-app` refuses with the list of running builds rather than guessing; a `port` taken from the tab's URL picks the build served there.
-
-### One-time setup
+## One-time setup
 
 Two steps, both on your side, before the first session:
 
 1. **Build and register the MCP server.** It is not published to npm yet, so
-   build it from a re-frame2 clone
-   (`cd tools/re-frame2-pair-mcp && npm install && npm run build`) and point your
-   agent host's `mcpServers` entry at the compiled server:
+    build it from a re-frame2 clone
+    (`cd tools/re-frame2-pair-mcp && npm install && npm run build`) and point your
+    agent host's `mcpServers` entry at the compiled server:
 
     ```json
     {
@@ -61,22 +51,35 @@ Two steps, both on your side, before the first session:
     `claude mcp list` reports `Connected`. Start a fresh session after
     registering, and again after rebuilding `out/server.js`.
 
-2. **Add the preload to the app.** The `re-frame2-pair.runtime` namespace ships in
-   the skill's own `preload/` directory — the MCP server does *not* carry it. Put
-   that directory on the app's build **classpath** and add
-   `re-frame2-pair.runtime` to its `:devtools :preloads` in `shadow-cljs.edn`.
-   The classpath entry goes wherever the app's classpath is owned: an activated
-   alias's `:extra-paths` in `deps.edn` for a `:deps` app, `:source-paths` in
-   `project.clj` for a `:lein` app, and `:source-paths` in `shadow-cljs.edn` only
-   for a standalone shadow app. (Under `:deps` and `:lein`, shadow ignores a
-   `shadow-cljs.edn` `:source-paths` key and warns about it, so a preload put
-   there never loads.) Add two dev dependencies at the same revision as the
-   app's core: `day8/re-frame2-schemas`, which the preload requires (without it
-   the build fails on a missing `re-frame.schemas` namespace), and
-   `day8/re-frame2-epoch`, with `re-frame.epoch` required at boot, which the
-   epoch and time-travel tools need. Dev builds only, no package install. **The
-   preload is required; there is no per-session fallback.** The snippets for
-   each build tool are in [`references/setup.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/setup.md).
+2. **Add the preload to the app's dev build.** The `re-frame2-pair.runtime`
+    namespace ships in the skill's own `preload/` directory, not in the MCP
+    server, and the skill cannot work without it. Three changes, dev builds only:
+
+    - Put the `preload/` directory on the build's classpath, in whichever file
+      owns the classpath: an activated alias's `:extra-paths` in `deps.edn` for
+      a `:deps` app, `:source-paths` in `project.clj` for a `:lein` app, or
+      `:source-paths` in `shadow-cljs.edn` only for a standalone shadow app.
+      Under `:deps` and `:lein`, shadow ignores a `shadow-cljs.edn`
+      `:source-paths` key and warns about it, so a preload put there never loads.
+    - Add `re-frame2-pair.runtime` to the build's `:devtools :preloads` in
+      `shadow-cljs.edn`.
+    - Add two dev dependencies at the same revision as the app's core:
+      `day8/re-frame2-schemas`, which the preload requires (without it the build
+      fails on a missing `re-frame.schemas` namespace), and `day8/re-frame2-epoch`,
+      with `re-frame.epoch` required at boot, which the epoch and time-travel
+      tools need.
+
+    The snippets for each build tool are in [`references/setup.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/setup.md).
+
+## Kickoff
+
+With the setup done, `shadow-cljs watch` running and the app open in a browser tab, ask about the running app in your own words:
+
+> *What's in `app-db` under `:cart`?*
+
+The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids. Only then does it read the sub, path or slice you asked about.
+
+With one build running there is nothing to pass. With several, `discover-app` refuses with the list of running builds rather than guessing; a `port` taken from the tab's URL picks the build served there.
 
 ## Server options
 
@@ -88,9 +91,11 @@ The server is `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding one pe
 | `--allow-sensitive-reads` | off | Lets a structured read lift `:rf/redacted` per call (`include-sensitive true`). |
 | `--no-eval` | absent (eval on) | Disables `eval-cljs` and a `tail-build` probe; they refuse with `:rf.error/eval-cljs-disabled`. |
 
-The server does not refuse a flag it cannot read: a misspelled or retired flag is logged to stderr at startup and ignored, so that gate stays at its default.
+The server does not refuse a flag it cannot read. It warns about a misspelled or retired flag on stderr at startup and then ignores it, so that gate stays at its default.
 
-`eval-cljs` returns values without the redaction the structured reads apply, which is why the skill prefers a typed tool whenever one fits and uses `eval-cljs` for the long tail no typed tool covers (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery). The per-tool list with argument signatures is [`references/mcp-transport.md` §MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args); port discovery and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides are in the same file. Server source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
+`eval-cljs` returns values without the redaction the structured reads apply, so the skill uses a typed tool whenever one fits and keeps `eval-cljs` for what no typed tool covers: epoch forensics, arbitrary-selector DOM reads, cross-referencing and recovery.
+
+The per-tool list with argument signatures is [`references/mcp-transport.md` §MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args); port discovery and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides are in the same file. Server source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
 
 ## When it stops
 

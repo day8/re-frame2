@@ -6,7 +6,7 @@
 
 An app moving from re-frame v1 to re-frame2 swaps its dependency, installs the Reagent adapter, and **keeps its view code**. That is a finished migration, and it is [re-frame-migration](re-frame-migration.md)'s job. `day8/re-frame2-reagent` is the default view adapter and the one the reference test suite runs against. Staying on it is a complete, supported configuration, not a half-migrated one.
 
-Moving views to Fresco is a separate choice, and it is a rewrite rather than a respelling. Fresco ships in the same release set as the Reagent adapter, at the same version, so a project gets it the same way it already gets re-frame2 — from source until a release. The skill tells you both things before it does anything — that staying on Reagent is complete, and that Fresco ships with the rest of re-frame2 — and never implies you *should* move.
+Moving views to Fresco is a separate choice, and it is a rewrite rather than a respelling. Fresco ships in the same release set as the Reagent adapter, at the same version, so a project gets it the same way it already gets re-frame2 — from source until a release. Before it changes anything, the skill tells you that staying on Reagent is complete and that Fresco ships with the rest of re-frame2. It never implies you *should* move.
 
 ## What it does
 

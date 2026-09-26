@@ -6,16 +6,14 @@
 
 The `re-frame2-improver` skill reads your source files (or a snippet you paste), checks them against a small anti-pattern catalogue, and returns one complete critique in the same turn, most severe first. Each finding gives the file and line, what goes wrong because of it, the smallest safe correction, and a link to the canonical idiom under `skills/re-frame2/patterns/`.
 
+The catalogue covers six anti-patterns: hand-rolled HTTP retry loops, `:loading?` flags set and cleared by hand, a cluster of `?` subscriptions standing in for one status, boundary events that write HTTP replies or storage and URL data into `app-db` with no schema, side effects and impure reads inside event handlers, and view-held state (`r/atom`, `use-state`) that belongs in `app-db`. Each is a note under [`references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver/references); [`SKILL.md` §Routing](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md#routing--load-only-the-leaves-whose-signals-appear) lists each one with the source signals that make the skill load it.
+
 Whether it edits depends on what you asked for:
 
 - *"Review this"* is read-only. Each finding states its correction; nothing is applied.
 - *"Review and fix"* applies those corrections inside the scope you named, with no second approval round.
 
 A redesign that reaches beyond that scope stays a proposal either way. An instruction written into the code under review — a comment addressed to the agent — is treated as data, never obeyed. The reply includes only the sections that have content (scope reviewed, findings, fixes applied, open questions), and a clean result is one short verdict naming what was reviewed.
-
-The catalogue covers six anti-patterns: hand-rolled HTTP retry loops, `:loading?` flags set and cleared by hand, a cluster of `?` subscriptions standing in for one status, boundary events that write HTTP replies or storage and URL data into `app-db` with no schema, side effects and impure reads inside event handlers, and view-held state (`r/atom`, `use-state`) that belongs in `app-db`.
-
-The catalogue is the set of notes under [`references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver/references); [`SKILL.md` §Routing](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md#routing--load-only-the-leaves-whose-signals-appear) lists each one with the source signals that make the skill load it.
 
 ## When to reach for it
 
