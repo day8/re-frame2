@@ -1,9 +1,9 @@
 # 5. The recorder, and cannot-run
 
-You do not want to hand-author every click in a script. This chapter explains
-the recorder and the runner contract behind `:cannot-run`, the third status
-that keeps a headless test from pretending it proved a DOM interaction. If a
-tool cannot observe the evidence it needs, it should say so plainly.
+The recorder writes a `:script` from what you do on the canvas. This chapter
+covers the recorder, the script grammar, and `:cannot-run`: the status a run
+reports when its runner cannot perform a step, such as a click on a runner
+with no DOM.
 
 ## Recording a script
 
@@ -41,10 +41,10 @@ The new variant extends the one you recorded on, so it starts from the same
 setup. Each DOM gesture becomes a `:click` or `:type` step addressed by a
 selector. The events a gesture dispatches are not recorded as steps of their
 own, because replaying the gesture dispatches them again: here Sign in's
-`:login/submit` rides the `:click`. Any other event the frame saw, or every
-event when **DOM off** is set, becomes a `:dispatch` step, whose third element
-carries the coeffects to replay, such as the clock reading the event was
-stamped with. A pause of 50 ms or more between two steps becomes a
+`:login/submit` is dispatched by the `:click`. Any other event the frame saw,
+or every event when **DOM off** is set, becomes a `:dispatch` step, whose third
+element carries the coeffects to replay, such as the clock reading the event
+was stamped with. A pause of 50 ms or more between two steps becomes a
 `[:wait ms]` step. Typed values are redacted in inputs of type
 password, email or tel, and in inputs whose `autocomplete` names a credential
 or payment field.
@@ -57,10 +57,9 @@ it, and **export as :script** opens a second dialog. There you name the script, 
 changed. **replay in this story** runs the exported script against a fresh
 copy of the variant, so you can check it before you paste it.
 
-The output is data, not a generated JavaScript function. That makes it easy to
-diff, copy, send over MCP, and normalize through the same plan compiler as
-hand-written scripts. Treat a recording as a first draft: delete the steps you
-do not mean, and turn the final state you care about into an assertion.
+A recording is data, so you can diff it, copy it, send it over MCP, and edit
+it like any hand-written script. Treat it as a first draft: delete the steps
+you do not mean, and turn the final state you care about into an assertion.
 
 ## The shapes of `:script`
 
@@ -113,7 +112,7 @@ of them from the variant's setup, and offers **Run all**. A variant declares
 | `[:flush-presence]`, `[:flush-presence ms]` | Advances the presence clock your host installs for enter and exit transitions. With none installed, the step cannot run. |
 
 A bare event vector in a `:script` or `:setup` is read as `[:dispatch event]`.
-That shorthand has a sharp edge: a misspelt step tag, such as `[:asert …]`, is
+That shorthand has a catch: a misspelt step tag, such as `[:asert …]`, is
 dispatched as an event, and the run errors because no handler is registered
 for it. A known tag with the wrong arguments, such as `[:assert-dom sel]`,
 errors the run with `:rf.error/story-bad-step` before any step runs. `:setup`
@@ -135,7 +134,7 @@ For the login error variant:
         [:login/flow [:login/failure {...}]]]
 ```
 
-is setup because it creates the error state the chapter wants to show.
+is setup because it creates the error state the variant is about.
 
 For a "submit the form" test, the same interaction would belong in `:script`:
 
@@ -146,8 +145,8 @@ For a "submit the form" test, the same interaction would belong in `:script`:
          [:assert [:rf.assert/state-is :login/flow :authenticated]]]
 ```
 
-The distinction is intent, not mechanism. Both are real events. Setup is
-precondition. Script is what this variant is about.
+The difference is intent, not mechanism: both run real events. Setup is the
+precondition; the script is what the variant is about.
 
 ## cannot-run
 
@@ -158,9 +157,9 @@ A run can report:
 - `:error`;
 - `:cannot-run`.
 
-`:cannot-run` means the selected runner could not observe the evidence required
-by a step or assertion. It is not a pass. It is not a skip that CI should ignore
-by accident. It is an honest refusal.
+`:cannot-run` means the selected runner could not observe the evidence a step
+or assertion requires. It is neither a pass nor a skip: `rf.story/is` reports
+it as a test failure, so CI cannot read it as green.
 
 For example, this needs a DOM runner:
 
@@ -170,13 +169,12 @@ For example, this needs a DOM runner:
 
 A headless runner can run app-db assertions and effect assertions, but it cannot
 click a browser element. So the row is reported as `:cannot-run` with the
-missing capability. A richer DOM or browser runner can execute it.
+missing capability. A DOM or browser runner can execute it.
 
 A run whose only problems are refusals is `:cannot-run` as a whole. A genuine
 failure still wins: the verdict is `:error` if anything errored, otherwise
 `:fail` if anything failed, otherwise `:cannot-run` if anything was refused,
-and only then `:pass`. `rf.story/is` reports a `:cannot-run` run as a test
-failure, so CI cannot read it as green.
+and only then `:pass`.
 
 ## Runner capability ladder
 
@@ -208,35 +206,32 @@ JVM there is none, so `{:runner :dom}` still refuses it there. The canvas runs
 a variant with `{:runner :auto}`, and the Tests tab shows the canvas's run, so
 a DOM step runs in the page against the rendered view.
 
-Most Story tests should stay headless. If your assertion is about a db path, a
-machine state, a subscription value, or an emitted effect, paying for a browser
-is theatrical accounting. Use the cheap runner that can prove the claim.
+Keep most Story tests headless. A claim about an app-db path, a machine state,
+a subscription value or an emitted effect needs no browser; use a DOM runner
+when the claim is about the DOM.
 
-If the claim really is about DOM behaviour, use the richer runner. No Story
-runner proves pixels or an axe scan yet: a run reports
+No Story runner proves pixels or an axe scan: a run reports
 `:rf.assert/visual-snapshot` and `:rf.assert/a11y` as `:cannot-run`, because
 nothing produces the pixel or axe evidence they need. Review pixels with a
 runner you bring ([Local visual review](08-snapshot-identity-and-sharing.md#local-visual-review)).
-Story's job is to keep the boundary visible.
 
 ## Waiting without flakiness
 
-A fixed sleep is usually a little bug farm:
+Avoid fixed sleeps:
 
 ```clojure
 [:wait 300]
 ```
 
-It may pass on your laptop and fail on CI, because time passed is not the same
-thing as the app being ready. `rf.story/run` and `rf.story/is` still honour it,
+A sleep may pass on your laptop and fail on CI, because time passing is not the
+same as the app being ready. `rf.story/run` and `rf.story/is` still honour it,
 but `rf.story/assert-deterministic`, which replays a program in fresh frames to
 check it runs the same way every time, refuses a program with a `[:wait ms]` as
 `:cannot-run`.
 
-Prefer a condition. Settle on the event queue draining, then assert the
-machine state through `:rf.assert/state-is` (the machine snapshot lives in
-runtime-db, so a `[:wait-until [:db …]]` app-db path can't see it — settle on
-the drain and assert the state directly):
+Wait for a condition instead. A machine's state is not in app-db, so a
+`[:wait-until [:db …]]` condition cannot see it. Wait for the event queue to
+drain, then assert the state:
 
 ```clojure
 [:wait-until [:queue-empty]]
@@ -246,12 +241,10 @@ the drain and assert the state directly):
 The runner checks the condition once the preceding dispatch has settled. A
 condition that never holds fails the step with a reason naming it, such as
 `wait-until [:db [:form :ready?] true] never became true`, instead of hanging.
-That is much better than "maybe 300ms was enough today."
 
 ## Privacy at the recorder boundary
 
-Recorded snippets should not casually bake secrets into source. The recorder
-redacts at two points, and they cover different things.
+The recorder redacts at two points, and they cover different things.
 
 Typing into a password, email or tel input, or into one whose `autocomplete`
 names a credential or payment field, records the text as the string
@@ -266,10 +259,3 @@ keeps, too: every string in its payload equal to a typed value becomes
 `"[:rf/redacted]"`, the same text the `:type` step records. Anything else in
 an event nobody classified is recorded as it was dispatched, so read a
 recording before you commit it.
-
-Where the typed value is redacted, the step remains in order and only the value
-is removed. That preserves the shape of the reproduction without handing your
-repo a credential-shaped souvenir.
-
-You now have authorable scripts and honest runner status. The next step is what
-happens when an assertion actually goes red.

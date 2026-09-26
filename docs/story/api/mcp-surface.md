@@ -1,8 +1,6 @@
 # MCP surface
 
-This chapter is about the **Story ↔ MCP boundary** — the surfaces Story exposes for the separate `tools/story-mcp/` jar to consume when an agent (Claude / Cursor / Copilot) drives Story over JSON-RPC. The core of it is **two parallel surface bundles** — Story's public *read* primitives (the registry-query family plus `run-variant` / `snapshot-identity` / `variant->edn`) and Story's public *write* primitives (the `*`-suffix registration helpers plus `unregister!` / `clear-kind!` / `clear-all!`). The MCP jar consumes both; Story core stays free of stdio / JSON-RPC concerns.
-
-The architectural split is principled: Story core never depends on `tools/story-mcp/`. The normative statement of everything below is [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary) and [`tools/story-mcp/spec/002-Tool-Registry.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/spec/002-Tool-Registry.md) (the jar's side); this chapter is the orientation read.
+This page covers the boundary between Story and Story-MCP, the separate `tools/story-mcp/` jar an agent (Claude, Cursor, Copilot) uses to drive Story over JSON-RPC. Story-MCP calls two sets of Story's public functions: the read functions (the registry queries plus `run-variant`, `snapshot-identity` and `variant->edn`) and the write functions (the `*` registration functions plus `unregister!`, `clear-kind!` and `clear-all!`). Story itself carries no stdio or JSON-RPC code, and never depends on `tools/story-mcp/`. The normative statement of everything below is [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary) and [`tools/story-mcp/spec/002-Tool-Registry.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/spec/002-Tool-Registry.md) (the jar's side); this chapter is the orientation read.
 
 ## Host execution model — one JVM, no browser bridge
 
@@ -105,7 +103,7 @@ Three tools (`preview-variant`, `run-variant`, `read-failures`) carry scalar `:d
 
 The one documented opt-out is `--allow-sensitive-reads` at boot plus a per-call `:include-sensitive`. With the boot gate closed — the default — the `:include-sensitive` slot is omitted from the `tools/list` schema entirely and any caller-supplied value is ignored at egress.
 
-Story core's contract stays **real-values-in, real-values-out**; egress classification is the MCP jar's responsibility. The same split governs Xray's runtime seam: the framework, Xray and Story emit; tools consume; the contract is the data shape, not the call shape.
+Story itself returns real values; redacting them for the wire is the MCP jar's job.
 
 ## Public write primitives
 
@@ -145,13 +143,13 @@ A clean split, no overlap:
 | The canonical `:rf.assert/*` ids | `tools/story/` |
 | The recorder and its `:script` translators | `tools/story/` |
 
-`tools/story-mcp/` is a thin adapter: takes JSON-RPC requests, calls Story's public CLJS / CLJC functions, serialises responses back over stdio. Zero agent-specific logic lives in `tools/story/`.
+`tools/story-mcp/` is a thin adapter: it takes JSON-RPC requests, calls Story's public functions, and writes the responses back over stdio. No agent-specific code lives in `tools/story/`.
 
 Interactive canvas recording is a Story-core and browser surface, not an MCP one. The recorder primitives and the `:script` translators live in `tools/story/`; an agent that wants to record a live app drives that runtime through the pair.
 
 ## Independent cadence
 
-Story and the MCP jar ship at **independent cadence**. The MCP jar carries its own `re-frame.story-mcp.config/stage = :mcp` sentinel. Story's own loaded-surface marker was removed — a single-value sentinel carried no discriminator information — so read the jar's surface from the jar's own marker and Story's surface from its published API.
+Story and the MCP jar are versioned and released separately. The MCP jar carries a `re-frame.story-mcp.config/stage` marker, set to `:mcp`; Story has no such marker, so read Story's surface from its published API.
 
 ## Late-bind `reg-story-panel` contract
 
@@ -182,7 +180,7 @@ A typical agent's headless interaction with Story over the MCP surface:
 8. register-variant :s.c/at-six  — reg-variant* (only if writes are gated open)
 ```
 
-Every runtime-value payload crosses the wire path-projected; authored metadata crosses raw; every write goes through the gate. Story core stays composable, the MCP jar stays focused, and the contract is the data shape on both sides.
+Runtime values cross the wire with sensitive paths redacted, authored metadata crosses as written, and every write goes through the gate.
 
 ## See also
 
@@ -191,6 +189,6 @@ Every runtime-value payload crosses the wire path-projected; authored metadata c
 - [Scripts](script.md) — the `:script` body shape a `register-variant` call emits.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — `project-egress`, the framework primitive the MCP jar's egress boundary calls.
-- [re-frame2-pair MCP server](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) — the sibling live-app Tool-Pair contract; same emit-and-consume discipline. (Xray is the human panel and carries no agent seam — rf2-7htk7.)
+- [re-frame2-pair MCP server](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) — the live-app tool pair, which drives a running app. Xray is a panel for people and has no agent interface of its own.
 - [re-frame2-pair skill](../../skills/re-frame2-pair.md) — the live-browser door, for driving a running app's Story runtime.
 - Normative spec — [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) (wire protocol, tool registry, write-surface gating) and [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary).

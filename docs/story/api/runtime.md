@@ -1,8 +1,8 @@
 # Runtime
 
-This chapter is about the surfaces that bring a registered variant to life — the lifecycle that allocates a per-variant frame, runs its loaders and setup events, renders against the post-setup `app-db`, and walks the script; the programmatic entry points (`run-variant`, `reset-variant`, `watch-variant`, `destroy-variant!`) that callers reach for from custom shells, test fixtures, and one-shot screenshot pipelines; the registry-query family that tools build against; the boot-time `configure!` surface that sets project-wide defaults; and the CLJS-only shell-mount surface that wires Story's three-pane chrome into the host's DOM.
+This page covers how a registered variant runs: its frame, its four-phase lifecycle, the functions that run it from code, the registry queries, `configure!`, substrate registration and mounting the shell.
 
-The core of it is **one runtime, two consumer audiences**. *Story authors* run variants implicitly — the Story shell runs and resets them on the author's behalf as the user clicks through the sidebar and presses **Run all** or **Re-run**. *Host applications and test fixtures* call the same fns directly when they want a run outside the chrome, a `clojure.test` or `cljs.test` assertion, or a snapshot-identity hash for visual-regression keying.
+The shell runs and resets variants for you as you click through the sidebar and press **Run all** or **Re-run**. A test, a custom shell or a screenshot script calls the same functions directly.
 
 ## Per-variant frame allocation
 
@@ -16,7 +16,7 @@ Story keeps runtime slots in every variant frame's `app-db` under the reserved `
 - `:rf.story/loaders-complete?` — the flag a `:loaders-complete-when` event handler sets to say the loaders are done.
 - `:rf.story/assertions` — the vector of assertion records the `:rf.assert/*` handlers append during the run.
 
-A host application's `reg-event` handlers — and any other code path that writes `app-db` — MUST preserve the `:rf.story/*` namespace when seeding or resetting `db`. The hazard is the "replace-the-whole-db" idiom: a handler returning `{:db {...}}` built from scratch wipes the reserved slots and corrupts every Story variant that runs the event. Build the `:db` return by threading the incoming `db` through — `{:db (assoc db ...)}` or `{:db (merge db {...})}` — don't throw it away.
+Your event handlers, and any other code that writes `app-db`, must keep the `:rf.story/*` keys when they seed or reset `db`. A handler that returns a `{:db {...}}` built from scratch wipes those slots and breaks every variant that runs the event. Build the new `:db` from the incoming one, as `{:db (assoc db ...)}` or `{:db (merge db {...})}`.
 
 ## The four-phase lifecycle
 
@@ -212,7 +212,7 @@ The result carries `:status`, `:variant/id`, `:frame`, `:lifecycle`, `:runner`, 
   (variant-share-url variant-id opts) → string
   (variant-share-url variant-id base-url opts) → string
   ```
-- **Description**: Build a sharable URL for `variant-id`. `opts` takes `:active-modes`, `:cell-overrides` and `:substrate`, so a paste-and-open session reproduces the cell. The one- and two-argument forms return the query string alone, as `variant=story.login-form%2Fidle`; the three-argument form prefixes `base-url`, as `http://localhost:8043/?variant=story.login-form%2Fidle`. The chrome's `url-state` pushState wiring keeps the browser's address bar in lockstep with this encoder so Cmd-L Cmd-C copies the same URL the builder produces. Pure data → data; JVM + CLJS portable.
+- **Description**: Build a sharable URL for `variant-id`. `opts` takes `:active-modes`, `:cell-overrides` and `:substrate`, so a paste-and-open session reproduces the cell. The one- and two-argument forms return the query string alone, as `variant=story.login-form%2Fidle`; the three-argument form prefixes `base-url`, as `http://localhost:8043/?variant=story.login-form%2Fidle`. The shell writes the address bar with the same encoding, so copying the address bar gives the URL this function builds. It is a pure function, on the JVM and in ClojureScript.
 
 ## Assertion-side accessors
 
@@ -388,9 +388,9 @@ The boot-time entry point for project-wide defaults. The host calls it once befo
   ```clojure
   (configure! opts) → nil
   ```
-- **Description**: Set Story's global config. Every key lives under the `:rf.story/*` reserved sub-namespace. The known-keys set is **closed and small** — an unknown key (a typo like `:rf.story/edtior`) fails loudly at boot with `:rf.error/unknown-story-config-key` rather than silently no-opping.
+- **Description**: Set Story's global config. Every key is under `:rf.story/*`, and the set is closed: an unknown key, such as the typo `:rf.story/edtior`, throws `:rf.error/unknown-story-config-key`.
 
-The full v1 key surface:
+Every key:
 
 ```clojure
 (rf.story/configure!
@@ -413,10 +413,10 @@ The full v1 key surface:
    :rf.story/egress-profile :rf.egress/local-redacted})
 ```
 
-Two key behaviours are worth pinning:
+Two keys reach beyond Story:
 
-- **`:rf.story/project-root` bridges into Xray**. When set, Story propagates the value into Xray's own `:rf.xray/project-root` slot via `re-frame.story.xray-preset/propagate-project-root!` so the Xray-as-RHS source-coord chips share the same on-disk root. The bridge is one-way; hosts that want Xray pointed at a different root call `xray-config/configure!` directly AFTER `rf.story/configure!`.
-- **`:rf.story/egress-profile` is Story's on-box visibility boundary**. On-box visibility is a **named boundary profile per (tool, frame)** — there is no process-global on/off privacy toggle (see [EP-0015](../../EP/EP-0015-frame-owned-egress-policy.md)). The value is one of the six closed `:rf.egress/*` profiles; in practice the two on-box members: `:rf.egress/local-redacted` (the default — suppress sensitive display, fail-closed) or `:rf.egress/local-raw` (the trusted-local opt-in — show path-marked-sensitive values verbatim on your own machine). Every value-bearing Story surface (the recorder, the per-variant trace-buffer listener, the play-assertion listeners) projects through the centralized `re-frame.core/project-egress` walker under this profile, and shows a `[● REDACTED]` hint where it redacts. An unknown profile raises `:rf.error/unknown-egress-profile`; `nil` resets to the redacting default.
+- **`:rf.story/project-root` is passed on to Xray.** Story copies the value into Xray's `:rf.xray/project-root` through `re-frame.story.xray-preset/propagate-project-root!`, so the source links in the embedded Xray resolve against the same root. The copy runs one way: to point Xray at a different root, call `xray-config/configure!` after `rf.story/configure!`.
+- **`:rf.story/egress-profile` sets what Story's own panels show of sensitive values.** The value is one of the six `:rf.egress/*` profiles; the two meant for your own machine are `:rf.egress/local-redacted`, the default, which hides values at sensitive paths, and `:rf.egress/local-raw`, which shows them. The recorder, the per-variant trace buffer and the assertion listeners all pass values through `re-frame.core/project-egress` under this profile, and show a `[● REDACTED]` hint where they redact. The profile applies to Story and its frames; there is no process-wide switch. An unknown profile raises `:rf.error/unknown-egress-profile`; `nil` resets to the default.
 
 ## Substrate registration (CLJS-only)
 
@@ -438,7 +438,7 @@ Two key behaviours are worth pinning:
 
 ## Shell lifecycle (CLJS-only)
 
-The three-pane Reagent component that constitutes Story's UI. The host calls `mount-shell!` from its entry namespace when a hash-routed `#/stories` triggers Story mode.
+The shell is Story's UI. The host calls `mount-shell!` from its entry namespace, typically when the page's hash is `#/stories`.
 
 ### `mount-shell!`
 
@@ -463,7 +463,7 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```clojure
   (active-shell) → map / nil
   ```
-- **Description**: Inspectable handle on the active shell — returns nil when no shell is mounted.
+- **Description**: The active shell's handle, or nil when no shell is mounted.
 
 ## Static-mode probe
 
@@ -473,7 +473,7 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```clojure
   (static-mode?) → bool
   ```
-- **Description**: True iff Story is running in static-export mode (the bundle was built with `:closure-defines {re-frame.story.config/static-mode? true}`). The shell itself flips its dev-time affordances (hot-reload poll, first-visit help overlay auto-open) off when the flag is true. Surfaced here for tooling / examples that want to render a "this is a published static site" badge.
+- **Description**: True iff Story is running in static-export mode (the bundle was built with `:closure-defines {re-frame.story.config/static-mode? true}`). In static mode the shell stops polling for new registrations and does not open the first-visit help overlay. Call it to render something only in a published build, such as a badge.
 
 ## Coeffects registered by Story
 
