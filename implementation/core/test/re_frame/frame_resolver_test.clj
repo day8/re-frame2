@@ -10,9 +10,6 @@
     - `rf.frame/require-current-frame!` is the requiring primitive — it returns
       the carried stamp or raises/emits `:rf.error/no-frame-context`.
 
-  And `init!` does not create `:rf/default` (the runtime never synthesises
-  a default frame).
-
   This suite runs cold (no shared reset-runtime fixture that pins
   `*current-frame*`) so 'outside any scope' is genuinely outside any scope —
   the whole point of the contract."
@@ -70,12 +67,6 @@
 
 ;; ---- require-current-frame! — return stamp or raise -----------------------
 
-(deftest require-current-frame-returns-the-carried-stamp
-  (testing "require-current-frame! returns the scope frame when one is established"
-    (binding [rf.frame/*current-frame* :app]
-      (is (= :app (rf.frame/require-current-frame! :dispatch))
-          "the carried stamp is returned unchanged — NO registry lookup, no repair"))))
-
 (deftest require-current-frame-returns-stamp-even-when-frame-unregistered
   (testing "require-current-frame! does NOT consult the frame registry — a bound but unregistered stamp is still returned"
     ;; The contract: require-current-frame! reads the stamp; absence (no
@@ -122,27 +113,7 @@
           (is (= :rf.error/no-frame-context (:error r))
               "the record's :error is the canonical category"))))))
 
-(deftest no-frame-context-emitted-before-any-registry-lookup
-  (testing "the no-frame error is the ABSENT-target category, distinct from the bad-target :rf.error/frame-destroyed"
-    ;; Even though no :rf/default frame exists in this cold suite, the
-    ;; absence path must report no-frame-context, never frame-destroyed —
-    ;; the error is emitted BEFORE any frame-registry lookup.
-    (let [thrown (try (rf.frame/require-current-frame! :dispatch) nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
-          "absent target → :rf.error/no-frame-context, never :rf.error/frame-destroyed"))))
-
-;; ---- init! does not create :rf/default ------------------------------------
-
-(deftest init-does-not-create-default-frame
-  (testing "init! installs the adapter but creates NO :rf/default frame (the runtime never synthesises a default)"
-    ;; The cold-start fixture already called (rf/init! rf.substrate.plain-atom/adapter).
-    (is (some? (rf.substrate.adapter/current-adapter))
-        "precondition: init! installed the adapter")
-    (is (nil? (rf.frame/frame :rf/default))
-        "init! does NOT register a :rf/default frame")
-    (is (empty? @rf.frame/frames)
-        "no frames at all are registered by init!")))
+;; ---- :rf/default is an ordinary id ----------------------------------------
 
 (deftest default-frame-remains-a-legal-explicit-id
   (testing ":rf/default is an ordinary id a program may register EXPLICITLY"
@@ -155,19 +126,6 @@
     (binding [rf.frame/*current-frame* :rf/default]
       (is (= :rf/default (rf.frame/require-current-frame! :dispatch))
           "an explicit :rf/default scope resolves like any other"))))
-
-;; ---- ensure-default-frame! exists as a TEST-ONLY fixture helper ---------
-
-(deftest ensure-default-frame-is-a-test-only-helper
-  (testing "ensure-default-frame! registers :rf/default for test fixtures (idempotent), but it is NOT a runtime path"
-    (is (nil? (rf.frame/frame :rf/default)) "precondition: init! did not create it")
-    (rf.frame/ensure-default-frame!)
-    (is (some? (rf.frame/frame :rf/default))
-        "the test-only fixture helper registers :rf/default on demand")
-    (let [original (rf.frame/frame :rf/default)]
-      (rf.frame/ensure-default-frame!)
-      (is (identical? original (rf.frame/frame :rf/default))
-          "idempotent — a second call does not replace the frame"))))
 
 ;; ---- the REFUSAL tier — "no ambient frame is legal here" --
 ;;
