@@ -80,17 +80,14 @@ First, the app — three ordinary registrations:
 
 (rf/reg-sub :articles/slice (fn [db _] (:articles db)))
 
-(rf/reg-view ^{:rf/id :pages/articles} articles-page []
+(rf/reg-view ^{:rf/id :app/root} root-view []
   (let [arts @(subscribe [:articles/slice])]
-    [:div.page
+    [:main.page
      [:h1 "Recent articles"]
      (if (seq arts)
        (into [:ul] (for [{:keys [id title]} arts]
                      ^{:key id} [:li [:h3 title]]))
        [:p "No articles."])]))
-
-(rf/reg-view ^{:rf/id :app/root} root-view []
-  [(rf/view :pages/articles)])
 ```
 
 Now install the headless SSR adapter, stand up a frame, seed it, render:
@@ -101,7 +98,8 @@ Now install the headless SSR adapter, stand up a frame, seed it, render:
 (rf/with-new-frame [f (rf/make-frame {})]
   (rf/dispatch-sync [:articles/seed [{:id "1" :title "Hello, server"}]] {:frame f})
   (ssr/render-to-string [(rf/view :app/root)] {}))   ;; renders against the with-new-frame scope
-;; => "<div class=\"page\"><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></div>"
+;; => "<main class=\"page\" …><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></main>"
+;;    (a development build also stamps data-rf-view and source-coordinate attributes where the … sits)
 ```
 
 **What you see:** real HTML, from your real view, on a machine with no browser. (`render-to-string` lives on `re-frame.ssr` and nowhere else — there is no `rf/` facade copy, because requiring `re-frame.ssr` is what installs SSR in the first place.)
@@ -135,7 +133,7 @@ That boot event comes first. `:rf/server-init` is a reserved name the framework 
        :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]]})))
 ```
 
-The request map arrives flat under `:rf.server/request` — `:uri`, `:request-method`, `:headers`, `:query-params`, `:session`, `:cookies`. (A real page usually starts its HTTP fetches here rather than reading a `def` — the worked example fires [`:rf.http/managed`](../async/http.md) and lets the reply land before render.)
+The request map arrives under `:rf.server/request` exactly as the host stored it — for Ring, `:uri`, `:request-method`, `:headers`, plus whatever middleware adds: `:query-params` from `wrap-params`, `:cookies` from `wrap-cookies`, `:session` from `wrap-session`. (A real page usually starts its HTTP fetches here rather than reading a `def`. The worked example fires [`:rf.http/managed`](../async/http.md) here, and because the reply lands asynchronously, its `handle-request` waits for it by hand before rendering. Step 7 shows how the Ring adapter waits instead.)
 
 Now the per-request lifecycle, by hand:
 
@@ -161,7 +159,7 @@ And because a handler is just a function, you can serve a "request" right at the
 
 ```clojure
 (handle-request {:request-method :get :uri "/" :query-params {"limit" "1"}})
-;; => "<div class=\"page\"><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></div>"
+;; => "<main class=\"page\" …><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></main>"
 ```
 
 **Two details that matter.** `make-frame` runs its `:initial-events` synchronously and the runtime **drains** — it keeps processing events (and the events those dispatch) until the queue settles — so by the time you render, app-db holds the finished state, never a half-loaded one. And `destroy-frame!` sits in a `finally`: on a server that runs for weeks, tearing the frame down on *every* exit path is what stops you leaking a frame per request. Teardown also clears the request slot for you.
@@ -214,9 +212,9 @@ Three things to note:
 
 - **The payload is EDN in a `<script>` tag** with the pinned id `__rf_payload` — that id is how the client finds it in Step 4.
 - **It goes through an escaper** (`re-frame.ssr.html-helpers/escape-edn-script-body`). If an article body contained the literal text `</script>`, writing it raw would close the script element early and eat the rest of your state; the escaper rewrites `<` inside EDN strings so the payload survives and still reads back byte-for-byte.
-- **`:rf/render-hash` is a structural fingerprint of the render tree.** You compute it once with `render-tree-hash` and spend it twice: `:render-hash` stamps it onto the root element as a `data-rf-render-hash` attribute, and the payload carries the same string. Both fingerprint the *called* tree held in the `let` — the exact tree the client will be checked against — and hashing once keeps the emitter from walking the tree a second time. Hold that thought until Step 5.
+- **`:rf/render-hash` is a structural fingerprint of the render tree.** You compute it once with `render-tree-hash` and spend it twice: `:render-hash` stamps it onto the root element as a `data-rf-render-hash` attribute, and the payload carries the same string. Both fingerprint the *called* tree held in the `let` — the exact tree the client will be checked against — and hashing once keeps the emitter from walking the tree a second time. The hash walks that tree as given and never expands a view reference inside it: a nested `[(rf/view :some/view)]` hashes as a placeholder, whatever that view renders. That is why this root view returns its markup directly. A root whose body was only `[(rf/view :pages/articles)]` would hash to the same constant on every page. Hold that thought until Step 5.
 
-(You may spot `:doctype? true` in the worked example's render call. That opt prefixes `<!DOCTYPE html>` onto the emitted string itself — for when your root view renders the whole `[:html …]` document. This handler wraps a fragment in its own envelope, doctype included, so the render call shouldn't add another.)
+(`render-to-string` also takes `:doctype? true`, which prefixes `<!DOCTYPE html>` onto the emitted string itself — for when your root view renders the whole `[:html …]` document. This handler wraps a fragment in its own envelope, doctype included, so the render call leaves it off.)
 
 This hand-rolled version ships the *whole* app-db, which is fine for a demo and a leak the moment real apps put secrets in state. Step 7's adapter makes you declare an allowlist instead — [Concepts → the fail-closed allowlist](concepts.md#payload--the-fail-closed-allowlist) is the policy in full. The runtime-db half is never hand-rolled, even here. `project-runtime-db` keeps only the durable route and machine slices and redacts any value the app classified `:sensitive`, such as a reset token in a query string. It also leaves out the frame's classification registry. The raw partition would ship all of that verbatim. On this page the runtime-db is empty, so the projection is `nil` and `build-payload` leaves `:rf/runtime-db` out. A present `nil` would be a malformed slice that hydration refuses.
 
@@ -270,12 +268,20 @@ The classic SSR bug is a **hydration mismatch**: the client's first render disag
 You wired the detector already: the server's `:rf/render-hash` in Step 3, and the `:render-tree-fn` you handed `hydrate!` in Step 4. The client hashes its own first render and compares. Make them disagree on purpose — render something non-deterministic:
 
 ```clojure
-;; DON'T ship this — it exists to trip the alarm.
-(rf/reg-view ^{:rf/id :pages/articles} articles-page []
-  [:div.page
-   [:p (str "Rendered at " #?(:clj (System/currentTimeMillis) :cljs (js/Date.now)))]
-   …])
+;; DON'T ship this — it exists to trip the alarm. It replaces Step 1's root view in app.core.
+(rf/reg-view ^{:rf/id :app/root} root-view []
+  (let [arts @(subscribe [:articles/slice])]
+    [:main.page
+     [:p (str "Rendered at " #?(:clj (System/currentTimeMillis) :cljs (js/Date.now)))]
+     [:h1 "Recent articles"]
+     (if (seq arts)
+       (into [:ul] (for [{:keys [id title]} arts]
+                     ^{:key id} [:li [:h3 title]]))
+       [:p "No articles."])]))
 ```
+
+The timestamp sits in the root view's own markup, so it lands in the hashed tree:
+the server hashes one time, the client's first render another.
 
 **What you see:** the page still works — the default recovery is *warn and replace*, so the client's view wins and the user never sees a broken page. But the trace stream now carries a structured error instead of a shrug:
 
@@ -341,7 +347,7 @@ You've now built every step of the lifecycle by hand: stash the request, create 
   (:require [app.core]
             [re-frame.core                :as rf]
             [re-frame.ssr                 :as ssr]
-            [re-frame.ssr.ring            :as ssr-ring]
+            [re-frame.ssr.ring            :as ssr.ring]
             [ring.adapter.jetty           :as jetty]
             [ring.middleware.params       :refer [wrap-params]]
             [ring.middleware.resource     :refer [wrap-resource]]))
@@ -349,10 +355,10 @@ You've now built every step of the lifecycle by hand: stash the request, create 
 (rf/init! ssr/adapter)                       ;; once per JVM, as in Step 1
 
 (def handler
-  (ssr-ring/ssr-handler
-    {:initial-events [[:rf/server-init]]     ;; Step 2's boot event
-     :root-view      [(rf/view :app/root)]             ;; Step 2's render target
-     :payload        [:articles]}))          ;; Step 3's payload — now an allowlist
+  (ssr.ring/ssr-handler
+    {:initial-events [[:rf/server-init]]                ;; Step 2's boot event
+     :root-view      (fn [] ((rf/view :app/root)))      ;; Step 2's called render target — hashed
+     :payload        [:articles]}))                     ;; Step 3's payload — now an allowlist
 
 (def app
   (-> handler
@@ -366,6 +372,11 @@ The handler renders pages and reads the request as Ring hands it over, so ordina
 Ring middleware supplies the rest: `wrap-resource` answers `/main.js`, which the
 handler's page shell loads by default, and `wrap-params` parses `?limit=1` into the
 `:query-params` that `:rf/server-init` reads.
+
+`:root-view` is a fn that *calls* the root view, like Step 2's handler, so the handler
+hashes the page itself. The vector form `[(rf/view :app/root)]` renders the same HTML
+but hashes only a reference to the view, so the handler ships no hash for it and
+Step 5's check never runs.
 
 One thing is new, and it's the important one: **`:payload` is required, and it's an
 allowlist.** Name the top-level app-db keys that may ship; everything else stays on
@@ -412,7 +423,7 @@ Everything above, as the two halves you ship:
 
 | Half | Surface | You supply |
 |---|---|---|
-| Server | `ssr-ring/ssr-handler` | `:initial-events`, `:root-view`, **`:payload` allowlist**; `:rf.server/*` effects for status, headers and cookies |
+| Server | `ssr.ring/ssr-handler` | `:initial-events`, `:root-view` that *calls* the root view, **`:payload` allowlist**; `:rf.server/*` effects for status, headers and cookies |
 | Client | `ssr/hydrate!` then `reagent-adapter/render!` with `{:hydrate? (some? payload)}` | Same `:frame` as `frame-provider`; `:render-tree-fn` that *calls* the root view |
 
 Hand-rolled lifecycle (Steps 2–3) is still the right mental model when something
