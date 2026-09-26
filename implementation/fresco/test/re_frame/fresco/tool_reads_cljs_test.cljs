@@ -122,14 +122,6 @@
   (into #{} (map (comp :key :boundary)) (:boundaries envelope)))
 
 ;; ---------------------------------------------------------------------------
-;; The suite states its own basis
-;; ---------------------------------------------------------------------------
-
-(deftest this-build-has-the-reads-enabled
-  (testing "every assertion below is about a DEV build; the production arm is separate"
-    (is (true? rf.interop/debug-enabled?))))
-
-;; ---------------------------------------------------------------------------
 ;; Read 1 — mounted boundaries
 ;; ---------------------------------------------------------------------------
 

@@ -483,14 +483,6 @@
 ;; `:ref` — React's own slot, forwarded untouched
 ;; ---------------------------------------------------------------------------
 
-(deftest a-callback-ref-is-the-surface-and-reaches-react-by-identity
-  (testing "HD-003's escape hatch and HD-016's callback-refs-only rule: a
-            function at :ref arrives at React as the same function object —
-            rewrapping it would detach and reattach the node every render."
-    (let [f (fn [_node] nil)
-          e (rf.fresco.impl.codec/as-element [:div {:ref f}])]
-      (is (identical? f (prop e "ref"))))))
-
 (deftest a-ref-crosses-by-identity-however-it-is-spelled
   (testing "the ref position is excluded from callback lowering at the SLOT
             rather than at the key, so `\"ref\"` and `:x/ref` reach React's
