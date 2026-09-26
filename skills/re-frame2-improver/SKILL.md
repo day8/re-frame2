@@ -41,7 +41,18 @@ All three filters must hold before activating:
 
 1. **Explicit pull.** User used review / audit / critique / improvements / anti-pattern phrasing about their own re-frame2 code.
 2. **Source-in-scope.** At least one `.cljs` / `.cljc` file read or edited in this conversation, OR a snippet supplied inline, OR a concrete `.cljs` / `.cljc` file or directory named to review (e.g. *"spot any anti-patterns in `cart/handlers.cljs`?"*). A named path resolves scope: activate, **read it**, then critique. A path that doesn't exist or can't be read does not — say so and ask for a snippet rather than fabricate. Vocabulary about "my project" with no file / snippet / path fails this filter → ask for one; decline rather than fabricate.
-3. **Not a sibling skill's job.** The boundary, stated here in full because a packaged install must route without the monorepo — **not** for: greenfield bootstrap (`re-frame2-setup`); authoring new code (`re-frame2`); migrating a re-frame v1.x codebase to re-frame2 (`re-frame-migration` — any v1 surface raised for upgrade); porting Reagent views to Fresco (`reagent-migration` — "port this to `h/defview`", "move off Reagent hiccup", or a Reagent view surface raised in a Fresco-migration context is a migration ask even on an already-re-frame2 app; *critiquing* existing Reagent-view code against the catalogue stays here, *porting* it does not); touring the Xray devtools panel (`re-frame2-xray` — where a human looks in the visible panel); live-runtime work — attach, inspect, dispatch, time-travel against a running app (`re-frame2-pair`); retro on a pair session (`re-frame2-pair-retro`); or spec/architecture discussion with no code in scope (the repo's `SKILL-REDIRECT.md` index). **One near-homograph trap:** `re-frame2-implementor` ports the **framework itself** to a new host; this skill critiques a **user's application code**. Evolving or porting re-frame2 → wrong skill. The monorepo's full trigger matrix ([`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source)) is an optional supporting reference, not shipped in the package — this filter decides without it.
+3. **Not a sibling skill's job.** Stated here in full because a packaged install must route without the monorepo. **Not** for:
+   - greenfield bootstrap → `re-frame2-setup`;
+   - authoring new code → `re-frame2`;
+   - migrating a re-frame v1.x codebase → `re-frame-migration` (any v1 surface raised for upgrade);
+   - porting Reagent views to Fresco → `reagent-migration` ("port this to `h/defview`", "move off Reagent hiccup", or a Reagent view raised in a Fresco-migration context is a migration ask even on an already-re-frame2 app — *critiquing* Reagent-view code against the catalogue stays here, *porting* it does not);
+   - touring the Xray devtools panel → `re-frame2-xray`;
+   - live-runtime work — attach, inspect, dispatch, time-travel against a running app → `re-frame2-pair`;
+   - retro on a pair session → `re-frame2-pair-retro`;
+   - evolving or porting re-frame2 **itself** to a new host → `re-frame2-implementor` (the near-homograph: this skill critiques a *user's application code*);
+   - spec/architecture discussion with no code in scope → the repo's `SKILL-REDIRECT.md` index.
+
+   The monorepo's trigger matrix ([`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source)) is optional supporting reference, not shipped in the package — this list decides without it.
 
 ## Workflow
 
