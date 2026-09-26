@@ -69,6 +69,9 @@
    :app-db          {}
    :assertions      []
    :checks          []
+   ;; A frozen RunResult slot (`rf.story.result/RunResult`); every error
+   ;; result built from this map carries it too.
+   :consumed-selectors #{}
    :elapsed-ms      0
    :snapshot        nil
    :decorators      {:hiccup [] :frame-setup [] :fx-override [] :errors []}

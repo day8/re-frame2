@@ -401,7 +401,7 @@ no fn-slots):
  :args->events          {<arg-key> <event-id>}   ; arg → app-db mapping (spec/007 §Args mapping)
  :platforms             #{:server :client}
  :substrates            #{:reagent :uix ...}
- :modes                 #{<mode-id> ...}         ; cell = (variant × mode)
+ :modes                 #{<mode-id> ...}         ; listed by Docs mode; feeds no args
  :images                [(rf/image {...}) ...]   ; EP-0023 behaviour-variant images — see §Behaviour-variant images
  :xray-panel           <panel-kw>               ; (rf2-v1ach) default Xray panel for the RHS embed
  :xray                 {:open?  <bool>          ;   per-story Xray preset — see §Xray preset slot
@@ -1527,9 +1527,12 @@ remain local. Cycles raise
    :modes     #{:Mode.app/dark-mobile :Mode.app/light-desktop}})
 ```
 
-The story renders against each mode. Each `(variant × mode)` pair has
-its own `snapshot-identity` so a visual-regression service iterates
-cells independently.
+A body's `:modes` lists the modes it is meant to be seen under, and
+Docs mode's Parameters section shows them. Declaring a mode feeds no
+args: the modes active in the toolbar (the `:active-modes` run opt)
+are what join the args chain. Each `(variant × active modes)` pair has
+its own `snapshot-identity`, so a visual-regression service can run a
+variant under each mode and tell the results apart.
 
 ### Substrates
 

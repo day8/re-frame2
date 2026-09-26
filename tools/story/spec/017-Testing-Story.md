@@ -2160,9 +2160,9 @@ empty-is-healthy slots impose no gate).
 ### MCP is a frame binding, not a runner tier
 
 MCP is NOT a runner. It is a transport/control surface over the same
-`story/run` / `story/explain` (§Runner kinds). A live agent run differs
-only by FRAME BINDING (`:fresh` vs `:attached`) — modeled as the
-`:frame-binding` run-opt, never a capability token or a runner kind.
+`story/run` / `story/explain` (§Runner kinds), never a capability token
+or a runner kind. A variant body's `:frame-binding` slot (`:fresh` vs
+`:attached`) marks a live agent binding for the sidebar's frame chip.
 
 ### Run / `is` opts
 
@@ -2171,9 +2171,7 @@ API) collapse into the canonical selection shape:
 
 ```clojure
 {:runner :headless | :hiccup | :cljs-reactive | :dom | :browser | :auto
- :escalate boolean              ; synonym for :runner :auto when true
- :frame-binding :fresh | :attached
- :platform :client | :server}
+ :escalate boolean}             ; synonym for :runner :auto when true
 ```
 
 `:escalate true` OR `:runner :auto` collapse into `{:mode :auto}` (the
@@ -2181,10 +2179,9 @@ cheapest qualifying runner is chosen); any other recognised `:runner` (one
 of the `runner-kinds`) → `{:mode :fixed :runner <kind>}`. The default is
 fixed `:headless`. An unrecognised `:runner` not in `runner-kinds` (e.g.
 `:gpu`) falls back to the fixed `:headless` policy — an unknown tier never
-silently escalates. `:frame-binding` and `:platform` carry through
-untouched so the three-verb surface (`run` / `is` / `explain`, shipped as
-the P1 public execution API — §three verbs) and the MCP transport thread
-the SAME normalization.
+silently escalates. The three-verb surface (`run` / `is` / `explain`,
+shipped as the P1 public execution API — §three verbs) and the MCP
+transport thread the SAME normalization.
 
 ## Run result
 
@@ -2522,9 +2519,7 @@ P1 run/is opts:
 
 ```clojure
 {:runner :headless | :hiccup | :cljs-reactive | :dom | :browser | :auto
- :escalate boolean              ; synonym for :runner :auto when true
- :frame-binding :fresh | :attached
- :platform :client | :server}
+ :escalate boolean}             ; synonym for :runner :auto when true
 ```
 
 Default `:runner` is `:headless` for test execution. Story UI rendering

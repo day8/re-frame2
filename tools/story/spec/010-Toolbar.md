@@ -357,9 +357,9 @@ shorthand the table above sketched in early drafts.
 Three callers need to read the active mode-set:
 
 1. **Story code at registration time** — the `:args` deep-merge handles
-   this; nothing to expose. The variant body declares `:modes #{...}`
-   for the **cells** it wants iterated; the toolbar overlays a runtime
-   set on top.
+   this; nothing to expose. The variant body's `:modes #{...}` lists
+   the modes it is meant to be seen under (Docs mode shows them); only
+   the toolbar's active set feeds args.
 
 2. **Story body view code** — a variant's `:component` may want to
    branch on the active theme/viewport without re-binding via `:args`.

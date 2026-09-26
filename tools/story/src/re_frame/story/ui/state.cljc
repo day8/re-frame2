@@ -228,6 +228,7 @@
 (def partition-tag-filter-by-axis rf.story.ui.state.filters/partition-tag-filter-by-axis)
 (def variant-tag-match?           rf.story.ui.state.filters/variant-tag-match?)
 (def filter-variants              rf.story.ui.state.filters/filter-variants)
+(def drop-default-excluded        rf.story.ui.state.filters/drop-default-excluded)
 (def group-variants-by-story      rf.story.ui.state.filters/group-variants-by-story)
 
 ;; The canonical `parent-story-id` helper lives in

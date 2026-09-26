@@ -70,7 +70,7 @@ Workspaces are layout artifacts. Each `:layout` needs its own slot:
 | Layout | Needs | Use it when |
 |---|---|---|
 | `:grid` | `:variants` | You want explicit variants in a specific order. |
-| `:variants-grid` | nothing, or `:for` | You want every variant under a story parent. |
+| `:variants-grid` | nothing, `:for` or `:variants` | You want every variant under a story parent, or a curated list of them. |
 | `:tabs` | `:variants` | You want one variant visible at a time. |
 | `:prose` | `:content` | You want prose interleaved with rendered variants. |
 | `:custom` | `:render` | Reserved for a registered view that owns the layout; the shell currently shows a placeholder naming the view. |

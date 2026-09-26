@@ -403,29 +403,20 @@
 ;; ===========================================================================
 
 (deftest normalize-run-opts-defaults
-  (testing "defaults: fixed :headless, :fresh binding, :client platform"
-    (let [o (rf.story.requirements/normalize-run-opts)]
-      (is (= :fixed    (:mode o)))
-      (is (= :headless (:runner o)))
-      (is (= :fresh    (:frame-binding o)))
-      (is (= :client   (:platform o))))
+  (testing "defaults: fixed :headless"
+    (is (= {:mode :fixed :runner :headless} (rf.story.requirements/normalize-run-opts)))
     (is (= (rf.story.requirements/normalize-run-opts) (rf.story.requirements/normalize-run-opts nil))))
 
-  (testing "explicit runner / frame-binding / platform carry through"
-    (let [o (rf.story.requirements/normalize-run-opts {:runner :dom
-                                     :frame-binding :attached
-                                     :platform :server})]
-      (is (= :fixed    (:mode o)))
-      (is (= :dom      (:runner o)))
-      (is (= :attached (:frame-binding o)) "MCP-as-binding carries through")
-      (is (= :server   (:platform o)))))
+  (testing "an explicit runner carries through"
+    (is (= {:mode :fixed :runner :dom}
+           (rf.story.requirements/normalize-run-opts {:runner :dom}))))
 
   (testing ":escalate true and :runner :auto both yield :auto mode"
     (is (= :auto (:mode (rf.story.requirements/normalize-run-opts {:escalate true}))))
     (is (= :auto (:mode (rf.story.requirements/normalize-run-opts {:runner :auto})))))
 
   (testing "an unknown runner falls back to fixed :headless"
-    (is (= {:mode :fixed :runner :headless :frame-binding :fresh :platform :client}
+    (is (= {:mode :fixed :runner :headless}
            (rf.story.requirements/normalize-run-opts {:runner :bogus}))))
 
   (testing ":cljs-reactive is a valid fixed runner"

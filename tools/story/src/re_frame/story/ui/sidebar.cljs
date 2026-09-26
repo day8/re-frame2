@@ -997,9 +997,14 @@
              sel-ws          (:selected-workspace shell)
              sel-story       (:selected-story shell)
              tag->axis       (rf.story.registrar/tag->axis-index)
-             visible         (rf.story.ui.state/filter-variants (:variants registry)
-                                                    tag-filter
-                                                    tag->axis)
+             ;; A `:default-filter :exclude` tag hides its variants until
+             ;; the user toggles that tag on.
+             visible         (-> (rf.story.ui.state/filter-variants (:variants registry)
+                                                                   tag-filter
+                                                                   tag->axis)
+                                 (rf.story.ui.state/drop-default-excluded
+                                   (rf.story.registrar/tags-default-excluded)
+                                   tag-filter))
              grouped-all     (rf.story.ui.state/group-variants-by-story visible)
              query           @query-ratom
              grouped         (rf.story.ui.sidebar-search/filter-grouped-tree grouped-all query)

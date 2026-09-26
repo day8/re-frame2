@@ -110,9 +110,10 @@
     `{:type :prose   :body <string>}`
 
   Cell ordering matches the workspace's declared `:variants` (for `:grid`
-  / `:tabs`) or `:content` (for `:prose`). For `:variants-grid` the
-  cells enumerate the registry's variants for the workspace's anchor
-  story. The anchor is read in precedence order:
+  / `:tabs`) or `:content` (for `:prose`). A `:variants-grid` that
+  declares `:variants` renders those, in order; otherwise its cells
+  enumerate the registry's variants for the workspace's anchor story.
+  The anchor is read in precedence order:
 
     1. `:for`   — the auto-enumerate anchor story-id
                   (spec/001-Authoring.md §`:variants-grid`);
@@ -132,17 +133,19 @@
            {:type :variant :variant-id vid}))
 
     :variants-grid
-    (let [anchor (or (:for workspace-body)
-                     ;; Derive `:story.<path>` from `:Workspace.<path>/<name>`.
-                     (when-let [ns (namespace workspace-id)]
-                       (when (and (>= (count ns) 10)
-                                  (= (subs ns 0 10) "Workspace."))
-                         (keyword (str "story." (subs ns 10))))))]
-      (if anchor
-        (->> (variants-of-story anchor)
-             sort
-             (mapv (fn [vid] {:type :variant :variant-id vid})))
-        []))
+    (if-let [vids (seq (:variants workspace-body))]
+      (mapv (fn [vid] {:type :variant :variant-id vid}) vids)
+      (let [anchor (or (:for workspace-body)
+                       ;; Derive `:story.<path>` from `:Workspace.<path>/<name>`.
+                       (when-let [ns (namespace workspace-id)]
+                         (when (and (>= (count ns) 10)
+                                    (= (subs ns 0 10) "Workspace."))
+                           (keyword (str "story." (subs ns 10))))))]
+        (if anchor
+          (->> (variants-of-story anchor)
+               sort
+               (mapv (fn [vid] {:type :variant :variant-id vid})))
+          [])))
 
     :prose
     (vec (for [item (:content workspace-body)]

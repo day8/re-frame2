@@ -1581,8 +1581,8 @@
     host-free run, or rely on the side-table). It returns the SAME unified
     run-result shape a registered variant returns.
 
-  `opts` is the run/is opts map (`:runner` / `:frame-binding` /
-  `:platform` …, plus the plan-compiler seams for a map target); the
+  `opts` is the run/is opts map (`:runner` / `:escalate` /
+  `:active-modes` …, plus the plan-compiler seams for a map target); the
   default runner is `:headless`. The verb name is the stable public
   surface — it does NOT leak the variant-vs-plan authoring distinction
   (spec/017 §Public execution API)."
