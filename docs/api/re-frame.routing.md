@@ -64,6 +64,7 @@ The frame created with `:url-bound? true` owns the browser's address bar. Its na
     4. a named param over a splat
     5. a route without an optional group
     6. the earlier registration
+
 - **Options** (the `metadata` map; every key is optional):
 
     | Key | Notes |
