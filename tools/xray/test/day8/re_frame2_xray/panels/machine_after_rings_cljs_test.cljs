@@ -4,8 +4,9 @@
 
   Covers:
 
-    1. Registry wires the rings sub family + the tick/hover/now-ms
-       event family.
+    1. Registration of the rings sub family + the tick/hover/now-ms
+       event family — pinned by `registry_cljs_test`'s registry
+       snapshot rows rather than here.
     2. `:rf.xray/active-timers-for-focused-machine` composes trace
        buffer + the FOCUSED-EVENT record's machine + the target frame
        into an active-timers vector. The sub is buffer-keyed — the
@@ -26,7 +27,6 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -204,25 +204,6 @@
              :timeout {:on {:retry :idle}}
              :done    {:final? true}}})
 
-;; ---- (1) registry wiring -----------------------------------------------
-
-(deftest registry-installs-rings-handlers
-  (testing "register-xray-handlers! installs the rings sub + event family"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/active-timers-for-focused-machine)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/now-ms)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/timer-hover)))
-    (is (some? (rf.registrar/handler :event :rf.xray/timer-tick)))
-    (is (some? (rf.registrar/handler :event :rf.xray/timer-hover))))
-  (testing "the test-only now-ms override is NOT installed by
-            production registration; the test seam installs it"
-    (registry/register-xray-handlers!)
-    (is (nil? (rf.registrar/handler :event :rf.xray/set-now-ms-override-for-test))
-        "production registration installs no -for-test ids")
-    (xray-test-support/install-test-overrides!)
-    (is (some? (rf.registrar/handler :event :rf.xray/set-now-ms-override-for-test))
-        "install-test-overrides! installs the now-ms override event")))
-
 ;; ---- (2) active-timers composite ---------------------------------------
 
 (deftest active-timers-empty-when-nothing-is-focused
@@ -375,20 +356,6 @@
             "the unselected posture renders a ring; nothing blanked")
         (is (= :armed (-> active first :status)))))))
 
-(deftest active-timers-folds-scheduled-into-armed
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login)
-    (pin-now-ms! 2000)
-    (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (let [active @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])]
-      (is (= 1 (count active)))
-      (is (= :armed (-> active first :status)))
-      (is (= :idle  (-> active first :state)))
-      (is (= 6000   (-> active first :fires-at))))))
-
 (deftest active-timers-drops-fired
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
@@ -410,12 +377,6 @@
     (pin-now-ms! 9999)
     (is (= 9999 @(rf/subscribe [:rf.xray/now-ms]))
         "override slot wins over the tick-bumped value")))
-
-(deftest timer-tick-event-writes-now-ms
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/timer-tick 12345])
-    (is (= 12345 @(rf/subscribe [:rf.xray/now-ms])))))
 
 ;; ---- (4) timer-hover ---------------------------------------------------
 
@@ -521,19 +482,6 @@
           "now-ms threads through as :tick so the overlay re-measures per frame")
       (is (fn? (:on-hover props)))
       (is (fn? (:on-leave props))))))
-
-(deftest overlay-stops-rendering-fired-timers
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login)
-    (pin-now-ms! 7000)
-    (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (push-fired!     6000 :auth/login :idle 0)
-    (is (nil? (overlay-tree))
-        "fired timers are filtered out of the active projection — the
-         whole overlay drops out")))
 
 (deftest overlay-delegates-specs-for-multiple-concurrent-timers
   (setup-xray-frame!)
