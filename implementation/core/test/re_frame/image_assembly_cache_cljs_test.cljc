@@ -17,11 +17,10 @@
 
   This suite pins the cache CONTRACT:
 
-    * a HIT — identical inputs reuse the SAME sealed generation object (the SSR
-      no-re-seal guarantee), proven by `identical?`, not just `=`;
-    * the SSR motivation — repeated `assemble` of an unchanged composition does
-      NOT re-run selection + validation + sealing (one cached object, one
-      compute);
+    * a HIT — identical inputs reuse the SAME sealed generation object, proven
+      by `identical?`, not just `=` — the SSR no-re-seal guarantee: repeated
+      `assemble` of an unchanged composition does NOT re-run selection +
+      validation + sealing (one cached object, one compute);
     * INVALIDATION — a changed SELECTED descriptor (source-store generation),
       a changed STANDARD descriptor (standard generation), and a changed INLINE
       descriptor each force a re-seal (a fresh, distinct object);
@@ -82,20 +81,6 @@
           "the SECOND assembly reused the cached object — it did NOT re-seal")
       (is (= 1 (rf.image-assembly/cache-size))
           "exactly one generation is cached for the one composition"))))
-
-(deftest ssr-style-repeated-assemble-does-not-reseal
-  (testing "the SSR motivation: assembling the same composition N times for N
-            request-scoped frames produces ONE cached object reused N times —
-            glob selection + validation + sealing run exactly once"
-    (record! "app.core" :event :app/boot ::boot)
-    (record! "app.core" :sub   :app/state ::state)
-    (let [img  (rf.image/image {:id :app/main :select-ns {:include ["app.core"]}})
-          gens (vec (repeatedly 25 #(rf.image-assembly/assemble [img])))
-          gen0 (first gens)]
-      (is (apply = gens) "all 25 are equal")
-      (is (every? #(identical? gen0 %) gens)
-          "all 25 are the SAME object — sealed once, reused 24 times")
-      (is (= 1 (rf.image-assembly/cache-size))))))
 
 (deftest distinct-equal-image-values-still-hit
   (testing "two SEPARATELY-constructed image values with equal specs hit the
