@@ -22,6 +22,7 @@ Neither per-file confirmation nor a second acknowledgement is required — the a
 
 - Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25 — incl. the async-test recipe `run-test-async` / `wait-for-event`, M-50, M-52)
 - Test-layer v1 API to v2 mapping (M-25 / M-26 / M-64 / M-73 — the test/fixture-layer sweep target, in one place)
+- M-75 — subscription inputs move into `:inputs` (the `:<-` chain; loud-at-load)
 - reg-sub flat-sub sugar removed (`:->` / `:=>` desugaring — no `M-N` id)
 - Effect-map consolidation (M-8)
 - Effect-handler arity (M-51 — unary `reg-fx` handler → binary; Type A but **silent-fail**)
@@ -294,6 +295,39 @@ Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-ove
 
 ---
 
+## M-75 — subscription inputs move into `:inputs`
+
+A v2 `reg-sub` declares its dependencies once, under `:inputs` in the registration metadata map: `(reg-sub id ?metadata computation-fn)`. There is no positional declaration, so every v1 `:<-` chain is a site. Grep every `reg-sub` for `:<-` up front — a missed site compiles clean and throws `:rf.error/reg-sub-bad-args` at namespace load, aborting the rest of that namespace.
+
+```clojure
+;; SEARCH
+(rf/reg-sub :cart/visible
+  :<- [:cart/by-price]
+  :<- [:cart/filter]
+  (fn [[items f] _] (filterv f items)))
+
+(rf/reg-sub :auth/signed-in?
+  {:doc "…"}
+  :<- [:auth/user]
+  (fn [user _] (some? user)))
+
+;; REWRITE — literal :inputs vector, merged into any existing metadata map
+(rf/reg-sub :cart/visible
+  {:inputs [[:cart/by-price] [:cart/filter]]}
+  (fn [[items f] _] (filterv f items)))       ; two or more inputs: body unchanged
+
+(rf/reg-sub :auth/signed-in?
+  {:doc    "…"
+   :inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))               ; ONE input: bracket the first param
+```
+
+The one step a careless sweep misses is the bracket. Under `:<-` a single input arrived bare; under `:inputs` it always arrives as a vector. So at exactly one input, wrap the first parameter whatever its binding form — `items` → `[items]`, `{:keys [errors]}` → `[{:keys [errors]}]`, `[a b]` → `[[a b]]`. When the computation fn is a reference rather than a literal `fn`, leave the referenced fn alone and wrap it at the call site: `(rf/reg-sub :cart/total {:inputs [[:cart/items]]} (fn [[items] q] (f items q)))`.
+
+A v1 **signal fn** (two trailing fns) is not this rule's shape: reshape it under [M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns) first, then move it into `{:inputs …}` unchanged. `:->` / `:=>` sugar is the next section.
+
+---
+
 ## reg-sub flat-sub sugar removed
 
 A sibling mechanical (Type A) rewrite to M-23, for a v1 surface that carries **no `M-N` id** — cite it by name (a `reg-sub` `:->` / `:=>` desugaring), not a phantom `M-NN`.
@@ -389,6 +423,14 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 The shape is valid Clojure, so **the compile is still clean** and march-the-wall still cannot find it — but the miss is now loud at the first execution of that handler, and it takes the handler's legal siblings down with it (the `:db` write the author expected is rolled back too). A boot smoke-test catches any site on the boot path immediately; a `dispatch-sync`-then-observe test catches the rest, and re-reading the `:db` write no longer passes vacuously, because `:db` does not commit either. This is why step 1 enumerates the app's own fx ids: an unrecognised custom top-level key is exactly this refusal.
 
 **Not to be confused with a malformed entry *inside* `:fx`.** `{:fx [[:good a] :oops]}` is a well-shaped envelope with one bad row: that entry is dropped, its **siblings still run**, and the event commits. The envelope is transactional pre-commit; the do-fx plane stays best-effort post-commit.
+
+**Entries a v1 app already wrote inside `:fx` need a pass too.** v1 supported the `:fx` vector, so an app can carry v1-shaped entries that the top-level fold never touches:
+
+- `[:dispatch-later {:ms n :dispatch ev}]` — rename the map's `:dispatch` key to `:event` (`{:ms n :event ev}`). This one is **silent**: the v2 fx reads only `:ms` and `:event`, so the entry is accepted and the event you meant is never dispatched. Grep every `:dispatch-later` map, not just top-level ones.
+- `[:dispatch-n [e1 e2]]` — v2 ships no `:dispatch-n` fx; expand to `[:dispatch e1] [:dispatch e2]`.
+- `[:deregister-event-handler id]` (top-level or in `:fx`) — v2 ships no such fx. Register a project fx that calls `(rf/clear :event id)`, or flag the site.
+
+An unregistered fx id inside `:fx` is not silent — it emits `:rf.error/no-such-fx` when the entry runs — but it is still compile-clean, so sweep for it rather than waiting for the error.
 
 ---
 
