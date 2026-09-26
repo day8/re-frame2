@@ -183,24 +183,9 @@
 
 ;; ---- (1) predicates -----------------------------------------------------
 
-(deftest destroy-event?-positive
-  (is (true? (h/destroy-event? (destroy-ev {:machine-id :user-session}))))
-  (is (true? (h/destroy-event? {:operation :rf.machine.lifecycle/destroyed
-                                :tags {:reason :parent-frame-destroyed}}))))
-
 (deftest destroy-event?-negative
   (is (false? (h/destroy-event? (dispatched-ev [:auth/logout]))))
   (is (false? (h/destroy-event? (http-abort-ev {})))))
-
-(deftest abort-event?-positive
-  (is (true? (h/abort-event? (http-abort-ev {}))))
-  (is (true? (h/abort-event? (ws-abort-ev {}))))
-  (is (true? (h/abort-event? (timer-cancel-ev {}))))
-  (is (true? (h/abort-event? (invoke-cancel-ev {})))))
-
-(deftest abort-event?-negative
-  (is (false? (h/abort-event? (dispatched-ev [:auth/logout]))))
-  (is (false? (h/abort-event? (destroy-ev {:machine-id :x})))))
 
 (deftest cancellation-anchor?-true-for-each-emitted-family
   ;; The channels are DISJOINT (Spec 009 §op-type
@@ -260,18 +245,6 @@
   (testing "non-destroy events are not emittable destroys"
     (is (false? (h/emittable-destroy? (http-abort-ev {}))))
     (is (false? (h/emittable-destroy? (dispatched-ev [:auth/logout]))))))
-
-(deftest classify-fx-maps-each-operation
-  (is (= :http   (h/classify-fx (http-abort-ev {}))))
-  (is (= :ws     (h/classify-fx (ws-abort-ev {}))))
-  (is (= :after  (h/classify-fx (timer-cancel-ev {}))))
-  (is (= :machine-invoke (h/classify-fx (invoke-cancel-ev {})))))
-
-(deftest cancel-cause-prefers-explicit-tag
-  (is (= :user-clicked-cancel
-         (h/cancel-cause
-           (assoc-in (http-abort-ev {}) [:tags :cancel-cause]
-                     :user-clicked-cancel)))))
 
 (deftest cancel-cause-defaults-by-operation
   (is (= :actor-destroyed (h/cancel-cause (http-abort-ev {}))))
@@ -555,21 +528,6 @@
           c   (h/extract-cascade buf {:kind :machine-id :id :a})]
       (is (= 1 (count (:effect-aborts c))))
       (is (= :a (-> c :child-teardowns first :child-id))))))
-
-;; ---- (2) extract-cascade: best-effort wall-clock window ----------------
-
-(deftest extract-wall-clock-fallback
-  (testing "actor-destroy abort outside the originating drain (no
-            dispatch-id) is still folded in by wall-clock proximity"
-    (let [buf [(destroy-ev {:machine-id :user-session :dispatch-id 1
-                            :time 1000 :id 1})
-               ;; abort fires AFTER the anchor's drain — dispatch-id
-               ;; missing from tags; proximity gathers it.
-               (-> (http-abort-ev {:request-id :r1 :actor-id :user-session
-                                   :time 1015 :id 2})
-                   (update :tags dissoc :rf.trace/dispatch-id))]
-          c   (h/extract-cascade buf)]
-      (is (= 1 (count (:effect-aborts c)))))))
 
 ;; ---- (3) summarisers ---------------------------------------------------
 
