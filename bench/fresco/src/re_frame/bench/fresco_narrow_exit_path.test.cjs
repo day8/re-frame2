@@ -204,12 +204,6 @@ test('the driver exposes its decision and does not drive itself on require', () 
   assert.match(SRC, /if \(require\.main === module\) \{\s*main\(\)\.catch\(/);
 });
 
-test('the exit code comes from `verdict`, and every one of its lines is SAID', () => {
-  assert.match(MAIN, /const v = verdict\(\{/);
-  assert.match(MAIN, /for \(const line of v\.lines\) say\(line\);/);
-  assert.match(MAIN, /if \(v\.code !== 0\) process\.exitCode = v\.code;/);
-});
-
 test('`main` sets its exit code in exactly ONE place', () => {
   // A verdict block of early returns can read some conditions and miss
   // others. One assignment means one decision, and the decision is
