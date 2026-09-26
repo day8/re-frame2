@@ -25,7 +25,7 @@
   ## Posture split
 
   Teardown is production behaviour; the LIFECYCLE EMITS that narrate it are
-  not. Six of the eight cases read `:rf.sub/dispose` / `:rf.frame/destroyed` /
+  not. Six of the seven cases read `:rf.sub/dispose` / `:rf.frame/destroyed` /
   `:rf.warning/teardown-hook-exception` /
   `:rf.warning/cross-frame-dispatch-sync-during-drain` off the dev trace, which
   is silent under `scripts/test-core-prod-gate.sh`, so those reads are
@@ -186,64 +186,76 @@
 ;;
 ;; destroy-frame! consults late-bind hooks for several optional cleanup
 ;; steps (privacy, elision, ssr, machines, schemas, flows, epoch). The
-;; helper safe-call-hook! wraps each in try/catch so one bad hook can
-;; not block the rest of teardown. This test pins that contract
-;; end-to-end: install a throwing hook, destroy, and assert all the
-;; OTHER hooks still fire and the frame is fully gone.
+;; helper safe-call-hook! wraps each in try/catch so one bad hook can not
+;; block the rest of teardown: the throw is swallowed, every downstream
+;; hook still runs and the frame is fully gone. It is not silent either —
+;; it emits exactly one structured :rf.warning/teardown-hook-exception
+;; carrying the hook key, frame id, and exception, so a leaked
+;; optional-artefact cleanup is diagnosable.
 ;; ---------------------------------------------------------------------------
 
-(deftest destroy-with-throwing-late-bound-hook-still-completes
-  (testing "throwing :schemas/on-frame-destroyed! does NOT prevent the rest
-            of the cleanup hooks or the dissoc step from running"
-    (rf/make-frame {:id :composed/hook-throw :doc "hook-throw"})
-
-    (let [other-hooks-called (atom #{})
+(deftest throwing-cleanup-hook-emits-one-diagnostic
+  (testing "a throwing late-bound cleanup hook emits exactly one
+            :rf.warning/teardown-hook-exception (carrying :hook, :frame,
+            :exception) while teardown continues best-effort"
+    (rf/make-frame {:id :composed/hook-diag :doc "hook-diag"})
+    (let [hooks-ran (atom #{})
+          original-schemas-h (rf.late-bind/get-fn :schemas/on-frame-destroyed!)
           original-flows-h   (rf.late-bind/get-fn :flows/teardown-on-frame-destroy!)
           original-epoch-h   (rf.late-bind/get-fn :epoch/on-frame-destroyed)
-          original-schemas-h (rf.late-bind/get-fn :schemas/on-frame-destroyed!)]
+          warnings (atom [])]
+      (rf/register-listener! :trace ::hook-diag
+                             (fn [ev]
+                               (when (= :rf.warning/teardown-hook-exception
+                                        (:operation ev))
+                                 (swap! warnings conj ev))))
       (try
-        ;; The throwing hook — fires AFTER mark-frame-destroyed! /
+        ;; The throwing hook fires AFTER mark-frame-destroyed! /
         ;; tear-down-sub-cache! but BEFORE :flows/teardown and
         ;; :epoch/on-frame-destroyed.
         (rf.late-bind/set-fn! :schemas/on-frame-destroyed!
                            (fn [_id]
-                             (swap! other-hooks-called conj :schemas-throwing)
-                             (throw (ex-info "schemas teardown blew" {}))))
-        ;; The downstream hooks — they must run AFTER the throw.
+                             (swap! hooks-ran conj :schemas-throwing)
+                             (throw (ex-info "schemas teardown blew" {:k :v}))))
         (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
-                           (fn [_id]
-                             (swap! other-hooks-called conj :flows-ran)))
+                           (fn [_id] (swap! hooks-ran conj :flows-ran)))
         ;; The post-dissoc :epoch/on-frame-destroyed hook takes
         ;; (frame-id owner-token terminal-evidence) — exact incarnation
         ;; ownership plus the pre-dissoc terminal-evidence bundle
         ;; :epoch/snapshot-frame-destroyed captured for the :halted-destroy
-        ;; record. (The two frame-state snapshots + causal :time-ms reach
-        ;; the epoch layer via that pre-dissoc snapshot hook.)
+        ;; record.
         (rf.late-bind/set-fn! :epoch/on-frame-destroyed
                            (fn [_id _owner-token _terminal-evidence]
-                             (swap! other-hooks-called conj :epoch-ran)))
+                             (swap! hooks-ran conj :epoch-ran)))
 
-        ;; Destroy must not re-throw.
-        (is (nil? (rf.frame/destroy-frame! :composed/hook-throw))
-            "destroy-frame! completes; the throwing hook was swallowed")
-
-        ;; Every hook downstream of the throw still ran.
-        (is (contains? @other-hooks-called :schemas-throwing)
+        (is (nil? (rf.frame/destroy-frame! :composed/hook-diag))
+            "destroy completes; the hook throw was swallowed")
+        (is (contains? @hooks-ran :schemas-throwing)
             "the throwing hook itself was invoked")
-        (is (contains? @other-hooks-called :flows-ran)
-            ":flows/teardown-on-frame-destroy! still ran AFTER the schemas throw")
-        (is (contains? @other-hooks-called :epoch-ran)
-            ":epoch/on-frame-destroyed still ran AFTER the schemas throw")
+        (is (contains? @hooks-ran :flows-ran)
+            "best-effort: the downstream hook still ran after the throw")
+        (is (contains? @hooks-ran :epoch-ran)
+            "and so did the post-dissoc :epoch/on-frame-destroyed hook")
 
-        ;; The frame is fully gone.
-        (is (nil? (rf.frame/frame :composed/hook-throw))
-            "frame is dissoc'd from the frames atom despite the hook throw")
-        (is (nil? (rf.frame/frame-meta :composed/hook-throw))
-            "frame is invisible to frame-meta despite the hook throw")
-
+        ;; ALWAYS-ON: best-effort teardown finished — the
+        ;; frame is gone despite the hook throw. Only the DIAGNOSTIC that makes
+        ;; the leak diagnosable is dev-only.
+        (is (nil? (rf.frame/frame :composed/hook-diag))
+            "the frame is dissoc'd despite the throwing hook")
+        (when rf.interop/debug-enabled?
+          (is (= 1 (count @warnings))
+              "exactly one teardown-hook-exception diagnostic for the failed hook")
+          (let [ev (first @warnings)]
+            (is (= :error (:op-type ev))
+                "op-type is :error (emit-error! family); :operation carries the :rf.warning/* category")
+            (is (= :schemas/on-frame-destroyed! (-> ev :tags :hook))
+                ":hook names the failing late-bind hook key")
+            (is (= :composed/hook-diag (-> ev :tags :frame))
+                ":frame carries the frame being destroyed (via the dynamic binding)")
+            (is (some? (-> ev :tags :exception))
+                ":exception carries the throwable")))
         (finally
-          ;; Restore the original hook fns so subsequent tests are not
-          ;; observing the throwing/probe replacements.
+          (rf/unregister-listener! :trace ::hook-diag)
           (rf.late-bind/set-fn! :schemas/on-frame-destroyed! original-schemas-h)
           (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy! original-flows-h)
           (rf.late-bind/set-fn! :epoch/on-frame-destroyed original-epoch-h))))))
@@ -439,63 +451,6 @@
                    for an input"))))
         (finally
           (rf/unregister-listener! :trace ::layered-destroy))))))
-
-;; ---------------------------------------------------------------------------
-;; 3c. Throwing cleanup hook emits a diagnostic, not silence
-;;
-;; safe-call-hook! keeps best-effort teardown (the throw is swallowed and
-;; downstream hooks still run) BUT emits exactly one structured
-;; :rf.warning/teardown-hook-exception carrying the hook key, frame id,
-;; and exception — so a leaked optional-artefact cleanup is diagnosable.
-;; ---------------------------------------------------------------------------
-
-(deftest throwing-cleanup-hook-emits-one-diagnostic
-  (testing "a throwing late-bound cleanup hook emits exactly one
-            :rf.warning/teardown-hook-exception (carrying :hook, :frame,
-            :exception) while teardown continues best-effort"
-    (rf/make-frame {:id :composed/hook-diag :doc "hook-diag"})
-    (let [downstream-ran (atom #{})
-          original-schemas-h (rf.late-bind/get-fn :schemas/on-frame-destroyed!)
-          original-flows-h   (rf.late-bind/get-fn :flows/teardown-on-frame-destroy!)
-          warnings (atom [])]
-      (rf/register-listener! :trace ::hook-diag
-                             (fn [ev]
-                               (when (= :rf.warning/teardown-hook-exception
-                                        (:operation ev))
-                                 (swap! warnings conj ev))))
-      (try
-        (rf.late-bind/set-fn! :schemas/on-frame-destroyed!
-                           (fn [_id]
-                             (throw (ex-info "schemas teardown blew" {:k :v}))))
-        (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy!
-                           (fn [_id] (swap! downstream-ran conj :flows-ran)))
-
-        (is (nil? (rf.frame/destroy-frame! :composed/hook-diag))
-            "destroy completes; the hook throw was swallowed")
-        (is (contains? @downstream-ran :flows-ran)
-            "best-effort: the downstream hook still ran after the throw")
-
-        ;; ALWAYS-ON: best-effort teardown finished — the
-        ;; frame is gone despite the hook throw. Only the DIAGNOSTIC that makes
-        ;; the leak diagnosable is dev-only.
-        (is (nil? (rf.frame/frame :composed/hook-diag))
-            "the frame is dissoc'd despite the throwing hook")
-        (when rf.interop/debug-enabled?
-          (is (= 1 (count @warnings))
-              "exactly one teardown-hook-exception diagnostic for the failed hook")
-          (let [ev (first @warnings)]
-            (is (= :error (:op-type ev))
-                "op-type is :error (emit-error! family); :operation carries the :rf.warning/* category")
-            (is (= :schemas/on-frame-destroyed! (-> ev :tags :hook))
-                ":hook names the failing late-bind hook key")
-            (is (= :composed/hook-diag (-> ev :tags :frame))
-                ":frame carries the frame being destroyed (via the dynamic binding)")
-            (is (some? (-> ev :tags :exception))
-                ":exception carries the throwable")))
-        (finally
-          (rf/unregister-listener! :trace ::hook-diag)
-          (rf.late-bind/set-fn! :schemas/on-frame-destroyed! original-schemas-h)
-          (rf.late-bind/set-fn! :flows/teardown-on-frame-destroy! original-flows-h))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Cross-frame dispatch from inside :on-destroy event
