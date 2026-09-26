@@ -879,6 +879,12 @@
                "— an empty `[]` policy would have thrown "
                ":rf.error/ssr-missing-payload-policy)"))
       (is (some? payload))
+      ;; The hash covers the page the root renders, not a view reference:
+      ;; the ambient :rf/default frame holds no preloaded entry, so its render
+      ;; of the same root hashes differently from the server's.
+      (is (not= (:rf/render-hash payload)
+                (rf.ssr/render-tree-hash ((rf/view :app/root))))
+          "the root view's render hash tracks the cache state it renders")
       (is (not (contains? payload :rf/frame-id))
           "the resources payload OMITS :rf/frame-id")
       ;; ── Response document envelope ─────────────────────────────────────
