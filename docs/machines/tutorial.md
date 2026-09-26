@@ -61,10 +61,11 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
 
 Targets here are bare keywords. The next two steps turn those into maps, then into candidate vectors.
 
-You do not `send` to the machine. You `dispatch`, as you would to any handler.
+You do not `send` to the machine. You `dispatch`, as you would to any handler
+(`dispatch-sync` here, so the next read sees the result).
 
 ```clojure
-(rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
+(rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
 ```
 
 The outer vector is a re-frame2 **event**. `:auth.login/flow` is the event id.
@@ -128,12 +129,12 @@ Try it:
 
 ```clojure
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "" :password ""}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])
-;; => still :idle
+(:state @(rf/subscribe [:rf/machine :auth.login/flow]))
+;; => :idle — the guard refused the submit
 
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com"
                                                          :password "secret"}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])
+(:state @(rf/subscribe [:rf/machine :auth.login/flow]))
 ;; => :submitting
 ```
 
@@ -257,7 +258,7 @@ Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it 
 
 The timeout uses the **same guarded candidate list** as failure (an `:after` value takes the same shape as an `:on` clause), so the third stall — or the third failure — records its error and locks out.
 
-`:on-success [:auth.login/flow [:auth.login/success]]` is written one element short on purpose. The outer vector is the event that addresses the singleton. The inner vector is the trigger the table handles. Managed HTTP **appends** the reply envelope onto that inner vector:
+`:on-success [:auth.login/flow [:auth.login/success]]` is written one element short on purpose. The outer vector is the event that addresses the singleton. The inner vector is the trigger the table handles. Managed HTTP **appends** the reply envelope to the event, and the machine moves anything after the trigger onto it, so the table sees:
 
 ```clojure
 [:auth.login/success {:status :ok    :value {:token "…"} …}]

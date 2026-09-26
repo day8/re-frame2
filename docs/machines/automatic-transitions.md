@@ -27,7 +27,7 @@ re-frame2 has four authoring forms for this, built on two engines.
 
 `:always` is checked after a state is entered and after transitions that remain in, or land in, that state.
 
-Those points and no others. Nothing watches the guard in between, so a `:data` change that arrives outside a macrostep — a spawned child's [`:on-done` fold](actors.md#when-a-child-finishes), say — does not move the machine on its own. The next event does.
+Those points and no others. Nothing watches the guard in between, so a `:data` change that arrives outside a macrostep — a [`:spawn-all` child's `:on-done` fold](actors.md#fan-out-and-join-with-spawn-all), say — does not move the machine on its own. The next event does.
 
 Login can skip the form when a session token is already in `:data`:
 
@@ -181,7 +181,7 @@ An `:after` delay can be:
 30000
 ```
 
-A positive integer, in milliseconds. Not an ISO-8601 string — those belong to `:timeout` below.
+A positive integer, in milliseconds, or an ISO-8601 duration string such as `"PT30S"`. A `"5s"` shorthand is refused (`:rf.error/machine-bad-after-delay`).
 
 ```clojure
 [:settings/login-timeout-ms]

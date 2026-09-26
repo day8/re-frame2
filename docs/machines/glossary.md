@@ -45,15 +45,15 @@ It lives in [runtime-db](../core/glossary.md#runtime-db). Read it with
 
 `nil` until the first event on a **singleton**. A spawned actor has a
 snapshot from the moment it is spawned. `:state` is a keyword, a path
-vector, or a region map.
+vector, or a region map. The runtime also keeps its own `:rf/*` keys there.
 
 See [The snapshot](concepts.md#the-snapshot).
 
 ### **:data**
 
 A machine's private working memory. Guards and actions read it. Actions update
-it by returning `{:data …}`. Merged, not replaced — `{:data {:error nil}}` sets
-that key to nil.
+it by returning `{:data …}`. Merged at the top level, not replaced —
+`{:data {:error nil}}` sets that key to nil.
 
 See [The idea](concepts.md#the-idea).
 
@@ -220,8 +220,8 @@ See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards)
 
 ### **:always**
 
-An eventless transition checked after entry and after transitions into the
-state.
+An eventless transition checked after the state is entered and after any
+transition that lands in it or stays in it.
 
 ```clojure
 :always [{:guard :done? :target :complete}]
@@ -276,7 +276,7 @@ See [Actors](actors.md).
 ### **spawned actor**
 
 A live instance created at run time with `:spawn` or `[:rf.machine/spawn …]`.
-It has an allocated id such as `:auth/request#0`. The spec heading says
+It has an allocated id such as `:auth/request#1`. The spec heading says
 "dynamic actors"; that is an adjective, not a third kind.
 
 See [Actors](actors.md).

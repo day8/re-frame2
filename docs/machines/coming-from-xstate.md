@@ -117,7 +117,10 @@ source stamps empty (`:rf.warning/machine-source-unstamped`).
                                 :guard  :under-retry-limit
                                 :action :record-error}
                                {:target :locked-out
-                                :action :record-error}]}}}})
+                                :action :record-error}]}}
+
+    :error-shown {:on {:auth.login/submit :submitting}}
+    :locked-out  {}}})
 
 (rf/reg-machine :auth.login/flow login-flow)
 ```

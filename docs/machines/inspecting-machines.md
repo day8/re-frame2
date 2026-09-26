@@ -217,7 +217,7 @@ The third level runs the real pipeline in a fresh frame, so it is the one that e
 
 ## What failure means
 
-A throwing guard or action becomes a failure result at the pure testing surface. It does not escape as an exception from the test call: `(result/fail? r)` is true and `(result/info r)` carries the diagnostic.
+A throwing guard or action becomes a failure result at the pure testing surface. It does not escape as an exception from the test call: the result's `:status` is `:error` and its `:error` carries the diagnostic.
 
 At runtime, the same failure aborts the macrostep atomically. The previous snapshot remains visible. The error is reported as `:rf.error/machine-action-exception` (a thrown guard does not fall through to the next candidate).
 

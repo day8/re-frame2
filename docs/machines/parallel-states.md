@@ -67,7 +67,7 @@ A parallel machine has `:type :parallel` and `:regions` at the root.
        :on   {:auth.login/success :authed
               :auth.login/failure :error-shown}}
       :authed      {:tags #{:auth/authed}}
-      :error-shown {:on {:auth.login/dismiss :idle}}}}}}})
+      :error-shown {:on {:auth.login/dismiss :idle}}}}}})
 
 (rf/reg-machine :auth.login/flow login-page)
 ```
@@ -86,7 +86,7 @@ region.
 
 At the top level, a parallel machine does not also declare root `:initial` and
 root `:states`. Registration throws `:rf.error/machine-parallel-bad-shape` if
-the root has both, or if a region is missing its own `:initial`.
+the root has either, or if a region is missing its own `:initial`.
 
 ## The snapshot state is a region map
 
@@ -222,8 +222,8 @@ parallel region; a flat machine's context stays `{:data :event :state :meta}`.
 
 | Key | Meaning |
 |---|---|
-| `:tags` | the machine-wide tag union from the pre-event snapshot |
-| `:all-state` | the full region → active-state map from the pre-event snapshot |
+| `:tags` | the machine-wide tag union |
+| `:all-state` | the full region → active-state map |
 
 Prefer tags:
 
@@ -298,6 +298,11 @@ may not itself declare `:type :parallel`. Registration throws
 
 If you find yourself wanting nested parallel, flatten the axes into one
 parallel root or split the feature into several machines.
+
+A `:regions` map of more than eight entries does not keep its written order,
+and region order decides the order actions run in. Such a machine lists its
+region names, in order, as `:region-order`; without it registration throws
+`:rf.error/machine-parallel-region-order-required`.
 
 ## Troubleshooting
 
