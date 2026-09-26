@@ -449,8 +449,10 @@ A schema does not hide a value from traces. To redact a secret in `:data`,
 name its path on the machine, starting from the snapshot:
 `{:sensitive [[:data :token]]}`. Machine traces redact that slot for every
 instance, spawned ones included — see [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem).
-The `:rf.sub/run` trace of a `[:rf/machine id]` subscription is not a machine
-trace, and it carries the value unredacted.
+A `[:rf/machine id]` subscription carries the same classification: its
+`:rf.sub/run` trace, and an off-box read of it by query vector, redact those
+slots (and size-mark any declared `:large` paths) exactly as machine traces do,
+while reading the sub in-process returns the real values.
 
 ## Testing
 
