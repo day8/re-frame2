@@ -4,7 +4,7 @@
 
 ## What it does
 
-The `re-frame2-improver` skill is a code reviewer for re-frame2 code that is already written. It reads your source files (or a snippet you paste), checks them against a small anti-pattern catalogue, and returns one complete critique in the same turn, most severe first. Each finding gives the file and line, what goes wrong because of it, the smallest safe correction, and a link to the canonical idiom under `skills/re-frame2/patterns/`.
+The `re-frame2-improver` skill reads your source files (or a snippet you paste), checks them against a small anti-pattern catalogue, and returns one complete critique in the same turn, most severe first. Each finding gives the file and line, what goes wrong because of it, the smallest safe correction, and a link to the canonical idiom under `skills/re-frame2/patterns/`.
 
 Whether it edits depends on what you asked for:
 
@@ -17,7 +17,9 @@ The catalogue is the set of notes under [`references/`](https://github.com/day8/
 
 ## When to reach for it
 
-Use it when you explicitly ask for a review — "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`" — **and** there is re-frame2 source to review: code read or edited in the conversation, a pasted snippet, or a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Review vocabulary alone is not enough, and a path that does not resolve does not count.
+Use it when you explicitly ask for a review — "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`".
+
+There must also be re-frame2 source to review: code read or edited in the conversation, a pasted snippet, or a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Review vocabulary alone is not enough, and a path that does not resolve does not count.
 
 Use a different skill for:
 

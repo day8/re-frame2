@@ -4,9 +4,9 @@
 
 ## What it does
 
-The `re-frame2` skill is the authoring skill. It maps ideas you already know — events, state machines, HTTP retry, optimistic updates — onto re-frame2's actual API, and copies the canonical declaration shape rather than inventing one. It talks to frames through `dispatch` and `subscribe`, uses the `reg-*` macros (which capture source coordinates for tools) rather than their runtime-fn forms, and gives application keywords a feature prefix such as `:cart/…`, because `:rf/*` is reserved. For a known pattern (remote data, forms, managed HTTP and the rest) it works from a short pattern note and the worked example under `examples/` that the note links to.
+The `re-frame2` skill maps ideas you already know — events, state machines, HTTP retry, optimistic updates — onto re-frame2's actual API, and copies the canonical declaration shape rather than inventing one. For a known pattern (remote data, forms, managed HTTP and the rest) it works from a short pattern note and the worked example under `examples/` that the note links to.
 
-When the code is written, it finds the project's nearest noninteractive gate — from `deps.edn`, `shadow-cljs.edn`, `package.json` or the README — runs it, and reports the exact command and result. It hands a check to you only when that check is interactive or visual, needs a live runtime (that is [re-frame2-pair](re-frame2-pair.md)), or the project has no such gate, and it says which.
+A few rules shape the code it writes. It reads and changes state through `dispatch` and `subscribe`, never through frame internals. It uses the `reg-*` macros, which record source locations for tools, rather than their runtime-function forms. And it gives application keywords a feature prefix such as `:cart/…`, because `:rf/*` is reserved.
 
 ## When to reach for it
 
@@ -33,7 +33,11 @@ Ask for what you want in your own words, in a project that has the skill install
 
 The skill loads itself on requests like that. To load it explicitly, type `/re-frame2`.
 
-For Story work it can also drive the optional `re-frame2-story-mcp` server's author-and-refine tools (listing, previewing and registering variants); running variants against a live app is a [re-frame2-pair](re-frame2-pair.md) job. The server and its setup are in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md); the skill's side of the loop is [`references/tooling/story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md).
+For Story work it can also drive the optional `re-frame2-story-mcp` server's tools for listing, previewing and registering variants; running variants against a live app is a [re-frame2-pair](re-frame2-pair.md) job. The server and its setup are in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md); the skill's side is [`references/tooling/story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md).
+
+## When it stops
+
+When the code is written, it finds the project's nearest noninteractive check — from `deps.edn`, `shadow-cljs.edn`, `package.json` or the README — runs it, and reports the exact command and result. It hands a check to you only when that check is interactive or visual, needs a live runtime (that is [re-frame2-pair](re-frame2-pair.md)), or the project has no such check, and it says which.
 
 ## Where the skill lives
 

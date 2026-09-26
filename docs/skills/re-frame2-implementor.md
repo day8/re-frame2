@@ -4,16 +4,16 @@
 
 ## What it does
 
-The `re-frame2-implementor` skill is for engineers **building re-frame2 itself**, not applications with it. It takes you from "I want to port re-frame2 to TypeScript" to "my port passes the claimed-applicable subset of the conformance corpus." The in-scope hosts are the eight languages that compile to JavaScript and render through React: ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, F# (Fable), Squint, Scala.js, PureScript and Kotlin/JS, per the [spec/000-Vision.md](../../spec/000-Vision.md) scope footnote.
+The skill is for engineers **building re-frame2 itself**, not applications with it. It takes you from "I want to port re-frame2 to TypeScript" to "my port passes every conformance fixture that applies to the capabilities it claims." The in-scope hosts are the eight languages that compile to JavaScript and render through React: ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, F# (Fable), Squint, Scala.js, PureScript and Kotlin/JS, as set by the scope footnote in the [Vision spec](../../spec/000-Vision.md).
 
 It works in two phases:
 
 - **Phase 1 records a port profile** — one compact record of the spec pin and the choices you actually made: host and toolchain, the host mechanisms for identity, data, the React binding and the rest, the capabilities you claim with their known skips, and the current conformance score. For a minimum port there is **no interview**: optional capabilities default to no, mechanisms default to the host's idiom, and the first slice starts in the same run. The profile's shape is [`references/phase-1-decisions.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/references/phase-1-decisions.md).
-- **Phase 2 repeats one loop** in spec dependency order: read the owning spec at the pinned commit, list the applicable conformance fixtures, implement the smallest vertical slice, run the narrowest gate that covers it, diagnose, and update the profile only if a real choice changed. The conformance harness is wired up early, so feedback starts with the first slice. The loop, the order and the acceptance gates are in [`references/phase-2-impl-order.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/references/phase-2-impl-order.md).
+- **Phase 2 repeats one loop** in spec dependency order: read the owning spec at the pinned commit, list the applicable conformance fixtures, implement the smallest vertical slice, run the narrowest check that covers it, diagnose, and update the profile only if a real choice changed. The conformance harness is wired up early, so feedback starts with the first slice. The loop, the order and the acceptance gates are in [`references/phase-2-impl-order.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/references/phase-2-impl-order.md).
 
 The authority is the [spec corpus](../../spec/000-Vision.md), with the [Implementor Checklist](../../spec/Implementor-Checklist.md) as its decision-ordered companion and the [conformance corpus](../../spec/conformance/README.md) as the acceptance test. The CLJS reference in `implementation/` is one worked example, never normative.
 
-When it has tool access, the agent runs your port's noninteractive gates itself — the slice gate on every pass of the loop, and the full conformance passes when you asked for an end-to-end implementation — and reports exact commands, exit codes and `passed / claimed-applicable`. It hands you only genuinely interactive or visual checks, and never claims completion while required evidence is pending.
+When it has tool access, the agent runs your port's noninteractive checks itself — the current slice's check on every pass of the loop, and the full conformance runs when you asked for an end-to-end implementation — and reports exact commands, exit codes and the conformance score (`passed / claimed-applicable`). It hands you only genuinely interactive or visual checks, and never claims completion while required evidence is pending.
 
 ## When to reach for it
 
@@ -30,7 +30,7 @@ Use a different skill for:
 - Migrating a v1 codebase → [re-frame-migration](re-frame-migration.md).
 - Inspecting or debugging a running v2 app → [re-frame2-pair](re-frame2-pair.md).
 
-A **non-React substrate** (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a **host that does not compile to JavaScript** (Python, Ruby, native Rust, Go, server-side Kotlin / Java) is out of scope by spec decision, not by oversight; the skill says so and stops.
+A **non-React view layer** (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a **host that does not compile to JavaScript** (Python, Ruby, native Rust, Go, server-side Kotlin / Java) is out of scope by spec decision, not by oversight; the skill cites the scope footnote and stops.
 
 ## Kickoff
 
@@ -38,8 +38,7 @@ Open a fresh Claude Code session in the root of your port's repo and paste the s
 
 ## When it stops
 
-- **The spec checkout does not verify.** Before reading anything, the skill checks that the checkout's `HEAD` and `origin` match the pin in the port profile and that its `spec/` tree is clean — uncommitted edits would otherwise pass as the recorded commit. On a mismatch it reports the paths and stops before deriving any obligation or score. It never resets, checks out or stashes to clear them; parking those edits, or pinning a commit that includes them, is up to you.
-- **An out-of-scope target** — a non-React substrate or a host that does not compile to JavaScript. The skill cites the scope footnote and stops.
+- **The spec checkout does not match its pin.** Before reading anything, the skill checks that the checkout's `HEAD` and `origin` match the pin in the port profile and that its `spec/` tree has no uncommitted edits, which would otherwise pass as the recorded commit. On a mismatch it reports the paths and stops. It never resets, checks out or stashes to fix this; committing or setting aside those edits, or pinning a commit that includes them, is up to you.
 - **A spec gap** — a fixture that cannot pass without sources outside the spec. The skill does not paper over it or copy the reference implementation's behaviour. It searches the upstream `day8/re-frame2` issues (pointing you at an existing one if it matches), drafts one, shows you the full draft, and runs `gh issue create` only after an explicit yes.
 - **A choice that materially changes the port** and cannot be defaulted — the one kind of question it asks during Phase 1.
 

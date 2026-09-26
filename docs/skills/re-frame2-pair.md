@@ -4,13 +4,13 @@
 
 ## What it does
 
-The `re-frame2-pair` skill pairs with you on a running re-frame2 app. With the app up under `shadow-cljs watch`, the skill attaches to its nREPL session in `:cljs` mode and works on the live runtime, not just the source files. It works through three things re-frame2 exposes to tools:
+With your app running under `shadow-cljs watch`, the skill attaches to its nREPL session in `:cljs` mode and works on the live app, not just the source files. It uses three things re-frame2 exposes to tools:
 
-1. **The REPL** — ClojureScript evaluated against the real app, usually through helpers in the preloaded `re-frame2-pair.runtime` namespace.
+1. **The REPL** — ClojureScript evaluated against the real app, usually through helpers in the `re-frame2-pair.runtime` namespace you add to the app's dev build.
 2. **The trace stream** — live trace events through `rf/register-listener!`, and recent ones through `rf/trace-buffer`.
-3. **The epoch history** — `rf/epoch-history` returns a frame's recent epochs, each with `:db-before`, `:db-after`, its trace events, and the sub runs, renders and effects it caused.
+3. **The epoch history** — an *epoch* is the record one processed event leaves. `rf/epoch-history` returns a frame's recent epochs, each with `:db-before`, `:db-after`, its trace events, and the sub runs, renders and effects the event caused.
 
-It works with apps that run several frames. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it coexists with other tools such as `re-frame-10x` v2 on the same bus, and an operation that changes state refuses with `:ambiguous-frame` when it is unclear which frame to act on.
+It works with apps that run several frames; an operation that changes state refuses with `:ambiguous-frame` when it is unclear which frame to act on. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it runs alongside other tools such as `re-frame-10x` v2.
 
 **REPL changes are temporary; source edits are permanent.** After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
 
@@ -30,7 +30,9 @@ Once the [one-time setup](#one-time-setup) below is done, and with `shadow-cljs 
 
 > *What's in `app-db` under `:cart`?*
 
-The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids, and only then reads the sub, path or slice you asked about. With one build running there is nothing to pass; with several, it refuses with the list of running builds rather than guessing, and a `port` taken from the tab's URL picks the build served there.
+The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids. Only then does it read the sub, path or slice you asked about.
+
+With one build running there is nothing to pass. With several, `discover-app` refuses with the list of running builds rather than guessing; a `port` taken from the tab's URL picks the build served there.
 
 ### One-time setup
 
