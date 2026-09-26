@@ -172,6 +172,7 @@ Signals:
 - the trace stream, epoch history, or schema reflection returned empty and the user thought the tool was broken
 - a production-elided build (`:advanced` + `goog.DEBUG=false`) darkened the dev-gated surfaces and the user read the partial result as everything-gone
 - the user cannot tell whether they hit an elision wall or a tool bug
+- on a **dev** build the epoch surfaces (`watch-epochs`, `trace-window`, `snapshot`'s `:epochs`) came back `[]` and `restore-epoch` refused — the app lacks the `day8/re-frame2-epoch` artefact, which degrades silently everywhere except `replace-app-db`'s `:rf.error/epoch-artefact-missing`, and `discover-app` does not check for it. Not elision; `re-frame2-pair/references/errors.md` owns the diagnosis
 
 Background: production elision is a **mixed** result, not a total wall — the dev-gated families go dark while the always-answering families keep responding (orientation / registry-frame shape is the canonical surface that still answers), so a partial result is not a broken tool. The authoritative dark-vs-answering split is owned by `spec/009-Instrumentation.md` §Production debugging: what remains — its §What is NOT available in a default production CLJS build and §What IS available in production pair *is* the split; route there rather than re-enumerating the surfaces here. Misclassifying a mixed production result as everything-is-gone abandons usable probes.
 

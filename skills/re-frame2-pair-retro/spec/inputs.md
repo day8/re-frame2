@@ -6,7 +6,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 ## 1. Primary input — the user's recent session transcript
 
-The skill operates on the **current or just-finished conversation** — the user's prompts, the AI's tool calls, the structured results, the retries, the clarifications, the fallbacks — or on a **user-supplied recap** of a session. This is the raw material. The skill doesn't ingest a transcript file, and it never probes the runtime to augment the evidence; a fact the session did not produce stays unknown/incomplete.
+The skill operates on the **current or just-finished conversation** — the user's prompts, the AI's tool calls, the structured results, the retries, the clarifications, the fallbacks — or on a **user-supplied recap** of a session. This is the raw material. The skill doesn't go looking for transcript files; it reads one only when the user names its path, as recap evidence. It never probes the runtime to augment the evidence; a fact the session did not produce stays unknown/incomplete.
 
 What the skill looks for:
 
