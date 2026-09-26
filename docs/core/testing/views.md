@@ -64,7 +64,7 @@ Call the view like a function and read the tree it returns:
 
 ## 2. Views that subscribe
 
-`todo-footer` reads `:todo/remaining-count`, and `todo-list` reads `:todo/visible` and renders a `todo-item` per todo. The test dispatches, calls the view and walks the tree:
+`todo-footer` reads `:todo/remaining-count`, and `todo-list`, changed here to read `:todo/visible` (the one on [Views](../views.md) reads `:todo/all`), renders a `todo-item` per todo. The test dispatches, calls the view and walks the tree:
 
 ```clojure
 (deftest footer-counts-remaining

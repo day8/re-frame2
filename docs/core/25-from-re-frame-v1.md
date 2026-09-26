@@ -94,11 +94,11 @@ v2 keeps framework-owned keywords under the reserved root `:rf/*` and its sub-na
 
 ### Subscription input functions
 
-In the two-function `reg-sub` form, the first function declares what the [subscription](glossary.md#subscription) depends on. In v1 it called `(rf/subscribe ...)` and returned running subscriptions. In v2 it returns data: a vector of [**query vectors**](glossary.md#query-vector) (`[:sub-id arg …]`), and the runtime does the subscribing, so the function stays pure and the graph can be inspected without running the app. For a single input, v2 wants `[[:item/by-id id]]`, a one-element vector containing the query vector, not `[:item/by-id id]`. [Subscriptions](subscriptions.md) has the full grammar. The skill rewrites the common shapes and flags the rest.
+In v1's two-function `reg-sub` form, the first function declared what the [subscription](glossary.md#subscription) depends on by calling `(rf/subscribe ...)` and returning running subscriptions. In v2 that declaration moves into the metadata map as `{:inputs (fn [query-v] …)}`, and it returns data: a vector of [**query vectors**](glossary.md#query-vector) (`[:sub-id arg …]`). The runtime does the subscribing, so the function stays pure and the graph can be inspected without running the app. For a single input, v2 wants `[[:item/by-id id]]`, a one-element vector containing the query vector, not `[:item/by-id id]`. [Subscriptions](subscriptions.md) has the full grammar. The skill rewrites the common shapes and flags the rest.
 
-!!! warning "Gotcha — fails *silently* until the sub is first read"
+!!! warning "Gotcha — a migrated input function fails only when the sub is first read"
 
-    A v1 signal-function `reg-sub` still registers under v2 (as a parametric sub), so the compiler says nothing. The problem appears at the first `subscribe`: `:rf.error/sub-input-fn-bad-return`, because the input function returned live reactions instead of a vector of query vectors. A view that swallows the error renders nothing. Sweep every two-function `reg-sub` up front, and check that each migrated sub returns a value.
+    An unmigrated two-function `reg-sub` throws `:rf.error/reg-sub-bad-args` at load, so it can't slip through. The quiet case is a migrated `:inputs` function that still returns subscriptions, or the bare `[:item/by-id id]`: it registers, and the first `subscribe` fails with `:rf.error/sub-input-fn-bad-return`. A view that swallows the error renders nothing, so check that each migrated sub returns a value.
 
 ??? note "Going deeper"
 
@@ -267,7 +267,7 @@ Every `reg-cofx` in a v1 app needs one mechanical rewrite: **suppliers return a 
   (fn [{:keys [db viewport]} _] ...))
 ```
 
-A remaining `inject-cofx` raises `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires` as the replacement.
+`re-frame.core` has no `inject-cofx`, so a remaining call fails to compile; `:rf.cofx/requires` replaces it.
 
 The supplier change applies to every `reg-cofx`, recordable or not, with or without call-site arguments (`(fn [k] v)`, declared as `[[:viewport k]]`). A cofx that only measures something diagnostic or transient stays **ambient**: register it without `:recordable?` and it runs again on replay. `:recordable?` matters only when the value decides a durable write.
 
@@ -312,12 +312,13 @@ Where one handler should receive both outcomes, `:reply-to [:some/event]` replac
 
 ### `on-changes` becomes flows
 
-v1's `on-changes` interceptor said "when these input paths change, compute a value and write it to that output path." v2's [**flows**](glossary.md#flow) do the same, but instead of adding `on-changes` to each event's interceptor chain, you register a flow once and it runs after every event handler, before the new `:db` is committed. Flows can also be added and removed at runtime.
+v1's `on-changes` interceptor said "when these input paths change, compute a value and write it to that output path." v2's [**flows**](glossary.md#flow) do the same, but instead of adding `on-changes` to each event's interceptor chain, you register a flow once per frame and it runs after every event handler in that frame, before the new `:db` is committed. Flows can also be added and removed at runtime.
 
 ```clojure
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
    :output-path [:remaining-count]
+   :frame       :app              ;; a flow belongs to one frame
    :doc         "Open todos, for handlers that need the count."}
   (fn [todos]
     (count (remove :done? (vals todos)))))
@@ -331,7 +332,7 @@ Flows don't replace subscriptions. Use a flow for a derived value that is part o
 
 `on-changes` was attached to specific events when they were registered, so a derivation that should run only sometimes (while a wizard step is active, behind a feature flag) had no clean form. Flows can be registered and cleared at runtime with the `:rf.fx/reg-flow` and `:rf.fx/clear-flow` effects, so migration is a chance to make an always-on derivation conditional.
 
-The rewrite is Type B. The mapping is `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path} f)`; the skill asks you for the `flow-id` (suggesting `:legacy/<event-id>`) and whether the flow should be conditional.
+The rewrite is Type B. The mapping is `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow flow-id {:inputs in-paths :output-path out-path :frame frame-id} f)`; the skill asks you for the `flow-id` (suggesting `:legacy/<event-id>`) and whether the flow should be conditional.
 
 ## Growing into images and frames
 

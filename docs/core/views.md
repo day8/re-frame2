@@ -412,9 +412,11 @@ substrates changes only the `init!` call and the view notation
 
 [Fresco](fresco/index.md) is re-frame2's own view layer. It replaces `reg-view` with
 `h/defview`: markup is still inspectable hiccup, subscriptions are read as plain
-values wherever the body needs them, and handlers are written as event vectors. An
-application writes its views one way or the other, not a mix.
+values wherever the body needs them, and handlers are written as event vectors. Write new
+views one way; during a migration, Reagent and Fresco views can share a page and a
+frame.
 
-Events, app-db, subscriptions and the purity rule are identical under both. Fresco is
-not a substrate: a Fresco application still calls `init!` with the Reagent or UIx
-adapter. Fresco is pre-alpha, and its guide is a draft.
+Events, app-db, subscriptions and the purity rule are identical under both. Fresco
+ships its own adapter, `re-frame.fresco.substrate/adapter`, which a Fresco
+application passes to `init!`; a Reagent, reagent-slim or UIx adapter also works
+under a Fresco tree. Fresco is pre-alpha, and its guide is a draft.

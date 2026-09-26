@@ -126,9 +126,11 @@ they acquire ([Interop](09-interop.md)). Check it with `hm/assert-clean!` from
 1. **Reproduce.** Script one named interaction. "The app is slow" cannot be
    reproduced; "toggling a todo in a 1,000-item list takes 180 ms" can.
 2. **Attribute.** Find which subscriptions changed, which views ran, and how
-   long React commit and browser paint took. Xray classifies the cost as
-   computation, topology, Hiccup lowering, React, or layout
-   ([Diagnostics](16-diagnostics.md)).
+   long React commit and browser paint took. Xray attributes the cost to
+   subscription computation or read topology; when neither explains it, Xray
+   names Hiccup lowering, React and layout as candidates it cannot separate
+   ([Diagnostics](16-diagnostics.md)). Measure those with the `rf:render` User
+   Timing, the React Profiler and the browser Performance panel.
 3. **Tune topology.** Change read placement, keys, view boundaries, or
    collection shape. Most cases end here.
 4. **Return a React element directly** only when Hiccup lowering is the

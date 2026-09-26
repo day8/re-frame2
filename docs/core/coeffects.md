@@ -120,8 +120,7 @@ storage, and the coeffect `:todo.storage/todos` is the only code that reads it.
     `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes
     `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and the supplier
     returns the value instead of updating a context. `inject-cofx` is removed with no
-    alias; calling it raises `:rf.error/inject-cofx-removed`, which names
-    `:rf.cofx/requires` as the replacement. Coeffects are delivered before the
+    alias: `re-frame.core` has no such var, so a leftover call fails to compile. Coeffects are delivered before the
     interceptor chain runs, so no interceptor sees a half-filled coeffects map. And
     because there is only one `reg-event`, every handler can declare requirements
     (v1's `reg-event-db` could not). See the [migration guide](25-from-re-frame-v1.md).
@@ -267,7 +266,7 @@ frame.) [Testing event handlers](testing/event-handlers.md) covers this, along w
 | Declared fact is `nil` in the handler | Destructured under the wrong key | Destructure it by its id beside `db`, e.g. `{:keys [db rf/time-ms]}` |
 | `:rf.error/unregistered-cofx` | A `:rf.cofx/requires` entry names an unregistered id, usually a typo | Fix the id, or register it with `reg-cofx` |
 | `:rf.error/missing-required-cofx` | A [`:provided?` fact](#provided-facts) was declared but nothing supplied it | Supply it with the `:rf.cofx` dispatch option, or from its owning subsystem |
-| `:rf.error/cofx-value-invalid` | A recordable value is not EDN (a `js/Date`, a DOM node) | Record plain data, e.g. epoch milliseconds |
+| `:rf.error/cofx-value-invalid` | A recordable value is not EDN (a function, an atom, a DOM node) | Record plain data, e.g. epoch milliseconds |
 | Replay produces different state | The handler reads the clock, `random-uuid`, or storage in its body | Declare the fact, or mint it at the dispatch site |
 
 ## Advanced
@@ -308,7 +307,7 @@ Branch on the [`:rf.error/*` id](glossary.md#error-record), never on the message
   stamped, so it never fails this way.
 - **A supplier that throws**: `:rf.error/coeffect-exception`, attributed to the
   supplier rather than the handler.
-- **A recordable value that isn't EDN**, such as a `js/Date` or a DOM node:
+- **A recordable value that isn't EDN**, such as a function, an atom or a DOM node:
   `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value`, in
   production builds too.
 - **The same id declared twice** in one handler, or a coeffect named `:db` or

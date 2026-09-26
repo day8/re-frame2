@@ -27,7 +27,7 @@ recomputed, a view rendered, an effect run, a
  :operation :rf.event/dispatched        ;; what specifically happened
  :op-type   :rf.event                   ;; which family it belongs to
  :time      1716800000000               ;; host clock, ms
- :tags      {:rf.trace/event-id    :todo/toggle
+ :tags      {:rf.event/v           [:todo/toggle 1]
              :rf.trace/dispatch-id 4711
              :frame                :app
              ,,,}}                      ;; the open map of specifics
@@ -100,10 +100,12 @@ sees. The first argument names the stream; `:trace` is the raw trace stream:
 That listener receives every trace event and prints the errors.
 `(rf/unregister-listener! :trace :app/error-logger)` removes it.
 
-A listener receives values in the clear; the runtime does not redact what it hands
-you. If your listener sends data off-box (a network call, a third-party logger, even a
-console that is captured into a log), check `:sensitive?` and drop or scrub marked
-events. [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers this.
+A listener receives trace events after the frame's data classification has been
+applied, so a classified path reads `:rf/redacted`. Nothing else is scrubbed: an
+unclassified value, such as a positional event argument or an exception, arrives as
+is, and no egress profile has been applied. If your listener sends data off-box (a
+network call, a third-party logger, even a console that is captured into a log),
+check `:sensitive?` and drop or scrub marked events. [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers this.
 
 Notes:
 
@@ -243,7 +245,7 @@ The history has its own settings:
 
 `:depth` is how far back time travel reaches. `:trace-events-keep` caps how many of
 the most recent records keep their raw trace events beside the summaries; it defaults
-to `:depth`. Set it lower, `5` say, to keep a long dev session's heap down.
+to 50 and does not follow `:depth`. Set it lower, `5` say, to keep a long dev session's heap down.
 
 The history stores the raw record. Redaction happens when a record leaves the
 process, not when it is stored, because changing a stored record would break
@@ -379,8 +381,8 @@ projects before your sink sees it:
   destination.
 
 A profile only changes projection options; your sink always receives a projected
-record. That is the difference from a `:trace` listener, which gets everything in the
-clear and leaves the gating to you.
+record. That is the difference from a `:trace` listener, which gets only the in-process
+classification pass and leaves the egress profile to you.
 
 A path counts as sensitive when the handler that writes it says so, with a
 `:sensitive` entry beside its `:db`:

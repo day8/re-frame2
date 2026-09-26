@@ -113,7 +113,7 @@ The params are the identity: two screens asking for `{:list-id "team"}` share on
 
     Every resource declares its scope; there is no default. `:rf.scope/global` means the same params give the same data for everyone, as for a list the whole team shares. `{:from-db :app/session}` names a resolver that derives the scope from the current viewer, for a per-user or per-tenant cache. If the resolver produces nothing (nobody is logged in), a read raises `:rf.error/resource-sub-unresolved-scope` instead of reading a shared entry.
 
-Read a resource through subscriptions, never the raw cache. `[:rf/resource …]` returns the whole entry; for one fact there are single-value subs such as `[:rf.resource/data …]`, `[:rf.resource/status …]` and `[:rf.resource/loading?]` (the full list is in [Server state: resources](../resources/concepts.md)). They keep the first-load and background-refresh cases apart:
+Read a resource through subscriptions, never the raw cache. `[:rf/resource …]` returns the whole entry; for one fact there are single-value subs such as `[:rf.resource/data …]`, `[:rf.resource/status …]` and `[:rf.resource/loading? …]` (the full list is in [Server state: resources](../resources/concepts.md)). They keep the first-load and background-refresh cases apart:
 
 ```clojure
 ;; First-load failure: no data ever arrived.
@@ -183,7 +183,7 @@ Three booleans encode eight combinations, but sync has five legal states, and ev
 
 Sync can now only be in a state it can reach. The timeout belongs to `:syncing` and is cancelled when the machine leaves it, so a stale timer can't fire later. The machine's current state, its [snapshot](../machines/glossary.md#snapshot), lives in [runtime-db](glossary.md#runtime-db), the framework's part of frame state, where handlers can't overwrite it and time-travel and Xray can see it. A view reads it with `@(subscribe [:rf/machine :todo/sync])`.
 
-An event the current state doesn't handle is a no-op: dispatch `:todo.sync/done` while the machine is `:idle` and the snapshot is unchanged, with a `:rf.machine.event/unhandled-no-op` trace. You don't need to check the state before dispatching.
+An event the current state doesn't handle is a no-op: dispatch `[:todo/sync [:todo.sync/done]]` while the machine is `:idle` and the snapshot is unchanged, with a `:rf.machine.event/unhandled-no-op` trace. You don't need to check the state before dispatching.
 
 ??? info "Coming from XState?"
 

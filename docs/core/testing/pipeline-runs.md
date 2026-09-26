@@ -182,7 +182,7 @@ A keyword override must name a registered effect. `:rf.http/managed-canned-succe
 
 !!! warning "Gotcha: frames isolate `app-db`, not registrations"
 
-    Handlers live in the process-global [registrar](../glossary.md#registrar). The reset fixture in the test namespace above restores it after each test, so keep it whenever your tests call `rf/reg-event` themselves; without it, one test's registrations leak into the next. See [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations).
+    Handlers live in the process-global [registrar](../glossary.md#registrar). The reset fixture in the test namespace above restores it after each test, so keep it whenever your tests call `rf/reg-event` themselves; without it, one test's registrations leak into the next. The fixture's baseline is what was registered before `use-fixtures` ran, so a test file's own `reg-event`, like `:todo/clear-done` below, goes inside the `deftest` body or above the fixture form; a top-level one below it is invisible to the frames the test makes. See [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations).
 
 ### The `:test` preset
 
@@ -283,7 +283,7 @@ Sometimes the value worth checking is derived, such as a count or a filtered lis
     (is (= 1 (rf/compute-sub [:todo/remaining-count] (rf/app-db-value f))))))
 ```
 
-`(rf/compute-sub query-v db)` runs the subscription against an `app-db` value with no reactive cache and no adapter, computing any input subs first. It returns `nil` if the sub body throws (`:rf.error/sub-exception`) or an input names an unregistered sub. To read what a running frame's cache holds instead, use `subscribe-once`. [Test a subscription](subscriptions.md) covers both.
+`(rf/compute-sub query-v db)` runs the subscription against an `app-db` value with no reactive cache and no adapter, computing any input subs first. It returns `nil` if the sub body throws (`:rf.error/sub-exception`). An input naming an unregistered sub computes to `nil` without an error record, and the body runs on that `nil`. To read what a running frame's cache holds instead, use `subscribe-once`; [Test a subscription](subscriptions.md) covers `compute-sub`.
 
 ## What the dispatch opts can change
 

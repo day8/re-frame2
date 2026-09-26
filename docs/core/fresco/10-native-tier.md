@@ -162,8 +162,9 @@ subtree:
 - cleanup and StrictMode behaviour
 - the original performance script
 
-Xray names and times the host and shows the island's `n/use-sub` reads. It
-labels the inner React tree as opaque.
+Xray shows the island's `n/use-sub` reads. It does not time the host, and it
+labels the inner React tree as opaque; React DevTools shows the host under its
+`defhost` name.
 
 ## Troubleshooting
 

@@ -69,7 +69,7 @@ The init event in step 4 declares this coeffect and folds the saved session into
 
 ??? note "Why a supplier rather than a provided value"
 
-    A recordable coeffect can instead be registered `{:recordable? true :provided? true}` with no supplier, its value stamped onto the dispatch by an owner (the built-in `:rf/time-ms` clock works this way). That doesn't fit here. The restore has to run from the frame's `:initial-events` so it finishes before the first URL is resolved (step 4 explains why), and `:initial-events` is frame configuration written before the frame exists, so there is nowhere to stamp a value. A supplier needs nothing threaded through: the handler declares the fact and the framework runs the supplier. Use *provided* when the fact's owner is someone else, such as a subsystem or a server request. [Coeffects](../coeffects.md#two-grades-ambient-and-recordable) covers the two grades in full.
+    A recordable coeffect can instead be registered `{:recordable? true :provided? true}` with no supplier, its value stamped onto the dispatch by an owner (the built-in `:rf/time-ms` clock works this way). That doesn't fit here. The restore has to run from the frame's `:initial-events` so it finishes before the first URL is resolved (step 4 explains why), and a provided value would have to be read by your boot code and stamped onto the `:initial-events` step's `:opts {:rf.cofx …}`. A supplier needs nothing threaded through: the handler declares the fact and the framework runs the supplier. Use *provided* when the fact's owner is someone else, such as a subsystem or a server request. [Coeffects](../coeffects.md#two-grades-ambient-and-recordable) covers the two grades in full.
 
 ### Keep the secret out of traces
 
@@ -165,7 +165,7 @@ An interceptor map needs `:before`, `:after`, or both; with neither, registratio
 
 ??? note "How the chain composes"
 
-    HTTP interceptors run like event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` in registration order, `:after` in reverse, and an interceptor with only one of the two is skipped on the other leg. If a `:before` or `:after` throws, the request fails with `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) rather than going out undecorated. Handle anything recoverable inside the interceptor itself.
+    HTTP interceptors run like event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` in registration order, `:after` in reverse, and an interceptor with only one of the two is skipped on the other leg. If a `:before` throws, the request is never sent rather than going out undecorated: a dev build traces `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id` and `:url`), and the error record is `:rf.error/fx-handler-exception`. If an `:after` throws, the reply is dropped, neither reply event runs, and `:rf.error/http-reply-tail-failed` is reported. Handle anything recoverable inside the interceptor itself.
 
 !!! warning "Gotcha: hot-reloading the interceptor"
 
@@ -197,7 +197,7 @@ Some routes should open only for signed-in users. Declare a [`:can-enter`](../..
 
 - **The guard must return a boolean.** `true` allows entry and `false` refuses it. Anything else also refuses and raises `:rf.error/can-enter-non-boolean`, so write `(some? …)` or `(boolean …)` rather than relying on truthiness.
 - **It reads step 1's `[:auth :user]`**, the durable slice a reload rebuilds, rather than a separate "logged in" flag or a machine's state. That is why step 1 persists the identity as well as the token.
-- **`:tags #{:requires-auth}` is optional.** The framework attaches no meaning to it; keep it if a nav bar or a tool asks "is this page protected?". A `:can-enter` sub also receives the resolved target as its second argument, so one guard can serve every protected route and still branch on where the visitor was headed.
+- **`:tags #{:requires-auth}` is optional.** The framework attaches no meaning to it; keep it if a nav bar or a tool asks "is this page protected?". A `:can-enter` sub also receives the resolved target appended to its query vector (`(fn [[user] [_ target]] …)`), so one guard can serve every protected route and still branch on where the visitor was headed.
 
 ### What a refusal does
 
@@ -272,7 +272,7 @@ If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-a
 
 !!! warning "Gotcha: exactly one frame owns the URL"
 
-    `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) makes this frame's navigation drive the browser address bar and Back/Forward. Only one frame may declare it; a second raises `:rf.error/duplicate-url-binding`. Leave any other frame on the page, such as [Xray](../glossary.md#xray), a story, or a second app instance, URL-unbound so it routes in memory.
+    `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) makes this frame's navigation drive the browser address bar and Back/Forward. Only one frame may declare it; a second is still created, but the runtime reports `:rf.error/duplicate-url-binding` (an error record, not a throw) and the first keeps the URL. Leave any other frame on the page, such as [Xray](../glossary.md#xray), a story, or a second app instance, URL-unbound so it routes in memory.
 
 !!! tip "When the identity arrives after the first route has committed"
 

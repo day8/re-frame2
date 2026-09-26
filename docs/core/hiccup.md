@@ -164,7 +164,6 @@ uses `:span`. A screen is a tree of views, and views bottom out in element keywo
 
 | What you wrote | The rule it tripped | Fix |
 |---|---|---|
-| `["div" "hi"]` | The head must be a tag keyword or a view; a string is neither | `[:div "hi"]` |
 | `[:p "hi" {:style ...}]` | The attribute map must be **second**; anywhere later it's just another child | `[:p {:style ...} "hi"]` |
 | The cell reports a reader error | A bracket is unbalanced; hiccup must first read as data | Balance the brackets |
 | The console warns that every element in a seq needs a unique `:key` | A `(for ...)` sequence was placed directly as a child | Pour it in with `into`, or give each item a stable `^{:key id}` ([Views](views.md) shows keys) |

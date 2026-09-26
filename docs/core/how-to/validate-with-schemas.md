@@ -221,14 +221,14 @@ Every violation is a structured `:rf.error/schema-validation-failure` [trace eve
 
 ```clojure
 {:operation :rf.error/schema-validation-failure
+ :recovery  :no-recovery             ;; what the runtime did next
  :tags {:where      :app-db          ;; :event / :fx-args / :sub-return / :app-db / :machine-data / ...
         :path       [:todos 3 :title] ;; the FAILING LEAF path (root + route to the bad slot)
         :value      ""               ;; the offending value
         :explain    {...}            ;; the validator's explanation (a Malli explain map on CLJS)
         :failing-id :todo/add        ;; the handler / sub / fx that produced it
         :frame      :app             ;; which frame the failure happened in
-        :rollback?  true             ;; on :app-db — the :db effect was discarded
-        :recovery   :no-recovery}}   ;; what the runtime did next
+        :rollback?  true}}           ;; on :app-db — the :db effect was discarded
 ```
 
 `:path` is the failing leaf: the registered path plus the route into the bad slot, so on a `[:todos]` schema a blank title reports `[:todos 3 :title]`. An `:app-db` trace also carries `:registered-path`, the path you registered, for jumping back to the `reg-app-schema` call. `:explain` is the raw validator output. In dev builds with Malli, tools also receive `:explain-humanized`; a non-Malli validator provides `:explain` only, so tools fall back to it.
@@ -253,7 +253,7 @@ A validation failure carries the failing value, which is what makes it debuggabl
              [:token {:sensitive? true} [:maybe :string]]]]))   ;; a bad :token fails redacted
 ```
 
-- **`:sensitive? true`**: when this slot fails, the trace's `:value`, `:explain` (which would repeat the value), and other value-bearing slots are replaced with `:rf/redacted`, and the trace is tagged `:sensitive? true`. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot.
+- **`:sensitive? true`**: when this slot fails, the trace's `:value`, `:explain` (which would repeat the value), and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot.
 - **`:large? true`**: the value is replaced with a `:rf.size/large-elided` marker instead of putting megabytes into the trace. A slot marked both ways is redacted; sensitive wins, since even the size says something about a secret.
 
 !!! warning "Gotcha: these flags affect only the failure trace"

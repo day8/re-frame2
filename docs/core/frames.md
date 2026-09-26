@@ -148,10 +148,11 @@ first step.
 including any events it dispatches, before the next starts, so setup is done by the
 time the frame is created.
 
-If a step fails (its handler throws, it has no handler, or a declared coeffect is
-missing), construction stops: the partial frame is destroyed and `make-frame` or
+If a step fails (its handler throws, or a declared coeffect is missing),
+construction stops: the partial frame is destroyed and `make-frame` or
 `frame-root` throws `:rf.error/initial-events-step-failed`, naming the step's
-`:step-index` and `:event`.
+`:step-index` and `:event`. A step whose event has no handler is not a failure of
+this kind: it emits `:rf.error/no-such-handler` and the frame is built without it.
 
 ## When you want more than one
 
@@ -353,7 +354,7 @@ shared derived state, they belong in one frame.
 | `:rf.error/frame-provider-frame-absent` | `frame-provider` names a frame that was never created, or was destroyed | Use `frame-root`, or call `make-frame` first |
 | `:rf.error/frame-root-reconfigured` | A mounted `frame-root`'s `:id` or options changed | Give it a React `key` that changes with the id, or call `rf/make-frame` with the same `:id` to reconfigure |
 | Dispatch does nothing; `:rf.error/frame-destroyed` on the error stream | `{:frame …}` names a mistyped or destroyed frame | Fix the id, or stop dispatching after destroying the frame |
-| `:rf.error/frame-construction-in-handler` | `make-frame` called from an event handler | Write app-db from the handler and let a view's `frame-root` create the frame |
+| `:rf.error/handler-exception` whose exception is `:rf.error/frame-construction-in-handler` | `make-frame` called from an event handler | Write app-db from the handler and let a view's `frame-root` create the frame |
 
 ## What frames are not
 
@@ -454,10 +455,12 @@ A full reset, `destroy-frame!` then `make-frame` with the same config, clears ap
 to `{}`, clears the subscription cache and queue, and runs `:initial-events` again.
 Tests and Story "reset" buttons use it. For a frame built from images, pass the same
 `:images` again. The two calls are not atomic, so run them outside any handler. To
-reset only app-db, use `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
+reset only app-db, dispatch `[:rf/set-db {}]` to the frame, or, with
+`day8/re-frame2-epoch` loaded, call `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
 
-Creating a frame inside an event handler raises
-`:rf.error/frame-construction-in-handler`. Handlers change app-db; views, boot code,
+Creating a frame inside an event handler throws
+`:rf.error/frame-construction-in-handler`, which the error stream reports as a
+`:rf.error/handler-exception` carrying it. Handlers change app-db; views, boot code,
 and SSR request code create frames. A handler that wants a new frame writes app-db to
 say so, and a view's `frame-root` creates it.
 
@@ -525,7 +528,8 @@ independent.
 ### Cross-frame `dispatch-sync` during a drain
 
 Calling `dispatch-sync` for the current frame from inside that frame's running
-handler raises `:rf.error/dispatch-sync-in-handler`. A `dispatch-sync` aimed at a
+handler drops the event, and a dev build reports
+`:rf.error/dispatch-sync-in-handler`. A `dispatch-sync` aimed at a
 **different** frame is allowed: the target frame's drain runs to completion, then the
 caller's frame continues.
 

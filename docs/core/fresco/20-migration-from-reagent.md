@@ -59,11 +59,13 @@ classification, a sentence on how to fix it, and the component name where it
 can be found statically. The report also counts untouched sites, so a site
 missing from it was seen and needed nothing.
 
-The final suggestions block drafts `h/defhost` declarations and callback
-contracts. Check each one against the component library's documentation. A
+The final suggestions block sketches an `h/defhost` per component, listing its
+event-shaped and function-valued props as commented-out `:callbacks` rows with
+no contract filled in. Fresco infers `:event` from an `on*` name, and most rows
+need nothing. Check each one against the component library's documentation: a
 prop named like an event may be a render prop whose return value the library
-uses; declaring it as `:event` replaces that return value and can blank the UI
-with no useful error.
+uses. Left as the inferred `:event`, it returns `nil` and can blank the UI with
+no useful error, so uncomment that row as `:render`.
 
 The same run also counts every call to a view-library API, such as `r/atom`,
 `r/with-let`, `r/create-class` or `r/as-element`, under `:census` in the
@@ -169,7 +171,7 @@ The same table for the second starting point. Every row is a spelling change:
 
 | re-frame2 on the Reagent adapter | Fresco |
 | --- | --- |
-| `rf/reg-view` | `h/defview`. The view is no longer registered under an id; the var is the head |
+| `rf/reg-view` | `h/defview`. You mount it by its var, not by an id; development builds also register it under `:<ns>/<name>` for tools |
 | `subscribe`, injected into a `reg-view` body | `h/sub`. A `h/defview` body binds nothing you did not write |
 | `dispatch`, injected into a `reg-view` body | the event vector itself, or `h/event` when the event matters |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
@@ -319,9 +321,7 @@ Each side has its own frame copy, so writes cannot leak between them. If the
 two dispatch different events at the first checkpoint, their state and DOM
 diverge from there, which points at the original cause.
 
-A red result names the checkpoint and the DOM node or event that differs. When
-the difference comes from a declared policy, such as a Client-only region, the
-report names the policy.
+A red result names the checkpoint and the DOM node or event that differs.
 
 A green result covers only the flows in the script, so script the screen's
 real behaviour rather than one happy click. Before trusting the comparator,
@@ -377,7 +377,8 @@ to change the files.
 
 The codemod preserves formatting, comments, and line endings, including CRLF.
 A completed run exits 0 even when the report lists human decisions; it is a
-migration assistant, not a build lint.
+migration assistant, not a build lint. It exits 1 only when a file could not be
+parsed (`:parse-error`).
 
 It applies six rewrites:
 
@@ -437,10 +438,9 @@ records the site instead of guessing.
 | A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Fresco passes values by identity | Run the reporter and apply the safe codemod rewrites |
 | A former Reagent crossing starts dispatching at an `on*` prop | An event vector that crossed as inert data under Reagent now dispatches, as it does on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
 | Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an event vector or `h/event` |
-| A keyed list remounts once immediately after migration | A key collision that Reagent normalised now becomes two distinct values | Accept the one-time transition when the new stable key is correct |
+| A keyed `[:>]` list remounts once immediately after migration | A keyword `:key` reached React as `"foo"` under Reagent and reaches it as `":foo"` now, so each key changes once | Accept the one-time remount; the key is stable afterwards |
 | Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |
 | W2 camel-cases keys in what looks like application data | Reagent already sent that library a camel-cased object | Do not revert unless you intentionally want different library input |
-| Shadow comparison is red only in a Client-only region | The difference follows a declared server/client policy | Choose `{:server :render}`, provide a fallback, or accept the classified difference |
 | Shadow is green but focus or IME differs | Shadow comparison does not test browser-only behaviour | Run L4 browser tests |
 | A second codemod run changes files | The input changed between runs or another tool edited the output; the codemod itself is idempotent | Compare against the report coordinates and rerun the reporter |
 
@@ -503,14 +503,15 @@ reports nothing about the Form-2 shape itself.
 {:file   "src/app/views.cljs"
  :line   42
  :col    5
+ :class  :named-value
  :form   "[:> Btn {:variant :contained} \"Save\"]"
  :head   "Btn"
  :action :rewrote
- :detail {:prop :variant
-          :was  :contained
+ :detail {:prop ":variant"
+          :was  ":contained"
           :now  "contained"}
- :note   "Reagent named every keyword prop value; Fresco keeps the keyword
-          except at HTML-attribute slots."}
+ :note   "Reagent named every keyword and symbol prop value; Fresco keeps
+          them whole except at HTML-attribute slots. …"}
 ```
 
 Coordinates always refer to the input file, in report and rewrite modes.

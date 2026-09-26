@@ -130,7 +130,7 @@ The records without a throwable are the invalid-operation categories, raised whe
 - `:rf.error/override-fallthrough`: a frame's [image](../glossary.md#image), the set of [registrations](../glossary.md#registration) it resolves against, had no provider for an overridden id.
 - `:rf.error/no-frame-context`: a `subscribe` or `dispatch` using the ambient `rf/` form ran with no frame in scope, typically from a plain function outside a view or from an async callback. The record has `:frame nil`, so no frame policy can route it; only the process default from step 1 receives it (see [step 8](#8-the-two-records-no-frame-owns)). To avoid it, [capture the frame](../glossary.md#capture-frame) before the async boundary ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
 - `:rf.error/bad-frame-provider-arg`: a [`frame-provider`](../glossary.md#frame-provider) got a non-nil `:frame` that was neither a frame-id keyword nor a frame value, such as a string or a number.
-- `:rf.error/machine-spawn-unregistered-type`: a runtime spawn of an unregistered [machine](../../machines/glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused. The record carries only `:machine-id`, `:frame`, and `:reason`.
+- `:rf.error/machine-spawn-unregistered-type`: a runtime spawn of an unregistered [machine](../../machines/glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused. The sink sees `:frame` at the top level, with `:machine-id` and `:reason` under `:tags`.
 
 The `if-let` sends these through `captureMessage`.
 
@@ -157,9 +157,7 @@ The runtime builds the record with flat, category-specific keys:
  :time          1718900000000}
 ```
 
-On the way to a sink, every key other than the summary keys (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is moved into a `:tags` map, which the projector walks under the frame's classification, redacting the paths you declared, including any app value that ended up in `:reason`. So your sink reads `(get-in record [:tags :hook-failures])`, not `(:hook-failures record)`. The SSR categories below work the same way.
-
-The projector redacts by declared path, and it cannot see inside a throwable, so each `:hook-failures` entry's nested `:exception` passes through unchanged, message and `ex-data` included. The example below sends only `ex-message`; if a teardown hook's exception can carry a secret, treat it like the top-level exception in [step 5](#5-choose-the-profile-and-know-what-survives-elision).
+On the way to a sink, every key other than the summary keys (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is moved into a `:tags` map. The frame is already gone when this record is emitted, so no frame policy is consulted: only the process default ([step 8](#8-the-two-records-no-frame-owns)) receives it, projected with no governing frame. Under the off-box profiles `:tags` therefore arrives as `:rf/redacted`, so send the summary keys; `(get-in record [:tags :hook-failures])` is readable only on a `:rf.egress/local-raw` entry. The SSR categories below also move their keys under `:tags`.
 
 Add a `case` arm for the teardown category in front of the step 3 logic, which becomes the default arm:
 
@@ -168,17 +166,12 @@ Add a `case` arm for the teardown category in front of the step 3 logic, which b
   (fn [record]
     (case (:error record)
       ;; The frame-teardown report: frame-keyed, NO :event, NO top-level :exception.
-      ;; Its category-specific slots ride :tags after projection.
+      ;; It reaches the process default only, and its :tags arrive redacted.
       :rf.error/frame-teardown-failed
       (Sentry/captureMessage
         (str "Frame teardown failed: " (:frame record))
         (clj->js {:level "error"
-                  :tags  {:frame (str (:frame record))}
-                  :extra {:reason       (get-in record [:tags :reason])
-                          :failed-hooks (mapv (fn [{:keys [hook exception]}]
-                                                {:hook  (str hook)
-                                                 :error (some-> exception ex-message)})
-                                              (get-in record [:tags :hook-failures]))}}))
+                  :tags  {:frame (str (:frame record))}}))
 
       ;; Every other category: the step 3 branch.
       (let [ctx (clj->js {:tags  {:category (str (:error record))
@@ -191,7 +184,7 @@ Add a `case` arm for the teardown category in front of the step 3 logic, which b
           (Sentry/captureMessage (str (:error record)) ctx))))))
 ```
 
-Each entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Teardown is best-effort, so nothing in the record calls for action; it is there for diagnosis.
+Where `:tags` is readable, each `:hook-failures` entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Teardown is best-effort, so nothing in the record calls for action; it is there for diagnosis.
 
 The runtime reports one record per destroy rather than one per failed step, so an SSR host that destroys a frame per request can't flood your monitor, and the steps that failed together stay together. If teardown aborts partway, the failures collected so far are still reported.
 
@@ -208,7 +201,7 @@ The `:rf.egress/profile` on each `:observability` entry decides whether your sin
 
 An unknown profile throws `:rf.error/unknown-egress-profile`.
 
-Under the default profile, a secret in an exception's message or `ex-data` is not redacted, because the projector can't see inside a throwable. `:rf.egress/public-error` removes the record's own top-level `:exception` only. A throwable nested under `:tags`, such as the per-step exception in a teardown report ([step 4](#4-handle-the-frame-teardown-report)), still passes through.
+Under the default profile, a secret in an exception's message or `ex-data` is not redacted, because the projector can't see inside a throwable. `:rf.egress/public-error` removes the record's own top-level `:exception` only.
 
 What still runs in a production build (`:advanced`, `goog.DEBUG=false`), in short ([Observability](../observability.md) has the full account):
 
@@ -273,7 +266,7 @@ The `:handled-events` stream answers the other production question: how many eve
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
 - `:rejected` — a `:boundary? true` handler's `:schema` refused the event's payload, so the handler never ran.
 - `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; flows and `:fx` were skipped.
-- `:flow-error` — a flow's `:output` threw; the run halted before `:fx`.
+- `:flow-error` — a flow's derive function threw; the run halted before `:fx`.
 
 !!! warning "In production, `:rolled-back` never appears; `:rejected` does"
 

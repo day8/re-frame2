@@ -194,8 +194,9 @@ normal behaviour for a value assignment.
 a `div`, `select`, value-less checkbox, or input with no `:value` raises
 `:rf.error/fresco-revision-not-controlled`, naming the element and source.
 The prop is consumed by Fresco and never becomes a DOM attribute on the client
-or server. A forwarded map cannot activate it for a field whose author did not
-write it.
+or server. Like `:key`, it is read from whatever map reaches the element, so a
+caller map forwarded with `merge` carries it through; `dissoc` it when you
+forward ([above](#forward-caller-attributes-safely)).
 
 Revision provides only re-baselining. It does not add commit, cancel,
 acknowledgement, or caret-policy options. Use the forms module for a draft that
@@ -238,7 +239,8 @@ A controlled event dispatches synchronously, and store notification is also
 synchronous. React therefore receives the model echo during the same discrete
 browser event.
 
-Fresco uses `flushSync` only for controlled-text convergence. It commits the
+On the event path, Fresco uses `flushSync` only for controlled-text convergence
+(the root doors `h/render!` and `h/unmount!` also commit inside it). It commits the
 pending value before React's end-of-event restore so that both the value and
 selection are correct when the handler accepts, rejects, or normalizes an
 edit. The path runs once per controlled text keystroke and once when an IME

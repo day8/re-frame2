@@ -269,7 +269,8 @@ the output path, and a pure function:
 ```clojure
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
-   :output-path [:remaining-count]}
+   :output-path [:remaining-count]
+   :frame       :app}
   (fn [todos] (count (remove :done? (vals todos)))))
 ```
 
@@ -389,7 +390,8 @@ Related: [Subscriptions](subscriptions.md).
 
 ### **registrar**
 
-The process-wide table that every `reg-*` call writes to, keyed by kind and id. A
+The process-wide table that `reg-event`, `reg-sub`, `reg-fx` and the other shared
+`reg-*` calls write to, keyed by kind and id. A
 frame looks its handlers up in this table, through its [image](#image).
 
 Related: [Images](images.md).
@@ -407,12 +409,13 @@ the runtime looks up later. An app's behaviour is the set of registrations it ma
 | `reg-cofx` | a [coeffect](#coeffect) supplier |
 | `reg-interceptor` | an [interceptor](#interceptor) |
 | `reg-view` / `reg-view*` | a [view](#view) |
-| `reg-flow` | a [flow](#flow) |
 
-Other artefacts add their own: `reg-machine` ([machines](../machines/concepts.md)),
-`reg-route` (routing), `reg-app-schema` (schemas), `reg-resource` and `reg-mutation`
-([resources](../api/re-frame.resources.md)), `reg-http-interceptor` (managed HTTP),
-and `reg-head` and `reg-error-projector` (SSR). A frame is not a registration; you
+`reg-flow`, `reg-app-schema` and `reg-http-interceptor` are different: each
+registers into one frame (the one in scope, or `:frame` in its metadata), not the
+registrar. Other artefacts add their own registrations: `reg-machine`
+([machines](../machines/concepts.md)), `reg-route` (routing), `reg-resource` and
+`reg-mutation` ([resources](../api/re-frame.resources.md)), and `reg-head` and
+`reg-error-projector` (SSR). A frame is not a registration; you
 create one with `make-frame` or `frame-root`.
 
 ### **runtime-db**
@@ -682,9 +685,10 @@ Related: [app-db](app-db.md).
 ### **The uniform reply**
 
 Every managed async operation (HTTP, resources, mutations, route loaders, machine
-async) finishes by [dispatching](#dispatch) an event with one reply map, keyed by
+async) finishes by [dispatching](#dispatch) your event with one reply map, keyed by
 `:status`: `:ok` (value at `:value`), `:partial` (both `:value` and `:error`),
-`:error` (failure at `:error`), `:cancelled` or `:stale`. This is different from a
+`:error` (failure at `:error`) or `:cancelled`. A fifth status, `:stale`, marks a
+reply whose request went obsolete; it is traced and never dispatched. This is different from a
 resource read's `:status` (`:idle`, `:loading`, `:fetching`, `:loaded`, `:error`).
 
 ```clojure
@@ -748,8 +752,9 @@ Related: [Observability](observability.md#the-trace-stream).
 ### **listener**
 
 A callback registered with `register-listener!` on the `:trace` or `:epoch` stream.
-Both streams are dev-only; use a [sink](#sink) in production. Listeners receive data
-unredacted, so [project](#project-egress) anything you send off-box.
+Both streams are dev-only; use a [sink](#sink) in production. Listeners see classified
+paths redacted and nothing more, so [project](#project-egress) anything you send
+off-box.
 
 Related: [Observability](observability.md#write-a-listener).
 

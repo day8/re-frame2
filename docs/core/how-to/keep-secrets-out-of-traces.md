@@ -23,7 +23,7 @@ For a token that lives in app-db at a path you own, return a classification effe
      :sensitive [[:auth :token] [:auth :refresh-token]]}))
 ```
 
-`:sensitive` takes a vector of paths. From then on, whatever value is at `[:auth :token]` shows as `:rf/redacted` in Xray's App-DB panel, the epoch history, and your off-box sink, while your handlers still read the real token. Only the copy projected for observers is redacted, never the live value.
+`:sensitive` takes a vector of paths. From then on, whatever value is at `[:auth :token]` shows as `:rf/redacted` in Xray's App-DB panel, in your off-box sink, and in any epoch you export through `project-egress`, while your handlers still read the real token. Only the copy projected for observers is redacted, never the live value.
 
 The path is classified before any token exists there, since `:auth/init` only seeds an empty map. A classification over an absent path does nothing until a value arrives, so you don't re-classify on every write.
 
@@ -300,7 +300,7 @@ A profile names who is about to see the data, instead of a combination of on/off
 
 !!! warning "Classification fails open; routing fails closed"
 
-    An undeclared path is sent as is. Routing is the opposite: a frame with no `:observability` policy sends nothing, a frame that can't be resolved sends nothing (no default frame is assumed), an unknown profile throws `:rf.error/unknown-egress-profile`, and a sink that throws doesn't affect other sinks.
+    An undeclared path is sent as is. Routing is the opposite: with no policy in reach (neither the frame's nor a `configure!` default) nothing is sent, a record whose frame can't be resolved goes only to the process default with its data redacted (no default frame is assumed), an unknown profile throws `:rf.error/unknown-egress-profile`, and a sink that throws doesn't affect other sinks.
 
 !!! note "Exceptions are the gap"
 
