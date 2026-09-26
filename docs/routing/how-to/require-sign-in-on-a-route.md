@@ -62,7 +62,10 @@ runtime dispatches `:rf.route/entry-denied` once, with:
 ```
 
 The built-in handler does nothing, so without your own a refused click is simply
-ignored. Under server rendering the same refusal renders the page shell with a `403`.
+ignored. Under server rendering the same refusal answers `403`, and navigating to
+login from your handler doesn't change that. To answer with a redirect instead, add
+`[:rf.server/redirect {:location "/login"}]` to the handler's `:fx`; the client skips
+that effect ([the entry-denial `403`](../../ssr/response.md#a-status-the-framework-writes-for-you-the-entry-denial-403)).
 
 ## Why the return trip works
 

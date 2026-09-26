@@ -26,6 +26,7 @@ page starts from what you know.
 | `useLoaderData()` | An ordinary subscription | The data lands in the resource cache or [app-db](../core/glossary.md#app-db), and the [view](../core/glossary.md#view) reads it like any other state. |
 | `useNavigate()` → `navigate("/x")` | `(dispatch [:rf.route/navigate {:to :app/article :params {:slug "intro"}}])` | [Navigation is an event](concepts.md#move-2-navigation-is-an-event), so it is traced and can be intercepted. |
 | `redirect()` from a loader or action, `<Navigate replace>` | `:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]` in an event handler | A redirect is an ordinary navigation, returned as an effect. |
+| `action`, `<Form>`, `useSubmit()` | An ordinary event handler | Submitting dispatches an event; its handler saves and, to move on, returns a navigate in its `:fx`. Nothing about it is routing-specific. Under server rendering a real `POST` form reaches the same event — [the form action](../ssr/concepts.md#two-patterns-in-brief). |
 | `<Link to>` | `[rf/route-link {:to :app/articles}]` | Renders a real `<a href>`, handles plain clicks, and leaves cmd/shift/middle-click to the browser. |
 | `<NavLink>`'s `isActive` | Compare against `@(subscribe [:rf.route/id])` in your own view | `route-link` has no active state; a small wrapper sets `:aria-current` and a class — [highlighting the active link](concepts.md#highlighting-the-active-link). |
 | `<Link prefetch="intent">` (framework mode) | `[rf/route-link {:to :app/article :params {:slug "intro"} :prefetch :intent}]` | Hover, focus or touch loads the destination's resources without navigating — [warming a destination](concepts.md#warming-a-destination-before-the-click). `:intent` is the only mode. |
@@ -41,6 +42,7 @@ page starts from what you know.
 | `createMemoryRouter` | A frame without `:url-bound? true` | Routes in memory without touching the address bar, which is what tests use. |
 | `<RouterProvider router>` | Nothing | The route lives in [runtime-db](../core/glossary.md#runtime-db), and any view subscribes to it. |
 | Framework-mode server loaders | The same `:resources` and `:on-match` | One declaration runs on the client and the server. |
+| `lazy` route modules | No route key | A route's view must be loaded before the root view renders it. To keep a rarely visited screen out of the first bundle, compile it into its own module and load it from an event — [code splitting](../core/fresco/21-code-splitting.md). |
 
 ## Where it differs
 

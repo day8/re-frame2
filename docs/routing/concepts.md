@@ -59,6 +59,9 @@ segments; then a named param over a splat, so `/articles/:slug` beats
 patterns have the same shape and can match the same URL. Registering the second
 emits `:rf.warning/route-shadowed-by-equal-score`, and the first one registered wins.
 
+Matching ignores a trailing slash, so `/articles/` matches `/articles`, and is
+case-sensitive, so `/Articles` matches nothing.
+
 ### Params and query
 
 `:params` and `:query` take [schemas](../core/how-to/validate-with-schemas.md) that
@@ -81,7 +84,13 @@ already at its default, so `/articles?tag=ssr` is the canonical form of
 
 A query key the route doesn't declare stays what the URL carries: a string key with a
 string value, whichever way you navigate. Only declared keys become keywords, so a
-URL full of made-up keys creates no keywords.
+URL full of made-up keys creates no keywords. In a query string `%20` decodes to a
+space, `+` stays a literal `+`, and a key given twice keeps its last value.
+
+A URL string is converted for these slot types: `:int` (a whole integer only, so
+`?page=12abc` stays the string `"12abc"`), `:uuid`, `:boolean` (`true` or `false`) and
+an `[:enum …]` of keywords, each also inside `[:maybe …]`. A slot of any other type
+receives the string.
 
 A slot type must survive the trip URL → value → URL. `reg-route` throws
 `:rf.error/route-decimal-unsupported` for a `:double` slot and
@@ -173,7 +182,17 @@ view's injected `dispatch`, or from an event handler's `:fx`
 
 <a id="navigating-to-a-raw-url-string"></a>
 
-Any other shape is rejected with `:rf.error/navigate-bad-request`.
+`:url` takes a path inside the app, such as `/articles/intro?tag=ssr`, and matches it
+the way a typed URL is matched; an unmatched one lands on
+[not found](#not-found-is-a-route-you-register). A URL on another origin is refused:
+the route stays where it is and the runtime emits `:rf.route/external-url-requested`.
+Link to other sites with a plain `[:a {:href …}]`.
+
+`:to` and `:url` are alternatives, and a `:url` carries its own path and query, so it
+takes no `:params`, `:query` or `:query-merge`. A request that breaks a rule like that,
+names a key outside the table (a namespaced one included), or isn't exactly one map is
+rejected with `:rf.error/navigate-bad-request`, and the error's `:reason` names the
+rule it broke.
 
 Outside a view there is no frame in scope. Navigate from a handler's `:fx`, or pass
 `{:frame :app}` to `rf/dispatch` at the REPL. A bare `rf/dispatch` inside a timeout or
@@ -211,6 +230,10 @@ its params stay; `:query-merge` folds into the query, `:query` replaces it, and
 `@(subscribe [:rf.route/query])` reads the result, already coerced, so `:page` is `2`
 rather than `"2"`.
 
+An in-place request needs a current route to edit, and it can't change path params:
+`:params` names a new address, so it needs `:to`. Use `:query` or `:query-merge`, not
+both.
+
 ### Linking from views
 
 ```clojure
@@ -221,7 +244,8 @@ rather than `"2"`.
 `route-link` renders a real `<a href>`, so hover, copy-link and cmd- or middle-click
 work. It intercepts only a plain left click: it calls `.preventDefault` and
 dispatches `:rf.route/url-requested`, the event the router listens for. Links with
-`:target "_blank"` or `:download` are left to the browser.
+`:target "_blank"` or `:download` are left to the browser. An `:on-click` of your own
+runs first, and calling `.preventDefault` in it cancels the navigation.
 
 A hand-written `[:a {:href …}]` dispatches nothing, so the browser does a full page
 load. To keep such clicks in the app without `route-link`, install one document-level
@@ -232,6 +256,9 @@ click listener that checks eligibility itself (primary button, no modifier keys,
 Every prop `route-link` doesn't use is passed through to the `<a>`, so classes,
 `:data-*` and ARIA attributes work as usual. It uses the address keys to build the
 `href`, and `:prefetch` ([warming a destination](#warming-a-destination-before-the-click)).
+A link click always adds a history entry: `:replace?`, `:scroll` and `:bypass-leave?`
+are navigate keys, so on a `route-link` they are passed to the `<a>` like any other
+prop. When a click needs one of them, dispatch `:rf.route/navigate` instead.
 
 #### Highlighting the active link
 
@@ -284,7 +311,8 @@ It reports on the route's blocking `:resources` ([details](#when-a-loader-fails)
 A fragment-only change updates the slice and doesn't re-fire `:on-match`. A route's
 `:scroll` (or a navigate's) is `:top` (the default for links and navigates),
 `:restore` (the default for Back, Forward and the first load), `:preserve`, or
-`false` for no scroll effect.
+`false` for no scroll effect. `:top` scrolls the element whose `id` is the fragment
+into view, or the page to the top when there is no such element.
 
 ## Nested layouts
 
@@ -402,9 +430,22 @@ is parked in `[:rf/pending-navigation]`, and the runtime dispatches
 `[:rf.route/cancel id]`, passing the pending value's `:id` — the tutorial's editor
 does this in [Step 11](tutorial.md#step-11--warn-before-losing-unsaved-changes).
 
-The pending value stores the destination, the resolved target, the cause and your
-`:replace?` / `:scroll` choices, so `:rf.route/continue` replays exactly the
-navigation that was asked for, and re-checks the destination's `:can-enter`. To skip
+```clojure
+@(subscribe [:rf/pending-navigation])
+;; => {:id              "pn-1"
+;;     :destination     {:to :app/home}
+;;     :target          {:route-id :app/home :params {} :query {} :fragment nil :url "/"}
+;;     :cause           :navigate     ;; or :link, :popstate
+;;     :policy          {}            ;; the request's :replace? and :scroll
+;;     :requested-url   "/"
+;;     :rejecting-route :app/article-editor
+;;     :rejecting-guard :editor/can-leave?}
+```
+
+A blocked Back or Forward also carries `:url-restored? true`: the address bar had
+already moved, and the runtime put it back. `:rf.route/continue` replays the
+`:destination` with its `:policy`, so the navigation that happens is the one that was
+asked for, and it re-checks the destination's `:can-enter`. To skip
 the check for one navigation, such as "save and close", pass
 `{:bypass-leave? true}`. Recipe: [Guard against unsaved changes](how-to/guard-unsaved-changes.md).
 
@@ -431,7 +472,10 @@ After sign-in, navigate to the stored `destination`. That is a new navigation, s
 guard runs again. Recipe: [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
 
 Both guards must return `true` or `false`. Anything else refuses the navigation and
-raises `:rf.error/can-leave-non-boolean` or `:rf.error/can-enter-non-boolean`.
+raises `:rf.error/can-leave-non-boolean` or `:rf.error/can-enter-non-boolean`. Both
+subscriptions receive the resolved target as the last element of their query vector,
+`(fn [db [_ target]] …)`, with `target` shaped like the pending value's `:target`, so
+one guard can answer differently for each destination.
 
 Use `:can-enter` for a route's own auth rule, as
 [realworld_http](../../examples/real-apps/realworld_http) does. An interceptor suits
@@ -447,10 +491,17 @@ An unmatched URL activates the reserved id `:rf.route/not-found`, with the URL i
 | `{:url "…"}` | No pattern matched |
 | `{:url "…" :reason :validation}` | A pattern matched but its schema failed |
 | `{:url "…" :reason :malformed-url}` | Bad percent-encoding; also emits `:rf.warning/malformed-url` |
+| `{:url "…" :reason :match-error}` | Matching the URL threw; also emits `:rf.warning/malformed-url` |
 
 If `:rf.route/not-found` isn't registered, the runtime emits
 `:rf.warning/no-not-found-route`. Only URLs end up here. A navigate or `route-url`
 with params that fail the schema is a programming error and fails loudly instead.
+
+A miss that arrives from the browser or the server (a link, a typed URL, Back or
+Forward, a request) is also reported as an [error](../core/errors.md),
+`:rf.error/no-such-handler` with `:kind :route`, which
+[server rendering](../ssr/concepts.md#when-the-server-throws) turns into a `404`. A
+`{:url …}` navigate that misses lands on not-found without that error.
 
 ## The browser is an event source
 
@@ -485,11 +536,11 @@ nothing on the server.
 | `:rf.warning/route-shadowed-by-equal-score` at registration | Same shape as an existing route that matches the same URLs | The earlier route wins; make one pattern more specific |
 | `:rf.warning/route-classification-query-key-unpromoted` | A `[:query k]` classification names an undeclared key, which stays a string and is never redacted | Declare `k` in `:query` or `:query-defaults` |
 | `route-link` or `route-url` throws `:rf.error/no-such-route` | The route id isn't registered (often a typo) | Fix the id |
-| `route-url` throws `:rf.error/missing-route-param` | A path param is missing or `nil` | Supply it (a `nil` query value is simply left out) |
-| `route-url` throws `:rf.error/route-url-validation` | Params or query fail the schema, or name a param the path doesn't capture | Fix the address |
+| `route-url` throws `:rf.error/missing-route-param` | A path param is missing, `nil` or `""` | Supply it (a `nil` query value is simply left out) |
+| `route-url` throws `:rf.error/route-url-validation` | Params or query fail the schema, name a param the path doesn't capture, or the address carries a key that isn't an address key, such as `:replace?` | Fix the address |
 | `route-url` throws `:rf.error/route-url-non-edn-value` | A float, `Date` or other value with no URL form | Encode it as a string first |
 | `route-link` throws `:rf.error/route-link-bad-prefetch` | `:prefetch` is something other than `:intent` | Use `:intent`, or leave the key off |
-| Navigation rejected with `:rf.error/navigate-bad-request` | The payload is not one request map | Write `[:rf.route/navigate {:to …}]` |
+| Navigation rejected with `:rf.error/navigate-bad-request` | The payload is not one request map, or the map breaks a [request rule](#navigating-to-a-raw-url-string) | Write `[:rf.route/navigate {:to …}]`; the error's `:reason` names the rule |
 | A navigate does nothing; `:rf.error/schema-validation-failure` in traces | Unknown route id, or params that fail the schema | Fix the address; the route slice is unchanged |
 | A navigate from a callback throws `:rf.error/no-frame-context` | Bare `rf/dispatch` in a timeout or promise | Navigate from an event handler's `:fx` |
 | `[:rf.route/prefetch …]` does nothing; `:rf.error/prefetch-bad-address` | Malformed address or unknown destination | Fix the address |
@@ -501,6 +552,8 @@ nothing on the server.
 | `:rf.error/duplicate-url-binding` | Two frames have `:url-bound? true` | Keep one; the first keeps the URL |
 | `make-frame` throws `:rf.error/invalid-url-strategy` | `:url-strategy` isn't a strategy map | Use `rf.routing/history-url-strategy`, `hash-url-strategy` or `with-base-path` |
 | First page shows `:rf.error/resource-route-plan` | A resource the route declares was registered after the URL-bound frame was created | Register first, or dispatch `:rf.route/replan-resources` ([details](#several-frames-one-address-bar)) |
+| A route reads `:error` with `:rf.error/resource-route-plan` and `:recovery :fix-parent` | Its `:parent` names a route that isn't registered, often a typo | Fix the `:parent` id |
+| `[:rf.route/replan-resources …]` does nothing; `:rf.error/replan-bad-request` | `:cause` is missing or `nil` (`:reason :missing-cause`), or no route is active yet (`:no-active-route`) | Pass `{:cause …}`, after the first navigation |
 
 ## Advanced
 
