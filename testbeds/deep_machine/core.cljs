@@ -190,7 +190,7 @@
               {:tags   #{:work/leaf-a :work/deepest}
                :entry  :bump-tick
                :spawn {:machine-id :helper/tick
-                        :data       (fn [_snap _ev] {:ticked? false})}
+                        :data       (fn [_ctx] {:ticked? false})}
                ;; :resolving is a sibling of :phase-a at the :work region
                ;; root, five compound levels ABOVE this leaf — a keyword
                ;; target only names a sibling of the declaring state, so

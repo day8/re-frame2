@@ -844,9 +844,10 @@ the runtime emits exactly **ONE** `:rf.machine/transition` whose
 must light **every** region's fired edge for that one event.
 
 The motivating case (Mike, live `examples/machine-epochs` HVAC,
-2026-06-08): `:hvac/controller` in `{:climate :idle, :fan :off}`;
-dispatch `[:hvac/power-cycle]` fires `:climate :idle→:running` AND
-`:fan :off→:on` in the same macrostep. The STATIC topology renders both
+2026-06-08): `:hvac/controller` in `{:climate [:idle], :fan :off}`;
+dispatch `[:hvac/power-cycle]` fires `:climate`
+`[:idle]→[:running :conditioning :heating]` AND `:fan :off→:on` in the
+same macrostep. The STATIC topology renders both
 `power-cycle` event-nodes, but the EVENT-FOCUSED dynamic view showed **NO
 transition** — `extract-fired-edge-ids` ran the trace's `:before` /
 `:after` `:state` through the single-active path coercion
