@@ -163,4 +163,4 @@ Triggers on explicit critique pull about the user's own re-frame2 code with sour
 - **Pausing a requested review to ask which finding to classify** — the complete critique is the deliverable; clarification is for unresolvable scope only.
 - **Collapsing the immediate repair into a mandatory redesign** — the smallest safe correction and the optional migration are reported as different findings with different urgency and patch size.
 - **Interrupting authoring with anti-pattern detections** — L1; pull-only.
-- **Proposing framework-shape changes here** — L4; route framework friction to the retro skill that owns filing.
+- **Rewriting user code around framework-shape friction** — L4; name the gap in the findings for the user to file against `day8/re-frame2`.

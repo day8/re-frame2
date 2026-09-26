@@ -19,7 +19,7 @@ Retry policy is a **transport concern**, not a domain concern. Hand-rolled loops
 
 ## The canonical fix
 
-[`skills/re-frame2/patterns/managed-http.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/managed-http.md) — the `:rf.http/managed` fx. Pass a `:retry` map declaring the failure categories that warrant retry, the maximum attempts, and the back-off curve. The runtime handles scheduling, abort, and reply-addressing.
+[`skills/re-frame2/patterns/managed-http.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/managed-http.md) — the `:rf.http/managed` fx. Pass a `:retry` map declaring the failure categories that warrant retry, the maximum attempts, and the back-off curve. The runtime handles scheduling, abort, and reply delivery to the target you address.
 
 Spec source: [`spec/014-HTTPRequests.md`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md) and [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md).
 
@@ -64,7 +64,7 @@ Spec source: [`spec/014-HTTPRequests.md`](https://github.com/day8/re-frame2/blob
               :reply-to [:article/load msg]}]]})))               ;; address the reply back to this event
 ```
 
-The runtime dispatches `[:article/load msg <reply>]` when the request settles — the canonical reply envelope (`{:status :ok :value …}` / `{:status :error :error …}` / `{:status :cancelled …}`) **appended as the last argument** to the `:reply-to` target. Every request must address its reply — `:reply-to` (one target for both outcomes; branch on `:status`), or the `:on-success` / `:on-failure` split sugar; a targetless request throws `:rf.error/http-no-reply-target` at fx-call time (the old co-located reply-to-origin default was retired pre-alpha). A `:stale` result is suppressed, never delivered.
+The runtime dispatches `[:article/load msg <reply>]` when the request settles — the canonical reply envelope (`{:status :ok :value …}` / `{:status :error :error …}` / `{:status :cancelled …}`) **appended as the last argument** to the `:reply-to` target. Every request must address its reply — `:reply-to` (one target for both outcomes; branch on `:status`), or the `:on-success` / `:on-failure` split sugar; a targetless request throws `:rf.error/http-no-reply-target` at fx-call time. A `:stale` result is suppressed, never delivered.
 
 ## Edge cases — when manual is fine
 
