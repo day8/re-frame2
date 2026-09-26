@@ -879,9 +879,9 @@
 ;; §`:rf/set-db`. The framework's OWN registration goes through the private
 ;; `rf.registrar/register!` path (see `register-set-db-standard!`), so this guard —
 ;; which fires only on the public `register-event!` entry — does not reject the
-;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`
-;; and `:rf/settle-flows` — see the def's docstring for why each is in): the
-;; OTHER framework `:rf/*` events (`:rf/hydrate`,
+;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`,
+;; `:rf/install-frame-state` and `:rf/settle-flows` — see the def's docstring
+;; for why each is in): the OTHER framework `:rf/*` events (`:rf/hydrate`,
 ;; `:rf.route/url-requested`, `:rf/server-init`, …) are registered through the
 ;; public `reg-event` by their owning feature artefacts, so they are NOT listed
 ;; here; widening the set is a Spec change.
@@ -890,16 +890,24 @@
   "The closed set of framework-standard `:event` ids the public `reg-event`
   refuses to register over (EP-0027 §`:rf/set-db`). A reserved id is framework-
   OWNED; an app `reg-event` targeting one is a loud reserved-id collision
-  (`:rf.error/reserved-event-id`). Today: `#{:rf/set-db :rf/settle-flows}`.
+  (`:rf.error/reserved-event-id`). Today:
+  `#{:rf/set-db :rf/install-frame-state :rf/settle-flows}`.
   Fixed-and-additive — adding a member is a Spec change.
 
-  The two members are owned by DIFFERENT mechanisms, and the guard is why they
-  can both be listed here:
+  The members are owned by two DIFFERENT mechanisms, and the guard is why they
+  can all be listed here:
 
     `:rf/set-db`       seeded into the registrar (and the EP-0023 image standard
                        registry) via the private `rf.registrar/register!` path —
                        see `register-set-db-standard!`. Deliberately
                        app-DISPATCHABLE; only re-registration is refused.
+    `:rf/install-frame-state`
+                       seeded the same way — see
+                       `register-install-frame-state-standard!`. App-dispatchable
+                       too; re-registration is refused because an app handler
+                       under the id would replace core's install along with its
+                       framework-write authority and its whole-payload
+                       `:sensitive` classification.
     `:rf/settle-flows` NEVER registered at all (Spec 013 §Sequencing). It
                        resolves through the router's unresolved-handler seam
                        from `settle-flows-handler-meta`, so it has zero
@@ -910,7 +918,7 @@
                        `(reg-event :rf/settle-flows …)` would silently SHADOW
                        the framework's settle and strand every flow-lifecycle
                        effect. It fails loud instead."
-  #{:rf/set-db :rf/settle-flows})
+  #{:rf/set-db :rf/install-frame-state :rf/settle-flows})
 
 (defn- reject-reserved-event-id!
   "Throw `:rf.error/reserved-event-id` (ex-info) when a PUBLIC `reg-event` names
