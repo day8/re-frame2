@@ -167,7 +167,7 @@ ClojureScript.
   (h/defhost modal Modal {:slots #{:title :footer}})
 
   ;; react-datepicker calls onChange(date, event), value first, so the prop
-  ;; takes an h/event; a bare vector would raise
+  ;; takes an h/event; a vector carrying ::h/value would raise
   ;; :rf.error/fresco-intent-needs-the-event.
   [date-picker {:selected  due-date
                 :on-change (h/event [date & _] [:task/set-due date])}]
@@ -297,7 +297,8 @@ first one set.
     - `:rf.error/frame-provider-frame-absent` when the frame does not exist.
     - `:rf.error/no-frame-context` on a nil `:frame`.
     - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor
-      a live frame value.
+      a frame value; a destroyed frame's value raises
+      `:rf.error/frame-provider-frame-absent`.
     - `:rf.error/frame-provider-given-id` on an `:id` key, naming `frame-root`.
 - **Example**:
   ```clojure
@@ -346,9 +347,12 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
   ```
 - **Description**: Renders `view` into the DOM node `container` through `handle`:
   the first call creates the React root, and every later call updates it inside
-  `flushSync`. React reconciles against the tree on the page, so the DOM, the
-  subscriptions and component state survive a hot reload. Returns nil.
-    - `container` and `opts` are read on the first call only.
+  `flushSync`. Returns nil. On a hot reload the root, its frame and the frame's
+  `app-db` carry on, but a re-evaluated `defview` is a new component type, so React
+  remounts it and everything beneath it: that DOM is rebuilt, and focus, the caret
+  and scroll position start over.
+    - `container` and `opts` take effect on the first call only, though `opts` is
+      checked on every call.
     - `view` is the whole root tree, frame head included:
       `[h/frame-root {:id …} …]` or `[h/frame-provider {:frame …} …]`. Render the
       same head with the same options each time. A later render that drops the head
@@ -654,7 +658,7 @@ A view body returns hiccup. A vector's head is one of:
 
 | Head | What it renders |
 | --- | --- |
-| a tag keyword, symbol or string, such as `:span.label#total` | a DOM element. `.class` shorthand joins `:class`, and `#id` applies when there is no `:id` |
+| a tag keyword, symbol or string, such as `:span#total.label` (the `#id` before any `.class`) | a DOM element. `.class` shorthand joins `:class`, and `#id` applies when there is no `:id` |
 | `:<>` | a React fragment, reading only `:key` and `:ref` from its props map |
 | a `defview` or `defhost` var, or a head from this namespace or an optional module | that view or component |
 | `:>`, written `[:> Component props? child …]` | an undeclared React component: `defhost` with no options, always client-only and with no fallback |
@@ -717,7 +721,7 @@ them.
 | `::h/value` | inside an event vector | replaced at dispatch time by the event target's current value, or a vector of the selected values on a `<select multiple>`. On a file input it raises `:rf.error/fresco-file-input-value-marker`; read `.files` in an `h/event` instead |
 | `::h/checked` | inside an event vector | replaced by the target's checked flag |
 | `::h/prevent` | as an event vector's head, wrapping another vector | calls `preventDefault`, then dispatches the wrapped vector: `[::h/prevent [:filter/show-done]]`. It wraps exactly one non-empty event vector and does not nest; anything else raises [`:rf.error/fresco-malformed-prevent`](../core/fresco/troubleshooting.md#fresco-malformed-prevent) |
-| `::h/revision` | a prop on a controlled `<input>` or `<textarea>` | a change resets the field to its `:value`, even when `:value` itself did not change. Anywhere else it raises `:rf.error/fresco-revision-not-controlled` |
+| `::h/revision` | a prop on a controlled `<input>` or `<textarea>` | a change resets the field to its `:value`, even when `:value` itself did not change. On any other native element it raises `:rf.error/fresco-revision-not-controlled`; at a view it is an ordinary prop |
 | `::h/clear` | as an event id | `[::h/clear concern instance-key]` removes a `reg-state` instance, back to its default |
 
 Substitution looks only at the top level of the vector: `[:todo/edit id ::h/value]`

@@ -6,7 +6,7 @@ Measure how long events, subscriptions, effects and view renders take in a produ
 (:require [re-frame.performance :as perf])
 ```
 
-You never call anything in this namespace, so application code does not need that require. You turn timing on with two compile-time flags, named fully qualified in your build's `:closure-defines`:
+You never call anything in this namespace, so application code does not need that require. Timing is controlled by two compile-time flags, named fully qualified in your build's `:closure-defines`. `enabled?` turns it on:
 
 ```clojure
 ;; shadow-cljs.edn

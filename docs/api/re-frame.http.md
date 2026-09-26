@@ -162,8 +162,8 @@ A failure's `:kind` is one of eight values, all reserved under `:rf.http/*`. The
 
 | `:kind` | Meaning | Tags |
 |---|---|---|
-| `:rf.http/transport` | Network, DNS or connection error before any HTTP response, or a `:body` that could not be prepared. | `:message`, `:cause`; `:stage :request-prep` for a body failure |
-| `:rf.http/cors` | CORS preflight rejected (CLJS only). | `:message`, `:url` |
+| `:rf.http/transport` | Network, DNS or connection error before any HTTP response (in the browser, against a same-origin URL; see `:rf.http/cors`), or a `:body` that could not be prepared. | `:message`, `:cause`; `:stage :request-prep` for a body failure |
+| `:rf.http/cors` | A Fetch network rejection (a `TypeError`) against a cross-origin URL (CLJS only). The browser reports a CORS rejection and a network failure the same way, so a dropped connection to a cross-origin host also reads as `:rf.http/cors`. | `:message`, `:url` |
 | `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms` |
 | `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:status`, `:status-text`, `:body` (raw text), `:headers` |
 | `:rf.http/http-5xx` | A 5xx response. | `:status`, `:status-text`, `:body` (raw text), `:headers` |
@@ -171,9 +171,9 @@ A failure's `:kind` is one of eight values, all reserved under `:rf.http/*`. The
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`, threw, or returned anything but a map with exactly one of `:ok` / `:failure`. | `:decoded` (the body before `:accept`); `:detail` is `user-map`, `{:rf.http/bad-accept :threw :message …}` or `{:rf.http/bad-accept :malformed-return :returned …}` |
 | `:rf.http/aborted` | Aborted via `:request-id`, `:abort-signal`, or the destruction of the actor or frame that issued it. | `:reason`, `:actor-id` |
 
-- The status is classified before the body is read, so a 4xx or 5xx response is never decoded: its raw body is on the failure map's `:body`. An empty 2xx JSON body decodes to `nil` rather than failing.
+- The status is classified before the body is decoded, so a 4xx or 5xx response is never decoded: its raw body is on the failure map's `:body`. An empty 2xx JSON body decodes to `nil` rather than failing.
 - The first five kinds are the ones `:retry :on` accepts. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
-- Every failure map also names the request it came from: `:request {:method :url}`, `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
+- Every failure map also names the request it came from: `:request {:method :url}` (`:method` only when the request set one), `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
 - Resources and mutations store this same map as their `:error` (and a resource's `:refresh-error`), so one `case` on `:kind` serves both.
 
 [Failures are a closed set](../async/http.md#failures-are-a-closed-set) lists the tags each kind carries.
@@ -330,7 +330,7 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
              {:request  {:method :get :url "api/flaky"}
               :decode   :json
               :value    {:delta 5}
-              :reply-to [:counter/loaded]}]]}))   ;; receives {:status :ok :value {:delta 5} …}
+              :reply-to [:counter/loaded]}]]}))   ;; receives {:status :ok :value {:delta 5}}
   ```
 
 ### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
@@ -363,17 +363,18 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
     - Plain `dispatch-sync` calls inside `body-fn` are routed by method and URL, with no `:fx-overrides` needed. A per-call `:fx-overrides` still wins.
     - Routes match the method and URL after the `:before` interceptors run, that is, what would actually be sent. A request with no matching route receives a synthesised `:rf.http/transport` failure carrying `:message "no stub matched"`, `:method` and `:url`.
     - Scopes nest: an inner scope's route map shadows the outer one, which is restored when the inner scope exits. The stub is registered once, when `re-frame.http.test-support` loads, and nothing is registered per scope, so a frame created before the scope was entered also routes through it.
-    - Only requests whose effect runs before `body-fn` returns are answered. A request queued with `rf/dispatch` that runs later fails in its effect (reported as `:rf.error/fx-handler-exception`), so drive the test with `dispatch-sync`.
+    - Drive the test with `dispatch-sync`. A request queued with `rf/dispatch` runs after `body-fn` returns: in CLJS it then fails in its effect (reported as `:rf.error/fx-handler-exception`); on the JVM the queued run carries the scope's bindings and is still answered.
     - The override target is the internal `:rf.test/managed-http-scope-stub` fx. When you need an `:fx-overrides` target yourself, use `:rf.http/managed-test-stub` from `install-managed-request-stubs!`.
 - **Example**:
   ```clojure
   (deftest cart-loads
-    (http-test-support/with-request-stubs
-      {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}}
-      (fn []
-        ;; No manual :fx-overrides — auto-routes by method + URL.
-        (rf/dispatch-sync [:cart/load])
-        (is (= 1 (count (rf/subscribe-once [:cart/items])))))))
+    (rf/with-new-frame [_ (rf/make-frame {})]
+      (http-test-support/with-request-stubs
+        {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}}
+        (fn []
+          ;; No manual :fx-overrides — auto-routes by method + URL.
+          (rf/dispatch-sync [:cart/load])
+          (is (= 1 (count (rf/subscribe-once [:cart/items]))))))))
   ```
 
 ### `re-frame.http.test-support/install-managed-request-stubs!`
@@ -393,8 +394,9 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
   (http-test-support/install-managed-request-stubs!
     {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}})
 
-  (rf/dispatch-sync [:cart/load]
-                    {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+  (rf/with-new-frame [_ (rf/make-frame {})]   ;; created after the install, so it sees the stub fx
+    (rf/dispatch-sync [:cart/load]
+                      {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}))
   ```
 
 ### `re-frame.http.test-support/uninstall-managed-request-stubs!`

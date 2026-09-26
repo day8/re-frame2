@@ -15,7 +15,7 @@ Flows ship in the optional `day8/re-frame2-flows` artefact. Require `re-frame.fl
    :output-path [:cart :subtotal]               ;; where the result is written
    :frame       :app/main}                      ;; a flow belongs to one frame
   (fn [items rate]                              ;; input values, in order
-    (* (reduce + (map :price items)) (+ 1 rate))))
+    (* (reduce + (map :price items)) (+ 1 (or rate 0)))))
 ;; => :cart/subtotal
 
 ;; [:cart :subtotal] now follows the items and the rate. Read it with a plain
@@ -89,7 +89,7 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
   (rf/clear :flow id {:frame target})
   ```
 - **Description**: Removes a flow from one frame and removes the value at its `:output-path` from that frame's `app-db`. Returns `id`. `:flow` is one of the kinds [`clear`](re-frame.core.md#clear) accepts.
-    - Only the leaf is removed (`dissoc-in`); a parent map left empty stays in place. Other frames are untouched.
+    - Only the leaf is removed. A map parent loses the key, and a parent map left empty stays in place. A vector parent keeps its length and the slot is set to `nil`, so later elements do not shift. Other frames are untouched.
     - A no-op when `id` is not registered in the frame.
     - The frame is the `:frame` opt (a frame-id keyword or a live frame value), else the surrounding scope; with neither, it raises `:rf.error/no-frame-context`. `:frame` is the only accepted key: a near-miss such as `{:fram :session}` raises `:rf.error/registrar-clear-bad-request` before any frame is resolved, so a typo never clears the ambient frame's flow.
     - Called outside an event, it recomputes the frame's other flows before it returns. Any flow that reads the cleared `:output-path` and has been evaluated since it registered has already recomputed without it, so you do not dispatch a follow-up event.
@@ -210,7 +210,7 @@ Read-only functions over the per-frame flow registry, for the REPL, for tools su
   (flow-meta {:frame f :id flow-id}) → flow-map or nil
   ```
 - **Description**: Returns the registration map of one flow in a frame, or `nil`.
-    - The map is the one `reg-flow` stored: `:id`, `:inputs`, `:output-path`, `:derive` (the derive function), every other metadata key except `:frame` (`:doc`, `:schema`, the classification keys), and, for an `rf/reg-flow` call in a development build, source coordinates (`:ns`, `:line`, `:file`).
+    - The map is the one `reg-flow` stored: `:id`, `:inputs`, `:output-path`, `:derive` (the derive function), every other metadata key except `:frame` (`:doc`, `:schema`, the classification keys), and, for an `rf/reg-flow` call in a development build, source coordinates (`:ns`, `:line`, `:column`, `:file`).
     - Each frame has its own definition, so the same `flow-id` in two frames returns two different maps.
     - Both keys are required. There is no ambient frame and no positional frame argument (a live frame value is itself a map, so it could not be told apart from the opts). A call without `:frame`, or with a non-map argument, raises `:rf.error/no-frame-context`.
 - **Example**:
@@ -246,7 +246,7 @@ Not for application code — used by adapters, tools and the test harness.
   ```clojure
   (reset-flows!) → nil
   ```
-- **Description**: Test-only. Clears every frame's flows, the dirty-check input cache, and any pending removals of abandoned output paths, so a flow re-registered after the reset cannot be skipped against a stale, `=`-equal entry. Returns `nil`.
+- **Description**: Test-only. Clears every frame's flows, the dirty-check input cache, and any pending removals of abandoned output paths, so a flow re-registered after the reset cannot be skipped against a stale, `=`-equal entry. `re-frame.test-support`'s `make-reset-runtime-fixture` calls it around each test. Returns `nil`.
 
 ### `reset-last-inputs!`
 
@@ -255,7 +255,7 @@ Not for application code — used by adapters, tools and the test harness.
   ```clojure
   (reset-last-inputs!) → nil
   ```
-- **Description**: Test-only. Clears every frame's dirty-check input cache and leaves the flows themselves registered. `re-frame.test-support`'s `make-reset-runtime-fixture` uses it to drop stale cached inputs between tests. Returns `nil`.
+- **Description**: Test-only. Clears every frame's dirty-check input cache and leaves the flows themselves registered. Call it between tests that keep their registrations but must not skip a recompute against a stale, `=`-equal entry. Returns `nil`.
 
 ## See also
 

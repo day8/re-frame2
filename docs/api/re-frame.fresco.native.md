@@ -72,7 +72,8 @@ written against either pair finds the same frame.
     - The map is the same object on every render while the frame stays the same, so
       it is safe in effect deps and safe to close over. Destroy the frame and create
       another under the same id, and the next render gets the new frame's ops; a
-      callback still holding the old ops raises `:rf.error/frame-destroyed`.
+      callback still holding the old ops does not reach the new frame: the call is
+      dropped and emits `:rf.error/frame-destroyed` rather than throwing.
 - **Example**:
   ```clojure
   (defui col-resizer [_]
