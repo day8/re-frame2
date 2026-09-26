@@ -1,267 +1,318 @@
 # Coeffects: the way in
 
-[Effects](effects.md) covered impurity going *out*: a handler returns descriptions
-and the runtime performs them. This page is the other direction — the facts a
-handler *reads* from the world.
+[Effects](effects.md) handle work going *out*: a handler returns descriptions and the
+runtime performs them. This page covers the other direction, the facts a handler
+*reads* from the world: the current time, a value in `localStorage`, a fresh id.
 
-The current time, a `localStorage` value, a fresh id: reading them inside the
-handler would cost it its purity, so re-frame2 delivers them instead, as declared
-inputs called [coeffects](glossary.md#coeffect). Facts that feed durable state are
-also **recorded** with the event, which is what lets replay and time-travel
-reproduce a run exactly.
+Reading those inside the handler would make it impure. Instead, the handler declares
+what it needs and the runtime delivers the values as inputs called
+[coeffects](glossary.md#coeffect). Facts that end up in app-db are also recorded with
+the event, so replay and time-travel reproduce a run exactly.
 
-## The counter learns the time
+## Stamping todos with the time
 
-Give the counter one more feature: show when the button was last clicked.
+Each todo should show when it was added. The handler must not read the clock itself:
 
-A pure handler must not read the clock. If it did, replaying the same event tomorrow would compute different state, and the history the dev tools show you would be wrong. So re-frame2 reads the time once, as the event enters the queue, and stamps it onto the event. A handler that wants the time declares it in one line of metadata and receives it as a plain value:
+```clojure
+;; Don't do this
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id] {:id id :title title :done? false
+                                     :created-at (js/Date.now)})})))
+```
+
+Called twice with the same inputs, it returns different state. A test can't pin it
+down without patching the global clock, and replaying the event tomorrow stamps
+tomorrow's time.
+
+Instead, declare the fact and receive it as a plain value:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
-(rf/reg-event :initialise
-  (fn [{:keys [db]} _] {:db (assoc db :value 0)}))
+(rf/reg-event :todo/initialise
+  (fn [_ _] {:db {:todos {} :showing :all}}))
 
-;; the new idea: declare a world fact, receive it as data
-(rf/reg-event :inc
+;; the new idea: declare a fact from the world, receive it as data
+(rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} _]
-    {:db (-> db
-             (update :value inc)
-             (assoc :clicked-at time-ms))}))
+  (fn [{:keys [db rf/time-ms]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id]
+                     {:id id :title title :done? false :created-at time-ms})})))
 
-(rf/reg-sub :value      (fn [db _] (:value db)))
-(rf/reg-sub :clicked-at (fn [db _] (:clicked-at db)))
+(rf/reg-sub :todo/all
+  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
 
-(rf/reg-view stamped-counter []
+(rf/reg-view todo-list []
   [:div
-   [:button {:on-click #(dispatch [:inc])} "+"]
-   [:span " " @(subscribe [:value])]
-   (when-let [t @(subscribe [:clicked-at])]
-     [:span " — clicked at " t " ms"])])
+   [:button {:on-click #(dispatch [:todo/add (rand-nth ["Buy milk" "Walk the dog" "Call mum"])])}
+    "Add a todo"]
+   [:ul
+    (for [{:keys [id title created-at]} @(subscribe [:todo/all])]
+      ^{:key id}
+      [:li title
+       [:span {:style {:color "#888" :margin-left "1em"}}
+        (.toLocaleTimeString (js/Date. created-at))]])]])
 
-[rf/frame-root {:id :app :initial-events [[:initialise]]}
- [stamped-counter]]
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list]]
 ```
 
 Notes:
 
-1. The handler has the same shape as before. The only addition is `:rf.cofx/requires [:rf/time-ms]` in the metadata map, and the fact arrives flat in the handler's first argument, the [**coeffects map**](glossary.md#coeffect).
-2. The value was read when the click entered the system and recorded with the event. Replay this event next week and `clicked-at` comes out identical.
-3. The recorded fact is raw milliseconds. Formatting belongs in the view.
+1. The handler has the same shape as before. The only addition is
+   `:rf.cofx/requires [:rf/time-ms]` in the metadata map, and the value arrives in
+   the handler's first argument, the **coeffects map**, under its own id.
+2. The runtime reads the clock once, when the event is queued, and records the value
+   with the event. Replay the event next week and `:created-at` comes out the same.
+3. App-db stores raw milliseconds. Formatting is the view's job, and the view's
+   `js/Date.` never touches app-db.
 
-Open [Xray](glossary.md#xray) on an app like this and every click is a row: the event, app-db before and after, and the recorded time. Restore an older row and the counter returns to that exact moment. That works because state changes only through events, handlers are pure, and world facts arrive recorded, so re-running any prefix of the event history reconstructs the exact state. (The [Xray docs](../xray/index.md) are the tour.)
+`:rf/time-ms` is the one fact core provides. Everything else you register yourself.
 
-## The way in: a handler reads only what was recorded
+## Loading saved todos
 
-Your handler needs the current time, a `localStorage` value, a fresh id — and the reflex is to just grab them:
-
-```clojure
-;; ❌ Don't do this
-(rf/reg-event :checkout/place-order
-  (fn [{:keys [db]} [_ {:keys [id items]}]]
-    {:db (assoc-in db [:orders id] {:id id :items items :placed-at (js/Date.)})}))
-```
-
-Now the handler isn't pure: same inputs, a different output every call. No test can pin it down without patching the global clock, and replaying the event computes a different `:placed-at` ([below](#why-this-is-non-negotiable-the-replay-pair)).
-
-These inputs from the world are [**coeffects**](glossary.md#coeffect). An effect is data the handler *outputs* for the runtime to perform; a coeffect is data the runtime *delivers* for the handler to read.
-
-| | Inputs (coeffects) | Outputs (effects) |
-|---|---|---|
-| **Built in for free** | `:db`, `:event` | `:db` |
-| **You register more with** | `reg-cofx` | `reg-fx` |
-| **You opt in per handler with** | `:rf.cofx/requires` | (returned in the effect map) |
-| **The impure work happens in** | the cofx supplier | the [fx handler](glossary.md#effect-handler) |
-
-The `{:keys [db]}` you destructure in every handler *is* the coeffects map. `:db` and `:event` are staged automatically; every other world fact is opt-in, through one declaration key.
-
-That map is the handler's entire input: app state, the event, and every declared fact. A handler should read nothing else.
-
-### Declare what you read: `:rf.cofx/requires`
-
-Nothing beyond `:db` and `:event` reaches a handler implicitly, not even the time. A handler declares the facts it consumes as registration metadata, and the runtime hands it exactly those, flat in the coeffects map beside `:db`:
+[Effects](effects.md#saving-todos) saved the todos to `localStorage`. On startup,
+`:todo/initialise` should load them. Reading storage in the handler has the same
+problem as reading the clock: replay would re-read whatever storage holds *now*, not
+what it held then. So register the read as a coeffect with
+[`reg-cofx`](glossary.md#coeffect):
 
 ```clojure
-(rf/reg-event :checkout/place-order
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [id items]}]]
-    {:db (assoc-in db [:orders id]
-                   {:id id :items items :placed-at time-ms})}))
+;; cf. examples/core/todomvc/db.cljs
+(ns todo.storage
+  (:require [cljs.reader :as reader]
+            [re-frame.core :as rf]))
+
+(rf/reg-cofx :todo.storage/todos
+  {:doc         "The saved todos, read from localStorage."
+   :recordable? true}
+  (fn []
+    (or (some-> (.-localStorage js/globalThis)
+                (.getItem "todos")
+                (reader/read-string))
+        {})))
+
+(rf/reg-event :todo/initialise
+  {:rf.cofx/requires [:todo.storage/todos]}
+  (fn [{:keys [todo.storage/todos]} _]
+    {:db {:todos todos :showing :all}}))
 ```
 
-(Two incidental changes rode along — the payload grew an `:id`, and the path keys by it. Where fresh ids come from is [the minting ladder](#fresh-ids-the-minting-ladder), below; the purity fix is the metadata line alone.)
+The supplier is a plain function that returns the value. The runtime calls it when
+`:todo/initialise` starts processing, records the result with the event, and hands
+it to the handler. The handler stays pure: given the same stored todos, it always
+builds the same app-db.
 
-`:rf/time-ms` is core's one built-in declarable coeffect: wall-clock epoch milliseconds, stamped once when the event was enqueued and recorded with it. The handler is pure again because the value arrived with the event. Timestamps like `:placed-at`, [resource](../resources/glossary.md#resource) freshness, and mutation times all read the clock this way. (The add-on artefacts register their own facts — routing's nav token, SSR's request — taught in their corpora.)
+`:recordable? true` is what makes replay safe. The saved todos decide what goes into
+app-db, so the value must be recorded, and replay must reuse the recorded value
+rather than read storage again. [Two grades](#two-grades-ambient-and-recordable)
+below explains the choice.
 
-Delivery is **declared-only**: a fact on the event that this handler didn't declare is not staged. So `:rf.cofx/requires` is the complete, greppable list of everything a handler reads from the world, and a test fixture cannot quietly supply a value that is `nil` in production.
+The pair is symmetrical: the effect `:todo.storage/save` is the only code that writes
+storage, and the coeffect `:todo.storage/todos` is the only code that reads it.
 
 ??? info "From re-frame v1"
 
-    `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and your cofx supplier drops the ctx wrapper and returns the value. `inject-cofx` is removed with no alias — calling it raises `:rf.error/inject-cofx-removed`, which names `:rf.cofx/requires` as the replacement. Coeffects are delivered before the interceptor chain runs, so no interceptor can see a half-filled coeffects map. There is also only one `reg-event`, so every handler can declare requires (v1's `reg-event-db` could not). See the [migration guide](25-from-re-frame-v1.md).
+    `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes
+    `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and the supplier
+    returns the value instead of updating a context. `inject-cofx` is removed with no
+    alias; calling it raises `:rf.error/inject-cofx-removed`, which names
+    `:rf.cofx/requires` as the replacement. Coeffects are delivered before the
+    interceptor chain runs, so no interceptor sees a half-filled coeffects map. And
+    because there is only one `reg-event`, every handler can declare requirements
+    (v1's `reg-event-db` could not). See the [migration guide](25-from-re-frame-v1.md).
 
-### Two grades: ambient and recordable
+## The coeffects map
 
-Every coeffect id is registered with a **grade** that decides whether its value is recorded. This is the [recordable-vs-ambient](glossary.md#recordable-vs-ambient-coeffects) split:
+The `{:keys [db]}` you destructure in every handler *is* the coeffects map. `:db` and
+`:event` are always there. Anything else arrives only if the handler declares it, and
+then sits beside `:db` under its own id. That map is the handler's whole input: it
+should read nothing else.
 
-- **Recordable** (`:recordable? true`) — the fact is written onto the event, recorded with it, and re-presented verbatim by replay. Required for any fact that can affect durable state — state that ends up in app-db, where it outlives the event and enters the record; the clock (`:rf/time-ms`) is the canonical example.
-- **Ambient** (the default) — the supplier *runs again* on replay; nothing is recorded. Legal only where no durable write depends on the answer — a display preference, a diagnostic measurement.
+| | Inputs (coeffects) | Outputs (effects) |
+|---|---|---|
+| **Provided without asking** | `:db`, `:event` | `:db` |
+| **Register more with** | `reg-cofx` | `reg-fx` |
+| **Use in a handler via** | `:rf.cofx/requires` | the `:fx` vector |
+| **The impure work happens in** | the cofx supplier | the [effect handler](glossary.md#effect-handler) |
 
-Recordable facts ride in one **flat** map on every dispatch [envelope](glossary.md#event-envelope). Fact-name → value, no nesting:
+Delivery is declared-only: a fact the handler did not list in `:rf.cofx/requires` is
+not delivered, even if the event carries it. So `:rf.cofx/requires` is the complete,
+searchable list of what a handler reads from the world, and a test cannot quietly
+supply a value that is `nil` in production.
+
+## Two grades: ambient and recordable
+
+Every coeffect is registered with a
+[grade](glossary.md#recordable-vs-ambient-coeffects) that decides whether its value
+is recorded:
+
+- **Recordable** (`:recordable? true`). The value is recorded with the event and
+  handed back unchanged on replay. Use it for any fact that can end up in app-db,
+  like the saved todos or the clock.
+- **Ambient** (the default). The supplier runs again on replay and nothing is
+  recorded. Use it only when no app-db write depends on the answer, such as a display
+  preference or a diagnostic measurement.
+
+Recorded facts travel in one flat map on the dispatch
+[envelope](glossary.md#event-envelope), fact id to value:
 
 ```clojure
-{:event   [:checkout/place-order {:id #uuid "..." :items ["SKU-1" "SKU-2"]}]
+{:event   [:todo/add "Buy milk"]
  :rf.cofx {:rf/time-ms 1781078400123}}
 ```
 
-Each child dispatch gets its own stamp, taken when that child is enqueued.
+Each child dispatch gets its own stamp, taken when that child is queued.
 
-### Registering suppliers: `reg-cofx`
-
-Everything beyond `:rf/time-ms` you register yourself, as a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the declaration site:
+An ambient coeffect can take an argument, declared as `[id arg]`, so one registration
+serves several keys:
 
 ```clojure
-;; ambient (the default grade) — a display preference; never feeds durable state
-(rf/reg-cofx :ui/local-theme
-  {:doc "Ambient localStorage read for the display theme."}
+(rf/reg-cofx :ui/local-setting
+  {:doc "Ambient localStorage read for display settings."}
   (fn [storage-key]
     (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
-(rf/reg-event :prefs/apply-theme
-  {:rf.cofx/requires [[:ui/local-theme "ui-theme"]]}
-  (fn [{:keys [ui/local-theme]} _]
-    ;; presentation only — the value styles the page and never touches app-db,
-    ;; which is what keeps the ambient grade legal here
-    {:fx [[:ui/set-theme-attr (or local-theme "system")]]}))   ;; an app-registered fx
+(rf/reg-event :todo.ui/apply-theme
+  {:rf.cofx/requires [[:ui/local-setting "theme"]]}
+  (fn [{:keys [ui/local-setting]} _]
+    ;; styles the page only; nothing is written to app-db
+    {:fx [[:ui/set-theme-attr (or local-setting "system")]]}))   ;; an app-registered fx
 ```
 
-The `[id arg]` form supplies the supplier's argument, so one `:ui/local-theme` registration serves every handler and each handler declares which key it reads. Ambient is the right grade here because nothing durable depends on the answer: if replay re-reads the theme, no app-db value changes. A storage value that *does* feed a durable write — a session token you `assoc` into `:db` — must instead enter as recorded data: a `:recordable? true` registration, the event payload, or a value supplied on the dispatch call itself (the `:rf.cofx` opt shown in [Supplying facts in tests](#supplying-facts-in-tests)).
+Ambient is right here because no app-db value depends on the answer: if replay reads
+a different theme, the state is unchanged.
 
-A recordable can also be registered with no supplier. A **provided** fact — `{:recordable? true :provided? true}` — has its value stamped onto the event by an owner: a subsystem, or the dispatch call itself via the `:rf.cofx` opt below. Registering it gives the fact a `:doc`, a `:schema`, and an id, so a typo'd requirement reports differently from a missing value. `:rf/time-ms` is core's own provided fact (the add-on artefacts ship more, like SSR's per-request fact).
+A supplier must return its value synchronously, because coeffects are gathered
+before the handler runs. If the world can only answer asynchronously, as with a
+fetch, use an effect whose result comes back as a reply event
+([HTTP](effects.md#http)).
 
-A cofx supplier must return its value **synchronously**. Coeffects are assembled into the handler's input map before the handler runs, so a value that isn't ready yet has nowhere to go. If the world can only answer asynchronously — a fetch, a socket round-trip — use a managed effect whose completion comes back as a reply event ([HTTP](../async/http.md) is the worked example).
-
-**Never record a secret.** Recordable values are copied into every recording, fixture, and exported trace, so crypto-grade randomness, tokens, nonces, and key material must not ride `:rf.cofx`. See [keeping secrets out of traces](how-to/keep-secrets-out-of-traces.md).
-
-??? note "What about generated recordable facts?"
-
-    A recordable supplier can also *generate* a value — a fresh id, a seeded random — which is then recorded like any other fact. The generator runs when the event starts processing, under one of three mint policies: `:live` (the default — the generator runs and the value is recorded), `:strict` (no generation — a declared fact that wasn't supplied raises `:rf.error/missing-required-cofx`; always used for replay, and the `:test` preset's default), and `:explicit-live` (a test that opts back into generation). Choose per dispatch with the `:rf.cofx/mint-policy` opt, or per frame. [Testing event handlers](testing/event-handlers.md) uses the strict policy.
-
-### When a declaration goes wrong
-
-Because every fact is declared, the runtime can tell a typo from a missing value and reports which it saw. ([Branch on the `:rf.error/*` id](glossary.md#error-record), never on the human-readable reason.)
-
-- **Required id that was never registered** → `:rf.error/unregistered-cofx`, at registration where it can be checked, otherwise before the handler first runs.
-- **A declared `:provided?` fact absent from the event** → `:rf.error/missing-required-cofx`, under every mint policy. (`:rf/time-ms` is always stamped, so it never fails this way.)
-- **A supplier that throws** at context assembly → `:rf.error/coeffect-exception`, attributed to the failing supplier, not the handler.
-- **A recordable value that isn't EDN** (a generated or supplied value holding a host object — a `js/Date`, a DOM node) → `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value`, in production builds too. Recorded values must be EDN.
-- **Declaring the same id twice** in one handler (any args), or registering a cofx named `:db` or `:event` → `:rf.error/cofx-name-collision`; a malformed `:rf.cofx/requires` (not a vector, or a non-id entry) → `:rf.error/cofx-request-invalid` at registration.
-- **A contradictory `reg-cofx` grade** — `:provided?` without `:recordable?`, a missing supplier on a non-provided fact, or a provided fact given a supplier → `:rf.error/cofx-registration-invalid`.
+**Never record a secret.** Recorded values are copied into every recording, test
+fixture, and exported trace, so tokens, nonces, key material, and crypto-grade
+randomness must not be recordable coeffects. See
+[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 
 ## Fresh ids: the minting ladder
 
-The order above needed an `:id`. A generated id is a durable fact, so, like the clock, it can't come from `(random-uuid)` inside the handler. When a handler needs something from the world, get it in this order of preference:
+A new todo needs an id. An id ends up in app-db, so like the clock it can't come from
+`(random-uuid)` inside the handler. In order of preference:
 
-1. **Derive it from recorded state** where you can — a counter already in `app-db` makes the next id deterministically, so no new fact needs recording at all.
-2. **Mint it at the dispatch site and put it in the event** — `[:checkout/place-order {:id (random-uuid) :items […]}]`. The id is part of the recorded event vector, so replay reproduces it. This is the usual choice.
-3. **A recorded coeffect** — only for facts internal to event processing that the dispatch site shouldn't know about.
-
-The `:checkout/place-order` handler above uses option 2: the `:id` arrives in the event.
+1. **Derive it from state.** The todo handlers above compute the next id from the
+   existing keys, so nothing new needs recording.
+2. **Mint it at the dispatch site** and put it in the event, as in
+   `(dispatch [:todo/add {:id (random-uuid) :title "Buy milk"}])`. The id is part of
+   the recorded event vector, so replay reproduces it. This is the usual choice when
+   state can't supply one.
+3. **A recordable coeffect**, only for values internal to event processing that the
+   dispatch site shouldn't know about.
 
 ## The ledger
 
-Think of app-db as the running total of a **ledger**: each event is a line appended to the lines before it, and the app-db you see at any moment is the result of starting from the initial state and applying every event since, in order.
+Think of app-db as the running total of a **ledger**. Each event is a line added to
+the lines before it, and the app-db you see is the result of starting from the
+initial state and applying every event since, in order.
 
-That gives a promise you can test, the **replay promise**:
+That gives a promise you can test:
 
 > **Two fresh apps, fed the same sequence of events, finish in identical states.**
 
-The promise holds only if handlers read nothing but their recorded inputs. A handler that reads the clock or mints a random id mid-body uses a value the ledger never recorded, and replay diverges. That is why world facts that feed durable state enter as [recordable coeffects](glossary.md#recordable-vs-ambient-coeffects), recorded with the event, so replay re-presents the values the original run consumed. The grades, the declared-only delivery, and the minting ladder all exist to keep the promise true.
+It holds only if handlers read nothing but their recorded inputs: `:db`, the event,
+and recordable facts. A handler that reads the clock or storage in its body uses a
+value the ledger never recorded, and replay diverges. Declared requirements,
+recordable grades, and the minting ladder all exist to keep the promise.
 
-With the promise in place, several features follow directly:
+With it in place:
 
-- **[Time travel](glossary.md#time-travel) is re-totalling fewer lines.** "Go back five events" is the total up to line *n−5*, not an undo of five mutations.
-- **A bug report is a ledger excerpt.** "It broke after I did these things" becomes the event list that reproduces the bad state in a fresh app, which is also a regression test ([Test a pipeline run](testing/pipeline-runs.md)).
-- **Xray's event rows are the ledger, drawn.** The inspector renders the [epoch](glossary.md#epoch) record the runtime keeps anyway.
+- **[Time travel](glossary.md#time-travel) re-totals fewer lines.** "Go back five
+  events" is the total up to line *n−5*, not an undo of five mutations.
+- **A bug report is a ledger excerpt.** "It broke after I did these things" becomes
+  an event list that reproduces the bad state in a fresh app, which is also a
+  regression test ([Test a pipeline run](testing/pipeline-runs.md)).
+- **Xray's event rows are the ledger, drawn.** [Xray](glossary.md#xray) renders the
+  [epoch](glossary.md#epoch) record the runtime already keeps, including the
+  recorded coeffects each event used.
 
 ??? note "Going deeper"
 
-    The whole app is a **left fold** — Clojure's `reduce` — over the event stream: `state' = step(state, event)`, applied once per event. Your handlers are the step function and the runtime is the `reduce`. "Two apps, same events, same state" is the observation that `reduce` is deterministic when its step function is pure; recordable coeffects keep the step function pure.
-
-## Why this is non-negotiable: the replay pair
-
-The replay promise requires that a handler consults only its recorded inputs: the db, the event, and the recordable facts on the event. Side by side:
-
-```clojure
-;; ❌ BROKEN REPLAY — the clock is an ambient read the ledger never recorded.
-;;    Replay this event tomorrow and :placed-at is tomorrow's date.
-(rf/reg-event :checkout/place-order
-  (fn [{:keys [db]} [_ {:keys [id items]}]]
-    {:db (assoc-in db [:orders id] {:id id :items items :placed-at (js/Date.)})}))
-
-;; ✅ HONEST REPLAY — the clock is the recorded :rf/time-ms fact the runtime supplies.
-;;    Replay re-presents the same value; the same log reproduces the same state.
-(rf/reg-event :checkout/place-order
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [id items]}]]
-    {:db (assoc-in db [:orders id] {:id id :items items :placed-at time-ms})}))
-```
-
-The broken version cannot be replayed, restored, or deterministically tested. The honest version can, because every fact it used is one the runtime recorded and can re-supply: restore an [epoch](glossary.md#epoch) for [time-travel](glossary.md#time-travel), re-run the log, and the handler gets the same recorded `:rf/time-ms` instead of the wall clock on replay day. The clock is still read, but once, when the event is enqueued.
-
-## See it run
-
-A live order list. When each order was placed comes from the declared `:rf/time-ms` coeffect; its id comes in the event. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then place some orders.
-
-```cljs-rf2
-(require '[re-frame.core :as rf])
-
-;; A PURE handler: the clock arrives as the declared :rf/time-ms recordable
-;; coeffect; the fresh id rides the event from the dispatch site (minting
-;; ladder, rung 2). Both facts are durable — both are recorded.
-(rf/reg-event :demo.order/place
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [id]}]]
-    {:db (assoc-in db [:demo.order/items id]
-                   {:id id
-                    :label (str "Order #" (inc (count (:demo.order/items db))))
-                    :placed-at time-ms})}))
-
-(rf/reg-event :demo.order/initialise
-  (fn [{:keys [db]} _event] {:db (assoc db :demo.order/items {})}))
-
-(rf/reg-sub :demo.order/items
-  (fn [db _query] (vals (:demo.order/items db))))
-
-(rf/reg-view order-list []
-  [:div
-   [:button {:on-click #(dispatch [:demo.order/place {:id (random-uuid)}])}
-    "Place an order"]
-   [:ul
-    (for [{:keys [id label placed-at]} @(subscribe [:demo.order/items])]
-      ^{:key id}
-      [:li label
-       [:span {:style {:color "#888" :margin-left "1em" :font-size "0.85em"}}
-        (.toLocaleTimeString (js/Date. placed-at) "en-US")]])]])
-
-[rf/frame-root {:id :orders :initial-events [[:demo.order/initialise]]}
- [order-list]]
-```
-
-`:demo.order/place` never calls `js/Date.` or `random-uuid`. The only host read left, locale formatting of the displayed time, happens in the view and never touches app-db.
-
-**Try it:** change the button's dispatch to `#(dispatch [:demo.order/place {:id (random-uuid)}] {:rf.cofx {:rf/time-ms 1735732800000}})` and re-evaluate. (The injected `dispatch` takes an opts map as its second argument and still targets this view's `:orders` [frame](glossary.md#frame).) Every order is now stamped with that instant, because you supplied the fact instead of letting the runtime read the clock. In [Xray](glossary.md#xray), each event's epoch shows the recorded coeffects it used.
+    The whole app is a left fold, Clojure's `reduce`, over the event stream:
+    `state' = step(state, event)`. Your handlers are the step function and the
+    runtime is the `reduce`. "Same events, same state" holds because `reduce` is
+    deterministic when its step function is pure, and recordable coeffects keep it
+    pure.
 
 ## Supplying facts in tests
 
-The dispatch-opts key `:rf.cofx` hands the runtime exact facts; supplied values win, and the runtime fills only what you leave out. [Testing event handlers](testing/event-handlers.md) covers it, along with `:fx-overrides` for stubbing effects.
+The `:rf.cofx` dispatch option hands the runtime exact values. Supplied values win,
+and the runtime fills in only what you leave out. In the live example above, change
+the button's dispatch to:
+
+```clojure
+#(dispatch [:todo/add "Buy milk"] {:rf.cofx {:rf/time-ms 1735732800000}})
+```
+
+Re-evaluate and every new todo is stamped with that instant. (The injected
+`dispatch` takes an options map as its second argument and still targets the view's
+frame.) [Testing event handlers](testing/event-handlers.md) covers this, along with
+`:fx-overrides` for stubbing effects.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Declared fact is `nil` in the handler | Destructured under the wrong key; facts arrive flat under their own id | Destructure `{:keys [rf/time-ms]}` (or the id you declared) beside `db` |
-| `:rf.error/unregistered-cofx` | A `:rf.cofx/requires` entry names an id nobody registered (usually a typo) | Fix the id, or `reg-cofx` it |
-| `:rf.error/missing-required-cofx` | A `:provided?` fact was declared but nothing stamped it onto the event | Supply it with the `:rf.cofx` dispatch opt, or from its owning subsystem |
+| Declared fact is `nil` in the handler | Destructured under the wrong key | Destructure it by its id beside `db`, e.g. `{:keys [db rf/time-ms]}` |
+| `:rf.error/unregistered-cofx` | A `:rf.cofx/requires` entry names an unregistered id, usually a typo | Fix the id, or register it with `reg-cofx` |
+| `:rf.error/missing-required-cofx` | A `:provided?` fact was declared but nothing supplied it | Supply it with the `:rf.cofx` dispatch option, or from its owning subsystem |
 | `:rf.error/cofx-value-invalid` | A recordable value is not EDN (a `js/Date`, a DOM node) | Record plain data, e.g. epoch milliseconds |
 | Replay produces different state | The handler reads the clock, `random-uuid`, or storage in its body | Declare the fact, or mint it at the dispatch site |
+
+## Advanced
+
+### Provided facts
+
+A recordable coeffect can be registered with no supplier. A **provided** fact,
+`{:recordable? true :provided? true}`, has its value put on the event by an owner:
+a subsystem, or the dispatch call itself through the `:rf.cofx` option. Registering
+it gives the fact a `:doc`, a `:schema`, and an id, so a typo'd requirement reports
+differently from a missing value. `:rf/time-ms` is core's own provided fact, and the
+add-on artefacts register more, such as routing's navigation token and SSR's
+per-request fact.
+
+### Mint policies for generated facts
+
+A recordable supplier like `:todo.storage/todos` generates its value when the event
+starts processing. Whether generation is allowed is the **mint policy**:
+
+- `:live` (the default): the supplier runs and the value is recorded.
+- `:strict`: nothing is generated, so a declared fact that wasn't supplied raises
+  `:rf.error/missing-required-cofx`. Replay always uses it, and so does the `:test`
+  frame preset.
+- `:explicit-live`: a test opts back into generation.
+
+Choose per dispatch with the `:rf.cofx/mint-policy` option, or per frame.
+[Testing event handlers](testing/event-handlers.md) uses the strict policy.
+
+### When a declaration goes wrong
+
+Because every fact is declared, the runtime can tell a typo from a missing value.
+Branch on the [`:rf.error/*` id](glossary.md#error-record), never on the message.
+
+- **A required id that was never registered**: `:rf.error/unregistered-cofx`, at
+  registration where it can be checked, otherwise before the handler first runs.
+- **A declared `:provided?` fact absent from the event**:
+  `:rf.error/missing-required-cofx`, under every mint policy. `:rf/time-ms` is always
+  stamped, so it never fails this way.
+- **A supplier that throws**: `:rf.error/coeffect-exception`, attributed to the
+  supplier rather than the handler.
+- **A recordable value that isn't EDN**, such as a `js/Date` or a DOM node:
+  `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value`, in
+  production builds too.
+- **The same id declared twice** in one handler, or a coeffect named `:db` or
+  `:event`: `:rf.error/cofx-name-collision`. A malformed `:rf.cofx/requires` (not a
+  vector, or a non-id entry) raises `:rf.error/cofx-request-invalid` at registration.
+- **A contradictory grade**, such as `:provided?` without `:recordable?`, a missing
+  supplier on a non-provided fact, or a provided fact given a supplier:
+  `:rf.error/cofx-registration-invalid`.

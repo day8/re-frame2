@@ -57,8 +57,8 @@ returns at once. When the caller needs the drain settled before its next line ru
 (a test, the REPL), use [**`dispatch-sync`**](glossary.md#dispatch-sync):
 
 ```clojure
-(rf/dispatch-sync [:inc] {:frame :app})   ;; at the REPL, name the frame
-;; By the time this line returns, the whole drain has settled.
+(rf/dispatch-sync [:todo/add "Buy milk"] {:frame :app})   ;; at the REPL, name the frame
+@(rf/subscribe [:todo/all] {:frame :app})                  ;; already includes "Buy milk"
 ```
 
 `dispatch-sync` runs the same drain as `dispatch`, but returns only after it
@@ -71,11 +71,11 @@ a drain is already running. Return `:fx [[:dispatch event]]` instead. (A
 
 !!! warning "Gotcha — a dispatch needs a frame in scope"
 
-    Both `dispatch` and `dispatch-sync` take their [frame](glossary.md#frame) from
-    scope — a `frame-root` during render, a running handler, `with-frame`, or a
+    Both `dispatch` and `dispatch-sync` get their [frame](glossary.md#frame) from
+    scope: a `frame-root` during render, a running handler, `with-frame`, or a
     [`capture-frame`](glossary.md#capture-frame) frame api. From an async callback
     with none of these they raise `:rf.error/no-frame-context`. Capture the frame
-    while it is in scope, or pass `{:frame <id>}` in the dispatch opts. See
+    while it is in scope, or pass `{:frame <id>}` in the dispatch options. See
     [Frames](frames.md#the-async-boundary-capture-the-frame).
 
 ??? info "From re-frame v1"
