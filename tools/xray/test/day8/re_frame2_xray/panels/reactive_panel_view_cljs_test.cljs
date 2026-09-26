@@ -121,17 +121,6 @@
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l2-table")) "no Level-2 table")
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-views-table")) "no Views table"))))
 
-(deftest reactive-panel-section-label-is-reactive-flow
-  (testing "the graph section is headed `Reactive Flow`."
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
-       :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
-    (let [tree (panel-tree)]
-      (is (= "Reactive Flow" (text-of tree "rf-xray-reactive-section-flow-label"))
-          "graph section heading is `Reactive Flow`"))))
-
 (deftest reactive-flow-heading-is-title-case-not-all-caps
   (testing "the primary `Reactive Flow` heading renders in
             TITLE case (no CSS uppercase transform), not all-caps
