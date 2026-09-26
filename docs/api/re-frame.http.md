@@ -382,6 +382,22 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
 | `:rf.error/http-interceptor-failed` | `:error` | An interceptor's `:before` or `:after` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause`, plus `:phase :after` when an `:after` threw. The request is not sent (`:before`) or the reply is not delivered (`:after`). |
 | `:rf.error/http-interceptor-bad-return` | `:error` | An interceptor's `:before` or `:after` returned something other than a map. Carries `:id`, `:returned`. The request is not sent (`:before`) or the reply is not delivered (`:after`). |
 
+## Framework integration
+
+Not for application code. The framework's own tests reach these across a namespace boundary; they are public for that reason only, at the implementation tier, and may change without notice.
+
+- `re-frame.http.managed/clear-all-in-flight!` — aborts every in-flight request, then empties the registry.
+- `re-frame.http.managed/in-flight-snapshot` — the in-flight requests keyed by request id, for every frame or for one frame.
+- `re-frame.http.managed/actor-in-flight-snapshot` — the in-flight requests an actor issued, keyed by actor id.
+- `re-frame.http.managed/seed-in-flight-for-test!` — records a fabricated in-flight request through the same path a real one takes, so both indexes stay consistent.
+- `re-frame.http.managed/abort-on-actor-destroy` — aborts the requests an actor issued; the actor-destroy cascade calls it.
+- `re-frame.http.managed/clear-all-http-interceptors!` — empties every frame's interceptor chain.
+- `re-frame.http.managed/interceptors-snapshot` — a frame's interceptor chain, in order.
+- `re-frame.http.test-support/run-request-chain` — runs a request's `:before` interceptors, as the canned effects do, and returns the resulting context.
+- `re-frame.http.test-support/capture-and-run-request-chain` — the same, also returning the chain it captured, for a caller that goes on to run the `:after` half.
+- `re-frame.http.test-support/emit-canned-success!` — delivers a canned success reply for a request whose `:before` half already ran.
+- `re-frame.http.test-support/canned-success-handler` and `canned-failure-handler` — the handlers behind the two canned effects.
+
 ## See also
 
 - [re-frame.resources](re-frame.resources.md) — cached reads and mutations that issue their requests through `:rf.http/managed`.

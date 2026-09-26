@@ -203,6 +203,18 @@
   {:namespace "re-frame.fresco.tool", :var "read-intents", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.tool", :var "read-mounted-boundaries", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.fresco.tool", :var "read-read-attribution", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.http.managed", :var "abort-on-actor-destroy", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.managed", :var "actor-in-flight-snapshot", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.managed", :var "clear-all-http-interceptors!", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.managed", :var "clear-all-in-flight!", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.managed", :var "in-flight-snapshot", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.managed", :var "interceptors-snapshot", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.managed", :var "seed-in-flight-for-test!", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.test-support", :var "canned-failure-handler", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.test-support", :var "canned-success-handler", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.test-support", :var "capture-and-run-request-chain", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.test-support", :var "emit-canned-success!", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.http.test-support", :var "run-request-chain", :tier :implementation, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.interop", :var "debug-enabled?", :tier :tooling, :kind :var, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-cancel-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.machines", :var "after-schedule-fx", :tier :implementation, :kind :fn, :owner "005", :status "v1", :facade? false, :runtime-verified? true}
@@ -228,7 +240,11 @@
   {:namespace "re-frame.mcp-base.sensitive", :var "sensitive-event?", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "sensitive-stamp?", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "strip-sensitive", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.performance", :var "build-name", :tier :adapter, :kind :fn, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.performance", :var "enabled?", :tier :tooling, :kind :var, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.performance", :var "entry-id", :tier :adapter, :kind :fn, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.performance", :var "mark-and-measure", :tier :adapter, :kind :macro, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.performance", :var "retain-entries?", :tier :tooling, :kind :var, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.resources", :var "mutation-state", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.resources", :var "reg-mutation", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.resources", :var "reg-resource", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
@@ -309,6 +325,7 @@
   {:namespace "re-frame.ssr", :var "project-error", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "project-render-exception!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "public-error-keys", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr", :var "read-server-payload", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.ssr", :var "reg-error-projector", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "render-to-string", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "render-tree-hash", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
@@ -317,6 +334,7 @@
   {:namespace "re-frame.ssr", :var "streaming-failed-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "streaming-fallback-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "streaming-hydrate-delta-script", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr", :var "streaming-install!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.ssr", :var "streaming-render-continuation", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "streaming-render-shell", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "streaming-resolved-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}

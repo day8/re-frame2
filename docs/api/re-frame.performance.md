@@ -62,6 +62,28 @@ To look at the measures, record a profile in the browser DevTools **Performance*
                                      re-frame.performance/retain-entries? true}}}}}
   ```
 
+## Framework integration
+
+Not for application code. A view substrate uses these so that the name it publishes for a view is the name that view's measure carries.
+
+### `entry-id`
+
+- **Kind**: function
+- **Signature**: `(entry-id id) → string`
+- **Description**: The `<id>` half of a measure name: a keyword without its leading colon, anything else as written. A substrate stamps it as the component name it publishes, such as React's `displayName`, so the name DevTools shows matches the `rf:render:` measure.
+
+### `build-name`
+
+- **Kind**: function
+- **Signature**: `(build-name kind id) → string`
+- **Description**: The whole measure name, `rf:<kind>:<id>`, whose `<id>` is `(entry-id id)`.
+
+### `mark-and-measure`
+
+- **Kind**: macro
+- **Signature**: `(mark-and-measure kind id body+) → the last body value`
+- **Description**: With `enabled?` on, records `body` as one `rf:<kind>:<id>` measure, even when it throws; with `enabled?` off, an `:advanced` build keeps only `body`.
+
 ## See also
 
 - [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) — how the timing flag combines with `goog.DEBUG` across build profiles.

@@ -149,15 +149,38 @@
     re-frame.mcp-base.sensitive])
 
 (def extra-vars
-  "Individually-named public vars whose HOME namespace is mostly internal
-   (so we do NOT enumerate the whole namespace) but which spec/API.md rows
-   as a documented public surface. Each is JVM-introspected and
-   runtime-verified individually. Shape: `[ns-sym var-sym]`."
+  "Individually-named public vars whose HOME namespace is not enumerated
+   whole, but which carry a manifest row: a documented public surface, or a
+   test/tool reach classified at a tier of its own. Each is JVM-introspected
+   and runtime-verified individually. Shape: `[ns-sym var-sym]`."
   '[;; The two dev-gate Vars rowed in spec/API.md §Tracing. Their home
     ;; namespaces (re-frame.interop / re-frame.performance) are otherwise
     ;; internal plumbing.
     [re-frame.interop     debug-enabled?]
-    [re-frame.performance enabled?]])
+    [re-frame.performance enabled?]
+    ;; The rest of re-frame.performance: the second compile-time flag, and
+    ;; the measure-naming surface a view substrate calls so the name it
+    ;; publishes is the one the measure carries.
+    [re-frame.performance retain-entries?]
+    [re-frame.performance entry-id]
+    [re-frame.performance build-name]
+    [re-frame.performance mark-and-measure]
+    ;; Managed-HTTP registry and interceptor-chain reaches that tests call
+    ;; through the artefact's door. Implementation tier: not a supported surface.
+    [re-frame.http.managed clear-all-in-flight!]
+    [re-frame.http.managed in-flight-snapshot]
+    [re-frame.http.managed actor-in-flight-snapshot]
+    [re-frame.http.managed seed-in-flight-for-test!]
+    [re-frame.http.managed abort-on-actor-destroy]
+    [re-frame.http.managed clear-all-http-interceptors!]
+    [re-frame.http.managed interceptors-snapshot]
+    ;; The request-chain and canned-reply helpers beneath the documented stub
+    ;; family, which tests call directly. Implementation tier.
+    [re-frame.http.test-support capture-and-run-request-chain]
+    [re-frame.http.test-support run-request-chain]
+    [re-frame.http.test-support emit-canned-success!]
+    [re-frame.http.test-support canned-success-handler]
+    [re-frame.http.test-support canned-failure-handler]])
 
 (defn- source-file->ns-sym
   "Namespace symbol for a Clojure source file at `rel-path` (a `/`-joined

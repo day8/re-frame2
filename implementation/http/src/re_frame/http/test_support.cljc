@@ -234,7 +234,7 @@
        :chain          chain})
     nil))
 
-(defn emit-canned-failure!
+(defn- emit-canned-failure!
   "Synthesise a failure reply from a PRE-COMPUTED `captured` request.
   Symmetric with `emit-canned-success!`."
   [frame-ctx args-map {:keys [chain middleware-ctx] :as _captured}]

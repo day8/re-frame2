@@ -522,7 +522,15 @@
   {:namespace "re-frame.fresco.tool"      :var "explain-render"         :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.tool"      :var "read-intents"           :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.fresco.tool"      :var "read-mounted-boundaries" :kind :fn :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.fresco.tool"      :var "read-read-attribution"  :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}]
+  {:namespace "re-frame.fresco.tool"      :var "read-read-attribution"  :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  ;; --- re-frame.ssr CLJS-only client lifecycle ---
+  ;; `read-server-payload` and `streaming-install!` are defined under
+  ;; `#?(:cljs …)`, so the JVM generator's view of re-frame.ssr cannot see
+  ;; them. spec/API.md's implementation-tier SSR note names both beside the
+  ;; JVM-visible `verify-hydration!`; the supported client path is `hydrate!`.
+  ;; Not covered by the CLJS probe, which does not load re-frame.ssr.
+  {:namespace "re-frame.ssr" :var "read-server-payload" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.ssr" :var "streaming-install!"  :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}]
 
  ;; --------------------------------------------------------------------------
  ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
@@ -1376,6 +1384,32 @@
   ;; namespaces are otherwise internal plumbing.
   ["re-frame.interop" "debug-enabled?"]   {:tier :tooling :owner "009" :status "v1"}
   ["re-frame.performance" "enabled?"]     {:tier :tooling :owner "009" :status "v1"}
+  ;; The second compile-time flag, tiered with its sibling `enabled?`: a build
+  ;; sets both the same way, in `:closure-defines`.
+  ["re-frame.performance" "retain-entries?"] {:tier :tooling :owner "009" :status "v1"}
+  ;; The measure-naming surface for view-substrate authors. `entry-id`'s own
+  ;; docstring says why it is public: a substrate publishing a component name
+  ;; must spell it the way the `rf:render:<id>` measure does. `mark-and-measure`
+  ;; brackets a substrate's render; its expansion calls `build-name`.
+  ["re-frame.performance" "entry-id"]         {:tier :adapter :owner "009" :status "v1"}
+  ["re-frame.performance" "build-name"]       {:tier :adapter :owner "009" :status "v1"}
+  ["re-frame.performance" "mark-and-measure"] {:tier :adapter :owner "009" :status "v1"}
+  ;; Managed-HTTP reaches tests call through `re-frame.http.managed` and
+  ;; `re-frame.http.test-support`: registry and interceptor-chain snapshots,
+  ;; seeding and resets, and the request-chain and canned-reply helpers beneath
+  ;; the documented stub family. Public for a cross-namespace test reach only.
+  ["re-frame.http.managed" "clear-all-in-flight!"]         {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.managed" "in-flight-snapshot"]           {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.managed" "actor-in-flight-snapshot"]     {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.managed" "seed-in-flight-for-test!"]     {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.managed" "abort-on-actor-destroy"]       {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.managed" "clear-all-http-interceptors!"] {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.managed" "interceptors-snapshot"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.test-support" "capture-and-run-request-chain"] {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.test-support" "run-request-chain"]             {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.test-support" "emit-canned-success!"]          {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.test-support" "canned-success-handler"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
+  ["re-frame.http.test-support" "canned-failure-handler"]        {:tier :implementation :owner "014" :status "v1 (optional capability)"}
 
   ;; =========================================================================
   ;; re-frame.test-support — runtime-state test helpers (tier: testing).

@@ -115,6 +115,7 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 - `:stale-after-ms` — how long a loaded entry stays fresh. Absent means it never goes stale.
 - `:gc-after-ms` — how long an entry with no owner is kept. Absent defaults to `300000` (5 minutes); `:never` keeps it. Otherwise it must be a positive number of milliseconds; `nil`, `0` or any other value raises `:rf.error/resource-bad-spec`.
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling). A value that is neither a number nor `nil` raises `:rf.error/resource-bad-spec`.
+- `:timeout-ms` — stamps each fetch's work-ledger record with `:deadline-at`, its `:started-at` plus this many milliseconds, which Xray's Resources panel shows. It is recorded, not enforced: nothing cancels a fetch at its deadline. Bound the request itself with the `:timeout-ms` of the managed-HTTP args your request fn returns.
 - `:tags` — `(fn [params data] → #{tag …})`, the tags that [`invalidate-tags`](#rfresourceinvalidate-tags-) and mutations match.
 - `:infinite`, plus the infinite-only keys `:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param` and `:refetch`. See [Infinite resources](#infinite-resources). `:infinite` takes only the literal `true`; any other value raises `:rf.error/resource-bad-spec`. There is no `:page-data-schema`; supplying one raises the same error.
 - `:sensitive?` / `:large?` — classify the whole entry. The same properties on a schema affect only how validation failures are redacted.
