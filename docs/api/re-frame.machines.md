@@ -193,7 +193,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Payload**: `actor-id`.
 - **Description**: Stops an actor. It runs the `:exit` actions of the actor's active states, cancels its pending `:after` timers and removes its snapshot from `[:rf.runtime/machines :snapshots actor-id]` in `runtime-db`.
     - It also aborts the actor's in-flight `:rf.http/managed` requests and releases any resources the actor owns. Hold anything else the actor uses, such as a websocket or an interval, in a custom effect handler keyed by the actor's id, and have the actor's `:exit` action return the close effect: `:exit` runs, and its effects execute, on every destroy path.
-    - If the actor has its own event-handler registration, that is removed too. A spawned actor has none: it exists for as long as its snapshot does.
+    - It ends the instance, not the machine's registration. A singleton's `reg-machine` registration survives, so `registrations` and `handler-meta` still report it, and its next event starts it again from `:initial`. To remove the registration as well, call [`clear`](re-frame.core.md#clear): `(rf/clear :event <machine-id>)`. A spawned actor has no registration of its own: it exists for as long as its snapshot does.
     - Destroying an actor that is already gone does nothing.
     - A declarative child rarely needs it: the runtime destroys it when its parent leaves the spawning state or is destroyed, and when it enters a root-level `:final?` state (see [Final states](#final-states-and-on-done)). An actor you started with `:rf.machine/spawn` has no parent state to end it, so emit this effect when you are done with it, unless it finishes by entering a root-level `:final?` state.
 - **Example**:
@@ -414,7 +414,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
   ```clojure
   (re-frame.machines/destroy-machine-fx fx-ctx args)
   ```
-- **Description**: The handler for `:rf.machine/destroy`. It chooses the teardown from the shape of `args`: a single actor (the keyword form, or a single `:spawn`), or every child of a `:spawn-all`. It runs the actor's `:exit` actions, clears its `[:rf.runtime/machines :snapshots <actor-id>]` slot and removes its event-handler registration.
+- **Description**: The handler for `:rf.machine/destroy`. It chooses the teardown from the shape of `args`: a single actor (the keyword form, or a single `:spawn`), or every child of a `:spawn-all`. It runs the actor's `:exit` actions and clears its `[:rf.runtime/machines :snapshots <actor-id>]` slot. A singleton's `reg-machine` registration survives.
 
 #### `re-frame.machines/after-schedule-fx`
 
