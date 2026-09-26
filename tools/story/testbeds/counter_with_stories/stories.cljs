@@ -852,11 +852,11 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; reg-workspace — five workspaces, one per layout Story ships
+  ;; reg-workspace — four workspaces, one per layout Story ships
   ;;
   ;; `:grid` — explicit variant ids, in the order they appear, in a grid.
   ;; `:variants-grid` — enumerates the parent story's variants automatically.
-  ;; `:prose` / `:tabs` / `:custom` — layout-coverage fixtures.
+  ;; `:prose` / `:tabs` — layout-coverage fixtures.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-workspace :Workspace.counter/all-states
@@ -894,14 +894,7 @@
      :layout   :tabs
      :variants [:story.counter/empty
                 :story.counter/loaded]
-     :tags     #{:docs}})
-
-  (rf.story/reg-workspace :Workspace.counter/custom
-    {:doc    "Custom layout fixture for workspace coverage. The
-             renderer projects the configured view id as data."
-     :layout :custom
-     :render :counter-with-stories.views/counter-card
-     :tags   #{:docs}}))
+     :tags     #{:docs}}))
 
 ;; Fire the registrations once at namespace load.
 (register-all!)

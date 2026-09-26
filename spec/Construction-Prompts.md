@@ -1213,7 +1213,7 @@ The `:variants` map desugars at macro-expansion time to N independent `reg-varia
 - Every tag in a variant's `:tags` set is registered (canonical tag or `reg-tag`'d project tag).
 - `:extends`, where used, resolves to a registered variant id; no cycles.
 - Each variant has a one-sentence `:doc`.
-- A workspace's `:layout` matches its content slot (`:grid`/`:tabs` → `:variants`; `:prose` → `:content`; `:variants-grid` → enumerated; `:custom` → `:render`).
+- A workspace's `:layout` matches its content slot (`:grid`/`:tabs` → `:variants`; `:prose` → `:content`; `:variants-grid` → enumerated).
 - A `:test`-tagged variant is drivable headlessly via `run-variant` (`:lifecycle` reaches `:ready`; asserted `:app-db` / `:assertions`).
 - Registration forms elide in production builds (the `reg-*` macros gate on `re-frame.story.config/enabled?`).
 

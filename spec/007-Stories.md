@@ -252,7 +252,7 @@ For variants that need args to map into `app-db` (e.g., a `:logged-in?` arg cont
    :setup        [[:dispatch [:auth/initialise]]]})
 ```
 
-`:args->events` is `{<arg-key> <event-id>}` — entries are registered event ids, not inline functions. When the control mutates the arg, the story tool dispatches `[<event-id> <new-value>]` into the variant's frame. Most stories don't need `:args->events` — args going to the view directly is enough.
+`:args->events` is `{<arg-key> <event-id>}` — entries are registered event ids, not inline functions. When the control mutates the arg, the story tool dispatches `[<event-id> <new-value>]` into the variant's frame. The event also fires once when the variant mounts, after its `:setup`, with the arg's initial value, so the frame starts consistent with the control. Most stories don't need `:args->events` — args going to the view directly is enough.
 
 ## Decorators
 

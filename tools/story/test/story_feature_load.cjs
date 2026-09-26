@@ -743,7 +743,6 @@ async function assertWorkspaceLayouts(page) {
     [':Workspace.counter/auto-grid', 'variants-grid'],
     [':Workspace.counter/prose', 'Story matrix prose block before the example.'],
     [':Workspace.counter/tabs', 'tabs'],
-    [':Workspace.counter/custom', 'custom render:'],
   ]) {
     await clickWorkspace(page, workspace);
     await assertMainContains(page, marker, 10000);

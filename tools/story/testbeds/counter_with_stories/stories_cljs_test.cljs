@@ -278,12 +278,11 @@
               (done)))))))
 
 (deftest example-workspaces-registered
-  (testing "all five workspaces registered"
+  (testing "all four workspaces registered"
     (is (rf.story/registered? :workspace :Workspace.counter/all-states))
     (is (rf.story/registered? :workspace :Workspace.counter/auto-grid))
     (is (rf.story/registered? :workspace :Workspace.counter/prose))
-    (is (rf.story/registered? :workspace :Workspace.counter/tabs))
-    (is (rf.story/registered? :workspace :Workspace.counter/custom))))
+    (is (rf.story/registered? :workspace :Workspace.counter/tabs))))
 
 ;; ---- variants resolve cleanly ------------------------------------------
 

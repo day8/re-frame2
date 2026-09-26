@@ -398,7 +398,7 @@ no fn-slots):
  :loaders               [[:loader-event-id ...]] ; async setup; phase 1
  :loaders-complete-when <pred>                   ; vector or registered event-id; see 002-Runtime
  :loaders-teardown      [[:cleanup-event-id ...]]; symmetric counterpart of :loaders; runs on destroy-variant!
- :args->events          {<arg-key> <event-id>}   ; arg → app-db mapping (spec/007 §Args mapping)
+ :args->events          {<arg-key> <event-id>}   ; after :setup, dispatches [event-id arg-value] (spec/007 §Args mapping)
  :platforms             #{:server :client}
  :substrates            #{:reagent :uix ...}
  :modes                 #{<mode-id> ...}         ; listed by Docs mode; feeds no args
@@ -702,12 +702,11 @@ rejected at `reg-workspace` call-time with `:rf.error/workspace-shape`
 
 ```clojure
 {:doc       "..."
- :layout    :grid | :prose | :variants-grid | :tabs | :custom
+ :layout    :grid | :prose | :variants-grid | :tabs
  :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs (explicit list)
  :for       <story-id>                            ; for :variants-grid only — auto-enumerate anchor (see note below)
  :columns   <integer>                             ; for :grid / :variants-grid — fixed column count (renderer-honoured)
  :content   [{:type :prose :body "md..."} ...]    ; for :prose; bodies render as markdown — see spec/008 §Markdown rendering
- :render    <view-id>                              ; for :custom (a registered view)
  :tags      #{<tag-id> ...}                        ; workspace tag set (subset of the registered vocabulary)
  :modes     #{<mode-id> ...}                       ; future-reserved — see below
  :isolation :isolated | :shared}                   ; rf2-gqid4 — :variants-grid only
@@ -750,8 +749,8 @@ explicitly so the authoring intent is in the body.
 ```
 
 Other layouts (`:grid`, `:tabs`) take `:variants` only — they have no
-single parent-story to enumerate against. `:prose` and `:custom`
-ignore both slots.
+single parent-story to enumerate against. `:prose` ignores both
+slots.
 
 Declaring **both** `:variants` and `:for` on a `:variants-grid` raises
 `:rf.error/workspace-shape` at registration — they are alternatives, not
@@ -776,8 +775,8 @@ The `:columns` integer slot pins the column count of a `:grid` /
 columns as the canvas width allows. `:columns` only affects the
 `:grid` and (isolated) `:variants-grid` layouts — the layouts that lay
 cells out in a CSS grid. `:tabs`, `:variants-grid` with `:isolation
-:shared`, `:prose`, and `:custom` render one-at-a-time or in flow and
-ignore `:columns`. (rf2-ugmrg honoured the slot; the earlier
+:shared`, and `:prose` render one-at-a-time or in flow and ignore
+`:columns`. (rf2-ugmrg honoured the slot; the earlier
 declared-not-honoured divergence is resolved.)
 
 #### Workspace `:modes` slot — future-reserved (v1) (rf2-q5e36)

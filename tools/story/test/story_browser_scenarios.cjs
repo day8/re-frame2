@@ -794,27 +794,22 @@ module.exports = {
        * reg-workspace feature-gate beyond the matrix bookkeeping
        * baseline.
        *
-       * The counter testbed registers five workspaces covering
+       * The counter testbed registers four workspaces covering
        * every Spec 008 §Workspace layout:
        *   - :Workspace.counter/all-states     :grid
        *   - :Workspace.counter/auto-grid      :variants-grid
        *   - :Workspace.counter/tabs           :tabs
        *   - :Workspace.counter/prose          :prose
-       *   - :Workspace.counter/custom         :custom
        *
        * The terminal workspace-switch walk exercises grid /
        * variants-grid / tabs round-trips for the stale-subscribe
-       * regression. This walk targets the remaining layouts (prose,
-       * custom) plus the unknown-workspace empty branch:
+       * regression. This walk targets the remaining layout (prose)
+       * plus the unknown-workspace empty branch:
        *
        *   - :prose layout mounts mixed prose blocks AND variant cells
        *     in declared order; the rendered <section> aria-label
        *     embeds the workspace id; the layout name is in the
        *     workspace title (per workspace-view rendering)
-       *   - :custom layout mounts ONE cell that surfaces the
-       *     configured :render id verbatim ("custom render: :foo")
-       *     — the resolve-layout :custom branch's single-cell
-       *     pass-through (workspace.cljc resolve-layout)
        *   - unknown workspace: programmatically selecting a not-
        *     registered id via re_frame.story.ui.state/select-
        *     workspace renders the workspace-view's `(nil? body)`
@@ -865,20 +860,7 @@ module.exports = {
         );
       }
 
-      // (b) :custom layout — a single cell surfacing the registered
-      // :render id verbatim. The cell's text starts with "custom
-      // render: " per workspace-view's :custom branch.
-      const customRow = page.getByRole('navigation').getByText('Workspace.counter/custom', { exact: false }).first();
-      await customRow.waitFor({ state: 'visible', timeout: 10000 });
-      await customRow.click();
-      const customSection = page.locator('main section[aria-label="Workspace :Workspace.counter/custom"]');
-      await customSection.waitFor({ state: 'visible', timeout: 10000 });
-      await expectVisible(
-        customSection.getByText(/custom render: :counter-with-stories\.views\/counter-card/i).first(),
-        5000,
-      );
-
-      // (c) Unknown workspace — programmatically swap shell state
+      // (b) Unknown workspace — programmatically swap shell state
       // to select an unregistered workspace id. The workspace-view's
       // (nil? body) branch renders "workspace :Workspace.counter/
       // does-not-exist is not registered" inside a still-mounted

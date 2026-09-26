@@ -73,7 +73,6 @@ Workspaces are layout artifacts. Each `:layout` needs its own slot:
 | `:variants-grid` | nothing, `:for` or `:variants` | You want every variant under a story parent, or a curated list of them. |
 | `:tabs` | `:variants` | You want one variant visible at a time. |
 | `:prose` | `:content` | You want prose interleaved with rendered variants. |
-| `:custom` | `:render` | Reserved for a registered view that owns the layout; the shell currently shows a placeholder naming the view. |
 
 A missing slot, or a slot the body does not accept, throws
 `:rf.error/workspace-shape` at registration. `:columns` fixes the column count

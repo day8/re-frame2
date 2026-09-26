@@ -3068,6 +3068,17 @@ the viewport and browser of the capture.
 [Local visual review](../../../docs/story/08-snapshot-identity-and-sharing.md#local-visual-review)
 is a Playwright recipe for one.
 
+**What a run reports for both browser-only ids today: `:cannot-run`.**
+Post-run evidence validation
+(`re-frame.story.requirements/validate-run-evidence`) requires the `:pixels`
+evidence slot for `:rf.assert/visual-snapshot` and the `:a11y` slot for
+`:rf.assert/a11y`, and no Story runner produces either slot. So every run
+refuses both with `:required-evidence-missing`, whatever runner it selects
+(below `:browser` they are refused for the missing capability first). In a
+browser the finding's own record can read `:pass` (the identity key matched,
+or the a11y panel held no violations for the frame), but the run's verdict
+is `:cannot-run`, never `:pass`.
+
 ### The executor: reuse, not a second system
 
 The browser-tier executor (`re-frame.story.play.browser`) is the SAME
