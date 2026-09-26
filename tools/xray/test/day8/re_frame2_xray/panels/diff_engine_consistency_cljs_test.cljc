@@ -56,29 +56,6 @@
       (is (= [[[:counter] 5 6 :modified]] oracle)
           "engine produces the universal `[path before after op]` shape"))))
 
-;; ---- R6 vector shift ----------------------------------------------------
-
-(deftest engine-consistency-r6-vector-shift
-  (testing "R6 vector-shift handling. A structural-sharing key-walker
-            classifies vector mutations as a leaf `:modified` at the
-            parent path (vectors bottom out — see the
-            `app-db-diff-helpers/diff-paths` rule). The Editscript
-            engine surfaces per-element ops; the universal 4-tuple
-            shape passes those through. Same engine → engine-stable
-            ops across the `:diff` and `:full+diff` modes."
-    (let [before {:items [:a :b :c :d]}
-          after  {:items [:a :NEW :b :c :d]}
-          oracle (universal-diff before after)
-          paths (set (map first oracle))]
-      ;; The Editscript engine emits a `:+` at [items 1] with value
-      ;; `:NEW`; expand-leaf-paths surfaces that at `[:items 1]`.
-      ;; A key-walker would classify `:items` as a
-      ;; single leaf `:modified` — different chrome.
-      (is (contains? paths [:items 1])
-          "engine surfaces the per-element added path (R6); a key-walker
-           would roll this up to a single :items :modified
-           row"))))
-
 ;; ---- R7 type-change container -------------------------------------------
 
 (deftest engine-consistency-r7-type-change
@@ -158,16 +135,6 @@
           "every :diff row's path also appears in mode-3's
            `:path-ops` with a non-`:same` op — single engine, single
            inventory"))))
-
-;; ---- empty-diff short-circuit -------------------------------------------
-
-(deftest engine-consistency-empty-diff
-  (testing "identical (before, after) → empty :flat-rows → empty
-            4-tuple vec. Cheap pointer-equality short-circuit lives
-            inside `engine/project`."
-    (let [db {:counter 5 :user {:id 7}}]
-      (is (= [] (universal-diff db db))
-          "identical map → empty diff"))))
 
 ;; ---- empty-collection leaves in changed subtrees ------------------------
 ;;

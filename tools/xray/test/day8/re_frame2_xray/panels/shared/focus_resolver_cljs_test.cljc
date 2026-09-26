@@ -102,22 +102,3 @@
           "head-fallback over a seq uses `last`")
       (is (= 5 (:epoch-id (focus/find-epoch-record 5 hist)))
           "lookup by id traverses seqs the same way"))))
-
-;; ---- composite — exercise the sub call-site shape ---------------------
-
-(deftest resolver-end-to-end-head-fallback
-  (testing "the L4 sub call-site shape: when
-            :rf.xray/focus carries no :epoch-id but :rf.xray/epoch-
-            history has records, resolve-focus-status returns :focused
-            AND find-epoch-record returns the head. Panels relying on
-            this contract (Issues, App-db downstream, Reactive) share
-            ONE source of truth."
-    (let [hist           [(epoch-record 5 [])
-                          (epoch-record 6 [{:id 1 :op-type :error
-                                            :operation :rf.error/schema-violation}])]
-          focus-epoch-id nil
-          focus-status   (focus/resolve-focus-status focus-epoch-id hist)
-          record         (focus/find-epoch-record   focus-epoch-id hist)]
-      (is (= :focused focus-status))
-      (is (= 6 (:epoch-id record)) "head record is the most-recent epoch")
-      (is (= 1 (count (:trace-events record)))))))

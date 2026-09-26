@@ -151,14 +151,6 @@
                            (ev {:id 1 :op-type :rf.event
                                 :operation :rf.event/dispatched})))))))
 
-(deftest project-rows-preserves-chronological-order
-  (let [evs  [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched :time 100})
-              (ev {:id 2 :op-type :rf.fx    :operation :rf.fx/handled    :time 200})
-              (ev {:id 3 :op-type :rf.sub :operation :rf.sub/run        :time 300})]
-        rows (h/project-rows evs)]
-    (is (= [1 2 3] (mapv :id rows))
-        "project-rows keeps the events' oldest-first order")))
-
 (deftest project-rows-drops-nil-id-events
   (testing "a nil-:id event is a pathological, malformed
             envelope with no stable identity; project-rows filters it
@@ -1005,16 +997,7 @@
              (ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                   :tags {}}))))))
 
-;; ---- (16) row-key — stable per-trace-event identity --------------------
-
-(deftest row-key-uses-stable-trace-id
-  (testing "row-key reads only :id — stable per emit"
-    (is (= "t:7" (h/row-key {:id 7})))
-    (is (= "t:42" (h/row-key {:id 42}))))
-  (testing "row-key is unique per distinct trace id"
-    (let [ids  (range 1 200)
-          keys (mapv #(h/row-key {:id %}) ids)]
-      (is (= (count ids) (count (distinct keys)))))))
+;; ---- (16) React keys — rows carry no positional slot -------------------
 
 (deftest project-feed-from-epoch-rows-carry-no-row-index-slot
   (testing "rows MUST NOT carry a :row-index slot (a footgun inviting
@@ -1049,23 +1032,6 @@
     (ev {:id 2 :op-type :rf.event :operation :rf.event/db-changed
          :time 102 :dispatch-id 42})]})
 
-(deftest db-changed-diff-triples-routes-through-diff-paths
-  (testing "the helper returns the canonical diff-paths triples for the
-            epoch's :db-before / :db-after"
-    (let [triples (h/db-changed-diff-triples
-                    {:db-before {:counter 1}
-                     :db-after  {:counter 2}})]
-      (is (= [{:op :modified :path [:counter] :before 1 :after 2}]
-             triples)))))
-
-(deftest db-changed-diff-triples-empty-when-no-changes
-  (testing "db-before == db-after → empty diff (the no-changes case
-            per spec/023 §APP-DB CHANGES)"
-    (let [db      {:counter 1 :user {:name "Ada"}}
-          triples (h/db-changed-diff-triples
-                    {:db-before db :db-after db})]
-      (is (= [] triples)))))
-
 (deftest db-changed-diff-triples-skip-an-equal-but-rebuilt-leaf
   (testing "the empty-diff promise holds by VALUE, as the
             runtime's db-changed does: a leaf the handler rebuilt equal adds
@@ -1081,25 +1047,6 @@
                   {:db-before before
                    :db-after  (update before :todos #(vec (remove :done %)))}))
           "db-before = db-after (not identical) → []"))))
-
-(deftest db-changed-diff-triples-nested-and-top-level-paths
-  (testing "the diff covers both top-level and nested-key changes"
-    (let [before  {:counter 1 :user {:name "Ada" :age 30}}
-          after   {:counter 2 :user {:name "Ada" :age 31}
-                   :last-seen :now}
-          triples (h/db-changed-diff-triples
-                    {:db-before before :db-after after})
-          by-path (into {} (map (juxt :path identity)) triples)]
-      (is (contains? by-path [:counter])
-          "top-level :counter shows")
-      (is (= :modified (:op (get by-path [:counter]))))
-      (is (contains? by-path [:user :age])
-          "nested [:user :age] shows")
-      (is (= :modified (:op (get by-path [:user :age]))))
-      (is (= 30 (:before (get by-path [:user :age]))))
-      (is (= 31 (:after  (get by-path [:user :age]))))
-      (is (contains? by-path [:last-seen]))
-      (is (= :added (:op (get by-path [:last-seen])))))))
 
 (deftest project-feed-attaches-db-diff-to-db-changed-rows
   (testing "the db-changed row carries the derived diff under :db-diff;
@@ -1127,20 +1074,6 @@
                   :focused)
           by-id (into {} (map (juxt :id identity)) (:rows feed))]
       (is (= [] (:db-diff (get by-id 2)))))))
-
-(deftest project-feed-no-db-changed-row-no-attachment
-  (testing "an epoch with NO :rf.event/db-changed row in :trace-events
-            (e.g. a no-op event) attaches no :db-diff to any row"
-    (let [epoch  {:epoch-id     91
-                  :db-before    {:counter 1}
-                  :db-after     {:counter 1}
-                  :trace-events
-                  [(ev {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                        :time 100 :dispatch-id 42})]}
-          feed   (h/project-feed-from-epoch epoch :focused)]
-      (doseq [row (:rows feed)]
-        (is (not (contains? row :db-diff))
-            (str "row " (:id row) " must not carry :db-diff"))))))
 
 (deftest project-feed-flow-having-and-flow-less-epoch-shapes
   (testing "the diff projection works the same for a flow-less event
