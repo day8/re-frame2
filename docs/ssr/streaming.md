@@ -1,171 +1,159 @@
 # Streaming: `ssr/boundary`
 
-You know [plain SSR](concepts.md) — one drain, one HTML string, one payload. This page
-is one job: **ship a shell on the first byte, then stream slow regions in**.
+`ssr-handler` sends the page when all of it has rendered, so one slow region, such as
+a comments section, holds up everything above it. Streaming sends the page shell on
+the first byte with a fallback in place of each slow region, then sends each region as
+its own chunk. A page with no independently slow region gains nothing from it; stay
+with `ssr-handler`.
 
-React 18 / Next.js `loading.js` use `<Suspense>`; re-frame2 uses one component.
-Runnable tree:
+The runnable version is
 [`examples/capabilities/ssr/ssr_streaming/`](../../examples/capabilities/ssr/ssr_streaming).
-The Ring adapter is in the [tutorial](tutorial.md#step-7--swap-in-the-ring-adapter).
 
-!!! note "Don't reach for streaming by default"
+## Mark a slow region
 
-    No independently-slow regions → plain `ssr-handler` is enough. A
-    boundary on the non-streaming emitter fails loud.
-
-## Mark slow regions
+Wrap the region in `ssr/boundary`, with an `:id` and a `:fallback` to show until it
+arrives. Here the tutorial's article list gets a comments region:
 
 ```clojure
-;; Adapted from examples/capabilities/ssr/ssr_streaming/core.cljc
-(require '[re-frame.core :as rf]
-         '[re-frame.ssr :as ssr])
+;; cf. examples/capabilities/ssr/ssr_streaming/core.cljc
+;; in app.core, beside the tutorial's :articles/slice; requires rf and ssr
+(rf/reg-sub :comments/recent (fn [db _] (:comments db)))
 
-;; comments, author-feed and their two skeletons are ordinary rf/reg-view views.
-(rf/reg-view ^{:rf/id :article/page} article-page []
-  [:main.article-page
-   [:header [:h1 @(subscribe [:article/title])]]
-   [:div.article-body @(subscribe [:article/body])]
-   [:section.article-extras
-    [ssr/boundary
-     {:id :region.comments :fallback [comments-skeleton]}
-     [comments]]
-    [ssr/boundary
-     {:id :region.author-feed :fallback [author-feed-skeleton]}
-     [author-feed]]]])
+(rf/reg-view ^{:rf/id :comments/skeleton} comments-skeleton []
+  [:section.comments [:p "Loading comments…"]])
+
+(rf/reg-view ^{:rf/id :comments/list} comment-list []
+  (into [:section.comments]
+        (for [{:keys [id body]} @(subscribe [:comments/recent])]
+          ^{:key id} [:p body])))
+
+(rf/reg-view ^{:rf/id :app/root} root-view []
+  (let [arts @(subscribe [:articles/slice])]
+    [:main.page
+     [:h1 "Recent articles"]
+     (into [:ul] (for [{:keys [id title]} arts]
+                   ^{:key id} [:li [:h3 title]]))
+     [ssr/boundary {:id :region.comments :fallback [comments-skeleton]}
+      [comment-list]]]))
 ```
 
-**One view, both runtimes.** On the server each boundary defers its body; in the
-browser the same form renders that body. There is no server-flavoured copy of
-the view and no reader conditional — this is an ordinary `reg-view` that happens
-to name two regions as "allowed to arrive late".
+The same view runs on both sides. On the server the boundary defers its body to a
+later chunk; in the browser it renders the body. There is no server-only copy of the
+view and no reader conditional.
 
-Reference views inside a boundary by **Var** (`comments`, which `rf/reg-view`
-defs for you) or by `(rf/view :id)` lookup — a bare `[:article/comments]` head is
-an *HTML element*, never a view, so it paints `<comments>` on every host, server
-included.
+Reference views inside a boundary by Var (`comment-list`, which `rf/reg-view` defines
+for you) or by `(rf/view :id)`. A bare keyword head such as `[:comments/list]` is an
+HTML element, never a view, on every host including the server: it paints
+`<list>`, and a server-side test sees the same wrong element the browser would.
 
-Because the server emitters resolve no ids either, the same hiccup means the same
-thing on every host, and a server-side test sees the wrong element the browser
-would paint.
+Each boundary `:id` must be unique on the page and stable across renders, because it
+pairs an arriving chunk with its placeholder. You choose it; nothing generates one.
 
-That same rule is why the boundary is a **component** and not a hiccup keyword.
-`:rf/suspense-boundary` exists, but it is internal wire syntax between
-`ssr/boundary` and the streaming shell walker — never something you write. Left
-in a client render tree its name passes the DOM tag grammar, so React paints a
-phantom `<suspense-boundary>` element rather than raising anything. And it could
-not simply be taught client semantics either: stock Reagent's element dispatch is
-an external dependency, and UIx views are `defui` / `$` forms where a
-hiccup keyword head cannot occur at all. A callable component is the one form
-that works everywhere.
+## Serve it
 
-The streaming walker emits the shell on the first byte, with each boundary's
-`:fallback` markup carried inside an **inert** `<template data-rf2-suspense-fallback>`
-marker. A `<template>`'s content is inert by the HTML spec — a detached
-`DocumentFragment` that never paints — so the fallbacks are *not* visible first-byte
-UI. They become visible only once the client runtime (`ssr/streaming-install!`,
-below) materialises each inert `<template>` into a live, painted mount. Each
-boundary's subtree then streams as its own chunk, carrying a per-subtree app-db delta
-so that region's subscriptions see the right state when its resolved content swaps in.
-
-## Failure isolation
-
-If one boundary's render throws, *that region* keeps its fallback (with a
-`:rf.ssr/suspense-boundary-failed` trace) and the rest of the page streams on. A
-flaky comments service cannot 500 the whole page — blast radius is one boundary.
-
-## Wiring
-
-Use the streaming Ring constructor (re-exported on `re-frame.ssr.ring`):
+Use `stream-handler` in place of `ssr-handler`. It takes the same options:
 
 ```clojure
-(require '[re-frame.ssr.ring :as ssr.ring])   ;; JVM only — inside #?(:clj …) in a .cljc ns
+(require '[re-frame.ssr.ring :as ssr.ring])   ;; JVM only: inside #?(:clj …) in a .cljc ns
 
 (def handler
   (ssr.ring/stream-handler
     {:initial-events [[:rf/server-init]]
-     ;; The fn form: call the view, so the server hashes the tree it returns.
-     :root-view      (fn [] ((rf/view :article/page)))
-     :payload        [:articles :comments]}))   ;; same fail-closed allowlist as ssr-handler
+     :root-view      (fn [] ((rf/view :app/root)))   ;; the fn form, so the tree is hashed
+     :payload        [:articles :comments]}))       ;; the same allowlist as ssr-handler
 ```
 
-On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
-`hydrate!`), and **hydrate from its `:on-ready` callback**:
+A boundary rendered by `ssr-handler` or `render-to-string` throws
+`:rf.error/ssr-suspense-boundary-outside-stream`.
+
+## Hydrate on the client
+
+Call `ssr/streaming-install!` with the frame you will hydrate, and hydrate from its
+`:on-ready` callback. This is the tutorial's [client boot](tutorial.md#step-4--hydrate-on-the-client)
+moved inside that callback:
 
 ```clojure
-;; requires, alongside rf and ssr: [re-frame.adapter.reagent :as reagent-adapter]
-(defonce app-root (reagent-adapter/client-root))
+;; client-side requires, alongside rf and ssr:
+;;   #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
-(rf/init! reagent-adapter/adapter)
-(rf/make-frame {:id :app/main :platform :client})
-(ssr/streaming-install!
-  {:frame    :app/main
-   :on-ready (fn [_outcomes]
-               (let [payload (ssr/hydrate! {:frame          :app/main
-                                            :render-tree-fn (fn [] ((rf/view :article/page)))})
-                     el      (js/document.getElementById "app")
-                     tree    [rf/frame-provider {:frame :app/main}
-                              [(rf/view :article/page)]]]
-                 ;; payload ⇒ adopt the streamed markup. nil here means the
-                 ;; payload arrived but was REJECTED ⇒ fresh root; a page
-                 ;; with no payload at all never reaches :on-ready.
-                 (reagent-adapter/render! app-root tree el
-                   {:hydrate? (some? payload)})))})
+#?(:cljs
+   (defn run []
+     (rf/init! reagent-adapter/adapter)
+     (rf/make-frame {:id :app :platform :client})
+     (ssr/streaming-install!
+       {:frame    :app
+        :on-ready (fn [_outcomes]
+                    (let [payload (ssr/hydrate! {:frame          :app
+                                                 :render-tree-fn (fn [] ((rf/view :app/root)))})
+                          el      (js/document.getElementById "app")
+                          tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
+                      ;; nil here means the payload arrived but was rejected, so
+                      ;; mount fresh. A page with no payload never reaches :on-ready.
+                      (reagent-adapter/render! app-root tree el
+                        {:hydrate? (some? payload)})))})))
 ```
 
-A page that must also load un-streamed has to check for the payload *before*
-calling `streaming-install!`, or use the
-[non-streaming bootstrap](concepts.md#the-client-side-hydrate-then-verify).
+`:on-ready` fires once, after the last chunk has landed, every delta has been applied,
+and the runtime has removed the `<rf-suspense>` wrapper elements it put around each
+region while streaming. Hydrating earlier would meet those wrappers, which no render
+tree contains, so React would find a mismatch at every boundary, discard the streamed
+markup and render the page again.
 
-The runtime materialises the inert fallback `<template>`s into visible mounts,
-then swaps each mount's content for its resolved chunk — merging that chunk's
-delta — as the chunks arrive. A streaming page therefore *requires* the client
-runtime: fallbacks and resolved regions both arrive inside inert `<template>`s,
-so a client that runs no JavaScript — most crawlers and link unfurlers — sees the
-shell with every boundary region empty.
+So don't poll for `__rf_payload`, hydrate on a timer, or fall back to a fresh mount (a
+`render!` without `:hydrate?`) because the payload has not arrived yet. On a live
+stream that is true for most of the page's life, and a fresh mount throws away the
+markup the server streamed.
 
-`:on-ready` fires once, when the last chunk has landed, every delta is consumed,
-and every `<rf-suspense>` mount the runtime created has been **unwrapped**. That
-unwrapping is why hydration waits: those mounts are transport, and no render tree
-on any host can express them, so hydrating while they are still in the DOM is a
-structural mismatch at every boundary — React discards the streamed page and
-re-renders it, and you pay for streaming without getting any.
+A page that can also be served without streaming must check for the payload before
+calling `streaming-install!`, or use the [non-streaming
+boot](concepts.md#the-client-side-hydrate-then-verify).
 
-!!! warning "Don't guess at readiness"
+## How a streamed page arrives
 
-    Don't poll for `__rf_payload`, don't hydrate on a timer, and above all don't
-    fall through to a fresh mount — a `render!` without `:hydrate?` — because the
-    payload "hasn't arrived yet". On a live stream that is true for most of the
-    page's life, and a fresh root throws away the markup the server streamed. The
-    protocol is: progressive
-    pre-hydration paint, then **one** ordinary whole-root hydration, triggered by
-    readiness.
+1. The shell arrives first. Each boundary's `:fallback` markup sits inside an inert
+   `<template data-rf2-suspense-fallback>`. Template content never paints, so the
+   fallbacks are not visible until `streaming-install!` turns each one into a visible
+   mount.
+2. Each region then arrives as its own chunk, also inside a `<template>`, with an
+   app-db delta for that region, so its subscriptions see the right state when the
+   runtime swaps the content in. Deltas go through the same `:payload` allowlist as
+   the final payload.
+3. The final chunk carries the complete hydration payload. The deltas are only a head
+   start: if a delta and the payload disagree, the payload wins.
 
-## Failed boundaries render their declared fallback
+Because fallbacks and regions both arrive inside `<template>`s, a client that runs no
+JavaScript, which includes most crawlers and link unfurlers, sees the shell with every
+boundary region empty. Keep content that crawlers need outside any boundary.
 
-A boundary whose server render threw ships its fallback markup and no delta, and
-the final payload names it in a failed set. The client's `ssr/boundary` reads
-that and re-renders the `:fallback` it declared — the exact markup the failed
-chunk left in the DOM.
+## When a region fails
 
-This is why your views need no defensive nil branch duplicating the skeleton: the
-boundary that declared the fallback is the one that shows it. `comments` renders
-comments; deciding whether to show `comments-skeleton` instead is the boundary's
-job, stated once.
+If a region's render throws on the server, that region keeps its fallback, a
+`:rf.ssr/suspense-boundary-failed` trace fires, and the rest of the page streams on. A
+failing comments service costs the comments region, not the page.
 
-??? note "Correctness lock"
+The final payload lists the failed boundaries. On the client, `ssr/boundary` reads
+that list and renders its own `:fallback` for a failed region, which is the markup the
+server left in the DOM. So `comment-list` needs no nil branch that repeats the
+skeleton: it renders comments, and the boundary decides when to show
+`comments-skeleton` instead.
 
-    Streamed deltas are a *speed* optimisation. The **final** chunk is the canonical
-    full payload — if speculative deltas and the payload disagree, the payload wins.
-    Streaming latency with a single authoritative `:rf/hydrate`.
+## Troubleshooting
 
-!!! warning "Each boundary `:id` must be unique"
+| Symptom | Error / behaviour | Fix |
+|---|---|---|
+| Boundary rendered without streaming | `:rf.error/ssr-suspense-boundary-outside-stream` | Serve the page with `stream-handler`, not `ssr-handler` / `render-to-string` |
+| Boundary missing `:id` or `:fallback` | `:rf.error/suspense-boundary-invalid-attrs` | Give every boundary both keys |
+| Duplicate boundary `:id` | `:rf.error/suspense-boundary-duplicate-id`; the last boundary registered gets the chunk and the earlier one stays on its fallback | Unique, stable ids per region |
+| One region throws on the server | `:rf.ssr/suspense-boundary-failed`; that region keeps its fallback and the page continues | Fix the region's data or view |
+| React discards the streamed markup | Hydrated mid-stream or on a timer | Hydrate only from `streaming-install!`'s `:on-ready` |
+| `stream-handler` throws at construction | `:rf.error/ssr-streaming-unsupported-opt`: `:html-shell` or `:renderer` passed | Use the shell-hook options, or `ssr-handler` if you need a one-piece shell or the Node renderer |
+| Page cut off part-way, status 200 | `:rf.error/ssr-streaming-writer-failed` (`:phase` names the chunk) | Read the record's exception. The status was already sent, so it cannot become an error page |
+| A crawler or a client without JS sees empty regions | Fallbacks and regions both arrive inside inert `<template>`s | Expected. Keep content crawlers need outside any boundary |
 
-    The `:id` matches a streamed chunk to its placeholder — you pick it (never
-    autogenerated); it must be stable across the render. Duplicate ids →
-    `:rf.error/suspense-boundary-duplicate-id`, last-registered chunk wins, earlier
-    boundary stuck on fallback (fail-soft, not a 500).
+## Advanced
 
-## Production notes
+### Production notes
 
 - **Decide the response before the first byte.** The shell renders on the request
   thread, before the status and headers go out. A `:rf.server/redirect` from the
@@ -173,21 +161,20 @@ job, stated once.
   projected 5xx, returns the ordinary error page (`:error-view`) under its projected
   status. After that the status is committed, so redirects and status writes belong
   in `:initial-events` and route handlers, never in a boundary region.
-- **A failure after the head is committed truncates.** Other than a boundary's own
-  render (which keeps its fallback), a throw while writing the rest of the stream
-  closes the stream, truncating the page, and emits the always-on `:rf.error/ssr-streaming-writer-failed`
-  record, whose `:phase` names the chunk in flight. It cannot become an error page.
-- **One thread per stream.** Each in-flight response holds one daemon thread; there
-  is no framework pool or cap, so size your server's worker and accept-queue limits
-  for the streams you expect. A body nobody reads is torn down after 60 seconds
-  without progress.
+- **A failure after the head is committed truncates the page.** Other than a
+  boundary's own render, which keeps its fallback, a throw while writing the rest of
+  the stream closes the stream and emits the always-on
+  `:rf.error/ssr-streaming-writer-failed` record, whose `:phase` names the chunk in
+  flight. It cannot become an error page.
+- **One thread per stream.** Each in-flight response holds one daemon thread; there is
+  no framework pool or cap, so size your server's worker and accept-queue limits for
+  the streams you expect. A body nobody reads is torn down after 60 seconds without
+  progress.
 - **`Content-Length` is removed**, whatever the drain set, so the server can choose
   chunked framing.
-- **Deltas obey `:payload`.** Each region's delta goes through the same allowlist as
-  the final payload, so streaming ships nothing the plain handler would not.
 - **Boundaries nest.** A boundary inside another boundary's body registers while the
   outer region renders, and streams after every region already queued.
-- **No `:html-shell` or `:renderer`.** `stream-handler` refuses both at construction
+- **No `:html-shell` or `:renderer`.** `stream-handler` rejects both at construction
   (`:rf.error/ssr-streaming-unsupported-opt`), because it writes the document in
   pieces. Shape the envelope with `:head`, `:body-end`, `:script-src` and
   `:app-element-id` instead. The Node renderer is therefore not available for
@@ -203,21 +190,12 @@ job, stated once.
 [`streaming-install!`](../api/re-frame.ssr.md#streaming-install) have the exact
 contracts.
 
-## Troubleshooting
+### Why the boundary is a component
 
-| Symptom | Error / behaviour | Fix |
-|---|---|---|
-| Boundary on non-streaming emitter | `:rf.error/ssr-suspense-boundary-outside-stream` | Use `stream-handler`, not plain `ssr-handler` / `render-to-string` |
-| Duplicate boundary `:id` | `:rf.error/suspense-boundary-duplicate-id` — earlier region stuck on fallback | Unique, stable ids per region |
-| One region throws on the server | `:rf.ssr/suspense-boundary-failed` — that region keeps fallback; page continues | Fix the region's data path; rest of page still streams |
-| Hydrate mid-stream / on a timer | Structural mismatch; React may discard streamed markup | Hydrate only from `streaming-install!`'s `:on-ready` |
-| `stream-handler` throws at construction | `:rf.error/ssr-streaming-unsupported-opt` — `:html-shell` or `:renderer` passed | Use the shell-hook options; use `ssr-handler` if you need a one-piece shell or the Node renderer |
-| Boundary missing `:id` or `:fallback` | `:rf.error/suspense-boundary-invalid-attrs` | Give every boundary both keys |
-| Page cut off part-way, status 200 | `:rf.error/ssr-streaming-writer-failed` (`:phase` names the chunk) | Check the record's exception; the status was already sent, so it cannot be an error page |
-| No JS client (or a crawler) sees empty regions | Fallbacks and resolved regions both ship inside inert `<template>`s | Expected — the client runtime paints them; keep content crawlers need outside any boundary |
-
-## See also
-
-- [ssr_streaming example](../../examples/capabilities/ssr/ssr_streaming)
-- [API: streaming](../api/re-frame.ssr.md) / [stream-handler](../api/re-frame.ssr.ring.md)
-- Next.js mapping: [Coming from Next.js](coming-from-nextjs.md)
+`ssr/boundary` expands on the server to an internal `:rf/suspense-boundary` marker
+that the streaming shell walker defers on. Never write that marker yourself. A hiccup
+keyword head is an HTML element on every host, so a marker left in a client render
+tree passes the DOM tag grammar and React paints a `<suspense-boundary>` element
+without raising anything. The marker cannot be given client meaning either: Reagent's
+element dispatch is an external dependency, and UIx views are `defui` / `$` forms
+where a hiccup keyword head cannot occur. A callable component works on every host.

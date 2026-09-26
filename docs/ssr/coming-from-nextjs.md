@@ -1,84 +1,78 @@
 # Coming from Next.js
 
-If you've shipped a Next.js app, you already hold the right mental shapes: render real HTML on the server, hydrate it on the client, fetch data before the page paints, stream the slow parts in later. The vocabulary changes; the goals don't.
-
-What transfers is the *thinking*. What doesn't is the *machinery* — and that's mostly good news. Next.js gives you a server runtime to learn: a router that's also a data layer, Server Components that run in one place and Client Components that run in another, a `"use server"` / `"use client"` boundary you have to reason about at every import. re-frame2 has none of that, for a reason worth stating up front: **there is no separate server layer.** The same [event handlers](../core/glossary.md#event-handler), [subscriptions](../core/glossary.md#subscription), and [views](../core/glossary.md#view) you wrote for the browser run unchanged on the JVM, against a per-request [frame](../core/glossary.md#frame). One app, [run twice](concepts.md).
-
-So read this page as a translation table, not a feature comparison. The capabilities line up almost one-to-one. The divergences — covered last, and they're the part actually worth your attention — are deliberate, and each one trades a Next.js convenience for a property re-frame2 cared about more.
+Next.js and re-frame2 SSR do the same jobs: render HTML on the server, hydrate it
+on the client, load data before the page paints, and stream slow regions later.
+The main structural difference is that re-frame2 has no separate server layer. The
+[event handlers](../core/glossary.md#event-handler),
+[subscriptions](../core/glossary.md#subscription) and
+[views](../core/glossary.md#view) you write for the browser run unchanged on the
+JVM, against a per-request [frame](../core/glossary.md#frame). There is no
+Server/Client component split; code that must run on one side only is declared on
+the effect with `:platforms`.
 
 ## The mapping
 
 | Next.js | re-frame2 |
 |---|---|
-| Server Component (runs on server) | Any [event handler](../core/glossary.md#event-handler), [sub](../core/glossary.md#subscription), or [view](../core/glossary.md#view) — they're pure, so they run on either side. No separate component kind. |
-| Client Component (`"use client"`) | The same view, after [hydration](glossary.md#hydration). There's no second flavour; browser-only *effects* are gated with `:platforms #{:client}`. |
-| `"use server"` / `"use client"` directives | [`:platforms`](concepts.md#platforms--one-handler-gated-per-runtime) on an effect or coeffect — declared once on the *capability*, not at every import site. |
-| `getServerSideProps` (Pages Router) | Your ordinary events, fired by the per-request frame's `:initial-events` and [drained](../core/glossary.md#drain--run-to-completion) before the render. The drain settles synchronous work only; data fetched over the network belongs in a route's blocking resource (below). |
-| `Promise.all` of N fetches | [The SSR loader pattern](concepts.md#two-patterns-in-brief) — several `:blocking? true` entries in the route's `:resources`. They load in parallel, so the wait is the slowest fetch, and the same declaration drives the fetch on client navigation. |
-| A page's data fetching (`fetch` in a Server Component) | A route [loader](../routing/glossary.md#loader): the `:resources` the route declares, ensured on route entry — on the server during the request, on the client on navigation. |
-| `await`ing data in a Server Component before it renders | A route resource declared `:blocking? true` — the Ring handler waits for it (within a 5-second budget) before rendering. A fetch your `:initial-events` start themselves is *not* waited for. See [blocking resource](glossary.md#blocking-resource). |
-| Server Action (form `action={fn}`) | [The form-action pattern](concepts.md#two-patterns-in-brief) — a real `method="POST"` form routes to the *same* [event](../core/glossary.md#event) the client's `:on-submit` dispatches. |
-| `hydrateRoot` (React 18) | [`ssr/hydrate!`](glossary.md#hydration) — but the server's *state* rides along explicitly in the payload, installed by `:rf/hydrate` before the first render. |
-| Several `hydrateRoot` calls on one page (islands) | [`ssr/hydrate-page!`](glossary.md#several-roots-on-one-page) — each root hydrates and mounts inside its own failure boundary, usually into one shared frame. |
-| Reading `cookies()` / `headers()` | A declared [coeffect](../core/glossary.md#coeffect): `:rf.cofx/requires [:rf.server/request]`, value flat in the handler's coeffects. The value is the Ring request, so `:cookies` is there only when Ring's `wrap-cookies` runs in front. |
-| `redirect()` / `notFound()` | The data effect `:rf.server/redirect`; `[:rf.server/set-status 404]`, or an unmatched URL, which the default [error projector](concepts.md#when-the-server-throws) answers with `404`. |
+| Server Component | Any [event handler](../core/glossary.md#event-handler), [subscription](../core/glossary.md#subscription) or [view](../core/glossary.md#view). They are pure, so they run on either side; there is no separate component kind. |
+| Client Component (`"use client"`) | The same view, after [hydration](glossary.md#hydration). Browser-only effects are declared with `:platforms #{:client}`. |
+| `"use server"` / `"use client"` directives | [`:platforms`](concepts.md#platforms--one-handler-gated-per-runtime) on an effect or coeffect, declared once where the effect is registered. |
+| `getServerSideProps` (Pages Router) | Your ordinary events, dispatched by the per-request frame's `:initial-events` and [drained](../core/glossary.md#drain--run-to-completion) before the render. The drain settles synchronous work only; data fetched over the network belongs in a route's blocking resource (next rows). |
+| A page's data fetching (`fetch` in a Server Component) | A route [loader](../routing/glossary.md#loader): the `:resources` the route declares, loaded on route entry (on the server during the request, on the client on navigation). |
+| `await`ing data in a Server Component before it renders | A route resource declared `:blocking? true`. The Ring handler waits for it, within a 5-second budget, before rendering. A fetch your `:initial-events` start themselves is not waited for. See [blocking resource](glossary.md#blocking-resource). |
+| `Promise.all` of N fetches | [The SSR loader pattern](concepts.md#two-patterns-in-brief): several `:blocking? true` entries in the route's `:resources`. They load in parallel, so the wait is the slowest fetch, and the same declaration drives the fetch on client navigation. |
+| Server Action (form `action={fn}`) | [The form-action pattern](concepts.md#two-patterns-in-brief): a real `method="POST"` form routes to the same [event](../core/glossary.md#event) the client's `:on-submit` dispatches. |
+| `hydrateRoot` | [`ssr/hydrate!`](glossary.md#hydration), which installs the server's state from the payload by dispatching `:rf/hydrate` before the first render, then the adapter's `render!` with `{:hydrate? true}` to adopt the DOM. |
+| Several `hydrateRoot` calls on one page (islands) | [`ssr/hydrate-page!`](glossary.md#several-roots-on-one-page): each root hydrates and mounts inside its own failure boundary, usually into one shared frame. |
+| Reading `cookies()` / `headers()` | A declared [coeffect](../core/glossary.md#coeffect): `:rf.cofx/requires [:rf.server/request]`, with the value in the handler's coeffects. The value is the Ring request, so `:cookies` is there only when Ring's `wrap-cookies` runs in front. |
+| `cookies().set(...)` | The `:rf.server/set-cookie` effect, which takes a map. See [Controlling the response](response.md). |
+| `redirect()` / `notFound()` | The `:rf.server/redirect` effect; `[:rf.server/set-status 404]`, or an unmatched URL, which the default [error projector](concepts.md#when-the-server-throws) answers with `404`. |
 | `error.js` / `global-error.js` | The [error projector](glossary.md#error-projector) maps the failure to a sanitised public error, and a 5xx renders `ssr-handler`'s [`:error-view`](glossary.md#error-view) from that alone. |
-| `cookies().set(...)` | The `:rf.server/set-cookie` effect — a structured map; [response control](response.md). |
-| The `Metadata` API / `generateMetadata` | [`reg-head`](head.md) — a head model *derived from app-db*, shaped exactly like a sub. |
-| The root `layout.js` / `_document.js` document | The [page shell](glossary.md#page-shell) — `default-html-shell`, adjusted with `:head`, `:body-end`, `:script-src` and `:app-element-id`, or replaced with `:html-shell`. |
-| `<Suspense fallback>` + `loading.js` (streaming) | [`ssr/boundary`](streaming.md) — one component with a `:fallback`, streams its subtree in as a chunk. |
-| Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) caught by a structural hash comparison — a structured trace you can alert on, plus a strict mode that fails CI. That covers views that return hiccup; UIx and Fresco roots rely on React's own hydration check. |
-| `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource) — preloaded server-side, ridden across in the payload, renders without a duplicate fetch. |
-| `next/server` runtime, route handlers, middleware | The Ring host adapter (`day8/re-frame2-ssr-ring`). One handler constructor; the lifecycle is yours to read, not a framework you configure. `ssr-middleware` mounts it inside an existing Ring app — see [Ring handler](glossary.md#ring-handler). |
+| The `Metadata` API / `generateMetadata` | [`reg-head`](head.md): a head model derived from app-db, a pure function of `(db, route)`. |
+| The root `layout.js` / `_document.js` document | The [page shell](glossary.md#page-shell): `default-html-shell`, adjusted with `:head`, `:body-end`, `:script-src` and `:app-element-id`, or replaced with `:html-shell`. |
+| `<Suspense fallback>` + `loading.js` (streaming) | [`ssr/boundary`](streaming.md): one component with an `:id` and a `:fallback`, whose subtree streams in as its own chunk. |
+| Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) trace, from a structural hash comparison, plus a strict mode that throws in CI. That covers views that return hiccup; UIx and Fresco roots rely on React's own hydration check. |
+| `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource): loaded on the server, shipped in the payload, and rendered on the client without a second fetch. |
+| `next/server` runtime, route handlers, middleware | The Ring adapter, `day8/re-frame2-ssr-ring`: `ssr-handler` returns a Ring handler, and `ssr-middleware` mounts it inside an existing Ring app. See [Ring handler](glossary.md#ring-handler). |
 | Rendering in Node | The JVM renders by default. A native view layer such as Fresco renders its body on a Node sidecar through the [Node renderer](glossary.md#node-renderer), while the JVM keeps the request, the payload and the response. |
 | `next build` / `NODE_ENV=production` | A production build: an `:advanced` client bundle, and the server JVM started with [`-Dre-frame.debug=false`](../core/how-to/configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property). |
 
-The shape is reassuring: nearly everything you do in Next.js has a direct counterpart. But a one-to-one table hides the interesting bit — *why* some of these look different. That's next.
+## Differences to know
 
-## Where it diverges
+**One declaration loads data on both sides.** A route's `:resources` drive the
+fetch on the server during the request and on the client during navigation, so
+there is no server-only data function to keep in step with a client one. The
+per-request frame runs its `:initial-events`, drains, waits for the route's
+blocking resources, and then renders.
 
-These aren't gaps. They're places where re-frame2 looked at the Next.js answer and chose differently, each time buying a specific property. Knowing the *why* is what lets you stop fighting the framework's grain.
+**The client receives the server's state as well as its HTML.** `hydrate!` installs
+the server's [app-db](../core/glossary.md#app-db) and the serialisable
+[runtime-db](../core/glossary.md#runtime-db) slice before the first render, so the
+client does not fetch again to catch up. For views that return hiccup, the server
+embeds a hash of the render tree and the client compares it with its own first
+render. A mismatch emits a [trace event](../core/glossary.md#trace-event) carrying
+both hashes; by default the client's render replaces the server's, and strict mode
+throws instead.
 
-### There is no server/client boundary to police
+**What reaches the client is an allowlist.** Next.js serialises whatever props your
+loader returns. re-frame2's [`:payload`](concepts.md#payload--the-fail-closed-allowlist)
+names the top-level app-db keys that may ship; every other key stays on the server,
+including keys added later. There is no denylist form, and constructing a handler
+without `:payload` throws at boot.
 
-This is the big one, so it goes first. Next.js's central concept — the line between Server and Client Components, drawn with `"use client"` — exists because a React component is *entangled with its runtime*. It might touch `window`; it might `await` a database. So the framework makes you declare, per module, which world a component belongs to, and then polices what can cross: you can't import a Server Component into a Client one, you serialize props across that boundary, you learn the rules of what's allowed where.
+**The head is not updated on client navigation.** `generateMetadata` re-runs on an
+App Router navigation and Next.js updates the live document head. re-frame2 ships
+no DOM-head reconciler, so refreshing `<title>` and `<meta>` after a client-side
+route change is the app's job, reading the same head model. The head's
+`:rf/head-hash` is written but not compared on hydration; only the body's
+`:rf/render-hash` is. [Head metadata](head.md) covers both.
 
-re-frame2 doesn't have that boundary because it doesn't have that entanglement. [Event handlers](../core/glossary.md#event-handler) are pure — `(coeffects, event) → effect map`, no `window`, no `await`. [Subscriptions](../core/glossary.md#subscription) are pure derivations. [Hiccup](../core/glossary.md#hiccup) is just data. The "does this run on the server?" question that Next.js answers at *every* component is, here, answered *once*, structurally: yes, all of it, because none of it can reach the runtime directly. The only thing that genuinely differs between server and client is impure work — a `localStorage` write, a focus trap — and that lives in [effects](../core/glossary.md#effect), which you tag with [`:platforms`](concepts.md#platforms--one-handler-gated-per-runtime). One tag on the effect, not a directive on every file that imports it. No `typeof window === 'undefined'` guard, and no per-file "which side is this on" bookkeeping.
+**Response control is data.** Status, headers, cookies and redirects are
+server-only `:rf.server/*` [effects](../core/glossary.md#effect) returned from
+handlers. Cookies are maps, and a CR, LF or NUL in a header value, redirect
+location or cookie attribute throws. See [Controlling the response](response.md).
 
-### A loader is not a special function — it's just your app running
-
-Next.js gives data-fetching its own ceremony: `getServerSideProps`, a function with a privileged signature that runs only on the server and hands props down, or `async` Server Components that `await` their data. It's a distinct concept you learn, with its own caching rules and its own relationship to the component tree.
-
-In re-frame2 the [loader](../routing/glossary.md#loader) is not a special function. The per-request [frame](../core/glossary.md#frame) fires its `:initial-events`, the runtime [drains](../core/glossary.md#drain--run-to-completion) — runs every event those events trigger, to a fixed point — waits for the route's blocking resources, and *then* renders. The work is your ordinary [events](../core/glossary.md#event) and [effects](../core/glossary.md#effect), the same ones the client dispatches on navigation, and the data is the route's `:resources` declaration. The payoff is that there's no second code path to keep in sync: server fetch and client-nav fetch come from the *identical* declaration (the [SSR loader pattern](concepts.md#two-patterns-in-brief)), only the moment it runs moves. You don't maintain a server-flavoured fetch and a client-flavoured one and pray they agree.
-
-### Hydration is verified, not hoped-for
-
-React's `hydrateRoot` walks the server's DOM, reattaches listeners, and *trusts* your components to re-render the same tree. When they don't — a date in two timezones, an unordered map serialized two ways — you get a console warning most teams have learned to scroll past, and a content flash. The mismatch is real but unlocated; finding it is an afternoon.
-
-re-frame2 refuses the shrug. For views that return hiccup, the server embeds a structural hash of the tree its root view returns; the client hashes its own first render and compares. A [hydration mismatch](glossary.md#hydration-mismatch) fires a structured [trace event](../core/glossary.md#trace-event) carrying both hashes — a machine-readable failure you can alert on, not a console line you scroll past. Default recovery is warn-and-replace so the user never sees a broken page; a strict mode escalates to a thrown exception for CI. The deeper reason this works at all is that the server's *state* is explicit: `hydrate!` doesn't just adopt DOM, it installs the server's [app-db](../core/glossary.md#app-db) (and the serializable [runtime-db](../core/glossary.md#runtime-db) slice) from the payload *before* the first render. You never re-fetch on the client to "catch up" — the state the server computed is already there, which is also why the two sides can be expected to agree in the first place.
-
-### What crosses the wire is an allowlist that fails closed
-
-Next.js serializes whatever props your loader returns. The discipline of not shipping secrets is *yours* — return the wrong field and it lands in the client bundle, silently, on the first request.
-
-re-frame2 makes the wire a declared boundary. [`:payload`](concepts.md#payload--the-fail-closed-allowlist) is an allowlist of app-db keys, and it [fails closed](../core/glossary.md#fail-loud-not-silent): everything not named stays server-side, *including keys you write next year*. Add a `:secrets/api-token` and forget the allowlist, and the worst case is it doesn't reach the client — the opposite of the Next.js failure mode. There is no denylist ("ship everything except…"), because a denylist leaks every new server-only key the moment you add one. And forgetting `:payload` entirely is a loud boot error, not a quiet default. At a security boundary, the framework would rather stop you cold than surprise you in production.
-
-### Metadata and the response are data derived from state, not imperative calls
-
-Next.js's `generateMetadata` is a function that *returns* a metadata object, and `cookies().set()` / `redirect()` are imperative calls you make. They work fine, but they sit slightly outside the data flow — side-effecting functions you invoke at the right moment.
-
-re-frame2 folds both into the same data discipline everything else obeys. The [head model](head.md) is *derived from app-db*, a pure `(db, route) → head-model` with the exact shape of a [sub](../core/glossary.md#subscription) — the first byte's `<title>`, `<meta>`, and JSON-LD are *computed from state*, not assembled by a call you have to remember to make at the right moment.
-
-That much is the deliberate divergence. Two limits are not, and you want them before you ship rather than after. Next.js re-runs `generateMetadata` on an App Router navigation and updates the live document head for you; re-frame2 v1 ships **no DOM-head reconciler**, so refreshing `<title>` / `<meta>` after an SPA route change is the app's job — an app- or host-level head manager reading the same model. And the head rides its own, *separate* `:rf/head-hash` channel, which the runtime emits but does **not** compare: only the body's `:rf/render-hash` is checked automatically, and a host that wants the head checked recomputes `(ssr/head-model frame-id)` against the hydrated state itself. [Head metadata](head.md) carries both, with the recipe for each.
-
-Response control is the same idea: status, headers, cookies, redirects are server-only [effects](../core/glossary.md#effect) (`:rf.server/*`) — full recipe in [Control the response](response.md). Cookies are structured maps; header injection [fails loud](../core/glossary.md#fail-loud-not-silent).
-
-### Streaming is one marker, not a component contract
-
-React 18 streaming and Next.js's `loading.js` give you `<Suspense>` boundaries — a real component with a `fallback` prop, plus conventions about where `loading.js` lives in the route tree. It's powerful and it's a surface to learn.
-
-re-frame2's [`ssr/boundary`](streaming.md) is one declarative component: an `:id`, a `:fallback`, a subtree. It is the same form on the server and in the browser. The walker flushes the shell with fallbacks in place (your first byte), then streams each region in as its data resolves. Failure isolation is free; the final chunk is the canonical full payload — if deltas and payload disagree, the payload wins. Details: [Streaming](streaming.md).
-
----
-
-The honest summary: if you liked Next.js's *goals*, you'll be at home. If you spent real time wrestling its *boundary* — the Server/Client split, the "why won't this import," the silent prop that leaked — that wrestling is the part that's gone.
+**A streaming boundary is the same form on both sides.** `ssr/boundary` defers its
+subtree on the server and renders it in the browser. A boundary that throws keeps
+its fallback while the rest of the page streams, and the final chunk carries the
+full payload, which wins over the per-region deltas. See [Streaming](streaming.md).
