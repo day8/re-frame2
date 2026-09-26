@@ -45,11 +45,10 @@ After every event handler runs, the runtime validates what the new app-db holds 
 
 A todo's title must never be blank. In this example the rule appears twice, on purpose: the `:todo/add` handler guards it with `str/blank?`, which ships to production, and the schema `[:string {:min 1}]` catches a violation in dev. (Each `reg-event` also carries an event schema, `{:schema [:cat ...]}`; those are covered [further down](#put-a-schema-on-the-event-too).)
 
-```clojure
-(ns myapp.todos
-  (:require [clojure.string :as str]
-            [re-frame.core :as rf]
-            [re-frame.schemas]))
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.schemas])
 
 (def Todo
   [:map [:id :int] [:title [:string {:min 1}]] [:done? :boolean]])
@@ -81,13 +80,11 @@ A todo's title must never be blank. In this example the rule appears twice, on p
    [:ul (for [{:keys [id title]} @(subscribe [:todo/all])]
           ^{:key id} [:li title])]])
 
-;; Mount this tree the way your app mounts its root view.
-(def app
-  [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
-   [todo-list]])
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list]]
 ```
 
-Mount it in a dev build and click **Add a blank todo**: nothing happens, because the guard stands. Now simulate the bug the schema exists to catch. Delete the guard, keeping only the `let` branch, reload, and click again. The handler writes a todo with the title `""`, and `[:string {:min 1}]` rejects it. The browser console shows `:rf.error/schema-validation-failure`, and the list on screen is unchanged: the write was rejected before it installed, so app-db never held the bad value. Put the guard back when you're done.
+Click **Add a blank todo**: nothing happens, because the guard stands. Now simulate the bug the schema exists to catch. Delete the guard, keeping only the `let` branch, re-evaluate, and click again. The handler writes a todo with the title `""`, and `[:string {:min 1}]` rejects it. The browser console shows `:rf.error/schema-validation-failure`, and the list on screen is unchanged: the write was rejected before it installed, so app-db never held the bad value. Put the guard back when you're done.
 
 This rejection is a debugging aid, not app behaviour. The schema is elided from production builds, where the unguarded handler would store a blank todo, so the handler keeps its guard. The schema catches, in dev, the day the guard is deleted, refactored wrong, or bypassed by another handler writing the same slice.
 
