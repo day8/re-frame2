@@ -344,13 +344,13 @@
      "Register a workspace (layout artefact). Per `001-Authoring.md`
      §Registration macros.
 
-     Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`.
+     Four layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`.
      Each requires the matching slot:
 
      - `:grid` / `:tabs` → `:variants` (vector of variant ids)
-     - `:variants-grid` → none (enumerates from the registry)
+     - `:variants-grid` → none (enumerates from the registry), `:for`, or
+       `:variants` (renders exactly those)
      - `:prose` → `:content` (vector of `{:type :prose|:variant ...}`)
-     - `:custom` → `:render` (registered view id)
 
      Optional slots (per spec/001 §reg-workspace):
 

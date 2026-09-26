@@ -1416,7 +1416,16 @@
         argtypes     (merge-key :argtypes)
         ;; ---- arg substitution ----
         subs!        (atom [])
-        setup        (substitute-args setup-raw arg-map subs!)
+        ;; `:args->events` maps an arg to the event that carries it into
+        ;; the frame: each mapped arg's effective value is dispatched to its
+        ;; event after the declared setup. A Controls edit re-runs the
+        ;; variant with the new value, so the frame follows the control.
+        args-setup   (into []
+                           (keep (fn [[arg-key event-id]]
+                                   (when (contains? arg-map arg-key)
+                                     [:dispatch [event-id (get arg-map arg-key)]])))
+                           (sort-by key (:args->events ctx)))
+        setup        (into (substitute-args setup-raw arg-map subs!) args-setup)
         ;; An `[:assert …]` checkpoint is ILLEGAL in :setup
         ;; (spec/017 §Script step grammar). Reject at plan-compile time,
         ;; on the fully-resolved setup (inherited ⧺ composed ⧺ own), so a

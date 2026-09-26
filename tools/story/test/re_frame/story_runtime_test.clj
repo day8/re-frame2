@@ -1752,6 +1752,24 @@
       (is (= :rf.error/unknown-variant
              (-> r :assertions first :assertion))))))
 
+(deftest args->events-dispatch-each-mapped-arg-into-the-frame
+  (testing "each :args->events entry dispatches its arg's effective value
+            to the mapped event after setup, and a control override
+            reaches the frame the same way"
+    (rf/reg-event :test/set-logged-in
+      (fn [{:keys [db]} [_ v]] {:db (assoc db :logged-in? v)}))
+    (rf.story/reg-variant :story.a2e/v
+      {:args         {:logged-in? true :label "unmapped"}
+       :args->events {:logged-in? :test/set-logged-in}})
+    (let [r1 (rf.story.async/deref-blocking (rf.story/run-variant :story.a2e/v) 5000)
+          r2 (rf.story.async/deref-blocking
+               (rf.story/run-variant :story.a2e/v {:cell-overrides {:logged-in? false}})
+               5000)]
+      (is (true? (get-in r1 [:app-db :logged-in?])) "the arg's value reached the frame")
+      (is (false? (get-in r2 [:app-db :logged-in?])) "the override reached the frame")
+      (is (not (contains? (:app-db r1) :label)) "an unmapped arg dispatches nothing"))
+    (rf.story/destroy-variant! :story.a2e/v)))
+
 (deftest error-results-keep-the-run-result-contract
   (testing "a run that fails before its script — an unregistered variant,
             a plan that cannot be built — still returns a result that

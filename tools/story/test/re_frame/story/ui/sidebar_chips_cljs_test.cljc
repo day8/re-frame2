@@ -61,9 +61,8 @@
        (is (= {:layout :tabs :count 1}
               (rf.story.ui.sidebar/workspace-grid-grouping
                 :Workspace.x/t {:layout :tabs :variants [:a]}))))
-     (testing "a non-grid layout (prose / custom) is NOT a grid group"
-       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/p {:layout :prose})))
-       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/c {:layout :custom}))))))
+     (testing "a non-grid layout (prose) is NOT a grid group"
+       (is (nil? (rf.story.ui.sidebar/workspace-grid-grouping :Workspace.x/p {:layout :prose}))))))
 
 ;; A `:variants-grid` enumerates its anchor story's variants from the
 ;; registry and carries no `:variants` slot, so a count read off that slot

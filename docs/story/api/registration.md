@@ -46,7 +46,7 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-workspace id metadata)
   ```
-- **Description**: Register a workspace — an arrangement of variants for side-by-side review. `metadata` carries `:layout` and the slot that layout needs: `:variants` (an ordered vector of variant ids) for `:grid` and `:tabs`, `:content` for `:prose`, `:render` for `:custom`, and nothing, `:for` or `:variants` for `:variants-grid`. See [Workspace body](#workspace-body).
+- **Description**: Register a workspace — an arrangement of variants for side-by-side review. `metadata` carries `:layout` and the slot that layout needs: `:variants` (an ordered vector of variant ids) for `:grid` and `:tabs`, `:content` for `:prose`, and nothing, `:for` or `:variants` for `:variants-grid`. See [Workspace body](#workspace-body).
 
 ### `reg-decorator`
 
@@ -282,7 +282,7 @@ A variant renders its story's `:component` unless it names its own. Its args, ar
 | `:loaders` | Event vectors dispatched while the variant loads, before `:setup`. |
 | `:loaders-complete-when` | A registered event id, or event vectors, that decide when loading is done. |
 | `:loaders-teardown` | Event vectors dispatched when the variant's frame is destroyed. |
-| `:args->events` | Arg key to event id. Carried into the plan and snapshot identity; nothing acts on it yet. |
+| `:args->events` | Arg key to event id. After `:setup`, each mapped arg's value is dispatched to its event as `[event-id value]`, so the frame holds what the control shows; a Controls edit re-runs the variant with the new value. |
 | `:substrates` | The substrates to render under, from `#{:reagent :uix :fresco}`. |
 | `:platforms` | A subset of `#{:client :server}`. |
 | `:modes` | Mode ids, as on the story. |
@@ -307,12 +307,11 @@ A check accepts `:doc` and a required `:assertions` vector.
 | Key | Value |
 |---|---|
 | `:doc` | A string. |
-| `:layout` | Required: `:grid`, `:variants-grid`, `:tabs`, `:prose` or `:custom`. |
+| `:layout` | Required: `:grid`, `:variants-grid`, `:tabs` or `:prose`. |
 | `:variants` | Variant ids, in order. Required by `:grid` and `:tabs`. A `:variants-grid` that lists them renders exactly those instead of enumerating a story; it takes `:variants` or `:for`, not both. |
 | `:for` | The story a `:variants-grid` enumerates. Without it, the workspace id names the story. |
 | `:columns` | A fixed column count for `:grid` and `:variants-grid`. |
 | `:content` | For `:prose`, required: `[{:type :prose :body "markdown"} {:type :variant :id variant-id} ...]`. |
-| `:render` | For `:custom`, required: a view id. |
 | `:isolation` | For `:variants-grid`: `:isolated` (default) mounts every cell at once; `:shared` mounts one at a time. |
 | `:tags` | Tags. |
 | `:modes` | Mode ids; accepted, not yet acted on. |

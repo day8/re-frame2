@@ -630,14 +630,6 @@
       (is (= :prose   (-> cells (nth 2) :type)))
       (is (= "last"   (-> cells (nth 2) :body))))))
 
-(deftest custom-layout-resolves
-  (testing ":custom layout emits a single :custom cell"
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.c/x
-                  {:layout :custom :render :app/custom-view})]
-      (is (= 1 (count cells)))
-      (is (= :custom (-> cells first :type)))
-      (is (= :app/custom-view (-> cells first :render))))))
 
 (deftest unknown-layout-empty
   (testing "unknown layouts degrade gracefully"

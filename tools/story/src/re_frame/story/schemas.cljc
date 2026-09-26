@@ -1138,7 +1138,7 @@
 
 (def Workspace
   "Schema for the body of `reg-workspace`. Per `001-Authoring.md` §Registration macros.
-  Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`.
+  Four layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`.
 
   The optional `:isolation` slot tunes how `:variants-grid`
   mounts its cells. `:isolated` (the default) mounts every variant
@@ -1174,7 +1174,7 @@
    [:map {:closed true}
     [:doc       {:optional true} :string]
     [:source    {:optional true} SourceCoords]
-    [:layout    [:enum :grid :prose :variants-grid :tabs :custom]]
+    [:layout    [:enum :grid :prose :variants-grid :tabs]]
     [:variants  {:optional true} [:vector :keyword]]
     ;; `:for` names the `:variants-grid`
     ;; auto-enumerate parent story
@@ -1184,21 +1184,19 @@
     ;; fixed column-count (renderer-honoured; see docstring).
     [:columns   {:optional true} [:int {:min 1}]]
     [:content   {:optional true} [:vector WorkspaceContentItem]]
-    [:render    {:optional true} :keyword]
     [:tags      {:optional true} TagSet]
     [:modes     {:optional true} ModeRefSet]
     [:isolation {:optional true} [:enum :isolated :shared]]]
    ;; Layout-specific requirements. :grid / :variants-grid / :tabs need
-   ;; :variants; :prose needs :content; :custom needs :render.
+   ;; :variants; :prose needs :content.
    [:fn {:error/message
          "workspace body's slots must match its :layout (per `001-Authoring.md` §Registration macros)"}
-    (fn [{:keys [layout variants content render]}]
+    (fn [{:keys [layout variants content]}]
       (case layout
         :grid          (vector? variants)
         :tabs          (vector? variants)
         :variants-grid true                  ; enumerates from registry
         :prose         (vector? content)
-        :custom        (keyword? render)
         false))]
    ;; `:variants` (explicit list) and `:for` (auto-enumerate
    ;; anchor) are ALTERNATIVES on a `:variants-grid`, not co-equals

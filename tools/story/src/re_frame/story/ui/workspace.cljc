@@ -2,19 +2,17 @@
   "Workspace rendering. See `001-Authoring.md` §Registration macros + /spec/007-Stories.md
   §Workspace.
 
-  Five layouts ship in v1:
+  Four layouts ship in v1:
 
   - `:grid`          — vector of variant ids laid out N-up.
   - `:tabs`          — vector of variant ids; one shown at a time via tabs.
   - `:variants-grid` — devcards-style: every registered variant of one
                        story side-by-side. Enumerates from the registry.
   - `:prose`         — markdown / hiccup blocks interleaved with variants.
-  - `:custom`        — caller-supplied view id.
 
   Every layout's resolver is pure data (so JVM tests cover
   enumeration + filtering) and the Reagent renderer for `:grid`,
-  `:variants-grid`, `:tabs`, and `:prose`. `:custom` ships the resolver;
-  its renderer is a simple variant of the `:grid` pipeline.
+  `:variants-grid`, `:tabs`, and `:prose`.
 
   ## :tabs renderer
 
@@ -153,9 +151,6 @@
              :prose   {:type :prose :body (:body item)}
              :variant {:type :variant :variant-id (:id item)}
              nil)))
-
-    :custom
-    [{:type :custom :render (:render workspace-body)}]
 
     ;; unknown — degrade to empty
     []))
@@ -534,7 +529,7 @@
    (defn- cell-key
      "React key for a workspace cell. Variant cells key on the variant
      id so distinct variants get distinct React identities — non-variant
-     cells (prose, custom) fall back to a positional key prefixed by
+     cells (prose) fall back to a positional key prefixed by
      their type so they don't collide with variant keys.
 
      Position-only keys (`(str \"v-\" i)`) would let
@@ -556,7 +551,6 @@
      (case (:type cell)
        :variant (str "v:" (pr-str (:variant-id cell)))
        :prose   (str "p-" i)
-       :custom  (str "c-" i)
        (str "?-" i))))
 
 ;; ---- :tabs renderer ------------------------------------------------------
@@ -623,7 +617,6 @@
                  :let     [label   (case (:type cell)
                                      :variant (pr-str (:variant-id cell))
                                      :prose   (str "prose " (inc i))
-                                     :custom  (str "custom " (inc i))
                                      (str "tab " (inc i)))
                            active? (= i idx)
                            style   (merge (:tab-button tabs-styles)
@@ -648,10 +641,6 @@
                :prose
                ^{:key (cell-key idx active-cell)}
                [prose-block (:body active-cell)]
-               :custom
-               ^{:key (cell-key idx active-cell)}
-               [:div {:style (:cell styles)}
-                "custom render: " (pr-str (:render active-cell))]
                nil))]]))))
 
 ;; ---- :variants-grid :isolation :shared renderer --------------------------
@@ -714,7 +703,6 @@
              label        (case (:type active-cell)
                             :variant (pr-str (:variant-id active-cell))
                             :prose   (str "prose " (inc idx))
-                            :custom  (str "custom " (inc idx))
                             (str "cell " (inc idx)))]
          [:div {:style (:shared-wrap shared-styles)}
           [:div {:style      (:nav-strip shared-styles)
@@ -751,10 +739,6 @@
                :prose
                ^{:key (cell-key idx active-cell)}
                [prose-block (:body active-cell)]
-               :custom
-               ^{:key (cell-key idx active-cell)}
-               [:div {:style (:cell styles)}
-                "custom render: " (pr-str (:render active-cell))]
                nil))]]))))
 
 ;; ---- capped grid renderer (G1–G3) ---------------------------------------
@@ -773,7 +757,7 @@
 
 #?(:cljs
    (defn- grid-cell-hiccup
-     "Render one resolved cell to keyed hiccup (variant / prose / custom).
+     "Render one resolved cell to keyed hiccup (variant / prose).
      Shared by the capped grid renderer so the cell dispatch lives in one
      place."
      [i cell]
@@ -784,10 +768,6 @@
        :prose
        ^{:key (cell-key i cell)}
        [prose-block (:body cell)]
-       :custom
-       ^{:key (cell-key i cell)}
-       [:div {:style (:cell styles)}
-        "custom render: " (pr-str (:render cell))]
        nil)))
 
 #?(:cljs

@@ -72,11 +72,19 @@
   (testing "an invalid workspace body raises with :rf.error in ex-data"
     (try
       (rf.story/reg-workspace :Workspace.bad/empty
-        {:layout :unknown-layout})                   ; :layout must be one of five
+        {:layout :unknown-layout})                   ; :layout must be one of four
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))
         (is (re-find #"workspace schema" (:reason (ex-data e))))))))
+
+(deftest reg-workspace-refuses-a-custom-layout
+  (testing "there is no :custom layout, so registration refuses it"
+    (try
+      (rf.story/reg-workspace :Workspace.bad/custom {:layout :custom})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))))
 
 (deftest reg-workspace-isolation-slot-accepts-both-values
   ;; The optional `:isolation` slot accepts `:isolated`

@@ -1,8 +1,8 @@
 # Story — Render Shell
 
 > The UI: sidebar, canvas, controls, workspaces, embedded Xray
-> inspector; the five workspace layouts (`:grid` / `:prose` /
-> `:variants-grid` / `:tabs` / `:custom`); hot-reload decorator
+> inspector; the four workspace layouts (`:grid` / `:prose` /
+> `:variants-grid` / `:tabs`); hot-reload decorator
 > fingerprinting; the `mount-shell!` / `unmount-shell!` /
 > `active-shell` lifecycle. The contract Stage 4 implements (RHS
 > revised per rf2-sgdd3 — see §Right-hand pane below).
@@ -134,7 +134,7 @@ style map at
 
 ## Workspace layouts
 
-A `reg-workspace` body declares `:layout`; the render shell hosts five
+A `reg-workspace` body declares `:layout`; the render shell hosts four
 canonical layouts:
 
 | Layout | Source data | UX |
@@ -143,7 +143,6 @@ canonical layouts:
 | `:prose` | `:content` blocks (`{:type :prose :body "md..."}` or `{:type :variant :id ...}`) | Markdown narrative with embedded variants. |
 | `:variants-grid` | implicit — enumerates variants from the registry for one parent story | devcards-style "all states at once" view. |
 | `:tabs` | explicit `:variants` list | Tab strip; one variant active at a time. |
-| `:custom` | `:render <view-id>` | Hosts an arbitrary registered view. |
 
 The `:variants-grid` layout (Phase 2 SOTA addition) renders every
 variant of a single parent story side-by-side; it differs from `:grid`
