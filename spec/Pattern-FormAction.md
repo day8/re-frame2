@@ -231,7 +231,8 @@ A host whose middleware already keywordises keys (Ring's `wrap-keyword-params`)
 makes `update-keys` a no-op rather than a conflict; a host that also coerces
 types makes the transformer one. Neither is a reason to drop the call, and
 neither changes which layer is *responsible*. Only the server path needs any of
-this: `:rf/server-init` is `:platforms #{:server}`, and the hydrated client
+this: only the server dispatches `:rf/server-init`, from the per-request frame's
+`:initial-events`, and the hydrated client
 dispatches a draft the view already holds as typed values.
 
 ### The action handler

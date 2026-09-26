@@ -4041,16 +4041,13 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 (def DispatchFxArgs
   [:vector :any])                                                          ;; an event vector
 
-;; :dispatch-later — schedules a delayed dispatch (or dispatches a vector of them)
+;; :dispatch-later — schedules ONE delayed dispatch. A missing or non-numeric
+;; :ms raises :rf.error/fx-handler-exception and queues nothing; one [:dispatch-later …]
+;; entry per delayed event.
 (def DispatchLaterFxArgs
-  [:or
-   [:map
-    [:ms    :int]                                                           ;; non-negative
-    [:event [:vector :any]]]
-   [:vector
-    [:map
-     [:ms    :int]
-     [:event [:vector :any]]]]])
+  [:map
+   [:ms    number?]                                                         ;; the delay in milliseconds
+   [:event [:vector :any]]])
 
 ;; :http — pattern-level HTTP fx (per Pattern-RemoteData). Args are user-supplied;
 ;; the framework treats them opaquely. Schema is recommendation, not contract.

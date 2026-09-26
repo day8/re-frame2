@@ -17,7 +17,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 | Namespace | Role | Surfaces |
 |---|---|---|
 | `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `subscribe-once`, `compute-sub` (the static sub-graph query `sub-topology` is subscription tooling, reached through `re-frame.subs.tooling` rather than `re-frame.core`) |
-| `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `make-reset-runtime-fixture`, `assert-path-equals`, `poll-until` |
+| `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `make-reset-runtime-fixture`, `assert-path-equals`, `poll-until`, `with-trace-recorder!`, `with-emit-recorder!` |
 | `re-frame.test-helpers` | View-assertion helpers (hiccup-walk + `testid` authoring) (view-tree axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid` |
 
 `re-frame.test-support` does **not** re-export from `re-frame.core` — a test file requires both namespaces (`[re-frame.core :as rf]` for primitives, `[re-frame.test-support :as ts]` for fixture machinery and helpers). View-assertion test files additionally `:require [re-frame.test-helpers :as th]`. Pure machine simulation sits outside all three: `machine-transition` is owned by `re-frame.machines` (the optional machines artefact) and is not re-exported from `re-frame.core` — see [Pattern 4](#pattern-4--pure-machine-simulation-no-frame) and [005 §Level 1 — pure `machine-transition`](005-StateMachines.md#level-1--pure-machine-transition). The split is deliberate: `re-frame.core` carries surfaces that compose into production code paths as well as tests; `re-frame.test-support` is a require-gated test-only convenience surface; `re-frame.test-helpers` is the view-assertion surface used only by tests (per [§View-assertion helpers](#view-assertion-helpers-re-frametest-helpers)).
@@ -545,7 +545,7 @@ Both are JVM-runnable and require no DOM. Reach for `render-to-string` when the 
 
 ### Normative surface — `re-frame.test-helpers`
 
-Thirteen public defs, organised by role. Every entry is JVM-runnable purely against `clojure.string` — the namespace pulls no `re-frame.frame`, no `clojure.test` / `cljs.test`, and no React / Reagent / adapter into the require closure.
+Thirteen public defs, organised by role. Every entry is JVM-runnable against `clojure.string` and `re-frame.error` alone (the latter for its typed refusals; it requires no other re-frame namespace) — the namespace pulls no `re-frame.frame`, no `clojure.test` / `cljs.test`, and no React / Reagent / adapter into the require closure.
 
 | Helper | Form | Signature | Purpose |
 |---|---|---|---|
@@ -590,8 +590,12 @@ Drive a click and assert state changed downstream:
     (rf/dispatch-sync [:counter/init])   ;; seed via a setup dispatch
     (let [tree (counter-view {})
           btn  (th/find-by-testid tree "counter-inc")]
-      (th/invoke-handler btn :on-click)
-      (is (= 1 (:n (rf/app-db-value (rf/current-frame-id))))))))
+      (th/invoke-handler btn :on-click)   ;; the click's `dispatch` queues
+      ;; so wait for the drain. On the JVM `poll-until` blocks inside this
+      ;; body; on CLJS it returns a promise, so keep the frame in the fixture
+      ;; rather than in `with-new-frame` (see `invoke-handler`'s docstring).
+      (is (ts/poll-until #(= 1 (:n (rf/app-db-value (rf/current-frame-id))))
+                         {:label "counter click drained"})))))
 ```
 
 Assert rendered text after dispatching:
@@ -617,7 +621,7 @@ Authoring side — emit a testid at the view call site:
 
 ### JVM-runnable boundary for hiccup-walk
 
-Every helper in `re-frame.test-helpers` is JVM-runnable. The hiccup-walk core is classpath-clean against `clojure.string` alone — it does not pull React, Reagent, `re-frame.frame`, or any substrate adapter into the classpath. The reagent-slim Form-3 detection uses a reader-conditional (`#?(:cljs ...)`) that's a no-op on the JVM (the JVM has no `.-cljsReagentClass` property access on plain fns), so Form-3 expansion is a CLJS-only optimisation and JVM tests see the same hiccup tree. The async view-content case composes these pure walkers with `re-frame.test-support/poll-until`, whose per-platform shape (JVM synchronous; CLJS `js/Promise`) is reader-conditional, per [§Pattern 5](#pattern-5--single-frame-e2e-fixture).
+Every helper in `re-frame.test-helpers` is JVM-runnable. The hiccup-walk core is classpath-clean against `clojure.string` and `re-frame.error` alone — it does not pull React, Reagent, `re-frame.frame`, or any substrate adapter into the classpath. The reagent-slim Form-3 detection uses a reader-conditional (`#?(:cljs ...)`) that's a no-op on the JVM (the JVM has no `.-cljsReagentClass` property access on plain fns), so Form-3 expansion is a CLJS-only optimisation and JVM tests see the same hiccup tree. The async view-content case composes these pure walkers with `re-frame.test-support/poll-until`, whose per-platform shape (JVM synchronous; CLJS `js/Promise`) is reader-conditional, per [§Pattern 5](#pattern-5--single-frame-e2e-fixture).
 
 This complements the JVM-runnable list in [§Normative surface §JVM-runnable boundary](#jvm-runnable-boundary-authoritative): hiccup-walk joins `render-to-string` as a JVM-runnable view-test path.
 
