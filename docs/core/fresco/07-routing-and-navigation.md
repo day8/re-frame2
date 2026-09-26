@@ -116,10 +116,7 @@ vector headed by an internal keyword and wrapping a map:
      :class    "title"
      :on-click [navigate-head                       ; route-link's own head
                 {:frame   :app
-                 :payload [:rf.route/url-requested
-                           {:url    "/todos/1"
-                            :to     :app/todo
-                            :params {:id "1"}}]
+                 :payload [:rf.route/url-requested {:url "/todos/1"}]
                  :native? false
                  :veto    nil}]}
  "Buy milk"]
@@ -136,6 +133,12 @@ Click conduct is browser-compatible:
 - modifier and auxiliary clicks remain browser operations, such as opening a
   new tab
 - anchors with `:target` or `:download` navigate natively
+
+A link takes the navigation policy `:rf.route/navigate` takes. `:replace? true`
+replaces the current history entry instead of adding one, `:scroll` sets this
+navigation's scroll policy, and `:bypass-leave? true` skips the current route's
+`:can-leave` once. These keys ride the click's navigation, in the payload above,
+and never reach the anchor.
 
 If the routing artefact was not loaded, rendering raises
 `:rf.error/routing-artefact-missing` and names the requested route instead of

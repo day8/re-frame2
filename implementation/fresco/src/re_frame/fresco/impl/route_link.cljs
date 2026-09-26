@@ -110,8 +110,17 @@
   Owning it is not declining it — `route-link` honours `:prefetch :intent`
   by filling routing's credible-intent positions, and stripping the key is
   what keeps the request out of the DOM while the behaviour it asked for
-  reaches it."
-  [:to :params :query :fragment :on-click :prefetch])
+  reaches it.
+
+  The navigation policy keys — `:replace?`, `:scroll` and `:bypass-leave?`
+  — are owned for the same reason. The link model reads them off the props
+  and carries them on the click's `:rf.route/url-requested` payload, which
+  honours each as `:rf.route/navigate` does, so they are navigation policy
+  and never anchor attributes. They are spelled out here because this
+  artefact cannot require routing's `policy-keys`; the route-link test
+  checks this list against it."
+  [:to :params :query :fragment :on-click :prefetch
+   :replace? :scroll :bypass-leave?])
 
 (defn on-click-roster!
   "Refuse, AT RENDER, an `:on-click` outside the route-click roster: nil,
@@ -210,6 +219,10 @@
   answer a real `[:a …]` whose `:href` is routing's and whose `:on-click`
   is the `[intent/navigate-head {…}]` data form. `children` land inside
   the anchor. A plain function — call it: `(route-link {:to …} \"jane\")`.
+
+  `:replace?`, `:scroll` and `:bypass-leave?` ride the click's navigation
+  on the link model's payload, as they do on `rf/route-link`, and never
+  reach the anchor.
 
   `:prefetch :intent` additionally fills routing's credible-intent
   positions with its `[:rf.route/prefetch {…}]` vector, which lowers like
