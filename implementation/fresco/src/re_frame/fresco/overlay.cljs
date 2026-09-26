@@ -168,9 +168,9 @@
   `:rf.error/fresco-overlay-anchor-missing` is a live row of
   `implementation/fresco/spec/complaints.md` and of
   `spec/009-Instrumentation.md`'s catalogue, and
-  `check_complaint_catalogue.py` holds the emitter and both rows in
-  step; naming-ledger row 30 records the id as the corpus's single
-  deliberate mint.
+  `scripts/check_keyword_catalogue_drift.py` holds the emitter and the
+  Spec 009 row in step; naming-ledger row 30 records the id as the
+  corpus's single deliberate mint.
 
   `:rf.error/fresco-overlay-anchor-missing` is raised from
   `re-frame.fresco.impl.overlay/claim-anchor!` — the ref callback, the
