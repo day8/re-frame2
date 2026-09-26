@@ -2188,8 +2188,14 @@
                                  :offending-keys offending
                                  :valid-keys     valid-keys}))))))]
     (check! (:spawn state-node) :spawn known-spawn-spec-keys)
-    (doseq [child (get-in state-node [:spawn-all :children])]
-      (check! child :spawn-all-child known-spawn-all-child-spec-keys))))
+    ;; Only a seqable `:children` has child specs to scan. Anything else — a fn
+    ;; is the natural mis-spelling of a runtime-sized fan-out — is refused as
+    ;; `:rf.error/machine-spawn-all-bad-shape` by `validate-spawn-all!`, which
+    ;; seqing it here would pre-empt with a host exception.
+    (let [children (get-in state-node [:spawn-all :children])]
+      (when (seqable? children)
+        (doseq [child children]
+          (check! child :spawn-all-child known-spawn-all-child-spec-keys))))))
 
 (def ^:private known-transition-keys
   "The closed BARE key vocabulary a transition map may declare, projected from
