@@ -14,19 +14,14 @@ re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC s
 
 ## Install / configure (one-time)
 
-The MCP server is **not yet published to npm** — build and run it from a re-frame2 clone (`cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point `mcpServers` at the compiled `out/server.js`; see [`docs/LOCAL_DEV.md` §MCP server from a clone](../docs/LOCAL_DEV.md#mcp-server-from-a-clone)). Once published:
-
-```bash
-npm install -g @day8/re-frame2-pair-mcp
-```
-
-Then add to your Claude Code settings:
+The MCP server is **not yet published to npm** — build it from a re-frame2 clone (`cd tools/re-frame2-pair-mcp && npm install && npm run build`; see [`docs/LOCAL_DEV.md` §MCP server from a clone](../docs/LOCAL_DEV.md#mcp-server-from-a-clone)), then point your Claude Code `mcpServers` entry at the compiled `out/server.js`:
 
 ```json
 {
   "mcpServers": {
     "re-frame2-pair": {
-      "command": "re-frame2-pair-mcp",
+      "command": "node",
+      "args": ["<repo>/tools/re-frame2-pair-mcp/out/server.js"],
       "env": {
         "SHADOW_CLJS_BUILD_ID": "app"
       }
@@ -34,6 +29,8 @@ Then add to your Claude Code settings:
   }
 }
 ```
+
+Once the package is published, `npm install -g @day8/re-frame2-pair-mcp` collapses `command` + `args` to `"command": "re-frame2-pair-mcp"`; until then that form finds no binary.
 
 On the first tool call the server discovers the live shadow-cljs nREPL
 via a **five-step cascade** (per `tools/re-frame2-pair-mcp/spec/002-nREPL-Transport.md` §Port discovery — discovery is **lazy on first tool call**, not boot, because the `roots/list` request can only fire after the client's `initialize` handshake):
@@ -187,7 +184,7 @@ The eval path surfaces the ambiguous-target case as `:no-runtime-for-build` (als
 If shadow-cljs isn't running when the first tool call runs, the server still answers `tools/list` but every `tools/call` returns
 
 ```edn
-{:ok? false :reason :nrepl-port-not-found :hint "..."}
+{:ok? false :reason :rf.error/pair-mcp-nrepl-port-not-found :hint "..."}
 ```
 
 Start shadow-cljs and retry — the server picks up the port on the next call.

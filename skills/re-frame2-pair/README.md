@@ -148,7 +148,7 @@ Here's the kinds of conversations you can have with Claude.
 
 ## Install
 
-Both pieces install from a repo checkout — neither is published to npm yet (`@day8/re-frame2-pair-mcp` and the `@day8/re-frame2-pair` skill package are both marked `private`). See [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) for the full clone/link walk-through.
+Both pieces install from a repo checkout — neither is published to npm yet (the `@day8/re-frame2-pair` skill package is marked `private`, and `@day8/re-frame2-pair-mcp` has no release). See [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) for the full clone/link walk-through.
 
 The app also needs `day8/re-frame2-schemas` on its dev classpath: the preload directly requires `re-frame.schemas`, which core does not include. Match the app's core revision, or use this clone's `implementation/schemas` as a `:local/root`. For epoch reads, dry-run rollback and time travel, include `day8/re-frame2-epoch` and require `re-frame.epoch` at boot. These are app dependencies; installing the MCP server alone supplies neither.
 
