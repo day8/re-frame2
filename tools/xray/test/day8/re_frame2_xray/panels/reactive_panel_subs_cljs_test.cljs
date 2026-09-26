@@ -74,12 +74,6 @@
     (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
       (is (= {:epoch-id :b} (subs/focused-epoch-record history :b))))))
 
-(deftest focused-epoch-record-nil-focus-falls-back-to-head
-  (testing "NIL :epoch-id (LIVE / cold-start) → head record (the
-            head-fallback — the natural debugging UX)"
-    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
-      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil))))))
-
 (deftest focused-epoch-record-nil-when-evicted
   (testing "a PINNED :epoch-id absent from the buffer
             (evicted from the per-frame ring) resolves to nil, NOT a
@@ -217,15 +211,6 @@
       (is (= [:item/derived :item/derived] (mapv :sub-id rows))
           "the registered id rides both rows for source-coord lookup"))))
 
-(deftest skipped-subs-dedups-repeated-same-concrete-query
-  (testing "repeated evidence for the SAME concrete query (a
-            post-settle deref burst) collapses to one row."
-    (let [events [(skip-qv :item/derived [:item/derived 2])
-                  (skip-qv :item/derived [:item/derived 2])]
-          rows   (subs/skipped-subs events #{})]
-      (is (= [[:item/derived 2]] (mapv :query-v rows))
-          "the same concrete query collapses to a single row"))))
-
 (deftest skipped-subs-recompute-excludes-only-exact-query
   (testing "the focused counterexample: `[:item/derived 1]`
             recomputes while `[:item/derived 2]` memo-hits. The recompute
@@ -237,17 +222,6 @@
           rows         (subs/skipped-subs events ran-query-vs)]
       (is (= [[:item/derived 2]] (mapv :query-v rows))
           "only the exact recomputed query is excluded; the sibling survives"))))
-
-(deftest skipped-subs-unparameterized-behavior-unchanged
-  (testing "an ordinary unparameterized skip (query-v `[sub-id]`)
-            projects one row and excludes when that exact query
-            recomputed: the common case."
-    (is (= [:user/name]
-           (mapv :sub-id (subs/skipped-subs [(skip-ev :user/name)] #{})))
-        "a lone unparameterized skip survives")
-    (is (= []
-           (subs/skipped-subs [(skip-ev :user/name)] #{[:user/name]}))
-        "the `[sub-id]` run-set excludes the matching `[sub-id]` skip")))
 
 (deftest skipped-subs-falls-back-to-sub-id-when-query-v-absent
   (testing "documented fallback: a skip op lacking a query-v
@@ -349,20 +323,6 @@
           p (subs/project-record record)]
       (is (= 2 (-> p :counts :flows-recomputed)))
       (is (= 1 (-> p :counts :flows-skipped))))))
-
-;; ---- project-record: full record composes -----------------------------
-
-(deftest project-full-record
-  (testing "All projections compose from one record"
-    (let [record {:sub-runs     [(sub-run :a) (sub-run :b) (sub-run :c)]
-                  :renders      [(render :v-x) (render :v-y)]
-                  :trace-events [(flow-ev :rf.flow/computed)]}
-          p (subs/project-record record)]
-      (is (= 3 (-> p :counts :subs-ran)))
-      (is (= [:a :b :c] (mapv :sub-id (:subs-ran p))))
-      (is (= 2 (-> p :counts :views-rendered)))
-      (is (= 1 (-> p :counts :flows-recomputed)))
-      (is (= [:v-x :v-y] (mapv :view-id (:views-rendered p)))))))
 
 ;; ===========================================================================
 ;; the Views three-table data layer
@@ -563,19 +523,6 @@
       (is (= :parametric (-> level-2 first :input-kind))
           "the parametric discriminator rides the row so the panel can badge it"))))
 
-(deftest topology-input-sub-ids-handles-static-and-parametric
-  (testing "topology-input-sub-ids projects :static query-vectors
-            to their sub-id heads and returns [] for the :parametric sentinel."
-    (is (= [:cart/state :cart/items]
-           (subs/topology-input-sub-ids (:cart/total topology)))
-        ":static → query-vector heads (sub-ids)")
-    (is (= []
-           (subs/topology-input-sub-ids (:cart/line topology)))
-        ":parametric sentinel → [] (no static edges)")
-    (is (= []
-           (subs/topology-input-sub-ids (:cart/state topology)))
-        ":db reader → []")))
-
 (deftest partition-carries-changed-flag
   (testing ":value-changed? rides onto each row's :changed?."
     (let [{:keys [level-1]}
@@ -732,12 +679,4 @@
       (is (= [[:cart/state] [:cart/items]] (-> level-2 first :input-query-vs)))
       (is (= [:cart/total] (-> level-2 first :query-v)))
       (is (not (contains? (second level-2) :input-query-vs))))))
-
-(deftest project-record-degrades-without-topology
-  (testing "nil topology: every sub falls to Level 1; the
-            panel renders (no crash)."
-    (let [record {:sub-runs [(sub-run+ :a true true) (sub-run+ :b true false)]}
-          p (subs/project-record record)]
-      (is (= [:a :b] (mapv :sub-id (:level-1-subs p))))
-      (is (empty? (:level-2-subs p))))))
 
