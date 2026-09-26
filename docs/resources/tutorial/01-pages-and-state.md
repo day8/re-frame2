@@ -258,7 +258,7 @@ A route is a registry entry, like an event or a sub. `reg-route` has a fixed thr
 
 The `:params` schema names the capture's shape. Enforcement is opt-in: once the [schemas](../../core/glossary.md#schema) artefact is on the classpath ([Validate with schemas](../../core/how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as unmatched.
 
-`:rf.route/not-found` is the one route id the framework reserves. When a URL matches nothing, the runtime routes to it with the offending URL in `:rf.route/params`. Register it and you own its page; skip it and the runtime renders a built-in `<h1>Not Found</h1>` and emits a `:rf.warning/no-not-found-route` trace.
+`:rf.route/not-found` is the one route id the framework reserves. When a URL matches nothing, the runtime routes to it with the offending URL in `:rf.route/params`. Register it and you own its page. Skip it and the runtime still routes there and emits a `:rf.warning/no-not-found-route` trace, but there is no built-in placeholder page: what renders is whatever your root view does with `:rf.route/not-found`.
 
 Then the chrome and the root view:
 
