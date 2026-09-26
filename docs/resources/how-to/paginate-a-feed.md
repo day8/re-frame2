@@ -89,7 +89,7 @@ Two more keys earn their place on real tables:
 
 !!! warning "Gotcha — a scoped list needs the same scope on both sides"
 
-    The same-key rule has a second half once a list is scoped. A sub that can't resolve a scope at all (logged out, so the resolver returns `nil`) raises `:rf.error/resource-sub-unresolved-scope` rather than reading a shared entry. A sub that passes an explicit `:scope` override naming a *different* scope reads its own empty entry — `:idle` forever — so pass one only when you mean to read as another principal. Declaring the scope once, on the registration, and letting route and sub inherit it avoids both. ([Troubleshooting](../concepts.md#when-it-fails-loud--the-errors-and-warnings) lists the signals.)
+    The same-key rule has a second half once a list is scoped. A sub that can't resolve a scope at all (logged out, so the resolver returns `nil`) raises `:rf.error/resource-sub-unresolved-scope` rather than reading a shared entry. A sub that passes an explicit `:scope` override naming a *different* scope reads its own empty entry — `:idle` forever — so pass one only when you mean to read as another principal. Declaring the scope once, on the registration, and letting route and sub inherit it avoids both. ([Errors and warnings](../errors-and-warnings.md#causing-and-reading) lists the signals.)
 
 ### 3. Page by navigating, not by fetching
 
