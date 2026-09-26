@@ -9,7 +9,7 @@ declare writes that invalidate by tag.
 
 Every call in the API sits in one of three **lanes**:
 
-| Lane | Spelling | Who |
+| Lane | What you write | Who |
 |---|---|---|
 | **Register** | `reg-resource` / `reg-mutation` | Your code, once, at load |
 | **Cause** | route `:resources`, `[:rf.resource/ensure …]`, `[:rf.mutation/execute …]` | Routes, handlers, machines |
@@ -27,8 +27,6 @@ Every call in the API sits in one of three **lanes**:
     Require `re-frame.resources` (and usually `re-frame.http.managed`) once at boot —
     Maven coordinate `day8/re-frame2-resources`. Forget the require and the first
     `reg-resource` / `reg-mutation` throws `:rf.error/resources-artefact-missing`.
-    An app with one or two uncached reads is often happier with
-    [managed HTTP](../async/http.md) alone.
 
 ## The cache you don't own
 
@@ -58,20 +56,20 @@ A resource is *a subscription you read and a cause you fire* — two different j
 
 (rf/reg-resource :realworld/article
   {:params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global}       ;; REQUIRED — whose cache?
+   :scope         :rf.scope/global}       ;; required — whose cache?
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get
                :url    (str "/api/articles/" slug)}
      :decode  :json}))
 ```
 
-Strict **three-slot** grammar: `(reg-resource id metadata request-fn)`. Putting the
-request fn in the metadata map is `:rf.error/resource-bad-spec`.
+`reg-resource` takes three slots: `(reg-resource id metadata request-fn)`. Putting the
+request fn in the metadata map raises `:rf.error/resource-bad-spec`.
 
 | Metadata key | Role |
 |---|---|
 | `:params-schema` | **Required.** Malli schema of params — the read's identity |
-| `:scope` | **Required.** EXACTLY `:rf.scope/global` or `{:from-db resolver-id}` |
+| `:scope` | **Required.** Either `:rf.scope/global` or `{:from-db resolver-id}` |
 | `:tags` | `(fn [params data] #{…})` — facts this data is about (for invalidation) |
 | `:stale-after-ms` | Freshness window; next ensure refetches after this |
 | `:gc-after-ms` | GC check interval for an owner-free entry, armed when the entry settles (default 5 min; `:never` to pin) |
@@ -79,8 +77,9 @@ request fn in the metadata map is `:rf.error/resource-bad-spec`.
 | `:infinite` | `true` → load-more feed kind ([paginate how-to](how-to/paginate-a-feed.md)) |
 
 The request fn describes the **domain** request only. It must **not** set
-`:request-id`, `:on-success`, or `:on-failure` — the runtime owns reply addressing
-(stale-reply suppression). Cross-cutting headers live in `reg-http-interceptor`.
+`:request-id`, `:on-success`, or `:on-failure`: the runtime decides where the reply
+goes, which is how it suppresses stale replies. Cross-cutting headers live in
+`reg-http-interceptor`.
 
 `reg-resource` does not fetch. It only teaches the runtime *how* to.
 
@@ -108,14 +107,14 @@ load settles (also an SSR wait point); the route itself commits at once.
 Other causes use the same entry with a different **cause** recorded for the trace:
 
 ```clojure
-;; Explicit ensure from a handler (app-minted event owner — release on leave)
+;; Ensure from a handler, with an owner your app releases later
 (rf/dispatch [:rf.resource/ensure
               {:resource :realworld/article
                :params   {:slug "hello"}
                :owner    [:article/opened :article-page]
                :cause    [:event :article/opened]}])
 
-;; Pull-to-refresh — new generation, no owner
+;; Pull-to-refresh: always a new request, no owner
 (rf/dispatch [:rf.resource/refetch
               {:resource :realworld/article
                :params   {:slug "hello"}
@@ -155,9 +154,9 @@ steps. The reply's fields: [`ensure` in the API](../api/re-frame.resources.md#rf
 <a id="what-a-view-sees-five-statuses"></a>
 
 ```clojure
-(rf/reg-view article-page [slug]
-  (let [state @(rf/subscribe [:rf/resource {:resource :realworld/article
-                                            :params   {:slug slug}}])]
+(rf/reg-view article-page [{:keys [slug]}]
+  (let [state @(subscribe [:rf/resource {:resource :realworld/article
+                                         :params   {:slug slug}}])]
     (cond
       (= :idle (:status state))                      [article-placeholder]
       (:loading? state)                              [article-skeleton]
@@ -183,8 +182,9 @@ the booleans (`:loading?`, `:has-data?`, …) over re-deriving rules from `:stat
 
 !!! warning "No subscription ever fetches"
 
-    Missing cause ⇒ permanent `:idle` / skeleton. You are missing a route
-    `:resources` or an ensure, not a sub.
+    With no cause, a read stays `:idle` and the view shows its placeholder for
+    good. What's missing is a route `:resources` entry or an ensure, not a
+    subscription.
 
 Narrower projections (`[:rf.resource/data …]`, `[:rf.resource/status …]`, …) re-render
 only when that slice changes. Commands include
@@ -201,8 +201,8 @@ Cache identity is a triple: `[scope resource-id canonical-params]`.
 - **`{:from-db resolver-id}`** — viewer-relative; resolver pure over declared
   `:inputs`.
 
-Those two are the whole policy vocabulary. A use-site `:scope` — on an ensure
-payload or a sub query — is an **override**, never a required repetition.
+Those are the only two forms. A use-site `:scope` — on an ensure payload or a sub
+query — is an **override**, never a required repetition.
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
@@ -222,7 +222,8 @@ payload or a sub query — is an **override**, never a required repetition.
      :decode  :json}))
 ```
 
-Nil resolution **fails closed** — no silent shared read. Logout clears a scope:
+A resolver that returns `nil` **fails closed**: the read raises rather than falling
+back to a shared entry. Logout clears the departing user's scope:
 
 ```clojure
 (rf/reg-event :auth/logout
@@ -242,7 +243,7 @@ that logout, or a login, the same subscription points at the new viewer's entry.
 re-key is passive, though: it never fetches, so the new key sits `:idle` until a cause
 ensures it. Navigation is the usual cause. When identity changes and the route does
 not — a session restored after the page was entered, an account or tenant switch — the
-causal door is `[:rf.route/replan-resources {:cause …}]`, which reruns the active
+cause to dispatch is `[:rf.route/replan-resources {:cause …}]`, which reruns the active
 route's resource plan under the new identity without navigating: clear the old scope,
 commit the new identity, then replan. See
 [Replanning the active route's resources](../routing/concepts.md#replanning-the-active-routes-resources).
@@ -328,7 +329,7 @@ remembered in `onSuccess`:
      :decode  :json}))
 ```
 
-Success plan arms (fixed order): `:patches` → `:populates` → `:removes` →
+On success the arms run in a fixed order: `:patches` → `:populates` → `:removes` →
 `:invalidates`. Patches run *before* populates, so when the same key is both
 patched and populated the **populate wins** — it is applied last, overwriting the
 patch. Invalidation runs last of all. Only keys this same mutation **populated**
@@ -336,7 +337,7 @@ are spared from its immediate refetch — a populate is an authoritative load, s
 the value it just wrote stays fresh. A **patched** key is *not* exempt: the same
 pass may still mark it stale and refetch it.
 
-Execute and watch (instance id is app-chosen — reuse it for the sub):
+Run it with an execute, and watch it through the instance id you chose:
 
 ```clojure
 (rf/dispatch [:rf.mutation/execute
@@ -349,12 +350,12 @@ Execute and watch (instance id is app-chosen — reuse it for the sub):
 ;; => {:status :pending …} then :success / :error
 ```
 
-**Scope footgun.** Invalidation matches only entries **in the scopes you name**.
-Wrong scope ⇒ silent miss (dev warning). Recipe, populate/patch arms, and optimistic
-writes: [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
+**Scope matters.** Invalidation matches only entries **in the scopes you name**; the
+wrong scope misses silently (dev builds warn). The recipe, the populate and patch
+arms, and optimistic writes are in [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
 
-The optimistic half of this section has a focused worked example:
-[`linearlite`](../../examples/capabilities/resources/linearlite) — create,
+For optimistic writes, [`linearlite`](../../examples/capabilities/resources/linearlite)
+is a focused example — create,
 retitle and change-status as three `:optimistic` mutations against one board
 entry, with a "fail the next write" toggle that puts the rollback on screen.
 
@@ -383,7 +384,7 @@ turns the same failures into assertions.
 
 ## A complete read loop
 
-Register → route causes → view projects. Copy-paste skeleton:
+Register, cause the fetch from the route, project in the view — a skeleton to copy:
 
 ```clojure
 (ns app.articles
@@ -409,9 +410,9 @@ Register → route causes → view projects. Copy-paste skeleton:
   "/articles/:slug")
 
 (rf/reg-view article-page []
-  (let [slug  (get @(rf/subscribe [:rf.route/params]) :slug)  ;; or your route projection
-        state @(rf/subscribe [:rf/resource {:resource :app/article
-                                            :params   {:slug slug}}])]
+  (let [slug  (get @(subscribe [:rf.route/params]) :slug)  ;; or your route projection
+        state @(subscribe [:rf/resource {:resource :app/article
+                                         :params   {:slug slug}}])]
     (cond
       ;; :idle — nothing has caused a load yet (no route :resources / ensure hit)
       (= :idle (:status state))                     [placeholder]
@@ -438,6 +439,7 @@ Register → route causes → view projects. Copy-paste skeleton:
 | Prove the cache in tests | [Testing](testing.md) |
 | Every key, event and subscription | [API reference](../api/re-frame.resources.md) |
 | Migrating from `re-frame-query` | [re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) |
+| When resources are the wrong tool | [When not to use resources](index.md#when-not-to-use-resources) |
 
 <a id="infinite-feeds-accumulate-pages-with-infinite"></a>
 <a id="ssr-and-hydration"></a>
@@ -446,17 +448,4 @@ Register → route causes → view projects. Copy-paste skeleton:
 <a id="polling-keep-this-fresh-every-n-ms"></a>
 <a id="logout-is-one-causal-event"></a>
 <a id="running-a-mutation-and-reading-its-state"></a>
-
-## When resources are the wrong tool
-
 <a id="when-resources-are-the-wrong-tool"></a>
-
-| Situation | Prefer |
-|---|---|
-| One-off uncached call | [Managed HTTP](../async/http.md) |
-| Client-only state | app-db |
-| Named stage machine | [Machines](../machines/index.md) |
-| No server yet | app-db + events |
-
-**Cached server reads that multiply** are the reason to reach for this artefact —
-not every network call.
