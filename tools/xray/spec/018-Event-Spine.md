@@ -27,7 +27,7 @@ Every selection event passes through a single spine sub — `:rf.xray/focus` —
 - **No Xray-MCP, and no Xray agent runtime.** A dedicated `xray-mcp` jar was envisaged but dropped per rf2-hvl1g (2026-05-19); the MCP server panel died with it, and rf2-7htk7 retired the duplicate browser-side Xray runtime seam as well. Agent access flows through `re-frame2-pair.runtime` + `tools/re-frame2-pair-mcp/`, reading the framework's instrumentation directly.
 - **No `:sensitive? true` event-handler annotation.** Reversed in favour of unified path-marked classification per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md). Xray CONSUMES that contract; this spec defines how the sentinels render in Xray's surfaces (§12).
 - **No writes to host runtime.** Xray stays read-only forever (Lock #3 in [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)).
-- **No bottom rail.** The pass-2/round-1/round-2 "L0" scrubber rail is gone — the ribbon `[◀ ▶ ⏭]` cluster + the event list together ARE the scrubber.
+- **No bottom rail.** The pass-2/round-1/round-2 "L0" scrubber rail is gone — the ribbon `[‹ › »]` cluster + the event list together ARE the scrubber.
 - **No multi-frame merged view.** The frame picker is single-select.
 
 ---
@@ -72,7 +72,7 @@ Wireframe at default (800px popout, "cosy" density):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ [◀ ▶ ⏭]  Frame: :app/main ▾   Dynamic ▾                 🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
+│ [‹ › »]  Frame: :app/main ▾   Dynamic ▾                 🔇 0  ● 1   ⚙ ✕ │   L1 chrome ribbon
 │ Events: [+ :auth/* ✎] [× :mouse-move ✎] [+]                             │   L1.5 events ribbon
 ├─────────────────────────────────────────────────────────────────────────┤
 │   :auth/login                                                           │   L2 — 8 rows default
@@ -203,7 +203,7 @@ scope selectors, indicators and chrome actions (right):
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Label + nav + add** | left | `Event History` label · the `[◀ ▶ ⏭]` nav cluster · the `+ filter` button (which collapses to zero width once the events ribbon owns the `[+]` — rf2-8zd80). | `j` · `k` · `Shift+G` |
+| **Label + nav + add** | left | `Event History` label · the `[‹ › »]` nav cluster · the `+ filter` button (which collapses to zero width once the events ribbon owns the `[+]` — rf2-8zd80). | `j` · `k` · `Shift+G` |
 | **Frame** | **right** | `Frame ▾` dropdown — ALWAYS rendered (rf2-ad7zx.12); the selected value is surfaced INSIDE the option list (the active option carries a `✓`), not inlined on the button. Interactive whenever ≥1 frame is available (rf2-ad7zx.14): a single-frame host gets a working 1-entry dropdown listing that lone frame; only the zero-frame state disables the control. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter). Tool frames are excluded UNCONDITIONALLY (§8 I1) — there is no toggle. | — |
 | **Mode** | **right** | `Dynamic ▾` / `Static ▾` **dropdown** (`<select>`) — compact, understated; shares the frame picker's control weight (rf2-4vp5j). The dropdown's active option + `data-active-mode` carry the mode SIGNAL; the chrome silhouette (4-layer Dynamic / 3-layer Static) is the second signal. | `Cmd/Ctrl-Shift-M` |
 | **Indicators** | right | Silent-by-default `🔇 N` mute indicator + `● N` REDACTED indicator (each painted only when its count > 0). | — |
@@ -250,7 +250,7 @@ Wireframe (two ribbons; cluster boundaries shown):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│ Event History  [◀ ▶ ⏭]  + filter      :app/main ▾   Dynamic ▾        🔇 2  ● 1   ⚙ ✕ │  L1 chrome
+│ Event History  [‹ › »]  + filter      :app/main ▾   Dynamic ▾        🔇 2  ● 1   ⚙ ✕ │  L1 chrome
 ├─────────────────────────────────────────────────────────────────────────────────────┤
 │ ↳ filters:  +  [+ :auth/* ✎] [× :mouse-move ✎]                          3 events filtered out │  L1.5 events (shown only when filters exist — rf2-pjjwh)
 └─────────────────────────────────────────────────────────────────────────────────────┘
@@ -304,7 +304,7 @@ showing an older epoch with newer events waiting, and nothing at all
 while the spine is following. No head-row pulse cue was ever built
 (rf2-pjjwh removed the gutter glyph that would have carried one) and
 the continuous pulse was refused (rf2-2sez0). LIVE/RETRO transitions
-ride the `Space` / `l` keys + the `⏭` ribbon button + ordinary row
+ride the `Space` / `l` keys + the `»` ribbon button + ordinary row
 clicks (clicking any non-head row flips LIVE→RETRO). The spine sub
 carries `:mode :live | :retro` for downstream consumers; there is no
 separate LIVE/RETRO pill widget.
@@ -346,8 +346,8 @@ re-flips the rhythm without a re-design pass.
 
 #### v1 ships — Nav-button semantics (rf2-htik0)
 
-The ribbon's `[◀ ▶]` nav cluster: `◀` (prev / step backward in time)
-is disabled at the **oldest** event (no older to step to); `▶` (next
+The ribbon's `[‹ ›]` nav cluster: `‹` (prev / step backward in time)
+is disabled at the **oldest** event (no older to step to); `›` (next
 / step forward) is disabled at the **most recent** event (no newer
 to step to). The earlier shell prototype shipped these inverted —
 the v1 fix swapped the `at-head?` / `at-tail?` predicates and the
@@ -561,9 +561,8 @@ the `Shift+G` / `l` keys fire. The rendered text is
 singular (`newer event`) at one, and with the digit dropped altogether
 when the count is nil or zero, because `newer-event-count` returns nil
 for an evicted RETRO pin and the marker will not print a number the spine
-cannot stand behind. This section previously specified
-`↓ N new events — press ⏭ to follow`; the built marker says `»` because
-that is the glyph the chrome actually paints on the fast-forward control
+cannot stand behind. The marker says `»` because
+that is the glyph the chrome paints on the fast-forward control
 (`ribbon-nav-cluster`'s `rf-xray-nav-head`, title "Fast-forward to latest
 (G)"), so the copy names the control the user can see. **The count is
 taken over the spine's focusable event-bundles, never over the filtered
@@ -1313,9 +1312,9 @@ The single-axis selection that every layer reads from.
 | Event | When dispatched | Effect on spine |
 |---|---|---|
 | `:rf.xray/focus-event <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
-| `:rf.xray/focus-event-prev` | `◀` button · `j` key | Steps `:dispatch-id` back one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` |
-| `:rf.xray/focus-event-next` | `▶` button · `k` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
-| `:rf.xray/follow-head` | `⏭` button · `l` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
+| `:rf.xray/focus-event-prev` | `‹` button · `j` key | Steps `:dispatch-id` back one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` |
+| `:rf.xray/focus-event-next` | `›` button · `k` key | Steps `:dispatch-id` forward one through the RAW `:rf.xray/event-bundles` projection via `spine/focusable-event-bundles` — restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED, so the walk spans frames), never by the IN/OUT pills or mutes (rf2-cqpj4; see §6 item 3); flips `:mode → :retro` if not already at head |
+| `:rf.xray/follow-head` | `»` button · `l` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
 | `:rf.xray/preview-event <id> [<frame>]` | Row hover (before click commits) | Sets `:previewing? true`, `:dispatch-id` / `:epoch-id` `<id>` transiently. A non-destructive overlay: it snapshots the committed selection into `[:focus :pre-preview]` on the first hover of a gesture and RESTORES it on hover-out (nil `<id>`), and resolves the previewed epoch against the previewed frame's ring DIRECTLY without persisting a cross-frame `:target-frame` / `:epoch-history` re-key (rf2-uo0rc.5). The optional `<frame>` hint disambiguates a dispatch-id present in two frames (rf2-bz7flo) — the L2 row knows its frame; when omitted the lookup degrades to an id-only match. |
@@ -1324,7 +1323,7 @@ The single-axis selection that every layer reads from.
 
 | Layer | Surface | Reads from spine | Notes |
 |---|---|---|---|
-| L1 chrome ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries (the nav cluster lives on the chrome ribbon — rf2-3f2di A5) |
+| L1 chrome ribbon | Nav cluster (`‹` `›` `»`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries (the nav cluster lives on the chrome ribbon — rf2-3f2di A5) |
 | L1 chrome ribbon | Frame picker (VIEW SCOPE) | `:rf.xray/view-scope-frame` | Writes `:view-scope-frame` (+ spine `:focus :frame`) via `:rf.xray/select-frame` |
 | L1.5 events ribbon | Filter pills + hidden indicator | `:rf.xray/active-filters` · `:rf.xray/hidden-by-filters` | Filters re-derive `:rf.xray/filtered-event-bundles`, which the L2 list reads; the `N events filtered out` warning surfaces when a filter suppresses rows (the `Clear Filters` button was retired — rf2-pjjwh) |
 | L2 event list | Newer-events marker | `:mode`, `:head?` | Paints only while the list is showing an older epoch with newer events waiting, and nothing at all while the spine is following (`shell.cljs`'s `newer-events-marker`, rf2-y8doi.30). No head-row pulse cue was ever built (rf2-pjjwh removed the gutter glyph that would have carried one; rf2-2sez0 refused the continuous pulse), and the focused row's `>` caret is a SELECTION signal present in LIVE too, not a RETRO cue. (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control.) |
@@ -1355,7 +1354,7 @@ The single-axis selection that every layer reads from.
         ▼   SPINE branch — the RAW vector, never the filtered one (rf2-cqpj4)
 :rf.xray/focus                    ← spine: {:dispatch-id :epoch-id :frame :mode :head? :previewing?}
         │                           `spine.cljs`'s `:rf.xray/focus` :inputs are the focus SLOT +
-        │                           `:rf.xray/event-bundles` — so `◀ ▶` and `j` / `k` keep stepping
+        │                           `:rf.xray/event-bundles` — so `‹ ›` and `j` / `k` keep stepping
         │                           when a pill or a mute hides every row (§6 item 3)
         │
         ├──── L1 chrome ribbon (Events label + nav, + filter add, frame picker, mode dropdown, ⚙ ✕)
@@ -1367,15 +1366,15 @@ The single-axis selection that every layer reads from.
 
 The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bundles`), not at render. Reasons:
 1. Virtualisation cares about row count — render-time filtering means the virtualiser budgets unfiltered rows.
-2. Scrubbing must respect the scope + filters — the L2 event list, which IS the canonical scrubber, renders `:rf.xray/filtered-event-bundles`, not all cascades. The nav cluster `[◀ ▶ ⏭]` is the deliberate exception — see item 3.
-3. **Frame scope applied FIRST, then filters.** Per rf2-4vp5j the picker is a VIEW SCOPE (not a filter): `:rf.xray/filtered-event-bundles` scopes to `:view-scope-frame` via `matcher/filter-event-bundles-by-view-scope` BEFORE applying the IN/OUT pills + mutes, so the L2 list and the scrubber walk the frame-scoped, pill-filtered list as one. **The nav cluster `[◀ ▶ ⏭]` does NOT** — its chevrons and `j` / `k` fire the same `:rf.xray/focus-event-prev` / `-next`, which walk the RAW `:rf.xray/event-bundles` projection through `spine/focusable-event-bundles`, restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED — the walk spans frames), never by the pills or mutes. That divergence is deliberate (rf2-cqpj4): a boundary taken off the rendered rows disabled BOTH chevrons whenever a pill or a mute hid every row, while `j` / `k`, bound to those very same two events, went on stepping. `shell.cljs`'s `nav-boundary-state` is the authority, and it rules out the neighbouring repair too — do not scope the step reducer to the RESOLVED frame instead (rf2-lh98m), which narrows navigation to hide the disagreement. The frame scope is excluded from the hidden-by-filters count (frame ≠ filter); the pills + mutes are what that count measures. Spine's LIVE auto-tracking ALSO respects the view scope so `:head?` and the head walk are scoped per-frame.
+2. Scrubbing must respect the scope + filters — the L2 event list, which IS the canonical scrubber, renders `:rf.xray/filtered-event-bundles`, not all cascades. The nav cluster `[‹ › »]` is the deliberate exception — see item 3.
+3. **Frame scope applied FIRST, then filters.** Per rf2-4vp5j the picker is a VIEW SCOPE (not a filter): `:rf.xray/filtered-event-bundles` scopes to `:view-scope-frame` via `matcher/filter-event-bundles-by-view-scope` BEFORE applying the IN/OUT pills + mutes, so the L2 list and the scrubber walk the frame-scoped, pill-filtered list as one. **The nav cluster `[‹ › »]` does NOT** — its chevrons and `j` / `k` fire the same `:rf.xray/focus-event-prev` / `-next`, which walk the RAW `:rf.xray/event-bundles` projection through `spine/focusable-event-bundles`, restricted only by the STORED `[:focus :frame]` when the picker has set one (nil means UNSCOPED — the walk spans frames), never by the pills or mutes. That divergence is deliberate (rf2-cqpj4): a boundary taken off the rendered rows disabled BOTH chevrons whenever a pill or a mute hid every row, while `j` / `k`, bound to those very same two events, went on stepping. `shell.cljs`'s `nav-boundary-state` is the authority, and it rules out the neighbouring repair too — do not scope the step reducer to the RESOLVED frame instead (rf2-lh98m), which narrows navigation to hide the disagreement. The frame scope is excluded from the hidden-by-filters count (frame ≠ filter); the pills + mutes are what that count measures. Spine's LIVE auto-tracking ALSO respects the view scope so `:head?` and the head walk are scoped per-frame.
 
 ### LIVE / RETRO transitions
 
 | From | To | Trigger |
 |---|---|---|
-| LIVE | RETRO | Click any row that isn't head · `j` / `k` / `◀` / `▶` step |
-| RETRO | LIVE | `l` key · `⏭` button |
+| LIVE | RETRO | Click any row that isn't head · `j` / `k` / `‹` / `›` step |
+| RETRO | LIVE | `l` key · `»` button |
 | LIVE | LIVE (paused) | `Space` key |
 | LIVE (paused) | LIVE | `Space` key · `l` key (snap-LIVE implies resume) |
 
@@ -1402,7 +1401,7 @@ auto-advance away from a selection the caller meant to pin.
 **Single-tier filtering.** The ONLY filtering surface is the
 events-ribbon IN/OUT pills (+ the L2-row mute affordance) — they scope
 the L2 event list (the canonical scrubber), the issues ribbon signal, and palette
-verbs at the data layer (`:rf.xray/filtered-event-bundles`). The nav cluster `[◀ ▶ ⏭]` is NOT among them — its chevrons and `j` / `k` walk the RAW spine, never the pills or mutes (§6 item 3; rf2-cqpj4). The earlier
+verbs at the data layer (`:rf.xray/filtered-event-bundles`). The nav cluster `[‹ › »]` is NOT among them — its chevrons and `j` / `k` walk the RAW spine, never the pills or mutes (§6 item 3; rf2-cqpj4). The earlier
 "Trace tab filter toolbar" was **removed** (rf2-gkczt): the Trace L4
 panel is scoped to the focused epoch's `:trace-events` and carries no
 filtering UI at all — the focused epoch IS its scope (see
@@ -1859,7 +1858,7 @@ occurs in an earlier frame:
    composed focus's `:frame` in, so `prev`/`next` from a colliding-id
    head step from the RIGHT row instead of an earlier frame's same-id
    row — which previously produced a false boundary no-op (the L2
-   `[◀ ▶]` controls skipping/failing) or a step from a foreign
+   `[‹ ›]` controls skipping/failing) or a step from a foreign
    neighbour. The boundary no-op test is likewise frame-strict: a
    genuine edge means the same `[frame dispatch-id]` coordinate, so
    stepping onto a same-id cascade in another frame is a real move.

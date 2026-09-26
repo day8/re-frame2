@@ -84,7 +84,7 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Event History [◀ ▶ ⏭] + filter   :app/main ▾  Dynamic / Static ▾ ☀ ⛶ ⚙ ✕│   L1 chrome ribbon
+│ Event History [‹ › »] + filter   :app/main ▾  Dynamic / Static ▾ ☀ ⛶ ⚙ ✕│   L1 chrome ribbon
 │ ↳ filters:  +  [:auth/* ✎|×] [:mouse-move ✎|×]              3 filtered out│   L1.5 events ribbon (shown only when filters exist — rf2-pjjwh)
 ├─────────────────────────────────────────────────────────────────────────┤
 │ source │ event id        │ timestamp      │ duration                     │   L2 — 4-col table
@@ -107,7 +107,7 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 The four layers, top to bottom:
 
 1. **L1 — Two ribbons (rf2-4vp5j / rf2-pjjwh).** A **chrome ribbon** leads with the
-   `Event History` label, then the nav cluster (`◀` `▶` `⏭`) + the `+ filter` add affordance,
+   `Event History` label, then the nav cluster (`‹` `›` `»`) + the `+ filter` add affordance,
    then scope selectors (the **`<frame>` ▾** view-scope dropdown whose face shows the
    currently-selected frame, rf2-pjjwh + `Dynamic / Static ▾` **mode dropdown**), the theme
    toggle, and chrome actions (`⛶` pop-out + `⚙` settings + `✕` close) on the right. Below it
@@ -160,7 +160,7 @@ The four layers, top to bottom:
    renderer).
 
 **No bottom rail.** The pass-2/round-1 "L0" rail (with scrubber +
-mode pill + classification totals) is gone — the ribbon's `[◀ ▶ ⏭]`
+mode pill + classification totals) is gone — the ribbon's `[‹ › »]`
 cluster IS the seek, the event list IS the timeline (and the L2 spine
 itself indicates LIVE / RETRO via the newer-events marker — no
 head-row pulse cue was ever built; the dedicated Mode pill widget
@@ -368,13 +368,13 @@ separate spine state, surfaced by the L2 newer-events marker.)
 Reconciled to the authority reference (`design-reference/xray_devtools_reference.cljs`, the
 `chrome-ribbon` component; rf2-3f2di A4/A5). The bar is **34px** (`tokens/layout
 :top-strip-height`) — the reference's uniform 34px rhythm superseded the earlier 32px/36px
-split. **LEFT:** the `Event History` label, the `[◀ ▶ ⏭]` nav cluster, the `+ filter` add-pill.
+split. **LEFT:** the `Event History` label, the `[‹ › »]` nav cluster, the `+ filter` add-pill.
 **RIGHT:** the two scope dropdowns, then the silent-by-default indicators, the theme toggle and
 the chrome actions.
 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
-| **Label + nav** | left | the `Event History` label, then the blue-filled `[◀ ▶ ⏭]` nav cluster, then the outlined `+ filter` button (which collapses to zero width once the events ribbon owns the add affordance — rf2-8zd80). | — |
+| **Label + nav** | left | the `Event History` label, then the blue-filled `[‹ › »]` nav cluster, then the outlined `+ filter` button (which collapses to zero width once the events ribbon owns the add affordance — rf2-8zd80). | — |
 | **Frame** | right | `Frame ▾` dropdown. **Single-select VIEW SCOPE** (rf2-4vp5j — not a filter; not persisted). The button face shows the currently-selected frame and ALWAYS renders. Tool frames are excluded unconditionally (§Frame-observation isolation invariants §I1). | — |
 | **Mode** | right | `Dynamic / Static ▾` dropdown — compact, understated (occasional use); the dropdown's active option + `data-active-mode` carry the mode signal (there is no per-mode accent colour — rf2-ad7zx.13 collapsed the palette to a single `accent`). | `Cmd/Ctrl-Shift-M` |
 | **Theme toggle** | right | icon-button showing the theme it switches TO — `☀` while dark, `☾` while light. The canonical light/dark affordance since the Settings Theme tab was retired (rf2-ou3pn). | — |
@@ -2211,7 +2211,7 @@ global catalogues are deliberately cross-frame. The picker stays in
 Static because three of the five tabs DO carry a per-frame surface.
 Both shells mount the same `frame_switcher/frame-switcher-view` (the
 canonical L1 contract); the selection persists across mode toggles.
-Dynamic's spine-coupled clusters (nav `[◀ ▶ ⏭]`, filter pills) remain
+Dynamic's spine-coupled clusters (nav `[‹ › »]`, filter pills) remain
 hidden in Static — those have no meaning without a spine.
 
 ### Sub-tab inventory (Static L3)

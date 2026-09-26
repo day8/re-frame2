@@ -944,7 +944,7 @@ epoch slice.
 
 > **Status — retired.** No L4 panel mounts a film-strip header. Spine
 > navigation is owned by the L2 events list and the chrome ribbon's
-> `[◀ ▶ ⏭]` cluster (§5.5, [`018-Event-Spine.md`](018-Event-Spine.md)
+> `[‹ › »]` cluster (§5.5, [`018-Event-Spine.md`](018-Event-Spine.md)
 > §2); a per-panel duplicate was removed from Trace by rf2-o6yqq and
 > never landed anywhere else. The shared component built for this
 > design (`panels/shared/film_strip/header.cljc`) was deleted unmounted
@@ -1316,7 +1316,7 @@ rf2-6r9j.16 deleted the shared component itself, which had been built
 (rf2-h7nqh) but never mounted anywhere.
 
 Epoch navigation is owned by the L2 events list / chrome-ribbon nav
-(`◀ ▶ ⏭`); every L4 panel re-scopes whenever spine focus moves. This is
+(`‹ › »`); every L4 panel re-scopes whenever spine focus moves. This is
 the single navigation owner — a panel that wants its own epoch stepper
 is proposing a second one, and needs that argued rather than assumed.
 
@@ -5494,7 +5494,7 @@ evicted from the history buffer." (`panels/trace.cljs`). The retention
 knob is Settings → General → Epoch history (`:general :epoch-history`,
 default 50).
 
-The ribbon's ◀ / ▶ / ⏭ nav keeps working — the operator can scrub past
+The ribbon's ‹ / › / » nav keeps working — the operator can scrub past
 evicted epochs without losing the rest of the spine. (Written when the
 per-panel film-strip was still the intended stepper; the L2 events list
 owns that nav now — §5.5.)
@@ -5751,7 +5751,7 @@ real beads after approving this doc.
 | **Pre-alpha posture** — clean refinements, no back-compat shims | §11.5 keeps `:views` registry key only because it's internal; no transitional dimming in any panel; no "deprecated section" markers |
 | **Xray hot-zone** — design doc work only | This file lives under `tools/xray/spec/`; no `tools/xray/src/` edits |
 | **Reagent hiccup + JetBrains Mono** for mockups | All ASCII mockups assume JetBrains Mono rendering; code examples in §2.2 are Reagent-shaped hiccup-equivalent EDN |
-| **Inspection-by-default · rewind-by-affordance** | §1.3 restated as binding; epoch nav is inspection-only. (The mockups below drew that nav as a per-panel film-strip; that is retired — the L2 events list and the ribbon's `◀ ▶ ⏭` own it for every L4 panel, §5.5.) Rewind affordance is explicit in the focused-epoch header (existing §002), never bound to scroll/scrub |
+| **Inspection-by-default · rewind-by-affordance** | §1.3 restated as binding; epoch nav is inspection-only. (The mockups below drew that nav as a per-panel film-strip; that is retired — the L2 events list and the ribbon's `‹ › »` own it for every L4 panel, §5.5.) Rewind affordance is explicit in the focused-epoch header (existing §002), never bound to scroll/scrub |
 | **Captured-not-replayed** | Every per-panel "queries" subsection cites the trace-bus / registry source; §12 lists every substrate gap, none of which is "derive on inspection" |
 
 ---
@@ -5935,7 +5935,9 @@ characters in the ASCII are narrative shorthand for the operator to visualise.
 
 #### §17.1.5 Iconography
 
-The mockups in §1-§9 already pick these. §17.1.5 binds them.
+The mockups in §1-§9 draw more glyphs than Xray renders. §17.1.5 binds
+only the glyphs that render; each set below that does not render says
+so plainly.
 
 **L2 row badges (per §1.1.1 + B.1.1):**
 
@@ -5959,19 +5961,14 @@ convention). Under HCM, the `@media (forced-colors: active)` block
 strips the color; the glyph alone carries the signal — colour is never
 alone (§007).
 
-**Per-panel header icons — RETIRED, not shipped (§14.1 · rf2-6xezz ·
-rf2-qm2rt).** The glyphs (`⚡` Event · `◉` Reactive · `◐` App-db · `⬢`
-Trace · `◆` Machines · `🌐` Routing · `⚠` Issues · `✦` Chrome A11y)
-were rendered to the LEFT of the panel `<h1>`, and went out with those
-`<h1>` elements when §14.1 scrubbed them. Their per-panel colour tokens
-were independently superseded by the single-accent identity (§17.1.3 ·
-rf2-ad7zx.13), so the table encoded two dead contracts at once. The
-`theme/tokens/panel-icon` map and its `panel-icon-style` helper — both
-unread by `src` — were deleted under rf2-qm2rt. The machine-inspector,
-Views and Routes suites each assert their `…-panel-icon` testid renders
-nil, so the surface cannot return unnoticed. Should a header treatment
-ever return, derive its roster from `panel-registry/tab-ids-for-mode`
-rather than hand-listing one here.
+**Tab and panel-header icons — none.** An L3 tab button renders its
+label alone, with its mnemonic in the `title` attribute (the Machine
+tab's reads `Machine (m)`). No L4 panel carries a header icon, and the
+single accent (§17.1.3) replaces per-panel colour. The
+machine-inspector, Views and Routes suites each assert that their
+`…-panel-icon` testid renders nil. A tab or header icon, should one be
+designed, takes its roster from `panel-registry/tab-ids-for-mode`
+rather than a hand-listed table.
 
 **Film-strip back/forward buttons** — RETIRED (rf2-6r9j.16). No L4 panel
 header renders these; the L2 events list owns spine navigation (§5.5).

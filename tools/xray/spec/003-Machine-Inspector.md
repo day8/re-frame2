@@ -1762,7 +1762,7 @@ thin CLJS renderer mounted via the chart primitive's overlay slot.
 When a machine instance is focused, an in-arc-strip mini-scrubber lets
 the user rewind THAT instance without affecting the rest of Xray:
 
-- **Global timeline** = L2 event list + ribbon `[◀ ▶ ⏭]` (every Xray
+- **Global timeline** = L2 event list + ribbon `[‹ › »]` (every Xray
   surface rebinds).
 - **Per-instance scrubber** = inline `◀ scrub ▶` widget in arc strip +
   the focused-instance highlight gets a `⏪` glyph appended (only the
@@ -1771,7 +1771,7 @@ the user rewind THAT instance without affecting the rest of Xray:
 
 This mini-scrubber is intra-tab content (inside the Machines tab); it
 is NOT related to the (now-dead) bottom rail / global scrubber. The
-global scrubber surface is the ribbon `[◀ ▶ ⏭]` cluster + the L2 event
+global scrubber surface is the ribbon `[‹ › »]` cluster + the L2 event
 list per [`018-Event-Spine.md`](018-Event-Spine.md) §6.
 
 #### v1 ships — concrete widget shape (rf2-nqw0v, Phase 5)

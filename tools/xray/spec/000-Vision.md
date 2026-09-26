@@ -268,7 +268,7 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | **Flows** (Spec 013) | A flow that FIRED is the Epoch panel's **FLOW** step, right after HANDLER (`016-Auxiliary-Panels.md` §Flows content); REGISTERED flows are browsed in the **Static Flows tab**, reached by click or the command palette (its `f` is a label, not a key); the pre-rewrite Flows panel is gone and the flow-output glyph an earlier draft promised on the Views tab was never built; **cascade-halt alarm** surfaces inline in the Epoch panel + via the issues ribbon signal (rf2-gbz39 removed the Issues tab per Option (c)) — names the downstream flows that did NOT run when an upstream flow's `:output` threw. |
 | **Source-coord stamping** (Spec 001 + 006) | Click-to-source on every node, view, machine guard, transition, fx-handler, schema declaration. |
 | **Trace bus** (Spec 009) | The substrate of everything. Xray does not invent its own trace shape. **Trace fattening** (carrying context-at-position on each event) enables the per-instance scrubber's Phase-5 replay-from-arbitrary-position affordance. |
-| **Epoch history + `:rf/epoch-record` projections** (Tool-Pair) | First-class time-travel via the ribbon's `[◀ ▶ ⏭]` nav + the event list (L2). |
+| **Epoch history + `:rf/epoch-record` projections** (Tool-Pair) | First-class time-travel via the ribbon's `[‹ › »]` nav + the event list (L2). |
 | **Six named restore failures** | Structured "this rewind won't work because X" rather than a silent no-op. |
 | **`register-epoch-listener!`** | The per-cascade listener routes the Epoch panel + the inline issue surfacing (rf2-gbz39 removed the dedicated Issues tab per Option (c)). |
 | **Schemas (Malli)** (Spec 010) | Schema-violation rows surface inline in the Epoch panel's EFFECT HANDLERS step (rf2-kt6js; rf2-gbz39 removed the Issues tab per Option (c)); **per-violation drill** with full Malli explanation + recovery-mode classification + source-coord. |
@@ -377,7 +377,7 @@ impressive.
   Save eventually re-render this card three modules over?" — wants the
   Views tab + the Epoch panel's source-coord chips on the cascade.
 - **The on-call programmer triaging a production-shaped repro.** Loads the
-  app, scrubs via `[◀ ▶ ⏭]` + L2, finds the divergence.
+  app, scrubs via `[‹ › »]` + L2, finds the divergence.
 - **The programmer debugging a streaming SSR / hydration mismatch.** Opens
   Xray; the inline Epoch surfacing + the issues ribbon signal lead them to the
   divergent node (rf2-gbz39 removed the dedicated Issues tab per Option (c));
