@@ -4,16 +4,6 @@
 <a id="the-model"></a>
 <a id="state-machines"></a>
 
-The [first machine](tutorial.md) filled the slots. This page is the rest of
-the **flat table** contract — registration, the snapshot, transition forms,
-encapsulation, self-transitions, finals, schemas, and `:raise`. It does not
-rebuild the login walk-through.
-
-!!! note "Where should this value live?"
-
-    A machine fits when a value has a *lifecycle* of named states — not when it
-    is only data to store. See [Where should this value live?](../core/where-state-lives.md).
-
 ## The idea
 
 <a id="a-machine-at-a-glance"></a>
@@ -27,10 +17,6 @@ A table has five everyday parts:
 - `:guards` — yes/no predicates.
 - `:actions` — return `{:data … :fx …}`; they never perform side effects.
 - `:states` — the nodes and their outgoing transitions.
-
-Resting leaves such as `:authed` keep the snapshot around so a view can still
-render them. They are **not** `:final?` — that flag destroys the machine
-([Final states](#final-states)).
 
 ## Register and drive
 
@@ -59,38 +45,17 @@ Avoid `(def m {…})` then `(reg-machine :id m)`. The macro never sees the
 literal, so source stamps are empty and dev warns
 `:rf.warning/machine-source-unstamped`.
 
-You drive the machine with `dispatch`, not `send`. The outer vector is a
-re-frame2 **event** whose id is the machine id. The second element is the
-**trigger** the table matches:
-
-```clojure
-(rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
-```
-
-`:auth.login/submit` is the `:on` key. `credentials` is payload, read from
-`:event` in a guard or action. The [landing page](index.md#first-class-support)
-introduces this split; the [first machine](tutorial.md) drives it.
-
-**Subscribe** with the framework sub — there is no function sugar:
+Drive it with `dispatch`, as the [first machine](tutorial.md#step-1--your-first-machine)
+does: the event id is the machine id, and the second element is the trigger
+the table matches. Read it with the framework subscription:
 
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 0 :error nil} :tags #{:auth/busy}}
-;;    nil before the first event — this is a singleton
 ```
 
 The snapshot lives in [runtime-db](../core/glossary.md#runtime-db), so undo,
 time-travel, and SSR hydration work without extra wiring.
-
-A singleton is the registered id. A spawned actor is a second live instance
-of a type, with an allocated id — [Actors](actors.md).
-
-!!! note "Async composes"
-
-    Point managed HTTP replies at the machine:
-    `:on-success [:auth.login/flow [:auth.login/success]]` (outer event id,
-    inner trigger). The reply is *appended* onto the trigger. Full
-    walk-through in the [first machine](tutorial.md#step-4--talk-to-a-real-server).
 
 ## See one run
 
@@ -204,10 +169,9 @@ A map gives the transition a guard, an action, and other options.
                            :action :record-error}]}
 ```
 
-A vector of maps is a first-match-wins **candidate list**. The runtime tries each
-candidate in order and takes the first whose guard passes. Put an unguarded
-default last when the event must be handled. The lockout candidate also runs
-`:record-error`, so the terminal failure is counted.
+A vector of maps is a first-match-wins **candidate vector**. The runtime tries
+each candidate in order and takes the first whose guard passes. Put an
+unguarded default last when the event must be handled.
 
 ## Guards and actions
 
@@ -345,9 +309,8 @@ action and merge what they return:
 <a id="strict-encapsulation"></a>
 <a id="strict-encapsulation--a-machine-sees-only-its-own-data"></a>
 
-A guard or action gets `{:data :event :state :meta}` (plus `:rf.cofx` when it
-declares a coeffect) — never app-db. Parallel regions also see `:tags` /
-`:all-state`; that is a later page.
+A guard or action sees only its context map, plus `:rf.cofx` when it declares
+a coeffect. To reach anything else:
 
 | Need | How |
 | --- | --- |
@@ -493,26 +456,11 @@ trace, and it carries the value unredacted.
 
 <a id="testing-transitions-are-pure-function-calls"></a>
 
-The table is a value. `(rf.machines/machine-transition definition snapshot trigger)`
-returns the next snapshot and the effects the action described. The
+The table is a value, so `(rf.machines/machine-transition definition snapshot trigger)`
+returns the next snapshot and the described effects as data. The
 [first machine](tutorial.md#step-6--test-it-a-transition-is-a-pure-function)
-has the login cases. [Inspecting and testing](inspecting-machines.md) is the
-full surface.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
-| Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
-| Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
-| Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
-| Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
-| Action reports `:rf.error/machine-action-wrote-db` | Returned `:db`, which is dropped | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
-| Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
-| `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
-| External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |
-| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; default bound is 16 |
+tests login this way; [Inspecting and testing](inspecting-machines.md) covers
+the rest.
 
 ## Raise and internal events
 
@@ -533,10 +481,22 @@ no-op.
 
 <a id="when-to-reach-for-a-machine--and-when-not"></a>
 
-Use a machine when named mutually exclusive stages are the load-bearing
-concept: legal and illegal triggers, timers, cancellation, retries, or
-cleanup; the flow is easier to draw than to describe; tests should assert
-`(state, trigger) → next state + effects`.
+Reach for a machine when named, mutually exclusive stages are what you are
+modelling — legal and illegal triggers, timers, cancellation, retries or
+cleanup. The [landing page](index.md#when-not-to-use-a-machine) lists when
+not to.
 
-The [landing page](index.md#when-not-to-use-a-machine) has the when-not
-table.
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
+| Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
+| Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
+| Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
+| Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
+| Action reports `:rf.error/machine-action-wrote-db` | Returned `:db`, which is dropped | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
+| Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
+| `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
+| External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |
+| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; default bound is 16 |

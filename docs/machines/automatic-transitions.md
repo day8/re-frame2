@@ -2,10 +2,6 @@
 
 <a id="automatic-transitions"></a>
 
-The [first machine](tutorial.md) already uses one automatic form: `:after`
-on `:submitting` cancels if the server stalls. This page is the rest of the
-family.
-
 Most transitions wait for a trigger from `dispatch`. Four triggers come from
 the machine itself:
 
@@ -27,7 +23,7 @@ re-frame2 has four authoring forms for this, built on two engines.
 
 `:always` is checked after a state is entered and after transitions that remain in, or land in, that state.
 
-Those points and no others. Nothing watches the guard in between, so a `:data` change that arrives outside a macrostep — a [`:spawn-all` child's `:on-done` fold](actors.md#fan-out-and-join-with-spawn-all), say — does not move the machine on its own. The next event does.
+Nothing watches the guard in between, so a `:data` change that arrives outside a macrostep — a [`:spawn-all` child's `:on-done` fold](actors.md#fan-out-and-join-with-spawn-all), say — does not move the machine on its own. The next event does.
 
 Login can skip the form when a session token is already in `:data`:
 
@@ -105,7 +101,7 @@ An `:always` step runs with no event, so its guards and actions receive `:event`
 
 A choice state is a named decision node. The machine enters it and immediately leaves through the first passing candidate.
 
-The first machine's failure candidate list can be written as a choice instead. `:record-error` stays on the way in, where it can still read the failure message off the event, so the choice reads the *incremented* `:attempts`:
+The first machine's failure candidate vector can be written as a choice instead. `:record-error` stays on the way in, where it can still read the failure message off the event, so the choice reads the *incremented* `:attempts`:
 
 ```clojure
 :guards
@@ -248,20 +244,7 @@ Use `:timeout` when the intent is a deadline.
  :on-timeout {:target :timed-out}}
 ```
 
-The pair lowers onto the same timer mechanism as `:after`.
-
-It also works on a [spawn](glossary.md#spawn) spec:
-
-```clojure
-:authenticating
-{:spawn {:machine-id :auth/request
-         :timeout    "PT10S"
-         :on-timeout {:target :auth-failed}}}
-```
-
-`:timeout` on a spawn spec is valid. The retired `:timeout-ms` slot is not — `reg-machine` throws `:rf.error/spawn-timeout-ms-removed`.
-
-When the timeout fires, the parent state exits, and the spawned child is destroyed as part of the normal exit cascade.
+The pair lowers onto the same timer mechanism as `:after`. It also works on a [spawn spec](actors.md#timeouts), where it bounds the child's lifetime.
 
 `:timeout` requires `:on-timeout`, and `:on-timeout` requires `:timeout`.
 

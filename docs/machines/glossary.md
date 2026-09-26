@@ -70,10 +70,10 @@ and an eventless `:always` step are triggers too.
 A guard is not a trigger. The runtime samples guards when a trigger runs, and
 never between, so a guard that turns true on its own moves nothing.
 
-Do not call the inner vector an "event." In re-frame2, the **event** is the
-outer vector whose id is the machine id.
+Inside a machine, `:event` and "event" name the trigger; the dispatched outer
+vector, whose id is the machine id, is the re-frame2 **event**.
 
-See [Native to re-frame2](index.md#first-class-support).
+See [First machine](tutorial.md#step-1--your-first-machine).
 
 ### **transition**
 
@@ -159,7 +159,7 @@ See [Final states](concepts.md#final-states);
 A `:type :history` pseudo-state inside a compound state. Target it to re-enter
 the compound where it last exited.
 
-See [History states](history.md).
+See [History](history.md).
 
 ### **state tag**
 
@@ -181,7 +181,7 @@ See [Tags](tags.md).
 
 ### **candidate vector**
 
-A first-match-wins list of transitions.
+A first-match-wins vector of transitions.
 
 ```clojure
 :on {:auth.login/failure [{:guard :under-retry-limit :target :error-shown
@@ -213,8 +213,8 @@ See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards)
 
 ### **forbidden transition**
 
-A present no-op transition, such as `{:on {:logout {}}}` or
-`{:on {:logout nil}}`. It consumes the event and prevents parent fallthrough.
+A present no-op transition, such as `{:on {:auth/logout {}}}` or
+`{:on {:auth/logout nil}}`. It consumes the event and prevents parent fallthrough.
 
 See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 
@@ -276,8 +276,7 @@ See [Actors](actors.md).
 ### **spawned actor**
 
 A live instance created at run time with `:spawn` or `[:rf.machine/spawn …]`.
-It has an allocated id such as `:auth/request#1`. The spec heading says
-"dynamic actors"; that is an adjective, not a third kind.
+It has an allocated id such as `:auth/request#1`.
 
 See [Actors](actors.md).
 
@@ -315,8 +314,7 @@ See [Fan-out and join](actors.md#fan-out-and-join-with-spawn-all).
 ### **fixed-actor-id**
 
 An explicit actor address the spawner chooses instead of an allocated
-`<prefix>#<n>` id. The address IS the id — dispatch to it like any other
-handler.
+`<prefix>#<n>` id. You dispatch to it like any other handler.
 
 See [Actors](actors.md).
 

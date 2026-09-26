@@ -6,17 +6,6 @@
 This page builds one [**singleton**](glossary.md#singleton) login machine.
 Later pages grow that same flow.
 
-By the end you will have:
-
-- a registered machine;
-- a guard that refuses an empty form;
-- actions that update machine `:data` and return effects;
-- an HTTP request started on state entry, with a timeout that cancels on exit;
-- a view that reads the snapshot and a tag;
-- a pure unit test for the transition table.
-
-The example is small on purpose. The goal is the shape, not a production auth system.
-
 ## Step 0 — turn machines on
 
 Machines are an optional artefact. Require the namespace once from a boot or feature namespace:
@@ -33,7 +22,7 @@ Skip this and the first `reg-machine` throws `:rf.error/machines-artefact-missin
 
 <a id="step-1--your-first-machine"></a>
 
-A machine is a map. It names an initial state, some private `:data`, and the states plus transitions. Define it with `defmachine` (not `def` — a plain `def` leaves source stamps empty and warns `:rf.warning/machine-source-unstamped`), then register it:
+A machine is a map. It names an initial state, some private `:data`, and the states plus transitions. Define it with `defmachine`, then register it:
 
 ```clojure
 (rf/defmachine login-flow
@@ -52,7 +41,6 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
     {:on {:auth.login/dismiss :idle
           :auth.login/submit  :submitting}}
 
-    ;; Resting leaf. Do not set :final? — that destroys the machine.
     :authed
     {:meta {:terminal? true}}}})
 
@@ -61,8 +49,8 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
 
 Targets here are bare keywords. The next two steps turn those into maps, then into candidate vectors.
 
-You do not `send` to the machine. You `dispatch`, as you would to any handler
-(`dispatch-sync` here, so the next read sees the result).
+Drive the machine with `dispatch`, as you would any other handler. These
+samples use `dispatch-sync`, so the next read sees the result:
 
 ```clojure
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
@@ -83,7 +71,6 @@ Read the live [snapshot](glossary.md#snapshot):
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 0 :error nil}}
-;;    nil before the first event — a singleton boots on first dispatch
 ```
 
 ## Step 2 — add a guard
@@ -121,13 +108,18 @@ A guard is a predicate that gates a transition. It receives one context map and 
 
     :authed
     {:meta {:terminal? true}}}})
+
+(rf/reg-machine :auth.login/flow login-flow)
 ```
 
 The guard reads credentials from `:event`, not from app-db. Machine callbacks see `{:data :event :state :meta}`. They do not see app-db. ([Encapsulation](concepts.md#strict-encapsulation).)
 
-Try it:
+Registering an id again replaces its table and keeps its live snapshot, so the machine is still in `:submitting` from Step 1. The first two lines take it back to `:idle`:
 
 ```clojure
+(rf/dispatch-sync [:auth.login/flow [:auth.login/failure]])   ;; → :error-shown
+(rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]])   ;; → :idle
+
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "" :password ""}]])
 (:state @(rf/subscribe [:rf/machine :auth.login/flow]))
 ;; => :idle — the guard refused the submit
@@ -138,7 +130,7 @@ Try it:
 ;; => :submitting
 ```
 
-## Step 3 — actions and candidate lists
+## Step 3 — actions and candidate vectors
 
 <a id="step-3--an-action-and-the-data-fx-it-returns"></a>
 
@@ -149,7 +141,7 @@ A guard decides whether a transition may fire. An action describes what else sho
  :fx   [[id args]]} ;; ordinary effects vector
 ```
 
-Add actions for clearing an old error, recording a failed attempt, and storing a session token. On failure, write a **vector of candidates** — first guard that passes wins.
+Add actions for clearing an old error, recording a failed attempt, and storing a session token. On failure, write a **candidate vector** — first guard that passes wins.
 
 ```clojure
 :guards
@@ -256,7 +248,7 @@ Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it 
 
 `:entry :issue-request` runs when the machine enters `:submitting`. `:after` arms an 8-second timer and cancels it automatically when the state exits. If the server replies first, the machine leaves `:submitting` and the timeout becomes stale.
 
-The timeout uses the **same guarded candidate list** as failure (an `:after` value takes the same shape as an `:on` clause), so the third stall — or the third failure — records its error and locks out.
+The timeout uses the **same guarded candidate vector** as failure (an `:after` value takes the same shape as an `:on` clause), so the third stall — or the third failure — records its error and locks out.
 
 `:on-success [:auth.login/flow [:auth.login/success]]` is written one element short on purpose. The outer vector is the event that addresses the singleton. The inner vector is the trigger the table handles. Managed HTTP **appends** the reply envelope to the event, and the machine moves anything after the trigger onto it, so the table sees:
 
@@ -291,28 +283,25 @@ Project the snapshot. Ask **tags** for shared intent. The credential draft is or
         draft @(subscribe [:auth.login/draft])
         busy? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
     (case state
-      nil          [:button {:on-click #(dispatch [:login/submit draft])}
-                    "Sign in"]          ;; singleton snapshot is nil until first dispatch
-      :idle        [:button {:disabled busy?
-                             :on-click #(dispatch [:login/submit draft])}
-                    "Sign in"]
-      :submitting  [:p "Signing in…"]
       :error-shown [:div
                     [:p error]
                     [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/dismiss]])}
                      "Try again"]]
       :authed      [:h1 "Welcome back"]
       :locked-out  [:h1 "Account locked"]
-      [:p "Unknown login state"])))
+      ;; nil before the first dispatch, :idle, :submitting
+      [:button {:disabled busy?
+                :on-click #(dispatch [:login/submit draft])}
+       (if busy? "Signing in…" "Sign in")])))
 ```
 
-The busy decision asks for the `:auth/busy` tag, not "is state exactly `:submitting`?". Add another in-flight state later with the same tag and this view keeps working. Pattern: [Tags](tags.md). The inputs that write the draft are a form-slice concern — [Build a form](../core/how-to/build-a-form.md).
+The button asks for the `:auth/busy` tag rather than checking for `:submitting`. Add another in-flight state later with the same tag and the view keeps working. Pattern: [Tags](tags.md). The inputs that write the draft are a form-slice concern — [Build a form](../core/how-to/build-a-form.md).
 
 ## Step 6 — test the transition table
 
 <a id="step-6--test-it-a-transition-is-a-pure-function"></a>
 
-A transition is a pure function of *(definition, snapshot, event)*. No browser, frame, router, HTTP client, or clock.
+A transition is a pure function of *(definition, snapshot, trigger)*. No browser, frame, router, HTTP client, or clock.
 
 ```clojure
 (ns app.login-test
@@ -447,5 +436,3 @@ Everything above in one registration — the form you copy into a real app:
   (fn [_ [_ credentials]]
     {:fx [[:dispatch [:auth.login/flow [:auth.login/submit credentials]]]]}))
 ```
-
-This is the complete singleton. Later pages grow the same flow.

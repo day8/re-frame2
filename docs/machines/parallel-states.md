@@ -13,9 +13,6 @@ Those axes are orthogonal. A flat machine would have to name the
 cross-product (`:idle-and-invalid`, `:submitting-and-valid`, …). Parallel
 regions keep the axes separate.
 
-The [Nine States example](../../examples/patterns/nine_states) is the same
-idea with three axes. This page teaches it on the login page first.
-
 ## When to use parallel regions
 
 Use parallel regions when:
@@ -27,8 +24,6 @@ Use parallel regions when:
 
 Do not use parallel regions when the axes are separate features that do not share
 data. Register separate machines instead.
-
-There is no per-region `:data`. A parallel machine has one shared `:data` map.
 
 ## The shape
 
@@ -140,15 +135,11 @@ Transition selection is done against the frozen pre-event configuration. Then
 the selected transitions are applied.
 
 That means region order can affect action/data accumulation order, but it does
-not affect which transitions are selected.
-
-A region guard cannot see a sibling region's move from the same broadcast event.
-It sees the sibling state as that broadcast's selection froze it. One macrostep
-can run several selections — the broadcast, then parent `:always` rounds, then
-any `:raise` re-broadcast — and each one freezes the view afresh.
-
-Use `:raise` if one region's move should trigger a second broadcast inside the
-same macrostep.
+not affect which transitions are selected. It also means a region guard cannot
+see a sibling region's move from the same event
+([Coordinating regions](#coordinating-regions-tags-as-statein)). Use `:raise`
+if one region's move should trigger a second broadcast inside the same
+macrostep.
 
 ## Shared data
 
@@ -246,24 +237,14 @@ transitions, not for the whole macrostep. Between rounds the view is re-frozen,
 so each round sees the completed result of the one before it. A same-event move
 in a sibling region becomes visible on the next round, not on this one.
 
-## `:always`, `:after`, and `:spawn` are region-scoped
-
-A region chooses *where* its `:always` targets — those targets stay inside that
-region. The parent owns settle; see
-[below](#always-stabilization-is-parent-owned).
-
-A region state's `:after` timer belongs to that region state. Sibling
-transitions do not cancel it.
-
-A region state's `:spawn` child is bound to that region state. Sibling
-transitions do not destroy it.
-
-The exception is `:raise`: a raised event is broadcast to every region, just
-like an external event, but still inside the current macrostep.
+Because the tag union spans every region, a view can also ask one tag question
+without knowing which region owns it, or collapse every axis into one
+[render-priority table](tags.md#collapsing-many-states-into-one-render-decision).
 
 ## `:always` stabilization is parent-owned
 
-A region chooses *where* its `:always` targets. The **parent** owns settle.
+A region chooses *where* its `:always` targets — those targets stay inside that
+region. The **parent** owns settle.
 After the event set has applied, the parent freezes the whole configuration,
 selects every enabled regional `:always` against that one frozen view, applies
 the selected set, and freezes again. It repeats until a round selects nothing.
@@ -277,18 +258,10 @@ parent rounds, then the snapshot commits.
 The loop is bounded by `:always-depth-limit` (default 16). The limit counts
 parent **rounds** — a round in which five regions move is one round, not five.
 
-## Tags compose across regions
-
-The snapshot's `:tags` is the union of every active state in every region.
-
-That lets a view ask one question without knowing which region owns the tag:
-
-```clojure
-@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
-```
-
-It also lets you build a single render-priority table across all axes. See
-[Tags](tags.md#collapsing-many-states-into-one-render-decision).
+A region state's `:after` timer and `:spawn` child belong to that region state:
+sibling transitions neither cancel the timer nor destroy the child. A raised
+event, by contrast, is broadcast to every region, like an external event, but
+inside the current macrostep.
 
 ## Limitations
 

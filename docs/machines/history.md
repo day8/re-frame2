@@ -41,7 +41,7 @@ records the resolved leaf — never the pseudo-state.
 
     :authenticated
     {:initial :dashboard
-     :on      {:auth.logout [:unauthenticated]}
+     :on      {:auth/logout [:unauthenticated]}
 
      :states
      {:hist
@@ -64,7 +64,7 @@ Drive it with `dispatch-sync` so each line has settled before the next:
 ;; => [:authenticated :dashboard]
 (rf/dispatch-sync [:auth.login/flow [:open-settings]])
 ;; => [:authenticated :settings]
-(rf/dispatch-sync [:auth.login/flow [:auth.logout]])
+(rf/dispatch-sync [:auth.login/flow [:auth/logout]])
 ;; => [:unauthenticated :idle], recording :authenticated
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit]])
 (rf/dispatch-sync [:auth.login/flow [:auth.login/success]])
@@ -81,13 +81,6 @@ its history pseudo-state." First login has no recording, so
 `:default-target` opens `:dashboard`.
 
 ## The keys
-
-```clojure
-:hist
-{:type :history
- :deep? true
- :default-target :dashboard}
-```
 
 | Key | Meaning |
 |---|---|
@@ -132,13 +125,13 @@ top-level branch matters.
 
 History records when the owning compound is actually exited.
 
-In the example, `:auth.logout` leaves `:authenticated` for
+In the example, `:auth/logout` leaves `:authenticated` for
 `:unauthenticated`, so the runtime records `:authenticated`'s last
 configuration.
 
 A transition between `:dashboard` and `:settings` does not record history,
 because `:authenticated` was never exited. It remained the
-[least common ancestor](hierarchical-states.md#entryexit-cascading-along-the-lca).
+[least common compound ancestor](hierarchical-states.md#entryexit-cascading-along-the-lca).
 
 If history is not sticking, check that the transition leaves the compound that
 owns the history node.
