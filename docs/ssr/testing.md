@@ -18,7 +18,9 @@ platform gating.
 
 ```clojure
 (ns my-app.ssr-test
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
@@ -35,7 +37,7 @@ platform gating.
                            [[:rf/set-db {:articles {"intro" {:title "Welcome"}}}]
                             [:rf.route/handle-url-change "/articles/intro"]]})]
     (let [html (ssr/render-to-string [(rf/view :app/root)] {})]   ;; renders against the with-new-frame scope
-      (is (clojure.string/includes? html "Welcome")))))
+      (is (str/includes? html "Welcome")))))
 ```
 
 When the assertion is about *structure* rather than the serialised string, the hiccup walk from [Test a view](../core/testing/views.md) is the sharper tool — `render-to-string` earns its place when the string itself is the contract (markup a crawler reads, attribute serialisation, the head).
@@ -45,16 +47,76 @@ When the assertion is about *structure* rather than the serialised string, the h
 `ssr-handler` returns a plain Ring handler, so an end-to-end server test is a function call with a request map — no Jetty, no port:
 
 ```clojure
+(def handler
+  (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
+                         :root-view      (fn [] ((rf/view :app/root)))
+                         :payload        [:articles]}))
+
 (deftest the-server-answers
-  (let [handler (ssr-ring/ssr-handler {:initial-events [[:rf/server-init]]
-                                       :root-view      [(rf/view :app/root)]
-                                       :payload        [:articles]})
-        response (handler {:request-method :get :uri "/articles/intro"})]
+  (let [response (handler {:request-method :get :uri "/articles/intro"})]
     (is (= 200 (:status response)))
-    (is (clojure.string/includes? (:body response) "Welcome"))))
+    (is (str/includes? (:body response) "Welcome"))))
 ```
 
-The response `:body` also carries the `__rf_payload` script, so "did the allowlist ship what I meant?" is a substring (or parse) assertion on the same response. A handler whose drain hits a `:rf.server/redirect` answers with the status and `Location` and *no* body — one more assertion-friendly contract.
+### What crossed the wire
+
+The body also carries the payload, as EDN inside `<script id="__rf_payload" type="application/edn">`. Pull it out and read it, and "did the allowlist ship what I meant?" becomes an assertion on data rather than on markup:
+
+```clojure
+(defn read-payload [body]
+  (some->> body
+           (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>")
+           second
+           edn/read-string))
+
+(deftest only-the-allowlist-ships
+  (let [payload (read-payload (:body (handler {:request-method :get :uri "/articles/intro"})))]
+    (is (every? #{:articles} (keys (:rf/app-db payload))))   ;; nothing off the allowlist
+    (is (string? (:rf/render-hash payload)))))   ;; present because :root-view is the fn form
+```
+
+The payload's escaping only rewrites `<` inside strings as `\u003c`, which the EDN reader decodes, so the round trip is exact.
+
+### Redirects and cookies
+
+The `:rf.server/*` effects end up as an ordinary Ring response. A redirect answers with its status, a `Location` header and an empty body; each cookie becomes one `Set-Cookie` header — a string for one cookie, a vector of strings for several:
+
+```clojure
+(deftest a-moved-page-redirects
+  (rf/reg-event :test/moved
+    {:platforms #{:server}}
+    (fn [_ _]
+      {:fx [[:rf.server/set-cookie {:name "flash" :value "moved" :path "/"}]
+            [:rf.server/redirect   {:location "/articles" :status 301}]]}))
+  (let [response ((ssr-ring/ssr-handler {:initial-events [[:test/moved]]
+                                         :root-view      (fn [] ((rf/view :app/root)))
+                                         :payload        [:articles]})
+                  {:request-method :get :uri "/old-articles"})]
+    (is (= 301 (:status response)))
+    (is (= "/articles" (get-in response [:headers "Location"])))
+    (is (str/starts-with? (get-in response [:headers "Set-Cookie"]) "flash=moved"))
+    (is (= "" (:body response)))))
+```
+
+The registration inside the test is rolled back after it by the reset fixture from §1. [Control the response](response.md) lists every effect and its arguments.
+
+### Keep the network out
+
+`:fx-overrides` on the handler is passed to every per-request frame, so it stubs an effect for the whole server render. Redirect `:rf.http/managed` to a function and the test sees each request the render fires, without sending it:
+
+```clojure
+(deftest the-server-render-sends-no-requests
+  (let [sent     (atom [])
+        handler  (ssr-ring/ssr-handler
+                   {:initial-events [[:rf/server-init]]
+                    :root-view      (fn [] ((rf/view :app/root)))
+                    :payload        [:articles]
+                    :fx-overrides   {:rf.http/managed (fn [_frame-ctx args] (swap! sent conj args))}})]
+    (handler {:request-method :get :uri "/articles/intro"})
+    (is (empty? @sent))))
+```
+
+An override value is a function `(fn [frame-ctx args] …)` or another registered fx id, exactly as in [Redirect any effect](../core/testing/pipeline-runs.md#redirect-any-effect-fx-overrides). Remember that the handler does not wait for a fetch started from `:initial-events`; data the first render needs belongs in a route resource declared `:blocking? true`, which it does wait for.
 
 ## 3. Boot guards throw; projectors are pure
 
@@ -70,7 +132,25 @@ Two SSR surfaces are deliberately test-shaped:
                   (catch Exception e (:rf.error/id (ex-data e)))))))
     ```
 
-- **The error projector and the head fn are pure functions** — registered, but callable as the plain fns they are. A projector test hands in a trace-event map and asserts the public shape (`:status` / `:code`, and *no* internal detail in prod shape); a head test hands in `(db, route)` and asserts the head model (`:title`, the `og:` meta rows). Neither needs a frame at all.
+- **The error projector and the head fn are pure functions.** `rf/reg-error-projector` and `rf/reg-head` return the id they registered, not the fn, so give the fn a name and test that. A projector test hands in a trace-event map and asserts the public shape (`:status` / `:code`, and *no* internal detail in prod shape); a head test hands in `(db, route)` and asserts the head model (`:title`, the `og:` meta rows). Neither needs a frame at all:
+
+    ```clojure
+    (defn public-error [trace-event]
+      (if (and (= :rf.error/no-such-handler (:operation trace-event))
+               (= :route (get-in trace-event [:tags :kind])))
+        {:status 404 :code :not-found :message "We couldn't find that page." :retryable? false}
+        (ssr/default-error-projector-fn trace-event)))
+
+    (rf/reg-error-projector :app/public-error public-error)
+
+    (deftest a-route-miss-is-a-404
+      (is (= 404 (:status (public-error {:operation :rf.error/no-such-handler
+                                         :op-type   :error
+                                         :tags      {:kind :route}}))))
+      (is (= 500 (:status (public-error {:operation :rf.error/no-such-handler   ;; an unregistered event:
+                                         :op-type   :error                     ;; a server defect, not a 404
+                                         :tags      {:kind :event}})))))
+    ```
 
 ## 4. Platform gating comes for free
 
@@ -100,12 +180,52 @@ sidecar against a plain fixture render module and drives one `JVM → Node → J
 request end to end, covering a refusal and a deadline arm as well as the success
 arm. Your own suite is better spent on the stub above.
 
+## 6. A streaming handler returns a stream
+
+`stream-handler`'s response `:body` is a `java.io.InputStream` that a writer thread fills. `slurp` blocks until the writer closes it, so the whole streamed page arrives as one string, and the test asserts the order the chunks came in:
+
+```clojure
+;; The streaming page from streaming.md: :article/page with a :region.comments boundary.
+(deftest the-comments-stream-in-after-the-shell
+  (let [handler  (ssr-ring/stream-handler {:initial-events [[:rf/server-init]]
+                                           :root-view      (fn [] ((rf/view :article/page)))
+                                           :payload        [:articles :comments]})
+        response (handler {:request-method :get :uri "/articles/intro"})
+        body     (slurp (:body response))
+        at       #(str/index-of body %)]
+    (is (= 200 (:status response)))
+    (is (< (at "data-rf2-suspense-fallback=\"1\"")    ;; the shell, with the fallback in place
+           (at "data-rf2-suspense-resolved=\"1\"")    ;; then the resolved region
+           (at "__rf_payload")))                       ;; then the final payload
+    (is (some? (read-payload body)))))                 ;; which reads like any other
+```
+
+A redirect set during the drain still comes back as a plain bodiless response, before any chunk is written.
+
+## 7. Replay the hydration on the JVM
+
+`hydrate!` runs on the JVM too, given the payload explicitly. Feed it the payload your handler actually shipped, into a client frame in strict mode, and the test checks that the payload is enough to reproduce the server's render: a view that reads a key the allowlist left out, or reads the clock, renders differently and throws.
+
+```clojure
+(deftest the-payload-rebuilds-the-page
+  (let [payload (read-payload (:body (handler {:request-method :get :uri "/articles/intro"})))]
+    (rf/make-frame {:id :app :platform :client :ssr {:on-mismatch :hard-error}})
+    (is (= payload (ssr/hydrate! {:frame          :app
+                                  :payload        payload
+                                  :render-tree-fn (fn [] ((rf/view :app/root)))})))
+    (is (= "Welcome" (get-in (rf/app-db-value :app) [:articles "intro" :title])))))
+```
+
+The comparison needs the payload's `:rf/render-hash`, which the handler writes only for the fn form of `:root-view`; with the vector form this test passes without checking anything. It applies to views that return hiccup (Reagent, reagent-slim) — a UIx or Fresco root reports mismatches through React's hydration instead.
+
 ## What stays in the browser
 
-Two SSR behaviours can't run on the JVM, and the honest move is to test them where they live:
+The JVM replay renders both sides with the JVM's emitter. What it can't see is anything that differs between the JVM and the browser, so keep a browser run for:
 
-- **Hydration** — `hydrate!`, the payload install, and the deploy-drift checks run client-side. The lever you own is per-frame strict mode, `{:ssr {:on-mismatch :hard-error}}`, which escalates a [hydration mismatch](concepts.md#when-the-renders-disagree) from warn-and-replace to a thrown structured exception — turn it on in dev and CI browser runs so a mismatch is a red build, not a console warning nobody reads. (The [tutorial's Step 5](tutorial.md) trips one on purpose.)
-- **Determinism, indirectly.** The mismatch detector is itself the test for "views are deterministic given the state" — a view that reads the clock or renders host-dependent output gets caught by the hash comparison — a red build under strict mode, instead of silent drift.
+- **Adopting the DOM** — the adapter's `render!` with `{:hydrate? true}` reconciling against the server markup, and React's own hydration check for UIx and Fresco roots.
+- **Cross-runtime drift** — a view whose `#?(:clj …)` / `#?(:cljs …)` branches render differently, or host-dependent output such as number and date formatting.
+
+Turn on the same strict mode, `{:ssr {:on-mismatch :hard-error}}`, on the client frame in dev and CI browser runs, so a [hydration mismatch](concepts.md#when-the-renders-disagree) is a red build rather than a console warning nobody reads. (The [tutorial's Step 5](tutorial.md) trips one on purpose.)
 
 Everything else on [The model](concepts.md) — the request lifecycle, the payload
 allowlist — and [response control](response.md) is handler-and-effect territory your

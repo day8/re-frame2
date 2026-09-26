@@ -161,6 +161,44 @@ job, stated once.
     `:rf.error/suspense-boundary-duplicate-id`, last-registered chunk wins, earlier
     boundary stuck on fallback (fail-soft, not a 500).
 
+## Production notes
+
+- **Decide the response before the first byte.** The shell renders on the request
+  thread, before the status and headers go out. A `:rf.server/redirect` from the
+  drain returns a bodiless redirect and no stream at all; a shell that throws, or a
+  projected 5xx, returns the ordinary error page (`:error-view`) under its projected
+  status. After that the status is committed, so redirects and status writes belong
+  in `:initial-events` and route handlers, never in a boundary region.
+- **A failure after the head is committed truncates.** Other than a boundary's own
+  render (which keeps its fallback), a throw while writing the rest of the stream
+  closes the stream, truncating the page, and emits the always-on `:rf.error/ssr-streaming-writer-failed`
+  record, whose `:phase` names the chunk in flight. It cannot become an error page.
+- **One thread per stream.** Each in-flight response holds one daemon thread; there
+  is no framework pool or cap, so size your server's worker and accept-queue limits
+  for the streams you expect. A body nobody reads is torn down after 60 seconds
+  without progress.
+- **`Content-Length` is removed**, whatever the drain set, so the server can choose
+  chunked framing.
+- **Deltas obey `:payload`.** Each region's delta goes through the same allowlist as
+  the final payload, so streaming ships nothing the plain handler would not.
+- **Boundaries nest.** A boundary inside another boundary's body registers while the
+  outer region renders, and streams after every region already queued.
+- **No `:html-shell` or `:renderer`.** `stream-handler` refuses both at construction
+  (`:rf.error/ssr-streaming-unsupported-opt`), because it writes the document in
+  pieces. Shape the envelope with `:head`, `:body-end`, `:script-src` and
+  `:app-element-id` instead. The Node renderer is therefore not available for
+  streamed pages.
+- **`:on-ready` can run immediately.** If the whole response was already buffered
+  when the bundle booted, `streaming-install!` finalises synchronously and calls
+  `:on-ready` before it returns, so define everything the callback uses first.
+- **`streaming-install!` returns `stop!`.** Calling it abandons the stream: nothing
+  finalises and `:on-ready` never fires. The runtime disconnects itself when the
+  final payload lands, so most apps never call it.
+
+[`stream-handler`](../api/re-frame.ssr.ring.md#stream-handler) and
+[`streaming-install!`](../api/re-frame.ssr.md#streaming-install) have the exact
+contracts.
+
 ## Troubleshooting
 
 | Symptom | Error / behaviour | Fix |
@@ -169,6 +207,9 @@ job, stated once.
 | Duplicate boundary `:id` | `:rf.error/suspense-boundary-duplicate-id` — earlier region stuck on fallback | Unique, stable ids per region |
 | One region throws on the server | `:rf.ssr/suspense-boundary-failed` — that region keeps fallback; page continues | Fix the region's data path; rest of page still streams |
 | Hydrate mid-stream / on a timer | Structural mismatch; React may discard streamed markup | Hydrate only from `streaming-install!`'s `:on-ready` |
+| `stream-handler` throws at construction | `:rf.error/ssr-streaming-unsupported-opt` — `:html-shell` or `:renderer` passed | Use the shell-hook options; use `ssr-handler` if you need a one-piece shell or the Node renderer |
+| Boundary missing `:id` or `:fallback` | `:rf.error/suspense-boundary-invalid-attrs` | Give every boundary both keys |
+| Page cut off part-way, status 200 | `:rf.error/ssr-streaming-writer-failed` (`:phase` names the chunk) | Check the record's exception; the status was already sent, so it cannot be an error page |
 | No JS client | Shell structure only; no skeletons until final payload | Expected — fallbacks need the client runtime to paint |
 
 ## See also
