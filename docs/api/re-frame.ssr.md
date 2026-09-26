@@ -192,7 +192,7 @@ The reference `:rf/hydrate` handler runs the last two, which check where the pay
     - `hydrate!` installs state only. Adopting the server's DOM is a separate call to the view adapter, such as the Reagent adapter's `render!` with `{:hydrate? true}` ([`re-frame.adapter.reagent`](re-frame.adapter.reagent.md)).
     - Installation is idempotent per frame: a second `hydrate!` into the same frame with the same payload finds it installed, skips the seed and the verify, and still returns the payload. This is what lets several roots on one page hydrate one frame.
 - **Options**:
-    - `:frame` — required; the frame to hydrate, the same frame the root `frame-provider` names. The version and schema-digest checks run only on a `:client`-platform frame, the default on CLJS.
+    - `:frame` — required; the frame to hydrate, as its id or as the frame value `make-frame` returns, the same frame the root `frame-provider` names. The version and schema-digest checks run only on a `:client`-platform frame, the default on CLJS.
     - `:payload` — the payload map. Required on the JVM; on CLJS, omit it to read the payload from the DOM.
     - `:element-id` (CLJS) — the payload `<script>` id to read when `:payload` is omitted; default `"__rf_payload"`.
     - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent, Reagent-slim). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
@@ -260,10 +260,11 @@ The reference `:rf/hydrate` handler runs the last two, which check where the pay
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (verify-hydration! frame-id render-tree)      → nil
-  (verify-hydration! frame-id render-tree opts) → nil
+  (verify-hydration! frame render-tree)      → nil
+  (verify-hydration! frame render-tree opts) → nil
   ```
 - **Description**: Compares the client's render hash with the server hash stored by `:rf/hydrate`, and reports a mismatch. `hydrate!` calls it for you when given `:render-tree-fn`; call it directly when the host mounts first and must verify the tree it actually mounted.
+    - `frame` is the frame's id, or the frame value `make-frame` returns.
     - The second argument is a render tree (it is hashed with [`render-tree-hash`](#render-tree-hash)) or a precomputed hash string.
     - When the payload carried no `:rf/render-hash` it compares nothing and reports nothing. The Ring handler writes that hash only when its `:root-view` resolves to a tree headed by an HTML element ([`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)).
     - On a mismatch it emits the `:rf.ssr/hydration-mismatch` trace, with tags `:server-hash`, `:client-hash`, `:frame`, `:failing-id` (default `:rf/hydrate`), `:recovery` and, when supplied, `:first-diff-path`. It also emits an always-on error record under the same id, carrying the hashes, `:frame`, `:failing-id` and `:recovery` only. That record reaches the frame's `:observability :errors` sinks in a production build, where the trace is elided.
@@ -323,7 +324,7 @@ Streaming sends the page shell first, with a fallback in place of each region ma
     - The returned `stop!` disconnects it early. Stopping early abandons the stream: finalisation does not run and `:on-ready` never fires.
     - A page with no payload script at all, such as a client-only load, never finalises either, so `:on-ready` never fires there.
 - **Options**:
-    - `:frame` — required. Without it, `streaming-install!` emits and throws `:rf.error/no-frame-context`.
+    - `:frame` — required; the frame that receives the deltas, as its id or as the frame value `make-frame` returns. Without it, `streaming-install!` emits and throws `:rf.error/no-frame-context`.
     - `:root` — the DOM root to watch; default `js/document`.
     - `:payload-id` — the final-payload `<script>` id; default `"__rf_payload"`.
     - `:on-ready` — a 1-arity fn called exactly once when the stream has finalised, with `{:resolved #{ids} :failed #{ids}}`. Call `hydrate!` and the adapter's hydrating render from here, and only from here: hydrating earlier, on a timer or by polling for the payload, meets DOM that still carries the stream's wrappers, and React discards the streamed markup. It runs synchronously inside `streaming-install!` if the payload had already landed, so define everything it uses first.

@@ -608,8 +608,10 @@
   pre-computed hash string (used by test harnesses that simulate the
   client render).
 
-    (verify-hydration! frame-id render-tree)
-    (verify-hydration! frame-id render-tree opts)
+    (verify-hydration! frame render-tree)
+    (verify-hydration! frame render-tree opts)
+
+  `frame` is the frame's id, or the frame value `rf/make-frame` returns.
 
   opts may carry :first-diff-path, :failing-id, AND :server-hash.
   The :server-hash opt overrides the
@@ -627,89 +629,92 @@
       fail-fast) carrying the same `:server-hash` / `:client-hash` /
       `:failing-id` payload as the trace. Default: `:warn`
       (`:warned-and-replaced`)."
-  ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
-  ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
-   (when (detect-mismatch? frame-id)
-     ;; SSR hydration metadata is durable runtime-db
-     ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
-     ;; partition.
-     (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
-           server-hash (or server-hash
-                           (get-in runtime-db
-                                   [:rf.runtime/ssr :hydration :server-hash]))
-           client-hash (cond
-                         (string? tree-or-hash) tree-or-hash
-                         tree-or-hash           (rf.ssr.hash/render-tree-hash tree-or-hash))]
-       (when (and server-hash client-hash (not= server-hash client-hash))
-         (let [hard-error? (= :hard-error (mismatch-policy frame-id))
-               recovery (if hard-error? :hard-error :warned-and-replaced)
-               ;; ONE shared payload reused by both the dev-trace emit AND the
-               ;; strict-mode throw (the build-shared-payload-then-throw-and-emit
-               ;; idiom error/ex-info-from-data was purpose-built for). It carries
-               ;; the canonical thrown-error slots — :rf.error/id, :reason,
-               ;; :recovery, and :where.
-               mismatch-data (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
-                                      :where       'rf/verify-hydration!
-                                      :server-hash server-hash
-                                      :client-hash client-hash
-                                      :frame       frame-id
-                                      :failing-id  (or failing-id :rf/hydrate)
-                                      :reason      (str "Hydration mismatch: server hash '"
-                                                        server-hash
-                                                        "' != client hash '"
-                                                        client-hash
-                                                        "'. "
-                                                        (if hard-error?
-                                                          "Strict mode — throwing."
-                                                          "Re-rendering client-side."))
-                                      :recovery    recovery}
-                               first-diff-path
-                               (assoc :first-diff-path first-diff-path))
-               emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
-           ;; Axis 1 — ALWAYS-ON. A mismatch is a PRODUCTION
-           ;; event: detection is on by default in every build (Spec 011
-           ;; §Mismatch recovery and configuration row 4), so the client
-           ;; pays for the hash comparison in an `:advanced` +
-           ;; `goog.DEBUG=false` build and the monitoring integration that
-           ;; row 3 promises must see the result. The dev trace below is
-           ;; DCE'd there — `trace/emit-error!`'s whole body sits inside
-           ;; `rf.interop/debug-enabled?` — so without this record a
-           ;; production mismatch would be detected and reported to NOBODY.
-           ;;
-           ;; STRUCTURAL SLOTS ONLY, and that is the contract rather than an
-           ;; oversight: this record fans out to corpus listeners (Sentry /
-           ;; Datadog) and to the frame's `:observability :errors` sinks RAW
-           ;; — it is NOT privacy-gated like the dev trace. The two hashes
-           ;; are digests, `:failing-id` discriminates body from head, and
-           ;; `:recovery` says what the runtime did. The `:reason` prose and
-           ;; `:first-diff-path` (a path INTO the render tree) stay on the
-           ;; DCE'd dev trace and on the strict-mode throw, which are local.
-           ;; No render tree, no markup, no app-db slice — ever.
-           (when-let [dispatch-error-record!
-                      (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
-             (dispatch-error-record!
-               {:error       :rf.ssr/hydration-mismatch
-                :where       'rf/verify-hydration!
-                :frame       frame-id
-                :failing-id  (or failing-id :rf/hydrate)
-                :server-hash server-hash
-                :client-hash client-hash
-                :recovery    recovery
-                :time        (rf.interop/now-ms)}))
-           ;; Axis 2 — the dev-only trace:
-           ;; it carries the rich `:reason` + `:first-diff-path` for the
-           ;; local debugger. Emitted after the always-on record per the
-           ;; axis-1-then-axis-2 ordering, so a last-write-wins
-           ;; listener buffer keeps the richer trace as its final input.
-           ;; THEN escalate in strict mode. The thrown ex-info carries the
-           ;; same structured payload so a CI run sees the full diff.
-           (when emit-error!
-             (emit-error! :rf.ssr/hydration-mismatch mismatch-data))
-           (when hard-error?
-             ;; Route the shared-payload throw through error/ex-info-from-data;
-             ;; it derives the human
-             ;; message from the payload's own :rf.error/id + :reason (LEADING
-             ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
-             ;; in ONE call, instead of re-deriving error/human-message inline.
-             ;; The payload IS the ex-data verbatim (one map, throw + trace agree).
-             (throw (rf.error/ex-info-from-data mismatch-data)))))))))
+  ([frame tree-or-hash] (verify-hydration! frame tree-or-hash {}))
+  ([frame tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
+   ;; The config and the stored server hash are read by id; a frame value
+   ;; would match no record and skip the comparison.
+   (let [frame-id (rf.frame/frame-target->id frame)]
+     (when (detect-mismatch? frame-id)
+       ;; SSR hydration metadata is durable runtime-db
+       ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
+       ;; partition.
+       (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
+             server-hash (or server-hash
+                             (get-in runtime-db
+                                     [:rf.runtime/ssr :hydration :server-hash]))
+             client-hash (cond
+                           (string? tree-or-hash) tree-or-hash
+                           tree-or-hash           (rf.ssr.hash/render-tree-hash tree-or-hash))]
+         (when (and server-hash client-hash (not= server-hash client-hash))
+           (let [hard-error? (= :hard-error (mismatch-policy frame-id))
+                 recovery (if hard-error? :hard-error :warned-and-replaced)
+                 ;; ONE shared payload reused by both the dev-trace emit AND the
+                 ;; strict-mode throw (the build-shared-payload-then-throw-and-emit
+                 ;; idiom error/ex-info-from-data was purpose-built for). It carries
+                 ;; the canonical thrown-error slots — :rf.error/id, :reason,
+                 ;; :recovery, and :where.
+                 mismatch-data (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
+                                        :where       'rf/verify-hydration!
+                                        :server-hash server-hash
+                                        :client-hash client-hash
+                                        :frame       frame-id
+                                        :failing-id  (or failing-id :rf/hydrate)
+                                        :reason      (str "Hydration mismatch: server hash '"
+                                                          server-hash
+                                                          "' != client hash '"
+                                                          client-hash
+                                                          "'. "
+                                                          (if hard-error?
+                                                            "Strict mode — throwing."
+                                                            "Re-rendering client-side."))
+                                        :recovery    recovery}
+                                 first-diff-path
+                                 (assoc :first-diff-path first-diff-path))
+                 emit-error! (rf.late-bind/get-fn :trace/emit-error!)]
+             ;; Axis 1 — ALWAYS-ON. A mismatch is a PRODUCTION
+             ;; event: detection is on by default in every build (Spec 011
+             ;; §Mismatch recovery and configuration row 4), so the client
+             ;; pays for the hash comparison in an `:advanced` +
+             ;; `goog.DEBUG=false` build and the monitoring integration that
+             ;; row 3 promises must see the result. The dev trace below is
+             ;; DCE'd there — `trace/emit-error!`'s whole body sits inside
+             ;; `rf.interop/debug-enabled?` — so without this record a
+             ;; production mismatch would be detected and reported to NOBODY.
+             ;;
+             ;; STRUCTURAL SLOTS ONLY, and that is the contract rather than an
+             ;; oversight: this record fans out to corpus listeners (Sentry /
+             ;; Datadog) and to the frame's `:observability :errors` sinks RAW
+             ;; — it is NOT privacy-gated like the dev trace. The two hashes
+             ;; are digests, `:failing-id` discriminates body from head, and
+             ;; `:recovery` says what the runtime did. The `:reason` prose and
+             ;; `:first-diff-path` (a path INTO the render tree) stay on the
+             ;; DCE'd dev trace and on the strict-mode throw, which are local.
+             ;; No render tree, no markup, no app-db slice — ever.
+             (when-let [dispatch-error-record!
+                        (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
+               (dispatch-error-record!
+                 {:error       :rf.ssr/hydration-mismatch
+                  :where       'rf/verify-hydration!
+                  :frame       frame-id
+                  :failing-id  (or failing-id :rf/hydrate)
+                  :server-hash server-hash
+                  :client-hash client-hash
+                  :recovery    recovery
+                  :time        (rf.interop/now-ms)}))
+             ;; Axis 2 — the dev-only trace:
+             ;; it carries the rich `:reason` + `:first-diff-path` for the
+             ;; local debugger. Emitted after the always-on record per the
+             ;; axis-1-then-axis-2 ordering, so a last-write-wins
+             ;; listener buffer keeps the richer trace as its final input.
+             ;; THEN escalate in strict mode. The thrown ex-info carries the
+             ;; same structured payload so a CI run sees the full diff.
+             (when emit-error!
+               (emit-error! :rf.ssr/hydration-mismatch mismatch-data))
+             (when hard-error?
+               ;; Route the shared-payload throw through error/ex-info-from-data;
+               ;; it derives the human
+               ;; message from the payload's own :rf.error/id + :reason (LEADING
+               ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
+               ;; in ONE call, instead of re-deriving error/human-message inline.
+               ;; The payload IS the ex-data verbatim (one map, throw + trace agree).
+               (throw (rf.error/ex-info-from-data mismatch-data))))))))))

@@ -868,8 +868,9 @@
 
   Opts:
 
-    :frame      — REQUIRED. The target frame id whose app-db receives the
-                  deltas — the SAME frame the bootstrap `ssr/hydrate!`s
+    :frame      — REQUIRED. The target frame whose app-db receives the
+                  deltas, as its id or as the frame value `rf/make-frame`
+                  returns — the SAME frame the bootstrap `ssr/hydrate!`s
                   into and the root provider mounts. The streaming target is supplied, not
                   synthesised. An absent `:frame` emits + throws
                   `:rf.error/no-frame-context`; there is no `:rf/default`
@@ -964,8 +965,11 @@
    ;; A nil stamp is an absent target,
    ;; not a request to synthesise `:rf/default`; surface the always-on
    ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
+   ;; A frame VALUE normalises to its id first: the delta merge keys the
+   ;; frame registry by id, and a value would merge into nothing.
    (let [frame-id (rf.frame/require-frame-stamp!
-                    frame :rf.ssr/streaming-install
+                    (rf.frame/frame-target->id frame)
+                    :rf.ssr/streaming-install
                     {:where 'rf.ssr.streaming.client/install!})]
      ;; No DOM (a non-browser runtime / a host calling install! too early)
      ;; → no-op stop fn. The runtime is a DOM consumer by definition.
