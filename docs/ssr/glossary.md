@@ -17,7 +17,7 @@ The [frame](../core/glossary.md#frame) the host creates for one HTTP request and
 destroys when the response is written. Its `:initial-events` boot the page's state,
 and the runtime drains them to a settled app-db before rendering. Concurrent
 requests each have their own frame, so they cannot see each other's state.
-See [Tutorial Step 2](tutorial.md).
+See [Tutorial Step 2](tutorial.md#step-2--a-frame-per-request).
 
 ### **`:rf/server-init`**
 
@@ -102,16 +102,10 @@ See [Hydrate, then verify](concepts.md#the-client-side-hydrate-then-verify).
 ### **render hash**
 
 A structural hash of the server's render tree, stamped as `data-rf-render-hash` on
-the root element and as `:rf/render-hash` in the payload. `hydrate!` hashes the
-client's first render and compares the two. The handler writes it only when
-`:root-view` is the fn form, `(fn [] ((rf/view :app/root)))`, and the root view
-returns an element; the vector form `[(rf/view :app/root)]`, or a root whose body is
-only another view, renders the same HTML with no hash, so nothing is compared. The
-hash covers the markup the root spells out and the arguments it passes to child
-views, not what those child views render. UIx and Fresco roots have no hash; React's
-hydration checks them. The head has its own `:rf/head-hash`, which the runtime
-writes but does not compare.
-See [When the renders disagree](concepts.md#when-the-renders-disagree).
+the root element and as `:rf/render-hash` in the payload; `hydrate!` hashes the
+client's first render and compares the two. It ships only for a fn-form `:root-view`
+whose root view returns an element. See
+[What the hash covers](concepts.md#what-the-hash-covers).
 
 ### **hydration mismatch**
 

@@ -6,8 +6,9 @@ that derives that metadata from app-db, and a [route](../routing/concepts.md) na
 which head to use. The Ring handler resolves it for each request and writes it into
 the page's `<head>`.
 
-For the articles app, an article page gets its title, description and OpenGraph tags
-from the article it shows:
+For the tutorial's articles app, an article page gets its title, description and
+OpenGraph tags from the article it shows. The head function looks the article up in
+the `:articles` vector, whose entries here also carry a `:summary` and an `:image`:
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -37,8 +38,8 @@ from the article it shows:
   "/articles/:id")             ;; the path is the third argument, not a metadata key
 ```
 
-Once `:rf/server-init` hands the URL to routing, as in [Reading the
-request](concepts.md#reading-the-request), a request for `/articles/1` renders a
+Once `:rf/server-init` seeds `:articles` and hands the URL to routing, as in [Reading
+the request](concepts.md#reading-the-request), a request for `/articles/1` renders a
 `<head>` holding the title, the `<meta>` tags, the stylesheet and canonical `<link>`s,
 and a `<script type="application/ld+json">`. A `nil` attribute value, such as a missing
 `:summary`, omits that attribute.
