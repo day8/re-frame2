@@ -1007,7 +1007,7 @@
         (is (not (contains? row :row-index))
             (str "row " (:id row) " must not carry :row-index"))))))
 
-;; ---- (10) per-path db-changed diff ------------------------------------
+;; ---- (17) per-path db-changed diff ------------------------------------
 ;;
 ;; The `:rf.event/db-changed` trace event carries no per-path diff (it
 ;; only ships `:event` + `:frame`). The Trace panel derives the diff
@@ -1098,7 +1098,7 @@
         (is (contains? by-path [:counter]))
         (is (contains? by-path [:totals :sum]))))))
 
-;; ---- (11) render-side redaction ----------------------------------------
+;; ---- (18) render-side redaction ----------------------------------------
 ;;
 ;; Sharing the App-DB tab's diff ENGINE without the egress SEAM in front
 ;; of it, the Trace panel would print `~ [:auth :token] "old" → "new"` for

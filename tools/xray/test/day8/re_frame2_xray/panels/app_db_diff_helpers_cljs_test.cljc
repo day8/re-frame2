@@ -36,8 +36,8 @@
   There are no pin-store helpers (`pin-path`, `unpin-path`,
   `reorder-paths`, `slice-pins-for-frame`, `live-pinned-slices`) —
   there is no pinned-watches strip — so nothing here tests them."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]))
 
 ;; ---- (1) diff algorithm produces correct triples ------------------------
@@ -49,26 +49,16 @@
     (let [m {:nested {:k 1}}]
       (is (= [] (h/diff-paths m m)) "identical? whole map → no triples"))))
 
-(deftest diff-paths-added-key
-  (testing "a key present in :after but not :before → :added triple"
-    (let [diff (h/diff-paths {:a 1} {:a 1 :b 2})]
-      (is (= 1 (count diff)))
-      (is (= {:op :added :path [:b] :before nil :after 2}
-             (first diff))))))
-
-(deftest diff-paths-removed-key
-  (testing "a key present in :before but not :after → :removed triple"
-    (let [diff (h/diff-paths {:a 1 :b 2} {:a 1})]
-      (is (= 1 (count diff)))
-      (is (= {:op :removed :path [:b] :before 2 :after nil}
-             (first diff))))))
-
-(deftest diff-paths-modified-leaf
-  (testing "a key whose value changed (non-map, non-identical) → :modified"
-    (let [diff (h/diff-paths {:a 1} {:a 2})]
-      (is (= 1 (count diff)))
-      (is (= {:op :modified :path [:a] :before 1 :after 2}
-             (first diff))))))
+(deftest diff-paths-reports-a-single-change-as-one-triple
+  (testing "one changed key yields exactly one triple, at that key:
+            present only in :after → :added; only in :before → :removed;
+            a changed non-map value → :modified; and a non-map value that
+            becomes a map is one :modified at the key, not a descent into it"
+    (are [before after triple] (= [triple] (h/diff-paths before after))
+      {:a 1}      {:a 1 :b 2}  {:op :added    :path [:b] :before nil :after 2}
+      {:a 1 :b 2} {:a 1}       {:op :removed  :path [:b] :before 2   :after nil}
+      {:a 1}      {:a 2}       {:op :modified :path [:a] :before 1   :after 2}
+      {:a 1}      {:a {:b 2}}  {:op :modified :path [:a] :before 1   :after {:b 2}})))
 
 (deftest diff-paths-nested-modified
   (testing "nested maps with a changed leaf → recursive :modified triple
@@ -99,16 +89,6 @@
       (is (= :removed  (get ops [:user/auth])))
       (is (= paths (sort-by pr-str paths))
           "triples sorted lexically by path"))))
-
-(deftest diff-paths-non-map-leaf-modified
-  (testing "when a key's value transitions from non-map to map, the
-            non-map → map change is a single :modified at the key"
-    (let [diff (h/diff-paths {:a 1} {:a {:b 2}})]
-      (is (= 1 (count diff)))
-      (is (= :modified (:op (first diff))))
-      (is (= [:a] (:path (first diff))))
-      (is (= 1 (:before (first diff))))
-      (is (= {:b 2} (:after (first diff)))))))
 
 (deftest diff-paths-equal-but-rebuilt-leaf-is-no-change
   (testing "a leaf the handler REBUILT to an `=` value is
