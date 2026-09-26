@@ -4,7 +4,11 @@
 
 ## What it does
 
-The `re-frame2-improver` skill is a focused code reviewer for **already-written** re-frame2 code. It reads a body of source files (or a user-supplied snippet), detects anti-patterns from a small catalogue, and returns one complete, severity-ordered critique in the same turn — each finding with concrete file/line evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom under `skills/re-frame2/patterns/`. It applies fixes via `Edit` only when the request says to fix as well as review; broader redesigns stay proposals.
+The `re-frame2-improver` skill is a focused code reviewer for **already-written** re-frame2 code. It reads a body of source files (or a user-supplied snippet), detects anti-patterns from a small catalogue, and returns one complete, severity-ordered critique in the same turn — each finding with concrete file/line evidence, its consequence, the smallest safe correction, and a cross-link to the canonical idiom under `skills/re-frame2/patterns/`.
+
+Whether it edits depends on what you asked for. *"Review this"* is read-only: each finding states its smallest safe correction and nothing is applied. *"Review and fix"* authorises those corrections inside the named scope, with no second approval round. A redesign that reaches beyond the scope stays a proposal either way, and an instruction written into the source under review (a comment addressed to the agent) is treated as data, never obeyed. The reply carries only the sections that have content — the scope reviewed, the findings, the fixes applied, open questions — and a clean result is one short verdict naming what was reviewed. A finding that is really a gap in re-frame2 itself is described for you to file against [`day8/re-frame2`](https://github.com/day8/re-frame2/issues); the skill does not rewrite your code around it and has no way to file.
+
+The catalogue is the set of leaves under [`references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver/references); [`SKILL.md` §Routing](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md#routing--load-only-the-leaves-whose-signals-appear) lists each one with the source signals that make the skill load it.
 
 It is **explicit-pull-only**: the user asks for a review, the skill activates, delivers the complete critique in that turn, and exits. Vocabulary alone ("review", "audit", "any improvements?") is not enough — a body of re-frame2 source must be in scope.
 
@@ -18,14 +22,11 @@ Do **not** use this skill for:
 - Operating on a live runtime → use [re-frame2-pair](re-frame2-pair.md).
 - Retrospecting on a pair session → use [re-frame2-pair-retro](re-frame2-pair-retro.md).
 - Greenfield bootstrap or v1 migration → use [re-frame2-setup](re-frame2-setup.md) or [re-frame-migration](re-frame-migration.md).
+- *Porting* Reagent views to Fresco → use [reagent-migration](reagent-migration.md). Critiquing existing Reagent-view code against the catalogue stays here.
 
 ## Kickoff
 
-The skill activates on explicit pull. To force-load:
-
-```
-/skill re-frame2-improver
-```
+The skill activates on explicit pull — ask for a review with the code in scope, or type `/re-frame2-improver`.
 
 If no source files have been read, edited, supplied as snippets, or named as a resolvable `.cljs` / `.cljc` path, the skill declines and asks for a snippet rather than fabricate evidence.
 

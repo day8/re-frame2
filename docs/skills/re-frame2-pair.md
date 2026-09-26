@@ -30,10 +30,27 @@ Do **not** use this skill for:
 
 Three steps, the first two one-time setup on the app you are pairing with:
 
-1. **Build the MCP server from a clone.** It is not published to npm yet:
-   `cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point your
-   agent host's `mcpServers` entry at the compiled `out/server.js`. (Once
-   published: `npm install -g @day8/re-frame2-pair-mcp`.)
+1. **Build and register the MCP server.** It is not published to npm yet, so
+   build it from a re-frame2 clone
+   (`cd tools/re-frame2-pair-mcp && npm install && npm run build`) and point your
+   agent host's `mcpServers` entry at the compiled server:
+
+    ```json
+    {
+      "mcpServers": {
+        "re-frame2-pair": {
+          "command": "node",
+          "args": ["<repo>/tools/re-frame2-pair-mcp/out/server.js"]
+        }
+      }
+    }
+    ```
+
+    The server's tools only appear in a session that **starts** after you
+    register it — a `--continue`d session will not surface them even when
+    `claude mcp list` reports `Connected`. Start a fresh session after
+    registering, and again after rebuilding `out/server.js`.
+
 2. **Add the preload to the app.** The `re-frame2-pair.runtime` namespace ships in
    the skill's own `preload/` directory — the MCP server does *not* carry it — so
    put that directory on the app's build **classpath** and add
@@ -44,45 +61,50 @@ Three steps, the first two one-time setup on the app you are pairing with:
    `:source-paths` in `shadow-cljs.edn` only for a standalone shadow app. (Under
    `:deps` and `:lein`, shadow *ignores* a `shadow-cljs.edn` `:source-paths` key
    and warns that it did, so putting it there yields a preload that never loads.)
-   No package install, dev builds only. **The preload is required; there is no
-   per-session inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
+   Two dev dependencies go alongside it, at the same revision as the app's core:
+   `day8/re-frame2-schemas`, which the preload requires (without it the build
+   fails on a missing `re-frame.schemas` namespace), and `day8/re-frame2-epoch`
+   with `re-frame.epoch` required at boot, which the epoch and time-travel tools
+   need. No package install, dev builds only. **The preload is required; there is no
+   per-session inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md#setup--preload-re-frame2-pairruntime)
    for the branch and the snippets.
-3. **Run `discover-app`**, via the `re-frame2-pair-mcp` server — the only
-   skill-facing transport (see [Transport](#transport) below). The bash/babashka
-   `scripts/` shims that once fronted these ops have been removed; the live
-   connect/dispatch/trace/hot-reload coverage now drives the MCP server over
-   stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.
+
+3. **Start the app and ask.** With `shadow-cljs watch` running and the app open
+   in a browser tab, ask about the running app in your own words (*"what's in
+   `app-db` under `:cart`?"*). The skill's first call is always `discover-app`:
 
 ```
 discover-app
 ```
 
-This locates the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace landed. Failures return a structured edn shape — `{:ok? false :reason :runtime-loaded-but-preload-missing}` is the normal missing-preload verdict, alongside the other ladder rungs `:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable` — which the skill reports verbatim and routes to the matching recovery in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
+This locates the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace landed. Its next read is `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids; only then does it drill into a single sub, path or slice. With one build running there is nothing to pass; with several, it refuses with the list of running builds rather than guessing, and a `port` taken from the tab's URL picks the build served there.
 
-## Transport
+## Server options
 
-The skill is **MCP-only**: a single skill-facing transport.
+The server is `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding one persistent nREPL connection per session; it is the skill's only transport. Three launch flags, passed in the `args` of the `mcpServers` entry, decide what the agent may do:
 
-- **MCP server** — `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding
-  one persistent nREPL connection per session. Per-op latency ~5–50ms. It is
-  **not yet published to npm**: build it from a re-frame2 clone
-  (`cd tools/re-frame2-pair-mcp && npm install && npm run build`) and point your
-  agent host's MCP config at the compiled `out/server.js`. (Once published:
-  `npm install -g @day8/re-frame2-pair-mcp`.) Source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
+| Flag | Default | Effect |
+|---|---|---|
+| `--allow-writes` | off | Enables `restore-epoch` and `replace-app-db`. Without it both refuse with `:rf.error/writes-disabled`. `dispatch` and `replay-epoch` work either way. |
+| `--allow-sensitive-reads` | off | Lets a structured read lift `:rf/redacted` per call (`include-sensitive true`). |
+| `--no-eval` | absent (eval on) | Disables `eval-cljs` and a `tail-build` probe; they refuse with `:rf.error/eval-cljs-disabled`. |
 
-The MCP server is the one implementation of every operation. The
-bash/babashka transport that originally fronted these ops
-(`scripts/ops.clj` + shell wrappers) has been removed; the live
-connect/dispatch/trace/hot-reload coverage now drives the MCP server over
-stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.
+`eval-cljs` returns values without the redaction the structured reads apply, which is why the skill prefers a typed tool whenever one fits and uses `eval-cljs` for the long tail no typed tool covers (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery). The per-tool list with argument signatures is [`references/mcp-transport.md` §MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args); port discovery and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides are in the same file. Server source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
 
-To force-load in Claude Code:
+## When it stops
 
-```
-/skill re-frame2-pair
-```
+Every tool answers a failure with `{:ok? false :reason …}` rather than guessing; the skill reports the reason and its hint verbatim and does not improvise a workaround. The ones you will meet first:
 
-After connect, prefer a structured op (read, write, trace, DOM bridge, watch, hot-reload, time-travel) whenever one fits the gesture — and reach for `eval-cljs` as a first-class workhorse for the long tail no typed tool covers (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery), not as a last resort.
+| Reason | What it means | Fix |
+|---|---|---|
+| `:nrepl-port-not-found` | No shadow-cljs nREPL is reachable. | Start `shadow-cljs watch <build>`; if it is running and still not found, pass `--port-file` or set `SHADOW_CLJS_NREPL_PORT`. |
+| `:build-not-running` | shadow is up but not running the named build. | Re-target one of the `:running-builds` the reply lists. |
+| `:no-runtime-connected` | The build runs but no browser tab is attached. | Open or reload the app's tab. |
+| `:runtime-loaded-but-preload-missing` | The app runs without the preload — or has no re-frame2 dependency at all. | Step 2 above, then reload the page. |
+| `:ambiguous-frame` | Two or more app frames and no frame chosen. | Name one — the skill pins it with `set-operating-frame`. |
+| `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | Relaunch with the flag if you want time-travel and state injection. |
+
+The skill cannot reload a browser. When `discover-app`'s `:freshness` says the tab is serving old code (`:stale-build`) or no runtime is live (`:no-runtime`), it relays the URL to reload and waits for you. Epoch reads that come back `[]` after the app has plainly dispatched mean `day8/re-frame2-epoch` is missing from step 2 — `discover-app` does not check for it. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
 ## Where the skill lives
 

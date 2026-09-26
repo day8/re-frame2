@@ -31,13 +31,18 @@ Both setup routes require Java 21+ and the Clojure CLI. The skill checks
 the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even
 when launched through npm. The deps-new tool is needed only for the generator route.
 
-The skill auto-triggers on greenfield-setup phrasings. To force-load:
+Ask in your own words — *"scaffold a re-frame2 app for me"* — or type `/re-frame2-setup`. An unqualified request takes no clarification round: the project is `acme/my-app` (namespace `acme.my-app`, build `:app`, dev port `8280`) on the Reagent adapter at the generator template's reviewed pins. Name the project, a version pin, "latest", UIx, or the deps-new generator in the request to override the matching default; a name with no `/` is doubled, so `my-app` becomes `my-app/my-app` and namespace `my-app.my-app`.
 
-```
-/skill re-frame2-setup
-```
+The skill writes the canonical scaffold straight from the generator template's own emission, points the framework coordinates at the reviewed checkout while re-frame2 is unpublished (or at a `:git/sha` when there is no checkout), installs, runs a terminating `npx shadow-cljs compile app`, starts the watch and reports the URL — it runs every command itself. It reads that URL off the watch's own output rather than out of `shadow-cljs.edn`: if 8280 is already taken it moves the port and reports the one the watch printed. The Reagent adapter is the default reference substrate and UIx a swap of a few files on explicit request; Story, the component playground, comes wired at `#/stories`, and nothing else beyond the counter is day-one — schemas, Xray and the rest attach later, on request. The skill stops at *"the counter mounts"* — you open the URL and click `+1` to confirm the count advances, and writing tests, schemas, or further features is the next skill's job.
 
-The skill writes the canonical scaffold straight from the generator template's own emission with no clarification round, points the framework coordinates at the reviewed checkout while re-frame2 is unpublished, installs, runs a terminating `npx shadow-cljs compile app`, starts the watch and reports the URL — it runs every command itself. The Reagent adapter is the default reference substrate and UIx a swap of a few files on explicit request; Story, the component playground, comes wired at `#/stories`, and nothing else beyond the counter is day-one — schemas, Xray and the rest attach later, on request. The skill stops at *"the counter mounts"* — the author confirms the mount in the open page, and writing tests, schemas, or further features is the next skill's job.
+## When it stops
+
+- **Java or the Clojure CLI is missing or too old** — it reports the failing check and the tool to install, and writes nothing.
+- **The project name is not a legal npm package name** (for example `acme/_private`) — it writes nothing, names the rule, and asks for another name.
+- **The deps-new `-Tnew` tool is missing on the generator route** — it hands you the install line rather than installing it, or falls back to writing the files directly.
+- **The directory already holds substantial app code or other state management** — that is not greenfield; it routes you to [re-frame2](re-frame2.md).
+
+For the build errors a fresh scaffold can hit — `Could not find artifact day8/re-frame2`, a missing `re-frame.core` or `reagent.dom.client` namespace, `:rf.error/no-adapter-installed`, a blank page, a `main.js` 404 — the causes and fixes are in [`SKILL.md` §Troubleshooting](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md#troubleshooting-common-build-failures).
 
 ## Where the skill lives
 
