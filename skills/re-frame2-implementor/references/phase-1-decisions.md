@@ -59,6 +59,7 @@ The claim and score lines change as the port grows; edit them in place.
 
 Fixed obligations — decided by the spec, not selected by an implementor. Read them at their owners — from the verified checkout at the pin, per cardinal rule 1 (the links below are citations); do not transcribe them into fields:
 
+- What the pattern requires, what it leaves to the host, and what is CLJS-only, row by row — [`spec/000-Vision.md` §Host-profile matrix](https://day8.github.io/re-frame2/spec/000-Vision/#host-profile-matrix), the corpus's single answer to "must I ship this?".
 - React + VDOM substrate and the eight-host scope — [`spec/000-Vision.md` §The pattern + scope footnote](https://day8.github.io/re-frame2/spec/000-Vision/#the-pattern-js-cross-compile-language-agnostic).
 - The JS event loop, no core.async, run-to-completion drain — [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) (cardinal rule 5).
 - One frame-state container, two partitions, projection-equality invalidation — [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) and [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/).

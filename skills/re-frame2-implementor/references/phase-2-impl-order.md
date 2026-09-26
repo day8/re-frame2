@@ -1,6 +1,6 @@
 # phase-2-impl-order — the EP loop
 
-Phase 2 is one repeatable loop over the EP index below, driven by the **pinned owning Specs** and the **live conformance fixtures** — read the contract, not prose about the contract. Every owner named here is read from the profile's verified checkout at the pin (cardinal rule 1); the `day8.github.io` links are citations of live main, never the reading route. Two standing anchors: [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) (which spec owns a surface) and [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) (the public signature for anything the port exposes).
+Phase 2 is one repeatable loop over the EP index below, driven by the **pinned owning Specs** and the **live conformance fixtures** — read the contract, not prose about the contract. Every owner named here is read from the profile's verified checkout at the pin (cardinal rule 1); the `day8.github.io` links are citations of live main, never the reading route. Two standing anchors: [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) (which spec owns a surface) and [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) (the public signature for anything the port exposes). The corpus's own implementor reading list is [`spec/README.md` §Track 3](https://day8.github.io/re-frame2/spec/#track-3--implementor-porting-to-a-new-host); the index below sequences the same owners by dependency.
 
 ## Step 0 — bootstrap the feedback seam
 
