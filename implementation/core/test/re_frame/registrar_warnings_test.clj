@@ -179,25 +179,20 @@
                 ":tags carries the captured :source-coords envelope")
             (is (= 're-frame.registrar-warnings-test (:ns (:source-coords t))))))))))
 
-(deftest missing-doc-fires-when-doc-nil
-  (testing ":doc explicitly nil is treated as missing"
-    (let [recorded (record-traces! ::missing-nil)]
-      (with-stamped-coords
-        (fn []
-          (rf/reg-event :ev/nil-doc {:doc nil} (fn [{:keys [db]} _] {:db db}))))
-      (assert-registered :event :ev/nil-doc)
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc))))))))
-
-(deftest missing-doc-fires-when-doc-empty-string
-  (testing ":doc as the empty string is treated as missing"
-    (let [recorded (record-traces! ::missing-empty)]
-      (with-stamped-coords
-        (fn []
-          (rf/reg-event :ev/empty-doc {:doc ""} (fn [{:keys [db]} _] {:db db}))))
-      (assert-registered :event :ev/empty-doc)
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc))))))))
+(deftest missing-doc-fires-when-doc-is-nil-or-empty
+  (doseq [[case-label id doc listener-id]
+          [[":doc explicitly nil is treated as missing"
+            :ev/nil-doc nil ::missing-nil]
+           [":doc as the empty string is treated as missing"
+            :ev/empty-doc "" ::missing-empty]]]
+    (testing case-label
+      (let [recorded (record-traces! listener-id)]
+        (with-stamped-coords
+          (fn []
+            (rf/reg-event id {:doc doc} (fn [{:keys [db]} _] {:db db}))))
+        (assert-registered :event id)
+        (when rf.interop/debug-enabled?
+          (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))))))))
 
 (deftest missing-doc-suppressed-when-doc-present
   (testing "well-documented registration emits no warning"
