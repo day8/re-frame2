@@ -39,7 +39,9 @@ Notes on what is and isn't checked:
       tree: existence for any target kind, blob-vs-tree kind, and a `.md`
       anchor (`IN_REPO_GH_URL_RE`, `_in_repo_github_url_problems`).
       Likewise this project's own https://day8.github.io/re-frame2/ site URLs,
-      resolved offline path-only (`_site_url_problems`). So a search
+      resolved offline to the page MkDocs would publish, and a `#anchor` on
+      such a page graded against that page's MkDocs slugs (`_site_url_problems`,
+      MkDocs' `_N` duplicate suffix, not GitHub's `-N`). So a search
       of this file for the literal `github.com` finds only this docstring — the
       host is spelled as an escaped regex in the code — and says nothing about
       coverage.
@@ -84,7 +86,7 @@ import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 try:
     from pymdownx.slugs import slugify as _slugify_factory
@@ -1699,11 +1701,15 @@ def _in_repo_github_url_problems(
 # while a link gate ran green on every pull request.
 #
 # This resolves such a URL OFFLINE to the source page MkDocs would build it
-# from. PATH ONLY: the fragment, the query and the trailing slash are stripped
-# and never graded, and whether a URL that resolves names the RIGHT page is a
-# human question this cannot reach. No network, no HEAD probe, no third-party
-# host — it stays inside the line the arm above draws, resolving THIS repo's
-# own site to THIS repo's own files and nothing else.
+# from. The query and the trailing slash are stripped and never graded. The
+# fragment IS graded once the URL resolves to a Markdown page: it must be a
+# fragment id that page renders, by the same MkDocs slug model a relative link's
+# anchor is graded with (`_slug_index`, `_N` duplicate suffix) — a heading
+# rename then breaks the site URL exactly as it breaks the relative link. A
+# fragment on a static file is not graded. Whether a URL that resolves names
+# the RIGHT page is a human question this cannot reach. No network, no HEAD
+# probe, no third-party host — it stays inside the line the arm above draws,
+# resolving THIS repo's own site to THIS repo's own files and nothing else.
 #
 # ROUTES, NOT FILENAMES. MkDocs publishes `X/name.md` at `X/name/`, `X/index.md`
 # at `X/`, and `X/README.md` at `X/` unless an `index.md` sits beside it (in
@@ -1780,9 +1786,10 @@ def _mkdocs_site_config(repo_root: Path) -> tuple[str | None, str, tuple[str, ..
 def _site_url_path(repo_root: Path, dest: str) -> str | None:
     """The site-relative path of one published-site URL, else None.
 
-    Fragment, query and surrounding slashes are stripped — none of them is
-    graded. The empty string is a real answer (the site root), so callers must
-    test `is None` rather than truthiness.
+    Fragment, query and surrounding slashes are stripped; the caller hands the
+    fragment to `_site_url_problems` separately. The empty string is a real
+    answer (the site root), so callers must test `is None` rather than
+    truthiness.
     """
     site_url, _, _ = _mkdocs_site_config(repo_root)
     if site_url is None:
@@ -1796,14 +1803,34 @@ def _site_url_path(repo_root: Path, dest: str) -> str | None:
     return bare[len(site_url):].strip("/")
 
 
-def _site_url_problems(repo_root: Path, site_path: str) -> list[str]:
-    """Validate one site path against the source tree. Empty list when sound."""
+def _site_url_problems(
+    repo_root: Path,
+    site_path: str,
+    anchor: str = "",
+    slugs: Callable[[Path], set[str]] | None = None,
+) -> list[str]:
+    """Validate one site path — and its decoded `anchor`, when one is given —
+    against the source tree. Empty list when sound.
+
+    `slugs` maps a page to the fragment ids it renders; it defaults to
+    `_slug_index` (the MkDocs model) and `check` passes its cached twin.
+    """
     _, docs_dir, excludes = _mkdocs_site_config(repo_root)
+
+    def page_anchor_problems(page: Path, shown_page: str) -> list[str]:
+        if not anchor or anchor in (slugs or _slug_index)(page):
+            return []
+        return [
+            f"no heading in {shown_page} renders the anchor `#{anchor}` on the "
+            "published page"
+        ]
 
     if not site_path:
         for candidate in ("index.md", "README.md"):
             if (repo_root / docs_dir / candidate).is_file():
-                return []
+                return page_anchor_problems(
+                    repo_root / docs_dir / candidate, f"{docs_dir}/{candidate}"
+                )
         return [
             "no page builds the site root (looked for "
             f"{docs_dir}/index.md, {docs_dir}/README.md)"
@@ -1850,7 +1877,7 @@ def _site_url_problems(repo_root: Path, site_path: str) -> list[str]:
 
     for candidate in candidates:
         if (base / candidate).is_file():
-            return []
+            return page_anchor_problems(base / candidate, shown + candidate)
 
     # ONLY NOW may a dot be read as a static file's extension.
     # A DOT IN A PAGE'S BASENAME IS NOT AN EXTENSION: every page in `docs/api/`
@@ -2288,12 +2315,18 @@ def check(
                 continue
 
             # This project's own published-site URLs are resolved offline to
-            # the source page MkDocs builds them from — checked
+            # the source page MkDocs builds them from, and their fragment
+            # graded against that page's MkDocs slugs — checked
             # here for the same reason the arm above is, and inert unless
             # `mkdocs.yml` names a `site_url`.
             site_path = _site_url_path(repo_root, dest)
             if site_path is not None:
-                for problem in _site_url_problems(repo_root, site_path):
+                site_anchor = urllib.parse.unquote(
+                    dest.strip().partition("#")[2]
+                ).strip()
+                for problem in _site_url_problems(
+                    repo_root, site_path, site_anchor, slugs=slugs_for
+                ):
                     site_url_broken.append((path, line_no, dest, problem))
                 continue
 
@@ -2448,10 +2481,12 @@ def check(
         sys.stderr.write(
             "\nFix: this is a URL into THIS project's published documentation "
             "site, so it is resolved offline against the source page MkDocs "
-            "would build it from — repoint it at the page's current home. "
-            "Only the PATH is checked: the fragment and the trailing slash are "
-            "not graded, and neither is whether the page it reaches is the "
-            "right one. Remember that MkDocs publishes `X/index.md` and "
+            "would build it from — repoint it at the page's current home, or "
+            "its `#anchor` at a heading the page renders now (MkDocs slugs: a "
+            "repeated heading takes `_1`, `_2`, not GitHub's `-1`). The query "
+            "and the trailing slash are not graded, and neither is whether the "
+            "page it reaches is the right one. Remember that MkDocs publishes "
+            "`X/index.md` and "
             "`X/README.md` at `X/`, so `X/index/`, `X/README/` and `X.md` are "
             "not URLs it serves.\n"
         )
@@ -2800,6 +2835,14 @@ def _run_self_tests(verbose: bool = False) -> int:
         # inference entirely would pull. Reads 5 if dotted pages stop resolving, and 0
         # if the static-file and source-filename rejections are lost with it.
         ("site_url_dotted_route",            3),
+        # A site URL's `#anchor`, graded against the page MkDocs publishes by
+        # the MkDocs slug model. The page repeats one heading three times:
+        # `#setup_1` and `#setup_2` resolve and `#setup-1` does not, so the
+        # count reads 4 if the arm adopts GitHub's `-N` suffix, 0 if the
+        # fragment stops being graded, and 3 only for the MkDocs model. The
+        # other two are a renamed heading and an anchor on the site root; a
+        # fragment on a static file stays ungraded.
+        ("site_url_broken_anchor",           3),
     ]
 
     failures = 0
