@@ -8,6 +8,11 @@
   A hierarchical machine's `:state` is a vector path, so there a vector
   target commits its path — a root-level leaf included.
 
+  A parallel machine's regions follow the same two arms inside the region
+  map (Spec 005 §Parallel regions §Snapshot shape): a FLAT region's value
+  is a keyword, so a vector target naming one of its states commits the
+  keyword, while a compound region's value stays a vector path.
+
   Named `*-cljs-test.cljc` so both the JVM runner (`clojure -M:test`) and
   the shadow-cljs `:node-test` build discover it."
   (:require
@@ -64,3 +69,42 @@
     (is (= [:in :home] (state-after hierarchical [:out] [:login]))))
   (testing "a vector target naming a root-level leaf commits a one-element path"
     (is (= [:out] (state-after hierarchical [:in :home] [:logout])))))
+
+(def ^:private regions
+  {:type    :parallel
+   :on      {:jump [:flat :b]}
+   :regions {:flat     {:initial :a
+                        :states  {:a {:on {:go     [:b]
+                                           :go-map {:target [:b]}
+                                           :go-kw  :b}}
+                                  :b {}}}
+             :compound {:initial :x
+                        :states  {:x {:on {:dive [:y :deep]}}
+                                  :y {:initial :deep
+                                      :states  {:deep {:on {:leave [:x]}}}}}}}})
+
+(defn- region-after
+  "The value `region` commits in the region map for `event` from `state`."
+  [region state event]
+  (get (state-after regions state event) region))
+
+(deftest flat-region-vector-target-commits-a-keyword
+  (let [from {:flat :a :compound [:x]}]
+    (testing "the flat region commits :b for [:b] and {:target [:b]}, as for :b"
+      (is (= :b (region-after :flat from [:go])))
+      (is (= :b (region-after :flat from [:go-map])))
+      (is (= :b (region-after :flat from [:go-kw]))))
+    (testing "a root region-qualified target into the flat region commits :b"
+      (is (= :b (region-after :flat from [:jump]))))
+    (testing "the sibling region is untouched"
+      (is (= [:x] (region-after :compound from [:go])))))
+  (testing "a registered parallel machine's live snapshot reads :b for the flat region"
+    (rf/reg-machine :flat-vec/regions regions)
+    (rf/dispatch-sync [:flat-vec/regions [:go]])
+    (is (= :b (get-in (snapshot :flat-vec/regions) [:state :flat])))))
+
+(deftest compound-region-vector-target-commits-its-path
+  (testing "a vector target into a compound commits the in-region leaf path"
+    (is (= [:y :deep] (region-after :compound {:flat :a :compound [:x]} [:dive]))))
+  (testing "a vector target naming the region's root-level leaf commits a one-element path"
+    (is (= [:x] (region-after :compound {:flat :a :compound [:y :deep]} [:leave])))))

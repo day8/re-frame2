@@ -166,11 +166,11 @@
       (is (fn? (rf.machines/make-machine-handler m)))
       (let [{snap :snapshot} (rf.machines/machine-transition
                                m {:state {:a :one :b :one} :data {}} [:go])]
-        ;; The region ancestor fallback stamps the VECTOR path form (`[:two]`)
-        ;; rather than the bare keyword a state-node `:on` would leave — a
-        ;; normalisation detail, pinned here so the control cannot
-        ;; be read as asserting the keyword form.
-        (is (= [:two] (:a (:state snap)))
+        ;; Region :a is flat, so its value is the keyword `:two` although the
+        ;; region-root `:on` spells its target as the vector `[:two]` — a
+        ;; flat region's value is a keyword (Spec 005 §Parallel regions
+        ;; §Snapshot shape).
+        (is (= :two (:a (:state snap)))
             "the region-root :on fires")
         (is (= :one (:b (:state snap)))
             "and the sibling region is untouched")))))
