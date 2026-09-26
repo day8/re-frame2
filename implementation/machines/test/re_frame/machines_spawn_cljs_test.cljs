@@ -154,7 +154,7 @@
 ;; slot). When :after fires, the standard exit cascade tears down the
 ;; spawned child via :rf.machine/destroy.
 
-(deftest machine-after-on-invoke-cljs
+(deftest machine-after-on-spawn-bearing-state-cljs
   (testing ":after on a :spawn-bearing state — synthetic timer-elapsed cancels child + transitions"
     (let [child  {:initial :running
                   :states  {:running {:on {:never-fires :done}}

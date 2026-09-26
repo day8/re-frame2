@@ -9,9 +9,10 @@
     - `:rf.error/machine-action-wrote-db` — an action's effect map may carry
       `:data`, never `:db`. The app-db is not a machine action's to write
       (Spec 005:463); the offending value is redacted at trace egress.
-    - `:rf.machine/update-snapshot` — the one sanctioned snapshot patch
-      (Spec 005:489). It merges the spec-permitted keys, and a `:db` key in
-      the patch meets the SAME hard-disallow."
+
+  The one sanctioned snapshot patch, `:rf.machine/update-snapshot` (Spec
+  005:489) — its merge and its `:db` hard-disallow — is pinned in
+  `update_snapshot_schema_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -120,28 +121,3 @@
       (is (= {:legit 1} (:data @(rf/subscribe [:rf/machine :rem/wrote-db]))))
       (is (= :b (snap-of :rem/wrote-db)))
       (is (not (contains? @(rf/subscribe [:rf/machine :rem/wrote-db]) :db))))))
-
-;; ---- :rf.machine/update-snapshot — the one sanctioned snapshot patch ------
-
-(deftest update-snapshot-fx-merges-permitted-keys
-  (testing "[:rf.machine/update-snapshot {:rf/machine-id id :rf/patch {...}}]
-   merges the spec-permitted keys onto the actor snapshot; user
-   error/status state lives under :data"
-    (rf/reg-machine :rem/escape
-      {:initial :a
-       :actions {:patch
-                 (fn [_]
-                   {:fx [[:rf.machine/update-snapshot
-                          {:rf/machine-id :rem/escape
-                           :rf/patch      {:data {:status :degraded
-                                                  :errors [:boom]}
-                                           :db   {:nope true}}}]]})}
-       :states  {:a {:on {:go {:target :a :action :patch}}}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rem/escape [:go]])))
-          snap @(rf/subscribe [:rf/machine :rem/escape])]
-      (is (= :degraded (-> snap :data :status)) ":status patched under :data")
-      (is (= [:boom] (-> snap :data :errors)) ":errors patched under :data")
-      ;; :db in the patch is the same hard-disallow.
-      (is (= 1 (count (ops evs :rf.error/machine-action-wrote-db)))
-          ":db in the patch surfaces the hard-disallow error"))))
