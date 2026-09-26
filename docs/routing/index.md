@@ -1,10 +1,9 @@
 # Routing
 
-A URL is just another input. Most stacks bolt on a parallel router — its own
-components, lifecycle, and store. re-frame2 folds routing into the pipeline you
-already have: the **URL is an input**, the active route is ordinary state via a
-subscription, and **navigation is an event**. Traceable, time-travelling, and
-testable like everything else.
+Routing maps the browser URL to a page of your app. In re-frame2 it uses the parts
+you already have: routes are registrations, the active route is read with a
+subscription, and navigation is an event. There is no separate router component or
+store, so routing shows up in traces and tests like any other event.
 
 ```clojure
 (ns app.core
@@ -13,7 +12,7 @@ testable like everything else.
 
 (rf/reg-route :app/article
   {:params [:map [:slug :string]]}
-  "/articles/:slug")                  ;; path is the third slot, not a metadata key
+  "/articles/:slug")                  ;; id, metadata map, path
 
 ;; Outside a view, name the frame (here the app's :app frame).
 (rf/dispatch-sync [:rf.route/navigate {:to :app/article :params {:slug "hello"}}]
@@ -21,21 +20,18 @@ testable like everything else.
 @(rf/subscribe [:rf.route/params] {:frame :app})   ;; => {:slug "hello"}
 ```
 
-Route [loaders](glossary.md#loader) run on the server too — one data-fetch story
-with [SSR](../ssr/index.md), no separate server router.
+A route's `:on-match` events also run during [server rendering](../ssr/index.md),
+so the server needs no second router.
 
 <a id="in-this-section"></a>
 
-Routing plugs into [events](../core/introduction.md), app-db, subscriptions,
-and views. It does not replace them.
-
-## When *not* to use routing
+## When not to use routing
 
 | Situation | Prefer |
 |---|---|
-| Single-screen app, no shareable URLs | No routing artefact (zero cost) |
-| In-memory UI steps with no URL | app-db flags / a [machine](../machines/index.md) |
+| Single-screen app, no shareable URLs | No routing package at all |
+| UI steps that don't need a URL | app-db flags or a [machine](../machines/index.md) |
 | Server-only redirects | Host middleware or [SSR](../ssr/concepts.md) response effects |
 
-Reach for routing when **the address bar is part of the product** — deep links,
-shareable state, Back/Forward, SEO/SSR entry.
+Use routing when the address bar matters to your users: deep links, shareable
+state, Back and Forward, or server-rendered entry pages.
