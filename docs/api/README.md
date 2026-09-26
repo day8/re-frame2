@@ -1,8 +1,8 @@
 # The re-frame2 API
 
 These pages record the exact public API of re-frame2's ClojureScript
-implementation: every public function, macro and var, one page per namespace,
-with its signatures, options, return values and errors. They answer "what
+implementation: every public function, macro and var an application uses, one
+page per namespace, with its signatures, options, return values and errors. They answer "what
 exactly can I call?". To learn how to build with re-frame2, start with the
 [Core guide](../core/introduction.md) instead.
 
@@ -74,9 +74,10 @@ under their own headings, after the application-facing API.
 
 ## Coverage
 
-Every public var an application can use has an entry here, and CI checks that
-against the project's API manifest: a public var added without an entry turns
-the build red. Vars meant only for tooling or the implementation are documented
+Every public var an application can use has an entry here. CI checks the entries
+against the project's API manifest: a var the manifest tiers as
+application-facing (`:front-porch`, `:advanced`, `:adapter` or `:testing`)
+turns the build red when it has no entry. Vars meant only for tooling or the implementation are documented
 where a caller needs them, but are not guaranteed an entry.
 
 ## Tests

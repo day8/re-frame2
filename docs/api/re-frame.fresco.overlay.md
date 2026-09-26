@@ -34,7 +34,12 @@ Both are legal hiccup heads but not Fresco views: they read no subscriptions. On
 both, `:open?` false renders nothing at all — no element, no listener, no anchor
 name — so an overlay is open exactly when your `app-db` says so. `:label` is the
 accessible name, set as `aria-label`. Every prop that is not the head's own reaches
-the element unchanged. An `:on-dismiss` with no frame in scope raises
+the element unchanged, except the ones the module writes itself: `:ref` on both,
+`:on-cancel`, `:on-key-down` and `:closedby` on a modal, and `:on-before-toggle` and
+`:popover` on a popover. A value you pass at one of those is replaced, and `:label`,
+when given, replaces an `:aria-label`. A `:style` you pass is merged, with your keys
+winning over the `position-area` that `:placement` sets. An `:on-dismiss` with no
+frame in scope raises
 `:rf.error/fresco-intent-outside-boundary`, since nothing could dispatch it.
 
 ### `popover`

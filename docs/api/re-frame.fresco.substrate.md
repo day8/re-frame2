@@ -62,7 +62,9 @@ lists the other adapters and their coordinates.
     - Installation is explicit and there is no default adapter, so an app that
       installs Reagent or UIx instead never loads this namespace.
     - Asking for a state container before `init!` — as mounting a `frame-root` does
-      — throws `:rf.error/no-adapter-installed`.
+      — throws `:rf.error/no-adapter-installed`, and after `rf/destroy-adapter!` the
+      same call throws `:rf.error/adapter-disposed` until `rf/init!` installs an
+      adapter again.
     - Its derived values notify watchers from the moment they are created, which a
       live Fresco view needs. The headless `re-frame.substrate.plain-atom` adapter's
       derived values register no watch, so a view under it paints once and never

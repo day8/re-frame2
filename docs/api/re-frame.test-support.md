@@ -47,8 +47,11 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
     - reinstates the registrations captured when the fixture was built (at the test namespace's load), so tests do not depend on run order inside a shared test bundle;
     - snapshots the registrar;
     - drops every frame, clears the trace listeners, and resets each loaded artefact's state (flows, schemas, machines, routing, resources, http, epoch); an artefact that is not on the classpath is skipped;
+    - returns epoch-history configuration to its defaults, so a suite that needs another `:depth` sets it in `:init-fn`;
     - disposes the adapter, then installs `:adapter` if given;
     - restores everything in a `finally`.
+
+    The baseline is captured when the fixture is built, at the `use-fixtures` form. Register, or require, everything the suite needs above that form: a registration made below it is outside the baseline, so frames the test makes with `rf/make-frame` do not see it, and another namespace's fixture can roll it back. Setup that must run later belongs in `:init-fn`.
 - **Options** (all optional):
 
     | Key | Meaning |
@@ -56,9 +59,9 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
     | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed and a test that creates a frame raises `:rf.error/adapter-disposed` (`:rf.error/no-adapter-installed` if no adapter was installed earlier in the process); calling handlers as functions and reading the registrar still work. |
     | `:app-ns` | Namespace-prefix string naming this suite's own app, for test bundles that load more than one app. See below. |
     | `:init-fn` | Zero-arg fn run after the adapter is installed and before the test body, in the same ambient frame scope as the body. |
-    | `:clear-kinds` | Collection of registrar kinds, such as `[:event :sub]`, cleared after the snapshot and before the body. The snapshot restores them afterwards. |
+    | `:clear-kinds` | Collection of registrar kinds, as listed under [`rf/clear`](re-frame.core.md#clear), such as `[:event :sub]`, cleared after the snapshot and before the body. The snapshot restores them afterwards. An unknown kind clears nothing and is not an error. |
     | `:clear-app-schemas?` | Boolean; clears the schemas artefact's per-frame schemas for the test's duration. |
-    | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out, for tests that create their own top-level frames. With `nil`, a dispatch or subscription that does not name its frame raises `:rf.error/no-frame-context` instead of landing in `:rf/default`. |
+    | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out, for tests that create their own top-level frames. With `nil`, a dispatch or subscription that does not name its frame raises `:rf.error/no-frame-context` instead of landing in `:rf/default`. The fixture creates only `:rf/default`; another id is bound as given, so that frame must exist before the body dispatches. |
     | `:async?` | Boolean, default `false`. Marks the suite as having async tests. |
 
     `:async? true` returns a `cljs.test` map fixture `{:before … :after …}` on CLJS, which suites with `(async done …)` tests require. On the JVM the option is ignored and you always get a function fixture: `clojure.test` calls its fixtures, and a map is callable, so a map fixture would silently skip every test. A `.cljc` suite therefore writes a plain `:async? true`, with no reader conditional.
@@ -101,7 +104,7 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
   ```clojure
   (snapshot-registrar) → snapshot
   ```
-- **Description**: Captures the current registrar state and returns it as a snapshot for `restore-registrar!`. `make-reset-runtime-fixture` does this for you; call it directly only for a custom fixture.
+- **Description**: Captures the current registrar state and returns it as a snapshot for `restore-registrar!`. `make-reset-runtime-fixture` does this for you; call it directly only for a custom fixture. The snapshot covers the registrar only, not the source store that `rf/make-frame` assembles a frame's default image from: registrations a test makes stay visible to frames created later, and two test namespaces registering the same id can make `make-frame` fail with `:rf.error/image-duplicate-id`. `make-reset-runtime-fixture` isolates both.
 - **Example**:
   ```clojure
   (let [snap (ts/snapshot-registrar)]
@@ -133,7 +136,7 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
   (assert-path-equals path expected-val opts)
   ```
 - **Description**: Asserts that `(get-in app-db path)` equals `expected-val` in the resolved frame, reporting the result through `clojure.test`'s `do-report` as `is` does. Returns `true` on pass and `false` otherwise; a failure has already been reported either way.
-    - `opts`: `:frame` names another frame, as either a frame id or a frame value (what `rf/make-frame` returns). Without it, the frame is the current frame scope: a `with-frame` or `with-new-frame` binding, or else the fixture's ambient frame (`:rf/default` unless `:ambient-frame` names another). Outside any scope there is no fallback to `:rf/default`; the assertion reads `nil` and reports a failure.
+    - `opts`: `:frame` names another frame, as either a frame id or a frame value (what `rf/make-frame` returns). Without it, the frame is the current frame scope: a `with-frame` or `with-new-frame` binding, or else the fixture's ambient frame (`:rf/default` unless `:ambient-frame` names another). Outside any scope there is no fallback to `:rf/default`. An unknown or destroyed frame, and a call outside any scope, read as a `nil` app-db rather than raising, so the assertion fails unless `expected-val` is `nil`.
     - It mirrors the `:rf.assert/path-equals` event Story uses, under the same name.
     - To fire several events before asserting, call `rf/dispatch-sync` once per event. Each call drains fully before the next, so the state between calls reflects every committed effect.
     - For a whole-db assertion, compare directly: `(is (= expected-db (rf/app-db-value frame-id)))`.
@@ -198,7 +201,7 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
   (with-trace-recorder! [recs-sym opts] body+)
   ```
 - **Description**: Records the trace events emitted while `body` runs into an atom bound to `recs-sym`.
-    - `opts` is an optional map literal whose keys are evaluated at macroexpansion:
+    - `opts` is an optional map literal, read at macroexpansion. Pass the map itself: a symbol naming a map is not read, and every default applies. A binding vector of any other length, or a `:shape` other than `:flat` or `:by-op`, throws at macroexpansion. The keys:
         - `:pred`: a 1-arg `(fn [ev] truthy?)` filter. Default: accept every event.
         - `:shape`: `:flat` (default; the atom holds a vector of events) or `:by-op` (a map keyed by `(:operation ev)`).
         - `:key`: the listener key. Default: a keyword generated per expansion site, so two brackets in one test do not collide.
@@ -231,10 +234,13 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
   (with-emit-recorder! [recs-sym opts] body+)
   ```
 - **Description**: Records what the always-on error or event stream emits while `body` runs into an atom bound to `recs-sym`. It is the always-on counterpart of [`with-trace-recorder!`](#with-trace-recorder): these streams also run in production builds.
-    - `opts` is an optional map literal whose keys are evaluated at macroexpansion:
+    - `opts` is an optional map literal, read at macroexpansion. Pass the map itself: a symbol naming a map is not read, and every default applies. A binding vector of any other length throws at macroexpansion. The keys:
         - `:stream`: `:errors` (default; one record per `:rf.error/*` reported) or `:events` (one record per processed event). Any other value throws at macroexpansion.
         - `:pred`: a 1-arg `(fn [record] truthy?)` filter. Default: accept every record.
         - `:key`: the listener key. Default: a keyword generated per expansion site, so two brackets in one test do not collide.
+    - An `:errors` record is `{:error … :event … :event-id … :frame … :time … :exception … :elapsed-ms … :source-coord …}`, `:error` being the `:rf.error/*` id. Only errors the runtime catches and reports produce one, such as `:rf.error/handler-exception` or `:rf.error/no-such-handler`; an error thrown to the caller, such as `:rf.error/poll-until-timeout`, does not, so catch that one instead.
+    - An `:events` record is `{:event … :event-id … :frame … :time … :outcome … :elapsed-ms …}`. `:outcome` is `:ok`, `:error` (the handler or an interceptor threw), `:rolled-back` (a schema rejected the new `app-db`), `:flow-error` (a flow's output threw) or `:rejected` (a `:boundary? true` handler's `:schema` refused the payload). An event whose handler sets `:rf.trace/no-emit? true` produces no record.
+    - In both, `:event` already has the event's sensitivity declarations applied: a declared-sensitive argument reads `:rf/redacted`.
     - The records are unprojected, which is what a test wants. These streams have no public listener function, and `rf/register-listener!` has no `:events` or `:errors` stream: an application reads production records, projected, through a frame's `:observability` sink or the `(rf/configure! {:observability …})` process default.
 - **Example**:
   ```clojure

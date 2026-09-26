@@ -82,7 +82,7 @@ These walk the whole tree, expanding components as they go, and work with any at
   ```clojure
   (find-by-attr tree attr val) → node
   ```
-- **Description**: Returns the first node whose attrs map has `attr` equal to `val`, or `nil` when nothing matches.
+- **Description**: Returns the first node whose attrs map has `attr` equal to `val`, or `nil` when nothing matches. A `nil` `val` matches any node without `attr`, leaves included, so looking up an unset test id returns the root or another unrelated node instead of `nil`.
 - **Example**:
   ```clojure
   (th/find-by-attr tree :data-test "submit")
