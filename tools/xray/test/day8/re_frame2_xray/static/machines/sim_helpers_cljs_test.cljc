@@ -651,7 +651,7 @@
       (let [event (sim-h/after-elapsed-event s1 row)
             s2    (step! s1 event ancestor-timer-definition)]
         (is (= [:rf.machine.timer/after-elapsed 9000 0 [:auth]] event))
-        (is (= :expired (sim-h/current-sim-state s2))
+        (is (= [:expired] (sim-h/current-sim-state s2))
             "firing the ancestor's timer exits the compound")))))
 
 (deftest available-after-transitions-region-prefixes-a-parallel-timer
