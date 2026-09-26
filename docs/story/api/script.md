@@ -2,14 +2,9 @@
 
 This page covers a variant's `:script`: a vector of tagged steps (dispatches, DOM gestures, waits and assertions) that a runner walks in order against the variant's frame after `:setup`. It also covers the `:rf.assert/*` assertions, how failures are recorded, the `:cannot-run` status, and the recorder functions that write a script from canvas interaction.
 
-!!! note "Where the normative contract lives"
-
-    The normative contract — the four-bucket plan, the three verbs, `:cannot-run`,
-    composition, the schema floor, and the epoch-tape evidence projection — lives in
-    [`017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md).
-    `:script` is the only spelling there is: the recorder emits it too
-    ([tutorial chapter 5](../05-recorder-and-cannot-run.md)), and a variant body
-    is closed, so any other key for a script is rejected at registration.
+The recorder writes the same `:script` shape ([chapter 5](../05-recorder-and-cannot-run.md#recording-a-script)).
+A variant body is closed, so any other key for a script is rejected at
+registration.
 
 ## The grammar — tagged step forms
 

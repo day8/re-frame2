@@ -213,7 +213,7 @@ when the claim is about the DOM.
 No Story runner proves pixels or an axe scan: a run reports
 `:rf.assert/visual-snapshot` and `:rf.assert/a11y` as `:cannot-run`, because
 nothing produces the pixel or axe evidence they need. Review pixels with a
-runner you bring ([Local visual review](08-snapshot-identity-and-sharing.md#local-visual-review)).
+runner you bring ([Local visual review](08-local-visual-review.md)).
 
 ## Waiting without flakiness
 

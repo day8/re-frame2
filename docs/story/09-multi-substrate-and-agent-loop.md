@@ -115,8 +115,7 @@ Test mode does.
 
 ## Useful references
 
-- [Story API reference](api/index.md) - function and registration lookup.
-- [Story-MCP API](api/mcp-surface.md) - the agent boundary from Story's side.
-- [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) - normative Story specs.
-- [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) - MCP server specs.
+- [Story API reference](api/index.md) - the exact form of every registration, step and function.
+- [MCP surface](api/mcp-surface.md) - running Story-MCP, and what crosses the wire to an agent.
 - [Xray](../xray/index.md) - the diagnostic tool Story embeds.
+- For implementors, the normative specs: [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) for Story and [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) for the MCP server.

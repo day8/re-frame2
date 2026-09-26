@@ -13,6 +13,11 @@
     "  colour    Hex stroke + label background (default `#e53935` red).",
     "  arrow     Optional `{from: {x,y}, to: {x,y}}` SVG arrow overlay.",
     "  labelPos  `above` | `below` | `right` | `left` (auto-flips near edges).",
+    "  labelAt   Optional absolute viewport `{x,y}` for the label's top-left,",
+    "            overriding labelPos, for regions with no free edge.",
+    "",
+    "The Story tutorial's scenes live in the sibling",
+    "`story-tutorial-annotation-spec.json`, with the same region fields.",
     "",
     "Annotation rendering target: SVG overlay injected pre-screenshot, torn",
     "down after. Crisp anti-aliased strokes, drop-shadowed labels."

@@ -202,7 +202,7 @@ The result carries `:status`, `:variant/id`, `:frame`, `:lifecycle`, `:runner`, 
   (snapshot-identity variant-id) → map
   (snapshot-identity variant-id opts) → map
   ```
-- **Description**: The variant's snapshot identity — the variant id plus a content hash over the canonicalised variant, its resolved args, decorators, loaders, substrate and active modes. Returns `{:variant-id ... :active-modes [...] :substrate ... :content-hash "<8 hex digits>"}`. `opts` takes `:active-modes`, `:cell-overrides` and `:substrate`. Used by visual-regression keying ([chapter 8](../08-snapshot-identity-and-sharing.md#local-visual-review)) to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `project-egress`.
+- **Description**: The variant's snapshot identity — the variant id plus a content hash over the canonicalised variant, its resolved args, decorators, loaders, substrate and active modes. Returns `{:variant-id ... :active-modes [...] :substrate ... :content-hash "<8 hex digits>"}`. `opts` takes `:active-modes`, `:cell-overrides` and `:substrate`. Used by visual-regression keying ([Local visual review](../08-local-visual-review.md)) to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `project-egress`.
 
 ### `variant-share-url`
 
