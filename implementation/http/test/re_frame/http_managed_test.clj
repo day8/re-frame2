@@ -176,6 +176,36 @@
                     (merge {:request {:method :get :url "/x"} :value {}} ok)))
             (str (pr-str (vec (keys ok))) " is accepted by the canned stub"))))))
 
+;; ---- 1b-ter. missing / malformed reply targets are refused everywhere -----
+
+(deftest missing-and-malformed-reply-targets-refused-on-every-interpreting-path
+  (testing "an args map with no reply target, or with a target that is neither
+            an event vector nor nil, is refused with the live fx's own error id
+            on EVERY path that interprets a managed args map — the live fx, both
+            canned stubs, and the route-map stub — so a test double never
+            synthesises a reply for a request production would refuse"
+    (let [ctx      {:frame :rf/default :event [:no-op]}
+          request  {:request {:method :get :url "http://127.0.0.1:1/x"}}
+          routes   {[:get "http://127.0.0.1:1/x"] {:reply {:ok true}}}
+          paths    [["the live fx"
+                     #(rf.http.managed/managed-handler ctx %)]
+                    [":rf.http/managed-canned-success"
+                     #(rf.http.test-support/canned-success-handler ctx %)]
+                    [":rf.http/managed-canned-failure"
+                     #(rf.http.test-support/canned-failure-handler ctx %)]
+                    ["the route-map stub"
+                     #(stub-handler routes ctx %)]]
+          error-id (fn [thunk]
+                     (try (thunk) :no-throw
+                          (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))]
+      (doseq [[label invoke] paths]
+        (is (= :rf.error/http-no-reply-target (error-id #(invoke request)))
+            (str label " refuses a request with no reply target"))
+        (doseq [k [:reply-to :on-success :on-failure]]
+          (is (= :rf.error/http-bad-reply-target
+                 (error-id #(invoke (assoc request k :items/loaded))))
+              (str label " refuses a bare-keyword " k)))))))
+
 ;; ---- 1c. all three spellings deliver the identical envelope --------------
 
 (deftest three-spellings-deliver-identical-envelope
@@ -1388,7 +1418,8 @@
           {[:get "/x"] {:reply {:ok {:stubbed true}}}})
         (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
               ex      (try (stub-fx {:frame :rf/default :event [:azrcs/erase]}
-                                    {:request {:method :get :url "/x"}})
+                                    {:request  {:method :get :url "/x"}
+                                     :reply-to [:azrcs/loaded]})
                            nil
                            (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "the url-erasing :before made the stub throw")
@@ -2523,7 +2554,8 @@
                         (stub-fx {:frame :rf/default :event [:xmp74u/load]}
                                  {:request    {:method :get
                                                :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
-                                  :sensitive? true})
+                                  :sensitive? true
+                                  :reply-to   [:xmp74u/loaded]})
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "the throwing :before propagated out of the stub chain")
@@ -2569,8 +2601,9 @@
         (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
               _ex     (try
                         (stub-fx {:frame :rf/default :event [:xmp74u/load2]}
-                                 {:request {:method :get
-                                            :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}})
+                                 {:request  {:method :get
+                                             :url    "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
+                                  :reply-to [:xmp74u/loaded2]})
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
           (is (empty? @recorded) "NO synthetic reply was dispatched"))

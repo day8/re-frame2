@@ -135,7 +135,7 @@
   [v]
   (or (nil? v) (vector? v)))
 
-(defn- validate-reply-target!
+(defn validate-reply-target!
   "Per Spec 014 §Reply addressing — every `:rf.http/managed`
   request MUST address its reply. A reply is addressed by `:reply-to` (the
   unified target for BOTH success and failure — the app branches on the
@@ -168,7 +168,11 @@
      then throw `:rf.error/http-bad-reply-target` async in the reply tail.
      Validating the shape here fails fast, BEFORE the network call.
      `build-reply-event`'s guard is belt-and-braces for any non-args-map
-     descriptor path."
+     descriptor path.
+
+  Public so the test-support stubs, which stand in for `:rf.http/managed`
+  as `:fx-overrides` targets, refuse the same args map with the same error
+  before their `:before` chain runs, as this handler does."
   [args-map]
   (when-not (some #(contains? args-map %) rf.http.encoding/reply-address-keys)
     (throw (rf.error/thrown-ex-info

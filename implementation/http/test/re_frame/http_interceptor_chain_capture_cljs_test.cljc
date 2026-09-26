@@ -29,7 +29,8 @@
   response open across a registry mutation, and the same contract across a
   retry handoff — is JVM-only and lives in `http-interceptors-test`.
 
-  Replies are deliberately UNADDRESSED (no `:reply-to` / `:on-success`),
+  Replies are deliberately SILENCED with an explicit `:reply-to nil` (a map
+  with no reply target at all is refused, by the stubs as by the live fx),
   so `build-reply-event` silences the dispatch and the assertions observe
   the interceptor walks themselves rather than app-db."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -73,13 +74,13 @@
   is the request's outstanding response — held by the caller until
   `release!`."
   [args]
-  (rf.http.test-support/capture-and-run-request-chain frame-ctx args))
+  (rf.http.test-support/capture-and-run-request-chain frame-ctx (assoc args :reply-to nil)))
 
 (defn- release!
   "RELEASE an outstanding response: walk `:after` over the chain that
-  request captured, then dispatch (silenced — the reply is unaddressed)."
+  request captured, then dispatch (silenced by `:reply-to nil`)."
   [captured args]
-  (rf.http.test-support/emit-canned-success! frame-ctx args captured))
+  (rf.http.test-support/emit-canned-success! frame-ctx (assoc args :reply-to nil) captured))
 
 (defn- clear-frame! []
   (rf.http.managed/clear-all-http-interceptors!))
@@ -201,7 +202,7 @@
          :after  (fn [ctx response]
                    (swap! log conj [:opener (:opener ctx)])
                    response)})
-      (rf.http.test-support/canned-success-handler frame-ctx {:value 1})
+      (rf.http.test-support/canned-success-handler frame-ctx {:value 1 :reply-to nil})
       (is (= [[:opener :marked]] @log)
           "one capture drove both walks — the canned path carries the same
            issue-time contract as the real transport"))))

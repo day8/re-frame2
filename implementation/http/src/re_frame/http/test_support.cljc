@@ -65,7 +65,7 @@
   ;; `:before` chain, in the same order, so a map the live fx refuses is
   ;; refused here too.
   (rf.http.handlers/validate-retry! args-map)
-  (rf.http.encoding/validate-reply-addressing! args-map)
+  (rf.http.handlers/validate-reply-target! args-map)
   (let [;; EP-0002 carried invariant — the canned stub runs inside a
         ;; cascade, so the fx context carries the envelope frame as
         ;; `:frame`; a nil stamp is an invariant failure
@@ -106,7 +106,7 @@
   fn serves callers that only need the post-`:before` request (the
   resources request-decoration test's transport stub). The route-map stub
   (`stub-handler`) reads the post-`:before` `:request` back off the ctx to
-  key its match against the url the managed pipeline would actually issue,
+  key its match against that request's `:method` and bare `:url`,
   and runs `handlers/validate-url!` on it — the final-url validation belongs
   to the `:rf.http/managed` OVERRIDE-TARGET role (the stub), not to this
   shared chain walk, which the lower-level canned handlers also call with a
@@ -125,14 +125,17 @@
   sensitive is honoured); seeding the floor here matches production's
   pre-chain reading.
 
-  This is also where the canned paths refuse a malformed `:retry :on` and
-  MIXED reply addressing (`:reply-to` beside `:on-success` / `:on-failure`):
-  both checks run in `capture-and-run-request-chain`, which all three
-  test-path entry points — `canned-success-handler`, `canned-failure-handler`
-  and the route-map `stub-handler` — call first, so one call gives the same
-  `:rf.error/http-bad-retry-on` / `:rf.error/http-bad-reply-target` the live
-  fx raises, and raises it BEFORE any `:before` interceptor's side effects
-  fire. A map the live fx
+  This is also where the canned paths refuse the args maps the live fx
+  refuses before its chain: a malformed `:retry :on`, and reply addressing
+  that is missing, MIXED (`:reply-to` beside `:on-success` / `:on-failure`)
+  or not an event vector or nil. Both guards (`handlers/validate-retry!`,
+  `handlers/validate-reply-target!`) run in `capture-and-run-request-chain`,
+  which all three test-path entry points — `canned-success-handler`,
+  `canned-failure-handler` and the route-map `stub-handler` — call first, so
+  one call gives the same `:rf.error/http-bad-retry-on` /
+  `:rf.error/http-no-reply-target` / `:rf.error/http-bad-reply-target` the
+  live fx raises, and raises it BEFORE any `:before` interceptor's side
+  effects fire. A map the live fx
   refuses must not be silently interpreted by a stub: that is how a test
   green-lights a call site production would reject."
   [frame-ctx args-map]
@@ -229,8 +232,9 @@
        ;; The canned stub honours the SAME reply-addressing keys
        ;; as the live fx, through the SAME lowering fn: the
        ;; unified `:reply-to` when present (both branches), else this branch's
-       ;; `:on-success` sugar. There is no co-located default, so an
-       ;; unaddressed stub reply is silenced (build-reply-event nil).
+       ;; `:on-success` sugar. There is no co-located default, so under
+       ;; `:on-failure`-only addressing the success reply is silenced
+       ;; (build-reply-event nil).
        :explicit-on    (rf.http.encoding/reply-target args-map :on-success)
        :reply-payload  reply
        :kind           :success
@@ -425,14 +429,17 @@
 (defn- stub-handler
   "Route-map-consulting `:rf.http/managed` override target.
 
-  The stub keys its route match against the request the
-  managed pipeline would ACTUALLY issue, not the pre-middleware draft. It
+  The stub keys its route match against the request as the `:before` chain
+  leaves it, not the pre-middleware draft. It
   runs the per-frame `:before` chain ONCE (`capture-and-run-request-chain`
   above), validates the final url with the canonical
   `:rf.error/http-bad-request`, reads the post-`:before` `:method`/`:url`
   back off that ctx to key the route map, then emits the canned reply
   through the `:after` chain with that SAME ctx — without re-running
   `:before` (no double-firing of load-bearing interceptor side effects).
+  The key's `:url` is the bare `:url`: the transport merges `:params` onto
+  it only at attempt time, so a request carrying `:params {:page 2}` is
+  keyed by its url without the query string.
 
   Matching the pre-`:before` draft instead would mean:
    - a base-URL / url-rewriting `:before` makes the stub match the ORIGINAL
@@ -455,8 +462,8 @@
         captured       (capture-and-run-request-chain frame-ctx args-map)
         middleware-ctx (:middleware-ctx captured)
         _              (rf.http.handlers/validate-url! (:request middleware-ctx))
-        ;; Match against the POST-`:before` request — the url the managed
-        ;; pipeline would actually send.
+        ;; Match against the POST-`:before` request's bare `:url` — the url
+        ;; the transport sends, before it merges `:params` on at attempt time.
         req            (:request middleware-ctx)
         method         (or (:method req) :get)
         url            (:url req)
