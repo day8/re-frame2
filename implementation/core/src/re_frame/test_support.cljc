@@ -989,11 +989,15 @@
 
 (defn- resolve-frame
   "Frame-resolution chain shared by the helpers below:
-     1. `:frame` key in opts when supplied;
-     2. `(rf.frame/current-frame)` — picks up `with-frame` bindings and
-        the fixture's ambient scope; nil when no scope is established."
+     1. `:frame` key in opts when supplied — a frame id or a frame object;
+     2. `(rf.frame/current-frame)` — picks up `with-frame` / `with-new-frame`
+        bindings and the fixture's ambient scope; nil when no scope is
+        established.
+  The result is normalised through `frame-target->id`, because
+  `with-new-frame` binds the frame OBJECT and the registry is keyed by
+  id — an object would match no record and read as a nil app-db."
   [opts]
-  (or (:frame opts) (rf.frame/current-frame)))
+  (rf.frame/frame-target->id (or (:frame opts) (rf.frame/current-frame))))
 
 (defn assert-path-equals
   "Assert `(= expected-val (get-in app-db path))` against the resolved
@@ -1006,7 +1010,9 @@
     (assert-path-equals path expected-val {:frame :test/foo})
 
   Frame resolution: `:frame` opt → `(current-frame)` (the fixture's ambient
-  scope — `:rf/default` unless `:ambient-frame` names another frame).
+  scope — `:rf/default` unless `:ambient-frame` names another frame — or the
+  frame a `with-frame` / `with-new-frame` body binds). `:frame` takes a frame
+  id or a frame object.
 
   Returns `true` when the assertion passes, `false` otherwise — the
   `clojure.test` failure has already been reported in either case, so

@@ -133,8 +133,7 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
   (assert-path-equals path expected-val opts)
   ```
 - **Description**: Asserts that `(get-in app-db path)` equals `expected-val` in the resolved frame, reporting the result through `clojure.test`'s `do-report` as `is` does. Returns `true` on pass and `false` otherwise; a failure has already been reported either way.
-    - `opts`: `:frame` names another frame by id. Without it, the frame is the current frame scope: a `with-frame` binding, or else the fixture's ambient frame (`:rf/default` unless `:ambient-frame` names another). Outside any scope there is no fallback to `:rf/default`; the assertion reads `nil` and reports a failure.
-    - It reads the frame by its id keyword. A live frame value, which is what `rf/make-frame` returns and `rf/with-new-frame` binds, reads `nil` and reports a failure, so inside `with-new-frame` give the frame an `:id` and pass that id as `:frame`.
+    - `opts`: `:frame` names another frame, as either a frame id or a frame value (what `rf/make-frame` returns). Without it, the frame is the current frame scope: a `with-frame` or `with-new-frame` binding, or else the fixture's ambient frame (`:rf/default` unless `:ambient-frame` names another). Outside any scope there is no fallback to `:rf/default`; the assertion reads `nil` and reports a failure.
     - It mirrors the `:rf.assert/path-equals` event Story uses, under the same name.
     - To fire several events before asserting, call `rf/dispatch-sync` once per event. Each call drains fully before the next, so the state between calls reflects every committed effect.
     - For a whole-db assertion, compare directly: `(is (= expected-db (rf/app-db-value frame-id)))`.
