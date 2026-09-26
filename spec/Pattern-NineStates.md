@@ -280,17 +280,18 @@ The transitions the page-level event handler drives, for a `:counter/load`-shape
 |---|---|---|---|
 | First load | `[:counter/load]` | `:nothing → :loading` | The handler broadcasts `:fetch-started` and issues `:rf.http/managed`. |
 | Retry from a bucket | `[:counter/load]` | `:empty | :one | :some | :too-many | :error → :loading` | Same handler; the `:on {:fetch-started :loading}` map on each bucket makes the reload uniform. |
-| Reply success | `[:counter/loaded {:rf/reply {:status :ok :value items …}}]` | `:loading → :resolving → :empty | :one | :some | :too-many` | The `:resolving` `:always`-cascade decides the bucket. |
-| Reply failure | `[:counter/loaded {:rf/reply {:status :error :error failure-map …}}]` | `:loading → :error` | The `:set-error` action stamps the failure map (read from `:error`) at `[:data :error]`. |
+| Reply success | `[:counter/load msg {:status :ok :value items …}]` | `:loading → :resolving → :empty | :one | :some | :too-many` | The `:resolving` `:always`-cascade decides the bucket. |
+| Reply failure | `[:counter/load msg {:status :error :error failure-map …}]` | `:loading → :error` | The `:set-error` action stamps the failure map (read from `:error`) at `[:data :error]`. |
 | User-driven reset | `[:counter/reset]` | `* → :nothing` | Optional, per [Pattern-RemoteData](Pattern-RemoteData.md). The `* → :nothing` transition carries a data-clearing action (`:reset-domain`) so it clears the region's owned `:items` / `:error`, not just the state keyword — a bare `:reset :nothing` leaves stale items to resurrect on the next submit. |
 
-A minimal co-located handler:
+A minimal one-handler form, addressing the reply back to the issuing event with `:reply-to` (per [014 §Unified one-handler form](014-HTTPRequests.md#unified-one-handler-form-reply-to)):
 
 ```clojure
 (rf/reg-event :counter/load
-  (fn [_ [_ {:keys [page] :as msg}]]
-    (if-let [reply (:rf/reply msg)]
-      ;; Reply path — fold the canonical reply into the machine (branch on :status).
+  (fn [_ [_ {:keys [page] :as msg} reply]]
+    (if reply
+      ;; Reply path — the canonical envelope arrives as the last argument;
+      ;; fold it into the machine (branch on :status).
       (case (:status reply)
         :ok
         {:fx [[:dispatch [:ui/nine-states
@@ -300,7 +301,8 @@ A minimal co-located handler:
         {:fx [[:dispatch [:ui/nine-states
                           [:fetch-failed {:failure (:error reply)}]]]]})
 
-      ;; Initial dispatch — kick the region into :loading and issue the request.
+      ;; Initial dispatch — kick the region into :loading and issue the request,
+      ;; addressing its reply back to this event.
       {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
             [:rf.http/managed
              {:request    {:method :get
@@ -310,10 +312,11 @@ A minimal co-located handler:
               :retry      {:on           #{:rf.http/transport :rf.http/http-5xx}
                            :max-attempts 3
                            :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}}
-              :request-id :counter/load}]]})))
+              :request-id :counter/load
+              :reply-to   [:counter/load msg]}]]})))
 ```
 
-One handler covers issue + reply. The machine's `:resolving` cascade decides whether the reply lands at `:empty`, `:one`, `:some`, or `:too-many`; the handler doesn't.
+One handler covers issue + reply. The reply target is named, never implied: omitting every reply target (`:reply-to`, `:on-success`, `:on-failure`) fails at fx-call time with `:rf.error/http-no-reply-target` (per [014 §Reply addressing](014-HTTPRequests.md#reply-addressing)). The machine's `:resolving` cascade decides whether the reply lands at `:empty`, `:one`, `:some`, or `:too-many`; the handler doesn't.
 
 ### Cardinality is a region concern, not a handler concern
 

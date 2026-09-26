@@ -236,7 +236,7 @@ _As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | One fx-id (`:rf.http/managed`), one args map, **one** canonical reply envelope (the framework-wide uniform reply envelope; no second `{:kind :success/:failure}` dialect and no compat reshape). Two reply-addressing forms (two explicit handlers / co-located `:rf/reply` branch) are the documented pair; there is no second way to issue a request — the fx vector is the whole surface. |
+| P1 Regularity | ✓ | One fx-id (`:rf.http/managed`), one args map, **one** canonical reply envelope (the framework-wide uniform reply envelope; no second `{:kind :success/:failure}` dialect and no compat reshape). Two reply-addressing styles are the documented pair — the unified `:reply-to` target (one handler branching on `:status`) or the split `:on-success` / `:on-failure` sugar — and they are exclusive; a request that names no reply target fails loud with `:rf.error/http-no-reply-target` ([014 §Reply addressing](014-HTTPRequests.md#reply-addressing)). There is no second way to issue a request — the fx vector is the whole surface. |
 | P2 Named things | ✓ | The fx, the failure categories (closed `:rf.http/*` set), the `:work/id` `[:rf.work/http …]` head, `:request-id`, and the reply-target spelling `:rf/reply-to` are all stable ids. |
 | P3 Data before magic | ✓ | Request envelope, `:retry` policy, `:decode` (schema / keyword / fn), reply envelope, and failure maps are all data; `:accept` / custom `:decode` are the fn slots. |
 | P4 Public query surfaces | ✓ | The in-flight request registry and `:rf.http.interceptor/*` traces are enumerable; every completion rides the trace stream (`:rf.http/replied`). |
