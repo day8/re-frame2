@@ -202,7 +202,8 @@ handle updates that root, so the frame, its app-db and its subscriptions carry
 on. That is why `mount!` doubles as the hot-reload hook.
 
 Pass the same tree, `frame-root` included, on every call. The frame lives in
-the tree, so dropping the head renders a root with no frame. Changing the
+the tree, so dropping the head renders a root with no frame, and the first view
+raises `:rf.error/no-frame-context`. Changing the
 `frame-root` options, for example dropping `:initial-events` because they have
 already run, raises `:rf.error/frame-root-reconfigured`.
 
@@ -316,6 +317,8 @@ never changes meaning or spelling, and a retired id is never reused. The
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A mount throws `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#fresco-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
+| `h/render!` throws `:rf.error/no-frame-context` | The tree has no `h/frame-root` or `h/frame-provider` head | Wrap it: `[h/frame-root {:id :app …} [counter {}]]` |
+| The mount throws `:rf.error/initial-events-step-failed` | An `:initial-events` handler threw or has no handler. Creating a frame is strict, so the half-built frame is torn down and nothing renders | Fix the event the error names (`:step-index`, `:event`) |
 | `(counter {})` throws | A `defview` is a React component used as a Hiccup head, not a function to call | Render `[counter {}]`. Use a plain `defn` for inline markup |
 | `h/sub` in a callback, timer or promise throws `:rf.error/fresco-sub-outside-render` | The read happened outside a synchronous view body | Read during the body and close over the value. Async work reads state through events and coeffects |
 | The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `h/frame-root`'s `:initial-events` |

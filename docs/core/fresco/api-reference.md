@@ -76,17 +76,18 @@ its code.
 | Name | What it is |
 | --- | --- |
 | `h/defview` | **Macro.** Defines a view: a React function component that re-renders independently and is used as a Hiccup head. The argument vector takes one props map. The view records where it was defined, so errors raised while its body runs name the file and line. Taught in [Views and reads](02-views-and-reads.md). |
-| `h/defhost` | **Macro.** Declares a foreign React component once and defines a var usable as a Hiccup head. Two shapes, `(defhost name component)` and `(defhost name component opts)`, each with an optional docstring after the name. Anything after `opts` throws `:rf.error/fresco-bad-host-declaration`. Taught in [Interop](09-interop.md). |
+| `h/defhost` | **Macro.** Declares a foreign React component once and defines a var usable as a Hiccup head. Two shapes, `(defhost name component)` and `(defhost name component opts)`, each with an optional docstring after the name. Anything after `opts` throws `:rf.error/fresco-bad-host-declaration`, and a `nil` component throws `:rf.error/fresco-host-no-component`. Taught in [Interop](09-interop.md). |
 | `h/event` | **Macro.** The callback form, for when the handler needs its arguments. It expands to an ordinary (marked) `fn`; what happens to its return value depends on the prop it is written at. Taught in [Events as data](03-events-as-data.md). |
 
-`h/defhost`'s `opts` map takes four keys; any other throws:
+`h/defhost`'s `opts` map takes four keys; any other throws
+`:rf.error/fresco-bad-host-declaration`:
 
 | Key | Value | Meaning |
 | --- | --- | --- |
 | `:callbacks` | a map from prop name to `:event` or `:render` | overrides the contract inferred from a prop's name, for example a vendor render prop named `on…`. Otherwise `on*` props are events and other function props are render callbacks, as on a native tag |
 | `:slots` | a set of prop names | props that take React content. Hiccup written at one is converted to React elements; at an undeclared prop, Hiccup is passed as data |
-| `:server` | `:client-only` (the default) or `:render` | whether the crossing contributes to a server response. `:render` is an assertion that the component is safe to run on the server, and adds no client-only gate |
-| `:fallback` | static Hiccup | what renders in place of a `:client-only` component on the server and on the first hydration pass. Not allowed with `:server :render`, and may not contain a `defview` or `defhost` head |
+| `:server` | `:client-only` (the default) or `:render` | whether the crossing contributes to a server response. `:render` is an assertion that the component is safe to run on the server, and adds no client-only gate. Any other value raises `:rf.error/fresco-host-bad-ssr-policy` |
+| `:fallback` | static Hiccup | what renders in place of a `:client-only` component on the server and on the first hydration pass. Not allowed with `:server :render` (`:rf.error/fresco-host-bad-ssr-policy`), and may not contain a `defview` or `defhost` head (`:rf.error/fresco-host-fallback-boundary-head`) |
 
 ### Reads
 
@@ -181,9 +182,9 @@ Later renders through the same handle are ordinary synchronous updates.
 
 | Name | Signature | What it is |
 | --- | --- | --- |
-| `h/error-boundary` | `[h/error-boundary opts child …]` | An error boundary. `opts` takes `:fallback` (Hiccup, or `(fn [error] hiccup)`), `:reset-key` (compared with `=`; a change clears the caught error and remounts the children) and `:on-error` (an event vector dispatched with the error appended, or a function called with it). Any other key throws. Taught in [Errors](17-errors.md). |
+| `h/error-boundary` | `[h/error-boundary opts child …]` | An error boundary. `opts` takes `:fallback` (Hiccup, or `(fn [error] hiccup)`), `:reset-key` (compared with `=`; a change clears the caught error and remounts the children) and `:on-error` (an event vector dispatched with the error appended, or a function called with it). Any other key raises `:rf.error/fresco-boundary-unknown-prop`; a non-callable `:on-error` raises `:rf.error/fresco-boundary-bad-on-error`, and a vector `:on-error` with no frame above it raises `:rf.error/fresco-intent-outside-boundary`. Taught in [Errors](17-errors.md). |
 | `h/portal` | `[h/portal opts child …]` | Renders children into another DOM node with `createPortal`. `:target` is the DOM node; `:fallback` is markup rendered in the portal's place on the server. Events bubble through the React tree, and changing `:target` remounts. |
-| `h/route-link` | `(h/route-link props child …)` | Returns an anchor whose `:href` and click handling come from routing. `props` takes the address (`:to`, `:params`, `:query`, `:fragment`), the navigation policy `:rf.route/navigate` takes (`:replace?`, `:scroll`, `:bypass-leave?`, carried on the click's navigation), `:on-click` and `:prefetch`; other keys are ordinary anchor attributes. **Called, not written as a head**: it is a plain function. Without routing loaded it raises `:rf.error/routing-artefact-missing`. Taught in [Routing and navigation](07-routing-and-navigation.md). |
+| `h/route-link` | `(h/route-link props child …)` | Returns an anchor whose `:href` and click handling come from routing. `props` takes the address (`:to`, `:params`, `:query`, `:fragment`), the navigation policy `:rf.route/navigate` takes (`:replace?`, `:scroll`, `:bypass-leave?`, carried on the click's navigation), `:on-click` and `:prefetch`; other keys are ordinary anchor attributes. **Called, not written as a head**: it is a plain function. Without routing loaded it raises `:rf.error/routing-artefact-missing`. Called outside a view's render it raises `:rf.error/fresco-route-link-outside-boundary`; a bare event vector at `:on-click` raises `:rf.error/fresco-route-link-bad-on-click`; a `:prefetch` value other than `:intent` raises `:rf.error/route-link-bad-prefetch`, and `:prefetch :intent` beside your own value at a position it claims raises `:rf.error/fresco-route-link-claimed-intent-position`. Taught in [Routing and navigation](07-routing-and-navigation.md). |
 | `h/as-element` | `(h/as-element hiccup)` | Converts Hiccup to a React element under the current view's frame. Use it where Fresco does not convert for you: a `:render` callback's return, a child of `[:> …]`, or anything passed to a React island. |
 | `h/as-component` | `(h/as-component view)` | Returns a React component for a Fresco view, so React, UIx or plain JavaScript can mount it under the frame it is already in. Define it once at top level, beside the view. |
 
@@ -251,6 +252,8 @@ app-db path); `:value` is the committed value; `::h/revision` is your counter,
 advanced to reset the field after a rejection. `:control`, `:value`,
 `:on-commit`, `:on-cancel`, `:key` and `::h/revision` are the field's own;
 every other prop goes to the `<input>`, with `:type` defaulting to `"text"`.
+The field writes `:value`, `:on-input`, `:on-blur` and `:on-key-down` itself,
+and its values win over any you pass.
 
 Internally the field dispatches three events of the forms module: edit on
 input, commit on Enter and blur, cancel on Escape. They appear in the rendered
@@ -283,13 +286,15 @@ native top layer.
 | Option | Which head | Meaning |
 | --- | --- | --- |
 | `:open?` | both | whether the overlay exists. False renders nothing |
-| `:on-dismiss` | both | the event dispatched when the browser dismisses the overlay (Escape, light dismiss). Without one, the overlay cannot be dismissed that way |
+| `:on-dismiss` | both | the event dispatched when the browser dismisses the overlay (Escape, light dismiss). Without one, the overlay cannot be dismissed that way. An open overlay carrying it with no frame above raises `:rf.error/fresco-intent-outside-boundary` |
 | `:label` | both | the accessible name, as `aria-label` |
 | `:anchor` | popover | the DOM id of the trigger to position against. An `:anchor` naming no element raises `:rf.error/fresco-overlay-anchor-missing`; omitting it is fine |
-| `:placement` | popover | a placement keyword such as `:bottom` or `:bottom-start`, which becomes a CSS `position-area` against the anchor. Any other value is passed through as a literal `position-area` value |
+| `:placement` | popover | `:top`, `:bottom`, `:left` or `:right`, each bare or suffixed `-start` or `-end`, which becomes a CSS `position-area` against the anchor. Any other value is passed through as a literal `position-area` value |
 | `:light-dismiss?` | modal | whether a backdrop click dismisses. Default false |
 
-Every other key is an ordinary attribute. The browser focuses the first
+Every other key is an ordinary attribute, except the handlers the module owns:
+`:on-cancel` and `:on-key-down` on a modal and `:on-before-toggle` on a popover.
+A value you write there is replaced. The browser focuses the first
 focusable control when the overlay opens, so control initial focus by ordering
 the controls; an autofocus attribute has no effect here.
 Taught in [Overlays and focus](13-overlays-and-focus.md).

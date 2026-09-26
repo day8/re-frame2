@@ -106,6 +106,9 @@ That gives you three useful properties:
 - old values can be inspected, diffed, or restored;
 - handlers are pure functions you can unit test.
 
+To look at app-db from the REPL, call `(rf/app-db-value :app)`. It returns the
+frame's current map, or `nil` when no frame has that id.
+
 A handler may return no `:db` key (only `:fx`, say) and leave app-db alone, or return
 the *same* `db` object it was handed so the runtime skips a no-op write.
 
@@ -170,7 +173,9 @@ does it without a handler of yours:
 
 Use ordinary maps and vectors. Prefer stable domain paths (`:todos`, `:showing`)
 over scattering presentation flags next to every fact. Views stay thin; they read
-what they need through subscriptions.
+what they need through subscriptions. To have the runtime check that shape as it
+changes, register a schema for a path
+([Validate with schemas](how-to/validate-with-schemas.md)).
 
 ## Store facts, derive conclusions
 

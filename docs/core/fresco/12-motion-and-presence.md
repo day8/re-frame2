@@ -96,6 +96,10 @@ Children must be keyed Hiccup vectors; a child without a `:key` raises
 `:rf.error/fresco-presence-child-unkeyed`. Presence freezes order at first
 appearance so an exiting sibling does not jump while it leaves.
 
+Presence retains a single conditional element too. A `nil` child is skipped,
+so `[motion/presence {:timeout-ms 200} (when open? [:div.banner {:key :banner} …])]`
+keeps the banner painted through its exit after `open?` turns false.
+
 Presence inserts **no wrapper DOM node** and stamps no `data-*`. Each child is
 the author's node with the author's attributes merged for the active phase.
 
@@ -182,6 +186,7 @@ no timer involved.
 | `:rf.error/fresco-presence-timeout-required` | `:timeout-ms` is missing or not a positive number | Set it to at least the CSS exit duration |
 | Exiting node lingers after its animation ends | `:timeout-ms` is much longer than the CSS transition | Match `:timeout-ms` to the CSS duration |
 | Fading row still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
+| Override has no effect on an element | The marker is on a nested element, not the keyed child Presence receives, and Fresco drops it there | Put the marker map on Presence's direct child |
 | Override on a view head has no visible effect | The map was merged into the view's props, and the view's body does not read the prop it names | Destructure the prop in the view and branch on it |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
 | Bundle still contains motion code when unused | Something required the module | Require `re-frame.fresco.motion` only where Presence is used |

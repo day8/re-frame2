@@ -121,6 +121,19 @@ Six v1 interceptors are gone: `debug` → the [trace stream](glossary.md#trace-s
 
     `enrich` and `after` computed or checked a derived value after the handler; flows and schemas do that declaratively, where tools can see it. `inject-cofx` was a positional context-to-context function; `:rf.cofx/requires` is registration metadata resolved when the context is assembled, which also removes v1's coeffect-ordering problems. There is no standard `unwrap`: ordinary handler destructuring covers it, and the `:event` coeffect stays the original vector for tracing and replay. In general, v2 prefers facts declared in metadata over entries in an interceptor chain.
 
+### What a leftover v1 form does
+
+A form the skill missed fails in one of these ways:
+
+| Leftover v1 form | What happens | Write instead |
+|---|---|---|
+| `reg-event-db`, `reg-event-fx` | Throws `:rf.error/reg-event-db-removed` or `:rf.error/reg-event-fx-removed` at load | `reg-event` |
+| `(rf/reg-event :id [ic] f)`, the positional chain | Throws `:rf.error/reg-event-bad-middle-slot` at load | `(rf/reg-event :id {:interceptors [:ic]} f)` |
+| A call to `rf/path` | Throws `:rf.error/path-removed` | `[:rf.interceptor/path [:todos]]` in `:interceptors` |
+| `:<-`, or two trailing functions, in `reg-sub` | Throws `:rf.error/reg-sub-bad-args` at load | `{:inputs [[:todo/all]]}` in the metadata map |
+| `[:dispatch-n [ev1 ev2]]` in `:fx` | Nothing is dispatched; `:rf.error/no-such-fx` | One `[:dispatch ev]` row per event |
+| `[:dispatch-later {:ms 100 :dispatch [:tick]}]` | Nothing is dispatched; `:rf.error/no-such-handler` for a `nil` event | `[:dispatch-later {:ms 100 :event [:tick]}]` |
+
 ## Establish a root frame
 
 This is the change most likely to break a v1 codebase; [Frames](frames.md) covers it in full.

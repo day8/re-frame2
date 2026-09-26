@@ -62,7 +62,9 @@ returns at once. When the caller needs the drain settled before its next line ru
 ```
 
 `dispatch-sync` runs the same drain as `dispatch`, but returns only after it
-settles.
+settles. It does not rethrow a handler's exception: it returns normally, and the
+failure becomes an error record (`:rf.error/handler-exception`, nothing committed).
+A test asserts on the resulting state or on that record.
 
 Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`, because
 a drain is already running. Return `:fx [[:dispatch event]]` instead. (A

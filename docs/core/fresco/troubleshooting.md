@@ -206,6 +206,13 @@ already exists.
 You passed `h/render!` options that are not a map, or a key other than
 `:hydrate?` and `:identifier-prefix`.
 
+<a id="no-adapter-installed"></a>
+#### `:rf.error/no-adapter-installed`
+
+A frame was built before an adapter was installed. Make
+`(rf/init! substrate/adapter)` the first line of boot; in Node, call
+`(rf/init! ssr/adapter)` before `server/render`. A corpus id.
+
 ### Frames
 
 A frame is carried, never looked up. These fire when something rendered or
@@ -269,7 +276,13 @@ An event vector was turned into a callback outside any view's render, for
 example inside a function a foreign component calls later. Keep event vectors
 in the Hiccup a view returns; inside a foreign callback, use `h/event`.
 
-Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md).
+It is also raised at render when an overlay's `:on-dismiss`, or an
+`h/error-boundary`'s vector `:on-error`, has no frame above it. Mount the
+region under `h/frame-root` or `h/frame-provider`, or give `:on-error` a
+function.
+
+Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md),
+[Overlays and focus](13-overlays-and-focus.md).
 
 <a id="fresco-intent-needs-the-event"></a>
 #### `:rf.error/fresco-intent-needs-the-event`
@@ -455,6 +468,14 @@ corpus id.
 error it recovered from during the pass — a subscription that threw, say — so
 the markup is not trustworthy. Fix the surface the error record names. A corpus
 id.
+
+<a id="hydration-mismatch"></a>
+#### `:rf.ssr/hydration-mismatch`
+
+A development warning trace, not a throw. A hydrating root's first client
+render differed from the server markup, and React replaced that root's DOM.
+Keep view bodies deterministic, and put every value both sides render in the
+payload.
 
 ### Motion and presence
 

@@ -3,8 +3,10 @@
 A [view](glossary.md#view) turns application state into a screen. It reads values
 through [subscriptions](subscriptions.md), returns [hiccup](hiccup.md) describing the
 screen for those values, and dispatches events when the user interacts. It stores no
-state and performs no side effects. When a value it reads changes, the framework
-re-runs it and React updates the DOM.
+application state and performs no side effects; only frame-by-frame mechanics that
+nothing else reads, such as hover, focus or an animation's progress, may stay local
+to it. When a value it reads changes, the framework re-runs it and React updates the
+DOM.
 
 This is the last stage of the pure part of the
 [event pipeline](glossary.md#event-pipeline): [events](events.md) change
@@ -92,7 +94,8 @@ Now change the child of `frame-root` from `[todo-app]` to
 `[:div [todo-app] [todo-app]]` and re-evaluate. Tick a box in either copy: both
 update. They mount under the same `:app` [frame](glossary.md#frame) and read the same
 app-db, so there is no local copy to fall out of sync. Keep the `frame-root` wrapper:
-without it the views mount under no initialised frame.
+without it the views mount under no frame, and the first render raises
+`:rf.error/no-frame-context`.
 
 Because a view returns plain data, you can `pprint` its output and read it, and a
 function that walks hiccup and emits an HTML string can run on the server. That is
@@ -161,6 +164,8 @@ return [effects](effects.md).
    under, so the same view can mount under several frames unchanged.
 
 Like `defn`, `reg-view` takes an optional docstring (stored as the registry `:doc`).
+Omit it and the development build emits `:rf.warning/missing-doc` once per view,
+because tools show the docstring.
 To keep an id stable across a rename, give it explicitly with `^{:rf/id :todo/item}`
 on the symbol.
 
@@ -337,6 +342,7 @@ returns a dispatch locked to the render frame that works after any async hop.
 |---|---|---|
 | Screen shows wrong data | A wrong event handler or sub, not the view | Inspect the data with [Xray](../xray/index.md); test the handler or sub without a browser |
 | View re-renders too often | Sort/filter in the view, or a sub that returns more than the view needs | Move the work into a sub; see [Find and fix a slow view](how-to/fix-a-slow-view.md) |
+| `:rf.error/no-frame-context` on the first render | No `frame-root` or `frame-provider` above the view | Wrap the tree in `frame-root` |
 | `:rf.error/no-frame-context` from a click | A bare `rf/dispatch` in a callback that fires after render, or an unregistered `defn` that dispatches | `reg-view` it and use the injected `dispatch`; for detached callbacks capture with `rf/capture-frame` |
 | List flickers or duplicates rows | Missing or colliding `^{:key …}` | Stable keys from data |
 | Anonymous entries in the trace | Unregistered children that touch state | `reg-view` anything that subscribes or dispatches |

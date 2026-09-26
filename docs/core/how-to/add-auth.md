@@ -132,7 +132,7 @@ Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../asyn
 ```
 
 - It reads `(:frame ctx)`, the frame this request runs under, so it keeps working on multi-frame pages ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
-- It returns `ctx` unchanged when there's no token, so login and public reads are untouched.
+- It returns `ctx` unchanged when there's no token, so login and public reads are untouched. Each slot must return a map: written as `(when token …)`, it would return `nil` for a logged-out request, which raises `:rf.error/http-interceptor-bad-return` and runs neither reply event.
 - `Authorization` is on the framework's built-in header denylist, so the live request carries it while traces show it redacted.
 - It never fires for another frame's requests.
 
@@ -158,6 +158,8 @@ The same chain has a response side, which is where you catch an expired token:
 ```
 
 Note the two `:status` levels. The reply's `:status` is `:ok`, `:error`, or `:cancelled`; the HTTP status code of a 4xx/5xx is at `(get-in response [:error :status])`, beside the failure `:kind`. Branch on the `:kind` keywords ([Managed HTTP](../../async/http.md) lists them), never on a message string.
+
+To refresh the token and retry instead of logging out, drive the request from a [state machine](../../machines/concepts.md). Transport `:retry` decides from the failure category alone, so it can't wait on a second request ([Build a form](build-a-form.md#let-transport-retry-ride-out-the-flaky-network)).
 
 An interceptor map needs `:before`, `:after`, or both; with neither, registration throws `:rf.error/http-bad-interceptor`.
 

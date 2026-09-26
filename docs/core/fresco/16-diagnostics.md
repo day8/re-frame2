@@ -73,7 +73,7 @@ what it can prove from what it can only suggest:
 | --- | --- | --- |
 | Its own reads moved | `:latest-reads`: the view's subscriptions whose values changed most recently | Check whether the read belongs lower in the tree, or whether the subscription is too coarse |
 | Leads, not a cause | `:candidates`: recent dispatches that recomputed a subscription this view reads | Places to look; Fresco records no link from a commit to the dispatch that caused it |
-| Nothing was searched | `:cap`: the retained history held no activity for this view | Raise `:rf.trace/events-retained`, reproduce, and check again |
+| Nothing was searched | `:cap`: the retained history held no activity for this view | Raise the retention with `(rf/configure! {:trace-buffer {:events-retained 200}})` (the default is 50), reproduce, and check again |
 | The rest is React's | `:host-opaque`: whether the body ran, was retried or abandoned, bailed out, committed and painted | React DevTools Profiler for the run and commit; browser performance tools for the paint |
 
 Props, context, a parent host, and a retried or discarded render are not causes

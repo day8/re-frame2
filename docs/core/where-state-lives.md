@@ -13,6 +13,8 @@ Ask them top to bottom and stop at the first *yes*.
 3. **Does it come from a server, where it can go stale and needs caching, refetch and invalidation?** It's a **resource**. ([Server state: resources](../resources/concepts.md))
 4. **Does it have a lifecycle of its own: named states, timers, retries, cancellation?** It's a **machine**. ([State machines](../machines/concepts.md))
 
+If every answer is no, the value is a fact rather than a derivation: an event handler writes it into `app-db`, as with the todos themselves or which filter is showing ([App-db](app-db.md)).
+
 The questions are ordered by cost. A subscription stores nothing. A flow adds an `app-db` write. A resource adds a cache. A machine adds a transition table. Use a heavier home only when the value needs what it provides.
 
 ??? info "For JavaScript developers"

@@ -114,7 +114,10 @@ The supported head shapes have different props and children contracts:
 
 Nested and lazy child sequences are realized once and flattened one level.
 `nil` and `false` render nothing. `true` raises
-`:rf.error/fresco-true-child`. An existing React element is a valid child. A
+`:rf.error/fresco-true-child`. A string or number renders as text, and a keyword
+or symbol as its name. An existing React element is a valid child. Any other
+value, such as a whole entity map, is handed to React, which refuses it with
+*Objects are not valid as a React child*. A
 view may return `nil`, one root form, or a fragment. React consumes `:key`, so
 it never appears in the props map received by the view body.
 
@@ -131,6 +134,9 @@ vector into the result rather than inserting the vector as a single child:
  [todo-row {:id 1}]
  [todo-row {:id 2}]]
 ```
+
+Inserting it whole, as `[:section.card [:h2 title] children]`, puts a vector of
+forms where one form belongs and raises `:rf.error/fresco-bad-head`.
 
 Return a fragment when the view needs several roots:
 

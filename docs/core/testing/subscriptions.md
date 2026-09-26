@@ -27,9 +27,10 @@ The subs under test are the todo chain from [Subscriptions](../subscriptions.md#
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-support :as ts]
+            [re-frame.substrate.plain-atom :as plain-atom]   ;; the headless adapter frames need
             [my-app.subs]))    ;; loading the ns registers the subs
 
-(use-fixtures :each (ts/make-reset-runtime-fixture {}))
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest visible-honours-showing
   (let [db {:todos   {1 {:id 1 :title "Buy milk"     :done? true}

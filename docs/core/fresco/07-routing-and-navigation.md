@@ -103,6 +103,9 @@ rather than constructing a URL:
        title)]))
 ```
 
+`:query` and `:fragment` complete the address, so
+`(h/route-link {:to :app/all :query {:q "milk"}} "Milk")` links to `/?q=milk`.
+
 The result is a real anchor. The router builds `:href`, so hover preview,
 copy-link, middle-click, and browser link menus continue to work. The helper
 inlines into its caller; it does not create another Fresco view or
@@ -185,6 +188,11 @@ function.
 The prevent wrapper cancels navigation and dispatches the inner event. A bare
 event vector is rejected because one click must not produce both an unrelated
 application event and the routing event.
+
+An `h/event` or plain function is the imperative veto: it receives the click
+first and cancels the navigation only by calling `.preventDefault`. Its return
+value is not dispatched, so use `[::h/prevent …]` to replace the navigation
+with an event.
 
 Use the route-level dirty-leave guard for unsaved work that must protect every
 exit. A link veto covers only that link.
@@ -425,6 +433,7 @@ and activation pipeline as route links:
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
+| Rendering a route link raises `:rf.error/no-such-route` or `:rf.error/route-url-validation` | `:to` is not a registered route, or, with the schemas artefact loaded, `:params` or `:query` fail the route's schema (a number where the route expects a string, say) | Fix the address; the [routing guide](../../routing/concepts.md) covers route schemas |
 | An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
 | Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
 | The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |

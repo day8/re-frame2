@@ -246,7 +246,7 @@ Only the view code changes between substrates:
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` |
 | Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` |
 | Ensure a named frame | `[rf/frame-root {:id f :images […]} [app]]` | `($ uix-adapter/frame-root {:id f :images […]} ($ app))` |
-| Flush renders in a test | `r/flush` (stock) / `flush-views!` (slim) | `(uix-adapter/flush-views!)` |
+| Flush renders in a test | `(reagent-adapter/flush-views!)` (slim's adapter has its own) | `(uix-adapter/flush-views!)` |
 
 Reagent's lazy-seq warning (*"Reactive deref not supported in lazy seq, it should be wrapped in doall"*) doesn't apply under UIx. Reagent records the derefs that happen during render, and a lazy seq can delay a deref until after render, so on Reagent you realise the seq inside the render function: `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`. A UIx `use-sub` registers its dependency when the hook is called, whenever the surrounding seq is realised.
 

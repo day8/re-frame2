@@ -233,6 +233,8 @@ with a named [error](../errors.md) rather than a blank page.
 | `:rf.error/no-frame-context` from a `dispatch` or `subscribe` | Called from a top-level form, or from a callback, with no frame in scope | Dispatch from views or handlers inside the `frame-root`, or pass `{:frame …}` |
 | `:rf.error/frame-provider-frame-absent` | A `frame-provider {:frame …}` names a frame that was never created | Create it with `make-frame` first, or use `frame-root {:id …}` ([the two components](#two-frame-components)) |
 | `:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming an id you did register | The namespace holding that `reg-event` / `reg-sub` is never required, so it never loaded | Add it to the entry namespace's `:require` list |
+| `:rf.error/initial-events-step-failed` and nothing renders | A setup event's handler threw, or a coeffect it requires is missing; the frame is torn down | The error names the step and its event; fix that handler |
+| `:rf.error/frame-root-reconfigured` after a hot reload | You edited the `frame-root` options, such as its `:initial-events`; hot reload re-renders the mounted root, which keeps the options it was created with | Reload the page |
 
 ## Worked examples
 

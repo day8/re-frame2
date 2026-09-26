@@ -147,6 +147,12 @@ returns, so a plain unit test can check them:
 Checking both states shows that the attribute really follows the
 subscription.
 
+`(is (= [] (ht/unnamed-controls tree)))` fails on any button, link or field with
+no accessible name, and names the nodes. `ht/role` and
+`(ht/accessible-name tree node)` return one node's role and name, computed from
+`:aria-labelledby`, `:aria-label`, `<label>`s and text. They check the markup,
+not a screen reader.
+
 Tests on data cannot check real focus, Tab order, modal trapping, keyboard
 movement in virtualised lists, or screen-reader behaviour. Test those in real
 browsers ([Testing](15-testing.md)). Run an automated axe check on the mounted

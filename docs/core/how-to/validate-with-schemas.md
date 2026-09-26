@@ -29,7 +29,7 @@ Most schema checks run only in dev builds and are elided from release builds, so
 
 `Todo` is plain data in [Malli](https://github.com/metosin/malli), the default schema language; the common shapes are [below](#the-shapes-youll-actually-write). The `:maybe` lets `[:todos]` stay `nil` until something writes it, because every registered path is checked on every commit ([below](#every-registered-path-is-checked-on-every-commit)).
 
-The registration runs inside `with-frame` because schemas are registered per [frame](../glossary.md#frame), so it has to name one. A bare top-level call raises `:rf.error/no-frame-context`. You can instead pass the frame in a metadata map: `(rf/reg-app-schema [:todos] {:frame :app} [:maybe [:map-of :int Todo]])`. The frame doesn't have to exist yet.
+The registration runs inside `with-frame` because schemas are registered per [frame](../glossary.md#frame), so it has to name one. A bare top-level call raises `:rf.error/no-frame-context`. You can instead pass the frame in a metadata map: `(rf/reg-app-schema [:todos] {:frame :app} [:maybe [:map-of :int Todo]])`. The frame doesn't have to exist yet. Schemas belong to the frame, so `rf/destroy-frame!` drops them: a frame re-created under the same id is unchecked until your `reg-app-schema` forms run again.
 
 After every event handler runs, the runtime validates what the new app-db holds at `[:todos]` before installing it. If the value doesn't conform, the runtime emits `:rf.error/schema-validation-failure`, app-db keeps its pre-event value, and the dispatch is treated as failed.
 
