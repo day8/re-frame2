@@ -561,15 +561,18 @@ There is no automatic rewrite. Surface every M-16b hit and let the operator pick
 
 ### M-73 — one event-registration form (`reg-event`)
 
-The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. Run it from `migration/from-re-frame-v1/codemod/` in the pinned corpus checkout ([`setup.md` §Pin the migration corpus](setup.md#pin-the-migration-corpus-before-reading-it)), pointing `PATH` at the project's source dirs:
+The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. Run it from the project's own root as a Clojure git dependency, pointing `PATH` at the project's source dirs — no re-frame2 checkout and no `cd` are needed:
 
 ```bash
-clojure -M:run PATH ...                    # scan: report every retired-registrar site
-clojure -M:run --rewrite PATH ...          # dry run: print findings, write nothing
-clojure -M:run --rewrite --write PATH ...  # apply in place; flagged sites stay untouched
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-reg-event-codemod
+                  {:git/url   "https://github.com/day8/re-frame2.git"
+                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
+                   :deps/root "migration/from-re-frame-v1/codemod"}}}' \
+  -M -m re-frame.migration.reg-event-codemod PATH ...
 ```
 
-The codemod resolves its own dependencies (rewrite-clj) from Clojars on first run. The mechanical (Type A) cases:
+As written it scans: it reports every retired-registrar site and writes nothing. Put `--rewrite` before `PATH` for a dry run (print the findings, write nothing), and `--rewrite --write` to apply in place (flagged sites stay untouched). The first run fetches the codemod and rewrite-clj, printing one `Checking out: …` line on stderr. The sha is the one `reagent-migration`'s reporter pins; substitute a later pushed re-frame2 sha if you want one. The pinned corpus checkout ([`setup.md` §Pin the migration corpus](setup.md#pin-the-migration-corpus-before-reading-it)) is still where you read the rules; the codemod does not need it. The mechanical (Type A) cases:
 
 **`reg-event-fx` → `reg-event` — pure rename.** The handler is byte-for-byte unchanged.
 
