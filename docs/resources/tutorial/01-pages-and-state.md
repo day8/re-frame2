@@ -190,11 +190,10 @@ An optional map right after the tag carries attributes — `[:a {:href "/"} "hom
 
 (`rf/route-link` renders a link to another page; Step 4 builds the routes it points at.)
 
-Three things trip people up the first time:
+Three things to notice:
 
-- **`reg-view` defines and registers in one move.** It `def`s the symbol, which is why `[article-preview {...}]` works as plain hiccup. It also injects `dispatch` (the verb that fires an event) and `subscribe` as lexical bindings, which is why `home-page` calls `subscribe` without an `rf/` prefix.
-- **`@` reads the current value.** `@(subscribe [:articles/data])` gives you the value now and signs the view up to re-render when it changes. There are no dependency arrays to maintain: dereferencing the sub *is* the subscription. (Coming from React, it does the job of `useSelector` with automatic dependency tracking.)
-
+- **`reg-view` defines and registers in one move.** It `def`s the symbol, which is why `[article-preview {...}]` works as plain hiccup. It also injects `dispatch` and `subscribe`, as the setup page showed, which is why `home-page` calls `subscribe` without an `rf/` prefix.
+- **Dereferencing a sub is the subscription.** `@(subscribe [:articles/data])` gives you the value now and signs the view up to re-render when it changes, so there are no dependency arrays to maintain. (Coming from React, it does the job of `useSelector` with automatic dependency tracking.)
 - **`article-page` already reads the route.** `:rf.route/params` is an ordinary subscription yielding the current URL's captured params (here `{:slug "..."}`), and the page chains that into `:articles/by-slug`. The `if` handles a slug that matches the route pattern but names no article — a real URL someone can type.
 
 Two hiccup details the listing leans on:
@@ -350,24 +349,9 @@ It's the setup page's boot with one addition: `:url-bound? true`, which declares
 
 Only one frame may claim the URL. A second `:url-bound? true` frame doesn't throw: the first keeps the URL, the second's navigation effects do nothing, and the runtime reports `:rf.error/duplicate-url-binding` naming both frames.
 
-!!! note "An equivalent shape: `:initial-events`"
-
-    This boot seeds app-db with a `dispatch-sync` after `make-frame`, which keeps the seed visible. A frame can instead carry its setup as an ordered `:initial-events` vector, which `make-frame` runs synchronously before it returns:
-
-    ```clojure
-    (rf/make-frame {:id             :rf/default
-                    :doc            "The Conduit app frame."
-                    :url-bound?     true
-                    :initial-events [[:app/initialise]]})
-    ```
-
-    Mind the double brackets: the value is a vector *of* event vectors, so one step is `[[:app/initialise]]`. Passing a bare `[:app/initialise]` raises an error that names the fix. There's no `:db` config key — a frame always starts with `app-db = {}`, and seeding it is an event (the framework also ships `:rf/set-db` for "just set the whole map").
-
-    The two forms stop being equivalent when a boot event has to run before the frame resolves the *first URL*. A `:url-bound? true` frame does its first URL→route sync after every `:initial-events` step, but *before* a `dispatch-sync` written on the next line — so a boot that must be in place for the initial route (session restore, most obviously) belongs in `:initial-events` and nowhere else. [Part 3](03-auth-and-forms.md#wiring-it-at-boot) is where that bites, and this boot moves there.
-
 ## See it move
 
-With the dev build running, open the app and walk the loop you just built:
+With the dev build running, open the app and walk through what you just built:
 
 1. **Click an article.** The page changes and the address bar reads `/article/events-write-subs-read`. You wrote no URL-sync code; the URL follows the route state.
 2. **Press Back.** The feed returns: Back arrived as an event, the route slice changed, and your `case` picked the other page.

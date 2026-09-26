@@ -1,14 +1,10 @@
-# Part 2: real data — resources and the nine states
+# Part 2: real data — resources and their states
 
 In [Part 1](01-pages-and-state.md) the feed rendered from canned data that was born `:loaded` and never moved. Now the articles come from a real Conduit API: the feed *loads*, then is *loaded*, sometimes comes back *empty*, sometimes *fails*.
 
 By the end of this part the home page fetches the article list on entry, the article page fetches one article by slug, a second visit is a cache hit with no network, and every state the feed can be in has a branch you chose.
 
-The one sentence to carry through the part:
-
-**A server read is a [subscription](../../core/glossary.md#subscription) you read and a [cause](../glossary.md#owner--cause) you fire — the view never fetches.**
-
-The route *causes* the fetch, a subscription *reads* the result, and nothing in your view calls the network. [The model](../concepts.md) summarises the rules this part uses.
+**The takeaway: a server read is a [subscription](../../core/glossary.md#subscription) you read and a [cause](../glossary.md#owner--cause) you fire. The route causes the fetch; the view never calls the network.** [The model](../concepts.md) summarises the rules this part uses.
 
 ??? info "Coming from TanStack Query?"
 
@@ -69,24 +65,22 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
             [conduit.api :as api]))
 
 (rf/reg-resource :conduit/articles
-  {:params-schema  [:map [:page {:optional true} [:maybe :int]]]
+  {:params-schema  [:map]
    :scope          :rf.scope/global          ; nobody can sign in yet — Part 3 changes this
    :stale-after-ms 60000
-   :gc-after-ms    300000
    :tags           (fn [_params data]
                      (into #{[:article-list]}
                            (map (fn [a] [:article (:slug a)]) (:articles data))))}
-  (fn [{:keys [page]} _ctx]
+  (fn [_params _ctx]
     {:request {:method :get
                :url    (str api/api-base "/articles")
-               :params {:limit 10 :offset (* 10 (dec (or page 1)))}}
+               :params {:limit 10}}
      :decode  :json}))
 
 (rf/reg-resource :conduit/article
   {:params-schema  [:map [:slug :string]]
    :scope          :rf.scope/global
    :stale-after-ms 60000
-   :gc-after-ms    300000
    :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get
@@ -110,16 +104,14 @@ Put `:request` inside the metadata map instead and you get `:rf.error/resource-b
 
 Most of the config map is optional. Four keys carry the idea:
 
-- **`:params-schema`** is the read's *identity*. Everything that changes the server's answer belongs in params, because params are what the cache keys on: `:conduit/article` with `{:slug "hello"}` and with `{:slug "world"}` are two cache entries.
+- **`:params-schema`** is the read's *identity*. Everything that changes the server's answer belongs in params, because params are what the cache keys on: `:conduit/article` with `{:slug "hello"}` and with `{:slug "world"}` are two cache entries. The list takes no params, so its schema is an empty `[:map]`.
 - **`:scope`** says *who shares the answer*. `:rf.scope/global` means "the same for everyone", which is true while nobody can sign in. Once requests carry a token, Conduit's articles embed `favorited` and `following` flags relative to the reader, so [Part 3](03-auth-and-forms.md#whose-cache-is-it-scope-reads-by-viewer) moves both reads to a per-viewer [scope](../glossary.md#scope).
 - **`:stale-after-ms`** is the freshness window: fresh for a minute, then the next ensure refetches in the background. Leave it out and the read is **never stale by the clock** — it stays fresh until a write invalidates it or you refetch it by hand. (TanStack Query's `staleTime` defaults to `0`, the opposite.)
 - **`:tags`** name the *facts* the data contains. They do nothing yet; in Part 4 a write uses them to invalidate exactly the reads it broke.
 
-Refetching when the tab regains focus or the network comes back is configured on the frame, not the read — see [Owners, causes, refetch rules](../concepts.md#owners-causes-refetch-rules).
-
 ??? info "Coming from TanStack Query?"
 
-    Mapping these onto query keys and times: `:params-schema` is your `queryKey` — but typed, and validated against the schema. `:stale-after-ms` is your `staleTime`. `:gc-after-ms` is your `gcTime` / `cacheTime`. And `:poll-interval-ms` (below) is `refetchInterval`, but owner-driven — no component observer kicks it off.
+    `:params-schema` is your `queryKey`, but typed and validated against the schema. `:stale-after-ms` is your `staleTime`. Two keys from the list below map too: `:gc-after-ms` is `gcTime` (both default to five minutes), and `:poll-interval-ms` is `refetchInterval`, but driven by the entry's owners rather than a mounted component. Refetch on window focus or reconnect is off by default and is configured on the frame, not the read — see [Owners, causes, refetch rules](../concepts.md#owners-causes-refetch-rules).
 
 !!! note "Why is `:scope` required, with no default?"
 
@@ -193,11 +185,11 @@ Notice what you didn't write: a fetch call. No `http-get`, no `then`, no `dispat
 
     An [event](../../core/glossary.md#event) or a [state machine](../../machines/glossary.md#machine) can ensure a resource too — `[:rf.resource/ensure {:resource … :params … :owner … :cause …}]`. A route owner is released for you on route leave; an owner your event supplies needs a matching `[:rf.resource/release-owner {:owner …}]`, or the entry stays pinned. Route entries also accept `:scope`, `:when`, and `:id` / `:after` — see [Routes with several resources](../concepts.md#routes-can-declare-more-than-one-resource).
 
-## Step 4 — read the read, and handle every state it can be in
+## Step 4 — read the resource, and handle every state it can be in
 
 The view reads the data through the `:rf/resource` subscription. It takes a `{:resource … :params …}` query and returns one ready-to-render map: the data, plus whether it is loading, refreshing, failed or stale.
 
-Here's the rewritten home page, with the three small views it uses defined above it:
+Here's the rewritten home page, with the two small views it uses defined above it:
 
 ```clojure
 ;; src/conduit/articles.cljs  (views; the subs and seed are gone)
@@ -208,12 +200,8 @@ Here's the rewritten home page, with the three small views it uses defined above
   [:div.article-preview.error-messages
    "Couldn't load articles (" (name kind) (when status (str " " status)) ")."])
 
-(reg-view article-error [{:keys [kind status]}]
-  [:div.error-messages
-   "Couldn't load this article (" (name kind) (when status (str " " status)) ")."])
-
 (reg-view home-page []
-  (let [state    @(rf/subscribe [:rf/resource {:resource :conduit/articles :params {}}])
+  (let [state    @(subscribe [:rf/resource {:resource :conduit/articles :params {}}])
         articles (:articles (:data state))]
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"]]]
@@ -223,17 +211,9 @@ Here's the rewritten home page, with the three small views it uses defined above
         (and (:error state) (not (:has-data? state)))  [feed-error (:error state)]
         (empty? articles)                              [:div.article-preview "No articles are here… yet."]
         :else
-        [:<>
-         [:button.btn.btn-sm.btn-outline-secondary
-          {:on-click #(dispatch [:rf.resource/refetch {:resource :conduit/articles
-                                                       :params   {}
-                                                       :cause    [:manual :feed/refresh]}])}
-          "↻ Refresh"]
-         (when (:fetching? state)      [:div.feed-refreshing "Refreshing…"])
-         (when (:refresh-error state)  [:div.feed-refresh-error "Couldn't refresh — showing the last list."])
-         (for [article articles]
-           ^{:key (:slug article)}
-           [article-preview {:article article}])])]]))
+        (for [article articles]
+          ^{:key (:slug article)}
+          [article-preview {:article article}]))]]))
 ```
 
 Each branch of that `cond` handles one state the feed can be in.
@@ -274,9 +254,7 @@ Branch on the derived booleans — `:loading?`, `:fetching?`, `:has-data?` — r
 
 ### Failure: `:error` is for first-load only
 
-!!! warning "`:error` means first-load failure only"
-
-    A failed *background* refresh does not flip the resource to `:error`. It stays `:loaded` with its prior data and records the problem in `:refresh-error`, so users keep reading the last good content through a flaky network. The `:error` branch is for a first load that failed, when there is nothing to show.
+A failed *background* refresh does not flip the resource to `:error`. It stays `:loaded` with its prior data and records the problem in `:refresh-error`, so users keep reading the last good content through a flaky network. The `:error` branch is for a first load that failed, when there is nothing to show.
 
 Both error fields carry the same closed failure shape from [managed HTTP](../../async/http.md#failures-are-a-closed-set), so one view can render either. A first-load failure looks like:
 
@@ -299,16 +277,20 @@ and a background-refresh failure keeps the data and tucks the problem into `:ref
 
 `:kind` is one of a closed `:rf.http/*` set (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/transport`, `:rf.http/timeout`, `:rf.http/decode-failure`, …), so an error view branches on the kind of failure rather than parsing a string.
 
-A page has more render states than a cache entry does. One useful checklist names nine: *Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* The home page above covers the first five — Nothing (`:idle`), Loading, Empty, and One/Some — plus the error branch. Too Many is a pagination cap ([Paginate a feed](../how-to/paginate-a-feed.md)); Incorrect and Correct are form states (Part 3); Done is a domain state (Part 4). Deciding each one before you ship is what keeps blank screens out of production.
+A page has more render states than a cache entry does. One useful checklist names nine: *Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* The home page covers the first five — Nothing and Empty share the "No articles" line, and One and Some share the list — plus the error branch. The rest come later: Too Many is a pagination cap ([Paginate a feed](../how-to/paginate-a-feed.md)), Incorrect and Correct are form states (Part 3), and Done is the page after a successful write (Part 4). Deciding each one before you ship keeps blank screens out of production.
 
 ### The article page
 
-The article page is simpler. `:blocking? true` doesn't hold the page back — the route commits at once and the page renders while the first load is in flight — so it needs two branches, the error and the article, with the skeleton as the fallback:
+The article page is simpler. `:blocking? true` doesn't hold the page back — the route commits at once and the page renders while the first load is in flight — so it needs two branches, the error and the article, with the skeleton as the fallback. It gets its own error view:
 
 ```clojure
+(reg-view article-error [{:keys [kind status]}]
+  [:div.error-messages
+   "Couldn't load this article (" (name kind) (when status (str " " status)) ")."])
+
 (reg-view article-page []
   (let [{:keys [slug]} @(subscribe [:rf.route/params])
-        state          @(rf/subscribe [:rf/resource {:resource :conduit/article :params {:slug slug}}])
+        state          @(subscribe [:rf/resource {:resource :conduit/article :params {:slug slug}}])
         article        (:article (:data state))]
     (cond
       (and (:error state) (not (:has-data? state)))
@@ -323,7 +305,7 @@ The article page is simpler. `:blocking? true` doesn't hold the page back — th
       :else [feed-skeleton])))
 ```
 
-`article-preview` is Part 1's, unchanged. (A child view receives one props map, so `[feed-error (:error state)]` hands it the failure map itself.)
+`article-preview` is Part 1's, unchanged. A child view receives one props map, so `[article-error (:error state)]` hands it the failure map itself, and the view destructures `:kind` and `:status` straight out of it.
 
 !!! warning "Gotcha — the params must match exactly"
 
@@ -331,17 +313,24 @@ The article page is simpler. `:blocking? true` doesn't hold the page back — th
 
 ## Step 5 — refresh on demand
 
-The route causes the first fetch, and once `:stale-after-ms` has passed, the next ensure (a route entry, say) refreshes in the background; going stale fetches nothing by itself. For a user-triggered refresh — the "↻ Refresh" button on the home page — dispatch `:rf.resource/refetch` with the same identity and a `:cause`:
+The route causes the first fetch, and once `:stale-after-ms` has passed, the next ensure (a route entry, say) refreshes in the background; going stale fetches nothing by itself. For a user-triggered refresh, dispatch `:rf.resource/refetch` with the same identity and a `:cause`. Replace the home page's `:else` branch with a Refresh button above the list:
 
 ```clojure
-;; in an event handler, or straight from a button's on-click
-(rf/dispatch [:rf.resource/refetch
-              {:resource :conduit/articles
-               :params   {}
-               :cause    [:manual :feed/refresh]}])
+        :else
+        [:<>
+         [:button.btn.btn-sm.btn-outline-secondary
+          {:on-click #(dispatch [:rf.resource/refetch {:resource :conduit/articles
+                                                       :params   {}
+                                                       :cause    [:manual :feed/refresh]}])}
+          "↻ Refresh"]
+         (when (:fetching? state)      [:div.feed-refreshing "Refreshing…"])
+         (when (:refresh-error state)  [:div.feed-refresh-error "Couldn't refresh — showing the last list."])
+         (for [article articles]
+           ^{:key (:slug article)}
+           [article-preview {:article article}])]
 ```
 
-Because the prior data is still there, the entry goes to `:fetching` (not `:loading`), so the feed stays on screen and the "Refreshing…" hint appears. The `:cause` is trace metadata — it answers *why* in [Xray](../../core/glossary.md#xray) — and, unlike an `:owner`, it doesn't keep the entry alive.
+Because the prior data is still there, the entry goes to `:fetching` (not `:loading`), so the feed stays on screen and the "Refreshing…" line appears. If the refresh fails, the list stays too and `:refresh-error` shows the second line. The `:cause` is trace metadata — it answers *why* in [Xray](../../core/glossary.md#xray) — and, unlike an `:owner`, it doesn't keep the entry alive.
 
 ## See it move
 
@@ -353,4 +342,4 @@ With the dev build running and Xray open:
 4. **Refresh with the network off.** Switch dev tools to offline and click **↻ Refresh**. The refetch fails and the list stays put: the entry is still `:loaded`, `:refresh-error` holds the failure, and your "Couldn't refresh" line appears. Go back online.
 5. **Break a first load** (point `api-base` at a host that doesn't answer) **and reload.** The first load fails into the `:error` branch and your error view renders.
 
-It's still one loop: events write state, subs read it, views render it. The resource moved the fetch, cache and staleness bookkeeping into the runtime, behind the same subscription shape you learned in Part 1. The full model — scopes, owners and causes, polling, refetch rules — is in [the model](../concepts.md).
+The shape hasn't changed: events write state, subs read it, views render it. The resource moved the fetch, cache and staleness bookkeeping into the runtime, behind a subscription like the ones you wrote in Part 1. The full model — scopes, owners and causes, polling, refetch rules — is in [the model](../concepts.md).
