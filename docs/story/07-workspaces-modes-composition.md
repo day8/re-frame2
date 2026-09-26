@@ -55,7 +55,7 @@ parent story and `:doc`, its sections are:
 | Evidence | The beats of the last run, each with **Inspect in Xray**. |
 | Tags | The tags, as chips that toggle the sidebar's tag filter. |
 
-An "On this page" list beside the sections jumps between them. Select a story
+A Contents list beside the sections jumps between them. Select a story
 header in the sidebar, rather than a variant, and Docs mode shows every
 variant's sections one after another under the story's `:doc`.
 
@@ -120,11 +120,11 @@ Toolbar modes are saved args:
 ```
 
 Modes with the same `:axis` are mutually exclusive. Turning on dark turns off
-light. The active mode args sit in the args precedence chain below story and
-variant args:
+light. The active mode args sit in the args precedence chain above the story's
+args and below the variant's:
 
 ```text
-global < mode < story < variant < live control override
+global < story < mode < variant < live control override
 ```
 
 That gives you the Storybook globals gesture without hiding it in code. A mode
@@ -296,11 +296,15 @@ Xray's source links use it too.
 `:extends` specializes another variant:
 
 ```clojure
-(rf.story/reg-variant :story.login/error-after-filled-form
-  {:extends :story.login/filled
-   :script [[:dispatch-sync [:login/flow [:login/submit]]]]
-   :assertions [[:rf.assert/state-is :login/flow :error]]})
+(rf.story/reg-variant :story.login/retrying
+  {:extends    :story.login/error
+   :script     [[:dispatch [:login/flow [:login/retry {:email    "ada@example.com"
+                                                       :password "correct-horse"}]]]]
+   :assertions [[:rf.assert/state-is :login/flow :submitting-retry]]})
 ```
+
+The child starts from the error state its parent's setup reaches, keeps the
+parent's stubbed HTTP effect, and runs only its own script and assertions.
 
 The inheritance rule is:
 
@@ -311,7 +315,10 @@ That means:
 | Field | Rule |
 |---|---|
 | `:setup` | parent then child, appended in order. |
-| args, decorators, network, frame/world inputs | inherited with field-specific merge rules. |
+| args | deep-merged; the child's win. |
+| `:decorators` | the parent's, unless the child declares its own, which replace them. |
+| `:network` and the other world inputs | inherited. |
+| `:fx-overrides`, `:interceptor-overrides` | inherited; the child's own values win. |
 | `:checks` | inherited. |
 | `:script` | child-only. |
 | ordinary `:assertions` | child-only. |
@@ -326,10 +333,9 @@ variant from becoming a spooky action at a distance.
 Use a fragment for reusable setup/script/world context:
 
 ```clojure
-(rf.story/reg-fragment :fragment.login/filled-form
-  {:setup [[:login/flow
-            [:login/type {:email "ada@example.com"
-                          :password "correct-horse"}]]]})
+(rf.story/reg-fragment :fragment.login/submitted-wrong-password
+  {:setup [[:login/flow [:login/submit {:email    "ada@example.com"
+                                        :password "wrong"}]]]})
 ```
 
 Use a check for reusable expectations:
@@ -342,21 +348,30 @@ Use a check for reusable expectations:
 Compose them explicitly:
 
 ```clojure
-(rf.story/reg-variant :story.login/submits
-  {:compose [:fragment.login/filled-form
-             :check/no-runtime-warnings]
-   :script [[:dispatch-sync [:login/flow [:login/submit]]]]
-   :assertions [[:rf.assert/state-is :login/flow :authenticated]]})
+(rf.story/reg-variant :story.login/rejected
+  {:compose    [:fragment.login/submitted-wrong-password
+                :check/no-runtime-warnings]
+   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
+   :script     [[:dispatch [:login/flow [:login/failure {}]]]]
+   :assertions [[:rf.assert/state-is :login/flow :error]]})
 ```
 
-Fragments are intentionally flat. A fragment does not compose another fragment.
-That keeps composition easy to explain and keeps cycle detection from becoming
-the tutorial's least charming character.
+A fragment's setup and script come before the variant's own, in the order
+`:compose` lists them. A fragment's args are deep-merged in, and a check's
+assertions run with the variant's.
 
-When two composed fragments conflict on a strict field such as an effect
-override, the variant owns the decision by stating the wanted value. The closest
-authoring site wins; equal-distance disagreement is an error. If that sentence
-feels wonderfully boring, good. Merge rules should not be exciting.
+Fragments are intentionally flat. A fragment does not compose another fragment:
+a fragment body carrying `:compose` or `:extends` throws
+`:rf.error/fragment-shape`. That keeps composition easy to explain and keeps
+cycle detection from becoming the tutorial's least charming character.
+
+`:fx-overrides` and `:interceptor-overrides` are strict. A value the variant
+sets itself always wins. When two composed fragments set different values for
+the same effect or interceptor and the variant sets none, the variant cannot
+compile: `explain` throws `:rf.error/story-compose-conflict` and a run errors
+with it, naming the field and the key. The variant resolves it by stating the
+value it wants. If that feels wonderfully boring, good. Merge rules should not
+be exciting.
 
 ## Explain is the receipt
 

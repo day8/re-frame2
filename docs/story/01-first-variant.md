@@ -123,10 +123,11 @@ Later chapters also spell it `[:dispatch-sync [:rf.assert/...]]`, which sends
 the same assertion event down the plain dispatch rail and records the same row.
 
 `:args` supplies view inputs. A variant can override the parent story's args,
-and live Controls edits can override both. The precedence chain is:
+an active toolbar mode (chapter 7) sits between the two, and live Controls
+edits override all of them. The precedence chain is:
 
 ```text
-global < mode < story < variant < live control override
+global < story < mode < variant < live control override
 ```
 
 Most variants start with only `:setup` and `:script`; args become important when
@@ -210,7 +211,7 @@ The common assertions are:
 | `:rf.assert/path-equals` | checking a path in `app-db`. |
 | `:rf.assert/path-matches` | checking a path against a schema. |
 | `:rf.assert/sub-equals` | checking a real subscription value. |
-| `:rf.assert/dispatched?` | checking that a script dispatched an event. |
+| `:rf.assert/dispatched?` | checking that an event was dispatched during the run, in setup or script. |
 | `:rf.assert/state-is` | checking a registered machine's state. |
 | `:rf.assert/no-warnings` | checking the run emitted no warnings. |
 | `:rf.assert/effect-emitted` | checking that an effect id was emitted. |

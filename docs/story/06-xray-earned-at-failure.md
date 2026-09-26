@@ -116,9 +116,10 @@ test failure: the run is not just red, it is red with a retained causal record.
 For a login failure, Xray can show:
 
 - the `:login/flow` dispatches in order;
-- the machine snapshot under `[:rf.runtime/machines :snapshots :login/flow]` (in runtime-db);
-- the effect stub for `:rf.http/managed`;
-- the final error data in app-db;
+- the machine snapshot, which the App-db panel lists under
+  `:rf/machines › :login/flow` with its `:state` and `:data`;
+- the error message and attempt count in that `:data`;
+- the effect the stub took over for `:rf.http/managed`;
 - the assertion event that recorded the verdict.
 
 ## Evidence is not a fourth top-level mode
@@ -127,8 +128,9 @@ The Story shell has Canvas, Docs, and Tests. It does not have a fourth
 "Evidence" tab.
 
 The default workshop stays focused on states, examples, and tests. Evidence
-becomes primary when a run needs it: a failed assertion, an Inspect gesture, or
-a selected Xray panel brings it forward.
+becomes primary when a run needs it: a failed row's **open in Evidence →**,
+Test mode's link to the Evidence panel, or the Evidence panel in the right rail
+brings it forward.
 
 Story stays calm until the moment it must be specific. Debugging a red variant
 surfaces evidence without a hunt, and ordinary state review is never drowned out

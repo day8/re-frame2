@@ -271,16 +271,14 @@ Each share path states how reproducible it is:
 A screenshot is view-only. That is not a moral failure; it is a static image.
 The useful part is that the UI says so.
 
-Copy EDN can be fully reproducible when the current state can be expressed as a
-variant body. If live controls, transient frame state, or non-serializable
-values cannot be represented, the save/share path should warn rather than
-inventing a variant that only sort of means what you saw.
-
-When a row is less than fully reproducible, the dialog lists why under its
-label. The reasons are an override whose value is a function, which is
-view-only, or one that does not survive as EDN; a subscription override or
-network reply given as a function; a setup or script step carrying a function;
-and overrides the URL could not apply.
+Share URL and Copy EDN are fully reproducible when every input that drives the
+variant survives as EDN. When one does not, the row's label drops instead of
+pretending, and the dialog lists why under it. A Controls edit or subscription
+override whose value is a function makes the row view-only. A Controls edit
+whose value does not survive as EDN, a network reply given as a function, a
+setup or script step carrying a function, and overrides the URL could not
+apply each make it partially reproducible. The lowest reason wins, so the label
+never promises more than the recipient gets.
 
 ## Save current versus promote
 

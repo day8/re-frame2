@@ -96,9 +96,9 @@ cell's frame, not the grid's other frames. You can review states without
 accidentally testing a shared global app-db.
 
 A frame isolates state, not the page. Each cell's frame has its own app-db,
-event queue, subscription cache and epoch history (see
-[Spec 002 §What lives in a frame](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#what-lives-in-a-frame)),
-but every cell renders into the one page that hosts the shell. That page's
+event queue, subscription cache and epoch history, while every frame runs the
+same registered handlers ([What a frame is](../core/frames.md#what-a-frame-is)).
+Every cell also renders into the one page that hosts the shell. That page's
 stylesheets reach every cell, only one element on it can hold focus, and a
 modal that a view portals into `document.body` lands on the shared page,
 outside its cell. Text colour and font are reset at the cell boundary, so a
@@ -152,12 +152,18 @@ For ordinary args, Story derives controls from the view's schema where it can:
 
 | Schema shape | Control |
 |---|---|
-| boolean | toggle |
-| enum | select or segmented control |
-| bounded number | slider plus numeric input |
-| string | text input |
-| map | nested field editor |
-| vector | repeatable editor when the schema supports it |
+| `:boolean` | checkbox |
+| `[:enum ...]` | select |
+| `:int`, `:double` | number field |
+| `:string` | text field |
+| `:keyword` | text field, read back as a keyword |
+| `[:maybe X]` | the control for `X` |
+| `:map` | a group of fields, one per key |
+| `:vector`, `:set` | a list of fields, with rows to add and remove |
+| `:tuple` | one field per position |
+
+`:argtypes` picks a different control where the derived one is not right
+(chapter 1).
 
 The important rule is that Controls edits **inputs**, not arbitrary component
 internals. If you change `:heading`, you are changing an arg. If you pin a

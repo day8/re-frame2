@@ -1,37 +1,35 @@
 # Runtime
 
-This chapter is about the surfaces that bring a registered variant to life — the four-phase lifecycle that allocates a per-variant frame, runs the variant's setup events, renders against the post-setup `app-db`, and walks the play script; the programmatic entry points (`run-variant`, `reset-variant`, `watch-variant`, `destroy-variant!`) that callers reach for from custom shells, test fixtures, and one-shot screenshot pipelines; the registry-query family that tools build against; the boot-time `configure!` surface that sets project-wide defaults; and the CLJS-only shell-mount surface that wires Story's three-pane chrome into the host's DOM.
+This chapter is about the surfaces that bring a registered variant to life — the lifecycle that allocates a per-variant frame, runs its loaders and setup events, renders against the post-setup `app-db`, and walks the script; the programmatic entry points (`run-variant`, `reset-variant`, `watch-variant`, `destroy-variant!`) that callers reach for from custom shells, test fixtures, and one-shot screenshot pipelines; the registry-query family that tools build against; the boot-time `configure!` surface that sets project-wide defaults; and the CLJS-only shell-mount surface that wires Story's three-pane chrome into the host's DOM.
 
-The core of it is **one runtime, two consumer audiences**. *Story authors* run variants implicitly — the Story shell calls `run-variant` / `reset-variant` / `watch-variant` on the author's behalf as the user clicks through the sidebar. *Host applications and test fixtures* call the same fns directly when they want a one-shot render outside the chrome, a `cljs.test`-shaped assertion, or a snapshot-identity hash for visual-regression keying.
+The core of it is **one runtime, two consumer audiences**. *Story authors* run variants implicitly — the Story shell runs and resets them on the author's behalf as the user clicks through the sidebar and presses **Run all** or **Re-run**. *Host applications and test fixtures* call the same fns directly when they want a run outside the chrome, a `clojure.test` or `cljs.test` assertion, or a snapshot-identity hash for visual-regression keying.
 
 ## Per-variant frame allocation
 
-Every variant runs in its own frame. At variant mount the runtime calls `(rf/make-frame {:id variant-id :doc ... :app-db {} :substrate :reagent ...})`, records side-table metadata (view id, decorators, play script, tags, modes, substrates), and runs the four-phase lifecycle. At unmount the runtime calls `(rf/destroy-frame! variant-id)` — any state-machines the variant spawned receive their `:rf.machine/destroy` event as part of frame teardown.
-
-Hot-reload preserves the side-table; a re-registration of the same variant calls `reset-frame!` and re-runs the lifecycle.
+Every variant runs in its own frame, registered under the variant's id and carrying the variant's decorator stack. The frame stays allocated after a run until `destroy-variant!` tears it down; any state machines the variant spawned receive their `:rf.machine/destroy` event as part of that teardown. Running a variant again first resets its frame in place, so every run starts from a fresh `app-db` while a mounted view keeps its subscriptions.
 
 ### Coexistence with host application state
 
-Story installs runtime slots into every variant frame's `app-db` under the reserved `:rf.story/*` namespace:
+Story keeps runtime slots in every variant frame's `app-db` under the reserved `:rf.story/*` namespace:
 
-- `:rf.story/lifecycle` — discrete state of the four-phase lifecycle machine.
-- `:rf.story/loaders-complete?` — boolean signal read by the `:loaders-complete-when` predicate path.
-- `:rf.story/assertions` — vector of assertion records appended by `:rf.assert/*` handlers during phase 4.
+- `:rf.story/lifecycle` — a copy of the lifecycle machine's current state, for direct reading.
+- `:rf.story/loaders-complete?` — the flag a `:loaders-complete-when` event handler sets to say the loaders are done.
+- `:rf.story/assertions` — the vector of assertion records the `:rf.assert/*` handlers append during the run.
 
 A host application's `reg-event` handlers — and any other code path that writes `app-db` — MUST preserve the `:rf.story/*` namespace when seeding or resetting `db`. The hazard is the "replace-the-whole-db" idiom: a handler returning `{:db {...}}` built from scratch wipes the reserved slots and corrupts every Story variant that runs the event. Build the `:db` return by threading the incoming `db` through — `{:db (assoc db ...)}` or `{:db (merge db {...})}` — don't throw it away.
 
 ## The four-phase lifecycle
 
-For every variant mount, strict order, drain to completion between phases:
+For every run, in strict order, draining the frame's queue between steps. Before phase 1 the runtime resets the frame, applies the decorator stack's `:frame-setup` work and merges any `:db-seed` into `app-db`.
 
 | Phase | Trigger | Semantics |
 |---|---|---|
-| **1. Loaders** | Variant body's `:loaders` | For each event: `dispatch-sync` into the variant's frame, wait for drain to settle, evaluate `:loaders-complete-when` if provided. Long-lived fx (`:websocket`, `:interval`) are "complete" when the first message arrives; HTTP-flavoured fx is complete when the response event has been dispatch-synced. |
-| **2. Setup** | `(concat story-setup variant-setup)` | `dispatch-sync` the `:setup` events in order. Drain to completion between events. |
-| **3. Render** | View registered against post-setup `app-db` | The view renders with the effective args (five-layer precedence chain) and decorator stack (`(concat globals story variant)`) applied. |
-| **4. Script** | Variant body's `:script` | For each step: dispatch-sync, drain. `:rf.assert/*` records into `:assertions`; failures don't throw — they accumulate. See [Scripts](script.md). |
+| **1. Loaders** | Variant body's `:loaders` | Dispatch each event into the variant's frame and drain. The phase is complete when `:loaders-complete-when` holds: by default as soon as the queue drains; otherwise a registered event id whose handler sets `:rf.story/loaders-complete?`, a function of `app-db`, or a vector of events that must all have been dispatched. |
+| **2. Setup** | The plan's `:setup` | Dispatch the setup events in order — an `:extends` parent's first, then composed fragments', then the variant's own — draining between events. |
+| **3. Render** | The shell or `render-variant` | The view renders against the post-setup `app-db` with the effective args (the five-layer precedence chain) and the decorator stack (globals, then story, then variant). `run` and `run-variant` do not render. |
+| **4. Script** | The plan's scripts | Walk the steps in order. `:rf.assert/*` records accumulate in `:assertions`; failures don't throw. See [Scripts](script.md). |
 
-Phase 1 and 4 are async-safe; phases 2 and 3 are sync. Loader failure modes are deterministic — handler-throw, typed `:loader-rejection`, and never-complete-predicate all surface as recorded assertions on `:rf.story/assertions` and park the lifecycle machine at `:error` / `:loading`. The play sequence never runs in a failed-loader case; `(run-variant)` resolves with `assertions-passing?` false.
+A loader that throws, or a `:loaders-complete-when` that never holds, records a failing assertion and parks the lifecycle at `:loading`; a headless run then skips setup and the script, and the run does not pass.
 
 ## The execution verbs
 
@@ -49,15 +47,15 @@ A test namespace that runs variants needs a substrate adapter installed and `re-
 - **Description**: Run `target` and resolve with the unified run result. A keyword `target` is a registered variant; a map is an inline plan, a variant body that is compiled, run in a fresh anonymous frame and torn down, and never registered. On the JVM the promise is a `CompletableFuture`, so `@(run id)` blocks for the result; in CLJS it is a `js/Promise`. It never rejects: an unknown variant, a failed setup or a thrown handler resolves with `:status :error`.
 - **Options**:
 
-  | Key | Value |
-  |---|---|
-  | `:runner` | `:headless` (default), `:hiccup`, `:cljs-reactive`, `:dom` or `:browser` to fix the runner; `:auto` to take the cheapest one whose capabilities cover the plan. An unknown value falls back to `:headless`. |
-  | `:escalate` | `true` means the same as `:runner :auto`. |
-  | `:active-modes` | Mode ids whose args join the args chain, in order. |
-  | `:cell-overrides` | Arg overrides, as the Controls panel makes them. |
-  | `:substrate` | The substrate to render under. |
+    | Key | Value |
+    |---|---|
+    | `:runner` | `:headless` (default), `:hiccup`, `:cljs-reactive`, `:dom` or `:browser` to fix the runner; `:auto` to take the cheapest one whose capabilities cover the plan. An unknown value falls back to `:headless`. |
+    | `:escalate` | `true` means the same as `:runner :auto`. |
+    | `:active-modes` | Mode ids whose args join the args chain, in order. |
+    | `:cell-overrides` | Arg overrides, as the Controls panel makes them. |
+    | `:substrate` | The substrate to render under. |
 
-  `run` executes the plays that run on mount: a `:script` unless it sets `:auto-run? false`, and the first of `:plays` plus any other play that sets `:auto-run? true`.
+    `run` executes the plays that run on mount: a `:script` unless it sets `:auto-run? false`, and the first of `:plays` plus any other play that sets `:auto-run? true`.
 
 ### `is`
 
@@ -111,35 +109,27 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
 
 - **Signature**:
   ```clojure
-  (run-variant variant-id) → result-map
-  (run-variant variant-id opts) → result-map
+  (run-variant variant-id) → promise
+  (run-variant variant-id opts) → promise
   ```
-- **Description**: Materialise the variant — allocate the frame, run the four-phase lifecycle, return the result map. One-shot; no live updates. The result carries `:frame` / `:app-db` / `:assertions` / `:elapsed-ms` / `:snapshot` / `:decorators`. Rendering is `render-variant`'s — `run-variant` produces no rendered output.
+- **Description**: Allocate the variant's frame, run the lifecycle, and resolve with the unified run result, the same shape `run` resolves with. On the JVM the promise is a `CompletableFuture`; in CLJS a `js/Promise`. The frame stays allocated afterwards, so `read-assertions` and `lifecycle-state` can inspect it. Rendering is `render-variant`'s — `run-variant` produces no rendered output.
 
 ### `reset-variant`
 
 - **Signature**:
   ```clojure
-  (reset-variant variant-id) → nil
+  (reset-variant variant-id) → promise
+  (reset-variant variant-id opts) → promise
   ```
-- **Description**: Reset the variant's frame to its post-events baseline. The Story shell calls this when the user clicks "reset" on a variant.
+- **Description**: Tear the variant's frame down and run it again from its declared start, resolving as `run-variant` does. The Story shell calls this when the user resets a variant.
 
 ### `watch-variant`
 
 - **Signature**:
   ```clojure
-  (watch-variant variant-id) → live-result-map
-  (watch-variant variant-id callback)
+  (watch-variant variant-id callback) → unsubscribe-fn
   ```
-- **Description**: Like `run-variant` but the result map updates live as `app-db` changes. Use for live shells; use `run-variant` for one-shot screenshots.
-
-### `unwatch-variant`
-
-- **Signature**:
-  ```clojure
-  (unwatch-variant variant-id) → nil
-  ```
-- **Description**: Stop the live update channel for `variant-id`. Idempotent.
+- **Description**: Call `callback` on every lifecycle transition of the variant's frame, with `{:frame-id <id> :from <state> :to <state> :event <event>}`. Returns a zero-argument function that unsubscribes.
 
 ### `destroy-variant!`
 
@@ -157,25 +147,15 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   ```
 - **Description**: The current state of the variant's lifecycle machine — one of `:pre-mount` / `:mounting` / `:loading` / `:ready` / `:error`. Returns `:pre-mount` when the variant has not been run yet.
 
-The `opts` map for `run-variant` accepts:
+The `opts` map for `run-variant` and `reset-variant` accepts:
 
 ```clojure
 {:active-modes    [:Mode.app/dark-large]   ;; coll of mode ids, deep-merged into args
  :cell-overrides  {:label "Override"}      ;; controls-panel-shaped runtime overrides
- :substrate       :reagent                 ;; / :uix
- :assertions      <hook>}                  ;; assertions hook (re-frame.story.assertions)
+ :substrate       :reagent}                ;; / :uix
 ```
 
-The result map shape:
-
-```clojure
-{:frame           :story.counter/at-five
- :app-db          {...}
- :assertions      [{:assertion :rf.assert/path-equals :passed? true ...} ...]
- :elapsed-ms      12
- :snapshot        {:variant-id :story.counter/at-five :content-hash "..."}
- :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]}}
-```
+The result carries `:status`, `:variant/id`, `:frame`, `:lifecycle`, `:runner`, `:required-runner`, `:assertions`, `:checks`, `:schema-violations`, `:consumed-selectors`, `:warnings`, `:app-db`, `:effects`, `:effective-args`, `:decorators`, `:images`, `:sub-runs`, `:renders`, `:epoch-tape`, `:narrative`, `:snapshot`, `:plan-hash`, `:run-hash` and `:elapsed-ms`. The [tutorial's chapter 4](../04-the-variant-is-a-test.md) shows one.
 
 ## Args + decorator resolution
 
@@ -195,7 +175,7 @@ The result map shape:
   (resolve-decorators variant-id) → map
   (resolve-decorators variant-id opts) → map
   ```
-- **Description**: Return the variant's resolved decorator stack classified by kind: `{:hiccup [...] :frame-setup [...] :fx-override [...] :errors [...]}`. Composition order: `(concat globals story variant)`.
+- **Description**: Return the variant's resolved decorator stack classified by kind: `{:hiccup [...] :frame-setup [...] :fx-override [...] :errors [...] :fingerprints {...}}`. Each entry carries the reference's `:id`, `:args` and the registered `:body`; `:errors` lists references that did not resolve. Composition order: `(concat globals story variant)`.
 
 ### `variant-frames`
 
@@ -222,16 +202,17 @@ The result map shape:
   (snapshot-identity variant-id) → map
   (snapshot-identity variant-id opts) → map
   ```
-- **Description**: The variant's snapshot identity — the variant id plus a content-hash over its setup (args, events, modes, substrate). Returns `{:variant-id ... :content-hash "..."}`. Used by visual-regression keying + the Story recorder to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `project-egress`.
+- **Description**: The variant's snapshot identity — the variant id plus a content hash over the canonicalised variant, its resolved args, decorators, loaders, substrate and active modes. Returns `{:variant-id ... :active-modes [...] :substrate ... :content-hash "<8 hex digits>"}`. `opts` takes `:active-modes`, `:cell-overrides` and `:substrate`. Used by visual-regression keying ([chapter 8](../08-snapshot-identity-and-sharing.md#local-visual-review)) to identify what the user is looking at without leaking the variant's args. The hash computes over real values (pre-substitution); downstream emission goes through `project-egress`.
 
 ### `variant-share-url`
 
 - **Signature**:
   ```clojure
   (variant-share-url variant-id) → string
+  (variant-share-url variant-id opts) → string
   (variant-share-url variant-id base-url opts) → string
   ```
-- **Description**: Build a sharable URL for `variant-id` against `base-url`. Encodes active modes + cell-overrides + substrate so a paste-and-open session reproduces the cell. The chrome's `url-state` pushState wiring keeps the browser's address bar in lockstep with this encoder so Cmd-L Cmd-C copies the same URL the builder produces. Pure data → data; JVM + CLJS portable.
+- **Description**: Build a sharable URL for `variant-id`. `opts` takes `:active-modes`, `:cell-overrides` and `:substrate`, so a paste-and-open session reproduces the cell. The one- and two-argument forms return the query string alone, as `variant=story.login-form%2Fidle`; the three-argument form prefixes `base-url`, as `http://localhost:8043/?variant=story.login-form%2Fidle`. The chrome's `url-state` pushState wiring keeps the browser's address bar in lockstep with this encoder so Cmd-L Cmd-C copies the same URL the builder produces. Pure data → data; JVM + CLJS portable.
 
 ## Assertion-side accessors
 
@@ -247,9 +228,9 @@ The result map shape:
 
 - **Signature**:
   ```clojure
-  (assertions-passing? result) → bool
+  (assertions-passing? result-or-assertions) → bool
   ```
-- **Description**: Project over a `run-variant` result map (or a raw assertions vector) — true iff every record is `:passed? true`. The single primitive a `cljs.test`-style adapter calls.
+- **Description**: Given a run result, true iff the run's `:status` is `:pass`, so a `:cannot-run` run or a schema-floor `:fail` is false even when every assertion record passed. Given a bare assertions vector, such as `read-assertions` returns, true iff every record has `:passed? true`; an empty vector passes.
 
 ### `canonical-assertion-ids`
 
@@ -257,7 +238,7 @@ The result map shape:
   ```clojure
   (canonical-assertion-ids) → set
   ```
-- **Description**: The seven canonical `:rf.assert/*` event-ids as a set, for tooling that enumerates the assertion vocabulary.
+- **Description**: The eight canonical `:rf.assert/*` ids as a set: the seven dispatched assertion events plus `:rf.assert/schema-error`. `known-assertion-ids` adds the DOM, a11y, visual and reactive-count ids the plan compiler also accepts.
 
 ## Registry queries
 
@@ -269,7 +250,7 @@ The query family Story exposes for its own chrome, the MCP jar, and any tooling 
   ```clojure
   (registrations kind)
   ```
-- **Description**: All registrations for `kind` (Story kinds: `:story`, `:variant`, `:workspace`, `:story-panel`, `:tag`, `:mode`, `:decorator`).
+- **Description**: All registrations for `kind`, as a map from id to body (Story kinds: `:story`, `:variant`, `:workspace`, `:fragment`, `:check`, `:story-panel`, `:tag`, `:mode`, `:decorator`).
 
 ### `handler-meta`
 
@@ -325,7 +306,7 @@ The query family Story exposes for its own chrome, the MCP jar, and any tooling 
   ```clojure
   (variants-with-tags tag-set)
   ```
-- **Description**: Variant ids whose `:tags` intersect the filter set.
+- **Description**: The set of variant ids whose effective tags — inherited from a story or `:extends` parent, less any `:!tag` removals — intersect `tag-set`.
 
 ### `list-tags`
 
@@ -350,66 +331,52 @@ The query family Story exposes for its own chrome, the MCP jar, and any tooling 
 
 ### `canonical-axes`
 
-- **Kind**: Var
-- **Description**: The four canonical axes (audience / lifecycle / quality / status).
+- **Kind**: Var (map)
+- **Description**: The five canonical tag axes, each mapped to `{:user-extensible? bool}` and, for the three with a recommended vocabulary, `:values`: `:status` (`#{:alpha :beta :stable :deprecated}`), `:role` (`#{:design :dev :product}`), `:state` (`#{:empty :small :medium :large :special}`), and the open `:team` and `:feature`.
 
 ### `canonical-status-values`
 
-- **Kind**: Var
-- **Description**: The status-axis tag values.
+- **Kind**: Var (set)
+- **Description**: The recommended `:status` values, `#{:alpha :beta :stable :deprecated}`.
 
 ### `canonical-role-values`
 
-- **Kind**: Var
-- **Description**: The role-axis tag values.
+- **Kind**: Var (set)
+- **Description**: The recommended `:role` values, `#{:design :dev :product}`.
 
 ### `tags-by-axis`
 
 - **Signature**:
   ```clojure
-  (tags-by-axis)
+  (tags-by-axis axis) → set
   ```
-- **Description**: Map from axis → tag-ids registered against it.
+- **Description**: The registered tag ids whose `:axis` is `axis`, such as `:status`; the empty set when none is.
 
 ### `tags-without-axis`
 
 - **Signature**:
   ```clojure
-  (tags-without-axis)
+  (tags-without-axis) → set
   ```
-- **Description**: Tags not registered against any axis (project tags).
+- **Description**: The registered tag ids that declare no `:axis`. The sidebar's tag filter shows them in its OTHER row.
 
 ### `tags-default-excluded`
 
 - **Signature**:
   ```clojure
-  (tags-default-excluded)
+  (tags-default-excluded) → set
   ```
-- **Description**: Tags the sidebar tag-filter excludes by default.
+- **Description**: The registered tag ids whose body sets `:default-filter :exclude`.
 
 ### `tag->axis-index`
 
 - **Signature**:
   ```clojure
-  (tag->axis-index)
+  (tag->axis-index) → map
   ```
-- **Description**: Map from tag-id → axis.
+- **Description**: Map from every registered tag id to its axis; a tag with no axis maps to `:re-frame.story.registrar/no-axis`.
 
-### `registered-substrates`
-
-- **Signature**:
-  ```clojure
-  (registered-substrates)
-  ```
-- **Description**: CLJS-only. The substrate set as registered via `register-substrate!`.
-
-### `variant-substrates`
-
-- **Signature**:
-  ```clojure
-  (variant-substrates variant-id)
-  ```
-- **Description**: The substrate set for a specific variant.
+`registered-substrates`, the substrate set, sits with `register-substrate!` under [Substrate registration](#substrate-registration-cljs-only).
 
 ## `configure!`
 
@@ -440,7 +407,7 @@ The full v1 key surface:
    :rf.story/editor :cursor    ;; / :vscode (default) / :idea / {:custom <tpl>}
 
    ;; On-disk root — prepended to classpath-relative source-coord :file slots
-   :rf.story/project-root "C:/Users/me/code/my-app"
+   :rf.story/project-root "/path/to/my-app"
 
    ;; On-box dev-UI egress profile — the per-(tool, frame) privacy boundary
    :rf.story/egress-profile :rf.egress/local-redacted})
@@ -449,7 +416,7 @@ The full v1 key surface:
 Two key behaviours are worth pinning:
 
 - **`:rf.story/project-root` bridges into Xray**. When set, Story propagates the value into Xray's own `:rf.xray/project-root` slot via `re-frame.story.xray-preset/propagate-project-root!` so the Xray-as-RHS source-coord chips share the same on-disk root. The bridge is one-way; hosts that want Xray pointed at a different root call `xray-config/configure!` directly AFTER `rf.story/configure!`.
-- **`:rf.story/egress-profile` is Story's on-box visibility boundary**. On-box visibility is a **named boundary profile per (tool, frame)** — there is no process-global on/off privacy toggle (see [EP-0015](../../EP/EP-0015-frame-owned-egress-policy.md)). The value is one of the six closed `:rf.egress/*` profiles; in practice the two on-box members: `:rf.egress/local-redacted` (the default — suppress sensitive display, fail-closed) or `:rf.egress/local-raw` (the trusted-local opt-in — show path-marked-sensitive values verbatim on your own machine). Every value-bearing Story surface (the recorder, the per-variant trace-buffer listener, the play-assertion listeners) projects through the centralized `re-frame.core/project-egress` walker under this profile. Lifting to `:rf.egress/local-raw` is an operator act and is itself trace-visible (auditable); narrowing back to the redacting default retroactively scrubs the per-variant buffers. An unknown profile raises `:rf.error/unknown-egress-profile`; `nil` resets to the redacting default.
+- **`:rf.story/egress-profile` is Story's on-box visibility boundary**. On-box visibility is a **named boundary profile per (tool, frame)** — there is no process-global on/off privacy toggle (see [EP-0015](../../EP/EP-0015-frame-owned-egress-policy.md)). The value is one of the six closed `:rf.egress/*` profiles; in practice the two on-box members: `:rf.egress/local-redacted` (the default — suppress sensitive display, fail-closed) or `:rf.egress/local-raw` (the trusted-local opt-in — show path-marked-sensitive values verbatim on your own machine). Every value-bearing Story surface (the recorder, the per-variant trace-buffer listener, the play-assertion listeners) projects through the centralized `re-frame.core/project-egress` walker under this profile, and shows a `[● REDACTED]` hint where it redacts. An unknown profile raises `:rf.error/unknown-egress-profile`; `nil` resets to the redacting default.
 
 ## Substrate registration (CLJS-only)
 
@@ -459,7 +426,7 @@ Two key behaviours are worth pinning:
   ```clojure
   (register-substrate! substrate-id render-fn) → nil
   ```
-- **Description**: Register a substrate render fn under `substrate-id`. The host calls this once at boot for each substrate it wants Story to render against (`:uix`, etc.). The `:reagent` substrate is registered automatically by the canonical-vocabulary auto-install.
+- **Description**: Register a substrate render fn under `substrate-id`. `render-fn` takes `(variant-id view-id args)` and returns a hiccup vector (Reagent) or a React element (UIx). The host calls this once at boot for each substrate it wants Story to render against (`:uix`, etc.). The `:reagent` substrate is registered automatically by the canonical-vocabulary auto-install.
 
 ### `registered-substrates` (substrate registration)
 
@@ -508,29 +475,14 @@ The three-pane Reagent component that constitutes Story's UI. The host calls `mo
   ```
 - **Description**: True iff Story is running in static-export mode (the bundle was built with `:closure-defines {re-frame.story.config/static-mode? true}`). The shell itself flips its dev-time affordances (hot-reload poll, first-visit help overlay auto-open) off when the flag is true. Surfaced here for tooling / examples that want to render a "this is a published static site" badge.
 
-## Stage marker
+## Coeffects registered by Story
 
-### `stage`
-
-- **Kind**: Var
-- **Description**: The current Story development stage marker. Surfaced for tools that gate behaviour on Story's advertised maturity tier.
-
-## Effects and coeffects registered by Story
-
-Phase 4's `:dispatch` rail emits these fx; the chrome's control widgets and toolbar consume them.
-
-| Fx id | Payload | Notes |
-|---|---|---|
-| `:story/set-arg` | `{:variant <id> :key <k> :value <v>}` | Dispatched by control widgets when args change. Drives Layer 5 (cell-override) of the precedence chain. |
-| `:story/run-play` | `{:variant <id>}` | Run the play sequence (the play-stepper "Run" affordance). |
-| `:story/reset` | `{:variant <id>}` | Reset variant to post-events baseline. |
-| `:story/save-layout-as` | `{:workspace <id> :body <transit>}` | Persist the active layout as a registered workspace. |
+An event handler can read the toolbar's state through two coeffects, declared under `:rf.cofx/requires`. The same two ids are registered as subscriptions, for a view.
 
 | Cofx id | Shape | Notes |
 |---|---|---|
-| `:story/active-modes` | `[<mode-id> ...]` | The chrome-toolbar's active mode-set. Cofx-injected into Layer 3 of the precedence chain. |
-| `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. |
-| `:story/substrate` | `:reagent` / `:uix` | The active substrate. |
+| `:story/active-modes` | `[<mode-id> ...]` | The toolbar's active modes. |
+| `:story/active-args` | `{<arg-key> <value>}` | The deep-merge of the active modes' `:args`, the mode layer of the precedence chain. |
 
 ## See also
 

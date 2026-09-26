@@ -115,10 +115,11 @@ of them from the variant's setup, and offers **Run all**. A variant declares
 A bare event vector in a `:script` or `:setup` is read as `[:dispatch event]`.
 That shorthand has a sharp edge: a misspelt step tag, such as `[:asert …]`, is
 dispatched as an event, and the run errors because no handler is registered
-for it. A step that is well-formed but has the wrong number of arguments fails
-as a malformed step. `:setup` accepts only dispatches: an `[:assert …]` there
-errors with `:rf.error/story-assert-in-setup`, and a DOM or wait step with
-`:rf.error/story-setup-step-unrunnable`.
+for it. A known tag with the wrong arguments, such as `[:assert-dom sel]`,
+errors the run with `:rf.error/story-bad-step` before any step runs. `:setup`
+accepts only dispatches: an `[:assert …]` there errors with
+`:rf.error/story-assert-in-setup`, and a DOM or wait step there errors the run
+too, so move it to `:script`.
 
 The [Scripts reference](api/script.md) has the full grammar.
 
@@ -224,7 +225,10 @@ A fixed sleep is usually a little bug farm:
 ```
 
 It may pass on your laptop and fail on CI, because time passed is not the same
-thing as the app being ready.
+thing as the app being ready. `rf.story/run` and `rf.story/is` still honour it,
+but `rf.story/assert-deterministic`, which replays a program in fresh frames to
+check it runs the same way every time, refuses a program with a `[:wait ms]` as
+`:cannot-run`.
 
 Prefer a condition. Settle on the event queue draining, then assert the
 machine state through `:rf.assert/state-is` (the machine snapshot lives in
@@ -236,8 +240,10 @@ the drain and assert the state directly):
 [:assert [:rf.assert/state-is :login/flow :authenticated]]
 ```
 
-The runner waits for the dispatch to settle to a fixed point and times out with
-a readable reason. That is much better than "maybe 300ms was enough today."
+The runner checks the condition once the preceding dispatch has settled. A
+condition that never holds fails the step with a reason naming it, such as
+`wait-until [:db [:form :ready?] true] never became true`, instead of hanging.
+That is much better than "maybe 300ms was enough today."
 
 ## Privacy at the recorder boundary
 

@@ -2,7 +2,7 @@
 
 The complete symbol table for Story's public surface, organised by namespace and section for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
 
-Surfaces fall into the facade plus seven sub-namespaces. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset, not from authored story bodies.
+Surfaces fall into the facade plus the sub-namespaces listed after it. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset, not from authored story bodies.
 
 For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Scripts](script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
 
@@ -19,7 +19,7 @@ The canonical facade. Every user-callable surface lives here.
 | `reg-workspace` | `(reg-workspace id metadata)` | Register a workspace — a curated grid of variants. |
 | `reg-decorator` | `(reg-decorator id metadata)` | Register a decorator. Three kinds: `:hiccup` / `:frame-setup` / `:fx-override`. |
 | `reg-story-panel` | `(reg-story-panel id metadata)` | Register a custom panel in the Story chrome. Five placement slots. |
-| `reg-tag` | `(reg-tag id metadata)` | Register a tag. The seven canonical tags auto-install. |
+| `reg-tag` | `(reg-tag id metadata)` | Register a tag. The seven canonical tags and the five `:state/*` tags auto-install. |
 | `reg-mode` | `(reg-mode id metadata)` | Register a mode — a saved tuple of args the chrome toggles into. |
 | `reg-fragment` | `(reg-fragment id metadata)` | Register a fragment — reusable setup, script and world context for `:compose`. |
 | `reg-check` | `(reg-check id metadata)` | Register a check — a named pack of assertions, inherited through `:extends`. |
@@ -124,46 +124,44 @@ The canonical facade. Every user-callable surface lives here.
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `run-variant` | `(run-variant variant-id)` / `(run-variant variant-id opts)` → map | Materialise the variant — run four-phase lifecycle, return result map. |
-| `reset-variant` | `(reset-variant variant-id)` | Reset the variant to its post-events baseline. |
-| `watch-variant` | `(watch-variant variant-id)` / `(watch-variant variant-id callback)` | Live-updating result map. |
-| `unwatch-variant` | `(unwatch-variant variant-id)` | Stop the live update channel. Idempotent. |
+| `run-variant` | `(run-variant variant-id)` / `(run-variant variant-id opts)` → promise | Allocate the variant's frame, run the lifecycle, and resolve with the unified run result. The frame stays allocated. |
+| `reset-variant` | `(reset-variant variant-id)` / `(reset-variant variant-id opts)` → promise | Tear the frame down and run the variant again from its declared start. |
+| `watch-variant` | `(watch-variant variant-id callback)` → unsubscribe-fn | Call `callback` with `{:frame-id :from :to :event}` on every lifecycle transition. |
 | `destroy-variant!` | `(destroy-variant! variant-id)` | Tear down the variant's frame. Symmetric with allocation. |
-| `lifecycle-state` | `(lifecycle-state variant-id)` → keyword | Current lifecycle-machine state. |
+| `lifecycle-state` | `(lifecycle-state variant-id)` → keyword | Current lifecycle-machine state: `:pre-mount`, `:mounting`, `:loading`, `:ready` or `:error`. |
 | `variant-frames` | `(variant-frames)` → set | Set of variant-ids currently allocated as frames. |
-| `variant-frame?` | `(variant-frame? variant-id)` → bool | Predicate. |
+| `variant-frame?` | `(variant-frame? frame-id)` → bool | Predicate. |
 | `resolve-args` | `(resolve-args variant-id)` / `(resolve-args variant-id opts)` → map | The effective args map (five-layer precedence). |
-| `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` → map | The resolved decorator stack classified by kind. |
-| `variants-of` | `(variants-of story-id)` → seq | Variant ids whose namespaced id-prefix matches `story-id`. |
-| `variants-by-story` | `(variants-by-story)` → map | Map from parent-story-id to variant ids. |
-| `variants-with-tags` | `(variants-with-tags tag-set)` → seq | Filter the catalogue by tag intersection. |
-| `variant-substrates` | `(variant-substrates variant-id)` → set | The substrate set for a specific variant. |
+| `resolve-decorators` | `(resolve-decorators variant-id)` / `(resolve-decorators variant-id opts)` → map | The resolved decorator stack classified by kind, with `:errors` and `:fingerprints`. |
+| `variants-of` | `(variants-of story-id)` → set | Variant ids whose namespaced id-prefix matches `story-id`. |
+| `variants-by-story` | `(variants-by-story)` → map | Map from parent-story-id to the set of its variant ids. |
+| `variants-with-tags` | `(variants-with-tags tag-set)` → set | Variant ids whose effective tags intersect `tag-set`. |
 | `variant->edn` | `(variant->edn variant-id)` → map | Variant body as serialisable EDN. |
 | `workspace->edn` | `(workspace->edn workspace-id)` → map | Workspace body as serialisable EDN. |
-| `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` → map | `{:variant-id ... :content-hash "..."}`. Variant identity for visual-regression keying + the Story recorder. |
-| `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id base-url opts)` → string | Sharable URL — encodes active modes + cell-overrides + substrate. |
+| `snapshot-identity` | `(snapshot-identity variant-id)` / `(snapshot-identity variant-id opts)` → map | `{:variant-id ... :active-modes [...] :substrate ... :content-hash "<8 hex>"}`. Variant identity for visual-regression keying. |
+| `variant-share-url` | `(variant-share-url variant-id)` / `(variant-share-url variant-id opts)` / `(variant-share-url variant-id base-url opts)` → string | Sharable URL — encodes active modes, cell-overrides and substrate. Without `base-url`, the query string alone. |
 | `static-mode?` | `(static-mode?)` → bool | True iff Story is running in static-export mode. |
 
 ### Registry queries
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `registrations` | `(registrations kind)` → seq | All registrations for `kind`. |
+| `registrations` | `(registrations kind)` → map | All registrations for `kind`, id to body. |
 | `handler-meta` | `(handler-meta kind id)` → any | Registered body for `id`. |
-| `ids` | `(ids kind)` → seq | All registered ids of `kind`. |
+| `ids` | `(ids kind)` → set | All registered ids of `kind`. |
 | `registered?` | `(registered? kind id)` → bool | Predicate. |
 | `all-kinds-with-counts` | `(all-kinds-with-counts)` → map | Map from each kind → registration count. |
-| `list-tags` | `(list-tags)` → seq | All registered tags. |
-| `list-modes` | `(list-modes)` → seq | All registered modes. |
+| `list-tags` | `(list-tags)` → set | All registered tag ids. |
+| `list-modes` | `(list-modes)` → set | All registered mode ids. |
 | `canonical-tags` | Var (set) | The seven canonical tags. |
-| `canonical-axes` | Var | The four canonical axes (audience / lifecycle / quality / status). |
-| `canonical-status-values` | Var | Status-axis tag values. |
-| `canonical-role-values` | Var | Role-axis tag values. |
-| `canonical-state-values` | Var | State-axis values: `#{:empty :small :medium :large :special}`. |
-| `canonical-state-tags` | Var | The five `:state/*` tags registered at boot. |
-| `tags-by-axis` | `(tags-by-axis)` → map | Tags keyed by axis. |
-| `tags-without-axis` | `(tags-without-axis)` → seq | Tags not registered against any axis. |
-| `tags-default-excluded` | `(tags-default-excluded)` → set | Sidebar tag-filter default exclusions. |
+| `canonical-axes` | Var (map) | The five canonical tag axes, `:status`, `:role`, `:state`, `:team` and `:feature`, each with `:user-extensible?` and, for the first three, `:values`. |
+| `canonical-status-values` | Var (set) | `#{:alpha :beta :stable :deprecated}`. |
+| `canonical-role-values` | Var (set) | `#{:design :dev :product}`. |
+| `canonical-state-values` | Var (set) | State-axis values: `#{:empty :small :medium :large :special}`. |
+| `canonical-state-tags` | Var (set) | The five `:state/*` tags registered at boot. |
+| `tags-by-axis` | `(tags-by-axis axis)` → set | Registered tag ids whose `:axis` is `axis`. |
+| `tags-without-axis` | `(tags-without-axis)` → set | Registered tag ids that declare no `:axis`. |
+| `tags-default-excluded` | `(tags-default-excluded)` → set | Registered tag ids whose body sets `:default-filter :exclude`. |
 | `tag->axis-index` | `(tag->axis-index)` → map | Map from tag-id → axis. |
 | `registered-substrates` | `(registered-substrates)` → set | Registered substrate ids (CLJS-only). |
 
@@ -172,17 +170,17 @@ The canonical facade. Every user-callable surface lives here.
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
 | `read-assertions` | `(read-assertions variant-id)` → vec | Current `:rf.story/assertions` vector. |
-| `assertions-passing?` | `(assertions-passing? result)` → bool | Project assertions vector → single boolean. |
-| `canonical-assertion-ids` | `(canonical-assertion-ids)` → set | The seven canonical `:rf.assert/*` event-ids. |
+| `assertions-passing?` | `(assertions-passing? result-or-assertions)` → bool | For a run result, whether its verdict is `:pass`; for an assertions vector, whether every record passed. |
+| `canonical-assertion-ids` | `(canonical-assertion-ids)` → set | The eight canonical `:rf.assert/*` ids: the seven assertion events plus `:rf.assert/schema-error`. |
 | `known-assertion-ids` | `(known-assertion-ids)` → set | Every assertion id a plan accepts, including the DOM, browser and causal ids. |
 
 ### Recorder
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `start-recording!` | `(start-recording! variant-id)` | Begin capturing canvas-dispatched events. |
-| `stop-recording!` | `(stop-recording!)` → vec | Stop + return captured events. |
-| `clear-recording!` | `(clear-recording!)` | Drop the buffer + return to idle. |
+| `start-recording!` | `(start-recording! variant-id)` → map | Begin capturing canvas-dispatched events; returns the recorder state. |
+| `stop-recording!` | `(stop-recording!)` → map | Stop; returns the recorder state, with the captured `:events`. |
+| `clear-recording!` | `(clear-recording!)` → map | Drop the buffer + return to idle; returns the idle state. |
 | `recording?` | `(recording?)` → bool | Predicate. |
 | `recorder-state` | `(recorder-state)` → map | Read-only view of recorder state. |
 | `gen-play-snippet` | `(gen-play-snippet events opts)` → string | Render captured events as a `(reg-variant ...)` EDN snippet. |
@@ -213,21 +211,15 @@ Durable app-db classification is declared on the variant body and lowered into t
 | `unmount-shell!` | `(unmount-shell!)` / `(unmount-shell! handle)` | Unmount the shell. Idempotent. |
 | `active-shell` | `(active-shell)` → map / nil | Inspectable handle on the active shell. |
 
-### Stage
-
-| Symbol | Use |
-|---|---|
-| `stage` | Var. The current Story development stage marker. |
-
 ## `re-frame.story.recorder.play-export`
 
 The rich DOM-capture-aware recorder translator. Sub-namespace require — the facade exposes only the simpler `gen-play-snippet` projection.
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `recording->script-body` | `(recording->script-body entries opts)` → map | Translate captured `:entries` into a normalised `:script` body map. |
+| `recording->script-body` | `(recording->script-body events)` / `(recording->script-body events opts)` → map | Translate captured events or `:entries` into a normalised `:script` body map. `opts` takes `:name`, `:auto-run?`, `:auto-assert?` with `:final-db`, `:seed-db` and `:max-auto-assertions`, `:wait-threshold-ms` and `:cofx`. |
 | `render-script-body` | `(render-script-body body)` → string | Render the `:script` body map to EDN. |
-| `render-variant-form` | `(render-variant-form variant-id metadata)` → string | Render a full `(reg-variant ...)` form to EDN. |
+| `render-variant-form` | `(render-variant-form body {:keys [variant-id alias extends]})` → string | Render a full `(reg-variant ...)` form around a `:script` body to EDN. |
 
 ## `re-frame.story.ui.xray-embed`
 
@@ -236,7 +228,7 @@ The Xray-RHS embed component. Reach here from the embed component or the Xray pr
 | Symbol | Kind | Audience | Intuition |
 |---|---|---|---|
 | `xray-embed-panel` | Reagent component | `user-app` (rare) / `chrome-shell` | The RHS Xray-host Reagent component. Renders the chip-row picker plus the Xray panel-host `<div>`. Shows a "Select a variant to inspect via Xray." placeholder when no variant is focused; there is no absent-Xray state, since `day8/re-frame2-xray` is a declared Story dependency. |
-| `mount-fn-for` | Pure dispatch fn | `chrome-shell` | `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (one of `:event-detail` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing` / `:issues`), or nil for an unknown id. Compile-time symbol resolution. |
+| `mount-fn-for` | Pure dispatch fn | `chrome-shell` | `(mount-fn-for panel-id)` returns the Xray `mount-<panel>!` fn for `panel-id` (one of the chip panels `:epoch` / `:app-db` / `:views` / `:trace` / `:machines` / `:routing`, or `:event-spine`, the recent-events strip above them), or nil for an unknown id. Compile-time symbol resolution. |
 | `popout-full-shell!` | User-callable lifecycle | `user-app` | Pop out the full Xray 4-layer shell into a second window. Xray is a declared Story dependency, so the popout symbol is always on the classpath; the only gate is Story's own elision posture. |
 
 ## `re-frame.story.xray-preset`
@@ -276,33 +268,27 @@ The chrome's keybinding registry + installer pair.
 | `bindings` | Pure data table | `pure-data-for-help` | Canonical `{key → handler}` table for the chrome-visibility hotkeys (`f` / `s` / `a` / `t`). |
 | `shortcut-keys` | Pure data → data | `pure-data-for-help` | The sorted list of bound keys. Consumed by the first-visit help overlay. |
 | `install!` | Installer | `chrome-shell` | Install the single `window#keydown` capture-phase listener. Idempotent. |
-| `uninstall!` | Installer | `chrome-shell` | Symmetric teardown. |
+| `remove!` | Installer | `chrome-shell` | Symmetric teardown. |
 
-## Effects + coeffects registered by Story
+## Coeffects registered by Story
 
-| Fx id | Payload | Notes |
-|---|---|---|
-| `:story/set-arg` | `{:variant <id> :key <k> :value <v>}` | Dispatched by control widgets. |
-| `:story/run-play` | `{:variant <id>}` | Run the play sequence. |
-| `:story/reset` | `{:variant <id>}` | Reset to post-events baseline. |
-| `:story/save-layout-as` | `{:workspace <id> :body <transit>}` | Persist active layout as a workspace. |
+Declared under `:rf.cofx/requires`; the same two ids are registered as subscriptions.
 
 | Cofx id | Shape | Notes |
 |---|---|---|
 | `:story/active-modes` | `[<mode-id> ...]` | Chrome-toolbar's active mode-set. |
 | `:story/active-args` | `{<arg-key> <value>}` | Deep-merge of all active modes' `:args`. |
-| `:story/substrate` | `:reagent` / `:uix` | Active substrate. |
 
 ## Canonical assertion events
 
-The seven `:rf.assert/*` events the auto-install registers at first `reg-*`.
+The seven `:rf.assert/*` events the auto-install registers at first `reg-*`. The eighth canonical id, `:rf.assert/schema-error`, is evaluated against the epoch tape rather than dispatched ([Scripts](script.md#the-seven-canonical-rfassert-events)).
 
 | Event id | Payload | Semantics |
 |---|---|---|
 | `:rf.assert/path-equals` | `[path expected]` | `(= (get-in @app-db path) expected)` |
 | `:rf.assert/path-matches` | `[path malli-schema]` | `(m/validate schema (get-in @app-db path))` |
 | `:rf.assert/sub-equals` | `[sub-vec expected]` | `(= @(subscribe sub-vec) expected)` |
-| `:rf.assert/dispatched?` | `[event-vec]` | Was this event dispatched during phase-4? |
+| `:rf.assert/dispatched?` | `[event-vec]` / `[event-id]` / `[pred]` | Was a matching event dispatched during the run, in setup or script? |
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. |
 | `:rf.assert/no-warnings` | `[]` | No warning-severity trace event (`:op-type :warning`) captured during play — any operation namespace, not only `:rf.warning/*`. |
 | `:rf.assert/effect-emitted` | `[fx-id]` / `[fx-id pred]` | Did the variant's drain emit fx-id? Optional unary `pred` over the fx-id keyword. |
@@ -321,7 +307,7 @@ If you find yourself reading source for a Story-internal symbol because the chap
 ## See also
 
 - [Index](index.md) — the navigation map for the four chapters in this folder.
-- [Registration](registration.md) — the seven `reg-*` macros + `*`-fn partners.
+- [Registration](registration.md) — the nine `reg-*` macros + `*`-fn partners.
 - [Scripts](script.md) — the `:script` grammar + the canonical seven `:rf.assert/*` events.
 - [Runtime](runtime.md) — `configure!`, `run-variant`, `mount-shell!`, the registry-query family.
 - [MCP surface](mcp-surface.md) — the Story-MCP boundary, wire-elision discipline, write-surface gating.
