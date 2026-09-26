@@ -22,28 +22,16 @@ have a name on the same wire as everything else.
 
 <a id="in-this-section"></a>
 
-Start with the [tutorial](tutorial.md), which builds one request step by step. [Managed HTTP](http.md)
-is the model and every key; [Interceptors and secrets](http-going-further.md) and
-[Your own async effect](custom-effects.md) follow when you need them.
+The [tutorial](tutorial.md) builds this request step by step.
 
 Managed HTTP plugs into the event pipeline. It does not replace events or app-db.
-
-## Scope
-
-| This section | Elsewhere |
-|---|---|
-| One request → one reply event (transport) | [Resources](../resources/index.md) — cache, stale, invalidate over this transport |
-| Continuations as **named events** | [Effects](../core/effects.md) — `dispatch-later`, drain / run-to-completion |
-| Custom promise/callback SDKs | [Your own async effect](custom-effects.md) |
 
 ## When *not* to use managed HTTP alone
 
 | Situation | Prefer |
 |---|---|
-| Same read on many screens, cache, invalidate | [Resources](../resources/concepts.md) |
-| Multi-step lifecycle (login, websocket) | [Machines](../machines/index.md) |
-| Non-HTTP async (Stripe, IndexedDB, worker) | [Your own fx](custom-effects.md) |
+| The same read on many screens, with a cache and invalidation | [Resources](../resources/index.md), which run on this transport |
+| A multi-step lifecycle (login) or a long-lived connection (a websocket) | [State machines](../machines/index.md); there is no managed streaming surface |
+| Non-HTTP async (a payment SDK, IndexedDB, a worker) | [Your own async effect](custom-effects.md) |
+| A delayed or follow-on dispatch | [Effects](../core/effects.md): `:dispatch-later` |
 | No server yet | app-db + events |
-
-Reach for managed HTTP when **one wire call needs a typed, testable reply** — not when
-the load-bearing concept is a cache or a named stage machine.

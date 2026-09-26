@@ -5,10 +5,8 @@ settlement is a **value delivered to a handler**, not a promise you chain.
 
 A managed effect — [HTTP](http.md), a [resource](../resources/concepts.md), a
 [machine](../machines/concepts.md) — never hands you a promise. It dispatches an
-ordinary [event](../core/glossary.md#event) with a canonical reply map. Question:
+ordinary [event](../core/glossary.md#event) with a reply map. Question:
 *which handler receives the settlement, and how does it read it?*
-
-This page is the translation. The *why*: [Why no await](continuations-are-data.md).
 
 ## The mapping
 
@@ -21,7 +19,7 @@ This page is the translation. The *why*: [Why no await](continuations-are-data.m
 | a superseded / raced settlement | `:stale` — and it is **never delivered**, by design ([why](#why-there-is-no-on-finally)) |
 | `Promise.all([…])` | a state machine's `:spawn-all` of `:rf.http/managed` children with `:join :all` ([from a state machine](http.md#from-a-state-machine)) |
 
-The bottom two rows are where the Promise model is quietly weaker, not just spelled differently. A promise has no first-class *cancelled* outcome — you bolt on an `AbortController` and catch a thrown `AbortError` — and no notion of a *stale* settlement at all: a superseded `fetch` still resolves, still runs your `.then`, and cheerfully overwrites fresher data (the search-box race). re-frame2 makes both a **status** in a closed reply set, and suppresses the stale one before it can reach your handler.
+The cancellation and stale rows are where the Promise model is quietly weaker, not just spelled differently. A promise has no first-class *cancelled* outcome — you bolt on an `AbortController` and catch a thrown `AbortError` — and no notion of a *stale* settlement at all: a superseded `fetch` still resolves, still runs your `.then`, and cheerfully overwrites fresher data (the search-box race). re-frame2 makes both a **status** in a closed reply set, and suppresses the stale one before it can reach your handler.
 
 ??? info "Coming from `async/await`, not `.then`?"
 
@@ -41,11 +39,9 @@ The `.finally` job — cleanup that runs whichever way the work settled — need
         :cancelled {:db db}))))
 ```
 
-The code before the `case` **is** your `finally`; the branches are `then` and `catch`. No third callback, no ordering question — a `let` does the job, because the settlement is data and both branches share its scope.
-
 ## Where do the captured variables go?
 
-A `.then` closure sees the locals of the function that issued the request. A reply handler doesn't — it runs on a fresh stack against the *present* [app-db](../core/glossary.md#app-db), not a snapshot from issue time. So anything the reply branch needs — a slug, an id — you **ride on the reply vector**, ahead of the appended envelope:
+A `.then` closure sees the locals of the function that issued the request. A reply handler doesn't — it runs on a fresh stack against the *present* [app-db](../core/glossary.md#app-db), not a snapshot from issue time. So anything the reply branch needs — a slug, an id — you **ride on the reply vector**, ahead of the appended reply map:
 
 ```clojure
 :reply-to [:articles/replied slug]   ;; the handler receives [:articles/replied slug <reply-map>]
@@ -60,8 +56,3 @@ A Promise needs `finally` because settlement splits into two disjoint closures �
 And `finally` promises to **always run** — a guarantee re-frame2 deliberately breaks. A `:stale` reply is [suppressed, never delivered](continuations-are-data.md#one-envelope-under-every-async-surface): superseded work must not touch state, so its "finally" must *not* fire either. Cleanup like clearing the loading flag belongs to the **newer** attempt's lifecycle (generation-based cleanup), not to the older attempt's funeral (settlement-based cleanup). A faithful `:on-finally` would have to either resurrect the stale-race bug class — running cleanup on behalf of a request that was superseded — or lie about "always". re-frame2 records the refusal on the trace instead of shipping either.
 
 **Rule of thumb:** two callbacks (`:on-success` / `:on-failure`) when the branches share nothing; one `:reply-to` handler the moment they share cleanup.
-
-## Where to go next
-
-- [Why no await: continuations are data](continuations-are-data.md) — the deeper *why*: named continuations, and the stale-world trap the data model closes by construction.
-- [Managed HTTP](http.md) — the surface reference: every reply key, the closed `:status` set, and both addressing spellings side by side.

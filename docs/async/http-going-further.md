@@ -1,11 +1,8 @@
 # Interceptors and secrets
 
-You know [managed HTTP](http.md). This page is two production jobs:
-
-1. **Stamp every request once** (auth headers, telemetry) via the HTTP interceptor chain.
-2. **Keep secrets off the trace** (tokens, passwords, PII).
-
-Neither is required to be productive — open this when the app grows into them.
+Two jobs come up once a [managed HTTP](http.md) app is in production: stamping every
+request with the same header or telemetry, and keeping tokens, passwords and PII out
+of the trace.
 
 ## Interceptors: stamp every request once
 
@@ -39,8 +36,8 @@ transforms the request on the way out; `:after` transforms the reply on the way 
 
 The two phases:
 
-- The `:before` fn receives a ctx of `{:request :args :frame :event}` and returns a ctx whose `:request` is the modified envelope. (Above, `cond-> ctx` adds the header only when a token is present, leaving the ctx untouched otherwise.) It reads app state through `rf/app-db-value` — an accessor that hands you the frame's current [app-db](../core/glossary.md#app-db) value, never a live subscription.
-- The `:after` fn is `(fn [ctx response] response')`. It sees the *same* ctx its `:before` produced — so a `:before` that stamps a start-time lets the matching `:after` compute an elapsed delta with no app state — plus the canonical `{:status :ok …}` / `{:status :error …}` response, and it returns a possibly-transformed response that the `:on-success` / `:on-failure` dispatch then carries. On success the response also carries the wire facts under `:meta` — the actual status, status text, and the response headers as a plain map with lower-cased names — so header-driven concerns need no side channel.
+- The `:before` fn receives a ctx of `{:request :args :frame :event}` and returns a ctx whose `:request` is the modified request map. (Above, `cond-> ctx` adds the header only when a token is present, leaving the ctx untouched otherwise.) It reads app state through `rf/app-db-value` — an accessor that hands you the frame's current [app-db](../core/glossary.md#app-db) value, never a live subscription.
+- The `:after` fn is `(fn [ctx response] response')`. It sees the *same* ctx its `:before` produced — so a `:before` that stamps a start-time lets the matching `:after` compute an elapsed delta with no app state — plus the canonical `{:status :ok …}` / `{:status :error …}` response, and it returns a possibly-transformed response that the `:on-success` / `:on-failure` dispatch then carries. On success the response also carries the wire facts under `:meta` ([Handling the reply](http.md#handling-the-reply)), so header-driven concerns need no side channel.
 
 That ctx-carried-forward shape, plus the `:meta` wire facts, is what makes per-request concerns — response-time telemetry, rate-limit header parsing, flagging a 401 for an auth refresh — single-interceptor jobs. Here is rate-limit parsing as a working registration — one parse per response, and every `:on-success` handler downstream reads the structured slot instead of a header string:
 
@@ -63,13 +60,13 @@ The rules that matter:
 - **At least one phase is required.** A map with neither `:before` nor `:after` is rejected at registration with `:rf.error/http-bad-interceptor`. A `:before`-only or `:after`-only interceptor is fine and composes cleanly.
 - **Each phase returns a map.** A `:before` returns the request ctx; an `:after` returns the reply map. Returning `nil`, a vector, or anything else fails the interceptor with `:rf.error/http-interceptor-failed`, the error a throw raises (next rule), and its `:cause` says the phase did not return a map. So a bad interceptor cannot erase the request or reply.
 - **A throw is named, not swallowed.** A `:before` or `:after` that throws classifies as `:rf.error/http-interceptor-failed` (carrying the offending `:interceptor-id`); a request-side throw means the transport never sees the request. Wrap recoverable logic inside the interceptor yourself — the chain has no recovery cofx.
-- **Clearing.** Inside a frame scope, `(rf/clear :http-interceptor id)` removes that frame's interceptor. Outside a frame scope, or when you want to name the frame directly, use the opts form `(rf/clear :http-interceptor id {:frame frame-id})` — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame`. Calling the single-arity form with no frame in scope fails loud with `:rf.error/no-frame-context`. Re-registering an existing id replaces it *in place* (hot-reload-friendly); clear-then-reg appends a fresh slot at the end.
+- **Clearing.** Inside a frame scope, `(rf/clear :http-interceptor id)` removes that frame's interceptor; there is no `rf/clear-http-interceptor`. Outside a frame scope, or when you want to name the frame directly, use the opts form `(rf/clear :http-interceptor id {:frame frame-id})` — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame`. Calling the single-arity form with no frame in scope fails loud with `:rf.error/no-frame-context`. Re-registering an existing id replaces it *in place* (hot-reload-friendly); clear-then-reg appends a fresh slot at the end.
 
-`reg-http-interceptor` is the HTTP registration surface re-exported onto the `rf/` facade, and its inverse is the kind-keyed `(rf/clear :http-interceptor id)` — there is no `rf/clear-http-interceptor` (everything else is keyword-addressed on `re-frame.http.managed`). This same seam is where resources and mutations get *their* request decoration too: register the auth interceptor once and every `:rf.http/managed` request, whether you issued it directly or a [resource](../resources/concepts.md) did, carries the header.
+`reg-http-interceptor` is the one HTTP registration on the `rf/` facade; everything else on `re-frame.http.managed` is addressed by keyword. Resources and mutations get *their* request decoration here too: register the auth interceptor once and every `:rf.http/managed` request, whether you issued it directly or a [resource](../resources/concepts.md) did, carries the header.
 
 ## Keeping secrets out of the trace
 
-HTTP is where the secrets are: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. And every step of a managed request can land on the dev [trace stream](../core/glossary.md#trace-stream) — the retry attempt, the failure category, the swallowed-failure warning — so without care the transport becomes the app's biggest leak. Managed HTTP applies [data classification](../core/glossary.md#data-classification) at that egress boundary so the real value renders on-box but a redaction sentinel is what crosses into a trace, Xray, or an off-box log. Three layers cooperate, and two of them need no opt-in.
+HTTP is where the secrets are: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. And every step of a managed request can land on the dev [trace stream](../core/glossary.md#trace-stream) — the retry attempt, the failure category, the swallowed-failure warning — so without care the transport becomes the app's biggest leak. Managed HTTP applies [data classification](../core/glossary.md#data-classification) at that egress boundary so the real value renders on-box but a redaction sentinel is what crosses into a trace, Xray, or an off-box log.
 
 **Sensitive headers are redacted always — no flag required.** A closed, framework-owned denylist of header *names* — `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-CSRF-Token`, and a handful more — is redacted to `:rf/redacted` in every `:rf.http/*` trace event, whether or not the request is marked sensitive. The name *is* the signal: a leaked `Authorization` header is a leak even from a handler nobody thought to flag. Matching is case-insensitive, and the built-in set is immutable — no frame can remove a name. The same is true on the URL side: a denylisted query-string parameter (`?api_key=…`, `?access_token=…`, `?token=…`, `?signature=…`) has its **value** scrubbed inline (`?api_key=:rf/redacted&page=2`), name and position preserved so you can still see which endpoint was hit, and that hit alone stamps the trace `:sensitive?`.
 
@@ -103,7 +100,7 @@ HTTP is where the secrets are: passwords ride request bodies, auth tokens ride r
          [:user-id :int]]
 ```
 
-This is the schema's job whether or not the request also carries the coarse `:sensitive?` flag (the flag is the whole-body hammer; the schema marks are the scalpel). The marks are read by the schema walker in `day8/re-frame2-schemas`, so require `re-frame.schemas`: without it, a request whose `:decode` schema declares a mark is refused at dispatch with `:rf.error/schemas-artefact-missing` and never sent. All of this rides the dev trace surface, so it [elides](../core/glossary.md#elide) wholesale in production along with the rest of tracing — the redaction step costs nothing in a release build. When trace data is exported outside the app, re-frame2 keeps secrets out by default: sensitive slots are denied, unknown error bodies stay local, and export policy can exclude specific places where secrets may appear. For the framework-wide story, see [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+This is the schema's job whether or not the request also carries the coarse `:sensitive?` flag, which redacts the whole body where the marks pick out single fields. The marks are read by the schema walker in `day8/re-frame2-schemas`, so require `re-frame.schemas`: without it, a request whose `:decode` schema declares a mark is refused at dispatch with `:rf.error/schemas-artefact-missing` and never sent. All of this rides the dev trace surface, so it [elides](../core/glossary.md#elide) wholesale in production along with the rest of tracing — the redaction step costs nothing in a release build. When trace data is exported outside the app, re-frame2 keeps secrets out by default: sensitive slots are denied, unknown error bodies stay local, and export policy can exclude specific places where secrets may appear. For the framework-wide story, see [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
 
 !!! warning "Gotcha — a 4xx/5xx error body is always omitted off-box"
 

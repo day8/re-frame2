@@ -6,10 +6,6 @@
 server. Describe the request as data; the runtime decodes, classifies failures,
 retries, and cancels; the reply arrives as an ordinary [event](../core/glossary.md#event).
 
-This page is the **model and reference** — every key, every contract. Build first with
-the [tutorial](tutorial.md). Idea underneath: [Why no await](continuations-are-data.md).
-API surfaces (interceptors, stubs, traces): [Managed HTTP](../api/re-frame.http.md).
-
 <a id="setup"></a>
 
 !!! note "Optional artefact"
@@ -20,24 +16,7 @@ API surfaces (interceptors, stubs, traces): [Managed HTTP](../api/re-frame.http.
 
 ## The args map
 
-Every key you can hand `:rf.http/managed`. `:request` (with a `:url`) and a reply address — `:reply-to`, or `:on-success` / `:on-failure` — are required; everything else has a sane default, which is why the common case stays short.
-
-| Key | What it does | Default |
-|---|---|---|
-| `:request` | The wire request as data — `:method` / `:url` / `:headers` / `:params` / `:body` and the [rest of the envelope](#the-request-is-a-map). | **required** |
-| `:reply-to` | Event vector for **both** the success and the failure reply — the [unified spelling](#one-handler-with-reply-to); the handler branches on `:status`. | none |
-| `:on-success` | Event vector for success replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) success replies. | none |
-| `:on-failure` | Event vector for failure replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) failure replies. | none |
-| `:decode` | Parse and [validate the 2xx body](#validating-the-body-with-decode) — a [schema](../core/glossary.md#schema), a keyword, or a fn. | `:auto` |
-| `:accept` | A [post-decode domain check](#a-valid-200-can-still-be-a-failure-accept) — a 200 can still be a failure. | `{:ok decoded}` |
-| `:retry` | A [transport-retry policy](#retry-transport-retry-as-data) — `:on` set, `:max-attempts`, `:backoff`. | none |
-| `:request-id` | A stable id; a new request with the same id [supersedes the old](#cancellation-supersession-and-abort). | none |
-| `:abort-signal` | An external `AbortController` `.signal` to cancel through. Browser-only. | none |
-| `:timeout-ms` | Per-attempt [timeout](#timeouts); `nil` or `0` opts out. | `30000` |
-| `:sensitive?` | Redact body, params, and all URL values in traces — see [keeping secrets](http-going-further.md#keeping-secrets-out-of-the-trace). | `false` |
-| `:rf.http/max-decoded-keys` | Caps how many unique JSON object keys the decoder may intern. Raise it only for unusually large trusted payloads. | `10000` |
-
-The common case:
+Every key you can hand `:rf.http/managed`. `:request` (with a `:url`) and a reply target — `:reply-to`, or `:on-success` / `:on-failure` — are required; everything else has a sane default, which is why the common case stays short:
 
 ```clojure
 {:fx [[:rf.http/managed
@@ -45,6 +24,21 @@ The common case:
         :on-success [:article/loaded]
         :on-failure [:article/load-error]}]]}
 ```
+
+| Key | What it does | Default |
+|---|---|---|
+| `:request` | The wire request as data — `:method` / `:url` / `:headers` / `:params` / `:body` and the [rest of the request map](#the-request-is-a-map). | **required** |
+| `:reply-to` | Event vector for **both** the success and the failure reply — the [unified spelling](#one-handler-with-reply-to); the handler branches on `:status`. | none |
+| `:on-success` | Event vector for success replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) success replies. | none |
+| `:on-failure` | Event vector for failure replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) failure replies. | none |
+| `:decode` | Parse and [validate the 2xx body](#validating-the-body-with-decode) — a [schema](../core/glossary.md#schema), a keyword, or a fn. | `:auto` |
+| `:accept` | A [post-decode domain check](#a-valid-200-can-still-be-a-failure-accept) — a 200 can still be a failure. | `{:ok decoded}` |
+| `:retry` | A [transport-retry policy](#retry-transport-retry-as-data) — `:on` set, `:max-attempts`, `:backoff`. | none |
+| `:request-id` | A stable id; a new request with the same id [supersedes the old](#cancellation-supersession-and-abort). | none |
+| `:abort-signal` | An external `AbortController` `.signal` to [cancel through](#cancel-through-an-external-signal-abort-signal). Browser-only. | none |
+| `:timeout-ms` | Per-attempt [timeout](#timeouts); `nil` or `0` opts out. | `30000` |
+| `:sensitive?` | Redact body, params, and all URL values in traces — see [keeping secrets](http-going-further.md#keeping-secrets-out-of-the-trace). | `false` |
+| `:rf.http/max-decoded-keys` | Caps how many unique JSON object keys the decoder may intern. Raise it only for unusually large trusted payloads. | `10000` |
 
 ## The request is a map
 
@@ -63,7 +57,7 @@ The common case:
         :on-failure [:comment/create-error]}]]}
 ```
 
-The full envelope:
+Every `:request` key:
 
 | Key | Default | Notes |
 |---|---|---|
@@ -72,7 +66,7 @@ The full envelope:
 | `:headers` | none | Map of string → string (or string → vector for multi-valued). Names are case-insensitive. |
 | `:params` | none | Map of query-string params. URL-encoded and merged onto `:url` for you. |
 | `:body` | none | A Clojure collection, string, `FormData`, `Blob`, `ArrayBuffer`, or a **thunk** `(fn [] body)` invoked at send-time. A map, sequential or set body with no `:request-content-type` is sent as JSON, where keywords become their qualified names (`:user/id` → `"user/id"`) and UUIDs become strings. |
-| `:request-content-type` | none | `:json` / `:form` / `:text` / an explicit MIME. Sugar that both sets `Content-Type` and serialises `:body`. |
+| `:request-content-type` | none | `:json` (`application/json`) / `:form` (URL-encoded) / `:text` / an explicit MIME. Sugar that both sets `Content-Type` and serialises `:body`. |
 | `:credentials` | `:same-origin` | `:omit` / `:same-origin` / `:include`. CLJS-only; the JVM transport ignores it. |
 | `:mode` | host default | Fetch passthrough. CLJS-only; ignored on the JVM. |
 | `:redirect` | `:follow` | `:follow` / `:error` / `:manual`. Honoured by browser Fetch; on the JVM, `:error` and `:manual` both mean "do not auto-follow". |
@@ -81,27 +75,14 @@ The full envelope:
 | `:integrity` | none | Fetch subresource-integrity value. CLJS-only; ignored on the JVM. |
 | `:sensitive?` | `false` | Request-local privacy flag. Same effect as top-level `:sensitive?`: request and response values are redacted from traces. |
 
-Three conveniences worth knowing:
-
-- **`:params` builds the query string for you.** Hand it a map and it URL-encodes each pair and merges them onto `:url` — no hand-built `?a=1&b=2`.
-- **`:request-content-type` serialises `:body` and stamps the header in one move.** `:json` runs the `:body` map through JSON serialisation and sets `Content-Type: application/json`; `:form` URL-encodes it as a form body instead. For a file upload, hand a `js/FormData` straight in as `:body` and leave `:request-content-type` off — the platform sets the multipart boundary itself.
+- **A file upload needs no content type.** Hand a `js/FormData` straight in as `:body` and leave `:request-content-type` off — the platform sets the multipart boundary itself.
 - **A bad `:url` fails loud, not silent.** A blank, nil, or non-string `:url` is rejected at dispatch with `:rf.error/http-bad-request` rather than falling through to the transport as an opaque failure.
 
-!!! warning "Gotcha — don't thread auth by hand"
-
-    Threading `"Authorization"` into each call site gets old fast and breaks the moment a token rotates. Register one [HTTP interceptor](http-going-further.md#interceptors-stamp-every-request-once) instead and drop the header from your handlers entirely.
-
-!!! warning "Gotcha — the CLJS-only keys are silently no-ops on the JVM"
-
-    The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible. (`:redirect` is the exception: it *is* honoured on the JVM.) A relative `:url` fails on the JVM outright: there is no page to resolve it against, so it becomes a `:rf.http/transport` failure naming the url. Use an absolute URL there, or a `:before` [interceptor](http-going-further.md#interceptors-stamp-every-request-once) that prefixes a base. If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
-
-!!! warning "Gotcha — a malformed header is dropped, not fatal"
-
-    A header with an empty or control-character name, or a value carrying a raw `\r`/`\n` (the response-splitting guard), is rejected by the platform's header builder. Rather than failing the whole request, the runtime drops just that one pair, emits a redacted `:rf.warning/http-header-invalid` trace naming the offending header (the *value* is omitted — it may carry a secret), and sends the request with the remaining valid headers. So a stray newline in one interpolated header value quietly loses that header instead of taking down the call — watch the warning trace if a header you expected isn't arriving.
+To put the same header on every request (auth, say), register one [HTTP interceptor](http-going-further.md#interceptors-stamp-every-request-once) instead of threading it through each call site; the interceptor also picks up a rotated token.
 
 ## Handling the reply
 
-Every reply is the one **canonical reply envelope** — a plain map with a closed `:status`. The framework-wide set has [five members](continuations-are-data.md#one-envelope-under-every-async-surface); managed HTTP produces four of them (`:partial` belongs to protocols that return data *and* problems in one response — plain HTTP never emits it):
+Every reply is a **reply map**: a plain map with a closed `:status`. The framework-wide set has [five members](continuations-are-data.md#one-envelope-under-every-async-surface); managed HTTP produces four of them (`:partial` belongs to protocols that return data *and* problems in one response — plain HTTP never emits it):
 
 | `:status` | Shape | Notes |
 |---|---|---|
@@ -110,9 +91,9 @@ Every reply is the one **canonical reply envelope** — a plain map with a close
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:rf.reply/cancel-reason` alongside. |
 | `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
-So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled` — `:stale` never arrives), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:rf.reply/work-id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
+A failure's inner `:error` map carries its own `:kind`, the category. The full reply map every async surface shares, identity fields included (`:rf.reply/work-id`, `:completed-at`, …), is in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
 
-Every request **addresses its reply** — there is no implicit default. There are two **equal** ways to do it — pick by fit, not correctness.
+There are two **equal** ways to name the reply target — pick by fit, not correctness.
 
 ??? info "Coming from Promises?"
 
@@ -120,7 +101,7 @@ Every request **addresses its reply** — there is no implicit default. There ar
 
 ### Two handlers with :on-success / :on-failure
 
-Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the canonical reply appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. `:on-success` / `:on-failure` are pure routing sugar; both receive the identical envelope, they just route it to two named handlers:
+Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply map appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. `:on-success` / `:on-failure` are pure routing sugar; both receive the identical reply map, they just route it to two named handlers:
 
 ```clojure
 (rf/reg-event :article/load
@@ -174,33 +155,14 @@ Point `:reply-to` at the issuing event and both the success and the failure repl
       {:db (assoc db :counter/status :idle)})))
 ```
 
-The first time it runs there is no `reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with the canonical envelope appended as the last argument — the `reply`. To keep request context (an id, a slug) in scope on the reply branch, ride it along inside the `:reply-to` prefix: `:reply-to [:counter/+1 msg]` delivers `[:counter/+1 msg <envelope>]`. Use this shape when request and reply are two faces of one small thing — a counter, a toggle, a fire-and-refresh.
-
-!!! warning "Every request must address its reply"
-
-    Omitting **all** of `:reply-to` / `:on-success` / `:on-failure` is rejected at dispatch with `:rf.error/http-no-reply-target` — the framework never silently routes a reply back to the dispatching event. Address it explicitly (or set a branch to `nil` to [silence](#silencing-a-reply) it).
+The first time it runs there is no `reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with the reply map appended as the last argument — the `reply`. To keep request context (an id, a slug) in scope on the reply branch, ride it along inside the `:reply-to` prefix: `:reply-to [:counter/+1 msg]` delivers `[:counter/+1 msg <reply-map>]`. Use this shape when request and reply are two faces of one small thing — a counter, a toggle, a fire-and-refresh.
 
 ### Delivery rules
 
+- **Every request names its reply target.** Omitting **all** of `:reply-to` / `:on-success` / `:on-failure` is rejected at dispatch with `:rf.error/http-no-reply-target` — the framework never silently routes a reply back to the dispatching event. Set a branch to `nil` to [silence](#silencing-a-reply) it.
 - **Reply targets must be event vectors.** When you supply `:reply-to`, `:on-success`, or `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected at dispatch, before the request is sent, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
 - **The two styles are exclusive.** `:reply-to` already addresses both branches, so a map carrying it beside `:on-success` or `:on-failure` is rejected at dispatch with `:rf.error/http-bad-reply-target` and `:reason :mixed-addressing`. The check is on key *presence*, so `{:reply-to [:a] :on-failure nil}` is a mixture too — to decline the reply entirely, write `:reply-to nil`.
 - **The reply lands in the same [frame](../core/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
-- **A stale reply is never delivered.** A reply whose correlation went obsolete before delivery ([below](#cancellation-supersession-and-abort)) — a superseded `:request-id`, the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor — does not reach your app at all; it is trace-only.
-
-### Timestamps come from a coeffect
-
-If a reply handler wants to record *when* something completed, don't call `(js/Date.now)` in it — a live clock read won't replay the same way twice. Declare the time as a [coeffect](../core/glossary.md#coeffect) and read it as data:
-
-```clojure
-(rf/reg-event :article/loaded
-  {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
-    {:db (-> db
-             (assoc-in [:article :data]      value)
-             (assoc-in [:article :loaded-at] time-ms))}))
-```
-
-`:rf/time-ms` is a *recordable* coeffect: it's stamped onto the event envelope before the handler runs, so the durable write depends on a recorded value and [replays](../core/glossary.md#time-travel) identically. (The full grade distinction is [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects).)
 
 ### Silencing a reply
 
@@ -221,7 +183,7 @@ The failure map always carries a `:kind` from a fixed, framework-reserved list. 
 | `:rf.http/accept-failure` | Your `:accept` fn returned `{:failure ...}`, threw, or returned a malformed shape. | `:detail`, `:decoded`, `:request-id`. |
 | `:rf.http/aborted` | Aborted via `:request-id`, abort signal, or machine actor destroy. | `:request-id`, `:reason`; some paths also carry `:actor-id` or `:message`. |
 
-The set is closed for v1; adding a category is a versioned framework change. That constraint buys you something real: `:rf.http/timeout` means exactly the same thing in your codebase, in mine, and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — the same discipline you'd use on any framework [error record](../core/glossary.md#error-record). The natural handler shape is one `failure->message` fn holding a single `case` — the [tutorial builds it](tutorial.md), and the [RealWorld example](../../examples/real-apps/realworld_http) uses it to render one vocabulary on every screen.
+The set is closed for v1; adding a category is a versioned framework change, so `:rf.http/timeout` means the same thing in every codebase and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — the same discipline you'd use on any framework [error record](../core/glossary.md#error-record).
 
 Two classification rules catch newcomers:
 
@@ -230,63 +192,13 @@ Two classification rules catch newcomers:
 
 ## Validating the body with `:decode`
 
-By default `:decode` is `:auto`, which sniffs the Content-Type: JSON for a JSON type, a string for `text/*`, and otherwise the raw binary body (a `Blob` in the browser, bytes on the JVM). The 2xx body is exactly where a [schema](../core/glossary.md#schema) earns its keep — validating the shape your handler then trusts. (Malli has to be in the build, and coercion needs one more namespace: see [tutorial step 3](tutorial.md#step-3--validate-the-body-with-a-schema).) Hand `:decode` a Malli schema and a malformed body becomes a clean `:rf.http/decode-failure` rather than a `NullPointerException` three handlers later:
-
-```clojure
-(def ArticleResponse
-  "Validates the JSON body of GET /api/articles/:slug."
-  [:map
-   [:article [:map
-              [:slug  :string]
-              [:title :string]
-              [:body  :string]]]])
-
-{:fx [[:rf.http/managed
-       {:request    {:url (str "/api/articles/" slug)}
-        :decode     ArticleResponse
-        :on-success [:article/loaded]
-        :on-failure [:article/load-error]}]]}
-```
+By default `:decode` is `:auto`, which sniffs the Content-Type: JSON for a JSON type, a string for `text/*`, and otherwise the raw binary body (a `Blob` in the browser, bytes on the JVM). Hand `:decode` a Malli [schema](../core/glossary.md#schema), as the tutorial's Step 3 does, and a malformed 2xx body becomes a `:rf.http/decode-failure` routed to your failure handler. (Malli has to be in the build, and coercion needs one more namespace: see [tutorial step 3](tutorial.md#step-3--validate-the-body-with-a-schema).)
 
 `:decode` also accepts a keyword (`:json` / `:text` / `:blob` / `:array-buffer` / `:form-data`) or a plain function `(fn [text headers] decoded)` when you need full control.
 
-## A valid 200 can still be a failure: `:accept`
-
-Some APIs answer `200 OK` and then tell you, *in the body*, that the thing you asked for isn't there — `{"article": null}` instead of a 404. The transport succeeded and the body decoded; your domain disagrees. `:accept` is a post-decode normaliser that gets the last word.
-
-`:accept` is a function `(decoded → {:ok value} | {:failure failure-map})`. Return `{:ok v}` and `v` becomes the success payload; return `{:failure m}` and `m` rides into the failure path as `:rf.http/accept-failure`, with your map at `:detail`:
-
-```clojure
-{:fx [[:rf.http/managed
-       {:request {:url (str "/api/articles/" slug)}
-        :decode  :json
-        :accept  (fn [decoded]
-                   (if-let [article (:article decoded)]
-                     {:ok article}
-                     {:failure {:reason  :missing-article
-                                :message "Response had no :article"}}))
-        :on-success [:article/loaded]
-        :on-failure [:article/load-error]}]]}
-```
-
-The default `:accept` is just `{:ok decoded}` — every 2xx that decodes is a success. Three rules keep an explicit one predictable:
-
-- `:accept` runs **only after a successful 2xx decode**. A non-2xx response is sorted by status long before this point, so your `:accept` never has to think about HTTP status. A `:decode` schema runs first too: one that requires `:article` rejects `{"article": null}` as a decode failure before `:accept` sees it.
-- An `:accept` that **throws**, or returns a **malformed shape** (nil, a non-map, a map with neither `:ok` nor `:failure`, or one with *both*) still dispatches a reply — it can never strand the caller. It classifies as `:rf.http/accept-failure` with a framework-supplied `:detail`, and the pre-`:accept` value rides at `:decoded` so you can see what it choked on.
-- An accept-failure is **not retryable**. Retrying the transport won't change the body — this is a domain decision, not a transport blip. If you need "retry after refreshing X," that's a [state machine](../machines/concepts.md), not `:accept`.
-
 ## Retry: transport retry as data
 
-Add a `:retry` policy — itself plain data — and the runtime handles the backoff:
-
-```clojure
-(def data-fetch-retry
-  "Retry policy for read-only fetches: transport blips, 5xx, timeouts.
-   Not 4xx — the request shape was valid; retrying won't help."
-  {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
-   :max-attempts 3
-   :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
-```
+Add a `:retry` policy — itself plain data — and the runtime handles the backoff. The tutorial's Step 4 `data-fetch-retry` is the usual shape:
 
 - **`:on`** is the set of failure categories that trigger a retry.
 - **`:max-attempts`** is the total *including* the first try — `1` means no retry, and so does leaving it out.
@@ -301,7 +213,7 @@ Two guards keep a malformed `:on` from silently doing nothing:
 - Put a non-retryable category — or anything outside the `:rf.http/*` namespace — in `:on` and the request is rejected at dispatch with `:rf.error/http-bad-retry-on`, rather than riding a useless policy for its lifetime.
 - `:on` must be an actual *set* (`#{…}`). A bare keyword or a vector is rejected the same way — and for a sharp reason: the membership test is `contains?`, and `contains?` over a vector tests *indices*, not values, so a vector `:on` would silently disable retry for every category.
 
-The real discipline isn't *whether* to retry but *what*. Read-only fetches are safe. User-initiated writes are not, because retrying a submit or a payment risks doing it twice. The production shape is one shared policy for reads and conspicuously *no* `:retry` on writes — the RealWorld example's login, register, and settings requests carry none.
+Retry reads, never writes ([tutorial step 4](tutorial.md#step-4--retry-reads-not-writes)): the RealWorld example's login, register, and settings requests carry no `:retry`.
 
 ??? info "Coming from Axios?"
 
@@ -315,21 +227,17 @@ The real discipline isn't *whether* to retry but *what*. Read-only fetches are s
 
 <a id="the-search-box-race-cured"></a>
 
-Three related surfaces, one per situation.
+**Supersession — reuse a `:request-id`.** Give a request a stable `:request-id` — any `=`-comparable value: a keyword, a string, or a structural vector like `[:articles :load slug]` — and issuing a *new* request with the same id automatically supersedes the old one. Ids belong to the frame that issued them, so the same id in code mounted in two frames never collides, and no frame can supersede or abort another's request. The old reply is suppressed before delivery: your handler never sees it, only a trace row records it (`:reason :request-id-superseded`). This is the cure for the search-box race; the [tutorial demonstrates it](tutorial.md).
 
-**Supersession — reuse a `:request-id`.** Give a request a stable `:request-id` — any `=`-comparable value: a keyword, a string, or a structural vector like `[:articles :load slug]` — and issuing a *new* request with the same id automatically supersedes the old one. Ids belong to the frame that issued them, so the same id in code mounted in two frames never collides, and no frame can supersede or abort another's request. The old reply is suppressed before delivery: your handler never sees it, only a trace row records it (`:reason :request-id-superseded`). This is the cure for the search-box race — the [tutorial demonstrates it](tutorial.md) — and it's a correctness guarantee, not an optimization: a suppressed reply *cannot* clobber fresh data no matter how late it arrives.
+**Frame teardown.** A request issued from an ordinary event handler belongs to the frame that issued it. Destroying that frame, or restoring an earlier epoch in it, aborts every request it still has in flight, with or without a `:request-id`, and suppresses their replies; each leaves a `:rf.http/stale-suppressed` trace row. While the frame lives, `:request-id` is your app-level cancel handle.
 
-**Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a reply — a `:status :cancelled` envelope carrying `{:kind :rf.http/aborted :reason :user}` under `:error` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
-
-**External cancel — `:abort-signal`.** If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` to the request under `:abort-signal`. You can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
+**Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a reply — a `:status :cancelled` reply carrying `{:kind :rf.http/aborted :reason :user}` under `:error` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
 
 !!! note "Requests that die with their machine"
 
     There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](../machines/concepts.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed.
 
     The request is always aborted, but a reply is not always delivered. A reply addressed to an ordinary event dispatches as `:status :cancelled` with `{:kind :rf.http/aborted :reason :actor-destroyed}` under `:error`. A reply addressed **back to the actor being destroyed** — the `[(:rf/self-id data) …]` shape — is never dispatched: the runtime classifies it `:status :stale` and records a `:rf.http/stale-suppressed` trace row. Expect no reply on that shape; clean up in the child's `:exit`, or address the reply to an event outside the actor. [Actors — Cancellation](../machines/actors.md#cancellation) has the actor-side detail.
-
-    Requests dispatched from ordinary event handlers have no actor peg, but they belong to the frame that issued them. Destroying that frame, or restoring an earlier epoch in it, aborts every request it still has in flight, with or without a `:request-id`, and suppresses their replies; each leaves a `:rf.http/stale-suppressed` trace row. While the frame lives, `:request-id` is your app-level cancel handle.
 
 The [managed-http counter example](../../examples/core/managed_http_counter) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
 
@@ -368,7 +276,7 @@ Issue a request from an event handler with the fx form. Reach for the machine fo
 
 ## Your own request builder
 
-The canonical `[:rf.http/managed {:request {:method :get :url …} …}]` vector is always correct — and it is the *only* way to issue a request. There is no per-verb helper family: the request is data, and the framework does not compete with a `def`.
+The `[:rf.http/managed {:request {:method :get :url …} …}]` vector is the *only* way to issue a request. There is no per-verb helper family: the request is data, so an ordinary function can build it.
 
 When typing `{:request {:method :get :url …}}` at every call site gets repetitive, that is the signal to write **one app-level builder fn** over the args map. A builder carries the policy a per-verb helper never could — a base URL, default headers, a default `:decode`, body encoding — so it shortens the call site *and* keeps a decision in one place:
 
@@ -400,60 +308,80 @@ The builder returns an args map, so it composes everywhere the args map is accep
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the `:status` / `:value` / `:error` shape a live request delivers, without the live reply's identity and timing fields (`:rf.reply/work-id`, `:completed-at`). The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [Managed HTTP](../api/re-frame.http.md) documents every stub surface.
-
-## A complete request loop
-
-Send + receive + view status (stubs for schema/retry):
-
-```clojure
-(ns app.article
-  (:require [re-frame.core :as rf]
-            [re-frame.http.managed]))
-
-(rf/reg-event :article/load
-  (fn [{:keys [db]} [_ slug]]
-    {:db (assoc-in db [:article :status] :loading)
-     :fx [[:rf.http/managed
-           {:request    {:method :get :url (str "/api/articles/" slug)}
-            :decode     :json
-            :on-success [:article/loaded]
-            :on-failure [:article/load-error]}]]}))
-
-(rf/reg-event :article/loaded
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    {:db (-> db
-             (assoc-in [:article :status] :loaded)
-             (assoc-in [:article :data] value))}))
-
-(rf/reg-event :article/load-error
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (-> db
-             (assoc-in [:article :status] :error)
-             (assoc-in [:article :error] error))}))
-```
-
-Tutorial expands failures, schema decode, retry, and `:request-id`.
-
-## When not to reach for it
-
-Managed HTTP is right for a **single request → single reply**. Elsewhere:
-
-| Need | Prefer |
-|---|---|
-| Same read, many screens, cache / invalidate | [Resources](../resources/concepts.md) (rides this transport) |
-| Long-lived connection or multi-step lifecycle | [Machines](../machines/concepts.md) — no managed streaming surface yet |
-| Non-HTTP async (SDK, IDB, worker) | [Your own fx](custom-effects.md) |
+Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the `:status` / `:value` / `:error` shape a live request delivers, without the live reply's identity and timing fields (`:rf.reply/work-id`, `:completed-at`). The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; the [API reference](../api/re-frame.http.md) documents every stub surface.
 
 ## Troubleshooting
 
 | You see | What happened |
 |---|---|
 | `:rf.error/no-such-fx` naming `:rf.http/managed` | The artefact isn't loaded. Require `re-frame.http.managed` once at boot. |
-| `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying an `:rf.error/http-…` id | The args map was refused and nothing was sent: no reply address, a reply target that isn't a vector, a bad `:url`, or a bad `:retry :on`. The error names the key. |
+| `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying an `:rf.error/http-…` id | The args map was refused and nothing was sent: no reply target, a reply target that isn't a vector, a bad `:url`, or a bad `:retry :on`. The error names the key. |
 | `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
 | `:rf.warning/failure-swallowed` | A failure had no reply target and was dropped. See [Silencing a reply](#silencing-a-reply). |
 | `:rf.error/http-interceptor-failed` or `:rf.error/http-reply-tail-failed` | An interceptor threw, or delivering the reply threw after the response arrived. No reply is delivered. |
 | `:rf.warning/http-malli-absent`, and a malformed body reached your handler | Malli isn't in the build, so the `:decode` schema was skipped. See [step 3 of the tutorial](tutorial.md#step-3--validate-the-body-with-a-schema). |
 
 Every other `:rf.http/*` trace row, and what each carries, is in [the API reference's trace table](../api/re-frame.http.md#trace-events).
+
+## Advanced
+
+### A valid 200 can still be a failure: `:accept`
+
+Some APIs answer `200 OK` and then tell you, *in the body*, that the thing you asked for isn't there — `{"article": null}` instead of a 404. The transport succeeded and the body decoded; your domain disagrees. `:accept` is a post-decode normaliser that gets the last word.
+
+`:accept` is a function `(decoded → {:ok value} | {:failure failure-map})`. Return `{:ok v}` and `v` becomes the success payload; return `{:failure m}` and `m` rides into the failure path as `:rf.http/accept-failure`, with your map at `:detail`:
+
+```clojure
+{:fx [[:rf.http/managed
+       {:request {:url (str "/api/articles/" slug)}
+        :decode  :json
+        :accept  (fn [decoded]
+                   (if-let [article (:article decoded)]
+                     {:ok article}
+                     {:failure {:reason  :missing-article
+                                :message "Response had no :article"}}))
+        :on-success [:article/loaded]
+        :on-failure [:article/load-error]}]]}
+```
+
+The default `:accept` is just `{:ok decoded}` — every 2xx that decodes is a success. Three rules keep an explicit one predictable:
+
+- `:accept` runs **only after a successful 2xx decode**. A non-2xx response is sorted by status long before this point, so your `:accept` never has to think about HTTP status. A `:decode` schema runs first too: one that requires `:article` rejects `{"article": null}` as a decode failure before `:accept` sees it.
+- An `:accept` that **throws**, or returns a **malformed shape** (nil, a non-map, a map with neither `:ok` nor `:failure`, or one with *both*) still dispatches a reply — it can never strand the caller. It classifies as `:rf.http/accept-failure` with a framework-supplied `:detail`, and the pre-`:accept` value rides at `:decoded` so you can see what it choked on.
+- An accept-failure is **not retryable**. Retrying the transport won't change the body — this is a domain decision, not a transport blip. If you need "retry after refreshing X," that's a [state machine](../machines/concepts.md), not `:accept`.
+
+### Cancel through an external signal: `:abort-signal`
+
+If the cancel signal you want to honour already lives outside re-frame — a parent widget's lifecycle, a shared `AbortController` — hand its `.signal` to the request under `:abort-signal`. You can supply it *together with* a `:request-id` and the framework guarantees exactly one terminal outcome no matter which fires first. (`:abort-signal` is browser-only — the JVM has no `AbortController`, so `:request-id` is the cross-host cancel handle.)
+
+### Running on the JVM
+
+The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM:
+
+- The request still goes out with the option dropped, and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible.
+- `:redirect` is the exception: the JVM honours it.
+- A relative `:url` fails outright: there is no page to resolve it against, so it becomes a `:rf.http/transport` failure naming the url. Use an absolute URL there, or a `:before` [interceptor](http-going-further.md#interceptors-stamp-every-request-once) that prefixes a base.
+- `:rf.http/cors` never fires; only the browser emits it.
+
+If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site.
+
+### Malformed headers
+
+!!! warning "Gotcha — a malformed header is dropped, not fatal"
+
+    A header with an empty or control-character name, or a value carrying a raw `\r`/`\n` (the response-splitting guard), is rejected by the platform's header builder. Rather than failing the whole request, the runtime drops just that one pair, emits a redacted `:rf.warning/http-header-invalid` trace naming the offending header (the *value* is omitted — it may carry a secret), and sends the request with the remaining valid headers. So a stray newline in one interpolated header value quietly loses that header instead of taking down the call — watch the warning trace if a header you expected isn't arriving.
+
+### Timestamps come from a coeffect
+
+If a reply handler wants to record *when* something completed, don't call `(js/Date.now)` in it — a live clock read won't replay the same way twice. Declare the time as a [coeffect](../core/glossary.md#coeffect) and read it as data:
+
+```clojure
+(rf/reg-event :article/loaded
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:article :data]      value)
+             (assoc-in [:article :loaded-at] time-ms))}))
+```
+
+`:rf/time-ms` is a *recordable* coeffect: it's stamped onto the event envelope before the handler runs, so the durable write depends on a recorded value and [replays](../core/glossary.md#time-travel) identically. (The full grade distinction is [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects).)
