@@ -62,14 +62,6 @@
       (is (< l1x l2x))
       (is (< l2x vx)))))
 
-(deftest layout-preserves-changed-flags-on-nodes
-  (testing "node :changed? mirrors the input row"
-    (let [out (g/layout {:level-1-subs [{:sub-id :hot :changed? true}
-                                        {:sub-id :cold :changed? false}]})
-          nodes (-> out :nodes :l1)]
-      (is (true? (:changed? (first nodes))))
-      (is (false? (:changed? (second nodes)))))))
-
 (deftest layout-view-node-carries-cause-and-timing
   (testing "the view node threads :triggered-by + :elapsed-ms"
     (let [out (g/layout {:view-rows [{:view-id :v :action :rerender

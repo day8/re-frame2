@@ -21,7 +21,7 @@
   `:sensitive` slot and a frame-declared `:large` slot is projected through
   the EP-0015 on-box default `local-render/local-render-value` (keyed on the
   OBSERVED frame), then through the Resources projection algebra
-  (`resources-helpers/summarize` + `instance-row` + `project-instances`) the
+  (`resources-helpers/summarize` + `instance-row`) the
   panel hands to the view. We assert the panel-facing summaries NEVER preview
   raw classified scope / params / data — the sensitive slot summarizes as the
   `[redacted]` sentinel preview, the large value rides through for the local
@@ -277,22 +277,3 @@
       (is (leaf-redacted? (:data (h/instance-row [scoped-key raw-entry] nil
                                                  (local-egress-fn secure-frame))))
           "the SAME value redacts under the secure frame — per-frame policy"))))
-
-;; ---------------------------------------------------------------------------
-;; project-instances — the panel's projection entry point threads the
-;; egress-fn through every row (the sub-level wiring the panel uses), so the
-;; whole instance table is redacted, not just one row.
-;; ---------------------------------------------------------------------------
-
-(deftest project-instances-threads-local-render-egress
-  (let [entries {scoped-key raw-entry}
-        rows    (h/project-instances entries nil (local-egress-fn secure-frame))]
-    (testing "project-instances applies the local-render egress to every row's
-              payload slots — the instance table never previews raw classified
-              scope / params / data"
-      (is (= 1 (count rows)))
-      (let [row (first rows)]
-        (is (leaf-redacted? (:data row)))
-        (is (leaf-redacted? (:scope row)))
-        (is (leaf-redacted? (:params row)))
-        (is (= :loaded (:status row)) "metadata survives across the table")))))

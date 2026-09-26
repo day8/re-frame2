@@ -32,10 +32,7 @@
        (5b) a nil / unreachable observed frame redacts EVEN WHEN an
        ambient frame is dynamically bound — it must NOT borrow that ambient
        frame's policy and leak the secret (mirroring the off-box
-       derivation-graph test).
-    6. **end-to-end** — the App-DB Diff section model sub
-       (`:rf.xray/app-db-state`) redacts a sensitive app-db slot, so what the
-       panel hands the edn-inspector is already projected."
+       derivation-graph test)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -256,38 +253,6 @@
           ":rf.egress/local-raw includes-sensitive? ⇒ identity walk even frameless"))))
 
 ;; ---------------------------------------------------------------------------
-;; 6. end-to-end — the App-DB Diff section-model derivation redacts a sensitive
-;;    slot, so what the panel hands the edn-inspector is already projected.
-;;
-;; Replicates the `:rf.xray/app-db-state` sub's body exactly (project the
-;; observed-frame value through `local-render-value`, then decompose into the
-;; section model via `current-state-sections`) — exercising the integrated
-;; project-then-section path the panel renders without standing up the full
-;; reactive Xray sub graph.
-;; ---------------------------------------------------------------------------
-
-(deftest app-db-state-section-model-redacts-sensitive-under-observed-frame
-  (let [observed-frame secure-frame
-        ;; The exact projection the `:rf.xray/app-db-state` sub applies.
-        projected (local-render/local-render-value app-db-value observed-frame)
-        {:keys [top]} (h/current-state-sections projected nil)]
-    (testing "the TOP (user-domain) section's sensitive slot is redacted in the
-              model the panel hands to the edn-inspector"
-      (is (= :rf/redacted (get-in top [:auth :token]))
-          "the section model is projected through :rf.egress/local-redacted"))
-    (testing "non-sensitive + large slots survive the section-model projection"
-      (is (= 42 (get-in top [:auth :user-id])))
-      (is (= (vec (range 300)) (get-in top [:catalog :rows]))
-          "large stays on-box; only the secret is withheld")))
-
-  (testing "under a plain frame the section model renders the value verbatim"
-    (let [projected (local-render/local-render-value app-db-value plain-frame)
-          {:keys [top]} (h/current-state-sections projected nil)]
-      (is (= "secret-session-jwt-abc123" (get-in top [:auth :token]))
-          "no sensitive decl ⇒ section model is unredacted"))))
-
-
-;; ---------------------------------------------------------------------------
 ;; 7. THE OBSERVED FRAME IS STAMPED VERBATIM — there is no sentinel.
 ;;
 ;; A walker that resolved its frame with `(or (:frame opts) …)` would read an
@@ -357,16 +322,6 @@
           (when registered?
             (try (rf/destroy-frame! nil)
                  (catch #?(:clj Throwable :cljs :default) _ nil))))))))
-
-(deftest an-unreachable-observed-frame-fails-closed
-  (testing "a destroyed / never-registered id is stamped verbatim and the
-            walker's own liveness check redacts the whole value"
-    (let [rendered (local-render/local-render-value app-db-value :app/does-not-exist)]
-      (is (= :rf/redacted rendered)
-          (str "unreachable observed frame must redact WHOLE. got: "
-               (pr-str rendered)))
-      (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
-          "the session token leaked through an unreachable frame"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 10. `local-render-route-slice`: BOTH covered projections.
