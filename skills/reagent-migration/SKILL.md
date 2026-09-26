@@ -2,18 +2,17 @@
 name: reagent-migration
 description: >
   Rewrites Reagent view code into Fresco (`re-frame.fresco`, alias `h`),
-  re-frame2's optional re-frame-native view layer: a view becomes an
-  `h/defview`, `@(subscribe …)` becomes `(h/sub …)`, handler closures become
-  event vectors, and Form-2/Form-3 state and lifecycle move out of the
-  component. Runs a reporter to size the job, applies the mechanical rewrites,
-  decides judgment cases with the author, and keeps the rest on Reagent.
-  Opt-in: use it only on an app already on re-frame2 whose author wants Fresco
-  — "migrate my Reagent views to Fresco", "port this component to h/defview",
-  or `r/atom`, `r/with-let`, `r/create-class` or `[:> …]` sites raised in a
-  Fresco context. The Reagent adapter is first-class, so a v1→v2 move keeps
-  its views and is `re-frame-migration`'s job. Not for new re-frame2 code
-  (`re-frame2`), project setup (`re-frame2-setup`) or live-app inspection
-  (`re-frame2-pair`).
+  re-frame2's optional view layer: views become `h/defview`, `@(subscribe …)`
+  becomes `(h/sub …)`, handler closures become event vectors, and
+  Form-2/Form-3 state and lifecycle move out of the component. Sizes the job
+  with a reporter, applies mechanical rewrites, settles judgment cases with
+  the author, keeps the rest on Reagent. Opt-in: use it only on an app already
+  on re-frame2 whose author wants Fresco — "migrate my Reagent views to
+  Fresco", "port this component to h/defview", or `r/atom`, `r/with-let`,
+  `r/create-class` or `[:> …]` sites raised in a Fresco context. The Reagent
+  adapter is first-class, so a v1→v2 move keeps its views and is
+  re-frame-migration's job. Not for new re-frame2 code (re-frame2), project
+  setup (re-frame2-setup) or live-app inspection (re-frame2-pair).
 allowed-tools:
   - Bash(rg *)
   - Bash(rg -l *)

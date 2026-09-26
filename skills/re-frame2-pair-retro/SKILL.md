@@ -2,19 +2,18 @@
 name: re-frame2-pair-retro
 description: >
   Retrospective on a re-frame2-pair session: finds where the pair workflow
-  dragged (retries, stale or empty results, refusals, workarounds, hidden
-  prerequisites) and proposes prioritised fixes for the pair skill, preload
-  runtime, MCP tools, or re-frame2's Tool-Pair contract, plus a
-  copy-pasteable GitHub issue draft on request. Read-only; never files
-  issues. Use when the user asks to retro, review, or post-mortem a
-  re-frame2-pair session ("retro on this pair session", "what took longer
-  than it should have?", "draft an issue about that") or supplies a recap
-  of one; and, once a pair tool error, stack trace, or `:rf.error/*` /
-  `:rf.epoch/restore-*` trace from live pair work has been dealt with, to
-  offer a retro in one line. Needs a real pair session or recap: "retro" or
-  "what went wrong" alone is not enough. Not for fixing the live bug or
-  driving the app (re-frame2-pair), static code critique
-  (re-frame2-improver), or writing app code (re-frame2).
+  dragged (retries, stale results, refusals, workarounds) and proposes
+  prioritised fixes for the pair skill, preload runtime, MCP tools, or
+  re-frame2's Tool-Pair contract, plus a GitHub issue draft on request.
+  Read-only; never files issues. Use when asked to retro, review or
+  post-mortem a re-frame2-pair session ("retro on this pair session", "what
+  took longer than it should have?", "draft an issue about that") or given a
+  recap of one; and, once a pair tool error, stack trace, or :rf.error/* /
+  :rf.epoch/restore-* trace from live pair work has been dealt with, to offer
+  a retro. Needs a real pair session or recap: "retro" or "what went wrong"
+  alone is not enough. Not for fixing the live bug or driving the app
+  (re-frame2-pair), static code critique (re-frame2-improver), or writing app
+  code (re-frame2).
 allowed-tools:
  - Read
  - Grep

@@ -1,20 +1,18 @@
 ---
 name: re-frame-migration
 description: >
-  Migrates an existing re-frame v1.x ClojureScript codebase to re-frame2 by
-  editing it in place: swaps re-frame/re-frame for day8/re-frame2 + a view
-  adapter, applies the mechanical (Type A) rules from the migration guide,
-  runs the project's own compile and test gates, and holds every
-  judgment-call (Type B) site for the author to decide. Use it whenever the
-  user wants to migrate, upgrade or port a re-frame v1 app, asks what breaks
-  or changes from v1 to v2, or shows v1-only code or a build failure after
-  the dependency bump: re-frame.db, dispatch-with, reg-event-db /
-  reg-event-fx, reg-global-interceptor, reg-sub-raw, :<- subs, ^:flush-dom,
-  re-frame.alpha, re-frame-test, top-level :dispatch / :dispatch-n keys,
-  http-fx / :http-xhrio, async-flow-fx, re-frame-10x. Not for writing new
-  re-frame2 code (re-frame2), greenfield setup (re-frame2-setup), moving
-  Reagent views to Fresco (reagent-migration), or inspecting a running app
-  (re-frame2-pair).
+  Migrates a re-frame v1.x ClojureScript codebase to re-frame2 in place: swaps
+  re-frame/re-frame for day8/re-frame2 + a view adapter, applies the
+  mechanical (Type A) rules, runs the project's own gates, and holds every
+  judgment-call (Type B) site for the author. Use whenever the user wants to
+  migrate, upgrade or port a re-frame v1 app, asks what breaks from v1 to v2,
+  or shows v1-only code or a post-bump build failure: re-frame.db,
+  dispatch-with, reg-event-db / reg-event-fx, reg-global-interceptor,
+  reg-sub-raw, :<- subs, ^:flush-dom, re-frame.alpha, re-frame-test, top-level
+  :dispatch / :dispatch-n keys, http-fx / :http-xhrio, async-flow-fx,
+  re-frame-10x. Not for new re-frame2 code (re-frame2), greenfield setup
+  (re-frame2-setup), Reagent-to-Fresco views (reagent-migration), or a running
+  app (re-frame2-pair).
 allowed-tools:
   - Bash(rg *)
   # The project's OWN noninteractive install / compile / test gates, for every

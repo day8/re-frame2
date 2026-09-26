@@ -1,20 +1,19 @@
 ---
 name: re-frame2-implementor
 description: >
-  Drives building re-frame2 itself — a NEW implementation (port) in one of
-  the eight in-scope JS-cross-compile-to-React+VDOM hosts: ClojureScript (the
-  reference), TypeScript, Melange/ReScript/Reason, F# (Fable), Squint,
-  Scala.js, PureScript, Kotlin/JS. Records a port profile, then walks the EPs
-  in dependency order against the pinned spec, with the conformance corpus as
-  the acceptance test. Use whenever someone wants to port or reimplement
-  re-frame2, asks about the Implementor Checklist, capability claims, or
-  running spec/conformance fixtures against a port — even if they only ask
-  where to start. Not for: apps on the CLJS reference (re-frame2), greenfield
-  bootstrap (re-frame2-setup), v1→v2 migration (re-frame-migration), live-app
-  inspection (re-frame2-pair). A non-React substrate (Vue, Solid, Svelte,
-  vanilla DOM) or a host that does not compile to JS (Python, Ruby, native
-  Rust, Go, server-side JVM) is out of scope by spec choice: cite the
-  spec/000-Vision.md scope footnote and stop.
+  Drives building re-frame2 itself — a new implementation (port) in one of the
+  eight in-scope hosts that compile to JS for React: ClojureScript,
+  TypeScript, Melange/ReScript/Reason, F# (Fable), Squint, Scala.js,
+  PureScript, Kotlin/JS. Records a port profile, then walks the EPs in order
+  against the pinned spec, the conformance corpus as acceptance test. Use
+  whenever someone wants to port or reimplement re-frame2, asks about the
+  Implementor Checklist, capability claims, or running spec/conformance
+  fixtures against a port, even just where to start. Not for: apps on the CLJS
+  reference (re-frame2), greenfield bootstrap (re-frame2-setup), v1→v2
+  migration (re-frame-migration), live-app inspection (re-frame2-pair). A
+  non-React substrate (Vue, Solid, Svelte, vanilla DOM) or non-JS host
+  (Python, Ruby, native Rust, Go, server JVM) is out of scope: cite
+  spec/000-Vision.md's scope footnote and stop.
 allowed-tools:
   - Bash(gh issue *)
   - Bash(git -C * rev-parse *)

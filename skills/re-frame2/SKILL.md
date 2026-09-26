@@ -2,19 +2,17 @@
 name: re-frame2
 description: >
   Writes and edits re-frame2 ClojureScript app code — events, subs, fx, cofx,
-  interceptors, flows, frames, views, state machines (regions, tags, spawn),
-  schemas, routing, SSR, stories, tests, and the canonical patterns
-  (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
-  AsyncEffect). **Not for**: live-app inspection (`re-frame2-pair`),
-  anti-pattern review of existing code (`re-frame2-improver`), Xray tours
-  (`re-frame2-xray`), greenfield bootstrap (`re-frame2-setup`), v1→v2
-  migration (`re-frame-migration`), Reagent→Fresco ports
-  (`reagent-migration`), pair retros (`re-frame2-pair-retro`), or porting
-  re-frame2 (`re-frame2-implementor`). Use whenever code mentions or needs
-  reg-event, reg-sub, reg-fx, reg-cofx, reg-flow, reg-view, reg-machine,
-  reg-route, reg-resource, reg-mutation, dispatch, subscribe, app-db, frames,
-  the nine UI states, managed HTTP, TanStack-Query-style caching, or tests for
-  a re-frame2 app — even when re-frame2 is not named.
+  interceptors, flows, frames, views, state machines, schemas, routing, SSR,
+  stories, tests, and the canonical patterns (RemoteData, Resources, Forms,
+  Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect). Not for: live-app
+  inspection (re-frame2-pair), code review (re-frame2-improver), Xray tours
+  (re-frame2-xray), new projects (re-frame2-setup), v1→v2 migration
+  (re-frame-migration), Reagent→Fresco ports (reagent-migration), pair retros
+  (re-frame2-pair-retro), or porting re-frame2 (re-frame2-implementor). Use
+  whenever code mentions or needs reg-event, reg-sub, reg-fx, reg-cofx,
+  reg-flow, reg-view, reg-machine, reg-route, reg-resource, reg-mutation,
+  dispatch, subscribe, app-db, the nine UI states, managed HTTP or
+  TanStack-Query-style caching — even when re-frame2 is not named.
 allowed-tools:
   - Read
   - Edit

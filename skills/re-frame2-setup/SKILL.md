@@ -2,19 +2,17 @@
 name: re-frame2-setup
 description: >
   Greenfield bootstrap for re-frame2 ClojureScript apps: a brand-new project
-  from nothing, or an empty CLJS project (shadow-cljs / Clojure present, zero
-  re-frame2 wiring). Writes the generator template's counter SPA — deps.edn
-  with core + the Reagent adapter (UIx on request), shadow-cljs.edn, the entry
-  namespace with `rf/init!`, events / subs / views, a first story — then runs
-  npm install, the compile and the dev server itself and reports the URL. Use
-  whenever someone wants to start, scaffold, bootstrap or set up a new
-  re-frame2 app, asks for a hello-world or minimal re-frame2 project, or a
-  freshly scaffolded project fails to build on missing `re-frame.core` /
-  `re-frame.adapter.reagent` wiring. Not for: code on a working app or adding
-  re-frame2 to a non-trivial existing one (`re-frame2`), reviews
-  (`re-frame2-improver`), re-frame v1 migration (`re-frame-migration`),
-  live-app inspection (`re-frame2-pair`), or porting re-frame2
-  (`re-frame2-implementor`).
+  from nothing, or an empty CLJS project (shadow-cljs/Clojure present, no
+  re-frame2 wiring). Writes the generator template's counter SPA (Reagent; UIx
+  on request) — deps.edn, shadow-cljs.edn, the `rf/init!` entry namespace,
+  events/subs/views, a first story — then installs, compiles, starts the dev
+  server and reports the URL. Use whenever someone wants to start, scaffold,
+  bootstrap or set up a new re-frame2 app, asks for a hello-world or minimal
+  re-frame2 project, or a freshly scaffolded project fails to build on missing
+  `re-frame.core` / `re-frame.adapter.reagent` wiring. Not for: code on a
+  working app or adding re-frame2 to a non-trivial existing one (re-frame2),
+  reviews (re-frame2-improver), v1 migration (re-frame-migration), live-app
+  inspection (re-frame2-pair), or porting re-frame2 (re-frame2-implementor).
 allowed-tools:
   - Bash(clojure -Sdescribe)
   - Bash(clojure -Stree)
