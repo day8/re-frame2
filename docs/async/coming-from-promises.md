@@ -19,6 +19,7 @@ This page is the translation. The *why*: [Why no await](continuations-are-data.m
 | `.finally(onFinally)` | shared code in **one** `:reply-to` handler — a `let` above the `case` ([example](#the-finally-shaped-example)) |
 | `AbortController` cancellation | a **status you read** — `:cancelled` — not an exception type ([cancellation](http.md#cancellation-supersession-and-abort)) |
 | a superseded / raced settlement | `:stale` — and it is **never delivered**, by design ([why](#why-there-is-no-on-finally)) |
+| `Promise.all([…])` | a state machine's `:spawn-all` of `:rf.http/managed` children with `:join :all` ([from a state machine](http.md#from-a-state-machine)) |
 
 The bottom two rows are where the Promise model is quietly weaker, not just spelled differently. A promise has no first-class *cancelled* outcome — you bolt on an `AbortController` and catch a thrown `AbortError` — and no notion of a *stale* settlement at all: a superseded `fetch` still resolves, still runs your `.then`, and cheerfully overwrites fresher data (the search-box race). re-frame2 makes both a **status** in a closed reply set, and suppresses the stale one before it can reach your handler.
 

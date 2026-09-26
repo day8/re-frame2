@@ -18,9 +18,8 @@ require `re-frame.http.managed` once at boot:
 ```
 
 Forget the require and the first `[:rf.http/managed …]` fails loud with
-`:rf.error/no-such-fx` (the fx was never registered). Test helpers re-exported on
-`re-frame.core` throw `:rf.error/http-artefact-missing` until the artefact (and
-`re-frame.http.test-support` for stubs) is loaded.
+`:rf.error/no-such-fx` (the fx was never registered). The test stubs live in their own
+namespace, `re-frame.http.test-support`, which tests require themselves (Step 6).
 
 ## Step 1 — the smallest request that works
 
@@ -59,7 +58,7 @@ When the response lands — milliseconds or seconds later — the runtime dispat
 [:article/load-error {:status :error :error <failure-map> …}]    ;; failure
 ```
 
-That's the one canonical reply envelope — the same `:status`-keyed map every async surface delivers. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you (JSON by default, sniffed from the Content-Type).
+That's the one canonical reply envelope — the same `:status`-keyed map every async surface delivers. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you (JSON by default, sniffed from the Content-Type), and JSON object keys arrive as keywords.
 
 **What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map.
 
@@ -86,6 +85,7 @@ The failure map (under the reply's `:error`) always carries a `:kind` — a keyw
     (:rf.http/http-4xx
      :rf.http/decode-failure
      :rf.http/accept-failure) "We couldn't load that."
+    :rf.http/aborted    "Cancelled."
     "Something unexpected happened."))
 
 (rf/reg-event :article/load-error
@@ -133,6 +133,8 @@ By default the body is parsed by sniffing the Content-Type (`:decode :auto`). Bu
         :on-failure [:article/load-error]}]]}
 ```
 
+Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`, which loads it. Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
+
 **Notice:** decode runs **only on 2xx responses** — status is classified first. A 404 that answers with an HTML error page is `:rf.http/http-4xx` with the raw HTML at `:body`, *not* a decode failure, because the decoder never ran. "The server said no" matters more than what shape the no was.
 
 `:decode` also takes a keyword (`:json` / `:text` / `:blob` / …) or a plain function when you need full control — see [the reference](http.md#validating-the-body-with-decode).
@@ -179,7 +181,7 @@ Give the request a stable `:request-id`. Issuing a new request with the same id 
 
 **What you see:** type fast against a slow API and the results always match the last keystroke. Zero lines of race-handling code.
 
-**Notice:** this isn't best-effort cancellation. The runtime classifies the superseded reply as stale *before delivery*, so it cannot clobber fresh data even if it arrives late. The same id is also your cancel handle — `[:rf.http/managed-abort :search/in-flight]` aborts the in-flight request explicitly. ([Cancellation in full](http.md#cancellation-supersession-and-abort).)
+**Notice:** this isn't best-effort cancellation. The runtime classifies the superseded reply as stale *before delivery*, so it cannot clobber fresh data even if it arrives late. The same id is also your cancel handle — `[:rf.http/managed-abort :search/in-flight]` aborts the in-flight request explicitly. ([Cancellation in full](http.md#cancellation-supersession-and-abort).) A manual abort does reply: with split handlers it lands on `:on-failure` as a `:status :cancelled` reply whose `:error` has `:kind :rf.http/aborted`, which is why `failure->message` in Step 2 has a case for it.
 
 ## Step 6 — test it without a network
 
@@ -228,6 +230,6 @@ The stubbed reply has the exact envelope a live request produces, so both tests 
 | Race | `:request-id` | Same id supersedes / suppresses stale |
 | Test | `with-request-stubs` | `re-frame.http.test-support` + canned envelope |
 
-Full catalogue (`:decode`, `:accept`, `:retry`, abort, verb helpers):
+Full catalogue (`:decode`, `:accept`, `:retry`, abort, your own request builder):
 [Managed HTTP](http.md). Production auth + secrets:
 [Interceptors and secrets](http-going-further.md).
