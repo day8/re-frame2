@@ -100,32 +100,9 @@ Density, brand, and compact-mode settings can use the same pattern.
 When the user never overrides the operating-system preference, skip app-db and
 use `@media (prefers-color-scheme: dark)`.
 
-### Imperative document-level theming
-
-An effect can set an attribute on `documentElement` without a React render:
-
-```clojure
-(rf/reg-fx :page/echo-theme!
-  {:platforms #{:client}}
-  (fn [_ctx theme]
-    (.setAttribute js/document.documentElement
-                   "data-page-theme"
-                   (name theme))))
-```
-
-Use this only for document chrome outside every frame: the body canvas,
-scrollbar, or `<meta name="theme-color">`. Keep a different attribute name so
-the rendered frame scope remains the real carrier and the document copy is
-clearly cosmetic.
-
-An imperative-only theme does not automatically follow time travel or a
-restored snapshot. Prefer the rendered attribute unless you have measured a
-reason not to.
-
-The browser's top layer does not need a document echo. A dialog in the top
-layer still inherits custom properties from its DOM ancestors, and its
-`::backdrop` inherits from the dialog, so a modal rendered inside `theme-scope`
-receives the same tokens
+Overlays need nothing extra. A dialog in the browser's top layer still inherits
+custom properties from its DOM ancestors, and its `::backdrop` inherits from the
+dialog, so a modal rendered inside `theme-scope` receives the same tokens
 ([Overlays and focus](13-overlays-and-focus.md)).
 
 ## Treat translated strings as values
@@ -135,9 +112,11 @@ Store the locale in app-db and derive strings through a subscription:
 ```clojure
 (def strings
   {:en {:greeting    "Welcome back"
-        :todos/empty "Nothing left to do"}
+        :todos/empty "Nothing left to do"
+        :todos/left  "left"}
    :fr {:greeting    "Bon retour"
-        :todos/empty "Plus rien à faire"}})
+        :todos/empty "Plus rien à faire"
+        :todos/left  "restantes"}})
 
 (rf/reg-sub :i18n/locale
   (fn [db _query]
@@ -167,14 +146,13 @@ translation tables visible instead of blank.
 Format numbers and dates with the platform and the current locale:
 
 ```clojure
-(h/defview price [{:keys [amount]}]
-  (let [locale (name (h/sub [:i18n/locale]))]
-    [:span.price
-     (.format
-      (js/Intl.NumberFormat.
-       locale
-       #js {:style "currency" :currency "EUR"})
-      amount)]))
+(h/defview remaining [_]
+  (let [locale (name (h/sub [:i18n/locale]))
+        n      (h/sub [:todo/remaining-count])]
+    [:span.todo-count
+     (.format (js/Intl.NumberFormat. locale) n)
+     " "
+     (h/sub [:i18n/t :todos/left])]))
 ```
 
 For separately loaded locale packs, store the loaded table in app-db and let
@@ -202,12 +180,12 @@ update normally.
    "Save"])
 ```
 
-The stylesheet already owns these values. Duplicating them in app-db makes a
-theme switch recompute every token consumer. CSS custom properties plus one
-attribute avoid that work.
+The stylesheet already holds these values. Duplicating them in app-db makes a
+theme switch recompute every token consumer, where CSS custom properties and
+one attribute do the same job without a re-render.
 
-The same principle applies to i18n providers: the subscription is already the
-reactive access path. A second context and hook layer do not add information.
+For the same reason, do not add an i18n provider: the subscription already
+gives views reactive access to strings.
 
 ## Vendor theme providers
 
@@ -236,9 +214,9 @@ host ([Interop](09-interop.md)):
    children))
 ```
 
-Create vendor theme objects once at namespace load. App-db chooses which
-object crosses. The vendor's context remains an implementation detail on the
-React side; your own application theme still uses CSS.
+Create vendor theme objects once at namespace load and let app-db choose which
+one to pass. The vendor's context stays on the React side; your own
+application theme still uses CSS.
 
 ## Troubleshooting
 
@@ -258,3 +236,27 @@ React side; your own application theme still uses CSS.
 - Keep literal strings when there is only one real locale. Extract them when a
   second locale becomes an actual requirement.
 - Do not introduce a vendor provider for your own styles. CSS is sufficient.
+
+## Advanced
+
+### Document-level theming
+
+An effect can set an attribute on `documentElement` without a React render:
+
+```clojure
+(rf/reg-fx :page/echo-theme!
+  {:platforms #{:client}}
+  (fn [_ctx theme]
+    (.setAttribute js/document.documentElement
+                   "data-page-theme"
+                   (name theme))))
+```
+
+Use this only for document chrome outside every frame: the body canvas,
+scrollbar, or `<meta name="theme-color">`. Keep a different attribute name so
+the rendered frame scope remains the real carrier and the document copy is
+clearly cosmetic.
+
+An imperative-only theme does not automatically follow time travel or a
+restored snapshot. Prefer the rendered attribute unless you have measured a
+reason not to.

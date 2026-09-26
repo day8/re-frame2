@@ -1,17 +1,25 @@
 # Troubleshooting
 
-Two things go wrong, and they arrive differently. A **symptom** is something you
-saw: a view that will not update, a caret that jumps, a fallback that never
-clears. A **complaint** is something Fresco said: a thrown `ex-info` carrying a
-stable `:rf.error/…` id.
-
-Start from whichever one you have.
+Start from what you have: a **symptom** you saw (a view that will not update,
+a caret that jumps), or an **error** Fresco raised, which carries a stable
+`:rf.error/…` id. Fresco calls its errors *complaints*.
 
 ## Start from a symptom
 
-Every chapter ends with a troubleshooting table for the surface it teaches, next
-to the mechanism that explains it. Go to the chapter for the surface you were
-working on:
+The most common ones:
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A view does not re-render when app-db changes | The value was not read with `h/sub` during the view's render (for example `rf/subscribe`, or a read in a callback) | Read it with `h/sub` in the view body |
+| Calling a view as `(todo-row {:id 7})` throws | A `defview` is a component, used as a Hiccup head | Write `[todo-row {:id 7}]`; use a plain `defn` for a helper you call |
+| A dispatch from a timeout or promise raises `:rf.error/no-frame-context` | The callback runs after rendering, with no frame in scope | Capture the frame with `(rf/capture-frame)` while rendering and use its `:dispatch`, or dispatch an effect that carries the frame |
+| A controlled field drops characters or moves the caret | The edit was dispatched asynchronously, or the field left Fresco's controlled path | Dispatch the edit event directly from `:on-input` |
+| Clearing a field does nothing | The model value did not change, so the field saw nothing to update | Advance `::h/revision` when you reset it |
+| List rows keep the wrong state after reordering | Rows are keyed by index, or not keyed | Put a stable id in `:key` |
+| Clicking an `href="#"` link jumps to the top of the page | Fresco prevents the default only for `:on-submit` | Wrap the event: `[::h/prevent [:todo/set-showing :done]]` |
+
+Every chapter ends with its own troubleshooting table. Go to the chapter for
+what you were working on:
 
 | Working on | Table |
 | --- | --- |
@@ -38,8 +46,8 @@ working on:
 
 ## Start from a complaint
 
-A Fresco complaint is a thrown `ex-info`. Its message is the reason with the id
-in brackets, and the id is in `ex-data`:
+A Fresco error is a thrown `ex-info`. Its message is the reason with the id in
+brackets, and the id is in `ex-data`:
 
 ```clojure
 (try
@@ -49,41 +57,35 @@ in brackets, and the id is in `ex-data`:
       (js/console.error id where reason))))
 ```
 
-Every complaint Fresco raises itself carries four slots:
+Every error Fresco raises carries four keys:
 
-| Slot | Question it answers |
+| Key | What it tells you |
 | --- | --- |
-| `:rf.error/id` | Which refusal is this? Branch on this one and nothing else |
+| `:rf.error/id` | Which error this is. Branch on this and nothing else |
 | `:where` | Which function refused |
 | `:reason` | Why, in a sentence, for a human |
-| `:recovery` | `:no-recovery` — the complaint threw; the fix is in `:reason` |
+| `:recovery` | `:no-recovery`: the error was thrown; the fix is in `:reason` |
 
-Two more, `:view` and `:source`, name the boundary that was rendering and the
-file and line its `defview` was written at. They are **context, not contract**:
-they are present in a development build inside a declaration or a render extent,
-and absent — not `nil`, absent — outside one and in a release build. Read them to
-help yourself; never branch on them and never require them in a test that must
-also pass against a production build.
+In a development build, errors raised while a view renders also carry `:view`
+and `:source`: the view and the file and line of its `defview`. They are absent
+in a release build, so use them for debugging and never branch or assert on
+them.
 
-Assert the id, never the message. Messages improve between releases; an id is
-frozen for the life of the refusal, never reused after it is retired, and is
-what an error monitor's grouping rule and your own tests should key on.
+In tests and error monitoring, match on the id, never the message. Messages
+improve between releases; an id never changes and is never reused.
 
 ## The complaint index
 
-Every complaint the shipped package raises, grouped by the surface that raises
-it. A few ids that core, routing or the SSR module define are listed where
-Fresco surfaces raise them; they are marked as corpus ids.
+Every error the package raises, grouped by the feature that raises it. Ids that
+core, routing or the SSR module define are marked *a corpus id* where a Fresco
+surface raises them.
 
-An id you cannot find here is either not Fresco's or not from this version.
-Check the namespace first — core, routing and the resources model raise their
-own — and then check that your application and test-kit versions match. A few
-further spellings are reserved but not raised; they are listed under [Ids that
-are claimed but not raised](#ids-that-are-claimed-but-not-raised).
+If an id is not here, it is raised by another part of re-frame2 (core, routing,
+resources), or your application and test-kit versions do not match. Some ids
+are reserved but never raised; see [Ids that are claimed but not
+raised](#ids-that-are-claimed-but-not-raised).
 
 ### Hiccup, heads and children
-
-Fresco refuses a Hiccup value it would otherwise have to guess at.
 
 Taught in [Views and reads](02-views-and-reads.md).
 
@@ -108,7 +110,9 @@ collections](06-lists-and-collections.md), [Diagnostics](16-diagnostics.md).
 <a id="fresco-true-child"></a>
 #### `:rf.error/fresco-true-child`
 
-You let `true` reach child position.
+You let `true` reach child position, usually a predicate result such as
+`(= id selected)` written as a child. Return markup or `nil` instead, for
+example with `when`.
 
 Named in [Views and reads](02-views-and-reads.md).
 
@@ -153,7 +157,9 @@ Taught in [Views and reads](02-views-and-reads.md).
 <a id="fresco-sub-outside-render"></a>
 #### `:rf.error/fresco-sub-outside-render`
 
-You read a subscription outside a boundary body.
+You called `h/sub` outside a view body, for example in a callback, a
+promise or a lazy sequence realised later. Read the value in the body and pass
+or close over the result.
 
 Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 [Diagnostics](16-diagnostics.md).
@@ -259,38 +265,38 @@ Taught in [Events as data](03-events-as-data.md).
 <a id="fresco-intent-outside-boundary"></a>
 #### `:rf.error/fresco-intent-outside-boundary`
 
-You lowered or fired an intent with no frame-locked dispatch bound.
+An event vector was turned into a callback outside any view's render, for
+example inside a function a foreign component calls later. Keep event vectors
+in the Hiccup a view returns; inside a foreign callback, use `h/event`.
 
 Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md).
 
 <a id="fresco-intent-needs-the-event"></a>
 #### `:rf.error/fresco-intent-needs-the-event`
 
-You wrote an event-reading intent at a value-first foreign callback.
-
-The one callback form receives every argument the invoker passed, in order.
+You wrote an event vector that reads a DOM event (a `::h/value` marker, say)
+at a foreign callback whose first argument is a value rather than a DOM event.
+Use `h/event`, which receives every argument the caller passed, in order.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
 
 <a id="fresco-malformed-prevent"></a>
 #### `:rf.error/fresco-malformed-prevent`
 
-You wrapped something other than exactly one intent vector in the prevent
-decorator.
+You wrapped something other than exactly one event vector in `::h/prevent`.
+Write `[::h/prevent [:todo/set-showing :done]]`.
 
 Named in [Events as data](03-events-as-data.md).
 
 ### Controlled inputs
-
-A controlled field has one owner, app-db, and one reset trigger,
-`::h/revision`.
 
 Taught in [Controlled inputs](04-controlled-inputs.md).
 
 <a id="fresco-revision-not-controlled"></a>
 #### `:rf.error/fresco-revision-not-controlled`
 
-You put the reset trigger on something that is not a controlled text field.
+You put `::h/revision` on something that is not a controlled text field. It
+belongs on an `<input>` or `<textarea>` with `:value`.
 
 Named in [Controlled inputs](04-controlled-inputs.md), [Forms](05-forms.md),
 [Diagnostics](16-diagnostics.md).
@@ -298,13 +304,11 @@ Named in [Controlled inputs](04-controlled-inputs.md), [Forms](05-forms.md),
 <a id="fresco-file-input-value-marker"></a>
 #### `:rf.error/fresco-file-input-value-marker`
 
-You read `::h/value` off a file input, where `.value` is the `C:\fakepath\`
-fiction and the first file's name — not the files.
+You read `::h/value` from a file input, where `.value` is a fake path such as
+`C:\fakepath\photo.jpg`, not the files. Use `h/event` and read
+`(.. e -target -files)`.
 
 ### Error boundaries
-
-An error boundary that reports nothing looks exactly like one that never caught
-anything, so its props are checked.
 
 Taught in [Errors](17-errors.md).
 
@@ -326,16 +330,16 @@ Named in [Errors](17-errors.md#troubleshooting).
 
 ### Hosts and the raw escape
 
-A `defhost` declaration is checked once, when the namespace loads, so most of
-this group names the declaration. The raw `[:>]` escape has no declaration, so
-its complaint fires where it renders.
+A `defhost` declaration is checked when the namespace loads. The raw `[:>]`
+escape has no declaration, so its error is raised where it renders.
 
 Taught in [Interop](09-interop.md).
 
 <a id="fresco-host-no-component"></a>
 #### `:rf.error/fresco-host-no-component`
 
-You declared a `defhost` over `nil`.
+You declared a `defhost` over `nil`, usually a JavaScript import that
+resolved to nothing. Check the import name and whether it is a default export.
 
 <a id="fresco-bad-host-declaration"></a>
 #### `:rf.error/fresco-bad-host-declaration`
@@ -372,8 +376,8 @@ Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
 <a id="fresco-host-unclaimed-callback"></a>
 #### `:rf.error/fresco-host-unclaimed-callback`
 
-You wrote the one callback form at a `defhost` position declared a ReactNode
-slot, where markup lowers and there is no contract to give a function.
+You wrote `h/event` at a `defhost` prop declared in `:slots`. A slot takes
+markup, not a function.
 
 Write the markup there, or take the position out of `:slots`.
 
@@ -394,14 +398,13 @@ Named in [Interop](09-interop.md).
 
 ### Routing
 
-A route link is an ordinary anchor whose `:href` and click come from routing.
-
 Taught in [Routing and navigation](07-routing-and-navigation.md).
 
 <a id="fresco-route-link-outside-boundary"></a>
 #### `:rf.error/fresco-route-link-outside-boundary`
 
-You rendered a route link with no ambient frame.
+You rendered a route link outside any frame. Render it inside a view under an
+`h/frame-root` or `h/frame-provider`.
 
 <a id="fresco-route-link-bad-on-click"></a>
 #### `:rf.error/fresco-route-link-bad-on-click`
@@ -436,9 +439,6 @@ Named in [Routing and navigation](07-routing-and-navigation.md).
 
 ### Server rendering
 
-A server render either returns the page the application meant to render, or
-fails.
-
 Taught in [SSR and hydration](18-ssr-and-hydration.md).
 
 <a id="ssr-missing-payload-policy"></a>
@@ -458,9 +458,6 @@ id.
 
 ### Motion and presence
 
-`motion/presence` keeps a child on screen after it stops being rendered, so it
-needs to identify each child and to know when to let it go.
-
 Taught in [Motion and presence](12-motion-and-presence.md).
 
 <a id="fresco-presence-child-unkeyed"></a>
@@ -477,25 +474,19 @@ number.
 
 ### Overlays and focus
 
-A popover positions itself against a trigger you name by DOM id.
-
 Taught in [Overlays and focus](13-overlays-and-focus.md).
 
 <a id="fresco-overlay-anchor-missing"></a>
 #### `:rf.error/fresco-overlay-anchor-missing`
 
 You gave an overlay an `:anchor` naming a DOM id no element in the document
-carries. Omitting `:anchor` is legal and silent — a modal takes none, and a
-popover without one is asking for the default position; this catches the name
-that resolves to nothing.
+carries. Omitting `:anchor` is fine: a modal takes none, and a popover without
+one uses the default position.
 
 Generate a unique, stable trigger id from the instance id, and render the
 trigger in the same tree as the overlay so the two arrive in one commit.
 
 ### Ephemeral state
-
-`h/reg-state` checks the concern when it is registered and the instance key
-at every read and write.
 
 Taught in [Ephemeral state](11-ephemeral-state.md).
 
@@ -508,9 +499,9 @@ outside `{:default …}`; or you used an instance key outside the accepted set
 
 ### The test kit
 
-L2 runs one body as a semantic tree with no React running. It refuses whenever
-the thing being asserted is not visible at that level; the fix is usually to
-test at the next level up rather than to change the assertion.
+L2 runs one view body as a data tree with no React running. It throws when the
+thing being tested is not visible at that level; the fix is usually to test at
+the next level up (L3, mounted).
 
 Taught in [Testing](15-testing.md).
 
@@ -612,19 +603,15 @@ id.
 
 ## Ids that are claimed but not raised
 
-These spellings are reserved or retired. None of them can appear in an error
-you caught, and none is a spelling to use for your own errors.
-
-An id never changes meaning or spelling, and a retired id is never reused,
-because stored errors, an error monitor's grouping rules and written prose all
-outlive the code.
+These ids are reserved or retired. None of them appears in a raised error, and
+none should be used for your own errors.
 
 ### Reserved
 
-Each names a refusal on a surface that is not built yet. When the surface ships,
-the id moves into the index above.
+Each names an error for a feature that is not built yet. When the feature
+ships, the id moves into the index above.
 
-| Reserved | What it will refuse |
+| Reserved | What it will reject |
 | --- | --- |
 | `:rf.error/fresco-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head |
 | `:rf.error/fresco-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
@@ -634,6 +621,5 @@ the id moves into the index above.
 ### Retired
 
 `:rf.error/fresco-test-residue-after-quiescence` is retired and will not be
-reused. `hm/assert-clean!` reports residue through the test runner instead of
-throwing, so every leak is reported and a leak is never confused with the
-instrument failing.
+reused. `hm/assert-clean!` reports leaks through the test runner instead of
+throwing, so every leak is reported.

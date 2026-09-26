@@ -69,21 +69,20 @@ The events produce a sequence of complete map values:
 ;; => {:value 10 :step-size 10}
 ```
 
-Each event returns a replacement for the whole value. (Outside this in-browser
+Each event returns a replacement for the whole value. Outside this in-browser
 environment a real app also needs boot wiring: see the
 [counter example](../../examples/core/counter) or
-[Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide grows
-this same counter one concept at a time.
+[Boot and mount an app](how-to/boot-and-mount-an-app.md).
 
-## One map, one write path
+## The write path
 
-Everything your app owns as state between events sits in one map — ordinary nested
-data, with no framework-imposed shape:
+Everything your app keeps as state between events sits in one map of ordinary nested
+data, with no framework-imposed shape. A todo list, which later pages use, might hold:
 
 ```clojure
-{:user {:id 42 :name "Mike"}
- :cart {:items [] :status :draft}
- :ui   {:active-panel :cart :modal nil}}
+{:todos   {1 {:id 1 :title "Buy milk"     :done? false}
+           2 {:id 2 :title "Walk the dog" :done? true}}
+ :showing :all}
 ```
 
 There is one normal way to change it: dispatch an [event](glossary.md#event); the
@@ -92,12 +91,12 @@ that may include `:db`; the runtime [commits](glossary.md#commit) that new map
 atomically. Handlers compute the next value; they do not mutate the old one.
 
 ```clojure
-(rf/reg-event :cart/add
-  (fn [{:keys [db]} [_ {:keys [item]}]]
-    {:db (update-in db [:cart :items] conj item)}))
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
 ```
 
-`update-in` returns a *new* map. The runtime later moves the app-db *reference* from
+`update-in` returns a new map. The runtime later moves the app-db *reference* from
 the old value to the new one in a single commit. (The place is `app-db`; the value
 currently in it is usually bound as `db`.)
 
@@ -136,18 +135,18 @@ Every frame starts with `app-db = {}`. There is no config option to seed it; see
 is itself an event, run through the same pipeline as every later change and listed
 under `:initial-events` on the frame (or `frame-root`).
 
-The counter already did this with `:initialise`. A larger app is the same idea:
+The counter already did this with `:initialise`. A larger app is the same idea, and
+can list several events:
 
 ```clojure
-(rf/reg-event :initialise
+(rf/reg-event :todo/initialise
   (fn [_world _event]
-    {:db {:session nil
-          :ui {:route :home}}}))
+    {:db {:todos {} :showing :all}}))
 
 [rf/frame-root {:id :app
-                :initial-events [[:initialise]
-                                 [:session/restore]]}
- [root-view]]
+                :initial-events [[:todo/initialise]
+                                 [:todo/add "Buy milk"]]}
+ [todo-app]]
 ```
 
 Each initial event's pipeline runs synchronously, in order, through its immediate
@@ -169,44 +168,34 @@ does it without a handler of yours:
 
 ## Shape the map around the domain
 
-Use ordinary maps and vectors. Prefer stable domain paths (`:session`, `:articles`,
-`:ui`) over scattering presentation flags next to every fact. Views stay thin; they
-read what they need through subscriptions.
+Use ordinary maps and vectors. Prefer stable domain paths (`:todos`, `:showing`)
+over scattering presentation flags next to every fact. Views stay thin; they read
+what they need through subscriptions.
 
-## Store facts. Derive conclusions.
+## Store facts, derive conclusions
 
-Put **facts** in app-db. Let [subscriptions](subscriptions.md) derive **view-facing
-conclusions** (later, [flows](flows.md) cover derivations you intentionally
-materialise back into app-db).
+Put facts in app-db. Let [subscriptions](subscriptions.md) derive the conclusions
+views show ([flows](flows.md) cover derivations you deliberately materialise back
+into app-db).
 
 Good:
 
 ```clojure
-{:cart {:items [{:sku "A" :price 10}
-                {:sku "B" :price 20}]}}
+{:todos {1 {:id 1 :title "Buy milk"     :done? false}
+         2 {:id 2 :title "Walk the dog" :done? true}}}
 ```
 
 Poor:
 
 ```clojure
-{:cart {:items [...]
-        :total 30
-        :empty? false}}
+{:todos           {...}
+ :remaining-count 1
+ :all-done?       false}
 ```
 
-`total` and `empty?` are conclusions. Stored next to the items, they have to be
-updated by every handler that touches the items, and one that forgets leaves them
-wrong. Derive them instead, with a subscription.
-
-## Yours, and the framework's next door
-
-A running frame also holds [**runtime-db**](glossary.md#runtime-db): framework
-bookkeeping (machine snapshots, the current route, the resource cache, …) under
-reserved `:rf.runtime/*` keys. The [two partitions](glossary.md#the-two-partitions)
-are separate: app-db is yours, and runtime-db is the framework's. Read runtime-db
-through the framework's subscriptions and change it by dispatching the framework's
-events; don't recreate its keys in app-db. An ordinary `:db` effect cannot wipe a
-machine snapshot. [Frames](frames.md) goes deeper.
+`:remaining-count` and `:all-done?` are conclusions. Stored next to the todos, they
+have to be updated by every handler that touches a todo, and one that forgets leaves
+them wrong. Derive them with a subscription instead.
 
 ## Troubleshooting
 
@@ -219,6 +208,16 @@ machine snapshot. [Frames](frames.md) goes deeper.
 | Machine or route state doesn't reflect what you wrote into app-db | Framework state lives in runtime-db, not app-db | Dispatch the subsystem's events instead |
 
 ## Advanced
+
+### Yours, and the framework's next door
+
+A running frame also holds [**runtime-db**](glossary.md#runtime-db): framework
+bookkeeping (machine snapshots, the current route, the resource cache, …) under
+reserved `:rf.runtime/*` keys. The [two partitions](glossary.md#the-two-partitions)
+are separate: app-db is yours, and runtime-db is the framework's. Read runtime-db
+through the framework's subscriptions and change it by dispatching the framework's
+events; don't recreate its keys in app-db. An ordinary `:db` effect cannot wipe a
+machine snapshot. [Frames](frames.md) goes deeper.
 
 ### Keeping secrets out of traces
 

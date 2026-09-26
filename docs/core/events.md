@@ -5,19 +5,20 @@ event looks like, how you dispatch one, and what its handler may do.
 
 ## Event shape
 
-An event is a **vector**. The first element is the id — almost always a namespaced
-keyword. Further elements are optional facts; the common case is one payload map:
+An event is a **vector**. The first element is the id, usually a namespaced keyword.
+Further elements are optional facts: a single value, or a payload map when there are
+several:
 
 ```clojure
 [:inc]
-[:cart/add {:sku "A" :qty 1}]
-[:article/loaded {:id 42 :title "…"}]
-[:route/changed {:page :about :params {}}]
+[:inc-by {:n 5}]
+[:todo/add "Buy milk"]
+[:todo/toggle 1]
 ```
 
-Ids are the vocabulary of the application. Prefer names that say what *happened*
-(`:cart/item-added`) or what was *intended* (`:cart/add`), not how a view is
-implemented.
+Ids are the vocabulary of the application. Name what the user intended (`:todo/add`)
+or what happened (`:todo/added`), rather than how a view is built
+(`:add-button-clicked`).
 
 Timers, HTTP replies, route loaders, and button clicks all use this same shape, so
 tools can show everything that happened to the app as one list of events.
@@ -41,10 +42,6 @@ Dispatch does not run the handler. It enqueues the event on the frame's FIFO
 queue and returns immediately. The runtime dequeues it shortly after and runs the
 [event pipeline](glossary.md#event-pipeline) for it. Because only the runtime runs
 handlers, UI callbacks stay thin and state is written one event at a time.
-
-```text
-happens → enqueue → dequeue → event pipeline
-```
 
 If the pipeline must finish before your next line of code runs, use `dispatch-sync`.
 It belongs at boot, in tests, and at the REPL; calling it from inside a running

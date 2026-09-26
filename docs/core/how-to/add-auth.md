@@ -4,7 +4,7 @@ This recipe adds login to an app: a session that survives a reload, requests tha
 
 It uses two add-on artefacts, [routing](../../routing/concepts.md) (`day8/re-frame2-routing`) and [managed HTTP](../../async/http.md) (`day8/re-frame2-http`), and optionally [resources](../../resources/concepts.md) for the logout step. The login form itself is [Build a form](build-a-form.md).
 
-[Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md) builds a variant end to end against the Conduit API, which hands out only a bearer token, so its boot *fetches* the signed-in user where this page *restores* one. The note at the end of step 1 covers that difference.
+[Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md) builds a variant against an API that hands out only a token, so its boot *fetches* the user where this page *restores* one (see the note at the end of step 1).
 
 ## 1. The session slice
 
@@ -13,7 +13,7 @@ The session is two [app-db](../glossary.md#app-db) paths:
 - `[:auth :user]`: the signed-in user, or `nil` when nobody's logged in.
 - `[:auth :token]`: the credential that requests carry.
 
-The route guard checks `:user`, the request decorator reads `:token`, and logout clears both. Both have to survive a reload; restoring only one of them is a bug, as the tip below explains. Because each [frame](../glossary.md#frame) has its own app-db, a second frame on the page keeps its own session.
+The route guard checks `:user`, the request decorator reads `:token`, and logout clears both. Both have to survive a reload (the tip below explains why). Each [frame](../glossary.md#frame) has its own app-db, so a second frame on the page keeps its own session.
 
 ### Persist the session through one effect
 
@@ -39,9 +39,9 @@ A page reload throws away app-db, so the session also lives in `localStorage`. G
 
 !!! tip "Store the identity as well as the token"
 
-    The route guard in step 4 reads `[:auth :user]`. A boot that restores only the token comes back with a valid credential and no signed-in user, and a reader who bookmarked a protected page is sent to login while holding a good session. Persisting the small user map beside the token puts the identity in app-db before the first URL is resolved. Cache display identity only (username, avatar, bio), never a second copy of the token, which lives only at `[:auth :token]`.
+    The route guard in step 4 reads `[:auth :user]`. A boot that restores only the token has a valid credential and no signed-in user, so a reader who bookmarked a protected page is sent to login. Persisting the small user map beside the token puts the identity in app-db before the first URL is resolved. Cache display identity only (username, avatar), never a second copy of the token.
 
-    The server still decides. The token may have expired since the last visit, and the first authenticated request is where you find out. Step 3's 401 response hook turns that into a clean logout, which is what makes the optimistic restore safe.
+    The server still decides. The token may have expired since the last visit; step 3's 401 response hook turns that into a clean logout, which is what makes the optimistic restore safe.
 
 !!! note "A `localStorage` token is readable by any script on your page"
 
@@ -51,18 +51,13 @@ A page reload throws away app-db, so the session also lives in `localStorage`. G
 
 Without a boot read, every refresh logs the user out. An [event handler](../glossary.md#event-handler) is pure, so it can't read `localStorage` itself. It declares the saved session as a [coeffect](../glossary.md#coeffect) under `:rf.cofx/requires`, and the framework supplies the value before the handler runs ([Coeffects](../coeffects.md)).
 
-This coeffect has to be [recordable](../glossary.md#recordable-vs-ambient-coeffects). The saved session is folded into durable `[:auth …]` state, and a value that feeds a durable write must be captured once and replayed verbatim. An ambient read would let an epoch restore apply whatever `localStorage` holds *now* instead of the session recorded at boot.
-
-Register `:auth.session/saved` as a recordable coeffect with a supplier, a plain function that does the storage read. The supplier runs once, at the start of the boot dispatch, and its value is recorded:
+Make it a [recordable](../glossary.md#recordable-vs-ambient-coeffects) coeffect: the saved session feeds durable `[:auth …]` state, so its value must be captured once and replayed verbatim, rather than re-read from whatever `localStorage` holds when an epoch is restored. The supplier is a plain function that does the storage read; it runs once, at the start of the boot dispatch, and its value is recorded:
 
 ```clojure
 (rf/reg-cofx :auth.session/saved
   {:recordable? true
-   :doc "The saved session — {:token … :user …}, or nil when nobody is signed in
-         (or on a host with no localStorage at all). The supplier fires once, at
-         the start of the boot dispatch; its value is recorded, so the durable
-         write that folds it replays the captured session rather than re-reading
-         storage."}
+   :doc "The saved session {:token … :user …}, or nil when nobody is signed in
+         or the host has no localStorage."}
   (fn []
     (some-> (.-localStorage js/globalThis)
             (.getItem "auth-session")
@@ -95,29 +90,21 @@ The login form is the one from [Build a form](build-a-form.md), whose running ex
     (let [user (:user value)]            ;; server reply: {:user {... :token "..."}}
       {:db (-> db
                (assoc-in [:auth :login :status]    :submitted)
-               (assoc-in [:auth :login :submitted] ;; keep the form recipe's dirty-check snapshot
-                         (get-in db [:auth :login :draft]))
-               ;; The token has ONE durable home — the classified [:auth :token]
-               ;; path. Store the user with :token stripped, so the JWT is not
-               ;; also sitting (unclassified) at [:auth :user :token]; that copy
-               ;; would ship raw to every off-box record. The request decorator
-               ;; reads the token from [:auth :token], never from the user map.
+               (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
                (assoc-in [:auth :user]  (dissoc user :token))
                (assoc-in [:auth :token] (:token user)))
-       ;; Persist BOTH halves — the credential and the identity it stands for —
-       ;; so the next cold boot restores a session the route guard can see.
        :fx [[:auth.session/persist {:token (:token user)
                                     :user  (dissoc user :token)}]
             [:dispatch [:auth/post-login-redirect]]]})))
 ```
 
-The token has one durable home, the classified `[:auth :token]` path. The user map is stored with `:token` stripped, so no unclassified copy sits at `[:auth :user :token]` to leak into off-box records. The reply event itself carries the token too, which is what the `:sensitive [[:value :user :token]]` metadata covers: paths in a registration's metadata are rooted at the event's arg-map, here the reply envelope.
+The token has one durable home, the classified `[:auth :token]` path. The user map is stored with `:token` stripped, so no unclassified copy sits at `[:auth :user :token]` to leak into off-box records. Both halves are persisted, so the next cold boot restores a session the route guard can see. The reply event itself carries the token too; the `:sensitive [[:value :user :token]]` metadata covers it, because paths in a registration's metadata are rooted at the event's arg-map, here the reply envelope.
 
-The failure handler is unchanged from the form recipe. Don't add a `:retry` block to the login request. [Managed HTTP](../../resources/glossary.md#managed-http) retries nothing unless the request carries one, so a transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) arrives as a failure reply and the user clicks again. Silently re-sending a credential submission can lock an account. Keep retry policies for idempotent reads. A register form is the same wiring with a different URL and draft.
+The failure handler is unchanged from the form recipe. Don't add a `:retry` block to the login request: silently re-sending a credential submission can lock an account. Without one, [managed HTTP](../../resources/glossary.md#managed-http) delivers a 5xx or network drop as a failure reply and the user clicks again. A register form is the same wiring with a different URL and draft.
 
 !!! warning "Gotcha: keep the password out of the trace on the way in"
 
-    The form recipe already classifies the draft's password path and edits it through `:form.login/edit-password`, whose map payload is marked `{:sensitive [[:value]]}`. Keep it that way. Any event that carries a credential must carry it in its arg-map (the map after the event id) with that key classified; a secret passed as a positional argument (`[:auth/login "user" "secret"]`) has no path to classify and appears unredacted in traces.
+    The form recipe edits the password through `:form.login/edit-password`, whose map payload is marked `{:sensitive [[:value]]}`. Keep it that way. A secret passed as a positional argument (`[:auth/login "user" "secret"]`) has no path to classify and appears unredacted in traces.
 
 ??? note "When to reach for a machine"
 
@@ -127,7 +114,7 @@ The failure handler is unchanged from the form recipe. Don't add a `:retry` bloc
 
 Every authenticated request needs the token in an `Authorization` header. Threading it through each request builder means one forgotten call site ships an unauthenticated request.
 
-Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../async/http.md) and are separate from event interceptors. An HTTP interceptor's `:before` receives a context map (`ctx`) holding the in-flight request and returns it, edited. This one reads the token from the frame's app-db and adds the header to every managed request that frame sends:
+Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../async/http.md) and are separate from event interceptors. Its `:before` receives a context map (`ctx`) holding the in-flight request and returns it, edited. This one reads the token from the frame's app-db and adds the header to every managed request that frame sends:
 
 ```clojure
 ;; cf. examples/real-apps/realworld_http/core.cljs
@@ -137,22 +124,19 @@ Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../asyn
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))  ;; "Token" is RealWorld's scheme; yours may be "Bearer"
 
-;; Register at app boot, before the first authenticated request can fire.
-;; The chain is PER-FRAME (an interceptor registered against frame A never
-;; fires for frame B's requests), and registration is frame-scoped — a bare
-;; top-level call fails loud with :rf.error/no-frame-context.
-(rf/with-frame :rf/default
+;; Register at boot, before the first authenticated request. Registration is
+;; per frame; a bare top-level call raises :rf.error/no-frame-context.
+(rf/with-frame :app
   (rf/reg-http-interceptor :my-app/bearer-auth
     {:before bearer-auth}))
 ```
 
-Three details:
-
-- It reads `(:frame ctx)`, the frame this request actually runs under, so it keeps working with renamed frames and multi-frame pages ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
+- It reads `(:frame ctx)`, the frame this request runs under, so it keeps working on multi-frame pages ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
 - It returns `ctx` unchanged when there's no token, so login and public reads are untouched.
 - `Authorization` is on the framework's built-in header denylist, so the live request carries it while traces show it redacted.
+- It never fires for another frame's requests.
 
-Registration is per frame: an interceptor registered against one frame never fires for another frame's requests. This is the same move as registering one `axios` request interceptor instead of passing a config object to every call.
+This is the same move as registering one `axios` request interceptor instead of passing a config object to every call.
 
 The same chain has a response side, which is where you catch an expired token:
 
@@ -160,7 +144,7 @@ The same chain has a response side, which is where you catch an expired token:
 ;; Catch a 401 and log out. `:after` receives the reply envelope:
 ;;   {:status :ok :value …}
 ;;   {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}
-(rf/with-frame :rf/default
+(rf/with-frame :app
   (rf/reg-http-interceptor :my-app/expired-session
     {:after (fn [ctx response]
               (when (and (= :error (:status response))
@@ -173,7 +157,7 @@ The same chain has a response side, which is where you catch an expired token:
               response)}))                       ;; :after must return the response
 ```
 
-Note the two `:status` levels. The reply's `:status` is `:ok`, `:error`, or `:cancelled`; the HTTP status code of a 4xx/5xx is at `(get-in response [:error :status])`, beside the failure `:kind`. The kinds are a closed set: `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`, and `:rf.http/aborted` ([Managed HTTP](../../async/http.md)). Branch on those, never on a message string.
+Note the two `:status` levels. The reply's `:status` is `:ok`, `:error`, or `:cancelled`; the HTTP status code of a 4xx/5xx is at `(get-in response [:error :status])`, beside the failure `:kind`. Branch on the `:kind` keywords ([Managed HTTP](../../async/http.md) lists them), never on a message string.
 
 An interceptor map needs `:before`, `:after`, or both; with neither, registration throws `:rf.error/http-bad-interceptor`.
 
@@ -265,7 +249,7 @@ Restore the session from the frame's `:initial-events`. A `:url-bound? true` fra
      :sensitive [[:auth :token]]}))                ;; step 1's egress protection
 
 (rf/make-frame
-  {:id             :rf/default
+  {:id             :app
    :doc            "The app frame."
    :url-bound?     true                            ;; this frame owns the browser URL
    :initial-events [[:auth/init]]})                ;; runs before the first URL is resolved
@@ -277,9 +261,9 @@ If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-a
 
     ```clojure
     ;; Don't do this
-    (rf/make-frame {:id :rf/default :url-bound? true})   ;; first URL resolved here
-    (rf/with-frame :rf/default
-      (rf/dispatch-sync [:auth/init]))                   ;; session arrives too late
+    (rf/make-frame {:id :app :url-bound? true})   ;; first URL resolved here
+    (rf/with-frame :app
+      (rf/dispatch-sync [:auth/init]))            ;; session arrives too late
     ```
 
     Tests that navigate somewhere first pass. Then a signed-in reader opens `/settings` directly, the guard runs against an empty auth slice, and they land on the login page holding a valid session. `:initial-events` steps run synchronously and in order, so if you need other state seeded before the auth read, make `[:rf/set-db {…}]` the first step.

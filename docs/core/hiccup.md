@@ -18,12 +18,12 @@ to `:h1` and re-evaluate.
 
 ```cljs-rf2
 [:div
- [:h2 "Shopping list"]
+ [:h2 "Todos"]
  [:p "Three things, " [:em "maybe"] " four:"]
  [:ul
-  [:li "Bread"]
-  [:li "Milk"]
-  [:li "Cheese"]]]
+  [:li "Buy milk"]
+  [:li "Walk the dog"]
+  [:li "Pay rent"]]]
 ```
 
 Strings become text nodes; vectors become child elements; order is document order.
@@ -53,8 +53,8 @@ Two shorthands, borrowed from CSS selectors, fold classes and ids into the tag
 keyword:
 
 ```clojure
-[:div.card ...]          ; <div class="card">
-[:input#email.wide ...]  ; <input id="email" class="wide">
+[:li.done ...]                  ; <li class="done">
+[:input#new-todo.new-todo ...]  ; <input id="new-todo" class="new-todo">
 ```
 
 ## It's data, so code writes it
@@ -63,15 +63,15 @@ There is no template language to learn. The screen is a data structure, and all 
 ClojureScript already works on data:
 
 ```cljs-rf2
-(def fruits ["Apples" "Pears" "Plums" "Cherries"])
+(def titles ["Buy milk" "Walk the dog" "Pay rent" "Call Mum"])
 
 (into [:ul]
-  (for [f fruits]
-    [:li f]))
+  (for [t titles]
+    [:li t]))
 ```
 
-`for` produces a `[:li ...]` per fruit; `into` pours them into the `[:ul]`. Add a
-fruit. Then make it `(for [f (sort fruits)] ...)`.
+`for` produces a `[:li ...]` per title; `into` pours them into the `[:ul]`. Add a
+title. Then make it `(for [t (sort titles)] ...)`.
 
 Conditional markup is plain `when`, because a `nil` child renders as nothing:
 
@@ -95,7 +95,7 @@ conditional rendering, just an expression that is sometimes `nil`.
 
 ## Naming a piece of screen: `reg-view`
 
-So far our hiccup has been anonymous. Real apps are built from *named* pieces, and
+So far the hiccup has been anonymous. Real apps are built from named pieces, and
 you met the registration for that in the Introduction:
 
 ```cljs-rf2
@@ -107,11 +107,11 @@ you met the registration for that in the Introduction:
 [greeting "world"]
 ```
 
-`reg-view` reads like `defn` — arguments in, hiccup out — and it also *registers*
-the view under an id derived from its name, so the framework and its tooling can find
-it. Notice how the view gets used: not called like a function, but placed at the
-**head of a vector**, where a tag keyword would go, with its arguments as the tail.
-`[greeting "world"]` is still just data.
+`reg-view` reads like `defn` (arguments in, hiccup out), and it also registers the
+view under an id derived from its name, so the framework and its tooling can find it.
+The view is not called like a function. It is placed at the head of a vector, where a
+tag keyword would go, with its arguments as the tail. `[greeting "world"]` is still
+just data.
 
 These cells render inside a frame the page provides for you. In an app, views render
 under a `frame-root`, as in the Introduction; rendering a view outside any frame
@@ -125,24 +125,21 @@ views, exactly the way a `:div` contains a `:span`:
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
-(rf/reg-view price-tag [amount]
-  [:span {:style {:color "MediumSeaGreen" :font-weight "bold"}}
-   "$" amount])
+(rf/reg-view done-badge [done?]
+  [:span {:style {:color (if done? "MediumSeaGreen" "Tomato") :font-weight "bold"}}
+   (if done? "done" "to do")])
 
-(rf/reg-view product-card [{:keys [title price]}]
-  [:div {:style {:border "1px solid #ccc" :border-radius "8px"
-                 :padding "0.5em 1em" :margin "0.5em 0"}}
-   [:h3 title]
-   [:p "Yours for " [price-tag price]]])
+(rf/reg-view todo-row [{:keys [title done?]}]
+  [:li {:style {:margin "0.25em 0"}}
+   title " " [done-badge done?]])
 
-[:div
- [product-card {:title "Aeron chair" :price 1200}]
- [product-card {:title "Standing desk" :price 800}]]
+[:ul
+ [todo-row {:title "Buy milk" :done? false}]
+ [todo-row {:title "Walk the dog" :done? true}]]
 ```
 
-The same shape repeats at every level: `product-card` uses `price-tag` the way
-`:div` uses `:span`. A screen is a tree of views, and views bottom out in element
-keywords.
+The same shape repeats at every level: `todo-row` uses `done-badge` the way `:li`
+uses `:span`. A screen is a tree of views, and views bottom out in element keywords.
 
 !!! tip "Try it"
 
@@ -150,19 +147,19 @@ keywords.
     easily as `:li`s:
 
     ```clojure
-    (def products [{:title "Aeron chair" :price 1200}
-                   {:title "Standing desk" :price 800}])
+    (def todos [{:title "Buy milk" :done? false}
+                {:title "Walk the dog" :done? true}])
 
-    (into [:div]
-      (for [p products]
-        [product-card p]))
+    (into [:ul]
+      (for [t todos]
+        [todo-row t]))
     ```
 
 ## Troubleshooting
 
 | What you wrote | The rule it tripped | Fix |
 |---|---|---|
-| `["div" "hi"]` | The head must be a tag keyword or a view — a string head is neither | `[:div "hi"]` |
+| `["div" "hi"]` | The head must be a tag keyword or a view; a string is neither | `[:div "hi"]` |
 | `[:p "hi" {:style ...}]` | The attribute map must be **second**; anywhere later it's just another child | `[:p {:style ...} "hi"]` |
-| The cell reports a reader error | A bracket is unbalanced — hiccup is data before it is anything else | Balance the brackets |
+| The cell reports a reader error | A bracket is unbalanced; hiccup must first read as data | Balance the brackets |
 | The console warns that every element in a seq needs a unique `:key` | A `(for ...)` sequence was placed directly as a child | Pour it in with `into`, or give each item a stable `^{:key id}` ([Views](views.md) shows keys) |

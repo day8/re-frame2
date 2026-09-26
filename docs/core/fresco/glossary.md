@@ -42,9 +42,8 @@ Use a view as a Hiccup head. Do not call it as an ordinary function:
 ```clojure
 (h/defview counter [_]
   [:main
-   [:h1 "Clicked " (h/sub [:counter/count]) " times"]
-   [:button {:on-click [:counter/increment]}
-    "Click me"]])
+   [:h1 "Count: " (h/sub [:value])]
+   [:button {:on-click [:inc]} "+1"]])
 
 [counter {}]   ;; right: a Hiccup head
 (counter {})   ;; wrong: a view is not a function to call
@@ -233,16 +232,14 @@ Related: [Events as data](03-events-as-data.md),
 Reserved markers replaced at dispatch with the event target's current value or
 checked state. Substitution occurs only at the top level of the event vector.
 
-`::h/value` is the target's `.value` on every control but one. A
-`<select multiple>`'s value is its selection rather than a scalar, so the marker
-carries a vector of the selected option values — `[]` when nothing is picked.
-Reading `.value` there would answer the first selected option only, which is a
-plausible string that quietly is not what the user chose.
+`::h/value` is the target's `.value`, except on a `<select multiple>`, where it
+is a vector of the selected option values (`[]` when nothing is selected).
+`.value` there would give only the first selected option.
 
 ```clojure
 [:input
- {:value    (h/sub [:draft])
-  :on-input [:draft/changed ::h/value]}]
+ {:value    (h/sub [:todo.ui/draft])
+  :on-input [:todo.ui/set-draft ::h/value]}]
 ```
 
 Related: [Events as data](03-events-as-data.md),
@@ -252,14 +249,14 @@ Related: [Events as data](03-events-as-data.md),
 ### `::h/prevent`
 
 An intent wrapper that calls `preventDefault` and then dispatches one inner
-event vector. Fresco does not auto-prevent clicks; `:on-submit` is the one
-position whose data spelling prevents by default, so a submit intent needs no
-wrapper. A callback always owns its own event and is never auto-prevented.
+event vector. Fresco does not prevent clicks by default. `:on-submit` is the one
+position where an event vector prevents by default, so a submit needs no
+wrapper. A function handler is never prevented for you.
 
 ```clojure
 [:a.nav-link
  {:href      "#"
-  :on-click  [::h/prevent [:todo/filter-active]]}
+  :on-click  [::h/prevent [:todo/set-showing :active]]}
  "Active"]
 ```
 
@@ -291,9 +288,9 @@ server normalisation.
 
 ```clojure
 [:input
- {:value       (h/sub [:field/value id])
-  ::h/revision (h/sub [:field/revision id])
-  :on-input    [:field/edit id ::h/value]}]
+ {:value       (h/sub [:todo.ui/draft id])
+  ::h/revision (h/sub [:todo.ui/draft-revision id])
+  :on-input    [:todo.ui/edit id ::h/value]}]
 ```
 
 Reset is not inferred from value equality. The exact namespaced keyword is
@@ -318,8 +315,8 @@ A map from DOM `.key` strings to event intents, used at `:on-key-down` or
 
 ```clojure
 {:on-key-down
- {"Enter"  [:editor/commit]
-  "Escape" [:editor/cancel]}}
+ {"Enter"  [:todo.ui/commit id]
+  "Escape" [:todo.ui/cancel id]}}
 ```
 
 Unlisted keys are ignored. There is no modifier DSL; use [`h/event`](#event)
@@ -339,7 +336,7 @@ also define:
 - a `:callbacks` override, `:event` or `:render`, for an on*-named render prop;
 - ReactNode [slots](#reactnode-slot);
 - a [server policy](#server-policy);
-- a Client-only fallback.
+- a fallback for when the component is client-only.
 
 ```clojure
 (h/defhost date-picker DatePicker
@@ -424,7 +421,7 @@ server policy remain explicit.
 
 Related: [Interop](09-interop.md).
 
-## Islands
+## Islands and performance
 
 <a id="native-tier"></a>
 ### `re-frame.fresco.native`
@@ -464,11 +461,10 @@ Related: [Islands](10-native-tier.md).
 
 A React component, raw React or UIx, mounted through [`h/defhost`](#defhost)
 under the same React root and re-frame2 frame as the surrounding Fresco
-application. It is appropriate for hooks, vendor widgets, and high-rate
-host-private mechanics.
+application. Use one for React hooks, vendor widgets, and fast-changing state
+that only the component itself needs, such as drag positions.
 
-Xray names and times the crossing, while the inner React tree remains
-host-opaque.
+Xray names and times the island, but does not see inside its React tree.
 
 Related: [Islands](10-native-tier.md).
 
@@ -496,6 +492,20 @@ Keep a native escape only when it:
 - converts a failed user-visible budget into a pass.
 
 Otherwise remove it.
+
+Related: [Performance](19-performance.md).
+
+<a id="user-visible-budget"></a>
+### User-visible budget
+
+A performance requirement expressed as an observable user outcome, such as:
+
+- discrete interaction paint within 50 ms p95;
+- controlled echo within one frame;
+- broad operation within 100 ms p95;
+- zero teardown residue.
+
+Synthetic benchmark scores do not replace these budgets.
 
 Related: [Performance](19-performance.md).
 
@@ -546,18 +556,18 @@ A closed overlay has no DOM node, listener, or active body subscriptions.
 
 Related: [Overlays and focus](13-overlays-and-focus.md).
 
+## Routing and resources
+
 <a id="route-link"></a>
 ### `route-link`
 
-A routing helper in `re-frame.fresco`, called as `h/route-link`, that returns a real
-anchor and encodes navigation as a Fresco intent. It supports route ids and
-params, native link semantics, and link-local veto behaviour. `:prefetch
-:intent` warms the destination on hover, focus and touch, filling those three
-positions with routing's own prefetch event; supply a value at one of them
-yourself and the render is refused, because one position carries one intent.
+`h/route-link` returns a real anchor for a registered route and its params.
+Clicking it navigates; modified clicks (new tab, and so on) behave as for any
+link, and an `:on-click` can veto the navigation. `:prefetch :intent` loads the
+destination's data on hover, focus and touch.
 
-It is an inline function, not a separate view. Active-state styling comes from
-a route subscription comparison.
+Call it as a function; it is not a view. To style the active link, compare the
+route id from `[:rf.route/id]`.
 
 Related: [Routing and navigation](07-routing-and-navigation.md).
 
@@ -569,17 +579,17 @@ no dedicated mechanism: the event that decides the data is wanted ensures it
 under an owner, and the event that dismisses the view releases that owner.
 
 ```clojure
-(rf/reg-event :suggestions/wanted
+(rf/reg-event :todo.search/wanted
   (fn [_ [_ q]]
     {:fx [[:dispatch [:rf.resource/ensure
-                      {:resource :app/suggestions
+                      {:resource :todo/search
                        :params   {:q q}
-                       :owner    [:suggestions]
-                       :cause    [:suggestions/wanted q]}]]]}))
+                       :owner    [:todo.search]
+                       :cause    [:todo.search/wanted q]}]]]}))
 ```
 
-Resource subscriptions are passive in every case — they project the cache and
-never fetch. An owner pins its entry against GC until it is released.
+Resource subscriptions never fetch; they read the cache. An owner keeps its
+entry from being garbage-collected until the owner is released.
 
 Related: [Async resources](08-async-resources.md),
 [Resources glossary](../../resources/glossary.md).
@@ -655,6 +665,15 @@ hydrated browser behaviour.
 Related: [Testing](15-testing.md),
 [Migrating from Reagent](20-migration-from-reagent.md).
 
+<a id="shadow-comparison"></a>
+### Shadow comparison
+
+A migration witness that mounts a reference implementation and candidate under
+isolated equivalent state, drives both with one script, and compares canonical
+DOM plus event-intent streams at each checkpoint.
+
+Related: [Migrating from Reagent](20-migration-from-reagent.md).
+
 ## Diagnostics
 
 <a id="causal-lens"></a>
@@ -728,7 +747,7 @@ has a separate compile-time flag and is disabled by default.
 
 Related: [Diagnostics](16-diagnostics.md).
 
-## Lifecycle and delivery
+## Roots, hydration and errors
 
 <a id="mount"></a>
 ### `client-root`, `render!`, and `unmount!`
@@ -739,14 +758,14 @@ adapter uses.
 `h/client-root` allocates an inert, opaque handle. No DOM work, no React call,
 so it belongs under a `defonce` at namespace load.
 
-`h/render!` does both the boot render and every hot-reload render. Its FIRST
+`h/render!` does both the boot render and every hot-reload render. Its first
 call through a handle creates the React root at the node it is given; every
-later call updates that same root, so the DOM, the subscriptions and every
-scrap of component state survive. Its opts carry React-root options only —
-`:hydrate?` and `:identifier-prefix`, both read on the first call. The
-**frame** is named in the tree, by `[h/frame-root {:id …}]` (ENSURE) or
-`[h/frame-provider {:frame …}]` (SCOPE), and rides every render rather than
-only the first. Initial events run in order before first paint.
+later call updates that same root, so the DOM, subscriptions and component
+state survive. Its options are React-root options only, `:hydrate?` and
+`:identifier-prefix`, both read on the first call. The frame is named in the
+tree: `[h/frame-root {:id …}]` creates it if needed, and
+`[h/frame-provider {:frame …}]` uses one that already exists. `frame-root`
+runs `:initial-events` in order before the first paint.
 
 `h/unmount!` tears the root down and is safe to call more than once; a later
 `h/render!` through the handle mounts afresh. It destroys no frame: a frame
@@ -757,8 +776,8 @@ outlives the boundary that ensured it.
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :app/main :initial-events [[:app/init]]}
-              [app-shell {}]]
+             [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+              [todo-app {}]]
              (js/document.getElementById "app")))
 ```
 
@@ -771,16 +790,13 @@ Two calls complete hydration, and neither creates the frame:
 
 - `re-frame.ssr/hydrate!` installs the server payload into a client frame that
   must already exist (`rf/make-frame` made it);
-- `h/render!` with `{:hydrate? true}` on its FIRST call through a handle adopts
-  existing server DOM for one Fresco root, under an
-  `[h/frame-provider {:frame …}]` that SCOPEs the frame the payload landed in.
-  It is a first-call mode, not a verb: a later call through a live handle
-  updates the root it already owns and ignores the key.
+- `h/render!` with `{:hydrate? true}` on its first call through a handle adopts
+  the existing server DOM for one Fresco root, under an
+  `[h/frame-provider {:frame …}]` for the frame the payload landed in. Later
+  calls through the handle update the root and ignore the key.
 
-State hydration must run before DOM adoption. `frame-provider` catches the boot
-that never made the frame at all — it refuses an ABSENT frame rather than scoping
-a subtree to nothing. It does not detect a frame that is live but never
-hydrated: liveness is the whole of the check.
+Install state before adopting the DOM. `frame-provider` throws if the frame
+was never made, but it cannot tell whether a live frame was hydrated.
 
 Related: [SSR and hydration](18-ssr-and-hydration.md).
 
@@ -794,26 +810,3 @@ error boundary catches descendant render and lifecycle exceptions.
 Expected failures remain ordinary app-db state.
 
 Related: [Errors](17-errors.md).
-
-<a id="user-visible-budget"></a>
-### User-visible budget
-
-A performance requirement expressed as an observable user outcome, such as:
-
-- discrete interaction paint within 50 ms p95;
-- controlled echo within one frame;
-- broad operation within 100 ms p95;
-- zero teardown residue.
-
-Synthetic benchmark scores do not replace these budgets.
-
-Related: [Performance](19-performance.md).
-
-<a id="shadow-comparison"></a>
-### Shadow comparison
-
-A migration witness that mounts a reference implementation and candidate under
-isolated equivalent state, drives both with one script, and compares canonical
-DOM plus event-intent streams at each checkpoint.
-
-Related: [Migrating from Reagent](20-migration-from-reagent.md).

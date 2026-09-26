@@ -66,9 +66,9 @@ At every other position, wrap the intent when the browser default must be
 prevented — most often an anchor being used as an application control:
 
 ```clojure
-[:a.nav-link
+[:a.filter
  {:href "#"
-  :on-click [::h/prevent [:todo/filter-active]]}
+  :on-click [::h/prevent [:todo/set-showing :active]]}
  "Active"]
 ```
 
@@ -92,7 +92,7 @@ a vector, a second payload, or a nested decorator raises
 Markers remain valid inside the inner intent:
 
 ```clojure
-[::h/prevent [:filter/set ::h/value]]
+[::h/prevent [:todo.ui/set-draft ::h/value]]
 ```
 
 The wrapper is represented in the vector rather than metadata because metadata

@@ -13,22 +13,23 @@ Register routes once during boot:
   (:require [re-frame.core :as rf]
             [re-frame.routing]))
 
-(rf/reg-route :app/home     {} "/")
-(rf/reg-route :app/articles {} "/articles")
-(rf/reg-route :app/article
+(rf/reg-route :app/all    {} "/")
+(rf/reg-route :app/active {} "/active")
+(rf/reg-route :app/done   {} "/done")
+(rf/reg-route :app/todo
   {:params [:map [:id :string]]}
-  "/articles/:id")
-(rf/reg-route :app/profile
-  {:params [:map [:username :string]]}
-  "/profile/:username")
-(rf/reg-route :app/inbox    {} "/inbox")
+  "/todos/:id")
 ```
+
+The three filter routes put the todo list's `:showing` filter in the URL, so a
+subscription can derive it from the current route id (cf.
+`examples/core/todomvc`). `:app/todo` is a detail page for one todo.
 
 `h/route-link` is part of `re-frame.fresco`, so a view namespace that renders
 links requires nothing more:
 
 ```clojure
-(ns app.views.articles
+(ns app.views.todos
   (:require [re-frame.fresco :as h]))
 ```
 
@@ -58,9 +59,9 @@ Routing needs a dependency and a frame option. The frame option goes on
   (rf/init! substrate/adapter)
   (h/render! app-root
              [h/frame-root
-              {:id             :app/main
+              {:id             :app
                :url-bound?     true              ;; this frame owns the browser URL
-               :initial-events [[:app/initialise]]}
+               :initial-events [[:todo/initialise]]}
               [views/app-shell]]
              (js/document.getElementById "app"))
   nil)
@@ -93,20 +94,13 @@ Call `h/route-link` as a plain helper. Name a registered route and its params
 rather than constructing a URL:
 
 ```clojure
-(h/defview article-card [{:keys [id]}]
-  (let [{:keys [title author]}
-        (h/sub [:article/summary id])]
-    [:article.card
-     [:h2
-      (h/route-link {:to :app/article
-                     :params {:id id}}
-        title)]
-     [:span.byline
-      "by "
-      (h/route-link {:to     :app/profile
-                     :params {:username author}
-                     :class  "author"}
-        author)]]))
+(h/defview todo-row [{:keys [id]}]
+  (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
+    [:li {:class (when done? "done")}
+     (h/route-link {:to     :app/todo
+                    :params {:id (str id)}
+                    :class  "title"}
+       title)]))
 ```
 
 The result is a real anchor. The router builds `:href`, so hover preview,
@@ -118,17 +112,17 @@ The generated Hiccup carries the click decision as data at `:on-click`, a
 vector headed by an internal keyword and wrapping a map:
 
 ```clojure
-[:a {:href     "/profile/jane"
-     :class    "author"
+[:a {:href     "/todos/1"
+     :class    "title"
      :on-click [navigate-head                       ; route-link's own head
-                {:frame   :app/main
+                {:frame   :app
                  :payload [:rf.route/url-requested
-                           {:url    "/profile/jane"
-                            :to     :app/profile
-                            :params {:username "jane"}}]
+                           {:url    "/todos/1"
+                            :to     :app/todo
+                            :params {:id "1"}}]
                  :native? false
                  :veto    nil}]}
- "jane"]
+ "Buy milk"]
 ```
 
 Two renders of the same link compare equal with `=`, and structural tests can
@@ -154,7 +148,7 @@ through.
 where the navigation renders and pass the result into an inline helper:
 
 ```clojure
-(h/defview site-nav [_]
+(h/defview filter-nav [_]
   (let [current (h/sub [:rf.route/id])
         nav     (fn [to label]
                   (h/route-link
@@ -162,9 +156,10 @@ where the navigation renders and pass the result into an inline helper:
                     :class        (when (= to current) "is-active")
                     :aria-current (when (= to current) "page")}
                    label))]
-    [:nav
-     (nav :app/home "Home")
-     (nav :app/articles "Articles")]))
+    [:nav.filters
+     (nav :app/all "All")
+     (nav :app/active "Active")
+     (nav :app/done "Done")]))
 ```
 
 Use `:aria-current "page"` as the semantic state and a class for styling.
@@ -172,16 +167,16 @@ Use `:aria-current "page"` as the semantic state and a class for styling.
 ## Veto one link
 
 A specific link may replace its navigation with another action, such as asking
-whether to discard a local scratch pane. Pass one of the supported veto forms
+whether to discard a half-typed new todo. Pass one of the supported veto forms
 as `:on-click`: `nil`, `[::h/prevent INTENT]`, an `h/event`, or a plain
 function.
 
 ```clojure
 (h/route-link
- {:to       :app/inbox
+ {:to       :app/all
   :on-click (when draft-open?
-              [::h/prevent [:composer/confirm-discard]])}
- "Inbox")
+              [::h/prevent [:todo.ui/confirm-discard]])}
+ "All")
 ```
 
 The prevent wrapper cancels navigation and dispatches the inner event. A bare
@@ -199,49 +194,45 @@ interest. Write `:prefetch :intent` and the link fills the three intent
 positions with that event, built from the address the link already carries:
 
 ```clojure
-(h/route-link {:to :app/article :params {:id "intro"} :prefetch :intent}
-  "Read more")
+(h/route-link {:to :app/todo :params {:id "1"} :prefetch :intent}
+  "Details")
 ```
 
 renders
 
 ```clojure
-[:a {:href           "/articles/intro"
+[:a {:href           "/todos/1"
      :on-click       [...]                       ;; the navigation, as always
-     :on-mouse-enter [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
-     :on-focus       [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
-     :on-touch-start [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]}
- "Read more"]
+     :on-mouse-enter [:rf.route/prefetch {:to :app/todo :params {:id "1"}}]
+     :on-focus       [:rf.route/prefetch {:to :app/todo :params {:id "1"}}]
+     :on-touch-start [:rf.route/prefetch {:to :app/todo :params {:id "1"}}]}
+ "Details"]
 ```
 
-`:intent` is the only accepted value, and **omitting** `:prefetch` is the only
-way to opt out — a key present with any other value (`true`, `nil`, or a mode
-borrowed from another router such as `:render`) raises
-`:rf.error/route-link-bad-prefetch` at the render site rather than quietly
-rendering a passive link. Omit it and none of the three positions is touched.
+`:intent` is the only accepted value. To opt out, omit the key: any other value
+(`true`, `nil`, or a mode borrowed from another router such as `:render`)
+raises `:rf.error/route-link-bad-prefetch` at the render site.
 
 The sugar abbreviates a form you can always write yourself, and that longer
 form is the answer whenever a position must carry something else:
 
 ```clojure
-(h/route-link {:to             :app/article
-               :params         {:id "intro"}
-               :on-mouse-enter [:rf.route/prefetch {:to     :app/article
-                                                    :params {:id "intro"}}]}
-  "Read more")
+(h/route-link {:to             :app/todo
+               :params         {:id "1"}
+               :on-mouse-enter [:rf.route/prefetch {:to     :app/todo
+                                                    :params {:id "1"}}]}
+  "Details")
 ```
 
 The address takes `:to`, `:params`, `:query` and `:fragment` and nothing else
 (`:fragment` is dropped from the prefetch — a fragment is never a resource
 input). Application code may dispatch the event directly.
 
-**Do not write both.** `:prefetch :intent` *claims* `:on-mouse-enter`,
-`:on-focus` and `:on-touch-start`, and a value of your own at any of them
-raises `:rf.error/fresco-route-link-claimed-intent-position` at render.
-Fresco carries one intent per position, so there is nothing to compose with,
-and half-applying the warm-up would leave a link that prefetches at two
-positions out of three — indistinguishable from a working one until you
-measure. Pick a side per link: the sugar, or the explicit vectors.
+Do not write both. `:prefetch :intent` claims `:on-mouse-enter`, `:on-focus`
+and `:on-touch-start`, and a value of your own at any of them raises
+`:rf.error/fresco-route-link-claimed-intent-position` at render, because a
+position carries one intent and a half-applied warm-up would prefetch from only
+some positions. Choose the sugar or the explicit vectors per link.
 
 Prefetch does not navigate. It does not change the URL, run guards, apply
 scroll/focus policy, or block activation. A later click uses ordinary resource
@@ -290,15 +281,15 @@ focusable, and focus it after commit:
 (h/defview app-shell [_]
   (let [route (h/sub [:rf.route/id])]
     [:div.app
-     [site-nav]
+     [filter-nav]
      [:main {:key       route
              :tab-index -1
              :ref       focus-page}
       [h/error-boundary
        {:fallback [:p.oops "This page could not be shown."]}
        (case route
-         :app/home    [home-page]
-         :app/article [article-page]
+         (:app/all :app/active :app/done) [todo-page]
+         :app/todo                        [todo-detail-page]
          [not-found-page])]]]))
 ```
 
@@ -307,14 +298,14 @@ The key remounts `<main>` when page identity changes, causing the ref to run.
 tab order. `preventScroll` lets the router's scroll policy remain authoritative.
 
 The error boundary sits inside `<main>` so that a page that throws shows the
-fallback while `site-nav` stays usable; wrapping the root instead would replace
+fallback while `filter-nav` stays usable; wrapping the root instead would replace
 the whole application, navigation included
 ([Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) explains
 where boundaries belong). It needs no `:reset-key`: the `:key` above already
 remounts `<main>` on a route change, so navigating away is the retry.
 
 Query-only or fragment-only changes keep the same route id and therefore do
-not move focus. If article 7 and article 9 count as separate pages, include the
+not move focus. If todo 7 and todo 9 count as separate pages, include the
 route params in the key.
 
 Modal and popover focus is handled by the overlays module ([Overlays and focus](13-overlays-and-focus.md)).
@@ -325,15 +316,15 @@ A dirty-leave guard is ordinary state. Register a subscription that returns a
 strict boolean and attach it to the route:
 
 ```clojure
-(rf/reg-sub :editor/can-leave?
+(rf/reg-sub :todo.editor/can-leave?
   (fn [db _]
-    (= (get-in db [:editor :draft])
-       (get-in db [:editor :saved]))))
+    (= (get-in db [:todo.editor :draft])
+       (get-in db [:todo.editor :baseline]))))
 
-(rf/reg-route :app/article-editor
+(rf/reg-route :app/todo-edit
   {:params    [:map [:id :string]]
-   :can-leave [:editor/can-leave?]}
-  "/articles/:id/edit")
+   :can-leave [:todo.editor/can-leave?]}
+  "/todos/:id/edit")
 ```
 
 When the guard returns `false`, the route and URL remain unchanged, and the
@@ -365,15 +356,15 @@ is trapped and restored.
 After a successful save, navigate with a one-shot leave bypass:
 
 ```clojure
-(rf/reg-event :editor/save-and-close
+(rf/reg-event :todo.editor/save-and-close
   (fn [{:keys [db]} _]
     {:db (assoc-in db
-                   [:editor :saved]
-                   (get-in db [:editor :draft]))
+                   [:todo.editor :baseline]
+                   (get-in db [:todo.editor :draft]))
      :fx [[:dispatch
            [:rf.route/navigate
-            {:to            :app/article
-             :params        {:id (get-in db [:editor :id])}
+            {:to            :app/todo
+             :params        {:id (str (get-in db [:todo.editor :id]))}
              :bypass-leave? true}]]]}))
 ```
 
@@ -383,7 +374,7 @@ After a successful save, navigate with a one-shot leave bypass:
 !!! warning "Application routing cannot block browser exits"
     A route guard cannot stop closing the tab, reloading, or following an
     external link. Install a `beforeunload` listener that reads the same
-    `:editor/can-leave?` fact. Keep one dirty calculation and expose it to the
+    `:todo.editor/can-leave?` fact. Keep one dirty calculation and expose it to the
     two exit mechanisms; do not maintain separate flags.
 
 ## Deep links, Back, and Forward
@@ -410,7 +401,7 @@ and activation pipeline as route links:
     default history strategy the document URL **is** the route. So a host page
     carrying `href="css/style.css"` is correct while every route is `/`, and
     silently wrong the moment somebody deep-links or refreshes on
-    `/articles/intro`, where it resolves to `/articles/css/style.css` and 404s.
+    `/todos/1`, where it resolves to `/todos/css/style.css` and 404s.
     Nothing in the application fails: the script tag is usually absolute already,
     so the app boots, routes and behaves — with no stylesheet and no favicon.
 

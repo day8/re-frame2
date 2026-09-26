@@ -1,9 +1,9 @@
 # The escape ladder
 
-Sooner or later a screen needs something ordinary Fresco Hiccup does not
-express, and you step outside it. Every such escape is explicit in source,
-visible to the tools, and reversible. Before taking one, know which of two
-reasons you have, because each has its own rules.
+Sometimes a screen needs something ordinary Fresco Hiccup cannot express, and
+you step outside it. Every such escape is explicit in source, visible to the
+tools, and reversible. There are two reasons to take one, and each has its own
+rules.
 
 ## Two different reasons to leave
 
@@ -17,44 +17,43 @@ The ordinary version exists and is too slow.
 
 Most mistakes here treat one reason as the other: deleting a host because it
 did not recover 20%, or building a native island because a screen felt heavy
-and nobody measured. Each reason has its own ladder.
+and nobody measured.
 
 ## The performance descent
 
-Five rungs; the code for rungs 3 to 5 is in [Islands](10-native-tier.md). Take
-each rung only after the one above it has failed.
+Take each rung only after the one above it has failed. The code for rungs 3 to
+5 is in [Islands](10-native-tier.md).
 
 | Rung | What you write | Take it when |
 | --- | --- | --- |
-| 1 | Ordinary Fresco — Hiccup, `h/sub`, event vectors | always; this is where every screen starts |
-| 2 | Tuned Fresco — boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
-| 3 | A `defview` body returns a React element | Hiccup lowering is the measured owner |
-| 4 | A React island — raw React or UIx, mounted through `h/defhost` | hooks, vendor internals, reconciliation, or per-frame local work dominate |
-| 5 | A native screen | the surface is React-shaped from its first useful design |
+| 1 | Ordinary Fresco: Hiccup, `h/sub`, event vectors | always; every screen starts here |
+| 2 | Tuned Fresco: view boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
+| 3 | A `defview` body returns a React element | Hiccup lowering is the measured cost |
+| 4 | A React island: raw React or UIx, mounted through `h/defhost` | hooks, vendor internals, reconciliation, or per-frame local work dominate |
+| 5 | A native screen | the screen is React-shaped by design |
 
-Most performance work ends at rung 2. Moving a read down, drawing a boundary
-differently, or windowing a list all stay in ordinary Fresco; rungs 3 to 5 do
-not.
+Most performance work ends at rung 2, which is still ordinary Fresco: moving a
+read down, drawing a view boundary differently, or windowing a list.
 
 ## The interoperability descent
 
-Two rungs, taught in [Interop](09-interop.md). The order between them has
-nothing to do with speed.
+Two rungs, taught in [Interop](09-interop.md). Their order has nothing to do
+with speed.
 
 | Rung | What you write | Take it when |
 | --- | --- | --- |
-| A | A declared host — `h/defhost` | the component is foreign and you need its behaviour |
-| B | The raw escape — `[:> Component …]` | migration, and genuinely one-off dynamic component selection |
+| A | A declared host, `h/defhost` | the component is foreign and you need its behaviour |
+| B | The raw escape, `[:> Component …]` | during migration, or for a one-off dynamic choice of component |
 
-Prefer A. A declaration is validated once and named everywhere; the raw escape
-is validated at every crossing and named nowhere.
-[Interop](09-interop.md#raw--escape) has the full table of what the second gives
-up against the first. A component that appears more than once has already earned
-its declaration.
+Prefer A. A declaration is validated once and has a name the tools can show;
+the raw escape is validated at every use and has no name.
+[Interop](09-interop.md#raw--escape) lists everything else the raw escape gives
+up. Once a component appears in two raw `[:>]` escapes, declare it.
 
 ## What each rung costs
 
-Each rung below ordinary Fresco mostly costs inspectability:
+Each rung below ordinary Fresco mostly costs you what tests and tools can see
+(L2 and L3 are the test levels in [Testing](15-testing.md)):
 
 | At and past | Semantic tests | Tools | Server rendering | Frame carriage |
 | --- | --- | --- | --- | --- |
@@ -79,20 +78,20 @@ Do not take one without a reproducible interaction and an attributed owner. The
 procedure is [Performance](19-performance.md#the-measurement-loop)'s measurement
 loop, and its fourth and fifth steps are the performance rungs above.
 
-Then apply the benefit rule: **keep the escape only if it recovers at least 20%
-of the measured interaction, saves at least 2 ms at p95, or converts a failed
-user-visible budget into a pass.** One of the three, on the interaction you
-scripted, against the same screen written the ordinary way.
+Then apply the benefit rule. Keep the escape only if, on the interaction you
+scripted and against the same screen written the ordinary way, it:
 
-An escape that meets none of them is removed; the thresholds do not widen to
-keep it. Re-run the comparison when the surrounding code changes materially,
-because an escape justified against the old topology may not be justified
-against the new one.
+- recovers at least 20% of the measured interaction,
+- saves at least 2 ms at p95, or
+- turns a failed user-visible budget into a pass.
 
-Judge each escape on its own measurement. A published figure for a mechanism
-in general, such as direct React return, is a reference point and never a pass
-or a veto for your site: measured gains for direct return sit close to the 20%
-line, so the same mechanism can pass on one screen and fail on another.
+Otherwise remove it. Re-run the comparison when the surrounding code changes
+materially, because an escape justified against the old code may not be
+justified against the new.
+
+Measure each escape on its own screen. Gains from direct React return, for
+example, sit close to the 20% line, so the same technique can pass on one
+screen and fail on another.
 
 ## The rule an interoperability escape is not judged by
 
@@ -103,26 +102,22 @@ has not failed the benefit rule, because the rule does not apply to it.
 
 Judge it on the questions that do apply:
 
-- Is the crossing **declared**, so it is validated once and named to the tools?
-- Does every value that drives the component arrive on its **own props**?
-- Does each callback's inferred **contract** match the library — in
-  particular, is any on*-named prop really a render prop, which needs a
+- Is the crossing declared, so it is validated once and named to the tools?
+- Does every value that drives the component arrive on its own props?
+- Does each callback's inferred contract match the library? In particular, is
+  any `on*`-named prop really a render prop, which needs a
   `{:callbacks {… :render}}` override?
-- Does the declaration state a **server policy** you meant, rather than
-  inheriting Client-only by omission?
-- If the component acquires anything, does something **release** it?
+- Does the declaration state the server policy you meant, rather than
+  defaulting to Client-only?
+- If the component acquires anything, does something release it?
 
-[Interop](09-interop.md) covers each of these. A host that answers all five is
-finished.
-
-Interoperability has one threshold of its own: once the same component appears
-in two raw `[:>]` escapes, declare it with `h/defhost`.
+[Interop](09-interop.md) covers each of these.
 
 ## What every escape must preserve
 
-An escape changes how a subtree is written, not what the application
-promises. After taking any rung, re-check the behaviour Fresco can no longer
-inspect for you ([Islands](10-native-tier.md#verify-every-crossing)):
+An escape changes how a subtree is written, but the application must behave
+the same. After taking any rung, re-check what Fresco can no longer inspect for
+you ([Islands](10-native-tier.md#verify-every-crossing)):
 
 - DOM and interaction parity;
 - focus and selection;
@@ -130,9 +125,6 @@ inspect for you ([Islands](10-native-tier.md#verify-every-crossing)):
 - SSR and hydration;
 - cleanup and StrictMode behaviour;
 - the performance script that sent you here in the first place.
-
-An escape that speeds up construction while breaking teardown has moved cost
-somewhere you were not measuring.
 
 ## Climbing back
 
@@ -152,9 +144,9 @@ apply to them:
 | --- | --- |
 | A callback ref that attaches an imperative SDK and returns its cleanup | the supported way to own a DOM-attached SDK ([Interop](09-interop.md)) |
 | `h/portal` | a container mechanism; the subtree stays interpreted and in the same frame |
-| Ephemeral state for open/closed, hover, or draft-local UI | [Ephemeral state](11-ephemeral-state.md), not local React state escaping |
-| `h/as-component` or `h/as-element` | going outward — handing a Fresco view to a React parent, which keeps its reads, memo and frame |
-| Writing a plain `defn` helper that returns Hiccup | an inline helper, called in place; it never became a boundary |
+| Ephemeral state for open/closed, hover, or draft UI | [Ephemeral state](11-ephemeral-state.md), a Fresco feature |
+| `h/as-component` or `h/as-element` | handing a Fresco view to a React parent; the view keeps its reads, memo and frame |
+| A plain `defn` helper that returns Hiccup | a helper called in place, inside its caller's view |
 
 ## When you are not on either ladder
 
@@ -164,5 +156,5 @@ anything. Implement it natively under the same adapter, root and frames, and
 keep one state owner ([Islands](10-native-tier.md#native-screens)).
 
 If the whole application is React-shaped, the UIx adapter is a better fit than
-a Fresco application made of islands. Make that choice deliberately rather than
-arriving at it one island at a time.
+a Fresco application made of islands. Decide that up front rather than drifting
+into it one island at a time.

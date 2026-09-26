@@ -1,6 +1,6 @@
 # Configure dev and production builds
 
-Before you ship, you need to know what ends up in the production bundle and which settings to change. The defaults are correct, so the answer to the second is almost none. This page covers the one flag that makes a build "production", gating your own dev-only code, the JVM/SSR equivalent, the dev settings, and the guardrails that stay on in every build. It ends with a checklist.
+Before you ship, you need to know what ends up in the production bundle and which settings to change. The defaults are correct, so the answer to the second is almost none.
 
 ??? info "Coming from React?"
 
@@ -77,7 +77,7 @@ Each accepts `false`, `0`, `no`, `off`, or the empty string, case-insensitively.
 
 The flag is read once, when `re-frame.interop` loads, so set it at process level rather than with `System/setProperty` after boot. With it off, the JVM drops the same dev surfaces an `:advanced` browser build does: no trace rings and no epoch history. The handled-event and error streams, and the SSR error projector that turns a server-render failure into a safe public error page, keep working.
 
-## 4. The dev knobs: three buckets, one rule
+## 4. Where settings live
 
 Dev-side configuration lives in three places, sorted by the lifetime of what you configure. Each option has exactly one place, so there is never a question of where a setting comes from.
 
@@ -105,7 +105,7 @@ An unknown top-level key applies nothing. In dev builds, an unknown bare (or `rf
 
 The four keys:
 
-- **`:epoch-history`**: depth of the per-frame epoch ring, the buffer of recent [app-db](../glossary.md#app-db) states behind Xray's [time travel](../glossary.md#time-travel); `:depth 0` disables it. `:trace-events-keep` (a non-negative integer) caps how many raw trace events each epoch record keeps. Dev-only. There is no scrub hook: an epoch leaving the process goes through `rf/project-egress`, and a forwarder that needs more than the built-in [data classification](../glossary.md#data-classification) applies its own scrub to the projected value, `(-> record rf/project-egress my-scrub)`, which never touches the in-process ring or `restore-epoch!` ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md#classification-and-time-travel-epoch-records-stay-raw)).
+- **`:epoch-history`**: depth of the per-frame epoch ring, the buffer of recent [app-db](../glossary.md#app-db) states behind Xray's [time travel](../glossary.md#time-travel); `:depth 0` disables it. `:trace-events-keep` (a non-negative integer) caps how many raw trace events each epoch record keeps. Dev-only. There is no scrub hook; an epoch leaving the process goes through `rf/project-egress` ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md#classification-and-time-travel-epoch-records-stay-raw)).
 - **`:trace-buffer`**: how many events the dev trace ring keeps, one slot per dispatched event however many trace events it emitted. Raise it for a bug that spans more user actions than the default 50. `:events-retained 0` keeps nothing while listeners still fire. Dev-only.
 - **`:elision`**: the size above which an *undeclared* large value on a wire-bound surface triggers the `:rf.warning/large-value-unschema'd` warning. The value is still forwarded whole; only values you declared large (or marked `:large?` in a schema) are replaced by the `:rf.size/large-elided` marker. `:rf.egress/threshold-bytes 0` turns the warning off. Declared `:large` elision is not dev-only: it shapes the records your production sinks receive ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md#two-axes-sensitive-and-large)).
 - **`:observability`**: the process default for production sinks, in the same grammar as a frame's `:observability` (below): `{:handled-events [<entry>…] :errors [<entry>…]}`. Declare your Sentry or Datadog policy once here instead of on every frame. Unlike the other three keys it applies in production, `nil` clears it (`(rf/configure! {:observability nil})`), and it is validated at the call: a malformed policy throws `:rf.error/bad-frame-classification` ([Report errors in production](report-errors-in-production.md#declare-it-once-for-the-whole-process)).
@@ -124,15 +124,15 @@ These keys live in the frame config: `:drain-depth`, `:fx-overrides`, `:intercep
 ;; A frame with its own error sink. Observability is frame policy, so it
 ;; applies in production.
 (rf/make-frame
-  {:id :my-app/main
-   :initial-events [[:my-app/boot]]
+  {:id             :app
+   :initial-events [[:todo/initialise]]
    :drain-depth    100
-   :observability  {:errors [{:sink :my-app.sinks/sentry}]}})
+   :observability  {:errors [{:sink :app.sinks/sentry}]}})
 ```
 
 An `:observability` entry names a `:sink` keyword that you register, with an optional `:rf.egress/profile`. The entry takes those two keys only; anything else throws at `make-frame`. Vendor configuration belongs in the sink function you register, which closes over it. The frame key accepts `:handled-events` and `:errors` ([Report errors in production](report-errors-in-production.md)).
 
-Most apps don't need this frame key: declare the policy once with `(rf/configure! {:observability …})` and every frame inherits it. Use the frame key when one frame differs. The two combine per stream: a frame that declares only `:errors` still inherits the default's `:handled-events`, and `{:errors []}` opts that frame out of the error stream. Only one of the two is consulted per record, so a sink listed in both fires once. A frame inherits the sink list only; its records are still projected under its own classification, so an admin frame that classifies more paths redacts more while sharing the default's Sentry entry.
+Most apps don't need this frame key: declare the policy once with `(rf/configure! {:observability …})` and every frame inherits it. Use the frame key when one frame differs; the two combine per stream ([Report errors in production](report-errors-in-production.md#declare-it-once-for-the-whole-process)).
 
 `:drain-depth` is covered with the guardrails below.
 
@@ -164,5 +164,3 @@ Each of these defends against a production threat (a recursive dispatch loop, ke
 4. Handlers receiving untrusted payloads carry a `:schema` and are registered `:boundary? true`.
 5. A JVM/SSR tier ships with `-Dre-frame.debug=false`.
 6. No Xray preload or pair-server artefact on the release classpath.
-
-Six checks. If every one holds, ship.

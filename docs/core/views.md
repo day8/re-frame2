@@ -19,45 +19,80 @@ This is the last stage of the pure part of the
     produced as data by an [event handler](glossary.md#event-handler) and never run
     from a component. No JSX: a view returns plain Clojure data.
 
-## The counter gets components
+## The todo list as views
 
-The [app-db](app-db.md) counter rendered the whole UI in one view. Real screens are
-built from pieces, and views compose the way the hiccup they return does: one vector
-inside another. Three registered views, a display, a reusable button, and a parent:
+Real screens are built from pieces, and views compose the way the hiccup they return
+does: one vector inside another. Here is the todo list from
+[Subscriptions](subscriptions.md) as three registered views: a row, the list, and a
+footer, under a parent:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
-(rf/reg-event :initialise (fn [_ _] {:db {:value 0}}))
-(rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :value inc)}))
-(rf/reg-event :dec (fn [{:keys [db]} _] {:db (update db :value dec)}))
-(rf/reg-sub :value (fn [db _] (:value db)))
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :done? false}
+                  2 {:id 2 :title "Walk the dog" :done? true}
+                  3 {:id 3 :title "Pay rent"     :done? false}}
+          :showing :all}}))
 
-;; the new idea: views compose — each piece registered, each pure
-(rf/reg-view counter-display []
-  [:span {:style {:margin "0 0.5em"}} @(subscribe [:value])])
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]] {:db (update-in db [:todos id :done?] not)}))
 
-(rf/reg-view counter-button [label event]
-  [:button {:on-click #(dispatch event)} label])
+(rf/reg-event :todo/delete
+  (fn [{:keys [db]} [_ id]] {:db (update db :todos dissoc id)}))
 
-(rf/reg-view counter []
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
+
+(rf/reg-sub :todo/remaining-count {:inputs [[:todo/all]]}
+  (fn [[todos] _] (count (remove :done? todos))))
+
+;; the new idea: views compose, each one registered and pure
+(rf/reg-view todo-item [{:keys [id title done?]}]
+  [:li
+   [:input {:type "checkbox" :checked done?
+            :on-change #(dispatch [:todo/toggle id])}]
+   " " title " "
+   [:button {:on-click #(dispatch [:todo/delete id])} "×"]])
+
+(rf/reg-view todo-list []
+  [:ul
+   (for [todo @(subscribe [:todo/all])]
+     ^{:key (:id todo)} [todo-item todo])])
+
+(rf/reg-view todo-footer []
+  [:p @(subscribe [:todo/remaining-count]) " left to do"])
+
+(rf/reg-view todo-app []
   [:div
-   [counter-button "−" [:dec]]
-   [counter-display]
-   [counter-button "+" [:inc]]])
+   [todo-list]
+   [todo-footer]])
 
-[rf/frame-root {:id :app :initial-events [[:initialise]]}
- [counter]]
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-app]]
 ```
 
 Notes:
 
-1. A child view is used as data. `[counter-button "−" [:dec]]` is a vector whose
-   tail is the child's arguments: the same view, with two argument sets.
-2. The display subscribes for itself. The parent does not read the value and hand
-   it down, so when the value changes, only `counter-display` re-renders.
-3. The button takes the *event to dispatch* as an argument, so it stays reusable
-   without knowing what its click means.
+1. A child view is used as data. `[todo-item todo]` is a vector whose tail is the
+   child's arguments.
+2. Each view subscribes for itself. `todo-app` doesn't read the todos and hand them
+   down, so ticking a box re-renders the list and the footer, not the parent.
+3. `todo-item` takes the todo as an argument and dispatches events naming its `id`,
+   so it works for any row.
+4. `^{:key (:id todo)}` gives each row a stable identity, like React's `key`, so
+   React matches rows by id rather than position. Key by durable data, never the loop
+   index. Missing or colliding keys produce a console warning, and can leave stale
+   DOM, drop a row, or duplicate one.
+
+Now change the child of `frame-root` from `[todo-app]` to
+`[:div [todo-app] [todo-app]]` and re-evaluate. Tick a box in either copy: both
+update. They mount under the same `:app` [frame](glossary.md#frame) and read the same
+app-db, so there is no local copy to fall out of sync. Keep the `frame-root` wrapper:
+without it the views mount under no initialised frame.
 
 Because a view returns plain data, you can `pprint` its output and read it, and a
 function that walks hiccup and emits an HTML string can run on the server. That is
@@ -71,19 +106,19 @@ A view has two connections to the rest of the app, and each goes one way.
 It reads state by dereferencing a [subscription](glossary.md#subscription):
 
 ```clojure
-@(subscribe [:cart/total])
+@(subscribe [:todo/remaining-count])
 ```
 
 This is the only way a view learns application state. It doesn't read
-[app-db](glossary.md#app-db) directly, and it doesn't need the value threaded down as
-an argument through its ancestors. It asks for the value it needs by
-[query vector](glossary.md#query-vector), and re-renders when that value changes.
+[app-db](glossary.md#app-db) directly, and it doesn't need the value threaded down
+through its ancestors. It asks for the value by
+[query vector](glossary.md#query-vector) and re-renders when that value changes.
 
 It reports what happened by [dispatching](glossary.md#dispatch) an
 [event](glossary.md#event):
 
 ```clojure
-[:button {:on-click #(dispatch [:cart/add id])} "Add"]
+[:button {:on-click #(dispatch [:todo/delete id])} "×"]
 ```
 
 `dispatch` and `subscribe` here are the locals that `reg-view` injects. They are
@@ -93,10 +128,9 @@ frame when the click fires after the render has finished; the reason is covered
 
 A dispatch hands the framework an event and returns immediately. It does not change
 state. The [event pipeline](glossary.md#event-pipeline) runs the handler, commits the
-new app-db, recomputes subscriptions, and finally re-renders this view. A click never
-mutates the number next to it; it produces a new app-db, and the new number comes back
-through a subscription. The view holds no state, so it cannot take a shortcut around
-that path.
+new app-db, recomputes subscriptions, and re-renders the views that read them. A
+click never edits the row it sits in; it produces a new app-db, and the new row comes
+back through a subscription.
 
 ??? info "Coming from Redux?"
 
@@ -104,39 +138,6 @@ that path.
     unidirectional data flow. The "selector" is a named, cached node in a derivation
     graph (see [subscriptions](subscriptions.md)) rather than a function you pass
     inline, and the event is dispatched as data rather than through a thunk.
-
-## A view, live
-
-Press **Ctrl-Enter** (**Cmd-Enter** on macOS) to evaluate, then click the buttons:
-
-```cljs-rf2
-(require '[re-frame.core :as rf])
-
-(rf/reg-event :views.qty/initialise
-  (fn [{:keys [db]} _] {:db (assoc db :views.qty/value 1)}))
-(rf/reg-event :views.qty/inc
-  (fn [{:keys [db]} _] {:db (update db :views.qty/value inc)}))
-(rf/reg-event :views.qty/dec
-  (fn [{:keys [db]} _] {:db (update db :views.qty/value (fnil dec 1))}))
-(rf/reg-sub :views.qty/value
-  (fn [db _] (:views.qty/value db)))
-
-(rf/reg-view qty-stepper []
-  [:div
-   [:button {:on-click #(dispatch [:views.qty/dec])} "−"]
-   [:span {:style {:margin "0 1em"}} @(subscribe [:views.qty/value])]
-   [:button {:on-click #(dispatch [:views.qty/inc])} "+"]])
-
-[rf/frame-root {:id :demo :initial-events [[:views.qty/initialise]]}
- [qty-stepper]]
-```
-
-Keep the `:demo` `frame-root` and change its child from `[qty-stepper]` to
-`[:div [qty-stepper] [qty-stepper]]`, then re-evaluate. Click either stepper: both
-move. Both mount under the same `:demo` [frame](glossary.md#frame) and read the same
-app-db value, so there is no local copy to fall out of sync. (Replacing the whole
-`frame-root` with the bare `[:div …]` would drop the `:demo` seed and mount the
-steppers on a frame that was never initialised, so keep the wrapper.)
 
 With [events](events.md), [app-db](app-db.md), [subscriptions](subscriptions.md) and
 views you have every pure stage of the pipeline:
@@ -153,22 +154,14 @@ return [effects](effects.md).
 `reg-view` defines the same render function a `defn` would, plus two things:
 
 1. **A registry entry** under an id derived from the namespace and name (`my.app` +
-   `qty-stepper` → `:my.app/qty-stepper`). Tools list the view, jump to its source,
-   and name its renders in the trace.
+   `todo-item` → `:my.app/todo-item`). Tools list the view, jump to its source, and
+   name its renders in the trace.
 2. **Frame-bound `dispatch` and `subscribe`.** Unqualified `dispatch` and `subscribe`
    in the body are locals bound to the [frame](glossary.md#frame) the view renders
    under, so the same view can mount under several frames unchanged.
 
-```clojure
-(rf/reg-view qty-stepper []
-  [:div
-   [:button {:on-click #(dispatch [:cart/qty-dec])} "−"]
-   [:span @(subscribe [:cart/qty])]
-   [:button {:on-click #(dispatch [:cart/qty-inc])} "+"]])
-```
-
 Like `defn`, `reg-view` takes an optional docstring (stored as the registry `:doc`).
-To keep an id stable across a rename, give it explicitly with `^{:rf/id :cart/line}`
+To keep an id stable across a rename, give it explicitly with `^{:rf/id :todo/item}`
 on the symbol.
 
 !!! note "Hot reload"
@@ -192,28 +185,28 @@ helper that takes data and callbacks only. Don't pass `dispatch` or `subscribe` 
 as arguments.
 
 ```clojure
-;; Don't do this — state operations passed as arguments; the child is
+;; Don't do this: state operations passed as arguments, and the child is
 ;; anonymous in the trace
 (defn todo-item [dispatch subscribe {:keys [id title]}]
   [:li {:on-click #(dispatch [:todo/toggle id])} title])
 
 (rf/reg-view todo-list []
   [:ul
-   (for [todo @(subscribe [:todos/visible])]
+   (for [todo @(subscribe [:todo/visible])]
      ^{:key (:id todo)} [todo-item dispatch subscribe todo])])
 ```
 
 ```clojure
-;; Do this — the child that touches state is registered; the parent passes data
+;; Do this: the child that touches state is registered; the parent passes data
 (rf/reg-view todo-item [{:keys [id title]}]
-  (let [editing? @(subscribe [:todo/editing? id])]
+  (let [editing? @(subscribe [:todo.ui/editing? id])]
     [:li {:class    (when editing? "editing")
           :on-click #(dispatch [:todo/toggle id])}
      title]))
 
 (rf/reg-view todo-list []
   [:ul
-   (for [todo @(subscribe [:todos/visible])]
+   (for [todo @(subscribe [:todo/visible])]
      ^{:key (:id todo)} [todo-item todo])])
 ```
 
@@ -227,18 +220,18 @@ follows this split.
     `frame-provider` / `frame-root` raises `:rf.error/no-frame-context`.
     Registration is how a view finds its frame. If a helper must stay
     unregistered, pass the frame explicitly (`{:frame …}` on each call, or the
-    `:dispatch` from a `(rf/capture-frame)` taken in a registered ancestor) —
-    see [Frames](frames.md).
+    `:dispatch` from a `(rf/capture-frame)` taken in a registered ancestor).
+    See [Frames](frames.md).
 
 !!! note "Setup on mount → `:initial-events`"
 
-    Don't `dispatch` from the render body to "load the cart on mount". The
+    Don't `dispatch` from the render body to "load the todos on mount". The
     dispatch runs on every render, and under a reactive substrate it can loop.
     Name the setup event and list it on the frame:
 
     ```clojure
-    [rf/frame-root {:id :cart :initial-events [[:cart/load]]}
-     [cart-view]]
+    [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+     [todo-app]]
     ```
 
 ??? info "From re-frame v1 — Form-2 / Form-3"
@@ -255,54 +248,88 @@ follows this split.
 Sorting, filtering, formatting, deriving and joining belong in a subscription. A view
 walks the values it is given and returns hiccup.
 
-The temptation is a small `sort-by` or `.toFixed` in the view when the subscribed
-list is *almost* what the screen needs:
+The temptation is a small filter in the view when the subscribed list is almost what
+the screen needs. Adding the `:showing` filter to the todo list:
 
 ```clojure
-;; Don't do this — the sort and the price format re-run on EVERY re-render
-;; of this view, whether or not the cart changed.
-(rf/reg-view cart-lines []
-  [:ul
-   (for [item (sort-by :name @(subscribe [:cart/items]))]
-     ^{:key (:id item)} [:li (:name item) " — $" (.toFixed (:price item) 2)])])
+;; Don't do this: the filter re-runs on every re-render of this view,
+;; whether or not the todos changed.
+(rf/reg-view todo-list []
+  (let [showing @(subscribe [:todo/showing])
+        todos   @(subscribe [:todo/all])]
+    [:ul
+     (for [todo (case showing
+                  :active (remove :done? todos)
+                  :done   (filter :done? todos)
+                  todos)]
+       ^{:key (:id todo)} [todo-item todo])]))
 ```
 
-Move the derivation into a [subscription](subscriptions.md):
+The filter belongs in the `:todo/visible` subscription from
+[Subscriptions](subscriptions.md#three-layers-one-graph), which already derives the
+list from `:todo/all` and `:todo/showing`. The view just renders it:
 
 ```clojure
-;; The sub computes once per change to :cart/items; the view renders.
-(rf/reg-sub :cart/lines-display {:inputs [[:cart/items]]}
-  (fn [[items] _]
-    (->> items
-         (map #(update % :price (fn [n] (.toFixed n 2))))
-         (sort-by :name))))
-
-(rf/reg-view cart-lines []
+(rf/reg-view todo-list []
   [:ul
-   (for [item @(subscribe [:cart/lines-display])]
-     ^{:key (:id item)} [:li (:name item) " — $" (:price item)])])
+   (for [todo @(subscribe [:todo/visible])]
+     ^{:key (:id todo)} [todo-item todo])])
 ```
 
 A view re-runs whenever a value it dereferences changes and whenever a re-rendering
-parent passes it changed arguments, and a `sort-by` in the view re-runs every time.
-The same `sort-by` in a sub re-runs only when `:cart/items` changes, and every view
-that wants the sorted list shares the cached result. This is the most common way
-re-frame2 apps get slow; [Find and fix a slow view](how-to/fix-a-slow-view.md) covers
-finding and fixing it.
+parent passes it changed arguments, and a filter in the view runs every time. The
+same filter in a sub re-runs only when `:todo/all` or `:todo/showing` changes, and
+every view that wants the visible list shares the cached result. This is the most
+common way re-frame2 apps get slow; [Find and fix a slow view](how-to/fix-a-slow-view.md)
+covers finding and fixing it.
 
 ??? note "Need the derived value in an *event handler*?"
 
     A subscription's value is only available to views. When a handler needs the same
-    derivation as plain state, materialise it with a [flow](glossary.md#flow) —
-    [Flows](flows.md); chooser: [Where state lives](where-state-lives.md).
+    derivation as plain state, materialise it with a [flow](glossary.md#flow)
+    ([Flows](flows.md); chooser: [Where state lives](where-state-lives.md)).
 
-!!! note "What's the `^{:key (:id item)}` for?"
+## The trap: a callback that fires after render has no frame
 
-    Same as React's `key`. Give each list element a stable identity
-    (`^{:key (:id item)} [:li …]`) so React matches elements by identity rather
-    than position. Key by durable data, never the loop index. Missing or
-    colliding keys only produce a console warning, and can leave stale DOM, drop
-    a row, or duplicate one.
+A view's `:on-*` handler runs *later*, when the user clicks, not when the view
+renders. By then the render is over: the dynamic [frame](glossary.md#frame) binding
+has unwound and the [frame-provider](glossary.md#frame-provider)'s React context is
+no longer being read. The adapter does not re-wrap `:on-*` callbacks to restore it
+(see [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found)).
+What works is capturing the frame *at render time*, which is what `reg-view`'s
+injected `dispatch` and `subscribe` do: each is a
+[`capture-frame`](glossary.md#capture-frame) operation bound to the render frame. So
+use the injected `dispatch` rather than the fully qualified `rf/dispatch`:
+
+A todo row that fades out and then deletes itself shows the difference:
+
+```clojure
+;; Don't do this: `rf/dispatch` looks for the frame when the event fires,
+;; and by then there is none → :rf.error/no-frame-context
+[:li.fading {:on-animation-end #(rf/dispatch [:todo/delete id])} title]
+
+;; Do this: the injected `dispatch` captured the frame at render
+[:li.fading {:on-animation-end #(dispatch [:todo/delete id])} title]
+```
+
+Attaching a listener imperatively from a render body fails the same way, and every
+re-render adds another listener:
+
+```clojure
+;; Don't do this: fires later with no frame, and leaks a listener per render
+[:li {:ref (fn [el]
+             (when el
+               (.addEventListener el "animationend"
+                 #(rf/dispatch [:todo/delete id]))))}
+ title]
+```
+
+If there is no `:on-*` for what you need (`setTimeout`, `fetch`, observers, sockets),
+that work belongs in a registered [effect](effects.md), not the view. When you must
+hold a `dispatch` for a detached callback, such as a socket message or a timer you
+own, capture it explicitly: `(:dispatch (rf/capture-frame))`, called during render,
+returns a dispatch locked to the render frame that works after any async hop.
+[Frames](frames.md) covers the pattern.
 
 ## Troubleshooting
 
@@ -322,47 +349,6 @@ instance-token]`) and what triggered it, which answers "why did this re-render?"
 Registered views have names; plain helpers appear as `[:rf.view/anonymous nil]`.
 Render tracing is [elided](glossary.md#elide) from production builds.
 
-## The trap: a callback that fires after render has no frame
-
-A view's `:on-*` handler runs *later*, when the user clicks, not when the view
-renders. By then the render is over: the dynamic [frame](glossary.md#frame) binding
-has unwound and the [frame-provider](glossary.md#frame-provider)'s React context is
-no longer being read. The adapter does not re-wrap `:on-*` callbacks to restore it
-(see [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found)).
-What works is capturing the frame *at render time*, which is what `reg-view`'s
-injected `dispatch` and `subscribe` do: each is a
-[`capture-frame`](glossary.md#capture-frame) operation bound to the render frame. So
-use the injected `dispatch` rather than the fully qualified `rf/dispatch`:
-
-```clojure
-;; Don't do this — `rf/dispatch` looks for the frame when the event fires,
-;; and by then there is none → :rf.error/no-frame-context
-[:div {:on-animation-end #(rf/dispatch [:tile/finished])}]
-
-;; Do this — the injected `dispatch` captured the frame at render
-[:div {:on-animation-end #(dispatch [:tile/finished])}]
-```
-
-Attaching a listener imperatively from a render body fails the same way, and every
-re-render adds another listener:
-
-```clojure
-;; Don't do this — fires later with no frame, and leaks a listener per render
-[:div {:ref (fn [el]
-              (when el
-                (.addEventListener el "animationend"
-                  #(rf/dispatch [:tile/finished]))))}]
-```
-
-If there is no `:on-*` for what you need (`setTimeout`, `fetch`, observers, sockets),
-that work belongs in a registered [effect](effects.md), not the view. When you must
-hold a `dispatch` for a detached callback, such as a socket message or a timer you
-own, capture it explicitly: `(:dispatch (rf/capture-frame))`, called during render,
-returns a dispatch locked to the render frame that works after any async hop.
-[Frames](frames.md) covers the pattern.
-
----
-
 ## Advanced
 
 ### Rendering reads; interaction dispatches
@@ -374,21 +360,20 @@ because it rendered. A user or host interaction (a click, a keypress, an `:on-*`
 callback) is where causing belongs.
 
 ```clojure
-;; Do this — the render reads; the click causes.
-(rf/reg-view article-link [slug]
+;; Do this: the render reads; the click causes.
+(rf/reg-view active-filter-link []
   (let [current @(subscribe [:rf.route/id])]
-    [:a {:class    (when (= current :route/article) "active")
-         :on-click #(dispatch [:rf.route/navigate
-                               {:to :route/article :params {:slug slug}}])}
-     "Read it"]))
+    [:a {:class    (when (= current :todo/active) "selected")
+         :on-click #(dispatch [:rf.route/navigate {:to :todo/active}])}
+     "Active"]))
 
-;; Don't do this — the ensure runs because the view rendered, so it re-fires on
-;; every re-render and races every other view showing the same article.
-(rf/reg-view article [slug]
-  (dispatch [:rf.resource/ensure {:resource :article/by-slug
-                                  :params   {:slug slug}}])
-  [:article @(subscribe [:rf/resource {:resource :article/by-slug
-                                       :params   {:slug slug}}])])
+;; Don't do this: the ensure runs because the view rendered, so it re-fires on
+;; every re-render and races every other view showing the same todo.
+(rf/reg-view todo-detail [id]
+  (dispatch [:rf.resource/ensure {:resource :todo/detail
+                                  :params   {:id id}}])
+  [:article @(subscribe [:rf/resource {:resource :todo/detail
+                                       :params   {:id id}}])])
 ```
 
 Calling `fetch`, a resource `ensure`, `navigate` or `dispatch` during render is not a
@@ -402,20 +387,20 @@ Injected `dispatch` and `subscribe` always use the frame the view renders under.
 address another frame deliberately, pass `{:frame …}`:
 
 ```clojure
-(let [their-total @(rf/subscribe [:cart/total] {:frame :other-tab})]
-  [:button {:on-click #(rf/dispatch [:cart/clear] {:frame :other-tab})}
-   (str "Other tab: " their-total)])
+(let [home-left @(rf/subscribe [:todo/remaining-count] {:frame :todos/home})]
+  [:button {:on-click #(rf/dispatch [:todo/clear-done] {:frame :todos/home})}
+   (str "Home list: " home-left " left. Clear done")])
 ```
 
 This is for the rare view that must reach another frame. To point a whole subtree at
-a frame, wrap it in `frame-provider` — see [Frames](frames.md).
+a frame, wrap it in `frame-provider`; see [Frames](frames.md).
 
 ### The substrate boundary
 
 Handlers, subs and app-db never name a rendering library. The adapter you install at
 boot (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes DOM. Switching
-substrates changes the `init!` call and the view notation only —
-[Use UIx or reagent-slim](how-to/use-uix-or-slim.md).
+substrates changes only the `init!` call and the view notation
+([Use UIx or reagent-slim](how-to/use-uix-or-slim.md)).
 
 ### Fresco: another way to write views
 

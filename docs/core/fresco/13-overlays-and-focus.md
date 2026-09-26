@@ -15,111 +15,97 @@ flag and the dismiss event.
 
 ## Anchored popovers
 
-Store the open flag in app-db
-([Ephemeral state](11-ephemeral-state.md)):
+Store the open flag in app-db. `h/reg-state` from
+[Ephemeral state](11-ephemeral-state.md) gives you the subscription and setter:
 
 ```clojure
-(ns app.views.filters
-  (:require [re-frame.core :as rf]
-            [re-frame.fresco :as h]
+(ns app.todos.filters
+  (:require [re-frame.fresco :as h]
             [re-frame.fresco.overlay :as overlay]))
 
-(rf/reg-sub :filter-menu/open?
-  (fn [db [_ id]]
-    (get-in db [:ui :filter-menu/open id] false)))
-
-(rf/reg-event :filter-menu/toggled
-  (fn [{:keys [db]} [_ id]]
-    {:db (update-in db [:ui :filter-menu/open id] not)}))
-
-(rf/reg-event :filter-menu/dismissed
-  (fn [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:ui :filter-menu/open id] false)}))
+(h/reg-state :todo.ui/filter-open? {:default false})
 
 (h/defview filter-menu [{:keys [id]}]
-  (let [open? (h/sub [:filter-menu/open? id])
+  (let [open?      (h/sub [:todo.ui/filter-open? id])
         trigger-id (str "filter-" id "-trigger")]
     [:div.filter
-     [:button {:id trigger-id
+     [:button {:id            trigger-id
                :aria-haspopup "menu"
                :aria-expanded open?
-               :on-click [:filter-menu/toggled id]}
-      "Filter"]
+               :on-click      [:todo.ui/filter-open? id (not open?)]}
+      "Show"]
 
      [overlay/popover
       {:open?      open?
-       :on-dismiss [:filter-menu/dismissed id]
+       :on-dismiss [:todo.ui/filter-open? id false]
        :anchor     trigger-id
        :placement  :bottom-start}
       [:ul {:role "menu"}
-       [:li
-        [:button {:role "menuitem"
-                  :on-click [:filter/applied id :active]}
-         "Active"]]
-       [:li
-        [:button {:role "menuitem"
-                  :on-click [:filter/applied id :completed]}
-         "Completed"]]]]]))
+       (for [showing [:all :active :done]]
+         [:li {:key showing}
+          [:button {:role     "menuitem"
+                    :on-click [:todo/set-showing showing]}
+           (name showing)]])]]]))
 ```
 
-The options have direct responsibilities:
+The options:
 
 - **`:open?`** controls whether the panel exists. While false, there is no DOM
   node, listener, or body subscription.
 - **`:on-dismiss`** is dispatched for native light-dismiss, including outside
-  click and Escape. The handler must write the open flag false. App-db remains
-  the source of truth. It is an intent, so an open overlay carrying it needs a
-  frame above it; with none, rendering raises
+  click and Escape. Its handler must set the open flag to false; app-db remains
+  the source of truth. Because it is an event vector, an open overlay carrying
+  it needs a frame above it; without one, rendering raises
   `:rf.error/fresco-intent-outside-boundary`.
 - **`:anchor`** is the unique DOM id of the trigger. The module positions the
-  panel before first paint, and it is an ordinary prop: change it while the
-  panel is open — one shared menu reused for a newly selected row — and the
-  panel re-anchors in that same commit, without leaving the top layer.
+  panel before first paint. It is an ordinary prop: change it while the panel
+  is open (one shared menu reused for a newly selected row) and the panel
+  re-anchors in the same commit without leaving the top layer.
 - **`:placement`** accepts positions such as `:bottom-start`, `:bottom-end`,
   `:top-start`, and `:right`.
 
-The panel remains in the same React and re-frame2 tree as its trigger. It uses
-the same frame and subscriptions. The top layer changes paint order, so
-ancestor `overflow`, transforms, and stacking contexts do not clip it.
+The panel stays in the same React tree and frame as its trigger and uses the
+same subscriptions. The top layer changes only paint order, so ancestor
+`overflow`, transforms and stacking contexts do not clip it.
 
 Where CSS anchor positioning is available, the browser places the panel and
-keeps tracking the anchor as it moves. The module measures nothing and installs
-no scroll or resize listener; where anchor positioning is unavailable, the
-panel opens at the top layer's default position, and placing it is CSS you
-write.
+keeps tracking the anchor as it moves; the module measures nothing and installs
+no scroll or resize listener. Where it is unavailable, the panel opens at the
+top layer's default position, and placing it is CSS you write.
 
 ## Modals
 
 `overlay/modal` uses a native `<dialog>` and calls `showModal`:
 
 ```clojure
-(rf/reg-sub :todo/confirm-delete?
-  (fn [db [_ id]]
-    (get-in db [:ui :todo/confirm-delete id] false)))
+(ns app.todos.confirm
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco :as h]
+            [re-frame.fresco.overlay :as overlay]))
 
-(rf/reg-event :todo/delete-cancelled
-  (fn [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:ui :todo/confirm-delete id] false)}))
+(h/reg-state :todo.ui/confirm-delete? {:default false})
 
 (rf/reg-event :todo/delete-confirmed
-  (fn [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:ui :todo/confirm-delete id] false)
-     :fx [[:dispatch [:todo/delete id]]]}))
+  (fn [_ [_ id]]
+    {:fx [[:dispatch [::h/clear :todo.ui/confirm-delete? id]]
+          [:dispatch [:todo/delete id]]]}))
 
-(h/defview confirm-delete [{:keys [todo-id]}]
+(h/defview confirm-delete [{:keys [id]}]
   [overlay/modal
-   {:open?      (h/sub [:todo/confirm-delete? todo-id])
-    :on-dismiss [:todo/delete-cancelled todo-id]
+   {:open?      (h/sub [:todo.ui/confirm-delete? id])
+    :on-dismiss [:todo.ui/confirm-delete? id false]
     :label      "Confirm deletion"}
    [:h2 "Delete this todo?"]
    [:p "This cannot be undone."]
    [:footer
-    [:button {:on-click [:todo/delete-cancelled todo-id]}
+    [:button {:on-click [:todo.ui/confirm-delete? id false]}
      "Keep it"]
-    [:button.danger
-     {:on-click [:todo/delete-confirmed todo-id]}
+    [:button.danger {:on-click [:todo/delete-confirmed id]}
      "Delete"]]])
 ```
+
+The delete button opens it with `[:todo.ui/confirm-delete? id true]`.
+Confirming is a named event because it does more than set a flag.
 
 A modal gives you the platform's modal behaviour:
 
@@ -139,18 +125,14 @@ not close on a stray backdrop click. Style the native backdrop with
 Focus belongs to the browser. Do not mirror the currently focused element in
 app-db.
 
-**Initial focus.** Focus is decided once, when the overlay opens, by the
-platform's own dialog-focusing steps — and with nothing pointing them
-elsewhere they take the first focusable control in tree order. So order the
-controls to put the one that should receive focus first. In the confirmation
-dialog above that is *Keep it*, which is the right default for a destructive
-action.
+**Initial focus.** When the overlay opens, the browser's dialog-focusing steps
+move focus to the first focusable control in tree order. Order the controls so
+the right one comes first. In the confirmation dialog above that is *Keep it*,
+the safe default for a destructive action.
 
-There is no attribute to reach for. `:auto-focus true` camelCases to React's
-own `autoFocus`, which React honours by calling `.focus()` during the commit —
-one commit before the dialog is shown, while it is still `display: none` and
-nothing inside it is focusable — and it emits no attribute; the unhyphenated
-`:autofocus` React rejects outright. Neither spelling reaches the platform.
+Do not use `:auto-focus` for this. It becomes React's `autoFocus`, which calls
+`.focus()` one commit before the dialog is shown, while nothing inside it is
+focusable. React rejects the unhyphenated `:autofocus` outright.
 
 A popover normally leaves focus on its trigger; menus and comboboxes can use
 `:aria-activedescendant` instead of moving DOM focus.
@@ -186,8 +168,10 @@ not create five hundred active overlay bodies.
 
 ## Build a dropdown from a popover
 
-A single-select dropdown is a popover plus application events and state. It
-does not require another overlay primitive.
+A single-select dropdown is a popover plus application events and state; it
+needs no other overlay primitive. Its open flag and active option are read by
+the keyboard events, so this widget stores them with ordinary subscriptions and
+events rather than `h/reg-state`.
 
 ```clojure
 (rf/reg-sub :combo/open?
@@ -276,24 +260,34 @@ does not require another overlay primitive.
           l])]]]))
 ```
 
-Escape is not listed in the key map because the native popover owns Escape and
-dispatches `:on-dismiss`. Focus stays on the trigger. There is no document
+Used for the todo filter:
+
+```clojure
+[select-dropdown {:id          :showing
+                  :items       [{:value :all    :label "All"}
+                                {:value :active :label "Active"}
+                                {:value :done   :label "Done"}]
+                  :value       (h/sub [:todo/showing])
+                  :on-commit   [:todo/set-showing]
+                  :placeholder "Show"}]
+```
+
+Escape is not in the key map because the native popover handles Escape and
+dispatches `:on-dismiss`. Focus stays on the trigger, and there is no document
 listener or portal.
 
 Four details make the active-descendant model work for screen readers:
 
-- `:role "combobox"` on the trigger. `:aria-activedescendant` is defined
-  against a fixed set of roles, and a plain button is not among them.
-- `:aria-controls` naming the listbox. That is the ownership edge the platform
-  resolves the pointer through; without it the id names an element the trigger
-  has no stated relationship to.
+- `:role "combobox"` on the trigger. `:aria-activedescendant` is only defined
+  for certain roles, and a plain button is not one of them.
+- `:aria-controls` naming the listbox, so the active-descendant id refers to an
+  element the trigger is related to.
 - Both are emitted only while the list is open, because a closed overlay has no
-  DOM node. An unconditional `:aria-controls` would spend most of its life
-  pointing at nothing.
+  DOM node to point at.
 - `:aria-selected` follows the committed `value`, while
-  `:aria-activedescendant` follows the transient `active`. Selection does not
-  follow focus here, so those are two different options for as long as the user
-  is arrowing around, and collapsing them announces a choice nobody has made.
+  `:aria-activedescendant` follows the transient `active`. While the user is
+  arrowing through options these differ, and merging them would announce a
+  choice nobody has made.
 
 None of the four is visible on screen or caught by a click-driven test, so
 check them with an accessibility-tree assertion or a screen reader.

@@ -42,6 +42,10 @@ Call `init!` once at boot, after `rf/init!`. If your app creates its frame with 
 
 Routing fails closed: with no policy in reach, nothing is sent anywhere, and no default frame is invented for you. An entry naming a sink id you never registered sends nothing either.
 
+This bridge works but has three problems, fixed in the steps below: it also runs in dev, it assumes every record has an `:exception`, and it sends nothing about what the app was doing.
+
+Don't build a monitor on `register-listener! :trace` instead. The trace stream is elided from production builds, so such a monitor works on your laptop and sends nothing in production.
+
 ### Declare it once for the whole process
 
 Sentry belongs to the deployment rather than to one frame, and most apps have more than one frame, so declare the policy once at boot and let every frame inherit it:
@@ -54,13 +58,9 @@ Sentry belongs to the deployment rather than to one frame, and most apps have mo
 
 A frame then needs its own `:observability` only when it differs. Inheritance is per stream: a frame that declares `:errors` uses its own error entries and still inherits the default's `:handled-events`, and `{:errors []}` opts one frame out. Only one source is consulted per record, so a sink listed in both fires once. A frame inherits the sink list only; its records are still projected under its own classification, so an admin frame that classifies more paths redacts more while sharing the same Sentry entry.
 
-The process default also catches records that have no frame to ask: an error raised with no frame in scope, a server-side hydration parse that failed before any frame existed, a teardown report from a frame that is already gone. Those records keep their ids, but their payload arrives as `:rf/redacted`, because no frame's classification applies. A destroyed frame's id is kept as a diagnostic and never looked up again, so if a new frame has since taken that id, the old frame's report doesn't land in the new frame's sink.
+The process default also receives the records no frame owns, such as an error raised with no frame in scope ([step 8](#8-the-two-records-no-frame-owns)).
 
 `(rf/configure! {:observability nil})` clears the default. The policy is checked when you call `configure!`: a malformed one throws `:rf.error/bad-frame-classification` immediately.
-
-This bridge works but has three problems, fixed in the steps below: it also runs in dev, it assumes every record has an `:exception`, and it sends nothing about what the app was doing.
-
-Don't build a monitor on `register-listener! :trace` instead. The trace stream is elided from production builds, so such a monitor works on your laptop and sends nothing in production.
 
 ??? info "From re-frame v1"
 
@@ -279,7 +279,7 @@ The `:handled-events` stream answers the other production question: how many eve
 
     A boundary check does run in release builds, and so does its report: a refused payload reports `:status :rejected` on the handled-event sink and sends one `:rf.error/schema-validation-failure` record (`:source :boundary`) to the error sink, with no wiring of your own. A spike in `:rejected` is real, and it is the value to alert on.
 
-    The boundary error record carries only `:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, and `:time`: no event vector, value, Malli explanation, or `:reason` text. A boundary payload is untrusted and may carry secrets under keys your schema never anticipated, so it is omitted rather than redacted. You can count refusals and attribute each to a frame and event id; to diagnose one, read the dev trace or branch in the handler ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays)).
+    The boundary error record carries identifiers only (event id, schema id, frame), never the untrusted payload. You can count refusals and attribute each to a frame and event id; to diagnose one, read the dev trace or branch in the handler ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays) lists the record's keys).
 
 Together, `:handled-events` tells you that something is wrong (a spike in `:error` or `:rejected`), and `:errors` tells you what: the exception and its stack, or for a boundary rejection, the event and schema ids.
 

@@ -37,9 +37,9 @@ Inside a `reg-view` body, `subscribe` and `dispatch` are provided for you:
 `@(subscribe [:value])` reads the current value, and `(dispatch [:inc])` reports a
 click.
 
-When the app is running — user clicks, DOM updates — the re-frame2 runtime looks those
-functions up by `id` and calls them. You write the functions; the runtime decides when
-they run.
+While the app runs, the re-frame2 runtime looks those functions up by id and calls
+them as clicks arrive and the DOM updates. You write the functions; the runtime decides
+when they run.
 
 ## Running the counter
 
@@ -52,7 +52,7 @@ We've registered the counter; we haven't run it yet. To run it, mount it under a
      [counter]]]
 ```
 
-This is **hiccup** — a data structure that represents DOM (the next page covers it).
+This is **hiccup**, a data structure that represents DOM (the next page covers it).
 In this in-browser environment, hiccup at the end of an interactive block is
 rendered, which is why the app appears above. It describes:
 
@@ -107,10 +107,10 @@ Click **+**. What happens is one run of the
 click → dispatch → queue → handler → {:db …} → commit → subs → views → DOM
 ```
 
-Nothing changes without an event, and every event — a click, an HTTP reply, a timer —
-goes through the same stages in the same order. Your handlers can compute anything;
-the order they are called in is fixed. That fixed order is what makes replay, time
-travel, and testing without mocks possible later.
+Nothing changes without an event, and every event (a click, an HTTP reply, a timer)
+goes through the same stages in the same order. Your handlers can compute anything,
+but the order they are called in is fixed. That fixed order is what makes replay,
+time travel, and testing without mocks possible later.
 
 Put another way, app state is a reduction over events:
 
@@ -121,12 +121,12 @@ app-state = reduce(event-pipeline, initial-state, events)
 ## Events are data
 
 An event is a vector. The head is an id, usually a namespaced keyword. Further
-elements carry facts, typically one payload map:
+elements carry the facts the handler needs:
 
 ```clojure
 [:inc]
-[:article/loaded {:id 42}]
-[:route/changed {:page :about :params {...}}]
+[:inc-by {:n 5}]
+[:todo/toggle 1]
 ```
 
 Events usually record user intent (click, type, navigate), but timers, HTTP replies,
@@ -141,6 +141,6 @@ and route loaders dispatch them too. [Events](events.md) covers them in full.
 | Frame | One running app: app-db + queue + caches |
 | Event pipeline | The fixed stages each event goes through: update → commit → render |
 
-The Core pages build this pipeline up one stage at a time, growing the same counter.
-Each teaches the normal path first, lists the named errors you are likely to meet
-under **Troubleshooting**, and puts optional depth under **Advanced**.
+The Core pages build this pipeline up one stage at a time. The counter carries the
+examples through [app-db](app-db.md); from [Subscriptions](subscriptions.md) on, where
+there is more data to derive from, they use a small todo list.

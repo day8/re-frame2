@@ -37,21 +37,21 @@ function. Keep the process setup inline in `run`, and put the DOM work in `mount
             ;; These namespaces are required for their registrations.
             [counter.events]
             [counter.subs]
-            [counter.views :refer [counter-app]]))
+            [counter.views :refer [counter]]))
 
 ;; Namespace load does no DOM work. The handle is inert until the first
 ;; render! through it creates the React root.
 (defonce app-root (reagent-adapter/client-root))
 
-(def app-frame :rf/default)
+(def app-frame :app)
 
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (reagent-adapter/render! app-root
       [rf/frame-root {:id             app-frame
-                      :initial-events [[:counter/initialise]]}
-       [counter-app]]
+                      :initial-events [[:initialise 0]]}
+       [counter]]
       el)))
 
 (defn run []
@@ -79,8 +79,8 @@ This form:
 
 ```clojure
 [rf/frame-root {:id             app-frame
-                :initial-events [[:counter/initialise]]}
- [counter-app]]
+                :initial-events [[:initialise 0]]}
+ [counter]]
 ```
 
 is `frame-root`, the component that *ensures* a frame exists. On the first
@@ -141,7 +141,7 @@ hot-reload hook as well as from `run`.
 
 (defn- on-storage [event]
   ;; A browser callback has no frame in scope, so name the frame explicitly.
-  (rf/dispatch [:settings/storage-changed (.-key event)]
+  (rf/dispatch [:todo/storage-changed (.-key event)]
                {:frame app-frame}))
 
 (defn- install-host-listeners! []
@@ -187,13 +187,13 @@ full split and its edge cases are in
 
 ```clojure
 ;; App root — ensure + scope in one form
-[rf/frame-root {:id app-frame :initial-events [[:counter/initialise]]}
- [counter-app]]
+[rf/frame-root {:id app-frame :initial-events [[:initialise 0]]}
+ [counter]]
 
 ;; Pre-created frame — scope only
-(rf/make-frame {:id :checkout :initial-events [[:checkout/initialise]]})
-[rf/frame-provider {:frame :checkout}
- [checkout-app]]
+(rf/make-frame {:id :todos/work :initial-events [[:todo/initialise]]})
+[rf/frame-provider {:frame :todos/work}
+ [todo-app]]
 ```
 
 ## The boot lifecycle
@@ -219,7 +219,7 @@ wants the registrations without mounting the app.
 
 ```clojure
 ;; Don't do this at namespace load.
-(reagent-adapter/render! app-root [counter-app] (js/document.getElementById "app"))
+(reagent-adapter/render! app-root [counter] (js/document.getElementById "app"))
 ```
 
 ## Troubleshooting
