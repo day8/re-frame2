@@ -73,27 +73,36 @@ in [`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8
  per-frame ring (depth + trace-keep to the same `n`). A `:trace` axis is
  **silently dropped** (folded into the one `:epoch` knob).
 
-**`init! opts` is a per-mount PIN, not a boot default.** `init!` loads
-the user's persisted Settings FIRST, then writes each supplied opt
-through `update-setting!`, which persists — so the merge order is
-`defaults < configure! {:rf.xray/settings …} < persisted Settings <
-init! opts`, and for the keys the opts name they win. The user's
-Settings-popup choice survives until another `init!` call supplies that
-key, including the next reload's boot call. That is exactly what a harness or
-testbed wants; a host that wants a **user-overridable** boot default
-uses `(xray-config/configure! {:rf.xray/settings {:general
-{:epoch-history 50 :density :compact} :theme :dark}})` instead — bare
-top-level `:theme` / `:density` / `:buffer-depths` are not `configure!`
-keys and are silently ignored.
-Authority:
-[`spec/015-Configuration.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/015-Configuration.md)
-§`configure!` vs `init!` vs persisted Settings, step 4.
-
 Unknown opt keys are silently ignored for forward-compat — so an `init!`
 that worked against a newer Xray won't break an older one. (There is **no**
 `:ai-provider` opt — AI access is the separate `re-frame2-pair-mcp` MCP
 server (Node/npm), not an `init!` knob.) See the `core.cljs` `init!` docstring for the
 authoritative per-opt contract.
+
+### Boot defaults vs pins — the merge order
+
+Settings resolve through **four** layers, lowest precedence first:
+`defaults < configure! {:rf.xray/settings …} < persisted Settings <
+init! opts`. `init!` and `configure!` are not one layer:
+
+- **`configure!` sits BELOW the persisted Settings** — the layer for a
+ **user-overridable** boot default. `(xray-config/configure!
+ {:rf.xray/settings {:general {:epoch-history 50 :density :compact}
+ :theme :dark}})` applies to any key the user has not changed, and the
+ Settings popup overrides it at runtime. Mind the nesting: bare
+ top-level `:theme` / `:density` / `:buffer-depths` are not `configure!`
+ keys and are silently ignored.
+- **`init! opts` sit ABOVE them — a per-mount PIN.** `init!` loads the
+ persisted Settings first, then writes each supplied opt through
+ `update-setting!`, which persists, so for the keys they name the opts win
+ and are re-applied on **every** boot. The user's popup choice lasts only
+ until the next `init!` call supplying that key — right for a test
+ harness or testbed, wrong for a shipped host: `(init! {:buffer-depths
+ {:epoch 50}})` overwrites the user's slider choice on the next reload.
+
+Authority:
+[`spec/015-Configuration.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/015-Configuration.md)
+§`configure!` vs `init!` vs persisted Settings.
 
 ## Keeping the manual path out of production
 
@@ -128,14 +137,9 @@ requires leaves the *load-time* work in place: requiring
 seven top-level `register-first-mount-hook!` calls at namespace-load time,
 before any call of yours. Guard the `:require`, not just the call.
 
-**And no gate proves Xray's absence from an optimised bundle.**
-`npm run test:elision` compiles `re-frame.elision-probe` under `:advanced`
-twice (`goog.DEBUG` false and true) and greps for dev-only string sentinels
-drawn from `re-frame.*` namespaces. It roots and greps no Xray namespace, so
-a green `test:elision` attests the *framework's* elision and says nothing
-about whether Xray reached your bundle. If you need certainty, grep your own
-release output for `rf-xray-root` or `rf.xray` — both survive Closure as
-string literals.
+No gate in this repo proves Xray's absence from an optimised bundle; how to
+check your own is in
+[`launch-lifecycle.md` §Production posture](launch-lifecycle.md#production-posture).
 
 ## Programmatic focus (focus!)
 

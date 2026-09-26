@@ -168,32 +168,10 @@ edge (double-click to reset), persisted via `:general :panel-width-px`.
 there is no Filters tab — filter UI lives on the L1.5 events
 ribbon.)
 
-The layered config story is **four** layers, lowest precedence first:
-`defaults < configure! {:rf.xray/settings …} < persisted Settings <
-init! opts`. `init!` and `configure!` are NOT one layer —
-
-- **`configure!` sits BELOW the persisted Settings.** A value passed as
-  `(configure! {:rf.xray/settings {:general {:epoch-history 50 :density
-  :compact} :theme :dark}})` becomes the new default for any user who
-  has not yet mutated that key, and the popup overrides it at runtime.
-  This is the layer a host wants for a **user-overridable** boot
-  default. Mind the nesting: bare top-level `:theme`, `:density` and
-  `:buffer-depths` are *not* `configure!` keys and are silently ignored —
-  theme, density and epoch depth go inside `:rf.xray/settings` (`:theme`
-  at its top, the other two under `:general`).
-- **`init! opts` sits ABOVE them.** `init!` loads the persisted Settings
-  first, then writes each supplied opt through `update-setting!`, which
-  persists — so for the keys they name the opts win, and they are
-  re-applied and re-persisted on **every** boot. That is a per-mount
-  **pin** (test harnesses, Story testbeds, embedding hosts), not a
-  default: a host shipping `(init! {:buffer-depths {:epoch 50}})`
-  overwrites the user's slider choice on the next reload.
-
-For the slots the popup *does* expose (theme via the ribbon icon,
-epoch-history, buffer knobs) it remains the **runtime user-mutable
-override** over `configure!` and the compiled-in defaults. Authority:
-[`spec/015-Configuration.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/015-Configuration.md)
-§`configure!` vs `init!` vs persisted Settings (merge order + step 4).
+The popup is the runtime user override over `configure!` defaults, but
+`init! opts` re-pin their keys on every boot — the four-layer merge order
+and which layer a host should use live in
+[`launch-programmatic.md` §Boot defaults vs pins](launch-programmatic.md#boot-defaults-vs-pins--the-merge-order).
 Source
 [`settings/view.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
 

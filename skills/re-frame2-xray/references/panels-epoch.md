@@ -90,8 +90,8 @@ cascade's step model, so the two tabs tell one story. Two usage facts:
  drill-down is per-row click, which expands the row's raw trace-event
  map inline. (Spec 009's programmatic trace-buffer filter vocabulary is
  real for the API but is not Trace-panel UI.)
-- **No per-panel prev/next header** — the L2 events list and the ribbon's
- `‹ › »` cluster own spine navigation for every tab.
+- **No prev/next header of its own** — the L2 events list and the
+ ribbon's `‹ › »` cluster own spine navigation.
 
 **Open when:** "show me every raw op in this epoch", "is `:rf.fx/*`
 firing as expected?", "what order did these emit in?"
