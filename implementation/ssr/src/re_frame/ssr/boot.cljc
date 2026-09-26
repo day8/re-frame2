@@ -515,7 +515,10 @@
   ;; mount can only run after hydrate returned, so a throw seen while it
   ;; still reads `:hydrate` came from the hydrate half. It rides the
   ;; failure record so an operator reading "root :page/cart failed" knows
-  ;; whether the frame was seeded before it died.
+  ;; which half died. `:hydrate` does not mean the frame is unseeded: a
+  ;; refusal before anything was installed reads `:hydrate`, and so does a
+  ;; `:hard-error` hash mismatch that `hydrate!` raises after the seed
+  ;; landed.
   (let [phase (volatile! :hydrate)]
     (try
       (let [payload (hydrate! (dissoc opts :mount-fn))]

@@ -19,10 +19,13 @@
   events (`::edit`, `::commit`, `::cancel` — named for tests by
   `re-frame.fresco.test.forms`) and the field is one `h/defview`
   boundary. So it costs no hook beyond the shell's two and the
-  controlled `<input>`'s own; it mints no refusal id — a bad `:control` is
-  `reg-state`'s `:rf.error/fresco-state-bad-argument` at the field's first
-  render, and `::h/revision` on a non-text field is
-  `:rf.error/fresco-revision-not-controlled`; and an application that
+  controlled `<input>`'s own; it mints no refusal id — a `nil` or invalid
+  `:control` fails the draft read, so every render emits
+  `:rf.error/sub-exception` carrying `reg-state`'s
+  `:rf.error/fresco-state-bad-argument` and the field shows `:value`, and a
+  `:type` whose value is not its text, such as `\"checkbox\"`, raises
+  `:rf.error/fresco-revision-not-controlled` while `:value` is `nil`; and
+  an application that
   never requires this namespace carries none of it
   (`implementation/fresco/scripts/check_optional_module_reachability.py`,
   `implementation/fresco/scripts/check_bundle_isolation.cjs`).
@@ -202,8 +205,10 @@
   Addressing: the address identifies the form instance and field; two
   fields sharing one address share one draft, which is usually a bug and
   the one thing about the address this module cannot decide. A `nil` or
-  unusable address is refused by name at the first read
-  (`reg-state`'s `:rf.error/fresco-state-bad-argument`).
+  unusable address fails the draft read on every render: the read emits
+  `:rf.error/sub-exception` carrying `reg-state`'s
+  `:rf.error/fresco-state-bad-argument`, and the field shows `:value`,
+  never a draft.
 
   Ownership: `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and
   `::h/revision` are the field's; everything else reaches the `<input>`
