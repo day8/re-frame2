@@ -236,9 +236,10 @@
 
   The join grammar is a CLOSED two-member enum — `:all` (default) and
   `:any` (Promise.all / Promise.any precedent). Quorum (`{:n N}`) and
-  predicate (`{:fn pred}`) joins are expressed with the data-only `:after`
-  + `:done-guard` idiom (Spec 005 §Composition with hierarchy and
-  `:after`); adding `{:n}` later is a compatible widening."
+  predicate (`{:fn pred}`) joins are expressed by counting completions in
+  the parent's `:data` (each child spec's `:on-done`) and deciding with a
+  guard on the state's `:after` entry (Spec 005 §Composition with hierarchy
+  and `:after`); adding `{:n}` later is a compatible widening."
   [spec join-state]
   (let [join     (:join spec :all)
         children (:children spec)

@@ -351,8 +351,10 @@
                        {:state state-key :duplicate-ids dup}))))))
       ;; The join grammar is a closed two-member enum: `:all` (default)
       ;; and `:any`.
-      ;; Quorum cases use the data-only `:after` + `:done-guard` idiom
-      ;; (Spec 005 §Composition with hierarchy and `:after`); adding
+      ;; Quorum cases count completions in the parent's `:data` (each
+      ;; child spec's `:on-done`) and decide with a guard on the state's
+      ;; `:after` entry (Spec 005 §Composition with hierarchy and
+      ;; `:after`); adding
       ;; `{:n}` later is a compatible widening. Any other `:join` value —
       ;; `{:n N}` / `{:fn ...}` included — is rejected as an unknown join
       ;; spec.
