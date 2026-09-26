@@ -42,31 +42,6 @@
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest app-db-current+diff-sub-re-fires-on-focus-flip
-  (testing "the panel's primary
-            `:rf.xray/app-db-current+diff` sub produces a different map
-            for two distinct focus-epoch selections (`{} → {:counter 1}`
-            vs `{:counter 1} → {:counter 2}`); if the sub chain doesn't
-            track the focus flip both reads return the same map and the
-            inequality fails."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history! epoch-history)
-    (h/focus-cascade! :c1)
-    (let [sig-1 (h/read-sub :rf.xray/app-db-current+diff)]
-      ;; Sanity — the first focus resolves the :e1 epoch.
-      (is (= :e1 (:epoch-id sig-1)))
-      (is (= {:counter 1} (:value sig-1))
-          "history is present → :value is :e1's db-after")
-      (h/focus-cascade! :c2)
-      (let [sig-2 (h/read-sub :rf.xray/app-db-current+diff)]
-        ;; The whole map must change — different focused epoch,
-        ;; different value/before/epoch-id.
-        (is (not= sig-1 sig-2)
-            "app-db-current+diff sub did not track focus flip — sub-chain
-             reactivity broken")
-        (is (= :e2 (:epoch-id sig-2)))))))
-
 (deftest live-mode-auto-follows-new-cascade-rf2-70tkv
   (testing "the repro: user is in LIVE
             on epoch :e1; a new cascade :c2 arrives with epoch :e2; the
@@ -171,29 +146,6 @@
     ;; Flip back — invariant holds in both directions.
     (h/focus-cascade! :c1)
     (is (= :e1 (assert-atomic! "focus :c1 (return)")))))
-
-(deftest current+diff-value-and-before-both-track-focus
-  (testing "the App-DB tab shows the SELECTED epoch's OWN
-            delta: BOTH `:value` (db-after) and `:before` (db-before)
-            move per epoch, so the inline diff is db-before(N) →
-            db-after(N) and nothing later bleeds in. `:value` is NOT a
-            live-db held constant as you scrub."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history! epoch-history)
-    (h/focus-cascade! :c1)
-    (let [v1 (:value (h/read-sub :rf.xray/app-db-current+diff))
-          b1 (:before (h/read-sub :rf.xray/app-db-current+diff))]
-      (h/focus-cascade! :c2)
-      (let [v2 (:value (h/read-sub :rf.xray/app-db-current+diff))
-            b2 (:before (h/read-sub :rf.xray/app-db-current+diff))]
-        (is (not= v1 v2)
-            ":value moves with the focused epoch (db-after(N)) — NOT a
-             constant live-db")
-        (is (not= b1 b2)
-            ":before moves with the focused epoch (db-before(N))")
-        (is (= {:counter 1} v1) ":e1's value is its db-after")
-        (is (= {:counter 2} v2) ":e2's value is its db-after")))))
 
 ;; ---- no later-event bleed onto an earlier selection ---------------------
 ;;

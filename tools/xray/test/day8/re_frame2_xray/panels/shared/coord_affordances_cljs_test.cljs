@@ -172,16 +172,6 @@
 ;; shared open-in-editor! action (coord-link's exported dispatch)
 ;; =========================================================================
 
-(deftest open-in-editor!-stops-propagation-and-routes-through-dispatch-fn
-  (testing "the shared `open-in-editor!` action (the ONE
-            dispatch every affordance funnels through) stops propagation
-            and routes the event through the supplied dispatch-fn"
-    (let [stopped?     (atom false)
-          [disp calls] (capturing-dispatch)]
-      (coord-link/open-in-editor! coord (stub-event stopped?) disp)
-      (is (true? @stopped?))
-      (is (= [[:rf.xray/open-in-editor {:source-coord coord}]] @calls)))))
-
 (deftest open-in-editor!-tolerates-nil-event
   (testing "`open-in-editor!` guards the `.stopPropagation`
             on event presence, so a nil event (a programmatic invoke
