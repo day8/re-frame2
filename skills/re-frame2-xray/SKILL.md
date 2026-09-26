@@ -205,7 +205,8 @@ the control-by-control inventory.
  settings · command verbs), mode-aware.
 - **Settings popup (`,` / `s`)** — a 4-tab modal (General · Keybindings ·
  Buffer · Diff). **Density and panel-width are NOT popup controls** —
- density is a boot/`configure!` concern; width is the drag handle. Merge
+ density is set at boot or cycled from the palette; width is the drag
+ handle. Merge
  order is `defaults < configure! {:rf.xray/settings …} < persisted
  Settings < init! opts` — the popup wins over `configure!`, but
  `init! opts` are written and persisted **LAST**, so they re-pin their
@@ -235,7 +236,7 @@ deeper question loads at most **one** focused leaf:
 | Resources (server state) in depth | [`references/panels-resources.md`](references/panels-resources.md) |
 | Graph, Frames, or Fresco in depth | [`references/panels-structure.md`](references/panels-structure.md) |
 | First-screen chrome in depth — the L1 frame picker, Settings tabs, palette sources, Snapshot redaction, the rewind detail | [`references/chrome.md`](references/chrome.md) |
-| The components every panel reuses + the glyph reference | [`references/shared-components.md`](references/shared-components.md) |
+| The components every panel reuses + which glyphs actually render | [`references/shared-components.md`](references/shared-components.md) |
 
 ## Mental model (for Redux DevTools users)
 

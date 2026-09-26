@@ -82,8 +82,8 @@ only the focused family leaf):
 
 The Layer-2 set covers two contracts. The high-drift facts:
 launch-default, launch-overlay, launch-popout-button, launch-programmatic,
-launch-production-safety (the production boundary of the manual facade —
-rf2-yk5i), config-init-vs-settings, chrome-rewind, chrome-palette,
+launch-production-safety (the production boundary of the manual facade),
+config-init-vs-settings, chrome-rewind, chrome-palette,
 chrome-filters
 (the retired bulk Clear Filters vs per-pill `×` removal + the separate
 `🔇 N` mute-manager route), panel-route-machine-canvas,
@@ -100,8 +100,7 @@ re-route a user to the wrong control, and panel-route-simulate-url that pins
 where the URL simulator is actually MOUNTED (Static → Routes, per
 `static/routes/simulate_url.cljs`) against a tour that once advertised it in
 Dynamic Routes, whose shipped `panel-tree` renders three sections and no input
-at all (rf2-fzbj.43). And the route-quality contract
-(rf2-0mw10): panel-route-state, panel-route-machine, static-browse-registry
+at all. And the route-quality contract: panel-route-state, panel-route-machine, static-browse-registry
 and panel-route-resources grade one representative question per scope
 family — focused-epoch, observed-frame/live-structure, Static-definition,
 and (via panel-route-frames) process-global/registry — each requiring one
@@ -208,7 +207,7 @@ git grep -nE '[0-9]+ Dynamic|[0-9]+ lenses|[0-9]+ tabs|[0-9]+-tab|e a v t m r s 
 
 # A count-word grep is NOT sufficient: a ROSTER that restates the set without
 # a numeral is invisible to it, and that is how the nine-tab and four-view
-# drift survived two sweeps (rf2-5atkk). Probe the last tab and the last two
+# drift survived two sweeps. Probe the last tab and the last two
 # sub-views by NAME as well — every enumeration of the set should hit:
 git grep -nc -e 'Fresco' -e 'Advisor' -- skills/re-frame2-xray/
 ```

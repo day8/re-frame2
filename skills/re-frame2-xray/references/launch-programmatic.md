@@ -82,8 +82,9 @@ Settings-popup choice survives until another `init!` call supplies that
 key, including the next reload's boot call. That is exactly what a harness or
 testbed wants; a host that wants a **user-overridable** boot default
 uses `(xray-config/configure! {:rf.xray/settings {:general
-{:epoch-history 50 :density :compact}} :theme :dark})` instead — bare
-top-level `:density` / `:buffer-depths` are not `configure!` keys.
+{:epoch-history 50 :density :compact} :theme :dark}})` instead — bare
+top-level `:theme` / `:density` / `:buffer-depths` are not `configure!`
+keys and are silently ignored.
 Authority:
 [`spec/015-Configuration.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/015-Configuration.md)
 §`configure!` vs `init!` vs persisted Settings, step 4.
@@ -96,12 +97,11 @@ authoritative per-opt contract.
 
 ## Keeping the manual path out of production
 
-**The gated paths are the preload's `(when rf.interop/debug-enabled? …)`
-boot block plus — since rf2-y8doi.60 — the four top-level `reg-view`
-sites (`shell.cljs`, `panels/machine_canvas.cljs`,
-`views/edn_inspector.cljs`, `views/resizable_table.cljs`).** `init!`,
-`open!`, `open-overlay!`, `toggle!` and `popout!` carry none of their
-own:
+**The preload's `(when rf.interop/debug-enabled? …)` boot block is the only
+gated install path.** A few other top-level forms in the tree carry the same
+check (view registrations, a trace-collector callback), but none of them
+gates installation, and `init!`, `open!`, `open-overlay!`, `toggle!` and
+`popout!` carry no gate of their own:
 
 - `init!` registers the `:rf.xray/*` handlers, the trace + epoch collectors,
  the browser-API exports and the keybinding listener **unconditionally**.
@@ -191,11 +191,10 @@ The translated events fire in a fixed order — `:frame` first (so the
 per-frame epoch ring is re-seeded before any epoch pin lands), then
 `:dispatch-id` / `:epoch-id`, then `:panel`.
 
-> `:path` was a focus field until 2026-09-17 (rf2-y8doi.29). Nothing
-> rendered the app-db slice it highlighted, so it was retired; a command
-> still carrying it is ignored like any unknown key. To inspect app-db at
-> a prefix, double-click (or press `Enter` on) a container in the App-db
-> tab — the inspector re-roots onto it and a breadcrumb zooms back.
+There is no `:path` field; a command carrying one is ignored like any
+unknown key. To inspect app-db at a prefix, double-click (or press
+`Enter` on) a container in the app-db tab — the inspector re-roots onto
+it and a breadcrumb zooms back.
 
 `focus!` returns a data-shaped result rather than throwing:
 

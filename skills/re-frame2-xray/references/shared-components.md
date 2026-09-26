@@ -1,4 +1,4 @@
-# shared-components — the chrome every L4 panel reuses + iconography
+# shared-components — the chrome every L4 panel reuses + glyphs
 
 Companion to [`panels.md`](panels.md). When you answer "where does X
 live?", citing the shared component beats describing the behaviour from
@@ -6,7 +6,8 @@ each panel's perspective.
 
 ## Shared components
 
-Three components are consumed by every (or nearly every) L4 panel.
+Two components are consumed by every (or nearly every) L4 panel, and
+one navigation rule binds them all.
 
 ### `edn-inspector/render-node`
 
@@ -24,9 +25,8 @@ Locked capabilities (§021 §10.1): lazy collapsible tree · inline diff
 **only** path gesture is **double-click / `Enter` to zoom** into a
 container; `Esc` zooms up one level and the breadcrumb row above the
 body re-roots to any ancestor in one tap. There is **no
-cross-panel propagation** — it was retired unbuilt under rf2-y8doi.29,
-along with the blame popover, copy-path, copy-value and "show epoch
-that last changed this" (§021 §10.5).
+cross-panel propagation**, no blame popover, no copy-path, no copy-value
+and no "show epoch that last changed this" (§021 §10.5).
 
 Lazy-expansion heuristic (§021 §10.4): depth ≤ 2 expanded · depth 3
 expanded if ≤ 10 children · depth ≥ 4 collapsed · changed children
@@ -37,23 +37,16 @@ depth-2-expanded).
 Operator expansion state persists in app-db
 (`:rf.xray.edn-inspector/expansion {<path>}`) per epoch + path.
 
-### `film_strip/header` — REMOVED (rf2-6r9j.16)
+### No per-panel prev/next header
 
-**There is no shared film-strip header, and no L4 panel mounts one.**
-The component was built under rf2-h7nqh, never acquired a production
-caller, and was deleted with its self-test by rf2-6r9j.16.
-
-Spine navigation belongs to the **L2 events list** and the chrome
-ribbon's `[◀ ▶ ⏭]` cluster, for every L4 panel without exception —
-see [`021-Dynamic-Panel-Designs.md` §5.5](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md).
+**No L4 panel mounts its own epoch stepper.** Spine navigation belongs to
+the **L2 events list** and the chrome ribbon's `‹ › »` cluster
+(previous · next · fast-forward to head), for every L4 panel without
+exception — see [`021-Dynamic-Panel-Designs.md` §5.5](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md).
 The focus-gated `j` / `k` spine keys
-(`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) remain
+(`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) are
 the keyboard route; `keybinding.cljs` wires **no** `ArrowLeft` /
-`ArrowRight` spine handler, so do not document arrow-key navigation
-until it does.
-
-A panel wanting its own epoch stepper is proposing a SECOND navigation
-owner. Argue that first; do not reach for this section as precedent.
+`ArrowRight` spine handler, so do not document arrow-key navigation.
 
 ### `focus_resolver` + `find-epoch-record`
 
@@ -67,28 +60,20 @@ focused, every L4 panel scopes to the most-recent epoch in the buffer
 app-db, Trace, Machine, Routes for symmetric "spine at head" empty
 states.
 
-The evicted-epoch placeholder (§021 §10.7 — `"Epoch evicted from
-buffer — increase :epoch-history to retain more"`) is also resolved
-here, so the ribbon's ◀ / ▶ / ⏭ nav keeps working when the operator
-scrubs past an evicted row.
+It also resolves the `:epoch-evicted` status, from which each panel
+renders its evicted-epoch empty state (the Epoch tab reads "The selected
+epoch was evicted from the history buffer. Pick a more recent event."),
+so the ribbon's `‹ › »` nav keeps working when the operator scrubs past
+an evicted row. Raising the Settings epoch-history depth retains more.
 
-## Iconography quick reference
+## Tab and row glyphs
 
-Per §021 §17.1.5 (binding; HCM-safe because glyph alone carries
-signal, colour is never alone):
-
-| Tab (Dynamic) | Tooltip | Icon | Stripe token |
-|---|---|---|---|
-| Epoch | `e` | `⚡` | `:accent-violet` |
-| app-db | `a` | `◐` | `:cyan` |
-| Views | `v` | `◉` | `:cyan` |
-| Trace | `t` | `⬢` | `:orange` |
-| Machine | `m` | `◆` | `:green` |
-| Routes | `r` | `🌐` | `:yellow` |
-| Resources | `s` | — | (family-tinted rows; no single stripe) |
-| Graph | `g` | — | `:magenta` (violet — the algebra lens) |
-| Frames *(internal id `:module-view`)* | `u` | — | (family-tinted rows; no single stripe) |
-| Fresco | `h` | — | (per-view rows; no single stripe) |
+**Tab buttons render their text label only** — no icon and no per-tab
+colour stripe (`tab-button` in
+[`shell.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/shell.cljs));
+the mnemonic rides in the button's `title`. The per-tab icon and stripe
+table in §021 §17.1.5 is normative-future: do not describe tab icons to a
+user.
 
 Ten Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
 slot; **Resources** `:order 7`, **Graph** `:order 8`, **Frames**
@@ -96,9 +81,9 @@ slot; **Resources** `:order 7`, **Graph** `:order 8`, **Frames**
 each self-registered
 through `reg-l4-tab!`). There is **no Issues tab** and **no Event tab** —
 the Epoch tab is the "what happened" surface (issues detail:
-[`panels.md` §Issues](panels.md)).
+[`panels-epoch.md` §Issues](panels-epoch.md#issues--inline-not-a-tab)).
 
-**The L2 row is glyph-free** (rf2-pjjwh): no gutter glyph, no origin
+**The L2 row is glyph-free**: no gutter glyph, no origin
 prefix and no activity badges render. Its left-most column is a plain
 text `source` tag — `ui` for app code (and for the un-stamped defaults),
 otherwise the bare source name (`router`, `http`, `ssr-hydration`,
@@ -108,6 +93,5 @@ cascade carrying an issue washes its whole L2 row pink
 only row decoration that ships.
 
 Arrows in the chrome: `↳` cause-attribution chip (`:text-tertiary`,
-11px) · `→` inline state transition (`:text-primary`, mono). (The `⤴`
-jump-to-panel arrow went with the blame popover it sat on — §021 §10.5;
-it reads 0 in `tools/xray/src` today.)
+11px) · `→` inline state transition (`:text-primary`, mono). There is no
+`⤴` jump-to-panel arrow.

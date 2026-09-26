@@ -44,7 +44,7 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | **Fresco** | `h` | live runtime (not epoch-coupled) | The Fresco evidence lens — six views (Mounted · Reads · Intents · Why · Advisor · Causal) over four envelopes taken in one turn. | [panels-structure.md](panels-structure.md) |
 
 Cross-epoch signal lives on the L2 timeline (the text `source` column +
-the issue pink-wash — the row is glyph-free post-rf2-pjjwh);
+the issue pink-wash — the row is otherwise glyph-free);
 the six focused-epoch lenses below inspect one captured cascade.
 Resources' history sections instead read the retained trace buffer across
 frames; neither the epoch nor frame picker filters those sections.

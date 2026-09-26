@@ -67,8 +67,8 @@ Epoch FLOW step). The cascade nodes are exactly: db-paths (seed) → subs
 (intermediate) → views (leaf).
 
 Clicking a sub or view node opens its **registration source** in the
-editor (click-to-source) — there is **no** jump to app-db. Cross-panel
-propagation was retired unbuilt under rf2-y8doi.29 (§021 §10.5). To
+editor (click-to-source) — there is **no** jump to app-db and no
+cross-panel propagation (§021 §10.5). To
 inspect a sub's input path, open the app-db tab and double-click /
 `Enter` the container to zoom (`Esc` or the breadcrumb zooms back out).
 Hovering a view node toggles a pink DOM highlight on the live element.
