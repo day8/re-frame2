@@ -30,6 +30,16 @@ The MCP server is **not yet published to npm** — build it from a re-frame2 clo
 }
 ```
 
+**Launch flags** go in `args` after the script path. Three gates, each the operator's call and each needing a fresh session to change:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--allow-writes` | off | enables `restore-epoch` / `replace-app-db`; without it both refuse with `:rf.error/writes-disabled` |
+| `--allow-sensitive-reads` | off | lets a per-call `include-sensitive: true` unmask declared-sensitive slots on the structured reads |
+| `--no-eval` | eval on | refuses `eval-cljs` and a `tail-build` carrying a `probe` (`:rf.error/eval-cljs-disabled`) |
+
+`--port-file <abs>` and `--http-port <n>` steer discovery (below). The gates' privacy and write semantics are in [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out).
+
 Once the package is published, `npm install -g @day8/re-frame2-pair-mcp` collapses `command` + `args` to `"command": "re-frame2-pair-mcp"`; until then that form finds no binary.
 
 On the first tool call the server discovers the live shadow-cljs nREPL
@@ -63,23 +73,23 @@ The server exposes **30 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-de
 
 This is the **transport index** — the tool name, its arg signature, and where its per-tool semantics are documented. The behaviour of each tool (return shapes, modes, gotchas) lives once in `ops.md`; this table does not restate it.
 
-The table is **complete by gate for tool NAMES only**: `scripts/check_skill_mcp_drift.py` cross-checks the descriptor manifest's tool names against the names in this table's first column, so a tool cannot be shipped, counted, and allow-listed while remaining undocumented here, and a row cannot outlive the tool it names. The arg signatures are hand-kept and no gate reads them; the descriptor your host received from `tools/list` is the authority on a tool's keys.
+The table is **complete by gate for tool NAMES only**: `scripts/check_skill_mcp_drift.py` cross-checks the descriptor manifest's tool names against the names in this table's first column, so a tool cannot be shipped, counted, and allow-listed while remaining undocumented here, and a row cannot outlive the tool it names. The arg signatures are hand-kept and no gate reads them; the descriptor your host received from `tools/list` is the authority on a tool's keys. Every tool except `get-re-frame2-pair-instructions` also takes `build?`, and every tool takes `max-tokens?`; the size and privacy knobs (`cache`, `mode` / `modes`, `epochs-mode`, `dedup`, `elision`, `include-sensitive`) are listed per tool in [`wire-size-budget.md`](wire-size-budget.md#size-conscious-args--which-knob-when) rather than repeated here.
 
 | MCP tool | Arg signature | Semantics home |
 |---|---|---|
 | `discover-app` | `{}` (optional `build` / `port`) — connect + health probe; carries a `:freshness` token | SKILL.md §Connect first · §Install / configure below |
 | `orient` | `{}` — app-shape summary in one round-trip | [`ops.md` §Read](ops.md#read) |
 | `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text, no nREPL round-trip | SKILL.md §Connect first |
-| `list-handlers` | `{kind: "event"}` — every id under one registrar kind | [`ops.md` §Read](ops.md#read) |
+| `list-handlers` | `{kind, frame?}` — every id under one registrar kind | [`ops.md` §Read](ops.md#read) |
 | `handler-meta` | `{kind, id, frame?}` — registration meta for one id (add `frame` for the per-frame arity) | [`ops.md` §Read](ops.md#read) |
 | `describe-image` | `{frame, include-ns?}` — the selected registration universe a frame runs | [`ops.md` §Frames](ops.md#frames) |
 | `snapshot` | `{frames, include, path}` — multi-slice read; `:app-db` defaults to `:summary` | [`ops.md` §Read](ops.md#read) · §slice modes below |
-| `get-path` | `{path, frame?, paths?}` — targeted read; `{:exists?}` distinguishes nil from missing | [`ops.md` §Read](ops.md#read) |
+| `get-path` | `{path \| paths, frame?}` — targeted read; `{:exists?}` distinguishes nil from missing | [`ops.md` §Read](ops.md#read) |
 | `read-sub` | `{sub, frame?}` — validated, elided one-shot subscription read | [`ops.md` §Read](ops.md#read) |
 | `list-subscriptions` | `{frame?, include-values?}` — the live reactive sub-cache for a frame | [`ops.md` §Read](ops.md#read) |
 | `eval-cljs` | `{form, frame?, await?, timeout-ms?}` — CLJS eval; frame-scopes via `with-frame` | [`ops.md` §Write](ops.md#write) |
-| `read-ui` | `{view-id \| point \| selector}` (exactly one) — rendered subtree + producing entity | [`screen-reads.md` §ui/read](screen-reads.md#view--rendered-content--producing-entity-uiread) |
-| `read-dom` | `{selector, sub-selector?, attrs?, max-text?, limit?}` — raw DOM by CSS selector | [`screen-reads.md` §read-dom](screen-reads.md#read-dom--raw-dom-content-by-explicit-css-selector) |
+| `read-ui` | `{view-id \| point \| selector, max-text?, frame?}` (exactly one entry point) — rendered subtree + producing entity | [`screen-reads.md` §ui/read](screen-reads.md#view--rendered-content--producing-entity-uiread) |
+| `read-dom` | `{selector, sub-selector?, attrs?, max-text?, limit?, frame?}` — raw DOM by CSS selector | [`screen-reads.md` §read-dom](screen-reads.md#read-dom--raw-dom-content-by-explicit-css-selector) |
 | `read-mounted-boundaries` | `{build?, max-tokens?}` — every Fresco boundary mounted right now, keyed by its read set; no `view-id` arg | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `read-read-attribution` | `{build?, max-tokens?}` — the reverse edge: which boundaries read each subscription | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `explain-render` | `{build?, max-tokens?}` — which of a boundary's reads moved, plus retained runs as leads | [`screen-reads.md` §Fresco evidence](screen-reads.md#fresco-evidence--mounted-boundaries-read-attribution-render-cause) |
@@ -89,9 +99,9 @@ The table is **complete by gate for tool NAMES only**: `scripts/check_skill_mcp_
 | `replay-epoch` | `{epoch-id, frame?}` — one-call strict replay of a retained epoch; `dispatch`'s authority, NOT `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `trace-window` | `{ms, frame?, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
-| `watch-epochs` | `{pred?, since-id?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch) |
-| `watch-until` | `{signals, pred, timeout-ms?}` — block until a signal predicate holds | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
-| `record` | `{signals, stop?, max-entries?}` — read-only signal recorder | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
+| `watch-epochs` | `{pred?, since-id?, frame?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch) |
+| `watch-until` | `{signals, pred, frame?, timeout-ms?}` — block until a signal predicate holds | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
+| `record` | `{signals, frame?, stop?, max-entries?}` — read-only signal recorder | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `read-recording` | `{recording-id, drain?, stop?}` — read back a recording's change-log | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `tail-build` | `{probe?, baseline?, wait-ms?}` — wait for a hot-reload to land by polling the probe against a pre-edit `baseline` (required with `probe`; captured before the edit) | [`ops.md` §Hot-reload](ops.md#hot-reload-coordination) |
 | `get-operating-frame` | `{}` — read the operating-frame triple | [`ops.md` §Frames](ops.md#frames) |
