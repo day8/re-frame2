@@ -32,6 +32,14 @@ const path = require('node:path');
 
 const SERVER = path.join(__dirname, '..', 'out', 'server.js');
 
+// Ceiling on the wait for the server's `ready` banner. It is a hang
+// detector, not a latency budget: a cold start of the freshly compiled
+// bundle reaches `ready` in under half a second on a CI runner, while the
+// first run after a fresh install and compile on a workstation can take
+// several seconds, so the ceiling sits well above both. The harness logs
+// the actual wait, so the headroom is visible in every run.
+const READY_TIMEOUT_MS = 15000;
+
 // Canonical tool-name list (the same pattern story-mcp uses) — single
 // source of truth shared with the cross-server conformance
 // harness (`tools/mcp-conformance/test/end-to-end-re-frame2-pair.cjs`). Both
@@ -84,16 +92,16 @@ function run() {
     });
 
     // Poll-wait for `pattern` to appear in the server's stderr stream.
-    // Resolves on first match; rejects on timeout or child exit. 25ms
-    // is fast enough that a healthy boot adds no perceptible latency,
-    // and the 5s ceiling covers a slow CI runner without masking a
-    // genuine hang. A bare fixed `setTimeout` wait would race on slow
-    // CI / under valgrind.
-    const waitForStderr = (pattern, { timeoutMs = 5000, intervalMs = 25 } = {}) =>
+    // Resolves with the elapsed ms on first match; rejects on timeout or
+    // child exit. 25ms is fast enough that a healthy boot adds no
+    // perceptible latency. A bare fixed `setTimeout` wait would race on
+    // slow CI / under valgrind.
+    const waitForStderr = (pattern, { timeoutMs = READY_TIMEOUT_MS, intervalMs = 25 } = {}) =>
       new Promise((res, rej) => {
-        const deadline = Date.now() + timeoutMs;
+        const started = Date.now();
+        const deadline = started + timeoutMs;
         const tick = () => {
-          if (pattern.test(stderrBuf)) return res();
+          if (pattern.test(stderrBuf)) return res(Date.now() - started);
           if (child.exitCode !== null) {
             return rej(new Error(
               'server exited (code=' + child.exitCode + ') before matching ' + pattern,
@@ -169,7 +177,8 @@ function run() {
       // `connect-transport!` once stdio is wired up. Matches both the
       // success-path ("ready — awaiting MCP frames on stdin") and the
       // degraded-mode ("ready (degraded — no nREPL port)") banners.
-      await waitForStderr(/\bready\b/);
+      const readyMs = await waitForStderr(/\bready\b/);
+      console.log('OK   ready banner after ' + readyMs + 'ms (ceiling ' + READY_TIMEOUT_MS + 'ms)');
 
       // 1. initialize
       // Advertise `roots` — this client answers the server's `roots/list`
