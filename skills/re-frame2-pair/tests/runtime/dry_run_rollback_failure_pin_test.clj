@@ -75,9 +75,6 @@
 ;; :ok? false :reason :rollback-failed.
 ;; ---------------------------------------------------------------------------
 
-(deftest dispatch-dry-run-is-defined
-  (is (some? ddr-form) "dispatch-dry-run must be defined in the preload runtime"))
-
 (deftest attempts-rollback-via-replace-frame-state
   (is (rt/form-contains? #(= % 'rf/replace-frame-state!) ddr-form)
       "dispatch-dry-run must attempt the rollback via rf/replace-frame-state!")

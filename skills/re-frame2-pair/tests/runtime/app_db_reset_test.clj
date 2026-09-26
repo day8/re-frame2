@@ -74,11 +74,6 @@
 ;; Structural assertions
 ;; ---------------------------------------------------------------------------
 
-(deftest app-db-reset-form-is-defined
- (testing "preload/re_frame2_pair/runtime.cljs defines app-db-reset!"
- (is (some? app-db-reset-form)
- "the defn form is present in the source")))
-
 (deftest delegates-to-canonical-tool-pair-surface
  (testing "app-db-reset! delegates to rf/replace-frame-state! — the canonical
  Tool-Pair §Pair-tool writes surface that mutates

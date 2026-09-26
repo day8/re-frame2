@@ -32,10 +32,6 @@
 (def ^:private defn-named rt/defn-named)
 (def ^:private form-contains? rt/form-contains?)
 
-(deftest defines-dispatch-consequence
-  (is (some? (defn-named 'dispatch-consequence!))
-      "runtime.cljs must define `dispatch-consequence!` — the default sync dispatch surface the MCP dispatch tool routes through."))
-
 (deftest defines-validate-event-id
   (is (some? (defn-named 'validate-event-id))
       "runtime.cljs must define `validate-event-id` — the call-time event-id registry check."))

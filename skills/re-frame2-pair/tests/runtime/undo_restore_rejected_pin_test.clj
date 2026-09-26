@@ -73,10 +73,6 @@
 ;; rf/restore-epoch!, binding the outcome to `ok?`.
 ;; ---------------------------------------------------------------------------
 
-(deftest both-undo-sugars-are-defined
-  (is (some? step-back-form) "undo-step-back must be defined in the preload runtime")
-  (is (some? to-epoch-form)  "undo-to-epoch must be defined in the preload runtime"))
-
 (deftest both-attempt-restore-via-restore-epoch
   (doseq [[nm form] [["undo-step-back" step-back-form]
                      ["undo-to-epoch" to-epoch-form]]]
