@@ -764,6 +764,37 @@
   [result]
   (assoc result :run-hash (rf.story.fingerprint/run-hash result)))
 
+(defn- epoch-missing-schema-match
+  "The `match-schema-expectations` shape for a host without the epoch
+  artefact: each declared `:rf.assert/schema-error` records `:cannot-run`
+  with `rf.story.assertions/epoch-missing-extras`, and nothing is consumed."
+  [schema-expectations]
+  {:records            (mapv (fn [atom]
+                               (merge {:assertion rf.story.assertions/id-schema-error
+                                       :payload   (vec (rest atom))}
+                                      (rf.story.assertions/epoch-missing-extras)))
+                             (or schema-expectations []))
+   :consumed-selectors #{}
+   :unmatched          []
+   :unconsumed         []})
+
+(defn- settled-evidence-refusals-removed
+  "`unmet` without the post-run `:required-evidence-missing` refusals whose
+  unit (an assertion atom) already has a non-`:pass` record in `records`.
+  That record is the unit's verdict, and the empty evidence slot is its
+  cause, so the refusal would add a second, contradicting row."
+  [unmet records]
+  (let [settled (into #{}
+                      (keep (fn [{:keys [assertion payload status]}]
+                              (when (and assertion (not= :pass status))
+                                (into [assertion] payload))))
+                      records)]
+    (into []
+          (remove (fn [{:keys [reason unit]}]
+                    (and (= :required-evidence-missing reason)
+                         (contains? settled unit))))
+          (or unmet []))))
+
 (defn run-result
   "Assemble the ONE unified run-result (spec/017 §Run result) from a run's
   evidence + accumulated assertions + plan slots. Pure data → data — the
@@ -834,7 +865,20 @@
                           expectations the runner could not attempt
                           (`rf.story.requirements/unmet-assertions` /
                           `unmet-steps`). Folded into the status + surfaced
-                          on `:cannot-run`.
+                          on `:cannot-run`. A post-run
+                          `:required-evidence-missing` refusal whose unit
+                          already has a non-`:pass` record is dropped: that
+                          record is the unit's verdict, and the empty slot
+                          is its cause (an unmet `:rf.assert/schema-error`
+                          fails because no violation was emitted), so a
+                          second row would only contradict it.
+  - `:tape-available?`  — whether the host loaded the epoch artefact
+                          (`rf.story.assertions/epoch-tape-available?`);
+                          defaults to true. When false, each declared
+                          `:rf.assert/schema-error` records `:cannot-run`
+                          with `rf.story.assertions/epoch-missing-extras`
+                          rather than failing against a tape that was never
+                          recorded.
   - `:app-db`           — the final (post-run) app-db, redacted upstream.
   - `:variant/id` / `:plan-hash` / `:runner` / `:required-runner` /
     `:fidelity` / `:elapsed-ms` — passed through verbatim when present
@@ -856,7 +900,8 @@
   PROJECTED evidence, not a sibling accumulator."
   [{:keys [epoch-tape assertions script check->atoms consumed-selectors
            schema-expectations causal-expectations unmet app-db attribution
-           epoch-truncated?]
+           epoch-truncated? tape-available?]
+    :or   {tape-available? true}
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
         ;; `:attribution` (the runner / replay-recorded
@@ -883,7 +928,9 @@
         ;; exactly-consumed selectors excuse those violations from the floor,
         ;; while an UNCONSUMED violation keeps its selector OUT of the set so
         ;; the floor still fails the run on it.
-        schema-match   (match-schema-expectations schema-expectations violations :projected)
+        schema-match   (if tape-available?
+                         (match-schema-expectations schema-expectations violations :projected)
+                         (epoch-missing-schema-match schema-expectations))
         ;; Causal / cascade expectations (§Causal and cascade
         ;; assertions): project each declared `:rf.assert/caused` /
         ;; `:rf.assert/no-cascade-rerender` against the SAME reactive
@@ -903,7 +950,7 @@
         checks         (check-records check->atoms records)
         consumed       (into (or consumed-selectors #{})
                              (:consumed-selectors schema-match))
-        unmet          (vec (or unmet []))
+        unmet          (settled-evidence-refusals-removed unmet records)
         base-status    (rf.story.requirements/aggregate-status records unmet)
         ;; Agreement floor over the SAME projected evidence — the violations
         ;; + effects `project-evidence` already derived, not a re-walk of the
@@ -980,8 +1027,9 @@
   shape (`{:type :pass|:fail|:error :message … :expected … :actual …}`).
   Pure data → data. A `:cannot-run` assertion reports `:fail` with a
   refusal message (the runner could not prove it — that is a failed
-  expectation for test purposes, never a silent pass)."
-  [{:keys [assertion status payload expected actual reason] :as _record}]
+  expectation for test purposes, never a silent pass), and the record's
+  `:hint`, when it carries one, names the fix."
+  [{:keys [assertion status payload expected actual reason hint] :as _record}]
   (let [base-msg (str assertion " " (pr-str (or payload [])))]
     (case status
       :pass        {:type :pass :message base-msg}
@@ -989,7 +1037,8 @@
                     :actual (or actual reason)}
       :cannot-run  {:type :fail
                     :message (str base-msg " — :cannot-run ("
-                                  (or reason "runner cannot prove this assertion") ")")
+                                  (or reason "runner cannot prove this assertion") ")"
+                                  (when hint (str " — " hint)))
                     :expected expected :actual :rf.story/cannot-run}
       ;; :fail (and any unexpected status)
       {:type :fail

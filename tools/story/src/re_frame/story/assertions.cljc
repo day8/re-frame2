@@ -72,6 +72,7 @@
     which are registered."
   (:require [re-frame.core                :as rf]
             [re-frame.interop             :as rf.interop]
+            [re-frame.late-bind           :as rf.late-bind]
             [re-frame.privacy             :as rf.privacy]
             [re-frame.subs                :as rf.subs]
             [re-frame.trace               :as rf.trace]
@@ -105,10 +106,12 @@
 ;;
 ;; The projections are PURE (tape data → fact), so the handlers stay pure
 ;; data → data; the handler shell reads `rf/epoch-history` once and threads
-;; the projected facts in. Production builds (Story disabled) and hosts
-;; without the epoch artefact see an empty tape (the late-bound
-;; `epoch-history` facade degrades to `[]`), so the handlers read empty
-;; facts — exactly as the run-result evidence slots do.
+;; the projected facts in. A host without the epoch artefact has no tape
+;; (the late-bound `epoch-history` facade degrades to `[]`), and an empty
+;; projection there says nothing about behaviour: `dispatched?` would fail,
+;; `no-warnings` would pass. So on such a host every tape-projected
+;; assertion records `:cannot-run` naming the missing artefact
+;; (`epoch-missing-extras`) instead of judging the empty projection.
 ;;
 ;; ## Privacy
 ;;
@@ -123,6 +126,35 @@
 ;; `:warnings` projection — which agrees with the run-result slot — counts
 ;; them without a payload-leak risk.
 ;; ---------------------------------------------------------------------------
+
+(defn epoch-tape-available?
+  "True iff the epoch artefact (`re-frame.epoch`, the `day8/re-frame2-epoch`
+  jar) is loaded, so `rf/epoch-history` returns a live tape rather than the
+  facade's `[]`."
+  []
+  (some? (rf.late-bind/get-fn :epoch/epoch-history)))
+
+(def epoch-missing-reason
+  "The `:reason` a tape-projected assertion records when the epoch artefact
+  is not loaded — the framework's own id for that absence."
+  :rf.error/epoch-artefact-missing)
+
+(def epoch-missing-hint
+  "The fix a tape-projected assertion names when the epoch artefact is not
+  loaded."
+  "this assertion reads the epoch tape: require re-frame.epoch (the day8/re-frame2-epoch artefact) in the host")
+
+(defn epoch-missing-extras
+  "The record fields of a tape-projected assertion on a host without the
+  epoch artefact: `:cannot-run`, with `epoch-missing-reason` and
+  `epoch-missing-hint`, so the missing requirement reads as a refusal that
+  names its fix rather than as a verdict over an empty tape."
+  []
+  {:passed?     false
+   :cannot-run? true
+   :status      :cannot-run
+   :reason      epoch-missing-reason
+   :hint        epoch-missing-hint})
 
 ;; ---------------------------------------------------------------------------
 ;; Run scope — the epoch baseline
@@ -1171,14 +1203,21 @@
   the run-result evidence slots read. The prior committed
   epochs (the play steps before this assertion's own dispatch) are already
   on the tape when this handler runs; the assertion's own epoch has not yet
-  settled — and assertion events are excluded from the projection anyway."
+  settled — and assertion events are excluded from the projection anyway.
+  On a host without the epoch artefact these three record
+  `epoch-missing-extras` instead."
   [assertion-id evaluator-kind]
   (fn [{:keys [db] rt :rf.db/runtime :as cofx} event-vec]
     (let [start-ms     (rf.interop/now-ms)
           payload      (vec (rest event-vec))
           frame-id     (frame-id-from-cofx cofx)
           dispatch-id  (current-dispatch-id cofx)
-          extras       (case evaluator-kind
+          extras       (case (if (and (#{:dispatched? :no-warnings :effect-emitted}
+                                         evaluator-kind)
+                                        (not (epoch-tape-available?)))
+                               :epoch-missing
+                               evaluator-kind)
+                         :epoch-missing   (epoch-missing-extras)
                          :path-equals     (evaluate-path-equals     frame-id db payload)
                          :path-matches    (evaluate-path-matches    frame-id db payload)
                          ;; EP-0001: subs may project

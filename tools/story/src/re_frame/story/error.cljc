@@ -259,18 +259,25 @@
                   (the cofx id, the interceptor id, or the event id),
                   preserved alongside `:operation`. Absent ⇒ omitted.
 
+  The record's `:reason` names the failure: the error's own `:rf.error/id`
+  when it carries one (e.g. `:rf.error/story-setup-step-unrunnable`), else
+  the captured `:operation` (e.g. `:rf.error/no-such-handler` for a step
+  whose tag names no handler). It is absent only when neither is known.
+
   `variant-id` is threaded as the `:frame` for the `:data` wire-elision
   so a Story error record redacts under that frame's marks."
   ([variant-id phase event err] (exception-record variant-id phase event err nil))
   ([variant-id phase event err {:keys [operation failing-id] :as opts}]
-   (cond-> {:assertion  :rf.error/exception
-            :variant-id variant-id
-            :phase      phase
-            :event      event
-            :error      (throwable->error-map err (assoc opts :frame variant-id))
-            :passed?    false}
-     operation  (assoc :operation operation)
-     failing-id (assoc :failing-id failing-id))))
+   (let [reason (or (:rf.error/id (ex-data err)) operation)]
+     (cond-> {:assertion  :rf.error/exception
+              :variant-id variant-id
+              :phase      phase
+              :event      event
+              :error      (throwable->error-map err (assoc opts :frame variant-id))
+              :passed?    false}
+       operation  (assoc :operation operation)
+       failing-id (assoc :failing-id failing-id)
+       reason     (assoc :reason reason)))))
 
 (defn captured-failure-record
   "Project a CAPTURED failure trace event `ev` — one of

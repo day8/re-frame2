@@ -685,6 +685,10 @@
                     ;; `:cannot-run` under truncation — the dropped effects
                     ;; could exceed the bound (a truncation false-green).
                     :epoch-truncated?    truncated?
+                    ;; Without the epoch artefact there is no tape, so a
+                    ;; declared schema-error records a named `:cannot-run`
+                    ;; rather than failing against an empty projection.
+                    :tape-available?     (rf.story.assertions/epoch-tape-available?)
                     ;; The per-requirement `:cannot-run` refusals
                     ;; the runner could not even attempt (above). Folded into
                     ;; the verdict + surfaced on `:cannot-run` by
