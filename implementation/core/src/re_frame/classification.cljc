@@ -649,6 +649,17 @@
     (project sub-id v {:frame frame-id})
     v))
 
+(declare machine-classification)
+
+(defn- machine-sub-classification
+  "The machine classification a `[:rf/machine <id>]` sub's value carries, or nil
+  for any other sub. That sub's value IS actor `<id>`'s snapshot, so it is
+  redacted by the class the machine's own traces use for that snapshot
+  (`machine-classification`), keyed by the id in the carried query vector."
+  [tags frame-id]
+  (when (= :rf/machine (:rf.sub/id tags))
+    (machine-classification frame-id (second (:rf.sub/query-v tags)))))
+
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:rf.sub/id` carries the sub query keyword and
   `:rf.sub/value` carries the output. The reactive recompute also stamps a
@@ -660,9 +671,19 @@
   input's sensitivity, and there is no whole-output `:sensitive? true` stamp from
   a propagation table. Only the registration's own declared paths redact.
 
-  ROUTE READ SUBS are the one NARROW exception: the framework route
-  subs (`:rf/route` / `:rf.route/query` / `:rf.route/params`) are alternate
-  PROJECTIONS of the route-owned durable fact, so their value/prev-value are
+  Two families of framework read subs are the NARROW exceptions. The framework
+  registers them, so no app can classify them, and each is an alternate
+  PROJECTION of a subsystem-owned durable fact, so its value/prev-value also
+  takes that fact's classification — only at egress (in-process `@(subscribe …)`
+  stays raw).
+
+  The MACHINE SUB `[:rf/machine <id>]` returns actor `<id>`'s whole snapshot, so
+  its value/prev-value are walked by the SAME snapshot-rooted classification the
+  machine's own traces use (`machine-sub-classification`), unioned with the
+  registration's paths into one walk.
+
+  The ROUTE READ SUBS (`:rf/route` / `:rf.route/query` / `:rf.route/params`)
+  project the route-owned durable fact, so their value/prev-value are
   ALSO run through the routing-owned egress projector (late-bound, decoupled),
   which re-seeds the walk at `[:rf.runtime/routing :current …]` so the route's
   re-rooted classification — which the SUB REGISTRATION does not carry — matches.
@@ -699,14 +720,19 @@
         has-prev? (assoc :rf.sub/prev-value rf.privacy/redacted-sentinel))
 
       :else
-      ;; Registration classification (none for the route subs) first, then the
-      ;; route-sub egress projection — composed so both can apply. A non-route
-      ;; sub with no registration classification leaves `project-slot` an
-      ;; identity transform (the projector fail-opens on a non-route id), so
-      ;; `tags` rides through reference-preserved (the common case).
-      (let [[sens large]  (classification-paths class)
-            reg-redact    (fn [v] (if class (redact-with-paths v sens large) v))
-            project-slot  (fn [v] (project-route-sub-slot (reg-redact v) sub-id frame-id))]
+      ;; Registration classification (none for the framework read subs) unioned
+      ;; with the machine sub's snapshot classification in one walk, then the
+      ;; route-sub egress projection — composed so all can apply. Any other sub
+      ;; with no registration classification leaves `project-slot` an identity
+      ;; transform (the walk early-exits on no paths; the projector fail-opens
+      ;; on a non-route id), so `tags` rides through reference-preserved (the
+      ;; common case).
+      (let [[sens large]     (classification-paths class)
+            [m-sens m-large] (classification-paths (machine-sub-classification tags frame-id))
+            sens             (into sens m-sens)
+            large            (into large m-large)
+            reg-redact       (fn [v] (redact-with-paths v sens large))
+            project-slot     (fn [v] (project-route-sub-slot (reg-redact v) sub-id frame-id))]
         (cond-> tags
           true            (assoc :rf.sub/value (project-slot (:rf.sub/value tags)))
           has-prev?       (assoc :rf.sub/prev-value (project-slot (:rf.sub/prev-value tags)))
@@ -942,13 +968,12 @@
     (assoc-in [:input :event]
               (summarize-spawn-error-event (get-in tags [:input :event])))))
 
-;; The runtime-db prefix under which a machine snapshot lives, per EP-0001 /
-;; Spec 005 §Where snapshots live: `[:rf.runtime/machines :snapshots <actor-id>]`.
 ;; A frame classifies a durable machine `:data` slot by declaring the ABSOLUTE
-;; runtime-db path (EP-0025) in its elision registry. The machine trace slots
-;; carry the SNAPSHOT value, so the frame's absolute declaration is re-rooted
-;; SNAPSHOT-relative by stripping this prefix.
-(def ^:private machine-snapshot-prefix [:rf.runtime/machines :snapshots])
+;; runtime-db path (EP-0025) in its elision registry, under
+;; `rf.elision/machine-snapshot-prefix` (`[:rf.runtime/machines :snapshots
+;; <actor-id>]`). The machine trace slots carry the SNAPSHOT value, so the
+;; frame's absolute declaration is re-rooted SNAPSHOT-relative by stripping that
+;; prefix.
 
 (defn frame-snapshot-classification
   "Compute the SNAPSHOT-relative sensitive/large path set the FRAME declares for
@@ -964,7 +989,7 @@
   reuse the SAME re-rooting for its `:data`-map projection."
   [frame-id actor-id]
   (when (and frame-id actor-id)
-    (let [prefix (conj machine-snapshot-prefix actor-id)
+    (let [prefix (conj rf.elision/machine-snapshot-prefix actor-id)
           n      (count prefix)
           under  (fn [decls]
                    (into []
@@ -978,6 +1003,25 @@
         (cond-> {}
           (seq sens)  (assoc :sensitive sens)
           (seq large) (assoc :large large))))))
+
+(defn- machine-classification
+  "The classification actor `machine-id`'s snapshot is redacted by at egress:
+  the FRAME's declaration of that snapshot path (`frame-snapshot-classification`,
+  which carries the machine's own lowered `:source :machine` claims) UNIONED
+  with any author classification on the machine's `:event` registration meta.
+  Returns `{:sensitive [paths] :large [paths]}` (slot omitted when empty), or nil
+  when neither declares anything. Shared by the machine traces
+  (`project-machine-tags`) and the `[:rf/machine <id>]` sub's `:rf.sub/run`
+  trace (`project-sub-tags`), so one snapshot redacts identically on both."
+  [frame-id machine-id]
+  (let [author   (classification-when :event machine-id)
+        frame-mk (frame-snapshot-classification frame-id machine-id)
+        s        (into (vec (:sensitive author)) (:sensitive frame-mk))
+        l        (into (vec (:large author))     (:large frame-mk))]
+    (when (or (seq s) (seq l))
+      (cond-> {}
+        (seq s) (assoc :sensitive s)
+        (seq l) (assoc :large l)))))
 
 (defn- project-action-outcome-shell
   "UNCONDITIONAL (machine-classification-independent) projection of the
@@ -1050,14 +1094,7 @@
   (let [tags       (project-spawn-synthetic-payloads tags)
         tags       (project-action-outcome-shell tags)
         machine-id (or (:actor-id tags) (:machine-id tags))
-        author     (classification-when :event machine-id)
-        frame-mk   (frame-snapshot-classification frame-id machine-id)
-        class      (let [s (into (vec (:sensitive author)) (:sensitive frame-mk))
-                         l (into (vec (:large author))     (:large frame-mk))]
-                     (when (or (seq s) (seq l))
-                       (cond-> {}
-                         (seq s) (assoc :sensitive s)
-                         (seq l) (assoc :large l))))]
+        class      (machine-classification frame-id machine-id)]
     (if-not class
       tags
       (let [[sens large] (classification-paths class)

@@ -1238,6 +1238,28 @@
       (throw (bad-egress-opts-ex where-sym unknown accepted))))
   opts)
 
+(def ^:no-doc machine-snapshot-prefix
+  "The runtime-db prefix a machine actor's snapshot lives under (EP-0001; Spec
+  005 §Where snapshots live): `[:rf.runtime/machines :snapshots <actor-id>]`. A
+  machine's `:data` classification is lowered into this registry at the actor's
+  ABSOLUTE snapshot path, so a snapshot-valued read is walked from here."
+  [:rf.runtime/machines :snapshots])
+
+(defn- sub-seed-path
+  "The runtime-db position a framework read sub's VALUE projects onto, so the
+  registry's absolute declarations match the bare value the sub returns; nil for
+  any other sub. `[:rf/machine <id>]` returns actor `<id>`'s snapshot; a route
+  read sub's slice position is routing-owned, resolved through the late-bound
+  seed table (core stays decoupled from routing)."
+  [query-v]
+  (when (sequential? query-v)
+    (let [sub-id (first query-v)]
+      (if (= :rf/machine sub-id)
+        (when-some [actor-id (second query-v)]
+          (conj machine-snapshot-prefix actor-id))
+        (when-let [seed-fn (rf.late-bind/get-fn :routing/route-sub-egress-path)]
+          (seed-fn sub-id))))))
+
 (defn elide-wire-value
   "Walk `v` and substitute the frame's declared sensitive or large paths for
   wire egress (the durable declarations live in `[:rf.runtime/elision …]`,
@@ -1251,7 +1273,7 @@
 
       {:frame                      <frame-id>   ;; by KEY PRESENCE, see below
        :path                       [...]        ;; absolute app-db offset of `v`; a declaration at or above it governs `v`
-       :query-v                    [...]        ;; route-sub re-seeding
+       :query-v                    [...]        ;; framework read-sub re-seeding
        :rf.egress/include-sensitive? <bool>
        :rf.egress/include-large?     <bool>
        :rf.egress/include-digests?   <bool>
@@ -1314,23 +1336,20 @@
    ;; CLOSED opts — FIRST, before the `:query-v` re-seed below
    ;; can synthesise a `:path`, so the keys graded are exactly the caller's.
    (assert-egress-opts! 're-frame.elision/elide-wire-value walker-opt-keys opts)
-   (let [;; Route-sub egress re-seeding. A direct-read off-box
+   (let [;; Framework read-sub egress re-seeding. A direct-read off-box
          ;; surface (Pair MCP read-sub / list-subscriptions :include-values /
-         ;; snapshot :sub-cache / Xray) walks a route read sub's BARE value but
-         ;; the route's classification is re-rooted ABSOLUTE under
-         ;; `[:rf.runtime/routing :current …]` in the registry. When the caller
-         ;; names the sub via `:query-v`, consult the routing-owned seed table
-         ;; (late-bound — core stays decoupled from routing) and
-         ;; OVERLAY the slice's runtime-db storage position as `:path` so the
-         ;; candidate declaration-coordinate set starts where the re-rooted
-         ;; decls live (mirroring the SSR `project-routing-egress` offset). A
-         ;; non-route sub-id resolves nil and `opts` is untouched.
-         opts       (if-let [qv (:query-v opts)]
-                      (if-let [seed-fn (rf.late-bind/get-fn :routing/route-sub-egress-path)]
-                        (if-let [seed (seed-fn (when (sequential? qv) (first qv)))]
-                          (assoc opts :path seed)
-                          opts)
-                        opts)
+         ;; snapshot :sub-cache / Xray) walks a framework read sub's BARE value
+         ;; — a machine snapshot, a route slice — but that value's
+         ;; classification is lowered ABSOLUTE in the registry (under
+         ;; `[:rf.runtime/machines :snapshots <id> …]` /
+         ;; `[:rf.runtime/routing :current …]`). When the caller names the sub
+         ;; via `:query-v`, OVERLAY the value's runtime-db storage position as
+         ;; `:path` (`sub-seed-path`) so the candidate declaration-coordinate
+         ;; set starts where those decls live (mirroring the SSR
+         ;; `project-routing-egress` offset). Any other sub resolves nil and
+         ;; `opts` is untouched.
+         opts       (if-let [seed (sub-seed-path (:query-v opts))]
+                      (assoc opts :path seed)
                       opts)
          ;; PRESENCE, not truthiness: an explicit `:frame` key OWNS the
          ;; resolution, `nil` included. `(or (:frame opts) …)` would make
