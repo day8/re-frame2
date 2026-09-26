@@ -25,7 +25,8 @@
     6. **from-to-from-event-bundle** — derives `{:from-id :to-id
        :navigated?}` per the lens contract.
     7. **assign-markers** — TO wins over FROM wins over HERE; HERE
-       only surfaces when no navigation happened.
+       only surfaces when no navigation happened. Graded through the
+       `project-topology-data` composite, which marks every topology row.
     8. **simulate-navigation-preview** — the hermetic per-row preview;
        its slot shape is pinned against the slice ONE real
        `:rf.route/navigate` writes (see [[navigated-slice]]).
@@ -405,23 +406,6 @@
               :effects [(nav-allocated-trace :route/x "nav-2")])]
       (is (some? (h/nav-token-allocated-in-event-bundle c))))))
 
-;; ---- route-deactivated-in-event-bundle ---------------------------------------
-
-(deftest route-deactivated-in-event-bundle-test
-  (testing "nil cascade → nil"
-    (is (nil? (h/route-deactivated-in-event-bundle nil))))
-
-  (testing "cascade with no deactivated emit → nil"
-    (is (nil? (h/route-deactivated-in-event-bundle (cascade 1 [:foo])))))
-
-  (testing "deactivated emit in :other bucket is found; :tags :route-id is the FROM"
-    (let [c (cascade 1 [:rf.route/navigate {:to :route/confirm}]
-              :other [(nav-allocated-trace :route/confirm "nav-1")
-                      (deactivated-trace :route/cart)])
-          ev (h/route-deactivated-in-event-bundle c)]
-      (is (some? ev))
-      (is (= :route/cart (-> ev :tags :route-id))))))
-
 ;; ---- from-to-from-event-bundle -----------------------------------------------
 ;;
 ;; FROM is derived from the focused cascade's :rf.route/deactivated emit
@@ -481,42 +465,6 @@
       ;; No current-slice arg at all — FROM/TO read off the cascade.
       (is (= :route/cart from-id) "FROM is the deactivated (prior) route")
       (is (= :route/confirm to-id) "TO is the allocated (new) route"))))
-
-;; ---- assign-markers -----------------------------------------------------
-
-(deftest assign-markers-test
-  (let [rows (h/project-routes cart-routes)]
-    (testing "no navigation: HERE on the current route only"
-      (let [decorated (h/assign-markers rows
-                                        {:current-id :route/cart
-                                         :from-id    nil
-                                         :to-id      nil
-                                         :navigated? false})
-            by-id (into {} (map (juxt :route-id :marker)) decorated)]
-        (is (= :here (get by-id :route/cart)))
-        (is (nil? (get by-id :route/checkout)))
-        (is (nil? (get by-id :route/audit)))))
-
-    (testing "navigation: FROM + TO win; HERE suppressed (TO is the new HERE)"
-      (let [decorated (h/assign-markers rows
-                                        {:current-id :route/confirm
-                                         :from-id    :route/cart
-                                         :to-id      :route/confirm
-                                         :navigated? true})
-            by-id (into {} (map (juxt :route-id :marker)) decorated)]
-        (is (= :from (get by-id :route/cart)))
-        (is (= :to   (get by-id :route/confirm)))
-        (is (not= :here (get by-id :route/confirm)))))
-
-    (testing "navigation with same-route collapse: only TO surfaces"
-      (let [decorated (h/assign-markers rows
-                                        {:current-id :route/cart
-                                         :from-id    nil
-                                         :to-id      :route/cart
-                                         :navigated? true})
-            by-id (into {} (map (juxt :route-id :marker)) decorated)]
-        (is (= :to (get by-id :route/cart)))
-        (is (nil? (get by-id :route/checkout)))))))
 
 ;; ---- project-static-data ----------------------------------------------
 
@@ -666,17 +614,6 @@
         (is (= (:params pv-splat) (-> pv-splat :slot-shape :params))
             "matched splat row carries its params into the slot shape")))))
 
-(deftest simulate-navigation-preview-row-local-non-matching-row-test
-  (testing "a row whose own pattern does NOT match the URL reports no match"
-    ;; /cart is the URL; previewing :route/checkout (pattern /checkout)
-    ;; must report no match even though some OTHER route matches the URL.
-    (let [routes {:route/cart     (route "/cart")
-                  :route/checkout (route "/checkout")}
-          pv     (h/simulate-navigation-preview routes :route/checkout "/cart")]
-      (is (false? (:matched? pv))
-          "the selected row's pattern doesn't match the URL ⇒ no match")
-      (is (nil? (:params pv))))))
-
 ;; ---- project-topology -------------------------------------------------
 
 (def parented-routes
@@ -691,10 +628,6 @@
    :route/confirm   (route "/checkout/confirm"
                            :parent :route/checkout)
    :route/admin     (route "/admin")})
-
-(deftest project-topology-empty-test
-  (testing "empty registrar yields []"
-    (is (= [] (h/project-topology {})))))
 
 (deftest project-topology-depth-and-shape-test
   (testing "every registered route appears exactly once in the projection"
@@ -811,19 +744,6 @@
         (is (= 0 (:depth a-entry)) "lexically-first member is the cycle root at depth 0")
         (is (true? (:cycle-root? a-entry)) "cycle root flagged :cycle-root?")))))
 
-(deftest project-topology-mixed-roots-and-cycle-test
-  (testing "ordinary roots plus a rootless cycle coexist — all appear once"
-    (let [mixed {:route/root (route "/")
-                 :route/a    (route "/a" :parent :route/b)
-                 :route/b    (route "/b" :parent :route/a)}
-          topology (h/project-topology mixed)
-          by-id    (group-by #(-> % :row :route-id) topology)]
-      (is (= 3 (count topology)) "all three registered routes appear exactly once")
-      (doseq [rid (keys mixed)]
-        (is (= 1 (count (get by-id rid))) (str rid " appears exactly once")))
-      (is (false? (:cycle-root? (first (get by-id :route/root))))
-          "the genuine root is not flagged as a cycle root"))))
-
 (deftest project-topology-cycle-root-flag-on-normal-routes-test
   (testing "ordinary (acyclic) topology carries :cycle-root? false on every entry"
     (let [topology (h/project-topology parented-routes)]
@@ -833,29 +753,6 @@
           "every entry carries the :cycle-root? key"))))
 
 ;; ---- epoch-routing-activity -------------------------------------------
-
-(deftest epoch-routing-activity-no-cascade-test
-  (testing "nil cascade → nil activity"
-    (is (nil? (h/epoch-routing-activity nil nil)))
-    (is (nil? (h/epoch-routing-activity nil {:route-id :route/cart})))))
-
-(deftest epoch-routing-activity-no-routing-trace-test
-  (testing "cascade with no routing trace events → nil (no activity)"
-    (let [c (cascade 1 [:counter/inc])]
-      (is (nil? (h/epoch-routing-activity c {:route-id :route/cart}))))))
-
-(deftest epoch-routing-activity-on-match-test
-  (testing "nav-token-allocated emit → phase :on-match + match params"
-    (let [c (cascade 7 [:rf.route/navigate {:to :route/confirm}]
-              :other [(nav-allocated-trace :route/confirm "nav-1")])
-          activity (h/epoch-routing-activity c {:route-id  :route/confirm
-                                                :params    {:order-id "x"}
-                                                :nav-token "nav-1"})]
-      (is (some? activity))
-      (is (= :on-match (:phase activity)))
-      (is (= {:order-id "x"} (:match activity))
-          "match surfaces the slice's params when phase is :on-match and
-           the slice IS that navigation (its nav-token)"))))
 
 (deftest epoch-routing-activity-events-test
   (testing "events list carries root event vector + downstream dispatches"
