@@ -10,7 +10,10 @@
   injection mutator (`replace-frame-state!`, the ONE frame-state write
   surface) is the exception — it records a synthetic epoch, so it
   cannot degrade silently (the caller's invariant is 'undo works after
-  this call'); it raises `:rf.error/epoch-artefact-missing`."
+  this call'); it raises `:rf.error/epoch-artefact-missing`.
+
+  Every wrapper that names a frame takes its id or the frame value
+  `rf/make-frame` returns."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 

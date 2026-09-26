@@ -495,12 +495,12 @@
 ;;   1. `reinstate-and-snapshot!`  — the pre-try work: fold the ns-load
 ;;      registrar baseline back over the live registrar, restore the source
 ;;      store, clear the generation cache, and CAPTURE the restore context
-;;      (registrar snapshot + the late-bound schemas snapshot/clear/restore
-;;      fns + the per-frame schemas snapshot, taken BEFORE the frames reset).
+;;      (registrar snapshot + the late-bound schemas snapshot/restore fns +
+;;      the per-frame schemas snapshot, taken BEFORE the frames reset).
 ;;   2. `reset-runtime!`           — the reset body proper: frames reset, the
 ;;      pre/post-dispose hook phases, adapter dispose+install, the framework-
-;;      standard re-seeds, `:clear-kinds` / `:clear-app-schemas?`. Runs inside
-;;      the caller's try so the finish half still fires if it throws.
+;;      standard re-seeds, `:clear-kinds`. Runs inside the caller's try so
+;;      the finish half still fires if it throws.
 ;;   3. `finish-runtime-reset!`    — the finally body: restore the registrar +
 ;;      per-frame schemas + source store, reset the frames + flows registries.
 ;;
@@ -520,7 +520,6 @@
   capture and return the restore context the reset + finish halves consume:
 
     {:snap         <registrar snapshot to restore to on the way out>
-     :clear-fn     <late-bound schemas clear-by-frame! fn, or nil>
      :restore-fn   <late-bound schemas restore-by-frame! fn, or nil>
      :schemas-snap <per-frame schemas snapshot, taken BEFORE the frames reset>}
 
@@ -533,7 +532,6 @@
   (rf.image-assembly/clear-generation-cache!)
   (let [snapshot-fn (rf.late-bind/get-fn :schemas/snapshot-by-frame)]
     {:snap         (snapshot-registrar)
-     :clear-fn     (rf.late-bind/get-fn :schemas/clear-by-frame!)
      :restore-fn   (rf.late-bind/get-fn :schemas/restore-by-frame!)
      :schemas-snap (when snapshot-fn (snapshot-fn))}))
 
@@ -543,9 +541,8 @@
   pre/post-dispose late-bind hook phases, dispose then (re)install the adapter
   and ensure the conventional `:rf/default` app frame, re-seed the framework
   standards (`:rf/set-db`, `:rf/install-frame-state`; the machine runtime when
-  loaded), apply
-  `:clear-kinds` / `:clear-app-schemas?`, and LAST reinstate the `:app-ns`
-  rows the fixture removed at build time. Establishes everything EXCEPT the
+  loaded), apply `:clear-kinds`, and LAST reinstate the `:app-ns` rows the
+  fixture removed at build time. Establishes everything EXCEPT the
   ambient frame scope — each shape owns how it makes that scope survive (see
   the section comment above).
 
@@ -554,7 +551,7 @@
   and before the caller's `:init-fn`, which both shapes run next — so an app's
   `init!` registers its plans and stubs against a live registrar before it
   makes any frame."
-  [{:keys [adapter clear-kinds clear-app-schemas? app-ns]} clear-fn]
+  [{:keys [adapter clear-kinds app-ns]}]
   (reset! rf.frame/frames {})
   (run-reset-hooks! :pre-dispose)
   (rf.substrate.adapter/dispose-adapter!)
@@ -570,8 +567,6 @@
     (install))
   (doseq [k clear-kinds]
     (rf.registrar/clear-kind! k))
-  (when (and clear-app-schemas? clear-fn)
-    (clear-fn))
   (when app-ns
     (reinstate-app-ns-rows! app-ns)))
 
@@ -723,16 +718,6 @@
                     rather than being treated as a mid-cascade child-frame
                     creation. No-op for adapter-less fixtures (they never
                     establish an ambient scope).
-    :clear-app-schemas?
-                  — boolean. When true, clear the schemas artefact's
-                    per-frame side-table (`schemas/schemas-by-frame`)
-                    AFTER the snapshot capture and BEFORE the test body
-                    runs. App-db schemas live OUTSIDE the registrar,
-                    so this is a separate hook from
-                    `:clear-kinds`. The snapshot still includes the
-                    per-frame schemas, so they're restored on the way
-                    out — they only disappear for the duration of the
-                    test.
     :async?       — boolean (default false). Declare the suite ASYNC-CAPABLE.
                     The RETURN SHAPE that delivers that is PLATFORM-DECIDED,
                     not something the caller picks:
@@ -777,7 +762,7 @@
       `done`, so the restore does not race the async body.
 
   All other options (`:adapter`, `:app-ns`, `:init-fn`, `:clear-kinds`,
-  `:clear-app-schemas?`, `:ambient-frame`) behave identically across both
+  `:ambient-frame`) behave identically across both
   shapes. `:ambient-frame nil` / an adapter-less fixture opts out of the
   ambient scope under `:async?` too (no `set!`), for tests that drive their
   own top-level frames.
@@ -804,15 +789,6 @@
       (use-fixtures :each
         (ts/make-reset-runtime-fixture
           {:adapter reagent-adapter/adapter}))
-
-  Example with example-app collision avoidance — schemas tests want a
-  clean app-schema slate without losing nine-states.core's other
-  registrations:
-
-      (use-fixtures :each
-        (ts/make-reset-runtime-fixture
-          {:adapter             reagent-adapter/adapter
-           :clear-app-schemas?  true}))
 
   Example (CLJS, an example-app suite in a bundle that co-loads a rival app
   sharing its id vocabulary — the suite names its OWN app, never the rival):
@@ -935,7 +911,7 @@
           (fn before-reset-runtime []
             (let [ctx (reinstate-and-snapshot! ns-load-baseline (source-store-baseline))]
               (reset! ctx-atom ctx)
-              (reset-runtime! opts (:clear-fn ctx))
+              (reset-runtime! opts)
               ;; Establish the ambient scope PERSISTENTLY — `set!` on the root
               ;; var, NOT a dynamic `binding`. A binding would be unwound the
               ;; instant this :before returns, long before the async test body
@@ -965,7 +941,7 @@
        (fn [test-fn]
          (let [ctx (reinstate-and-snapshot! ns-load-baseline (source-store-baseline))]
            (try
-             (reset-runtime! opts (:clear-fn ctx))
+             (reset-runtime! opts)
              (if scope?
                (binding [rf.frame/*current-frame* ambient-frame]
                  (run-init!)

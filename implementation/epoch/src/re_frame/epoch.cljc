@@ -134,9 +134,10 @@
   "Return the vector of `:rf/epoch-record` values for the frame, oldest-
   first. Empty vector when the frame has no recorded epochs (or when
   depth is 0, which disables recording — including records retained
-  before the depth was lowered; see `configure!`)."
+  before the depth was lowered; see `configure!`). `frame-id` is the frame's
+  id or the frame value `rf/make-frame` returns."
   [frame-id]
-  (rf.epoch.state/history-for frame-id))
+  (rf.epoch.state/history-for (rf.frame/frame-target->id frame-id)))
 
 (defn clear-history!
   "Drop every recorded epoch for every frame. Test fixtures use this.
@@ -465,11 +466,14 @@
     :rf.epoch/restore-missing-handler  — referenced registration absent
     :rf.epoch/restore-version-mismatch — machine snapshot version drift
 
+  `frame-id` is the frame's id or the frame value `rf/make-frame` returns.
+
   Returns `true` on success, `false` on any failure."
   [frame-id epoch-id]
   (if-not rf.interop/debug-enabled?
     false
-    (let [{:keys [outcome epoch op tags incarnation-token]}
+    (let [frame-id (rf.frame/frame-target->id frame-id)
+          {:keys [outcome epoch op tags incarnation-token]}
           (rf.epoch.tool-pair/check-restore-preconditions! frame-id epoch-id)]
       (case outcome
         ;; Carry the EXACT incarnation token the preconditions resolved against
@@ -493,7 +497,9 @@
   nothing is copied by hand.
 
   Source and target frame are the SAME frame: the record is read from
-  `frame-id`'s history and the event is dispatched into `frame-id`. Replay
+  `frame-id`'s history and the event is dispatched into `frame-id`, which is
+  the frame's id or the frame value `rf/make-frame` returns. The envelope's
+  `:frame` is always the id. Replay
   runs against the frame's CURRENT state and code — it does not restore
   first (compose with `restore-epoch!` for that), any external effect the
   handler emits fires again, the frame's live per-frame config applies, and
@@ -541,7 +547,8 @@
   ([frame-id epoch-id opts]
    (if-not rf.interop/debug-enabled?
      false
-     (let [{:keys [outcome epoch reason tags]}
+     (let [frame-id (rf.frame/frame-target->id frame-id)
+           {:keys [outcome epoch reason tags]}
            (rf.epoch.tool-pair/check-replay-preconditions! frame-id epoch-id)]
        (case outcome
          :ok   (rf.epoch.tool-pair/perform-replay! frame-id epoch opts)
@@ -693,7 +700,8 @@
   partition, and an absent key is preserved. A db-shaped key never silently
   touches the other partition: app-only injection is
   `{:rf.db/app v}`; runtime-only is `{:rf.db/runtime v}`; both-partition
-  install supplies both keys. Per Tool-Pair §Pair-tool writes.
+  install supplies both keys. Per Tool-Pair §Pair-tool writes. `frame-id` is
+  the frame's id or the frame value `rf/make-frame` returns.
 
   Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the
   previous state; emits `:rf.epoch/db-replaced` on success.
@@ -728,7 +736,8 @@
   [frame-id new-frame-state]
   (if-not rf.interop/debug-enabled?
     false
-    (let [{:keys [outcome op tags incarnation-token]}
+    (let [frame-id (rf.frame/frame-target->id frame-id)
+          {:keys [outcome op tags incarnation-token]}
           (rf.epoch.tool-pair/check-replace-frame-state-preconditions! frame-id new-frame-state)]
       (case outcome
         ;; Carry the EXACT incarnation token the preconditions resolved against
