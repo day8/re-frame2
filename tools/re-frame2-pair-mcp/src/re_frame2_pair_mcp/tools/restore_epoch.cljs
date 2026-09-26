@@ -109,12 +109,12 @@
                          :reason    :restore-rejected
                          :epoch-id  epoch-id
                          :frame     frame
-                         :hint      (str "restore-epoch returned false — the epoch-id is not in the "
-                                         "ring, or a drain is in flight. Read the structured reason "
-                                         "with (re-frame.core/trace-buffer "
+                         :hint      (str "restore-epoch returned false — one of the seven restore "
+                                         "failure modes tabled in skills/re-frame2-pair/references/"
+                                         "ops.md §Time-travel. Read which from (re-frame.core/trace-buffer "
                                          (if frame (pr-str frame) "<frame-id>")
-                                         " {:flat true :op-type :error}) "
-                                         "filtered to :rf.epoch/*. Frame-id is the first positional "
+                                         " {:flat true :op-type :error}): the error trace's "
+                                         ":operation names the mode. Frame-id is the first positional "
                                          "arg and :op-type is a :flat-only filter, so both are "
                                          "required — an opts map as the sole arg returns [].")})]
                   ;; A soft failure (the bare `false` reject

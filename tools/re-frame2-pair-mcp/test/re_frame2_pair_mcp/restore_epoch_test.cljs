@@ -189,7 +189,9 @@
                      (is (= false (:ok? edn)))
                      (is (= false (:restored? edn)))
                      (is (= :restore-rejected (:reason edn)))
-                     (is (= 999 (:epoch-id edn))))
+                     (is (= 999 (:epoch-id edn)))
+                     (is (str/includes? (:hint edn) "references/ops.md §Time-travel")
+                         "the hint routes to the table of all seven failure modes"))
                    (done)))))))
 
 (deftest surfaces-isError-when-runtime-returns-structured-failure-map

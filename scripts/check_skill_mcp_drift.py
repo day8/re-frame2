@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue.
 
-Five axes of cross-check.
+Six axes of cross-check.
 
 **MCP axis**: every (mcp-server, consumer-skill) pair declared
 in `MAPPINGS` below. For each pair, builds two sets:
@@ -56,6 +56,16 @@ column routes onward to the per-tool prose.
   - MISSING-DOC-ROW — the server exposes a tool with no row (shipped,
     counted, allow-listed, undocumented).
   - STALE-DOC-ROW — a row names a tool the server does not expose.
+
+**Arg-signature axis**: the doc-coverage axis proves a tool has a row, not
+that the row's arg signature is the tool's. For each rule in
+`ARG_SIGNATURE_RULES`, every row's `{...}` signature must name the keys in
+that tool's descriptor-manifest `:input-keys`, less the keys the reference
+says it leaves unwritten.
+
+  - MISSING-ARG — the tool takes a key its row does not name.
+  - STALE-ARG — the row names a key the tool does not take.
+  - UNPARSED-ARG-SIGNATURE — the row carries no `{...}` signature to compare.
 
 **Single-host axis**: the MCP axis asks "does this skill's
 allow-list match THIS server's catalogue?", one mapping at a time — so an
@@ -1168,6 +1178,199 @@ def check_doc_coverage_rules(
 
 
 # ---------------------------------------------------------------------------
+# Arg-signature axis — every row's argument column matches its tool's inputs.
+#
+# The doc-coverage axis above proves every tool HAS a row; it says nothing
+# about whether the row's arg signature is the tool's. A key the server
+# accepts but the row omits leaves callers unable to find it, and a key the
+# row names but the server does not take sends them a refusal.
+#
+# The reference is the generated descriptor manifest (`tool-descriptors.edn`),
+# whose `:input-keys` are the actual `tools/list` input surface — spliced knobs
+# included — and which CI already drift-checks against the live registry. The
+# row side is the FIRST code span of the row's second cell when it is a
+# `{...}` signature: keys split on `,` and on `|` (the table escapes it as
+# `\|` for an exactly-one-of choice), each stripped of a trailing `?`.
+#
+# The comparison is key NAMES only. `?` markers and the prose after the
+# signature are not graded. `implicit_keys` are the keys the table's own
+# preamble says it deliberately leaves unwritten; a row MAY still name one,
+# and then it must be a key the tool takes.
+#
+# Directions:
+#   - MISSING-ARG      — the tool takes a key its row does not name (and the
+#                        key is not implicit).
+#   - STALE-ARG        — the row names a key the tool does not take.
+#   - UNPARSED-ARG-SIG — the tool has a row but no `{...}` signature in it, so
+#                        nothing was compared. A row the check cannot read is
+#                        a failure, never a pass.
+# A tool with no row at all is left to the doc-coverage axis.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ArgSignatureRule:
+    """One (descriptor manifest, transport index) pair whose arg columns match.
+
+    `name`          — human label used in drift messages.
+    `manifest_edn`  — the generated descriptor manifest carrying `:input-keys`.
+    `doc_md`        — the reference whose table rows carry the signatures.
+    `implicit_keys` — keys a row may leave unwritten (the doc says why).
+    """
+    name: str
+    manifest_edn: Path
+    doc_md: Path
+    implicit_keys: frozenset[str]
+
+
+ARG_SIGNATURE_RULES: list[ArgSignatureRule] = [
+    ArgSignatureRule(
+        name="re-frame2-pair-mcp <-> references/mcp-transport.md args",
+        manifest_edn=REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "tool-descriptors.edn",
+        doc_md=REPO_ROOT / "skills" / "re-frame2-pair" / "references" / "mcp-transport.md",
+        # The table's preamble: every tool but one also takes `build?`, every
+        # tool takes `max-tokens?`, and the size and privacy knobs are listed
+        # per tool in wire-size-budget.md rather than repeated in the table.
+        implicit_keys=frozenset({
+            "build", "max-tokens",
+            "cache", "mode", "modes", "epochs-mode", "dedup", "elision",
+            "include-sensitive",
+        }),
+    ),
+]
+
+
+def _edn_tokens(text: str) -> Iterable[tuple[str, str]]:
+    """Just enough of an EDN lexer for the descriptor manifest.
+
+    Yields `("str", value)`, `("kw", ":keyword")` and `(bracket, bracket)`
+    tokens; skips `;` comments, whitespace, commas and every other scalar.
+    Strings are read escape-aware, so a `:input-keys [` inside a tool's
+    description can never be mistaken for the real key.
+    """
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j, buf = i + 1, []
+            while j < n and text[j] != '"':
+                if text[j] == "\\" and j + 1 < n:
+                    buf.append(text[j + 1])
+                    j += 2
+                else:
+                    buf.append(text[j])
+                    j += 1
+            yield ("str", "".join(buf))
+            i = j + 1
+        elif c == ";":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif c in "[]{}()":
+            yield (c, c)
+            i += 1
+        elif c == ":" and (m := re.match(r':[^\s\[\]{}(),";]+', text[i:])):
+            yield ("kw", m.group(0))
+            i += len(m.group(0))
+        else:
+            i += 1
+
+
+def extract_manifest_input_keys(path: Path) -> dict[str, set[str]]:
+    """`{tool-name -> {input-key, ...}}` from a descriptor manifest."""
+    tokens = list(_edn_tokens(path.read_text(encoding="utf-8")))
+    keys: dict[str, set[str]] = {}
+    current: str | None = None
+    k = 0
+    while k < len(tokens) - 1:
+        kind, value = tokens[k]
+        if kind == "kw" and value == ":name" and tokens[k + 1][0] == "str":
+            current = tokens[k + 1][1]
+            k += 2
+            continue
+        if (kind == "kw" and value == ":input-keys" and current is not None
+                and tokens[k + 1][0] == "["):
+            k += 2
+            found: set[str] = set()
+            while k < len(tokens) and tokens[k][0] != "]":
+                if tokens[k][0] == "str":
+                    found.add(tokens[k][1])
+                k += 1
+            keys[current] = found
+        k += 1
+    return keys
+
+
+# A table row: first cell a code-span tool name, second cell everything up to
+# the next UNESCAPED pipe (a signature escapes its own `|` as `\|`).
+_DOC_TABLE_ARG_ROW_RE = re.compile(
+    rf"^\|\s*`([a-z][{_TOOL_NAME_CHARS}]*)`\s*\|((?:[^|\\\n]|\\.)*)\|",
+    re.MULTILINE,
+)
+_CODE_SPAN_RE = re.compile(r"`([^`]*)`")
+
+
+def extract_documented_signatures(path: Path) -> dict[str, set[str] | None]:
+    """`{tool-name -> {arg-key, ...}}` from the transport index's rows.
+
+    A row whose second cell does not OPEN with a `{...}` code span maps to
+    None: it names the tool but states no signature this axis can compare.
+    """
+    sigs: dict[str, set[str] | None] = {}
+    for m in _DOC_TABLE_ARG_ROW_RE.finditer(path.read_text(encoding="utf-8")):
+        name, cell = m.group(1), m.group(2)
+        span = _CODE_SPAN_RE.match(cell.strip())
+        sig = span.group(1).strip() if span else ""
+        if not (sig.startswith("{") and sig.endswith("}")):
+            sigs[name] = None
+            continue
+        found: set[str] = set()
+        for part in sig[1:-1].replace("\\|", "|").split(","):
+            for alt in part.split("|"):
+                key = alt.strip().rstrip("?").strip()
+                if key:
+                    found.add(key)
+        sigs[name] = found
+    return sigs
+
+
+def check_arg_signature_rules(
+    rules: Iterable[ArgSignatureRule],
+) -> tuple[list[Drift], list[str]]:
+    """Run the arg-signature axis. Returns (drift, info-messages)."""
+    info: list[str] = []
+    drift: list[Drift] = []
+    for rule in rules:
+        missing = [p for p in (rule.manifest_edn, rule.doc_md) if not p.exists()]
+        if missing:
+            rels = ", ".join(str(p) for p in missing)
+            raise FileNotFoundError(
+                f"arg-signature: rule '{rule.name}' input not found at {rels}"
+            )
+        tool_keys = extract_manifest_input_keys(rule.manifest_edn)
+        sigs = extract_documented_signatures(rule.doc_md)
+        label = f"arg-signature:{rule.name}"
+        compared = 0
+        for tool in sorted(tool_keys):
+            if tool not in sigs:
+                continue  # no row at all: the doc-coverage axis reports it.
+            written = sigs[tool]
+            if written is None:
+                drift.append(Drift(label, "unparsed-arg-signature", tool))
+                continue
+            compared += 1
+            takes = tool_keys[tool]
+            for key in sorted(takes - written - rule.implicit_keys):
+                drift.append(Drift(label, "missing-arg", f"{tool}:{key}"))
+            for key in sorted(written - takes):
+                drift.append(Drift(label, "stale-arg", f"{tool}:{key}"))
+        info.append(
+            f"arg-signature: {rule.name}: manifest={len(tool_keys)} tools, "
+            f"compared={compared} row signatures."
+        )
+    return drift, info
+
+
+# ---------------------------------------------------------------------------
 # Drift detection.
 # ---------------------------------------------------------------------------
 
@@ -1267,6 +1470,32 @@ class Drift:
                 f"'{self.tool}' the MCP server does not expose. The row "
                 f"outlived its tool — remove it, or restore the "
                 f"tool."
+            )
+        if self.direction == "missing-arg":
+            tool, key = self.tool.split(":", 1)
+            return (
+                f"{self.mapping_name}: tool '{tool}' takes the input key "
+                f"'{key}' but its transport-index row's arg signature does "
+                f"not name it. Add `{key}` (with `?` when optional) to the "
+                f"row's `{{...}}` signature — the descriptor manifest's "
+                f"`:input-keys` is the reference."
+            )
+        if self.direction == "stale-arg":
+            tool, key = self.tool.split(":", 1)
+            return (
+                f"{self.mapping_name}: tool '{tool}''s transport-index row "
+                f"names the arg '{key}', which the tool does not take (not in "
+                f"its manifest `:input-keys`). Remove it from the row, or "
+                f"correct its spelling."
+            )
+        if self.direction == "unparsed-arg-signature":
+            return (
+                f"{self.mapping_name}: tool '{self.tool}' has a "
+                f"transport-index row whose second cell does not open with a "
+                f"`{{...}}` arg signature, so its arguments were never "
+                f"compared. Write the signature as the cell's first code "
+                f"span — `{{}}` for a tool that takes nothing beyond the "
+                f"implicit keys."
             )
         if self.direction == "missing-search-clause":
             return (
@@ -1424,8 +1653,8 @@ def _emit_error(msg: str, ci: bool) -> None:
 
 
 def _run_self_test(ci: bool) -> int:
-    """Self-test the title-safety, doc-coverage, body-path-identity and
-    single-host axes.
+    """Self-test the title-safety, doc-coverage, arg-signature,
+    body-path-identity and single-host axes.
 
     Guards against an axis silently degrading into a no-op. Every shipped
     title-safety consumer satisfies the contract via its own local clauses,
@@ -1705,6 +1934,103 @@ def _run_self_test(ci: bool) -> int:
                 "tool."
             )
 
+    # (7) Arg-signature axis — prove it is not vacuous. The shipped rules
+    #     must be green AND must have compared a signature for every manifest
+    #     tool (a parser that read nothing would also be green). Then, over a
+    #     synthetic manifest: a covered doc stays green, a row missing one
+    #     argument fires missing-arg, a row naming a phantom argument fires
+    #     stale-arg, and a row with no signature fires unparsed-arg-signature.
+    arg_drift, _ = check_arg_signature_rules(ARG_SIGNATURE_RULES)
+    if arg_drift:
+        failures.append(
+            "shipped ARG_SIGNATURE_RULES produced drift: "
+            + "; ".join(f"{d.direction}:{d.tool}" for d in arg_drift)
+            + " -- every row's arg signature must match its tool's "
+            "manifest :input-keys."
+        )
+    for rule in ARG_SIGNATURE_RULES:
+        manifest_tools = extract_manifest_input_keys(rule.manifest_edn)
+        signed = {
+            t for t, s in extract_documented_signatures(rule.doc_md).items()
+            if s is not None
+        }
+        if not manifest_tools or set(manifest_tools) - signed:
+            failures.append(
+                f"arg-signature: {rule.name}: read {len(manifest_tools)} "
+                f"manifest tools and a signature for only "
+                f"{len(set(manifest_tools) & signed)} of them -- the axis' "
+                "green is vacuous, not earned."
+            )
+
+    with tempfile.TemporaryDirectory() as arg_td:
+        arg_td_path = Path(arg_td)
+        fake_manifest = arg_td_path / "tool-descriptors.edn"
+        # A description carrying an escaped quote and a decoy `:input-keys`
+        # vector, so a lexer that is not string-aware reads the wrong keys.
+        fake_manifest.write_text(
+            ';; GENERATED fixture manifest\n'
+            '{:meta {:server :synthetic, :tool-count 2}\n'
+            ' :tools\n'
+            ' [{:name "read-widget" :description "Read one \\"widget\\"; '
+            'not :input-keys [\\"decoy\\"]." '
+            ':input-keys ["build" "frame" "id" "max-tokens"] :required ["id"]}\n'
+            '  {:name "pick-widget" :description "..." '
+            ':input-keys ["cache" "id" "ids" "max-tokens"] :required []}]}\n',
+            encoding="utf-8",
+        )
+        implicit = frozenset({"build", "max-tokens", "cache"})
+
+        def _args(label: str, rows: str) -> list[Drift]:
+            doc = arg_td_path / f"{label}.md"
+            doc.write_text(
+                "| MCP tool | Arg signature | Semantics home |\n"
+                "|---|---|---|\n" + rows,
+                encoding="utf-8",
+            )
+            d, _ = check_arg_signature_rules([ArgSignatureRule(
+                name=label, manifest_edn=fake_manifest, doc_md=doc,
+                implicit_keys=implicit,
+            )])
+            return d
+
+        covered_rows = (
+            "| `read-widget` | `{id, frame?}` — one widget | ops.md |\n"
+            "| `pick-widget` | `{id \\| ids}` (exactly one) | ops.md |\n"
+        )
+        got = _args("synthetic-args-covered", covered_rows)
+        if got:
+            failures.append(
+                "a synthetic transport index whose rows name every "
+                "non-implicit key fired drift "
+                f"({[f'{d.direction}:{d.tool}' for d in got]}) -- the "
+                "arg-signature extraction is broken (an escaped `\\|` "
+                "alternation, or the manifest lexer reading a decoy)."
+            )
+
+        for label, rows, want in (
+            # The planted defect: `frame?` dropped from one row.
+            ("synthetic-args-missing",
+             covered_rows.replace("`{id, frame?}`", "`{id}`"),
+             ("missing-arg", "read-widget:frame")),
+            # A row naming a key the tool does not take.
+            ("synthetic-args-stale",
+             covered_rows.replace("`{id, frame?}`", "`{id, frame?, colour?}`"),
+             ("stale-arg", "read-widget:colour")),
+            # A row with no signature at all: nothing compared is not a pass.
+            ("synthetic-args-unparsed",
+             covered_rows.replace("`{id, frame?}` — one widget",
+                                  "one widget, by id"),
+             ("unparsed-arg-signature", "read-widget")),
+        ):
+            got = _args(label, rows)
+            if not [d for d in got if (d.direction, d.tool) == want]:
+                failures.append(
+                    f"a synthetic transport index planting {want[0]} "
+                    f"({want[1]}) did NOT fire it (got "
+                    f"{[f'{d.direction}:{d.tool}' for d in got]}) -- the "
+                    "arg-signature axis is a no-op for that defect."
+                )
+
     # -----------------------------------------------------------------
     # (5) Body-path-identity axis.
     # -----------------------------------------------------------------
@@ -1933,7 +2259,10 @@ def _run_self_test(ci: bool) -> int:
           "search-clause negative fires + positive stays green; implementor "
           "enforced via its local body+title+search clauses. doc-coverage: "
           "shipped rules green; synthetic covered stays green; missing row and "
-          "phantom row both fire. body-path-identity: shipped recipes green; "
+          "phantom row both fire. arg-signature: shipped rules green with every "
+          "manifest tool's signature compared; synthetic covered stays green; "
+          "missing, stale and unparsed signatures all fire. "
+          "body-path-identity: shipped recipes green; "
           "both host shapes survive a literal-path Write -> gh --body-file "
           "handoff byte-for-byte; a nonce expression and a regenerated "
           "nonce both fail that handoff; expression / placeholder / unpaired / "
@@ -1956,8 +2285,9 @@ def main(argv: Iterable[str]) -> int:
     parser.add_argument("--show-baseline", action="store_true",
                         help="Print the current accepted baseline and exit.")
     parser.add_argument("--self-test", action="store_true",
-                        help="Run the title-safety, doc-coverage, body-path-identity and "
-                             "single-host self-tests and exit. Proves each axis fires on "
+                        help="Run the title-safety, doc-coverage, arg-signature, "
+                             "body-path-identity and single-host self-tests and exit. "
+                             "Proves each axis fires on "
                              "a synthetic defect and stays green on a synthetic "
                              "conforming input, and that the shipped rules are "
                              "green.")
@@ -2051,6 +2381,18 @@ def main(argv: Iterable[str]) -> int:
         doc_drift, doc_info = [], []
     all_info.extend(doc_info)
     for d in doc_drift:
+        all_drift.append((None, d))
+
+    # Arg-signature axis — each documented row's arg signature must
+    # match its tool's manifest `:input-keys`. Same accumulator, mapping=None.
+    try:
+        arg_drift, arg_info = check_arg_signature_rules(ARG_SIGNATURE_RULES)
+    except FileNotFoundError as e:
+        _emit_error(str(e), ci)
+        saw_setup_error = True
+        arg_drift, arg_info = [], []
+    all_info.extend(arg_info)
+    for d in arg_drift:
         all_drift.append((None, d))
 
     if args.verbose:
