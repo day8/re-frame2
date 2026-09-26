@@ -94,9 +94,10 @@ React 19 is bundled, not global. reagent2 targets React 19, which dropped
 its UMD build — so the Phase-2 global-`React`-from-CDN trick is unavailable.
 The `sci/` bundle therefore bundles `react`/`react-dom`@19 (the impl-pinned
 versions) directly: `playground-rf2.js` is one fully self-contained file (no
-external React, no CDN, no version-mismatch risk). ~1.31 MB raw / ~342 KB
-gzipped (the +5.7% raw / +7.5% gzipped uptick over the Phase-3 baseline is
-rf2-ldgpd folding `re-frame.machines` into the bundle).
+external React, no CDN, no version-mismatch risk). ~1.95 MB raw / ~534 KB
+gzipped (1,945,762 / 533,648 bytes, measured on 2026-09-26 on a local
+`shadow-cljs release rf2` build with core, reagent-slim, machines, flows and
+schemas baked in; gzip at its default level).
 
 This is option B from the findings doc
 (`ai/findings/2026-05-21-roll-your-own-cljs-playground.md` §6) realised as a
@@ -127,6 +128,8 @@ The Phase-3 re-frame2 eval bundle (`sci/`) pins:
 | `day8/re-frame2` (core) | `:local/root` | the public API exposed to cells (`re-frame.core` v2) |
 | `day8/reagent-slim` | `:local/root` | reagent2 (the render substrate) + the `reagent-slim` adapter |
 | `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe [:rf/machine …]` (and the `[:rf.machine/has-tag? …]` sub) for ch12 live cells |
+| `day8/re-frame2-flows` | `:local/root` | Spec 007 flows artefact — activates `reg-flow` for live cells |
+| `day8/re-frame2-schemas` | `:local/root` | Spec 010 schemas artefact, which pulls in Malli — activates `reg-app-schema` and exposes the `re-frame.schemas` namespace to live cells |
 | `react` + `react-dom` | 19.3.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
 | `shadow-cljs` | 3.4.10 | the CLJS → `:advanced` browser bundler |
 
@@ -168,7 +171,7 @@ build it:
   needed.
 
 Why it is not committed: the bundle bakes in re-frame2 core + reagent-slim +
-machines + flows, so every PR touching any of those had to regenerate the
+machines + flows + schemas, so every PR touching any of those had to regenerate the
 same ~1.7 MB binary — and two such PRs always conflicted on it. On one day the
 file was rewritten nine times on `main` in seven hours, one P2 correctness fix
 needed five rebase cycles to land, and workers began scoping real work out of
@@ -225,7 +228,7 @@ build (`git diff --exit-code`), and structurally validates the generated
 `playground-rf2.js` (non-empty, `shadow$provide`, `rf2sci`, size floor) so a
 build that "succeeded" while emitting a wrong or truncated artefact still fails
 the PR. The surface that fires it now includes every baked-in tree — `core`,
-`adapters/reagent-slim`, `machines`, `flows` — plus the playground itself. That
+`adapters/reagent-slim`, `machines`, `flows`, `schemas` — plus the playground itself. That
 widening is affordable because of the untracking: firing the heavy job on
 every core change used to also mean forcing a bundle rebuild + recommit on
 every core PR, which was the write lock rf2-tzy13 removed.
@@ -245,7 +248,7 @@ Provenance stamp (rf2-i3e3q; rescoped by rf2-tzy13). Every generated bundle
 carries an unminified `//# rf2-sci-input-digest=<hex>` marker:
 
 - `scripts/playground-sci-input-digest.mjs` hashes the declared input roster —
-  the `core` / `reagent-slim` / `machines` / `flows` source trees + their
+  the `core` / `reagent-slim` / `machines` / `flows` / `schemas` source trees + their
   `deps.edn`, the SCI bundle source, the shadow build config, the npm lock, the
   `copy-bundle.mjs` postprocess step, and the digest script itself — into one
   deterministic 64-hex digest (each file via `git hash-object`, so the digest is
