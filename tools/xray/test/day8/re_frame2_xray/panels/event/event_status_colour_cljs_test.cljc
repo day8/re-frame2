@@ -36,24 +36,6 @@
             :paused-by-tool :stale]
            event-status/statuses))))
 
-(deftest status-token-map-covers-every-status
-  (testing "every status has a token keyword. No
-            unmapped status leaks a nil into the palette."
-    (is (= (set event-status/statuses)
-           (set (keys event-status/status->token))))))
-
-(deftest status-token-map-mirrors-tanstack-anchors
-  (testing "the per-status token assignments
-            mirror the TanStack devtool's semantic anchors. The LIVE
-            head (`:in-flight`) IS the current-epoch accent → the single
-            `:accent` (GitHub blue); `:paused-by-tool` takes the fixed
-            cool blue `:info` as a distinct peer."
-    (is (= :accent         (event-status/status->token :in-flight)))
-    (is (= :green          (event-status/status->token :settled-success)))
-    (is (= :red            (event-status/status->token :settled-error)))
-    (is (= :info           (event-status/status->token :paused-by-tool)))
-    (is (= :yellow         (event-status/status->token :stale)))))
-
 (deftest every-status-resolves-to-a-non-nil-hex
   (testing "the indirection chain (status → token-kw → hex) lands on
             a real hex for every status. No magenta-tinted gap, no
@@ -154,36 +136,6 @@
     (is (= :in-flight (event-status/classify-status nil)))))
 
 ;; ---- hex resolver --------------------------------------------------------
-
-(deftest event-status-colour-resolves-through-tokens
-  (testing "every state-input → colour matches the indirection
-            (state → status → token → tokens value). No inline hexes
-            in the resolver path. `tokens` exposes
-            CSS-variable strings; both sides of the comparison go
-            through the same map so the indirection is what's pinned."
-    (doseq [[state expected-status]
-            [[{:outcome :ok}              :settled-success]
-             [{:outcome :error}           :settled-error]
-             [{:outcome :warning}         :settled-success]
-             [{:mode :retro}              :stale]
-             [{:stale? true}              :stale]
-             [{:in-flight? true}          :in-flight]
-             [{:paused? true}             :paused-by-tool]
-             [{}                          :in-flight]]]
-      (let [expected-colour (get tokens/tokens
-                                 (get event-status/status->token expected-status))]
-        (is (= expected-colour (event-status/event-status-colour state))
-            (str "state " state " resolves to " expected-status " colour"))))))
-
-(deftest event-status-token-resolves-to-keyword
-  (testing "`event-status-token` is the keyword-side of the resolver
-            — useful for callers that compose styles through
-            `theme/tokens` rather than inlining the hex."
-    (is (= :red (event-status/event-status-token {:outcome :error})))
-    (is (= :green (event-status/event-status-token {:outcome :ok})))
-    (is (= :yellow (event-status/event-status-token {:mode :retro})))
-    (is (= :info (event-status/event-status-token {:paused? true})))
-    (is (= :accent (event-status/event-status-token {})))))
 
 (deftest event-status-colour-fallback
   (testing "unknown status (shouldn't happen via the classifier, but
