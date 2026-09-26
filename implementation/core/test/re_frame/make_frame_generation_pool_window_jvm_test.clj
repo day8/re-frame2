@@ -100,7 +100,7 @@
     ;; teardown, so the cases clean up after themselves — but a case that throws
     ;; part-way can leave one, so clear this namespace's own ids
     ;; explicitly and keep a re-run inside one JVM starting from "no row".
-    (swap! @provenance dissoc :pool-window/target :pool-window/decoy :pool-window/rollback)
+    (swap! @provenance dissoc :pool-window/target :pool-window/decoy)
     (t)
     (reset! @dirty-flag false)))
 
@@ -244,37 +244,8 @@
     (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v2)
     (is (= ::inc-v2 (inc-impl :pool-window/target)))))
 
-;; ---------------------------------------------------------------------------
-;; 3. THE ROLLBACK. Writing the provenance row AHEAD of the engine commit is
-;;    only safe because the write is UNDONE exactly when the commit fails —
-;;    the no-residue contract (a failed creation records nothing; a failed
-;;    re-construction preserves the OLD row) holds by explicit rollback
-;;    rather than by ordering. `live-frame-reload-cljs-test` pins the contract's
-;;    OBSERVABLE consequence (reprojection resolves against the original
-;;    pool); these two pin the row itself.
-;; ---------------------------------------------------------------------------
-
-(deftest failed-re-construction-restores-the-previous-provenance-row
-  (testing "a re-make-frame that fails in the engine leaves the provenance row
-            exactly as the successful creation left it — the early write is
-            rolled back, not merely overwritten later"
-    (rf.live-frame/make-frame {:id :pool-window/rollback :images [img]} pool-v1)
-    (is (= pool-v1 (pool-row :pool-window/rollback)) "control: V1 recorded")
-    (is (thrown? clojure.lang.ExceptionInfo
-                 ;; `:on-create` is retired and fails loud INSIDE the engine —
-                 ;; i.e. after the early provenance write, which is the branch
-                 ;; the rollback exists for.
-                 (rf.live-frame/make-frame {:id :pool-window/rollback :on-create [:boom]} pool-v2)))
-    (is (= pool-v1 (pool-row :pool-window/rollback))
-        "the failed re-construction preserved the ORIGINAL provenance row")))
-
-(deftest failed-first-construction-leaves-no-provenance-row
-  (testing "a FIRST make-frame that fails in the engine leaves NO row behind —
-            the early write is removed, not left as residue for an id that
-            never became a frame"
-    (is (not (contains? (deref @provenance) :pool-window/never))
-        "control: the id has no row")
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (rf.live-frame/make-frame {:id :pool-window/never :on-create [:boom]} pool-v1)))
-    (is (not (contains? (deref @provenance) :pool-window/never))
-        "the failed creation recorded nothing")))
+;; The ROLLBACK that makes writing the row ahead of the engine commit safe is
+;; pinned beside the reservation it runs under:
+;; `make-frame-generation-pool-contention-jvm-test` pins the row a failed
+;; re-construction restores, and `live-frame-reload-cljs-test` pins that a
+;; failed first construction records none.
