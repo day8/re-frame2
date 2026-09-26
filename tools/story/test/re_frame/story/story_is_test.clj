@@ -122,6 +122,28 @@
       (is (= 1 (count reports)))
       (is (= :fail (:type (first reports)))))))
 
+(deftest story-is-reports-an-errored-run
+  (testing "an :error run reports through clojure.test's do-report, which
+            reads an :error report's :actual as a Throwable — so the report
+            carries one, with the record's own value as its ex-data"
+    (rf/reg-event :is/boom (fn [_ _] (throw (ex-info "boom" {}))))
+    (rf.story/reg-variant :story.is/errored
+      {:tags   #{:test}
+       :script {:script [[:dispatch-sync [:is/boom]]]}})
+    (let [[result reports] (capture-reports #(rf.story/is :story.is/errored))]
+      (is (= :error (:status result)))
+      (is (= [:error] (mapv :type reports)) "one :error report")
+      (is (instance? Throwable (:actual (first reports))))
+      (is (contains? (ex-data (:actual (first reports))) :actual)
+          "the record's own :actual survives as ex-data")))
+  (testing "an already-resolved :error result whose record :actual is data"
+    (let [result {:status :error :variant/id :story.is/direct-error
+                  :assertions [{:assertion :rf.error/exception :status :error
+                                :passed? false :reason :some/why}]}
+          [_ reports] (capture-reports #(rf.story/is result))]
+      (is (= [:error] (mapv :type reports)))
+      (is (= :some/why (:actual (ex-data (:actual (first reports)))))))))
+
 (deftest story-run-returns-unified-result
   (testing "rf.story/run returns a promise/future of the unified run-result"
     (rf.story/reg-variant :story.is/run

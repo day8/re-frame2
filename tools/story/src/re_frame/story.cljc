@@ -1664,6 +1664,20 @@
   ([target]      (rf.story.render/render-variant target))
   ([target opts] (rf.story.render/render-variant target opts)))
 
+(defn- throwable-actual
+  "An `:error` report whose `:actual` is carried inside an `ex-info` when it
+  is not already a throwable. `do-report` reads an `:error` report's
+  `:actual` as the exception whose stack locates the failure
+  (`.getStackTrace` on the JVM, `.-stack` in CLJS), so a data `:actual` — a
+  reason keyword or string, or nil — would throw inside the reporter
+  instead of reporting. The original value stays readable as the ex-data's
+  `:actual`."
+  [{:keys [type actual message] :as report}]
+  (if (and (= :error type)
+           (not (instance? #?(:clj Throwable :cljs js/Error) actual)))
+    (assoc report :actual (ex-info (or message "Story run error") {:actual actual}))
+    report))
+
 (defn- emit-reports!
   "Fire `clojure.test` / `cljs.test` `do-report` for each report map in
   `reports` (the `result->reports` projection). Pure side-effect — used by
@@ -1672,7 +1686,7 @@
   run's tally."
   [_target reports]
   (doseq [r reports]
-    (test/do-report r))
+    (test/do-report (throwable-actual r)))
   nil)
 
 (defn is

@@ -139,8 +139,8 @@
                                                            " · actual " (pr-str actual))
                 :else                                 "")
         ;; An `:rf.error/exception` record carries its detail in the
-        ;; `:error` map, not in `:reason` (which is nil on the captured
-        ;; shape). Prefer the message — it is the more specific of the two.
+        ;; `:error` map; its `:reason` only names the failure id. Prefer
+        ;; the message — it is the more specific of the two.
         :error (cond
                  (string? (:message error))            (:message error)
                  (and (some? reason) (string? reason)) reason

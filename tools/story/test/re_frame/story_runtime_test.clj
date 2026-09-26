@@ -2016,6 +2016,102 @@
       (is (true? (-> r :app-db :b)) "the bare-event-vector setup step ran"))
     (rf.story/destroy-variant! :story.zaiwl/ok)))
 
+(defn- exception-record-of [result]
+  (first (filter #(= :rf.error/exception (:assertion %)) (:assertions result))))
+
+(deftest run-variant-error-records-name-their-reason
+  (testing "a :setup DOM step errors with the refusal's id as the :reason"
+    (rf/reg-event :test/seed-r (fn [{:keys [db]} _] {:db (assoc db :r true)}))
+    (rf.story/reg-variant :story.reason/setup-click
+      {:setup [[:dispatch [:test/seed-r]] [:click "[data-test=open]"]]})
+    (let [r (rf.story.async/deref-blocking
+              (rf.story/run-variant :story.reason/setup-click) 5000)]
+      (is (= :error (:status r)))
+      (is (= :rf.error/story-setup-step-unrunnable
+             (:reason (exception-record-of r)))))
+    (rf.story/destroy-variant! :story.reason/setup-click))
+  (testing "a step whose tag names no handler errors with the no-handler id"
+    (rf/reg-event :test/seed-r (fn [{:keys [db]} _] {:db (assoc db :r true)}))
+    (rf.story/reg-variant :story.reason/typo
+      {:script [[:dispatch-snyc [:test/seed-r]]]})
+    (let [r (rf.story.async/deref-blocking
+              (rf.story/run-variant :story.reason/typo) 5000)]
+      (is (= :error (:status r)))
+      (is (= :rf.error/no-such-handler (:reason (exception-record-of r)))))
+    (rf.story/destroy-variant! :story.reason/typo)))
+
+;; ---- tape-projected assertions without the epoch artefact -----------------
+
+(defn- without-epoch-artefact
+  "Call `f` with the epoch artefact's `:epoch/epoch-history` hook
+  unpublished, as on a host that never loaded `re-frame.epoch`, restoring
+  the hooks afterwards."
+  [f]
+  (let [snap @rf.late-bind/hooks]
+    (try
+      (swap! rf.late-bind/hooks dissoc :epoch/epoch-history)
+      (rf.late-bind/invalidate-cache! :epoch/epoch-history)
+      (f)
+      (finally
+        (reset! rf.late-bind/hooks snap)
+        (rf.late-bind/invalidate-cache! :epoch/epoch-history)))))
+
+(defn- run-tape-variant [vid body]
+  (rf.story/reg-variant vid body)
+  (let [r (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)]
+    (rf.story/destroy-variant! vid)
+    r))
+
+(deftest tape-assertions-without-the-epoch-artefact-refuse-by-name
+  (rf/reg-event :test/tape-go (fn [{:keys [db]} _] {:db (assoc db :go true)
+                                                    :fx [[:test/tape-fx nil]]}))
+  (rf/reg-fx :test/tape-fx {:platforms #{:client :server}} (fn [_ _] nil))
+  (let [named? (fn [rec]
+                 (and (= :cannot-run (:status rec))
+                      (= :rf.error/epoch-artefact-missing (:reason rec))
+                      (string? (:hint rec))))]
+    (testing "control: with the epoch artefact loaded, dispatched? passes"
+      (let [r (run-tape-variant :story.noepoch/control
+                {:script [[:dispatch-sync [:test/tape-go]]
+                          [:assert [:rf.assert/dispatched? [:test/tape-go]]]]})]
+        (is (= :pass (:status r)))))
+    (without-epoch-artefact
+      (fn []
+        (testing "dispatched?, no-warnings and effect-emitted refuse by name"
+          (doseq [[vid atom] [[:story.noepoch/dispatched [:rf.assert/dispatched? [:test/tape-go]]]
+                              [:story.noepoch/warnings   [:rf.assert/no-warnings]]
+                              [:story.noepoch/effect     [:rf.assert/effect-emitted :test/tape-fx]]]]
+            (let [r    (run-tape-variant vid {:script [[:dispatch-sync [:test/tape-go]]
+                                                       [:assert atom]]})
+                  recs (filter #(= (first atom) (:assertion %)) (:assertions r))]
+              (is (= :cannot-run (:status r)) (str vid " refuses rather than judging an empty tape"))
+              (is (= 1 (count recs)) (str vid " records one row"))
+              (is (every? named? recs) (str vid " names the missing artefact and its fix"))
+              (is (empty? (:cannot-run r))
+                  (str vid " adds no second, unnamed evidence refusal")))))
+        (testing "a declared schema-error refuses by name instead of failing"
+          (let [r    (run-tape-variant :story.noepoch/schema
+                       {:setup      [[:test/tape-go]]
+                        :assertions [[:rf.assert/schema-error {:where :event :event :some/evt}]]})
+                recs (filter #(= :rf.assert/schema-error (:assertion %)) (:assertions r))]
+            (is (= :cannot-run (:status r)))
+            (is (= 1 (count recs)))
+            (is (every? named? recs))
+            (is (empty? (:cannot-run r)))))))))
+
+(deftest unmet-schema-error-records-one-fail-row
+  (testing "with the tape live, an unmet declared schema-error is ONE :fail
+            row — no second :required-evidence-missing refusal for the empty
+            slot that is the failure's own cause"
+    (rf/reg-event :test/seed-s (fn [{:keys [db]} _] {:db (assoc db :s 1)}))
+    (let [r    (run-tape-variant :story.unmet/schema
+                 {:setup      [[:test/seed-s]]
+                  :assertions [[:rf.assert/schema-error {:where :event :event :some/evt}]]})
+          recs (filter #(= :rf.assert/schema-error (:assertion %)) (:assertions r))]
+      (is (= :fail (:status r)))
+      (is (= [:fail] (mapv :status recs)))
+      (is (empty? (filter #(= :required-evidence-missing (:reason %)) (:cannot-run r)))))))
+
 ;; ---- plan-construction-error? discrimination -----------------------------
 ;;
 ;; `plan-construction-error?` keys on "`:where` = `'rf.story/variant-
