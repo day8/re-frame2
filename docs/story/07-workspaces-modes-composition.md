@@ -78,8 +78,8 @@ Workspaces are layout artifacts. Each `:layout` needs its own slot:
 A missing slot, or a slot the body does not accept, throws
 `:rf.error/workspace-shape` at registration. `:columns` fixes the column count
 of a `:grid` or `:variants-grid`; without it the grid fits as many columns as
-the width allows. A grid renders its first 100 cells and offers **+N more** for
-the rest, up to 400.
+the width allows. A view wider than its cell scrolls inside the cell. A grid
+renders its first 100 cells and offers **+N more** for the rest, up to 400.
 
 `:tabs` mounts one variant at a time, under a strip of tabs:
 
@@ -150,7 +150,8 @@ variant under a mode by passing it:
 ## Viewports and backgrounds
 
 The View cluster's two pickers resize the canvas and change what sits behind
-it. The viewport presets are Full, Mobile portrait (375×667), Mobile landscape
+it, and the background also sits behind each view in a workspace's cells. The
+viewport presets are Full, Mobile portrait (375×667), Mobile landscape
 (667×375), Tablet (768×1024), Desktop (1280×800) and Desktop wide (1920×1080),
 plus a custom width and height. The background presets are Light (`#ffffff`),
 Dark (`#1a1a1a`), Paper (`#f9f9f9`), Midnight (`#0a0a0a`) and Transparent, a
