@@ -67,7 +67,7 @@ To confirm the fix, dispatch the same event with the Views tab open: the sub's d
 
 !!! note "One derivation, read in many places?"
 
-    A subscription is a cache for views. A handler can read one with `subscribe-once`, which is a cache hit when a mounted view already holds that query, but recomputes from scratch when nothing does. If handlers read an expensive value that no view keeps live, make it a [flow](../flows.md) instead: it is computed once per app-db write, [stored in app-db](../glossary.md#flow), and every reader, view or handler, reads that one result.
+    A subscription is a cache for views. When a handler needs the same derived value, don't read the sub with `subscribe-once` in the handler body: that read is one the handler never declared, and it recomputes from scratch whenever no mounted view holds the query. Make the value a [flow](../flows.md) instead: it is computed once per app-db write, [stored in app-db](../glossary.md#flow), and every reader, view or handler, reads that one result.
 
 !!! note "When placement isn't enough"
 

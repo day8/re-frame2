@@ -57,10 +57,13 @@ versions, so a tool should ignore what it does not recognise.
 
 Two properties matter when you consume the stream:
 
-- **Delivery is synchronous.** When the runtime emits, every registered listener runs
-  immediately, mid-run, on the same call stack. There is no queue, batching or
-  reordering. So a listener must be cheap: store the event and return, and do anything
-  expensive later on a timer you own.
+- **Delivery is synchronous, at the end of the drain.** Trace events emitted while a
+  frame works through its event queue are held until that drain finishes, then
+  delivered to every listener in emission order, on the same call stack, before the
+  drain returns. An event emitted outside any drain, such as a registration, is
+  delivered at once. A listener therefore sees settled state, never a run in progress.
+  It still runs on the app's call stack, so keep it cheap: store the event and return,
+  and do anything expensive later on a timer you own.
 - **Runs are correlated.** Every trace event emitted during one event's run has the
   same `:rf.trace/dispatch-id` in its tags, so "everything that click did" is a
   filter. When a handler's effects dispatch a child event, the child's
@@ -477,8 +480,8 @@ the framework. Like every trace emit, the call is elided in production.
 
 If your tool dispatches its own events (a recorder that stores captured events in its
 own app-db, an inspector that drives a panel), its listener creates a loop: the
-listener fires mid-run, its bookkeeping dispatch emits trace events, those reach the
-listener, which dispatches again. Two flags turn tracing off for tool code. Xray,
+listener fires after a drain, its bookkeeping dispatch emits trace events, those reach
+the listener after that dispatch's drain, and it dispatches again. Two flags turn tracing off for tool code. Xray,
 Story and the pair MCP use them.
 
 **Silence one handler with `:rf.trace/no-emit?` in its registration metadata.** The

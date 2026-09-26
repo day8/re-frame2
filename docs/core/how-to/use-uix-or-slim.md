@@ -8,7 +8,7 @@ This recipe moves an app's views to UIx, for a team that writes React function c
 
 ## Which substrate
 
-Reagent is the default. It has the full example set and is the notation used throughout this guide. Choose UIx when your team or host codebase already writes React function components; its examples are the counter and login (which mirror the Reagent versions) and an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)). Choose slim when you have measured that the bundle is too large and you won't need hydrated server rendering.
+Reagent is the default. It has the full example set and is the notation used throughout this guide. Choose UIx when your team or host codebase already writes React function components; its examples are the counter and login (which mirror the Reagent versions) and an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)). Choose slim when you have measured that the bundle is too large.
 
 ## Step 1 — The one line that changes
 
@@ -207,7 +207,7 @@ All the React adapters use the same React context for frames, so frame component
 
 ## Step 6 — reagent-slim: kilobytes for capability
 
-reagent-slim is plain Reagent with legacy surface removed, for client-only apps where bundle size is a measured problem. It is not a different way of writing views. The trade:
+reagent-slim is plain Reagent with legacy surface removed, for apps where bundle size is a measured problem. It is not a different way of writing views. The trade:
 
 - **Payoff:** an estimated 7–10 KB gzipped off a typical app (25–33% of the Reagent layer), and up to about 22–27 KB for apps using Reagent's HTML-export path. These figures are estimates, not build measurements. Runtime speed is at best marginally better, so choose slim for download size, not frame rate.
 - **Constraints:** React 19 only. No `react-dom/server`; HTML export uses a small ClojureScript serializer in `reagent2.dom.server`. `create-class` accepts only seven keys (below).
@@ -230,9 +230,7 @@ A `r/dom-node` call becomes a `:ref` callback, since React 19 removed `findDOMNo
 Slim handles two kinds of "render to HTML" differently:
 
 - **Static HTML export** (clipboard exports, report HTML, anything outside the React lifecycle) uses `render-to-static-markup` in `reagent2.dom.server`, a ClojureScript tree walk with no `react-dom/server` and no hydration attributes. This is where the HTML-export saving comes from: stock Reagent's `render-to-string` pulls in the roughly 50 KB `react-dom/server` module, while the serializer is about 3–4 KB.
-- **SSR that the client hydrates** is not in slim. It lives in `day8/re-frame2-ssr` ([Server-side rendering](../../ssr/concepts.md)), which the adapter connects to.
-
-If you're not sure whether you'll ever need hydrated server rendering, stay on stock Reagent: switching back later costs more than the kilobytes slim saves now. Slim suits apps that know they are client-only, or need only static-markup export.
+- **SSR that the client hydrates** works under slim as it does under stock Reagent. The server render is `day8/re-frame2-ssr`'s ([Server-side rendering](../../ssr/concepts.md)), not the adapter's, and the client adopts it with `render!` and `{:hydrate? true}`. As for Reagent, pass `ssr/hydrate!` a `:render-tree-fn` so it can check the server's render-tree hash.
 
 ## What carries over, what doesn't
 
