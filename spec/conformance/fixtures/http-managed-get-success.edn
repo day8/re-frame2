@@ -3,7 +3,8 @@
 ;; Per Spec 014 §The shape and §`:accept`. A simple GET, decoded as JSON,
 ;; reaches the success path; the default `:accept` returns `{:ok decoded}`
 ;; for 2xx; the runtime synthesises the canonical
-;; `{:rf/reply {:status :ok :value <decoded>}}` envelope.
+;; `{:status :ok :value <decoded>}` envelope and appends it to the
+;; `:on-success` target event.
 ;;
 ;; The fixture exercises the contract via :rf.http/managed-canned-success,
 ;; which Spec 014 §Testing guarantees produces the same dispatch shape the
