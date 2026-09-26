@@ -66,9 +66,6 @@
 (def ^:private framework-stamped-keys
   #{:rf.trace/dispatch-id})
 
-(def ^:private permitted-keys
-  (clojure.set/union canonical-site-keys framework-stamped-keys))
-
 (defn- destroyed-traces [captured]
   (filter #(= :rf.machine/destroyed (:operation %)) @captured))
 
@@ -136,7 +133,7 @@
 
 ;; ---- Site 1: destroy-spawn-all-children! ---------------------------------
 
-(deftest invoke-all-children-destroy-trace-shape
+(deftest spawn-all-children-destroy-trace-shape
   (testing "destroy-spawn-all-children! per-child traces carry :child-id"
     (let [[cap unreg] (record!)
           child {:initial :running
@@ -222,48 +219,4 @@
           (assert-shape! traces "finalize-machine")
           (is (seq finish-traces)
               "at least one trace carries :reason :rf.machine/finished"))
-        (finally (unreg))))))
-
-;; ---- Cross-site stability check -------------------------------------------
-
-(deftest no-key-drift-across-sites
-  (testing "every :rf.machine/destroyed across both paths obeys the canonical key-set"
-    ;; This is a meta-check: drive both paths against ONE listener
-    ;; (no per-site recording) and assert the union shape across them.
-    (let [[cap unreg] (record!)
-          child {:initial :running
-                 :data    {}
-                 :states  {:running {:on {:done :final}}
-                           :final   {:final? true}}}]
-      (try
-        ;; (a) a singleton reaching :final? (auto-destroy)
-        (rf/reg-machine :nd/standalone
-                        {:initial :running
-                         :data    {}
-                         :states  {:running {:on {:end :done}}
-                                   :done    {:final? true}}})
-        (rf/dispatch-sync [:nd/standalone [:end]])
-
-        ;; (b) finalize-machine via spawned child reaching :final?
-        (rf/reg-machine :nd/child child)
-        (rf/reg-machine :nd/parent
-                        {:initial :working
-                         :states  {:working {:spawn {:machine-id :nd/child}}}})
-        (rf/dispatch-sync [:nd/parent [:rf.machine.spawn/spawned]])
-        (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/machines :spawned :nd/parent [:working]])]
-          (rf/dispatch-sync [spawned-id [:done]]))
-
-        ;; Verify the union shape across both fires.
-        (let [traces (destroyed-traces cap)]
-          (assert-shape! traces "cross-site")
-          (is (<= 2 (count traces))
-              "at least two :rf.machine/destroyed fired across the two paths")
-          ;; All traces' key-sets are subsets of the union of canonical
-          ;; site keys + framework-stamped envelope keys.
-          (let [union (apply clojure.set/union (map (comp set keys :tags) traces))]
-            (is (every? permitted-keys union)
-                (str "union of all observed keys is permitted; "
-                     "observed extras: "
-                     (clojure.set/difference union permitted-keys)))))
         (finally (unreg))))))

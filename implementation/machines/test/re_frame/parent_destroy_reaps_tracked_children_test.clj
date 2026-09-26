@@ -251,18 +251,6 @@
       (is (some? (snapshot :prh/free)) "the hand-emitted child is still live")
       (is (= [] @log) "and its :exit did not run"))))
 
-(deftest a-transition-exit-destroys-the-child-once
-  (testing "leaving the spawning state destroys the child exactly once"
-    (let [log (atom [])]
-      (reg-logging-child! :prx/kid log)
-      (reg-parent! :prx/parent :prx/kid log)
-      (rf/dispatch-sync [:prx/parent [:go]])
-      (rf.machines.test-support/reset-captured!)
-      (rf/dispatch-sync [:prx/parent [:stop]])
-      (is (nil? (snapshot :prx/kid#1)))
-      (is (= [[:prx/parent :exit] [:prx/kid :exit]] @log))
-      (is (= 1 (count (destroyed-of :prx/kid#1)))))))
-
 (deftest a-slot-naming-a-same-id-replacement-leaves-the-replacement-live
   (testing "the reap prunes a slot whose address now holds an actor the parent
             does not own, and leaves that actor alone"

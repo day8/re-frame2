@@ -57,13 +57,6 @@
           (swap! log conj :destroyed))))
     #(rf.trace.tooling/unregister-listener! id)))
 
-(defn- exit-then-destroyed?
-  "True iff the first `:exit` marker precedes the first `:destroyed`
-  marker in the ordered `log`."
-  [log]
-  (let [v (vec log)]
-    (< (.indexOf v :exit) (.indexOf v :destroyed))))
-
 ;; ---- Path 1: explicit / declarative-:spawn destroy (destroy-single!) ------
 
 (deftest destroyed-after-exit-on-explicit-destroy
@@ -84,11 +77,9 @@
         (rf/dispatch-sync [:eo/destroyer [:fire]])
         (is (= [:exit :destroyed] @log)
             "explicit destroy emits :exit then :rf.machine/destroyed")
-        (is (exit-then-destroyed? @log)
-            ":exit precedes :rf.machine/destroyed")
         (finally (unreg))))))
 
-(deftest destroyed-after-exit-on-invoke-exit-cascade
+(deftest destroyed-after-exit-on-spawn-exit-cascade
   (testing "declarative :spawn exit cascade (destroy-single!) fires :exit BEFORE :destroyed"
     (let [log   (atom [])
           unreg (record-order! log)]
@@ -111,7 +102,7 @@
 
 ;; ---- Path 2: :spawn-all per-child teardown (destroy-spawn-all-children!) --
 
-(deftest destroyed-after-exit-on-invoke-all-teardown
+(deftest destroyed-after-exit-on-spawn-all-teardown
   (testing ":spawn-all per-child teardown fires every :exit BEFORE any :destroyed"
     (let [log   (atom [])
           unreg (record-order! log)]
